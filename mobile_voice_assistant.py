@@ -94,11 +94,11 @@ whisper_model_cache["Systran/faster-whisper-base"] = WhisperModel("base", device
 current_whisper_model_name = "base (142MB, schnell, multilingual)"
 
 # Piper TTS Config
-PIPER_MODEL_PATH = "/home/mp/Projekte/voice-assistant/piper_models/de_DE-thorsten-medium.onnx"
-PIPER_BIN = "/home/mp/Projekte/voice-assistant/venv/bin/piper"
+PIPER_MODEL_PATH = "/home/mp/Projekte/AIfred-Intelligence/piper_models/de_DE-thorsten-medium.onnx"
+PIPER_BIN = "/home/mp/Projekte/AIfred-Intelligence/venv/bin/piper"
 
 # Settings Datei
-SETTINGS_FILE = Path("/home/mp/Projekte/voice-assistant/assistant_settings.json")
+SETTINGS_FILE = Path("/home/mp/Projekte/AIfred-Intelligence/assistant_settings.json")
 
 # Verfügbare Ollama models - dynamisch laden
 def get_ollama_models():
@@ -1606,8 +1606,8 @@ app.queue()
 app.launch(
     server_name="0.0.0.0",
     server_port=8443,
-    ssl_keyfile="/home/mp/Projekte/voice-assistant/ssl/privkey.pem",
-    ssl_certfile="/home/mp/Projekte/voice-assistant/ssl/fullchain.pem",
+    ssl_keyfile="/home/mp/Projekte/AIfred-Intelligence/ssl/privkey.pem",
+    ssl_certfile="/home/mp/Projekte/AIfred-Intelligence/ssl/fullchain.pem",
     ssl_verify=False,
     share=False,
     state_session_capacity=10,
