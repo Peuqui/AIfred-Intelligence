@@ -6,7 +6,9 @@
 
 ## 📖 Die Geschichte hinter dem Namen
 
-**AIfred Intelligence** ist mehr als nur ein cleverer Wortspiel (A.I. = AIfred Intelligence = Artificial Intelligence).
+**AIfred Intelligence** ist mehr als nur ein cleveres Wortspiel (A.I. = AIfred Intelligence = Artificial Intelligence).
+
+> 💡 **Hinweis:** Der Name ist bewusst **AI**fred (mit "I") geschrieben - nicht Alfred (mit "L"). In Kleinbuchstaben sieht "aifred" fast wie "alfred" aus, was Teil des Wortspiels ist!
 
 Der Name ehrt **drei Generationen**:
 
@@ -193,12 +195,17 @@ AIfred-Intelligence/
 Für Autostart beim Booten:
 
 ```bash
-sudo systemctl enable voice-assistant.service
-sudo systemctl start voice-assistant.service
-sudo systemctl status voice-assistant.service
+sudo systemctl enable aifred-intelligence.service
+sudo systemctl start aifred-intelligence.service
+sudo systemctl status aifred-intelligence.service
 ```
 
-Service-Datei: `/etc/systemd/system/voice-assistant.service`
+Service-Datei: `/etc/systemd/system/aifred-intelligence.service`
+
+**Logs anzeigen:**
+```bash
+sudo journalctl -u aifred-intelligence.service -f
+```
 
 ---
 
