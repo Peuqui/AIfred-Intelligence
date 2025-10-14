@@ -1,0 +1,46 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Piper Models (zu groß für Git)
+piper_models/
+
+# SSL Certificates (privat!)
+ssl/
+*.pem
+*.key
+*.crt
+
+# User Settings (persönlich)
+assistant_settings.json
+
+# Logs
+*.log
+/var/log/
+
+# Temporary files
+/tmp/
+*.tmp
+*.bak
+
+# Backups
+*.backup
+*.backup-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Gradio
+.gradio/
