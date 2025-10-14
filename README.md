@@ -12,7 +12,7 @@ Der Name ehrt **drei Generationen**:
 
 1. **Alfred** - Mein Großvater
 2. **Wolfgang Alfred** - Mein Vater
-3. **Ich** - (werde selbst Großvater meines Sohnes sein)
+3. **Ich** - Die dritte Generation
 
 Wie der legendäre Butler Alfred aus Batman, der immer loyal, intelligent und hilfsbereit an der Seite steht, soll auch dieser AI-Assistent ein zuverlässiger Begleiter sein.
 
