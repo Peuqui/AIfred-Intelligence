@@ -73,27 +73,50 @@ Gesamt: 7.2 GB
 
 ---
 
-### 4. `smart_model_load(model_name)`
+### 4. `get_model_size(model_name)`
+
+**Was es tut:**
+- Holt Modellgröße **dynamisch** von Ollama via `ollama list`
+- Parst Output und extrahiert Größe (GB/MB)
+- Konvertiert zu Bytes für RAM-Berechnungen
+
+**Beispiel-Output:**
+```bash
+$ ollama list | grep qwen3:8b
+qwen3:8b  500a1f067a9f  5.2 GB  42 hours ago
+
+→ get_model_size("qwen3:8b") = 5,583,457,484 bytes (5.2 GB)
+```
+
+**Vorteile:**
+- ✅ Keine Hard-Codierung!
+- ✅ Funktioniert mit ALLEN Modellen (auch neu installierte)
+- ✅ Automatische Erkennung von Model-Updates
+
+---
+
+### 5. `smart_model_load(model_name)`
 
 **Das Herzstück!** Intelligente Entscheidungslogik.
 
 #### **Ablauf:**
 
 ```
-1. Hole Modellgröße aus LARGE_MODELS Liste
-   ├─ Wenn nicht in Liste → Kleines Modell → ✅ Kein Entladen
-   └─ Wenn in Liste → Weiter zu Schritt 2
+1. Hole Modellgröße DYNAMISCH von Ollama
+   ├─ Via get_model_size(model_name)
+   ├─ Wenn nicht gefunden (noch nicht gepullt) → ⚠️ Warning, continue
+   └─ Wenn gefunden → Weiter zu Schritt 2
 
 2. RAM-Check durchführen
-   ├─ Verfügbarer RAM
-   ├─ Geladene Modelle
+   ├─ Verfügbarer RAM (get_available_memory)
+   ├─ Geladene Modelle (get_loaded_models_size)
    └─ Benötigter RAM = Modellgröße × 1.20 (Safety Margin)
 
-3. Entscheidung
+3. Entscheidung (REIN RAM-basiert, keine Hard-Codierung!)
    ├─ Wenn: Verfügbar >= Benötigt
    │   └─ ✅ Kein Entladen - Modell passt rein!
    └─ Wenn: Verfügbar < Benötigt
-       └─ ⚠️ Entlade geladene Modelle
+       └─ ⚠️ Entlade geladene Modelle, dann lade neues Modell
 ```
 
 #### **Safety Margin (20%):**
@@ -111,22 +134,40 @@ Modell: 19 GB (Weights)
 
 ---
 
-## 📊 LARGE_MODELS Liste
+## 🎯 Intelligente RAM-basierte Entscheidung
 
-Modelle ≥ 5 GB werden als "groß" betrachtet:
+**Keine Hard-Codierung!** Das System entscheidet **rein auf Basis von verfügbarem RAM**, nicht anhand vordefinierter Listen.
 
-```python
-LARGE_MODELS = {
-    "mixtral:8x7b": 26 GB,      # Größtes Modell
-    "qwen2.5:32b": 19 GB,
-    "command-r": 18 GB,
-    "qwen2.5:14b": 9 GB,
-    "qwen3:8b": 5.2 GB,
-    "llama3.1:8b": 5 GB
-}
+### **Wie funktioniert's?**
+
+1. **Modellgröße dynamisch ermitteln** via `ollama list`
+   - Beispiel: qwen3:8b → 5.2 GB
+   - Beispiel: qwen2.5:32b → 19 GB
+   - Beispiel: qwen3:32b → ~20 GB (auch neue Modelle!)
+
+2. **RAM-Check durchführen**
+   - Verfügbar: 23.5 GB
+   - Benötigt: Modellgröße × 1.20 (mit Safety Margin)
+
+3. **Smart Decision:**
+   - Genug RAM? → Lade parallel, kein Entladen
+   - Zu wenig RAM? → Entlade erst, dann lade
+
+### **Beispiel: Automatische Unterstützung neuer Modelle**
+
+```bash
+# Neues Modell installieren
+$ ollama pull qwen3:32b
+
+# Smart Model Loading funktioniert SOFORT!
+→ get_model_size("qwen3:32b") = 20 GB
+→ RAM-Check: 23.5 GB verfügbar
+→ Benötigt: 20 × 1.20 = 24 GB
+→ Zu wenig! Entlade andere Modelle
+→ ✅ Funktioniert ohne Code-Änderung!
 ```
 
-**Hinweis:** Kleine Modelle (< 5 GB) werden **nie** entladen, sondern bleiben parallel im RAM.
+**Vorteil:** Alle aktuellen und zukünftigen Modelle werden automatisch unterstützt!
 
 ---
 
@@ -347,5 +388,5 @@ iostat -x 1
 ---
 
 **Letzte Aktualisierung:** 2025-10-15
-**Version:** 1.0
+**Version:** 2.0 - Dynamic Model Size Detection (keine Hard-Codierung mehr!)
 **Autor:** Claude Code

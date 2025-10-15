@@ -31,15 +31,51 @@ DEBUG_ENABLED = True  # True = Debug an, False = aus
 # ============================================================
 # OLLAMA MEMORY MANAGEMENT
 # ============================================================
-# Große Modelle, die explizites Entladen kleiner Modelle erfordern
-LARGE_MODELS = {
-    "qwen2.5:32b": 19_000_000_000,      # 19 GB
-    "command-r": 18_000_000_000,        # 18 GB
-    "mixtral:8x7b": 26_000_000_000,     # 26 GB
-    "qwen2.5:14b": 9_000_000_000,       # 9 GB
-    "llama3.1:8b": 5_000_000_000,       # 5 GB
-    "qwen3:8b": 5_200_000_000,          # 5.2 GB
-}
+
+def get_model_size(model_name):
+    """
+    Holt Modell-Größe von Ollama (via 'ollama list')
+
+    Args:
+        model_name: Name des Modells (z.B. "qwen3:8b")
+
+    Returns:
+        int: Modell-Größe in Bytes, oder 0 falls nicht gefunden
+    """
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['ollama', 'list'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode != 0:
+            return 0
+
+        # Parse Output: Suche nach model_name in der Liste
+        for line in result.stdout.split('\n'):
+            if model_name in line:
+                # Format: "qwen3:8b  500a1f067a9f  5.2 GB  42 hours ago"
+                parts = line.split()
+                if len(parts) >= 3:
+                    size_str = parts[2]  # "5.2"
+                    unit = parts[3]      # "GB" oder "MB"
+
+                    size_float = float(size_str)
+
+                    # Konvertiere zu Bytes
+                    if unit == "GB":
+                        return int(size_float * 1024 * 1024 * 1024)
+                    elif unit == "MB":
+                        return int(size_float * 1024 * 1024)
+
+        return 0
+
+    except Exception as e:
+        debug_print(f"⚠️ Fehler beim Abrufen der Modellgröße: {e}")
+        return 0
 
 def get_available_memory():
     """
@@ -125,10 +161,10 @@ def smart_model_load(model_name):
     Intelligentes Model Loading mit RAM-Check und automatischem Memory Management
 
     Logic:
-    1. Checkt verfügbaren RAM
-    2. Checkt Größe des zu ladenden Modells
+    1. Holt Modellgröße dynamisch von Ollama (via 'ollama list')
+    2. Checkt verfügbaren RAM
     3. Checkt aktuell geladene Modelle
-    4. Entscheidet: Passt alles rein oder muss entladen werden?
+    4. Entscheidet REIN auf Basis von RAM: Passt alles rein oder muss entladen werden?
 
     Args:
         model_name: Name des zu ladenden Modells
@@ -136,16 +172,12 @@ def smart_model_load(model_name):
     Returns:
         True wenn erfolgreich geladen
     """
-    # 1. Hole Modellgröße (falls bekannt)
-    model_size = 0
-    for known_model, size in LARGE_MODELS.items():
-        if known_model in model_name:
-            model_size = size
-            break
+    # 1. Hole Modellgröße dynamisch von Ollama
+    model_size = get_model_size(model_name)
 
-    # Wenn Modell nicht in Liste: Annahme kleines Modell (< 5 GB)
+    # Wenn Modell nicht gefunden (z.B. noch nicht gepullt)
     if model_size == 0:
-        debug_print(f"✅ Kleines/unbekanntes Modell: {model_name} - kein Entladen nötig")
+        debug_print(f"⚠️ Modell {model_name} nicht in 'ollama list' gefunden - wird beim ersten Aufruf gepullt")
         return True
 
     # 2. RAM-Check
@@ -162,18 +194,18 @@ def smart_model_load(model_name):
     debug_print(f"   Neues Modell: {model_name} ({model_gb:.1f} GB)")
 
     # 3. Entscheidungslogik: Brauchen wir 20% Safety Margin
-    safety_margin = 0.20  # 20% Reserve
+    safety_margin = 0.20  # 20% Reserve für KV Cache, Context Buffer, Temp Tensors
     required_ram = model_size * (1 + safety_margin)
     required_gb = required_ram / (1024**3)
 
     # Check: Passt Modell + Safety Margin in verfügbaren RAM?
     if available_ram >= required_ram:
-        debug_print(f"✅ Genug RAM! {available_gb:.1f} GB > {required_gb:.1f} GB (mit 20% Reserve)")
+        debug_print(f"✅ Genug RAM! {available_gb:.1f} GB >= {required_gb:.1f} GB (mit 20% Reserve)")
         debug_print(f"   Kein Entladen nötig - Modell passt rein!")
         return True
     else:
         debug_print(f"⚠️ Zu wenig RAM! {available_gb:.1f} GB < {required_gb:.1f} GB (mit 20% Reserve)")
-        debug_print(f"🔄 Großes Modell: {model_name} ({model_gb:.1f} GB)")
+        debug_print(f"🔄 Modell {model_name} ({model_gb:.1f} GB) benötigt mehr RAM")
         debug_print(f"🧹 Entlade aktuell geladene Modelle ({loaded_gb:.1f} GB)...")
         unload_all_models()
         time.sleep(0.5)  # Kurze Pause für sauberes Entladen
