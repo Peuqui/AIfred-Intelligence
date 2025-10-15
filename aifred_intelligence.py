@@ -308,7 +308,11 @@ SETTINGS_FILE = PROJECT_ROOT / "assistant_settings.json"
 
 # Verfügbare Ollama models - dynamisch laden
 def get_ollama_models():
-    """Lädt alle installierten Ollama-Modelle dynamisch"""
+    """
+    Lädt alle installierten Ollama-Modelle dynamisch und sortiert sie intelligent:
+    1. Nach Modell-Familie gruppiert (qwen3, qwen2.5, llama, etc.)
+    2. Innerhalb der Familie nach Größe sortiert (kleinste zuerst)
+    """
     try:
         result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
@@ -319,8 +323,40 @@ def get_ollama_models():
                     # Parse: "NAME    ID    SIZE    MODIFIED"
                     model_name = line.split()[0]  # Erster Spalte = Name
                     models.append(model_name)
-            debug_print(f"📋 {len(models)} Ollama-Modelle gefunden: {', '.join(models)}")
-            return models if models else ["llama3.2:3b"]  # Fallback
+
+            if not models:
+                return ["llama3.2:3b"]  # Fallback
+
+            # Sortier-Logik: Nach Familie + Größe
+            def sort_key(model_name):
+                """
+                Sortier-Schlüssel: (Familie, Größe_numerisch)
+                Beispiel: qwen3:8b → ("qwen3", 8.0)
+                          qwen2.5:32b → ("qwen2.5", 32.0)
+                          command-r → ("command-r", 0)
+                """
+                # Familie extrahieren (alles vor dem ersten ":")
+                if ':' in model_name:
+                    family, size_part = model_name.split(':', 1)
+                else:
+                    family = model_name
+                    size_part = ""
+
+                # Größe extrahieren (z.B. "8b", "32b", "1.7b")
+                import re
+                size_match = re.search(r'(\d+\.?\d*)b', size_part.lower())
+                if size_match:
+                    size_value = float(size_match.group(1))
+                else:
+                    size_value = 0  # Modelle ohne Größenangabe ganz vorne
+
+                return (family, size_value)
+
+            # Sortieren
+            models.sort(key=sort_key)
+
+            debug_print(f"📋 {len(models)} Ollama-Modelle gefunden (sortiert): {', '.join(models)}")
+            return models
     except Exception as e:
         debug_print(f"⚠️ Fehler beim Laden der Ollama-Modelle: {e}")
 
