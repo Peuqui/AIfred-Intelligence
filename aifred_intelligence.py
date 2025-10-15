@@ -1,647 +1,33 @@
 import gradio as gr
-from faster_whisper import WhisperModel
 import ollama
-import edge_tts
 import asyncio
 import os
-import subprocess
-import json
-from pathlib import Path
-import logging
 import time
-import signal
-import sys
+from pathlib import Path
 
-# Agent Tools Import
+# Lib Modules
+from lib.config import (
+    WHISPER_MODELS, DEFAULT_SETTINGS, VOICES, RESEARCH_MODES, TTS_ENGINES,
+    SETTINGS_FILE, SSL_KEYFILE, SSL_CERTFILE, PROJECT_ROOT
+)
+from lib.logging_utils import debug_print
+from lib.formatting import format_thinking_process
+from lib.settings_manager import load_settings, save_settings
+from lib.memory_manager import smart_model_load, register_signal_handlers
+from lib.ollama_interface import get_ollama_models, get_whisper_model, initialize_whisper_base
+from lib.audio_processing import (
+    clean_text_for_tts, transcribe_audio, generate_tts
+)
+from lib.agent_core import perform_agent_research, chat_interactive_mode
+
+# Agent Tools (already external)
 from agent_tools import search_web, scrape_webpage, build_context
 
-# ============================================================
-# DEBUG KONFIGURATION - Hier ein-/ausschalten
-# ============================================================
-# Setze auf False, um alle Debug-Ausgaben auszuschalten
-# Setze auf True, um detaillierte Logs zu sehen (Model, TTS, etc.)
-DEBUG_ENABLED = True  # True = Debug an, False = aus
+
 
 # ============================================================
-# AUTOMATIK-MODUS KONFIGURATION
+# WRAPPER FUNCTIONS für Gradio Interface
 # ============================================================
-# Hardcoded Modell für schnelle AI-Entscheidungen
-# (Query-Optimierung, URL-Bewertung, Automatik-Entscheidung)
-# AUTOMATIK_MODEL: Default ist qwen3:1.7b (schnell & zuverlässig, Benchmark: 105s für 15 URLs)
-# Jetzt konfigurierbar über zweites Dropdown "Automatik-LLM"
-
-# ============================================================
-# OLLAMA MEMORY MANAGEMENT
-# ============================================================
-
-def get_model_size(model_name):
-    """
-    Holt Modell-Größe von Ollama (via 'ollama list')
-
-    Args:
-        model_name: Name des Modells (z.B. "qwen3:8b")
-
-    Returns:
-        int: Modell-Größe in Bytes, oder 0 falls nicht gefunden
-    """
-    try:
-        import subprocess
-        result = subprocess.run(
-            ['ollama', 'list'],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-
-        if result.returncode != 0:
-            return 0
-
-        # Parse Output: Suche nach model_name in der Liste
-        for line in result.stdout.split('\n'):
-            if model_name in line:
-                # Format: "qwen3:8b  500a1f067a9f  5.2 GB  42 hours ago"
-                parts = line.split()
-                if len(parts) >= 3:
-                    size_str = parts[2]  # "5.2"
-                    unit = parts[3]      # "GB" oder "MB"
-
-                    size_float = float(size_str)
-
-                    # Konvertiere zu Bytes
-                    if unit == "GB":
-                        return int(size_float * 1024 * 1024 * 1024)
-                    elif unit == "MB":
-                        return int(size_float * 1024 * 1024)
-
-        return 0
-
-    except Exception as e:
-        debug_print(f"⚠️ Fehler beim Abrufen der Modellgröße: {e}")
-        return 0
-
-def get_available_memory():
-    """
-    Gibt verfügbaren RAM in Bytes zurück
-
-    Returns:
-        int: Verfügbarer RAM in Bytes
-    """
-    try:
-        with open('/proc/meminfo', 'r') as f:
-            for line in f:
-                if line.startswith('MemAvailable:'):
-                    # Format: "MemAvailable:   25532336 kB"
-                    kb = int(line.split()[1])
-                    return kb * 1024  # Konvertiere zu Bytes
-    except Exception as e:
-        debug_print(f"⚠️ Fehler beim RAM-Check: {e}")
-        return 0
-
-def get_loaded_models_size():
-    """
-    Gibt Größe aller aktuell geladenen Modelle zurück
-
-    Returns:
-        int: Gesamt-Größe in Bytes
-    """
-    try:
-        import requests
-        response = requests.get("http://localhost:11434/api/ps")
-        if response.status_code == 200:
-            data = response.json()
-            total_size = 0
-            loaded_models = []
-
-            if 'models' in data:
-                for model in data['models']:
-                    size = model.get('size', 0)
-                    total_size += size
-                    loaded_models.append(f"{model['name']} ({size // (1024**3):.1f} GB)")
-
-            if loaded_models:
-                debug_print(f"📊 Geladene Modelle: {', '.join(loaded_models)}")
-
-            return total_size
-    except Exception as e:
-        debug_print(f"⚠️ Fehler beim Model-Size-Check: {e}")
-        return 0
-
-def unload_all_models():
-    """Entlädt alle geladenen Modelle aus dem RAM"""
-    try:
-        import requests
-
-        # Hole Liste der geladenen Modelle
-        ps_response = requests.get("http://localhost:11434/api/ps")
-        if ps_response.status_code == 200:
-            data = ps_response.json()
-            if 'models' in data and data['models']:
-                # Entlade jedes Modell einzeln
-                for model in data['models']:
-                    model_name = model.get('name', '')
-                    if model_name:
-                        requests.post(
-                            "http://localhost:11434/api/generate",
-                            json={"model": model_name, "keep_alive": 0}
-                        )
-                        debug_print(f"   🗑️ {model_name} entladen")
-
-                debug_print("🧹 Alle Modelle aus RAM entladen")
-                return True
-            else:
-                debug_print("✅ Keine Modelle geladen")
-                return True
-        else:
-            debug_print("⚠️ Konnte geladene Modelle nicht abrufen")
-            return False
-    except Exception as e:
-        debug_print(f"⚠️ Fehler beim Entladen: {e}")
-        return False
-
-# ============================================================
-# SIGNAL HANDLER - Cleanup bei Service Stop/Restart
-# ============================================================
-def cleanup_on_exit(signum, frame):
-    """
-    Signal Handler für sauberen Service-Stop
-
-    Wird ausgelöst bei:
-    - systemctl stop aifred-intelligence
-    - systemctl restart aifred-intelligence
-    - SIGTERM / SIGINT
-
-    Nicht ausgelöst bei:
-    - Browser Reload (Backend läuft weiter)
-    """
-    signal_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
-    print(f"\n🛑 {signal_name} empfangen - Service wird gestoppt", flush=True)
-    print("🧹 Entlade alle Modelle aus RAM...", flush=True)
-
-    try:
-        unload_all_models()
-        print("✅ Cleanup abgeschlossen", flush=True)
-    except Exception as e:
-        print(f"⚠️ Fehler beim Cleanup: {e}", flush=True)
-
-    sys.exit(0)
-
-# Signal Handler registrieren
-signal.signal(signal.SIGTERM, cleanup_on_exit)  # systemctl stop/restart
-signal.signal(signal.SIGINT, cleanup_on_exit)   # Ctrl+C
-
-def smart_model_load(model_name):
-    """
-    Intelligentes Model Loading mit RAM-Check und automatischem Memory Management
-
-    Logic:
-    1. Holt Modellgröße dynamisch von Ollama (via 'ollama list')
-    2. Checkt verfügbaren RAM
-    3. Checkt aktuell geladene Modelle
-    4. Entscheidet REIN auf Basis von RAM: Passt alles rein oder muss entladen werden?
-
-    Args:
-        model_name: Name des zu ladenden Modells
-
-    Returns:
-        True wenn erfolgreich geladen
-    """
-    # 1. Hole Modellgröße dynamisch von Ollama
-    model_size = get_model_size(model_name)
-
-    # Wenn Modell nicht gefunden (z.B. noch nicht gepullt)
-    if model_size == 0:
-        debug_print(f"⚠️ Modell {model_name} nicht in 'ollama list' gefunden - wird beim ersten Aufruf gepullt")
-        return True
-
-    # 2. RAM-Check
-    available_ram = get_available_memory()
-    loaded_size = get_loaded_models_size()
-
-    available_gb = available_ram / (1024**3)
-    model_gb = model_size / (1024**3)
-    loaded_gb = loaded_size / (1024**3)
-
-    debug_print(f"📊 Memory Check:")
-    debug_print(f"   Verfügbar: {available_gb:.1f} GB")
-    debug_print(f"   Geladen: {loaded_gb:.1f} GB")
-    debug_print(f"   Neues Modell: {model_name} ({model_gb:.1f} GB)")
-
-    # 3. Entscheidungslogik: Brauchen wir 20% Safety Margin
-    safety_margin = 0.20  # 20% Reserve für KV Cache, Context Buffer, Temp Tensors
-    required_ram = model_size * (1 + safety_margin)
-    required_gb = required_ram / (1024**3)
-
-    # Check: Passt Modell + Safety Margin in verfügbaren RAM?
-    if available_ram >= required_ram:
-        debug_print(f"✅ Genug RAM! {available_gb:.1f} GB >= {required_gb:.1f} GB (mit 20% Reserve)")
-        debug_print(f"   Kein Entladen nötig - Modell passt rein!")
-        return True
-    else:
-        debug_print(f"⚠️ Zu wenig RAM! {available_gb:.1f} GB < {required_gb:.1f} GB (mit 20% Reserve)")
-        debug_print(f"🔄 Modell {model_name} ({model_gb:.1f} GB) benötigt mehr RAM")
-        debug_print(f"🧹 Entlade aktuell geladene Modelle ({loaded_gb:.1f} GB)...")
-        unload_all_models()
-        time.sleep(0.5)  # Kurze Pause für sauberes Entladen
-
-        # Nochmal checken nach Entladen
-        new_available = get_available_memory() / (1024**3)
-        debug_print(f"✅ RAM nach Entladen: {new_available:.1f} GB verfügbar")
-        return True
-
-# Logging Setup
-logging.basicConfig(
-    level=logging.DEBUG if DEBUG_ENABLED else logging.INFO,
-    format='%(message)s',
-    force=True
-)
-logger = logging.getLogger(__name__)
-
-def debug_print(message, **kwargs):
-    """Debug-Ausgabe nur wenn DEBUG_ENABLED = True (geht ins systemd journal via stdout)"""
-    if DEBUG_ENABLED:
-        # Nur print nutzen - systemd loggt stdout automatisch ins journal
-        # logger.info() würde zu doppelten Messages führen!
-        print(message, flush=True, **kwargs)
-
-def debug_log(message):
-    """Logging-basierte Debug-Ausgabe"""
-    if DEBUG_ENABLED:
-        logger.debug(message)
-
-# ============================================================
-# WHISPER MODEL KONFIGURATION
-# ============================================================
-# Verfügbare Whisper Modelle mit Beschreibungen
-WHISPER_MODELS = {
-    "base (142MB, schnell, multilingual)": "Systran/faster-whisper-base",
-    "small (466MB, bessere Qualität, multilingual)": "Systran/faster-whisper-small",
-    "turbo-multilingual (1.6GB, beste Qualität, 100 Sprachen)": "deepdml/faster-whisper-large-v3-turbo-ct2",
-    "turbo-german (1.6GB, Deutsch-Spezialist)": "aseifert/faster-whisper-large-v3-turbo-german"
-}
-
-# Cache für geladene Whisper Modelle (Lazy Loading)
-whisper_model_cache = {}
-current_whisper_model_name = None
-
-def get_whisper_model(model_display_name):
-    """
-    Lädt Whisper-Modell bei Bedarf (Lazy Loading).
-    Cached bereits geladene Modelle im RAM für schnellen Zugriff.
-    """
-    global current_whisper_model_name
-
-    model_id = WHISPER_MODELS.get(model_display_name, "Systran/faster-whisper-base")
-
-    # Prüfe ob Modell bereits im Cache
-    if model_id in whisper_model_cache:
-        debug_print(f"🔄 Whisper Modell aus Cache: {model_display_name}")
-        current_whisper_model_name = model_display_name
-        return whisper_model_cache[model_id]
-
-    # Modell laden
-    debug_print(f"⏬ Lade Whisper Modell: {model_display_name} ({model_id})")
-    debug_print(f"   Dies kann beim ersten Mal einige Minuten dauern...")
-
-    try:
-        model = WhisperModel(model_id, device="cpu", compute_type="int8")
-        whisper_model_cache[model_id] = model
-        current_whisper_model_name = model_display_name
-        debug_print(f"✅ Whisper Modell geladen: {model_display_name}")
-        return model
-    except Exception as e:
-        debug_print(f"❌ Fehler beim Laden von {model_display_name}: {e}")
-        debug_print(f"   Fallback zu base Modell")
-        # Fallback zu base
-        if "Systran/faster-whisper-base" not in whisper_model_cache:
-            model = WhisperModel("base", device="cpu", compute_type="int8")
-            whisper_model_cache["Systran/faster-whisper-base"] = model
-        return whisper_model_cache["Systran/faster-whisper-base"]
-
-# Initial: base Modell vorladen
-whisper_model_cache["Systran/faster-whisper-base"] = WhisperModel("base", device="cpu", compute_type="int8")
-current_whisper_model_name = "base (142MB, schnell, multilingual)"
-
-# ============================================================
-# PORTABLE PATHS - Automatisch relativ zum Skript
-# ============================================================
-# Bestimme Projekt-Root (wo dieses Skript liegt)
-PROJECT_ROOT = Path(__file__).parent.absolute()
-
-# Piper TTS Config (relativ zu PROJECT_ROOT)
-PIPER_MODEL_PATH = PROJECT_ROOT / "piper_models" / "de_DE-thorsten-medium.onnx"
-
-# Piper Binary (plattformabhängig: Linux/Mac = bin/piper, Windows = Scripts/piper.exe)
-if os.name == 'nt':  # Windows
-    PIPER_BIN = PROJECT_ROOT / "venv" / "Scripts" / "piper.exe"
-else:  # Linux/Mac
-    PIPER_BIN = PROJECT_ROOT / "venv" / "bin" / "piper"
-
-# Settings Datei (relativ zu PROJECT_ROOT)
-SETTINGS_FILE = PROJECT_ROOT / "assistant_settings.json"
-
-# Verfügbare Ollama models - dynamisch laden
-def get_ollama_models():
-    """
-    Lädt alle installierten Ollama-Modelle dynamisch und sortiert sie intelligent:
-    1. Nach Modell-Familie gruppiert (qwen3, qwen2.5, llama, etc.)
-    2. Innerhalb der Familie nach Größe sortiert (kleinste zuerst)
-    """
-    try:
-        result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')[1:]  # Skip header
-            models = []
-            for line in lines:
-                if line.strip():
-                    # Parse: "NAME    ID    SIZE    MODIFIED"
-                    model_name = line.split()[0]  # Erster Spalte = Name
-                    models.append(model_name)
-
-            if not models:
-                return ["llama3.2:3b"]  # Fallback
-
-            # Sortier-Logik: Nach Familie + Größe
-            def sort_key(model_name):
-                """
-                Sortier-Schlüssel: (Familie, Größe_numerisch)
-                Beispiel: qwen3:8b → ("qwen3", 8.0)
-                          qwen2.5:32b → ("qwen2.5", 32.0)
-                          command-r → ("command-r", 0)
-                """
-                # Familie extrahieren (alles vor dem ersten ":")
-                if ':' in model_name:
-                    family, size_part = model_name.split(':', 1)
-                else:
-                    family = model_name
-                    size_part = ""
-
-                # Größe extrahieren (z.B. "8b", "32b", "1.7b")
-                import re
-                size_match = re.search(r'(\d+\.?\d*)b', size_part.lower())
-                if size_match:
-                    size_value = float(size_match.group(1))
-                else:
-                    size_value = 0  # Modelle ohne Größenangabe ganz vorne
-
-                return (family, size_value)
-
-            # Sortieren
-            models.sort(key=sort_key)
-
-            debug_print(f"📋 {len(models)} Ollama-Modelle gefunden (sortiert): {', '.join(models)}")
-            return models
-    except Exception as e:
-        debug_print(f"⚠️ Fehler beim Laden der Ollama-Modelle: {e}")
-
-    # Fallback: Hardcoded Liste
-    return ["llama3.2:3b", "mistral", "llama2:13b", "mixtral:8x7b-instruct-v0.1-q4_0"]
-
-models = get_ollama_models()
-
-# Sprachen für TTS
-voices = {
-    "Deutsch (Katja)": "de-DE-KatjaNeural",
-    "Deutsch (Conrad)": "de-DE-ConradNeural",
-    "English (Jenny)": "en-US-JennyNeural",
-    "English (Guy)": "en-US-GuyNeural"
-}
-
-# Default Settings
-DEFAULT_SETTINGS = {
-    "model": "llama3.2:3b",
-    "automatik_model": "qwen3:1.7b",  # NEU: Automatik-Modell für Entscheidungen
-    "voice": "Deutsch (Katja)",
-    "tts_speed": 1.25,
-    "enable_tts": True,
-    "tts_engine": "Edge TTS (Cloud, beste Qualität)",
-    "whisper_model": "base (142MB, schnell, multilingual)",
-    "research_mode": "⚡ Web-Suche Schnell (KI-analysiert, 3 beste)",  # Agent-Modus
-    "show_transcription": False  # Neu: Transcription vor Senden zeigen
-}
-
-def load_settings():
-    """Lädt Einstellungen aus JSON-Datei mit Migration für alte Werte"""
-    try:
-        if SETTINGS_FILE.exists():
-            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-
-                # Migration: Alte research_mode Werte auf neue umbenennen
-                mode_migrations = {
-                    "🤝 Interaktiv (variabel)": "🤖 Automatik (variabel, KI entscheidet)",
-                    "🤖 Automatik (variabel)": "🤖 Automatik (variabel, KI entscheidet)",
-                    "⚡ Web-Suche Schnell (mittel)": "⚡ Web-Suche Schnell (KI-analysiert, 3 beste)",
-                    "🔍 Web-Suche Ausführlich (langsam)": "🔍 Web-Suche Ausführlich (KI-analysiert, 5 beste)"
-                }
-
-                old_mode = settings.get("research_mode")
-                if old_mode in mode_migrations:
-                    new_mode = mode_migrations[old_mode]
-                    settings["research_mode"] = new_mode
-                    debug_print(f"🔄 Migration: '{old_mode}' → '{new_mode}'")
-                    # Settings sofort zurückspeichern
-                    with open(SETTINGS_FILE, 'w', encoding='utf-8') as fw:
-                        json.dump(settings, fw, indent=2, ensure_ascii=False)
-
-                debug_print(f"✅ Settings geladen: {settings}")
-                return settings
-    except Exception as e:
-        debug_print(f"⚠️ Fehler beim Laden der Settings: {e}")
-
-    debug_print(f"📝 Verwende Default-Settings")
-    return DEFAULT_SETTINGS.copy()
-
-def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription):
-    """Speichert Einstellungen in JSON-Datei"""
-    try:
-        settings = {
-            "model": model,
-            "automatik_model": automatik_model,
-            "voice": voice,
-            "tts_speed": tts_speed,
-            "enable_tts": enable_tts,
-            "tts_engine": tts_engine,
-            "whisper_model": whisper_model,
-            "research_mode": research_mode,
-            "show_transcription": show_transcription
-        }
-        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, indent=2, ensure_ascii=False)
-        debug_print(f"💾 Settings gespeichert nach {SETTINGS_FILE}:")
-        debug_print(f"   Haupt-LLM: {model}")
-        debug_print(f"   Automatik-LLM: {automatik_model}")
-        debug_print(f"   Whisper Model: {whisper_model}")
-        debug_print(f"   TTS Engine: {tts_engine}")
-        debug_print(f"   Voice: {voice}")
-        debug_print(f"   Speed: {tts_speed}")
-        debug_print(f"   TTS Enabled: {enable_tts}")
-        debug_print(f"   Research Mode: {research_mode}")
-        debug_print(f"   Show Transcription: {show_transcription}")
-    except Exception as e:
-        debug_print(f"❌ Fehler beim Speichern der Settings: {e}")
-        import traceback
-        traceback.print_exc()
-
-async def generate_speech_edge(text, voice, rate="+0%"):
-    """Edge TTS - Cloud-based"""
-    import time
-
-    # Edge TTS rate Format: +X% oder -X% (z.B. "+25%" für 25% schneller)
-    debug_print(f"Edge TTS DEBUG: voice={voice}, rate={rate}, text_length={len(text)}")
-    tts = edge_tts.Communicate(text, voice, rate=rate)
-    output_file = f"/tmp/audio_{int(time.time())}.mp3"
-
-    # Speichern mit detailliertem Debug
-    await tts.save(output_file)
-
-    debug_print(f"Edge TTS: Audio saved to: {output_file}, size: {os.path.getsize(output_file)} bytes")
-
-    return output_file
-
-def generate_speech_piper(text, speed=1.0):
-    """Piper TTS - Local, fast"""
-    import time
-
-    output_file = f"/tmp/audio_{int(time.time())}.wav"
-
-    try:
-        # Piper via subprocess aufrufen
-        # length_scale: höher = langsamer (1.0 = normal, 0.8 = 1.25x schneller, 0.5 = 2x schneller)
-        length_scale = 1.0 / speed
-        debug_print(f"Piper TTS: speed={speed}, length_scale={length_scale}")
-
-        result = subprocess.run(
-            [PIPER_BIN, "--model", PIPER_MODEL_PATH, "--output_file", output_file, "--length_scale", str(length_scale)],
-            input=text.encode('utf-8'),
-            capture_output=True,
-            timeout=30
-        )
-
-        if result.returncode == 0 and os.path.exists(output_file):
-            debug_print(f"Piper TTS: Audio saved to: {output_file}, size: {os.path.getsize(output_file)} bytes")
-            return output_file
-        else:
-            debug_print(f"Piper TTS Error: {result.stderr.decode()}")
-            return None
-
-    except Exception as e:
-        debug_print(f"Piper TTS Exception: {e}")
-        return None
-
-# Stufe 1: Transkribieren
-def format_thinking_process(ai_response, model_name=None, inference_time=None):
-    """
-    Formatiert <think> Tags als Collapsible Accordion für den Chat.
-
-    Args:
-        ai_response: Die AI-Antwort mit optionalen <think> Tags
-        model_name: Name des verwendeten Modells (z.B. "qwen3:1.7b")
-        inference_time: Inferenz-Zeit in Sekunden
-
-    Input: "Some text <think>thinking process</think> More text"
-    Output: Formatierter Text mit Collapsible für Denkprozess (inkl. Modell-Name)
-    """
-    import re
-
-    # Suche nach <think>...</think> Tags
-    think_pattern = r'<think>(.*?)</think>'
-    match = re.search(think_pattern, ai_response, re.DOTALL)
-
-    if match:
-        thinking = match.group(1).strip()
-        # Entferne ALLE Leerzeilen komplett (kompakte Darstellung)
-        thinking = re.sub(r'\n\n+', '\n', thinking)
-        # Entferne <think> Tags aus der Antwort
-        clean_response = re.sub(think_pattern, '', ai_response, flags=re.DOTALL).strip()
-
-        # Baue Summary mit Modell-Name und Inferenz-Zeit
-        summary_parts = ["💭 Denkprozess"]
-        if model_name:
-            summary_parts.append(f"({model_name})")
-        if inference_time:
-            summary_parts.append(f"• {inference_time:.1f}s")
-        summary_text = " ".join(summary_parts)
-
-        # Formatiere mit HTML Details/Summary (Gradio unterstützt HTML in Markdown)
-        formatted = f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{thinking}</div>
-</details>
-
-{clean_response}"""
-
-        return formatted
-    else:
-        # Keine <think> Tags gefunden, gebe Original zurück
-        return ai_response
-
-def build_debug_accordion(query_reasoning, rated_urls, ai_text, automatik_model, main_model, query_time=None, rating_time=None, final_time=None):
-    """
-    Baut Debug-Accordion für Agent-Recherche mit allen KI-Denkprozessen.
-
-    Args:
-        query_reasoning: <think> Content from Query Optimization
-        rated_urls: Liste von {'url', 'score', 'reasoning'} von URL-Rating
-        ai_text: Final AI response with optional <think> tags
-        automatik_model: Name des Automatik-Modells (für Query-Opt & URL-Rating)
-        main_model: Name des Haupt-Modells (für finale Antwort)
-        query_time: Inferenz-Zeit für Query Optimization (optional)
-        rating_time: Inferenz-Zeit für URL Rating (optional)
-        final_time: Inferenz-Zeit für finale Antwort (optional)
-
-    Returns:
-        Formatted AI response with debug accordion prepended
-    """
-    import re
-
-    debug_sections = []
-
-    # 1. Query Optimization Reasoning (falls vorhanden)
-    if query_reasoning:
-        query_think = re.sub(r'\n\n+', '\n', query_reasoning)  # Kompakt
-        time_suffix = f" • {query_time:.1f}s" if query_time else ""
-        debug_sections.append(f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">🔍 Query-Optimierung ({automatik_model}){time_suffix}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{query_think}</div>
-</details>""")
-
-    # 2. URL Rating Results (Top 5)
-    if rated_urls:
-        rating_text = ""
-        for idx, item in enumerate(rated_urls[:5], 1):
-            emoji = "✅" if item['score'] >= 7 else "⚠️" if item['score'] >= 5 else "❌"
-            url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
-            rating_text += f"{idx}. {emoji} Score {item['score']}/10: {url_short}\n   Grund: {item['reasoning']}\n"
-
-        rating_text = rating_text.strip()
-        time_suffix = f" • {rating_time:.1f}s" if rating_time else ""
-        debug_sections.append(f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">📊 URL-Bewertung Top 5 ({automatik_model}){time_suffix}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{rating_text}</div>
-</details>""")
-
-    # 3. Final Answer <think> process (extract but don't remove yet)
-    think_match = re.search(r'<think>(.*?)</think>', ai_text, re.DOTALL)
-    if think_match:
-        final_think = think_match.group(1).strip()
-        final_think = re.sub(r'\n\n+', '\n', final_think)  # Kompakt
-        time_suffix = f" • {final_time:.1f}s" if final_time else ""
-        debug_sections.append(f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Finale Antwort Denkprozess ({main_model}){time_suffix}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{final_think}</div>
-</details>""")
-
-    # Kombiniere alle Debug-Sections
-    debug_accordion = "\n".join(debug_sections)
-
-    # Entferne <think> Tags aus ai_text (clean response)
-    clean_response = re.sub(r'<think>.*?</think>', '', ai_text, flags=re.DOTALL).strip()
-
-    # Return: Debug Accordion + Clean Response
-    if debug_accordion:
-        return f"{debug_accordion}\n\n{clean_response}"
-    else:
-        return clean_response
 
 def chat_audio_step1_transcribe(audio, whisper_model_choice):
     """Schritt 1: Audio zu Text transkribieren mit Zeitmessung"""
@@ -653,29 +39,20 @@ def chat_audio_step1_transcribe(audio, whisper_model_choice):
 
     debug_print(f"🎙️ Whisper Modell: {whisper_model_choice}")
 
-    # Zeit messen
-    start_time = time.time()
-    segments, _ = whisper.transcribe(audio)
-    stt_time = time.time() - start_time
-
-    user_text = " ".join([s.text for s in segments])
-    debug_print(f"✅ Transkription: {user_text[:100]}{'...' if len(user_text) > 100 else ''} (STT: {stt_time:.1f}s)")
+    # Transkription durchführen
+    user_text, stt_time = transcribe_audio(audio, whisper)
     return user_text, stt_time
 
-# Stufe 2: AI-Antwort generieren
+
 def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, history):
-    """Schritt 2: AI-Antwort generieren mit Zeitmessung"""
+    """Schritt 2: AI-Antwort generieren mit Zeitmessung (ohne Agent)"""
     if not user_text:
         return "", history, 0.0
 
     # Debug-Ausgabe
     debug_print("=" * 60)
     debug_print(f"🤖 AI Model: {model_choice}")
-    debug_print(f"🎙️ TTS Engine: {tts_engine}")
-    if "Edge" in tts_engine:
-        debug_print(f"🎤 Voice: {voice_choice}")
-    debug_print(f"⚡ TTS Speed: {speed_choice}x")
-    debug_print(f"💬 User: {user_text[:100]}{'...' if len(user_text) > 100 else ''}")
+    debug_print(f"💬 User (KOMPLETT): {user_text}")
     debug_print("=" * 60)
 
     messages = []
@@ -711,61 +88,19 @@ def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_c
     debug_print("═" * 80)  # Separator nach jeder Anfrage
     return ai_text, history, inference_time
 
-# Stufe 3: TTS generieren
+
 def chat_audio_step3_tts(ai_text, inference_time, voice_choice, speed_choice, enable_tts, tts_engine, history):
     """Schritt 3: TTS Audio generieren mit Zeitmessung"""
     tts_time = 0.0
 
     if ai_text and enable_tts:
-        # Entferne <think> Tags und Emojis aus Text für TTS (nur den reinen Text vorlesen)
-        import re
-        clean_text = re.sub(r'<think>.*?</think>', '', ai_text, flags=re.DOTALL).strip()
-        # Entferne ALLE Emojis (umfassende Unicode-Bereiche)
-        emoji_pattern = re.compile(
-            "["
-            "\U0001F600-\U0001F64F"  # Emoticons
-            "\U0001F300-\U0001F5FF"  # Symbole & Piktogramme (inkl. Uhrzeiten 🕐-🕧)
-            "\U0001F680-\U0001F6FF"  # Transport & Karten
-            "\U0001F700-\U0001F77F"  # Alchemie Symbole
-            "\U0001F780-\U0001F7FF"  # Geometrische Formen Extended
-            "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
-            "\U0001F900-\U0001F9FF"  # Supplemental Symbols & Pictographs
-            "\U0001FA00-\U0001FA6F"  # Chess Symbols
-            "\U0001FA70-\U0001FAFF"  # Symbols & Pictographs Extended-A
-            "\U0001F1E0-\U0001F1FF"  # Flaggen
-            "\U00002600-\U000027BF"  # Misc Symbole (☀️⭐)
-            "\U0000FE00-\U0000FE0F"  # Variation Selectors
-            "\U0001F018-\U0001F270"  # Weitere Symbole
-            "\U0000238C-\U00002454"  # Misc Technical
-            "\u200d"                  # Zero Width Joiner
-            "\ufe0f"                  # Variation Selector
-            "\u3030"                  # Wavy Dash
-            "]+",
-            flags=re.UNICODE
-        )
-        clean_text = emoji_pattern.sub(r'', clean_text).strip()
-
-        # Entferne Markdown-Formatierung und Sonderzeichen
-        clean_text = re.sub(r'\*\*', '', clean_text)  # Bold **text**
-        clean_text = re.sub(r'\*', '', clean_text)    # Italic *text* oder Bullet-Points
-        clean_text = re.sub(r'`', '', clean_text)     # Code `text`
-        clean_text = re.sub(r'#+\s', '', clean_text)  # Markdown Headers ### Text
-
-        # Entferne URLs (http://, https://, www.)
-        clean_text = re.sub(r'https?://\S+', '', clean_text)  # http:// und https://
-        clean_text = re.sub(r'www\.\S+', '', clean_text)      # www.beispiel.de
+        # Bereinige Text für TTS
+        clean_text = clean_text_for_tts(ai_text)
 
         # Zeit messen
         start_time = time.time()
 
-        audio_file = None
-        if "Piper" in tts_engine:
-            # Piper TTS (lokal)
-            audio_file = generate_speech_piper(clean_text, speed_choice)
-        else:
-            # Edge TTS (Cloud)
-            rate = f"+{int((speed_choice - 1.0) * 100)}%"
-            audio_file = asyncio.run(generate_speech_edge(clean_text, voices[voice_choice], rate))
+        audio_file = generate_tts(clean_text, voice_choice, speed_choice, tts_engine)
 
         tts_time = time.time() - start_time
         debug_print(f"✅ TTS generiert (TTS: {tts_time:.1f}s)")
@@ -780,20 +115,16 @@ def chat_audio_step3_tts(ai_text, inference_time, voice_choice, speed_choice, en
 
     return audio_file, history
 
-# Text-Chat: Stufe 1 - AI-Antwort generieren
+
 def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, history):
-    """Text-Chat: AI-Antwort generieren mit Zeitmessung"""
+    """Text-Chat: AI-Antwort generieren mit Zeitmessung (ohne Agent)"""
     if not text_input:
         return "", history, 0.0
 
     # Debug-Ausgabe
     debug_print("=" * 60)
     debug_print(f"🤖 AI Model: {model_choice}")
-    debug_print(f"🎙️ TTS Engine: {tts_engine}")
-    if "Edge" in tts_engine:
-        debug_print(f"🎤 Voice: {voice_choice}")
-    debug_print(f"⚡ TTS Speed: {speed_choice}x")
-    debug_print(f"💬 User: {text_input[:100]}{'...' if len(text_input) > 100 else ''}")
+    debug_print(f"💬 User (KOMPLETT): {text_input}")
     debug_print("=" * 60)
 
     messages = []
@@ -806,6 +137,9 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
             {'role': 'assistant', 'content': ai_msg}
         ])
     messages.append({'role': 'user', 'content': text_input})
+
+    # Smart Model Loading vor Ollama-Call
+    smart_model_load(model_choice)
 
     # Zeit messen
     start_time = time.time()
@@ -823,577 +157,23 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
     debug_print("═" * 80)  # Separator nach jeder Anfrage
     return ai_text, history, inference_time
 
-# Text-Chat: Stufe 2 - TTS generieren (gleiche wie Audio-Chat)
-# Verwendet chat_audio_step3_tts
 
 def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
     """Generiert TTS neu für bereits vorhandenen AI-Text"""
     if not ai_text or not enable_tts:
+        import gradio as gr
         return None, gr.update(interactive=False)
 
-    # Entferne <think> Tags und Emojis aus Text für TTS (nur den reinen Text vorlesen)
-    import re
-    clean_text = re.sub(r'<think>.*?</think>', '', ai_text, flags=re.DOTALL).strip()
-    # Entferne ALLE Emojis (umfassende Unicode-Bereiche)
-    emoji_pattern = re.compile(
-        "["
-        "\U0001F600-\U0001F64F"  # Emoticons
-        "\U0001F300-\U0001F5FF"  # Symbole & Piktogramme (inkl. Uhrzeiten 🕐-🕧)
-        "\U0001F680-\U0001F6FF"  # Transport & Karten
-        "\U0001F700-\U0001F77F"  # Alchemie Symbole
-        "\U0001F780-\U0001F7FF"  # Geometrische Formen Extended
-        "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
-        "\U0001F900-\U0001F9FF"  # Supplemental Symbols & Pictographs
-        "\U0001FA00-\U0001FA6F"  # Chess Symbols
-        "\U0001FA70-\U0001FAFF"  # Symbols & Pictographs Extended-A
-        "\U0001F1E0-\U0001F1FF"  # Flaggen
-        "\U00002600-\U000027BF"  # Misc Symbole (☀️⭐)
-        "\U0000FE00-\U0000FE0F"  # Variation Selectors
-        "\U0001F018-\U0001F270"  # Weitere Symbole
-        "\U0000238C-\U00002454"  # Misc Technical
-        "\u200d"                  # Zero Width Joiner
-        "\ufe0f"                  # Variation Selector
-        "\u3030"                  # Wavy Dash
-        "]+",
-        flags=re.UNICODE
-    )
-    clean_text = emoji_pattern.sub(r'', clean_text).strip()
+    # Bereinige Text für TTS
+    clean_text = clean_text_for_tts(ai_text)
 
-    # Entferne Markdown-Formatierung und Sonderzeichen
-    clean_text = re.sub(r'\*\*', '', clean_text)  # Bold **text**
-    clean_text = re.sub(r'\*', '', clean_text)    # Italic *text* oder Bullet-Points
-    clean_text = re.sub(r'`', '', clean_text)     # Code `text`
-    clean_text = re.sub(r'#+\s', '', clean_text)  # Markdown Headers ### Text
+    # TTS generieren
+    audio_file = generate_tts(clean_text, voice_choice, speed_choice, tts_engine)
 
-    # Entferne URLs (http://, https://, www.)
-    clean_text = re.sub(r'https?://\S+', '', clean_text)  # http:// und https://
-    clean_text = re.sub(r'www\.\S+', '', clean_text)      # www.beispiel.de
+    debug_print(f"🔄 TTS regeneriert")
 
-    # Debug-Ausgabe
-    debug_print("=" * 60)
-    debug_print("🔄 TTS NEU GENERIEREN")
-    debug_print(f"🎙️ TTS Engine: {tts_engine}")
-    if "Edge" in tts_engine:
-        debug_print(f"🎤 Voice: {voice_choice}")
-    debug_print(f"⚡ TTS Speed: {speed_choice}x")
-    debug_print(f"📝 Text length: {len(clean_text)} characters")
-    debug_print("=" * 60)
-
-    audio_file = None
-    if "Piper" in tts_engine:
-        # Piper TTS (lokal)
-        audio_file = generate_speech_piper(clean_text, speed_choice)
-    else:
-        # Edge TTS (Cloud)
-        rate = f"+{int((speed_choice - 1.0) * 100)}%"
-        audio_file = asyncio.run(generate_speech_edge(clean_text, voices[voice_choice], rate))
-
-    return audio_file, gr.update(interactive=True if ai_text else False)
-
-# ============================================================
-# AGENT FUNKTIONEN
-# ============================================================
-
-def ai_rate_urls(urls, query, automatik_model):
-    """
-    KI bewertet alle URLs auf einmal (effizient!)
-
-    Args:
-        urls: Liste von URLs
-        query: Suchanfrage
-        automatik_model: Automatik-LLM für URL-Bewertung
-
-    Returns:
-        Liste von {'url', 'score', 'reasoning'}, sortiert nach Score
-    """
-    if not urls:
-        return []
-
-    # Erstelle nummerierte Liste für KI
-    url_list = "\n".join([f"{i+1}. {url}" for i, url in enumerate(urls)])
-
-    prompt = f"""Du bist ein Recherche-Experte. Bewerte diese URLs für die Suchanfrage.
-
-**Suchanfrage:** "{query}"
-
-**URLs:**
-{url_list}
-
-**Aufgabe:**
-Bewerte jede URL auf einer Skala von 0-10:
-- 10 = Perfekt (Hauptquelle, sehr relevant, vertrauenswürdig)
-- 5-7 = Gut (relevante Quelle, verwendbar)
-- 0-4 = Schlecht (Spam, irrelevant, unzuverlässig)
-
-**Kriterien:**
-- Ist die Domain vertrauenswürdig?
-  - SEHR GUT (9-10): spiegel.de, tagesschau.de, zdf.de, sueddeutsche.de, faz.net, zeit.de, wikipedia.org, .gov, .edu
-  - GUT (7-8): bekannte Nachrichtenseiten, Fachmedien, offizielle Organisationen
-  - MITTEL (5-6): Blogs von Experten, Fachforen, regionale Medien
-  - SCHLECHT (0-4): unbekannte Blogs, Spam-Seiten, unzuverlässige Quellen
-- Passt die URL zur Frage? (Titel/Pfad relevant?)
-- Für NEWS/POLITIK: Bevorzuge etablierte deutsche Nachrichtenmedien!
-- Für AKTUELLES: Bevorzuge aktuelle Quellen (2024+)
-
-**WICHTIG:** Bewerte URLs großzügig! Lieber Score 6-7 geben als 4-5!
-
-**FORMAT (EXAKT EINHALTEN!):**
-Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
-1. Score: 9 - Reasoning: Spiegel.de, relevanter Artikel zu Trump
-2. Score: 7 - Reasoning: ZDF, aktuelle Berichterstattung
-3. Score: 3 - Reasoning: Forum, keine Primärquelle
-
-**KRITISCH:**
-- JEDE Zeile MUSS mit "Score: [ZAHL] - Reasoning: [TEXT]" beginnen!
-- KEINE zusätzlichen Erklärungen oder Kommentare!
-- KEINE Abweichungen vom Format!
-- Sortiere NICHT, gib sie in der gleichen Reihenfolge zurück!
-
-**BEISPIEL KORREKT:**
-1. Score: 9 - Reasoning: Tagesschau, vertrauenswürdig
-2. Score: 8 - Reasoning: FAZ, gute Nachrichtenquelle
-3. Score: 4 - Reasoning: unbekannter Blog
-
-**BEISPIEL FALSCH (NICHT MACHEN!):**
-1. Diese URL ist gut (Score 9)
-2. Ich denke Score: 8 weil...
-3. Relevanz: hoch, Score = 7"""
-
-    try:
-        debug_print(f"🔍 URL-Rating mit {automatik_model}")
-        response = ollama.chat(
-            model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}]
-        )
-
-        answer = response['message']['content']
-
-        # Entferne <think> Blöcke (falls Qwen3 Thinking Mode)
-        import re
-        answer_cleaned = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
-
-        # Parse Antwort
-        rated_urls = []
-        lines = answer_cleaned.strip().split('\n')
-
-        for i, line in enumerate(lines):
-            if not line.strip() or i >= len(urls):
-                continue
-
-            try:
-                # Parse: "1. Score: 9 - Reasoning: ..."
-                score_part = line.split('Score:')[1].split('-')[0].strip()
-                score = int(score_part)
-
-                reasoning_part = line.split('Reasoning:')[1].strip() if 'Reasoning:' in line else "N/A"
-
-                rated_urls.append({
-                    'url': urls[i],
-                    'score': score,
-                    'reasoning': reasoning_part
-                })
-            except Exception as e:
-                debug_print(f"⚠️ Parse-Fehler für URL {i+1}: {e}")
-                # Fallback
-                rated_urls.append({
-                    'url': urls[i],
-                    'score': 5,
-                    'reasoning': "Parse-Fehler"
-                })
-
-        # Sortiere nach Score (beste zuerst)
-        rated_urls.sort(key=lambda x: x['score'], reverse=True)
-
-        debug_print(f"✅ {len(rated_urls)} URLs bewertet")
-
-        return rated_urls
-
-    except Exception as e:
-        debug_print(f"❌ Fehler bei URL-Rating: {e}")
-        # Fallback: Gib URLs ohne Rating zurück
-        return [{'url': url, 'score': 5, 'reasoning': 'Rating fehlgeschlagen'} for url in urls]
-
-
-def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history):
-    """
-    Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
-
-    Args:
-        user_text: User-Frage
-        stt_time: STT-Zeit (0.0 bei Text-Eingabe)
-        model_choice: Haupt-LLM für finale Antwort
-        automatik_model: Automatik-LLM für Entscheidung
-        voice_choice, speed_choice, enable_tts, tts_engine: Für Fallback zu Eigenes Wissen
-        history: Chat History
-
-    Returns:
-        (ai_text, history, inference_time)
-    """
-
-    debug_print("🤖 Automatik-Modus: KI prüft, ob Recherche nötig...")
-
-    # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
-    decision_prompt = f"""Du bist ein intelligenter Assistant. Analysiere diese Frage und entscheide: Brauchst du Web-Recherche?
-
-**Frage:** "{user_text}"
-
-**WICHTIG: Du hast KEINEN Echtzeit-Zugang! Deine Trainingsdaten sind veraltet (bis Jan 2025)!**
-
-**Analyse-Kriterien:**
-- ✅ **WEB-RECHERCHE UNBEDINGT NÖTIG** wenn:
-  - **WETTER** (heute, morgen, aktuell, Vorhersage) → IMMER Web-Suche!
-  - **AKTUELLE NEWS** (Was passiert gerade? Wer gewann? Neueste ...)
-  - **LIVE-DATEN** (Aktienkurse, Bitcoin, Sport-Ergebnisse, Wahlen)
-  - **ZEITABHÄNGIG** (heute, jetzt, gestern, diese Woche, aktuell)
-  - **FAKTEN NACH JAN 2025** (alles nach deinem Wissenstand)
-  - **SPEZIFISCHE EVENTS** (Konzerte, Veranstaltungen, aktuelle Produkte)
-
-- ❌ **EIGENES WISSEN REICHT** wenn:
-  - **ALLGEMEINWISSEN** (Was ist Photosynthese? Erkläre Quantenphysik)
-  - **DEFINITIONEN** (Was bedeutet X? Wie heißt Y?)
-  - **THEORIE & KONZEPTE** (Wie funktioniert Z? Was ist der Unterschied zwischen A und B?)
-  - **HISTORISCHE FAKTEN** (vor 2025: Wer war Einstein? Wann war 2. Weltkrieg?)
-  - **MATHEMATIK & LOGIK** (Berechne, erkläre, löse)
-
-**BEISPIELE:**
-- "Wetter in Berlin" → `<search>yes</search>` (Wetter = IMMER Web-Suche!)
-- "Aktueller Bitcoin-Kurs" → `<search>yes</search>` (Live-Daten)
-- "Was ist Photosynthese?" → `<search>no</search>` (Allgemeinwissen)
-- "Neueste Trump News" → `<search>yes</search>` (Aktuelle News)
-- "Wie funktioniert ein Verbrennungsmotor?" → `<search>no</search>` (Theorie)
-
-**Antworte NUR mit einem dieser Tags:**
-- `<search>yes</search>` - Wenn Web-Recherche nötig
-- `<search>no</search>` - Wenn eigenes Wissen ausreicht
-
-**Keine weiteren Erklärungen!** Nur das Tag!"""
-
-    try:
-        # Zeit messen für Entscheidung
-        debug_print(f"🤖 Automatik-Entscheidung mit {automatik_model}")
-        decision_start = time.time()
-        response = ollama.chat(
-            model=automatik_model,
-            messages=[{'role': 'user', 'content': decision_prompt}]
-        )
-        decision_time = time.time() - decision_start
-
-        decision = response['message']['content'].strip().lower()
-
-        debug_print(f"🤖 KI-Entscheidung: {decision} (Entscheidung mit {automatik_model}: {decision_time:.1f}s)")
-
-        # Parse Entscheidung
-        if '<search>yes</search>' in decision or 'yes' in decision:
-            debug_print("✅ KI entscheidet: Web-Recherche nötig → Web-Suche Ausführlich (5 Quellen)")
-            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history)
-        else:
-            debug_print("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
-
-            # Jetzt normale Inferenz MIT Zeitmessung
-            messages = []
-            for h in history:
-                # Extrahiere nur Text ohne Timing-Info für Ollama
-                user_msg = h[0].split(" (STT:")[0].split(" (Entscheidung:")[0] if " (STT:" in h[0] or " (Entscheidung:" in h[0] else h[0]
-                ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
-                messages.extend([
-                    {'role': 'user', 'content': user_msg},
-                    {'role': 'assistant', 'content': ai_msg}
-                ])
-            messages.append({'role': 'user', 'content': user_text})
-
-            # Zeit messen für finale Inferenz
-            inference_start = time.time()
-            response = ollama.chat(model=model_choice, messages=messages)
-            inference_time = time.time() - inference_start
-
-            ai_text = response['message']['content']
-
-            # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
-            if stt_time > 0:
-                user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Entscheidung: {decision_time:.1f}s, Inferenz: {inference_time:.1f}s)"
-            else:
-                user_with_time = f"{user_text} (Entscheidung: {decision_time:.1f}s, Inferenz: {inference_time:.1f}s)"
-
-            # Formatiere <think> Tags als Collapsible (falls vorhanden) mit Modell-Name und Inferenz-Zeit
-            ai_text_formatted = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
-
-            history.append([user_with_time, ai_text_formatted])
-            debug_print(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
-            debug_print("═" * 80)  # Separator nach jeder Anfrage
-
-            return ai_text, history, inference_time
-
-    except Exception as e:
-        debug_print(f"⚠️ Fehler bei Automatik-Modus Entscheidung: {e}")
-        debug_print("   Fallback zu Eigenes Wissen")
-        return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, history)
-
-
-def optimize_search_query(user_text, automatik_model):
-    """
-    Extrahiert optimierte Suchbegriffe aus User-Frage
-
-    Args:
-        user_text: Volle User-Frage (kann lang sein)
-        automatik_model: Automatik-LLM für Query-Optimierung
-
-    Returns:
-        Optimierte Search Query (3-8 Keywords)
-    """
-    prompt = f"""Du bist ein Suchmaschinen-Experte. Extrahiere die wichtigsten Suchbegriffe aus dieser Frage.
-
-**Frage:** "{user_text}"
-
-**Aufgabe:**
-Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
-
-**Regeln:**
-- Nur wichtige Begriffe (Namen, Orte, Konzepte, Aktionen)
-- Entferne Füllwörter (der, die, das, bitte, ist, hat, etc.)
-- Entferne Höflichkeitsfloskeln (bitte, danke, könntest du, etc.)
-- Bei Fragen zu aktuellen Events: Füge Jahr "2025" hinzu
-- Bei Wetter-Fragen: Füge "Wetter" + Ort + Zeitpunkt hinzu
-- Sortiere: Wichtigste Begriffe zuerst
-- **KRITISCH: Nutze die GLEICHE SPRACHE wie die Frage! Deutsch → deutsche Keywords, Englisch → englische Keywords**
-
-**Beispiele:**
-- "Präsident Trump hat mit Hamas ein Friedensabkommen geschlossen, das Biden vorbereitet hat. Recherchiere die Dokumente."
-  → "Trump Hamas Netanyahu Biden Friedensabkommen Dokumente 2025"
-
-- "Wie ist das Wetter morgen in Berlin?"
-  → "Wetter Berlin morgen"
-
-- "Was sind die neuesten Entwicklungen im KI-Bereich?"
-  → "KI Entwicklungen neueste 2025"
-
-- "Hat die Bundesregierung neue Klimaschutzgesetze beschlossen?"
-  → "Bundesregierung Klimaschutzgesetze neu 2025"
-
-- "What is the weather forecast for London tomorrow?"
-  → "weather London tomorrow forecast"
-
-- "Latest news about Trump and Netanyahu?"
-  → "Trump Netanyahu latest news 2025"
-
-**WICHTIG:**
-- Antworte NUR mit den Keywords (keine Erklärung!)
-- Nutze Leerzeichen zwischen Keywords
-- Keine Sonderzeichen, keine Anführungszeichen
-- Maximal 8 Keywords
-- **SPRACHE BEIBEHALTEN: Deutsch in → Deutsch raus, Englisch in → Englisch raus**
-
-**Deine optimierte Query:**"""
-
-    try:
-        debug_print(f"🔍 Query-Optimierung mit {automatik_model}")
-        response = ollama.chat(
-            model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}]
-        )
-
-        raw_response = response['message']['content'].strip()
-
-        # Extrahiere <think> Inhalt BEVOR wir ihn entfernen (für Debug-Output)
-        import re
-        think_match = re.search(r'<think>(.*?)</think>', raw_response, re.DOTALL)
-        think_content = think_match.group(1).strip() if think_match else None
-
-        # Säubern: Entferne <think> Tags und deren Inhalt
-        optimized_query = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL)
-
-        # Entferne Anführungszeichen und Sonderzeichen
-        optimized_query = re.sub(r'["\'\n\r]', '', optimized_query)
-        optimized_query = ' '.join(optimized_query.split())  # Normalize whitespace
-
-        debug_print(f"🔍 Query-Optimierung:")
-        debug_print(f"   Original: {user_text[:80]}{'...' if len(user_text) > 80 else ''}")
-        debug_print(f"   Optimiert: {optimized_query}")
-
-        # Return: Tuple (optimized_query, reasoning)
-        return (optimized_query, think_content)
-
-    except Exception as e:
-        debug_print(f"⚠️ Fehler bei Query-Optimierung: {e}")
-        debug_print(f"   Fallback zu Original-Query")
-        return (user_text, None)
-
-
-def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_model, history):
-    """
-    Agent-Recherche mit AI-basierter URL-Bewertung
-
-    Args:
-        user_text: User-Frage
-        stt_time: STT-Zeit
-        mode: "quick" oder "deep"
-        model_choice: Haupt-LLM für finale Antwort
-        automatik_model: Automatik-LLM für Query-Opt & URL-Rating
-        history: Chat History
-
-    Returns:
-        (ai_text, history, inference_time, agent_time)
-    """
-
-    agent_start = time.time()
-    tool_results = []
-
-    # 1. Query Optimization: KI extrahiert Keywords (mit Zeitmessung)
-    query_opt_start = time.time()
-    optimized_query, query_reasoning = optimize_search_query(user_text, automatik_model)
-    query_opt_time = time.time() - query_opt_start
-
-    # 2. Web-Suche (Brave → Tavily → SearXNG Fallback) mit optimierter Query
-    debug_print("=" * 60)
-    debug_print(f"🔍 Web-Suche mit optimierter Query")
-    debug_print("=" * 60)
-
-    search_result = search_web(optimized_query)
-    tool_results.append(search_result)
-
-    # 2. URLs extrahieren (bis zu 10)
-    related_urls = search_result.get('related_urls', [])[:10]
-
-    # Initialisiere Variablen für Fälle ohne URLs
-    rated_urls = []
-    rating_time = None
-
-    if not related_urls:
-        debug_print("⚠️ Keine URLs gefunden, nur Abstract")
-    else:
-        debug_print(f"📋 {len(related_urls)} URLs gefunden")
-
-        # 3. AI bewertet alle URLs (1 Call!)
-        debug_print(f"🤖 KI bewertet URLs mit {automatik_model}...")
-        rating_start = time.time()
-        rated_urls = ai_rate_urls(related_urls, user_text, automatik_model)
-        rating_time = time.time() - rating_start
-
-        # Debug: Zeige ALLE Bewertungen (nicht nur Top 5)
-        debug_print("=" * 60)
-        debug_print("📊 URL-BEWERTUNGEN (alle):")
-        debug_print("=" * 60)
-        for idx, item in enumerate(rated_urls, 1):
-            url_short = item['url'][:70] + '...' if len(item['url']) > 70 else item['url']
-            reasoning_short = item['reasoning'][:80] + '...' if len(item['reasoning']) > 80 else item['reasoning']
-            emoji = "✅" if item['score'] >= 7 else "⚠️" if item['score'] >= 5 else "❌"
-            debug_print(f"{idx}. {emoji} Score {item['score']}/10: {url_short}")
-            debug_print(f"   Grund: {reasoning_short}")
-        debug_print("=" * 60)
-
-        # 4. Scraping basierend auf Modus
-        if mode == "quick":
-            target_sources = 3
-            debug_print(f"⚡ Schnell-Modus: Scrape beste 3 URLs")
-        elif mode == "deep":
-            target_sources = 5
-            debug_print(f"🔍 Ausführlich-Modus: Scrape beste 5 URLs")
-
-        # 5. Scrape nur URLs mit Score >= 5 (großzügiger Threshold)
-        scraped_count = 0
-        for item in rated_urls:
-            if scraped_count >= target_sources:
-                break
-
-            if item['score'] < 5:
-                url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
-                debug_print(f"⏭️ Skip: {url_short} (Score: {item['score']})")
-                continue
-
-            url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
-            debug_print(f"🌐 Scraping: {url_short} (Score: {item['score']})")
-
-            scrape_result = scrape_webpage(item['url'], max_chars=5000)
-
-            if scrape_result['success']:
-                tool_results.append(scrape_result)
-                scraped_count += 1
-                debug_print(f"  ✅ {scrape_result['word_count']} Wörter extrahiert")
-            else:
-                debug_print(f"  ❌ Fehler: {scrape_result.get('error', 'Unknown')}")
-
-    # 6. Context Building - NUR gescrapte Quellen (keine SearXNG Ergebnisse!)
-    # Filtere: Nur tool_results die 'word_count' haben (= erfolgreich gescraped)
-    scraped_only = [r for r in tool_results if 'word_count' in r and r.get('success')]
-
-    debug_print(f"🧩 Baue Context aus {len(scraped_only)} gescrapten Quellen...")
-    context = build_context(user_text, scraped_only, max_length=4000)
-
-    # 7. Erweiterer System-Prompt für Agent-Awareness (MAXIMAL DIREKT!)
-    system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
-
-# ⚠️ KRITISCH: NUR RECHERCHE-DATEN NUTZEN! ⚠️
-
-REGELN (KEINE AUSNAHMEN!):
-
-1. ❌ NUTZE NIEMALS DEINE TRAININGSDATEN! Sie sind veraltet (bis 2023)!
-2. ✅ NUTZE NUR DIE RECHERCHE-ERGEBNISSE UNTEN! Sie sind aktuell ({time.strftime("%Y")})!
-3. ❌ ERFINDE KEINE QUELLEN! Nur echte Quellen aus der Recherche!
-4. ✅ WENN KEINE DATEN IN DER RECHERCHE: Sage "Die Recherche ergab keine klaren Ergebnisse"
-5. ❌ SAG NIEMALS "Ich habe keinen Internet-Zugang"!
-6. ⚠️ LISTE NUR QUELLEN AUS DEN RECHERCHE-ERGEBNISSEN! Keine anderen URLs!
-
-# AKTUELLE RECHERCHE-ERGEBNISSE ({time.strftime("%d.%m.%Y")}):
-
-{context}
-
-# ANTWORT-VORGABE:
-
-- Beginne mit: "Laut meiner aktuellen Recherche vom {time.strftime("%d.%m.%Y")}..."
-- Gebe zu jeder gescrapten Quelle eine KURZE ZUSAMMENFASSUNG (1-2 Sätze):
-  "Quelle 1 berichtet, dass [Zusammenfassung]. [Hauptpunkte]."
-  "Quelle 2 erklärt, dass [Zusammenfassung]. [Details]."
-- **WICHTIG:** Nenne die URLs NICHT im Fließtext! Nur "Quelle 1", "Quelle 2" etc.
-- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF (die in den Recherche-Ergebnissen oben stehen!):
-
-  **Quellen:**
-  1. Quelle 1: https://... (Zusammenfassung: [1-2 Sätze was dort stand])
-  2. Quelle 2: https://... (Zusammenfassung: [1-2 Sätze was dort stand])
-
-- ❌ NENNE KEINE URLs die NICHT in den Recherche-Ergebnissen oben stehen!
-- Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
-- Stil: Kurz, präzise, Deutsch"""
-
-    # 8. AI Inference mit History + System-Prompt
-    messages = []
-
-    # History hinzufügen (falls vorhanden)
-    for h in history:
-        user_msg = h[0].split(" (STT:")[0].split(" (Agent:")[0] if " (STT:" in h[0] or " (Agent:" in h[0] else h[0]
-        ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
-        messages.extend([
-            {'role': 'user', 'content': user_msg},
-            {'role': 'assistant', 'content': ai_msg}
-        ])
-
-    # System-Prompt + aktuelle User-Frage
-    messages.insert(0, {'role': 'system', 'content': system_prompt})
-    messages.append({'role': 'user', 'content': user_text})
-
-    # Smart Model Loading: Entlade kleine Modelle wenn großes Modell kommt
-    smart_model_load(model_choice)
-
-    inference_start = time.time()
-    response = ollama.chat(model=model_choice, messages=messages)
-    inference_time = time.time() - inference_start
-
-    agent_time = time.time() - agent_start
-
-    ai_text = response['message']['content']
-
-    # 9. History mit Agent-Timing + Debug Accordion
-    mode_label = "Schnell" if mode == "quick" else "Ausführlich"
-    user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Agent: {agent_time:.1f}s, {mode_label}, {len(scraped_only)} Quellen)"
-
-    # Formatiere mit Debug Accordion (Query Reasoning + URL Rating + Final Answer <think>) inkl. Inferenz-Zeiten
-    ai_text_formatted = build_debug_accordion(query_reasoning, rated_urls, ai_text, automatik_model, model_choice, query_opt_time, rating_time, inference_time)
-
-    history.append([user_with_time, ai_text_formatted])
-
-    debug_print(f"✅ Agent fertig: {agent_time:.1f}s gesamt, {len(ai_text)} Zeichen")
-    debug_print("=" * 60)
-    debug_print("═" * 80)  # Separator nach jeder Anfrage
-
-    return ai_text, history, inference_time
+    import gradio as gr
+    return audio_file, gr.update(interactive=True)
 
 
 def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history):
@@ -1414,19 +194,24 @@ def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice,
         return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, history)
 
     elif "Schnell" in research_mode:
-        # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 1 URL
+        # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
         debug_print(f"⚡ Modus: Web-Suche Schnell (Agent)")
         return perform_agent_research(user_text, stt_time, "quick", model_choice, automatik_model, history)
 
     elif "Ausführlich" in research_mode:
-        # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
+        # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 5 URLs
         debug_print(f"🔍 Modus: Web-Suche Ausführlich (Agent)")
         return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history)
 
     elif "Automatik" in research_mode:
         # Automatik-Modus: KI entscheidet selbst, ob Recherche nötig
         debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
-        return chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history)
+        try:
+            return chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history)
+        except:
+            # Fallback wenn Fehler
+            debug_print("⚠️ Fallback zu Eigenes Wissen")
+            return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, history)
 
     else:
         # Fallback: Eigenes Wissen
@@ -1452,24 +237,43 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
         return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, history)
 
     elif "Schnell" in research_mode:
-        # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 1 URL
+        # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
         debug_print(f"⚡ Modus: Web-Suche Schnell (Agent)")
         return perform_agent_research(text_input, 0.0, "quick", model_choice, automatik_model, history)
 
     elif "Ausführlich" in research_mode:
-        # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
+        # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 5 URLs
         debug_print(f"🔍 Modus: Web-Suche Ausführlich (Agent)")
         return perform_agent_research(text_input, 0.0, "deep", model_choice, automatik_model, history)
 
     elif "Automatik" in research_mode:
         # Automatik-Modus: KI entscheidet selbst, ob Recherche nötig
         debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
-        return chat_interactive_mode(text_input, 0.0, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history)
+        try:
+            return chat_interactive_mode(text_input, 0.0, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history)
+        except:
+            # Fallback wenn Fehler
+            debug_print("⚠️ Fallback zu Eigenes Wissen")
+            return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, history)
 
     else:
         # Fallback: Eigenes Wissen
         debug_print(f"⚠️ Unbekannter Modus: {research_mode}, fallback zu Eigenes Wissen")
         return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, history)
+
+
+# ============================================================
+# STARTUP
+# ============================================================
+
+# Register Signal Handlers für sauberen Shutdown
+register_signal_handlers()
+
+# Initialize Whisper Base Model
+initialize_whisper_base()
+
+# Load available Ollama models
+models = get_ollama_models()
 
 
 # Settings beim Start laden
@@ -1754,7 +558,7 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
 
             # Stimmenauswahl (nur für Edge TTS sichtbar)
             voice = gr.Dropdown(
-                choices=list(voices.keys()),
+                choices=list(VOICES.keys()),
                 value=saved_settings["voice"],
                 label="🎤 Stimme (nur Edge TTS)",
                 visible=True
