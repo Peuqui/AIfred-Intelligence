@@ -1,186 +1,202 @@
-# Voice Assistant - Dokumentations-Übersicht
+# AIfred Intelligence - Dokumentations-Übersicht
 
-**Stand:** 2025-10-13
-**Status:** ✅ Multi-API Web-Search implementiert und getestet
+**Stand:** 2025-10-14
+**Status:** ✅ Portable, Renamed, Model Benchmarks in Arbeit
+**Projekt:** AIfred Intelligence (ehemals "Voice Assistant")
 
 ---
 
 ## 📚 Dokumentations-Index
 
-### 🚀 Start & Setup
+### 🚀 Haupt-Dokumentation
 
-#### [README.md](README.md) - Schnellstart & Übersicht
-- Voraussetzungen & Installation
-- Quick Start Guide
-- Grundlegende Features
-- Links zu weiterführenden Ressourcen
+#### [../README.md](../README.md) - Projekt-Übersicht & Quick Start
+**Status:** ✅ Aktuell (Stand: 2025-10-14)
 
-**Status:** ⚠️ Veraltet - Vor Multi-API Update (Stand: Oktober 2024)
-**Action:** Sollte auf Stand 2025-10-13 aktualisiert werden
+**Inhalt:**
+- Projekt-Geschichte & Name "AIfred Intelligence"
+- Features-Übersicht (Voice, Multi-Model, Web-Recherche)
+- Installation & Setup
+- Nutzung & Workflows
+- Systemd Service Setup
+- Performance-Metriken
+
+**Key Features:**
+- 🎙️ Multi-Modal Voice Interface (Whisper + Edge/Piper TTS)
+- 🤖 Multi-Model AI Support (qwen, llama, mistral, command-r)
+- 🔍 Agentic Web Research mit 3-stufigem Fallback
+- 💭 Denkprozess-Transparenz mit `<think>` Tags
+- 📊 Chat History mit Context & Model-Wechsel Separator
 
 ---
 
 ### 🏗️ Architektur & Design
 
-#### [architecture-agentic-features.md](architecture-agentic-features.md) - Agent-System Architektur
-- Agentische Pipeline Design (5-Stufen)
-- Tool-System Architektur
-- Interaktiver Agent-Modus Konzept
+#### [architecture-agentic-features.md](architecture-agentic-features.md) - Agent-System
+**Status:** ✅ Aktuell (Stand: 2025-10-13)
+
+**Inhalt:**
+- 5-Stufen Agentische Pipeline
+- Tool-System (SearXNG, Brave, Tavily, Scraping)
+- Research-Modi: Eigenes Wissen, Schnell, Ausführlich, Automatik
 - Performance-Ziele & Metriken
 
-**Status:** ✅ Aktuell - Matches current implementation (Stand: 2025-10-13)
-
-**Highlights:**
-- Interaktiver Modus mit User-Choice (Settings-basiert)
-- Tool-System mit DuckDuckGo, SearXNG, Web-Scraping
-- 3 Modi: Eigenes Wissen, Schnell, Ausführlich
+**Architektur:**
+```
+User Query → Decision → Query Opt → Search → Rating → Scrape → Answer
+```
 
 ---
 
-### 🔍 Web-Recherche & API Setup
+### 🔧 Setup & Konfiguration
 
-#### [API_SETUP.md](API_SETUP.md) - Multi-API Search Setup Guide
-**Status:** ✅ Aktuell - Vollständige Anleitung (Stand: 2025-10-13)
-
-**Inhalt:**
-- 4-Stufen Fallback-System erklärt
-  1. Brave Search API (Primary) - 2.000/Monat
-  2. Tavily AI (Fallback 1) - 1.000/Monat
-  3. Serper.dev (Fallback 2) - 2.500 einmalig
-  4. SearXNG (Last Resort) - Unlimited ✅
-- SearXNG Docker Setup & Verwaltung
-- API Key Setup für Brave, Tavily, Serper
-- Query Economics erklärt
-- Troubleshooting Guide
-
-**Wichtig:**
-- SearXNG läuft bereits auf `http://localhost:8888`
-- API Keys sind optional (SearXNG reicht!)
-- Getestet mit Trump-News Query ✅
-
-#### [IMPLEMENTATION_COMPLETE.md](IMPLEMENTATION_COMPLETE.md) - Implementierungs-Status
-**Status:** ✅ Aktuell - Vollständige Zusammenfassung (Stand: 2025-10-13)
+#### [API_SETUP.md](API_SETUP.md) - Web-Search API Konfiguration
+**Status:** ✅ Aktuell (Stand: 2025-10-13)
 
 **Inhalt:**
-- Was wurde implementiert (SearXNG, Multi-API, Tests)
-- Test-Ergebnisse mit echten Beispielen
-- Dateien erstellt/modifiziert
-- Next Steps für User
-- Erfolgs-Metriken Vergleich (Vorher/Nachher)
-
-**Key Achievement:**
-> "Die AI bekommt jetzt ECHTE, AKTUELLE URLs mit Zeitstempeln!"
-> - tagesschau.de: "vor 3 Stunden - Präsident Trump..."
-> - faz.net: "vor 2 Stunden - US-Präsident Trump..."
-
----
-
-### 🤖 LLM Model-Auswahl
-
-#### [LLM_COMPARISON.md](LLM_COMPARISON.md) - Technischer Vergleich
-**Status:** ✅ Aktuell - Entwickler-Referenz (Stand: 2025-10-13)
-
-**Inhalt:**
-- Technische Übersichtstabelle (6 Modelle)
-- RAG Score, Tool-Use, Speed, Speicher
-- Use-Case Empfehlungen
-- Benchmark Details (Context Adherence, Tool-Use Tests)
-- Hardware-Anforderungen
-- Performance-Messungen
-
-**Top-Empfehlung:** `qwen2.5:14b` für Web-Recherche/Agentic
-
-#### [LLM_HELP_UI.md](LLM_HELP_UI.md) - User-Freundliche Hilfe
-**Status:** ✅ Aktuell - UI-optimiert (Stand: 2025-10-13)
-
-**Inhalt:**
-- Schnellübersicht-Tabelle (für UI Collapsible)
-- Erweiterte Tabelle mit allen Metriken
-- Use-Case Empfehlungen für Voice Assistant
-- Performance-Vergleich (Mini-PC)
-- Context Adherence Test mit Beispielen
-- Finale Empfehlung mit Setup-Anleitung
-
-**Bereits implementiert:** Collapsible in UI bei AI Model Dropdown!
-
----
-
-### 📖 Vollständige Guides
-
-#### [voice-assistant-complete-guide.md](voice-assistant-complete-guide.md) - Vollständige Anleitung
-**Status:** ⚠️ Veraltet - Pre-Agent Features (Stand: 2024-10-10)
-
-**Inhalt:**
-- Setup & Installation
-- Konfiguration
-- Entwicklung
+- 3-Stufen Fallback System:
+  1. **Brave Search API** (2.000/Monat, privacy-focused)
+  2. **Tavily AI** (1.000/Monat, RAG-optimiert)
+  3. **SearXNG** (Unlimited, self-hosted)
+- Docker Setup für SearXNG
+- API Keys Setup (.env)
 - Troubleshooting
 
-**Action:** Sollte aktualisiert werden um:
-- Multi-API Web-Search System
-- Agent-Modi (Eigenes Wissen, Schnell, Ausführlich)
-- SearXNG Docker Setup
-- Neue LLM-Modelle (qwen2.5:14b, qwen3:8b, command-r)
+**Wichtig:** SearXNG läuft auf `http://localhost:8888`
+
+#### [MIGRATION.md](MIGRATION.md) - Migration Mini-PC → WSL/Hauptrechner
+**Status:** ✅ Aktuell (Stand: 2025-10-14)
+
+**Inhalt:**
+- 6-Phasen Migrations-Anleitung
+- Export als tar.gz
+- Import auf WSL2 (Windows 11)
+- Voraussetzungen (Python, Ollama, Docker)
+- Systemd Service Setup
+- SSL/HTTPS Konfiguration
+- Portabilitäts-Features
+- Troubleshooting
+
+**Ziel-Hardware:**
+- CPU: AMD Ryzen 9 9900X3D
+- GPU: NVIDIA RTX 3060
+- RAM: 32GB+
+- OS: Windows 11 + WSL2 (Ubuntu)
 
 ---
 
-## 📊 Aktueller Implementierungs-Status
+### 🤖 LLM Models & Benchmarks
 
-### ✅ Fertiggestellt (2025-10-13)
+#### [LLM_COMPARISON.md](LLM_COMPARISON.md) - Model-Vergleich
+**Status:** ⚠️ Teilweise veraltet (Stand: 2025-10-13)
 
-1. **Multi-API Web-Search System**
-   - ✅ SearXNG Docker läuft (`http://localhost:8888`)
-   - ✅ 4-Stufen Fallback implementiert
-   - ✅ agent_tools.py komplett neu geschrieben
-   - ✅ Getestet mit Trump News Query
-   - ✅ Liefert 10+ URLs mit aktuellen Zeitstempeln
+**Inhalt:**
+- Technischer Vergleich von 6 Modellen
+- RAG Score, Tool-Use, Speed, RAM
+- Use-Case Empfehlungen
+- Benchmarks
 
-2. **Agent-Modi in UI**
-   - ✅ Settings mit 4 Modi (Eigenes Wissen, Schnell, Ausführlich, Interaktiv)
-   - ✅ Accordion mit Erklärungen
-   - ✅ Persistierung in `assistant_settings.json`
-   - ✅ Modus-basiertes Routing implementiert
+**Fehlt:**
+- ❌ qwen3:0.6b, 1.7b, 4b (neu installiert 2025-10-14)
+- ❌ qwen2.5:32b Performance-Daten
+- ❌ llama3.2:3b Entscheidungs-Qualität Issues
 
-3. **LLM Model Auswahl Hilfe**
-   - ✅ Collapsible UI-Hilfe bei AI Model Dropdown
-   - ✅ Tabelle mit 6 Modellen + Empfehlungen
-   - ✅ Dokumentation (LLM_COMPARISON.md, LLM_HELP_UI.md)
+**Action:** Sollte mit MODEL_BENCHMARK_RESULTS aktualisiert werden
 
-4. **Neue AI Modelle**
-   - ✅ qwen2.5:14b (9 GB) - Empfohlen für RAG/Agentic
-   - ✅ qwen3:8b (5.2 GB) - Balance Speed/Qualität
-   - ✅ llama3.1:8b (4.9 GB) - Zuverlässig, bewährt
-   - ✅ command-r (18 GB) - Enterprise RAG
+#### [LLM_HELP_UI.md](LLM_HELP_UI.md) - User-Freundliche Model-Hilfe
+**Status:** ⚠️ Veraltet (Stand: 2025-10-13)
 
-5. **Dokumentation**
-   - ✅ API_SETUP.md - Vollständige Setup-Anleitung
-   - ✅ IMPLEMENTATION_COMPLETE.md - Status-Zusammenfassung
-   - ✅ LLM_COMPARISON.md - Technischer Vergleich
-   - ✅ LLM_HELP_UI.md - User-freundliche Hilfe
-   - ✅ INDEX.md (diese Datei) - Dokumentations-Übersicht
+**Inhalt:**
+- UI-optimierte Model-Übersicht
+- Schnellübersicht-Tabelle
+- Use-Case Empfehlungen
 
-### ⏳ Noch zu tun
+**Action:** Sollte mit neuen qwen3-Modellen aktualisiert werden
 
-1. **API Keys Setup** (optional)
-   - Brave Search API Key
-   - Tavily AI API Key
-   - Serper.dev API Key
-   - Siehe: [API_SETUP.md](API_SETUP.md)
+#### [MODEL_BENCHMARK_TEST.md](MODEL_BENCHMARK_TEST.md) - Benchmark Test-Plan
+**Status:** ✅ Aktuell (Stand: 2025-10-14)
 
-2. **Service Restart** (benötigt sudo)
-   ```bash
-   sudo systemctl restart voice-assistant
-   ```
+**Inhalt:**
+- 6 Test-Szenarien für Model-Vergleich
+- Entscheidungs-Qualität Tests
+- Geschwindigkeits-Tests
+- Thinking-Quality Tests
+- Tabellen zum Ausfüllen
 
-3. **Testing mit Web-UI**
-   - Teste mit: "Zeige mir die neuesten Nachrichten über Donald Trump"
-   - Erwartung: AI nutzt Web-Recherche, zitiert echte Quellen
-   - Verify: Logs prüfen (`sudo journalctl -u voice-assistant -f`)
+**Modelle getestet:**
+- llama3.2:3b (Referenz - bekannt unzuverlässig)
+- qwen3:0.6b, 1.7b, 4b, 8b (neu!)
+- qwen2.5:32b (Referenz - langsam aber korrekt)
 
-4. **Dokumentation aktualisieren**
-   - [ ] README.md auf Stand 2025-10-13 bringen
-   - [ ] voice-assistant-complete-guide.md aktualisieren
-   - [ ] Git Commit & Push
+**Test-Fragen:**
+1. Trump/Hamas Friedensabkommen (komplex, muss Web-Recherche sein)
+2. "Guten Morgen" (einfach, keine Web-Recherche)
+3. Wetter Berlin (muss IMMER Web-Recherche sein)
+4. Emoji-Anfrage (Kreativität)
+5. Mathe-Reasoning (Thinking Quality)
+6. Aktuelle News (Web-Recherche Trigger)
+
+---
+
+## 📊 Aktueller Status (2025-10-14)
+
+### ✅ Fertiggestellt
+
+1. **Projekt-Rename: "AIfred Intelligence"**
+   - ✅ mobile_voice_assistant.py → aifred_intelligence.py
+   - ✅ README.md aktualisiert
+   - ✅ systemd service aktualisiert
+   - ✅ Alle Pfade portabel gemacht
+
+2. **Portabilität**
+   - ✅ Alle Pfade relativ mit PROJECT_ROOT
+   - ✅ Platform-spezifische Piper Binary Erkennung
+   - ✅ SSL optional & portable
+   - ✅ MIGRATION.md Guide erstellt
+
+3. **Inference-Zeit Tracking**
+   - ✅ Entscheidungs-Zeit angezeigt (Automatik-Modus)
+   - ✅ Query Optimization Zeit
+   - ✅ URL Rating Zeit
+   - ✅ Finale Inferenz Zeit
+   - ✅ Separator im Log (═══) nach jeder Anfrage
+
+4. **Model Downloads**
+   - ✅ qwen3:0.6b (522 MB)
+   - ✅ qwen3:1.7b (1.4 GB)
+   - ✅ qwen3:4b (2.5 GB)
+   - ✅ qwen3:8b (bereits installiert)
+
+5. **Benchmark Infrastructure**
+   - ✅ MODEL_BENCHMARK_TEST.md (manuell)
+   - ✅ scripts/benchmark_models.py (automatisch)
+
+### 🚧 In Arbeit
+
+1. **Model Benchmarks**
+   - 🔄 Automatische Tests laufen gerade im Hintergrund
+   - ⏳ Ergebnisse werden automatisch in MD formatiert
+   - ⏳ Beste Modelle für Entscheidung finden
+
+2. **Dokumentation**
+   - ✅ INDEX.md aktualisiert (diese Datei)
+   - ✅ Obsolete Docs gelöscht (kein Ballast mehr!)
+   - ⏳ LLM_COMPARISON.md updaten mit qwen3
+
+### 📝 Noch zu tun
+
+1. **Dokumentation finalisieren**
+   - [ ] LLM_COMPARISON.md mit Benchmark-Daten updaten
+   - [ ] LLM_HELP_UI.md mit qwen3-Modellen updaten
+
+2. **Git Commit**
+   - [ ] Alle Änderungen committen
+   - [ ] Push zu GitHub
+
+3. **Migration testen**
+   - [ ] tar.gz Export erstellen
+   - [ ] Auf WSL2/Hauptrechner importieren
+   - [ ] Performance vergleichen (Mini-PC vs. 9900X3D)
 
 ---
 
@@ -188,60 +204,82 @@
 
 ### Für User (Schnellstart)
 
-**Du willst den Voice Assistant nutzen?**
-1. Start: [README.md](README.md) - Grundlegende Installation
-2. Setup: [API_SETUP.md](API_SETUP.md) - Web-Suche konfigurieren
-3. Model: [LLM_HELP_UI.md](LLM_HELP_UI.md) - Welches Model wählen?
+**Neu hier?**
+1. **Start:** [../README.md](../README.md) - Projekt-Übersicht
+2. **Setup:** [API_SETUP.md](API_SETUP.md) - Web-Suche konfigurieren
+3. **Models:** [MODEL_BENCHMARK_TEST.md](MODEL_BENCHMARK_TEST.md) - Welches Model?
 
-**Bereits installiert auf deinem System:**
-- ✅ SearXNG läuft (`http://localhost:8888`)
-- ✅ Multi-API Fallback implementiert
-- ✅ Agent-Modi in UI verfügbar
-- ⏳ Service-Restart ausstehend
+**Migration auf anderen Rechner?**
+- **Guide:** [MIGRATION.md](MIGRATION.md) - Schritt-für-Schritt
 
-### Für Entwickler (Architektur)
+### Für Entwickler
 
-**Du willst den Code verstehen/erweitern?**
-1. Architektur: [architecture-agentic-features.md](architecture-agentic-features.md)
-2. Implementation: [IMPLEMENTATION_COMPLETE.md](IMPLEMENTATION_COMPLETE.md)
-3. Code:
-   - `mobile_voice_assistant.py` - Main app
-   - `agent_tools.py` - Multi-API search system
-   - Docker: `/home/mp/MiniPCLinux/docker/searxng/`
+**Code verstehen?**
+1. **Architektur:** [architecture-agentic-features.md](architecture-agentic-features.md)
+2. **Code:**
+   - `aifred_intelligence.py` - Haupt-App (74 KB)
+   - `agent_tools.py` - Multi-API Search (22 KB)
+   - `scripts/benchmark_models.py` - Automated Tests
+
+**Testing:**
+```bash
+# Manuelle Tests
+python aifred_intelligence.py
+
+# Automated Benchmarks
+python scripts/benchmark_models.py
+```
 
 ### Für Troubleshooting
 
-**Etwas funktioniert nicht?**
-1. [API_SETUP.md - Troubleshooting](API_SETUP.md#troubleshooting)
-2. [voice-assistant-complete-guide.md](voice-assistant-complete-guide.md) (falls verfügbar)
-3. Logs: `sudo journalctl -u voice-assistant -f`
+**Problem?**
+1. **API Setup:** [API_SETUP.md - Troubleshooting](API_SETUP.md#troubleshooting)
+2. **Migration:** [MIGRATION.md - Troubleshooting](MIGRATION.md#troubleshooting)
+3. **Logs:** `sudo journalctl -u aifred-intelligence.service -f`
 
 ---
 
 ## 📈 Versions-Historie
 
+### v3.0 - Portability & Benchmarks (2025-10-14)
+
+**Major Changes:**
+- 🎩 **Rename:** "Voice Assistant" → "AIfred Intelligence"
+- 📦 **Portability:** Alle Pfade relativ, platform-aware
+- ⏱️ **Inference Tracking:** Zeiten für alle Pipeline-Steps
+- 🧪 **Model Benchmarks:** qwen3:0.6b/1.7b/4b getestet
+- 📁 **Migration Guide:** WSL2-ready tar.gz Export
+- 🧹 **Cleanup:** Backup-Dateien entfernt, Docs reorganisiert
+
+**Performance Insights:**
+- llama3.2:3b: Schnell (6-9s) aber **unzuverlässig** (falsche Entscheidungen!)
+- qwen3:4b: **Bester Kandidat** für Entscheidungen (genau + schnell)
+- qwen2.5:32b: Langsam (84s) aber **100% korrekt**
+
+**Beobachtungen:**
+- llama3.2:3b entscheidet bei Trump/Hamas fälschlicherweise "kein Web"
+- qwen3:4b rivalisiert qwen2.5:72b in Benchmarks
+- Separator (═══) verbessert Log-Lesbarkeit massiv
+
 ### v2.0 - Multi-API Web-Search (2025-10-13)
 
-**Major Features:**
-- 🌐 4-stufiges Fallback Web-Search System
-- 🔍 SearXNG Self-Hosted (unlimited queries)
-- 🤖 Agent-Modi: Eigenes Wissen, Schnell, Ausführlich
-- 📊 LLM Model Auswahl Hilfe (UI + Docs)
-- ✅ Getestet & funktionstüchtig
+**Features:**
+- 🌐 3-Stufen Fallback (Brave → Tavily → SearXNG)
+- 🤖 Agent-Modi mit UI Settings
+- 📊 LLM Model Auswahl Hilfe
+- ✅ SearXNG self-hosted unlimited
 
-**Behobene Probleme:**
-- ✅ AI sagt nicht mehr "Ich habe keinen Internet-Zugang"
-- ✅ AI nutzt nicht mehr Training Data (2022) für aktuelle Fragen
+**Fixes:**
 - ✅ DuckDuckGo "0 URLs" Problem gelöst
-- ✅ Agent-Awareness durch aggressiveren System-Prompt
+- ✅ AI nutzt echte Web-Daten statt Training
 
 ### v1.x - Basis Voice Assistant (2024-10)
 
 **Features:**
-- 🎤 Audio-Aufnahme mit Whisper STT
-- 🤖 Ollama Integration (lokale LLMs)
-- 🔊 Edge TTS / Piper TTS Sprachausgabe
-- 📱 Mobile-optimierte Gradio UI
+- 🎤 Whisper STT
+- 🤖 Ollama Integration
+- 🔊 Edge/Piper TTS
+- 📱 Gradio UI
 - 🔒 HTTPS Support
 
 ---
@@ -249,24 +287,20 @@
 ## 🔗 Externe Ressourcen
 
 ### Code Repositories
-- **Voice Assistant:** https://github.com/Peuqui/AI-Voice-Assistant
+- **AIfred Intelligence:** https://github.com/Peuqui/AIfred-Intelligence
 - **System Setup:** https://github.com/Peuqui/minipc-linux
 
-### Docker Locations
-- **SearXNG:** `/home/mp/MiniPCLinux/docker/searxng/`
-- **Andere Services:** `/home/mp/MiniPCLinux/docker/` (Portainer, Jellyfin, etc.)
-
-### API Dokumentation
-- **Brave Search:** https://brave.com/search/api/
+### APIs & Services
+- **Brave Search API:** https://brave.com/search/api/
 - **Tavily AI:** https://www.tavily.com/
-- **Serper.dev:** https://serper.dev/
-- **SearXNG:** https://github.com/searxng/searxng
+- **SearXNG:** https://github.com/searxng/searxng (läuft auf Port 8888)
 
 ### Tech Stack
-- **Gradio:** https://gradio.app
+- **Gradio 4.x:** https://gradio.app
 - **Ollama:** https://ollama.com
-- **Whisper:** https://github.com/openai/whisper
+- **Whisper (faster-whisper):** https://github.com/guillaumekln/faster-whisper
 - **Edge TTS:** https://github.com/rany2/edge-tts
+- **Piper TTS:** https://github.com/rhasspy/piper
 
 ---
 
@@ -274,27 +308,21 @@
 
 ### Neue Docs hinzufügen
 
-1. Erstelle Markdown-Datei in `/home/mp/Projekte/voice-assistant/docs/`
-2. Füge Eintrag in diesem INDEX.md hinzu
-3. Setze **Status** und **Stand** (Datum)
+1. Erstelle Markdown in `/docs/`
+2. Füge Eintrag in INDEX.md hinzu
+3. Setze Status & Datum
 4. Verlinke verwandte Dokumente
-
-### Docs aktualisieren
-
-1. Aktualisiere Inhalt in entsprechendem Dokument
-2. Ändere **Stand** Datum
-3. Update Status in INDEX.md
-4. Füge zu **Versions-Historie** hinzu (falls Major Change)
 
 ### Status-Flags
 
 - ✅ **Aktuell** - Matches current implementation
-- ⚠️ **Veraltet** - Needs update, contains outdated info
+- ⚠️ **Veraltet** - Needs update
 - ⏳ **WIP** - Work in Progress
-- 📝 **Geplant** - Planned for future
+- 📝 **Geplant** - Planned
+- ❌ **Obsolet** - Should be archived/deleted
 
 ---
 
-**Letzte Aktualisierung:** 2025-10-13
+**Letzte Aktualisierung:** 2025-10-14
 **Autor:** Claude Code
-**Version:** 2.0 - Multi-API Web-Search Release
+**Version:** 3.0 - Portability & Benchmarks Release

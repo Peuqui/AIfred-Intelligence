@@ -31,10 +31,19 @@ Wie der legendäre Butler Alfred aus Batman, der immer loyal, intelligent und hi
 - **STT-Korrektur**: Optional Transkription vor dem Senden bearbeiten
 
 ### 🤖 **Multi-Model AI Support (Ollama)**
+
+**🔧 Hardcoded für Automatik-Tasks** (qwen3:1.7b):
+- ✅ **Automatik-Entscheidung**: Web-Recherche JA/NEIN? (~5-30s)
+- ✅ **Query-Optimierung**: Keyword-Extraktion (~5-15s)
+- ✅ **URL-Bewertung**: 15 URLs filtern (~105s, 7s/URL)
+
+**🔽 User-wählbar für Finale Antwort:**
+- **qwen3:1.7b** - Schnellste (~30s, hardcoded für Vorauswahl)
+- **qwen3:8b** - Balance Speed & Qualität (~1-2 Min, **empfohlen**)
+- **qwen2.5:32b** - Beste Qualität (~3-5 Min, 21 GB RAM)
 - **qwen2.5:14b** - Beste RAG-Performance (100% Recherche, 0% Training)
-- **qwen3:8b** - Balance zwischen Speed und Qualität
 - **command-r** - Enterprise RAG für lange Dokumente
-- **mixtral:8x7b** - Mixture-of-Experts (47B params, 8 Experten)
+- **mixtral:8x7b** - Mixture-of-Experts (47B params)
 - **llama3.1:8b** / **llama3.2:3b** - Schnelle Allzweck-Modelle
 - **mistral** - Optimiert für Code und Instruktionen
 
@@ -51,10 +60,12 @@ Intelligente 3-Stufen Web-Suche mit automatischem Fallback:
 - 🔍 **Web-Suche Ausführlich** - 3 beste Quellen gescraped
 - 🤖 **Automatik** - KI entscheidet intelligent, ob Web-Recherche nötig ist
 
-**AI-basierte URL-Bewertung:**
-- AI bewertet alle gefundenen URLs (Score 1-10)
-- Nur URLs mit Score ≥ 6 werden gescraped
-- Intelligente Auswahl der relevantesten Quellen
+**AI-basierte URL-Bewertung (qwen3:1.7b, hardcoded):**
+- ⚡ AI bewertet alle 15 gefundenen URLs in ~105s (7s pro URL)
+- 🎯 Content-basierte Bewertung (nicht Domain-basiert!)
+- ✅ Score 1-10: Tagesschau-Artikel = 9/10, Pizza-Rezept = 1/10
+- 🔍 Nur URLs mit Score ≥ 7 werden gescraped
+- 📊 Intelligente Auswahl der relevantesten Quellen (siehe [URL-Benchmark](benchmarks/URL_RATING_RESULTS.md))
 
 ### 💭 **Denkprozess-Transparenz**
 - `<think>` Tags werden automatisch erkannt
@@ -134,7 +145,7 @@ SearXNG läuft nun auf `http://localhost:8888`
 ```bash
 cd /home/mp/Projekte/AIfred-Intelligence
 source venv/bin/activate
-python mobile_voice_assistant.py
+python aifred_intelligence.py
 ```
 
 Öffne Browser: `https://localhost:7860` (oder LAN-IP für mobile Geräte)
@@ -145,7 +156,7 @@ python mobile_voice_assistant.py
 
 ```
 AIfred-Intelligence/
-├── mobile_voice_assistant.py    # Haupt-App (Gradio UI + Logic)
+├── aifred_intelligence.py        # Haupt-App (Gradio UI + Logic)
 ├── agent_tools.py                # Agent-System (Multi-API Search, Scraping)
 ├── requirements.txt              # Python Dependencies
 ├── .env.example                  # API Keys Template

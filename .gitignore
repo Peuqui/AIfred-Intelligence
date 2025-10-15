@@ -38,6 +38,11 @@ assistant_settings.json
 *.backup
 *.backup-*
 
+# Benchmark Results
+benchmark_output.log
+benchmark_results_*.json
+MODEL_BENCHMARK_RESULTS_*.md
+
 # OS
 .DS_Store
 Thumbs.db
