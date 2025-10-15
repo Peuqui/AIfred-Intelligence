@@ -9,6 +9,8 @@ import json
 from pathlib import Path
 import logging
 import time
+import signal
+import sys
 
 # Agent Tools Import
 from agent_tools import search_web, scrape_webpage, build_context
@@ -155,6 +157,37 @@ def unload_all_models():
     except Exception as e:
         debug_print(f"⚠️ Fehler beim Entladen: {e}")
         return False
+
+# ============================================================
+# SIGNAL HANDLER - Cleanup bei Service Stop/Restart
+# ============================================================
+def cleanup_on_exit(signum, frame):
+    """
+    Signal Handler für sauberen Service-Stop
+
+    Wird ausgelöst bei:
+    - systemctl stop aifred-intelligence
+    - systemctl restart aifred-intelligence
+    - SIGTERM / SIGINT
+
+    Nicht ausgelöst bei:
+    - Browser Reload (Backend läuft weiter)
+    """
+    signal_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
+    print(f"\n🛑 {signal_name} empfangen - Service wird gestoppt", flush=True)
+    print("🧹 Entlade alle Modelle aus RAM...", flush=True)
+
+    try:
+        unload_all_models()
+        print("✅ Cleanup abgeschlossen", flush=True)
+    except Exception as e:
+        print(f"⚠️ Fehler beim Cleanup: {e}", flush=True)
+
+    sys.exit(0)
+
+# Signal Handler registrieren
+signal.signal(signal.SIGTERM, cleanup_on_exit)  # systemctl stop/restart
+signal.signal(signal.SIGINT, cleanup_on_exit)   # Ctrl+C
 
 def smart_model_load(model_name):
     """
