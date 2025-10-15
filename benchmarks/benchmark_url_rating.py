@@ -16,6 +16,7 @@ import time
 import subprocess
 from datetime import datetime
 import os
+from pathlib import Path
 
 # ============================================================
 # CONFIG
@@ -27,7 +28,9 @@ MODELS_TO_TEST = [
     "qwen2.5:32b"
 ]
 
-LOG_DIR = "/home/mp/Projekte/AIfred-Intelligence/benchmarks/logs_url_rating"
+# Portable path using PROJECT_ROOT
+PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+LOG_DIR = PROJECT_ROOT / "benchmarks" / "logs_url_rating"
 
 # ============================================================
 # TEST DATA - 15 URLs mit Title + Snippet
