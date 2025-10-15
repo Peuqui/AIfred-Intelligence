@@ -529,12 +529,17 @@ def generate_speech_piper(text, speed=1.0):
         return None
 
 # Stufe 1: Transkribieren
-def format_thinking_process(ai_response):
+def format_thinking_process(ai_response, model_name=None, inference_time=None):
     """
     Formatiert <think> Tags als Collapsible Accordion für den Chat.
 
+    Args:
+        ai_response: Die AI-Antwort mit optionalen <think> Tags
+        model_name: Name des verwendeten Modells (z.B. "qwen3:1.7b")
+        inference_time: Inferenz-Zeit in Sekunden
+
     Input: "Some text <think>thinking process</think> More text"
-    Output: Formatierter Text mit Collapsible für Denkprozess
+    Output: Formatierter Text mit Collapsible für Denkprozess (inkl. Modell-Name)
     """
     import re
 
@@ -549,9 +554,17 @@ def format_thinking_process(ai_response):
         # Entferne <think> Tags aus der Antwort
         clean_response = re.sub(think_pattern, '', ai_response, flags=re.DOTALL).strip()
 
+        # Baue Summary mit Modell-Name und Inferenz-Zeit
+        summary_parts = ["💭 Denkprozess"]
+        if model_name:
+            summary_parts.append(f"({model_name})")
+        if inference_time:
+            summary_parts.append(f"• {inference_time:.1f}s")
+        summary_text = " ".join(summary_parts)
+
         # Formatiere mit HTML Details/Summary (Gradio unterstützt HTML in Markdown)
         formatted = f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Denkprozess anzeigen</summary>
+<summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
 <div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{thinking}</div>
 </details>
 
@@ -689,8 +702,8 @@ def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_c
     # User-Text mit STT-Zeit anhängen (falls vorhanden)
     user_with_time = f"{user_text} (STT: {stt_time:.1f}s)" if stt_time > 0 else user_text
 
-    # Formatiere <think> Tags als Collapsible (falls vorhanden)
-    ai_text_formatted = format_thinking_process(ai_text)
+    # Formatiere <think> Tags als Collapsible (falls vorhanden) mit Modell-Name und Inferenz-Zeit
+    ai_text_formatted = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
 
     # AI-Text wird später in step3 mit TTS-Zeit ergänzt
     history.append([user_with_time, ai_text_formatted])
@@ -801,8 +814,8 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
 
     ai_text = response['message']['content']
 
-    # Formatiere <think> Tags als Collapsible (falls vorhanden)
-    ai_text_formatted = format_thinking_process(ai_text)
+    # Formatiere <think> Tags als Collapsible (falls vorhanden) mit Modell-Name und Inferenz-Zeit
+    ai_text_formatted = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
 
     # Text-Input hat keine STT-Zeit
     history.append([text_input, ai_text_formatted])
@@ -1101,8 +1114,8 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
             else:
                 user_with_time = f"{user_text} (Entscheidung: {decision_time:.1f}s, Inferenz: {inference_time:.1f}s)"
 
-            # Formatiere <think> Tags als Collapsible (falls vorhanden)
-            ai_text_formatted = format_thinking_process(ai_text)
+            # Formatiere <think> Tags als Collapsible (falls vorhanden) mit Modell-Name und Inferenz-Zeit
+            ai_text_formatted = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
 
             history.append([user_with_time, ai_text_formatted])
             debug_print(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
