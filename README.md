@@ -143,7 +143,7 @@ SearXNG läuft nun auf `http://localhost:8888`
 
 ### 6. **Voice Assistant starten**
 ```bash
-cd /home/mp/Projekte/AIfred-Intelligence
+# Von deinem Projekt-Verzeichnis aus:
 source venv/bin/activate
 python aifred_intelligence.py
 ```
@@ -156,12 +156,22 @@ python aifred_intelligence.py
 
 ```
 AIfred-Intelligence/
-├── aifred_intelligence.py        # Haupt-App (Gradio UI + Logic)
+├── aifred_intelligence.py        # Haupt-App (Gradio UI + Orchestration)
 ├── agent_tools.py                # Agent-System (Multi-API Search, Scraping)
+├── lib/                          # Modular Library (seit v2.0.0)
+│   ├── __init__.py               # Package initialization
+│   ├── config.py                 # Central configuration & constants
+│   ├── logging_utils.py          # Debug logging utilities
+│   ├── formatting.py             # UI text formatting & <think> tag handling
+│   ├── settings_manager.py       # Settings persistence & migration
+│   ├── memory_manager.py         # Smart model loading & RAM management
+│   ├── ollama_interface.py       # Ollama & Whisper model management
+│   ├── audio_processing.py       # TTS & STT functionality
+│   └── agent_core.py             # Agent research workflows
 ├── requirements.txt              # Python Dependencies
 ├── .env.example                  # API Keys Template
 ├── .env                          # Deine API Keys (nicht in Git!)
-├── settings.json                 # User Settings (Auto-generiert)
+├── assistant_settings.json       # User Settings (Auto-generiert)
 ├── docker/
 │   └── searxng/
 │       ├── compose.yml           # SearXNG Docker Setup
