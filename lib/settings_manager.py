@@ -48,7 +48,7 @@ def load_settings():
     return DEFAULT_SETTINGS.copy()
 
 
-def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription):
+def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu):
     """
     Speichert Einstellungen in JSON-Datei
 
@@ -62,6 +62,7 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
         whisper_model: Whisper STT Model
         research_mode: Research Mode (Automatik/Aus/Schnell/Ausführlich)
         show_transcription: Transkription im Chat anzeigen (bool)
+        enable_gpu: GPU-Beschleunigung aktiviert (bool)
     """
     try:
         settings = {
@@ -73,7 +74,8 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
             "tts_engine": tts_engine,
             "whisper_model": whisper_model,
             "research_mode": research_mode,
-            "show_transcription": show_transcription
+            "show_transcription": show_transcription,
+            "enable_gpu": enable_gpu
         }
         with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)
@@ -87,6 +89,7 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
         debug_print(f"   TTS Enabled: {enable_tts}")
         debug_print(f"   Research Mode: {research_mode}")
         debug_print(f"   Show Transcription: {show_transcription}")
+        debug_print(f"   GPU Enabled: {enable_gpu}")
     except Exception as e:
         debug_print(f"❌ Fehler beim Speichern der Settings: {e}")
         import traceback

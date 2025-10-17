@@ -1,7 +1,7 @@
 # AIfred Intelligence - Dokumentations-Übersicht
 
-**Stand:** 2025-10-14
-**Status:** ✅ Portable, Renamed, Model Benchmarks in Arbeit
+**Stand:** 2025-10-17
+**Status:** ✅ Portable, Hardware-Erkennung, LLM-Parameter
 **Projekt:** AIfred Intelligence (ehemals "Voice Assistant")
 
 ---
@@ -87,6 +87,40 @@ User Query → Decision → Query Opt → Search → Rating → Scrape → Answe
 
 ### 🤖 LLM Models & Benchmarks
 
+#### [HARDWARE_DETECTION.md](HARDWARE_DETECTION.md) - Hardware-Erkennung & Portabilität ⭐ NEU
+**Status:** ✅ Aktuell (Stand: 2025-10-17)
+
+**Inhalt:**
+- Automatische GPU-Erkennung (AMD, NVIDIA, CPU-only)
+- Dynamische Parameter-Konfiguration basierend auf VRAM
+- Bekannte Hardware-Probleme (AMD iGPU + 32B = GPU Hang)
+- Context Window Größen & RAM/VRAM Verbrauch
+- Ollama Bug: Compute Buffers nicht in VRAM-Kalkulation
+- Portabilität zwischen Systemen (MiniPC vs. Hauptrechner)
+
+**Wichtig:**
+- AMD Radeon 780M crasht bei qwen3:32B mit GPU → Auto-Fallback auf CPU
+- RTX 3060 unterstützt 32B mit GPU (Hybrid-Modus)
+- Context-Größen werden dynamisch angepasst (8K-64K je nach Hardware)
+
+#### [LLM_PARAMETERS.md](LLM_PARAMETERS.md) - LLM-Parameter Guide ⭐ NEU
+**Status:** ✅ Aktuell (Stand: 2025-10-17)
+
+**Inhalt:**
+- Alle Ollama Options-Parameter erklärt (30+)
+- Sampling: temperature, top_p, top_k, min_p, typical_p
+- Repetition-Kontrolle: repeat_penalty, presence_penalty, frequency_penalty
+- Output-Kontrolle: num_predict, stop, penalize_newline
+- Context & Memory: num_ctx, num_keep, seed
+- Mirostat Sampling (fortgeschritten)
+- 6 Presets für verschiedene Aufgaben
+- Best Practices & Troubleshooting
+
+**Presets:**
+- 🎯 Fakten/Code (temp=0.3, top_p=0.5)
+- 💬 Chat (temp=0.8, top_p=0.9)
+- 🎨 Kreativ (temp=1.2, top_p=0.95)
+
 #### [LLM_COMPARISON.md](LLM_COMPARISON.md) - Model-Vergleich
 **Status:** ⚠️ Teilweise veraltet (Stand: 2025-10-13)
 
@@ -138,7 +172,18 @@ User Query → Decision → Query Opt → Search → Rating → Scrape → Answe
 
 ---
 
-## 📊 Aktueller Status (2025-10-14)
+#### [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md) - RAM/VRAM Management
+**Status:** ✅ Aktuell (Stand: 2025-10-15)
+
+**Inhalt:**
+- Smart Model Loading mit RAM-Check
+- Automatisches Entladen bei wenig Speicher
+- Signal Handler für sauberen Shutdown
+- Memory-Manager Funktionen
+
+---
+
+## 📊 Aktueller Status (2025-10-17)
 
 ### ✅ Fertiggestellt
 
@@ -171,29 +216,55 @@ User Query → Decision → Query Opt → Search → Rating → Scrape → Answe
    - ✅ MODEL_BENCHMARK_TEST.md (manuell)
    - ✅ scripts/benchmark_models.py (automatisch)
 
+6. **Hardware-Erkennung & Portabilität** ⭐ NEU (2025-10-17)
+   - ✅ Automatische GPU-Typ Erkennung (AMD/NVIDIA)
+   - ✅ VRAM-Größe via rocm-smi/nvidia-smi
+   - ✅ iGPU Detection & Stabilitäts-Check
+   - ✅ Dynamische Parameter-Konfiguration
+   - ✅ CPU-Fallback für problematische Kombinationen
+   - ✅ Context-Size an Hardware anpassen
+   - ✅ Portabel zwischen MiniPC & Hauptrechner
+
+7. **LLM-Parameter Dokumentation** ⭐ NEU (2025-10-17)
+   - ✅ Alle 30+ Ollama Options erklärt
+   - ✅ 6 Presets für verschiedene Use-Cases
+   - ✅ Best Practices & Troubleshooting
+   - ✅ API-Verwendung (Python, REST, CLI)
+
 ### 🚧 In Arbeit
 
-1. **Model Benchmarks**
-   - 🔄 Automatische Tests laufen gerade im Hintergrund
-   - ⏳ Ergebnisse werden automatisch in MD formatiert
-   - ⏳ Beste Modelle für Entscheidung finden
+1. **LLM-Parameter UI** (2025-10-17)
+   - 🔄 Accordion mit wichtigsten Parametern
+   - 🔄 Temperature, Max Tokens, Repeat Penalty, Seed
+   - 🔄 Verschachteltes Accordion für Fortgeschrittene
+   - 🔄 Integration in Chat-Interface
 
 2. **Dokumentation**
+   - ✅ HARDWARE_DETECTION.md erstellt
+   - ✅ LLM_PARAMETERS.md erstellt
    - ✅ INDEX.md aktualisiert (diese Datei)
-   - ✅ Obsolete Docs gelöscht (kein Ballast mehr!)
    - ⏳ LLM_COMPARISON.md updaten mit qwen3
 
 ### 📝 Noch zu tun
 
-1. **Dokumentation finalisieren**
+1. **LLM-Parameter UI implementieren**
+   - [ ] Accordion unterhalb Recherche-Modus
+   - [ ] 4 Basis-Parameter (Temperature, Max Tokens, Repeat, Seed)
+   - [ ] Fortgeschritten-Accordion (Top P, Top K)
+   - [ ] An ollama.chat() übergeben
+
+2. **Dokumentation finalisieren**
    - [ ] LLM_COMPARISON.md mit Benchmark-Daten updaten
    - [ ] LLM_HELP_UI.md mit qwen3-Modellen updaten
 
-2. **Git Commit**
-   - [ ] Alle Änderungen committen
-   - [ ] Push zu GitHub
+3. **Git Commit - Hardware Detection**
+   - [ ] ollama_wrapper.py (Hardware-Erkennung)
+   - [ ] Bugfix: num_ctx=128K → 8K (RAM-Limit)
+   - [ ] HARDWARE_DETECTION.md
+   - [ ] LLM_PARAMETERS.md
+   - [ ] INDEX.md Update
 
-3. **Migration testen**
+4. **Migration testen**
    - [ ] tar.gz Export erstellen
    - [ ] Auf WSL2/Hauptrechner importieren
    - [ ] Performance vergleichen (Mini-PC vs. 9900X3D)
@@ -207,7 +278,9 @@ User Query → Decision → Query Opt → Search → Rating → Scrape → Answe
 **Neu hier?**
 1. **Start:** [../README.md](../README.md) - Projekt-Übersicht
 2. **Setup:** [API_SETUP.md](API_SETUP.md) - Web-Suche konfigurieren
-3. **Models:** [MODEL_BENCHMARK_TEST.md](MODEL_BENCHMARK_TEST.md) - Welches Model?
+3. **Hardware:** [HARDWARE_DETECTION.md](HARDWARE_DETECTION.md) - GPU-Erkennung & Limits ⭐
+4. **LLM-Params:** [LLM_PARAMETERS.md](LLM_PARAMETERS.md) - Temperature & Co. ⭐
+5. **Models:** [MODEL_BENCHMARK_TEST.md](MODEL_BENCHMARK_TEST.md) - Welches Model?
 
 **Migration auf anderen Rechner?**
 - **Guide:** [MIGRATION.md](MIGRATION.md) - Schritt-für-Schritt
@@ -240,6 +313,31 @@ python scripts/benchmark_models.py
 ---
 
 ## 📈 Versions-Historie
+
+### v3.1 - Hardware Detection & LLM Parameters (2025-10-17) ⭐ NEU
+
+**Major Changes:**
+- 🔍 **Hardware-Erkennung:** Automatisch GPU-Typ, VRAM, Stabilität
+- 🎛️ **Dynamische Konfig:** Parameter basierend auf Hardware
+- 🛡️ **CPU-Fallback:** AMD iGPU + 32B = auto CPU (GPU crasht)
+- 📊 **Context Limits:** 8K-64K je nach RAM/VRAM
+- 📚 **LLM-Parameter Guide:** 30+ Parameter erklärt
+- 🐛 **Bugfix:** num_ctx=128K → 8K (RAM-Limit)
+
+**Portabilität:**
+- ✅ Gleicher Code auf MiniPC (AMD iGPU) & Hauptrechner (RTX 3060)
+- ✅ Automatische Anpassung an Hardware
+- ✅ Kein manuelles Tuning nötig
+
+**Known Issues Fixed:**
+- ✅ AMD 780M GPU Hang mit 32B → Auto CPU-Fallback
+- ✅ "model requires more system memory" → Context reduziert
+- ✅ Ollama Compute Buffers nicht in Kalkulation → Manuelles Limit
+
+**Dokumentation:**
+- ✅ HARDWARE_DETECTION.md - Vollständiger Hardware-Guide
+- ✅ LLM_PARAMETERS.md - Alle Ollama Options erklärt
+- ✅ 6 Presets für verschiedene Use-Cases
 
 ### v3.0 - Portability & Benchmarks (2025-10-14)
 
@@ -323,6 +421,6 @@ python scripts/benchmark_models.py
 
 ---
 
-**Letzte Aktualisierung:** 2025-10-14
+**Letzte Aktualisierung:** 2025-10-17
 **Autor:** Claude Code
-**Version:** 3.0 - Portability & Benchmarks Release
+**Version:** 3.1 - Hardware Detection & LLM Parameters Release

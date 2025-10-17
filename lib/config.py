@@ -44,7 +44,8 @@ DEFAULT_SETTINGS = {
     "tts_engine": "Edge TTS (Cloud, beste Qualität)",
     "whisper_model": "small (466MB, bessere Qualität, multilingual)",
     "research_mode": "🤖 Automatik (variabel, KI entscheidet)",
-    "show_transcription": False
+    "show_transcription": False,
+    "enable_gpu": True
 }
 
 # ============================================================
