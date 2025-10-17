@@ -185,7 +185,7 @@ def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
     return audio_file, gr.update(interactive=True)
 
 
-def reload_model(model_name, enable_gpu):
+def reload_model(model_name, enable_gpu, num_ctx):
     """
     Entlädt aktuelles Model und lädt es sofort mit aktueller GPU-Einstellung neu
 
@@ -197,6 +197,7 @@ def reload_model(model_name, enable_gpu):
 
     debug_print(f"🔄 Model-Reload angefordert für {model_name}")
     debug_print(f"   GPU-Einstellung: {'Aktiviert' if enable_gpu else 'CPU-only'}")
+    debug_print(f"   Context Window: {num_ctx}")
 
     # Entlade ALLE aktuell geladenen Modelle
     unload_all_models()
@@ -205,8 +206,8 @@ def reload_model(model_name, enable_gpu):
     # Lade Model mit aktueller GPU-Einstellung
     smart_model_load(model_name)
 
-    # Setze GPU-Modus für einen Test-Call
-    set_gpu_mode(enable_gpu)
+    # Setze GPU-Modus UND num_ctx für einen Test-Call
+    set_gpu_mode(enable_gpu, {'num_ctx': int(num_ctx)})
 
     # Mache einen Mini-Call um Model zu laden
     try:
@@ -374,6 +375,26 @@ table td:nth-child(3) {
     min-width: 60px !important;
     width: 60px !important;
 }
+
+/* Reload Status - Kleinere Schrift, Padding */
+.reload-status {
+    font-size: 0.85em !important;
+    padding: 8px 12px !important;
+    margin-top: 8px !important;
+    opacity: 0.9 !important;
+}
+
+/* Horizontal Radio Buttons - Context Window */
+.horizontal-radio .wrap {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 12px !important;
+    flex-wrap: wrap !important;
+}
+
+.horizontal-radio label {
+    margin: 0 !important;
+}
 """
 
 with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
@@ -456,6 +477,22 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
             # LLM-Parameter Accordion (zwischen Research-Modus und Text-Button)
             with gr.Accordion("⚙️ LLM-Parameter (Erweitert)", open=False):
                 gr.Markdown("**Steuere die Antwort-Generierung mit Sampling-Parametern**")
+
+                # Context Window ZUERST (wichtigster Parameter für VRAM!)
+                llm_num_ctx = gr.Radio(
+                    choices=[
+                        ("2k", 2048),
+                        ("4k", 4096),
+                        ("8k ⭐", 8192),
+                        ("16k", 16384),
+                        ("32k (Standard)", 32768),
+                        ("64k", 65536),
+                        ("128k", 131072)
+                    ],
+                    value=32768,
+                    label="📦 Context Window (num_ctx)",
+                    elem_classes="horizontal-radio"
+                )
 
                 with gr.Row():
                     llm_temperature = gr.Slider(
@@ -568,8 +605,8 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
                         elem_classes="reload-btn"
                     )
 
-            # Status-Nachricht für Model-Reload
-            reload_status = gr.Markdown("", visible=False)
+                # Status-Nachricht für Model-Reload (persistent, immer sichtbar)
+                reload_status = gr.Markdown("💡 *Tipp: Klicke 'Neu laden' um das Model mit aktueller GPU-Einstellung neu zu laden*", elem_classes="reload-status")
 
             # Zweites Dropdown für Automatik-Modell
             automatik_model = gr.Dropdown(
@@ -911,9 +948,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[text_input]
     ).then(
         # Schritt 2: AI Inference - Nur ai_text zeigt Fortschrittsbalken
-        lambda show_trans, user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist: \
-            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist) if not show_trans else ("", hist, 0.0),
-        inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history],
+        lambda show_trans, user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist: \
+            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx), "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist) if not show_trans else ("", hist, 0.0),
+        inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history],
         outputs=[ai_text, history, inference_time_state]
     ).then(
         # Schritt 3: TTS - Nur audio_output zeigt Fortschrittsbalken
@@ -937,9 +974,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[user_text, audio_input, text_input, text_submit]
     ).then(
         # Stufe 1: AI-Antwort generieren mit Modus-Routing (Agent oder Standard)
-        lambda txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist: \
-            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist),
-        inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history],
+        lambda txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist: \
+            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx), "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist),
+        inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history],
         outputs=[ai_text, history, inference_time_state]
     ).then(
         # Stufe 2: TTS generieren + History mit Timing aktualisieren
@@ -960,16 +997,20 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[audio_output, regenerate_audio]
     )
 
-    # Model Reload Button
-    def reload_model_handler(mdl, gpu_en):
-        """Wrapper für reload_model mit UI-Updates"""
-        status_msg = reload_model(mdl, gpu_en)
-        return gr.update(value=status_msg, visible=True), gr.update(visible=True)
-
+    # Model Reload Button mit visuellem Feedback
     reload_model_btn.click(
-        reload_model_handler,
-        inputs=[model, enable_gpu],
-        outputs=[reload_status, reload_status]
+        # Stufe 1: Zeige Loading-Status sofort
+        lambda: (gr.update(value="⏳ **Lade Model...** (entlade alte Models → lade neu mit aktueller GPU-Einstellung)"), gr.update(interactive=False)),
+        outputs=[reload_status, reload_model_btn]
+    ).then(
+        # Stufe 2: Reload durchführen mit num_ctx
+        lambda mdl, gpu, num_ctx: reload_model(mdl, gpu, num_ctx),
+        inputs=[model, enable_gpu, llm_num_ctx],
+        outputs=[reload_status]
+    ).then(
+        # Stufe 3: Button wieder aktivieren
+        lambda: gr.update(interactive=True),
+        outputs=[reload_model_btn]
     )
 
     # Clear Button - kompletter Chat

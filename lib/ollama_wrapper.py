@@ -378,18 +378,27 @@ def _patched_ollama_chat(*args, **kwargs):
                 kwargs['options']['num_ctx'] = config['num_ctx']
                 debug_print(f"🔧 [ollama.chat] Context-Limit (num_ctx={config['num_ctx']}) für {model_name}")
 
-    # Merge custom LLM-Parameter (überschreiben Hardware-Konfiguration NICHT)
+    # Merge custom LLM-Parameter (User-Eingaben überschreiben Hardware-Config!)
     if custom_options:
         if 'options' not in kwargs:
             kwargs['options'] = {}
 
-        # Füge nur Parameter hinzu, die noch nicht gesetzt sind
+        # User-Parameter haben PRIORITÄT (überschreiben Hardware-Config)
         for key, value in custom_options.items():
-            if key not in kwargs['options'] and value is not None:
-                kwargs['options'][key] = value
+            if value is not None:
+                # Spezial-Behandlung für num_ctx: User kann Hardware-Config überschreiben!
+                if key == 'num_ctx' and key in kwargs['options']:
+                    old_val = kwargs['options'][key]
+                    kwargs['options'][key] = value
+                    debug_print(f"👤 [ollama.chat] num_ctx überschrieben: {old_val} → {value} (User-Eingabe)")
+                elif key not in kwargs['options']:
+                    kwargs['options'][key] = value
 
         if custom_options:
-            debug_print(f"🎨 [ollama.chat] Custom LLM-Parameter: {custom_options}")
+            # Filtere None-Werte für sauberes Debug-Log
+            relevant = {k: v for k, v in custom_options.items() if v is not None}
+            if relevant:
+                debug_print(f"🎨 [ollama.chat] Custom LLM-Parameter: {relevant}")
 
     # Rufe originale ollama.chat() Funktion auf
     return _original_ollama_chat(*args, **kwargs)
