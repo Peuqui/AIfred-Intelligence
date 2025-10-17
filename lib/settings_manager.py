@@ -65,6 +65,24 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
         enable_gpu: GPU-Beschleunigung aktiviert (bool)
     """
     try:
+        # WICHTIG: Prüfe ob GPU-Toggle geändert wurde
+        # Wenn ja → Entlade ALLE Modelle um sicherzustellen, dass neue Config beim nächsten Load aktiv wird
+        previous_settings = {}
+        gpu_changed = False
+
+        if SETTINGS_FILE.exists():
+            try:
+                with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                    previous_settings = json.load(f)
+                    previous_gpu = previous_settings.get('enable_gpu', True)
+
+                    if previous_gpu != enable_gpu:
+                        gpu_changed = True
+                        debug_print(f"⚡ GPU-Toggle geändert: {previous_gpu} → {enable_gpu}")
+            except:
+                pass
+
+        # Speichere neue Settings
         settings = {
             "model": model,
             "automatik_model": automatik_model,
@@ -90,6 +108,14 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
         debug_print(f"   Research Mode: {research_mode}")
         debug_print(f"   Show Transcription: {show_transcription}")
         debug_print(f"   GPU Enabled: {enable_gpu}")
+
+        # Wenn GPU-Toggle geändert → Entlade Modelle JETZT
+        if gpu_changed:
+            debug_print(f"🔄 GPU-Toggle geändert → Entlade alle Modelle für Neustart mit neuer Config")
+            from .memory_manager import unload_all_models
+            unload_all_models()
+            debug_print(f"✅ Modelle entladen - nächster Request lädt mit {'GPU' if enable_gpu else 'CPU'}")
+
     except Exception as e:
         debug_print(f"❌ Fehler beim Speichern der Settings: {e}")
         import traceback

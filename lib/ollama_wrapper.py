@@ -277,7 +277,7 @@ def _get_safe_config_for_model(model_name):
 
     # === 8B Modelle ===
     elif '8b' in model_lower:
-        # ~6 GB benötigt, passt auf fast alle GPUs
+        # ~6-9 GB benötigt, passt auf fast alle GPUs
         if vram_gb >= 8:
             config['num_gpu'] = None  # Auto-Detect
             config['num_ctx'] = 32768  # 32K
@@ -370,6 +370,7 @@ def _patched_ollama_chat(*args, **kwargs):
                 kwargs['options']['num_gpu'] = config['num_gpu']
                 debug_print(f"🔧 [ollama.chat] GPU mit Layer-Limit (num_gpu={config['num_gpu']}) für {model_name}")
             elif 'num_gpu' not in kwargs['options']:
+                # Auto-Detect: KEIN num_gpu setzen → Ollama entscheidet selbst
                 debug_print(f"🔧 [ollama.chat] GPU Auto-Detect für {model_name}")
 
             # Setze num_ctx nur wenn nicht bereits vom Caller gesetzt

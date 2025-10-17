@@ -185,6 +185,59 @@ def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
     return audio_file, gr.update(interactive=True)
 
 
+def reload_model(model_name, enable_gpu):
+    """
+    Entlädt aktuelles Model und lädt es sofort mit aktueller GPU-Einstellung neu
+
+    Returns:
+        str: Status-Nachricht für den User
+    """
+    from lib.memory_manager import unload_all_models
+    import time
+
+    debug_print(f"🔄 Model-Reload angefordert für {model_name}")
+    debug_print(f"   GPU-Einstellung: {'Aktiviert' if enable_gpu else 'CPU-only'}")
+
+    # Entlade ALLE aktuell geladenen Modelle
+    unload_all_models()
+    time.sleep(1)  # Kurze Pause für sauberes Entladen
+
+    # Lade Model mit aktueller GPU-Einstellung
+    smart_model_load(model_name)
+
+    # Setze GPU-Modus für einen Test-Call
+    set_gpu_mode(enable_gpu)
+
+    # Mache einen Mini-Call um Model zu laden
+    try:
+        debug_print(f"📥 Lade {model_name} mit {'GPU' if enable_gpu else 'CPU'}...")
+        response = ollama.chat(
+            model=model_name,
+            messages=[{'role': 'user', 'content': 'Hi'}],
+            options={'num_predict': 1}  # Nur 1 Token generieren (schnell!)
+        )
+        debug_print(f"✅ {model_name} erfolgreich geladen!")
+
+        # Check VRAM usage aus Logs
+        import requests
+        ps_response = requests.get("http://localhost:11434/api/ps")
+        if ps_response.status_code == 200:
+            data = ps_response.json()
+            if 'models' in data and data['models']:
+                for model_info in data['models']:
+                    if model_info.get('name') == model_name:
+                        vram = model_info.get('size_vram', 0)  # API nutzt 'size_vram', nicht 'vram'!
+                        vram_gb = vram / (1024**3)
+                        mode = "GPU" if vram > 0 else "CPU"
+                        debug_print(f"   Mode: {mode}, VRAM: {vram_gb:.1f} GB")
+                        return f"✅ {model_name} neu geladen mit {mode} ({vram_gb:.1f} GB VRAM)"
+
+        return f"✅ {model_name} neu geladen mit {'GPU' if enable_gpu else 'CPU'}"
+    except Exception as e:
+        debug_print(f"❌ Fehler beim Laden: {e}")
+        return f"❌ Fehler beim Laden: {str(e)}"
+
+
 def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
     """
     Routing-Funktion: Entscheidet basierend auf research_mode
@@ -300,7 +353,30 @@ debug_print(f"   TTS Enabled: {saved_settings['enable_tts']}")
 debug_print("=" * 60)
 
 # Gradio Interface - Default Theme (automatisches Dark Mode je nach System)
-with gr.Blocks(title="AIfred Intelligence") as app:
+custom_css = """
+/* Button Styling - Reload Button */
+.reload-btn {
+    padding: 8px 16px !important;
+    border-radius: 8px !important;
+    margin-left: 8px !important;
+}
+
+/* Markdown Tabellen - Spaltenbreiten (Target ALLE Tabellen aggressiv!) */
+table th:nth-child(2),
+table td:nth-child(2) {
+    min-width: 110px !important;
+    width: 110px !important;
+    white-space: nowrap !important;
+}
+
+table th:nth-child(3),
+table td:nth-child(3) {
+    min-width: 60px !important;
+    width: 60px !important;
+}
+"""
+
+with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
     gr.Markdown("# 🎩 AIfred Intelligence")
     gr.Markdown("*AI at your service* • Benannt nach Alfred (Großvater) und Wolfgang Alfred (Vater)")
     gr.Markdown("""
@@ -330,8 +406,7 @@ with gr.Blocks(title="AIfred Intelligence") as app:
             # GPU Toggle Checkbox
             enable_gpu = gr.Checkbox(
                 value=saved_settings.get("enable_gpu", True),
-                label="🎮 GPU-Beschleunigung aktivieren (AMD 780M)",
-                info="An: GPU (15.3 GiB VRAM) | Aus: CPU only (langsamer, spart Strom)"
+                label="🎮 GPU-Beschleunigung aktivieren"
             )
 
             gr.Markdown("---")
@@ -475,7 +550,26 @@ with gr.Blocks(title="AIfred Intelligence") as app:
     with gr.Row():
         with gr.Column():
             gr.Markdown("### ⚙️ AI Einstellungen")
-            model = gr.Dropdown(choices=models, value=saved_settings["model"], label="🤖 Haupt-LLM (Ollama) - Finale Antwort")
+
+            # Haupt-LLM mit Reload-Button im selben Container
+            with gr.Group():
+                gr.Markdown("**🤖 Haupt-LLM (Ollama) - Finale Antwort**")
+                with gr.Row(equal_height=True):
+                    model = gr.Dropdown(
+                        choices=models,
+                        value=saved_settings["model"],
+                        show_label=False,
+                        scale=4
+                    )
+                    reload_model_btn = gr.Button(
+                        "🔄 Neu laden",
+                        variant="secondary",
+                        scale=1,
+                        elem_classes="reload-btn"
+                    )
+
+            # Status-Nachricht für Model-Reload
+            reload_status = gr.Markdown("", visible=False)
 
             # Zweites Dropdown für Automatik-Modell
             automatik_model = gr.Dropdown(
@@ -512,16 +606,23 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
             # Collapsible Hilfe für LLM-Auswahl
             with gr.Accordion("ℹ️ Welches Model soll ich wählen?", open=False):
                 gr.Markdown("""
-                | Model | Größe | RAG | Speed | Bester Einsatz |
-                |-------|-------|-----|-------|----------------|
-                | **qwen2.5:14b** | 9 GB | ✅✅✅ | Mittel | **Web-Recherche, aktuelle News** |
-                | **qwen3:8b** | 5.2 GB | ✅✅ | Schnell | Balance: Schnell + RAG-fähig |
-                | **command-r** | 18 GB | ✅✅✅ | Langsam | Enterprise RAG, lange Dokumente |
-                | **mixtral:8x7b** | 26 GB | ✅✅ | Mittel | Komplexe Tasks, Multi-Domain (MoE!) |
-                | **llama3.1:8b** | 4.9 GB | ✅ | Schnell | Allgemein, zuverlässig |
-                | **mistral** | 4.4 GB | ✅ | Schnell | Code, Instruktionen, effizient |
-                | **llama2:13b** | 7.4 GB | ⚠️ | Mittel | Wissen (mischt 78% RAG + 22% Training Data) |
-                | **llama3.2:3b** | 2 GB | ❌ | Sehr schnell | Einfache Fragen (ignoriert RAG oft!) |
+                | Model | Größe | RAG | Besonderheit |
+                |-------|----------------|-----|--------------|
+                | <nobr>**qwen2.5:14b**</nobr> | 9&nbsp;GB | ✅✅✅ | 💎 Perfekt für Web-Recherche (100% RAG, 0% Training Data), zitiert URLs |
+                | <nobr>**qwen3:32b**</nobr> | 20&nbsp;GB | ✅✅✅ | 🏆 Beste Qualität, größtes Qwen3-Model, sehr tiefes Reasoning |
+                | <nobr>**qwen3:8b**</nobr> | 5.2&nbsp;GB | ✅✅ | ⚡ Beste Balance: Schnell + RAG-fähig, täglicher Driver |
+                | <nobr>**qwen3:4b**</nobr> | 2.5&nbsp;GB | ✅✅ | 🚀 Kompakt & effizient, gut für Quick-Recherche |
+                | <nobr>**qwen3:1.7b**</nobr> | 1.4&nbsp;GB | ✅ | ⚡⚡ Ultra-schnell, ideal für URL-Bewertung & Entscheidungen |
+                | <nobr>**qwen3:0.6b**</nobr> | 522&nbsp;MB | ⚠️ | 🐣 Kleinster Qwen3, nur für einfachste Tasks |
+                | <nobr>**qwen2.5:32b**</nobr> | 19&nbsp;GB | ✅✅✅ | 🎯 Große Qwen 2.5 Version, ähnlich zu qwen3:32b |
+                | <nobr>**qwen2.5:3b**</nobr> | 1.9&nbsp;GB | ✅ | 💨 Klein & schnell, Qwen 2.5 Linie, kompakter als qwen3:4b |
+                | <nobr>**qwen2.5:0.5b**</nobr> | 397&nbsp;MB | ⚠️ | 🐣 Kleinster Qwen 2.5, sehr begrenzte Fähigkeiten |
+                | <nobr>**command-r**</nobr> | 18&nbsp;GB | ✅✅✅ | 📚 Enterprise RAG-Spezialist, beste für lange Dokumente (128k Context!) |
+                | <nobr>**mixtral:8x7b**</nobr> | 26&nbsp;GB | ✅✅ | 🧩 8 Experten (Code, Mathe, Sprachen), aktiviert nur nötige (MoE-Architektur!) |
+                | <nobr>**llama3.1:8b**</nobr> | 4.9&nbsp;GB | ✅ | 🛡️ Meta's solides Allround-Model, zuverlässig & etabliert |
+                | <nobr>**llama3.2:3b**</nobr> | 2&nbsp;GB | ❌ | ⚠️ Klein & schnell, aber ignoriert RAG oft (nur für Tests!) |
+                | <nobr>**llama2:13b**</nobr> | 7.4&nbsp;GB | ⚠️ | 📊 Alt aber groß, mischt RAG mit Training (78%/22%), ungenau bei News |
+                | <nobr>**mistral**</nobr> | 4.4&nbsp;GB | ✅ | 💻 Code-Spezialist, exzellentes Instruction-Following, effizient |
 
                 ---
 
@@ -857,6 +958,18 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         regenerate_tts,
         inputs=[ai_text, voice, tts_speed, enable_tts, tts_engine],
         outputs=[audio_output, regenerate_audio]
+    )
+
+    # Model Reload Button
+    def reload_model_handler(mdl, gpu_en):
+        """Wrapper für reload_model mit UI-Updates"""
+        status_msg = reload_model(mdl, gpu_en)
+        return gr.update(value=status_msg, visible=True), gr.update(visible=True)
+
+    reload_model_btn.click(
+        reload_model_handler,
+        inputs=[model, enable_gpu],
+        outputs=[reload_status, reload_status]
     )
 
     # Clear Button - kompletter Chat
