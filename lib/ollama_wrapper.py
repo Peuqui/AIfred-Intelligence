@@ -251,6 +251,30 @@ def _get_safe_config_for_model(model_name):
             config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → 14B braucht ~9 GB"
         return config
 
+    # === 13B Modelle (llama2:13b) ===
+    elif '13b' in model_lower:
+        # ~7.4 GB benötigt, aber nur 4K Context!
+        if vram_gb >= 8:
+            config['num_gpu'] = None  # Auto-Detect
+            config['num_ctx'] = 4096  # llama2:13b hat nur 4K Context
+        else:
+            config['force_cpu'] = True
+            config['num_ctx'] = 4096
+            config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → 13B braucht ~8 GB"
+        return config
+
+    # === Mixtral 8x7B (special case: Mixture-of-Experts) ===
+    elif 'mixtral' in model_lower or ('8x7b' in model_lower):
+        # 26 GB Model, braucht >24 GB VRAM für GPU
+        if vram_gb >= 24:
+            config['num_gpu'] = None  # Auto-Detect
+            config['num_ctx'] = 32768  # 32K
+        else:
+            config['force_cpu'] = True
+            config['num_ctx'] = 32768  # CPU mit 32K Context
+            config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → Mixtral braucht min. 24 GB → CPU-only"
+        return config
+
     # === 8B Modelle ===
     elif '8b' in model_lower:
         # ~6 GB benötigt, passt auf fast alle GPUs
@@ -268,8 +292,15 @@ def _get_safe_config_for_model(model_name):
         config['num_ctx'] = 32768  # Natives Max
         return config
 
+    # === 3B Modelle ===
+    elif '3b' in model_lower:
+        # ~2 GB benötigt
+        config['num_gpu'] = None
+        config['num_ctx'] = 32768  # Natives Max
+        return config
+
     # === Kleine Modelle (≤2B) ===
-    elif '1.7b' in model_lower or '0.6b' in model_lower:
+    elif '1.7b' in model_lower or '0.6b' in model_lower or '0.5b' in model_lower:
         # ~1-2 GB benötigt
         config['num_gpu'] = None
         config['num_ctx'] = 32768  # Natives Max
@@ -277,7 +308,8 @@ def _get_safe_config_for_model(model_name):
 
     # === Unbekanntes Modell ===
     else:
-        # Sichere Defaults
+        # Sichere Defaults für unbekannte Modelle (command-r, mistral, etc.)
+        # Lasse Ollama auto-detect machen
         config['num_gpu'] = None
         config['num_ctx'] = None
         return config
