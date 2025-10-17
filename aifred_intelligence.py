@@ -45,7 +45,7 @@ def chat_audio_step1_transcribe(audio, whisper_model_choice):
     return user_text, stt_time
 
 
-def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history):
+def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
     """Schritt 2: AI-Antwort generieren mit Zeitmessung (ohne Agent)"""
     if not user_text:
         return "", history, 0.0
@@ -71,8 +71,8 @@ def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_c
     # Smart Model Loading: Entlade kleine Modelle wenn großes Modell kommt
     smart_model_load(model_choice)
 
-    # GPU-Modus setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
-    set_gpu_mode(enable_gpu)
+    # GPU-Modus und LLM-Parameter setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
+    set_gpu_mode(enable_gpu, llm_options)
 
     # Zeit messen
     start_time = time.time()
@@ -121,7 +121,7 @@ def chat_audio_step3_tts(ai_text, inference_time, voice_choice, speed_choice, en
     return audio_file, history
 
 
-def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history):
+def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
     """Text-Chat: AI-Antwort generieren mit Zeitmessung (ohne Agent)"""
     if not text_input:
         return "", history, 0.0
@@ -147,8 +147,8 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
     # Smart Model Loading vor Ollama-Call
     smart_model_load(model_choice)
 
-    # GPU-Modus setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
-    set_gpu_mode(enable_gpu)
+    # GPU-Modus und LLM-Parameter setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
+    set_gpu_mode(enable_gpu, llm_options)
 
     # Zeit messen
     start_time = time.time()
@@ -185,7 +185,7 @@ def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
     return audio_file, gr.update(interactive=True)
 
 
-def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history):
+def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
     """
     Routing-Funktion: Entscheidet basierend auf research_mode
 
@@ -200,7 +200,7 @@ def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice,
     if "Eigenes Wissen" in research_mode:
         # Standard-Pipeline ohne Agent
         debug_print(f"🧠 Modus: Eigenes Wissen (kein Agent)")
-        return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history)
+        return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
     elif "Schnell" in research_mode:
         # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
@@ -220,15 +220,15 @@ def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice,
         except:
             # Fallback wenn Fehler
             debug_print("⚠️ Fallback zu Eigenes Wissen")
-            return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history)
+            return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
     else:
         # Fallback: Eigenes Wissen
         debug_print(f"⚠️ Unbekannter Modus: {research_mode}, fallback zu Eigenes Wissen")
-        return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history)
+        return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
 
-def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history):
+def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
     """
     Text-Chat mit Modus-Routing (ohne STT-Zeit)
 
@@ -243,7 +243,7 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
     if "Eigenes Wissen" in research_mode:
         # Standard-Pipeline ohne Agent
         debug_print(f"🧠 Modus: Eigenes Wissen (kein Agent)")
-        return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history)
+        return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
     elif "Schnell" in research_mode:
         # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
@@ -263,12 +263,12 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
         except:
             # Fallback wenn Fehler
             debug_print("⚠️ Fallback zu Eigenes Wissen")
-            return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history)
+            return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
     else:
         # Fallback: Eigenes Wissen
         debug_print(f"⚠️ Unbekannter Modus: {research_mode}, fallback zu Eigenes Wissen")
-        return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, history)
+        return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
 
 # ============================================================
@@ -376,6 +376,71 @@ with gr.Blocks(title="AIfred Intelligence") as app:
 3. SearXNG (Unlimited) - Last Resort
 
 *Aktuell aktiv: SearXNG (setup Brave/Tavily in .env)*
+""")
+
+            # LLM-Parameter Accordion (zwischen Research-Modus und Text-Button)
+            with gr.Accordion("⚙️ LLM-Parameter (Erweitert)", open=False):
+                gr.Markdown("**Steuere die Antwort-Generierung mit Sampling-Parametern**")
+
+                with gr.Row():
+                    llm_temperature = gr.Slider(
+                        minimum=0.0,
+                        maximum=2.0,
+                        value=0.8,
+                        step=0.1,
+                        label="🌡️ Temperature",
+                        info="Kreativität: 0.0 = deterministisch, 0.8 = ausgewogen, 1.5+ = sehr kreativ"
+                    )
+                    llm_num_predict = gr.Number(
+                        value=-1,
+                        label="📏 Max Tokens",
+                        info="-1 = unbegrenzt, 100-500 = kurz, 1000+ = lang",
+                        precision=0
+                    )
+
+                with gr.Row():
+                    llm_repeat_penalty = gr.Slider(
+                        minimum=1.0,
+                        maximum=2.0,
+                        value=1.1,
+                        step=0.05,
+                        label="🔁 Repeat Penalty",
+                        info="Wiederholungs-Vermeidung: 1.0 = aus, 1.1 = leicht, 1.5+ = stark"
+                    )
+                    llm_seed = gr.Number(
+                        value=-1,
+                        label="🎲 Seed",
+                        info="-1 = zufällig, fester Wert = reproduzierbar",
+                        precision=0
+                    )
+
+                # Nested Accordion für fortgeschrittene Parameter
+                with gr.Accordion("🔧 Fortgeschrittene Parameter", open=False):
+                    gr.Markdown("**Sampling-Strategien für Feintuning**")
+
+                    with gr.Row():
+                        llm_top_p = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            value=0.9,
+                            step=0.05,
+                            label="🎯 Top P (Nucleus Sampling)",
+                            info="0.9 = Standard, 0.5 = fokussiert, 0.95+ = diverse"
+                        )
+                        llm_top_k = gr.Slider(
+                            minimum=1,
+                            maximum=100,
+                            value=40,
+                            step=1,
+                            label="🔝 Top K",
+                            info="Anzahl Kandidaten: 40 = Standard, 10 = fokussiert, 80+ = diverse"
+                        )
+
+                    gr.Markdown("""
+**Tipps:**
+- **Fakten/Code:** temp=0.3, top_p=0.5 (präzise)
+- **Chat:** temp=0.8, top_p=0.9 (ausgewogen)
+- **Kreativ:** temp=1.2, top_p=0.95 (vielfältig)
 """)
 
             text_submit = gr.Button("Text senden", variant="primary")
@@ -745,9 +810,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[text_input]
     ).then(
         # Schritt 2: AI Inference - Nur ai_text zeigt Fortschrittsbalken
-        lambda show_trans, user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, hist: \
-            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, hist) if not show_trans else ("", hist, 0.0),
-        inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, history],
+        lambda show_trans, user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist: \
+            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist) if not show_trans else ("", hist, 0.0),
+        inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history],
         outputs=[ai_text, history, inference_time_state]
     ).then(
         # Schritt 3: TTS - Nur audio_output zeigt Fortschrittsbalken
@@ -771,8 +836,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[user_text, audio_input, text_input, text_submit]
     ).then(
         # Stufe 1: AI-Antwort generieren mit Modus-Routing (Agent oder Standard)
-        chat_text_step1_with_mode,
-        inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, history],
+        lambda txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist: \
+            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist),
+        inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history],
         outputs=[ai_text, history, inference_time_state]
     ).then(
         # Stufe 2: TTS generieren + History mit Timing aktualisieren

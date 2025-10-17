@@ -28,7 +28,7 @@ import subprocess
 from .logging_utils import debug_print
 from threading import local
 
-# Thread-local storage für GPU-Einstellung
+# Thread-local storage für GPU-Einstellung und LLM-Parameter
 _thread_local = local()
 
 # Original ollama.chat function (wird beim ersten Import gespeichert)
@@ -285,16 +285,18 @@ def _get_safe_config_for_model(model_name):
 
 def _patched_ollama_chat(*args, **kwargs):
     """
-    Patched ollama.chat() that automatically injects num_gpu and num_ctx parameters
-    based on current GPU mode setting, model capabilities, and hardware detection.
+    Patched ollama.chat() that automatically injects num_gpu, num_ctx, and custom LLM parameters
+    based on current GPU mode setting, model capabilities, hardware detection, and user preferences.
 
     Features:
     - Automatic CPU fallback for problematic model+hardware combinations
     - Dynamic VRAM-based configuration
     - Portable across different GPU types
+    - Custom LLM parameters (temperature, top_p, top_k, etc.)
     """
-    # Hole aktuellen GPU-Modus aus Thread-Local-Storage
+    # Hole aktuellen GPU-Modus und custom Parameter aus Thread-Local-Storage
     enable_gpu = getattr(_thread_local, 'enable_gpu', None)
+    custom_options = getattr(_thread_local, 'custom_options', {})
 
     if enable_gpu is not None:
         if 'options' not in kwargs:
@@ -343,6 +345,19 @@ def _patched_ollama_chat(*args, **kwargs):
                 kwargs['options']['num_ctx'] = config['num_ctx']
                 debug_print(f"🔧 [ollama.chat] Context-Limit (num_ctx={config['num_ctx']}) für {model_name}")
 
+    # Merge custom LLM-Parameter (überschreiben Hardware-Konfiguration NICHT)
+    if custom_options:
+        if 'options' not in kwargs:
+            kwargs['options'] = {}
+
+        # Füge nur Parameter hinzu, die noch nicht gesetzt sind
+        for key, value in custom_options.items():
+            if key not in kwargs['options'] and value is not None:
+                kwargs['options'][key] = value
+
+        if custom_options:
+            debug_print(f"🎨 [ollama.chat] Custom LLM-Parameter: {custom_options}")
+
     # Rufe originale ollama.chat() Funktion auf
     return _original_ollama_chat(*args, **kwargs)
 
@@ -351,33 +366,47 @@ def _patched_ollama_chat(*args, **kwargs):
 ollama.chat = _patched_ollama_chat
 
 
-def set_gpu_mode(enable_gpu=True):
+def set_gpu_mode(enable_gpu=True, llm_options=None):
     """
-    Setzt GPU-Modus für den aktuellen Request/Thread
+    Setzt GPU-Modus und optionale LLM-Parameter für den aktuellen Request/Thread
 
     Args:
         enable_gpu: True = GPU aktiv, False = CPU only
+        llm_options: dict mit LLM-Parametern (temperature, top_p, top_k, num_predict, etc.)
 
     WICHTIG: Muss am Anfang jeder Request-Funktion aufgerufen werden!
     Nach diesem Aufruf werden ALLE ollama.chat() Calls automatisch
-    mit dem korrekten num_gpu Parameter versehen.
+    mit den korrekten Parametern versehen.
+
+    Beispiel:
+        set_gpu_mode(True, {"temperature": 0.8, "top_p": 0.9, "num_predict": 200})
     """
     _thread_local.enable_gpu = enable_gpu
+    _thread_local.custom_options = llm_options or {}
 
     if enable_gpu:
         debug_print(f"✅ [GPU Mode] GPU-Beschleunigung aktiviert für diesen Request")
     else:
         debug_print(f"🖥️  [GPU Mode] CPU-only Modus aktiviert für diesen Request")
 
+    if llm_options:
+        # Filtere nur relevante Parameter für Debug-Ausgabe
+        relevant = {k: v for k, v in llm_options.items() if v is not None}
+        if relevant:
+            debug_print(f"🎨 [LLM Options] Custom Parameter: {relevant}")
+
 
 def clear_gpu_mode():
     """
-    Räumt GPU-Einstellung auf (nach Request)
+    Räumt GPU-Einstellung und LLM-Parameter auf (nach Request)
     """
     if hasattr(_thread_local, 'enable_gpu'):
         was_gpu = _thread_local.enable_gpu
         del _thread_local.enable_gpu
         debug_print(f"🔧 [GPU Mode] Cleanup - {'GPU' if was_gpu else 'CPU'} Modus beendet")
+
+    if hasattr(_thread_local, 'custom_options'):
+        del _thread_local.custom_options
 
 
 def get_gpu_mode():
