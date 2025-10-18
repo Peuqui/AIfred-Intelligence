@@ -17,13 +17,14 @@ from .memory_manager import smart_model_load
 from .logging_utils import debug_print
 
 
-def optimize_search_query(user_text, automatik_model):
+def optimize_search_query(user_text, automatik_model, history=None):
     """
     Extrahiert optimierte Suchbegriffe aus User-Frage
 
     Args:
         user_text: Volle User-Frage (kann lang sein)
         automatik_model: Automatik-LLM für Query-Optimierung
+        history: Chat History (optional, für Kontext bei Nachfragen)
 
     Returns:
         tuple: (optimized_query, reasoning_content)
@@ -78,10 +79,27 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
         # Smart Model Loading vor Ollama-Call
         smart_model_load(automatik_model)
 
+        # Baue Messages mit History (letzte 2-3 Turns für Kontext bei Nachfragen)
+        messages = []
+        if history:
+            for h in history[-3:]:  # Letzte 3 Turns = genug für Nachfragen
+                user_msg = h[0].split(" (STT:")[0].split(" (Entscheidung:")[0].split(" (Agent:")[0]
+                ai_msg = h[1].split(" (Inferenz:")[0]
+                messages.extend([
+                    {'role': 'user', 'content': user_msg},
+                    {'role': 'assistant', 'content': ai_msg}
+                ])
+
+        # Aktuelle Frage mit Query-Optimierungs-Prompt
+        messages.append({'role': 'user', 'content': prompt})
+
         response = ollama.chat(
             model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}],
-            options={'temperature': 0.3}  # Leicht kreativ für Keywords, aber stabil
+            messages=messages,
+            options={
+                'temperature': 0.3,  # Leicht kreativ für Keywords, aber stabil
+                'num_ctx': 8192      # Großes Context-Fenster für History
+            }
         )
 
         raw_response = response['message']['content'].strip()
@@ -258,7 +276,7 @@ Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
         return [{'url': url, 'score': 5, 'reasoning': 'Rating fehlgeschlagen'} for url in urls]
 
 
-def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_model, history):
+def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_model, history, session_id=None):
     """
     Agent-Recherche mit AI-basierter URL-Bewertung
 
@@ -269,6 +287,7 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
         model_choice: Haupt-LLM für finale Antwort
         automatik_model: Automatik-LLM für Query-Opt & URL-Rating
         history: Chat History
+        session_id: Session-ID für Research-Cache (optional)
 
     Returns:
         tuple: (ai_text, history, inference_time)
@@ -277,9 +296,113 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
     agent_start = time.time()
     tool_results = []
 
-    # 1. Query Optimization: KI extrahiert Keywords (mit Zeitmessung)
+    # DEBUG: Session-ID prüfen
+    debug_print(f"🔍 DEBUG: session_id = {session_id} (type: {type(session_id)})")
+
+    # 0. Cache-Check: User fragt nach spezifischer Quelle aus vorheriger Recherche?
+    import re
+    import sys
+
+    # Prüfe ob User nach "Quelle X" fragt
+    source_match = re.search(r'(?:quelle|source)\s*(\d+)', user_text.lower())
+    cached_sources = None
+
+    if source_match:
+        debug_print(f"🔍 DEBUG: source_match gefunden! Quelle {source_match.group(1)}")
+
+    if source_match and session_id:
+        # User fragt nach spezifischer Quelle - checke Cache
+        source_num = int(source_match.group(1))
+
+        # Versuche __main__ (Gradio startet App als main) oder aifred_intelligence
+        main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
+
+        if main_module and hasattr(main_module, 'research_cache') and session_id in main_module.research_cache:
+                cache_entry = main_module.research_cache[session_id]
+                cached_sources = cache_entry.get('scraped_sources', [])
+
+                if cached_sources and 0 < source_num <= len(cached_sources):
+                    debug_print(f"💾 Cache-Hit! Nutze gecachte Quelle {source_num} (Session {session_id[:8]}...)")
+                    debug_print(f"   Ursprüngliche Frage: {cache_entry.get('user_text', 'N/A')[:80]}...")
+                    debug_print(f"   Cache enthält {len(cached_sources)} Quellen")
+
+                    # Nutze NUR die gewünschte Quelle aus dem Cache
+                    selected_source = cached_sources[source_num - 1]
+                    tool_results = [selected_source]  # Nur diese eine Quelle
+
+                    # Springe direkt zur Context-Building (überspringen Web-Suche + Scraping)
+                    scraped_only = tool_results
+                    context = build_context(user_text, scraped_only, max_length=4000)
+
+                    # System-Prompt anpassen für Nachfrage
+                    system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
+
+Der User hat nach Details zu einer spezifischen Quelle aus einer vorherigen Recherche gefragt.
+
+# AUFGABE:
+- Beantworte die Nachfrage AUSFÜHRLICH basierend auf den Daten aus der gewünschten Quelle
+- Gehe auf ALLE Details ein, die in der Quelle stehen
+- Zitiere konkrete Fakten: Namen, Zahlen, Daten, Versionen
+- ⚠️ WICHTIG: Nutze NUR Informationen die EXPLIZIT in der Quelle stehen!
+- ❌ KEINE Halluzinationen oder Erfindungen!
+
+# QUELLE {source_num}:
+
+{context}
+
+# ANTWORT-STIL:
+- Beginne mit: "Basierend auf Quelle {source_num}..."
+- Sehr detailliert (3-5 Absätze)
+- Konkrete Details nennen
+- Logisch strukturiert
+- Deutsch"""
+
+                    # Generiere Antwort mit Cache-Daten (gleicher Code wie normale Antwort-Generierung)
+                    messages = []
+
+                    # History hinzufügen (falls vorhanden)
+                    for h in history:
+                        user_msg = h[0].split(" (STT:")[0].split(" (Agent:")[0] if " (STT:" in h[0] or " (Agent:" in h[0] else h[0]
+                        ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
+                        messages.extend([
+                            {'role': 'user', 'content': user_msg},
+                            {'role': 'assistant', 'content': ai_msg}
+                        ])
+
+                    # System-Prompt + aktuelle User-Frage
+                    messages.insert(0, {'role': 'system', 'content': system_prompt})
+                    messages.append({'role': 'user', 'content': user_text})
+
+                    # Smart Model Loading
+                    smart_model_load(model_choice)
+
+                    llm_start = time.time()
+                    response = ollama.chat(model=model_choice, messages=messages)
+                    llm_time = time.time() - llm_start
+
+                    final_answer = response['message']['content']
+
+                    total_time = time.time() - agent_start
+
+                    # Zeitmessung-Text
+                    timing_text = f" (Cache-Hit: {total_time:.1f}s = LLM {llm_time:.1f}s)"
+                    ai_text_with_timing = final_answer + timing_text
+
+                    # Update History
+                    user_display = f"{user_text} (Agent: Cache-Hit, Quelle {source_num})"
+                    ai_display = ai_text_with_timing
+                    history.append([user_display, ai_display])
+
+                    debug_print(f"✅ Cache-basierte Antwort fertig in {total_time:.1f}s")
+                    return (ai_text_with_timing, history, total_time)
+                else:
+                    debug_print(f"⚠️ Cache vorhanden, aber Quelle {source_num} nicht gefunden (nur {len(cached_sources)} Quellen im Cache)")
+        else:
+            debug_print(f"⚠️ Kein Cache für Session {session_id[:8]}... gefunden")
+
+    # 1. Query Optimization: KI extrahiert Keywords (mit Zeitmessung und History-Kontext!)
     query_opt_start = time.time()
-    optimized_query, query_reasoning = optimize_search_query(user_text, automatik_model)
+    optimized_query, query_reasoning = optimize_search_query(user_text, automatik_model, history)
     query_opt_time = time.time() - query_opt_start
 
     # 2. Web-Suche (Brave → Tavily → SearXNG Fallback) mit optimierter Query
@@ -401,8 +524,8 @@ REGELN (KEINE AUSNAHMEN!):
 - LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
 
   **Quellen:**
-  1. Quelle 1: https://... (Thema: [Was wurde dort behandelt])
-  2. Quelle 2: https://... (Thema: [Was wurde dort behandelt])
+  - Quelle 1: https://... (Thema: [Was wurde dort behandelt])
+  - Quelle 2: https://... (Thema: [Was wurde dort behandelt])
 
 - ❌ NENNE KEINE URLs die NICHT in den Recherche-Ergebnissen oben stehen!
 - Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
@@ -445,6 +568,27 @@ REGELN (KEINE AUSNAHMEN!):
 
     history.append([user_with_time, ai_text_formatted])
 
+    # Speichere Scraping-Daten im Cache (für Nachfragen)
+    debug_print(f"🔍 DEBUG Cache-Speicherung: session_id = {session_id}, scraped_only = {len(scraped_only)} Quellen")
+    if session_id:
+        # Import research_cache from main (Gradio startet als __main__)
+        import sys
+        main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
+        debug_print(f"🔍 DEBUG: main_module = {main_module}, hasattr research_cache = {hasattr(main_module, 'research_cache') if main_module else 'N/A'}")
+
+        if main_module and hasattr(main_module, 'research_cache'):
+            main_module.research_cache[session_id] = {
+                'timestamp': time.time(),
+                'user_text': user_text,
+                'scraped_sources': scraped_only,  # Vollständige Rohdaten!
+                'mode': mode
+            }
+            debug_print(f"💾 Research-Cache gespeichert für Session {session_id[:8]}... ({len(scraped_only)} Quellen)")
+        else:
+            debug_print(f"⚠️ DEBUG: research_cache nicht gefunden! Kein Cache gespeichert.")
+    else:
+        debug_print(f"⚠️ DEBUG: session_id ist None - kein Cache!")
+
     debug_print(f"✅ Agent fertig: {agent_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     debug_print("=" * 60)
     debug_print("═" * 80)  # Separator nach jeder Anfrage
@@ -452,7 +596,7 @@ REGELN (KEINE AUSNAHMEN!):
     return ai_text, history, inference_time
 
 
-def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history):
+def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id=None):
     """
     Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
 
@@ -463,6 +607,7 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
         automatik_model: Automatik-LLM für Entscheidung
         voice_choice, speed_choice, enable_tts, tts_engine: Für Fallback zu Eigenes Wissen
         history: Chat History
+        session_id: Session-ID für Research-Cache (optional)
 
     Returns:
         tuple: (ai_text, history, inference_time)
@@ -513,11 +658,27 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
         # Smart Model Loading vor Ollama-Call
         smart_model_load(automatik_model)
 
+        # Baue Messages mit History (letzte 2-3 Turns für Kontext)
+        messages = []
+        for h in history[-3:]:  # Letzte 3 Turns = genug für Nachfragen
+            user_msg = h[0].split(" (STT:")[0].split(" (Entscheidung:")[0].split(" (Agent:")[0]
+            ai_msg = h[1].split(" (Inferenz:")[0]
+            messages.extend([
+                {'role': 'user', 'content': user_msg},
+                {'role': 'assistant', 'content': ai_msg}
+            ])
+
+        # Aktuelle Frage mit Decision-Prompt
+        messages.append({'role': 'user', 'content': decision_prompt})
+
         decision_start = time.time()
         response = ollama.chat(
             model=automatik_model,
-            messages=[{'role': 'user', 'content': decision_prompt}],
-            options={'temperature': 0.2}  # Niedrig für konsistente yes/no Entscheidungen
+            messages=messages,
+            options={
+                'temperature': 0.2,  # Niedrig für konsistente yes/no Entscheidungen
+                'num_ctx': 8192      # Großes Context-Fenster für History
+            }
         )
         decision_time = time.time() - decision_start
 
@@ -528,7 +689,7 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
         # Parse Entscheidung
         if '<search>yes</search>' in decision or 'yes' in decision:
             debug_print("✅ KI entscheidet: Web-Recherche nötig → Web-Suche Ausführlich (5 Quellen)")
-            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history)
+            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id)
         else:
             debug_print("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
 

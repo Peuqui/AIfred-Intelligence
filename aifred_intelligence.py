@@ -3,6 +3,7 @@ import ollama
 import asyncio
 import os
 import time
+import uuid
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -27,6 +28,11 @@ from lib.ollama_wrapper import set_gpu_mode, clear_gpu_mode
 
 # Agent Tools (already external)
 from agent_tools import search_web, scrape_webpage, build_context
+
+# ============================================================
+# GLOBAL RESEARCH CACHE (RAM-basiert, Session-spezifisch)
+# ============================================================
+research_cache = {}  # {session_id: {'timestamp': ..., 'scraped_sources': [...], 'user_text': ...}}
 
 
 
@@ -243,7 +249,7 @@ def reload_model(model_name, enable_gpu, num_ctx):
         return f"❌ Fehler beim Laden: {str(e)}"
 
 
-def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
+def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history, session_id=None):
     """
     Routing-Funktion: Entscheidet basierend auf research_mode
 
@@ -263,18 +269,18 @@ def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice,
     elif "Schnell" in research_mode:
         # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
         debug_print(f"⚡ Modus: Web-Suche Schnell (Agent)")
-        return perform_agent_research(user_text, stt_time, "quick", model_choice, automatik_model, history)
+        return perform_agent_research(user_text, stt_time, "quick", model_choice, automatik_model, history, session_id)
 
     elif "Ausführlich" in research_mode:
         # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 5 URLs
         debug_print(f"🔍 Modus: Web-Suche Ausführlich (Agent)")
-        return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history)
+        return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id)
 
     elif "Automatik" in research_mode:
         # Automatik-Modus: KI entscheidet selbst, ob Recherche nötig
         debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
         try:
-            return chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history)
+            return chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id)
         except:
             # Fallback wenn Fehler
             debug_print("⚠️ Fallback zu Eigenes Wissen")
@@ -286,7 +292,7 @@ def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice,
         return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
 
-def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
+def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history, session_id=None):
     """
     Text-Chat mit Modus-Routing (ohne STT-Zeit)
 
@@ -306,18 +312,18 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
     elif "Schnell" in research_mode:
         # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
         debug_print(f"⚡ Modus: Web-Suche Schnell (Agent)")
-        return perform_agent_research(text_input, 0.0, "quick", model_choice, automatik_model, history)
+        return perform_agent_research(text_input, 0.0, "quick", model_choice, automatik_model, history, session_id)
 
     elif "Ausführlich" in research_mode:
         # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 5 URLs
         debug_print(f"🔍 Modus: Web-Suche Ausführlich (Agent)")
-        return perform_agent_research(text_input, 0.0, "deep", model_choice, automatik_model, history)
+        return perform_agent_research(text_input, 0.0, "deep", model_choice, automatik_model, history, session_id)
 
     elif "Automatik" in research_mode:
         # Automatik-Modus: KI entscheidet selbst, ob Recherche nötig
         debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
         try:
-            return chat_interactive_mode(text_input, 0.0, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history)
+            return chat_interactive_mode(text_input, 0.0, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id)
         except:
             # Fallback wenn Fehler
             debug_print("⚠️ Fallback zu Eigenes Wissen")
@@ -562,6 +568,7 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
 """)
 
             text_submit = gr.Button("Text senden", variant="primary")
+            clear = gr.Button("🗑️ Chat & Cache löschen", variant="secondary", size="sm")
 
         with gr.Column():
             user_text = gr.Textbox(label="Eingabe:", lines=3, interactive=False)
@@ -855,7 +862,8 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
             Klicke mehrmals darauf um zwischen 1x → 1.25x → 1.5x → 1.75x → 2x zu wechseln.
             """)
 
-    clear = gr.Button("🗑️ Chat komplett löschen", variant="secondary", size="sm")
+    # Session-ID State für Research-Cache
+    session_id = gr.State(lambda: str(uuid.uuid4()))
 
     # State für vorheriges Model (um Separator zu zeigen)
     previous_model = gr.State(saved_settings["model"])
@@ -997,9 +1005,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[text_input]
     ).then(
         # Schritt 2: AI Inference - Nur ai_text zeigt Fortschrittsbalken
-        lambda show_trans, user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist: \
-            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx), "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist) if not show_trans else ("", hist, 0.0),
-        inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history],
+        lambda show_trans, user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist, sess_id: \
+            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx), "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist, sess_id) if not show_trans else ("", hist, 0.0),
+        inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id],
         outputs=[ai_text, history, inference_time_state]
     ).then(
         # Schritt 3: TTS - Nur audio_output zeigt Fortschrittsbalken
@@ -1023,9 +1031,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[user_text, audio_input, text_input, text_submit]
     ).then(
         # Stufe 1: AI-Antwort generieren mit Modus-Routing (Agent oder Standard)
-        lambda txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist: \
-            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx), "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist),
-        inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history],
+        lambda txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist, sess_id: \
+            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx), "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist, sess_id),
+        inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id],
         outputs=[ai_text, history, inference_time_state]
     ).then(
         # Stufe 2: TTS generieren + History mit Timing aktualisieren
@@ -1062,13 +1070,19 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[reload_model_btn]
     )
 
-    # Clear Button - kompletter Chat
+    # Clear Button - kompletter Chat + Research-Cache löschen
+    def clear_chat_and_cache(sess_id):
+        """Löscht Chat-History UND Research-Cache für diese Session"""
+        global research_cache
+        if sess_id in research_cache:
+            del research_cache[sess_id]
+            debug_print(f"🗑️ Research-Cache gelöscht für Session {sess_id[:8]}...")
+        return (None, "", "", "", None, [], "idle", gr.update(interactive=False), [])
+
     clear.click(
-        lambda: (None, "", "", "", None, [], "idle", gr.update(interactive=False)),
-        outputs=[audio_input, text_input, user_text, ai_text, audio_output, chatbot, recording_state, regenerate_audio]
-    ).then(
-        lambda: [],
-        outputs=[history]
+        clear_chat_and_cache,
+        inputs=[session_id],
+        outputs=[audio_input, text_input, user_text, ai_text, audio_output, chatbot, recording_state, regenerate_audio, history]
     )
 
 import ssl
