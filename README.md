@@ -94,7 +94,18 @@ Intelligente 3-Stufen Web-Suche mit automatischem Fallback:
 
 ## 🚀 Installation
 
-### 1. **Voraussetzungen**
+> **📘 Vollständige Installationsanleitung**: [docs/INSTALLATION_GUIDE.md](docs/INSTALLATION_GUIDE.md)
+>
+> Detaillierte Schritt-für-Schritt Anleitung für:
+> - Linux (Ubuntu/Debian)
+> - Windows mit WSL2
+> - GPU-Support (NVIDIA, AMD)
+> - SearXNG Docker-Setup
+> - Troubleshooting
+
+### Quick Start (für Eilige)
+
+#### 1. **Voraussetzungen**
 ```bash
 # Python 3.10+
 python3 --version

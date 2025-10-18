@@ -1,0 +1,90 @@
+# SearXNG Configuration for AI Voice Assistant
+# Optimized for fast responses and reliable results
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "SearXNG for Voice Assistant"
+  privacypolicy_url: false
+  donation_url: false
+  contact_url: false
+  enable_metrics: false
+
+search:
+  safe_search: 0  # 0=None, 1=Moderate, 2=Strict
+  autocomplete: ""
+  default_lang: "de"  # German default
+  max_page: 0
+  formats:
+    - html
+    - json
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "changeme_generate_with_openssl_rand_hex_32"
+  limiter: false  # Disable rate limiting for API access
+  public_instance: false
+  image_proxy: false
+
+ui:
+  static_use_hash: true
+  default_locale: "de"
+  theme_args:
+    simple_style: auto
+
+# Enable these search engines for best results
+engines:
+  - name: google
+    engine: google
+    shortcut: go
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+
+  - name: wikidata
+    engine: wikidata
+    shortcut: wd
+    disabled: false
+
+  - name: google news
+    engine: google_news
+    shortcut: gn
+    disabled: false
+
+  - name: bing news
+    engine: bing_news
+    shortcut: bn
+    disabled: false
+
+# Disable less relevant engines for faster responses
+  - name: reddit
+    disabled: true
+
+  - name: twitter
+    disabled: true
+
+  - name: youtube
+    disabled: true
+
+outgoing:
+  request_timeout: 5.0  # Fast timeout for Voice Assistant
+  max_request_timeout: 10.0
+  useragent_suffix: "SearXNG-VoiceAssistant"
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
