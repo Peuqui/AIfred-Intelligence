@@ -137,21 +137,45 @@ def ai_rate_urls(urls, query, automatik_model):
 
 **Aufgabe:**
 Bewerte jede URL auf einer Skala von 0-10:
-- 10 = Perfekt (Hauptquelle, sehr relevant, vertrauenswürdig)
-- 5-7 = Gut (relevante Quelle, verwendbar)
-- 0-4 = Schlecht (Spam, irrelevant, unzuverlässig)
+- 10 = Perfekt (hochrelevant + vertrauenswürdig)
+- 7-9 = Sehr gut (relevant + seriös)
+- 5-6 = Brauchbar (teilweise relevant)
+- 0-4 = Unbrauchbar (irrelevant, Spam)
 
-**Kriterien:**
-- Ist die Domain vertrauenswürdig?
-  - SEHR GUT (9-10): spiegel.de, tagesschau.de, zdf.de, sueddeutsche.de, faz.net, zeit.de, wikipedia.org, .gov, .edu
-  - GUT (7-8): bekannte Nachrichtenseiten, Fachmedien, offizielle Organisationen
-  - MITTEL (5-6): Blogs von Experten, Fachforen, regionale Medien
-  - SCHLECHT (0-4): unbekannte Blogs, Spam-Seiten, unzuverlässige Quellen
-- Passt die URL zur Frage? (Titel/Pfad relevant?)
-- Für NEWS/POLITIK: Bevorzuge etablierte deutsche Nachrichtenmedien!
-- Für AKTUELLES: Bevorzuge aktuelle Quellen (2024+)
+**BEWERTUNGS-STRATEGIE (Schritt für Schritt):**
 
-**WICHTIG:** Bewerte URLs großzügig! Lieber Score 6-7 geben als 4-5!
+**1. RELEVANZ-CHECK (Hauptkriterium!):**
+   → URL-Pfad/Titel enthält Suchbegriffe? → START bei 7 Punkten!
+   → Datum im Pfad passt zur Anfrage? → +1 Punkt
+   → Fach-Domain (/blog/, /news/, /ki-, /tech-, .ai)? → +1 Punkt
+   → Keine Übereinstimmung? → START bei 5 Punkten
+
+**2. DOMAIN-AUTORITÄT (Sekundär!):**
+
+   **A) POLITIK/NEWS-Anfragen:**
+   - Etablierte Medien (spiegel.de, tagesschau.de, zdf.de, faz.net, zeit.de) → max 10
+   - Regionale Medien, Magazine → max 8
+   - Blogs/Foren → max 6
+
+   **B) TECH/KI/FACH-Anfragen:**
+   - Tech-Fachmedien (heise.de, golem.de, t3n.de, com-magazin.de) → max 10
+   - Unternehmensblogs mit Tech-Fokus (microsoft.com/news, .../blog/) → max 9
+   - Spezialisierte Fachblogs (auch wenn unbekannt!) → max 8
+   - Foren/Community-Seiten mit Fachfokus → max 7
+   - Etablierte Mainstream-Medien (weniger Tech-Expertise) → max 7
+
+   **C) SPAM/UNBRAUCHBAR:**
+   - SEO-Farmen, Clickbait, völlig irrelevant → 0-3
+
+**3. AKTUALITÄT:**
+   - Für zeitkritische Anfragen (2024+, "aktuell", "neu"): Bevorzuge neue Quellen!
+   - Alte Quellen für aktuelle Themen → -2 Punkte
+
+**WICHTIG:**
+- Bei Tech/Fach-Anfragen: **RELEVANZ schlägt AUTORITÄT!**
+- Ein unbekannter Fachblog mit exaktem Thema ist besser als Spiegel.de mit genereller Tech-News!
+- Lieber Score 7-8 für relevante Fachseiten als 5-6!
+- URL-Pfad ist wichtiger als Domain-Name!
 
 **FORMAT (EXAKT EINHALTEN!):**
 Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
@@ -357,19 +381,33 @@ REGELN (KEINE AUSNAHMEN!):
 # ANTWORT-VORGABE:
 
 - Beginne mit: "Laut meiner aktuellen Recherche vom {time.strftime("%d.%m.%Y")}..."
-- Gebe zu jeder gescrapten Quelle eine KURZE ZUSAMMENFASSUNG (1-2 Sätze):
-  "Quelle 1 berichtet, dass [Zusammenfassung]. [Hauptpunkte]."
-  "Quelle 2 erklärt, dass [Zusammenfassung]. [Details]."
-- **WICHTIG:** Nenne die URLs NICHT im Fließtext! Nur "Quelle 1", "Quelle 2" etc.
-- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF (die in den Recherche-Ergebnissen oben stehen!):
+
+- Fasse die Recherche-Ergebnisse AUSFÜHRLICH zusammen:
+  * Gehe auf ALLE wichtigen Punkte aus den Quellen ein
+  * Nenne konkrete Details: Namen, Zahlen, Daten, Versionen
+  * Erkläre Zusammenhänge und Hintergründe
+  * Bei mehreren Quellen: Vergleiche, ergänze und verknüpfe die Informationen
+  * ⚠️ WICHTIG: Gib NUR Informationen wieder, die EXPLIZIT in den Quellen stehen!
+  * ❌ KEINE eigenen Interpretationen oder Annahmen über nicht genannte Details!
+
+- Strukturiere die Antwort logisch:
+  1. Hauptergebnisse (Was wurde gefunden?)
+  2. Details und Hintergründe (Wie/Warum/Wann? Konkrete Fakten!)
+  3. Zusätzliche relevante Informationen aus den Quellen
+
+- Nenne die Quellen im Text als "Quelle 1", "Quelle 2", "Quelle 3" etc.
+  Beispiel: "Quelle 1 berichtet, dass [ausführliche Details]. Außerdem wird erwähnt, dass [weitere Punkte]."
+
+- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
 
   **Quellen:**
-  1. Quelle 1: https://... (Zusammenfassung: [1-2 Sätze was dort stand])
-  2. Quelle 2: https://... (Zusammenfassung: [1-2 Sätze was dort stand])
+  1. Quelle 1: https://... (Thema: [Was wurde dort behandelt])
+  2. Quelle 2: https://... (Thema: [Was wurde dort behandelt])
 
 - ❌ NENNE KEINE URLs die NICHT in den Recherche-Ergebnissen oben stehen!
 - Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
-- Stil: Kurz, präzise, Deutsch"""
+- Stil: Informativ, detailliert, präzise, Deutsch
+- Länge: 3-5 Absätze (je nach Komplexität der Frage und Menge der Informationen)"""
 
     # 8. AI Inference mit History + System-Prompt
     messages = []
