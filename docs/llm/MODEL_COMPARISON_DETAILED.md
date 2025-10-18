@@ -1,6 +1,6 @@
 # 🤖 Detaillierter Modell-Vergleich für AIfred Intelligence
 
-**Letzte Aktualisierung:** 2025-10-15 (basierend auf Web-Recherche + eigenen Benchmarks)
+**Letzte Aktualisierung:** 2025-10-18 (basierend auf Web-Recherche + eigenen Benchmarks + Thinking Model Discovery)
 
 ---
 
@@ -9,7 +9,7 @@
 | Modell | Größe | Geschwindigkeit | Qualität | Beste für | RAM |
 |--------|-------|----------------|----------|-----------|-----|
 | **qwen3:1.7b** | 1.7B | 🥇 Sehr schnell | ⭐⭐⭐⭐ Gut | Automatik-Entscheidungen, Lightweight Tasks | 2-3 GB |
-| **qwen3:4b** | 4B | 🥈 Schnell | ⭐⭐⭐⭐ Gut | Mittelgroße Tasks, Balance | 4-5 GB |
+| **qwen3:4b** 🧠 | 4B | ❌ Sehr langsam | ⭐⭐⭐⭐ Gut | **THINKING MODEL** - nicht für AIfred | 4-5 GB |
 | **qwen3:8b** | 8B | 🥉 Mittel | ⭐⭐⭐⭐⭐ Sehr gut | Finale Antworten, Reasoning | 8-10 GB |
 | **qwen2.5:14b** | 14B | ⏱️ Langsam | ⭐⭐⭐⭐⭐ Sehr gut | RAG, lange Dokumente | 14-16 GB |
 | **qwen2.5:32b** | 32B | ❌ Sehr langsam | ⭐⭐⭐⭐⭐ Exzellent | Beste Qualität, komplexe Aufgaben | 21-24 GB |
@@ -51,23 +51,30 @@
 
 ---
 
-### **qwen3:4b**
+### **qwen3:4b** 🧠 **THINKING MODEL**
+
+> **⚠️ WICHTIG**: Dies ist ein **Reasoning/Thinking-Modell** ("Qwen3 4B Thinking 2507")
+> → Denkt intern länger nach (Chain-of-Thought)
+> → Langsamer, aber theoretisch besseres Reasoning
+> → **Das einzige Thinking-Modell in unserer Collection**
 
 **Stärken:**
 - ✅ **Überraschend stark**: Übertrifft manche 72B-Modelle bei Programming
-- ✅ **Balance**: Guter Kompromiss zwischen Speed & Qualität
+- ✅ **Deep Reasoning**: Interne Chain-of-Thought Schritte
 - ✅ **MultiIF**: 66.3 Punkte (respektabel für 4B Dense-Model)
 - ✅ **32K Context**: Für die meisten Tasks ausreichend
 
 **Schwächen:**
 - ❌ **SEHR langsam in unserem Benchmark** (18 Min für 4 Tasks!)
-- ⚠️ Thinking Mode verursacht extreme Latenz (300+ Zeilen Reasoning)
+- ❌ **Thinking Mode verursacht extreme Latenz** (300+ Zeilen Reasoning)
 - ⚠️ Versagt bei Trump/Hamas Test (eigene Benchmarks)
 - ⚠️ Kleinerer Context als 8B
+- ⚠️ **Langsamer als qwen3:8b** trotz kleinerer Größe (wegen Thinking)
 
 **Beste für:**
 - ⚠️ **NICHT empfohlen für AIfred** (zu langsam + unzuverlässig)
-- Programming-Tasks (wenn Zeit keine Rolle spielt)
+- Complex Reasoning-Tasks (wenn Zeit keine Rolle spielt)
+- Programming-Tasks mit hoher Denktiefe
 
 ---
 
@@ -330,3 +337,24 @@
 - ❌ Versagt bei News/Wetter-Trigger
 
 **Fazit:** Für AIfred sind **Qwen-Modelle** die bessere Wahl! 🎯
+
+---
+
+## 🧠 THINKING MODELS - Was ist das?
+
+**Nur 1 Thinking-Modell in unserer Collection:**
+- **qwen3:4b** ("Qwen3 4B Thinking 2507")
+
+**Was macht ein Thinking-Modell anders?**
+- 🧩 **Interne Reasoning-Schritte** (Chain-of-Thought)
+- 🔍 **Denkt länger nach** vor der Antwort
+- 📝 **Mehr Denktiefe**, aber deutlich langsamer
+- ⏱️ **Nicht für Echtzeit** geeignet
+
+**Wann nutzen?**
+- ✅ Komplexe Reasoning-Probleme (Math, Logic)
+- ✅ Programming mit hoher Denktiefe
+- ✅ Wenn Zeit keine Rolle spielt
+- ❌ **NICHT für AIfred Automatik!** (zu langsam)
+
+**Alle anderen Modelle sind normale "Direct Answer" Modelle.**

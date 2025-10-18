@@ -625,19 +625,18 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
                 gr.Markdown("""
 Das Automatik-Modell wird für **3 schnelle AI-Entscheidungen** verwendet:
 
-**1. 🤔 Automatik-Entscheidung** (~5-30s)
+**1. 🤔 Automatik-Entscheidung**
 → Brauche ich Web-Recherche für diese Frage?
 
-**2. 🔍 Query-Optimierung** (~5-15s)
+**2. 🔍 Query-Optimierung**
 → Welche Keywords soll ich suchen?
 
-**3. 📊 URL-Bewertung** (~105s für 15 URLs)
+**3. 📊 URL-Bewertung**
 → Welche URLs sind relevant? (Score 1-10)
 
 ---
 
 **⭐ Empfehlung: qwen3:1.7b** (schnell & zuverlässig)
-- 7s pro URL
 - Content-basierte Bewertung
 - Alle Tests bestanden
 
@@ -646,40 +645,58 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
 
             # Collapsible Hilfe für LLM-Auswahl
             with gr.Accordion("ℹ️ Welches Model soll ich wählen?", open=False):
+                gr.HTML("""
+                <table style="width:100%; border-collapse: collapse; font-size: 14px; table-layout: fixed;">
+                <colgroup>
+                    <col style="width: 16%;">
+                    <col style="width: 10%;">
+                    <col style="width: 15%;">
+                    <col style="width: 59%;">
+                </colgroup>
+                <thead>
+                <tr style="border-bottom: 2px solid #444;">
+                <th style="padding: 8px; text-align: left;">Model</th>
+                <th style="padding: 8px; text-align: left; white-space: nowrap;">Größe</th>
+                <th style="padding: 8px; text-align: left;">Context-Treue</th>
+                <th style="padding: 8px; text-align: left;">Besonderheit</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen2.5:14b</strong></nobr></td><td style="padding: 8px;">9&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">💎 Perfekt für Web-Recherche (100% treu zum Context, 0% Halluzinationen), zitiert URLs</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:32b</strong></nobr></td><td style="padding: 8px;">20&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">🏆 Beste Qualität, größtes Qwen3-Model, sehr tiefes Reasoning</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:8b</strong></nobr></td><td style="padding: 8px;">5.2&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">⚡ Beste Balance: Schnell + folgt Context zuverlässig, täglicher Driver</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:4b</strong></nobr></td><td style="padding: 8px;">2.5&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">🧠 <strong>THINKING MODEL</strong> - Chain-of-Thought, langsamer aber tiefes Reasoning</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:1.7b</strong></nobr></td><td style="padding: 8px;">1.4&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">⚡⚡ Ultra-schnell, ideal für URL-Bewertung & Entscheidungen</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:0.6b</strong></nobr></td><td style="padding: 8px;">522&nbsp;MB</td><td style="padding: 8px;">⚠️</td><td style="padding: 8px;">🐣 Kleinster Qwen3, nur für einfachste Tasks</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen2.5:32b</strong></nobr></td><td style="padding: 8px;">19&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">🎯 Große Qwen 2.5 Version, ähnlich zu qwen3:32b</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen2.5:3b</strong></nobr></td><td style="padding: 8px;">1.9&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💨 Klein & schnell, Qwen 2.5 Linie, kompakter als qwen3:4b</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen2.5:0.5b</strong></nobr></td><td style="padding: 8px;">397&nbsp;MB</td><td style="padding: 8px;">⚠️</td><td style="padding: 8px;">🐣 Kleinster Qwen 2.5, sehr begrenzte Fähigkeiten</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>command-r</strong></nobr></td><td style="padding: 8px;">18&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">📚 Enterprise-Spezialist für lange Dokumente (128k Context!), zitiert Quellen</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>mixtral:8x7b</strong></nobr></td><td style="padding: 8px;">26&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">🧩 8 Experten (Code, Mathe, Sprachen), aktiviert nur nötige (MoE-Architektur!)</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>llama3.1:8b</strong></nobr></td><td style="padding: 8px;">4.9&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">🛡️ Meta's solides Allround-Model, zuverlässig & etabliert</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>llama3.2:3b</strong></nobr></td><td style="padding: 8px;">2&nbsp;GB</td><td style="padding: 8px;">❌</td><td style="padding: 8px;">⚠️ Klein & schnell, aber ignoriert Context oft (nur für Tests!)</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>llama2:13b</strong></nobr></td><td style="padding: 8px;">7.4&nbsp;GB</td><td style="padding: 8px;">⚠️</td><td style="padding: 8px;">📊 Alt aber groß, mischt Context mit Training Data (78%/22%), ungenau bei News</td></tr>
+                <tr><td style="padding: 8px;"><nobr><strong>mistral</strong></nobr></td><td style="padding: 8px;">4.4&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💻 Code-Spezialist, exzellentes Instruction-Following, effizient</td></tr>
+                </tbody>
+                </table>
+                """)
                 gr.Markdown("""
-                | Model | Größe | RAG | Besonderheit |
-                |-------|----------------|-----|--------------|
-                | <nobr>**qwen2.5:14b**</nobr> | 9&nbsp;GB | ✅✅✅ | 💎 Perfekt für Web-Recherche (100% RAG, 0% Training Data), zitiert URLs |
-                | <nobr>**qwen3:32b**</nobr> | 20&nbsp;GB | ✅✅✅ | 🏆 Beste Qualität, größtes Qwen3-Model, sehr tiefes Reasoning |
-                | <nobr>**qwen3:8b**</nobr> | 5.2&nbsp;GB | ✅✅ | ⚡ Beste Balance: Schnell + RAG-fähig, täglicher Driver |
-                | <nobr>**qwen3:4b**</nobr> | 2.5&nbsp;GB | ✅✅ | 🚀 Kompakt & effizient, gut für Quick-Recherche |
-                | <nobr>**qwen3:1.7b**</nobr> | 1.4&nbsp;GB | ✅ | ⚡⚡ Ultra-schnell, ideal für URL-Bewertung & Entscheidungen |
-                | <nobr>**qwen3:0.6b**</nobr> | 522&nbsp;MB | ⚠️ | 🐣 Kleinster Qwen3, nur für einfachste Tasks |
-                | <nobr>**qwen2.5:32b**</nobr> | 19&nbsp;GB | ✅✅✅ | 🎯 Große Qwen 2.5 Version, ähnlich zu qwen3:32b |
-                | <nobr>**qwen2.5:3b**</nobr> | 1.9&nbsp;GB | ✅ | 💨 Klein & schnell, Qwen 2.5 Linie, kompakter als qwen3:4b |
-                | <nobr>**qwen2.5:0.5b**</nobr> | 397&nbsp;MB | ⚠️ | 🐣 Kleinster Qwen 2.5, sehr begrenzte Fähigkeiten |
-                | <nobr>**command-r**</nobr> | 18&nbsp;GB | ✅✅✅ | 📚 Enterprise RAG-Spezialist, beste für lange Dokumente (128k Context!) |
-                | <nobr>**mixtral:8x7b**</nobr> | 26&nbsp;GB | ✅✅ | 🧩 8 Experten (Code, Mathe, Sprachen), aktiviert nur nötige (MoE-Architektur!) |
-                | <nobr>**llama3.1:8b**</nobr> | 4.9&nbsp;GB | ✅ | 🛡️ Meta's solides Allround-Model, zuverlässig & etabliert |
-                | <nobr>**llama3.2:3b**</nobr> | 2&nbsp;GB | ❌ | ⚠️ Klein & schnell, aber ignoriert RAG oft (nur für Tests!) |
-                | <nobr>**llama2:13b**</nobr> | 7.4&nbsp;GB | ⚠️ | 📊 Alt aber groß, mischt RAG mit Training (78%/22%), ungenau bei News |
-                | <nobr>**mistral**</nobr> | 4.4&nbsp;GB | ✅ | 💻 Code-Spezialist, exzellentes Instruction-Following, effizient |
 
                 ---
 
-                **RAG-Legende:**
-                - ✅✅✅ = **Perfekt** (100% Research, 0% Training Data)
-                - ✅✅ = **Gut** (90%+ Research, minimal Training Data)
-                - ✅ = **Möglich** (nutzt Research, aber Mix mit Training Data)
-                - ⚠️ = **Unzuverlässig** (~78% Research, ~22% Training Data)
-                - ❌ = **Kein RAG** (ignoriert Research, nur Training Data)
+                **Context-Treue Legende:**
+                - ✅✅✅ = **Perfekt** (100% treu zum gegebenen Context, 0% Halluzinationen)
+                - ✅✅ = **Gut** (90%+ folgt Context, minimale Halluzinationen)
+                - ✅ = **Möglich** (nutzt Context, aber mischt Training Data ein)
+                - ⚠️ = **Unzuverlässig** (~78% Context, ~22% veraltete Training Data)
+                - ❌ = **Ignoriert Context** (nutzt hauptsächlich Training Data, erfindet Quellen)
 
                 ---
 
                 **🏆 Top-Empfehlung für Web-Recherche (Agent-Modi):**
-                → **`qwen2.5:14b`** (RAG Score: 1.0 = perfekt!)
+                → **`qwen2.5:14b`** (Context-Treue: ✅✅✅ = perfekt!)
                 - Ignoriert Training Data **komplett**
-                - Nutzt NUR aktuelle Web-Ergebnisse
+                - Nutzt NUR den gegebenen gescrapten Web-Content
                 - Zitiert Quellen korrekt mit URLs
                 - **Perfekt für:** "Trump News", "aktuelle Ereignisse", "Was passiert heute?"
 
@@ -691,8 +708,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
 
                 **📚 Für lange Dokumente (mit Agent ausführlich):**
                 → **`command-r`** (18 GB, braucht 32 GB RAM!)
-                - Speziell für RAG & Enterprise gebaut
-                - Kann sehr lange Contexts verarbeiten
+                - Speziell für Enterprise & lange Dokumente gebaut
+                - Kann sehr lange Contexts verarbeiten (128k!)
+                - Zitiert Quellen automatisch
                 - **Perfekt für:** PDFs analysieren, komplexe Research
 
                 **🧩 Für komplexe Multi-Domain Tasks:**
@@ -713,13 +731,13 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
 
                 **⚠️ Bedingt für Web-Recherche:**
                 → **`llama2:13b`**
-                - Nutzt Web-Research, aber mischt 22% Training Data rein
+                - Nutzt gegebenen Context, aber mischt 22% Training Data rein
                 - Kann aktuelle Infos mit alten Daten vermischen
                 - **OK für:** Allgemeine Fragen, wenn Ungenauigkeit OK ist
 
                 **❌ NICHT für Web-Recherche:**
                 → **`llama3.2:3b`**
-                - Ignoriert RAG komplett (70% Training Data)
+                - Ignoriert gegebenen Context oft (70% Training Data)
                 - Erfindet oft Quellen oder nutzt alte Daten
                 - **Nur für:** Tests, einfache Fragen ohne Agent-Modus
 
@@ -746,6 +764,31 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
                 - ✅ Reasoning-Heavy Tasks (Mathe, Logik, Planung)
                 - ❌ Einfache Fragen (Overkill, nutze mistral oder qwen3:8b)
                 - ⚠️ Langsam wegen 26 GB Größe!
+
+                ---
+
+                **🧠 Was sind "Thinking Models"?**
+
+                **qwen3:4b** ist ein spezielles **Reasoning/Thinking-Modell** ("Qwen3 4B Thinking 2507"):
+
+                **Wie funktioniert's:**
+                - 🔍 **Interne Chain-of-Thought**: Denkt intern länger nach (wie Menschen)
+                - 📝 **Reasoning-Schritte**: Macht 300+ Zeilen interne Überlegungen
+                - 🧩 **Deep Reasoning**: Analysiert Problem aus mehreren Winkeln
+                - ⏱️ **Langsamer**: **Deutlich langsamer als qwen3:8b** trotz kleinerer Größe!
+
+                **Unterschied zu normalen Modellen:**
+                - Normal (qwen3:8b): Frage → Direkte Antwort (schnell)
+                - Thinking (qwen3:4b): Frage → Denken → Analysieren → Antwort (langsam)
+
+                **Wann nutzen:**
+                - ✅ **Komplexes Reasoning** (Mathe, Logik-Rätsel, Code-Analyse)
+                - ✅ **Programming** mit hoher Denktiefe
+                - ✅ **Wenn Zeit keine Rolle spielt** (18 Min für 4 Tasks!)
+                - ❌ **NICHT für AIfred Automatik!** (zu langsam)
+                - ❌ **NICHT für Web-Recherche** (andere Modelle schneller & besser)
+
+                **Alle anderen Modelle sind normale "Direct Answer" Modelle.**
 
                 ---
 
