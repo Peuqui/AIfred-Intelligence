@@ -456,22 +456,20 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
             # Accordion mit Erklärungen (kompakt)
             with gr.Accordion("ℹ️ Was bedeuten die Modi?", open=False):
                 gr.Markdown("""
-**🧠 Eigenes Wissen** - Schnell, offline, nur AI-Training (bis Jan 2025)
+🧠 Eigenes Wissen - Schnell, offline, nur AI-Training
 
-**⚡ Web-Suche Schnell** - 3 beste Quellen (Brave → Tavily → SearXNG)
+⚡ Web-Suche Schnell - 3 beste Quellen (Brave → Tavily → SearXNG)
 
-**🔍 Web-Suche Ausführlich** - 5 beste Quellen (Brave → Tavily → SearXNG)
+🔍 Web-Suche Ausführlich - 5 beste Quellen (Brave → Tavily → SearXNG)
 
-**🤖 Automatik** - KI entscheidet intelligent, ob Web-Recherche nötig ist (nutzt 3 Quellen bei Recherche)
+🤖 Automatik - KI entscheidet intelligent, ob Web-Recherche nötig ist (nutzt 3 Quellen bei Recherche)
 
 ---
 
-**3-Stufen Fallback:**
+3-Stufen Fallback:
 1. Brave Search (2.000/Monat) - Primary
 2. Tavily AI (1.000/Monat) - Fallback
 3. SearXNG (Unlimited) - Last Resort
-
-*Aktuell aktiv: SearXNG (setup Brave/Tavily in .env)*
 """)
 
             # LLM-Parameter Accordion (zwischen Research-Modus und Text-Button)
