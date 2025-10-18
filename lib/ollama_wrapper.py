@@ -199,33 +199,39 @@ def _get_safe_config_for_model(model_name):
 
     # === 32B+ Modelle (sehr groß) ===
     if '32b' in model_lower:
-        # Problem 1: AMD iGPU = GPU Hang bei 32B
-        if hw['is_igpu'] and hw['gpu_type'] == 'AMD' and not hw['is_stable_for_32b']:
-            config['force_cpu'] = True
-            config['num_ctx'] = 8192  # 8K = ~10 GB KV Cache mit 32B (verträglich!)
-            config['reason'] = f"AMD iGPU ({hw['gpu_name']}) crasht bei 32B mit GPU → CPU-only"
-            return config
+        # EXPERIMENTELL: force_cpu deaktiviert - lasse Ollama selbst entscheiden!
+        # Problem 1: AMD iGPU = GPU Hang bei 32B (AUSKOMMENTIERT für Test)
+        # if hw['is_igpu'] and hw['gpu_type'] == 'AMD' and not hw['is_stable_for_32b']:
+        #     config['force_cpu'] = True
+        #     config['num_ctx'] = 8192  # 8K = ~10 GB KV Cache mit 32B (verträglich!)
+        #     config['reason'] = f"AMD iGPU ({hw['gpu_name']}) crasht bei 32B mit GPU → CPU-only"
+        #     return config
 
-        # Problem 2: Zu wenig VRAM (<12 GB)
-        if vram_gb < 12:
-            config['force_cpu'] = True
-            config['num_ctx'] = 8192  # 8K statt 128K - realistisch für RAM-Limits!
-            config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → 32B braucht min. 12 GB → CPU-only"
-            return config
+        # Problem 2: Zu wenig VRAM (<12 GB) (AUSKOMMENTIERT für Test)
+        # if vram_gb < 12:
+        #     config['force_cpu'] = True
+        #     config['num_ctx'] = 8192  # 8K statt 128K - realistisch für RAM-Limits!
+        #     config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → 32B braucht min. 12 GB → CPU-only"
+        #     return config
 
+        # EXPERIMENTELL: Layer-Limits auch auskommentiert - Ollama Auto-Detect
         # Genug VRAM (≥12 GB): Versuche GPU
         # 12 GB: ~25 Layer, 16K Context
         # 16 GB: ~35 Layer, 32K Context
         # 24 GB: ~50 Layer, 64K Context
-        if vram_gb >= 24:
-            config['num_gpu'] = 50
-            config['num_ctx'] = 65536  # 64K
-        elif vram_gb >= 16:
-            config['num_gpu'] = 35
-            config['num_ctx'] = 32768  # 32K
-        else:  # 12-16 GB
-            config['num_gpu'] = 25
-            config['num_ctx'] = 16384  # 16K
+        # if vram_gb >= 24:
+        #     config['num_gpu'] = 50
+        #     config['num_ctx'] = 65536  # 64K
+        # elif vram_gb >= 16:
+        #     config['num_gpu'] = 35
+        #     config['num_ctx'] = 32768  # 32K
+        # else:  # 12-16 GB
+        #     config['num_gpu'] = 25
+        #     config['num_ctx'] = 16384  # 16K
+
+        # Lasse Ollama vollständig selbst entscheiden
+        config['num_gpu'] = None  # Auto-Detect
+        config['num_ctx'] = None  # Auto-Detect
         return config
 
     # === 70B+ Modelle (extrem groß) ===
@@ -366,12 +372,16 @@ def _patched_ollama_chat(*args, **kwargs):
         else:
             # GPU aktiviert UND keine Probleme: Nutze GPU-Konfiguration
             # Setze num_gpu nur wenn nicht bereits vom Caller gesetzt
-            if 'num_gpu' not in kwargs['options'] and config['num_gpu'] is not None:
-                kwargs['options']['num_gpu'] = config['num_gpu']
-                debug_print(f"🔧 [ollama.chat] GPU mit Layer-Limit (num_gpu={config['num_gpu']}) für {model_name}")
-            elif 'num_gpu' not in kwargs['options']:
-                # Auto-Detect: KEIN num_gpu setzen → Ollama entscheidet selbst
-                debug_print(f"🔧 [ollama.chat] GPU Auto-Detect für {model_name}")
+            if 'num_gpu' not in kwargs['options']:
+                if config['num_gpu'] is None:
+                    # Auto-Detect: Lasse Ollama selbst entscheiden
+                    # KEIN num_gpu setzen → Ollama macht intelligentes Hybrid-Loading
+                    # basierend auf VRAM, Context-Größe und Model-Size
+                    debug_print(f"🔧 [ollama.chat] GPU Auto-Detect für {model_name} (Ollama optimiert Layer-Aufteilung)")
+                else:
+                    # Explizites Layer-Limit gesetzt (z.B. für alte Hardware-Configs)
+                    kwargs['options']['num_gpu'] = config['num_gpu']
+                    debug_print(f"🔧 [ollama.chat] GPU mit Layer-Limit (num_gpu={config['num_gpu']}) für {model_name}")
 
             # Setze num_ctx nur wenn nicht bereits vom Caller gesetzt
             if 'num_ctx' not in kwargs['options'] and config['num_ctx'] is not None:
