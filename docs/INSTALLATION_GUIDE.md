@@ -133,7 +133,7 @@ python3 -m venv venv
 # Virtual Environment aktivieren
 source venv/bin/activate
 
-# Dependencies installieren
+# Dependencies installieren (inkl. python-dotenv für .env Support)
 pip install --upgrade pip
 pip install -r requirements.txt
 ```

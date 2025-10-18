@@ -178,6 +178,13 @@ class BraveSearchTool(BaseTool):
             }
 
             logger.info(f"✅ Brave Search: {len(related_urls)} URLs gefunden")
+
+            # DEBUG: Logge alle gefundenen URLs mit Titeln
+            logger.info("📋 Brave Search Rohdaten (alle URLs vor KI-Bewertung):")
+            for i, (url, title) in enumerate(zip(related_urls, titles), 1):
+                logger.info(f"   {i}. {title}")
+                logger.info(f"      URL: {url}")
+
             return result
 
         except RateLimitError:
@@ -286,6 +293,13 @@ class TavilySearchTool(BaseTool):
             }
 
             logger.info(f"✅ Tavily AI: {len(related_urls)} URLs gefunden")
+
+            # DEBUG: Logge alle gefundenen URLs mit Titeln
+            logger.info("📋 Tavily AI Rohdaten (alle URLs vor KI-Bewertung):")
+            for i, (url, title) in enumerate(zip(related_urls, titles), 1):
+                logger.info(f"   {i}. {title}")
+                logger.info(f"      URL: {url}")
+
             return result
 
         except RateLimitError:
@@ -382,6 +396,13 @@ class SearXNGSearchTool(BaseTool):
             }
 
             logger.info(f"✅ SearXNG: {len(related_urls)} URLs gefunden")
+
+            # DEBUG: Logge alle gefundenen URLs mit Titeln
+            logger.info("📋 SearXNG Rohdaten (alle URLs vor KI-Bewertung):")
+            for i, (url, title) in enumerate(zip(related_urls, titles), 1):
+                logger.info(f"   {i}. {title}")
+                logger.info(f"      URL: {url}")
+
             return result
 
         except Exception as e:
