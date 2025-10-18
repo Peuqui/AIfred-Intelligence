@@ -164,173 +164,15 @@ def _detect_hardware():
     return hw_info
 
 
-def _get_safe_config_for_model(model_name):
-    """
-    Berechnet sichere num_gpu und num_ctx Konfiguration für Modelle
-
-    DYNAMISCH basierend auf:
-    - Erkannte Hardware (GPU-Typ, VRAM, Stabilität)
-    - Qwen3 Context Specs: 0.6b/1.7b/4b=32K, 8b/14b/32b=128K
-    - Ollama Bug: Compute Buffers nicht in VRAM-Kalkulation
-    - Bekannte Probleme (AMD iGPU + 32B = GPU Hang)
-
-    Args:
-        model_name: Name des Modells (z.B. "qwen3:32b")
-
-    Returns:
-        dict: {
-            "num_gpu": int|None,      # Layer-Limit oder None=Auto
-            "num_ctx": int|None,      # Context-Limit oder None=Default
-            "force_cpu": bool,        # True=CPU erzwingen trotz GPU-Toggle
-            "reason": str            # Begründung für Fallback
-        }
-    """
-    hw = _detect_hardware()
-    model_lower = model_name.lower()
-    vram_gb = hw['vram_gb']
-
-    # Default: Nutze GPU wenn verfügbar
-    config = {
-        "num_gpu": None,
-        "num_ctx": None,
-        "force_cpu": False,
-        "reason": ""
-    }
-
-    # === 32B+ Modelle (sehr groß) ===
-    if '32b' in model_lower:
-        # EXPERIMENTELL: force_cpu deaktiviert - lasse Ollama selbst entscheiden!
-        # Problem 1: AMD iGPU = GPU Hang bei 32B (AUSKOMMENTIERT für Test)
-        # if hw['is_igpu'] and hw['gpu_type'] == 'AMD' and not hw['is_stable_for_32b']:
-        #     config['force_cpu'] = True
-        #     config['num_ctx'] = 8192  # 8K = ~10 GB KV Cache mit 32B (verträglich!)
-        #     config['reason'] = f"AMD iGPU ({hw['gpu_name']}) crasht bei 32B mit GPU → CPU-only"
-        #     return config
-
-        # Problem 2: Zu wenig VRAM (<12 GB) (AUSKOMMENTIERT für Test)
-        # if vram_gb < 12:
-        #     config['force_cpu'] = True
-        #     config['num_ctx'] = 8192  # 8K statt 128K - realistisch für RAM-Limits!
-        #     config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → 32B braucht min. 12 GB → CPU-only"
-        #     return config
-
-        # EXPERIMENTELL: Layer-Limits auch auskommentiert - Ollama Auto-Detect
-        # Genug VRAM (≥12 GB): Versuche GPU
-        # 12 GB: ~25 Layer, 16K Context
-        # 16 GB: ~35 Layer, 32K Context
-        # 24 GB: ~50 Layer, 64K Context
-        # if vram_gb >= 24:
-        #     config['num_gpu'] = 50
-        #     config['num_ctx'] = 65536  # 64K
-        # elif vram_gb >= 16:
-        #     config['num_gpu'] = 35
-        #     config['num_ctx'] = 32768  # 32K
-        # else:  # 12-16 GB
-        #     config['num_gpu'] = 25
-        #     config['num_ctx'] = 16384  # 16K
-
-        # Lasse Ollama vollständig selbst entscheiden
-        config['num_gpu'] = None  # Auto-Detect
-        config['num_ctx'] = None  # Auto-Detect
-        return config
-
-    # === 70B+ Modelle (extrem groß) ===
-    elif '70b' in model_lower or '72b' in model_lower:
-        if vram_gb < 24:
-            config['force_cpu'] = True
-            config['num_ctx'] = 4096  # 70B ist RIESIG, nur 4K Context mit CPU
-            config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → 70B braucht min. 24 GB → CPU-only"
-        else:
-            config['num_gpu'] = 20
-            config['num_ctx'] = 8192  # Selbst mit GPU nur 8K
-        return config
-
-    # === 14B Modelle ===
-    elif '14b' in model_lower:
-        # ~9 GB benötigt, sollte auf >10 GB GPUs passen
-        if vram_gb >= 10:
-            config['num_gpu'] = None  # Auto-Detect
-            config['num_ctx'] = 32768  # 32K
-        else:
-            config['force_cpu'] = True
-            config['num_ctx'] = 16384  # 16K für CPU (realistisch)
-            config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → 14B braucht ~9 GB"
-        return config
-
-    # === 13B Modelle (llama2:13b) ===
-    elif '13b' in model_lower:
-        # ~7.4 GB benötigt, aber nur 4K Context!
-        if vram_gb >= 8:
-            config['num_gpu'] = None  # Auto-Detect
-            config['num_ctx'] = 4096  # llama2:13b hat nur 4K Context
-        else:
-            config['force_cpu'] = True
-            config['num_ctx'] = 4096
-            config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → 13B braucht ~8 GB"
-        return config
-
-    # === Mixtral 8x7B (special case: Mixture-of-Experts) ===
-    elif 'mixtral' in model_lower or ('8x7b' in model_lower):
-        # 26 GB Model, braucht >24 GB VRAM für GPU
-        if vram_gb >= 24:
-            config['num_gpu'] = None  # Auto-Detect
-            config['num_ctx'] = 32768  # 32K
-        else:
-            config['force_cpu'] = True
-            config['num_ctx'] = 32768  # CPU mit 32K Context
-            config['reason'] = f"Nur {vram_gb:.1f} GB VRAM → Mixtral braucht min. 24 GB → CPU-only"
-        return config
-
-    # === 8B Modelle ===
-    elif '8b' in model_lower:
-        # ~6-9 GB benötigt, passt auf fast alle GPUs
-        if vram_gb >= 8:
-            config['num_gpu'] = None  # Auto-Detect
-            config['num_ctx'] = 32768  # 32K
-        else:
-            config['num_ctx'] = 16384  # Kleinerer Context
-        return config
-
-    # === 4B Modelle ===
-    elif '4b' in model_lower:
-        # ~3 GB benötigt
-        config['num_gpu'] = None
-        config['num_ctx'] = 32768  # Natives Max
-        return config
-
-    # === 3B Modelle ===
-    elif '3b' in model_lower:
-        # ~2 GB benötigt
-        config['num_gpu'] = None
-        config['num_ctx'] = 32768  # Natives Max
-        return config
-
-    # === Kleine Modelle (≤2B) ===
-    elif '1.7b' in model_lower or '0.6b' in model_lower or '0.5b' in model_lower:
-        # ~1-2 GB benötigt
-        config['num_gpu'] = None
-        config['num_ctx'] = 32768  # Natives Max
-        return config
-
-    # === Unbekanntes Modell ===
-    else:
-        # Sichere Defaults für unbekannte Modelle (command-r, mistral, etc.)
-        # Lasse Ollama auto-detect machen
-        config['num_gpu'] = None
-        config['num_ctx'] = None
-        return config
-
 
 def _patched_ollama_chat(*args, **kwargs):
     """
-    Patched ollama.chat() that automatically injects num_gpu, num_ctx, and custom LLM parameters
-    based on current GPU mode setting, model capabilities, hardware detection, and user preferences.
+    Patched ollama.chat() that injects num_gpu based on GPU toggle setting.
 
     Features:
-    - Automatic CPU fallback for problematic model+hardware combinations
-    - Dynamic VRAM-based configuration
-    - Portable across different GPU types
-    - Custom LLM parameters (temperature, top_p, top_k, etc.)
+    - CPU-only mode (num_gpu=0) when GPU toggle disabled
+    - GPU Auto-Detect (no num_gpu) when GPU toggle enabled → Ollama optimizes automatically
+    - Custom LLM parameters (temperature, top_p, top_k, etc.) from UI
     """
     # Hole aktuellen GPU-Modus und custom Parameter aus Thread-Local-Storage
     enable_gpu = getattr(_thread_local, 'enable_gpu', None)
@@ -342,51 +184,19 @@ def _patched_ollama_chat(*args, **kwargs):
 
         model_name = kwargs.get('model', '')
 
-        # Hole optimale Konfiguration für dieses Modell + Hardware
-        config = _get_safe_config_for_model(model_name)
+        # === VEREINFACHTE LOGIK: Nur CPU-Toggle, sonst Ollama Auto-Detect ===
+        # num_gpu wird NUR noch gesetzt wenn User explizit CPU-only will
+        # Alle Hardware-Checks (VRAM, Model-Size, Context) macht jetzt Ollama selbst!
 
-        # Check: Muss CPU erzwungen werden? (z.B. AMD iGPU + 32B = GPU Hang)
-        if enable_gpu and config['force_cpu']:
-            # GPU war aktiviert, ABER Modell+Hardware-Kombination ist problematisch
-            # → Fallback auf CPU trotz GPU-Toggle
-            if 'num_gpu' not in kwargs['options']:
-                kwargs['options']['num_gpu'] = 0
-                debug_print(f"⚠️ [ollama.chat] CPU-Fallback erzwungen für {model_name}")
-                debug_print(f"   Grund: {config['reason']}")
-
-            # Setze großen Context für CPU (CPU hat mehr RAM)
-            if 'num_ctx' not in kwargs['options'] and config['num_ctx'] is not None:
-                kwargs['options']['num_ctx'] = config['num_ctx']
-                debug_print(f"🔧 [ollama.chat] Context auf {config['num_ctx']} gesetzt (CPU-Mode)")
-
-        elif not enable_gpu:
-            # CPU-only: num_gpu=0 explizit setzen (User-Wahl)
+        if not enable_gpu:
+            # CPU-only: num_gpu=0 explizit setzen (User-Wahl via Toggle)
             if 'num_gpu' not in kwargs['options']:
                 kwargs['options']['num_gpu'] = 0
                 debug_print(f"🔧 [ollama.chat] CPU-only aktiviert (num_gpu=0) für {model_name}")
-
-            # CPU: Nutze großen Context wenn möglich
-            if 'num_ctx' not in kwargs['options'] and config['num_ctx'] is not None:
-                kwargs['options']['num_ctx'] = config['num_ctx']
-
         else:
-            # GPU aktiviert UND keine Probleme: Nutze GPU-Konfiguration
-            # Setze num_gpu nur wenn nicht bereits vom Caller gesetzt
-            if 'num_gpu' not in kwargs['options']:
-                if config['num_gpu'] is None:
-                    # Auto-Detect: Lasse Ollama selbst entscheiden
-                    # KEIN num_gpu setzen → Ollama macht intelligentes Hybrid-Loading
-                    # basierend auf VRAM, Context-Größe und Model-Size
-                    debug_print(f"🔧 [ollama.chat] GPU Auto-Detect für {model_name} (Ollama optimiert Layer-Aufteilung)")
-                else:
-                    # Explizites Layer-Limit gesetzt (z.B. für alte Hardware-Configs)
-                    kwargs['options']['num_gpu'] = config['num_gpu']
-                    debug_print(f"🔧 [ollama.chat] GPU mit Layer-Limit (num_gpu={config['num_gpu']}) für {model_name}")
-
-            # Setze num_ctx nur wenn nicht bereits vom Caller gesetzt
-            if 'num_ctx' not in kwargs['options'] and config['num_ctx'] is not None:
-                kwargs['options']['num_ctx'] = config['num_ctx']
-                debug_print(f"🔧 [ollama.chat] Context-Limit (num_ctx={config['num_ctx']}) für {model_name}")
+            # GPU aktiviert: Lass Ollama IMMER selbst entscheiden (Auto-Detect)
+            # Ollama optimiert basierend auf: VRAM, Model-Size, Context-Größe
+            debug_print(f"🔧 [ollama.chat] GPU Auto-Detect für {model_name} (Ollama optimiert Layer-Aufteilung)")
 
     # Merge custom LLM-Parameter (User-Eingaben überschreiben Hardware-Config!)
     if custom_options:
