@@ -25,6 +25,10 @@ ssl/
 # User Settings (persönlich)
 assistant_settings.json
 
+# Environment Variables (API Keys - NIEMALS committen!)
+.env
+.env.local
+
 # Logs
 *.log
 /var/log/
