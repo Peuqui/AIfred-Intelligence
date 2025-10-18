@@ -80,7 +80,8 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 
         response = ollama.chat(
             model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}]
+            messages=[{'role': 'user', 'content': prompt}],
+            options={'temperature': 0.3}  # Leicht kreativ für Keywords, aber stabil
         )
 
         raw_response = response['message']['content'].strip()
@@ -182,7 +183,8 @@ Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
 
         response = ollama.chat(
             model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}]
+            messages=[{'role': 'user', 'content': prompt}],
+            options={'temperature': 0.3}  # Konsistente URL-Bewertungen, keine Zufallsscores
         )
 
         answer = response['message']['content']
@@ -476,7 +478,8 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
         decision_start = time.time()
         response = ollama.chat(
             model=automatik_model,
-            messages=[{'role': 'user', 'content': decision_prompt}]
+            messages=[{'role': 'user', 'content': decision_prompt}],
+            options={'temperature': 0.2}  # Niedrig für konsistente yes/no Entscheidungen
         )
         decision_time = time.time() - decision_start
 
