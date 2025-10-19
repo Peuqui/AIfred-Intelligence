@@ -684,13 +684,22 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen2.5:14b-instruct-q8_0</strong></nobr></td><td style="padding: 8px;">17&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">💎 Beste Qualität (Rating: 9.5/10), aber 2x langsamer (~62s), perfekte Faktentreue</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>gemma2:9b-instruct-q8_0</strong></nobr></td><td style="padding: 8px;">10&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">🎯 Google DeepMind (Rating: 8/10 @ temp 0.2), gut für Coding/Math, 8K Context</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>gemma2:9b</strong></nobr></td><td style="padding: 8px;">5&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">⚡ Schneller (Q4), weniger genau (Rating: 7/10), Budget-Option für Low-VRAM</td></tr>
-                <tr style="border-bottom: 1px solid #333; background-color: rgba(255, 100, 100, 0.1);"><td style="padding: 8px;"><nobr><strong>deepseek-r1:8b</strong></nobr></td><td style="padding: 8px;">5-9&nbsp;GB</td><td style="padding: 8px;">❌</td><td style="padding: 8px;">⚠️ <strong>NICHT für Recherche!</strong> Halluziniert stark (invented names/dates). Nur für Coding/Math</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(255, 100, 100, 0.1);"><td style="padding: 8px;"><nobr><strong>deepseek-r1:8b</strong></nobr></td><td style="padding: 8px;">5.2&nbsp;GB</td><td style="padding: 8px;">❌</td><td style="padding: 8px;">⚠️ <strong>NICHT für Recherche!</strong> Halluziniert stark (invented names/dates). Nur für Coding/Math</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>deepseek-r1:8b-0528-qwen3-q8_0</strong></nobr></td><td style="padding: 8px;">8.9&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💎 Q8 Präzision, besser für Math/Reasoning, aber auch nicht für faktische Recherche</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>deepseek-coder-v2:16b</strong></nobr></td><td style="padding: 8px;">8.9&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">💻 <strong>Code-Spezialist V2</strong> - 16B Parameter, exzellent für Code-Generierung & Debugging</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:32b</strong></nobr></td><td style="padding: 8px;">20&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">🏆 Beste Qualität, größtes Qwen3-Model, sehr tiefes Reasoning</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:32b-q4_K_M</strong></nobr></td><td style="padding: 8px;">20&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">🎯 Q4_K_M Quantisierung - optimale Balance zwischen Qualität & Geschwindigkeit</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:8b</strong></nobr></td><td style="padding: 8px;">5.2&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">⚡ Beste Balance: Schnell + folgt Context zuverlässig, täglicher Driver</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:4b</strong></nobr></td><td style="padding: 8px;">2.5&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">🧠 <strong>THINKING MODEL</strong> - Chain-of-Thought, langsamer aber tiefes Reasoning</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:1.7b</strong></nobr></td><td style="padding: 8px;">1.4&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">⚡⚡ Ultra-schnell (~1-2s), ideal für Intent-Detection & URL-Bewertung</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen2.5:3b</strong></nobr></td><td style="padding: 8px;">1.9&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💨 Klein & schnell (~2-3s), perfekt als Automatik-Modell für Query-Opt/Rating</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen3:0.6b</strong></nobr></td><td style="padding: 8px;">522&nbsp;MB</td><td style="padding: 8px;">⚠️</td><td style="padding: 8px;">🐣 Kleinster Qwen3, nur für einfachste Tasks</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>qwen2.5-coder:0.5b</strong></nobr></td><td style="padding: 8px;">397&nbsp;MB</td><td style="padding: 8px;">⚡</td><td style="padding: 8px;">⚡⚡⚡ Ultra-klein für Code-Completion, extrem schnell, nur für einfache Code-Snippets</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(200, 255, 200, 0.05);"><td style="padding: 8px;"><nobr><strong>qwen3:8b-fp16</strong></nobr></td><td style="padding: 8px;">16&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">💎💎 <strong>FP16 Präzision</strong> - maximale Genauigkeit, keine Quantisierung, langsamer</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(200, 255, 200, 0.05);"><td style="padding: 8px;"><nobr><strong>qwen3:4b-fp16</strong></nobr></td><td style="padding: 8px;">8.1&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">💎 FP16 - thinking model in maximaler Präzision für komplexe Reasoning</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(200, 255, 200, 0.05);"><td style="padding: 8px;"><nobr><strong>qwen3:1.7b-fp16</strong></nobr></td><td style="padding: 8px;">4.1&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">💎 FP16 - höhere Präzision für Intent-Detection, wenn Q4 nicht genau genug</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(200, 255, 200, 0.05);"><td style="padding: 8px;"><nobr><strong>qwen3:0.6b-fp16</strong></nobr></td><td style="padding: 8px;">1.5&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💎 FP16 - kleinstes FP16-Model, für sehr schnelle aber präzise Mini-Tasks</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(255, 200, 100, 0.1);"><td style="padding: 8px;"><nobr><strong>qwen2.5vl:7b-fp16</strong></nobr></td><td style="padding: 8px;">16&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">📸 <strong>VISION MODEL</strong> - kann Bilder analysieren! FP16 Präzision, multimodal (Text + Bild)</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>command-r</strong></nobr></td><td style="padding: 8px;">18&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">📚 Enterprise-Spezialist für lange Dokumente (128k Context!), zitiert Quellen</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>llama3.1:8b</strong></nobr></td><td style="padding: 8px;">4.9&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">🛡️ Meta's solides Allround-Model, zuverlässig & etabliert</td></tr>
                 <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px;"><nobr><strong>llama3.2:3b</strong></nobr></td><td style="padding: 8px;">2&nbsp;GB</td><td style="padding: 8px;">❌</td><td style="padding: 8px;">⚠️ Klein & schnell, aber ignoriert Context oft (nur für Tests!)</td></tr>
@@ -731,13 +740,19 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
                 - Zitiert Quellen automatisch
                 - **Perfekt für:** PDFs analysieren, komplexe Research
 
-                **🧩 Für komplexe Multi-Domain Tasks:**
-                → **`mixtral:8x7b`** (26 GB, Mixture-of-Experts!)
-                - 8 Expert-Modelle à 7B Parameter (insgesamt 47B!)
-                - Aktiviert je nach Task nur relevante Experten (effizient!)
-                - Gut für Code, Mathe, Reasoning, Sprachen gleichzeitig
-                - **Perfekt für:** Komplexe Projekte, Code-Review + Doku + Tests
-                - **Achtung:** 26 GB! Läuft mit 32 GB RAM, aber langsam
+                **📸 Für Bild-Analyse (Vision):**
+                → **`qwen2.5vl:7b-fp16`** (16 GB, multimodal!)
+                - Kann Bilder UND Text verstehen
+                - FP16 Präzision für beste Qualität
+                - Beschreibt Bilder, extrahiert Text aus Screenshots
+                - **Perfekt für:** Screenshot-Analyse, Diagramm-Erklärung, OCR
+
+                **💻 Für Code-Generierung:**
+                → **`deepseek-coder-v2:16b`** (8.9 GB, Code-Spezialist!)
+                - 16B Parameter speziell für Code trainiert
+                - Exzellent für Debugging, Code-Review, Refactoring
+                - Versteht viele Programmiersprachen
+                - **Perfekt für:** Code schreiben, Bugs finden, Tests generieren
 
                 **💻 Für Code & Instruktionen:**
                 → **`mistral`** (4.4 GB, kompakt & effizient!)

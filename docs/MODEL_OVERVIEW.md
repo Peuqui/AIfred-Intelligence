@@ -65,7 +65,9 @@ Klein, schnell, optimiert für spezifische Hilfs-Aufgaben.
 |-------|------|------|-------|----------|
 | **qwen2.5:3b** | 3B | ~2 GB | 2-3s | Intent-Detection, Query-Opt, URL-Rating |
 | qwen3:1.7b | 1.7B | ~1 GB | 1-2s | Ultra-schnelle Classification |
-| qwen3:0.6b-fp16 | 0.6B | ~0.6 GB | <1s | Edge-Devices, minimale Tasks |
+| qwen3:1.7b-fp16 | 1.7B | ~4 GB | 1-2s | FP16 Präzision für höhere Accuracy |
+| qwen3:0.6b | 0.6B | ~0.5 GB | <1s | Kleinster Qwen3, minimale Tasks |
+| qwen3:0.6b-fp16 | 0.6B | ~1.5 GB | <1s | FP16 für Edge-Devices mit Präzision |
 
 ### 3. Reasoning Models
 Spezialisiert auf logisches Denken, Mathematik und Coding - aber anfällig für Halluzinationen.
@@ -77,7 +79,23 @@ Spezialisiert auf logisches Denken, Mathematik und Coding - aber anfällig für 
 
 ⚠️ **WARNING:** DeepSeek-R1 Modelle halluzinieren massiv bei faktischen Aufgaben (invented names, false dates, category confusion). Temperature-Reduktion hilft NICHT. Nur für Coding/Math verwenden!
 
-### 4. Coding/Development Models
+### 4. FP16 High-Precision Models
+Full-Precision Modelle ohne Quantisierung für maximale Genauigkeit (langsamer, mehr VRAM).
+
+| Model | Size | VRAM | Use Case |
+|-------|------|------|----------|
+| qwen3:8b-fp16 | 8B | ~16 GB | Maximale Präzision für kritische Tasks |
+| qwen3:4b-fp16 | 4B | ~8 GB | Thinking Model in FP16 für komplexes Reasoning |
+| qwen3:1.7b-fp16 | 1.7B | ~4 GB | Intent-Detection mit höchster Accuracy |
+| qwen3:0.6b-fp16 | 0.6B | ~1.5 GB | Mini-Model mit FP16 Präzision |
+
+**Wann FP16 verwenden?**
+- ✅ Wenn Q4/Q8 Quantisierung zu ungenau ist
+- ✅ Für wissenschaftliche/medizinische Anwendungen
+- ✅ Wenn VRAM verfügbar und Präzision wichtiger als Speed
+- ❌ **NICHT** für normale Web-Recherche (Q4/Q8 reicht!)
+
+### 5. Coding/Development Models
 Spezialisiert auf Code-Generierung und technische Dokumentation.
 
 | Model | Size | VRAM | Use Case |
@@ -85,22 +103,22 @@ Spezialisiert auf Code-Generierung und technische Dokumentation.
 | deepseek-coder-v2:16b | 16B | ~10 GB | Code-Generierung, Refactoring |
 | qwen2.5-coder:0.5b | 0.5B | ~0.5 GB | Schnelles Code-Completion |
 
-### 5. Multimodal Models
+### 6. Multimodal Models
 Text + Vision kombiniert.
 
 | Model | Size | VRAM | Use Case |
 |-------|------|------|----------|
 | qwen2.5vl:7b-fp16 | 7B | ~14 GB | Vision + Text (Bildanalyse) |
 
-### 6. Legacy/General Models
+### 7. Legacy/General Models
 Nicht speziell optimiert, aber vielseitig.
 
-| Model | Size | Notes |
-|-------|------|-------|
-| llama3.1:8b | 8B | Gutes Allround-Modell |
-| llama3.2:3b | 3B | Schnell, kompakt |
-| mistral:latest | 7B | Französisch-fokussiert |
-| command-r:latest | 35B | RAG-optimiert |
+| Model | Size | VRAM | Notes |
+|-------|------|------|-------|
+| command-r:latest | 35B | ~18 GB | RAG-optimiert, 128K Context, zitiert Quellen |
+| llama3.1:8b | 8B | ~5 GB | Meta's Allround-Modell, solide Baseline |
+| mistral:latest | 7B | ~4.4 GB | Instruction-Following, Code-optimiert |
+| llama3.2:3b | 3B | ~2 GB | Schnell, aber ignoriert oft Context |
 
 ---
 
