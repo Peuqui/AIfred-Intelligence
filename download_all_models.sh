@@ -53,5 +53,27 @@ for model in "${fp16_models[@]}"; do
 done
 
 echo ""
+echo "📦 Q8 Models (High Quality, fits in 12GB VRAM)"
+echo "----------------------------"
+
+# Q8 Quantized Models (Better quality than Q4, smaller than FP16)
+q8_models=(
+    "gemma2:9b-instruct-q8_0"
+    "deepseek-r1:8b-0528-qwen3-q8_0"
+)
+
+for model in "${q8_models[@]}"; do
+    echo ""
+    echo "⬇️  Downloading: $model"
+    echo "----------------------------------------"
+    ollama pull "$model"
+    if [ $? -eq 0 ]; then
+        echo "✅ Successfully downloaded: $model"
+    else
+        echo "❌ Failed to download: $model"
+    fi
+done
+
+echo ""
 echo "🎉 All downloads completed!"
 echo "========================================"
