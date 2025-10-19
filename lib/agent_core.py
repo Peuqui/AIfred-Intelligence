@@ -17,6 +17,149 @@ from .memory_manager import smart_model_load
 from .logging_utils import debug_print
 
 
+def detect_query_intent(user_query, automatik_model="qwen3:1.7b"):
+    """
+    Erkennt die Intent einer User-Anfrage für adaptive Temperature-Wahl
+
+    Args:
+        user_query: User-Frage
+        automatik_model: LLM für Intent-Detection (default: qwen3:1.7b)
+
+    Returns:
+        str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+    """
+    prompt = f"""Analysiere die Intention dieser User-Anfrage:
+
+"{user_query}"
+
+**Kategorien:**
+- FAKTISCH: Recherche, News, Wetter, aktuelle Ereignisse, Definitionen, Erklärungen, Fakten
+- KREATIV: Gedichte, Geschichten, Brainstorming, Ideen generieren, kreative Texte
+- GEMISCHT: Beide Aspekte kombiniert (z.B. "Erkläre Quantenphysik wie ein Märchen")
+
+**Beispiele:**
+- "Wie ist das Wetter morgen?" → FAKTISCH
+- "Welche Nobelpreise wurden 2025 vergeben?" → FAKTISCH
+- "Schreibe ein Gedicht über den Klimawandel" → KREATIV
+- "Erfinde eine Geschichte über einen Roboter" → KREATIV
+- "Erkläre die Relativitätstheorie als spannende Geschichte" → GEMISCHT
+
+**WICHTIG:** Antworte NUR mit einem Wort: FAKTISCH, KREATIV oder GEMISCHT"""
+
+    try:
+        debug_print(f"🎯 Intent-Detection für Query: {user_query[:60]}...")
+
+        # Smart Model Loading
+        smart_model_load(automatik_model)
+
+        response = ollama.chat(
+            model=automatik_model,
+            messages=[{'role': 'user', 'content': prompt}],
+            options={'temperature': 0.2}  # Niedrig für konsistente Intent-Detection
+        )
+
+        intent_raw = response['message']['content'].strip().upper()
+
+        # Extrahiere Intent (auch wenn LLM mehr Text schreibt)
+        if "FAKTISCH" in intent_raw:
+            intent = "FAKTISCH"
+        elif "KREATIV" in intent_raw:
+            intent = "KREATIV"
+        elif "GEMISCHT" in intent_raw:
+            intent = "GEMISCHT"
+        else:
+            debug_print(f"⚠️ Intent unbekannt: '{intent_raw}' → Default: FAKTISCH")
+            intent = "FAKTISCH"  # Fallback
+
+        debug_print(f"✅ Intent erkannt: {intent}")
+        return intent
+
+    except Exception as e:
+        debug_print(f"❌ Intent-Detection Fehler: {e} → Fallback: FAKTISCH")
+        return "FAKTISCH"  # Safe Fallback
+
+
+def detect_cache_followup_intent(original_query, followup_query, automatik_model="qwen3:1.7b"):
+    """
+    Erkennt die Intent einer Nachfrage zu einer gecachten Recherche
+
+    Args:
+        original_query: Ursprüngliche Recherche-Frage
+        followup_query: Nachfrage des Users
+        automatik_model: LLM für Intent-Detection
+
+    Returns:
+        str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+    """
+    prompt = f"""Du hast bereits diese Frage recherchiert: "{original_query}"
+
+Jetzt stellt der User eine Nachfrage: "{followup_query}"
+
+**Kategorien:**
+- FAKTISCH: Details erklären, Fakten präzisieren, sachliche Vertiefung, "Was bedeutet...", "Welche Details..."
+- KREATIV: Geschichte/Gedicht schreiben, kreativ umformulieren, spekulieren, "Schreibe ein...", "Fasse als..."
+- GEMISCHT: Beides kombiniert (z.B. "Erkläre die Ergebnisse als spannende Geschichte")
+
+**Beispiele:**
+- "Erkläre mir das genauer" → FAKTISCH
+- "Was bedeutet dieser Begriff?" → FAKTISCH
+- "Schreibe ein Gedicht über die Preisträger" → KREATIV
+- "Fasse die Ergebnisse als Geschichte zusammen" → KREATIV
+- "Erkläre es kreativ aber faktisch korrekt" → GEMISCHT
+
+**WICHTIG:** Antworte NUR mit einem Wort: FAKTISCH, KREATIV oder GEMISCHT"""
+
+    try:
+        debug_print(f"🎯 Cache-Followup Intent-Detection: {followup_query[:60]}...")
+
+        # Smart Model Loading
+        smart_model_load(automatik_model)
+
+        response = ollama.chat(
+            model=automatik_model,
+            messages=[{'role': 'user', 'content': prompt}],
+            options={'temperature': 0.2}
+        )
+
+        intent_raw = response['message']['content'].strip().upper()
+
+        # Extrahiere Intent
+        if "FAKTISCH" in intent_raw:
+            intent = "FAKTISCH"
+        elif "KREATIV" in intent_raw:
+            intent = "KREATIV"
+        elif "GEMISCHT" in intent_raw:
+            intent = "GEMISCHT"
+        else:
+            debug_print(f"⚠️ Cache-Intent unbekannt: '{intent_raw}' → Default: FAKTISCH")
+            intent = "FAKTISCH"  # Bei Recherche-Nachfragen meist faktisch
+
+        debug_print(f"✅ Cache-Followup Intent: {intent}")
+        return intent
+
+    except Exception as e:
+        debug_print(f"❌ Cache-Followup Intent-Detection Fehler: {e} → Fallback: FAKTISCH")
+        return "FAKTISCH"
+
+
+def get_temperature_for_intent(intent):
+    """
+    Gibt die passende Temperature für einen Intent zurück
+
+    Args:
+        intent: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+
+    Returns:
+        float: Temperature (0.2, 0.5 oder 0.8)
+    """
+    temp_map = {
+        "FAKTISCH": 0.2,
+        "KREATIV": 0.8,
+        "GEMISCHT": 0.5
+    }
+    return temp_map.get(intent, 0.2)  # Fallback: 0.2
+
+
 def optimize_search_query(user_text, automatik_model, history=None):
     """
     Extrahiert optimierte Suchbegriffe aus User-Frage
@@ -276,7 +419,7 @@ Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
         return [{'url': url, 'score': 5, 'reasoning': 'Rating fehlgeschlagen'} for url in urls]
 
 
-def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_model, history, session_id=None):
+def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_model, history, session_id=None, temperature_mode='auto', temperature=0.2):
     """
     Agent-Recherche mit AI-basierter URL-Bewertung
 
@@ -288,6 +431,8 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
         automatik_model: Automatik-LLM für Query-Opt & URL-Rating
         history: Chat History
         session_id: Session-ID für Research-Cache (optional)
+        temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
+        temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
 
     Returns:
         tuple: (ai_text, history, inference_time)
@@ -379,11 +524,29 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             messages.insert(0, {'role': 'system', 'content': system_prompt})
             messages.append({'role': 'user', 'content': user_text})
 
+            # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
+            if temperature_mode == 'manual':
+                final_temperature = temperature
+                debug_print(f"🌡️ Cache-Hit Temperature: {final_temperature} (MANUAL OVERRIDE)")
+            else:
+                # Auto: Intent-Detection für Cache-Followup
+                followup_intent = detect_cache_followup_intent(
+                    original_query=cache_entry.get('user_text', ''),
+                    followup_query=user_text,
+                    automatik_model=automatik_model
+                )
+                final_temperature = get_temperature_for_intent(followup_intent)
+                debug_print(f"🌡️ Cache-Hit Temperature: {final_temperature} (Intent: {followup_intent})")
+
             # Smart Model Loading
             smart_model_load(model_choice)
 
             llm_start = time.time()
-            response = ollama.chat(model=model_choice, messages=messages)
+            response = ollama.chat(
+                model=model_choice,
+                messages=messages,
+                options={'temperature': final_temperature}  # Adaptive oder Manual Temperature!
+            )
             llm_time = time.time() - llm_start
 
             final_answer = response['message']['content']
@@ -566,11 +729,24 @@ REGELN (KEINE AUSNAHMEN!):
     messages.insert(0, {'role': 'system', 'content': system_prompt})
     messages.append({'role': 'user', 'content': user_text})
 
+    # Temperature entscheiden: Manual Override oder Auto (immer 0.2 bei Web-Recherche)
+    if temperature_mode == 'manual':
+        final_temperature = temperature
+        debug_print(f"🌡️ Web-Recherche Temperature: {final_temperature} (MANUAL OVERRIDE)")
+    else:
+        # Auto: Web-Recherche → Immer Temperature 0.2 (faktisch)
+        final_temperature = 0.2
+        debug_print(f"🌡️ Web-Recherche Temperature: {final_temperature} (fest, faktisch)")
+
     # Smart Model Loading: Entlade kleine Modelle wenn großes Modell kommt
     smart_model_load(model_choice)
 
     inference_start = time.time()
-    response = ollama.chat(model=model_choice, messages=messages)
+    response = ollama.chat(
+        model=model_choice,
+        messages=messages,
+        options={'temperature': final_temperature}  # Adaptive oder Manual Temperature!
+    )
     inference_time = time.time() - inference_start
 
     agent_time = time.time() - agent_start
@@ -614,7 +790,7 @@ REGELN (KEINE AUSNAHMEN!):
     return ai_text, history, inference_time
 
 
-def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id=None):
+def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id=None, temperature_mode='auto', temperature=0.2):
     """
     Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
 
@@ -626,6 +802,8 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
         voice_choice, speed_choice, enable_tts, tts_engine: Für Fallback zu Eigenes Wissen
         history: Chat History
         session_id: Session-ID für Research-Cache (optional)
+        temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
+        temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
 
     Returns:
         tuple: (ai_text, history, inference_time)
@@ -732,13 +910,13 @@ Frage: "Was ist Quantenphysik?"
         # Parse Entscheidung
         if '<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision):
             debug_print("✅ KI entscheidet: Web-Recherche nötig → Web-Suche Ausführlich (5 Quellen)")
-            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id)
+            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature)
 
         elif '<search>context</search>' in decision or 'context' in decision:
             debug_print("🔄 KI entscheidet: Nachfrage zu vorheriger Recherche → Nutze Cache")
             # Rufe perform_agent_research auf - dort wird Cache geprüft
             # Wenn kein Cache gefunden wird, fällt es automatisch auf normale Recherche zurück
-            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id)
+            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature)
 
         else:
             debug_print("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
@@ -755,12 +933,26 @@ Frage: "Was ist Quantenphysik?"
                 ])
             messages.append({'role': 'user', 'content': user_text})
 
+            # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
+            if temperature_mode == 'manual':
+                final_temperature = temperature
+                debug_print(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (MANUAL OVERRIDE)")
+            else:
+                # Auto: Intent-Detection für Eigenes Wissen
+                own_knowledge_intent = detect_query_intent(user_text, automatik_model)
+                final_temperature = get_temperature_for_intent(own_knowledge_intent)
+                debug_print(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent})")
+
             # Smart Model Loading vor Ollama-Call
             smart_model_load(model_choice)
 
             # Zeit messen für finale Inferenz
             inference_start = time.time()
-            response = ollama.chat(model=model_choice, messages=messages)
+            response = ollama.chat(
+                model=model_choice,
+                messages=messages,
+                options={'temperature': final_temperature}  # Adaptive oder Manual Temperature!
+            )
             inference_time = time.time() - inference_start
 
             ai_text = response['message']['content']

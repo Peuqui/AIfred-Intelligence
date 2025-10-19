@@ -237,23 +237,118 @@ DEFAULT_SETTINGS = {
 
 **Planned Feature:** Automatische Temperature-Anpassung basierend auf User-Intent
 
-**Hybrid Approach:**
-1. **Keyword-basierte Erkennung** (schnell):
-   - "Wetter", "News", "aktuell", "Nobelpreis" → Temp 0.2 (Recherche)
-   - "Gedicht", "kreativ", "Geschichte", "erfinde" → Temp 0.8+ (Kreativ)
+## ✅ Adaptive Temperature System - IMPLEMENTIERT
 
-2. **LLM-basierte Intent Detection** (bei Unsicherheit):
-   - Fallback wenn Keywords nicht eindeutig
-   - qwen3:1.7b klassifiziert Intent (~2-3s overhead)
+**Implementation Date:** 2025-10-19
+**Status:** ✅ **PRODUKTIV**
 
-3. **Default für Research Mode:**
-   - Web-Suche Schnell/Ausführlich → Temp 0.2 (fest)
-   - Eigenes Wissen → Adaptive (Keyword + LLM)
+### Architektur
 
-**Implementation Status:** 📋 TODO (siehe TODO.md)
+Das System verwendet **LLM-basierte Intent Detection** mit zwei Modi:
+
+#### 1. Auto-Modus (Standard)
+- **Web-Recherche:** Fest temp 0.2 (faktisch, kein Overhead)
+- **Cache-Hit:** Intent-Detection → 0.2/0.5/0.8 (~7s Overhead)
+- **Eigenes Wissen:** Intent-Detection → 0.2/0.5/0.8 (~7s Overhead)
+
+**Intent-Detection mit qwen2.5:3b (temp 0.2):**
+```python
+def detect_cache_followup_intent(original_query, followup_query, automatik_model):
+    """Klassifiziert Follow-up als FAKTISCH/KREATIV/GEMISCHT"""
+    # Analysiert beide Queries im Kontext
+    # Returns: FAKTISCH (0.2), KREATIV (0.8), GEMISCHT (0.5)
+```
+
+#### 2. Manual Override-Modus (neu)
+- User setzt Temperature explizit (0.0-2.0)
+- **KEINE Intent-Detection** (spart ~7s)
+- Gilt für ALLE Modi (Web-Recherche, Cache-Hit, Eigenes Wissen)
+- Nützlich für Testing und Power-User
+
+### UI-Integration
+
+**Settings:** `⚙️ LLM-Parameter (Erweitert)`
+- **🎛️ Temperature Modus:** Radio-Buttons (Auto / Manual)
+- **🌡️ Temperature:** Slider 0.0-2.0 (nur aktiv bei Manual)
+- Settings werden persistent gespeichert
+
+### Test-Ergebnisse (2025-10-19)
+
+**Test-Query:** "Welche Nobelpreise wurden dieses Jahr vergeben?" (Cache erstellt)
+
+#### Auto-Modus Tests:
+
+| Follow-up Query | Erwarteter Intent | Erkannter Intent | Temperature | Ergebnis |
+|-----------------|-------------------|------------------|-------------|----------|
+| "Erkläre Quelle 1 genauer" | FAKTISCH | ✅ FAKTISCH | 0.2 | ✅ PERFEKT |
+| "Schreibe Geschichte über Daten" | KREATIV | ❌ **FAKTISCH** | 0.2 | ⚠️ Falsch erkannt |
+| "Schreibe Gedicht über Preisträger" | KREATIV | ✅ KREATIV | 0.8 | ✅ PERFEKT |
+| "Gedicht umschreiben, dass es sich reimt" | KREATIV | ✅ KREATIV | 0.8 | ✅ PERFEKT |
+| "Warum reimt's nicht?" | FAKTISCH | ✅ FAKTISCH | 0.2 | ✅ PERFEKT |
+
+**Erfolgsquote:** 4/5 = 80%
+
+**Problem identifiziert:**
+- "Schreibe Geschichte über recherchierten Daten" wird als FAKTISCH klassifiziert
+- Ursache: "recherchierten Daten" verwirrt Intent-Classifier
+- Output war trotzdem kreativ (LLM folgt Prompt-Instruktion)
+
+#### Manual Override Tests:
+
+| Query | Manual Temp | Log Output | Ergebnis |
+|-------|-------------|------------|----------|
+| "Gedicht umschreiben" | 1.6 | `🌡️ Eigenes Wissen Temperature: 1.6 (MANUAL OVERRIDE)` | ✅ Funktioniert |
+| "Gedicht mit Reimen" | 2.0 | `🌡️ Cache-Hit Temperature: 2 (MANUAL OVERRIDE)` | ✅ Funktioniert |
+
+**Beobachtungen:**
+- Keine Intent-Detection bei Manual (Performance-Gewinn)
+- Auch temp 2.0 produziert keine korrekten deutschen Reime (Modell-Limitation)
+- Manual Override für alle Modi korrekt implementiert
+
+### Empfehlungen
+
+**Für faktische Recherche:**
+- ✅ Auto-Modus mit qwen2.5:14b (Q4)
+- ✅ Temp 0.2 bei Web-Recherche (fest)
+- ✅ Intent-Detection für Cache-Hits funktioniert gut
+
+**Für kreative Aufgaben:**
+- ✅ Auto-Modus erkennt "Gedicht", "Brainstorming" korrekt
+- ⚠️ "Geschichte über Daten" braucht Manual Override (temp 0.8)
+- ❌ Deutsche Lyrik: qwen2.5:14b hat Schwächen bei Reimen (unabhängig von Temperature)
+
+**Für Testing:**
+- ✅ Manual Override ideal um verschiedene Temps zu vergleichen
+- ✅ Derselbe Cache kann mit verschiedenen Temps getestet werden
+
+### Performance
+
+**Intent-Detection Overhead:**
+- qwen2.5:3b: ~7 Sekunden (akzeptabel)
+- Nur bei Cache-Hit und Eigenes Wissen
+- Kein Overhead bei Web-Recherche (fest temp 0.2)
+- **Kein Overhead bei Manual Override**
+
+**Gesamtzeit Cache-Hit:**
+- Auto-Modus: ~32-43s (Intent-Detection 7s + Inference 25-36s)
+- Manual-Modus: ~25-29s (nur Inference)
+
+### Zukünftige Verbesserungen
+
+**Intent-Detection Prompt optimieren:**
+```python
+# Aktuell: temp 0.2 für Konsistenz
+# Testen: temp 0.3-0.5 für bessere "Geschichte"-Erkennung
+```
+
+**Alternativen für deutsche Lyrik:**
+- Größeres Modell testen (qwen3:32b)
+- Spezialisiertes Lyrik-Modell suchen
+- Few-Shot Prompting mit Reim-Beispielen
 
 ---
 
-**Last Updated:** 2025-01-19 03:00 CET
+**Last Updated:** 2025-10-19 15:15 CET
 **Tested By:** User (mp)
-**Test Duration:** ~2 hours (extensive cross-model comparison)
+**Test Duration:** ~3 hours (implementation + extensive testing)
+**Implementation:** [lib/agent_core.py](../lib/agent_core.py), [aifred_intelligence.py](../aifred_intelligence.py)

@@ -48,7 +48,7 @@ def load_settings():
     return DEFAULT_SETTINGS.copy()
 
 
-def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu):
+def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, temperature_mode, temperature):
     """
     Speichert Einstellungen in JSON-Datei
 
@@ -63,6 +63,8 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
         research_mode: Research Mode (Automatik/Aus/Schnell/Ausführlich)
         show_transcription: Transkription im Chat anzeigen (bool)
         enable_gpu: GPU-Beschleunigung aktiviert (bool)
+        temperature_mode: Temperature Modus ('auto' oder 'manual')
+        temperature: Temperature Wert (0.0-2.0)
     """
     try:
         # Speichere neue Settings
@@ -76,7 +78,9 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
             "whisper_model": whisper_model,
             "research_mode": research_mode,
             "show_transcription": show_transcription,
-            "enable_gpu": enable_gpu
+            "enable_gpu": enable_gpu,
+            "temperature_mode": temperature_mode,
+            "temperature": temperature
         }
 
         # Debug: Zeige ob GPU-Toggle geändert wurde
@@ -104,6 +108,8 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
         debug_print(f"   Research Mode: {research_mode}")
         debug_print(f"   Show Transcription: {show_transcription}")
         debug_print(f"   GPU Enabled: {enable_gpu}")
+        debug_print(f"   Temperature Mode: {temperature_mode}")
+        debug_print(f"   Temperature: {temperature}")
 
     except Exception as e:
         debug_print(f"❌ Fehler beim Speichern der Settings: {e}")

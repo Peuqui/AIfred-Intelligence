@@ -46,7 +46,9 @@ DEFAULT_SETTINGS = {
     "research_mode": "🤖 Automatik (variabel, KI entscheidet)",
     "show_transcription": False,
     "enable_gpu": True,
-    "temperature": 0.2
+    "temperature": 0.2,
+    "temperature_mode": "auto",  # 'auto' or 'manual'
+    "temperature_manual": 0.5    # Used when temperature_mode is 'manual'
 }
 
 # ============================================================
