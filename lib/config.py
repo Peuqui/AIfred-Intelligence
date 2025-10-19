@@ -36,7 +36,7 @@ WHISPER_MODELS = {
 # DEFAULT SETTINGS
 # ============================================================
 DEFAULT_SETTINGS = {
-    "model": "qwen3:8b",
+    "model": "qwen2.5:14b",
     "automatik_model": "qwen3:1.7b",
     "voice": "Deutsch (Katja)",
     "tts_speed": 1.25,
@@ -45,7 +45,8 @@ DEFAULT_SETTINGS = {
     "whisper_model": "small (466MB, bessere Qualität, multilingual)",
     "research_mode": "🤖 Automatik (variabel, KI entscheidet)",
     "show_transcription": False,
-    "enable_gpu": True
+    "enable_gpu": True,
+    "temperature": 0.2
 }
 
 # ============================================================

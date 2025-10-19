@@ -510,10 +510,10 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
                     llm_temperature = gr.Slider(
                         minimum=0.0,
                         maximum=2.0,
-                        value=0.8,
+                        value=saved_settings.get("temperature", 0.2),
                         step=0.1,
                         label="🌡️ Temperature",
-                        info="Kreativität: 0.0 = deterministisch, 0.8 = ausgewogen, 1.5+ = sehr kreativ"
+                        info="Kreativität: 0.0 = deterministisch, 0.2 = fakten (empfohlen), 0.8 = ausgewogen, 1.5+ = sehr kreativ"
                     )
                     llm_num_predict = gr.Number(
                         value=-1,
