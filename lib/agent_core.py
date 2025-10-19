@@ -299,106 +299,104 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
     # DEBUG: Session-ID prüfen
     debug_print(f"🔍 DEBUG: session_id = {session_id} (type: {type(session_id)})")
 
-    # 0. Cache-Check: User fragt nach spezifischer Quelle aus vorheriger Recherche?
-    import re
+    # 0. Cache-Check: Nachfrage zu vorheriger Recherche (von Automatik-LLM oder explizit)
     import sys
 
-    # Prüfe ob User nach "Quelle X" fragt
-    source_match = re.search(r'(?:quelle|source)\s*(\d+)', user_text.lower())
-    cached_sources = None
+    # Versuche Cache zu laden
+    main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
 
-    if source_match:
-        debug_print(f"🔍 DEBUG: source_match gefunden! Quelle {source_match.group(1)}")
+    if session_id and main_module and hasattr(main_module, 'research_cache') and session_id in main_module.research_cache:
+        cache_entry = main_module.research_cache[session_id]
+        cached_sources = cache_entry.get('scraped_sources', [])
 
-    if source_match and session_id:
-        # User fragt nach spezifischer Quelle - checke Cache
-        source_num = int(source_match.group(1))
+        if cached_sources:
+            debug_print(f"💾 Cache-Hit! Nutze gecachte Recherche (Session {session_id[:8]}...)")
+            debug_print(f"   Ursprüngliche Frage: {cache_entry.get('user_text', 'N/A')[:80]}...")
+            debug_print(f"   Cache enthält {len(cached_sources)} Quellen")
 
-        # Versuche __main__ (Gradio startet App als main) oder aifred_intelligence
-        main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
+            # Nutze ALLE Quellen aus dem Cache
+            scraped_only = cached_sources
+            context = build_context(user_text, scraped_only, max_length=8000)  # Größerer Kontext für alle Quellen
 
-        if main_module and hasattr(main_module, 'research_cache') and session_id in main_module.research_cache:
-                cache_entry = main_module.research_cache[session_id]
-                cached_sources = cache_entry.get('scraped_sources', [])
+            # System-Prompt für Nachfrage (allgemein, LLM entscheidet Fokus)
+            system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
 
-                if cached_sources and 0 < source_num <= len(cached_sources):
-                    debug_print(f"💾 Cache-Hit! Nutze gecachte Quelle {source_num} (Session {session_id[:8]}...)")
-                    debug_print(f"   Ursprüngliche Frage: {cache_entry.get('user_text', 'N/A')[:80]}...")
-                    debug_print(f"   Cache enthält {len(cached_sources)} Quellen")
+Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
-                    # Nutze NUR die gewünschte Quelle aus dem Cache
-                    selected_source = cached_sources[source_num - 1]
-                    tool_results = [selected_source]  # Nur diese eine Quelle
+**Ursprüngliche Frage:** "{cache_entry.get('user_text', 'N/A')}"
+**Aktuelle Nachfrage:** "{user_text}"
 
-                    # Springe direkt zur Context-Building (überspringen Web-Suche + Scraping)
-                    scraped_only = tool_results
-                    context = build_context(user_text, scraped_only, max_length=4000)
-
-                    # System-Prompt anpassen für Nachfrage
-                    system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
-
-Der User hat nach Details zu einer spezifischen Quelle aus einer vorherigen Recherche gefragt.
-
-# AUFGABE:
-- Beantworte die Nachfrage AUSFÜHRLICH basierend auf den Daten aus der gewünschten Quelle
-- Gehe auf ALLE Details ein, die in der Quelle stehen
-- Zitiere konkrete Fakten: Namen, Zahlen, Daten, Versionen
-- ⚠️ WICHTIG: Nutze NUR Informationen die EXPLIZIT in der Quelle stehen!
-- ❌ KEINE Halluzinationen oder Erfindungen!
-
-# QUELLE {source_num}:
+# VERFÜGBARE QUELLEN (aus vorheriger Recherche):
 
 {context}
 
+# AUFGABE:
+- Beantworte die Nachfrage AUSFÜHRLICH basierend auf den verfügbaren Quellen
+- Wenn der User eine spezifische Quelle erwähnt (z.B. "Quelle 1"), fokussiere darauf
+- Gehe auf ALLE relevanten Details ein
+- Zitiere konkrete Fakten: Namen, Zahlen, Daten, Versionen
+- ⚠️ WICHTIG: Nutze NUR Informationen die EXPLIZIT in den Quellen stehen!
+- ❌ KEINE Halluzinationen oder Erfindungen!
+
 # ANTWORT-STIL:
-- Beginne mit: "Basierend auf Quelle {source_num}..."
 - Sehr detailliert (3-5 Absätze)
-- Konkrete Details nennen
+- Konkrete Details und Fakten nennen
+- Bei mehreren Quellen: Zeige Zusammenhänge auf
 - Logisch strukturiert
-- Deutsch"""
+- Deutsch
 
-                    # Generiere Antwort mit Cache-Daten (gleicher Code wie normale Antwort-Generierung)
-                    messages = []
+# QUELLENANGABE:
+- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
 
-                    # History hinzufügen (falls vorhanden)
-                    for h in history:
-                        user_msg = h[0].split(" (STT:")[0].split(" (Agent:")[0] if " (STT:" in h[0] or " (Agent:" in h[0] else h[0]
-                        ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
-                        messages.extend([
-                            {'role': 'user', 'content': user_msg},
-                            {'role': 'assistant', 'content': ai_msg}
-                        ])
+  **Quellen:**
+  - Quelle 1: https://... (Thema: [Was wurde dort behandelt])
+  - Quelle 2: https://... (Thema: [Was wurde dort behandelt])
+  (etc.)"""
 
-                    # System-Prompt + aktuelle User-Frage
-                    messages.insert(0, {'role': 'system', 'content': system_prompt})
-                    messages.append({'role': 'user', 'content': user_text})
+            # Generiere Antwort mit Cache-Daten
+            messages = []
 
-                    # Smart Model Loading
-                    smart_model_load(model_choice)
+            # History hinzufügen (falls vorhanden) - LLM sieht vorherige Konversation
+            for h in history:
+                user_msg = h[0].split(" (STT:")[0].split(" (Agent:")[0] if " (STT:" in h[0] or " (Agent:" in h[0] else h[0]
+                ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
+                messages.extend([
+                    {'role': 'user', 'content': user_msg},
+                    {'role': 'assistant', 'content': ai_msg}
+                ])
 
-                    llm_start = time.time()
-                    response = ollama.chat(model=model_choice, messages=messages)
-                    llm_time = time.time() - llm_start
+            # System-Prompt + aktuelle User-Frage
+            messages.insert(0, {'role': 'system', 'content': system_prompt})
+            messages.append({'role': 'user', 'content': user_text})
 
-                    final_answer = response['message']['content']
+            # Smart Model Loading
+            smart_model_load(model_choice)
 
-                    total_time = time.time() - agent_start
+            llm_start = time.time()
+            response = ollama.chat(model=model_choice, messages=messages)
+            llm_time = time.time() - llm_start
 
-                    # Zeitmessung-Text
-                    timing_text = f" (Cache-Hit: {total_time:.1f}s = LLM {llm_time:.1f}s)"
-                    ai_text_with_timing = final_answer + timing_text
+            final_answer = response['message']['content']
 
-                    # Update History
-                    user_display = f"{user_text} (Agent: Cache-Hit, Quelle {source_num})"
-                    ai_display = ai_text_with_timing
-                    history.append([user_display, ai_display])
+            total_time = time.time() - agent_start
 
-                    debug_print(f"✅ Cache-basierte Antwort fertig in {total_time:.1f}s")
-                    return (ai_text_with_timing, history, total_time)
-                else:
-                    debug_print(f"⚠️ Cache vorhanden, aber Quelle {source_num} nicht gefunden (nur {len(cached_sources)} Quellen im Cache)")
-        else:
-            debug_print(f"⚠️ Kein Cache für Session {session_id[:8]}... gefunden")
+            # Formatiere <think> Tags als Collapsible (falls vorhanden)
+            final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time)
+
+            # Zeitmessung-Text
+            timing_text = f" (Cache-Hit: {total_time:.1f}s = LLM {llm_time:.1f}s)"
+            ai_text_with_timing = final_answer_formatted + timing_text
+
+            # Update History
+            user_display = f"{user_text} (Agent: Cache-Hit, {len(cached_sources)} Quellen)"
+            ai_display = ai_text_with_timing
+            history.append([user_display, ai_display])
+
+            debug_print(f"✅ Cache-basierte Antwort fertig in {total_time:.1f}s")
+            return (ai_text_with_timing, history, total_time)
+    else:
+        if session_id:
+            debug_print(f"⚠️ Kein Cache für Session {session_id[:8]}... gefunden → Normale Web-Recherche")
 
     # 1. Query Optimization: KI extrahiert Keywords (mit Zeitmessung und History-Kontext!)
     query_opt_start = time.time()
@@ -616,38 +614,63 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
     debug_print("🤖 Automatik-Modus: KI prüft, ob Recherche nötig...")
 
     # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
-    decision_prompt = f"""Du bist ein intelligenter Assistant. Analysiere diese Frage und entscheide: Brauchst du Web-Recherche?
+    decision_prompt = f"""Du bist ein intelligenter Assistant. Analysiere diese Frage und entscheide: Wie soll sie beantwortet werden?
 
 **Frage:** "{user_text}"
 
 **WICHTIG: Du hast KEINEN Echtzeit-Zugang! Deine Trainingsdaten sind veraltet (bis Jan 2025)!**
 
-**Analyse-Kriterien:**
-- ✅ **WEB-RECHERCHE UNBEDINGT NÖTIG** wenn:
-  - **WETTER** (heute, morgen, aktuell, Vorhersage) → IMMER Web-Suche!
-  - **AKTUELLE NEWS** (Was passiert gerade? Wer gewann? Neueste ...)
-  - **LIVE-DATEN** (Aktienkurse, Bitcoin, Sport-Ergebnisse, Wahlen)
-  - **ZEITABHÄNGIG** (heute, jetzt, gestern, diese Woche, aktuell)
-  - **FAKTEN NACH JAN 2025** (alles nach deinem Wissenstand)
-  - **SPEZIFISCHE EVENTS** (Konzerte, Veranstaltungen, aktuelle Produkte)
+**3 ANTWORT-MODI:**
 
-- ❌ **EIGENES WISSEN REICHT** wenn:
-  - **ALLGEMEINWISSEN** (Was ist Photosynthese? Erkläre Quantenphysik)
-  - **DEFINITIONEN** (Was bedeutet X? Wie heißt Y?)
-  - **THEORIE & KONZEPTE** (Wie funktioniert Z? Was ist der Unterschied zwischen A und B?)
-  - **HISTORISCHE FAKTEN** (vor 2025: Wer war Einstein? Wann war 2. Weltkrieg?)
-  - **MATHEMATIK & LOGIK** (Berechne, erkläre, löse)
+1️⃣ **NEUE WEB-RECHERCHE** wenn:
+   - **WETTER** (heute, morgen, aktuell, Vorhersage)
+   - **AKTUELLE NEWS** (Was passiert gerade? Wer gewann? Neueste ...)
+   - **LIVE-DATEN** (Aktienkurse, Bitcoin, Sport-Ergebnisse, Wahlen)
+   - **ZEITABHÄNGIG** (heute, jetzt, gestern, diese Woche, aktuell)
+   - **FAKTEN NACH JAN 2025** (alles nach deinem Wissenstand)
+   - **NEUE FRAGE** ohne Bezug zu vorheriger Recherche
+   → `<search>yes</search>`
+
+2️⃣ **EIGENES WISSEN** wenn:
+   - **ALLGEMEINWISSEN** (Was ist Photosynthese? Erkläre Quantenphysik)
+   - **DEFINITIONEN** (Was bedeutet X? Wie heißt Y?)
+   - **THEORIE & KONZEPTE** (Wie funktioniert Z?)
+   - **HISTORISCHE FAKTEN** (vor 2025: Wer war Einstein?)
+   - **MATHEMATIK & LOGIK** (Berechne, erkläre, löse)
+   - **CHAT-FRAGEN** (Wie geht es dir? Danke! Hallo!)
+   → `<search>no</search>`
+
+3️⃣ **NACHFRAGE ZU VORHERIGER RECHERCHE** wenn: 🆕
+   - Fragt nach **mehr Details** zu vorheriger Antwort
+   - Bezieht sich auf **"Quelle X"** aus vorheriger Recherche
+   - Formulierungen: "ausführlicher", "genauer", "mehr Details", "erkläre das", "was meinst du"
+   - **Kurze Nachfrage** zu vorherigem Thema (erkennbar aus History)
+   → `<search>context</search>`
 
 **BEISPIELE:**
-- "Wetter in Berlin" → `<search>yes</search>` (Wetter = IMMER Web-Suche!)
-- "Aktueller Bitcoin-Kurs" → `<search>yes</search>` (Live-Daten)
-- "Was ist Photosynthese?" → `<search>no</search>` (Allgemeinwissen)
-- "Neueste Trump News" → `<search>yes</search>` (Aktuelle News)
-- "Wie funktioniert ein Verbrennungsmotor?" → `<search>no</search>` (Theorie)
+
+History: "Welche Nobelpreise 2025?" → AI: "Physik-Nobelpreis an..."
+Frage: "Kannst du das ausführlicher erklären?"
+→ `<search>context</search>` ✅ (Nachfrage!)
+
+History: "Welche Nobelpreise 2025?" → AI: "Physik-Nobelpreis an..."
+Frage: "Was steht in Quelle 1?"
+→ `<search>context</search>` ✅ (Nachfrage!)
+
+History: "Welche Nobelpreise 2025?" → AI: "Physik-Nobelpreis an..."
+Frage: "Erkläre mir regulatorische T-Zellen genauer"
+→ `<search>context</search>` ✅ (Nachfrage zu Thema!)
+
+Frage: "Wetter in Berlin heute?"
+→ `<search>yes</search>` ✅ (Neue Recherche!)
+
+Frage: "Was ist Quantenphysik?"
+→ `<search>no</search>` ✅ (Eigenes Wissen!)
 
 **Antworte NUR mit einem dieser Tags:**
-- `<search>yes</search>` - Wenn Web-Recherche nötig
-- `<search>no</search>` - Wenn eigenes Wissen ausreicht
+- `<search>yes</search>` - Neue Web-Recherche nötig
+- `<search>no</search>` - Eigenes Wissen ausreicht
+- `<search>context</search>` - Nachfrage zu vorheriger Recherche
 
 **Keine weiteren Erklärungen!** Nur das Tag!"""
 
@@ -687,9 +710,16 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
         debug_print(f"🤖 KI-Entscheidung: {decision} (Entscheidung mit {automatik_model}: {decision_time:.1f}s)")
 
         # Parse Entscheidung
-        if '<search>yes</search>' in decision or 'yes' in decision:
+        if '<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision):
             debug_print("✅ KI entscheidet: Web-Recherche nötig → Web-Suche Ausführlich (5 Quellen)")
             return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id)
+
+        elif '<search>context</search>' in decision or 'context' in decision:
+            debug_print("🔄 KI entscheidet: Nachfrage zu vorheriger Recherche → Nutze Cache")
+            # Rufe perform_agent_research auf - dort wird Cache geprüft
+            # Wenn kein Cache gefunden wird, fällt es automatisch auf normale Recherche zurück
+            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id)
+
         else:
             debug_print("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
 
