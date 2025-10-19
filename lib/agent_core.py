@@ -330,17 +330,27 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
 {context}
 
+# 🚫 ABSOLUTES VERBOT - NIEMALS ERFINDEN:
+- ❌ KEINE Namen von Personen, Preisträgern, Wissenschaftlern (außer explizit in Quellen genannt!)
+- ❌ KEINE Daten, Termine, Jahreszahlen (außer explizit in Quellen genannt!)
+- ❌ KEINE Entdeckungen, Erfindungen, wissenschaftliche Details (außer explizit beschrieben!)
+- ❌ KEINE Zahlen, Statistiken, Messungen (außer explizit in Quellen!)
+- ❌ KEINE Zitate oder wörtliche Rede (außer explizit zitiert!)
+- ⚠️ BEI UNSICHERHEIT: "Laut den Quellen ist [Detail] nicht spezifiziert"
+- ❌ NIEMALS aus Kontext "raten" oder "folgern" was gemeint sein könnte!
+
 # AUFGABE:
 - Beantworte die Nachfrage AUSFÜHRLICH basierend auf den verfügbaren Quellen
 - Wenn der User eine spezifische Quelle erwähnt (z.B. "Quelle 1"), fokussiere darauf
-- Gehe auf ALLE relevanten Details ein
-- Zitiere konkrete Fakten: Namen, Zahlen, Daten, Versionen
+- Gehe auf ALLE relevanten Details ein - ABER NUR was EXPLIZIT in Quellen steht!
+- Zitiere konkrete Fakten: Namen, Zahlen, Daten, Versionen - NUR wenn EXPLIZIT genannt!
 - ⚠️ WICHTIG: Nutze NUR Informationen die EXPLIZIT in den Quellen stehen!
 - ❌ KEINE Halluzinationen oder Erfindungen!
+- Falls Quelle nicht das enthält was User fragt: "Diese Quelle enthält keine Informationen über [Detail]"
 
 # ANTWORT-STIL:
 - Sehr detailliert (3-5 Absätze)
-- Konkrete Details und Fakten nennen
+- Konkrete Details und Fakten nennen - aber NUR aus Quellen!
 - Bei mehreren Quellen: Zeige Zusammenhänge auf
 - Logisch strukturiert
 - Deutsch
@@ -495,6 +505,14 @@ REGELN (KEINE AUSNAHMEN!):
 5. ❌ SAG NIEMALS "Ich habe keinen Internet-Zugang"!
 6. ⚠️ LISTE NUR QUELLEN AUS DEN RECHERCHE-ERGEBNISSEN! Keine anderen URLs!
 
+# 🚫 ABSOLUTES VERBOT - NIEMALS ERFINDEN:
+- ❌ KEINE Namen von Personen, Preisträgern, Wissenschaftlern (außer explizit in Quellen genannt!)
+- ❌ KEINE Daten, Termine, Jahreszahlen (außer explizit in Quellen genannt!)
+- ❌ KEINE Entdeckungen, Erfindungen, wissenschaftliche Details (außer explizit beschrieben!)
+- ❌ KEINE Zahlen, Statistiken, Messungen (außer explizit in Quellen!)
+- ❌ KEINE Zitate oder wörtliche Rede (außer explizit zitiert!)
+- ⚠️ BEI UNSICHERHEIT: "Laut den Quellen ist [Detail] nicht spezifiziert"
+
 # AKTUELLE RECHERCHE-ERGEBNISSE ({time.strftime("%d.%m.%Y")}):
 
 {context}
@@ -505,11 +523,12 @@ REGELN (KEINE AUSNAHMEN!):
 
 - Fasse die Recherche-Ergebnisse AUSFÜHRLICH zusammen:
   * Gehe auf ALLE wichtigen Punkte aus den Quellen ein
-  * Nenne konkrete Details: Namen, Zahlen, Daten, Versionen
-  * Erkläre Zusammenhänge und Hintergründe
+  * Nenne konkrete Details: Namen, Zahlen, Daten, Versionen - ABER NUR wenn EXPLIZIT in Quellen!
+  * Erkläre Zusammenhänge und Hintergründe - ABER NUR basierend auf Quellen-Inhalt!
   * Bei mehreren Quellen: Vergleiche, ergänze und verknüpfe die Informationen
   * ⚠️ WICHTIG: Gib NUR Informationen wieder, die EXPLIZIT in den Quellen stehen!
   * ❌ KEINE eigenen Interpretationen oder Annahmen über nicht genannte Details!
+  * ❌ NIEMALS aus Kontext "raten" oder "folgern" was gemeint sein könnte!
 
 - Strukturiere die Antwort logisch:
   1. Hauptergebnisse (Was wurde gefunden?)
@@ -527,6 +546,7 @@ REGELN (KEINE AUSNAHMEN!):
 
 - ❌ NENNE KEINE URLs die NICHT in den Recherche-Ergebnissen oben stehen!
 - Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
+- Falls Quellen nur allgemeine Info enthalten: "Die Quellen enthalten Hintergrundinformationen über [Thema], aber keine spezifischen Details zu [User-Frage]"
 - Stil: Informativ, detailliert, präzise, Deutsch
 - Länge: 3-5 Absätze (je nach Komplexität der Frage und Menge der Informationen)"""
 

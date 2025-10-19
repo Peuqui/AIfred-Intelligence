@@ -57,8 +57,8 @@ echo "📦 Q8 Models (High Quality, fits in 12GB VRAM)"
 echo "----------------------------"
 
 # Q8 Quantized Models (Better quality than Q4, smaller than FP16)
+# Note: gemma2:9b doesn't have Q8 variant, using default Q4 instead
 q8_models=(
-    "gemma2:9b-instruct-q8_0"
     "deepseek-r1:8b-0528-qwen3-q8_0"
 )
 
