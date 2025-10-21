@@ -19,7 +19,6 @@ import logging
 import os
 from typing import Dict, List, Optional
 import re
-import json
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -47,10 +46,8 @@ class BaseTool:
     """Basis-Klasse für alle Agent-Tools"""
 
     def __init__(self):
-        self.name = ""
-        self.description = ""
+        # name, description und min_call_interval werden von Subclasses gesetzt
         self.last_call_time = 0
-        self.min_call_interval = 1.0  # Minimum 1s zwischen Aufrufen
 
     def execute(self, query: str, **kwargs) -> Dict:
         """
@@ -425,8 +422,8 @@ class MultiAPISearchTool(BaseTool):
     Meta-Tool: Nutzt alle Search APIs mit automatischem Fallback
 
     Reihenfolge:
-    1. Brave Search (2.000/Monat) - Privacy-focused, beste Qualität
-    2. Tavily AI (1.000/Monat) - AI-optimiert für RAG
+    1. Tavily AI (1.000/Monat) - AI-optimiert für RAG, aktuellste Artikel
+    2. Brave Search (2.000/Monat) - Privacy-focused, gute Qualität
     3. SearXNG (unlimited) - Self-hosted, immer verfügbar
     """
 
@@ -441,21 +438,21 @@ class MultiAPISearchTool(BaseTool):
         # Initialisiere alle APIs
         self.apis = []
 
-        # Brave (Primary)
-        if brave_key or os.getenv('BRAVE_API_KEY'):
-            try:
-                self.apis.append(BraveSearchTool(brave_key))
-                logger.info("✅ Brave Search API aktiviert (Primary)")
-            except:
-                logger.warning("⚠️ Brave Search API konnte nicht initialisiert werden")
-
-        # Tavily (Fallback 1)
+        # Tavily (Primary) - AI-optimiert, bessere Aktualität
         if tavily_key or os.getenv('TAVILY_API_KEY'):
             try:
                 self.apis.append(TavilySearchTool(tavily_key))
-                logger.info("✅ Tavily AI aktiviert (Fallback 1)")
+                logger.info("✅ Tavily AI aktiviert (Primary)")
             except:
                 logger.warning("⚠️ Tavily AI konnte nicht initialisiert werden")
+
+        # Brave (Fallback 1)
+        if brave_key or os.getenv('BRAVE_API_KEY'):
+            try:
+                self.apis.append(BraveSearchTool(brave_key))
+                logger.info("✅ Brave Search API aktiviert (Fallback 1)")
+            except:
+                logger.warning("⚠️ Brave Search API konnte nicht initialisiert werden")
 
         # SearXNG (Last Resort - immer verfügbar wenn Server läuft)
         self.apis.append(SearXNGSearchTool(searxng_url))
@@ -512,21 +509,56 @@ class WebScraperTool(BaseTool):
     Extrahiert Text-Content von Webseiten
     """
 
+    # Konstanten
+    PLAYWRIGHT_FALLBACK_THRESHOLD = 1500  # Wörter - unter diesem Wert wird Playwright versucht
+
     def __init__(self):
         super().__init__()
         self.name = "Web Scraper"
         self.description = "Extrahiert Text-Content von Webseiten"
         self.min_call_interval = 1.0
-        self.max_content_length = 5000
-
     def execute(self, url: str, **kwargs) -> Dict:
-        """Scraped eine Webseite"""
+        """
+        Scraped eine Webseite komplett ohne Längenlimit
+
+        Strategie:
+        1. Versuche BeautifulSoup (schnell, statisches HTML)
+        2. Falls < 500 Wörter → Retry mit Playwright (JavaScript-Rendering)
+
+        Ollama's dynamisches num_ctx übernimmt die Context-Größen-Kontrolle!
+        """
         self._rate_limit_check()
 
-        max_chars = kwargs.get('max_chars', self.max_content_length)
+        # Versuch 1: BeautifulSoup (schnell)
+        result = self._scrape_with_beautifulsoup(url)
 
+        # Versuch 2: Playwright wenn BeautifulSoup fehlschlägt ODER zu wenig Content
+        should_retry_with_playwright = (
+            not result['success'] or  # BeautifulSoup Error
+            (result['success'] and result.get('word_count', 0) < self.PLAYWRIGHT_FALLBACK_THRESHOLD)  # Zu wenig Content
+        )
+
+        if should_retry_with_playwright:
+            if not result['success']:
+                logger.warning(f"⚠️ BeautifulSoup fehlgeschlagen → Retry mit Playwright (JavaScript)")
+            else:
+                logger.warning(f"⚠️ Nur {result['word_count']} Wörter gefunden → Retry mit Playwright (JavaScript)")
+
+            playwright_result = self._scrape_with_playwright(url)
+            if playwright_result['success']:
+                if result['success']:
+                    logger.info(f"✅ Playwright: {playwright_result['word_count']} Wörter (vorher: {result['word_count']})")
+                else:
+                    logger.info(f"✅ Playwright: {playwright_result['word_count']} Wörter (BeautifulSoup war fehlgeschlagen)")
+                return playwright_result
+
+        return result
+
+    def _scrape_with_beautifulsoup(self, url: str) -> Dict:
+        """Scraped mit BeautifulSoup (schnell, nur statisches HTML)"""
         try:
             logger.info(f"🌐 Web Scraping: {url}")
+            logger.debug(f"   Methode: BeautifulSoup (statisches HTML)")
 
             response = requests.get(
                 url,
@@ -551,14 +583,7 @@ class WebScraperTool(BaseTool):
             text = soup.get_text(separator=' ', strip=True)
             text = self._clean_text(text)
 
-            # Kürze
-            was_truncated = len(text) > max_chars
-            if was_truncated:
-                text = text[:max_chars] + "..."
-
             word_count = len(text.split())
-
-            logger.info(f"✅ Web Scraping: {word_count} Wörter extrahiert")
 
             return {
                 'success': True,
@@ -567,13 +592,65 @@ class WebScraperTool(BaseTool):
                 'content': text,
                 'url': url,
                 'word_count': word_count,
-                'truncated': was_truncated
+                'truncated': False,
+                'method': 'beautifulsoup'
             }
 
         except Exception as e:
-            logger.error(f"❌ Web Scraping Fehler bei {url}: {e}")
+            logger.error(f"❌ BeautifulSoup Fehler bei {url}: {e}")
             return {
                 'success': False,
+                'method': 'beautifulsoup',
+                'source': url,
+                'url': url,
+                'error': str(e)
+            }
+
+    def _scrape_with_playwright(self, url: str) -> Dict:
+        """Scraped mit Playwright (langsamer, aber JavaScript-fähig)"""
+        try:
+            from playwright.sync_api import sync_playwright
+
+            logger.info(f"🌐 Web Scraping: {url}")
+            logger.debug(f"   Methode: Playwright (JavaScript-Rendering)")
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+
+                # Navigiere zur Seite und warte auf Netzwerk-Idle
+                page.goto(url, wait_until='networkidle', timeout=15000)
+
+                # Warte noch 2s für lazy-loaded Content
+                page.wait_for_timeout(2000)
+
+                # Titel
+                title = page.title()
+
+                # Extrahiere Text (nur sichtbarer Content)
+                text = page.inner_text('body')
+                text = self._clean_text(text)
+
+                word_count = len(text.split())
+
+                browser.close()
+
+                return {
+                    'success': True,
+                    'source': url,
+                    'title': title,
+                    'content': text,
+                    'url': url,
+                    'word_count': word_count,
+                    'truncated': False,
+                    'method': 'playwright'
+                }
+
+        except Exception as e:
+            logger.error(f"❌ Playwright Fehler bei {url}: {e}")
+            return {
+                'success': False,
+                'method': 'playwright',
                 'source': url,
                 'url': url,
                 'error': str(e)
@@ -590,9 +667,11 @@ class WebScraperTool(BaseTool):
 # CONTEXT BUILDER (unverändert)
 # ============================================================
 
-def build_context(user_text: str, tool_results: List[Dict], max_length: int = 4000) -> str:
+def build_context(user_text: str, tool_results: List[Dict]) -> str:
     """
     Baut strukturierten Kontext für AI aus Tool-Ergebnissen
+
+    Keine Längenbeschränkung - dynamisches num_ctx übernimmt die Größenkontrolle!
     """
     context = f"# User-Frage\n{user_text}\n\n"
     context += "# Recherche-Ergebnisse\n\n"
@@ -619,10 +698,7 @@ def build_context(user_text: str, tool_results: List[Dict], max_length: int = 40
                 context += f"**🔗 URL:** {url}\n\n"
 
             if content:
-                max_content_per_source = max_length // len(successful_results)
-                if len(content) > max_content_per_source:
-                    content = content[:max_content_per_source] + "..."
-
+                # KEINE Kürzung mehr - verwende kompletten gescrapten Content!
                 context += f"{content}\n\n"
 
             context += "---\n\n"
@@ -631,9 +707,6 @@ def build_context(user_text: str, tool_results: List[Dict], max_length: int = 40
     context += "Beantworte die User-Frage basierend auf den Recherche-Ergebnissen oben. "
     context += "WICHTIG: Zitiere JEDE Quelle MIT ihrer URL! "
     context += "Format: 'Quelle 1 (https://...) schreibt...'\n\n"
-
-    if len(context) > max_length:
-        context = context[:max_length] + "\n\n*[Context gekürzt]*"
 
     logger.info(f"Context gebaut: {len(context)} Zeichen, {len(successful_results)} Quellen")
 
@@ -698,13 +771,16 @@ def search_web(query: str) -> Dict:
     return search_tool.execute(query)
 
 
-def scrape_webpage(url: str, max_chars: int = 5000) -> Dict:
+def scrape_webpage(url: str) -> Dict:
     """
     Convenience-Funktion für Web-Scraping
+
+    Scraped komplette Artikel ohne Längenlimit.
+    Ollama's dynamisches num_ctx übernimmt die Context-Größen-Kontrolle!
     """
     registry = get_tool_registry()
     scraper_tool = registry.get("Web Scraper")
-    return scraper_tool.execute(url, max_chars=max_chars)
+    return scraper_tool.execute(url)
 
 
 # ============================================================

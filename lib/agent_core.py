@@ -10,11 +10,87 @@ This module handles agent-based research workflows including:
 
 import time
 import re
+import sys
+import threading
 import ollama
 from agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
 from .memory_manager import smart_model_load
 from .logging_utils import debug_print
+
+# Compiled Regex Patterns (Performance-Optimierung)
+THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+
+
+def estimate_tokens(messages):
+    """
+    Schätzt Token-Anzahl aus Messages
+
+    Args:
+        messages: Liste von Message-Dicts mit 'content' Key
+
+    Returns:
+        int: Geschätzte Anzahl Tokens (Faustregel: 1 Token ≈ 4 Zeichen)
+    """
+    total_size = sum(len(m['content']) for m in messages)
+    return total_size // 4
+
+
+def calculate_dynamic_num_ctx(messages, llm_options=None):
+    """
+    Berechnet optimales num_ctx basierend auf Message-Größe
+
+    Ollama begrenzt automatisch auf das Model-Maximum!
+    (qwen3:8b = 32K, phi3:mini = 128K, mistral = 32K, etc.)
+
+    Args:
+        messages: Liste von Message-Dicts mit 'content' Key
+        llm_options: Dict mit optionalem 'num_ctx' Override
+
+    Returns:
+        int: Optimales num_ctx (gerundet auf Standard-Größen)
+    """
+    # Check für manuellen Override
+    user_num_ctx = llm_options.get('num_ctx') if llm_options else None
+    if user_num_ctx:
+        return user_num_ctx
+
+    # Berechne Tokens aus Message-Größe
+    estimated_tokens = estimate_tokens(messages)  # 1 Token ≈ 4 Zeichen
+
+    # Puffer: +30% für Varianz + 2048 für Antwort
+    needed_tokens = int(estimated_tokens * 1.3) + 2048
+
+    # Runde auf Standard-Größe - kein Maximum!
+    # Ollama clippt automatisch aufs jeweilige Model-Limit
+    if needed_tokens <= 2048:
+        return 2048
+    elif needed_tokens <= 4096:
+        return 4096
+    elif needed_tokens <= 8192:
+        return 8192
+    elif needed_tokens <= 10240:
+        return 10240
+    elif needed_tokens <= 12288:
+        return 12288
+    elif needed_tokens <= 16384:
+        return 16384
+    elif needed_tokens <= 20480:
+        return 20480  # 20K
+    elif needed_tokens <= 24576:
+        return 24576  # 24K
+    elif needed_tokens <= 28672:
+        return 28672  # 28K
+    elif needed_tokens <= 32768:
+        return 32768  # 32K
+    elif needed_tokens <= 49152:
+        return 49152  # 48K
+    elif needed_tokens <= 65536:
+        return 65536  # 64K
+    elif needed_tokens <= 98304:
+        return 98304  # 96K
+    else:
+        return 131072  # 128K (phi3:mini Maximum)
 
 
 def detect_query_intent(user_query, automatik_model="qwen3:1.7b"):
@@ -55,7 +131,10 @@ def detect_query_intent(user_query, automatik_model="qwen3:1.7b"):
         response = ollama.chat(
             model=automatik_model,
             messages=[{'role': 'user', 'content': prompt}],
-            options={'temperature': 0.2}  # Niedrig für konsistente Intent-Detection
+            options={
+                'temperature': 0.2,  # Niedrig für konsistente Intent-Detection
+                'num_ctx': 4096  # Standard Context für Intent-Detection
+            }
         )
 
         intent_raw = response['message']['content'].strip().upper()
@@ -118,7 +197,10 @@ Jetzt stellt der User eine Nachfrage: "{followup_query}"
         response = ollama.chat(
             model=automatik_model,
             messages=[{'role': 'user', 'content': prompt}],
-            options={'temperature': 0.2}
+            options={
+                'temperature': 0.2,
+                'num_ctx': 4096  # Standard Context
+            }
         )
 
         intent_raw = response['message']['content'].strip().upper()
@@ -248,11 +330,11 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
         raw_response = response['message']['content'].strip()
 
         # Extrahiere <think> Inhalt BEVOR wir ihn entfernen (für Debug-Output)
-        think_match = re.search(r'<think>(.*?)</think>', raw_response, re.DOTALL)
+        think_match = THINK_TAG_PATTERN.search(raw_response)
         think_content = think_match.group(1).strip() if think_match else None
 
         # Säubern: Entferne <think> Tags und deren Inhalt
-        optimized_query = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL)
+        optimized_query = THINK_TAG_PATTERN.sub('', raw_response)
 
         # Entferne Anführungszeichen und Sonderzeichen
         optimized_query = re.sub(r'["\'\n\r]', '', optimized_query)
@@ -271,12 +353,13 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
         return (user_text, None)
 
 
-def ai_rate_urls(urls, query, automatik_model):
+def ai_rate_urls(urls, titles, query, automatik_model):
     """
     KI bewertet alle URLs auf einmal (effizient!)
 
     Args:
         urls: Liste von URLs
+        titles: Liste von Titeln (parallel zu URLs)
         query: Suchanfrage
         automatik_model: Automatik-LLM für URL-Bewertung
 
@@ -286,32 +369,52 @@ def ai_rate_urls(urls, query, automatik_model):
     if not urls:
         return []
 
-    # Erstelle nummerierte Liste für KI
-    url_list = "\n".join([f"{i+1}. {url}" for i, url in enumerate(urls)])
+    # Erstelle nummerierte Liste für KI mit Titel + URL
+    url_list = "\n".join([
+        f"{i+1}. Titel: {titles[i] if i < len(titles) else 'N/A'}\n   URL: {url}"
+        for i, url in enumerate(urls)
+    ])
 
     prompt = f"""Du bist ein Recherche-Experte. Bewerte diese URLs für die Suchanfrage.
 
 **Suchanfrage:** "{query}"
 
-**URLs:**
+**ARTIKEL (Titel + URL):**
 {url_list}
 
 **Aufgabe:**
-Bewerte jede URL auf einer Skala von 0-10:
-- 10 = Perfekt (hochrelevant + vertrauenswürdig)
+Bewerte jeden Artikel auf einer Skala von 0-10:
+- 10 = Perfekt (hochrelevant + vertrauenswürdig + aktuell)
 - 7-9 = Sehr gut (relevant + seriös)
 - 5-6 = Brauchbar (teilweise relevant)
-- 0-4 = Unbrauchbar (irrelevant, Spam)
+- 0-4 = Unbrauchbar (irrelevant, Spam, veraltet)
 
 **BEWERTUNGS-STRATEGIE (Schritt für Schritt):**
 
 **1. RELEVANZ-CHECK (Hauptkriterium!):**
-   → URL-Pfad/Titel enthält Suchbegriffe? → START bei 7 Punkten!
-   → Datum im Pfad passt zur Anfrage? → +1 Punkt
+   → Titel/URL enthält Suchbegriffe? → START bei 7 Punkten!
    → Fach-Domain (/blog/, /news/, /ki-, /tech-, .ai)? → +1 Punkt
    → Keine Übereinstimmung? → START bei 5 Punkten
 
-**2. DOMAIN-AUTORITÄT (Sekundär!):**
+**2. AKTUALITÄT (KRITISCH für Event/News-Anfragen!):**
+
+   **A) DATUM ERKENNEN:**
+   - Im URL-Pfad: /2025/10/, /2025/09/, /oktober-2025, /sept-2025
+   - Im Titel: "15.09.2025", "September 2025", "nach der Preisverleihung"
+
+   **B) FÜR EVENT-ANFRAGEN (Emmy, Golden Globe, Awards, Wahlen, etc.):**
+   - Titel/URL deutet auf NACH dem Event → +2 Punkte (Gewinner, Ergebnisse, Bericht)
+   - Titel/URL deutet auf VOR dem Event → -3 Punkte (Vorhersagen, Kalender, Nominierungen)
+   - Falsches Jahr im Datum → -3 Punkte
+
+   **BEISPIELE:**
+   - Anfrage "Emmy 2025" + Titel "Emmy 2025: Vollständige Liste der Gewinner" → +2 (nach Event)
+   - Anfrage "Emmy 2025" + URL /2025/09/emmy-winners/ → +2 (September = nach Event)
+   - Anfrage "Emmy 2025" + Titel "Emmy 2025 Predictions" → -3 (vor Event)
+   - Anfrage "Emmy 2025" + URL /2025/01/emmy-calendar/ → -3 (Januar = vor Event)
+   - Anfrage "Emmy 2025" + URL /2024/emmy/ → -3 (falsches Jahr)
+
+**3. DOMAIN-AUTORITÄT (Sekundär!):**
 
    **A) POLITIK/NEWS-Anfragen:**
    - Etablierte Medien (spiegel.de, tagesschau.de, zdf.de, faz.net, zeit.de) → max 10
@@ -328,15 +431,11 @@ Bewerte jede URL auf einer Skala von 0-10:
    **C) SPAM/UNBRAUCHBAR:**
    - SEO-Farmen, Clickbait, völlig irrelevant → 0-3
 
-**3. AKTUALITÄT:**
-   - Für zeitkritische Anfragen (2024+, "aktuell", "neu"): Bevorzuge neue Quellen!
-   - Alte Quellen für aktuelle Themen → -2 Punkte
-
 **WICHTIG:**
+- Bei Event/News-Anfragen: **AKTUALITÄT ist entscheidend!**
 - Bei Tech/Fach-Anfragen: **RELEVANZ schlägt AUTORITÄT!**
-- Ein unbekannter Fachblog mit exaktem Thema ist besser als Spiegel.de mit genereller Tech-News!
-- Lieber Score 7-8 für relevante Fachseiten als 5-6!
-- URL-Pfad ist wichtiger als Domain-Name!
+- Lieber Score 7-8 für relevante aktuelle Artikel als 5-6!
+- Prüfe ZUERST den Titel, DANN die URL!
 
 **FORMAT (EXAKT EINHALTEN!):**
 Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
@@ -369,13 +468,16 @@ Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
         response = ollama.chat(
             model=automatik_model,
             messages=[{'role': 'user', 'content': prompt}],
-            options={'temperature': 0.3}  # Konsistente URL-Bewertungen, keine Zufallsscores
+            options={
+                'temperature': 0.0,  # Komplett deterministisch für maximale Konsistenz!
+                'num_ctx': 8192  # FEST für Automatik-LLM (phi3:mini)
+            }
         )
 
         answer = response['message']['content']
 
         # Entferne <think> Blöcke (falls Qwen3 Thinking Mode)
-        answer_cleaned = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
+        answer_cleaned = THINK_TAG_PATTERN.sub('', answer).strip()
 
         # Parse Antwort
         rated_urls = []
@@ -419,7 +521,7 @@ Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
         return [{'url': url, 'score': 5, 'reasoning': 'Rating fehlgeschlagen'} for url in urls]
 
 
-def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_model, history, session_id=None, temperature_mode='auto', temperature=0.2):
+def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_model, history, session_id=None, temperature_mode='auto', temperature=0.2, llm_options=None):
     """
     Agent-Recherche mit AI-basierter URL-Bewertung
 
@@ -429,6 +531,7 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
         mode: "quick" oder "deep"
         model_choice: Haupt-LLM für finale Antwort
         automatik_model: Automatik-LLM für Query-Opt & URL-Rating
+        llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
         history: Chat History
         session_id: Session-ID für Research-Cache (optional)
         temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
@@ -441,12 +544,24 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
     agent_start = time.time()
     tool_results = []
 
+    # Extrahiere num_ctx aus llm_options oder nutze Standardwerte
+    if llm_options is None:
+        llm_options = {}
+
+    # Context Window Größen
+    # Haupt-LLM: Vom User konfigurierbar (None = Auto, sonst fixer Wert)
+    user_num_ctx = llm_options.get('num_ctx')  # Kann None sein!
+
+    # Debug: Zeige Context Window Modus
+    if user_num_ctx is None:
+        debug_print(f"📊 Context Window: Haupt-LLM=Auto (dynamisch, Ollama begrenzt auf Model-Max)")
+    else:
+        debug_print(f"📊 Context Window: Haupt-LLM={user_num_ctx} Tokens (manuell gesetzt)")
+
     # DEBUG: Session-ID prüfen
     debug_print(f"🔍 DEBUG: session_id = {session_id} (type: {type(session_id)})")
 
     # 0. Cache-Check: Nachfrage zu vorheriger Recherche (von Automatik-LLM oder explizit)
-    import sys
-
     # Versuche Cache zu laden
     main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
 
@@ -461,7 +576,7 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
 
             # Nutze ALLE Quellen aus dem Cache
             scraped_only = cached_sources
-            context = build_context(user_text, scraped_only, max_length=8000)  # Größerer Kontext für alle Quellen
+            context = build_context(user_text, scraped_only)
 
             # System-Prompt für Nachfrage (allgemein, LLM entscheidet Fokus)
             system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
@@ -524,6 +639,14 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             messages.insert(0, {'role': 'system', 'content': system_prompt})
             messages.append({'role': 'user', 'content': user_text})
 
+            # Dynamische num_ctx Berechnung für Cache-Hit
+            final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
+            if llm_options and llm_options.get('num_ctx'):
+                debug_print(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (manuell)")
+            else:
+                estimated_tokens = estimate_tokens(messages)
+                debug_print(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (dynamisch, ~{estimated_tokens} Tokens benötigt)")
+
             # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
             if temperature_mode == 'manual':
                 final_temperature = temperature
@@ -545,7 +668,10 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             response = ollama.chat(
                 model=model_choice,
                 messages=messages,
-                options={'temperature': final_temperature}  # Adaptive oder Manual Temperature!
+                options={
+                    'temperature': final_temperature,  # Adaptive oder Manual Temperature!
+                    'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+                }
             )
             llm_time = time.time() - llm_start
 
@@ -584,23 +710,36 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     search_result = search_web(optimized_query)
     tool_results.append(search_result)
 
-    # 2. URLs extrahieren (bis zu 10)
-    related_urls = search_result.get('related_urls', [])[:10]
+    # 2. URLs + Titel extrahieren (Search-APIs liefern bereits max 10)
+    related_urls = search_result.get('related_urls', [])
+    titles = search_result.get('titles', [])
 
     # Initialisiere Variablen für Fälle ohne URLs
     rated_urls = []
-    rating_time = None
+    rating_time = 0.0  # Default: 0.0 statt None für sichere Übergabe an build_debug_accordion
 
     if not related_urls:
         debug_print("⚠️ Keine URLs gefunden, nur Abstract")
     else:
         debug_print(f"📋 {len(related_urls)} URLs gefunden")
 
-        # 3. AI bewertet alle URLs (1 Call!)
+        # 3. AI bewertet alle URLs (1 Call!) - mit Titeln für bessere Aktualitäts-Erkennung
         debug_print(f"🤖 KI bewertet URLs mit {automatik_model}...")
         rating_start = time.time()
-        rated_urls = ai_rate_urls(related_urls, user_text, automatik_model)
+        rated_urls = ai_rate_urls(related_urls, titles, user_text, automatik_model)
         rating_time = time.time() - rating_start
+
+        # ⚡ PERFORMANCE-OPTIMIERUNG: Starte Haupt-LLM Preload im Hintergrund
+        # Während Web-Scraping läuft (15s), wird das Haupt-LLM parallel geladen (2-5s)
+        # Keine Race Condition: automatik_model (phi3:mini) ist hier 100% fertig!
+        debug_print(f"⚡ Starte Haupt-LLM Preload im Hintergrund: {model_choice}")
+        preload_thread = threading.Thread(
+            target=smart_model_load,
+            args=(model_choice,),
+            daemon=True,
+            name="LLM-Preloader"
+        )
+        preload_thread.start()
 
         # Debug: Zeige ALLE Bewertungen (nicht nur Top 5)
         debug_print("=" * 60)
@@ -624,6 +763,13 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         else:
             target_sources = 3  # Fallback
 
+        # 4.5. Validierung: Fallback wenn rated_urls leer ist
+        if not rated_urls:
+            debug_print("⚠️ WARNUNG: Keine URLs konnten bewertet werden!")
+            debug_print("   Fallback: Nutze Original-URLs ohne Rating")
+            # Fallback: Nutze Original-URLs ohne Rating
+            rated_urls = [{'url': u, 'score': 5, 'reasoning': 'No rating available'} for u in related_urls[:target_sources]]
+
         # 5. Scrape nur URLs mit Score >= 5 (großzügiger Threshold)
         scraped_count = 0
         for item in rated_urls:
@@ -638,7 +784,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
             debug_print(f"🌐 Scraping: {url_short} (Score: {item['score']})")
 
-            scrape_result = scrape_webpage(item['url'], max_chars=5000)
+            scrape_result = scrape_webpage(item['url'])
 
             if scrape_result['success']:
                 tool_results.append(scrape_result)
@@ -652,7 +798,14 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     scraped_only = [r for r in tool_results if 'word_count' in r and r.get('success')]
 
     debug_print(f"🧩 Baue Context aus {len(scraped_only)} gescrapten Quellen...")
-    context = build_context(user_text, scraped_only, max_length=4000)
+    context = build_context(user_text, scraped_only)
+    debug_print(f"📊 Context-Größe: {len(context)} Zeichen, ~{len(context)//4} Tokens")
+
+    # DEBUG: Zeige KOMPLETTEN finalen Context für Claude Code Debugging
+    debug_print(f"📄 VOLLSTÄNDIGER FINALER CONTEXT (an LLM übergeben):")
+    debug_print("="*80)
+    debug_print(context)
+    debug_print("="*80)
 
     # 7. Erweiterer System-Prompt für Agent-Awareness (MAXIMAL DIREKT!)
     system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
@@ -729,6 +882,20 @@ REGELN (KEINE AUSNAHMEN!):
     messages.insert(0, {'role': 'system', 'content': system_prompt})
     messages.append({'role': 'user', 'content': user_text})
 
+    # DEBUG: Prüfe Größe des System-Prompts
+    debug_print(f"📊 System-Prompt Größe: {len(system_prompt)} Zeichen")
+    debug_print(f"📊 Anzahl Messages an Ollama: {len(messages)}")
+    total_message_size = sum(len(m['content']) for m in messages)
+    estimated_tokens = estimate_tokens(messages)
+    debug_print(f"📊 Gesamte Message-Größe an Ollama: {total_message_size} Zeichen, ~{estimated_tokens} Tokens")
+
+    # Dynamische num_ctx Berechnung
+    final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
+    if llm_options and llm_options.get('num_ctx'):
+        debug_print(f"🎯 Context Window: {final_num_ctx} Tokens (manuell vom User gesetzt)")
+    else:
+        debug_print(f"🎯 Context Window: {final_num_ctx} Tokens (dynamisch berechnet, ~{estimated_tokens} Tokens benötigt)")
+
     # Temperature entscheiden: Manual Override oder Auto (immer 0.2 bei Web-Recherche)
     if temperature_mode == 'manual':
         final_temperature = temperature
@@ -738,14 +905,25 @@ REGELN (KEINE AUSNAHMEN!):
         final_temperature = 0.2
         debug_print(f"🌡️ Web-Recherche Temperature: {final_temperature} (fest, faktisch)")
 
-    # Smart Model Loading: Entlade kleine Modelle wenn großes Modell kommt
-    smart_model_load(model_choice)
+    # Warte auf Preload-Thread (falls er noch läuft)
+    # Normalerweise ist Web-Scraping (15s) >> LLM-Preload (2-5s), also kein Wait nötig
+    if 'preload_thread' in locals() and preload_thread.is_alive():
+        debug_print(f"⏳ Warte auf Haupt-LLM Preload (sollte fast fertig sein)...")
+        preload_thread.join(timeout=10)  # Max 10s warten
+        if preload_thread.is_alive():
+            debug_print(f"⚠️ Preload dauert länger als erwartet, fahre trotzdem fort")
+    else:
+        # Fallback: Falls kein Preload (z.B. keine URLs gefunden), lade Model jetzt
+        smart_model_load(model_choice)
 
     inference_start = time.time()
     response = ollama.chat(
         model=model_choice,
         messages=messages,
-        options={'temperature': final_temperature}  # Adaptive oder Manual Temperature!
+        options={
+            'temperature': final_temperature,  # Adaptive oder Manual Temperature!
+            'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+        }
     )
     inference_time = time.time() - inference_start
 
@@ -766,7 +944,6 @@ REGELN (KEINE AUSNAHMEN!):
     debug_print(f"🔍 DEBUG Cache-Speicherung: session_id = {session_id}, scraped_only = {len(scraped_only)} Quellen")
     if session_id:
         # Import research_cache from main (Gradio startet als __main__)
-        import sys
         main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
         debug_print(f"🔍 DEBUG: main_module = {main_module}, hasattr research_cache = {hasattr(main_module, 'research_cache') if main_module else 'N/A'}")
 
@@ -790,7 +967,7 @@ REGELN (KEINE AUSNAHMEN!):
     return ai_text, history, inference_time
 
 
-def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id=None, temperature_mode='auto', temperature=0.2):
+def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id=None, temperature_mode='auto', temperature=0.2, llm_options=None):
     """
     Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
 
@@ -804,6 +981,7 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
         session_id: Session-ID für Research-Cache (optional)
         temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
         temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
+        llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
 
     Returns:
         tuple: (ai_text, history, inference_time)
@@ -910,13 +1088,13 @@ Frage: "Was ist Quantenphysik?"
         # Parse Entscheidung
         if '<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision):
             debug_print("✅ KI entscheidet: Web-Recherche nötig → Web-Suche Ausführlich (5 Quellen)")
-            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature)
+            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
         elif '<search>context</search>' in decision or 'context' in decision:
             debug_print("🔄 KI entscheidet: Nachfrage zu vorheriger Recherche → Nutze Cache")
             # Rufe perform_agent_research auf - dort wird Cache geprüft
             # Wenn kein Cache gefunden wird, fällt es automatisch auf normale Recherche zurück
-            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature)
+            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
         else:
             debug_print("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
@@ -932,6 +1110,14 @@ Frage: "Was ist Quantenphysik?"
                     {'role': 'assistant', 'content': ai_msg}
                 ])
             messages.append({'role': 'user', 'content': user_text})
+
+            # Dynamische num_ctx Berechnung für Eigenes Wissen
+            final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
+            if llm_options and llm_options.get('num_ctx'):
+                debug_print(f"🎯 Eigenes Wissen Context Window: {final_num_ctx} Tokens (manuell)")
+            else:
+                estimated_tokens = estimate_tokens(messages)
+                debug_print(f"🎯 Eigenes Wissen Context Window: {final_num_ctx} Tokens (dynamisch, ~{estimated_tokens} Tokens benötigt)")
 
             # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
             if temperature_mode == 'manual':
@@ -951,7 +1137,10 @@ Frage: "Was ist Quantenphysik?"
             response = ollama.chat(
                 model=model_choice,
                 messages=messages,
-                options={'temperature': final_temperature}  # Adaptive oder Manual Temperature!
+                options={
+                    'temperature': final_temperature,  # Adaptive oder Manual Temperature!
+                    'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+                }
             )
             inference_time = time.time() - inference_start
 
