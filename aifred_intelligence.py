@@ -666,10 +666,10 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
                 gr.HTML("""
                 <table style="width:100%; border-collapse: collapse; font-size: 14px; table-layout: fixed;">
                 <colgroup>
-                    <col style="width: 16%;">
+                    <col style="width: 18%;">
                     <col style="width: 10%;">
                     <col style="width: 15%;">
-                    <col style="width: 59%;">
+                    <col style="width: 57%;">
                 </colgroup>
                 <thead>
                 <tr style="border-bottom: 2px solid #444;">
@@ -680,30 +680,19 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
                 </tr>
                 </thead>
                 <tbody>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5:14b</strong></td><td style="padding: 8px;">9&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">⭐ <strong>EMPFOHLEN</strong> - Perfekt für Web-Recherche (Rating: 8.5/10, ~33s), 128K Context, multilingual</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5:14b-<wbr>instruct-q8_0</strong></td><td style="padding: 8px;">17&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">💎 Beste Qualität (Rating: 9.5/10), aber 2x langsamer (~62s), perfekte Faktentreue</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>gemma2:9b-<wbr>instruct-q8_0</strong></td><td style="padding: 8px;">10&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">🎯 Google DeepMind (Rating: 8/10 @ temp 0.2), gut für Coding/Math, 8K Context</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>gemma2:9b</strong></td><td style="padding: 8px;">5&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">⚡ Schneller (Q4), weniger genau (Rating: 7/10), Budget-Option für Low-VRAM</td></tr>
-                <tr style="border-bottom: 1px solid #333; background-color: rgba(255, 100, 100, 0.1);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>deepseek-r1:8b</strong></td><td style="padding: 8px;">5.2&nbsp;GB</td><td style="padding: 8px;">❌</td><td style="padding: 8px;">⚠️ <strong>NICHT für Recherche!</strong> Halluziniert stark (invented names/dates). Nur für Coding/Math</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>deepseek-r1:8b-<wbr>0528-qwen3-<wbr>q8_0</strong></td><td style="padding: 8px;">8.9&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💎 Q8 Präzision, besser für Math/Reasoning, aber auch nicht für faktische Recherche</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>deepseek-coder-<wbr>v2:16b</strong></td><td style="padding: 8px;">8.9&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">💻 <strong>Code-Spezialist V2</strong> - 16B Parameter, exzellent für Code-Generierung & Debugging</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:32b</strong></td><td style="padding: 8px;">20&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">🏆 Beste Qualität, größtes Qwen3-Model, sehr tiefes Reasoning</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:32b-<wbr>q4_K_M</strong></td><td style="padding: 8px;">20&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">🎯 Q4_K_M Quantisierung - optimale Balance zwischen Qualität & Geschwindigkeit</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:8b</strong></td><td style="padding: 8px;">5.2&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">⚡ Beste Balance: Schnell + folgt Context zuverlässig, täglicher Driver</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:4b</strong></td><td style="padding: 8px;">2.5&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">🧠 <strong>THINKING MODEL</strong> - Chain-of-Thought, langsamer aber tiefes Reasoning</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:1.7b</strong></td><td style="padding: 8px;">1.4&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">⚡⚡ Ultra-schnell (~1-2s), ideal für Intent-Detection & URL-Bewertung</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5:3b</strong></td><td style="padding: 8px;">1.9&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💨 Klein & schnell (~2-3s), perfekt als Automatik-Modell für Query-Opt/Rating</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:0.6b</strong></td><td style="padding: 8px;">522&nbsp;MB</td><td style="padding: 8px;">⚠️</td><td style="padding: 8px;">🐣 Kleinster Qwen3, nur für einfachste Tasks</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5-coder:<wbr>0.5b</strong></td><td style="padding: 8px;">397&nbsp;MB</td><td style="padding: 8px;">⚡</td><td style="padding: 8px;">⚡⚡⚡ Ultra-klein für Code-Completion, extrem schnell, nur für einfache Code-Snippets</td></tr>
-                <tr style="border-bottom: 1px solid #333; background-color: rgba(200, 255, 200, 0.05);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:8b-fp16</strong></td><td style="padding: 8px;">16&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">💎💎 <strong>FP16 Präzision</strong> - maximale Genauigkeit, keine Quantisierung, langsamer</td></tr>
-                <tr style="border-bottom: 1px solid #333; background-color: rgba(200, 255, 200, 0.05);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:4b-fp16</strong></td><td style="padding: 8px;">16&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">💎 FP16 - thinking model in maximaler Präzision für komplexe Reasoning</td></tr>
-                <tr style="border-bottom: 1px solid #333; background-color: rgba(200, 255, 200, 0.05);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:1.7b-fp16</strong></td><td style="padding: 8px;">4.1&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">💎 FP16 - höhere Präzision für Intent-Detection, wenn Q4 nicht genau genug</td></tr>
-                <tr style="border-bottom: 1px solid #333; background-color: rgba(200, 255, 200, 0.05);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:0.6b-fp16</strong></td><td style="padding: 8px;">1.5&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💎 FP16 - kleinstes FP16-Model, für sehr schnelle aber präzise Mini-Tasks</td></tr>
-                <tr style="border-bottom: 1px solid #333; background-color: rgba(255, 200, 100, 0.1);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5vl:7b-<wbr>fp16</strong></td><td style="padding: 8px;">16&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">📸 <strong>VISION MODEL</strong> - kann Bilder analysieren! FP16 Präzision, multimodal (Text + Bild)</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>command-r</strong></td><td style="padding: 8px;">18&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">📚 Enterprise-Spezialist für lange Dokumente (128k Context!), zitiert Quellen</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>llama3.1:8b</strong></td><td style="padding: 8px;">4.9&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">🛡️ Meta's solides Allround-Model, zuverlässig & etabliert</td></tr>
-                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>llama3.2:3b</strong></td><td style="padding: 8px;">2&nbsp;GB</td><td style="padding: 8px;">❌</td><td style="padding: 8px;">⚠️ Klein & schnell, aber ignoriert Context oft (nur für Tests!)</td></tr>
-                <tr><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>mistral</strong></td><td style="padding: 8px;">4.4&nbsp;GB</td><td style="padding: 8px;">✅</td><td style="padding: 8px;">💻 Code-Spezialist, exzellentes Instruction-Following, effizient</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(100, 200, 255, 0.08);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>phi3:mini</strong></td><td style="padding: 8px;">2.2&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">⭐⭐⭐ <strong>AIFRED AUTOMATIK</strong> - <3% Hallucination! Microsoft Production-Quality, 40-60 t/s, perfekt für Intent-Detection</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5:7b-<wbr>instruct-q4_K_M</strong></td><td style="padding: 8px;">4.7&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">⭐⭐⭐ <strong>HAUPT-MODELL</strong> - Beste Balance Speed/Qualität, 128K Context, multilingual, schneller als 14B</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5:14b</strong></td><td style="padding: 8px;">9&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">⭐⭐ <strong>RESEARCH</strong> - RAG Score 1.0 (perfekt!), nutzt NUR Recherche-Daten, ~33s, 128K Context</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(100, 255, 150, 0.08);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5-coder:<wbr>14b-instruct-<wbr>q4_K_M</strong></td><td style="padding: 8px;">9&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">💻💻 <strong>CODING CHAMPION</strong> - 92 Sprachen, HumanEval 88.7%, weniger Halluzinationen als DeepSeek-R1 (14.3%→<2%)</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:32b-<wbr>q4_K_M</strong></td><td style="padding: 8px;">20&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">🏆🏆 <strong>BESTE QUALITÄT</strong> - Q4_K_M optimiert, hervorragendes Reasoning, langsam (CPU) aber präzise</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen3:8b</strong></td><td style="padding: 8px;">5.2&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">⚡ Balance: Schnell + folgt Context zuverlässig, täglicher Driver</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5:3b</strong></td><td style="padding: 8px;">1.9&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">💨 <strong>AIFRED BACKUP</strong> - 32K Context (vs. Phi3's 4K!), schnell (~2-3s), Query-Opt/Rating</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>llama3.1:8b</strong></td><td style="padding: 8px;">4.9&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">🛡️ Meta's solides Allround-Model, zuverlässig & etabliert</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>mistral:latest</strong></td><td style="padding: 8px;">4.4&nbsp;GB</td><td style="padding: 8px;">✅✅</td><td style="padding: 8px;">💻 Code & Speed, exzellentes Instruction-Following, effizient</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>command-r</strong></td><td style="padding: 8px;">18&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">📚 Enterprise RAG-Spezialist, lange Dokumente (128K Context!), zitiert Quellen</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(255, 200, 100, 0.1);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5vl:7b-<wbr>fp16</strong></td><td style="padding: 8px;">16&nbsp;GB</td><td style="padding: 8px;">✅✅✅</td><td style="padding: 8px;">📸 <strong>VISION MODEL</strong> - Bildanalyse! FP16 Präzision, multimodal (Text + Bild), OCR, Screenshots</td></tr>
+                <tr style="border-bottom: 1px solid #333;"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>qwen2.5-coder:<wbr>0.5b</strong></td><td style="padding: 8px;">397&nbsp;MB</td><td style="padding: 8px;">⚡</td><td style="padding: 8px;">⚡⚡⚡ Mini-Code-Completion, extrem schnell, einfache Code-Snippets</td></tr>
+                <tr style="border-bottom: 1px solid #333; background-color: rgba(255, 100, 100, 0.15);"><td style="padding: 8px; word-wrap: break-word; overflow-wrap: break-word;"><strong>DeepSeek-R1</strong></td><td style="padding: 8px; color: #ff6666;">-</td><td style="padding: 8px; color: #ff6666;">❌❌</td><td style="padding: 8px; color: #ff6666;">⚠️⚠️ <strong>GELÖSCHT!</strong> 14.3% Hallucination-Rate (Vectara 2025), erfindet Namen/Daten - NICHT für Recherche!</td></tr>
                 </tbody>
                 </table>
                 """)
@@ -720,23 +709,44 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
 
                 ---
 
+                **🤖 AIfred Intelligence Automatik (Hintergrund):**
+                → **`phi3:mini`** (2.2 GB, <3% Hallucination!) ⭐⭐⭐
+                - Microsoft Production-Quality, ultra-zuverlässig
+                - 40-60 tokens/sec - extrem schnell
+                - Perfekt für Intent-Detection, Query-Optimierung
+                - **BACKUP:** `qwen2.5:3b` (32K Context für längere Texte!)
+                - **Ersetzt:** DeepSeek-R1 (hatte 14.3% Hallucination-Rate!)
+
                 **🏆 Top-Empfehlung für Web-Recherche (Agent-Modi):**
-                → **`qwen2.5:14b`** (Context-Treue: ✅✅✅ = perfekt!)
+                → **`qwen2.5:14b`** (9 GB, RAG Score 1.0!) ⭐⭐
                 - Ignoriert Training Data **komplett**
                 - Nutzt NUR den gegebenen gescrapten Web-Content
                 - Zitiert Quellen korrekt mit URLs
                 - **Perfekt für:** "Trump News", "aktuelle Ereignisse", "Was passiert heute?"
 
                 **⚡ Für schnelle Antworten (ohne Agent):**
-                → **`qwen3:8b`** oder **`llama3.1:8b`**
-                - Gute Balance zwischen Speed & Qualität
-                - Allgemeine Konversation, Erklärungen
+                → **`qwen2.5:7b-instruct-q4_K_M`** (4.7 GB) ⭐⭐⭐
+                - Schneller als 14B, trotzdem exzellente Qualität
+                - 128K Context, multilingual (29 Sprachen)
+                - **Alternative:** `qwen3:8b` oder `llama3.1:8b`
                 - **Perfekt für:** "Was ist Quantenphysik?", "Erkläre Python"
 
+                **💻 Für Code-Generierung:**
+                → **`qwen2.5-coder:14b-instruct-q4_K_M`** (9 GB) 💻💻
+                - 92 Programmiersprachen, HumanEval: 88.7%!
+                - Weniger Halluzinationen als DeepSeek-R1 (14.3%→<2%)
+                - **Mini-Code:** `qwen2.5-coder:0.5b` für schnelle Snippets
+                - **Perfekt für:** Code schreiben, Debugging, Refactoring, Tests
+
+                **🏆 Für beste Qualität (CPU, langsam):**
+                → **`qwen3:32b-q4_K_M`** (20 GB, Q4_K_M optimiert!)
+                - Hervorragendes Reasoning, tiefste Analyse
+                - Q4_K_M = optimierte Quantisierung
+                - **Perfekt für:** Komplexe Probleme, Math, Logik
+
                 **📚 Für lange Dokumente (mit Agent ausführlich):**
-                → **`command-r`** (18 GB, braucht 32 GB RAM!)
-                - Speziell für Enterprise & lange Dokumente gebaut
-                - Kann sehr lange Contexts verarbeiten (128k!)
+                → **`command-r`** (18 GB, 128K Context!)
+                - Enterprise RAG-Spezialist
                 - Zitiert Quellen automatisch
                 - **Perfekt für:** PDFs analysieren, komplexe Research
 
@@ -744,35 +754,24 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
                 → **`qwen2.5vl:7b-fp16`** (16 GB, multimodal!)
                 - Kann Bilder UND Text verstehen
                 - FP16 Präzision für beste Qualität
-                - Beschreibt Bilder, extrahiert Text aus Screenshots
-                - **Perfekt für:** Screenshot-Analyse, Diagramm-Erklärung, OCR
+                - **Perfekt für:** Screenshot-Analyse, Diagramme, OCR
 
-                **💻 Für Code-Generierung:**
-                → **`deepseek-coder-v2:16b`** (8.9 GB, Code-Spezialist!)
-                - 16B Parameter speziell für Code trainiert
-                - Exzellent für Debugging, Code-Review, Refactoring
-                - Versteht viele Programmiersprachen
-                - **Perfekt für:** Code schreiben, Bugs finden, Tests generieren
+                **❌ GELÖSCHT - NICHT MEHR VERFÜGBAR:**
+                → **`DeepSeek-R1`** (alle Versionen)
+                - ⚠️ 14.3% Hallucination-Rate (Vectara Tests 2025)
+                - Erfindet Namen, Daten, Quellen ("overhelping")
+                - **Ersetzt durch:** `phi3:mini` (<3% Hallucination!)
+                - **Grund:** Unzuverlässig für faktische Recherche
 
-                **💻 Für Code & Instruktionen:**
-                → **`mistral`** (4.4 GB, kompakt & effizient!)
-                - Kleiner Bruder von Mixtral, aber single-model
-                - Sehr gutes Instruction-Following
-                - Gut für Code-Generierung, Scripting
-                - **Perfekt für:** Python-Code, Bash-Scripts, strukturierte Tasks
-                - **Schneller als:** llama3.1:8b bei Code-Tasks
+                → **`gemma2:9b-instruct-q8_0`** & **`gemma2:9b`**
+                - Redundant - `qwen2.5:14b` ist besser
 
-                **⚠️ Bedingt für Web-Recherche:**
-                → **`llama2:13b`**
-                - Nutzt gegebenen Context, aber mischt 22% Training Data rein
-                - Kann aktuelle Infos mit alten Daten vermischen
-                - **OK für:** Allgemeine Fragen, wenn Ungenauigkeit OK ist
+                → **`deepseek-coder-v2:16b`**
+                - Ersetzt durch: `qwen2.5-coder:14b` (neuere Benchmarks)
 
-                **❌ NICHT für Web-Recherche:**
-                → **`llama3.2:3b`**
-                - Ignoriert gegebenen Context oft (70% Training Data)
-                - Erfindet oft Quellen oder nutzt alte Daten
-                - **Nur für:** Tests, einfache Fragen ohne Agent-Modus
+                → **FP16-Modelle** (qwen3:8b-fp16, 4b-fp16, etc.)
+                - Zu groß für 12GB GPU, unnötig für normale Aufgaben
+                - **Ausnahme:** `qwen2.5vl:7b-fp16` (Vision benötigt FP16!)
 
                 ---
 

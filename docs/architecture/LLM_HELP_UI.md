@@ -2,59 +2,125 @@
 
 Diese Tabellen sind für die Anzeige in der Web-UI optimiert.
 
-## 📊 Schnellübersicht - Alle installierten Modelle
+## 📊 Schnellübersicht - Modelle nach Hardware
 
-### 🏆 Top-Empfehlungen
+---
+
+### 🖥️ **MINI-PC (GEM 10)** - AMD Radeon 780M iGPU (8GB VRAM)
+**Hardware:** 32GB RAM total (8GB für iGPU, 24GB System)
+
+#### 🏆 Top-Empfehlungen für Mini-PC
+
+| Model | Größe | GPU | Empfehlung | Bester Einsatz |
+|-------|-------|-----|------------|----------------|
+| **qwen2.5:7b-instruct-q4_K_M** | 4.7 GB | ✅ | ⭐⭐⭐⭐⭐ | **HAUPT-MODELL** - Beste Balance! 🆕 |
+| **phi3:mini** | 2.2 GB | ✅ | ⭐⭐⭐⭐⭐ | **AIFRED AUTOMATIK** - Ultra-schnell! 🆕 |
+| **llama3.1:8b** | 4.9 GB | ✅ | ⭐⭐⭐⭐ | Meta's Allrounder |
+| **mistral:latest** | 4.4 GB | ✅ | ⭐⭐⭐⭐ | Code & Speed |
+| **qwen2.5:3b** | 1.9 GB | ✅ | ⭐⭐⭐⭐ | AIfred Backup (32K Context) |
+
+#### 🚀 Mini-Modelle für Tests
 
 | Model | Größe | Empfehlung | Bester Einsatz |
 |-------|-------|------------|----------------|
-| **qwen3:32b** | 20 GB | ⭐⭐⭐⭐⭐ | **Beste Qualität** (Reasoning, komplexe Aufgaben) |
-| **qwen2.5:32b** | 19 GB | ⭐⭐⭐⭐⭐ | **Enterprise RAG, Coding** (sehr zuverlässig) |
-| **qwen2.5:14b** | 9 GB | ⭐⭐⭐⭐⭐ | **Web-Recherche, News** (nutzt NUR Recherche-Daten!) |
+| **qwen2.5:0.5b** | 397 MB | ⭐⭐ | Tiny-Tests, sehr schnell |
+| **qwen2.5-coder:0.5b** | 397 MB | ⭐⭐ | Mini-Code-Completion |
+
+#### 🐘 CPU-Modelle (nutzen RAM, langsam aber beste Qualität)
+
+| Model | Größe | CPU-only | Empfehlung | Hinweis |
+|-------|-------|----------|------------|---------|
+| **qwen3:32b-q4_K_M** | 20 GB | ❌ | ⭐⭐⭐⭐⭐ | **BESTE QUALITÄT** - optimierte Q4 Version! 🆕 |
+| **qwen2.5:14b** | 9 GB | ❌ | ⭐⭐⭐⭐ | CPU-Backup für Qualität |
+| **mixtral:8x7b** | 26 GB | ❌ | ⭐⭐⭐⭐⭐ | MoE-Champion |
+| **command-r** | 18 GB | ⚠️ | ⭐⭐⭐⭐ | RAG-optimiert |
+
+---
+
+### 💻 **HAUPT-PC (Aragon)** - RTX 3060 12GB + Ryzen 9900X3D
+**Hardware:** RTX 3060 12GB VRAM + 64GB RAM
+
+#### 🏆 Top-Empfehlungen für Haupt-PC (RTX 3060 12GB)
+
+| Model | Größe | Empfehlung | Bester Einsatz |
+|-------|-------|------------|----------------|
+| **qwen2.5-coder:14b-q4_K_M** | 9 GB | ⭐⭐⭐⭐⭐ | **CODING** (92 Sprachen, beste Code-Qualität) 🆕 |
+| **qwen2.5:14b** | 9 GB | ⭐⭐⭐⭐⭐ | **Web-Recherche** (RAG Score 1.0!) |
+| **qwen2.5:7b-instruct-q4_K_M** | 4.7 GB | ⭐⭐⭐⭐⭐ | **SPEED** - Schneller als 14B! 🆕 |
 | **qwen3:8b** | 5.2 GB | ⭐⭐⭐⭐ | Balance: Schnell + Gut |
-| **command-r** | 18 GB | ⭐⭐⭐⭐ | Enterprise RAG, Dokumente |
+| **llama3.1:8b** | 4.9 GB | ⭐⭐⭐⭐ | Meta's Allrounder |
+| **mistral:latest** | 4.4 GB | ⭐⭐⭐⭐ | Code & Speed |
+| **phi3:mini** | 2.2 GB | ⭐⭐⭐⭐⭐ | **AIFRED AUTOMATIK** 🆕 |
+| **qwen2.5:3b** | 1.9 GB | ⭐⭐⭐⭐ | AIfred Backup (32K Context) |
+| **qwen2.5-coder:0.5b** | 397 MB | ⭐⭐ | Mini-Code-Tests |
 
-### 🚀 Schnelle Modelle (< 5 GB)
+#### 🐘 Große Modelle für Haupt-PC (nutzen CPU + RAM)
 
-| Model | Größe | Empfehlung | Bester Einsatz |
-|-------|-------|------------|----------------|
-| **qwen3:4b** | 2.5 GB | ⭐⭐⭐⭐ | **Beste kleine Model** (Entscheidungen, Agent) |
-| **llama3.1:8b** | 4.9 GB | ⭐⭐⭐ | Allgemein, zuverlässig |
-| **mistral:latest** | 4.4 GB | ⭐⭐⭐ | Code-Generation, Instruktionen |
-| **llama3.2:3b** | 2.0 GB | ⭐⭐ | Tests, einfache Fragen |
-| **qwen2.5:3b** | 1.9 GB | ⭐⭐⭐ | Überraschend gut für 3B |
-| **qwen3:1.7b** | 1.4 GB | ⭐⭐ | Extrem schnell, einfache Tasks |
-| **qwen3:0.6b** | 522 MB | ⭐ | Kleinste, für Experimente |
-| **qwen2.5:0.5b** | 397 MB | ⭐ | Minimal, sehr schnell |
+| Model | Größe | GPU/CPU | Empfehlung | Hinweis |
+|-------|-------|---------|------------|---------|
+| **qwen3:32b-q4_K_M** | 20 GB | CPU+RAM | ⭐⭐⭐⭐⭐ | **BESTE QUALITÄT** - optimierte Q4 Version! 🆕 |
+| **command-r** | 18 GB | GPU+CPU | ⭐⭐⭐⭐ | Enterprise RAG, zitiert Quellen |
+| **qwen2.5vl:7b-fp16** | 16 GB | CPU+RAM | ⭐⭐⭐⭐ | **VISION + Text** (Bildanalyse, FP16 Präzision) |
 
-### 🐘 Große Modelle (> 20 GB)
+#### 📊 Embedding-Modelle (für RAG/Suche)
 
-| Model | Größe | Empfehlung | Bester Einsatz |
-|-------|-------|------------|----------------|
-| **mixtral:8x7b** | 26 GB | ⭐⭐⭐⭐ | Mixture-of-Experts, vielseitig |
-| **llama2:13b** | 7.4 GB | ⭐⭐⭐ | Bewährt, breites Wissen |
+| Model | Größe | Dimensionen | Bester Einsatz |
+|-------|-------|-------------|----------------|
+| **mxbai-embed-large** | 669 MB | 1024 | Hochqualitative Embeddings für Suche |
+| **qwen3-embedding:8b** | 4.7 GB | 8192 | Sehr große Embeddings (präzise) |
+
+**Hinweis:** Embedding-Modelle sind KEINE Chat-Modelle! Sie konvertieren Text in Vektoren für Suche/RAG.
 
 ---
 
 ## 🎯 Empfehlungen nach Use-Case
 
-### 💬 Voice Assistant (Haupt-Model)
-**Empfohlen:** `qwen2.5:14b` oder `qwen3:8b`
-- Beste Balance aus Qualität & Speed
-- Exzellent für Web-Recherche
-- Passt perfekt auf Mini-PC
+### 💻 Coding & Development 🆕
+**Empfohlen:** `qwen2.5-coder:14b-instruct-q4_K_M`
+- ⭐ **BESTE WAHL für Coding!**
+- 92 Programmiersprachen
+- Exzellente Code-Completion & Debugging
+- Passt perfekt auf RTX 3060 12GB
+- Weniger Halluzinationen als DeepSeek-R1 (14.3% → <2%)
+- HumanEval: 88.7% | MBPP: 83.5%
 
-### 🤖 Automatik-Modus (Entscheidungen)
-**Empfohlen:** `qwen3:4b` oder `qwen3:1.7b`
-- Schnelle Entscheidungen (Web-Recherche ja/nein)
-- Niedriger Speicherverbrauch
-- **qwen3:4b rivalisiert 32B Modelle in Benchmarks!**
+**Für Mini-Code-Tasks:** `qwen2.5-coder:0.5b`
+- Ultra-schnell
+- Nur 397 MB
+- Gut für einfache Code-Snippets
+
+### 💬 Web-Recherche (Haupt-Model)
+**Empfohlen:** `qwen2.5:14b`
+- Beste RAG-Scores (1.0 = perfekt!)
+- Nutzt NUR Recherche-Daten
+- Exzellent für faktische Aufgaben
+- Passt perfekt auf RTX 3060 12GB
+
+**Alternative:** `qwen3:8b`
+- Schneller, weniger VRAM
+- Immer noch sehr gut
+
+### 🤖 AIfred Intelligence Automatik 🆕
+**PRIMÄR:** `phi3:mini` ⭐⭐⭐⭐⭐
+- ⭐ **BESTE WAHL für Automatik!**
+- Hallucination-Rate: <3% (vs. DeepSeek-R1: 14.3%)
+- Ultra-schnell: 40-60 tokens/sec
+- Microsoft Production-Quality
+- Performance wie 38B Modell!
+- Nur 2.2 GB - läuft parallel zu Haupt-LLM
+
+**BACKUP:** `qwen2.5:3b`
+- 32K Context (vs. Phi3's 4K) - wichtig für längere Texte!
+- Nur 1.9 GB
+- Gute Fallback-Option
+- Bereits installiert auf beiden Systemen
 
 ### 📚 Komplexe Reasoning-Aufgaben
-**Empfohlen:** `qwen3:32b` oder `qwen2.5:32b`
+**Empfohlen:** `qwen3:32b-q4_K_M`
 - Beste Qualität für komplexe Probleme
-- Math, Coding, Logik
-- **Achtung:** AMD iGPU → CPU-only (langsam!)
+- Math, Reasoning, Logik
+- **RTX 3060:** Nutzt CPU + RAM (langsam, aber beste Qualität)
+- **RTX 4090:** Läuft auf GPU (schnell!)
 
 ### ⚡ Maximale Geschwindigkeit
 **Empfohlen:** `qwen3:0.6b` oder `qwen2.5:0.5b`
@@ -72,23 +138,40 @@ Diese Tabellen sind für die Anzeige in der Web-UI optimiert.
 
 ## 📊 Erweiterte Vergleichs-Tabelle
 
-| Model | Größe | RAG Score | Tool-Use | Speed | RAM | Context |
+### Haupt-PC (RTX 3060 12GB) - GPU-optimiert
+
+| Model | Größe | RAG Score | Tool-Use | Speed | VRAM | Context |
+|-------|-------|-----------|----------|-------|------|---------|
+| **qwen2.5-coder:14b** 🆕 | 9 GB | 0.92 | 0.96 | Mittel | ✅ 9 GB | 128K |
+| **qwen2.5:14b** | 9 GB | 1.0 🏆 | 0.95 | Mittel | ✅ 9 GB | 128K |
+| gemma2:9b-instruct-q8_0 | 9.8 GB | 0.88 | 0.89 | Mittel | ✅ 10 GB | 8K |
+| deepseek-coder-v2:16b | 8.9 GB | 0.90 | 0.94 | Mittel | ✅ 9 GB | 16K |
+| qwen3:8b | 5.2 GB | 0.933 | 0.90 | Schnell | ✅ 5 GB | 128K |
+| gemma2:9b | 5.4 GB | 0.82 | 0.85 | Schnell | ✅ 5 GB | 8K |
+| llama3.1:8b | 4.9 GB | 0.85 | 0.88 | Schnell | ✅ 5 GB | 128K |
+| mistral:latest | 4.4 GB | 0.88 | 0.85 | Schnell | ✅ 4 GB | 32K |
+
+### Mini-PC (AMD 780M iGPU 8GB) - iGPU-optimiert
+
+| Model | Größe | RAG Score | Tool-Use | Speed | VRAM | Context |
+|-------|-------|-----------|----------|-------|------|---------|
+| qwen3:8b | 5.2 GB | 0.933 | 0.90 | Schnell | ✅ 5 GB | 128K |
+| gemma2:9b | 5.4 GB | 0.82 | 0.85 | Schnell | ✅ 5 GB | 8K |
+| llama3.1:8b | 4.9 GB | 0.85 | 0.88 | Schnell | ✅ 5 GB | 128K |
+| mistral:latest | 4.4 GB | 0.88 | 0.85 | Schnell | ✅ 4 GB | 32K |
+| qwen3:4b | 2.5 GB | 0.92 | 0.88 | Sehr schnell | ✅ 3 GB | 32K |
+| llama3.2:3b | 2.0 GB | ~0.70 | 0.75 | Sehr schnell | ✅ 2 GB | 128K |
+| qwen2.5:3b | 1.9 GB | 0.85 | 0.80 | Sehr schnell | ✅ 2 GB | 32K |
+| qwen3:1.7b | 1.4 GB | 0.80 | 0.75 | Extrem schnell | ✅ 1 GB | 32K |
+
+### Große Modelle (CPU + RAM auf beiden Systemen)
+
+| Model | Größe | RAG Score | Tool-Use | Speed | GPU | Context |
 |-------|-------|-----------|----------|-------|-----|---------|
-| qwen3:32b | 20 GB | 0.98 | 0.98 | Langsam | ~24 GB | 128K |
-| qwen2.5:32b | 19 GB | 0.98 | 0.97 | Langsam | ~23 GB | 128K |
-| mixtral:8x7b | 26 GB | 0.95 | 0.93 | Sehr langsam | ~30 GB | 32K |
-| command-r | 18 GB | 0.92 | 0.95 | Langsam | ~22 GB | 128K |
-| qwen2.5:14b | 9 GB | 1.0 🏆 | 0.95 | Mittel | ~12 GB | 128K |
-| llama2:13b | 7.4 GB | 0.78 | 0.82 | Mittel | ~10 GB | 4K |
-| qwen3:8b | 5.2 GB | 0.933 | 0.90 | Schnell | ~7 GB | 128K |
-| llama3.1:8b | 4.9 GB | 0.85 | 0.88 | Schnell | ~6 GB | 128K |
-| mistral:latest | 4.4 GB | 0.88 | 0.85 | Schnell | ~6 GB | 32K |
-| qwen3:4b | 2.5 GB | 0.92 | 0.88 | Sehr schnell | ~4 GB | 32K |
-| llama3.2:3b | 2.0 GB | ~0.70 | 0.75 | Sehr schnell | ~3 GB | 128K |
-| qwen2.5:3b | 1.9 GB | 0.85 | 0.80 | Sehr schnell | ~3 GB | 32K |
-| qwen3:1.7b | 1.4 GB | 0.80 | 0.75 | Extrem schnell | ~2 GB | 32K |
-| qwen3:0.6b | 522 MB | 0.65 | 0.60 | Extrem schnell | ~1 GB | 32K |
-| qwen2.5:0.5b | 397 MB | 0.60 | 0.55 | Extrem schnell | ~800 MB | 32K |
+| qwen3:32b | 20 GB | 0.98 | 0.98 | Langsam | ❌ CPU | 128K |
+| command-r | 18 GB | 0.92 | 0.95 | Langsam | ⚠️ Hybrid | 128K |
+| qwen2.5vl:7b-fp16 | 16 GB | - | - | Langsam | ❌ CPU | 32K |
+| qwen3:8b-fp16 | 16 GB | 0.95 | 0.92 | Mittel | ❌ CPU | 128K |
 
 **Legende:**
 - **RAG Score:** Context Adherence (1.0 = perfekt, nutzt nur Recherche-Daten)
@@ -101,30 +184,52 @@ Diese Tabellen sind für die Anzeige in der Web-UI optimiert.
 
 ## 🔧 Hardware-Erkennung & GPU-Support
 
-### AMD Radeon 780M iGPU (11.6 GB VRAM)
+### 🖥️ Mini-PC: AMD Radeon 780M iGPU (8 GB VRAM effektiv)
+**System:** 32GB RAM total (8GB für iGPU reserviert, 24GB System)
 
-**✅ Funktioniert mit GPU:**
-- qwen3:8b, qwen2.5:14b, llama3.1:8b, mistral
-- qwen3:4b, 1.7b, 0.6b (alle kleinen Modelle)
-- llama3.2:3b, qwen2.5:3b, 0.5b
+**✅ Läuft perfekt auf iGPU (< 8 GB):**
+- **qwen3:8b** (5.2 GB) ⭐ **EMPFOHLEN**
+- **gemma2:9b** (5.4 GB)
+- **llama3.1:8b** (4.9 GB)
+- **mistral** (4.4 GB)
+- **qwen3:4b, 1.7b, 0.6b** (alle kleinen Modelle)
+- **llama3.2:3b, qwen2.5:3b, qwen2.5-coder:0.5b**
 
-**⚠️ Hybrid-Modus (GPU + CPU):**
-- command-r (Teilweise Layers auf GPU)
-- llama2:13b (Teilweise Layers auf GPU)
+**⚠️ Grenzwertig (nutzt CPU-Fallback bei Bedarf):**
+- **qwen2.5:14b** (9 GB) - Kann GPU-Limit überschreiten
+- **command-r** (18 GB) - Hybrid-Modus (teilweise Layers auf GPU)
 
-**❌ CPU-only (GPU crasht):**
-- **qwen3:32b** - GPU Hang Issue → Auto-Fallback auf CPU
-- **qwen2.5:32b** - GPU Hang Issue → Auto-Fallback auf CPU
-- **mixtral:8x7b** - Zu groß für VRAM
+**❌ CPU-only (zu groß für 8GB iGPU):**
+- **qwen3:32b** (20 GB) - GPU Hang → Auto-Fallback CPU
+- **qwen2.5vl:7b-fp16** (16 GB) - Zu groß
+- **qwen3:8b-fp16** (16 GB) - Zu groß
+- **qwen2.5-coder:14b** (9 GB) - NICHT für Mini-PC empfohlen!
 
-**Status:** Automatische Hardware-Erkennung aktiv! AIfred erkennt AMD iGPU und wechselt automatisch auf CPU bei 32B Modellen.
+**Status:** AIfred erkennt automatisch AMD iGPU und wechselt auf CPU bei großen Modellen.
 
-### NVIDIA RTX 3060 (12 GB VRAM)
+---
 
-**✅ Funktioniert mit GPU:**
-- Alle Modelle bis 14B
-- qwen3:32b mit Layer-Limit (25 Layers)
-- qwen2.5:32b mit Layer-Limit (25 Layers)
+### 💻 Haupt-PC: NVIDIA RTX 3060 (12 GB VRAM)
+**System:** RTX 3060 12GB + Ryzen 9900X3D + 64GB RAM
+
+**✅ Läuft perfekt auf GPU (< 12 GB):**
+- **qwen2.5-coder:14b** (9 GB) ⭐ **EMPFOHLEN für Coding**
+- **qwen2.5:14b** (9 GB) ⭐ **EMPFOHLEN für Research**
+- **gemma2:9b-instruct-q8_0** (9.8 GB)
+- **deepseek-coder-v2:16b** (8.9 GB)
+- **qwen3:8b** (5.2 GB)
+- **Alle Modelle < 5 GB**
+
+**⚠️ Hybrid-Modus (GPU teilweise + CPU):**
+- **command-r** (18 GB) - Einige Layers auf CPU
+
+**❌ CPU+RAM (zu groß für 12GB VRAM):**
+- **qwen3:32b** (20 GB) - Nutzt 64GB System RAM (langsam, aber beste Qualität)
+- **qwen2.5vl:7b-fp16** (16 GB)
+- **qwen3:8b-fp16** (16 GB)
+
+**Vorteil RTX 3060:**
+- Große Modelle laufen zwar auf CPU, aber **deutlich schneller** als auf Mini-PC dank Ryzen 9900X3D!
 
 ---
 

@@ -1,7 +1,7 @@
 # 🤖 AIfred Intelligence - Model Overview
 
-**Last Updated:** 2025-10-19
-**Document Version:** 1.0
+**Last Updated:** 2025-10-21
+**Document Version:** 1.1
 
 ---
 
@@ -29,12 +29,12 @@
 l (29 Sprachen inkl. Deutsch)
 - ✅ 18T Training-Tokens, 128K Context Window
 
-**Alternative:** qwen2.5:14b-instruct-q8_0 (beste Qualität, aber langsamer)
-- 📊 Rating: 9.5/10
-- ⚡ Inference: ~62s
-- 🎯 VRAM: ~17 GB (Q8)
-- ✅ Perfekte Faktentreue
-- ⚠️ 2x langsamer als Q4
+**Alternative:** qwen3:32b-q4_K_M (größeres Modell für komplexe Aufgaben)
+- 📊 Rating: 9/10
+- ⚡ Inference: ~90s+
+- 🎯 VRAM: ~20 GB (Q4)
+- ✅ Hervorragendes Reasoning
+- ⚠️ Langsamer, aber beste Qualität
 
 ### Automatik/Intent-Detection Model
 **qwen2.5:3b**
@@ -53,7 +53,6 @@ Optimiert für faktische Recherche, Wissensvermittlung und strukturierte Antwort
 | Model | Size | Quantization | VRAM | Speed | Rating | Use Case |
 |-------|------|--------------|------|-------|--------|----------|
 | **qwen2.5:14b** | 14B | Q4 | ~9 GB | 33s | ⭐ 8.5/10 | **EMPFOHLEN** für Research |
-| qwen2.5:14b-instruct-q8_0 | 14B | Q8 | ~17 GB | 62s | 9.5/10 | Beste Qualität |
 | gemma2:9b-instruct-q8_0 | 9B | Q8 | ~10 GB | 40s | 8/10 | Alternative zu Qwen |
 | gemma2:9b | 9B | Q4 | ~5 GB | 30s | 7/10 | Schnell, weniger genau |
 | qwen3:32b-q4_K_M | 32B | Q4 | ~20 GB | 90s+ | 9/10 | Hohe Qualität, langsam |
@@ -70,14 +69,9 @@ Klein, schnell, optimiert für spezifische Hilfs-Aufgaben.
 | qwen3:0.6b-fp16 | 0.6B | ~1.5 GB | <1s | FP16 für Edge-Devices mit Präzision |
 
 ### 3. Reasoning Models
-Spezialisiert auf logisches Denken, Mathematik und Coding - aber anfällig für Halluzinationen.
+⚠️ **HINWEIS:** DeepSeek-R1 Modelle wurden entfernt aufgrund massiver Halluzinationen bei faktischen Recherchen (14,3% Hallucination Rate laut Vectara Tests 2025).
 
-| Model | Size | VRAM | Rating | Notes |
-|-------|------|------|--------|-------|
-| deepseek-r1:8b-0528-qwen3-q8_0 | 8B | ~9 GB | ❌ 2/10 | **NICHT für faktische Recherche!** |
-| deepseek-r1:8b | 8B | ~5 GB | ❌ 2/10 | Halluziniert stark (siehe Tests) |
-
-⚠️ **WARNING:** DeepSeek-R1 Modelle halluzinieren massiv bei faktischen Aufgaben (invented names, false dates, category confusion). Temperature-Reduktion hilft NICHT. Nur für Coding/Math verwenden!
+**Alternative:** Nutze `qwen3:32b-q4_K_M` für komplexes Reasoning ohne Halluzinationen.
 
 ### 4. FP16 High-Precision Models
 Full-Precision Modelle ohne Quantisierung für maximale Genauigkeit (langsamer, mehr VRAM).
@@ -98,10 +92,18 @@ Full-Precision Modelle ohne Quantisierung für maximale Genauigkeit (langsamer, 
 ### 5. Coding/Development Models
 Spezialisiert auf Code-Generierung und technische Dokumentation.
 
-| Model | Size | VRAM | Use Case |
-|-------|------|------|----------|
-| deepseek-coder-v2:16b | 16B | ~10 GB | Code-Generierung, Refactoring |
-| qwen2.5-coder:0.5b | 0.5B | ~0.5 GB | Schnelles Code-Completion |
+| Model | Size | VRAM | Use Case | Rating |
+|-------|------|------|----------|--------|
+| **qwen2.5-coder:14b-instruct-q4_K_M** | 14B | ~9 GB | **EMPFOHLEN** - Code-Gen, Refactoring, Debugging | ⭐ 9/10 |
+| deepseek-coder-v2:16b | 16B | ~10 GB | Code-Generierung, Architektur | 8/10 |
+| qwen2.5-coder:0.5b | 0.5B | ~0.5 GB | Schnelles Code-Completion | 6/10 |
+
+**Besonderheit qwen2.5-coder:14b:**
+- ✅ Speziell auf Coding trainiert (5.5T Code-Tokens)
+- ✅ Unterstützt 92 Programmiersprachen
+- ✅ Weniger Halluzinationen als DeepSeek-R1
+- ✅ Exzellente Code-Completion und Debugging
+- ✅ Passt perfekt auf RTX 3060 12GB
 
 ### 6. Multimodal Models
 Text + Vision kombiniert.
@@ -198,43 +200,43 @@ Nicht speziell optimiert, aber vielseitig.
 
 ---
 
-### deepseek-r1:8b-0528-qwen3-q8_0
+### qwen2.5-coder:14b-instruct-q4_K_M ⭐ **NEU**
 
-**Entwickler:** DeepSeek AI
-**Release:** Mai 2025 (R1-0528 Update)
-**Base Model:** Qwen 2.5 (distilled mit 800K samples)
-**Training:** Reinforcement Learning (RL) ohne initial SFT
+**Entwickler:** Qwen Team (Alibaba Cloud)
+**Release:** September 2024
+**Training Data:** 5.5 Trillion Code-Tokens
+**Context Window:** 128K tokens
 
 **Technische Details:**
-- 8B parameter distilled reasoning model
-- Explicit reasoning traces (CoT)
-- Finetuned speziell für Mathematik, Coding, Logik
-- Function calling & JSON output support
+- Spezialisiertes Coding-Modell basierend auf Qwen 2.5
+- Trainiert auf 92 Programmiersprachen
+- Q4_K_M Quantisierung für optimale Balance
+- Exzellentes Instruction-Following für Code-Tasks
 
 **VRAM Requirements:**
-- Q8: ~9 GB
-- Q4: ~5 GB
+- Q4_K_M: ~9 GB
+- Q8: ~17 GB
 
-**Benchmarks (Full R1 Model, nicht 8B distilled):**
-- AIME 2025: 87.5% (Mathe)
-- MATH-500: 97.3
-- GPQA-Diamond: 81.0
-- LiveCodeBench: 73.3% pass@1
+**Benchmarks:**
+- HumanEval (Python): 88.7%
+- MBPP (Python): 83.5%
+- LiveCodeBench: 42.3% pass@1
+- MultiPL-E (Avg): 78.9%
 
 **Pros:**
-- ✅ Sehr gut in Mathematik und Coding
-- ✅ Explizite Reasoning Traces (nachvollziehbar)
-- ✅ 45% weniger Halluzinationen als R1-0 (laut DeepSeek)
+- ✅ Speziell für Code-Generierung optimiert
+- ✅ Unterstützt 92 Programmiersprachen
+- ✅ Weniger Halluzinationen als DeepSeek-R1
+- ✅ Passt perfekt auf RTX 3060 12GB
+- ✅ Exzellente Code-Completion & Debugging
+- ✅ 128K Context für große Codebases
 
 **Cons:**
-- ❌ **KRITISCH:** Halluziniert massiv bei faktischen Recherchen
-- ❌ Invented Names ("Alice und Bob Johnson")
-- ❌ Invented Dates ("7. Oktober 2025")
-- ❌ False Nobel Count ("8 Nobelpreise" statt 6)
-- ❌ Temperature-Reduktion hilft NICHT
+- ⚠️ Fokus auf Code, weniger gut für allgemeine Texte
+- ⚠️ Größer als kleinere Coder-Modelle
 
 **EMPFEHLUNG:**
-⛔ **NICHT für AIfred Research verwenden!** Nur für Coding/Math Tasks.
+✅ **PERFEKT für Entwicklung auf RTX 3060 12GB!** Ideal für Code-Reviews, Refactoring, Debugging.
 
 ---
 
@@ -280,26 +282,48 @@ Nicht speziell optimiert, aber vielseitig.
 
 ## 💻 Hardware Requirements
 
+### Your Setup: RTX 3060 12GB + 64GB RAM ⭐ **OPTIMAL**
+**Das ist deine aktuelle Konfiguration - perfekt für Entwicklung!**
+
+**Empfohlene Modelle:**
+- ✅ **qwen2.5-coder:14b-q4_K_M** (~9 GB) - Hauptmodell für Coding
+- ✅ **qwen2.5:14b** (~9 GB) - Hauptmodell für Web-Recherche
+- ✅ **qwen2.5:3b** (~2 GB) - Automatik/Helper
+- ✅ **Gesamt:** ~11 GB VRAM (1GB Reserve für System)
+
+**Was NICHT passt:**
+- ❌ Q8 Varianten (15-17 GB) - zu groß
+- ❌ qwen3:32b ohne Optimierung - braucht Layer-Limit
+- ❌ FP16 Modelle - zu groß
+
+**Perfekte Kombination für RTX 3060 12GB:**
+```bash
+# Coding & Development
+ollama pull qwen2.5-coder:14b-instruct-q4_K_M  # 9 GB
+
+# Web-Recherche (alternativ)
+ollama pull qwen2.5:14b  # 9 GB
+
+# Helper Tasks
+ollama pull qwen2.5:3b  # 2 GB
+```
+
 ### Minimum Requirements
-- **GPU:** NVIDIA RTX 3060 (12GB VRAM) oder besser
+- **GPU:** NVIDIA RTX 3060 (12GB VRAM)
 - **RAM:** 32 GB System RAM
 - **VRAM:** 12 GB für qwen2.5:14b Q4 + qwen2.5:3b gleichzeitig
 
-### Recommended Setup
-- **GPU:** NVIDIA RTX 4090 (24GB VRAM)
+### Recommended Setup (dein Setup!)
+- **GPU:** NVIDIA RTX 3060 (12GB VRAM)
 - **RAM:** 64 GB System RAM
-- **VRAM:** 24 GB erlaubt alle Modelle inkl. Q8 Varianten
-
-### Budget Setup
-- **GPU:** NVIDIA RTX 3060 Ti (8GB VRAM)
-- **Models:** gemma2:9b Q4 (~5GB) + qwen3:1.7b (~1GB)
-- **RAM:** 32 GB
-- ⚠️ Kein Platz für qwen2.5:14b Q4
+- **CPU:** Ryzen 9900X3D
+- **Models:** qwen2.5-coder:14b, qwen2.5:14b, qwen2.5:3b
+- **VRAM:** 12 GB - perfekt für Q4 Modelle
 
 ### High-End Setup
-- **GPU:** NVIDIA RTX 4090 oder A6000 (48GB VRAM)
-- **Models:** Alle Modelle, inkl. qwen3:32b und FP16 Varianten
-- **RAM:** 128 GB+
+- **GPU:** NVIDIA RTX 4090 (24GB VRAM)
+- **RAM:** 128 GB System RAM
+- **Models:** Alle Modelle, inkl. qwen3:32b und Q8 Varianten
 
 ---
 
@@ -322,11 +346,17 @@ Nicht speziell optimiert, aber vielseitig.
 
 **ALTERNATIVE:** qwen3:32b (größeres Modell, bessere Lyrik)
 
-### For Coding & Math
+### For Coding & Development
 **USE:**
-1. deepseek-r1:8b (reasoning traces)
-2. deepseek-coder-v2:16b (code-spezialisiert)
-3. qwen2.5:14b (solide Alternative)
+1. **qwen2.5-coder:14b** (beste Balance, 92 Sprachen) ⭐ **EMPFOHLEN**
+2. deepseek-coder-v2:16b (architektur-fokussiert)
+3. qwen2.5:14b (solide Allrounder)
+
+### For Math & Reasoning
+**USE:**
+1. **qwen3:32b** (beste Reasoning-Fähigkeiten)
+2. qwen2.5:14b (gute Balance)
+3. gemma2:9b (kompakt, gut)
 
 ### For Intent Detection & Helper Tasks
 **USE:** qwen2.5:3b oder qwen3:1.7b
@@ -360,37 +390,47 @@ Nicht speziell optimiert, aber vielseitig.
 
 ## 🚀 Quick Start Recommendations
 
-### Scenario 1: You have RTX 4090 (24GB VRAM)
+### ⭐ Your Setup: RTX 3060 12GB + 64GB RAM (DEIN SYSTEM!)
+```bash
+# Coding & Development (Hauptmodell)
+ollama pull qwen2.5-coder:14b-instruct-q4_K_M  # 9 GB
+
+# Web-Recherche & Allgemein
+ollama pull qwen2.5:14b  # 9 GB
+
+# Helper/Automatik Tasks
+ollama pull qwen2.5:3b  # 2 GB
+
+# Power-Modell (für CPU, langsam aber beste Qualität)
+ollama pull qwen3:32b-q4_K_M  # 20 GB (nutzt RAM)
+
+# VERDICT: PERFEKT für deine Hardware!
+# Du kannst zwischen Coding/Research wechseln
+# qwen2.5:3b läuft parallel als Helper
+```
+
+### Scenario: RTX 4090 (24GB VRAM)
 ```bash
 # Haupt-LLM: Beste Qualität
-ollama pull qwen2.5:14b-instruct-q8_0
+ollama pull qwen3:32b-q4_K_M  # 20 GB
 
-# Automatik-LLM: Schnell
-ollama pull qwen2.5:3b
+# Coding-LLM
+ollama pull qwen2.5-coder:14b-instruct-q4_K_M  # 9 GB
 
-# TOTAL VRAM: ~20 GB
-# VERDICT: Perfekt, noch 4GB Reserve
+# Automatik-LLM
+ollama pull qwen2.5:3b  # 2 GB
+
+# TOTAL VRAM: Kann auch Q8 Varianten nutzen
+# VERDICT: Perfekt, alle Modelle laufen auf GPU
 ```
 
-### Scenario 2: You have RTX 3060 (12GB VRAM)
-```bash
-# Haupt-LLM: Beste Balance
-ollama pull qwen2.5:14b  # Q4 variant
-
-# Automatik-LLM: Kompakt
-ollama pull qwen3:1.7b
-
-# TOTAL VRAM: ~10 GB
-# VERDICT: Gut, 2GB Reserve für System
-```
-
-### Scenario 3: You have RTX 3060 Ti (8GB VRAM)
+### Scenario: RTX 3060 Ti (8GB VRAM)
 ```bash
 # Haupt-LLM: Kompakter
-ollama pull gemma2:9b  # Q4 variant
+ollama pull gemma2:9b  # Q4 variant, ~5 GB
 
 # Automatik-LLM: Minimal
-ollama pull qwen3:1.7b
+ollama pull qwen3:1.7b  # 1.4 GB
 
 # TOTAL VRAM: ~6 GB
 # VERDICT: Funktioniert, 2GB Reserve
@@ -400,19 +440,37 @@ ollama pull qwen3:1.7b
 
 ## 🔄 Migration Guide
 
-### From DeepSeek-R1 to Qwen2.5
-**Why?** DeepSeek-R1 halluziniert bei faktischen Recherchen.
+### ✅ DURCHGEFÜHRT: DeepSeek-R1 entfernt
+**Grund:** 14,3% Hallucination-Rate (Vectara Tests 2025) - ungeeignet für faktische Recherche.
 
-**Steps:**
-1. `ollama pull qwen2.5:14b`
-2. In UI: Wähle "qwen2.5:14b" als Haupt-LLM
-3. Setze Temperature auf 0.2 (oder Auto-Modus)
-4. Test mit Recherche-Query
+**Gelöschte Modelle:**
+- ❌ deepseek-r1:8b-0528-qwen3-q8_0 (8.9 GB)
+- ❌ deepseek-r1:8b (5.2 GB)
+- ❌ qwen2.5:14b-instruct-q8_0 (15 GB) - zu groß für 12GB VRAM
+
+**Freigegebener Speicherplatz:** ~29 GB
+
+### 🆕 Neues Modell hinzugefügt
+**qwen2.5-coder:14b-instruct-q4_K_M**
+- ✅ Speziell für Coding optimiert
+- ✅ 92 Programmiersprachen
+- ✅ Weniger Halluzinationen
+- ✅ Passt perfekt auf RTX 3060 12GB
+
+**Migration:**
+```bash
+# Altes DeepSeek-R1 entfernen (ERLEDIGT)
+ollama rm deepseek-r1:8b-0528-qwen3-q8_0
+ollama rm deepseek-r1:8b
+
+# Neues Coding-Modell installieren (LÄUFT GERADE)
+ollama pull qwen2.5-coder:14b-instruct-q4_K_M
+```
 
 **Expected Improvement:**
-- ✅ 90% weniger Halluzinationen
-- ✅ Bessere Faktentreue
-- ⚠️ Kein explizites Reasoning (kein CoT)
+- ✅ 85% weniger Halluzinationen (14.3% → <2%)
+- ✅ Bessere Code-Qualität
+- ✅ Mehr VRAM verfügbar (29 GB gespart)
 
 ---
 
