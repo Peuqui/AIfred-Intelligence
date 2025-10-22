@@ -207,7 +207,7 @@ def reload_model(model_name, enable_gpu, num_ctx):
 
     debug_print(f"🔄 Model-Reload angefordert für {model_name}")
     debug_print(f"   GPU-Einstellung: {'Aktiviert' if enable_gpu else 'CPU-only'}")
-    debug_print(f"   Context Window: {num_ctx}")
+    debug_print(f"   Context Window: {num_ctx if num_ctx is not None else 'Auto'}")
 
     # Entlade ALLE aktuell geladenen Modelle
     unload_all_models()
@@ -217,7 +217,7 @@ def reload_model(model_name, enable_gpu, num_ctx):
     smart_model_load(model_name)
 
     # Setze GPU-Modus UND num_ctx für einen Test-Call
-    set_gpu_mode(enable_gpu, {'num_ctx': int(num_ctx)})
+    set_gpu_mode(enable_gpu, {'num_ctx': int(num_ctx) if num_ctx is not None else 4096})
 
     # Mache einen Mini-Call um Model zu laden
     try:
@@ -269,18 +269,18 @@ def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice,
     elif "Schnell" in research_mode:
         # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
         debug_print(f"⚡ Modus: Web-Suche Schnell (Agent)")
-        return perform_agent_research(user_text, stt_time, "quick", model_choice, automatik_model, history, session_id, temperature_mode, temperature)
+        return perform_agent_research(user_text, stt_time, "quick", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
     elif "Ausführlich" in research_mode:
         # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 5 URLs
         debug_print(f"🔍 Modus: Web-Suche Ausführlich (Agent)")
-        return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature)
+        return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
     elif "Automatik" in research_mode:
         # Automatik-Modus: KI entscheidet selbst, ob Recherche nötig
         debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
         try:
-            return chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id, temperature_mode, temperature)
+            return chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id, temperature_mode, temperature, llm_options)
         except:
             # Fallback wenn Fehler
             debug_print("⚠️ Fallback zu Eigenes Wissen")
@@ -312,18 +312,18 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
     elif "Schnell" in research_mode:
         # Web-Suche Schnell: Multi-API (Brave → Tavily → SearXNG) + beste 3 URLs
         debug_print(f"⚡ Modus: Web-Suche Schnell (Agent)")
-        return perform_agent_research(text_input, 0.0, "quick", model_choice, automatik_model, history, session_id, temperature_mode, temperature)
+        return perform_agent_research(text_input, 0.0, "quick", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
     elif "Ausführlich" in research_mode:
         # Web-Suche Ausführlich: Multi-API (Brave → Tavily → SearXNG) + beste 5 URLs
         debug_print(f"🔍 Modus: Web-Suche Ausführlich (Agent)")
-        return perform_agent_research(text_input, 0.0, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature)
+        return perform_agent_research(text_input, 0.0, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
     elif "Automatik" in research_mode:
         # Automatik-Modus: KI entscheidet selbst, ob Recherche nötig
         debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
         try:
-            return chat_interactive_mode(text_input, 0.0, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id, temperature_mode, temperature)
+            return chat_interactive_mode(text_input, 0.0, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id, temperature_mode, temperature, llm_options)
         except:
             # Fallback wenn Fehler
             debug_print("⚠️ Fallback zu Eigenes Wissen")
@@ -486,9 +486,16 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
             with gr.Accordion("⚙️ LLM-Parameter (Erweitert)", open=False):
                 gr.Markdown("**Steuere die Antwort-Generierung mit Sampling-Parametern**")
 
+                # Context Window Status Info (dynamisch)
+                num_ctx_status = gr.Markdown(
+                    "**📦 Context Window (num_ctx):** 🤖 Automatisch berechnet (basierend auf Message-Größe)",
+                    elem_id="num_ctx_status"
+                )
+
                 # Context Window ZUERST (wichtigster Parameter für VRAM!)
                 llm_num_ctx = gr.Radio(
                     choices=[
+                        ("Auto 🤖", None),  # Neu: Auto-Modus
                         ("2k", 2048),
                         ("4k", 4096),
                         ("8k ⭐", 8192),
@@ -497,12 +504,13 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
                         ("16k", 16384),
                         ("20k", 20480),
                         ("24k", 24576),
-                        ("32k (Standard)", 32768),
+                        ("32k", 32768),
                         ("64k", 65536),
                         ("128k", 131072)
                     ],
-                    value=32768,
+                    value=None,  # Default: Auto
                     label="📦 Context Window (num_ctx)",
+                    info="Auto = Dynamisch berechnet, Manual = Fester Wert",
                     elem_classes="horizontal-radio"
                 )
 
@@ -943,6 +951,20 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
     temperature_mode.change(update_settings, inputs=[model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, temperature_mode, llm_temperature])
     llm_temperature.change(update_settings, inputs=[model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, temperature_mode, llm_temperature])
 
+    # Event Handler für Context Window Status-Anzeige
+    def update_num_ctx_status(num_ctx_value):
+        """Aktualisiert Status-Text basierend auf num_ctx Wahl"""
+        if num_ctx_value is None:
+            return "**📦 Context Window (num_ctx):** 🤖 Automatisch berechnet (basierend auf Message-Größe + 30% Puffer + 2048 für Antwort)"
+        else:
+            return f"**📦 Context Window (num_ctx):** ✋ Manuell festgelegt auf {num_ctx_value} Tokens"
+
+    llm_num_ctx.change(
+        update_num_ctx_status,
+        inputs=[llm_num_ctx],
+        outputs=[num_ctx_status]
+    )
+
     # On Load Event - Lädt Settings und initialisiert UI
     def on_page_load():
         """Wird bei jedem Page-Load aufgerufen - lädt aktuelle Settings"""
@@ -1031,7 +1053,7 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
     ).then(
         # Schritt 2: AI Inference - Nur ai_text zeigt Fortschrittsbalken
         lambda show_trans, user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist, sess_id, temp_mode: \
-            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx), "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist, sess_id, temp_mode, temp) if not show_trans else ("", hist, 0.0),
+            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx) if num_ctx is not None else None, "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist, sess_id, temp_mode, temp) if not show_trans else ("", hist, 0.0),
         inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id, temperature_mode],
         outputs=[ai_text, history, inference_time_state]
     ).then(
@@ -1057,7 +1079,7 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
     ).then(
         # Stufe 1: AI-Antwort generieren mit Modus-Routing (Agent oder Standard)
         lambda txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist, sess_id, temp_mode: \
-            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx), "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist, sess_id, temp_mode, temp),
+            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx) if num_ctx is not None else None, "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist, sess_id, temp_mode, temp),
         inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id, temperature_mode],
         outputs=[ai_text, history, inference_time_state]
     ).then(

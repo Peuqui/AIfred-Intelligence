@@ -37,7 +37,7 @@ WHISPER_MODELS = {
 # ============================================================
 DEFAULT_SETTINGS = {
     "model": "qwen2.5:14b",
-    "automatik_model": "qwen3:1.7b",
+    "automatik_model": "phi3:mini",
     "voice": "Deutsch (Katja)",
     "tts_speed": 1.25,
     "enable_tts": False,
@@ -45,10 +45,9 @@ DEFAULT_SETTINGS = {
     "whisper_model": "small (466MB, bessere Qualität, multilingual)",
     "research_mode": "🤖 Automatik (variabel, KI entscheidet)",
     "show_transcription": False,
-    "enable_gpu": True,
-    "temperature": 0.2,
-    "temperature_mode": "auto",  # 'auto' or 'manual'
-    "temperature_manual": 0.5    # Used when temperature_mode is 'manual'
+    "enable_gpu": True
+    # Temperature wird NICHT gespeichert - immer 0.2 für Web-Recherche (sicher)
+    # User kann pro Session im UI ändern, aber es bleibt nicht persistent
 }
 
 # ============================================================
