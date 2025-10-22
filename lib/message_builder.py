@@ -8,7 +8,7 @@ Vorher: 6+ duplizierte Code-Stellen mit jeweils 10-15 Zeilen
 Nachher: 1 zentrale Funktion mit robustem Pattern Matching
 """
 
-def build_messages_from_history(history, current_user_text):
+def build_messages_from_history(history, current_user_text, max_turns=None):
     """
     Konvertiert Gradio-History zu Ollama-Messages Format
 
@@ -18,6 +18,7 @@ def build_messages_from_history(history, current_user_text):
     Args:
         history: Gradio Chat History [[user_msg, ai_msg], ...]
         current_user_text: Aktuelle User-Nachricht
+        max_turns: Optional - Nur letzte N Turns verwenden (None = alle)
 
     Returns:
         list: Ollama Messages Format [{'role': 'user', 'content': '...'}, ...]
@@ -48,8 +49,11 @@ def build_messages_from_history(history, current_user_text):
         " (Entscheidung:", # Automatik Decision Zeit
     ]
 
+    # Begrenze History falls gewünscht (z.B. nur letzte 3 Turns)
+    history_to_process = history[-max_turns:] if max_turns else history
+
     # Verarbeite History
-    for user_turn, ai_turn in history:
+    for user_turn, ai_turn in history_to_process:
         # Bereinige User-Nachricht
         clean_user = user_turn
         for pattern in timing_patterns:

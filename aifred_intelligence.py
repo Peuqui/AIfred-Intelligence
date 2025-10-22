@@ -1,6 +1,5 @@
 import gradio as gr
 import ollama
-import asyncio
 import os
 import time
 import uuid
@@ -15,7 +14,7 @@ from lib.config import (
     WHISPER_MODELS, DEFAULT_SETTINGS, VOICES, RESEARCH_MODES, TTS_ENGINES,
     SETTINGS_FILE, SSL_KEYFILE, SSL_CERTFILE, PROJECT_ROOT
 )
-from lib.logging_utils import debug_print, console_print, get_console_output
+from lib.logging_utils import debug_print, console_print, get_console_output, console_separator, clear_console
 from lib.formatting import format_thinking_process
 from lib.settings_manager import load_settings, save_settings
 from lib.memory_manager import smart_model_load, register_signal_handlers
@@ -25,9 +24,7 @@ from lib.audio_processing import (
 )
 from lib.agent_core import perform_agent_research, chat_interactive_mode
 from lib.ollama_wrapper import set_gpu_mode, clear_gpu_mode
-
-# Agent Tools (already external)
-from agent_tools import search_web, scrape_webpage, build_context
+from lib.message_builder import build_messages_from_history
 
 # ============================================================
 # GLOBAL RESEARCH CACHE (RAM-basiert, Session-spezifisch)
@@ -75,16 +72,8 @@ def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_c
     debug_print(f"🎮 GPU: {'Aktiviert' if enable_gpu else 'Deaktiviert (CPU only)'}")
     debug_print("=" * 60)
 
-    messages = []
-    for h in history:
-        # Extrahiere nur Text ohne Timing-Info für Ollama
-        user_msg = h[0].split(" (STT:")[0] if " (STT:" in h[0] else h[0]
-        ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
-        messages.extend([
-            {'role': 'user', 'content': user_msg},
-            {'role': 'assistant', 'content': ai_msg}
-        ])
-    messages.append({'role': 'user', 'content': user_text})
+    # Build Ollama messages from history (centralized)
+    messages = build_messages_from_history(history, user_text)
 
     # Smart Model Loading: Entlade kleine Modelle wenn großes Modell kommt
     smart_model_load(model_choice)
@@ -102,6 +91,7 @@ def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_c
 
     # Console-Log: LLM fertig
     console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(response['message']['content'])} Zeichen)")
+    console_separator()
 
     ai_text = response['message']['content']
 
@@ -157,16 +147,8 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
     debug_print(f"🎮 GPU: {'Aktiviert' if enable_gpu else 'Deaktiviert (CPU only)'}")
     debug_print("=" * 60)
 
-    messages = []
-    for h in history:
-        # Extrahiere nur Text ohne Timing-Info für Ollama
-        user_msg = h[0].split(" (STT:")[0] if " (STT:" in h[0] else h[0]
-        ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
-        messages.extend([
-            {'role': 'user', 'content': user_msg},
-            {'role': 'assistant', 'content': ai_msg}
-        ])
-    messages.append({'role': 'user', 'content': text_input})
+    # Build Ollama messages from history (centralized)
+    messages = build_messages_from_history(history, text_input)
 
     # Smart Model Loading vor Ollama-Call
     smart_model_load(model_choice)
@@ -184,6 +166,7 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
 
     # Console-Log: LLM fertig
     console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(response['message']['content'])} Zeichen)")
+    console_separator()
 
     ai_text = response['message']['content']
 
@@ -651,8 +634,8 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
         debug_console = gr.Textbox(
             value="",
             label="",
-            lines=20,
-            max_lines=20,
+            lines=21,
+            max_lines=21,
             interactive=False,
             show_label=False,
             elem_classes="debug-console"
@@ -1194,27 +1177,24 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[reload_model_btn]
     )
 
-    # Clear Button - kompletter Chat + Research-Cache löschen
+    # Clear Button - kompletter Chat + Research-Cache + Debug-Console löschen
     def clear_chat_and_cache(sess_id):
-        """Löscht Chat-History UND Research-Cache für diese Session"""
+        """Löscht Chat-History UND Research-Cache UND Debug-Console für diese Session"""
         global research_cache
         if sess_id in research_cache:
             del research_cache[sess_id]
             debug_print(f"🗑️ Research-Cache gelöscht für Session {sess_id[:8]}...")
-        return (None, "", "", "", None, [], "idle", gr.update(interactive=False), [])
+
+        # Debug-Console leeren
+        clear_console()
+
+        return (None, "", "", "", None, [], "idle", gr.update(interactive=False), [], "")
 
     clear.click(
         clear_chat_and_cache,
         inputs=[session_id],
-        outputs=[audio_input, text_input, user_text, ai_text, audio_output, chatbot, recording_state, regenerate_audio, history]
+        outputs=[audio_input, text_input, user_text, ai_text, audio_output, chatbot, recording_state, regenerate_audio, history, debug_console]
     )
-
-import ssl
-import os
-
-# SSL-Verifikation komplett deaktivieren
-os.environ['PYTHONHTTPSVERIFY'] = '0'
-ssl._create_default_https_context = ssl._create_unverified_context
 
 # ============================================================
 # SSL KONFIGURATION (Portable)

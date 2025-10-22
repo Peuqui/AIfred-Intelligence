@@ -142,21 +142,3 @@ def clear_gpu_mode():
         del _thread_local.custom_options
 
 
-def get_gpu_mode():
-    """
-    Gibt aktuellen GPU-Modus zurück
-
-    Returns:
-        True = GPU aktiv, False = CPU only, None = nicht gesetzt
-    """
-    return getattr(_thread_local, 'enable_gpu', None)
-
-
-def get_hardware_info():
-    """
-    Gibt erkannte Hardware-Information zurück
-
-    Returns:
-        dict: Hardware-Details (GPU-Typ, VRAM, etc.)
-    """
-    return _detect_hardware()

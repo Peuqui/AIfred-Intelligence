@@ -42,19 +42,6 @@ def debug_print(message, **kwargs):
         print(message, flush=True, **kwargs)
 
 
-def debug_log(message):
-    """
-    Logging-basierte Debug-Ausgabe
-
-    Alternative zu debug_print() für strukturiertes Logging.
-
-    Args:
-        message: Debug-Nachricht für Logger
-    """
-    if DEBUG_ENABLED:
-        logger.debug(message)
-
-
 def console_print(message, category="info"):
     """
     Schreibt Debug-Message sowohl ins Journal (via debug_print) als auch in die UI-Konsole
@@ -80,6 +67,22 @@ def console_print(message, category="info"):
         debug_console_messages = debug_console_messages[-MAX_CONSOLE_MESSAGES:]
 
 
+def console_separator():
+    """Fügt eine horizontale Trennlinie in die Console ein"""
+    global debug_console_messages
+    debug_console_messages.append("─" * 80)
+
+    # Limit einhalten
+    if len(debug_console_messages) > MAX_CONSOLE_MESSAGES:
+        debug_console_messages = debug_console_messages[-MAX_CONSOLE_MESSAGES:]
+
+
 def get_console_output():
     """Gibt alle Console-Messages als String zurück (für Gradio Textbox)"""
     return "\n".join(debug_console_messages)
+
+
+def clear_console():
+    """Löscht alle Console-Messages"""
+    global debug_console_messages
+    debug_console_messages = []

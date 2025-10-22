@@ -13,12 +13,14 @@ Date: 2025-10-13
 """
 
 import requests
-from bs4 import BeautifulSoup
 import time
 import logging
 import os
 from typing import Dict, List, Optional
 import re
+import trafilatura
+from trafilatura.settings import DEFAULT_CONFIG
+from copy import deepcopy
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -504,86 +506,118 @@ class MultiAPISearchTool(BaseTool):
 
 class WebScraperTool(BaseTool):
     """
-    Web-Scraper mit BeautifulSoup
+    Web-Scraper mit trafilatura + Playwright Fallback
 
-    Extrahiert Text-Content von Webseiten
+    Extrahiert sauberen Text-Content von Webseiten.
+    trafilatura filtert automatisch Werbung, Navigation und Cookie-Banner.
     """
 
     # Konstanten
-    PLAYWRIGHT_FALLBACK_THRESHOLD = 1500  # Wörter - unter diesem Wert wird Playwright versucht
+    PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # Wörter - unter diesem Wert wird Playwright versucht
 
     def __init__(self):
         super().__init__()
         self.name = "Web Scraper"
         self.description = "Extrahiert Text-Content von Webseiten"
         self.min_call_interval = 1.0
+
+        # trafilatura Config mit 15s Timeout (statt default 30s)
+        self.trafilatura_config = deepcopy(DEFAULT_CONFIG)
+        self.trafilatura_config.set('DEFAULT', 'DOWNLOAD_TIMEOUT', '15')
     def execute(self, url: str, **kwargs) -> Dict:
         """
         Scraped eine Webseite komplett ohne Längenlimit
 
-        Strategie:
-        1. Versuche BeautifulSoup (schnell, statisches HTML)
-        2. Falls < 500 Wörter → Retry mit Playwright (JavaScript-Rendering)
+        Strategie (2-Stufen Fallback):
+        1. trafilatura (sauberster Content, filtert Werbung/Navigation/Cookies automatisch)
+        2. Falls < threshold ODER fehlgeschlagen → Playwright (JavaScript-Rendering)
+
+        trafilatura funktioniert für 95% aller Websites (News, Blogs, Wetter).
+        Playwright nur für JavaScript-heavy Single-Page-Apps (React, Vue, etc.).
 
         Ollama's dynamisches num_ctx übernimmt die Context-Größen-Kontrolle!
         """
         self._rate_limit_check()
 
-        # Versuch 1: BeautifulSoup (schnell)
-        result = self._scrape_with_beautifulsoup(url)
+        # Versuch 1: trafilatura (schnell + sauber)
+        result = self._scrape_with_trafilatura(url)
 
-        # Versuch 2: Playwright wenn BeautifulSoup fehlschlägt ODER zu wenig Content
+        # Versuch 2: Playwright Fallback (nur wenn nötig)
         should_retry_with_playwright = (
-            not result['success'] or  # BeautifulSoup Error
-            (result['success'] and result.get('word_count', 0) < self.PLAYWRIGHT_FALLBACK_THRESHOLD)  # Zu wenig Content
+            not result['success'] or  # trafilatura fehlgeschlagen
+            result.get('word_count', 0) < self.PLAYWRIGHT_FALLBACK_THRESHOLD  # Zu wenig Content (wahrscheinlich JavaScript)
         )
 
         if should_retry_with_playwright:
             if not result['success']:
-                logger.warning(f"⚠️ BeautifulSoup fehlgeschlagen → Retry mit Playwright (JavaScript)")
+                logger.warning(f"⚠️ trafilatura fehlgeschlagen → Retry mit Playwright (JavaScript)")
             else:
-                logger.warning(f"⚠️ Nur {result['word_count']} Wörter gefunden → Retry mit Playwright (JavaScript)")
+                logger.warning(f"⚠️ trafilatura nur {result['word_count']} Wörter → Retry mit Playwright (JavaScript)")
 
             playwright_result = self._scrape_with_playwright(url)
             if playwright_result['success']:
-                if result['success']:
-                    logger.info(f"✅ Playwright: {playwright_result['word_count']} Wörter (vorher: {result['word_count']})")
-                else:
-                    logger.info(f"✅ Playwright: {playwright_result['word_count']} Wörter (BeautifulSoup war fehlgeschlagen)")
+                logger.info(f"✅ Playwright: {playwright_result['word_count']} Wörter (trafilatura: {result.get('word_count', 0)})")
                 return playwright_result
 
         return result
 
-    def _scrape_with_beautifulsoup(self, url: str) -> Dict:
-        """Scraped mit BeautifulSoup (schnell, nur statisches HTML)"""
+    def _scrape_with_trafilatura(self, url: str) -> Dict:
+        """
+        Scraped mit trafilatura (sauberster Content)
+
+        trafilatura ist spezialisiert auf Content-Extraktion und filtert automatisch:
+        - Werbung und Tracking-Code
+        - Navigation und Menüs
+        - Cookie-Banner
+        - Footer/Header Content
+        - Social Media Widgets
+
+        Perfekt für News-Artikel, Blog-Posts, Wetter-Seiten!
+        """
         try:
             logger.info(f"🌐 Web Scraping: {url}")
-            logger.debug(f"   Methode: BeautifulSoup (statisches HTML)")
+            logger.debug(f"   Methode: trafilatura (Content-Extraktion)")
 
-            response = requests.get(
-                url,
-                timeout=10,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (compatible; Voice-Assistant/1.0)'
+            # Download HTML mit 15s Timeout (via config)
+            downloaded = trafilatura.fetch_url(url, config=self.trafilatura_config)
+
+            if not downloaded:
+                logger.error(f"❌ trafilatura: Download fehlgeschlagen")
+                return {
+                    'success': False,
+                    'method': 'trafilatura',
+                    'source': url,
+                    'error': 'Download failed'
                 }
+
+            # Extract sauberen Content
+            text = trafilatura.extract(
+                downloaded,
+                include_comments=False,  # Keine Kommentare
+                include_tables=True,     # Tabellen behalten (wichtig für Wetter!)
+                no_fallback=False,       # Fallback auf basic extraction wenn nötig
+                favor_precision=True,    # Weniger Content, aber präziser (filtert mehr Werbung)
+                output_format='txt'      # Plain text (nicht JSON/XML)
             )
-            response.raise_for_status()
 
-            soup = BeautifulSoup(response.content, 'lxml')
+            if not text:
+                logger.warning(f"⚠️ trafilatura: Kein Content extrahiert")
+                return {
+                    'success': False,
+                    'method': 'trafilatura',
+                    'source': url,
+                    'error': 'No content extracted'
+                }
 
-            # Titel
-            title = soup.title.string if soup.title else ''
-            title = title.strip() if title else ''
+            # Titel extrahieren (optional, trafilatura kann das auch)
+            metadata = trafilatura.extract_metadata(downloaded)
+            title = metadata.title if metadata and metadata.title else ''
 
-            # Entferne unnötige Tags
-            for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe']):
-                tag.decompose()
-
-            # Extrahiere Text
-            text = soup.get_text(separator=' ', strip=True)
+            # Text bereinigen
             text = self._clean_text(text)
-
             word_count = len(text.split())
+
+            logger.info(f"  ✅ {word_count} Wörter extrahiert")
 
             return {
                 'success': True,
@@ -593,16 +627,15 @@ class WebScraperTool(BaseTool):
                 'url': url,
                 'word_count': word_count,
                 'truncated': False,
-                'method': 'beautifulsoup'
+                'method': 'trafilatura'
             }
 
         except Exception as e:
-            logger.error(f"❌ BeautifulSoup Fehler bei {url}: {e}")
+            logger.error(f"❌ trafilatura Fehler bei {url}: {e}")
             return {
                 'success': False,
-                'method': 'beautifulsoup',
+                'method': 'trafilatura',
                 'source': url,
-                'url': url,
                 'error': str(e)
             }
 

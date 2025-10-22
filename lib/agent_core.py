@@ -16,7 +16,8 @@ import ollama
 from agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
 from .memory_manager import smart_model_load
-from .logging_utils import debug_print, console_print
+from .logging_utils import debug_print, console_print, console_separator
+from .message_builder import build_messages_from_history
 
 # Compiled Regex Patterns (Performance-Optimierung)
 THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
@@ -306,18 +307,8 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
         smart_model_load(automatik_model)
 
         # Baue Messages mit History (letzte 2-3 Turns für Kontext bei Nachfragen)
-        messages = []
-        if history:
-            for h in history[-3:]:  # Letzte 3 Turns = genug für Nachfragen
-                user_msg = h[0].split(" (STT:")[0].split(" (Entscheidung:")[0].split(" (Agent:")[0]
-                ai_msg = h[1].split(" (Inferenz:")[0]
-                messages.extend([
-                    {'role': 'user', 'content': user_msg},
-                    {'role': 'assistant', 'content': ai_msg}
-                ])
-
-        # Aktuelle Frage mit Query-Optimierungs-Prompt
-        messages.append({'role': 'user', 'content': prompt})
+        # Build messages from history (last 3 turns for context)
+        messages = build_messages_from_history(history, prompt, max_turns=3)
 
         response = ollama.chat(
             model=automatik_model,
@@ -955,6 +946,7 @@ REGELN (KEINE AUSNAHMEN!):
 
     # Console Log: Haupt-LLM fertig
     console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(ai_text)} Zeichen, Agent-Total: {agent_time:.1f}s)")
+    console_separator()
 
     # 9. History mit Agent-Timing + Debug Accordion
     mode_label = "Schnell" if mode == "quick" else "Ausführlich"
@@ -1083,18 +1075,8 @@ Frage: "Was ist Quantenphysik?"
         # Smart Model Loading vor Ollama-Call
         smart_model_load(automatik_model)
 
-        # Baue Messages mit History (letzte 2-3 Turns für Kontext)
-        messages = []
-        for h in history[-3:]:  # Letzte 3 Turns = genug für Nachfragen
-            user_msg = h[0].split(" (STT:")[0].split(" (Entscheidung:")[0].split(" (Agent:")[0]
-            ai_msg = h[1].split(" (Inferenz:")[0]
-            messages.extend([
-                {'role': 'user', 'content': user_msg},
-                {'role': 'assistant', 'content': ai_msg}
-            ])
-
-        # Aktuelle Frage mit Decision-Prompt
-        messages.append({'role': 'user', 'content': decision_prompt})
+        # Build messages from history (last 3 turns for context)
+        messages = build_messages_from_history(history, decision_prompt, max_turns=3)
 
         decision_start = time.time()
         response = ollama.chat(
@@ -1129,16 +1111,8 @@ Frage: "Was ist Quantenphysik?"
             console_print(f"🧠 KI-Entscheidung: Web-Recherche NEIN ({decision_time:.1f}s)")
 
             # Jetzt normale Inferenz MIT Zeitmessung
-            messages = []
-            for h in history:
-                # Extrahiere nur Text ohne Timing-Info für Ollama
-                user_msg = h[0].split(" (STT:")[0].split(" (Entscheidung:")[0] if " (STT:" in h[0] or " (Entscheidung:" in h[0] else h[0]
-                ai_msg = h[1].split(" (Inferenz:")[0] if " (Inferenz:" in h[1] else h[1]
-                messages.extend([
-                    {'role': 'user', 'content': user_msg},
-                    {'role': 'assistant', 'content': ai_msg}
-                ])
-            messages.append({'role': 'user', 'content': user_text})
+            # Build messages from history (all turns)
+            messages = build_messages_from_history(history, user_text)
 
             # Dynamische num_ctx Berechnung für Eigenes Wissen
             final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
