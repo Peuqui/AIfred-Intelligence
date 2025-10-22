@@ -7,7 +7,14 @@ systemd journal via stdout.
 """
 
 import logging
+import time
 from .config import DEBUG_ENABLED
+
+# ============================================================
+# GLOBAL DEBUG CONSOLE STATE (für UI)
+# ============================================================
+debug_console_messages = []  # Liste aller Debug-Messages für UI
+MAX_CONSOLE_MESSAGES = 200   # Maximale Anzahl Messages
 
 # Logging Setup
 logging.basicConfig(
@@ -46,3 +53,33 @@ def debug_log(message):
     """
     if DEBUG_ENABLED:
         logger.debug(message)
+
+
+def console_print(message, category="info"):
+    """
+    Schreibt Debug-Message sowohl ins Journal (via debug_print) als auch in die UI-Konsole
+
+    Args:
+        message: Die Nachricht
+        category: Kategorie für Filterung ("startup", "llm", "decision", "stats", "info")
+    """
+    global debug_console_messages
+
+    # Timestamp hinzufügen (HH:MM:SS)
+    timestamp = time.strftime("%H:%M:%S")
+    formatted_msg = f"{timestamp} | {message}"
+
+    # An Journal senden (wie bisher)
+    debug_print(message)
+
+    # An Console-State anhängen
+    debug_console_messages.append(formatted_msg)
+
+    # Limit einhalten (FIFO - älteste löschen)
+    if len(debug_console_messages) > MAX_CONSOLE_MESSAGES:
+        debug_console_messages = debug_console_messages[-MAX_CONSOLE_MESSAGES:]
+
+
+def get_console_output():
+    """Gibt alle Console-Messages als String zurück (für Gradio Textbox)"""
+    return "\n".join(debug_console_messages)

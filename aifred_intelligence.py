@@ -15,7 +15,7 @@ from lib.config import (
     WHISPER_MODELS, DEFAULT_SETTINGS, VOICES, RESEARCH_MODES, TTS_ENGINES,
     SETTINGS_FILE, SSL_KEYFILE, SSL_CERTFILE, PROJECT_ROOT
 )
-from lib.logging_utils import debug_print
+from lib.logging_utils import debug_print, console_print, get_console_output
 from lib.formatting import format_thinking_process
 from lib.settings_manager import load_settings, save_settings
 from lib.memory_manager import smart_model_load, register_signal_handlers
@@ -34,6 +34,14 @@ from agent_tools import search_web, scrape_webpage, build_context
 # ============================================================
 research_cache = {}  # {session_id: {'timestamp': ..., 'scraped_sources': [...], 'user_text': ...}}
 
+
+
+# ============================================================
+# HELPER FUNCTION für Auto-Console-Update
+# ============================================================
+def update_console_only():
+    """Helper um Console zu aktualisieren ohne andere Outputs zu ändern"""
+    return get_console_output()
 
 
 # ============================================================
@@ -84,10 +92,16 @@ def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_c
     # GPU-Modus und LLM-Parameter setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
     set_gpu_mode(enable_gpu, llm_options)
 
+    # Console-Log: LLM startet
+    console_print(f"🤖 Haupt-LLM startet: {model_choice}")
+
     # Zeit messen
     start_time = time.time()
     response = ollama.chat(model=model_choice, messages=messages)
     inference_time = time.time() - start_time
+
+    # Console-Log: LLM fertig
+    console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(response['message']['content'])} Zeichen)")
 
     ai_text = response['message']['content']
 
@@ -160,10 +174,16 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
     # GPU-Modus und LLM-Parameter setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
     set_gpu_mode(enable_gpu, llm_options)
 
+    # Console-Log: LLM startet
+    console_print(f"🤖 Haupt-LLM startet: {model_choice}")
+
     # Zeit messen
     start_time = time.time()
     response = ollama.chat(model=model_choice, messages=messages)
     inference_time = time.time() - start_time
+
+    # Console-Log: LLM fertig
+    console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(response['message']['content'])} Zeichen)")
 
     ai_text = response['message']['content']
 
@@ -281,9 +301,9 @@ def chat_audio_step2_with_mode(user_text, stt_time, research_mode, model_choice,
         debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
         try:
             return chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id, temperature_mode, temperature, llm_options)
-        except:
+        except Exception as e:
             # Fallback wenn Fehler
-            debug_print("⚠️ Fallback zu Eigenes Wissen")
+            debug_print(f"⚠️ Fallback zu Eigenes Wissen (Fehler: {e})")
             return chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
     else:
@@ -324,9 +344,9 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
         debug_print(f"🤖 Modus: Automatik (KI entscheidet)")
         try:
             return chat_interactive_mode(text_input, 0.0, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id, temperature_mode, temperature, llm_options)
-        except:
+        except Exception as e:
             # Fallback wenn Fehler
-            debug_print("⚠️ Fallback zu Eigenes Wissen")
+            debug_print(f"⚠️ Fallback zu Eigenes Wissen (Fehler: {e})")
             return chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history)
 
     else:
@@ -404,6 +424,15 @@ table td:nth-child(3) {
 
 .horizontal-radio label {
     margin: 0 !important;
+}
+
+/* Debug Console - Kleinere Schrift, Monospace */
+.debug-console textarea {
+    font-size: 0.75em !important;
+    font-family: 'Courier New', Consolas, monospace !important;
+    line-height: 1.4 !important;
+    background-color: #1a1a1a !important;
+    color: #00ff00 !important;
 }
 """
 
@@ -612,6 +641,38 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
     chatbot = gr.Chatbot(label="💬 Chat Verlauf", height=1200)
     history = gr.State([])
     recording_state = gr.State("idle")  # idle, recording, stopped
+
+    # ============================================================
+    # DEBUG CONSOLE (nach chatbot, vor settings)
+    # ============================================================
+    with gr.Accordion("🐛 Debug Console", open=False):
+        gr.Markdown("**Live Debug-Output:** LLM-Starts, Entscheidungen, Statistiken")
+
+        debug_console = gr.Textbox(
+            value="",
+            label="",
+            lines=20,
+            max_lines=20,
+            interactive=False,
+            show_label=False,
+            elem_classes="debug-console"
+        )
+
+        # Refresh Button um Console zu aktualisieren
+        refresh_console_btn = gr.Button("🔄 Console aktualisieren", size="sm", variant="secondary")
+
+        refresh_console_btn.click(
+            get_console_output,
+            outputs=[debug_console]
+        )
+
+    # Auto-Refresh für Debug Console - AUSSERHALB des Accordions, am Ende der UI-Definition!
+    # Updates alle 2 Sekunden automatisch
+    demo_auto_refresh = gr.Timer(value=2, active=True)
+    demo_auto_refresh.tick(
+        get_console_output,
+        outputs=[debug_console]
+    )
 
     # Einstellungen ganz unten
     with gr.Row():
@@ -1057,11 +1118,19 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id, temperature_mode],
         outputs=[ai_text, history, inference_time_state]
     ).then(
+        # Console Update nach LLM
+        update_console_only,
+        outputs=[debug_console]
+    ).then(
         # Schritt 3: TTS - Nur audio_output zeigt Fortschrittsbalken
         lambda show_trans, ai_txt, inf_t, voi, spd, tts_en, tts_eng, hist: \
             chat_audio_step3_tts(ai_txt, inf_t, voi, spd, tts_en, tts_eng, hist) if not show_trans else (None, hist),
         inputs=[show_transcription, ai_text, inference_time_state, voice, tts_speed, enable_tts, tts_engine, history],
         outputs=[audio_output, history]
+    ).then(
+        # Console Update nach TTS
+        update_console_only,
+        outputs=[debug_console]
     ).then(
         # Cleanup: Audio löschen, Chatbot updaten, Buttons/Inputs wieder aktivieren
         lambda show_trans, h: \
@@ -1083,10 +1152,18 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id, temperature_mode],
         outputs=[ai_text, history, inference_time_state]
     ).then(
+        # Console Update nach LLM
+        update_console_only,
+        outputs=[debug_console]
+    ).then(
         # Stufe 2: TTS generieren + History mit Timing aktualisieren
         chat_audio_step3_tts,
         inputs=[ai_text, inference_time_state, voice, tts_speed, enable_tts, tts_engine, history],
         outputs=[audio_output, history]
+    ).then(
+        # Console Update nach TTS
+        update_console_only,
+        outputs=[debug_console]
     ).then(
         # Cleanup: Textfeld leeren + aktivieren, History updaten, alle Inputs wieder aktivieren
         lambda h: (gr.update(value="", interactive=True), h, gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)),
@@ -1158,6 +1235,15 @@ else:
     debug_print(f"   - {SSL_KEYFILE}")
     debug_print(f"   - {SSL_CERTFILE}")
     debug_print(f"🌐 Server läuft ohne HTTPS auf Port 8443")
+
+# Startup-Messages in Console
+console_print(f"🤖 Haupt-LLM: {saved_settings['model']}")
+console_print(f"⚡ Automatik-LLM: {saved_settings['automatik_model']}")
+console_print(f"🎤 Whisper Model: {saved_settings['whisper_model']}")
+console_print(f"🔊 TTS Engine: {saved_settings['tts_engine']}")
+console_print(f"🎮 GPU: {'Aktiviert' if saved_settings['enable_gpu'] else 'Deaktiviert'}")
+console_print(f"🔍 Research Mode: {saved_settings['research_mode']}")
+console_print("✅ AIfred Intelligence gestartet")
 
 app.queue()
 app.launch(

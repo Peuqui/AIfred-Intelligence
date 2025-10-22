@@ -16,7 +16,7 @@ import ollama
 from agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
 from .memory_manager import smart_model_load
-from .logging_utils import debug_print
+from .logging_utils import debug_print, console_print
 
 # Compiled Regex Patterns (Performance-Optimierung)
 THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
@@ -300,6 +300,7 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 
     try:
         debug_print(f"🔍 Query-Optimierung mit {automatik_model}")
+        console_print("🔧 Query-Optimierung startet")
 
         # Smart Model Loading vor Ollama-Call
         smart_model_load(automatik_model)
@@ -710,6 +711,10 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     search_result = search_web(optimized_query)
     tool_results.append(search_result)
 
+    # Console Log: Welche API wurde benutzt?
+    api_source = search_result.get('source', 'Unbekannt')
+    console_print(f"🌐 Web-Suche mit: {api_source}")
+
     # 2. URLs + Titel extrahieren (Search-APIs liefern bereits max 10)
     related_urls = search_result.get('related_urls', [])
     titles = search_result.get('titles', [])
@@ -725,6 +730,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
         # 3. AI bewertet alle URLs (1 Call!) - mit Titeln für bessere Aktualitäts-Erkennung
         debug_print(f"🤖 KI bewertet URLs mit {automatik_model}...")
+        console_print(f"⚖️ KI bewertet URLs mit: {automatik_model}")
         rating_start = time.time()
         rated_urls = ai_rate_urls(related_urls, titles, user_text, automatik_model)
         rating_time = time.time() - rating_start
@@ -771,6 +777,8 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             rated_urls = [{'url': u, 'score': 5, 'reasoning': 'No rating available'} for u in related_urls[:target_sources]]
 
         # 5. Scrape nur URLs mit Score >= 5 (großzügiger Threshold)
+        console_print("🌐 Web-Scraping startet")
+
         scraped_count = 0
         for item in rated_urls:
             if scraped_count >= target_sources:
@@ -806,6 +814,9 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     debug_print("="*80)
     debug_print(context)
     debug_print("="*80)
+
+    # Console Log: Systemprompt wird erstellt
+    console_print("📝 Systemprompt wird erstellt")
 
     # 7. Erweiterer System-Prompt für Agent-Awareness (MAXIMAL DIREKT!)
     system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
@@ -889,21 +900,29 @@ REGELN (KEINE AUSNAHMEN!):
     estimated_tokens = estimate_tokens(messages)
     debug_print(f"📊 Gesamte Message-Größe an Ollama: {total_message_size} Zeichen, ~{estimated_tokens} Tokens")
 
+    # Console Logs: Stats
+    console_print(f"📊 Systemprompt: {len(system_prompt)} Zeichen")
+    console_print(f"📊 Messages: {len(messages)}, Gesamt: {total_message_size} Zeichen (~{estimated_tokens} Tokens)")
+
     # Dynamische num_ctx Berechnung
     final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
     if llm_options and llm_options.get('num_ctx'):
         debug_print(f"🎯 Context Window: {final_num_ctx} Tokens (manuell vom User gesetzt)")
+        console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manuell)")
     else:
         debug_print(f"🎯 Context Window: {final_num_ctx} Tokens (dynamisch berechnet, ~{estimated_tokens} Tokens benötigt)")
+        console_print(f"🪟 Context Window: {final_num_ctx} Tokens (auto)")
 
     # Temperature entscheiden: Manual Override oder Auto (immer 0.2 bei Web-Recherche)
     if temperature_mode == 'manual':
         final_temperature = temperature
         debug_print(f"🌡️ Web-Recherche Temperature: {final_temperature} (MANUAL OVERRIDE)")
+        console_print(f"🌡️ Temperature: {final_temperature} (manuell)")
     else:
         # Auto: Web-Recherche → Immer Temperature 0.2 (faktisch)
         final_temperature = 0.2
         debug_print(f"🌡️ Web-Recherche Temperature: {final_temperature} (fest, faktisch)")
+        console_print(f"🌡️ Temperature: {final_temperature} (auto, faktisch)")
 
     # Warte auf Preload-Thread (falls er noch läuft)
     # Normalerweise ist Web-Scraping (15s) >> LLM-Preload (2-5s), also kein Wait nötig
@@ -915,6 +934,9 @@ REGELN (KEINE AUSNAHMEN!):
     else:
         # Fallback: Falls kein Preload (z.B. keine URLs gefunden), lade Model jetzt
         smart_model_load(model_choice)
+
+    # Console Log: Haupt-LLM startet (im Agent-Modus)
+    console_print(f"🤖 Haupt-LLM startet: {model_choice} (mit {len(scraped_only)} Quellen)")
 
     inference_start = time.time()
     response = ollama.chat(
@@ -930,6 +952,9 @@ REGELN (KEINE AUSNAHMEN!):
     agent_time = time.time() - agent_start
 
     ai_text = response['message']['content']
+
+    # Console Log: Haupt-LLM fertig
+    console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(ai_text)} Zeichen, Agent-Total: {agent_time:.1f}s)")
 
     # 9. History mit Agent-Timing + Debug Accordion
     mode_label = "Schnell" if mode == "quick" else "Ausführlich"
@@ -988,6 +1013,7 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
     """
 
     debug_print("🤖 Automatik-Modus: KI prüft, ob Recherche nötig...")
+    console_print("📨 User Request empfangen")
 
     # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
     decision_prompt = f"""Du bist ein intelligenter Assistant. Analysiere diese Frage und entscheide: Wie soll sie beantwortet werden?
@@ -1088,16 +1114,19 @@ Frage: "Was ist Quantenphysik?"
         # Parse Entscheidung
         if '<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision):
             debug_print("✅ KI entscheidet: Web-Recherche nötig → Web-Suche Ausführlich (5 Quellen)")
+            console_print(f"🔍 KI-Entscheidung: Web-Recherche JA ({decision_time:.1f}s)")
             return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
         elif '<search>context</search>' in decision or 'context' in decision:
             debug_print("🔄 KI entscheidet: Nachfrage zu vorheriger Recherche → Nutze Cache")
+            console_print(f"💾 KI-Entscheidung: Cache nutzen ({decision_time:.1f}s)")
             # Rufe perform_agent_research auf - dort wird Cache geprüft
             # Wenn kein Cache gefunden wird, fällt es automatisch auf normale Recherche zurück
             return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
         else:
             debug_print("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
+            console_print(f"🧠 KI-Entscheidung: Web-Recherche NEIN ({decision_time:.1f}s)")
 
             # Jetzt normale Inferenz MIT Zeitmessung
             messages = []
