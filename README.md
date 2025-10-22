@@ -129,6 +129,9 @@ cd AIfred-Intelligence
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
+# Playwright Browser installieren (für Web-Scraping)
+playwright install chromium
 ```
 
 ### 4. **API Keys konfigurieren (Optional)**
@@ -253,7 +256,7 @@ sudo journalctl -u aifred-intelligence.service -f
   - Brave Search API (Primary)
   - Tavily AI (Fallback)
   - SearXNG (Self-hosted, Last Resort)
-- **Web Scraping**: BeautifulSoup4, Requests
+- **Web Scraping**: trafilatura (Content-Extraktion), Playwright (JavaScript Fallback)
 - **Container**: Docker (SearXNG)
 
 ---
