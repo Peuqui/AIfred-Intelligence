@@ -39,7 +39,7 @@ Wie der legendäre Butler Alfred aus Batman, der immer loyal, intelligent und hi
 
 **🔽 User-wählbar für Finale Antwort:**
 - **qwen3:1.7b** - Schnellste (~30s, hardcoded für Vorauswahl)
-- **qwen3:8b** - Balance Speed & Qualität (~1-2 Min, **empfohlen**)
+- **qwen3:8b** - Balance Speed & Qualität (~1-2 Min, **empfohlen**, **Default**)
 - **qwen2.5:32b** - Beste Qualität (~3-5 Min, 21 GB RAM)
 - **qwen2.5:14b** - Beste RAG-Performance (100% Recherche, 0% Training)
 - **command-r** - Enterprise RAG für lange Dokumente
@@ -114,8 +114,8 @@ python3 --version
 curl -fsSL https://ollama.com/install.sh | sh
 
 # AI-Modelle herunterladen (z.B.)
-ollama pull qwen2.5:14b
-ollama pull llama3.2:3b
+ollama pull qwen3:8b
+ollama pull phi3:mini
 ```
 
 ### 2. **Repository klonen**
@@ -218,8 +218,8 @@ AIfred-Intelligence/
 
 ### AI-Model wechseln:
 
-- **Schnell & Allgemein**: llama3.2:3b, llama3.1:8b
-- **Web-Recherche**: qwen2.5:14b (beste RAG-Performance!)
+- **Schnell & Allgemein**: qwen3:8b (Default), llama3.2:3b, llama3.1:8b
+- **Web-Recherche**: qwen3:8b, qwen2.5:14b (beste RAG-Performance!)
 - **Code schreiben**: mistral, mixtral:8x7b
 - **Komplexe Tasks**: command-r, mixtral:8x7b
 
@@ -267,9 +267,9 @@ sudo journalctl -u aifred-intelligence.service -f
 
 **Eigenes Wissen (kein Agent):**
 - STT: ~1s (base model)
-- AI Inferenz: ~5-10s (llama3.2:3b) bis ~20-30s (qwen2.5:14b)
+- AI Inferenz: ~30-60s (qwen3:8b Default) bis ~90-120s (qwen2.5:14b)
 - TTS: ~2-3s (Edge TTS)
-- **Total**: ~10-40s
+- **Total**: ~35-125s
 
 **Web-Recherche Schnell (1 Quelle):**
 - STT: ~1s

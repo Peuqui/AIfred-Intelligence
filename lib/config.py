@@ -36,7 +36,7 @@ WHISPER_MODELS = {
 # DEFAULT SETTINGS
 # ============================================================
 DEFAULT_SETTINGS = {
-    "model": "qwen2.5:14b",
+    "model": "qwen3:8b",
     "automatik_model": "phi3:mini",
     "voice": "Deutsch (Katja)",
     "tts_speed": 1.25,
