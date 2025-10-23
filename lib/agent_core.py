@@ -13,6 +13,7 @@ import re
 import sys
 import threading
 import ollama
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
 from .memory_manager import smart_model_load
@@ -331,6 +332,36 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
         # Entferne Anführungszeichen und Sonderzeichen
         optimized_query = re.sub(r'["\'\n\r]', '', optimized_query)
         optimized_query = ' '.join(optimized_query.split())  # Normalize whitespace
+
+        # ============================================================
+        # POST-PROCESSING: Temporale Kontext-Erkennung
+        # ============================================================
+        # Garantiert "2025" bei zeitlich relevanten Queries, auch wenn LLM es vergisst
+
+        temporal_keywords = [
+            'neu', 'neue', 'neuer', 'neues', 'neueste', 'neuester', 'neuestes',
+            'aktuell', 'aktuelle', 'aktueller', 'aktuelles',
+            'latest', 'recent', 'new', 'newest',
+            'beste', 'bester', 'bestes', 'best',
+            'top', 'current'
+        ]
+
+        comparison_keywords = [
+            'vs', 'versus', 'vergleich', 'compare', 'comparison',
+            'oder', 'or', 'vs.', 'gegen', 'statt', 'instead'
+        ]
+
+        query_lower = optimized_query.lower()
+
+        # Regel 1: "beste/neueste X" → + 2025 (falls nicht schon vorhanden)
+        if any(kw in query_lower for kw in temporal_keywords) and '2025' not in optimized_query:
+            optimized_query += " 2025"
+            debug_print(f"   ⏰ Temporaler Kontext ergänzt: 2025")
+
+        # Regel 2: "X vs Y" → + 2025 (falls nicht schon vorhanden)
+        elif any(kw in query_lower for kw in comparison_keywords) and '2025' not in optimized_query:
+            optimized_query += " 2025"
+            debug_print(f"   ⚖️ Vergleichs-Kontext ergänzt: 2025")
 
         debug_print(f"🔍 Query-Optimierung:")
         debug_print(f"   Original: {user_text[:80]}{'...' if len(user_text) > 80 else ''}")
@@ -767,30 +798,49 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             # Fallback: Nutze Original-URLs ohne Rating
             rated_urls = [{'url': u, 'score': 5, 'reasoning': 'No rating available'} for u in related_urls[:target_sources]]
 
-        # 5. Scrape nur URLs mit Score >= 5 (großzügiger Threshold)
-        console_print("🌐 Web-Scraping startet")
+        # 5. Scrape URLs PARALLEL (großer Performance-Win!)
+        # Nur URLs mit Score >= 5 scrapen
+        console_print("🌐 Web-Scraping startet (parallel)")
 
-        scraped_count = 0
-        for item in rated_urls:
-            if scraped_count >= target_sources:
-                break
+        # Filtere URLs nach Score und Limit
+        urls_to_scrape = [
+            item for item in rated_urls
+            if item['score'] >= 5
+        ][:target_sources]  # Nimm nur die Top N
 
-            if item['score'] < 5:
-                url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
-                debug_print(f"⏭️ Skip: {url_short} (Score: {item['score']})")
-                continue
+        if not urls_to_scrape:
+            debug_print("⚠️ Keine URLs zum Scrapen (alle Score < 5)")
+        else:
+            debug_print(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
 
-            url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
-            debug_print(f"🌐 Scraping: {url_short} (Score: {item['score']})")
+            # Parallel Scraping mit ThreadPoolExecutor
+            scraped_results = []
+            with ThreadPoolExecutor(max_workers=min(5, len(urls_to_scrape))) as executor:
+                # Starte alle Scrape-Tasks parallel
+                future_to_item = {
+                    executor.submit(scrape_webpage, item['url']): item
+                    for item in urls_to_scrape
+                }
 
-            scrape_result = scrape_webpage(item['url'])
+                # Sammle Ergebnisse (in Completion-Order für Live-Feedback)
+                for future in as_completed(future_to_item):
+                    item = future_to_item[future]
+                    url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
 
-            if scrape_result['success']:
-                tool_results.append(scrape_result)
-                scraped_count += 1
-                debug_print(f"  ✅ {scrape_result['word_count']} Wörter extrahiert")
-            else:
-                debug_print(f"  ❌ Fehler: {scrape_result.get('error', 'Unknown')}")
+                    try:
+                        scrape_result = future.result(timeout=20)  # Max 20s pro URL
+
+                        if scrape_result['success']:
+                            tool_results.append(scrape_result)
+                            scraped_results.append(scrape_result)
+                            debug_print(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter (Score: {item['score']})")
+                        else:
+                            debug_print(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')} (Score: {item['score']})")
+
+                    except Exception as e:
+                        debug_print(f"  ❌ {url_short}: Exception: {e} (Score: {item['score']})")
+
+            debug_print(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
 
     # 6. Context Building - NUR gescrapte Quellen (keine SearXNG Ergebnisse!)
     # Filtere: Nur tool_results die 'word_count' haben (= erfolgreich gescraped)

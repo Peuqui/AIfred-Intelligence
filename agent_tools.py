@@ -21,6 +21,7 @@ import re
 import trafilatura
 from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -462,41 +463,66 @@ class MultiAPISearchTool(BaseTool):
 
     def execute(self, query: str, **kwargs) -> Dict:
         """
-        Führt Suche mit automatischem Fallback durch
+        Führt Suche PARALLEL durch - erste API die antwortet gewinnt!
 
-        Probiert APIs nacheinander bis eine funktioniert
+        Race Condition: Alle APIs starten gleichzeitig, schnellste gewinnt.
+        Fallback: Wenn Primary fehlschlägt, warte auf nächste.
         """
-        last_error = None
+        if not self.apis:
+            logger.error("❌ Keine Search APIs konfiguriert!")
+            return {
+                'success': False,
+                'source': 'Multi-API Search',
+                'query': query,
+                'related_urls': [],
+                'error': 'Keine Search APIs verfügbar'
+            }
 
-        for api in self.apis:
-            try:
-                logger.info(f"🔄 Versuche: {api.name}")
-                result = api.execute(query, **kwargs)
+        logger.info(f"🚀 Parallel Search: {len(self.apis)} APIs gleichzeitig")
 
-                if result.get('success') and result.get('related_urls'):
-                    logger.info(f"✅ {api.name} erfolgreich!")
-                    return result
-                else:
-                    logger.warning(f"⚠️ {api.name}: Keine URLs gefunden, probiere nächste API...")
+        # Parallel Execution mit Race Condition
+        with ThreadPoolExecutor(max_workers=len(self.apis)) as executor:
+            # Starte alle APIs parallel
+            future_to_api = {
+                executor.submit(api.execute, query, **kwargs): api
+                for api in self.apis
+            }
 
-            except (RateLimitError, APIKeyMissingError) as e:
-                logger.warning(f"⚠️ {api.name}: {e}, probiere nächste API...")
-                last_error = e
-                continue
+            # Erste erfolgreiche Antwort gewinnt
+            results = []
+            for future in as_completed(future_to_api):
+                api = future_to_api[future]
+                try:
+                    result = future.result(timeout=15)  # Max 15s pro API
 
-            except Exception as e:
-                logger.error(f"❌ {api.name}: {e}, probiere nächste API...")
-                last_error = e
-                continue
+                    # Erfolgreiche Antwort mit URLs?
+                    if result.get('success') and result.get('related_urls'):
+                        logger.info(f"🏆 {api.name} gewonnen! ({len(result['related_urls'])} URLs)")
+                        # Cancel alle anderen Requests (Best Effort)
+                        for f in future_to_api:
+                            f.cancel()
+                        return result
+                    else:
+                        logger.warning(f"⚠️ {api.name}: Keine URLs gefunden")
+                        results.append((api.name, result))
+
+                except (RateLimitError, APIKeyMissingError) as e:
+                    logger.warning(f"⚠️ {api.name}: {e}")
+                    results.append((api.name, str(e)))
+
+                except Exception as e:
+                    logger.error(f"❌ {api.name}: {e}")
+                    results.append((api.name, str(e)))
 
         # Alle APIs fehlgeschlagen
         logger.error("❌ Alle Search APIs fehlgeschlagen!")
+        error_summary = ", ".join([f"{name}: {err}" for name, err in results])
         return {
             'success': False,
             'source': 'Multi-API Search',
             'query': query,
             'related_urls': [],
-            'error': f'Alle APIs fehlgeschlagen. Letzter Fehler: {last_error}'
+            'error': f'Alle APIs fehlgeschlagen. Details: {error_summary}'
         }
 
 
