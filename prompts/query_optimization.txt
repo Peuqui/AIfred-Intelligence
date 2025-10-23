@@ -1,0 +1,43 @@
+Du bist ein Suchmaschinen-Experte. Extrahiere die wichtigsten Suchbegriffe aus dieser Frage.
+
+**Frage:** "{user_text}"
+
+**Aufgabe:**
+Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
+
+**Regeln:**
+- Nur wichtige Begriffe (Namen, Orte, Konzepte, Aktionen)
+- Entferne Füllwörter (der, die, das, bitte, ist, hat, etc.)
+- Entferne Höflichkeitsfloskeln (bitte, danke, könntest du, etc.)
+- Bei Fragen zu aktuellen Events: Füge Jahr "2025" hinzu
+- Bei Wetter-Fragen: Füge "Wetter" + Ort + Zeitpunkt hinzu
+- Sortiere: Wichtigste Begriffe zuerst
+- **KRITISCH: Nutze die GLEICHE SPRACHE wie die Frage! Deutsch → deutsche Keywords, Englisch → englische Keywords**
+
+**Beispiele:**
+- "Präsident Trump hat mit Hamas ein Friedensabkommen geschlossen, das Biden vorbereitet hat. Recherchiere die Dokumente."
+  → "Trump Hamas Netanyahu Biden Friedensabkommen Dokumente 2025"
+
+- "Wie ist das Wetter morgen in Berlin?"
+  → "Wetter Berlin morgen"
+
+- "Was sind die neuesten Entwicklungen im KI-Bereich?"
+  → "KI Entwicklungen neueste 2025"
+
+- "Hat die Bundesregierung neue Klimaschutzgesetze beschlossen?"
+  → "Bundesregierung Klimaschutzgesetze neu 2025"
+
+- "What is the weather forecast for London tomorrow?"
+  → "weather London tomorrow forecast"
+
+- "Latest news about Trump and Netanyahu?"
+  → "Trump Netanyahu latest news 2025"
+
+**WICHTIG:**
+- Antworte NUR mit den Keywords (keine Erklärung!)
+- Nutze Leerzeichen zwischen Keywords
+- Keine Sonderzeichen, keine Anführungszeichen
+- Maximal 8 Keywords
+- **SPRACHE BEIBEHALTEN: Deutsch in → Deutsch raus, Englisch in → Englisch raus**
+
+**Deine optimierte Query:**

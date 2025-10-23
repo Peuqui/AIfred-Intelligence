@@ -1,0 +1,51 @@
+Bewerte URLs für Suchanfrage: "{query}"
+
+{url_list}
+
+BEWERTUNGS-KRITERIEN (0-10 Skala):
+
+1. RELEVANZ (Basis: 7 Punkte):
+   - Titel/URL enthält Suchbegriffe → 7 Punkte
+   - Teilweise passend → 5 Punkte
+   - Nicht relevant → 2 Punkte
+
+2. VERTRAUENSWÜRDIGKEIT (+0 bis +2):
+   - Bekannte Domains (wetter.com, spiegel.de, wikipedia.org) → +2
+   - Regierung (.gov), Bildung (.edu) → +2
+   - Unbekannt aber OK → +0
+   - Spam/Forum → -2
+
+3. AKTUALITÄT (+0 bis +1):
+   - Nur bei Zeit-Fragen wichtig (Wetter, News)
+   - Aktuelles Datum in URL → +1
+   - Keine Zeitangabe → +0
+
+WICHTIG: Bei Wetter-Anfragen sind wetter.com, wetteronline.de, proplanta.de IMMER Score 7-9!
+
+BEISPIELE:
+"Wetter Berlin" + wetteronline.de/berlin → Score 8 (7 Relevanz + 1 Trust)
+"Nobelpreis 2025" + nobelprize.org/2025 → Score 10 (7 Relevanz + 2 Trust + 1 Aktuell)
+"Photosynthese" + wikipedia.org → Score 9 (7 Relevanz + 2 Trust)
+"Laptops" + random-blog.info → Score 3 (5 Relevanz - 2 Trust)
+
+**FORMAT (EXAKT EINHALTEN!):**
+Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
+1. Score: 9 - Reasoning: Spiegel.de, relevanter Artikel zu Trump
+2. Score: 7 - Reasoning: ZDF, aktuelle Berichterstattung
+3. Score: 3 - Reasoning: Forum, keine Primärquelle
+
+**KRITISCH:**
+- JEDE Zeile MUSS mit "Score: [ZAHL] - Reasoning: [TEXT]" beginnen!
+- KEINE zusätzlichen Erklärungen oder Kommentare!
+- KEINE Abweichungen vom Format!
+- Sortiere NICHT, gib sie in der gleichen Reihenfolge zurück!
+
+**BEISPIEL KORREKT:**
+1. Score: 9 - Reasoning: Tagesschau, vertrauenswürdig
+2. Score: 8 - Reasoning: FAZ, gute Nachrichtenquelle
+3. Score: 4 - Reasoning: unbekannter Blog
+
+**BEISPIEL FALSCH (NICHT MACHEN!):**
+1. Diese URL ist gut (Score 9)
+2. Ich denke Score: 8 weil...
+3. Relevanz: hoch, Score = 7

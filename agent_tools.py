@@ -22,9 +22,88 @@ import trafilatura
 from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 
 # Logging Setup
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# URL DEDUPLICATION UTILITIES
+# ============================================================
+
+def normalize_url(url: str) -> str:
+    """
+    Normalisiert URL für Deduplizierung
+
+    Behandelt:
+    - www. vs non-www
+    - http vs https
+    - Trailing slashes
+    - URL fragments (#)
+    - Query parameters (?) [optional - aktuell NICHT entfernt!]
+
+    Args:
+        url: URL zum Normalisieren
+
+    Returns:
+        Normalisierte URL
+    """
+    try:
+        parsed = urlparse(url.lower().strip())
+
+        # Normalisiere Domain (entferne www.)
+        domain = parsed.netloc.replace('www.', '')
+
+        # Normalisiere Path (entferne trailing slash)
+        path = parsed.path.rstrip('/')
+
+        # Behalte Query-Params (können wichtig sein, z.B. ?id=123)
+        # Ignoriere Fragments (# Anker)
+        query = parsed.query
+
+        # Baue normalisierte URL
+        normalized = f"{domain}{path}"
+        if query:
+            normalized += f"?{query}"
+
+        return normalized
+
+    except Exception as e:
+        logger.warning(f"⚠️ URL-Normalisierung fehlgeschlagen für {url}: {e}")
+        return url  # Fallback: Original-URL
+
+
+def deduplicate_urls(urls: List[str]) -> List[str]:
+    """
+    Entfernt doppelte URLs aus Liste
+
+    Nutzt Normalisierung um auch ähnliche URLs zu erkennen:
+    - https://www.example.com/path/
+    - https://example.com/path
+    → Beide zählen als gleich!
+
+    Args:
+        urls: Liste von URL-Strings
+
+    Returns:
+        Deduplizierte Liste (behält Reihenfolge)
+    """
+    seen = set()
+    unique = []
+
+    for url in urls:
+        normalized = normalize_url(url)
+
+        if normalized not in seen:
+            seen.add(normalized)
+            unique.append(url)  # Original-URL behalten, nicht normalisierte!
+
+    duplicates_removed = len(urls) - len(unique)
+    if duplicates_removed > 0:
+        logger.info(f"🔄 Deduplizierung: {len(urls)} URLs → {len(unique)} unique ({duplicates_removed} Duplikate entfernt)")
+
+    return unique
 
 
 # ============================================================
@@ -463,10 +542,11 @@ class MultiAPISearchTool(BaseTool):
 
     def execute(self, query: str, **kwargs) -> Dict:
         """
-        Führt Suche PARALLEL durch - erste API die antwortet gewinnt!
+        Führt Suche PARALLEL durch - sammelt URLs von ALLEN APIs!
 
-        Race Condition: Alle APIs starten gleichzeitig, schnellste gewinnt.
-        Fallback: Wenn Primary fehlschlägt, warte auf nächste.
+        Parallel Execution: Alle APIs starten gleichzeitig.
+        Collect All: Warte auf alle APIs, sammle alle URLs.
+        Deduplizierung: Entferne doppelte URLs (www, trailing slash, etc.)
         """
         if not self.apis:
             logger.error("❌ Keine Search APIs konfiguriert!")
@@ -480,7 +560,11 @@ class MultiAPISearchTool(BaseTool):
 
         logger.info(f"🚀 Parallel Search: {len(self.apis)} APIs gleichzeitig")
 
-        # Parallel Execution mit Race Condition
+        # Parallel Execution - Sammle ALLE Ergebnisse
+        all_urls = []
+        successful_apis = []
+        failed_apis = []
+
         with ThreadPoolExecutor(max_workers=len(self.apis)) as executor:
             # Starte alle APIs parallel
             future_to_api = {
@@ -488,8 +572,7 @@ class MultiAPISearchTool(BaseTool):
                 for api in self.apis
             }
 
-            # Erste erfolgreiche Antwort gewinnt
-            results = []
+            # Sammle Ergebnisse von ALLEN APIs
             for future in as_completed(future_to_api):
                 api = future_to_api[future]
                 try:
@@ -497,32 +580,52 @@ class MultiAPISearchTool(BaseTool):
 
                     # Erfolgreiche Antwort mit URLs?
                     if result.get('success') and result.get('related_urls'):
-                        logger.info(f"🏆 {api.name} gewonnen! ({len(result['related_urls'])} URLs)")
-                        # Cancel alle anderen Requests (Best Effort)
-                        for f in future_to_api:
-                            f.cancel()
-                        return result
+                        urls = result['related_urls']
+                        logger.info(f"✅ {api.name}: {len(urls)} URLs gefunden")
+                        all_urls.extend(urls)
+                        successful_apis.append(api.name)
                     else:
                         logger.warning(f"⚠️ {api.name}: Keine URLs gefunden")
-                        results.append((api.name, result))
+                        failed_apis.append((api.name, "Keine URLs"))
 
                 except (RateLimitError, APIKeyMissingError) as e:
                     logger.warning(f"⚠️ {api.name}: {e}")
-                    results.append((api.name, str(e)))
+                    failed_apis.append((api.name, str(e)))
 
                 except Exception as e:
                     logger.error(f"❌ {api.name}: {e}")
-                    results.append((api.name, str(e)))
+                    failed_apis.append((api.name, str(e)))
 
-        # Alle APIs fehlgeschlagen
-        logger.error("❌ Alle Search APIs fehlgeschlagen!")
-        error_summary = ", ".join([f"{name}: {err}" for name, err in results])
+        # Mindestens eine API erfolgreich?
+        if not all_urls:
+            logger.error("❌ Alle Search APIs fehlgeschlagen!")
+            error_summary = ", ".join([f"{name}: {err}" for name, err in failed_apis])
+            return {
+                'success': False,
+                'source': 'Multi-API Search',
+                'query': query,
+                'related_urls': [],
+                'error': f'Alle APIs fehlgeschlagen. Details: {error_summary}'
+            }
+
+        # Deduplizierung
+        unique_urls = deduplicate_urls(all_urls)
+
+        logger.info(f"🔄 Gesammelt: {len(all_urls)} URLs von {len(successful_apis)} APIs → {len(unique_urls)} unique URLs")
+
         return {
-            'success': False,
+            'success': True,
             'source': 'Multi-API Search',
+            'apis_used': successful_apis,
             'query': query,
-            'related_urls': [],
-            'error': f'Alle APIs fehlgeschlagen. Details: {error_summary}'
+            'related_urls': unique_urls,
+            'stats': {
+                'total_urls': len(all_urls),
+                'unique_urls': len(unique_urls),
+                'duplicates_removed': len(all_urls) - len(unique_urls),
+                'successful_apis': len(successful_apis),
+                'failed_apis': len(failed_apis)
+            }
         }
 
 

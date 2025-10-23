@@ -17,9 +17,16 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
-from .memory_manager import smart_model_load
 from .logging_utils import debug_print, console_print, console_separator
 from .message_builder import build_messages_from_history
+from .prompt_loader import (
+    get_url_rating_prompt,
+    get_query_optimization_prompt,
+    get_decision_making_prompt,
+    get_intent_detection_prompt,
+    get_followup_intent_prompt,
+    get_system_rag_prompt
+)
 
 # Compiled Regex Patterns (Performance-Optimierung)
 THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
@@ -107,29 +114,10 @@ def detect_query_intent(user_query, automatik_model="qwen3:1.7b"):
     Returns:
         str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
     """
-    prompt = f"""Analysiere die Intention dieser User-Anfrage:
-
-"{user_query}"
-
-**Kategorien:**
-- FAKTISCH: Recherche, News, Wetter, aktuelle Ereignisse, Definitionen, Erklärungen, Fakten
-- KREATIV: Gedichte, Geschichten, Brainstorming, Ideen generieren, kreative Texte
-- GEMISCHT: Beide Aspekte kombiniert (z.B. "Erkläre Quantenphysik wie ein Märchen")
-
-**Beispiele:**
-- "Wie ist das Wetter morgen?" → FAKTISCH
-- "Welche Nobelpreise wurden 2025 vergeben?" → FAKTISCH
-- "Schreibe ein Gedicht über den Klimawandel" → KREATIV
-- "Erfinde eine Geschichte über einen Roboter" → KREATIV
-- "Erkläre die Relativitätstheorie als spannende Geschichte" → GEMISCHT
-
-**WICHTIG:** Antworte NUR mit einem Wort: FAKTISCH, KREATIV oder GEMISCHT"""
+    prompt = get_intent_detection_prompt(user_query=user_query)
 
     try:
         debug_print(f"🎯 Intent-Detection für Query: {user_query[:60]}...")
-
-        # Smart Model Loading
-        smart_model_load(automatik_model)
 
         response = ollama.chat(
             model=automatik_model,
@@ -173,29 +161,13 @@ def detect_cache_followup_intent(original_query, followup_query, automatik_model
     Returns:
         str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
     """
-    prompt = f"""Du hast bereits diese Frage recherchiert: "{original_query}"
-
-Jetzt stellt der User eine Nachfrage: "{followup_query}"
-
-**Kategorien:**
-- FAKTISCH: Details erklären, Fakten präzisieren, sachliche Vertiefung, "Was bedeutet...", "Welche Details..."
-- KREATIV: Geschichte/Gedicht schreiben, kreativ umformulieren, spekulieren, "Schreibe ein...", "Fasse als..."
-- GEMISCHT: Beides kombiniert (z.B. "Erkläre die Ergebnisse als spannende Geschichte")
-
-**Beispiele:**
-- "Erkläre mir das genauer" → FAKTISCH
-- "Was bedeutet dieser Begriff?" → FAKTISCH
-- "Schreibe ein Gedicht über die Preisträger" → KREATIV
-- "Fasse die Ergebnisse als Geschichte zusammen" → KREATIV
-- "Erkläre es kreativ aber faktisch korrekt" → GEMISCHT
-
-**WICHTIG:** Antworte NUR mit einem Wort: FAKTISCH, KREATIV oder GEMISCHT"""
+    prompt = get_followup_intent_prompt(
+        original_query=original_query,
+        followup_query=followup_query
+    )
 
     try:
         debug_print(f"🎯 Cache-Followup Intent-Detection: {followup_query[:60]}...")
-
-        # Smart Model Loading
-        smart_model_load(automatik_model)
 
         response = ollama.chat(
             model=automatik_model,
@@ -257,56 +229,11 @@ def optimize_search_query(user_text, automatik_model, history=None):
     Returns:
         tuple: (optimized_query, reasoning_content)
     """
-    prompt = f"""Du bist ein Suchmaschinen-Experte. Extrahiere die wichtigsten Suchbegriffe aus dieser Frage.
-
-**Frage:** "{user_text}"
-
-**Aufgabe:**
-Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
-
-**Regeln:**
-- Nur wichtige Begriffe (Namen, Orte, Konzepte, Aktionen)
-- Entferne Füllwörter (der, die, das, bitte, ist, hat, etc.)
-- Entferne Höflichkeitsfloskeln (bitte, danke, könntest du, etc.)
-- Bei Fragen zu aktuellen Events: Füge Jahr "2025" hinzu
-- Bei Wetter-Fragen: Füge "Wetter" + Ort + Zeitpunkt hinzu
-- Sortiere: Wichtigste Begriffe zuerst
-- **KRITISCH: Nutze die GLEICHE SPRACHE wie die Frage! Deutsch → deutsche Keywords, Englisch → englische Keywords**
-
-**Beispiele:**
-- "Präsident Trump hat mit Hamas ein Friedensabkommen geschlossen, das Biden vorbereitet hat. Recherchiere die Dokumente."
-  → "Trump Hamas Netanyahu Biden Friedensabkommen Dokumente 2025"
-
-- "Wie ist das Wetter morgen in Berlin?"
-  → "Wetter Berlin morgen"
-
-- "Was sind die neuesten Entwicklungen im KI-Bereich?"
-  → "KI Entwicklungen neueste 2025"
-
-- "Hat die Bundesregierung neue Klimaschutzgesetze beschlossen?"
-  → "Bundesregierung Klimaschutzgesetze neu 2025"
-
-- "What is the weather forecast for London tomorrow?"
-  → "weather London tomorrow forecast"
-
-- "Latest news about Trump and Netanyahu?"
-  → "Trump Netanyahu latest news 2025"
-
-**WICHTIG:**
-- Antworte NUR mit den Keywords (keine Erklärung!)
-- Nutze Leerzeichen zwischen Keywords
-- Keine Sonderzeichen, keine Anführungszeichen
-- Maximal 8 Keywords
-- **SPRACHE BEIBEHALTEN: Deutsch in → Deutsch raus, Englisch in → Englisch raus**
-
-**Deine optimierte Query:**"""
+    prompt = get_query_optimization_prompt(user_text=user_text)
 
     try:
         debug_print(f"🔍 Query-Optimierung mit {automatik_model}")
         console_print("🔧 Query-Optimierung startet")
-
-        # Smart Model Loading vor Ollama-Call
-        smart_model_load(automatik_model)
 
         # Baue Messages mit History (letzte 2-3 Turns für Kontext bei Nachfragen)
         # Build messages from history (last 3 turns for context)
@@ -402,95 +329,10 @@ def ai_rate_urls(urls, titles, query, automatik_model):
         for i, url in enumerate(urls)
     ])
 
-    prompt = f"""Du bist ein Recherche-Experte. Bewerte diese URLs für die Suchanfrage.
-
-**Suchanfrage:** "{query}"
-
-**ARTIKEL (Titel + URL):**
-{url_list}
-
-**Aufgabe:**
-Bewerte jeden Artikel auf einer Skala von 0-10:
-- 10 = Perfekt (hochrelevant + vertrauenswürdig + aktuell)
-- 7-9 = Sehr gut (relevant + seriös)
-- 5-6 = Brauchbar (teilweise relevant)
-- 0-4 = Unbrauchbar (irrelevant, Spam, veraltet)
-
-**BEWERTUNGS-STRATEGIE (Schritt für Schritt):**
-
-**1. RELEVANZ-CHECK (Hauptkriterium!):**
-   → Titel/URL enthält Suchbegriffe? → START bei 7 Punkten!
-   → Fach-Domain (/blog/, /news/, /ki-, /tech-, .ai)? → +1 Punkt
-   → Keine Übereinstimmung? → START bei 5 Punkten
-
-**2. AKTUALITÄT (KRITISCH für Event/News-Anfragen!):**
-
-   **A) DATUM ERKENNEN:**
-   - Im URL-Pfad: /2025/10/, /2025/09/, /oktober-2025, /sept-2025
-   - Im Titel: "15.09.2025", "September 2025", "nach der Preisverleihung"
-
-   **B) FÜR EVENT-ANFRAGEN (Emmy, Golden Globe, Awards, Wahlen, etc.):**
-   - Titel/URL deutet auf NACH dem Event → +2 Punkte (Gewinner, Ergebnisse, Bericht)
-   - Titel/URL deutet auf VOR dem Event → -3 Punkte (Vorhersagen, Kalender, Nominierungen)
-   - Falsches Jahr im Datum → -3 Punkte
-
-   **BEISPIELE:**
-   - Anfrage "Emmy 2025" + Titel "Emmy 2025: Vollständige Liste der Gewinner" → +2 (nach Event)
-   - Anfrage "Emmy 2025" + URL /2025/09/emmy-winners/ → +2 (September = nach Event)
-   - Anfrage "Emmy 2025" + Titel "Emmy 2025 Predictions" → -3 (vor Event)
-   - Anfrage "Emmy 2025" + URL /2025/01/emmy-calendar/ → -3 (Januar = vor Event)
-   - Anfrage "Emmy 2025" + URL /2024/emmy/ → -3 (falsches Jahr)
-
-**3. DOMAIN-AUTORITÄT (Sekundär!):**
-
-   **A) POLITIK/NEWS-Anfragen:**
-   - Etablierte Medien (spiegel.de, tagesschau.de, zdf.de, faz.net, zeit.de) → max 10
-   - Regionale Medien, Magazine → max 8
-   - Blogs/Foren → max 6
-
-   **B) TECH/KI/FACH-Anfragen:**
-   - Tech-Fachmedien (heise.de, golem.de, t3n.de, com-magazin.de) → max 10
-   - Unternehmensblogs mit Tech-Fokus (microsoft.com/news, .../blog/) → max 9
-   - Spezialisierte Fachblogs (auch wenn unbekannt!) → max 8
-   - Foren/Community-Seiten mit Fachfokus → max 7
-   - Etablierte Mainstream-Medien (weniger Tech-Expertise) → max 7
-
-   **C) SPAM/UNBRAUCHBAR:**
-   - SEO-Farmen, Clickbait, völlig irrelevant → 0-3
-
-**WICHTIG:**
-- Bei Event/News-Anfragen: **AKTUALITÄT ist entscheidend!**
-- Bei Tech/Fach-Anfragen: **RELEVANZ schlägt AUTORITÄT!**
-- Lieber Score 7-8 für relevante aktuelle Artikel als 5-6!
-- Prüfe ZUERST den Titel, DANN die URL!
-
-**FORMAT (EXAKT EINHALTEN!):**
-Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
-1. Score: 9 - Reasoning: Spiegel.de, relevanter Artikel zu Trump
-2. Score: 7 - Reasoning: ZDF, aktuelle Berichterstattung
-3. Score: 3 - Reasoning: Forum, keine Primärquelle
-
-**KRITISCH:**
-- JEDE Zeile MUSS mit "Score: [ZAHL] - Reasoning: [TEXT]" beginnen!
-- KEINE zusätzlichen Erklärungen oder Kommentare!
-- KEINE Abweichungen vom Format!
-- Sortiere NICHT, gib sie in der gleichen Reihenfolge zurück!
-
-**BEISPIEL KORREKT:**
-1. Score: 9 - Reasoning: Tagesschau, vertrauenswürdig
-2. Score: 8 - Reasoning: FAZ, gute Nachrichtenquelle
-3. Score: 4 - Reasoning: unbekannter Blog
-
-**BEISPIEL FALSCH (NICHT MACHEN!):**
-1. Diese URL ist gut (Score 9)
-2. Ich denke Score: 8 weil...
-3. Relevanz: hoch, Score = 7"""
+    prompt = get_url_rating_prompt(query=query, url_list=url_list)
 
     try:
         debug_print(f"🔍 URL-Rating mit {automatik_model}")
-
-        # Smart Model Loading vor Ollama-Call
-        smart_model_load(automatik_model)
 
         response = ollama.chat(
             model=automatik_model,
@@ -601,6 +443,11 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
             debug_print(f"   Ursprüngliche Frage: {cache_entry.get('user_text', 'N/A')[:80]}...")
             debug_print(f"   Cache enthält {len(cached_sources)} Quellen")
 
+            # Console-Output für Cache-Hit
+            console_print(f"💾 Cache-Hit! Nutze gecachte Daten ({len(cached_sources)} Quellen)")
+            original_q = cache_entry.get('user_text', 'N/A')
+            console_print(f"📋 Ursprüngliche Frage: {original_q[:60]}{'...' if len(original_q) > 60 else ''}")
+
             # Nutze ALLE Quellen aus dem Cache
             scraped_only = cached_sources
             context = build_context(user_text, scraped_only)
@@ -670,14 +517,17 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
             if llm_options and llm_options.get('num_ctx'):
                 debug_print(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (manuell)")
+                console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manual)")
             else:
                 estimated_tokens = estimate_tokens(messages)
                 debug_print(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (dynamisch, ~{estimated_tokens} Tokens benötigt)")
+                console_print(f"🪟 Context Window: {final_num_ctx} Tokens (auto)")
 
             # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
             if temperature_mode == 'manual':
                 final_temperature = temperature
                 debug_print(f"🌡️ Cache-Hit Temperature: {final_temperature} (MANUAL OVERRIDE)")
+                console_print(f"🌡️ Temperature: {final_temperature} (manual)")
             else:
                 # Auto: Intent-Detection für Cache-Followup
                 followup_intent = detect_cache_followup_intent(
@@ -687,9 +537,10 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
                 )
                 final_temperature = get_temperature_for_intent(followup_intent)
                 debug_print(f"🌡️ Cache-Hit Temperature: {final_temperature} (Intent: {followup_intent})")
+                console_print(f"🌡️ Temperature: {final_temperature} (auto, {followup_intent})")
 
-            # Smart Model Loading
-            smart_model_load(model_choice)
+            # Console: LLM starts
+            console_print(f"🤖 Haupt-LLM startet: {model_choice} (Cache-Daten)")
 
             llm_start = time.time()
             response = ollama.chat(
@@ -705,6 +556,10 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             final_answer = response['message']['content']
 
             total_time = time.time() - agent_start
+
+            # Console: LLM finished
+            console_print(f"✅ Haupt-LLM fertig ({llm_time:.1f}s, {len(final_answer)} Zeichen, Cache-Total: {total_time:.1f}s)")
+            console_separator()
 
             # Formatiere <think> Tags als Collapsible (falls vorhanden)
             final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time)
@@ -739,7 +594,23 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
     # Console Log: Welche API wurde benutzt?
     api_source = search_result.get('source', 'Unbekannt')
-    console_print(f"🌐 Web-Suche mit: {api_source}")
+
+    # Zeige API-Stats (wenn vorhanden)
+    stats = search_result.get('stats', {})
+    apis_used = search_result.get('apis_used', [])
+
+    if stats and apis_used:
+        # Multi-API Search mit Stats
+        total_urls = stats.get('total_urls', 0)
+        unique_urls = stats.get('unique_urls', 0)
+        duplicates = stats.get('duplicates_removed', 0)
+
+        console_print(f"🌐 Web-Suche: {', '.join(apis_used)} ({len(apis_used)} APIs)")
+        if duplicates > 0:
+            console_print(f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)")
+    else:
+        # Single API oder alte Version
+        console_print(f"🌐 Web-Suche mit: {api_source}")
 
     # 2. URLs + Titel extrahieren (Search-APIs liefern bereits max 10)
     related_urls = search_result.get('related_urls', [])
@@ -760,18 +631,6 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         rating_start = time.time()
         rated_urls = ai_rate_urls(related_urls, titles, user_text, automatik_model)
         rating_time = time.time() - rating_start
-
-        # ⚡ PERFORMANCE-OPTIMIERUNG: Starte Haupt-LLM Preload im Hintergrund
-        # Während Web-Scraping läuft (15s), wird das Haupt-LLM parallel geladen (2-5s)
-        # Keine Race Condition: automatik_model (phi3:mini) ist hier 100% fertig!
-        debug_print(f"⚡ Starte Haupt-LLM Preload im Hintergrund: {model_choice}")
-        preload_thread = threading.Thread(
-            target=smart_model_load,
-            args=(model_choice,),
-            daemon=True,
-            name="LLM-Preloader"
-        )
-        preload_thread.start()
 
         # Debug: Zeige ALLE Bewertungen (nicht nur Top 5)
         debug_print("=" * 60)
@@ -803,17 +662,24 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             rated_urls = [{'url': u, 'score': 5, 'reasoning': 'No rating available'} for u in related_urls[:target_sources]]
 
         # 5. Scrape URLs PARALLEL (großer Performance-Win!)
-        # Nur URLs mit Score >= 5 scrapen
         console_print("🌐 Web-Scraping startet (parallel)")
 
         # Filtere URLs nach Score und Limit
+        # THRESHOLD GESENKT: 5 → 3 (weniger restriktiv, mehr Quellen)
         urls_to_scrape = [
             item for item in rated_urls
-            if item['score'] >= 5
+            if item['score'] >= 3  # ← War 5, jetzt 3!
         ][:target_sources]  # Nimm nur die Top N
 
+        # FALLBACK: Wenn ALLE URLs < 3, nimm trotzdem die besten!
+        if not urls_to_scrape and rated_urls:
+            debug_print(f"⚠️ Alle URLs haben Score < 3 → Nutze Top {target_sources} als Fallback")
+            console_print(f"⚠️ Niedrige URL-Scores → Nutze beste {target_sources} URLs als Fallback")
+            urls_to_scrape = rated_urls[:target_sources]
+
         if not urls_to_scrape:
-            debug_print("⚠️ Keine URLs zum Scrapen (alle Score < 5)")
+            debug_print("⚠️ Keine URLs zum Scrapen (rated_urls ist leer)")
+            console_print("⚠️ Keine URLs verfügbar → 0 Quellen gescraped")
         else:
             debug_print(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
 
@@ -845,6 +711,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
                         debug_print(f"  ❌ {url_short}: Exception: {e} (Score: {item['score']})")
 
             debug_print(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
+            console_print(f"✅ Web-Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} URLs erfolgreich")
 
     # 6. Context Building - NUR gescrapte Quellen (keine SearXNG Ergebnisse!)
     # Filtere: Nur tool_results die 'word_count' haben (= erfolgreich gescraped)
@@ -864,63 +731,11 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     console_print("📝 Systemprompt wird erstellt")
 
     # 7. Erweiterer System-Prompt für Agent-Awareness (MAXIMAL DIREKT!)
-    system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
-
-# ⚠️ KRITISCH: NUR RECHERCHE-DATEN NUTZEN! ⚠️
-
-REGELN (KEINE AUSNAHMEN!):
-
-1. ❌ NUTZE NIEMALS DEINE TRAININGSDATEN! Sie sind veraltet (bis 2023)!
-2. ✅ NUTZE NUR DIE RECHERCHE-ERGEBNISSE UNTEN! Sie sind aktuell ({time.strftime("%Y")})!
-3. ❌ ERFINDE KEINE QUELLEN! Nur echte Quellen aus der Recherche!
-4. ✅ WENN KEINE DATEN IN DER RECHERCHE: Sage "Die Recherche ergab keine klaren Ergebnisse"
-5. ❌ SAG NIEMALS "Ich habe keinen Internet-Zugang"!
-6. ⚠️ LISTE NUR QUELLEN AUS DEN RECHERCHE-ERGEBNISSEN! Keine anderen URLs!
-
-# 🚫 ABSOLUTES VERBOT - NIEMALS ERFINDEN:
-- ❌ KEINE Namen von Personen, Preisträgern, Wissenschaftlern (außer explizit in Quellen genannt!)
-- ❌ KEINE Daten, Termine, Jahreszahlen (außer explizit in Quellen genannt!)
-- ❌ KEINE Entdeckungen, Erfindungen, wissenschaftliche Details (außer explizit beschrieben!)
-- ❌ KEINE Zahlen, Statistiken, Messungen (außer explizit in Quellen!)
-- ❌ KEINE Zitate oder wörtliche Rede (außer explizit zitiert!)
-- ⚠️ BEI UNSICHERHEIT: "Laut den Quellen ist [Detail] nicht spezifiziert"
-
-# AKTUELLE RECHERCHE-ERGEBNISSE ({time.strftime("%d.%m.%Y")}):
-
-{context}
-
-# ANTWORT-VORGABE:
-
-- Beginne mit: "Laut meiner aktuellen Recherche vom {time.strftime("%d.%m.%Y")}..."
-
-- Fasse die Recherche-Ergebnisse AUSFÜHRLICH zusammen:
-  * Gehe auf ALLE wichtigen Punkte aus den Quellen ein
-  * Nenne konkrete Details: Namen, Zahlen, Daten, Versionen - ABER NUR wenn EXPLIZIT in Quellen!
-  * Erkläre Zusammenhänge und Hintergründe - ABER NUR basierend auf Quellen-Inhalt!
-  * Bei mehreren Quellen: Vergleiche, ergänze und verknüpfe die Informationen
-  * ⚠️ WICHTIG: Gib NUR Informationen wieder, die EXPLIZIT in den Quellen stehen!
-  * ❌ KEINE eigenen Interpretationen oder Annahmen über nicht genannte Details!
-  * ❌ NIEMALS aus Kontext "raten" oder "folgern" was gemeint sein könnte!
-
-- Strukturiere die Antwort logisch:
-  1. Hauptergebnisse (Was wurde gefunden?)
-  2. Details und Hintergründe (Wie/Warum/Wann? Konkrete Fakten!)
-  3. Zusätzliche relevante Informationen aus den Quellen
-
-- Nenne die Quellen im Text als "Quelle 1", "Quelle 2", "Quelle 3" etc.
-  Beispiel: "Quelle 1 berichtet, dass [ausführliche Details]. Außerdem wird erwähnt, dass [weitere Punkte]."
-
-- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
-
-  **Quellen:**
-  - Quelle 1: https://... (Thema: [Was wurde dort behandelt])
-  - Quelle 2: https://... (Thema: [Was wurde dort behandelt])
-
-- ❌ NENNE KEINE URLs die NICHT in den Recherche-Ergebnissen oben stehen!
-- Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
-- Falls Quellen nur allgemeine Info enthalten: "Die Quellen enthalten Hintergrundinformationen über [Thema], aber keine spezifischen Details zu [User-Frage]"
-- Stil: Informativ, detailliert, präzise, Deutsch
-- Länge: 3-5 Absätze (je nach Komplexität der Frage und Menge der Informationen)"""
+    system_prompt = get_system_rag_prompt(
+        current_year=time.strftime("%Y"),
+        current_date=time.strftime("%d.%m.%Y"),
+        context=context
+    )
 
     # 8. AI Inference mit History + System-Prompt
     messages = []
@@ -968,17 +783,6 @@ REGELN (KEINE AUSNAHMEN!):
         final_temperature = 0.2
         debug_print(f"🌡️ Web-Recherche Temperature: {final_temperature} (fest, faktisch)")
         console_print(f"🌡️ Temperature: {final_temperature} (auto, faktisch)")
-
-    # Warte auf Preload-Thread (falls er noch läuft)
-    # Normalerweise ist Web-Scraping (15s) >> LLM-Preload (2-5s), also kein Wait nötig
-    if 'preload_thread' in locals() and preload_thread.is_alive():
-        debug_print(f"⏳ Warte auf Haupt-LLM Preload (sollte fast fertig sein)...")
-        preload_thread.join(timeout=10)  # Max 10s warten
-        if preload_thread.is_alive():
-            debug_print(f"⚠️ Preload dauert länger als erwartet, fahre trotzdem fort")
-    else:
-        # Fallback: Falls kein Preload (z.B. keine URLs gefunden), lade Model jetzt
-        smart_model_load(model_choice)
 
     # Console Log: Haupt-LLM startet (im Agent-Modus)
     console_print(f"🤖 Haupt-LLM startet: {model_choice} (mit {len(scraped_only)} Quellen)")
@@ -1061,75 +865,94 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
     debug_print("🤖 Automatik-Modus: KI prüft, ob Recherche nötig...")
     console_print("📨 User Request empfangen")
 
+    # ============================================================
+    # CODE-OVERRIDE: Explizite Recherche-Aufforderung (Trigger-Wörter)
+    # ============================================================
+    # Diese Keywords triggern SOFORT neue Recherche ohne KI-Entscheidung!
+    explicit_keywords = [
+        'recherchiere', 'recherchier',  # "recherchiere!", "recherchier mal"
+        'suche im internet', 'such im internet',
+        'schau nach', 'schau mal nach',
+        'google', 'googel', 'google mal',  # Auch Tippfehler
+        'finde heraus', 'find heraus',
+        'check das', 'prüfe das'
+    ]
+
+    user_lower = user_text.lower()
+    if any(keyword in user_lower for keyword in explicit_keywords):
+        debug_print(f"⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt → Skip KI-Entscheidung!")
+        console_print(f"⚡ Explizite Recherche erkannt → Web-Suche startet")
+        # Direkt zur Recherche, KEIN Cache-Check!
+        return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
+
+    # ============================================================
+    # Cache-Check: Baue Metadata für LLM-Entscheidung
+    # ============================================================
+    cache_metadata = ""
+    main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
+
+    if session_id and main_module and hasattr(main_module, 'research_cache') and session_id in main_module.research_cache:
+        cache_entry = main_module.research_cache[session_id]
+        cached_sources = cache_entry.get('scraped_sources', [])
+
+        if cached_sources:
+            cache_age = time.time() - cache_entry.get('timestamp', 0)
+
+            # Baue Quellen-Übersicht (URLs + Titel + Content-Preview für intelligente Entscheidung)
+            source_list = []
+            for i, source in enumerate(cached_sources[:5], 1):  # Max 5 Quellen zeigen
+                url = source.get('url', 'N/A')
+                title = source.get('title', 'N/A')
+                content = source.get('content', '')
+
+                # Extrahiere ersten Teil des Contents (max 200 Zeichen) für Preview
+                # Damit kann LLM besser entscheiden ob Cache die neue Frage abdeckt
+                preview = content[:200].strip() if content else 'N/A'
+                if len(content) > 200:
+                    preview += "..."
+
+                source_list.append(f"{i}. {url}\n   Titel: \"{title}\"\n   Preview: \"{preview}\"")
+
+            sources_text = "\n".join(source_list)
+
+            cache_metadata = f"""
+
+**⚠️ WICHTIG: GECACHTE RECHERCHE VERFÜGBAR!**
+
+Ursprüngliche Frage: "{cache_entry.get('user_text', 'N/A')}"
+Cache-Alter: {cache_age:.0f} Sekunden alt
+Anzahl Quellen: {len(cached_sources)}
+
+Quellen-Übersicht (URLs + Titel):
+{sources_text}
+
+**ENTSCHEIDE JETZT:**
+Kann die NEUE Frage "{user_text}" mit den GLEICHEN gecachten Quellen beantwortet werden?
+
+✅ JA → `<search>context</search>` (Cache nutzen, spart Zeit und API-Calls!)
+   Beispiele: "Erkläre das genauer", "Was steht in Quelle 1?", "Mehr Details bitte"
+
+❌ NEIN → `<search>yes</search>` (neue Recherche nötig!)
+   Beispiele:
+   - Andere Zeitangabe (morgen → Wochenende)
+   - Anderes Thema (Wetter → Nobelpreis)
+   - Quellen-URLs passen nicht zum neuen Thema
+"""
+            debug_print(f"💾 Cache vorhanden: {len(cached_sources)} Quellen, {cache_age:.0f}s alt")
+            debug_print(f"   Cache-Metadata wird an LLM übergeben ({len(cache_metadata)} Zeichen)")
+
     # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
-    decision_prompt = f"""Du bist ein intelligenter Assistant. Analysiere diese Frage und entscheide: Wie soll sie beantwortet werden?
-
-**Frage:** "{user_text}"
-
-**WICHTIG: Du hast KEINEN Echtzeit-Zugang! Deine Trainingsdaten sind veraltet (bis Jan 2025)!**
-
-**3 ANTWORT-MODI:**
-
-1️⃣ **NEUE WEB-RECHERCHE** wenn:
-   - **WETTER** (heute, morgen, aktuell, Vorhersage)
-   - **AKTUELLE NEWS** (Was passiert gerade? Wer gewann? Neueste ...)
-   - **LIVE-DATEN** (Aktienkurse, Bitcoin, Sport-Ergebnisse, Wahlen)
-   - **ZEITABHÄNGIG** (heute, jetzt, gestern, diese Woche, aktuell)
-   - **FAKTEN NACH JAN 2025** (alles nach deinem Wissenstand)
-   - **NEUE FRAGE** ohne Bezug zu vorheriger Recherche
-   → `<search>yes</search>`
-
-2️⃣ **EIGENES WISSEN** wenn:
-   - **ALLGEMEINWISSEN** (Was ist Photosynthese? Erkläre Quantenphysik)
-   - **DEFINITIONEN** (Was bedeutet X? Wie heißt Y?)
-   - **THEORIE & KONZEPTE** (Wie funktioniert Z?)
-   - **HISTORISCHE FAKTEN** (vor 2025: Wer war Einstein?)
-   - **MATHEMATIK & LOGIK** (Berechne, erkläre, löse)
-   - **CHAT-FRAGEN** (Wie geht es dir? Danke! Hallo!)
-   → `<search>no</search>`
-
-3️⃣ **NACHFRAGE ZU VORHERIGER RECHERCHE** wenn: 🆕
-   - Fragt nach **mehr Details** zu vorheriger Antwort
-   - Bezieht sich auf **"Quelle X"** aus vorheriger Recherche
-   - Formulierungen: "ausführlicher", "genauer", "mehr Details", "erkläre das", "was meinst du"
-   - **Kurze Nachfrage** zu vorherigem Thema (erkennbar aus History)
-   → `<search>context</search>`
-
-**BEISPIELE:**
-
-History: "Welche Nobelpreise 2025?" → AI: "Physik-Nobelpreis an..."
-Frage: "Kannst du das ausführlicher erklären?"
-→ `<search>context</search>` ✅ (Nachfrage!)
-
-History: "Welche Nobelpreise 2025?" → AI: "Physik-Nobelpreis an..."
-Frage: "Was steht in Quelle 1?"
-→ `<search>context</search>` ✅ (Nachfrage!)
-
-History: "Welche Nobelpreise 2025?" → AI: "Physik-Nobelpreis an..."
-Frage: "Erkläre mir regulatorische T-Zellen genauer"
-→ `<search>context</search>` ✅ (Nachfrage zu Thema!)
-
-Frage: "Wetter in Berlin heute?"
-→ `<search>yes</search>` ✅ (Neue Recherche!)
-
-Frage: "Was ist Quantenphysik?"
-→ `<search>no</search>` ✅ (Eigenes Wissen!)
-
-**Antworte NUR mit einem dieser Tags:**
-- `<search>yes</search>` - Neue Web-Recherche nötig
-- `<search>no</search>` - Eigenes Wissen ausreicht
-- `<search>context</search>` - Nachfrage zu vorheriger Recherche
-
-**Keine weiteren Erklärungen!** Nur das Tag!"""
+    decision_prompt = get_decision_making_prompt(
+        user_text=user_text,
+        cache_metadata=cache_metadata
+    )
 
     try:
         # Zeit messen für Entscheidung
         debug_print(f"🤖 Automatik-Entscheidung mit {automatik_model}")
 
-        # Smart Model Loading vor Ollama-Call
-        smart_model_load(automatik_model)
-
         # Build messages from history (last 3 turns for context)
+        # Hinweis: decision_prompt enthält jetzt optional cache_metadata!
         messages = build_messages_from_history(history, decision_prompt, max_turns=3)
 
         decision_start = time.time()
@@ -1147,16 +970,26 @@ Frage: "Was ist Quantenphysik?"
 
         debug_print(f"🤖 KI-Entscheidung: {decision} (Entscheidung mit {automatik_model}: {decision_time:.1f}s)")
 
-        # Parse Entscheidung
+        # ============================================================
+        # Parse Entscheidung UND respektiere sie!
+        # ============================================================
         if '<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision):
-            debug_print("✅ KI entscheidet: Web-Recherche nötig → Web-Suche Ausführlich (5 Quellen)")
+            debug_print("✅ KI entscheidet: NEUE Web-Recherche nötig → Cache wird IGNORIERT!")
             console_print(f"🔍 KI-Entscheidung: Web-Recherche JA ({decision_time:.1f}s)")
+
+            # WICHTIG: Cache LÖSCHEN vor neuer Recherche!
+            # Die KI hat entschieden dass neue Daten nötig sind (z.B. neue Zeitangabe)
+            if session_id and main_module and hasattr(main_module, 'research_cache') and session_id in main_module.research_cache:
+                debug_print(f"🗑️ Cache wird gelöscht (KI fordert neue Recherche)")
+                del main_module.research_cache[session_id]
+
+            # Jetzt neue Recherche MIT session_id → neue Daten werden gecacht
             return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
         elif '<search>context</search>' in decision or 'context' in decision:
-            debug_print("🔄 KI entscheidet: Nachfrage zu vorheriger Recherche → Nutze Cache")
+            debug_print("🔄 KI entscheidet: Nachfrage zu vorheriger Recherche → Versuche Cache")
             console_print(f"💾 KI-Entscheidung: Cache nutzen ({decision_time:.1f}s)")
-            # Rufe perform_agent_research auf - dort wird Cache geprüft
+            # Rufe perform_agent_research MIT session_id auf → Cache-Check wird durchgeführt
             # Wenn kein Cache gefunden wird, fällt es automatisch auf normale Recherche zurück
             return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
 
@@ -1168,26 +1001,34 @@ Frage: "Was ist Quantenphysik?"
             # Build messages from history (all turns)
             messages = build_messages_from_history(history, user_text)
 
+            # Console: Message Stats
+            total_chars = sum(len(m['content']) for m in messages)
+            console_print(f"📊 Messages: {len(messages)}, Gesamt: {total_chars} Zeichen (~{total_chars//4} Tokens)")
+
             # Dynamische num_ctx Berechnung für Eigenes Wissen
             final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
             if llm_options and llm_options.get('num_ctx'):
                 debug_print(f"🎯 Eigenes Wissen Context Window: {final_num_ctx} Tokens (manuell)")
+                console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manual)")
             else:
                 estimated_tokens = estimate_tokens(messages)
                 debug_print(f"🎯 Eigenes Wissen Context Window: {final_num_ctx} Tokens (dynamisch, ~{estimated_tokens} Tokens benötigt)")
+                console_print(f"🪟 Context Window: {final_num_ctx} Tokens (auto)")
 
             # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
             if temperature_mode == 'manual':
                 final_temperature = temperature
                 debug_print(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (MANUAL OVERRIDE)")
+                console_print(f"🌡️ Temperature: {final_temperature} (manual)")
             else:
                 # Auto: Intent-Detection für Eigenes Wissen
                 own_knowledge_intent = detect_query_intent(user_text, automatik_model)
                 final_temperature = get_temperature_for_intent(own_knowledge_intent)
                 debug_print(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent})")
+                console_print(f"🌡️ Temperature: {final_temperature} (auto, {own_knowledge_intent})")
 
-            # Smart Model Loading vor Ollama-Call
-            smart_model_load(model_choice)
+            # Console: LLM starts
+            console_print(f"🤖 Haupt-LLM startet: {model_choice}")
 
             # Zeit messen für finale Inferenz
             inference_start = time.time()
@@ -1203,6 +1044,9 @@ Frage: "Was ist Quantenphysik?"
 
             ai_text = response['message']['content']
 
+            # Console: LLM finished
+            console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(ai_text)} Zeichen)")
+
             # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
             if stt_time > 0:
                 user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Entscheidung: {decision_time:.1f}s, Inferenz: {inference_time:.1f}s)"
@@ -1215,6 +1059,7 @@ Frage: "Was ist Quantenphysik?"
             history.append([user_with_time, ai_text_formatted])
             debug_print(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
             debug_print("═" * 80)  # Separator nach jeder Anfrage
+            console_separator()  # Separator auch in Console
 
             return ai_text, history, inference_time
 

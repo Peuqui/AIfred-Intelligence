@@ -52,39 +52,3 @@ def unload_all_models():
     except Exception as e:
         debug_print(f"⚠️ Fehler beim Entladen: {e}")
         return False
-
-
-def smart_model_load(model_name):
-    """
-    Dummy function for backward compatibility.
-
-    Ollama Auto-Detect handles all memory management now:
-    - Checks available RAM automatically
-    - Loads/unloads models as needed
-    - Optimizes GPU/CPU split based on VRAM
-
-    This function is kept to avoid breaking existing code,
-    but does nothing - Ollama handles everything.
-
-    Args:
-        model_name: Name des Modells (unused)
-
-    Returns:
-        bool: Always True
-    """
-    return True
-
-
-def register_signal_handlers():
-    """
-    Dummy function for backward compatibility.
-
-    Signal handlers removed because:
-    - Ollama runs as separate service (stays running after AIfred stop)
-    - Unloading models on AIfred stop makes no sense
-    - Ollama manages model lifecycle automatically
-
-    This function is kept to avoid breaking existing code,
-    but does nothing.
-    """
-    pass

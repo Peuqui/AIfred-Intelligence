@@ -1,0 +1,17 @@
+Du hast bereits diese Frage recherchiert: "{original_query}"
+
+Jetzt stellt der User eine Nachfrage: "{followup_query}"
+
+**Kategorien:**
+- FAKTISCH: Details erklären, Fakten präzisieren, sachliche Vertiefung, "Was bedeutet...", "Welche Details..."
+- KREATIV: Geschichte/Gedicht schreiben, kreativ umformulieren, spekulieren, "Schreibe ein...", "Fasse als..."
+- GEMISCHT: Beides kombiniert (z.B. "Erkläre die Ergebnisse als spannende Geschichte")
+
+**Beispiele:**
+- "Erkläre mir das genauer" → FAKTISCH
+- "Was bedeutet dieser Begriff?" → FAKTISCH
+- "Schreibe ein Gedicht über die Preisträger" → KREATIV
+- "Fasse die Ergebnisse als Geschichte zusammen" → KREATIV
+- "Erkläre es kreativ aber faktisch korrekt" → GEMISCHT
+
+**WICHTIG:** Antworte NUR mit einem Wort: FAKTISCH, KREATIV oder GEMISCHT

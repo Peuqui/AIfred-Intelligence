@@ -1,9 +1,7 @@
 import gradio as gr
 import ollama
-import os
 import time
 import uuid
-from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -17,13 +15,12 @@ from lib.config import (
 from lib.logging_utils import debug_print, console_print, get_console_output, console_separator, clear_console
 from lib.formatting import format_thinking_process
 from lib.settings_manager import load_settings, save_settings
-from lib.memory_manager import smart_model_load, register_signal_handlers
 from lib.ollama_interface import get_ollama_models, get_whisper_model, initialize_whisper_base
 from lib.audio_processing import (
     clean_text_for_tts, transcribe_audio, generate_tts
 )
 from lib.agent_core import perform_agent_research, chat_interactive_mode
-from lib.ollama_wrapper import set_gpu_mode, clear_gpu_mode
+from lib.ollama_wrapper import set_gpu_mode
 from lib.message_builder import build_messages_from_history
 
 # ============================================================
@@ -74,9 +71,6 @@ def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_c
 
     # Build Ollama messages from history (centralized)
     messages = build_messages_from_history(history, user_text)
-
-    # Smart Model Loading: Entlade kleine Modelle wenn großes Modell kommt
-    smart_model_load(model_choice)
 
     # GPU-Modus und LLM-Parameter setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
     set_gpu_mode(enable_gpu, llm_options)
@@ -151,8 +145,6 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
     messages = build_messages_from_history(history, text_input)
 
     # Smart Model Loading vor Ollama-Call
-    smart_model_load(model_choice)
-
     # GPU-Modus und LLM-Parameter setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
     set_gpu_mode(enable_gpu, llm_options)
 
@@ -182,9 +174,11 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
 
 def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
     """Generiert TTS neu für bereits vorhandenen AI-Text"""
+    import gradio as gr
+
+    # Button immer interaktiv lassen (auch wenn TTS deaktiviert)
     if not ai_text or not enable_tts:
-        import gradio as gr
-        return None, gr.update(interactive=False)
+        return None, gr.update(interactive=True)
 
     # Bereinige Text für TTS
     clean_text = clean_text_for_tts(ai_text)
@@ -194,7 +188,6 @@ def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
 
     debug_print(f"🔄 TTS regeneriert")
 
-    import gradio as gr
     return audio_file, gr.update(interactive=True)
 
 
@@ -215,9 +208,6 @@ def reload_model(model_name, enable_gpu, num_ctx):
     # Entlade ALLE aktuell geladenen Modelle
     unload_all_models()
     time.sleep(1)  # Kurze Pause für sauberes Entladen
-
-    # Lade Model mit aktueller GPU-Einstellung
-    smart_model_load(model_name)
 
     # Setze GPU-Modus UND num_ctx für einen Test-Call
     set_gpu_mode(enable_gpu, {'num_ctx': int(num_ctx) if num_ctx is not None else 4096})
@@ -341,9 +331,6 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
 # ============================================================
 # STARTUP
 # ============================================================
-
-# Register Signal Handlers für sauberen Shutdown
-register_signal_handlers()
 
 # Initialize Whisper Base Model
 initialize_whisper_base()
@@ -607,11 +594,18 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
             with gr.Group():
                 gr.Markdown("### 🔊 Sprachausgabe (AI-Antwort)")
 
-                # TTS Toggle direkt im Audio-Bereich
-                enable_tts = gr.Checkbox(
-                    value=saved_settings["enable_tts"],
-                    label="Sprachausgabe aktiviert"
-                )
+                # TTS Toggle + Regenerate Button in einer Row
+                with gr.Row():
+                    enable_tts = gr.Checkbox(
+                        value=saved_settings["enable_tts"],
+                        label="Sprachausgabe aktiviert"
+                    )
+                    regenerate_audio_top = gr.Button(
+                        "🔄 Sprachausgabe neu generieren",
+                        variant="secondary",
+                        size="sm",
+                        scale=0  # Nimmt nur den benötigten Platz
+                    )
 
                 audio_output = gr.Audio(
                     label="",  # Kein Label, da schon in Group-Header
@@ -938,7 +932,7 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
             """)
 
     # Session-ID State für Research-Cache
-    session_id = gr.State(lambda: str(uuid.uuid4()))
+    session_id = gr.State(value=str(uuid.uuid4()))
 
     # State für vorheriges Model (um Separator zu zeigen)
     previous_model = gr.State(saved_settings["model"])
@@ -1121,9 +1115,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
     ).then(
         # Cleanup: Audio löschen, Chatbot updaten, Buttons/Inputs wieder aktivieren
         lambda show_trans, h: \
-            (None, h, "idle", gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)) if not show_trans else (None, h, "idle", gr.update(interactive=False), gr.update(interactive=True), gr.update(interactive=True)),
+            (None, h, "idle", gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)) if not show_trans else (None, h, "idle", gr.update(interactive=False), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)),
         inputs=[show_transcription, history],
-        outputs=[audio_input, chatbot, recording_state, regenerate_audio, text_input, text_submit]
+        outputs=[audio_input, chatbot, recording_state, regenerate_audio, regenerate_audio_top, text_input, text_submit]
     )
 
     # Text Submit - 3-stufiger Prozess mit Zeitmessung (ohne STT)
@@ -1153,16 +1147,23 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[debug_console]
     ).then(
         # Cleanup: Textfeld leeren + aktivieren, History updaten, alle Inputs wieder aktivieren
-        lambda h: (gr.update(value="", interactive=True), h, gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)),
+        lambda h: (gr.update(value="", interactive=True), h, gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)),
         inputs=[history],
-        outputs=[text_input, chatbot, audio_input, regenerate_audio, text_submit]
+        outputs=[text_input, chatbot, audio_input, regenerate_audio, regenerate_audio_top, text_submit]
     )
 
-    # Regenerate Audio Button
+    # Regenerate Audio Button (unten bei TTS-Einstellungen)
     regenerate_audio.click(
         regenerate_tts,
         inputs=[ai_text, voice, tts_speed, enable_tts, tts_engine],
         outputs=[audio_output, regenerate_audio]
+    )
+
+    # Regenerate Audio Button (oben bei Sprachausgabe-Checkbox) - gleiche Funktion
+    regenerate_audio_top.click(
+        regenerate_tts,
+        inputs=[ai_text, voice, tts_speed, enable_tts, tts_engine],
+        outputs=[audio_output, regenerate_audio_top]
     )
 
     # Model Reload Button mit visuellem Feedback
@@ -1192,12 +1193,12 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         # Debug-Console leeren
         clear_console()
 
-        return (None, "", "", "", None, [], "idle", gr.update(interactive=False), [], "")
+        return (None, "", "", "", None, [], "idle", gr.update(interactive=False), gr.update(interactive=False), [], "")
 
     clear.click(
         clear_chat_and_cache,
         inputs=[session_id],
-        outputs=[audio_input, text_input, user_text, ai_text, audio_output, chatbot, recording_state, regenerate_audio, history, debug_console]
+        outputs=[audio_input, text_input, user_text, ai_text, audio_output, chatbot, recording_state, regenerate_audio, regenerate_audio_top, history, debug_console]
     )
 
 # ============================================================

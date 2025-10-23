@@ -1,0 +1,26 @@
+Entscheide: Web-Recherche nötig?
+
+Frage: "{user_text}"
+
+Du hast KEIN Internet! Trainingsdaten bis Jan 2025!
+
+ANTWORTE NUR MIT EINEM DIESER 3 TAGS (NICHTS ANDERES!):
+
+**Option 1:** `<search>yes</search>`
+Verwende bei: WETTER, NEWS, LIVE-DATEN, ZEITANGABEN (heute/morgen/jetzt)
+
+**Option 2:** `<search>no</search>`
+Verwende bei: Allgemeinwissen, Definitionen, Theorie, Mathe, Chat
+
+**Option 3:** `<search>context</search>`
+Verwende bei: Nachfrage zu vorheriger Antwort ("genauer", "Quelle X")
+NICHT bei neuer Zeitangabe!
+
+**BEISPIELE (kopiere das Tag EXAKT!):**
+"Wetter morgen?" → `<search>yes</search>`
+"Wetter Wochenende?" → `<search>yes</search>`
+"Was ist X?" → `<search>no</search>`
+Vorher: "Wetter morgen" → Jetzt: "genauer?" → `<search>context</search>`
+Vorher: "Wetter morgen" → Jetzt: "Wochenende?" → `<search>yes</search>`
+
+WICHTIG: Antworte NUR mit dem Tag! NICHTS ANDERES! Keine Wörter, keine Erklärungen!{cache_metadata}

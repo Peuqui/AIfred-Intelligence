@@ -134,6 +134,11 @@ def clean_text_for_tts(text):
     clean_text = re.sub(r'https?://\S+', '', clean_text)  # http:// und https://
     clean_text = re.sub(r'www\.\S+', '', clean_text)      # www.beispiel.de
 
+    # Entferne Timing-Informationen in Klammern (TTS soll diese nicht vorlesen!)
+    # Beispiele: "(STT: 2.5s)", "(Inferenz: 1.3s)", "(Agent: 45.2s, Schnell, 5 Quellen)",
+    #            "(Cache-Hit: 2.5s = LLM 2.3s)", "(Entscheidung: 2.5s, Inferenz: 1.3s)"
+    clean_text = re.sub(r'\s*\([^)]*\b(STT|Inferenz|Agent|Cache-Hit|Entscheidung|TTS)[^)]*\)', '', clean_text)
+
     return clean_text
 
 

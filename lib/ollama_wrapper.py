@@ -17,14 +17,9 @@ Usage:
     # All subsequent ollama.chat() calls will AUTOMATICALLY use this setting
     response = ollama.chat(model="qwen3:8b", messages=messages)
     # ↑ Internally becomes: ollama.chat(..., options={"num_gpu": 0})
-
-    # Clear at request end (automatic cleanup)
-    clear_gpu_mode()
 """
 
 import ollama
-import requests
-import subprocess
 from .logging_utils import debug_print
 from threading import local
 
@@ -127,18 +122,3 @@ def set_gpu_mode(enable_gpu=True, llm_options=None):
         relevant = {k: v for k, v in llm_options.items() if v is not None}
         if relevant:
             debug_print(f"🎨 [LLM Options] Custom Parameter: {relevant}")
-
-
-def clear_gpu_mode():
-    """
-    Räumt GPU-Einstellung und LLM-Parameter auf (nach Request)
-    """
-    if hasattr(_thread_local, 'enable_gpu'):
-        was_gpu = _thread_local.enable_gpu
-        del _thread_local.enable_gpu
-        debug_print(f"🔧 [GPU Mode] Cleanup - {'GPU' if was_gpu else 'CPU'} Modus beendet")
-
-    if hasattr(_thread_local, 'custom_options'):
-        del _thread_local.custom_options
-
-
