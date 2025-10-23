@@ -1012,6 +1012,9 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
     # On Load Event - Lädt Settings und initialisiert UI
     def on_page_load():
         """Wird bei jedem Page-Load aufgerufen - lädt aktuelle Settings"""
+        # Debug-Console beim Page-Load leeren (wichtig für Mobile-Reload!)
+        clear_console()
+
         current_settings = load_settings()
         debug_print(f"🔄 Page Load - Settings neu geladen:")
         debug_print(f"   Haupt-LLM: {current_settings['model']}")
@@ -1035,12 +1038,13 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
             gr.update(value=current_settings.get("research_mode", "⚡ Web-Suche Schnell (mittel)")),  # research_mode
             gr.update(value=current_settings.get("show_transcription", False)),  # show_transcription
             gr.update(value=current_settings.get("enable_gpu", True)),  # enable_gpu
-            current_settings["model"]  # previous_model state
+            current_settings["model"],  # previous_model state
+            ""  # debug_console (geleert)
         )
 
     app.load(
         on_page_load,
-        outputs=[audio_input, recording_state, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, previous_model]
+        outputs=[audio_input, recording_state, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, previous_model, debug_console]
     )
 
     # Audio State Tracking
