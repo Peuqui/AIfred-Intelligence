@@ -13,6 +13,7 @@ import re
 import sys
 import threading
 import ollama
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
@@ -336,7 +337,10 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
         # ============================================================
         # POST-PROCESSING: Temporale Kontext-Erkennung
         # ============================================================
-        # Garantiert "2025" bei zeitlich relevanten Queries, auch wenn LLM es vergisst
+        # Garantiert aktuelles Jahr bei zeitlich relevanten Queries, auch wenn LLM es vergisst
+
+        # Dynamisches Jahr (nicht hardcoded!)
+        current_year = str(datetime.now().year)
 
         temporal_keywords = [
             'neu', 'neue', 'neuer', 'neues', 'neueste', 'neuester', 'neuestes',
@@ -353,15 +357,15 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 
         query_lower = optimized_query.lower()
 
-        # Regel 1: "beste/neueste X" → + 2025 (falls nicht schon vorhanden)
-        if any(kw in query_lower for kw in temporal_keywords) and '2025' not in optimized_query:
-            optimized_query += " 2025"
-            debug_print(f"   ⏰ Temporaler Kontext ergänzt: 2025")
+        # Regel 1: "beste/neueste X" → + aktuelles Jahr (falls nicht schon vorhanden)
+        if any(kw in query_lower for kw in temporal_keywords) and current_year not in optimized_query:
+            optimized_query += f" {current_year}"
+            debug_print(f"   ⏰ Temporaler Kontext ergänzt: {current_year}")
 
-        # Regel 2: "X vs Y" → + 2025 (falls nicht schon vorhanden)
-        elif any(kw in query_lower for kw in comparison_keywords) and '2025' not in optimized_query:
-            optimized_query += " 2025"
-            debug_print(f"   ⚖️ Vergleichs-Kontext ergänzt: 2025")
+        # Regel 2: "X vs Y" → + aktuelles Jahr (falls nicht schon vorhanden)
+        elif any(kw in query_lower for kw in comparison_keywords) and current_year not in optimized_query:
+            optimized_query += f" {current_year}"
+            debug_print(f"   ⚖️ Vergleichs-Kontext ergänzt: {current_year}")
 
         debug_print(f"🔍 Query-Optimierung:")
         debug_print(f"   Original: {user_text[:80]}{'...' if len(user_text) > 80 else ''}")
