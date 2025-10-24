@@ -225,6 +225,22 @@ def save_cached_research(session_id: Optional[str], user_text: str, scraped_sour
         debug_print(f"   Cache enthält jetzt {cache_size} Einträge: {[k[:8] + '...' for k in _research_cache.keys()]}")
         debug_print(f"   Gespeichert: {len(scraped_sources)} Quellen, user_text: '{user_text[:50]}...'")
 
+        # DEBUG: Zeige KOMPLETTEN Cache-Inhalt
+        debug_print("=" * 80)
+        debug_print("📦 KOMPLETTER CACHE-INHALT:")
+        debug_print("=" * 80)
+        for cache_key, cache_value in _research_cache.items():
+            source_urls = [s.get('url', 'N/A') for s in cache_value.get('scraped_sources', [])]
+            debug_print(f"Session: {cache_key}")
+            debug_print(f"  User-Text: {cache_value.get('user_text', 'N/A')}")
+            debug_print(f"  Timestamp: {cache_value.get('timestamp', 0)}")
+            debug_print(f"  Mode: {cache_value.get('mode', 'N/A')}")
+            debug_print(f"  Quellen ({len(source_urls)}):")
+            for i, url in enumerate(source_urls, 1):
+                debug_print(f"    {i}. {url[:80]}{'...' if len(url) > 80 else ''}")
+            debug_print("-" * 80)
+        debug_print("=" * 80)
+
 
 def delete_cached_research(session_id: Optional[str]) -> None:
     """
