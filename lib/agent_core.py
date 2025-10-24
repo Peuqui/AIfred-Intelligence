@@ -740,6 +740,8 @@ def ai_rate_urls(urls, titles, query, automatik_model):
                 })
             except Exception as e:
                 debug_print(f"⚠️ Parse-Fehler für URL {i+1}: {e}")
+                debug_print(f"   Problematische Zeile: '{line.strip()}'")
+                debug_print(f"   Erwartet: '[NUM]. Score: [0-10] - Reasoning: [TEXT]'")
                 # Fallback
                 rated_urls.append({
                     'url': urls[i],

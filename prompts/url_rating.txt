@@ -34,11 +34,15 @@ Antworte NUR mit einer nummerierten Liste in EXAKT diesem Format:
 2. Score: 7 - Reasoning: ZDF, aktuelle Berichterstattung
 3. Score: 3 - Reasoning: Forum, keine Primärquelle
 
-**KRITISCH:**
-- JEDE Zeile MUSS mit "Score: [ZAHL] - Reasoning: [TEXT]" beginnen!
-- KEINE zusätzlichen Erklärungen oder Kommentare!
-- KEINE Abweichungen vom Format!
-- Sortiere NICHT, gib sie in der gleichen Reihenfolge zurück!
+**⚠️ ABSOLUT KRITISCH - KEINE AUSNAHMEN:**
+- JEDE Zeile MUSS EXAKT beginnen mit: "[NUMMER]. Score: [ZAHL] - Reasoning: [TEXT]"
+- Score MUSS eine Zahl zwischen 0 und 10 sein
+- KEINE zusätzlichen Erklärungen, Kommentare oder Text außerhalb dieses Formats!
+- KEINE Leerzeilen zwischen den Einträgen!
+- KEINE Überschriften, Einleitungen oder Zusammenfassungen!
+- KEINE Abweichungen vom Format - auch nicht bei "schlechten" URLs!
+- Sortiere NICHT, gib sie in der GLEICHEN Reihenfolge zurück wie oben!
+- Du MUSST für JEDE URL oben GENAU EINE Zeile ausgeben - keine mehr, keine weniger!
 
 **BEISPIEL KORREKT:**
 1. Score: 9 - Reasoning: Tagesschau, vertrauenswürdig
