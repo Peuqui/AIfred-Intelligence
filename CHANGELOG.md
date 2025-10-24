@@ -6,7 +6,7 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
 ---
 
-## [2025-10-25] - Logging-System & Intelligent Scraping Optimierungen
+## [2025-10-25] - Cache-Fixes, Debug-Logging & UI-Verbesserungen
 
 ### 🎯 Hinzugefügt
 
@@ -26,10 +26,39 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
   - Nur bei erfolgreichem Download mit wenig Content (< 1000 Wörter) → Playwright Fallback
 - **AccuWeather Timeout-Problem gelöst**: Von 43s auf sofortigen Skip reduziert
 
-#### Cache-Metadata Logging
-- **Vollständiges Cache-Metadata Logging** in `lib/agent_core.py` (Zeilen 1312-1315)
+#### Umfassendes Cache-Debug-Logging
+- **Cache-Lookup Logging** in `lib/agent_core.py` (Zeilen 78-90):
+  - Zeigt bei jedem Lookup: Gesuchte Session-ID, Cache-Einträge, Hit/Miss Status
+  - Format: `🔍 DEBUG Cache-Lookup: Suche session_id = 71ccc280...`
+  - Bei Hit: `✅ Cache-Hit! Eintrag gefunden mit 3 Quellen`
+  - Bei Miss: `❌ Cache-Miss! session_id '71ccc280...' nicht in Cache`
+
+- **Kompletter Cache-Dump** in `lib/agent_core.py` (Zeilen 228-242):
+  - Nach jedem Cache-Save: Zeigt GESAMTEN Cache-Inhalt
+  - Format: `📦 KOMPLETTER CACHE-INHALT:`
+  - Für jeden Eintrag: Session-ID, User-Text, Timestamp, Mode, URLs aller Quellen
+  - Beispiel-Output:
+    ```
+    Session: 71ccc280-861a-41c2-88e2-1b96657f2d33
+      User-Text: Wie wird das Wetter morgen in Niestetal, Hessen?
+      Timestamp: 1761348296.2415316
+      Mode: deep
+      Quellen (3):
+        1. https://www.wetter.com/...
+        2. https://www.wetterdienst.de/...
+        3. https://wetter.tv/...
+    ```
+
+- **Cache-Metadata Logging** in `lib/agent_core.py` (Zeilen 1312-1315):
   - Zeigt exakten Inhalt des Cache-Metadata wenn verfügbar
   - Hilft bei Diagnose von Cache-basierten Entscheidungen
+
+#### URL-Rating Parse-Fehler Logging
+- **Erweiterte Fehlerausgabe** in `lib/agent_core.py` (Zeilen 742-744):
+  - Zeigt problematische Zeile bei Parse-Fehlern
+  - Format: `⚠️ Parse-Fehler für URL 3: list index out of range`
+  - Zeigt erwartetes Format: `[NUM]. Score: [0-10] - Reasoning: [TEXT]`
+  - Hilft bei Diagnose von LLM-Format-Fehlern (aktuell ~15% bei phi3:mini/qwen2.5:3b)
 
 #### Haupt-LLM Message Logging
 - **Komplettes Message-Array Logging** in `lib/agent_core.py` (Zeilen 1132-1145)
@@ -37,7 +66,47 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
   - Inklusive System-Prompt Preview (erste 500 Zeichen)
   - Zeigt Gesamt-Token-Count und Context-Window-Größe
 
+#### UI-Verbesserungen
+- **Debug-Console Größe erhöht**: 21 → 25 Zeilen (vertikal)
+- **Auto-Refresh Toggle** in `aifred_intelligence.py` (Zeilen 647-659, 743-754):
+  - Checkbox zum Ein/Ausschalten der automatischen Console-Aktualisierung
+  - Bei Deaktivierung: Timer stoppt komplett (kein Scroll-Jump mehr)
+  - Erlaubt ruhiges Scrollen und Analysieren während laufender Requests
+- **Sofortige Chat-Anzeige** in `aifred_intelligence.py` (Zeilen 1247-1251):
+  - Chatbot-Widget wird sofort nach AI-Antwort aktualisiert
+  - User sieht Antwort BEVOR Cache-Metadata und TTS laufen
+  - Verbesserte Responsiveness der UI
+
+#### Intent-Detection Verbesserungen
+- **Verbessertes Logging** in `lib/agent_core.py` (Zeilen 492, 516, 575, 695):
+  - Zeigt jetzt explizit welches Modell verwendet wird
+  - Format: `🎯 Cache-Followup Intent-Detection mit phi3:mini: ...`
+  - Format: `✅ Cache-Followup Intent (phi3:mini): FAKTISCH`
+  - Format: `📨 MESSAGES an qwen3:1.7b (Query-Opt):` (vorher: hardcodiert "phi3:mini")
+  - Format: `📨 MESSAGES an qwen3:1.7b (URL-Rating):` (vorher: hardcodiert "phi3:mini")
+- **Verbesserter Prompt** in `prompts/followup_intent_detection.txt`:
+  - "Empfehlungen geben" explizit als KREATIV definiert
+  - Neue Beispiele: "Kannst du mir Empfehlungen geben?" → KREATIV
+  - "Was könnte ich... unternehmen?" → KREATIV
+  - **Test-Ergebnis**: qwen2.5:3b erkennt Empfehlungs-Fragen korrekt als KREATIV
+
 ### 🐛 Behoben
+
+#### **KRITISCH: Cache-Lookup & Storage Bug**
+- **Root Cause**: `if not _research_cache` behandelt leeres Dict `{}` als `None`
+- **Problem**: Cache wurde NIEMALS gespeichert, da bei leerem Dict sofort `return` erfolgte
+- **Fix in `lib/agent_core.py`**:
+  - Zeile 74 (`get_cached_research`): `if not _research_cache` → `if _research_cache is None`
+  - Zeile 210 (`save_cached_research`): `if not _research_cache` → `if _research_cache is None`
+- **Impact**: Cache funktioniert jetzt korrekt - Request 1 speichert, Request 2 findet und nutzt Cache
+- **Test-Ergebnis**: ✅ Cache-Hit nach 98s für Follow-up-Frage (statt erneuter 98s Web-Scraping)
+
+#### URLs in Inline-Zitaten entfernt
+- **Prompt-Update** in `prompts/system_rag.txt` (Zeilen 44-48):
+  - ✅ RICHTIG: "Quelle 1 berichtet, dass das Wetter morgen regnerisch wird..."
+  - ❌ FALSCH: "Quelle 1 (https://www.wetter.com/...) berichtet..."
+  - URLs NUR in Quellen-Liste am Ende, NIEMALS im Fließtext
+- **Resultat**: Sauberere, lesbarere AI-Antworten ohne URL-Clutter
 
 #### Context Limit Detection
 - **Priorisierung korrigiert** in `lib/agent_core.py` (Zeilen 273-285):
@@ -57,6 +126,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
   - Verhindert Verwechslung mit deutschem Wort "Tag" (= day)
   - **Resultat**: qwen2.5:3b wählt jetzt korrekt `<search>yes</search>` für Wetter-Fragen
 
+#### URL-Rating Format Enforcement
+- **Verstärkter Prompt** in `prompts/url_rating.txt` (Zeilen 37-45):
+  - ⚠️ ABSOLUT KRITISCH Sektion hinzugefügt
+  - JEDE Zeile MUSS EXAKT beginnen: `[NUM]. Score: [0-10] - Reasoning: [TEXT]`
+  - KEINE zusätzlichen Erklärungen, Kommentare oder Abweichungen
+  - Ziel: Reduktion der Parse-Fehlerrate von ~15% (3 von 20 URLs)
+
 #### External Library Logging Spam
 - **Logging-Level auf WARNING gesetzt** in `lib/agent_tools.py` (Zeilen 30-34):
   - Trafilatura "discarding element" Messages unterdrückt
@@ -72,6 +148,17 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 - **Intelligente Strategie**: Download-Fail = Max 10s (kein Playwright), JS-Heavy = Max 20s (Trafilatura + Playwright)
 
 ### 🔧 Geändert
+
+#### Logging Helper Functions
+- **Neue Helper-Funktionen** in `lib/logging_utils.py` (Zeilen 93-143):
+  - `debug_print_prompt(prompt_type, prompt, model_name)`: Standardisiertes Prompt-Logging
+  - `debug_print_messages(messages, model_name, context)`: Standardisiertes Messages-Logging
+  - Reduziert Code-Duplikation in agent_core.py
+  - Zeigt Message-Arrays, Token-Counts, Ollama-Parameter
+
+#### Import Consolidation
+- **aifred_intelligence.py**: Alle `agent_core` Imports in einen Block zusammengefasst (Zeilen 25-32)
+- Entfernt: Unused `import sys` aus agent_core.py
 
 #### Architektur-Vereinfachung: Context Limits
 - **Dictionary entfernt**, ersetzt durch 2 globale Variablen in `lib/agent_core.py`:

@@ -489,7 +489,7 @@ def detect_cache_followup_intent(original_query, followup_query, automatik_model
     )
 
     try:
-        debug_print(f"🎯 Cache-Followup Intent-Detection: {followup_query[:60]}...")
+        debug_print(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
 
         response = ollama.chat(
             model=automatik_model,
@@ -513,7 +513,7 @@ def detect_cache_followup_intent(original_query, followup_query, automatik_model
             debug_print(f"⚠️ Cache-Intent unbekannt: '{intent_raw}' → Default: FAKTISCH")
             intent = "FAKTISCH"  # Bei Recherche-Nachfragen meist faktisch
 
-        debug_print(f"✅ Cache-Followup Intent: {intent}")
+        debug_print(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")
         return intent
 
     except Exception as e:
@@ -572,7 +572,7 @@ def optimize_search_query(user_text, automatik_model, history=None):
 
         # DEBUG: Zeige Messages-Array vollständig
         debug_print("=" * 60)
-        debug_print("📨 MESSAGES an phi3:mini (Query-Opt):")
+        debug_print(f"📨 MESSAGES an {automatik_model} (Query-Opt):")
         debug_print("-" * 60)
         for i, msg in enumerate(messages):
             debug_print(f"Message {i+1} - Role: {msg['role']}")
@@ -692,7 +692,7 @@ def ai_rate_urls(urls, titles, query, automatik_model):
 
         # DEBUG: Zeige Messages-Array vollständig
         debug_print("=" * 60)
-        debug_print("📨 MESSAGES an phi3:mini (URL-Rating):")
+        debug_print(f"📨 MESSAGES an {automatik_model} (URL-Rating):")
         debug_print("-" * 60)
         for i, msg in enumerate(messages):
             debug_print(f"Message {i+1} - Role: {msg['role']}")

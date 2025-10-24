@@ -644,13 +644,15 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
     # DEBUG CONSOLE (nach chatbot, vor settings)
     # ============================================================
     with gr.Accordion("🐛 Debug Console", open=False):
-        gr.Markdown("**Live Debug-Output:** LLM-Starts, Entscheidungen, Statistiken")
+        with gr.Row():
+            gr.Markdown("**Live Debug-Output:** LLM-Starts, Entscheidungen, Statistiken")
+            auto_refresh_checkbox = gr.Checkbox(label="Auto-Refresh", value=True, scale=0)
 
         debug_console = gr.Textbox(
             value="",
             label="",
-            lines=24,
-            max_lines=24,
+            lines=25,
+            max_lines=25,
             interactive=False,
             show_label=False,
             elem_classes="debug-console"
@@ -735,8 +737,17 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
         )
 
     # Auto-Refresh für Debug Console - AUSSERHALB des Accordions, am Ende der UI-Definition!
-    # Updates alle 2 Sekunden automatisch
+    # Updates alle 2 Sekunden automatisch (nur wenn Checkbox aktiviert)
     demo_auto_refresh = gr.Timer(value=2, active=True)
+
+    # Timer aktiviert/deaktiviert basierend auf Checkbox
+    auto_refresh_checkbox.change(
+        lambda enabled: gr.Timer(active=enabled),
+        inputs=[auto_refresh_checkbox],
+        outputs=[demo_auto_refresh]
+    )
+
+    # Wenn Timer tickt, update Console
     demo_auto_refresh.tick(
         get_console_output,
         outputs=[debug_console]
@@ -1233,6 +1244,11 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
             chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": safe_int_conversion(num_ctx), "temperature": temp, "num_predict": safe_int_conversion(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": safe_int_conversion(sd) if sd != -1 else None, "top_p": tp_p, "top_k": safe_int_conversion(tp_k)}, hist, sess_id, temp_mode, temp),
         inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id, temperature_mode],
         outputs=[ai_text, history, inference_time_state]
+    ).then(
+        # Chatbot sofort aktualisieren (zeigt AI-Antwort ohne auf Metadata/TTS zu warten)
+        lambda hist: hist,
+        inputs=[history],
+        outputs=[chatbot]
     ).then(
         # Console Update nach LLM
         update_console_only,
