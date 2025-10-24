@@ -649,8 +649,8 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
         debug_console = gr.Textbox(
             value="",
             label="",
-            lines=21,
-            max_lines=21,
+            lines=24,
+            max_lines=24,
             interactive=False,
             show_label=False,
             elem_classes="debug-console"
