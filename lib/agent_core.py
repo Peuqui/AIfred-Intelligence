@@ -312,6 +312,15 @@ def optimize_search_query(user_text, automatik_model, history=None):
     """
     prompt = get_query_optimization_prompt(user_text=user_text)
 
+    # DEBUG: Zeige Query Optimization Prompt
+    debug_print("=" * 60)
+    debug_print("📋 QUERY OPTIMIZATION PROMPT:")
+    debug_print("-" * 60)
+    debug_print(prompt)
+    debug_print("-" * 60)
+    debug_print(f"Prompt-Länge: {len(prompt)} Zeichen, ~{len(prompt.split())} Wörter")
+    debug_print("=" * 60)
+
     try:
         debug_print(f"🔍 Query-Optimierung mit {automatik_model}")
         console_print("🔧 Query-Optimierung startet")
@@ -411,6 +420,15 @@ def ai_rate_urls(urls, titles, query, automatik_model):
     ])
 
     prompt = get_url_rating_prompt(query=query, url_list=url_list)
+
+    # DEBUG: Zeige URL Rating Prompt
+    debug_print("=" * 60)
+    debug_print("📋 URL RATING PROMPT:")
+    debug_print("-" * 60)
+    debug_print(prompt)
+    debug_print("-" * 60)
+    debug_print(f"Prompt-Länge: {len(prompt)} Zeichen, ~{len(prompt.split())} Wörter")
+    debug_print("=" * 60)
 
     try:
         debug_print(f"🔍 URL-Rating mit {automatik_model}")
@@ -1059,6 +1077,15 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
         user_text=user_text,
         cache_metadata=cache_metadata
     )
+
+    # DEBUG: Zeige kompletten Prompt für Diagnose
+    debug_print("=" * 60)
+    debug_print("📋 DECISION PROMPT an phi3:mini:")
+    debug_print("-" * 60)
+    debug_print(decision_prompt)
+    debug_print("-" * 60)
+    debug_print(f"Prompt-Länge: {len(decision_prompt)} Zeichen, ~{len(decision_prompt.split())} Wörter")
+    debug_print("=" * 60)
 
     try:
         # Zeit messen für Entscheidung
