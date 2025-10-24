@@ -72,11 +72,21 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
     # WICHTIG: Prüfe _research_cache_lock und session_id, aber NICHT ob _research_cache leer ist!
     # Ein leeres Dictionary {} ist ein gültiger (aber leerer) Cache-State!
     if _research_cache is None or _research_cache_lock is None or not session_id:
+        debug_print("🔍 DEBUG Cache-Lookup: _research_cache oder _research_cache_lock ist None, oder keine session_id")
         return None
 
     with _research_cache_lock:
+        # DEBUG: Zeige Cache-Inhalt (Keys) für Diagnose
+        cache_keys = list(_research_cache.keys())
+        debug_print(f"🔍 DEBUG Cache-Lookup: Suche session_id = {session_id[:8]}...")
+        debug_print(f"   Cache enthält {len(cache_keys)} Einträge: {[k[:8] + '...' for k in cache_keys]}")
+
         if session_id in _research_cache:
-            return _research_cache[session_id].copy()
+            cache_entry = _research_cache[session_id]
+            debug_print(f"   ✅ Cache-Hit! Eintrag gefunden mit {len(cache_entry.get('scraped_sources', []))} Quellen")
+            return cache_entry.copy()
+        else:
+            debug_print(f"   ❌ Cache-Miss! session_id '{session_id[:8]}...' nicht in Cache")
     return None
 
 
@@ -197,7 +207,8 @@ def save_cached_research(session_id: Optional[str], user_text: str, scraped_sour
         mode: Research mode used
         metadata_summary: Optional KI-generated semantic summary of sources
     """
-    if not _research_cache or not _research_cache_lock or not session_id:
+    if _research_cache is None or _research_cache_lock is None or not session_id:
+        debug_print("⚠️ DEBUG Cache-Speicherung fehlgeschlagen: Cache nicht initialisiert oder keine session_id")
         return
 
     with _research_cache_lock:
@@ -208,8 +219,11 @@ def save_cached_research(session_id: Optional[str], user_text: str, scraped_sour
             'mode': mode,
             'metadata_summary': metadata_summary  # 🆕 KI-generierte Zusammenfassung
         }
-    metadata_info = f", Metadata: {len(metadata_summary)} Zeichen" if metadata_summary else ""
-    debug_print(f"💾 Research-Cache gespeichert für Session {session_id[:8]}... ({len(scraped_sources)} Quellen{metadata_info})")
+        # DEBUG: Zeige Cache-Status nach Speichern
+        cache_size = len(_research_cache)
+        debug_print(f"💾 Research-Cache gespeichert für Session {session_id[:8]}...")
+        debug_print(f"   Cache enthält jetzt {cache_size} Einträge: {[k[:8] + '...' for k in _research_cache.keys()]}")
+        debug_print(f"   Gespeichert: {len(scraped_sources)} Quellen, user_text: '{user_text[:50]}...'")
 
 
 def delete_cached_research(session_id: Optional[str]) -> None:
