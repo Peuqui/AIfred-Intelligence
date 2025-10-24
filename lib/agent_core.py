@@ -15,7 +15,7 @@ import threading
 import ollama
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from agent_tools import search_web, scrape_webpage, build_context
+from .agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
 from .logging_utils import debug_print, console_print, console_separator
 from .message_builder import build_messages_from_history
@@ -434,9 +434,13 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
     # Versuche Cache zu laden
     main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
 
-    if session_id and main_module and hasattr(main_module, 'research_cache') and session_id in main_module.research_cache:
-        cache_entry = main_module.research_cache[session_id]
-        cached_sources = cache_entry.get('scraped_sources', [])
+    cached_sources = []
+    cache_entry = None
+    if session_id and main_module and hasattr(main_module, 'research_cache') and hasattr(main_module, 'research_cache_lock'):
+        with main_module.research_cache_lock:
+            if session_id in main_module.research_cache:
+                cache_entry = main_module.research_cache[session_id].copy()  # Copy to avoid holding lock
+                cached_sources = cache_entry.get('scraped_sources', [])
 
         if cached_sources:
             debug_print(f"💾 Cache-Hit! Nutze gecachte Recherche (Session {session_id[:8]}...)")
@@ -822,13 +826,14 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
         debug_print(f"🔍 DEBUG: main_module = {main_module}, hasattr research_cache = {hasattr(main_module, 'research_cache') if main_module else 'N/A'}")
 
-        if main_module and hasattr(main_module, 'research_cache'):
-            main_module.research_cache[session_id] = {
-                'timestamp': time.time(),
-                'user_text': user_text,
-                'scraped_sources': scraped_only,  # Vollständige Rohdaten!
-                'mode': mode
-            }
+        if main_module and hasattr(main_module, 'research_cache') and hasattr(main_module, 'research_cache_lock'):
+            with main_module.research_cache_lock:
+                main_module.research_cache[session_id] = {
+                    'timestamp': time.time(),
+                    'user_text': user_text,
+                    'scraped_sources': scraped_only,  # Vollständige Rohdaten!
+                    'mode': mode
+                }
             debug_print(f"💾 Research-Cache gespeichert für Session {session_id[:8]}... ({len(scraped_only)} Quellen)")
         else:
             debug_print(f"⚠️ DEBUG: research_cache nicht gefunden! Kein Cache gespeichert.")
@@ -891,9 +896,13 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
     cache_metadata = ""
     main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
 
-    if session_id and main_module and hasattr(main_module, 'research_cache') and session_id in main_module.research_cache:
-        cache_entry = main_module.research_cache[session_id]
-        cached_sources = cache_entry.get('scraped_sources', [])
+    cache_entry = None
+    cached_sources = []
+    if session_id and main_module and hasattr(main_module, 'research_cache') and hasattr(main_module, 'research_cache_lock'):
+        with main_module.research_cache_lock:
+            if session_id in main_module.research_cache:
+                cache_entry = main_module.research_cache[session_id].copy()
+                cached_sources = cache_entry.get('scraped_sources', [])
 
         if cached_sources:
             cache_age = time.time() - cache_entry.get('timestamp', 0)
@@ -979,9 +988,11 @@ Kann die NEUE Frage "{user_text}" mit den GLEICHEN gecachten Quellen beantwortet
 
             # WICHTIG: Cache LÖSCHEN vor neuer Recherche!
             # Die KI hat entschieden dass neue Daten nötig sind (z.B. neue Zeitangabe)
-            if session_id and main_module and hasattr(main_module, 'research_cache') and session_id in main_module.research_cache:
-                debug_print(f"🗑️ Cache wird gelöscht (KI fordert neue Recherche)")
-                del main_module.research_cache[session_id]
+            if session_id and main_module and hasattr(main_module, 'research_cache') and hasattr(main_module, 'research_cache_lock'):
+                with main_module.research_cache_lock:
+                    if session_id in main_module.research_cache:
+                        debug_print(f"🗑️ Cache wird gelöscht (KI fordert neue Recherche)")
+                        del main_module.research_cache[session_id]
 
             # Jetzt neue Recherche MIT session_id → neue Daten werden gecacht
             return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)

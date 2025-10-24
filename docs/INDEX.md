@@ -71,14 +71,6 @@ docs/
 |----------|--------------|--------|
 | [api/API_SETUP.md](api/API_SETUP.md) | API-Keys Setup (SearXNG, Brave, etc.) | ✅ Aktiv |
 
-### 👨‍💻 Entwicklung
-
-| Dokument | Beschreibung | Status |
-|----------|--------------|--------|
-| [development/CODE_REFACTORING_REPORT.md](development/CODE_REFACTORING_REPORT.md) | Phase 1 Refactoring-Report | ✅ Archiv |
-| [development/MIGRATION_GUIDE_ARCHIVE.md](development/MIGRATION_GUIDE_ARCHIVE.md) | Migration Mini-PC → WSL (nicht durchgeführt) | 🗄️ Archiv |
-| [development/archive-ollama-custom-builds/](development/archive-ollama-custom-builds/) | Alte Custom-Build-Dokumentation (obsolet) | 🗄️ Archiv |
-
 ---
 
 ## 📊 Performance-Übersicht

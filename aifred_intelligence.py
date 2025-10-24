@@ -3,6 +3,7 @@ import ollama
 import time
 import uuid
 import subprocess
+import threading
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -28,15 +29,36 @@ from lib.message_builder import build_messages_from_history
 # GLOBAL RESEARCH CACHE (RAM-basiert, Session-spezifisch)
 # ============================================================
 research_cache = {}  # {session_id: {'timestamp': ..., 'scraped_sources': [...], 'user_text': ...}}
+research_cache_lock = threading.Lock()  # Thread-safe access to cache
 
 
 
 # ============================================================
-# HELPER FUNCTION für Auto-Console-Update
+# HELPER FUNCTIONS
 # ============================================================
 def update_console_only():
     """Helper um Console zu aktualisieren ohne andere Outputs zu ändern"""
     return get_console_output()
+
+
+def safe_int_conversion(value, default=None):
+    """
+    Safely converts a value to int with error handling
+
+    Args:
+        value: Value to convert (can be str, int, float, None)
+        default: Default value if conversion fails (default: None)
+
+    Returns:
+        int or default value
+    """
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError) as e:
+        debug_print(f"⚠️ Invalid int conversion for '{value}': {e}, using default {default}")
+        return default
 
 
 # ============================================================
@@ -58,8 +80,22 @@ def chat_audio_step1_transcribe(audio, whisper_model_choice):
     return user_text, stt_time
 
 
-def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
-    """Schritt 2: AI-Antwort generieren mit Zeitmessung (ohne Agent)"""
+def _chat_unified(user_text, model_choice, enable_gpu, llm_options, history, stt_time=0.0):
+    """
+    Unified internal function for AI chat (without agent)
+    Used by both audio and text chat functions
+
+    Args:
+        user_text: User input text
+        model_choice: LLM model to use
+        enable_gpu: GPU acceleration flag
+        llm_options: LLM parameters dict
+        history: Chat history
+        stt_time: Speech-to-text time (0.0 for text input)
+
+    Returns:
+        (ai_text, history, inference_time)
+    """
     if not user_text:
         return "", history, 0.0
 
@@ -103,6 +139,11 @@ def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_c
     return ai_text, history, inference_time
 
 
+def chat_audio_step2_ai(user_text, stt_time, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
+    """Schritt 2: AI-Antwort generieren mit Zeitmessung (ohne Agent)"""
+    return _chat_unified(user_text, model_choice, enable_gpu, llm_options, history, stt_time=stt_time)
+
+
 def chat_audio_step3_tts(ai_text, inference_time, voice_choice, speed_choice, enable_tts, tts_engine, history):
     """Schritt 3: TTS Audio generieren mit Zeitmessung"""
     tts_time = 0.0
@@ -132,45 +173,7 @@ def chat_audio_step3_tts(ai_text, inference_time, voice_choice, speed_choice, en
 
 def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, enable_tts, tts_engine, enable_gpu, llm_options, history):
     """Text-Chat: AI-Antwort generieren mit Zeitmessung (ohne Agent)"""
-    if not text_input:
-        return "", history, 0.0
-
-    # Debug-Ausgabe
-    debug_print("=" * 60)
-    debug_print(f"🤖 AI Model: {model_choice}")
-    debug_print(f"💬 User (KOMPLETT): {text_input}")
-    debug_print(f"🎮 GPU: {'Aktiviert' if enable_gpu else 'Deaktiviert (CPU only)'}")
-    debug_print("=" * 60)
-
-    # Build Ollama messages from history (centralized)
-    messages = build_messages_from_history(history, text_input)
-
-    # Smart Model Loading vor Ollama-Call
-    # GPU-Modus und LLM-Parameter setzen (gilt für ALLE ollama.chat() Calls in diesem Request)
-    set_gpu_mode(enable_gpu, llm_options)
-
-    # Console-Log: LLM startet
-    console_print(f"🤖 Haupt-LLM startet: {model_choice}")
-
-    # Zeit messen
-    start_time = time.time()
-    response = ollama.chat(model=model_choice, messages=messages)
-    inference_time = time.time() - start_time
-
-    # Console-Log: LLM fertig
-    console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(response['message']['content'])} Zeichen)")
-    console_separator()
-
-    ai_text = response['message']['content']
-
-    # Formatiere <think> Tags als Collapsible (falls vorhanden) mit Modell-Name und Inferenz-Zeit
-    ai_text_formatted = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
-
-    # Text-Input hat keine STT-Zeit
-    history.append([text_input, ai_text_formatted])
-    debug_print(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
-    debug_print("═" * 80)  # Separator nach jeder Anfrage
-    return ai_text, history, inference_time
+    return _chat_unified(text_input, model_choice, enable_gpu, llm_options, history, stt_time=0.0)
 
 
 def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
@@ -211,7 +214,7 @@ def reload_model(model_name, enable_gpu, num_ctx):
     time.sleep(1)  # Kurze Pause für sauberes Entladen
 
     # Setze GPU-Modus UND num_ctx für einen Test-Call
-    set_gpu_mode(enable_gpu, {'num_ctx': int(num_ctx) if num_ctx is not None else 4096})
+    set_gpu_mode(enable_gpu, {'num_ctx': safe_int_conversion(num_ctx, default=4096)})
 
     # Mache einen Mini-Call um Model zu laden
     try:
@@ -1166,7 +1169,7 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
     ).then(
         # Schritt 2: AI Inference - Nur ai_text zeigt Fortschrittsbalken
         lambda show_trans, user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist, sess_id, temp_mode: \
-            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx) if num_ctx is not None else None, "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist, sess_id, temp_mode, temp) if not show_trans else ("", hist, 0.0),
+            chat_audio_step2_with_mode(user_txt, stt_t, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": safe_int_conversion(num_ctx), "temperature": temp, "num_predict": safe_int_conversion(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": safe_int_conversion(sd) if sd != -1 else None, "top_p": tp_p, "top_k": safe_int_conversion(tp_k)}, hist, sess_id, temp_mode, temp) if not show_trans else ("", hist, 0.0),
         inputs=[show_transcription, user_text, stt_time_state, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id, temperature_mode],
         outputs=[ai_text, history, inference_time_state]
     ).then(
@@ -1200,7 +1203,7 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
     ).then(
         # Stufe 1: AI-Antwort generieren mit Modus-Routing (Agent oder Standard)
         lambda txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, num_ctx, temp, num_pred, rep_pen, sd, tp_p, tp_k, hist, sess_id, temp_mode: \
-            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": int(num_ctx) if num_ctx is not None else None, "temperature": temp, "num_predict": int(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": int(sd) if sd != -1 else None, "top_p": tp_p, "top_k": int(tp_k)}, hist, sess_id, temp_mode, temp),
+            chat_text_step1_with_mode(txt, res_mode, mdl, auto_mdl, voi, spd, tts_en, tts_eng, gpu_en, {"num_ctx": safe_int_conversion(num_ctx), "temperature": temp, "num_predict": safe_int_conversion(num_pred) if num_pred != -1 else None, "repeat_penalty": rep_pen, "seed": safe_int_conversion(sd) if sd != -1 else None, "top_p": tp_p, "top_k": safe_int_conversion(tp_k)}, hist, sess_id, temp_mode, temp),
         inputs=[text_input, research_mode, model, automatik_model, voice, tts_speed, enable_tts, tts_engine, enable_gpu, llm_num_ctx, llm_temperature, llm_num_predict, llm_repeat_penalty, llm_seed, llm_top_p, llm_top_k, history, session_id, temperature_mode],
         outputs=[ai_text, history, inference_time_state]
     ).then(

@@ -156,6 +156,43 @@ class BaseTool:
 
         self.last_call_time = time.time()
 
+    def _extract_urls_from_results(self, results: List[Dict], url_key='url', title_key='title', content_key='description', max_results=10) -> tuple:
+        """
+        Extrahiert URLs, Titel und Snippets aus Suchergebnissen
+
+        Args:
+            results: Liste von Suchergebnis-Dictionaries
+            url_key: Key für URL in Result-Dict
+            title_key: Key für Titel in Result-Dict
+            content_key: Key für Content/Description in Result-Dict
+            max_results: Maximale Anzahl an Ergebnissen
+
+        Returns:
+            (related_urls, titles, snippets, content): Tuple mit extrahierten Daten
+        """
+        related_urls = []
+        titles = []
+        snippets = []
+
+        for result in results[:max_results]:
+            url = result.get(url_key, '')
+            title = result.get(title_key, '')
+            snippet = result.get(content_key, '')
+
+            if url:
+                related_urls.append(url)
+                titles.append(title)
+                snippets.append(snippet)
+
+        # Baue Content für Context (erste 5 Ergebnisse)
+        content_parts = []
+        for i, (title, snippet) in enumerate(zip(titles[:5], snippets[:5]), 1):
+            content_parts.append(f"{i}. **{title}**: {snippet}")
+
+        content = "\n\n".join(content_parts)
+
+        return related_urls, titles, snippets, content
+
 
 # ============================================================
 # BRAVE SEARCH API (Primary)
@@ -223,27 +260,9 @@ class BraveSearchTool(BaseTool):
 
             # Extrahiere Ergebnisse
             web_results = data.get('web', {}).get('results', [])
-
-            related_urls = []
-            titles = []
-            snippets = []
-
-            for result in web_results[:10]:
-                url = result.get('url', '')
-                title = result.get('title', '')
-                description = result.get('description', '')
-
-                if url:
-                    related_urls.append(url)
-                    titles.append(title)
-                    snippets.append(description)
-
-            # Baue Content für Context
-            content_parts = []
-            for i, (title, snippet) in enumerate(zip(titles[:5], snippets[:5]), 1):
-                content_parts.append(f"{i}. **{title}**: {snippet}")
-
-            content = "\n\n".join(content_parts)
+            related_urls, titles, snippets, content = self._extract_urls_from_results(
+                web_results, url_key='url', title_key='title', content_key='description', max_results=10
+            )
 
             result = {
                 'success': True,
@@ -338,27 +357,9 @@ class TavilySearchTool(BaseTool):
 
             # Extrahiere Ergebnisse
             results = data.get('results', [])
-
-            related_urls = []
-            titles = []
-            snippets = []
-
-            for result in results:
-                url = result.get('url', '')
-                title = result.get('title', '')
-                content = result.get('content', '')
-
-                if url:
-                    related_urls.append(url)
-                    titles.append(title)
-                    snippets.append(content)
-
-            # Baue Content
-            content_parts = []
-            for i, (title, snippet) in enumerate(zip(titles[:5], snippets[:5]), 1):
-                content_parts.append(f"{i}. **{title}**: {snippet}")
-
-            content = "\n\n".join(content_parts)
+            related_urls, titles, snippets, content = self._extract_urls_from_results(
+                results, url_key='url', title_key='title', content_key='content', max_results=10
+            )
 
             result = {
                 'success': True,
@@ -441,27 +442,9 @@ class SearXNGSearchTool(BaseTool):
 
             # Extrahiere Ergebnisse
             results = data.get('results', [])
-
-            related_urls = []
-            titles = []
-            snippets = []
-
-            for result in results[:10]:
-                url = result.get('url', '')
-                title = result.get('title', '')
-                content = result.get('content', '')
-
-                if url:
-                    related_urls.append(url)
-                    titles.append(title)
-                    snippets.append(content)
-
-            # Baue Content
-            content_parts = []
-            for i, (title, snippet) in enumerate(zip(titles[:5], snippets[:5]), 1):
-                content_parts.append(f"{i}. **{title}**: {snippet}")
-
-            content = "\n\n".join(content_parts)
+            related_urls, titles, snippets, content = self._extract_urls_from_results(
+                results, url_key='url', title_key='title', content_key='content', max_results=10
+            )
 
             result = {
                 'success': True,
@@ -525,16 +508,16 @@ class MultiAPISearchTool(BaseTool):
             try:
                 self.apis.append(TavilySearchTool(tavily_key))
                 logger.info("✅ Tavily AI aktiviert (Primary)")
-            except:
-                logger.warning("⚠️ Tavily AI konnte nicht initialisiert werden")
+            except (APIKeyMissingError, ValueError, RuntimeError) as e:
+                logger.warning(f"⚠️ Tavily AI konnte nicht initialisiert werden: {e}")
 
         # Brave (Fallback 1)
         if brave_key or os.getenv('BRAVE_API_KEY'):
             try:
                 self.apis.append(BraveSearchTool(brave_key))
                 logger.info("✅ Brave Search API aktiviert (Fallback 1)")
-            except:
-                logger.warning("⚠️ Brave Search API konnte nicht initialisiert werden")
+            except (APIKeyMissingError, ValueError, RuntimeError) as e:
+                logger.warning(f"⚠️ Brave Search API konnte nicht initialisiert werden: {e}")
 
         # SearXNG (Last Resort - immer verfügbar wenn Server läuft)
         self.apis.append(SearXNGSearchTool(searxng_url))

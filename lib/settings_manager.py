@@ -94,8 +94,8 @@ def save_settings(model, automatik_model, voice, tts_speed, enable_tts, tts_engi
                     if previous_gpu != enable_gpu:
                         debug_print(f"⚡ GPU-Toggle geändert: {previous_gpu} → {enable_gpu}")
                         debug_print(f"   Modell bleibt im RAM, num_gpu Parameter wird beim nächsten API-Call angepasst")
-            except:
-                pass
+            except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+                debug_print(f"⚠️ Fehler beim Lesen der vorherigen Settings: {e}")
 
         with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)

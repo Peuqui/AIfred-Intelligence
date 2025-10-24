@@ -92,35 +92,6 @@ def list_available_prompts():
     ]
 
 
-def get_placeholders(prompt_template):
-    """
-    Extrahiert alle Platzhalter aus einem Prompt-Template
-
-    Args:
-        prompt_template: Prompt-String mit {placeholders}
-
-    Returns:
-        set: Set aller gefundenen Platzhalter
-    """
-    import re
-    # Finde alle {placeholder} Muster
-    placeholders = re.findall(r'\{(\w+)\}', prompt_template)
-    return set(placeholders)
-
-
-def reload_prompt(prompt_name):
-    """
-    Lädt einen Prompt neu (nützlich während Entwicklung/Testing)
-
-    Args:
-        prompt_name: Name der Prompt-Datei
-
-    Returns:
-        str: Neu geladener Prompt (ohne Formatierung)
-    """
-    return load_prompt(prompt_name)
-
-
 # Convenience-Funktionen für häufig genutzte Prompts
 def get_url_rating_prompt(query, url_list):
     """URL-Rating Prompt laden"""
