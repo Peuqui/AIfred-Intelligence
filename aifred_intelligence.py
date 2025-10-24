@@ -22,7 +22,14 @@ from lib.ollama_interface import get_ollama_models, get_whisper_model, initializ
 from lib.audio_processing import (
     clean_text_for_tts, transcribe_audio, generate_tts
 )
-from lib.agent_core import perform_agent_research, chat_interactive_mode
+from lib.agent_core import (
+    perform_agent_research,
+    chat_interactive_mode,
+    generate_cache_metadata,
+    set_research_cache,
+    set_haupt_llm_context_limit,
+    set_automatik_llm_context_limit
+)
 from lib.ollama_wrapper import set_gpu_mode
 from lib.message_builder import build_messages_from_history
 
@@ -33,7 +40,6 @@ research_cache = {}  # {session_id: {'timestamp': ..., 'scraped_sources': [...],
 research_cache_lock = threading.Lock()  # Thread-safe access to cache
 
 # Initialize research cache in agent_core via dependency injection
-from lib.agent_core import set_research_cache
 set_research_cache(research_cache, research_cache_lock)
 
 
@@ -301,6 +307,10 @@ def chat_text_step1_with_mode(text_input, research_mode, model_choice, automatik
     if not text_input:
         return "", history, 0.0
 
+    # Bereinige text_input von führenden/trailing Whitespaces und Zeilenumbrüchen
+    # Dies verhindert Formatierungsprobleme in Prompts (z.B. Decision-Making)
+    text_input = text_input.strip()
+
     # Parse research_mode und route entsprechend
     if "Eigenes Wissen" in research_mode:
         # Standard-Pipeline ohne Agent
@@ -357,6 +367,12 @@ debug_print(f"   Voice: {saved_settings['voice']}")
 debug_print(f"   Speed: {saved_settings['tts_speed']}")
 debug_print(f"   TTS Enabled: {saved_settings['enable_tts']}")
 debug_print("=" * 60)
+
+# Setze Model Context Limits für initiale Modelle
+debug_print("📏 Lade Context-Limits für initiale Modelle...")
+set_haupt_llm_context_limit(saved_settings['model'])
+set_automatik_llm_context_limit(saved_settings['automatik_model'])
+debug_print("✅ Context-Limits geladen")
 
 # Gradio Interface - Default Theme (automatisches Dark Mode je nach System)
 custom_css = """
@@ -1050,10 +1066,20 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         lambda h: h,  # Update chatbot UI
         inputs=[history],
         outputs=[chatbot]
+    ).then(
+        # Setze Context-Limit für neues Haupt-Modell
+        lambda mdl: set_haupt_llm_context_limit(mdl),
+        inputs=[model],
+        outputs=[]
     )
 
     # Andere Settings-Änderungen
-    automatik_model.change(update_settings, inputs=[model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, temperature_mode, llm_temperature])
+    automatik_model.change(update_settings, inputs=[model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, temperature_mode, llm_temperature]).then(
+        # Setze Context-Limit für neues Automatik-Modell
+        lambda auto_mdl: set_automatik_llm_context_limit(auto_mdl),
+        inputs=[automatik_model],
+        outputs=[]
+    )
     whisper_model.change(update_settings, inputs=[model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, temperature_mode, llm_temperature])
     voice.change(update_settings, inputs=[model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, temperature_mode, llm_temperature])
     tts_speed.change(update_settings, inputs=[model, automatik_model, voice, tts_speed, enable_tts, tts_engine, whisper_model, research_mode, show_transcription, enable_gpu, temperature_mode, llm_temperature])
@@ -1209,6 +1235,16 @@ Nach dieser Vorauswahl generiert dein **Haupt-LLM** die finale Antwort.
         outputs=[ai_text, history, inference_time_state]
     ).then(
         # Console Update nach LLM
+        update_console_only,
+        outputs=[debug_console]
+    ).then(
+        # Stufe 1.5: Cache-Metadata generieren (asynchron, blockiert UI nicht)
+        # Läuft im Hintergrund während User die Antwort schon sehen kann
+        lambda sess_id, mdl: generate_cache_metadata(sess_id, mdl),
+        inputs=[session_id, model],
+        outputs=[]
+    ).then(
+        # Console Update nach Metadata
         update_console_only,
         outputs=[debug_console]
     ).then(

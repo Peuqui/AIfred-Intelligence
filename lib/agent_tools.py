@@ -23,9 +23,16 @@ from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
+from .logging_utils import debug_print
 
 # Logging Setup
 logger = logging.getLogger(__name__)
+
+# Deaktiviere Debug-Ausgaben von externen Libraries
+logging.getLogger('trafilatura').setLevel(logging.WARNING)  # Nur Warnings/Errors
+logging.getLogger('playwright').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('requests').setLevel(logging.WARNING)
 
 
 # ============================================================
@@ -633,9 +640,10 @@ class WebScraperTool(BaseTool):
         self.description = "Extrahiert Text-Content von Webseiten"
         self.min_call_interval = 1.0
 
-        # trafilatura Config mit 15s Timeout (statt default 30s)
+        # trafilatura Config mit 10s Timeout (statt default 30s)
         self.trafilatura_config = deepcopy(DEFAULT_CONFIG)
-        self.trafilatura_config.set('DEFAULT', 'DOWNLOAD_TIMEOUT', '15')
+        self.trafilatura_config.set('DEFAULT', 'DOWNLOAD_TIMEOUT', '10')
+        self.trafilatura_config.set('DEFAULT', 'MAX_REDIRECTS', '2')  # Max 2 Redirects (default ist mehr)
     def execute(self, url: str, **kwargs) -> Dict:
         """
         Scraped eine Webseite komplett ohne Längenlimit
@@ -654,21 +662,21 @@ class WebScraperTool(BaseTool):
         # Versuch 1: trafilatura (schnell + sauber)
         result = self._scrape_with_trafilatura(url)
 
-        # Versuch 2: Playwright Fallback (nur wenn nötig)
-        should_retry_with_playwright = (
-            not result['success'] or  # trafilatura fehlgeschlagen
-            result.get('word_count', 0) < self.PLAYWRIGHT_FALLBACK_THRESHOLD  # Zu wenig Content (wahrscheinlich JavaScript)
-        )
+        # Intelligente Playwright-Fallback-Strategie:
+        # 1. Download failed (404, timeout, bot-protection) → KEIN Playwright (sinnlos!)
+        # 2. Zu wenig Content (< threshold) → Playwright (JS-heavy Site!)
 
-        if should_retry_with_playwright:
-            if not result['success']:
-                logger.warning(f"⚠️ trafilatura fehlgeschlagen → Retry mit Playwright (JavaScript)")
-            else:
-                logger.warning(f"⚠️ trafilatura nur {result['word_count']} Wörter → Retry mit Playwright (JavaScript)")
+        if not result['success']:
+            # Download failed → Site blockiert/down → Playwright bringt nichts!
+            debug_print(f"⚠️ trafilatura Download failed → SKIP Playwright (Site blockiert/down)")
+            return result
 
+        # Trafilatura erfolgreich, aber zu wenig Content? → JS-heavy Site!
+        if result.get('word_count', 0) < self.PLAYWRIGHT_FALLBACK_THRESHOLD:
+            debug_print(f"⚠️ trafilatura nur {result['word_count']} Wörter → Retry mit Playwright (JavaScript)")
             playwright_result = self._scrape_with_playwright(url)
             if playwright_result['success']:
-                logger.info(f"✅ Playwright: {playwright_result['word_count']} Wörter (trafilatura: {result.get('word_count', 0)})")
+                debug_print(f"✅ Playwright: {playwright_result['word_count']} Wörter (trafilatura: {result.get('word_count', 0)})")
                 return playwright_result
 
         return result
@@ -764,7 +772,7 @@ class WebScraperTool(BaseTool):
                 page = browser.new_page()
 
                 # Navigiere zur Seite und warte auf Netzwerk-Idle
-                page.goto(url, wait_until='networkidle', timeout=15000)
+                page.goto(url, wait_until='networkidle', timeout=10000)
 
                 # Warte noch 2s für lazy-loaded Content
                 page.wait_for_timeout(2000)

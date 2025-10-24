@@ -2,21 +2,26 @@ Frage: "{user_text}"
 
 Du hast KEIN Internet! Trainingsdaten bis Jan 2025.
 
-ANTWORTE NUR MIT EINEM TAG:
+ANTWORTE NUR MIT EINER DIESER XML-MARKIERUNGEN:
 
 <search>yes</search>     = Web-Recherche nötig
 <search>no</search>      = Dein Wissen reicht
-<search>context</search> = Cache nutzen
+<search>context</search> = Cache nutzen (nur wenn Cache verfügbar unten!)
+
+**WICHTIG:**
+• <search>context</search> NUR wenn CACHE VERFÜGBAR unten angezeigt!
+• Wenn KEIN CACHE unten → IMMER <search>yes</search> oder <search>no</search>!
 
 REGELN:
 • Wetter/News/Preise/Live-Daten → <search>yes</search>
 • Allgemeinwissen/Mathe/Chat → <search>no</search>
-• Nachfrage zu vorheriger Antwort → <search>context</search>
+• Nachfrage zu vorheriger Antwort (wenn Cache da!) → <search>context</search>
 
 BEISPIELE:
 "Wetter morgen?" → <search>yes</search>
-"Wie wird Wetter?" → <search>yes</search>
+"Wie wird das Wetter morgen?" → <search>yes</search>
+"Wetter in Berlin morgen?" → <search>yes</search>
 "Was ist Wetter?" → <search>no</search>
 "Hallo" → <search>no</search>{cache_metadata}
 
-Antworte NUR mit dem Tag!
+Antworte NUR mit der XML-Markierung (nichts anderes)!

@@ -20,7 +20,7 @@ Usage:
 """
 
 import ollama
-from .logging_utils import debug_print
+from .logging_utils import debug_print, console_print
 from threading import local
 
 # Thread-local storage für GPU-Einstellung und LLM-Parameter
@@ -28,6 +28,60 @@ _thread_local = local()
 
 # Original ollama.chat function (wird beim ersten Import gespeichert)
 _original_ollama_chat = ollama.chat
+
+
+def _log_ollama_performance(response) -> None:
+    """
+    Loggt Ollama Performance-Metriken aus der Response (zentral für alle ollama.chat() Aufrufe).
+
+    Output:
+    - Journal-Control (debug_print): Vollständige Metriken (Prompt t/s, Gen t/s, Zeit)
+    - Browser Console (console_print): Nur Generation t/s (kompakt)
+
+    Args:
+        response: Ollama Response-Dict oder Pydantic-Objekt
+    """
+    try:
+        # Konvertiere Pydantic zu Dict falls nötig
+        if hasattr(response, 'model_dump'):
+            data = response.model_dump()
+        else:
+            data = dict(response) if not isinstance(response, dict) else response
+
+        # Extrahiere Metriken
+        prompt_tokens = data.get('prompt_eval_count', 0)
+        prompt_ns = data.get('prompt_eval_duration', 0)
+        gen_tokens = data.get('eval_count', 0)
+        gen_ns = data.get('eval_duration', 0)
+        total_ns = data.get('total_duration', 0)
+
+        # Berechne Tokens/Sekunde
+        if prompt_ns > 0:
+            prompt_tps = prompt_tokens / (prompt_ns / 1e9)
+        else:
+            prompt_tps = 0
+
+        if gen_ns > 0:
+            gen_tps = gen_tokens / (gen_ns / 1e9)
+        else:
+            gen_tps = 0
+
+        total_s = total_ns / 1e9
+
+        # Journal-Control: Vollständige Metriken
+        if prompt_tps > 0 and gen_tps > 0:
+            debug_print(f"   ⚡ {prompt_tps:.0f} t/s Prompt | {gen_tps:.0f} t/s Gen | {total_s:.1f}s")
+        elif gen_tps > 0:
+            debug_print(f"   ⚡ {gen_tps:.0f} t/s Gen | {total_s:.1f}s")
+        else:
+            debug_print(f"   ⚡ {total_s:.1f}s")
+
+        # Browser Console: Nur Generation t/s (kompakt)
+        if gen_tps > 0:
+            console_print(f"⚡ {gen_tps:.0f} t/s")
+
+    except Exception as e:
+        debug_print(f"⚠️ Fehler beim Formatieren von Ollama Performance: {e}")
 
 
 
@@ -87,7 +141,12 @@ def _patched_ollama_chat(*args, **kwargs):
                 debug_print(f"🎨 [ollama.chat] Custom LLM-Parameter: {relevant}")
 
     # Rufe originale ollama.chat() Funktion auf
-    return _original_ollama_chat(*args, **kwargs)
+    response = _original_ollama_chat(*args, **kwargs)
+
+    # Performance-Metriken loggen (zentral für alle ollama.chat() Aufrufe)
+    _log_ollama_performance(response)
+
+    return response
 
 
 # Patche ollama.chat() global

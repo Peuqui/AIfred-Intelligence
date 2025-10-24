@@ -10,7 +10,6 @@ This module handles agent-based research workflows including:
 
 import time
 import re
-import sys
 import threading
 import ollama
 from datetime import datetime
@@ -37,6 +36,14 @@ THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 # ============================================================
 _research_cache = None
 _research_cache_lock = None
+
+# ============================================================
+# MODEL CONTEXT LIMITS
+# ============================================================
+# Speichert die Context-Limits der aktuell genutzten Modelle
+# Diese werden beim Service-Start und bei Modellwechsel von Ollama abgefragt
+_haupt_llm_context_limit = 4096      # Fallback: 4096 Tokens
+_automatik_llm_context_limit = 4096  # Fallback: 4096 Tokens
 
 
 def set_research_cache(cache_dict: Dict, lock: threading.Lock) -> None:
@@ -69,6 +76,112 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
         if session_id in _research_cache:
             return _research_cache[session_id].copy()
     return None
+
+
+def generate_cache_metadata(session_id: Optional[str], model_choice: str) -> None:
+    """
+    Generiert KI-basierte Metadata für gecachte Research-Daten (asynchron nach UI-Update).
+
+    Diese Funktion wird NACH dem UI-Update aufgerufen, damit der User nicht auf die
+    Metadata-Generierung warten muss. Sie holt den Cache, generiert eine semantische
+    Zusammenfassung der Quellen, und updated den Cache.
+
+    Args:
+        session_id: Session ID für Cache-Lookup
+        model_choice: LLM-Modell für Metadata-Generierung
+    """
+    if not session_id or not _research_cache or not _research_cache_lock:
+        return
+
+    try:
+        # Hole Cache-Daten
+        cache_entry = get_cached_research(session_id)
+        if not cache_entry:
+            debug_print("⚠️ Metadata-Generierung: Kein Cache gefunden")
+            return
+
+        scraped_sources = cache_entry.get('scraped_sources', [])
+        if not scraped_sources:
+            debug_print("⚠️ Metadata-Generierung: Keine Quellen im Cache")
+            return
+
+        debug_print("📝 Generiere KI-basierte Cache-Metadata...")
+        console_print("📝 Erstelle Cache-Zusammenfassung...")
+
+        # Baue Prompt für Metadata-Generierung
+        sources_preview = "\n\n".join([
+            f"Quelle {i+1}: {s.get('title', 'N/A')}\nURL: {s.get('url', 'N/A')}\nInhalt: {s.get('content', '')[:500]}..."
+            for i, s in enumerate(scraped_sources[:3])  # Erste 3 Quellen für Kontext
+        ])
+
+        metadata_prompt = f"""Analysiere die Recherche-Quellen und erstelle eine KURZE Zusammenfassung (max 150 Zeichen):
+
+QUELLEN:
+{sources_preview}
+
+AUFGABE:
+Beschreibe in 1-2 Sätzen:
+- Welches Thema/Zeitraum wird abgedeckt?
+- Welche Hauptinformationen sind enthalten?
+
+BEISPIELE:
+Wetter: "7-Tage-Vorhersage Niestetal (24.10-30.10): Temp 12-18°C, Niederschlag, Wind"
+News: "Nobelpreis Physik 2025: Verleihung 7.10, Gewinner-Namen nicht genannt"
+Produkt: "iPhone 16 Pro: Display, Prozessor A18, Kamera 48MP, Akku 4685mAh"
+
+Antworte NUR mit der Zusammenfassung (max 150 Zeichen), nichts anderes!"""
+
+        # DEBUG: Zeige Metadata-Generierung Prompt vollständig
+        debug_print("=" * 60)
+        debug_print("📋 METADATA GENERATION PROMPT:")
+        debug_print("-" * 60)
+        debug_print(metadata_prompt)
+        debug_print("-" * 60)
+        debug_print(f"Prompt-Länge: {len(metadata_prompt)} Zeichen, ~{len(metadata_prompt.split())} Wörter")
+        debug_print("=" * 60)
+
+        messages = [{'role': 'user', 'content': metadata_prompt}]
+
+        # DEBUG: Zeige Messages-Array vollständig
+        debug_print("=" * 60)
+        debug_print(f"📨 MESSAGES an {model_choice} (Metadata):")
+        debug_print("-" * 60)
+        for i, msg in enumerate(messages):
+            debug_print(f"Message {i+1} - Role: {msg['role']}")
+            debug_print(f"Content: {msg['content']}")
+            debug_print("-" * 60)
+        # Dynamisches num_ctx basierend auf Haupt-LLM-Limit (50% für Metadata, kurzer Output)
+        metadata_num_ctx = min(2048, _haupt_llm_context_limit // 2)  # Max 2048 oder 50% des Limits
+
+        debug_print(f"Total Messages: {len(messages)}, Temperature: 0.1, num_ctx: {metadata_num_ctx} (Haupt-LLM-Limit: {_haupt_llm_context_limit}), num_predict: 100")
+        debug_print("=" * 60)
+
+        metadata_start = time.time()
+        metadata_response = ollama.chat(
+            model=model_choice,
+            messages=messages,
+            options={'temperature': 0.1, 'num_ctx': metadata_num_ctx, 'num_predict': 100}
+        )
+        metadata_summary = metadata_response['message']['content'].strip()
+        metadata_time = time.time() - metadata_start
+
+        # Kürze auf max 150 Zeichen falls nötig
+        if len(metadata_summary) > 150:
+            metadata_summary = metadata_summary[:147] + "..."
+
+        # Update Cache mit Metadata
+        with _research_cache_lock:
+            if session_id in _research_cache:
+                _research_cache[session_id]['metadata_summary'] = metadata_summary
+
+        debug_print(f"✅ Cache-Metadata generiert ({metadata_time:.1f}s): {metadata_summary}")
+        console_print(f"✅ Zusammenfassung erstellt {metadata_summary[:80]}{'...' if len(metadata_summary) > 80 else ''}")
+        console_separator()
+
+    except Exception as e:
+        debug_print(f"⚠️ Fehler bei Metadata-Generierung: {e}")
+        console_print(f"⚠️ Metadata-Generierung fehlgeschlagen")
+        console_separator()
 
 
 def save_cached_research(session_id: Optional[str], user_text: str, scraped_sources: List[Dict], mode: str, metadata_summary: Optional[str] = None) -> None:
@@ -127,19 +240,100 @@ def estimate_tokens(messages):
     return total_size // 4
 
 
-def calculate_dynamic_num_ctx(messages, llm_options=None):
+def query_model_context_limit(model_name: str) -> int:
     """
-    Berechnet optimales num_ctx basierend auf Message-Größe
+    Fragt das Context-Limit eines Modells von Ollama ab.
 
-    Ollama begrenzt automatisch auf das Model-Maximum!
-    (qwen3:8b = 32K, phi3:mini = 128K, mistral = 32K, etc.)
+    Nutzt die original_context_length (Training Context) als sicheres Limit,
+    nicht die erweiterte context_length (RoPE-Scaling).
+
+    Diese Funktion wird NUR beim Service-Start und bei Modellwechsel aufgerufen,
+    NICHT bei jedem Request!
+
+    Args:
+        model_name: Name des Ollama-Modells (z.B. "phi3:mini", "qwen3:8b")
+
+    Returns:
+        int: Original Context Limit in Tokens (z.B. 4096 für phi3:mini, 32768 für qwen3:8b)
+             Fallback: 4096 wenn Abfrage fehlschlägt
+    """
+    try:
+        # Ollama API abfragen
+        response = ollama.show(model_name)
+        # Konvertiere Pydantic-Objekt zu Dict (model_dump() statt deprecated dict())
+        data = response.model_dump() if hasattr(response, 'model_dump') else response.dict()
+        # WICHTIG: Key heißt 'modelinfo' nicht 'model_info'!
+        model_details = data.get('modelinfo', {})
+
+        # Suche nach original_context_length (sicherstes Limit)
+        # Beispiel phi3: "phi3.rope.scaling.original_context_length": 4096
+        # Beispiel qwen: "qwen2.context_length": 32768
+
+        # PRIORITÄT 1: Suche nach original_context_length (für Modelle mit RoPE-Scaling)
+        for key, value in model_details.items():
+            if 'original_context' in key.lower():
+                limit = int(value)
+                debug_print(f"📏 Model {model_name}: Context Limit = {limit} Tokens (aus {key}, original)")
+                return limit
+
+        # PRIORITÄT 2: Suche nach .context_length (für Modelle ohne RoPE-Scaling)
+        for key, value in model_details.items():
+            if key.endswith('.context_length'):
+                limit = int(value)
+                debug_print(f"📏 Model {model_name}: Context Limit = {limit} Tokens (aus {key})")
+                return limit
+
+        # Fallback: Wenn nicht gefunden, nutze 4K (konservativ)
+        debug_print(f"⚠️ Model {model_name}: Context Limit nicht gefunden, nutze 4096 Fallback")
+        return 4096
+
+    except Exception as e:
+        debug_print(f"⚠️ Fehler beim Abfragen von Model-Info für {model_name}: {e}")
+        return 4096  # Konservativer Fallback
+
+
+def set_haupt_llm_context_limit(model_name: str) -> None:
+    """
+    Setzt das Context-Limit für das Haupt-LLM.
+    Wird beim Service-Start und bei Modellwechsel aufgerufen.
+
+    Args:
+        model_name: Name des Haupt-LLM Modells
+    """
+    global _haupt_llm_context_limit
+    _haupt_llm_context_limit = query_model_context_limit(model_name)
+    debug_print(f"✅ Haupt-LLM Context-Limit gesetzt: {_haupt_llm_context_limit}")
+
+
+def set_automatik_llm_context_limit(model_name: str) -> None:
+    """
+    Setzt das Context-Limit für das Automatik-LLM.
+    Wird beim Service-Start und bei Modellwechsel aufgerufen.
+
+    Args:
+        model_name: Name des Automatik-LLM Modells
+    """
+    global _automatik_llm_context_limit
+    _automatik_llm_context_limit = query_model_context_limit(model_name)
+    debug_print(f"✅ Automatik-LLM Context-Limit gesetzt: {_automatik_llm_context_limit}")
+
+
+def calculate_dynamic_num_ctx(messages, llm_options=None, is_automatik_llm=False):
+    """
+    Berechnet optimales num_ctx basierend auf Message-Größe und Model-Limit.
+
+    Die Berechnung berücksichtigt:
+    1. Message-Größe + 30% Puffer + 2048 für Antwort
+    2. Model-Maximum (Haupt-LLM oder Automatik-LLM Limit)
+    3. User-Override (falls in llm_options gesetzt)
 
     Args:
         messages: Liste von Message-Dicts mit 'content' Key
         llm_options: Dict mit optionalem 'num_ctx' Override
+        is_automatik_llm: True wenn für Automatik-LLM berechnet wird (default: False = Haupt-LLM)
 
     Returns:
-        int: Optimales num_ctx (gerundet auf Standard-Größen)
+        int: Optimales num_ctx (gerundet auf Standard-Größen, geclippt auf Model-Limit)
     """
     # Check für manuellen Override
     user_num_ctx = llm_options.get('num_ctx') if llm_options else None
@@ -152,36 +346,51 @@ def calculate_dynamic_num_ctx(messages, llm_options=None):
     # Puffer: +30% für Varianz + 2048 für Antwort
     needed_tokens = int(estimated_tokens * 1.3) + 2048
 
-    # Runde auf Standard-Größe - kein Maximum!
-    # Ollama clippt automatisch aufs jeweilige Model-Limit
+    # Runde auf Standard-Größe
     if needed_tokens <= 2048:
-        return 2048
+        calculated_ctx = 2048
     elif needed_tokens <= 4096:
-        return 4096
+        calculated_ctx = 4096
     elif needed_tokens <= 8192:
-        return 8192
+        calculated_ctx = 8192
     elif needed_tokens <= 10240:
-        return 10240
+        calculated_ctx = 10240
     elif needed_tokens <= 12288:
-        return 12288
+        calculated_ctx = 12288
     elif needed_tokens <= 16384:
-        return 16384
+        calculated_ctx = 16384
     elif needed_tokens <= 20480:
-        return 20480  # 20K
+        calculated_ctx = 20480  # 20K
     elif needed_tokens <= 24576:
-        return 24576  # 24K
+        calculated_ctx = 24576  # 24K
     elif needed_tokens <= 28672:
-        return 28672  # 28K
+        calculated_ctx = 28672  # 28K
     elif needed_tokens <= 32768:
-        return 32768  # 32K
+        calculated_ctx = 32768  # 32K
     elif needed_tokens <= 49152:
-        return 49152  # 48K
+        calculated_ctx = 49152  # 48K
     elif needed_tokens <= 65536:
-        return 65536  # 64K
+        calculated_ctx = 65536  # 64K
     elif needed_tokens <= 98304:
-        return 98304  # 96K
+        calculated_ctx = 98304  # 96K
     else:
-        return 131072  # 128K (phi3:mini Maximum)
+        calculated_ctx = 131072  # 128K
+
+    # WICHTIG: Clippe auf Model-Limit
+    model_limit = _automatik_llm_context_limit if is_automatik_llm else _haupt_llm_context_limit
+    llm_type = "Automatik-LLM" if is_automatik_llm else "Haupt-LLM"
+
+    if calculated_ctx > model_limit:
+        debug_print(f"⚠️ Context {calculated_ctx} > {llm_type}-Limit {model_limit}, clippe auf {model_limit}")
+
+        # Zusätzliche Warnung NUR wenn Messages TATSÄCHLICH größer als Model-Limit
+        if estimated_tokens > model_limit:  # Kontext ÜBERSCHRITTEN
+            console_print(f"⚠️ WARNUNG: Kontext überschritten! ({estimated_tokens} Tokens > {model_limit} Tokens Limit)")
+            console_print(f"⚠️ Ältere Messages werden abgeschnitten!")
+
+        return model_limit
+
+    return calculated_ctx
 
 
 def detect_query_intent(user_query, automatik_model="qwen3:1.7b"):
@@ -329,12 +538,26 @@ def optimize_search_query(user_text, automatik_model, history=None):
         # Build messages from history (last 3 turns for context)
         messages = build_messages_from_history(history, prompt, max_turns=3)
 
+        # DEBUG: Zeige Messages-Array vollständig
+        debug_print("=" * 60)
+        debug_print("📨 MESSAGES an phi3:mini (Query-Opt):")
+        debug_print("-" * 60)
+        for i, msg in enumerate(messages):
+            debug_print(f"Message {i+1} - Role: {msg['role']}")
+            debug_print(f"Content: {msg['content']}")
+            debug_print("-" * 60)
+        # Dynamisches num_ctx basierend auf Automatik-LLM-Limit (100% für Query-Opt wegen History)
+        query_num_ctx = min(8192, _automatik_llm_context_limit)  # Max 8192 oder volles Limit
+
+        debug_print(f"Total Messages: {len(messages)}, Temperature: 0.3, num_ctx: {query_num_ctx} (Automatik-LLM-Limit: {_automatik_llm_context_limit})")
+        debug_print("=" * 60)
+
         response = ollama.chat(
             model=automatik_model,
             messages=messages,
             options={
                 'temperature': 0.3,  # Leicht kreativ für Keywords, aber stabil
-                'num_ctx': 8192      # Großes Context-Fenster für History
+                'num_ctx': query_num_ctx  # Dynamisch basierend auf Model
             }
         )
 
@@ -433,12 +656,28 @@ def ai_rate_urls(urls, titles, query, automatik_model):
     try:
         debug_print(f"🔍 URL-Rating mit {automatik_model}")
 
+        messages = [{'role': 'user', 'content': prompt}]
+
+        # DEBUG: Zeige Messages-Array vollständig
+        debug_print("=" * 60)
+        debug_print("📨 MESSAGES an phi3:mini (URL-Rating):")
+        debug_print("-" * 60)
+        for i, msg in enumerate(messages):
+            debug_print(f"Message {i+1} - Role: {msg['role']}")
+            debug_print(f"Content: {msg['content']}")
+            debug_print("-" * 60)
+        # Dynamisches num_ctx basierend auf Automatik-LLM-Limit (100% für URL-Rating wegen vieler URLs)
+        rating_num_ctx = min(8192, _automatik_llm_context_limit)  # Max 8192 oder volles Limit
+
+        debug_print(f"Total Messages: {len(messages)}, Temperature: 0.0, num_ctx: {rating_num_ctx} (Automatik-LLM-Limit: {_automatik_llm_context_limit})")
+        debug_print("=" * 60)
+
         response = ollama.chat(
             model=automatik_model,
-            messages=[{'role': 'user', 'content': prompt}],
+            messages=messages,
             options={
                 'temperature': 0.0,  # Komplett deterministisch für maximale Konsistenz!
-                'num_ctx': 8192  # FEST für Automatik-LLM (phi3:mini)
+                'num_ctx': rating_num_ctx  # Dynamisch basierend auf Model
             }
         )
 
@@ -608,8 +847,8 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             messages.insert(0, {'role': 'system', 'content': system_prompt})
             messages.append({'role': 'user', 'content': user_text})
 
-            # Dynamische num_ctx Berechnung für Cache-Hit
-            final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
+            # Dynamische num_ctx Berechnung für Cache-Hit (Haupt-LLM)
+            final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options, is_automatik_llm=False)
             if llm_options and llm_options.get('num_ctx'):
                 debug_print(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (manuell)")
                 console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manual)")
@@ -793,7 +1032,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
                     url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
 
                     try:
-                        scrape_result = future.result(timeout=20)  # Max 20s pro URL
+                        scrape_result = future.result(timeout=10)  # Max 10s pro URL (Download failed → kein Playwright → max 10s)
 
                         if scrape_result['success']:
                             tool_results.append(scrape_result)
@@ -810,17 +1049,51 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
     # 6. Context Building - NUR gescrapte Quellen (keine SearXNG Ergebnisse!)
     # Filtere: Nur tool_results die 'word_count' haben (= erfolgreich gescraped)
+
+    # DEBUG: Zeige ALLE tool_results Details BEVOR Filterung
+    debug_print("=" * 80)
+    debug_print(f"🔍 SCRAPING RESULTS ANALYSE ({len(tool_results)} total results):")
+    for i, result in enumerate(tool_results, 1):
+        has_word_count = 'word_count' in result
+        is_success = result.get('success', False)
+        word_count = result.get('word_count', 0)
+        url = result.get('url', 'N/A')[:80]
+        debug_print(f"  {i}. {url}")
+        debug_print(f"     success={is_success}, has_word_count={has_word_count}, words={word_count}")
+    debug_print("=" * 80)
+
     scraped_only = [r for r in tool_results if 'word_count' in r and r.get('success')]
 
-    debug_print(f"🧩 Baue Context aus {len(scraped_only)} gescrapten Quellen...")
+    debug_print(f"🧩 Baue Context aus {len(scraped_only)} gescrapten Quellen (von {len(tool_results)} total)...")
+    console_print(f"🧩 {len(scraped_only)} Quellen mit Inhalt gefunden")
+
+    # DEBUG: Zeige erste 200 Zeichen jeder gescrapten Quelle
+    if scraped_only:
+        debug_print("=" * 80)
+        debug_print("📦 GESCRAPTE INHALTE (Preview erste 200 Zeichen):")
+        for i, result in enumerate(scraped_only, 1):
+            content = result.get('content', '')
+            url = result.get('url', 'N/A')[:80]
+            debug_print(f"Quelle {i} - {result.get('word_count', 0)} Wörter:")
+            debug_print(f"  URL: {url}")
+            debug_print(f"  Content: {content[:200].replace(chr(10), ' ')}...")
+            debug_print("-" * 40)
+        debug_print("=" * 80)
+    else:
+        debug_print("⚠️⚠️⚠️ WARNING: scraped_only ist LEER! Keine Daten für Context! ⚠️⚠️⚠️")
+        console_print("⚠️ WARNUNG: Keine gescrapten Inhalte gefunden!")
+
     context = build_context(user_text, scraped_only)
     debug_print(f"📊 Context-Größe: {len(context)} Zeichen, ~{len(context)//4} Tokens")
 
-    # DEBUG: Zeige KOMPLETTEN finalen Context für Claude Code Debugging
-    debug_print(f"📄 VOLLSTÄNDIGER FINALER CONTEXT (an LLM übergeben):")
-    debug_print("="*80)
-    debug_print(context)
-    debug_print("="*80)
+    # DEBUG: Zeige ANFANG des Contexts (erste 800 Zeichen)
+    debug_print("=" * 80)
+    debug_print(f"📄 CONTEXT PREVIEW (erste 800 von {len(context)} Zeichen):")
+    debug_print("-" * 80)
+    debug_print(context[:800])
+    if len(context) > 800:
+        debug_print(f"\n... [{len(context) - 800} weitere Zeichen] ...")
+    debug_print("=" * 80)
 
     # Console Log: Systemprompt wird erstellt
     console_print("📝 Systemprompt wird erstellt")
@@ -855,12 +1128,27 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     estimated_tokens = estimate_tokens(messages)
     debug_print(f"📊 Gesamte Message-Größe an Ollama: {total_message_size} Zeichen, ~{estimated_tokens} Tokens")
 
+    # DEBUG: Zeige ALLE Messages die an den Haupt-LLM gehen
+    debug_print("=" * 80)
+    debug_print(f"📨 MESSAGES an {model_choice} (Haupt-LLM mit RAG):")
+    debug_print("-" * 80)
+    for i, msg in enumerate(messages):
+        debug_print(f"Message {i+1} - Role: {msg['role']}")
+        content_preview = msg['content'][:500] if len(msg['content']) > 500 else msg['content']
+        if len(msg['content']) > 500:
+            debug_print(f"Content (erste 500 Zeichen): {content_preview}")
+            debug_print(f"... [noch {len(msg['content']) - 500} Zeichen]")
+        else:
+            debug_print(f"Content: {content_preview}")
+        debug_print("-" * 80)
+    debug_print("=" * 80)
+
     # Console Logs: Stats
     console_print(f"📊 Systemprompt: {len(system_prompt)} Zeichen")
     console_print(f"📊 Messages: {len(messages)}, Gesamt: {total_message_size} Zeichen (~{estimated_tokens} Tokens)")
 
-    # Dynamische num_ctx Berechnung
-    final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
+    # Dynamische num_ctx Berechnung (Haupt-LLM für Web-Recherche mit Research-Daten)
+    final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options, is_automatik_llm=False)
     if llm_options and llm_options.get('num_ctx'):
         debug_print(f"🎯 Context Window: {final_num_ctx} Tokens (manuell vom User gesetzt)")
         console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manuell)")
@@ -901,58 +1189,6 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(ai_text)} Zeichen, Agent-Total: {agent_time:.1f}s)")
     console_separator()
 
-    # 🆕 SCHRITT: Generiere KI-basierte Cache-Metadata
-    # Nach erfolgreicher Recherche erstellt das Haupt-LLM eine semantische Zusammenfassung
-    # der Quellen für intelligentere Cache-Entscheidungen durch phi3:mini
-    metadata_summary = None
-    if scraped_only:  # Nur wenn wir Quellen haben
-        try:
-            debug_print("📝 Generiere KI-basierte Cache-Metadata...")
-            console_print("📝 Erstelle Cache-Zusammenfassung...")
-
-            # Baue Prompt für Metadata-Generierung
-            sources_preview = "\n\n".join([
-                f"Quelle {i+1}: {s.get('title', 'N/A')}\nURL: {s.get('url', 'N/A')}\nInhalt: {s.get('content', '')[:500]}..."
-                for i, s in enumerate(scraped_only[:3])  # Erste 3 Quellen für Kontext
-            ])
-
-            metadata_prompt = f"""Analysiere die Recherche-Quellen und erstelle eine KURZE Zusammenfassung (max 150 Zeichen):
-
-QUELLEN:
-{sources_preview}
-
-AUFGABE:
-Beschreibe in 1-2 Sätzen:
-- Welches Thema/Zeitraum wird abgedeckt?
-- Welche Hauptinformationen sind enthalten?
-
-BEISPIELE:
-Wetter: "7-Tage-Vorhersage Niestetal (24.10-30.10): Temp 12-18°C, Niederschlag, Wind"
-News: "Nobelpreis Physik 2025: Verleihung 7.10, Gewinner-Namen nicht genannt"
-Produkt: "iPhone 16 Pro: Display, Prozessor A18, Kamera 48MP, Akku 4685mAh"
-
-Antworte NUR mit der Zusammenfassung (max 150 Zeichen), nichts anderes!"""
-
-            metadata_start = time.time()
-            metadata_response = ollama.chat(
-                model=model_choice,  # Nutze gleiches Modell wie Hauptantwort
-                messages=[{'role': 'user', 'content': metadata_prompt}],
-                options={'temperature': 0.1, 'num_ctx': 2048, 'num_predict': 100}  # Niedrig für konsistente Zusammenfassung
-            )
-            metadata_summary = metadata_response['message']['content'].strip()
-            metadata_time = time.time() - metadata_start
-
-            # Kürze auf max 150 Zeichen falls nötig
-            if len(metadata_summary) > 150:
-                metadata_summary = metadata_summary[:147] + "..."
-
-            debug_print(f"✅ Cache-Metadata generiert ({metadata_time:.1f}s): {metadata_summary}")
-            console_print(f"✅ Zusammenfassung: {metadata_summary[:80]}{'...' if len(metadata_summary) > 80 else ''}")
-        except Exception as e:
-            debug_print(f"⚠️ Fehler bei Metadata-Generierung: {e}")
-            console_print(f"⚠️ Metadata-Generierung fehlgeschlagen")
-            metadata_summary = None
-
     # 9. History mit Agent-Timing + Debug Accordion
     mode_label = "Schnell" if mode == "quick" else "Ausführlich"
     user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Agent: {agent_time:.1f}s, {mode_label}, {len(scraped_only)} Quellen)"
@@ -962,9 +1198,10 @@ Antworte NUR mit der Zusammenfassung (max 150 Zeichen), nichts anderes!"""
 
     history.append([user_with_time, ai_text_formatted])
 
-    # Speichere Scraping-Daten im Cache (für Nachfragen) MIT KI-generierter Metadata
-    debug_print(f"🔍 DEBUG Cache-Speicherung: session_id = {session_id}, scraped_only = {len(scraped_only)} Quellen, metadata = {bool(metadata_summary)}")
-    save_cached_research(session_id, user_text, scraped_only, mode, metadata_summary)
+    # Speichere Scraping-Daten im Cache (für Nachfragen) OHNE Metadata
+    # Metadata wird später asynchron generiert (nach UI-Update, damit User nicht warten muss)
+    debug_print(f"🔍 DEBUG Cache-Speicherung: session_id = {session_id}, scraped_only = {len(scraped_only)} Quellen")
+    save_cached_research(session_id, user_text, scraped_only, mode, metadata_summary=None)
 
     debug_print(f"✅ Agent fertig: {agent_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     debug_print("=" * 60)
@@ -1071,6 +1308,10 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
 """
             debug_print(f"💾 Cache vorhanden: {len(cached_sources)} Quellen, {cache_age:.0f}s alt")
             debug_print(f"   Cache-Metadata wird an LLM übergeben ({len(cache_metadata)} Zeichen)")
+            debug_print("=" * 60)
+            debug_print("📋 CACHE_METADATA CONTENT:")
+            debug_print(cache_metadata)
+            debug_print("=" * 60)
 
     # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
     decision_prompt = get_decision_making_prompt(
@@ -1091,9 +1332,26 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
         # Zeit messen für Entscheidung
         debug_print(f"🤖 Automatik-Entscheidung mit {automatik_model}")
 
-        # Build messages from history (last 3 turns for context)
-        # Hinweis: decision_prompt enthält jetzt optional cache_metadata!
-        messages = build_messages_from_history(history, decision_prompt, max_turns=3)
+        # ⚠️ WICHTIG: KEINE History für Decision-Making!
+        # Die History würde phi3:mini verwirren - es würde jede neue Frage
+        # als "Nachfrage" interpretieren wenn vorherige ähnliche Fragen existieren.
+        # Beispiel: "Wie wird das Wetter morgen?" nach "Wie ist das Wetter?"
+        # → phi3:mini würde <search>context</search> antworten statt <search>yes</search>
+        messages = [{'role': 'user', 'content': decision_prompt}]
+
+        # Dynamisches num_ctx basierend auf Automatik-LLM-Limit (50% des Original-Context)
+        decision_num_ctx = min(2048, _automatik_llm_context_limit // 2)  # Max 2048 oder 50% des Limits
+
+        # DEBUG: Zeige Messages-Array vollständig
+        debug_print("=" * 60)
+        debug_print(f"📨 MESSAGES an {automatik_model} (Decision):")
+        debug_print("-" * 60)
+        for i, msg in enumerate(messages):
+            debug_print(f"Message {i+1} - Role: {msg['role']}")
+            debug_print(f"Content: {msg['content']}")
+            debug_print("-" * 60)
+        debug_print(f"Total Messages: {len(messages)}, Temperature: 0.2, num_ctx: {decision_num_ctx} (Automatik-LLM-Limit: {_automatik_llm_context_limit})")
+        debug_print("=" * 60)
 
         decision_start = time.time()
         response = ollama.chat(
@@ -1101,7 +1359,7 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
             messages=messages,
             options={
                 'temperature': 0.2,  # Niedrig für konsistente yes/no Entscheidungen
-                'num_ctx': 8192      # Großes Context-Fenster für History
+                'num_ctx': decision_num_ctx  # Dynamisch basierend auf Model
             }
         )
         decision_time = time.time() - decision_start
@@ -1143,8 +1401,8 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
             total_chars = sum(len(m['content']) for m in messages)
             console_print(f"📊 Messages: {len(messages)}, Gesamt: {total_chars} Zeichen (~{total_chars//4} Tokens)")
 
-            # Dynamische num_ctx Berechnung für Eigenes Wissen
-            final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options)
+            # Dynamische num_ctx Berechnung für Eigenes Wissen (Haupt-LLM)
+            final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options, is_automatik_llm=False)
             if llm_options and llm_options.get('num_ctx'):
                 debug_print(f"🎯 Eigenes Wissen Context Window: {final_num_ctx} Tokens (manuell)")
                 console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manual)")

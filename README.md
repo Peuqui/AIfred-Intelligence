@@ -32,14 +32,13 @@ Wie der legendäre Butler Alfred aus Batman, der immer loyal, intelligent und hi
 
 ### 🤖 **Multi-Model AI Support (Ollama)**
 
-**🔧 Hardcoded für Automatik-Tasks** (qwen3:1.7b):
-- ✅ **Automatik-Entscheidung**: Web-Recherche JA/NEIN? (~5-30s)
-- ✅ **Query-Optimierung**: Keyword-Extraktion (~5-15s)
-- ✅ **URL-Bewertung**: 15 URLs filtern (~105s, 7s/URL)
+**🔧 User-wählbar für Automatik-Tasks** (phi3:mini, qwen2.5:3b):
+- ✅ **Automatik-Entscheidung**: Web-Recherche JA/NEIN? (~2-3s)
+- ✅ **Query-Optimierung**: Keyword-Extraktion (~2-3s)
+- ✅ **URL-Bewertung**: 22 URLs filtern (~7-10s)
 
 **🔽 User-wählbar für Finale Antwort:**
-- **qwen3:1.7b** - Schnellste (~30s, hardcoded für Vorauswahl)
-- **qwen3:8b** - Balance Speed & Qualität (~1-2 Min, **empfohlen**, **Default**)
+- **qwen3:8b** - Balance Speed & Qualität (~40-60s mit Web-Recherche, **empfohlen**, **Default**)
 - **qwen2.5:32b** - Beste Qualität (~3-5 Min, 21 GB RAM)
 - **qwen2.5:14b** - Beste RAG-Performance (100% Recherche, 0% Training)
 - **command-r** - Enterprise RAG für lange Dokumente
@@ -60,12 +59,17 @@ Intelligente 3-Stufen Web-Suche mit automatischem Fallback:
 - 🔍 **Web-Suche Ausführlich** - 3 beste Quellen gescraped
 - 🤖 **Automatik** - KI entscheidet intelligent, ob Web-Recherche nötig ist
 
-**AI-basierte URL-Bewertung (qwen3:1.7b, hardcoded):**
-- ⚡ AI bewertet alle 15 gefundenen URLs in ~105s (7s pro URL)
+**AI-basierte URL-Bewertung:**
+- ⚡ AI bewertet gefundene URLs schnell (~7-10s für 22 URLs)
 - 🎯 Content-basierte Bewertung (nicht Domain-basiert!)
 - ✅ Score 1-10: Tagesschau-Artikel = 9/10, Pizza-Rezept = 1/10
 - 🔍 Nur URLs mit Score ≥ 7 werden gescraped
-- 📊 Intelligente Auswahl der relevantesten Quellen (siehe [URL-Benchmark](benchmarks/URL_RATING_RESULTS.md))
+- 📊 Intelligente Auswahl der relevantesten Quellen
+
+**Intelligente Scraping-Strategie:**
+- ✅ Trafilatura (schnell) → Playwright Fallback (JavaScript-Heavy Sites)
+- ✅ Download-Fail Detection: Skip Playwright wenn Site blockiert/down
+- ✅ Timeout-Optimierung: Max 10s pro URL (kein endloses Warten)
 
 ### 💭 **Denkprozess-Transparenz**
 - `<think>` Tags werden automatisch erkannt
