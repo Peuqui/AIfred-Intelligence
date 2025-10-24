@@ -2,6 +2,7 @@ import gradio as gr
 import ollama
 import time
 import uuid
+import subprocess
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -636,11 +637,81 @@ with gr.Blocks(title="AIfred Intelligence", css=custom_css) as app:
         )
 
         # Refresh Button um Console zu aktualisieren
-        refresh_console_btn = gr.Button("🔄 Console aktualisieren", size="sm", variant="secondary")
+        with gr.Row():
+            refresh_console_btn = gr.Button("🔄 Console aktualisieren", size="sm", variant="secondary")
+            restart_ollama_btn = gr.Button("🔄 Ollama neu starten", size="sm", variant="primary")
+            restart_aifred_btn = gr.Button("🔄 AIfred neu starten", size="sm", variant="stop")
+
+        restart_status = gr.Textbox(label="Service Status", value="", visible=False, interactive=False)
 
         refresh_console_btn.click(
             get_console_output,
             outputs=[debug_console]
+        )
+
+        def restart_ollama_service():
+            """Startet Ollama-Service neu (ohne sudo via polkit)"""
+            import subprocess
+            try:
+                debug_print("🔄 Ollama-Restart angefordert...")
+                result = subprocess.run(
+                    ["systemctl", "restart", "ollama.service"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                if result.returncode == 0:
+                    debug_print("✅ Ollama erfolgreich neu gestartet")
+                    time.sleep(2)  # Warte auf Service-Start
+                    return {restart_status: gr.update(value="✅ Ollama neu gestartet", visible=True)}
+                else:
+                    error_msg = result.stderr or "Unbekannter Fehler"
+                    debug_print(f"❌ Ollama-Restart fehlgeschlagen: {error_msg}")
+                    return {restart_status: gr.update(value=f"❌ Fehler: {error_msg}", visible=True)}
+            except subprocess.TimeoutExpired:
+                debug_print("⏱️ Ollama-Restart timeout (>10s)")
+                return {restart_status: gr.update(value="⏱️ Timeout - prüfe manuell", visible=True)}
+            except PermissionError:
+                debug_print("🔒 Keine Berechtigung - polkit-Regel fehlt?")
+                return {restart_status: gr.update(value="🔒 Keine Berechtigung (siehe Docs)", visible=True)}
+            except Exception as e:
+                debug_print(f"❌ Fehler beim Restart: {e}")
+                return {restart_status: gr.update(value=f"❌ Fehler: {str(e)}", visible=True)}
+
+        restart_ollama_btn.click(
+            restart_ollama_service,
+            outputs=[restart_status]
+        )
+
+        def restart_aifred_service():
+            """Startet AIfred-Intelligence-Service neu (ohne sudo)"""
+            try:
+                debug_print("🔄 AIfred-Restart angefordert...")
+                debug_print("⚠️ Webseite wird neu laden in 3 Sekunden...")
+                result = subprocess.run(
+                    ["systemctl", "restart", "aifred-intelligence.service"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    debug_print("✅ AIfred wird neu gestartet...")
+                    return {restart_status: gr.update(value="✅ AIfred startet neu - Seite lädt neu...", visible=True)}
+                else:
+                    error_msg = result.stderr or "Unbekannter Fehler"
+                    debug_print(f"❌ AIfred-Restart fehlgeschlagen: {error_msg}")
+                    return {restart_status: gr.update(value=f"❌ Fehler: {error_msg}", visible=True)}
+            except subprocess.TimeoutExpired:
+                # Timeout ist OK - Service startet im Hintergrund
+                debug_print("✅ AIfred-Restart läuft (Service startet)")
+                return {restart_status: gr.update(value="✅ Restart läuft - Seite neu laden!", visible=True)}
+            except Exception as e:
+                debug_print(f"❌ Fehler beim AIfred-Restart: {e}")
+                return {restart_status: gr.update(value=f"❌ Fehler: {str(e)}", visible=True)}
+
+        restart_aifred_btn.click(
+            restart_aifred_service,
+            outputs=[restart_status]
         )
 
     # Auto-Refresh für Debug Console - AUSSERHALB des Accordions, am Ende der UI-Definition!
