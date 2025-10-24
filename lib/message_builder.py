@@ -8,7 +8,14 @@ Vorher: 6+ duplizierte Code-Stellen mit jeweils 10-15 Zeilen
 Nachher: 1 zentrale Funktion mit robustem Pattern Matching
 """
 
-def build_messages_from_history(history, current_user_text, max_turns=None):
+from typing import List, Dict, Optional, Tuple
+
+
+def build_messages_from_history(
+    history: List[Tuple[str, str]],
+    current_user_text: str,
+    max_turns: Optional[int] = None
+) -> List[Dict[str, str]]:
     """
     Konvertiert Gradio-History zu Ollama-Messages Format
 

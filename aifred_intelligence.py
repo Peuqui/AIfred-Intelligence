@@ -4,6 +4,7 @@ import time
 import uuid
 import subprocess
 import threading
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -30,6 +31,10 @@ from lib.message_builder import build_messages_from_history
 # ============================================================
 research_cache = {}  # {session_id: {'timestamp': ..., 'scraped_sources': [...], 'user_text': ...}}
 research_cache_lock = threading.Lock()  # Thread-safe access to cache
+
+# Initialize research cache in agent_core via dependency injection
+from lib.agent_core import set_research_cache
+set_research_cache(research_cache, research_cache_lock)
 
 
 
@@ -178,8 +183,6 @@ def chat_text_step1_ai(text_input, model_choice, voice_choice, speed_choice, ena
 
 def regenerate_tts(ai_text, voice_choice, speed_choice, enable_tts, tts_engine):
     """Generiert TTS neu für bereits vorhandenen AI-Text"""
-    import gradio as gr
-
     # Button immer interaktiv lassen (auch wenn TTS deaktiviert)
     if not ai_text or not enable_tts:
         return None, gr.update(interactive=True)
@@ -203,7 +206,6 @@ def reload_model(model_name, enable_gpu, num_ctx):
         str: Status-Nachricht für den User
     """
     from lib.memory_manager import unload_all_models
-    import time
 
     debug_print(f"🔄 Model-Reload angefordert für {model_name}")
     debug_print(f"   GPU-Einstellung: {'Aktiviert' if enable_gpu else 'CPU-only'}")
@@ -227,7 +229,6 @@ def reload_model(model_name, enable_gpu, num_ctx):
         debug_print(f"✅ {model_name} erfolgreich geladen!")
 
         # Check VRAM usage aus Logs
-        import requests
         ps_response = requests.get("http://localhost:11434/api/ps")
         if ps_response.status_code == 200:
             data = ps_response.json()

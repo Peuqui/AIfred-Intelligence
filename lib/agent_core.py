@@ -14,6 +14,7 @@ import sys
 import threading
 import ollama
 from datetime import datetime
+from typing import Dict, List, Optional, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
@@ -30,6 +31,83 @@ from .prompt_loader import (
 
 # Compiled Regex Patterns (Performance-Optimierung)
 THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+
+# ============================================================
+# RESEARCH CACHE (Dependency Injection)
+# ============================================================
+_research_cache = None
+_research_cache_lock = None
+
+
+def set_research_cache(cache_dict: Dict, lock: threading.Lock) -> None:
+    """
+    Sets the research cache and lock for dependency injection
+
+    Args:
+        cache_dict: Dictionary to store research results by session_id
+        lock: threading.Lock() for thread-safe access
+    """
+    global _research_cache, _research_cache_lock
+    _research_cache = cache_dict
+    _research_cache_lock = lock
+
+
+def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
+    """
+    Gets cached research for a session (thread-safe)
+
+    Args:
+        session_id: Session ID to lookup
+
+    Returns:
+        Cached research data or None if not found
+    """
+    if not _research_cache or not _research_cache_lock or not session_id:
+        return None
+
+    with _research_cache_lock:
+        if session_id in _research_cache:
+            return _research_cache[session_id].copy()
+    return None
+
+
+def save_cached_research(session_id: Optional[str], user_text: str, scraped_sources: List[Dict], mode: str) -> None:
+    """
+    Saves research to cache (thread-safe)
+
+    Args:
+        session_id: Session ID
+        user_text: Original user question
+        scraped_sources: List of scraped source dictionaries
+        mode: Research mode used
+    """
+    if not _research_cache or not _research_cache_lock or not session_id:
+        return
+
+    with _research_cache_lock:
+        _research_cache[session_id] = {
+            'timestamp': time.time(),
+            'user_text': user_text,
+            'scraped_sources': scraped_sources,
+            'mode': mode
+        }
+    debug_print(f"💾 Research-Cache gespeichert für Session {session_id[:8]}... ({len(scraped_sources)} Quellen)")
+
+
+def delete_cached_research(session_id: Optional[str]) -> None:
+    """
+    Deletes cached research for a session (thread-safe)
+
+    Args:
+        session_id: Session ID to delete
+    """
+    if not _research_cache or not _research_cache_lock or not session_id:
+        return
+
+    with _research_cache_lock:
+        if session_id in _research_cache:
+            del _research_cache[session_id]
+            debug_print(f"🗑️ Cache gelöscht für Session {session_id[:8]}...")
 
 
 def estimate_tokens(messages):
@@ -431,18 +509,10 @@ def perform_agent_research(user_text, stt_time, mode, model_choice, automatik_mo
     debug_print(f"🔍 DEBUG: session_id = {session_id} (type: {type(session_id)})")
 
     # 0. Cache-Check: Nachfrage zu vorheriger Recherche (von Automatik-LLM oder explizit)
-    # Versuche Cache zu laden
-    main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
+    cache_entry = get_cached_research(session_id)
+    cached_sources = cache_entry.get('scraped_sources', []) if cache_entry else []
 
-    cached_sources = []
-    cache_entry = None
-    if session_id and main_module and hasattr(main_module, 'research_cache') and hasattr(main_module, 'research_cache_lock'):
-        with main_module.research_cache_lock:
-            if session_id in main_module.research_cache:
-                cache_entry = main_module.research_cache[session_id].copy()  # Copy to avoid holding lock
-                cached_sources = cache_entry.get('scraped_sources', [])
-
-        if cached_sources:
+    if cached_sources:
             debug_print(f"💾 Cache-Hit! Nutze gecachte Recherche (Session {session_id[:8]}...)")
             debug_print(f"   Ursprüngliche Frage: {cache_entry.get('user_text', 'N/A')[:80]}...")
             debug_print(f"   Cache enthält {len(cached_sources)} Quellen")
@@ -821,24 +891,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
     # Speichere Scraping-Daten im Cache (für Nachfragen)
     debug_print(f"🔍 DEBUG Cache-Speicherung: session_id = {session_id}, scraped_only = {len(scraped_only)} Quellen")
-    if session_id:
-        # Import research_cache from main (Gradio startet als __main__)
-        main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
-        debug_print(f"🔍 DEBUG: main_module = {main_module}, hasattr research_cache = {hasattr(main_module, 'research_cache') if main_module else 'N/A'}")
-
-        if main_module and hasattr(main_module, 'research_cache') and hasattr(main_module, 'research_cache_lock'):
-            with main_module.research_cache_lock:
-                main_module.research_cache[session_id] = {
-                    'timestamp': time.time(),
-                    'user_text': user_text,
-                    'scraped_sources': scraped_only,  # Vollständige Rohdaten!
-                    'mode': mode
-                }
-            debug_print(f"💾 Research-Cache gespeichert für Session {session_id[:8]}... ({len(scraped_only)} Quellen)")
-        else:
-            debug_print(f"⚠️ DEBUG: research_cache nicht gefunden! Kein Cache gespeichert.")
-    else:
-        debug_print(f"⚠️ DEBUG: session_id ist None - kein Cache!")
+    save_cached_research(session_id, user_text, scraped_only, mode)
 
     debug_print(f"✅ Agent fertig: {agent_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     debug_print("=" * 60)
@@ -894,17 +947,10 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
     # Cache-Check: Baue Metadata für LLM-Entscheidung
     # ============================================================
     cache_metadata = ""
-    main_module = sys.modules.get('__main__') or sys.modules.get('aifred_intelligence')
+    cache_entry = get_cached_research(session_id)
+    cached_sources = cache_entry.get('scraped_sources', []) if cache_entry else []
 
-    cache_entry = None
-    cached_sources = []
-    if session_id and main_module and hasattr(main_module, 'research_cache') and hasattr(main_module, 'research_cache_lock'):
-        with main_module.research_cache_lock:
-            if session_id in main_module.research_cache:
-                cache_entry = main_module.research_cache[session_id].copy()
-                cached_sources = cache_entry.get('scraped_sources', [])
-
-        if cached_sources:
+    if cached_sources:
             cache_age = time.time() - cache_entry.get('timestamp', 0)
 
             # Baue Quellen-Übersicht (URLs + Titel + Content-Preview für intelligente Entscheidung)
@@ -988,11 +1034,7 @@ Kann die NEUE Frage "{user_text}" mit den GLEICHEN gecachten Quellen beantwortet
 
             # WICHTIG: Cache LÖSCHEN vor neuer Recherche!
             # Die KI hat entschieden dass neue Daten nötig sind (z.B. neue Zeitangabe)
-            if session_id and main_module and hasattr(main_module, 'research_cache') and hasattr(main_module, 'research_cache_lock'):
-                with main_module.research_cache_lock:
-                    if session_id in main_module.research_cache:
-                        debug_print(f"🗑️ Cache wird gelöscht (KI fordert neue Recherche)")
-                        del main_module.research_cache[session_id]
+            delete_cached_research(session_id)
 
             # Jetzt neue Recherche MIT session_id → neue Daten werden gecacht
             return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
