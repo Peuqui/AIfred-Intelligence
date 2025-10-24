@@ -41,8 +41,11 @@ REGELN (KEINE AUSNAHMEN!):
   2. Details und Hintergründe (Wie/Warum/Wann? Konkrete Fakten!)
   3. Zusätzliche relevante Informationen aus den Quellen
 
-- Nenne die Quellen im Text als "Quelle 1", "Quelle 2", "Quelle 3" etc.
-  Beispiel: "Quelle 1 berichtet, dass [ausführliche Details]. Außerdem wird erwähnt, dass [weitere Punkte]."
+- ✅ **Nenne Quellen im Text als "Quelle 1", "Quelle 2" etc. - ABER OHNE URLs!**
+  * Beispiel RICHTIG: "Quelle 1 berichtet, dass das Wetter morgen regnerisch wird..."
+  * Beispiel FALSCH: "Quelle 1 (https://www.wetter.com/...) berichtet..." ❌
+  * URLs gehören NUR in die Quellen-Liste am Ende, NIEMALS in den Fließtext!
+  * Die URLs machen den Text unleserlich und stören den Lesefluss!
 
 - LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
 

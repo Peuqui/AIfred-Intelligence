@@ -69,7 +69,9 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
     Returns:
         Cached research data or None if not found
     """
-    if not _research_cache or not _research_cache_lock or not session_id:
+    # WICHTIG: Prüfe _research_cache_lock und session_id, aber NICHT ob _research_cache leer ist!
+    # Ein leeres Dictionary {} ist ein gültiger (aber leerer) Cache-State!
+    if _research_cache is None or _research_cache_lock is None or not session_id:
         return None
 
     with _research_cache_lock:
