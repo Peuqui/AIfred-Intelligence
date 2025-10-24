@@ -70,7 +70,6 @@ def load_prompt(prompt_name, **kwargs):
         except KeyError as e:
             raise KeyError(
                 f"Fehlender Platzhalter in Prompt '{prompt_name}': {e}\n"
-                f"Erforderliche Platzhalter: {get_placeholders(prompt_template)}\n"
                 f"Übergebene kwargs: {list(kwargs.keys())}"
             )
 
