@@ -1,26 +1,61 @@
-Entscheide: Web-Recherche nötig?
+AUFGABE: Entscheide ob Web-Recherche nötig ist.
 
-Frage: "{user_text}"
+USER-FRAGE: "{user_text}"
 
-Du hast KEIN Internet! Trainingsdaten bis Jan 2025!
+KONTEXT:
+- Du hast KEIN Internet
+- Deine Trainingsdaten enden im Januar 2025
+- LIVE-Daten (Wetter, News, Preise, Termine) kennst du NICHT
 
-ANTWORTE NUR MIT EINEM DIESER 3 TAGS (NICHTS ANDERES!):
+═══════════════════════════════════════════════════════════
 
-**Option 1:** `<search>yes</search>`
-Verwende bei: WETTER, NEWS, LIVE-DATEN, ZEITANGABEN (heute/morgen/jetzt)
+ANTWORT-FORMAT (PFLICHT!):
+Du MUSST mit GENAU EINEM dieser XML-Tags antworten:
 
-**Option 2:** `<search>no</search>`
-Verwende bei: Allgemeinwissen, Definitionen, Theorie, Mathe, Chat
+1) <search>yes</search>     → Wenn Web-Recherche NÖTIG ist
+2) <search>no</search>      → Wenn dein Wissen AUSREICHT
+3) <search>context</search> → Wenn vorheriger Cache PASST
 
-**Option 3:** `<search>context</search>`
-Verwende bei: Nachfrage zu vorheriger Antwort ("genauer", "Quelle X")
-NICHT bei neuer Zeitangabe!
+NICHTS ANDERES! Kein Text, keine Erklärung, nur das Tag!
 
-**BEISPIELE (kopiere das Tag EXAKT!):**
-"Wetter morgen?" → `<search>yes</search>`
-"Wetter Wochenende?" → `<search>yes</search>`
-"Was ist X?" → `<search>no</search>`
-Vorher: "Wetter morgen" → Jetzt: "genauer?" → `<search>context</search>`
-Vorher: "Wetter morgen" → Jetzt: "Wochenende?" → `<search>yes</search>`
+═══════════════════════════════════════════════════════════
 
-WICHTIG: Antworte NUR mit dem Tag! NICHTS ANDERES! Keine Wörter, keine Erklärungen!{cache_metadata}
+WANN <search>yes</search>?
+✓ Wetter-Fragen (heute, morgen, Wochenende, nächste Woche)
+✓ Aktuelle News/Events
+✓ Live-Daten (Börsenkurse, Sportergebnisse)
+✓ Zeitabhängige Infos (Öffnungszeiten, Termine)
+✓ Produkt-Preise, Verfügbarkeit
+
+WANN <search>no</search>?
+✓ Allgemeinwissen (Hauptstadt, Physik, Geschichte)
+✓ Definitionen ("Was ist X?")
+✓ Mathematik, Berechnungen
+✓ Small-Talk, Grüße
+✓ Theorie, Konzepte
+
+WANN <search>context</search>?
+✓ Nachfrage zu vorheriger Antwort ("genauer", "mehr Details", "Quelle 2")
+✓ Gleiche Zeitangabe wie vorher (Cache deckt es ab)
+✗ NICHT bei NEUER Zeitangabe (vorher "morgen", jetzt "Wochenende")
+
+═══════════════════════════════════════════════════════════
+
+BEISPIELE (kopiere Tag EXAKT!):
+
+Q: "Wetter morgen?"           → <search>yes</search>
+Q: "Wetter Wochenende?"       → <search>yes</search>
+Q: "Wie wird das Wetter?"     → <search>yes</search>
+Q: "Was ist ein Tiefdruck?"   → <search>no</search>
+Q: "Hallo!"                   → <search>no</search>
+Q: "2+2?"                     → <search>no</search>
+
+MIT CACHE:
+Vorher: "Wetter morgen" → Jetzt: "genauer?"      → <search>context</search>
+Vorher: "Wetter morgen" → Jetzt: "Wochenende?"   → <search>yes</search>
+
+═══════════════════════════════════════════════════════════
+
+{cache_metadata}
+
+DEINE ANTWORT (nur 1 Tag, sonst nichts!):

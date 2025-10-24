@@ -71,7 +71,7 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
     return None
 
 
-def save_cached_research(session_id: Optional[str], user_text: str, scraped_sources: List[Dict], mode: str) -> None:
+def save_cached_research(session_id: Optional[str], user_text: str, scraped_sources: List[Dict], mode: str, metadata_summary: Optional[str] = None) -> None:
     """
     Saves research to cache (thread-safe)
 
@@ -80,6 +80,7 @@ def save_cached_research(session_id: Optional[str], user_text: str, scraped_sour
         user_text: Original user question
         scraped_sources: List of scraped source dictionaries
         mode: Research mode used
+        metadata_summary: Optional KI-generated semantic summary of sources
     """
     if not _research_cache or not _research_cache_lock or not session_id:
         return
@@ -89,9 +90,11 @@ def save_cached_research(session_id: Optional[str], user_text: str, scraped_sour
             'timestamp': time.time(),
             'user_text': user_text,
             'scraped_sources': scraped_sources,
-            'mode': mode
+            'mode': mode,
+            'metadata_summary': metadata_summary  # 🆕 KI-generierte Zusammenfassung
         }
-    debug_print(f"💾 Research-Cache gespeichert für Session {session_id[:8]}... ({len(scraped_sources)} Quellen)")
+    metadata_info = f", Metadata: {len(metadata_summary)} Zeichen" if metadata_summary else ""
+    debug_print(f"💾 Research-Cache gespeichert für Session {session_id[:8]}... ({len(scraped_sources)} Quellen{metadata_info})")
 
 
 def delete_cached_research(session_id: Optional[str]) -> None:
@@ -880,6 +883,58 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(ai_text)} Zeichen, Agent-Total: {agent_time:.1f}s)")
     console_separator()
 
+    # 🆕 SCHRITT: Generiere KI-basierte Cache-Metadata
+    # Nach erfolgreicher Recherche erstellt das Haupt-LLM eine semantische Zusammenfassung
+    # der Quellen für intelligentere Cache-Entscheidungen durch phi3:mini
+    metadata_summary = None
+    if scraped_only:  # Nur wenn wir Quellen haben
+        try:
+            debug_print("📝 Generiere KI-basierte Cache-Metadata...")
+            console_print("📝 Erstelle Cache-Zusammenfassung...")
+
+            # Baue Prompt für Metadata-Generierung
+            sources_preview = "\n\n".join([
+                f"Quelle {i+1}: {s.get('title', 'N/A')}\nURL: {s.get('url', 'N/A')}\nInhalt: {s.get('content', '')[:500]}..."
+                for i, s in enumerate(scraped_only[:3])  # Erste 3 Quellen für Kontext
+            ])
+
+            metadata_prompt = f"""Analysiere die Recherche-Quellen und erstelle eine KURZE Zusammenfassung (max 150 Zeichen):
+
+QUELLEN:
+{sources_preview}
+
+AUFGABE:
+Beschreibe in 1-2 Sätzen:
+- Welches Thema/Zeitraum wird abgedeckt?
+- Welche Hauptinformationen sind enthalten?
+
+BEISPIELE:
+Wetter: "7-Tage-Vorhersage Niestetal (24.10-30.10): Temp 12-18°C, Niederschlag, Wind"
+News: "Nobelpreis Physik 2025: Verleihung 7.10, Gewinner-Namen nicht genannt"
+Produkt: "iPhone 16 Pro: Display, Prozessor A18, Kamera 48MP, Akku 4685mAh"
+
+Antworte NUR mit der Zusammenfassung (max 150 Zeichen), nichts anderes!"""
+
+            metadata_start = time.time()
+            metadata_response = ollama.chat(
+                model=model_choice,  # Nutze gleiches Modell wie Hauptantwort
+                messages=[{'role': 'user', 'content': metadata_prompt}],
+                options={'temperature': 0.1, 'num_ctx': 2048, 'num_predict': 100}  # Niedrig für konsistente Zusammenfassung
+            )
+            metadata_summary = metadata_response['message']['content'].strip()
+            metadata_time = time.time() - metadata_start
+
+            # Kürze auf max 150 Zeichen falls nötig
+            if len(metadata_summary) > 150:
+                metadata_summary = metadata_summary[:147] + "..."
+
+            debug_print(f"✅ Cache-Metadata generiert ({metadata_time:.1f}s): {metadata_summary}")
+            console_print(f"✅ Zusammenfassung: {metadata_summary[:80]}{'...' if len(metadata_summary) > 80 else ''}")
+        except Exception as e:
+            debug_print(f"⚠️ Fehler bei Metadata-Generierung: {e}")
+            console_print(f"⚠️ Metadata-Generierung fehlgeschlagen")
+            metadata_summary = None
+
     # 9. History mit Agent-Timing + Debug Accordion
     mode_label = "Schnell" if mode == "quick" else "Ausführlich"
     user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Agent: {agent_time:.1f}s, {mode_label}, {len(scraped_only)} Quellen)"
@@ -889,9 +944,9 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
     history.append([user_with_time, ai_text_formatted])
 
-    # Speichere Scraping-Daten im Cache (für Nachfragen)
-    debug_print(f"🔍 DEBUG Cache-Speicherung: session_id = {session_id}, scraped_only = {len(scraped_only)} Quellen")
-    save_cached_research(session_id, user_text, scraped_only, mode)
+    # Speichere Scraping-Daten im Cache (für Nachfragen) MIT KI-generierter Metadata
+    debug_print(f"🔍 DEBUG Cache-Speicherung: session_id = {session_id}, scraped_only = {len(scraped_only)} Quellen, metadata = {bool(metadata_summary)}")
+    save_cached_research(session_id, user_text, scraped_only, mode, metadata_summary)
 
     debug_print(f"✅ Agent fertig: {agent_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     debug_print("=" * 60)
@@ -953,39 +1008,42 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
     if cached_sources:
             cache_age = time.time() - cache_entry.get('timestamp', 0)
 
-            # Baue Quellen-Übersicht (URLs + Titel + Content-Preview für intelligente Entscheidung)
-            source_list = []
-            for i, source in enumerate(cached_sources[:5], 1):  # Max 5 Quellen zeigen
-                url = source.get('url', 'N/A')
-                title = source.get('title', 'N/A')
-                content = source.get('content', '')
+            # 🆕 Prüfe ob KI-generierte Metadata verfügbar ist
+            metadata_summary = cache_entry.get('metadata_summary')
 
-                # Extrahiere ersten Teil des Contents (max 200 Zeichen) für Preview
-                # Damit kann LLM besser entscheiden ob Cache die neue Frage abdeckt
-                preview = content[:200].strip() if content else 'N/A'
-                if len(content) > 200:
-                    preview += "..."
-
-                source_list.append(f"{i}. {url}\n   Titel: \"{title}\"\n   Preview: \"{preview}\"")
-
-            sources_text = "\n".join(source_list)
+            if metadata_summary:
+                # NEUE VERSION: Nutze KI-generierte semantische Zusammenfassung
+                debug_print(f"📝 Nutze KI-generierte Metadata für Entscheidung: {metadata_summary}")
+                sources_text = f"🤖 KI-Zusammenfassung der gecachten Quellen:\n\"{metadata_summary}\""
+            else:
+                # FALLBACK: Nutze URLs + Titel (alte Version)
+                debug_print("📝 Nutze Fallback (URLs + Titel) für Entscheidung")
+                source_list = []
+                for i, source in enumerate(cached_sources[:5], 1):  # Max 5 Quellen zeigen
+                    url = source.get('url', 'N/A')
+                    title = source.get('title', 'N/A')
+                    source_list.append(f"{i}. {url}\n   Titel: \"{title}\"")
+                sources_text = "\n".join(source_list)
 
             cache_metadata = f"""
 
-**⚠️ WICHTIG: GECACHTE RECHERCHE VERFÜGBAR!**
+═══════════════════════════════════════════════════════════
+
+⚠️ GECACHTE RECHERCHE VERFÜGBAR!
 
 Ursprüngliche Frage: "{cache_entry.get('user_text', 'N/A')}"
-Cache-Alter: {cache_age:.0f} Sekunden alt
+Cache-Alter: {cache_age:.0f} Sekunden
 Anzahl Quellen: {len(cached_sources)}
 
-Quellen-Übersicht (URLs + Titel):
 {sources_text}
 
-**ENTSCHEIDE JETZT:**
-Kann die NEUE Frage "{user_text}" mit den GLEICHEN gecachten Quellen beantwortet werden?
+═══════════════════════════════════════════════════════════
 
-✅ JA → `<search>context</search>` (Cache nutzen, spart Zeit und API-Calls!)
-   Beispiele: "Erkläre das genauer", "Was steht in Quelle 1?", "Mehr Details bitte"
+ENTSCHEIDUNG:
+Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
+
+✅ JA → <search>context</search> (Cache nutzen!)
+   Beispiele: "genauer?", "Quelle 1?", "mehr Details?"
 
 ❌ NEIN → `<search>yes</search>` (neue Recherche nötig!)
    Beispiele:
