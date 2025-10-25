@@ -105,6 +105,19 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
   - "Aktivitäten Kassel" + vhs-kassel.de → Score 10
   - "Aktivitäten Kassel" + seniorennet.be/forum → Score 2
 
+#### Automatisches URL-Fallback für fehlgeschlagenes Scraping
+- **Intelligentes Fallback-System** in `lib/agent_core.py` (Zeilen 1020-1133):
+  - **Deep-Modus**: Startet mit 7 URLs statt 5 (Quick-Modus: unverändert 3)
+  - **Automatische Nachscraping**: Wenn URLs fehlschlagen (404, Timeout, Bot-Protection, PDF-Fehler):
+    - System erkennt zu wenige erfolgreiche Quellen (< 5)
+    - Scraped automatisch nächste URLs aus der Rating-Liste
+    - Ziel: Immer 5 erfolgreiche Quellen (statt nur 3/5 wie vorher)
+  - **Intelligente Stopbedingung**: Hört auf sobald Ziel erreicht (spart Zeit)
+  - **Beispiel**: VHS-PDF + TripAdvisor scheitern → System scraped kassel.de + nordhessen.de nach
+  - **Logging**: Zeigt Fallback-Fortschritt: `🔄 Fallback: 3/5 erfolgreich → Scrape 2 weitere URLs`
+- **Performance-Optimierung**: Fallback-URLs werden ebenfalls parallel gescraped
+- **User-Request**: "wenn er Schwierigkeiten hat und geblockt wird, dass er dann einfach die nächsten in der Liste scrapet"
+
 ### 🐛 Behoben
 
 #### **KRITISCH: Cache-Lookup & Storage Bug**

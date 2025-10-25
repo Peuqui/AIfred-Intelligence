@@ -1015,12 +1015,15 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         # 4. Scraping basierend auf Modus
         if mode == "quick":
             target_sources = 3
+            initial_scrape_count = 3  # Quick-Modus: Kein Fallback nötig
             debug_print(f"⚡ Schnell-Modus: Scrape beste 3 URLs")
         elif mode == "deep":
-            target_sources = 5
-            debug_print(f"🔍 Ausführlich-Modus: Scrape beste 5 URLs")
+            target_sources = 5  # Ziel: 5 erfolgreiche Quellen
+            initial_scrape_count = 7  # Starte mit 7 URLs (Fallback für Fehler)
+            debug_print(f"🔍 Ausführlich-Modus: Scrape beste {initial_scrape_count} URLs (Ziel: {target_sources} erfolgreiche)")
         else:
             target_sources = 3  # Fallback
+            initial_scrape_count = 3
 
         # 4.5. Validierung: Fallback wenn rated_urls leer ist
         if not rated_urls:
@@ -1034,10 +1037,12 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
         # Filtere URLs nach Score und Limit
         # THRESHOLD GESENKT: 5 → 3 (weniger restriktiv, mehr Quellen)
+        # Deep-Modus: Starte mit initial_scrape_count URLs (Fallback für Fehler)
+        scrape_limit = initial_scrape_count if mode == "deep" else target_sources
         urls_to_scrape = [
             item for item in rated_urls
             if item['score'] >= 3  # ← War 5, jetzt 3!
-        ][:target_sources]  # Nimm nur die Top N
+        ][:scrape_limit]  # Deep: 7 URLs, Quick: 3 URLs
 
         # FALLBACK: Wenn ALLE URLs < 3, nimm trotzdem die besten!
         if not urls_to_scrape and rated_urls:
@@ -1079,7 +1084,54 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
                         debug_print(f"  ❌ {url_short}: Exception: {e} (Score: {item['score']})")
 
             debug_print(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
-            console_print(f"✅ Web-Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} URLs erfolgreich")
+
+            # AUTOMATISCHES FALLBACK: Wenn zu wenige Quellen erfolgreich → Scrape weitere URLs
+            if mode == "deep" and len(scraped_results) < target_sources and len(urls_to_scrape) < len(rated_urls):
+                missing_count = target_sources - len(scraped_results)
+                already_scraped_urls = {item['url'] for item in urls_to_scrape}
+
+                # Finde nächste URLs die noch nicht gescraped wurden
+                remaining_urls = [
+                    item for item in rated_urls
+                    if item['url'] not in already_scraped_urls and item['score'] >= 3
+                ][:missing_count + 2]  # +2 Reserve für weitere Fehler
+
+                if remaining_urls:
+                    debug_print(f"🔄 Fallback: {len(scraped_results)}/{target_sources} erfolgreich → Scrape {len(remaining_urls)} weitere URLs")
+                    console_print(f"🔄 Scrape {len(remaining_urls)} zusätzliche URLs (Fallback für Fehler)")
+
+                    # Scrape zusätzliche URLs parallel
+                    with ThreadPoolExecutor(max_workers=min(5, len(remaining_urls))) as executor:
+                        future_to_item = {
+                            executor.submit(scrape_webpage, item['url']): item
+                            for item in remaining_urls
+                        }
+
+                        for future in as_completed(future_to_item):
+                            item = future_to_item[future]
+                            url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
+
+                            try:
+                                scrape_result = future.result(timeout=10)
+
+                                if scrape_result['success']:
+                                    tool_results.append(scrape_result)
+                                    scraped_results.append(scrape_result)
+                                    debug_print(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter (Score: {item['score']})")
+
+                                    # Stoppe wenn Ziel erreicht
+                                    if len(scraped_results) >= target_sources:
+                                        debug_print(f"🎯 Ziel erreicht: {len(scraped_results)}/{target_sources} Quellen")
+                                        break
+                                else:
+                                    debug_print(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')} (Score: {item['score']})")
+
+                            except Exception as e:
+                                debug_print(f"  ❌ {url_short}: Exception: {e} (Score: {item['score']})")
+
+                    debug_print(f"✅ Fallback-Scraping fertig: {len(scraped_results)} total (Ziel: {target_sources})")
+
+            console_print(f"✅ Web-Scraping fertig: {len(scraped_results)} URLs erfolgreich")
 
     # 6. Context Building - NUR gescrapte Quellen (keine SearXNG Ergebnisse!)
     # Filtere: Nur tool_results die 'word_count' haben (= erfolgreich gescraped)
