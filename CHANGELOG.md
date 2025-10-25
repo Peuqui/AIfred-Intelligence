@@ -129,6 +129,20 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 - **Impact**: Cache funktioniert jetzt korrekt - Request 1 speichert, Request 2 findet und nutzt Cache
 - **Test-Ergebnis**: ✅ Cache-Hit nach 98s für Follow-up-Frage (statt erneuter 98s Web-Scraping)
 
+#### Decision-LLM ignoriert lokale Aktivitäten-Fragen
+- **Problem**: Fragen wie "Aktivitäten in Kassel?" wurden als `<search>no</search>` eingestuft
+  - LLM dachte, es könnte aus Trainingsdaten antworten (generische Vorschläge)
+  - Resultat: Keine Web-Recherche → Veraltete/ungenaue Informationen
+- **Fix in `prompts/decision_making.txt`**:
+  - Neue Regel: "Lokale Aktivitäten/Empfehlungen/Events → <search>yes</search>"
+  - Neue Regel: "Restaurants/Geschäfte/Orte in Stadt → <search>yes</search>"
+  - Neue Beispiele:
+    - "Aktivitäten in Kassel?" → <search>yes</search>
+    - "Was kann ich in München machen?" → <search>yes</search>
+    - "VHS-Kurse in Kassel?" → <search>yes</search>
+- **User-Feedback**: "Erst die explizite Nachfrage, warum hast du nicht im Internet recherchiert, hat es dann getriggert."
+- **Resultat**: Lokale Fragen triggern jetzt korrekt Web-Recherche für aktuelle, lokale Infos
+
 #### URLs in Inline-Zitaten entfernt
 - **Prompt-Update** in `prompts/system_rag.txt` (Zeilen 44-48):
   - ✅ RICHTIG: "Quelle 1 berichtet, dass das Wetter morgen regnerisch wird..."

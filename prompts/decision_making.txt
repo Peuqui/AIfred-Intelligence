@@ -14,6 +14,8 @@ ANTWORTE NUR MIT EINER DIESER XML-MARKIERUNGEN:
 
 REGELN:
 • Wetter/News/Preise/Live-Daten → <search>yes</search>
+• Lokale Aktivitäten/Empfehlungen/Events → <search>yes</search>
+• Restaurants/Geschäfte/Orte in Stadt → <search>yes</search>
 • Allgemeinwissen/Mathe/Chat → <search>no</search>
 • Nachfrage zu vorheriger Antwort (wenn Cache da!) → <search>context</search>
 
@@ -21,7 +23,12 @@ BEISPIELE:
 "Wetter morgen?" → <search>yes</search>
 "Wie wird das Wetter morgen?" → <search>yes</search>
 "Wetter in Berlin morgen?" → <search>yes</search>
+"Aktivitäten in Kassel?" → <search>yes</search>
+"Was kann ich in München machen?" → <search>yes</search>
+"Restaurants in Hamburg?" → <search>yes</search>
+"VHS-Kurse in Kassel?" → <search>yes</search>
 "Was ist Wetter?" → <search>no</search>
-"Hallo" → <search>no</search>{cache_metadata}
+"Hallo" → <search>no</search>
+"Was bedeutet Photosynthese?" → <search>no</search>{cache_metadata}
 
 Antworte NUR mit der XML-Markierung (nichts anderes)!
