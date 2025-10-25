@@ -1,0 +1,237 @@
+"""
+Ollama Backend Adapter
+
+Wraps Ollama API into unified LLMBackend interface
+"""
+
+import httpx
+import time
+from typing import List, Optional, AsyncIterator, Dict
+from .base import (
+    LLMBackend,
+    LLMMessage,
+    LLMOptions,
+    LLMResponse,
+    BackendConnectionError,
+    BackendModelNotFoundError,
+    BackendInferenceError
+)
+
+
+class OllamaBackend(LLMBackend):
+    """Ollama backend implementation"""
+
+    def __init__(self, base_url: str = "http://localhost:11434"):
+        super().__init__(base_url=base_url)
+        self.client = httpx.AsyncClient(timeout=300.0)  # 5min timeout
+
+    async def list_models(self) -> List[str]:
+        """Get list of available Ollama models"""
+        try:
+            response = await self.client.get(f"{self.base_url}/api/tags")
+            response.raise_for_status()
+            data = response.json()
+            self._available_models = [m["name"] for m in data.get("models", [])]
+            return self._available_models
+        except Exception as e:
+            raise BackendConnectionError(f"Failed to list Ollama models: {e}")
+
+    async def chat(
+        self,
+        model: str,
+        messages: List[LLMMessage],
+        options: Optional[LLMOptions] = None,
+        stream: bool = False
+    ) -> LLMResponse:
+        """
+        Non-streaming chat with Ollama
+
+        Args:
+            model: Ollama model name (e.g., 'qwen3:8b')
+            messages: List of LLMMessage
+            options: Generation options
+            stream: Ignored (use chat_stream for streaming)
+
+        Returns:
+            LLMResponse
+        """
+        if options is None:
+            options = LLMOptions()
+
+        # Convert LLMMessage to Ollama format
+        ollama_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+
+        # Build options dict
+        ollama_options = {
+            "temperature": options.temperature,
+            "repeat_penalty": options.repeat_penalty,
+            "top_p": options.top_p,
+            "top_k": options.top_k,
+        }
+        if options.num_ctx:
+            ollama_options["num_ctx"] = options.num_ctx
+        if options.num_predict:
+            ollama_options["num_predict"] = options.num_predict
+        if options.seed:
+            ollama_options["seed"] = options.seed
+
+        payload = {
+            "model": model,
+            "messages": ollama_messages,
+            "options": ollama_options,
+            "stream": False
+        }
+
+        try:
+            start_time = time.time()
+            response = await self.client.post(f"{self.base_url}/api/chat", json=payload)
+            response.raise_for_status()
+            inference_time = time.time() - start_time
+
+            data = response.json()
+
+            # Extract metrics
+            message = data.get("message", {})
+            text = message.get("content", "")
+
+            eval_count = data.get("eval_count", 0)
+            eval_duration = data.get("eval_duration", 1)  # nanoseconds
+            prompt_eval_count = data.get("prompt_eval_count", 0)
+
+            tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
+
+            return LLMResponse(
+                text=text,
+                tokens_prompt=prompt_eval_count,
+                tokens_generated=eval_count,
+                tokens_per_second=tokens_per_second,
+                inference_time=inference_time,
+                model=model
+            )
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise BackendModelNotFoundError(f"Model '{model}' not found in Ollama")
+            elif e.response.status_code == 500:
+                error_msg = e.response.text
+                raise BackendInferenceError(f"Ollama inference error: {error_msg}")
+            else:
+                raise BackendInferenceError(f"Ollama HTTP error: {e}")
+        except Exception as e:
+            raise BackendInferenceError(f"Ollama chat failed: {e}")
+
+    async def chat_stream(
+        self,
+        model: str,
+        messages: List[LLMMessage],
+        options: Optional[LLMOptions] = None
+    ) -> AsyncIterator[str]:
+        """
+        Streaming chat with Ollama
+
+        Args:
+            model: Ollama model name
+            messages: List of LLMMessage
+            options: Generation options
+
+        Yields:
+            Text chunks as they arrive
+        """
+        if options is None:
+            options = LLMOptions()
+
+        # Convert messages
+        ollama_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+
+        # Build options
+        ollama_options = {
+            "temperature": options.temperature,
+            "repeat_penalty": options.repeat_penalty,
+            "top_p": options.top_p,
+            "top_k": options.top_k,
+        }
+        if options.num_ctx:
+            ollama_options["num_ctx"] = options.num_ctx
+        if options.num_predict:
+            ollama_options["num_predict"] = options.num_predict
+        if options.seed:
+            ollama_options["seed"] = options.seed
+
+        payload = {
+            "model": model,
+            "messages": ollama_messages,
+            "options": ollama_options,
+            "stream": True
+        }
+
+        try:
+            async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
+                response.raise_for_status()
+
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        import json
+                        try:
+                            data = json.loads(line)
+                            message = data.get("message", {})
+                            content = message.get("content", "")
+                            if content:
+                                yield content
+
+                            # Check if done
+                            if data.get("done", False):
+                                break
+                        except json.JSONDecodeError:
+                            continue
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise BackendModelNotFoundError(f"Model '{model}' not found")
+            else:
+                raise BackendInferenceError(f"Ollama streaming error: {e}")
+        except Exception as e:
+            raise BackendInferenceError(f"Ollama streaming failed: {e}")
+
+    async def health_check(self) -> bool:
+        """Check if Ollama is reachable"""
+        try:
+            response = await self.client.get(f"{self.base_url}/api/tags", timeout=5.0)
+            return response.status_code == 200
+        except Exception:
+            return False
+
+    def get_backend_name(self) -> str:
+        return "Ollama"
+
+    async def get_backend_info(self) -> Dict:
+        """Get Ollama backend information"""
+        try:
+            # Try to get version
+            response = await self.client.get(f"{self.base_url}/api/version", timeout=5.0)
+            version = response.json().get("version", "unknown") if response.status_code == 200 else "unknown"
+
+            # Get models
+            models = await self.list_models()
+
+            return {
+                "backend": "Ollama",
+                "version": version,
+                "base_url": self.base_url,
+                "available_models": len(models),
+                "models": models,
+                "healthy": True
+            }
+        except Exception as e:
+            return {
+                "backend": "Ollama",
+                "version": "unknown",
+                "base_url": self.base_url,
+                "available_models": 0,
+                "models": [],
+                "healthy": False,
+                "error": str(e)
+            }
+
+    async def close(self):
+        """Close HTTP client"""
+        await self.client.aclose()

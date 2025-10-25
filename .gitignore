@@ -54,3 +54,8 @@ Thumbs.db
 # Gradio
 .gradio/
 Bilder/
+
+# Reflex
+.web/
+reflex.db
+assets/generated/
