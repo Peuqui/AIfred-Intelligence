@@ -90,6 +90,21 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
   - "Was könnte ich... unternehmen?" → KREATIV
   - **Test-Ergebnis**: qwen2.5:3b erkennt Empfehlungs-Fragen korrekt als KREATIV
 
+#### URL-Rating Verbesserungen
+- **Generische lokale Relevanz** in `prompts/url_rating.txt`:
+  - Neue Kategorie "LOKALE RELEVANZ" (+0 bis +2 Punkte)
+  - Erkennt automatisch Orts-Fragen (z.B. "Berlin", "München", "Kassel")
+  - Bevorzugt URLs mit Ortsnamen (kassel.de, vhs-kassel.de, nordhessen.de) → +2
+  - Bestraft allgemeine Blogs ohne Ortsbezug bei Orts-Fragen → -2
+  - Funktioniert für JEDE Stadt, nicht hardcodiert
+- **Verstärkte Anti-Forum/Social-Media Regel**:
+  - Foren (seniorennet.be, random-forum.com) → -3 Punkte
+  - Social Media (Pinterest, Instagram) → -2 Punkte
+- **Konkrete Beispiele hinzugefügt**:
+  - "Aktivitäten Kassel" + kassel.de → Score 10
+  - "Aktivitäten Kassel" + vhs-kassel.de → Score 10
+  - "Aktivitäten Kassel" + seniorennet.be/forum → Score 2
+
 ### 🐛 Behoben
 
 #### **KRITISCH: Cache-Lookup & Storage Bug**

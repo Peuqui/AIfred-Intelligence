@@ -9,13 +9,23 @@ BEWERTUNGS-KRITERIEN (0-10 Skala):
    - Teilweise passend → 5 Punkte
    - Nicht relevant → 2 Punkte
 
-2. VERTRAUENSWÜRDIGKEIT (+0 bis +2):
-   - Bekannte Domains (wetter.com, spiegel.de, wikipedia.org) → +2
-   - Regierung (.gov), Bildung (.edu) → +2
-   - Unbekannt aber OK → +0
-   - Spam/Forum → -2
+2. LOKALE RELEVANZ (+0 bis +2):
+   - Bei Orts-Fragen (z.B. "Berlin", "München", "Kassel"):
+     * URL enthält Ortsnamen (z.B. berlin.de, kassel.de, hamburg.de) → +2
+     * Regionale Domains (z.B. nordhessen.de, sueddeutsche.de) → +1
+     * VHS, Stadtportale, lokale Anbieter mit Ortsnamen → +2
+     * Allgemeine Blogs/Foren OHNE Ortsbezug → -2
+   - Bei NICHT-Orts-Fragen: Ignoriere diesen Punkt
 
-3. AKTUALITÄT (+0 bis +1):
+3. VERTRAUENSWÜRDIGKEIT (+0 bis +2):
+   - Bekannte Domains (wetter.com, spiegel.de, wikipedia.org) → +2
+   - Regierung (.gov, .de), Bildung (.edu), Institutionen → +2
+   - VHS, Stadtportale, öffentliche Einrichtungen → +2
+   - Unbekannt aber OK → +0
+   - Spam/Forum (seniorennet.be, random-forum.com) → -3
+   - Pinterest, Instagram, Social Media → -2
+
+4. AKTUALITÄT (+0 bis +1):
    - Nur bei Zeit-Fragen wichtig (Wetter, News)
    - Aktuelles Datum in URL → +1
    - Keine Zeitangabe → +0
@@ -24,6 +34,11 @@ WICHTIG: Bei Wetter-Anfragen sind wetter.com, wetteronline.de, proplanta.de IMME
 
 BEISPIELE:
 "Wetter Berlin" + wetteronline.de/berlin → Score 8 (7 Relevanz + 1 Trust)
+"Aktivitäten Kassel" + kassel.de/freizeit → Score 10 (7 Relevanz + 2 Lokal + 2 Trust)
+"Aktivitäten Kassel" + vhs-kassel.de/kurse → Score 10 (7 Relevanz + 2 Lokal + 2 Trust)
+"Aktivitäten Kassel" + nordhessen.de/events → Score 9 (7 Relevanz + 1 Lokal + 2 Trust)
+"Aktivitäten Kassel" + bastelfrau.de/trends → Score 5 (7 Relevanz - 2 Nicht-Lokal)
+"Aktivitäten Kassel" + seniorennet.be/forum → Score 2 (5 Relevanz - 3 Forum)
 "Nobelpreis 2025" + nobelprize.org/2025 → Score 10 (7 Relevanz + 2 Trust + 1 Aktuell)
 "Photosynthese" + wikipedia.org → Score 9 (7 Relevanz + 2 Trust)
 "Laptops" + random-blog.info → Score 3 (5 Relevanz - 2 Trust)
