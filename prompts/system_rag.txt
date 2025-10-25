@@ -47,10 +47,15 @@ REGELN (KEINE AUSNAHMEN!):
   3. Zusätzliche relevante Informationen aus den Quellen
 
 - ✅ **Nenne Quellen im Text als "Quelle 1", "Quelle 2" etc. - ABER OHNE URLs!**
-  * Beispiel RICHTIG: "Quelle 1 berichtet, dass das Wetter morgen regnerisch wird..."
-  * Beispiel FALSCH: "Quelle 1 (https://www.wetter.com/...) berichtet..." ❌
+  * ✅ Beispiel RICHTIG: "Quelle 1 berichtet, dass das Wetter morgen regnerisch wird..."
+  * ✅ Beispiel RICHTIG: "Laut Quelle 2 liegt die Temperatur bei 8°C..."
+  * ❌ Beispiel FALSCH: "Quelle 1 (https://www.wetter.com/...) berichtet..."
+  * ❌ Beispiel FALSCH: "**Quelle 1 (https://...)**  beschreibt..."
+  * ❌ NIEMALS URLs in Klammern nach Quellenangaben!
+  * ❌ NIEMALS URLs in Bold-Markdown mit Quellenangaben!
   * URLs gehören NUR in die Quellen-Liste am Ende, NIEMALS in den Fließtext!
   * Die URLs machen den Text unleserlich und stören den Lesefluss!
+  * **WICHTIG: Schreibe NUR "Quelle 1" oder "Laut Quelle 2" - OHNE Klammern, OHNE URLs!**
 
 - LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
 
