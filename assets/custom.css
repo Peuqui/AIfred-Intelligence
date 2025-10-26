@@ -1,0 +1,75 @@
+/* Radix UI Custom Orange Color Scale Override */
+.radix-themes {
+    /* Override Orange Scale mit Warning Colors */
+    --orange-9: #3d2a00 !important;   /* CHECKED: Helleres Orange Hintergrund */
+    --orange-a9: #3d2a00 !important;
+    --orange-10: #4d3500 !important;  /* Hover State */
+    --orange-a10: #4d3500 !important;
+    --orange-11: #cc8800 !important;  /* THUMB: Mittleres Orange (gut sichtbar) */
+    --orange-a11: #cc8800 !important;
+    --orange-12: #cc8800 !important;  /* High-contrast (für high_contrast=True) */
+    --orange-a12: #cc8800 !important;
+
+    /* Contrast color for Switch Thumb - immer sichtbar */
+    --orange-contrast: #cc8800 !important;
+}
+
+/* Direct CSS Override für Switch - alle Child-Elemente */
+.rt-SwitchRoot[data-state="unchecked"],
+.rt-SwitchRoot[data-state="unchecked"] > span,
+.rt-SwitchRoot[data-state="unchecked"]::before {
+    background-color: #2d1f00 !important;  /* UNCHECKED: Dunkles Orange */
+    border-radius: 9999px !important;      /* Volle Rundung */
+}
+
+.rt-SwitchRoot[data-state="checked"],
+.rt-SwitchRoot[data-state="checked"] > span,
+.rt-SwitchRoot[data-state="checked"]::before {
+    background-color: #5d4200 !important;  /* CHECKED: Deutlich helleres Orange */
+    border-radius: 9999px !important;      /* Volle Rundung */
+}
+
+.rt-SwitchThumb {
+    background-color: #cc8800 !important;  /* THUMB: Mittleres Orange - IMMER gut sichtbar */
+    border-radius: 9999px !important;      /* Runder Knopf */
+}
+
+/* Thumb sollte in BEIDEN Zuständen gleich aussehen */
+.rt-SwitchRoot[data-state="unchecked"] .rt-SwitchThumb,
+.rt-SwitchRoot[data-state="checked"] .rt-SwitchThumb {
+    background-color: #cc8800 !important;  /* Gleiches Orange in beiden Zuständen */
+}
+
+/* Entferne Test-Grün von TextAreas */
+.rt-TextAreaRoot {
+    border-color: #30363d !important;  /* Grau wie im Theme */
+}
+
+/* Verhindere orange Borders auf allen Boxen */
+.rt-Box {
+    outline: none !important;
+}
+
+.rt-Box:focus,
+.rt-Box:focus-within {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* Grid sollte keine Focus-Styles haben */
+.rt-Grid {
+    outline: none !important;
+}
+
+.rt-Grid:focus,
+.rt-Grid:focus-within {
+    outline: none !important;
+}
+
+/* Entferne alle möglichen Accent-Farben von Grid und Box */
+.rt-Grid,
+.rt-Box {
+    accent-color: transparent !important;
+    outline-color: transparent !important;
+    border-color: #30363d !important;
+}

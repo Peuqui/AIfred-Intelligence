@@ -1,231 +1,632 @@
 """
 AIfred Intelligence - Reflex Edition
 
-Minimal Chat UI with Multi-Backend Support
+Full Gradio-Style UI with 2-Column Layout
 """
 
 import reflex as rx
 from .state import AIState
+from .theme import COLORS
 
 
-def chat_message(is_user: bool, content: str) -> rx.Component:
-    """Single chat message component"""
-    return rx.box(
-        rx.hstack(
-            rx.cond(
-                is_user,
-                rx.text("👤", font_size="24px"),
-                rx.text("🤖", font_size="24px"),
+# ============================================================
+# LEFT COLUMN: Input Controls
+# ============================================================
+
+def audio_input_section() -> rx.Component:
+    """Audio input section (placeholder for STT)"""
+    return rx.vstack(
+        rx.heading("🎙️ Spracheingabe", size="3"),
+        rx.box(
+            rx.text(
+                "Audio-Eingabe (Microphone Recording)",
+                color=COLORS["text_muted"],
+                font_size="12px",
             ),
-            rx.cond(
-                is_user,
-                rx.box(
-                    rx.text(content, color="white", padding="3"),
-                    background_color="#2563eb",
-                    border_radius="3",
-                    max_width="600px",
-                ),
-                rx.box(
-                    rx.text(content, color="black", padding="3"),
-                    background_color="#e5e7eb",
-                    border_radius="3",
-                    max_width="600px",
-                ),
+            rx.text(
+                "⚠️ STT/TTS noch nicht portiert - Coming Soon!",
+                color=COLORS["accent_warning"],
+                font_weight="bold",
+                font_size="12px",
             ),
-            spacing="3",
-            align="start",
+            padding="4",
+            background_color=COLORS["warning_bg"],  # Dunkles Orange wie Text senden Button
+            border_radius="8px",
+            border=f"1px solid {COLORS['accent_warning']}",  # Orange Border
+            width="100%",
         ),
+        rx.text(
+            "💡 Tipp: Nach dem Stoppen läuft automatisch die Transkription",
+            font_size="12px",
+            color=COLORS["text_secondary"],
+        ),
+        rx.divider(margin_y="4"),
+        spacing="3",
         width="100%",
-        padding_y="2",
     )
 
 
-def chat_area() -> rx.Component:
-    """Main chat area"""
+def text_input_section() -> rx.Component:
+    """Text input section with research mode"""
     return rx.vstack(
-        # Chat History
-        rx.box(
-            rx.foreach(
-                AIState.chat_history,
-                lambda msg: rx.vstack(
-                    chat_message(True, msg[0]),   # User message
-                    chat_message(False, msg[1]),  # AI message
-                    spacing="2",
-                    width="100%",
-                ),
+        # Text Input
+        rx.heading("⌨️ Texteingabe", size="2"),
+        rx.text_area(
+            placeholder="Oder schreibe hier deine Frage...",
+            value=AIState.current_user_input,
+            on_change=AIState.set_user_input,
+            width="100%",
+            rows="5",
+            disabled=AIState.is_generating,
+            style={
+                "border": f"1px solid {COLORS['border']}",
+                "&:focus": {
+                    "border": f"1px solid {COLORS['accent_blue']}",  # Blau beim Fokus (nicht orange)
+                    "outline": "none",
+                },
+            },
+        ),
+
+        # Research Mode Radio Buttons
+        rx.vstack(
+            rx.text("🎯 Recherche-Modus", font_weight="bold", font_size="12px"),
+            rx.radio(
+                [
+                    "🤖 Automatik (KI entscheidet)",
+                    "🧠 Eigenes Wissen (schnell)",
+                    "⚡ Web-Suche Schnell (3 beste)",
+                    "🔍 Web-Suche Ausführlich (7 beste)"
+                ],
+                value=AIState.research_mode_display,
+                on_change=AIState.set_research_mode_display,
+                spacing="2",
             ),
-            # Current AI response (streaming)
-            rx.cond(
-                AIState.current_ai_response != "",
-                chat_message(False, AIState.current_ai_response),
+            rx.text(
+                "Wähle, wie der Assistant Fragen beantwortet",
+                font_size="12px",
+                color=COLORS["text_secondary"],
             ),
             width="100%",
-            max_height="600px",
-            overflow_y="auto",
-            padding="4",
-            border="1px solid #e5e7eb",
-            border_radius="8px",
         ),
-        # Input Area
+
+        # Action Buttons
         rx.hstack(
-            rx.input(
-                placeholder="Type your message...",
-                value=AIState.current_user_input,
-                on_change=AIState.set_user_input,
-                width="100%",
-                size="3",
-                disabled=AIState.is_generating,
-            ),
             rx.button(
-                "Send",
+                "💬 Text senden",
                 on_click=AIState.send_message,
-                size="3",
+                size="2",
                 loading=AIState.is_generating,
-                color_scheme="blue",
+                disabled=AIState.is_generating,
+                flex="1",  # Nimmt mehr Platz
+                style={
+                    "background": "#3d2a00",  # Dunkles Orange
+                    "color": COLORS["accent_warning"],  # Orange Text
+                    "border": f"1px solid {COLORS['accent_warning']}",
+                    "font_weight": "600",
+                    "font_size": "14px",
+                    "&:hover": {
+                        "background": "#4d3500",
+                        "color": "#ffb84d",
+                    },
+                    "&:active": {
+                        "background": "#331a00",
+                        "color": "#ff9500",
+                        "transform": "scale(0.98)",
+                    },
+                },
             ),
             rx.button(
-                "Clear",
+                "🗑️ Chat löschen",
                 on_click=AIState.clear_chat,
-                size="3",
+                size="2",
                 variant="outline",
+                color_scheme="red",
+                style={
+                    "min_width": "140px",  # Schmaler als Text senden
+                },
             ),
             spacing="2",
             width="100%",
         ),
-        spacing="4",
-        width="100%",
-    )
 
-
-def backend_selector() -> rx.Component:
-    """Backend selection dropdown"""
-    return rx.hstack(
-        rx.text("Backend:", font_weight="bold"),
-        rx.select(
-            ["ollama", "vllm"],
-            value=AIState.backend_type,
-            on_change=AIState.switch_backend,
-            size="2",
-        ),
-        rx.cond(
-            AIState.backend_healthy,
-            rx.badge(AIState.backend_info, color_scheme="green"),
-            rx.badge(AIState.backend_info, color_scheme="red"),
-        ),
         spacing="3",
-        align="center",
-    )
-
-
-def debug_console() -> rx.Component:
-    """Debug console with logs"""
-    return rx.vstack(
-        rx.hstack(
-            rx.heading("Debug Console", size="4"),
-            rx.switch(
-                checked=AIState.auto_refresh_enabled,
-                on_change=AIState.toggle_auto_refresh,
-            ),
-            rx.text("Auto-refresh", font_size="14px"),
-            spacing="3",
-            align="center",
-        ),
-        rx.box(
-            rx.foreach(
-                AIState.debug_messages,
-                lambda msg: rx.text(
-                    msg,
-                    font_family="monospace",
-                    font_size="12px",
-                    color="#333",
-                ),
-            ),
-            width="100%",
-            max_height="200px",
-            overflow_y="auto",
-            padding="3",
-            background_color="#f5f5f5",
-            border_radius="8px",
-            border="1px solid #ddd",
-        ),
-        spacing="2",
         width="100%",
     )
 
 
-def settings_panel() -> rx.Component:
-    """Settings panel"""
-    return rx.vstack(
-        rx.heading("Settings", size="4"),
-        backend_selector(),
-        rx.hstack(
-            rx.text("Model:", font_weight="bold"),
-            rx.select(
-                AIState.available_models,
-                value=AIState.selected_model,
-                on_change=AIState.set_selected_model,
-                size="2",
+def llm_parameters_accordion() -> rx.Component:
+    """LLM Parameters in collapsible accordion - Kompakt"""
+    return rx.accordion.root(
+        rx.accordion.item(
+            header=rx.box(
+                rx.text("⚙️ LLM-Parameter (Erweitert)", font_weight="500", font_size="12px", color=COLORS["text_primary"]),
+                padding_y="2",  # Weniger Padding oben/unten
             ),
-            spacing="3",
-            align="center",
-        ),
-        rx.hstack(
-            rx.text(f"Temperature: {AIState.temperature}", font_weight="bold"),
-            rx.slider(
-                default_value=[AIState.temperature],
-                min=0.0,
-                max=1.0,
-                step=0.1,
-                on_change=lambda val: AIState.set_temperature(val[0]),
-            ),
-            spacing="3",
-            align="center",
-        ),
-        spacing="4",
-        padding="4",
-        border="1px solid #e5e7eb",
-        border_radius="8px",
-    )
-
-
-@rx.page(route="/", on_load=AIState.on_load)
-def index() -> rx.Component:
-    """Main page"""
-    return rx.container(
-        rx.vstack(
-            # Header
-            rx.heading("AIfred Intelligence - Reflex Edition", size="6"),
-            rx.text(
-                "Multi-Backend LLM Chat Assistant",
-                color="#666",
-                font_size="14px",
-            ),
-            # Main Content
-            rx.grid(
-                # Left: Chat
-                rx.box(
-                    chat_area(),
-                    grid_column="span 8",
+            content=rx.vstack(
+                # Temperature
+                rx.vstack(
+                    rx.text("🌡️ Temperature", font_weight="bold", font_size="12px"),
+                    rx.slider(
+                        default_value=AIState.temperature,
+                        min=0.0,
+                        max=2.0,
+                        step=0.1,
+                        on_change=AIState.set_temperature,
+                        width="100%",
+                    ),
+                    rx.text(
+                        f"Aktuell: {AIState.temperature}",
+                        font_size="11px",
+                        color=COLORS["text_secondary"],
+                    ),
+                    rx.text(
+                        "0.0 = deterministisch, 0.2 = fakten, 0.8 = ausgewogen, 1.5+ = kreativ",
+                        font_size="11px",
+                        color=COLORS["text_muted"],
+                    ),
+                    width="100%",
                 ),
-                # Right: Settings
-                rx.box(
-                    settings_panel(),
-                    grid_column="span 4",
+
+                # Context Window
+                rx.vstack(
+                    rx.text("📦 Context Window (num_ctx)", font_weight="bold", font_size="12px"),
+                    rx.text(
+                        f"Aktuell: {AIState.num_ctx} tokens",
+                        font_size="12px",
+                        color=COLORS["text_secondary"],
+                    ),
+                    rx.text(
+                        "Auto-berechnet basierend auf Message-Größe",
+                        font_size="11px",
+                        color=COLORS["text_muted"],
+                    ),
+                    width="100%",
                 ),
-                columns="12",
+
                 spacing="4",
                 width="100%",
             ),
-            # Debug Console (collapsible)
-            debug_console(),
-            spacing="6",
-            padding="6",
-            width="100%",
-            max_width="1400px",
         ),
-        center_content=True,
+        collapsible=True,  # WICHTIG: Macht Accordion schließbar!
+        color_scheme="gray",
+        variant="soft",
+    )
+
+
+def left_column() -> rx.Component:
+    """Complete left column with all input controls"""
+    return rx.vstack(
+        audio_input_section(),
+        text_input_section(),
+        llm_parameters_accordion(),
+        spacing="4",
+        width="100%",
+    )
+
+
+# ============================================================
+# RIGHT COLUMN: Output Display
+# ============================================================
+
+def chat_display() -> rx.Component:
+    """Chat display area showing user input and AI response"""
+    return rx.vstack(
+        # User Input Display
+        rx.vstack(
+            rx.text("Eingabe:", font_weight="bold", font_size="12px"),
+            rx.text_area(
+                value=rx.cond(
+                    AIState.is_generating,
+                    AIState.current_user_message,  # Zeige aktuell verarbeitete Nachricht
+                    rx.cond(
+                        AIState.chat_history.length() > 0,
+                        AIState.chat_history[-1][0],  # Zeige letzte Chat-Nachricht
+                        ""
+                    )
+                ),
+                is_read_only=True,
+                width="100%",
+                rows="5",
+                background_color=COLORS["readonly_bg"],
+                style={
+                    "border": f"1px solid {COLORS['border']}",
+                    "&:focus": {
+                        "border": f"1px solid {COLORS['border']}",
+                        "outline": "none",
+                    },
+                },
+            ),
+            width="100%",
+        ),
+
+        # AI Response Display
+        rx.vstack(
+            rx.text("AI Antwort:", font_weight="bold", font_size="12px"),
+            rx.text_area(
+                value=rx.cond(
+                    AIState.current_ai_response != "",
+                    AIState.current_ai_response,
+                    rx.cond(
+                        AIState.chat_history.length() > 0,
+                        AIState.chat_history[-1][1],
+                        ""
+                    )
+                ),
+                is_read_only=True,
+                width="100%",
+                rows="15",
+                background_color=COLORS["readonly_bg"],
+                style={
+                    "border": f"1px solid {COLORS['border']}",  # Normaler grauer Border
+                    "&:focus": {
+                        "border": f"1px solid {COLORS['border']}",  # Kein Orange beim Fokus
+                        "outline": "none",  # Kein zusätzlicher Outline
+                    },
+                },
+            ),
+            width="100%",
+        ),
+
+        spacing="4",
+        width="100%",
+    )
+
+
+def tts_section() -> rx.Component:
+    """TTS controls section (placeholder)"""
+    return rx.vstack(
+        rx.heading("🔊 Sprachausgabe (AI-Antwort)", size="3"),
+        rx.hstack(
+            rx.switch(
+                checked=AIState.enable_tts,
+                on_change=AIState.toggle_tts,
+                color_scheme="orange",
+                high_contrast=True,
+            ),
+            rx.text("Sprachausgabe aktiviert", font_size="12px"),
+            rx.spacer(),
+            rx.button(
+                "🔄 Neu generieren",
+                variant="soft",
+                size="2",
+                disabled=True,  # Not yet implemented
+            ),
+            spacing="3",
+            align="center",
+            width="100%",
+        ),
+        rx.box(
+            rx.text(
+                "⚠️ TTS noch nicht portiert - Coming Soon!",
+                color=COLORS["accent_warning"],
+                font_weight="bold",
+                font_size="12px",
+            ),
+            padding="4",
+            background_color=COLORS["warning_bg"],
+            border_radius="8px",
+            border=f"1px solid {COLORS['accent_warning']}",
+            width="100%",
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
+def chat_history_display() -> rx.Component:
+    """Full chat history (like Gradio chatbot)"""
+    return rx.vstack(
+        rx.heading("💬 Chat Verlauf", size="3"),
+        rx.box(
+            rx.foreach(
+                AIState.chat_history,
+                lambda msg: rx.vstack(
+                    # User message (rechts, max 70%) - mit hellgrauem Container
+                    rx.box(
+                        rx.hstack(
+                            rx.spacer(),
+                            rx.box(
+                                rx.text(msg[0], color=COLORS["user_text"], font_size="13px"),
+                                background_color=COLORS["user_msg"],
+                                padding="3",
+                                border_radius="6px",
+                                max_width="70%",
+                            ),
+                            rx.text("👤", font_size="13px"),
+                            spacing="2",
+                            align="start",
+                            justify="end",
+                            width="100%",
+                        ),
+                        background_color="rgba(255, 255, 255, 0.03)",  # Leicht hellerer Hintergrund
+                        padding="2",
+                        border_radius="8px",
+                        width="100%",
+                    ),
+                    # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
+                    rx.box(
+                        rx.hstack(
+                            rx.text("🤖", font_size="13px"),
+                            rx.box(
+                                rx.markdown(msg[1], color=COLORS["ai_text"], font_size="13px"),
+                                background_color=COLORS["ai_msg"],
+                                padding="3",
+                                border_radius="6px",
+                                width="100%",  # Volle Breite verfügbar
+                            ),
+                            spacing="2",
+                            align="start",
+                            justify="start",
+                            width="100%",
+                        ),
+                        background_color="rgba(255, 255, 255, 0.03)",  # Leicht hellerer Hintergrund
+                        padding="2",
+                        border_radius="8px",
+                        width="100%",
+                    ),
+                    spacing="3",
+                    width="100%",
+                ),
+            ),
+            width="100%",
+            max_height="1200px",  # Wie im Gradio Original
+            overflow_y="auto",
+            padding="4",
+            background_color=COLORS["readonly_bg"],
+            border_radius="8px",
+            border=f"1px solid {COLORS['border']}",
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
+def right_column() -> rx.Component:
+    """Complete right column with output displays"""
+    return rx.vstack(
+        chat_display(),
+        tts_section(),
+        # Chat history moved to bottom (full width)
+        spacing="4",
+        width="100%",
+    )
+
+
+# ============================================================
+# DEBUG CONSOLE (Bottom of Page)
+# ============================================================
+
+def debug_console() -> rx.Component:
+    """Debug console with logs (25 lines like Gradio) - Matrix Terminal Style"""
+    return rx.accordion.root(
+        rx.accordion.item(
+            value="debug",  # Eindeutige ID für das Accordion Item
+            header=rx.box(
+                rx.hstack(
+                    rx.text("🐛 Debug Console", font_size="12px", font_weight="500", color=COLORS["debug_accent"]),
+                    rx.badge(
+                        f"{AIState.debug_messages.length()} messages",
+                        color_scheme="green",
+                        size="1",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+                padding_y="2",  # Kompakter Header
+            ),
+            content=rx.vstack(
+                rx.hstack(
+                    rx.text("Live Debug-Output: LLM-Starts, Entscheidungen, Statistiken", font_size="12px", color=COLORS["text_secondary"]),
+                    rx.spacer(),
+                    rx.switch(
+                        checked=AIState.auto_refresh_enabled,
+                        on_change=AIState.toggle_auto_refresh,
+                        color_scheme="orange",
+                        high_contrast=True,
+                    ),
+                    rx.text("Auto-Refresh", font_size="12px", color=COLORS["text_secondary"]),
+                    spacing="3",
+                    align="center",
+                    width="100%",
+                ),
+                rx.box(
+                    rx.foreach(
+                        AIState.debug_messages,
+                        lambda msg: rx.text(
+                            msg,
+                            font_family="monospace",
+                            font_size="11px",
+                            color=COLORS["debug_text"],  # Matrix Grün
+                            white_space="pre",
+                        ),
+                    ),
+                    width="100%",
+                    height="500px",  # Fixed height for ~30 lines
+                    overflow_y="auto",
+                    padding="3",
+                    background_color=COLORS["debug_bg"],
+                    border_radius="8px",
+                    border=f"2px solid {COLORS['debug_border']}",  # Grüner Rahmen!
+                ),
+                spacing="3",
+                width="100%",
+            ),
+        ),
+        collapsible=True,  # WICHTIG: Macht Accordion schließbar!
+        default_value="debug",  # Standardmäßig geöffnet
+        color_scheme="gray",
+        variant="soft",
+    )
+
+
+# ============================================================
+# SETTINGS ACCORDION (Bottom Settings)
+# ============================================================
+
+def settings_accordion() -> rx.Component:
+    """Settings accordion at bottom - Kompakt"""
+    return rx.accordion.root(
+        rx.accordion.item(
+            value="settings",  # Eindeutige ID für das Accordion Item
+            header=rx.box(
+                rx.text("⚙️ Einstellungen", font_size="12px", font_weight="500", color=COLORS["text_primary"]),
+                padding_y="2",  # Kompakter Header
+            ),
+            content=rx.vstack(
+                # Backend Selection
+                rx.hstack(
+                    rx.text("Backend:", font_weight="bold", font_size="12px"),
+                    rx.select(
+                        ["ollama", "vllm"],
+                        value=AIState.backend_type,
+                        on_change=AIState.switch_backend,
+                        size="2",
+                    ),
+                    rx.cond(
+                        AIState.backend_healthy,
+                        rx.badge(AIState.backend_info, color_scheme="green"),
+                        rx.badge(AIState.backend_info, color_scheme="red"),
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+
+                # Model Selection
+                rx.hstack(
+                    rx.text("Haupt-LLM:", font_weight="bold", font_size="12px"),
+                    rx.select(
+                        AIState.available_models,
+                        value=AIState.selected_model,
+                        on_change=AIState.set_selected_model,
+                        size="2",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+
+                rx.hstack(
+                    rx.text("Automatik-LLM:", font_weight="bold", font_size="12px"),
+                    rx.select(
+                        AIState.available_models,
+                        value=AIState.automatik_model,
+                        on_change=AIState.set_automatik_model,
+                        size="2",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+
+                # Restart Buttons
+                rx.divider(),
+                rx.text("🔄 System-Steuerung", font_weight="bold", font_size="12px"),
+                rx.hstack(
+                    rx.button(
+                        "🔄 Ollama neu starten",
+                        on_click=AIState.restart_ollama,
+                        size="2",
+                        variant="soft",
+                        color_scheme="blue",
+                    ),
+                    rx.button(
+                        "🔄 AIfred neu starten",
+                        on_click=AIState.restart_aifred,
+                        size="2",
+                        variant="soft",
+                        color_scheme="orange",
+                    ),
+                    spacing="3",
+                    width="100%",
+                ),
+                rx.text(
+                    "⚠️ AIfred-Neustart löscht alle Chats und Caches",
+                    font_size="11px",
+                    color=COLORS["text_muted"],
+                ),
+
+                spacing="4",
+                width="100%",
+            ),
+        ),
+        collapsible=True,  # WICHTIG: Macht Accordion schließbar!
+        default_value="settings",  # Standardmäßig geöffnet
+        color_scheme="gray",
+        variant="soft",
+    )
+
+
+# ============================================================
+# MAIN PAGE
+# ============================================================
+
+@rx.page(route="/", on_load=AIState.on_load, title="AIfred Intelligence")
+def index() -> rx.Component:
+    """Main page with Gradio-style layout"""
+    return rx.box(
+        rx.vstack(
+            # Header
+            rx.heading("🎩 AIfred Intelligence", size="6", margin_bottom="2"),
+            rx.text(
+                "AI at your service • Benannt nach Alfred (Großvater) und Wolfgang Alfred (Vater)",
+                color=COLORS["text_secondary"],
+                font_size="12px",
+                font_style="italic",
+                margin_bottom="4",
+            ),
+
+            # Main 2-Column Layout (like Gradio)
+            rx.grid(
+                # Left Column
+                rx.box(
+                    left_column(),
+                    padding="4",
+                    background_color=COLORS["card_bg"],
+                    border_radius="12px",
+                    border=f"1px solid {COLORS['border']}",
+                ),
+                # Right Column
+                rx.box(
+                    right_column(),
+                    padding="4",
+                    background_color=COLORS["card_bg"],
+                    border_radius="12px",
+                    border=f"1px solid {COLORS['border']}",
+                ),
+                columns="2",
+                spacing="4",  # Normaler Abstand zwischen Spalten
+                width="100%",
+                style={
+                    "gap": "1rem",  # Explizites Gap ohne Hintergrundfarbe
+                },
+            ),
+
+            # Chat History (full width below columns)
+            chat_history_display(),
+
+            # Debug Console & Settings side-by-side
+            rx.grid(
+                debug_console(),
+                settings_accordion(),
+                columns="2",
+                spacing="4",
+                width="100%",
+            ),
+
+            spacing="4",
+            width="100%",
+            padding="16",  # Padding rundherum (64px) - deutlich größer!
+            max_width="96vw",  # 96% viewport width - weniger Breite für mehr Padding
+            margin="0 auto",  # Zentriert
+            background_color=COLORS["page_bg"],  # Explizite Hintergrundfarbe
+        ),
+        width="100%",
+        min_height="100vh",
+        background_color=COLORS["page_bg"],
+        display="flex",
+        justify_content="center",
     )
 
 
 # Create app
-app = rx.App()
+app = rx.App(
+    stylesheets=["/custom.css"],  # Load test CSS
+)
