@@ -21,6 +21,8 @@ from .lib import (
     perform_agent_research,
     detect_query_intent
 )
+from .lib.context_manager import set_haupt_llm_context_limit, set_automatik_llm_context_limit
+import ollama
 
 # ============================================================
 # Module-Level Cache (außerhalb State, da Lock nicht pickle-bar)
@@ -123,6 +125,12 @@ class AIState(rx.State):
                 # Get backend info
                 info = await backend.get_backend_info()
                 self.backend_info = f"{info['backend']} - {len(self.available_models)} models available"
+
+                # Set context limits for models
+                if self.backend_type == "ollama":
+                    set_haupt_llm_context_limit(self.selected_model, ollama)
+                    set_automatik_llm_context_limit(self.automatik_model, ollama)
+                    self.add_debug(f"📊 Context limits set for {self.selected_model} and {self.automatik_model}")
 
                 self.add_debug(f"✅ {self.backend_type} backend ready: {self.backend_info}")
             else:
@@ -423,6 +431,9 @@ class AIState(rx.State):
     def set_selected_model(self, model: str):
         """Set selected model"""
         self.selected_model = model
+        # Update context limit for new model
+        if self.backend_type == "ollama":
+            set_haupt_llm_context_limit(model, ollama)
         self.add_debug(f"📝 Model changed to: {model}")
 
     def set_temperature(self, temp: list[float]):
@@ -450,6 +461,9 @@ class AIState(rx.State):
     def set_automatik_model(self, model: str):
         """Set automatik model for decision/query-opt/url-rating"""
         self.automatik_model = model
+        # Update context limit for new automatik model
+        if self.backend_type == "ollama":
+            set_automatik_llm_context_limit(model, ollama)
         self.add_debug(f"⚡ Automatik model: {model}")
 
     def toggle_tts(self):
