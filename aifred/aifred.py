@@ -95,22 +95,23 @@ def text_input_section() -> rx.Component:
                 "💬 Text senden",
                 on_click=AIState.send_message,
                 size="2",
+                variant="solid",  # Explizit solid, ohne color_scheme
                 loading=AIState.is_generating,
                 disabled=AIState.is_generating,
                 flex="1",  # Nimmt mehr Platz
                 style={
-                    "background": "#3d2a00",  # Dunkles Orange
-                    "color": COLORS["accent_warning"],  # Orange Text
+                    "background": "#3d2a00 !important",  # Dunkles Orange (wichtig!)
+                    "color": COLORS["accent_warning"] + " !important",  # Orange Text
                     "border": f"1px solid {COLORS['accent_warning']}",
                     "font_weight": "600",
                     "font_size": "14px",
                     "&:hover": {
-                        "background": "#4d3500",
-                        "color": "#ffb84d",
+                        "background": "#4d3500 !important",
+                        "color": "#ffb84d !important",
                     },
                     "&:active": {
-                        "background": "#331a00",
-                        "color": "#ff9500",
+                        "background": "#331a00 !important",
+                        "color": "#ff9500 !important",
                         "transform": "scale(0.98)",
                     },
                 },
@@ -317,64 +318,129 @@ def chat_history_display() -> rx.Component:
     """Full chat history (like Gradio chatbot)"""
     return rx.vstack(
         rx.heading("💬 Chat Verlauf", size="3"),
-        rx.box(
-            rx.foreach(
-                AIState.chat_history,
-                lambda msg: rx.vstack(
-                    # User message (rechts, max 70%) - mit hellgrauem Container
-                    rx.box(
-                        rx.hstack(
-                            rx.spacer(),
-                            rx.box(
-                                rx.text(msg[0], color=COLORS["user_text"], font_size="13px"),
-                                background_color=COLORS["user_msg"],
-                                padding="3",
-                                border_radius="6px",
-                                max_width="70%",
+        rx.cond(
+            AIState.auto_refresh_enabled,
+            # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
+            rx.auto_scroll(
+                rx.foreach(
+                    AIState.chat_history,
+                    lambda msg: rx.vstack(
+                        # User message (rechts, max 70%) - mit hellgrauem Container
+                        rx.box(
+                            rx.hstack(
+                                rx.spacer(),
+                                rx.box(
+                                    rx.text(msg[0], color=COLORS["user_text"], font_size="13px"),
+                                    background_color=COLORS["user_msg"],
+                                    padding="3",
+                                    border_radius="6px",
+                                    max_width="70%",
+                                ),
+                                rx.text("👤", font_size="13px"),
+                                spacing="2",
+                                align="start",
+                                justify="end",
+                                width="100%",
                             ),
-                            rx.text("👤", font_size="13px"),
-                            spacing="2",
-                            align="start",
-                            justify="end",
+                            background_color="rgba(255, 255, 255, 0.03)",
+                            padding="2",
+                            border_radius="8px",
                             width="100%",
                         ),
-                        background_color="rgba(255, 255, 255, 0.03)",  # Leicht hellerer Hintergrund
-                        padding="2",
-                        border_radius="8px",
-                        width="100%",
-                    ),
-                    # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
-                    rx.box(
-                        rx.hstack(
-                            rx.text("🤖", font_size="13px"),
-                            rx.box(
-                                rx.markdown(msg[1], color=COLORS["ai_text"], font_size="13px"),
-                                background_color=COLORS["ai_msg"],
-                                padding="3",
-                                border_radius="6px",
-                                width="100%",  # Volle Breite verfügbar
+                        # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
+                        rx.box(
+                            rx.hstack(
+                                rx.text("🤖", font_size="13px"),
+                                rx.box(
+                                    rx.markdown(msg[1], color=COLORS["ai_text"], font_size="13px"),
+                                    background_color=COLORS["ai_msg"],
+                                    padding="3",
+                                    border_radius="6px",
+                                    width="100%",
+                                ),
+                                spacing="2",
+                                align="start",
+                                justify="start",
+                                width="100%",
                             ),
-                            spacing="2",
-                            align="start",
-                            justify="start",
+                            background_color="rgba(255, 255, 255, 0.03)",
+                            padding="2",
+                            border_radius="8px",
                             width="100%",
                         ),
-                        background_color="rgba(255, 255, 255, 0.03)",  # Leicht hellerer Hintergrund
-                        padding="2",
-                        border_radius="8px",
+                        spacing="3",
                         width="100%",
                     ),
-                    spacing="3",
-                    width="100%",
                 ),
+                id="chat-history-box",
+                width="100%",
+                max_height="1200px",
+                padding="4",
+                background_color=COLORS["readonly_bg"],
+                border_radius="8px",
+                border=f"1px solid {COLORS['border']}",
             ),
-            width="100%",
-            max_height="1200px",  # Wie im Gradio Original
-            overflow_y="auto",
-            padding="4",
-            background_color=COLORS["readonly_bg"],
-            border_radius="8px",
-            border=f"1px solid {COLORS['border']}",
+            # Auto-Scroll disabled: normale rx.box (kein Scroll)
+            rx.box(
+                rx.foreach(
+                    AIState.chat_history,
+                    lambda msg: rx.vstack(
+                        # User message (rechts, max 70%) - mit hellgrauem Container
+                        rx.box(
+                            rx.hstack(
+                                rx.spacer(),
+                                rx.box(
+                                    rx.text(msg[0], color=COLORS["user_text"], font_size="13px"),
+                                    background_color=COLORS["user_msg"],
+                                    padding="3",
+                                    border_radius="6px",
+                                    max_width="70%",
+                                ),
+                                rx.text("👤", font_size="13px"),
+                                spacing="2",
+                                align="start",
+                                justify="end",
+                                width="100%",
+                            ),
+                            background_color="rgba(255, 255, 255, 0.03)",
+                            padding="2",
+                            border_radius="8px",
+                            width="100%",
+                        ),
+                        # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
+                        rx.box(
+                            rx.hstack(
+                                rx.text("🤖", font_size="13px"),
+                                rx.box(
+                                    rx.markdown(msg[1], color=COLORS["ai_text"], font_size="13px"),
+                                    background_color=COLORS["ai_msg"],
+                                    padding="3",
+                                    border_radius="6px",
+                                    width="100%",
+                                ),
+                                spacing="2",
+                                align="start",
+                                justify="start",
+                                width="100%",
+                            ),
+                            background_color="rgba(255, 255, 255, 0.03)",
+                            padding="2",
+                            border_radius="8px",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                    ),
+                ),
+                id="chat-history-box",
+                width="100%",
+                max_height="1200px",
+                overflow_y="auto",
+                padding="4",
+                background_color=COLORS["readonly_bg"],
+                border_radius="8px",
+                border=f"1px solid {COLORS['border']}",
+            ),
         ),
         spacing="3",
         width="100%",
@@ -424,29 +490,60 @@ def debug_console() -> rx.Component:
                         color_scheme="orange",
                         high_contrast=True,
                     ),
-                    rx.text("Auto-Refresh", font_size="12px", color=COLORS["text_secondary"]),
+                    rx.text("Auto-Scroll", font_size="12px", color=COLORS["text_secondary"]),
                     spacing="3",
                     align="center",
                     width="100%",
                 ),
-                rx.box(
-                    rx.foreach(
-                        AIState.debug_messages,
-                        lambda msg: rx.text(
-                            msg,
-                            font_family="monospace",
-                            font_size="11px",
-                            color=COLORS["debug_text"],  # Matrix Grün
-                            white_space="pre",
+                rx.cond(
+                    AIState.auto_refresh_enabled,
+                    # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
+                    rx.auto_scroll(
+                        rx.foreach(
+                            AIState.debug_messages,
+                            lambda msg: rx.text(
+                                msg,
+                                font_family="monospace",
+                                font_size="11px",
+                                color=COLORS["debug_text"],  # Matrix Grün
+                                white_space="pre",
+                            ),
                         ),
+                        id="debug-console-box",
+                        width="100%",
+                        height="500px",
+                        padding="3",
+                        background_color=COLORS["debug_bg"],
+                        border_radius="8px",
+                        border=f"2px solid {COLORS['debug_border']}",
+                        style={
+                            "scroll-behavior": "smooth",
+                        },
                     ),
-                    width="100%",
-                    height="500px",  # Fixed height for ~30 lines
-                    overflow_y="auto",
-                    padding="3",
-                    background_color=COLORS["debug_bg"],
-                    border_radius="8px",
-                    border=f"2px solid {COLORS['debug_border']}",  # Grüner Rahmen!
+                    # Auto-Scroll disabled: normale rx.box (kein Scroll)
+                    rx.box(
+                        rx.foreach(
+                            AIState.debug_messages,
+                            lambda msg: rx.text(
+                                msg,
+                                font_family="monospace",
+                                font_size="11px",
+                                color=COLORS["debug_text"],  # Matrix Grün
+                                white_space="pre",
+                            ),
+                        ),
+                        id="debug-console-box",
+                        width="100%",
+                        height="500px",
+                        overflow_y="auto",
+                        padding="3",
+                        background_color=COLORS["debug_bg"],
+                        border_radius="8px",
+                        border=f"2px solid {COLORS['debug_border']}",
+                        style={
+                            "scroll-behavior": "smooth",
+                        },
+                    ),
                 ),
                 spacing="3",
                 width="100%",
@@ -618,6 +715,7 @@ def index() -> rx.Component:
             margin="0 auto",  # Zentriert
             background_color=COLORS["page_bg"],  # Explizite Hintergrundfarbe
         ),
+
         width="100%",
         min_height="100vh",
         background_color=COLORS["page_bg"],
@@ -628,5 +726,5 @@ def index() -> rx.Component:
 
 # Create app
 app = rx.App(
-    stylesheets=["/custom.css"],  # Load test CSS
+    stylesheets=["/custom.css"],  # Load custom CSS
 )
