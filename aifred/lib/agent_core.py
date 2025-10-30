@@ -125,9 +125,9 @@ async def perform_agent_research(
             debug_print(f"   Cache enthält {len(cached_sources)} Quellen")
 
             # Console-Output für Cache-Hit
-            console_print(f"💾 Cache-Hit! Nutze gecachte Daten ({len(cached_sources)} Quellen)")
+            yield {"type": "debug", "message": f"💾 Cache-Hit! Nutze gecachte Daten ({len(cached_sources)} Quellen)"}
             original_q = cache_entry.get('user_text', 'N/A')
-            console_print(f"📋 Ursprüngliche Frage: {original_q[:60]}{'...' if len(original_q) > 60 else ''}")
+            yield {"type": "debug", "message": f"📋 Ursprüngliche Frage: {original_q[:60]}{'...' if len(original_q) > 60 else ''}"}
 
             # Nutze ALLE Quellen aus dem Cache
             scraped_only = cached_sources
@@ -198,11 +198,11 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options, is_automatik_llm=False)
             if llm_options and llm_options.get('num_ctx'):
                 debug_print(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (manuell)")
-                console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manual)")
+                yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens (manual)"}
             else:
                 estimated_tokens = estimate_tokens(messages)
                 debug_print(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (dynamisch, ~{estimated_tokens} Tokens benötigt)")
-                console_print(f"🪟 Context Window: {final_num_ctx} Tokens (auto)")
+                yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens (auto)"}
 
             # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
             if temperature_mode == 'manual':
@@ -274,7 +274,13 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
     # 1. Query Optimization: KI extrahiert Keywords (mit Zeitmessung und History-Kontext!)
     query_opt_start = time.time()
-    optimized_query, query_reasoning = optimize_search_query(user_text, automatik_model, history)
+    optimized_query, query_reasoning = await optimize_search_query(
+        user_text=user_text,
+        automatik_model=automatik_model,
+        history=history,
+        llm_client=automatik_llm_client,
+        automatik_llm_context_limit=get_automatik_llm_context_limit()
+    )
     query_opt_time = time.time() - query_opt_start
 
     # 2. Web-Suche (Brave → Tavily → SearXNG Fallback) mit optimierter Query
@@ -298,12 +304,12 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         unique_urls = stats.get('unique_urls', 0)
         duplicates = stats.get('duplicates_removed', 0)
 
-        console_print(f"🌐 Web-Suche: {', '.join(apis_used)} ({len(apis_used)} APIs)")
+        yield {"type": "debug", "message": f"🌐 Web-Suche: {', '.join(apis_used)} ({len(apis_used)} APIs)"}
         if duplicates > 0:
-            console_print(f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)")
+            yield {"type": "debug", "message": f"🔄 Deduplizierung: {total_urls} URLs → {unique_urls} unique ({duplicates} Duplikate)"}
     else:
         # Single API oder alte Version
-        console_print(f"🌐 Web-Suche mit: {api_source}")
+        yield {"type": "debug", "message": f"🌐 Web-Suche mit: {api_source}"}
 
     # 2. URLs + Titel extrahieren (Search-APIs liefern bereits max 10)
     related_urls = search_result.get('related_urls', [])
@@ -320,9 +326,16 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
         # 3. AI bewertet alle URLs (1 Call!) - mit Titeln für bessere Aktualitäts-Erkennung
         debug_print(f"🤖 KI bewertet URLs mit {automatik_model}...")
-        console_print(f"⚖️ KI bewertet URLs mit: {automatik_model}")
+        yield {"type": "debug", "message": f"⚖️ KI bewertet URLs mit: {automatik_model}"}
         rating_start = time.time()
-        rated_urls = ai_rate_urls(related_urls, titles, user_text, automatik_model)
+        rated_urls = await ai_rate_urls(
+            urls=related_urls,
+            titles=titles,
+            query=user_text,
+            automatik_model=automatik_model,
+            llm_client=automatik_llm_client,
+            automatik_llm_context_limit=get_automatik_llm_context_limit()
+        )
         rating_time = time.time() - rating_start
 
         # Debug: Zeige ALLE Bewertungen (nicht nur Top 5)
@@ -358,7 +371,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             rated_urls = [{'url': u, 'score': 5, 'reasoning': 'No rating available'} for u in related_urls[:target_sources]]
 
         # 5. Scrape URLs PARALLEL (großer Performance-Win!)
-        console_print("🌐 Web-Scraping startet (parallel)")
+        yield {"type": "debug", "message": "🌐 Web-Scraping startet (parallel)"}
 
         # Filtere URLs nach Score und Limit
         # THRESHOLD GESENKT: 5 → 3 (weniger restriktiv, mehr Quellen)
@@ -372,12 +385,12 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         # FALLBACK: Wenn ALLE URLs < 3, nimm trotzdem die besten!
         if not urls_to_scrape and rated_urls:
             debug_print(f"⚠️ Alle URLs haben Score < 3 → Nutze Top {target_sources} als Fallback")
-            console_print(f"⚠️ Niedrige URL-Scores → Nutze beste {target_sources} URLs als Fallback")
+            yield {"type": "debug", "message": f"⚠️ Niedrige URL-Scores → Nutze beste {target_sources} URLs als Fallback"}
             urls_to_scrape = rated_urls[:target_sources]
 
         if not urls_to_scrape:
             debug_print("⚠️ Keine URLs zum Scrapen (rated_urls ist leer)")
-            console_print("⚠️ Keine URLs verfügbar → 0 Quellen gescraped")
+            yield {"type": "debug", "message": "⚠️ Keine URLs verfügbar → 0 Quellen gescraped"}
         else:
             debug_print(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
 
@@ -423,7 +436,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
                 if remaining_urls:
                     debug_print(f"🔄 Fallback: {len(scraped_results)}/{target_sources} erfolgreich → Scrape {len(remaining_urls)} weitere URLs")
-                    console_print(f"🔄 Scrape {len(remaining_urls)} zusätzliche URLs (Fallback für Fehler)")
+                    yield {"type": "debug", "message": f"🔄 Scrape {len(remaining_urls)} zusätzliche URLs (Fallback für Fehler)"}
 
                     # Scrape zusätzliche URLs parallel
                     with ThreadPoolExecutor(max_workers=min(5, len(remaining_urls))) as executor:
@@ -456,7 +469,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
                     debug_print(f"✅ Fallback-Scraping fertig: {len(scraped_results)} total (Ziel: {target_sources})")
 
-            console_print(f"✅ Web-Scraping fertig: {len(scraped_results)} URLs erfolgreich")
+            yield {"type": "debug", "message": f"✅ Web-Scraping fertig: {len(scraped_results)} URLs erfolgreich"}
 
     # 6. Context Building - NUR gescrapte Quellen (keine SearXNG Ergebnisse!)
     # Filtere: Nur tool_results die 'word_count' haben (= erfolgreich gescraped)
@@ -476,7 +489,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     scraped_only = [r for r in tool_results if 'word_count' in r and r.get('success')]
 
     debug_print(f"🧩 Baue Context aus {len(scraped_only)} gescrapten Quellen (von {len(tool_results)} total)...")
-    console_print(f"🧩 {len(scraped_only)} Quellen mit Inhalt gefunden")
+    yield {"type": "debug", "message": f"🧩 {len(scraped_only)} Quellen mit Inhalt gefunden"}
 
     # DEBUG: Zeige erste 200 Zeichen jeder gescrapten Quelle
     if scraped_only:
@@ -492,7 +505,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         debug_print("=" * 80)
     else:
         debug_print("⚠️⚠️⚠️ WARNING: scraped_only ist LEER! Keine Daten für Context! ⚠️⚠️⚠️")
-        console_print("⚠️ WARNUNG: Keine gescrapten Inhalte gefunden!")
+        yield {"type": "debug", "message": "⚠️ WARNUNG: Keine gescrapten Inhalte gefunden!"}
 
     context = build_context(user_text, scraped_only)
     debug_print(f"📊 Context-Größe: {len(context)} Zeichen, ~{len(context)//4} Tokens")
@@ -507,7 +520,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     debug_print("=" * 80)
 
     # Console Log: Systemprompt wird erstellt
-    console_print("📝 Systemprompt wird erstellt")
+    yield {"type": "debug", "message": "📝 Systemprompt wird erstellt"}
 
     # 7. Erweiterer System-Prompt für Agent-Awareness (MAXIMAL DIREKT!)
     system_prompt = get_system_rag_prompt(
@@ -555,50 +568,59 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     debug_print("=" * 80)
 
     # Console Logs: Stats
-    console_print(f"📊 Systemprompt: {len(system_prompt)} Zeichen")
-    console_print(f"📊 Messages: {len(messages)}, Gesamt: {total_message_size} Zeichen (~{estimated_tokens} Tokens)")
+    yield {"type": "debug", "message": f"📊 Systemprompt: {len(system_prompt)} Zeichen"}
+    yield {"type": "debug", "message": f"📊 Messages: {len(messages)}, Gesamt: {total_message_size} Zeichen (~{estimated_tokens} Tokens)"}
 
     # Dynamische num_ctx Berechnung (Haupt-LLM für Web-Recherche mit Research-Daten)
     final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options, is_automatik_llm=False)
     if llm_options and llm_options.get('num_ctx'):
         debug_print(f"🎯 Context Window: {final_num_ctx} Tokens (manuell vom User gesetzt)")
-        console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manuell)")
+        yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens (manuell)"}
     else:
         debug_print(f"🎯 Context Window: {final_num_ctx} Tokens (dynamisch berechnet, ~{estimated_tokens} Tokens benötigt)")
-        console_print(f"🪟 Context Window: {final_num_ctx} Tokens (auto)")
+        yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens (auto)"}
 
     # Temperature entscheiden: Manual Override oder Auto (immer 0.2 bei Web-Recherche)
     if temperature_mode == 'manual':
         final_temperature = temperature
         debug_print(f"🌡️ Web-Recherche Temperature: {final_temperature} (MANUAL OVERRIDE)")
-        console_print(f"🌡️ Temperature: {final_temperature} (manuell)")
+        yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manuell)"}
     else:
         # Auto: Web-Recherche → Immer Temperature 0.2 (faktisch)
         final_temperature = 0.2
         debug_print(f"🌡️ Web-Recherche Temperature: {final_temperature} (fest, faktisch)")
-        console_print(f"🌡️ Temperature: {final_temperature} (auto, faktisch)")
+        yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, faktisch)"}
 
     # Console Log: Haupt-LLM startet (im Agent-Modus)
-    console_print(f"🤖 Haupt-LLM startet: {model_choice} (mit {len(scraped_only)} Quellen)")
+    yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice} (mit {len(scraped_only)} Quellen)"}
 
     inference_start = time.time()
-    response = ollama.chat(
+    ai_text = ""
+    metrics = {}
+
+    # Stream response from LLM
+    async for chunk in llm_client.chat_stream(
         model=model_choice,
         messages=messages,
         options={
             'temperature': final_temperature,  # Adaptive oder Manual Temperature!
             'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
         }
-    )
-    inference_time = time.time() - inference_start
+    ):
+        if chunk["type"] == "content":
+            ai_text += chunk["text"]
+            yield {"type": "content", "text": chunk["text"]}
+        elif chunk["type"] == "done":
+            metrics = chunk["metrics"]
 
+    inference_time = time.time() - inference_start
     agent_time = time.time() - agent_start
 
-    ai_text = response['message']['content']
-
     # Console Log: Haupt-LLM fertig
-    console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(ai_text)} Zeichen, Agent-Total: {agent_time:.1f}s)")
-    console_separator()
+    tokens_generated = metrics.get("tokens_generated", 0)
+    tokens_per_sec = metrics.get("tokens_per_second", 0)
+    yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s, Agent-Total: {agent_time:.1f}s)"}
+    yield {"type": "separator"}
 
     # 9. History mit Agent-Timing + Debug Accordion
     mode_label = "Schnell" if mode == "quick" else "Ausführlich"
@@ -618,7 +640,8 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     debug_print("=" * 60)
     debug_print("═" * 80)  # Separator nach jeder Anfrage
 
-    return ai_text, history, inference_time
+    # Yield final result
+    yield {"type": "result", "data": (ai_text_formatted, history, inference_time)}
 
 
 def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id=None, temperature_mode='auto', temperature=0.2, llm_options=None):
