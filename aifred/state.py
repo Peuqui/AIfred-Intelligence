@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from .backends import BackendFactory, LLMMessage, LLMOptions, LLMResponse
 from .lib import (
     initialize_debug_log,
+    console_print,
     clear_console,
     set_research_cache,
     perform_agent_research,
