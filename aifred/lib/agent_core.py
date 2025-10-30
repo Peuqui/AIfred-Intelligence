@@ -261,7 +261,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             # Update History
             user_display = f"{user_text} (Agent: Cache-Hit, {len(cached_sources)} Quellen)"
             ai_display = ai_text_with_timing
-            history.append([user_display, ai_display])
+            history.append((user_display, ai_display))
 
             debug_print(f"✅ Cache-basierte Antwort fertig in {total_time:.1f}s")
 
@@ -628,7 +628,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     # Formatiere mit Debug Accordion (Query Reasoning + URL Rating + Final Answer <think>) inkl. Inferenz-Zeiten
     ai_text_formatted = build_debug_accordion(query_reasoning, rated_urls, ai_text, automatik_model, model_choice, query_opt_time, rating_time, inference_time)
 
-    history.append([user_with_time, ai_text_formatted])
+    history.append((user_with_time, ai_text_formatted))
 
     # Speichere Scraping-Daten im Cache (für Nachfragen) OHNE Metadata
     # Metadata wird später asynchron generiert (nach UI-Update, damit User nicht warten muss)
@@ -919,7 +919,7 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
             # Formatiere <think> Tags als Collapsible (falls vorhanden) mit Modell-Name und Inferenz-Zeit
             ai_text_formatted = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
 
-            history.append([user_with_time, ai_text_formatted])
+            history.append((user_with_time, ai_text_formatted))
             debug_print(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
             debug_print("═" * 80)  # Separator nach jeder Anfrage
 
