@@ -644,7 +644,21 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     yield {"type": "result", "data": (ai_text_formatted, history, inference_time)}
 
 
-def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, voice_choice, speed_choice, enable_tts, tts_engine, history, session_id=None, temperature_mode='auto', temperature=0.2, llm_options=None):
+async def chat_interactive_mode(
+    user_text: str,
+    stt_time: float,
+    model_choice: str,
+    automatik_model: str,
+    voice_choice: str,
+    speed_choice: str,
+    enable_tts: bool,
+    tts_engine: str,
+    history: List,
+    session_id: Optional[str] = None,
+    temperature_mode: str = 'auto',
+    temperature: float = 0.2,
+    llm_options: Optional[Dict] = None
+) -> AsyncIterator[Dict]:
     """
     Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
 
@@ -660,12 +674,16 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
         temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
         llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
 
-    Returns:
-        tuple: (ai_text, history, inference_time)
+    Yields:
+        Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
     """
 
+    # Initialize LLM clients
+    llm_client = LLMClient(backend_type="ollama")
+    automatik_llm_client = LLMClient(backend_type="ollama")
+
     debug_print("🤖 Automatik-Modus: KI prüft, ob Recherche nötig...")
-    console_print("📨 User Request empfangen")
+    yield {"type": "debug", "message": "📨 User Request empfangen"}
 
     # ============================================================
     # CODE-OVERRIDE: Explizite Recherche-Aufforderung (Trigger-Wörter)
@@ -683,9 +701,11 @@ def chat_interactive_mode(user_text, stt_time, model_choice, automatik_model, vo
     user_lower = user_text.lower()
     if any(keyword in user_lower for keyword in explicit_keywords):
         debug_print(f"⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt → Skip KI-Entscheidung!")
-        console_print(f"⚡ Explizite Recherche erkannt → Web-Suche startet")
-        # Direkt zur Recherche, KEIN Cache-Check!
-        return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
+        yield {"type": "debug", "message": "⚡ Explizite Recherche erkannt → Web-Suche startet"}
+        # Direkt zur Recherche, KEIN Cache-Check! - Forward all yields from research
+        async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options):
+            yield item
+        return  # Generator ends after forwarding all items
 
     # ============================================================
     # Cache-Check: Baue Metadata für LLM-Entscheidung
@@ -774,7 +794,8 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
         messages = [{'role': 'user', 'content': decision_prompt}]
 
         # Dynamisches num_ctx basierend auf Automatik-LLM-Limit (50% des Original-Context)
-        decision_num_ctx = min(2048, _automatik_llm_context_limit // 2)  # Max 2048 oder 50% des Limits
+        automatik_limit = get_automatik_llm_context_limit()
+        decision_num_ctx = min(2048, automatik_limit // 2)  # Max 2048 oder 50% des Limits
 
         # DEBUG: Zeige Messages-Array vollständig
         debug_print("=" * 60)
@@ -784,11 +805,11 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
             debug_print(f"Message {i+1} - Role: {msg['role']}")
             debug_print(f"Content: {msg['content']}")
             debug_print("-" * 60)
-        debug_print(f"Total Messages: {len(messages)}, Temperature: 0.2, num_ctx: {decision_num_ctx} (Automatik-LLM-Limit: {_automatik_llm_context_limit})")
+        debug_print(f"Total Messages: {len(messages)}, Temperature: 0.2, num_ctx: {decision_num_ctx} (Automatik-LLM-Limit: {automatik_limit})")
         debug_print("=" * 60)
 
         decision_start = time.time()
-        response = ollama.chat(
+        response = await automatik_llm_client.chat(
             model=automatik_model,
             messages=messages,
             options={
@@ -798,7 +819,7 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
         )
         decision_time = time.time() - decision_start
 
-        decision = response['message']['content'].strip().lower()
+        decision = response.text.strip().lower()
 
         debug_print(f"🤖 KI-Entscheidung: {decision} (Entscheidung mit {automatik_model}: {decision_time:.1f}s)")
 
@@ -807,25 +828,29 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
         # ============================================================
         if '<search>yes</search>' in decision or ('yes' in decision and '<search>context</search>' not in decision):
             debug_print("✅ KI entscheidet: NEUE Web-Recherche nötig → Cache wird IGNORIERT!")
-            console_print(f"🔍 KI-Entscheidung: Web-Recherche JA ({decision_time:.1f}s)")
+            yield {"type": "debug", "message": f"🔍 KI-Entscheidung: Web-Recherche JA ({decision_time:.1f}s)"}
 
             # WICHTIG: Cache LÖSCHEN vor neuer Recherche!
             # Die KI hat entschieden dass neue Daten nötig sind (z.B. neue Zeitangabe)
             delete_cached_research(session_id)
 
-            # Jetzt neue Recherche MIT session_id → neue Daten werden gecacht
-            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
+            # Jetzt neue Recherche MIT session_id → neue Daten werden gecacht - Forward all yields
+            async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options):
+                yield item
+            return
 
         elif '<search>context</search>' in decision or 'context' in decision:
             debug_print("🔄 KI entscheidet: Nachfrage zu vorheriger Recherche → Versuche Cache")
-            console_print(f"💾 KI-Entscheidung: Cache nutzen ({decision_time:.1f}s)")
+            yield {"type": "debug", "message": f"💾 KI-Entscheidung: Cache nutzen ({decision_time:.1f}s)"}
             # Rufe perform_agent_research MIT session_id auf → Cache-Check wird durchgeführt
-            # Wenn kein Cache gefunden wird, fällt es automatisch auf normale Recherche zurück
-            return perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options)
+            # Wenn kein Cache gefunden wird, fällt es automatisch auf normale Recherche zurück - Forward all yields
+            async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options):
+                yield item
+            return
 
         else:
             debug_print("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
-            console_print(f"🧠 KI-Entscheidung: Web-Recherche NEIN ({decision_time:.1f}s)")
+            yield {"type": "debug", "message": f"🧠 KI-Entscheidung: Web-Recherche NEIN ({decision_time:.1f}s)"}
 
             # Jetzt normale Inferenz MIT Zeitmessung
             # Build messages from history (all turns)
@@ -833,50 +858,63 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
 
             # Console: Message Stats
             total_chars = sum(len(m['content']) for m in messages)
-            console_print(f"📊 Messages: {len(messages)}, Gesamt: {total_chars} Zeichen (~{total_chars//4} Tokens)")
+            yield {"type": "debug", "message": f"📊 Messages: {len(messages)}, Gesamt: {total_chars} Zeichen (~{total_chars//4} Tokens)"}
 
             # Dynamische num_ctx Berechnung für Eigenes Wissen (Haupt-LLM)
             final_num_ctx = calculate_dynamic_num_ctx(messages, llm_options, is_automatik_llm=False)
             if llm_options and llm_options.get('num_ctx'):
                 debug_print(f"🎯 Eigenes Wissen Context Window: {final_num_ctx} Tokens (manuell)")
-                console_print(f"🪟 Context Window: {final_num_ctx} Tokens (manual)")
+                yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens (manual)"}
             else:
                 estimated_tokens = estimate_tokens(messages)
                 debug_print(f"🎯 Eigenes Wissen Context Window: {final_num_ctx} Tokens (dynamisch, ~{estimated_tokens} Tokens benötigt)")
-                console_print(f"🪟 Context Window: {final_num_ctx} Tokens (auto)")
+                yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens (auto)"}
 
             # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
             if temperature_mode == 'manual':
                 final_temperature = temperature
                 debug_print(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (MANUAL OVERRIDE)")
-                console_print(f"🌡️ Temperature: {final_temperature} (manual)")
+                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
             else:
                 # Auto: Intent-Detection für Eigenes Wissen
-                own_knowledge_intent = detect_query_intent(user_text, automatik_model)
+                own_knowledge_intent = await detect_query_intent(
+                    user_query=user_text,
+                    automatik_model=automatik_model,
+                    llm_client=automatik_llm_client
+                )
                 final_temperature = get_temperature_for_intent(own_knowledge_intent)
                 debug_print(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent})")
-                console_print(f"🌡️ Temperature: {final_temperature} (auto, {own_knowledge_intent})")
+                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {own_knowledge_intent})"}
 
             # Console: LLM starts
-            console_print(f"🤖 Haupt-LLM startet: {model_choice}")
+            yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
 
-            # Zeit messen für finale Inferenz
+            # Zeit messen für finale Inferenz - STREAM response
             inference_start = time.time()
-            response = ollama.chat(
+            ai_text = ""
+            metrics = {}
+
+            async for chunk in llm_client.chat_stream(
                 model=model_choice,
                 messages=messages,
                 options={
                     'temperature': final_temperature,  # Adaptive oder Manual Temperature!
                     'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
                 }
-            )
+            ):
+                if chunk["type"] == "content":
+                    ai_text += chunk["text"]
+                    yield {"type": "content", "text": chunk["text"]}
+                elif chunk["type"] == "done":
+                    metrics = chunk["metrics"]
+
             inference_time = time.time() - inference_start
 
-            ai_text = response['message']['content']
-
             # Console: LLM finished
-            console_print(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {len(ai_text)} Zeichen)")
-            console_separator()
+            tokens_generated = metrics.get("tokens_generated", 0)
+            tokens_per_sec = metrics.get("tokens_per_second", 0)
+            yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)"}
+            yield {"type": "separator"}
 
             # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
             if stt_time > 0:
@@ -890,9 +928,9 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
             history.append([user_with_time, ai_text_formatted])
             debug_print(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
             debug_print("═" * 80)  # Separator nach jeder Anfrage
-            console_separator()  # Separator auch in Console
 
-            return ai_text, history, inference_time
+            # Yield final result
+            yield {"type": "result", "data": (ai_text_formatted, history, inference_time)}
 
     except Exception as e:
         debug_print(f"⚠️ Fehler bei Automatik-Modus Entscheidung: {e}")
