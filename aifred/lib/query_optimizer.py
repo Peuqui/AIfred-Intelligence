@@ -19,12 +19,12 @@ from .message_builder import build_messages_from_history
 THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 
 
-def optimize_search_query(
+async def optimize_search_query(
     user_text: str,
     automatik_model: str,
-    history: Optional[List] = None,
-    llm_client = None,
-    automatik_llm_context_limit: int = 4096
+    history: Optional[List],
+    llm_client,
+    automatik_llm_context_limit: int
 ) -> Tuple[str, Optional[str]]:
     """
     Extrahiert optimierte Suchbegriffe aus User-Frage
@@ -32,8 +32,8 @@ def optimize_search_query(
     Args:
         user_text: Volle User-Frage (kann lang sein)
         automatik_model: Automatik-LLM für Query-Optimierung
-        history: Chat History (optional, für Kontext bei Nachfragen)
-        llm_client: LLMClient instance (if None, uses ollama directly - legacy)
+        history: Chat History (für Kontext bei Nachfragen)
+        llm_client: LLMClient instance
         automatik_llm_context_limit: Context limit for automatik LLM
 
     Returns:
@@ -72,29 +72,16 @@ def optimize_search_query(
         debug_print(f"Total Messages: {len(messages)}, Temperature: 0.3, num_ctx: {query_num_ctx} (Automatik-LLM-Limit: {automatik_llm_context_limit})")
         debug_print("=" * 60)
 
-        if llm_client:
-            # New unified client
-            response = llm_client.chat_sync(
-                model=automatik_model,
-                messages=messages,
-                options={
-                    'temperature': 0.3,  # Leicht kreativ für Keywords, aber stabil
-                    'num_ctx': query_num_ctx
-                }
-            )
-            raw_response = response.text.strip()
-        else:
-            # Legacy fallback (will be removed after async conversion)
-            import ollama
-            response = ollama.chat(
-                model=automatik_model,
-                messages=messages,
-                options={
-                    'temperature': 0.3,
-                    'num_ctx': query_num_ctx
-                }
-            )
-            raw_response = response['message']['content'].strip()
+        # Async LLM call
+        response = await llm_client.chat(
+            model=automatik_model,
+            messages=messages,
+            options={
+                'temperature': 0.3,  # Leicht kreativ für Keywords, aber stabil
+                'num_ctx': query_num_ctx
+            }
+        )
+        raw_response = response.text.strip()
 
         # Extrahiere <think> Inhalt BEVOR wir ihn entfernen (für Debug-Output)
         think_match = THINK_TAG_PATTERN.search(raw_response)

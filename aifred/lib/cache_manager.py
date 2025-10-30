@@ -132,11 +132,11 @@ def delete_cached_research(session_id: Optional[str]) -> None:
             debug_print(f"🗑️ Cache gelöscht für Session {session_id[:8]}...")
 
 
-def generate_cache_metadata(
+async def generate_cache_metadata(
     session_id: Optional[str],
     model_choice: str,
     llm_client,
-    haupt_llm_context_limit: int = 4096
+    haupt_llm_context_limit: int
 ) -> None:
     """
     Generiert KI-basierte Metadata für gecachte Research-Daten (asynchron nach UI-Update).
@@ -211,8 +211,8 @@ Antworte NUR mit der Zusammenfassung (max 150 Zeichen), nichts anderes!"""
 
         metadata_start = time.time()
 
-        # Use LLMClient (sync for now, will be async later)
-        response = llm_client.chat_sync(
+        # Async LLM call
+        response = await llm_client.chat(
             model=model_choice,
             messages=messages,
             options={

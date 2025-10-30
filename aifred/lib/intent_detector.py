@@ -39,18 +39,18 @@ def parse_intent_from_response(intent_raw: str, context: str = "general") -> str
         return "FAKTISCH"
 
 
-def detect_query_intent(
+async def detect_query_intent(
     user_query: str,
-    automatik_model: str = "qwen3:1.7b",
-    llm_client = None
+    automatik_model: str,
+    llm_client
 ) -> str:
     """
     Erkennt die Intent einer User-Anfrage für adaptive Temperature-Wahl
 
     Args:
         user_query: User-Frage
-        automatik_model: LLM für Intent-Detection (default: qwen3:1.7b)
-        llm_client: LLMClient instance (if None, uses ollama directly - legacy)
+        automatik_model: LLM für Intent-Detection
+        llm_client: LLMClient instance
 
     Returns:
         str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
@@ -60,29 +60,15 @@ def detect_query_intent(
     try:
         debug_print(f"🎯 Intent-Detection für Query: {user_query[:60]}...")
 
-        if llm_client:
-            # New unified client
-            response = llm_client.chat_sync(
-                model=automatik_model,
-                messages=[{'role': 'user', 'content': prompt}],
-                options={
-                    'temperature': 0.2,  # Niedrig für konsistente Intent-Detection
-                    'num_ctx': 4096  # Standard Context für Intent-Detection
-                }
-            )
-            intent_raw = response.text
-        else:
-            # Legacy fallback (will be removed after async conversion)
-            import ollama
-            response = ollama.chat(
-                model=automatik_model,
-                messages=[{'role': 'user', 'content': prompt}],
-                options={
-                    'temperature': 0.2,
-                    'num_ctx': 4096
-                }
-            )
-            intent_raw = response['message']['content']
+        response = await llm_client.chat(
+            model=automatik_model,
+            messages=[{'role': 'user', 'content': prompt}],
+            options={
+                'temperature': 0.2,  # Niedrig für konsistente Intent-Detection
+                'num_ctx': 4096  # Standard Context für Intent-Detection
+            }
+        )
+        intent_raw = response.text
 
         intent = parse_intent_from_response(intent_raw, context="general")
         debug_print(f"✅ Intent erkannt: {intent}")
@@ -93,11 +79,11 @@ def detect_query_intent(
         return "FAKTISCH"  # Safe Fallback
 
 
-def detect_cache_followup_intent(
+async def detect_cache_followup_intent(
     original_query: str,
     followup_query: str,
-    automatik_model: str = "qwen3:1.7b",
-    llm_client = None
+    automatik_model: str,
+    llm_client
 ) -> str:
     """
     Erkennt die Intent einer Nachfrage zu einer gecachten Recherche
@@ -106,7 +92,7 @@ def detect_cache_followup_intent(
         original_query: Ursprüngliche Recherche-Frage
         followup_query: Nachfrage des Users
         automatik_model: LLM für Intent-Detection
-        llm_client: LLMClient instance (if None, uses ollama directly - legacy)
+        llm_client: LLMClient instance
 
     Returns:
         str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
@@ -119,29 +105,15 @@ def detect_cache_followup_intent(
     try:
         debug_print(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
 
-        if llm_client:
-            # New unified client
-            response = llm_client.chat_sync(
-                model=automatik_model,
-                messages=[{'role': 'user', 'content': prompt}],
-                options={
-                    'temperature': 0.2,
-                    'num_ctx': 4096
-                }
-            )
-            intent_raw = response.text
-        else:
-            # Legacy fallback (will be removed after async conversion)
-            import ollama
-            response = ollama.chat(
-                model=automatik_model,
-                messages=[{'role': 'user', 'content': prompt}],
-                options={
-                    'temperature': 0.2,
-                    'num_ctx': 4096
-                }
-            )
-            intent_raw = response['message']['content']
+        response = await llm_client.chat(
+            model=automatik_model,
+            messages=[{'role': 'user', 'content': prompt}],
+            options={
+                'temperature': 0.2,
+                'num_ctx': 4096
+            }
+        )
+        intent_raw = response.text
 
         intent = parse_intent_from_response(intent_raw, context="cache_followup")
         debug_print(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")

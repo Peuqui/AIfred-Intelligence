@@ -1,27 +1,25 @@
 """
 LLM Client - Unified async interface for LLM backends
 
-Provides both streaming and non-streaming chat completions
+Provides async chat completions (streaming and non-streaming)
 with proper integration into the existing Backend system.
 """
 
-import asyncio
 from typing import Dict, List, Optional, AsyncIterator, Union
-from concurrent.futures import ThreadPoolExecutor
 from ..backends import BackendFactory
 from ..backends.base import LLMMessage, LLMOptions, LLMResponse
 
 
 class LLMClient:
     """
-    Unified LLM client supporting both sync and async operations
+    Unified async LLM client
 
     Usage:
-        # For short utility calls (sync)
+        # For short utility calls (non-streaming)
         client = LLMClient(backend_type="ollama")
-        response = client.chat_sync(model, messages, options)
+        response = await client.chat(model, messages, options)
 
-        # For long-form responses with streaming (async)
+        # For long-form responses with streaming
         async for chunk in client.chat_stream(model, messages, options):
             if chunk["type"] == "content":
                 print(chunk["text"], end="")
@@ -43,7 +41,6 @@ class LLMClient:
         """
         self.backend_type = backend_type
         self.base_url = base_url
-        self._executor = ThreadPoolExecutor(max_workers=1)
 
     def _create_backend(self):
         """Create backend instance (not cached for thread-safety)"""
@@ -95,33 +92,6 @@ class LLMClient:
         finally:
             await backend.close()
 
-    def chat_sync(
-        self,
-        model: str,
-        messages: List[Union[Dict, LLMMessage]],
-        options: Optional[Dict] = None
-    ) -> LLMResponse:
-        """
-        Synchronous non-streaming chat completion
-
-        Wrapper around async chat() for backwards compatibility.
-        Use this for utility calls that need to work in sync contexts.
-
-        Args:
-            model: Model name
-            messages: List of messages (dict or LLMMessage)
-            options: Generation options (dict)
-
-        Returns:
-            LLMResponse with complete text and metrics
-        """
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        return loop.run_until_complete(self.chat(model, messages, options))
 
     async def chat_stream(
         self,
@@ -168,18 +138,6 @@ class LLMClient:
         finally:
             await backend.close()
 
-    def close(self):
+    async def close(self):
         """Cleanup resources"""
-        self._executor.shutdown(wait=False)
-
-
-# Global default client instance
-_default_client = None
-
-
-def get_default_client(backend_type: str = "ollama", base_url: Optional[str] = None) -> LLMClient:
-    """Get or create default LLM client instance"""
-    global _default_client
-    if _default_client is None:
-        _default_client = LLMClient(backend_type, base_url)
-    return _default_client
+        pass  # No cleanup needed anymore

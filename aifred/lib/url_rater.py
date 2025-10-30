@@ -17,13 +17,13 @@ from .prompt_loader import get_url_rating_prompt
 THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 
 
-def ai_rate_urls(
+async def ai_rate_urls(
     urls: List[str],
     titles: List[str],
     query: str,
     automatik_model: str,
-    llm_client = None,
-    automatik_llm_context_limit: int = 4096
+    llm_client,
+    automatik_llm_context_limit: int
 ) -> List[Dict]:
     """
     KI bewertet alle URLs auf einmal (effizient!)
@@ -33,7 +33,7 @@ def ai_rate_urls(
         titles: Liste von Titeln (parallel zu URLs)
         query: Suchanfrage
         automatik_model: Automatik-LLM für URL-Bewertung
-        llm_client: LLMClient instance (if None, uses ollama directly - legacy)
+        llm_client: LLMClient instance
         automatik_llm_context_limit: Context limit for automatik LLM
 
     Returns:
@@ -79,29 +79,16 @@ def ai_rate_urls(
         debug_print(f"Total Messages: {len(messages)}, Temperature: 0.0, num_ctx: {rating_num_ctx} (Automatik-LLM-Limit: {automatik_llm_context_limit})")
         debug_print("=" * 60)
 
-        if llm_client:
-            # New unified client
-            response = llm_client.chat_sync(
-                model=automatik_model,
-                messages=messages,
-                options={
-                    'temperature': 0.0,  # Komplett deterministisch für maximale Konsistenz!
-                    'num_ctx': rating_num_ctx
-                }
-            )
-            answer = response.text
-        else:
-            # Legacy fallback (will be removed after async conversion)
-            import ollama
-            response = ollama.chat(
-                model=automatik_model,
-                messages=messages,
-                options={
-                    'temperature': 0.0,
-                    'num_ctx': rating_num_ctx
-                }
-            )
-            answer = response['message']['content']
+        # Async LLM call
+        response = await llm_client.chat(
+            model=automatik_model,
+            messages=messages,
+            options={
+                'temperature': 0.0,  # Komplett deterministisch für maximale Konsistenz!
+                'num_ctx': rating_num_ctx
+            }
+        )
+        answer = response.text
 
         # Entferne <think> Blöcke (falls Qwen3 Thinking Mode)
         answer_cleaned = THINK_TAG_PATTERN.sub('', answer).strip()
