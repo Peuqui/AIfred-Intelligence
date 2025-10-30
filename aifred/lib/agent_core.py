@@ -10,14 +10,13 @@ This module handles agent-based research workflows including:
 
 import time
 import re
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any, AsyncIterator
+from typing import Dict, List, Optional, Any, AsyncIterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Local imports - Core utilities
 from .agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
-from .logging_utils import debug_print, console_print, console_separator
+from .logging_utils import debug_print
 from .message_builder import build_messages_from_history
 from .prompt_loader import get_decision_making_prompt, get_system_rag_prompt
 
@@ -649,10 +648,6 @@ async def chat_interactive_mode(
     stt_time: float,
     model_choice: str,
     automatik_model: str,
-    voice_choice: str,
-    speed_choice: str,
-    enable_tts: bool,
-    tts_engine: str,
     history: List,
     session_id: Optional[str] = None,
     temperature_mode: str = 'auto',
@@ -667,7 +662,6 @@ async def chat_interactive_mode(
         stt_time: STT-Zeit (0.0 bei Text-Eingabe)
         model_choice: Haupt-LLM für finale Antwort
         automatik_model: Automatik-LLM für Entscheidung
-        voice_choice, speed_choice, enable_tts, tts_engine: Für Fallback zu Eigenes Wissen
         history: Chat History
         session_id: Session-ID für Research-Cache (optional)
         temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)

@@ -35,8 +35,15 @@ from .agent_tools import (
 
 from .agent_core import (
     perform_agent_research,
+    chat_interactive_mode
+)
+
+from .cache_manager import (
     set_research_cache,
-    get_cached_research,
+    get_cached_research
+)
+
+from .intent_detector import (
     detect_query_intent
 )
 
@@ -66,7 +73,10 @@ __all__ = [
     "build_context",
     # Agent Core
     "perform_agent_research",
+    "chat_interactive_mode",
+    # Cache Manager
     "set_research_cache",
     "get_cached_research",
+    # Intent Detector
     "detect_query_intent",
 ]

@@ -13,9 +13,6 @@ from pydantic import BaseModel
 from .backends import BackendFactory, LLMMessage, LLMOptions, LLMResponse
 from .lib import (
     initialize_debug_log,
-    console_print,
-    get_console_messages,
-    get_new_messages,
     clear_console,
     set_research_cache,
     perform_agent_research,
@@ -166,16 +163,6 @@ class AIState(rx.State):
         if len(self.debug_messages) > 100:
             self.debug_messages = self.debug_messages[-100:]
 
-    def sync_debug_from_lib(self):
-        """Sync debug messages from lib console to Reflex state (via Queue!)"""
-        # Lese neue Messages aus der Queue
-        new_msgs = get_new_messages()
-        if new_msgs:
-            self.debug_messages.extend(new_msgs)
-            # Limit einhalten
-            if len(self.debug_messages) > 100:
-                self.debug_messages = self.debug_messages[-100:]
-
     def set_user_input(self, text: str):
         """Update user input"""
         self.current_user_input = text
@@ -222,10 +209,6 @@ class AIState(rx.State):
                     stt_time=0.0,
                     model_choice=self.selected_model,
                     automatik_model=self.automatik_model,
-                    voice_choice="",  # Not used in Reflex
-                    speed_choice="",  # Not used in Reflex
-                    enable_tts=False,  # Not used in Reflex
-                    tts_engine="",  # Not used in Reflex
                     history=self.chat_history,
                     session_id=self.session_id,
                     temperature_mode='auto',
@@ -338,7 +321,7 @@ class AIState(rx.State):
                     if chunk["type"] == "content":
                         full_response += chunk["text"]
                         self.current_ai_response = full_response
-                        self.sync_debug_from_lib()  # Sync nach jedem Chunk für Echtzeit
+
                         yield  # Update UI in real-time
                     elif chunk["type"] == "done":
                         metrics = chunk["metrics"]
@@ -355,7 +338,7 @@ class AIState(rx.State):
                         f"{inference_time:.1f}s, {tokens_per_sec:.1f} tok/s"
                     )
 
-                self.sync_debug_from_lib()  # Final sync
+
 
                 # Add to history (only for non-research mode)
                 self.chat_history.append((user_msg, full_response))
@@ -376,7 +359,7 @@ class AIState(rx.State):
         finally:
             self.is_generating = False
             # Final debug sync
-            self.sync_debug_from_lib()
+
 
     def clear_chat(self):
         """Clear chat history"""
@@ -385,7 +368,7 @@ class AIState(rx.State):
         self.current_user_message = ""
         self.debug_messages = []  # Debug Console auch leeren!
         self.add_debug("🗑️ Chat cleared")
-        self.sync_debug_from_lib()
+
 
     def toggle_auto_refresh(self):
         """Toggle debug console auto-refresh"""
@@ -398,10 +381,10 @@ class AIState(rx.State):
             self.add_debug("🔄 Restarting Ollama service...")
             subprocess.run(["systemctl", "restart", "ollama"], check=True)  # Ohne sudo - Polkit regelt das
             self.add_debug("✅ Ollama restarted successfully")
-            self.sync_debug_from_lib()
+
         except Exception as e:
             self.add_debug(f"❌ Ollama restart failed: {e}")
-            self.sync_debug_from_lib()
+
 
     def restart_aifred(self):
         """Restart AIfred - clear all caches and histories"""
@@ -426,7 +409,7 @@ class AIState(rx.State):
 
         # Add restart message AFTER clearing
         self.add_debug("🔄 AIfred restarted - all caches and histories cleared")
-        self.sync_debug_from_lib()
+
 
     def set_selected_model(self, model: str):
         """Set selected model"""
