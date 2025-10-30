@@ -196,69 +196,104 @@ class AIState(rx.State):
 
         try:
             # ============================================================
-            # PHASE 1: Research (wenn aktiviert)
+            # PHASE 1: Research/Automatik Mode - REAL STREAMING
             # ============================================================
             research_result = None
+            result_data = None
 
-            if self.research_mode != "none":
+            if self.research_mode == "automatik":
+                # Automatik mode: AI decides if research is needed
+                self.add_debug(f"🤖 Automatik Mode: KI entscheidet über Recherche...")
+
+                # Import chat_interactive_mode
+                from .lib.agent_core import chat_interactive_mode
+
+                # REAL STREAMING: Call async generator directly
+                async for item in chat_interactive_mode(
+                    user_text=user_msg,
+                    stt_time=0.0,
+                    model_choice=self.selected_model,
+                    automatik_model=self.automatik_model,
+                    voice_choice="",  # Not used in Reflex
+                    speed_choice="",  # Not used in Reflex
+                    enable_tts=False,  # Not used in Reflex
+                    tts_engine="",  # Not used in Reflex
+                    history=self.chat_history,
+                    session_id=self.session_id,
+                    temperature_mode='auto',
+                    temperature=self.temperature,
+                    llm_options=None
+                ):
+                    # Route messages based on type
+                    if item["type"] == "debug":
+                        self.debug_messages.append(item["message"])
+                        if len(self.debug_messages) > 100:
+                            self.debug_messages = self.debug_messages[-100:]
+                    elif item["type"] == "content":
+                        self.current_ai_response += item["text"]
+                    elif item["type"] == "separator":
+                        self.debug_messages.append("─" * 80)
+                    elif item["type"] == "result":
+                        result_data = item["data"]
+
+                    yield  # Update UI after each item
+
+                # Extract result
+                if result_data:
+                    ai_text, updated_history, inference_time = result_data
+                    research_result = ai_text
+                    self.chat_history = updated_history
+
+            elif self.research_mode in ["quick", "deep"]:
+                # Direct research mode (quick/deep)
                 self.add_debug(f"🔍 Research Mode: {self.research_mode}")
 
-                # Run research agent (wie in Gradio)
-                # WICHTIG: perform_agent_research nutzt Ollama direkt (sync)
-                # Wir müssen es in einem Thread-Pool laufen lassen
-                import concurrent.futures
+                # REAL STREAMING: Call async generator directly
+                async for item in perform_agent_research(
+                    user_text=user_msg,
+                    stt_time=0.0,  # Kein STT in Reflex (noch)
+                    mode=self.research_mode,
+                    model_choice=self.selected_model,
+                    automatik_model=self.automatik_model,
+                    history=self.chat_history,
+                    session_id=self.session_id,
+                    temperature_mode='auto',
+                    temperature=self.temperature,
+                    llm_options=None
+                ):
+                    # Route messages based on type
+                    if item["type"] == "debug":
+                        self.debug_messages.append(item["message"])
+                        # Limit debug messages
+                        if len(self.debug_messages) > 100:
+                            self.debug_messages = self.debug_messages[-100:]
+                    elif item["type"] == "content":
+                        # REAL-TIME streaming to UI!
+                        self.current_ai_response += item["text"]
+                    elif item["type"] == "separator":
+                        self.debug_messages.append("─" * 80)
+                    elif item["type"] == "result":
+                        result_data = item["data"]
 
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        perform_agent_research,
-                        user_text=user_msg,
-                        stt_time=0,  # Kein STT in Reflex (noch)
-                        mode=self.research_mode,
-                        model_choice=self.selected_model,
-                        automatik_model=self.automatik_model,
-                        history=self.chat_history,
-                        session_id=self.session_id,
-                        temperature_mode='auto',
-                        temperature=self.temperature,
-                        llm_options=None
-                    )
+                    yield  # Update UI after each item
 
-                    # Read from Queue while research is running (Pipe-basiert!)
-                    import time
-                    while not future.done():
-                        # Lese neue Messages aus der Queue
-                        new_msgs = get_new_messages()
-                        if new_msgs:
-                            self.debug_messages.extend(new_msgs)
-                            # Limit einhalten
-                            if len(self.debug_messages) > 100:
-                                self.debug_messages = self.debug_messages[-100:]
-                            yield  # Update UI nur wenn neue Messages da sind!
-                        time.sleep(0.05)  # Kurzer Sleep, um CPU zu schonen
-
-                    # perform_agent_research gibt Tuple zurück: (ai_text, history, inference_time)
-                    ai_text, updated_history, inference_time = future.result()
-                    research_result = ai_text  # AI-Antwort mit RAG
-
-                # Final sync after research completes
-                self.sync_debug_from_lib()
-                yield  # Update UI
+                # Extract result
+                if result_data:
+                    ai_text, updated_history, inference_time = result_data
+                    research_result = ai_text
+                    self.chat_history = updated_history  # Update history from research
 
             # ============================================================
-            # PHASE 2: LLM Response Generation
+            # PHASE 2: LLM Response Generation (nur wenn kein Research)
             # ============================================================
+
+            # Initialize full_response for history
+            full_response = ""
 
             if research_result:
-                # Research lieferte bereits eine AI-Antwort (mit RAG)
-                full_response = research_result
-
-                # Streaming-Simulation für UI (chunk-weise anzeigen)
-                self.current_ai_response = ""
-                for i in range(0, len(full_response), 50):
-                    chunk = full_response[i:i+50]
-                    self.current_ai_response += chunk
-                    yield  # Update UI
-                    await asyncio.sleep(0.01)  # Kleine Verzögerung für smooth UI
+                # Research already provided answer - current_ai_response already contains streamed content
+                full_response = self.current_ai_response
+                # History already updated by research, don't re-add
 
             else:
                 # Kein Research oder Research ohne Antwort → Normaler Chat
@@ -287,7 +322,6 @@ class AIState(rx.State):
                 self.add_debug(f"🤖 Calling {self.backend_type} ({self.selected_model})...")
 
                 # Stream response
-                full_response = ""
                 import time
                 stream_start = time.time()
                 metrics = None
@@ -315,8 +349,10 @@ class AIState(rx.State):
 
                 self.sync_debug_from_lib()  # Final sync
 
-            # Add to history
-            self.chat_history.append((user_msg, full_response))
+                # Add to history (only for non-research mode)
+                self.chat_history.append((user_msg, full_response))
+
+            # Clear response display
             self.current_ai_response = ""
 
             # Debug-Zeile entfernt - User wollte das nicht sehen
