@@ -84,7 +84,7 @@ class LLMBackend(ABC):
         model: str,
         messages: List[LLMMessage],
         options: Optional[LLMOptions] = None
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[Dict]:
         """
         Streaming chat completion
 
@@ -94,7 +94,9 @@ class LLMBackend(ABC):
             options: Generation options
 
         Yields:
-            Text chunks as they're generated
+            Dict with either:
+            - {"type": "content", "text": str} for content chunks
+            - {"type": "done", "metrics": {...}} for final metrics
         """
         pass
 

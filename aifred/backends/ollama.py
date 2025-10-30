@@ -125,7 +125,7 @@ class OllamaBackend(LLMBackend):
         model: str,
         messages: List[LLMMessage],
         options: Optional[LLMOptions] = None
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[Dict]:
         """
         Streaming chat with Ollama
 
@@ -135,7 +135,9 @@ class OllamaBackend(LLMBackend):
             options: Generation options
 
         Yields:
-            Text chunks as they arrive
+            Dict with either:
+            - {"type": "content", "text": str} for content chunks
+            - {"type": "done", "metrics": {...}} for final metrics
         """
         if options is None:
             options = LLMOptions()
@@ -165,6 +167,7 @@ class OllamaBackend(LLMBackend):
         }
 
         try:
+            start_time = time.time()
             async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
                 response.raise_for_status()
 
@@ -176,10 +179,27 @@ class OllamaBackend(LLMBackend):
                             message = data.get("message", {})
                             content = message.get("content", "")
                             if content:
-                                yield content
+                                yield {"type": "content", "text": content}
 
-                            # Check if done
+                            # Check if done - extract metrics
                             if data.get("done", False):
+                                inference_time = time.time() - start_time
+                                eval_count = data.get("eval_count", 0)
+                                eval_duration = data.get("eval_duration", 1)  # nanoseconds
+                                prompt_eval_count = data.get("prompt_eval_count", 0)
+
+                                tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
+
+                                yield {
+                                    "type": "done",
+                                    "metrics": {
+                                        "tokens_prompt": prompt_eval_count,
+                                        "tokens_generated": eval_count,
+                                        "tokens_per_second": tokens_per_second,
+                                        "inference_time": inference_time,
+                                        "model": model
+                                    }
+                                }
                                 break
                         except json.JSONDecodeError:
                             continue

@@ -120,7 +120,7 @@ class vLLMBackend(LLMBackend):
         model: str,
         messages: List[LLMMessage],
         options: Optional[LLMOptions] = None
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[Dict]:
         """
         Streaming chat with vLLM
 
@@ -130,7 +130,9 @@ class vLLMBackend(LLMBackend):
             options: Generation options
 
         Yields:
-            Text chunks as they arrive
+            Dict with either:
+            - {"type": "content", "text": str} for content chunks
+            - {"type": "done", "metrics": {...}} for final metrics
         """
         if options is None:
             options = LLMOptions()
@@ -144,7 +146,8 @@ class vLLMBackend(LLMBackend):
             "messages": openai_messages,
             "temperature": options.temperature,
             "top_p": options.top_p,
-            "stream": True
+            "stream": True,
+            "stream_options": {"include_usage": True}  # Request usage stats in stream
         }
 
         # vLLM-specific parameters
@@ -160,13 +163,40 @@ class vLLMBackend(LLMBackend):
             kwargs["extra_body"] = extra_body
 
         try:
+            import time
+            start_time = time.time()
             stream = await self.client.chat.completions.create(**kwargs)
+
+            total_tokens = 0
+            prompt_tokens = 0
 
             async for chunk in stream:
                 if chunk.choices:
                     delta = chunk.choices[0].delta
                     if delta.content:
-                        yield delta.content
+                        yield {"type": "content", "text": delta.content}
+                        total_tokens += 1  # Rough estimate
+
+                # Check for usage info (sent at the end by OpenAI-compatible APIs)
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    prompt_tokens = chunk.usage.prompt_tokens
+                    completion_tokens = chunk.usage.completion_tokens
+                    total_tokens = completion_tokens
+
+            # Send final metrics
+            inference_time = time.time() - start_time
+            tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
+
+            yield {
+                "type": "done",
+                "metrics": {
+                    "tokens_prompt": prompt_tokens,
+                    "tokens_generated": total_tokens,
+                    "tokens_per_second": tokens_per_second,
+                    "inference_time": inference_time,
+                    "model": model
+                }
+            }
 
         except Exception as e:
             error_str = str(e)
