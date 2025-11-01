@@ -281,6 +281,7 @@ class AIState(rx.State):
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
                         self.current_user_message = ""
+                        self.is_generating = False  # Stop spinner, switch UI to history display
                         yield  # Force immediate UI update to clear both windows
                     elif item["type"] == "progress":
                         # Update processing progress
@@ -342,6 +343,7 @@ class AIState(rx.State):
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
                         self.current_user_message = ""
+                        self.is_generating = False  # Stop spinner, switch UI to history display
                         yield  # Force immediate UI update to clear both windows
 
                     yield  # Update UI after each item
