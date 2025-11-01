@@ -26,7 +26,7 @@ class OllamaBackend(LLMBackend):
 
     def __init__(self, base_url: str = "http://localhost:11434"):
         super().__init__(base_url=base_url)
-        self.client = httpx.AsyncClient(timeout=300.0)  # 5min timeout
+        self.client = httpx.AsyncClient(timeout=60.0)  # 60s Timeout - ausreichend für parallele Anfragen
 
     async def list_models(self) -> List[str]:
         """Get list of available Ollama models"""
@@ -257,7 +257,7 @@ class OllamaBackend(LLMBackend):
     async def health_check(self) -> bool:
         """Check if Ollama is reachable"""
         try:
-            response = await self.client.get(f"{self.base_url}/api/tags", timeout=5.0)
+            response = await self.client.get(f"{self.base_url}/api/tags")
             return response.status_code == 200
         except Exception:
             return False
@@ -269,7 +269,7 @@ class OllamaBackend(LLMBackend):
         """Get Ollama backend information"""
         try:
             # Try to get version
-            response = await self.client.get(f"{self.base_url}/api/version", timeout=5.0)
+            response = await self.client.get(f"{self.base_url}/api/version")
             version = response.json().get("version", "unknown") if response.status_code == 200 else "unknown"
 
             # Get models
@@ -313,8 +313,7 @@ class OllamaBackend(LLMBackend):
         try:
             response = await self.client.post(
                 f"{self.base_url}/api/show",
-                json={"name": model},
-                timeout=5.0
+                json={"name": model}
             )
             response.raise_for_status()
             data = response.json()

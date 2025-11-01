@@ -134,8 +134,8 @@ class AIState(rx.State):
                     # Fire-and-forget: Blockiert NICHT den Startup!
                     # WICHTIG: Erstelle neues Backend-Objekt, da das aktuelle gleich geschlossen wird!
                     async def preload_in_background():
-                        from ..backends import create_backend
-                        preload_backend = create_backend(self.backend_type, self.backend_url)
+                        from aifred.backends import BackendFactory
+                        preload_backend = BackendFactory.create(self.backend_type, self.backend_url)
                         try:
                             preload_success = await preload_backend.preload_model(self.automatik_model)
                             if preload_success:

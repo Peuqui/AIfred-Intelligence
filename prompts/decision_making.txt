@@ -16,10 +16,12 @@ REGELN:
 • Wetter/News/Preise/Live-Daten → <search>yes</search>
 • Lokale Aktivitäten/Empfehlungen/Events → <search>yes</search>
 • Restaurants/Geschäfte/Orte in Stadt → <search>yes</search>
+• Zeitbezogene Fragen (heute/morgen/dieses Jahr/aktuell/neueste) → <search>yes</search>
+• Event-Termine/Ergebnisse (Emmy/Oscar/Nobelpreis/Wahlen/Sportevents) → <search>yes</search>
 • Allgemeinwissen/Mathe/Chat → <search>no</search>
 • Nachfrage zu vorheriger Antwort (wenn Cache da!) → <search>context</search>
 
-BEISPIELE:
+BEISPIELE MIT WEB-RECHERCHE:
 "Wetter morgen?" → <search>yes</search>
 "Wie wird das Wetter morgen?" → <search>yes</search>
 "Wetter in Berlin morgen?" → <search>yes</search>
@@ -27,8 +29,17 @@ BEISPIELE:
 "Was kann ich in München machen?" → <search>yes</search>
 "Restaurants in Hamburg?" → <search>yes</search>
 "VHS-Kurse in Kassel?" → <search>yes</search>
+"Gab es dieses Jahr schon einen Emmy?" → <search>yes</search>
+"Wer hat die Bundestagswahl 2025 gewonnen?" → <search>yes</search>
+"Neueste Entwicklungen im KI-Bereich?" → <search>yes</search>
+"Hat Tesla heute neue Produkte vorgestellt?" → <search>yes</search>
+
+BEISPIELE OHNE WEB-RECHERCHE:
 "Was ist Wetter?" → <search>no</search>
 "Hallo" → <search>no</search>
-"Was bedeutet Photosynthese?" → <search>no</search>{cache_metadata}
+"Was bedeutet Photosynthese?" → <search>no</search>
+"Was ist ein Emmy Award?" → <search>no</search>
+"Wie funktioniert eine Wahl?" → <search>no</search>
+"Erkläre mir künstliche Intelligenz" → <search>no</search>{cache_metadata}
 
 Antworte NUR mit der XML-Markierung (nichts anderes)!

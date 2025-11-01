@@ -29,7 +29,7 @@ class vLLMBackend(LLMBackend):
         self.client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,  # vLLM doesn't need real API key
-            timeout=300.0
+            timeout=60.0  # 60s Timeout - ausreichend für parallele Anfragen
         )
 
     async def list_models(self) -> List[str]:
