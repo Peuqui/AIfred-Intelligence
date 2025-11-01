@@ -131,6 +131,9 @@ def text_input_section() -> rx.Component:
             width="100%",
         ),
 
+        # Processing Progress Banner (unterhalb der Buttons)
+        processing_progress_banner(),
+
         spacing="3",
         width="100%",
     )
@@ -210,32 +213,161 @@ def left_column() -> rx.Component:
 # RIGHT COLUMN: Output Display
 # ============================================================
 
+def processing_progress_banner() -> rx.Component:
+    """Progress banner for all processing phases (Automatik, Scraping, LLM)"""
+
+    # Berechne Fortschritt in Prozent (nur für Scraping relevant)
+    progress_pct = rx.cond(
+        AIState.progress_total > 0,
+        (AIState.progress_current / AIState.progress_total) * 100,
+        0
+    )
+
+    # Icon und Text basierend auf Phase
+    phase_icon = rx.cond(
+        AIState.progress_phase == "automatik",
+        "🤖",
+        rx.cond(
+            AIState.progress_phase == "scraping",
+            "🔍",
+            "🧠"  # llm
+        )
+    )
+
+    phase_text = rx.cond(
+        AIState.progress_phase == "automatik",
+        "Automatik-Entscheidung ...",
+        rx.cond(
+            AIState.progress_phase == "scraping",
+            "Web-Scraping",
+            "Generiere Antwort ..."
+        )
+    )
+
+    # Progress-Bar nur für Scraping
+    def scraping_bar():
+        return rx.hstack(
+            rx.text(phase_icon, font_size="14px"),
+            rx.text(phase_text, font_weight="bold", font_size="13px", color=COLORS["primary"]),
+            rx.box(
+                rx.box(
+                    width=f"{progress_pct}%",
+                    height="100%",
+                    background_color=COLORS["primary"],
+                    border_radius="2px",
+                    transition="width 0.3s ease",
+                ),
+                width="120px",
+                height="14px",
+                background_color="rgba(255, 255, 255, 0.1)",
+                border_radius="4px",
+                border=f"1px solid {COLORS['border']}",
+                overflow="hidden",
+            ),
+            rx.text(
+                f"{AIState.progress_current}/{AIState.progress_total}",
+                font_size="12px",
+                color=COLORS["primary"],  # Orange statt Grau - besser lesbar
+                font_weight="600",
+            ),
+            rx.cond(
+                AIState.progress_failed > 0,
+                rx.text(
+                    f"({AIState.progress_failed} Fehler)",
+                    font_size="11px",
+                    color=COLORS["accent_warning"],  # Orange statt Grau - besser sichtbar
+                    font_weight="500",
+                ),
+                rx.box(),
+            ),
+            spacing="2",
+            align="center",
+        )
+
+    # Nur Text für Automatik und LLM (mit Pulsier-Animation)
+    def text_only():
+        return rx.hstack(
+            rx.text(
+                phase_icon,
+                font_size="14px",
+                style={
+                    "animation": "pulse 2s ease-in-out infinite",
+                    "@keyframes pulse": {
+                        "0%, 100%": {"opacity": "1"},
+                        "50%": {"opacity": "0.5"},
+                    }
+                }
+            ),
+            rx.text(
+                phase_text,
+                font_weight="bold",
+                font_size="13px",
+                color=COLORS["primary"],
+                style={
+                    "animation": "pulse 2s ease-in-out infinite",
+                    "@keyframes pulse": {
+                        "0%, 100%": {"opacity": "1"},
+                        "50%": {"opacity": "0.5"},
+                    }
+                }
+            ),
+            spacing="2",
+            align="center",
+        )
+
+    # Entscheide welche Anzeige basierend auf Phase
+    content = rx.cond(
+        AIState.progress_phase == "scraping",
+        scraping_bar(),
+        text_only()
+    )
+
+    return rx.cond(
+        AIState.progress_active,
+        rx.box(
+            content,
+            padding="2",
+            background_color=COLORS["primary_bg"],
+            border_radius="6px",
+            border=f"1px solid {COLORS['primary']}",
+            width="100%",
+        ),
+        rx.box(),  # Empty box when not active
+    )
+
+
 def chat_display() -> rx.Component:
     """Chat display area showing user input and AI response"""
     return rx.vstack(
         # User Input Display
         rx.vstack(
             rx.text("Eingabe:", font_weight="bold", font_size="12px"),
-            rx.text_area(
-                value=rx.cond(
-                    AIState.is_generating,
-                    AIState.current_user_message,  # Zeige aktuell verarbeitete Nachricht
+            rx.box(
+                rx.text(
                     rx.cond(
-                        AIState.chat_history.length() > 0,
-                        AIState.chat_history[-1][0],  # Zeige letzte Chat-Nachricht
-                        ""
-                    )
+                        AIState.is_generating,
+                        AIState.current_user_message,  # Zeige aktuell verarbeitete Nachricht
+                        rx.cond(
+                            AIState.chat_history.length() > 0,
+                            AIState.chat_history[-1][0],  # Zeige letzte Chat-Nachricht
+                            ""
+                        )
+                    ),
+                    color=COLORS["text_primary"],
+                    font_size="13px",
+                    white_space="pre-wrap",
+                    word_break="break-word",
                 ),
-                is_read_only=True,
                 width="100%",
-                rows="5",
+                height="120px",  # Feste Höhe für visuelle Stabilität
+                padding="3",
                 background_color=COLORS["readonly_bg"],
+                border_radius="8px",
+                border=f"1px solid {COLORS['border']}",
+                overflow_y="auto",  # Scrollbar bei langen Texten
                 style={
-                    "border": f"1px solid {COLORS['border']}",
-                    "&:focus": {
-                        "border": f"1px solid {COLORS['border']}",
-                        "outline": "none",
-                    },
+                    "cursor": "default",
+                    "user-select": "text",
                 },
             ),
             width="100%",
@@ -402,11 +534,15 @@ def chat_history_display() -> rx.Component:
                 ),
                 id="chat-history-box",
                 width="100%",
+                min_height="120px",
                 max_height="1200px",
                 padding="4",
                 background_color=COLORS["readonly_bg"],
                 border_radius="8px",
                 border=f"1px solid {COLORS['border']}",
+                style={
+                    "transition": "all 0.4s ease-out",
+                },
             ),
             # Auto-Scroll disabled: normale rx.box (kein Scroll)
             rx.box(
@@ -462,16 +598,28 @@ def chat_history_display() -> rx.Component:
                 ),
                 id="chat-history-box",
                 width="100%",
+                min_height="120px",
                 max_height="1200px",
                 overflow_y="auto",
                 padding="4",
                 background_color=COLORS["readonly_bg"],
                 border_radius="8px",
                 border=f"1px solid {COLORS['border']}",
+                style={
+                    "transition": "all 0.4s ease-out",
+                },
             ),
         ),
         spacing="3",
         width="100%",
+        style={
+            "animation": "fadeIn 0.4s ease-in",
+            "transition": "all 0.4s ease-out",
+            "@keyframes fadeIn": {
+                "from": {"opacity": "0", "transform": "translateY(-10px)"},
+                "to": {"opacity": "1", "transform": "translateY(0)"}
+            }
+        }
     )
 
 

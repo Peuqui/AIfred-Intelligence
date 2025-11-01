@@ -83,13 +83,20 @@ Nach Summarization (4.000 Tokens):
 
 ---
 
-- [ ] Paralleles Scraping optimieren (Timeout-Handling)
+- [x] Paralleles Scraping optimieren (Timeout-Handling) ✅ DONE (01.11.2025 - Globaler Timeout 60s, keine API-spezifischen Overrides)
 - [ ] Cache-Warming beim App-Start
 - [x] **LLM Pre-Loading implementieren** ✅ DONE (01.11.2025)
 
 ### UI/UX
-- [ ] Quellen-Links in LLM-Antwort unterdrücken (redundant)
-- [ ] Progress-Indicator für lange Scraping-Vorgänge
+- [x] Quellen-Links in LLM-Antwort unterdrücken (redundant) ✅ DONE (vorherige Session)
+- [x] **Progress-Indicator für lange Scraping-Vorgänge** ✅ DONE (01.11.2025)
+  - **Status**: Vollständig implementiert
+  - **Features**:
+    - Phase 1: Automatik-Entscheidung (pulsierend)
+    - Phase 2: Web-Scraping (Fortschrittsbalken X/Y URLs + Fehleranzahl)
+    - Phase 3: Generiere Antwort (pulsierend)
+    - Funktioniert auch bei Cache-Hit korrekt
+  - **Dateien**: `aifred/aifred.py`, `aifred/state.py`, `aifred/lib/agent_core.py`
 
 ### Internationalisierung (i18n)
 
@@ -137,4 +144,4 @@ prompts/
 ---
 
 **Erstellt**: 30.10.2025
-**Letztes Update**: 01.11.2025
+**Letztes Update**: 01.11.2025 (Session 2: Progress-Indicator, UI-Fixes, Cache-Hit Progress-Flow)

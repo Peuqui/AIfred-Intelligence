@@ -74,6 +74,13 @@ class AIState(rx.State):
     debug_messages: List[str] = []
     auto_refresh_enabled: bool = True  # Für Debug Console + Chat History + AI Response Area
 
+    # Processing Progress (Automatik, Scraping, LLM)
+    progress_active: bool = False
+    progress_phase: str = ""  # "automatik", "scraping", "llm"
+    progress_current: int = 0
+    progress_total: int = 0
+    progress_failed: int = 0  # Anzahl fehlgeschlagener URLs
+
     async def on_load(self):
         """Called when page loads - initialize backend"""
         # Initialize debug log (reset on first load, append afterwards)
@@ -106,22 +113,29 @@ class AIState(rx.State):
                 base_url=self.backend_url
             )
 
-            # Health check
+            # Health check (quick!)
             self.backend_healthy = await backend.health_check()
 
             if self.backend_healthy:
-                # Get available models
-                self.available_models = await backend.list_models()
+                # Set basic info immediately (UI shows up faster!)
+                self.backend_info = f"{self.backend_type} backend ready"
+                self.add_debug(f"✅ {self.backend_type} backend ready")
 
-                # Set default model if not set
-                if not self.selected_model and self.available_models:
-                    self.selected_model = self.available_models[0]
+                # Load models in background (don't block UI!)
+                import asyncio
+                async def load_models_in_background():
+                    from aifred.backends import BackendFactory
+                    bg_backend = BackendFactory.create(self.backend_type, self.backend_url)
+                    try:
+                        self.available_models = await bg_backend.list_models()
+                        if not self.selected_model and self.available_models:
+                            self.selected_model = self.available_models[0]
+                        self.backend_info = f"{self.backend_type} - {len(self.available_models)} models available"
+                        self.add_debug(f"✅ {len(self.available_models)} Models geladen")
+                    finally:
+                        await bg_backend.close()
 
-                # Get backend info
-                info = await backend.get_backend_info()
-                self.backend_info = f"{info['backend']} - {len(self.available_models)} models available"
-
-                self.add_debug(f"✅ {self.backend_type} backend ready: {self.backend_info}")
+                asyncio.create_task(load_models_in_background())
 
                 # ============================================================
                 # PERFORMANCE-OPTIMIERUNG: Automatik-LLM beim Start vorladen (NON-BLOCKING!)
@@ -162,6 +176,22 @@ class AIState(rx.State):
         self.add_debug(f"🔄 Switching backend from {self.backend_type} to {new_backend}...")
         self.backend_type = new_backend
         await self.initialize_backend()
+
+    def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0):
+        """Update processing progress"""
+        self.progress_active = True
+        self.progress_phase = phase
+        self.progress_current = current
+        self.progress_total = total
+        self.progress_failed = failed
+
+    def clear_progress(self):
+        """Clear processing progress"""
+        self.progress_active = False
+        self.progress_phase = ""
+        self.progress_current = 0
+        self.progress_total = 0
+        self.progress_failed = 0
 
     def add_debug(self, message: str):
         """Add message to debug console"""
@@ -240,6 +270,17 @@ class AIState(rx.State):
                         self.current_ai_response += item["text"]
                     elif item["type"] == "result":
                         result_data = item["data"]
+                    elif item["type"] == "progress":
+                        # Update processing progress
+                        if item.get("clear", False):
+                            self.clear_progress()
+                        else:
+                            self.set_progress(
+                                phase=item.get("phase", ""),
+                                current=item.get("current", 0),
+                                total=item.get("total", 0),
+                                failed=item.get("failed", 0)
+                            )
 
                     yield  # Update UI after each item
 

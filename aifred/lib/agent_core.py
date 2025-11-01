@@ -189,6 +189,9 @@ async def perform_agent_research(
             # Console: LLM starts
             yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice} (Cache-Daten)"}
 
+            # Show LLM generation phase
+            yield {"type": "progress", "phase": "llm"}
+
             llm_start = time.time()
             final_answer = ""
             metrics = {}
@@ -238,6 +241,9 @@ async def perform_agent_research(
             history.append((user_display, ai_display))
 
             log_message(f"✅ Cache-basierte Antwort fertig in {total_time:.1f}s")
+
+            # Clear progress before final result
+            yield {"type": "progress", "clear": True}
 
             # Separator nach Cache-Hit (Log-File + Debug-Konsole)
             from .logging_utils import console_separator, CONSOLE_SEPARATOR
@@ -340,6 +346,9 @@ async def perform_agent_research(
         # Scrape URLs parallel (urls_to_scrape garantiert nicht leer, da related_urls nicht leer)
         log_message(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
 
+        # Start scraping progress
+        yield {"type": "progress", "phase": "scraping", "current": 0, "total": len(urls_to_scrape), "failed": 0}
+
         # Parallel Scraping mit ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=min(5, len(urls_to_scrape))) as executor:
             # Starte alle Scrape-Tasks parallel (urls_to_scrape ist jetzt simple URL-Liste!)
@@ -366,7 +375,14 @@ async def perform_agent_research(
                 except Exception as e:
                     log_message(f"  ❌ {url_short}: Exception: {e}")
 
+                # Update progress after each URL (successful or failed)
+                completed = len([f for f in future_to_url if f.done()])
+                failed = completed - len(scraped_results)
+                yield {"type": "progress", "phase": "scraping", "current": len(scraped_results), "total": len(urls_to_scrape), "failed": failed}
+
         log_message(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
+
+        # Don't clear immediately - will be cleared when LLM starts
 
         # AUTOMATISCHES FALLBACK: Wenn zu wenige Quellen erfolgreich → Scrape weitere URLs
         if mode == "deep" and len(scraped_results) < target_sources and len(urls_to_scrape) < len(related_urls):
@@ -382,6 +398,11 @@ async def perform_agent_research(
             if remaining_urls:
                 log_message(f"🔄 Fallback: {len(scraped_results)}/{target_sources} erfolgreich → Scrape {len(remaining_urls)} weitere URLs")
                 yield {"type": "debug", "message": f"🔄 Scrape {len(remaining_urls)} zusätzliche URLs (Fallback für Fehler)"}
+
+                # Restart progress for fallback URLs
+                total_urls = len(urls_to_scrape) + len(remaining_urls)
+                failed_count = len(urls_to_scrape) - len(scraped_results)
+                yield {"type": "progress", "phase": "scraping", "current": len(scraped_results), "total": total_urls, "failed": failed_count}
 
                 # Scrape zusätzliche URLs parallel
                 with ThreadPoolExecutor(max_workers=min(5, len(remaining_urls))) as executor:
@@ -402,6 +423,10 @@ async def perform_agent_research(
                                 scraped_results.append(scrape_result)
                                 log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter")
 
+                                # Update progress
+                                failed = total_urls - len(scraped_results)
+                                yield {"type": "progress", "phase": "scraping", "current": len(scraped_results), "total": total_urls, "failed": failed}
+
                                 # Stoppe wenn Ziel erreicht
                                 if len(scraped_results) >= target_sources:
                                     log_message(f"🎯 Ziel erreicht: {len(scraped_results)}/{target_sources} Quellen")
@@ -413,6 +438,8 @@ async def perform_agent_research(
                             log_message(f"  ❌ {url_short}: Exception: {e}")
 
                 log_message(f"✅ Fallback-Scraping fertig: {len(scraped_results)} total (Ziel: {target_sources})")
+
+                # Don't clear - will be cleared when LLM starts
 
     # Scraping-Abschluss: yield immer, auch wenn keine URLs (konsistente UI-Ausgabe)
     yield {"type": "debug", "message": f"✅ Web-Scraping fertig: {len(scraped_results)} URLs erfolgreich"}
@@ -587,6 +614,9 @@ async def perform_agent_research(
     ttft = None  # Time-to-First-Token
     first_token_received = False
 
+    # Show LLM generation phase
+    yield {"type": "progress", "phase": "llm"}
+
     # Stream response from LLM
     async for chunk in llm_client.chat_stream(
         model=model_choice,
@@ -656,6 +686,9 @@ async def perform_agent_research(
     # Separator NACH Metadata-Completion
     from .logging_utils import CONSOLE_SEPARATOR
     yield {"type": "debug", "message": CONSOLE_SEPARATOR}
+
+    # Clear progress before final result
+    yield {"type": "progress", "clear": True}
 
     # Yield final result (vollständige Antwort mit allen Collapsibles)
     yield {"type": "result", "data": (ai_response_complete, history, inference_time)}
@@ -780,6 +813,7 @@ async def chat_interactive_mode(
     try:
         # Zeit messen für Entscheidung
         log_message(f"🤖 Automatik-Entscheidung mit {automatik_model}")
+        yield {"type": "progress", "phase": "automatik"}
 
         # ⚠️ WICHTIG: KEINE History für Decision-Making!
         # Die History würde phi3:mini verwirren - es würde jede neue Frage
@@ -847,6 +881,9 @@ async def chat_interactive_mode(
         else:
             log_message("❌ KI entscheidet: Eigenes Wissen ausreichend → Kein Agent")
             yield {"type": "debug", "message": f"🧠 KI-Entscheidung: Web-Recherche NEIN ({decision_time:.1f}s)"}
+
+            # Clear progress - keine Web-Recherche nötig, zeige LLM-Phase
+            yield {"type": "progress", "phase": "llm"}
 
             # Jetzt normale Inferenz MIT Zeitmessung
             # Build messages from history (all turns)
