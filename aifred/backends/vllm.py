@@ -5,6 +5,7 @@ vLLM uses OpenAI-compatible API, so we use the openai Python client
 """
 
 import time
+import logging
 from typing import List, Optional, AsyncIterator, Dict
 from openai import AsyncOpenAI
 from .base import (
@@ -16,6 +17,8 @@ from .base import (
     BackendModelNotFoundError,
     BackendInferenceError
 )
+
+logger = logging.getLogger(__name__)
 
 
 class vLLMBackend(LLMBackend):
@@ -226,7 +229,8 @@ class vLLMBackend(LLMBackend):
                 # Kein Timeout: vLLM queued Requests automatisch, auch während Modell lädt
             )
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Preload failed for {model}: {e}")
             return False
 
     async def health_check(self) -> bool:

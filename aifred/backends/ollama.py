@@ -6,6 +6,7 @@ Wraps Ollama API into unified LLMBackend interface
 
 import httpx
 import time
+import logging
 from typing import List, Optional, AsyncIterator, Dict
 from .base import (
     LLMBackend,
@@ -16,6 +17,8 @@ from .base import (
     BackendModelNotFoundError,
     BackendInferenceError
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaBackend(LLMBackend):
@@ -247,7 +250,8 @@ class OllamaBackend(LLMBackend):
             )
 
             return response.status_code == 200
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Preload failed for {model}: {e}")
             return False
 
     async def health_check(self) -> bool:
