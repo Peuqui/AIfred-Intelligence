@@ -674,6 +674,7 @@ def settings_accordion() -> rx.Component:
                         color="#a67a30",  # Etwas dunkler für Zusatzinfo
                         line_height="1.3",
                         margin_top="-2px",  # Näher an die Zeile darüber
+                        margin_left="16px",  # Eingerückt
                     ),
                     rx.text(
                         "⚠️ AIfred-Neustart: Löscht ALLE Chats, Caches und Debug-Logs komplett!",
