@@ -294,6 +294,7 @@ class AIState(rx.State):
                     ai_text, updated_history, inference_time = result_data
                     research_result = ai_text
                     self.chat_history = updated_history
+                    # Don't clear yet - will be cleared after full_response assignment
 
             elif self.research_mode in ["quick", "deep"]:
                 # Direct research mode (quick/deep)
@@ -331,6 +332,7 @@ class AIState(rx.State):
                     ai_text, updated_history, inference_time = result_data
                     research_result = ai_text
                     self.chat_history = updated_history  # Update history from research
+                    # Don't clear yet - will be cleared after full_response assignment
 
             # ============================================================
             # PHASE 2: LLM Response Generation (nur wenn kein Research)
@@ -342,6 +344,9 @@ class AIState(rx.State):
             if research_result:
                 # Research already provided answer - current_ai_response already contains streamed content
                 full_response = self.current_ai_response
+                # Clear AI response window immediately after copying to full_response
+                self.current_ai_response = ""
+                yield  # Update UI to show cleared response window
                 # History already updated by research, don't re-add
 
             else:

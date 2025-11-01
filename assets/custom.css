@@ -73,3 +73,27 @@
     outline-color: transparent !important;
     border-color: #30363d !important;
 }
+
+/* Links - Helles Grau statt Blau (überall!) */
+a,
+a:link,
+a:visited,
+.rt-Text a,
+.rt-Box a,
+p a,
+div a,
+li a,
+.radix-themes a {
+    color: #9ca3af !important;  /* Helles Grau (gut lesbar) */
+    text-decoration: underline !important;
+}
+
+a:hover,
+.rt-Text a:hover,
+.rt-Box a:hover,
+p a:hover,
+div a:hover,
+li a:hover,
+.radix-themes a:hover {
+    color: #d1d5db !important;  /* Noch heller beim Hover */
+}

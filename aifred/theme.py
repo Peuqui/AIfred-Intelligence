@@ -109,4 +109,6 @@ body {
 .rt-AccordionTrigger:hover {
     background-color: rgba(230, 119, 0, 0.15) !important;  /* Orange beim Hover */
 }
+
+/* NOTE: Link styles moved to assets/custom.css for proper loading */
 """
