@@ -352,15 +352,7 @@ def chat_display() -> rx.Component:
             rx.text("Eingabe:", font_weight="bold", font_size="12px"),
             rx.box(
                 rx.text(
-                    rx.cond(
-                        AIState.is_generating,
-                        AIState.current_user_message,  # Zeige aktuell verarbeitete Nachricht
-                        rx.cond(
-                            AIState.chat_history.length() > 0,
-                            AIState.chat_history[-1][0],  # Zeige letzte Chat-Nachricht
-                            ""
-                        )
-                    ),
+                    AIState.current_user_message,  # Nur aktuelle Message anzeigen, wird leer nach Clear
                     color=COLORS["text_primary"],
                     font_size="13px",
                     white_space="pre-wrap",
