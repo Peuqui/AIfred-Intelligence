@@ -214,8 +214,6 @@ class AIState(rx.State):
                             self.debug_messages = self.debug_messages[-100:]
                     elif item["type"] == "content":
                         self.current_ai_response += item["text"]
-                    elif item["type"] == "separator":
-                        self.debug_messages.append("─" * 20)
                     elif item["type"] == "result":
                         result_data = item["data"]
 
@@ -253,8 +251,6 @@ class AIState(rx.State):
                     elif item["type"] == "content":
                         # REAL-TIME streaming to UI!
                         self.current_ai_response += item["text"]
-                    elif item["type"] == "separator":
-                        self.debug_messages.append("─" * 20)
                     elif item["type"] == "result":
                         result_data = item["data"]
 

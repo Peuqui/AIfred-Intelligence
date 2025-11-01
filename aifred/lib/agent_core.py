@@ -259,7 +259,6 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
             tokens_generated = metrics.get("tokens_generated", 0)
             tokens_per_sec = metrics.get("tokens_per_second", 0)
             yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({llm_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s, Cache-Total: {total_time:.1f}s)"}
-            yield {"type": "separator"}
 
             # Formatiere <think> Tags als Collapsible (falls vorhanden)
             final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time)
@@ -526,11 +525,39 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         log_message("⚠️⚠️⚠️ WARNING: scraped_only ist LEER! Keine Daten für Context! ⚠️⚠️⚠️")
         yield {"type": "debug", "message": "⚠️ WARNUNG: Keine gescrapten Inhalte gefunden!"}
 
+    # ============================================================
+    # INTELLIGENTES CACHE-SYSTEM: Metadata alter Recherchen einbinden
+    # ============================================================
+    # Hole Metadata-Zusammenfassungen ALLER vorherigen Recherchen (außer der aktuellen)
+    from .cache_manager import get_all_metadata_summaries
+    old_research_metadata = get_all_metadata_summaries(exclude_session_id=session_id, max_entries=10)
+
+    # Baue Metadata-Kontext für Systemprompt
+    metadata_context = ""
+    if old_research_metadata:
+        log_message(f"📚 Füge {len(old_research_metadata)} alte Recherche-Zusammenfassungen zum Context hinzu")
+        metadata_context = "\n\nFRÜHERE RECHERCHEN (Zusammenfassungen):\n"
+        metadata_context += "─" * 60 + "\n"
+        for i, entry in enumerate(old_research_metadata, 1):
+            metadata_context += f"\nRecherche {i}: {entry['user_text']}\n"
+            metadata_context += f"Zusammenfassung: {entry['metadata_summary']}\n"
+        metadata_context += "─" * 60 + "\n"
+        metadata_context += "\nHinweis: Diese Recherchen liegen bereits vor. Du kannst bei Bedarf darauf Bezug nehmen,\n"
+        metadata_context += "ohne erneut zu recherchieren. Die AKTUELLEN vollständigen Quellen findest du unten.\n\n"
+
     # Intelligenter Context (Limit aus config.py: MAX_RAG_CONTEXT_TOKENS)
-    context = build_context(user_text, scraped_only)
+    # Baue Context AUS aktuellen Quellen
+    current_sources_context = build_context(user_text, scraped_only)
+
+    # Kombiniere: Alte Metadata + Aktuelle Quellen
+    context = metadata_context + current_sources_context
+
     # Token-Berechnung aus config (CHARS_PER_TOKEN)
     from .config import CHARS_PER_TOKEN
     log_message(f"📊 Context-Größe: {len(context)} Zeichen, ~{len(context)//CHARS_PER_TOKEN} Tokens")
+    if old_research_metadata:
+        log_message(f"   └─ Metadata alte Recherchen: {len(metadata_context)} Zeichen")
+        log_message(f"   └─ Aktuelle Quellen: {len(current_sources_context)} Zeichen")
 
     # DEBUG: Zeige ANFANG des Contexts (erste 800 Zeichen)
     log_message("=" * 80)
@@ -662,7 +689,6 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
     yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s, Agent-Total: {agent_time:.1f}s)"}
 
     # Separator als letztes Element in der Debug Console (KEINE AI-Ausgaben danach!)
-    yield {"type": "separator"}
 
     # 9. Baue vollständige AI-Antwort mit Debug-Accordion (URL-Bewertung + Thinking + Clean Text)
     # build_debug_accordion() gibt zurück:
@@ -686,42 +712,25 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
     log_message(f"✅ Agent fertig: {agent_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     log_message("=" * 60)
-    console_separator()  # Separator nach jeder Anfrage (im Debug-Console sichtbar)
-
-    # Yield final result (vollständige Antwort mit allen Collapsibles)
-    yield {"type": "result", "data": (ai_response_complete, history, inference_time)}
 
     # ============================================================
-    # Cache-Metadata-Generierung (Fire & Forget Background Task)
+    # Cache-Metadata-Generierung (synchron NACH Haupt-LLM)
     # ============================================================
-    # WICHTIG: asyncio.create_task() startet die Funktion im Hintergrund
-    # und kehrt sofort zurück. Der Generator endet hier, aber die
-    # Metadata-Generierung läuft asynchron weiter!
-    import asyncio
-    asyncio.create_task(_generate_metadata_background(
+    # Generiere Metadata synchron und yielde Messages an UI
+    async for metadata_msg in generate_cache_metadata(
         session_id=session_id,
         metadata_model=automatik_model,
         llm_client=automatik_llm_client,
         haupt_llm_context_limit=model_limit
-    ))
+    ):
+        yield metadata_msg  # Forward messages to UI
 
+    # Separator NACH Metadata-Completion
+    from .logging_utils import CONSOLE_SEPARATOR
+    yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
-async def _generate_metadata_background(session_id, metadata_model, llm_client, haupt_llm_context_limit):
-    """Background task for generating cache metadata (doesn't block UI)"""
-    try:
-        console_separator()
-        log_message("📝 Starte Cache-Metadata Generierung (Background)")
-        await generate_cache_metadata(
-            session_id=session_id,
-            metadata_model=metadata_model,
-            llm_client=llm_client,
-            haupt_llm_context_limit=haupt_llm_context_limit
-        )
-        log_message("✅ Cache-Metadata Generierung abgeschlossen")
-        console_separator()
-    except Exception as e:
-        log_message(f"⚠️ Cache-Metadata Background Task Fehler: {e}")
-        console_separator()
+    # Yield final result (vollständige Antwort mit allen Collapsibles)
+    yield {"type": "result", "data": (ai_response_complete, history, inference_time)}
 
 
 async def chat_interactive_mode(
@@ -1011,7 +1020,6 @@ BEISPIELE:
             yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)"}
 
             # Separator als letztes Element in der Debug Console
-            yield {"type": "separator"}
 
             # Formatiere <think> Tags als Collapsible für Chat History (sichtbar als Collapsible!)
             thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
@@ -1026,7 +1034,10 @@ BEISPIELE:
             history.append((user_with_time, thinking_html))
 
             log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
-            console_separator()  # Separator nach jeder Anfrage (im Debug-Console sichtbar)
+
+            # Separator direkt yielden
+            from .logging_utils import CONSOLE_SEPARATOR
+            yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
             # Yield final result: thinking_html für AI-Antwort + History (beide mit Collapsible)
             yield {"type": "result", "data": (thinking_html, history, inference_time)}

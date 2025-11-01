@@ -36,7 +36,8 @@ from .agent_core import (
 
 from .cache_manager import (
     set_research_cache,
-    get_cached_research
+    get_cached_research,
+    get_all_metadata_summaries
 )
 
 from .intent_detector import (
@@ -69,6 +70,7 @@ __all__ = [
     # Cache Manager
     "set_research_cache",
     "get_cached_research",
+    "get_all_metadata_summaries",
     # Intent Detector
     "detect_query_intent",
 ]

@@ -64,6 +64,48 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
     return None
 
 
+def get_all_metadata_summaries(exclude_session_id: Optional[str] = None, max_entries: int = 10) -> List[Dict]:
+    """
+    Holt ALLE Metadata-Zusammenfassungen aus dem Cache (außer der aktuellen Session).
+
+    Diese Funktion wird verwendet, um der Haupt-LLM Kontext aus früheren Recherchen zu geben,
+    OHNE die vollständigen Quellen zu übergeben (spart Context-Tokens).
+
+    Args:
+        exclude_session_id: Session ID, die NICHT zurückgegeben werden soll (aktuelle Recherche)
+        max_entries: Maximale Anzahl alter Recherchen (Standard: 10)
+
+    Returns:
+        Liste von Dicts mit {session_id, user_text, metadata_summary, timestamp}
+        Sortiert nach Timestamp (neueste zuerst), max. max_entries Einträge
+    """
+    if _research_cache is None or _research_cache_lock is None:
+        return []
+
+    result = []
+    with _research_cache_lock:
+        for session_id, cache_entry in _research_cache.items():
+            # Aktuelle Session ausschließen
+            if session_id == exclude_session_id:
+                continue
+
+            # Nur Einträge MIT Metadata-Zusammenfassung
+            metadata_summary = cache_entry.get('metadata_summary')
+            if not metadata_summary:
+                continue
+
+            result.append({
+                'session_id': session_id,
+                'user_text': cache_entry.get('user_text', ''),
+                'metadata_summary': metadata_summary,
+                'timestamp': cache_entry.get('timestamp', 0)
+            })
+
+    # Sortiere nach Timestamp (neueste zuerst) und limitiere auf max_entries
+    result.sort(key=lambda x: x['timestamp'], reverse=True)
+    return result[:max_entries]
+
+
 def save_cached_research(
     session_id: Optional[str],
     user_text: str,
@@ -137,19 +179,21 @@ async def generate_cache_metadata(
     metadata_model: str,
     llm_client,
     haupt_llm_context_limit: int
-) -> None:
+):
     """
-    Generiert KI-basierte Metadata für gecachte Research-Daten (asynchron nach UI-Update).
+    Generiert KI-basierte Metadata für gecachte Research-Daten (synchron nach Haupt-LLM).
 
-    Diese Funktion wird NACH dem UI-Update aufgerufen, damit der User nicht auf die
-    Metadata-Generierung warten muss. Sie holt den Cache, generiert eine semantische
-    Zusammenfassung der Quellen, und updated den Cache.
+    Diese Funktion wird NACH der Haupt-LLM-Antwort aufgerufen und yieldet Messages
+    für die Debug-Console.
 
     Args:
         session_id: Session ID für Cache-Lookup
         metadata_model: LLM-Modell für Metadata-Generierung (z.B. Automatik-LLM)
         llm_client: LLMClient instance for inference
         haupt_llm_context_limit: Context limit for main LLM (für num_ctx Berechnung)
+
+    Yields:
+        Debug messages für UI
     """
     if not session_id or not _research_cache or not _research_cache_lock:
         return
@@ -166,6 +210,8 @@ async def generate_cache_metadata(
             log_message("⚠️ Metadata-Generierung: Keine Quellen im Cache")
             return
 
+        # UI-Message: Start
+        yield {"type": "debug", "message": "📝 Starte Cache-Metadata Generierung..."}
         log_message("📝 Generiere KI-basierte Cache-Metadata...")
         log_message("📝 Erstelle Cache-Zusammenfassung...")
 
@@ -223,11 +269,15 @@ async def generate_cache_metadata(
                 _research_cache[session_id]['metadata_summary'] = metadata_summary
 
         tokens_per_second = response.tokens_per_second
+
+        # UI-Message: Completion mit tokens/sec
+        yield {"type": "debug", "message": f"✅ Cache-Metadata fertig ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s)"}
+
+        # Log-File Messages (detailliert)
         log_message(f"✅ Cache-Metadata generiert ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s): {metadata_summary}")
         log_message(f"✅ Zusammenfassung erstellt: {metadata_summary[:80]}{'...' if len(metadata_summary) > 80 else ''}")
-        console_separator()
 
     except Exception as e:
         log_message(f"⚠️ Fehler bei Metadata-Generierung: {e}")
         log_message("⚠️ Metadata-Generierung fehlgeschlagen")
-        console_separator()
+        yield {"type": "debug", "message": "⚠️ Cache-Metadata Generierung fehlgeschlagen"}

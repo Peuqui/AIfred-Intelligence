@@ -1,263 +1,364 @@
-# 📦 Migration & Portabilität
+# AIfred Intelligence - Gradio → Reflex Migration
 
-Anleitung zum Portieren von AIfred Intelligence auf einen anderen Rechner.
+## Status: ✅ Phase 2.5 Complete - Gradio-Style UI Recreated
 
----
-
-## ✅ Was ist portabel (automatisch)
-
-Diese Komponenten funktionieren **ohne Änderungen** auf jedem System:
-
-### 🔧 Code & Konfiguration
-- ✅ **Python Code** - Alle `.py` Dateien und `lib/` Modul
-- ✅ **Pfade** - Verwendet `PROJECT_ROOT = Path(__file__).parent.parent.absolute()`
-- ✅ **Dependencies** - `requirements.txt` für pip install
-- ✅ **Settings** - `assistant_settings.json` (wird automatisch erstellt)
-
-### 🌐 Externe Services (localhost)
-- ✅ **Ollama** - Läuft auf `http://localhost:11434` (Standard-Port)
-- ✅ **SearXNG** - Läuft auf `http://localhost:8888` (konfigurierbar)
-- ✅ **Gradio UI** - Bindet an `0.0.0.0:7860` (alle Interfaces)
+Stand: 2025-10-25 (UI Update)
 
 ---
 
-## ⚙️ Was muss angepasst werden
+## ✅ Was wurde portiert
 
-### 1. **SSL-Zertifikate** (Optional für HTTPS)
+### 1. Core Libraries (`aifred/lib/`)
 
-**Aktueller Pfad** (wird automatisch erkannt):
-```python
-# lib/config.py
-SSL_KEYFILE = PROJECT_ROOT / "ssl" / "privkey.pem"
-SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
+Alle essentiellen Module von Gradio-Legacy wurden nach `aifred/lib/` portiert:
+
+| Modul | Status | Beschreibung |
+|-------|--------|--------------|
+| `logging_utils.py` | ✅ Portiert | Debug-Logging, Console-Output |
+| `prompt_loader.py` | ✅ Portiert | Lädt Prompts aus `/prompts/` |
+| `agent_tools.py` | ✅ Portiert | Web Search, Scraping, Context-Building |
+| `agent_core.py` | ✅ Portiert | Research Agent, Intent Detection, URL Rating |
+| `formatting.py` | ✅ Portiert | Message Formatting |
+| `message_builder.py` | ✅ Portiert | Chat History Management |
+| `config.py` | ✅ Portiert | Configuration |
+
+### 2. Prompts (`prompts/`)
+
+✅ **Alle Prompts sind bereits vorhanden und kompatibel:**
+- `decision_making.txt` - Mit lokalen Aktivitäten-Fix
+- `url_rating.txt` - Mit generischer lokaler Relevanz
+- `system_rag.txt` - Keine URLs in Inline-Zitaten
+- `query_optimization.txt`
+- `intent_detection.txt`
+- `followup_intent_detection.txt`
+
+### 3. Backend-System (`aifred/backends/`)
+
+✅ **Bereits in Reflex vorhanden:**
+- `base.py` - Abstract LLMBackend
+- `ollama.py` - Ollama Adapter
+- `vllm.py` - vLLM Adapter (OpenAI-kompatibel)
+- `__init__.py` - BackendFactory
+
+---
+
+## 🔄 Was noch fehlt
+
+### Phase 2: Research Integration ✅ COMPLETE
+
+- [x] **Web Research in Reflex State integriert**
+  - ✅ Research Cache Management (class-level Dict mit Lock)
+  - ✅ `AIState.send_message()` mit Research-Integration
+  - ✅ Decision-Making Logic (Automatik-Modus)
+  - ✅ ThreadPoolExecutor für sync agent_core → async Reflex
+  - ✅ Debug-Sync zwischen lib console und Reflex State
+
+- [x] **Settings Management UI**
+  - ✅ Automatik-LLM Auswahl (Dropdown)
+  - ✅ Research Mode (none/quick/deep/automatik)
+  - ✅ Temperature Slider
+  - ✅ Haupt-LLM vs. Automatik-LLM Trennung
+
+### Phase 2.5: Gradio-Style UI Recreation ✅ COMPLETE
+
+- [x] **2-Column Layout wie Gradio**
+  - ✅ Left Column: Audio placeholder, Text input, Research mode radio, LLM parameters accordion
+  - ✅ Right Column: User/AI text display, TTS controls placeholder, Chat history
+  - ✅ Header mit Titel und Subtitle
+  - ✅ Bottom: Debug Console (accordion, 400px height)
+  - ✅ Bottom: Settings Accordion (Backend, Haupt-LLM, Automatik-LLM)
+
+- [x] **UI Components Functional**
+  - ✅ Text input with disabled state während generation
+  - ✅ Research mode radio buttons mit emoji icons
+  - ✅ Temperature slider mit dynamischer Anzeige
+  - ✅ Chat history display mit user/AI bubbles
+  - ✅ Debug console mit auto-refresh toggle
+  - ✅ Responsive 2-column grid layout
+
+- [x] **Styling wie Gradio**
+  - ✅ Ähnliche Farben (#2563eb für User, #e5e7eb für AI)
+  - ✅ Rounded corners, padding, spacing
+  - ✅ Background colors (#f9fafb für readonly fields, #f3f4f6 für page)
+  - ✅ Emoji icons für bessere UX
+
+### Phase 3: Audio Processing (Optional)
+
+- [ ] **Audio Input (STT)**
+  - Whisper STT Integration
+  - Microphone recording UI
+  - Audio waveform display
+
+- [ ] **Audio Output (TTS)**
+  - Edge TTS Integration
+  - Audio playback controls
+  - Voice selection UI
+
+### Phase 4: Advanced Features
+
+- [ ] Chat History Persistence (SQLite)
+- [ ] Multi-Session Support
+- [ ] Model Download/Management UI
+- [ ] Performance Metrics Dashboard
+
+---
+
+## 📁 Verzeichnisstruktur
+
 ```
-
-**Auf neuem System:**
-- Entweder: Eigene Zertifikate in `ssl/` Verzeichnis legen
-- Oder: Ohne SSL starten (HTTP statt HTTPS)
-
-**Fallback**: Code prüft automatisch, ob Zertifikate existieren:
-```python
-if SSL_KEYFILE.exists() and SSL_CERTFILE.exists():
-    # HTTPS
-else:
-    # HTTP
-```
-
-### 2. **Piper TTS Model** (Optional für lokales TTS)
-
-**Aktueller Pfad**:
-```python
-# lib/config.py
-PIPER_MODEL_PATH = PROJECT_ROOT / "piper_models" / "de_DE-thorsten-medium.onnx"
-```
-
-**Auf neuem System:**
-1. Piper Model herunterladen (falls lokal TTS gewünscht)
-2. In `piper_models/` Verzeichnis legen
-3. **Fallback**: Ohne Piper läuft nur Edge TTS (Cloud)
-
-### 3. **API Keys** (Optional für Brave/Tavily)
-
-**`.env` Datei erstellen:**
-```bash
-cp .env.example .env
-nano .env
-```
-
-**Inhalt**:
-```env
-BRAVE_API_KEY=your_brave_api_key_here
-TAVILY_API_KEY=your_tavily_api_key_here
-```
-
-**Fallback**: Ohne API Keys läuft **SearXNG** als einzige Suchmaschine.
-
-### 4. **Systemd Service** (Optional für Autostart)
-
-**Service-Datei anpassen** (`/etc/systemd/system/aifred-intelligence.service`):
-
-```ini
-[Service]
-User=<DEIN_USERNAME>                          # ← Anpassen!
-WorkingDirectory=/pfad/zu/AIfred-Intelligence  # ← Anpassen!
-ExecStart=/pfad/zu/venv/bin/python -u aifred_intelligence.py  # ← Anpassen!
-Environment="PATH=/pfad/zu/venv/bin:/usr/local/bin:/usr/bin"  # ← Anpassen!
-```
-
-**Installation:**
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable aifred-intelligence.service
-sudo systemctl start aifred-intelligence.service
+AIfred-Intelligence/
+├── aifred/
+│   ├── backends/           # ✅ Multi-Backend System
+│   │   ├── base.py
+│   │   ├── ollama.py
+│   │   └── vllm.py
+│   ├── lib/                # ✅ NEU - Portierte Gradio-Module
+│   │   ├── __init__.py
+│   │   ├── logging_utils.py
+│   │   ├── prompt_loader.py
+│   │   ├── agent_tools.py
+│   │   ├── agent_core.py
+│   │   ├── formatting.py
+│   │   ├── message_builder.py
+│   │   └── config.py
+│   ├── aifred.py           # Reflex UI Components
+│   └── state.py            # Reflex State Management
+├── prompts/                # ✅ Alle Prompts vorhanden
+│   ├── decision_making.txt
+│   ├── url_rating.txt
+│   ├── system_rag.txt
+│   └── ...
+├── gradio-legacy/          # ✅ Referenz-Code (alte Version)
+│   ├── aifred_intelligence.py
+│   ├── agent_core.py
+│   └── ...
+└── logs/                   # Debug-Logs
+    └── aifred_debug.log
 ```
 
 ---
 
-## 📋 Migrations-Checkliste
+## 🔧 Technische Details
 
-### Schritt 1: Repository klonen
-```bash
-git clone https://github.com/Peuqui/AIfred-Intelligence.git
-cd AIfred-Intelligence
+### Import-Struktur
+
+**Alte Gradio-Version:**
+```python
+from lib.agent_core import perform_agent_research
+from lib.logging_utils import debug_print
 ```
 
-### Schritt 2: Virtual Environment erstellen
+**Neue Reflex-Version:**
+```python
+from aifred.lib import perform_agent_research
+from aifred.lib import debug_print
+```
+
+### Logging-System
+
+**Console-Output für Reflex UI:**
+```python
+from aifred.lib import console_print, get_console_messages
+
+# Schreiben
+console_print("🌐 Web-Scraping startet...")
+
+# Lesen (in Reflex State)
+messages = get_console_messages()  # Liste aller Messages
+```
+
+**Debug-Log-File:**
+- Pfad: `/home/mp/Projekte/AIfred-Intelligence/logs/aifred_debug.log`
+- Automatische Rotation bei >1 MB
+- Timestamp-Format: `HH:MM:SS.mmm`
+
+### Prompt-System
+
+**Prompts laden:**
+```python
+from aifred.lib import get_decision_making_prompt
+
+prompt = get_decision_making_prompt(
+    user_text="Aktivitäten in Kassel?",
+    cache_metadata=""
+)
+```
+
+### Web Research Integration (Phase 2)
+
+**Research in Reflex State:**
+```python
+# aifred/state.py
+class AIState(rx.State):
+    # Research Settings
+    research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
+    automatik_model: str = "qwen3:4b"  # Für Decision/Query-Opt/URL-Rating
+    session_id: str = ""
+
+    # Research Cache (class-level, shared)
+    _research_cache: Dict = {}
+    _cache_lock: threading.Lock = threading.Lock()
+
+    async def send_message(self):
+        """Send message with optional web research"""
+        # Phase 1: Research (wenn aktiviert)
+        if self.research_mode != "none":
+            # Run agent_core.perform_agent_research() in ThreadPool
+            with ThreadPoolExecutor() as executor:
+                research_result = executor.submit(
+                    perform_agent_research,
+                    user_text=user_msg,
+                    mode=self.research_mode,
+                    model_choice=self.selected_model,
+                    automatik_model=self.automatik_model,
+                    history=self.chat_history,
+                    session_id=self.session_id,
+                    ...
+                ).result()
+
+            # Sync debug messages from lib console
+            self.sync_debug_from_lib()
+
+        # Phase 2: LLM Response (with or without RAG context)
+        if research_result and research_result.get('ai_response'):
+            # Research lieferte RAG-Antwort
+            full_response = research_result['ai_response']
+        else:
+            # Normaler Chat ohne Research
+            full_response = await backend.chat_stream(...)
+```
+
+**Web Research Funktionen:**
+```python
+from aifred.lib import search_web, scrape_webpage, build_context
+
+# Web-Suche (Multi-API Fallback: Brave → Tavily → SearXNG)
+results = search_web("Wetter Berlin")
+
+# URL scrapen (Trafilatura + Playwright Fallback)
+content = scrape_webpage("https://wetter.com/berlin")
+
+# Context bauen (für RAG)
+context = build_context(user_text, tool_results)
+```
+
+**UI Settings:**
+- Research Mode: none / quick (3 URLs) / deep (7 URLs) / automatik (KI entscheidet)
+- Automatik-LLM: Separate LLM für Decision-Making, Query-Opt, URL-Rating
+- Haupt-LLM: Für finale Antwort-Generierung
+
+---
+
+## 🧪 Testing
+
+### Import-Tests
+
 ```bash
-python3 -m venv venv
+# Aktiviere venv
 source venv/bin/activate
-pip install -r requirements.txt
+
+# Teste Imports
+python -c "from aifred.lib import debug_print; print('✅ OK')"
+python -c "from aifred.lib import search_web; print('✅ OK')"
+python -c "from aifred.lib import perform_agent_research; print('✅ OK')"
 ```
 
-### Schritt 3: Ollama installieren & Modelle pullen
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen3:1.7b   # Für Automatik
-ollama pull qwen3:8b     # Für Hauptmodell (empfohlen)
-ollama pull qwen3:32b    # Optional: Beste Qualität
-```
+### Reflex-Server starten
 
-### Schritt 4: SearXNG starten (Docker)
-```bash
-cd docker/searxng
-docker compose up -d
-```
-
-**Test**: Öffne `http://localhost:8888` im Browser
-
-### Schritt 5: SSL-Zertifikate (Optional)
-```bash
-# Entweder: Eigene Zertifikate in ssl/ legen
-mkdir -p ssl
-cp /pfad/zu/privkey.pem ssl/
-cp /pfad/zu/fullchain.pem ssl/
-
-# Oder: Ohne SSL starten (HTTP)
-# → Code erkennt automatisch fehlende Zertifikate
-```
-
-### Schritt 6: Piper TTS Model (Optional)
-```bash
-# Falls lokales TTS gewünscht:
-mkdir -p piper_models
-cd piper_models
-wget https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx
-```
-
-### Schritt 7: API Keys konfigurieren (Optional)
-```bash
-cp .env.example .env
-nano .env  # Füge API Keys ein
-```
-
-### Schritt 8: Anwendung starten
 ```bash
 source venv/bin/activate
-python aifred_intelligence.py
+reflex run
 ```
 
-**Öffne Browser**: `https://localhost:7860` (oder `http://...` ohne SSL)
+Öffne: `http://192.168.0.252:3002`
 
 ---
 
-## 🔄 Settings-Migration
+## 📝 Nächste Schritte
 
-**Settings werden automatisch migriert!**
+### ✅ Phase 2 Complete - Bereit zum Testen!
 
-Alte Settings (`settings.json`) werden beim ersten Start automatisch zu `assistant_settings.json` konvertiert:
+Die Web-Research-Integration ist vollständig portiert. Nächste Schritte:
+
+1. **Ollama starten & Testen**
+   ```bash
+   # Ollama starten
+   systemctl start ollama
+
+   # Models prüfen
+   ollama list
+
+   # Benötigte Models pullen
+   ollama pull qwen3:8b
+   ollama pull qwen3:4b
+
+   # Reflex starten
+   source venv/bin/activate
+   reflex run
+   ```
+
+2. **Test-Szenarien**
+   - **Research Mode: none** → Normaler Chat (kein Web Search)
+   - **Research Mode: quick** → 3 URLs scraped
+   - **Research Mode: deep** → 7 URLs scraped (mit Fallback)
+   - **Research Mode: automatik** → KI entscheidet (Decision-Making)
+
+3. **Debug-Console beobachten**
+   - Web-Scraping-Fortschritt
+   - URL-Rating Scores
+   - Cache-Hits/Misses
+   - LLM Performance Stats
+
+### Phase 3: Optional Features
+
+4. **Audio Processing portieren**
+   - Whisper STT Integration (Voice Input)
+   - Edge TTS Integration (Voice Output)
+   - Audio UI Components
+
+5. **Advanced Features**
+   - Chat History Persistence (SQLite/Redis)
+   - Multi-User Support
+   - Model Download UI
+   - Performance Dashboard
+
+---
+
+## 🔗 Referenzen
+
+- **Gradio-Legacy Branch:** `origin/gradio-legacy`
+- **Gradio-Legacy Code:** `/home/mp/Projekte/AIfred-Intelligence/gradio-legacy/`
+- **Reflex Docs:** https://reflex.dev/docs/getting-started/introduction/
+- **GitHub Repo:** https://github.com/Peuqui/AIfred-Intelligence
+
+---
+
+## ⚠️ Bekannte Warnungen
+
+### Reflex Deprecation Warning
+```
+DeprecationWarning: rx.Base has been deprecated in version 0.8.15.
+<class 'aifred.state.ChatMessage'> is subclassing rx.Base.
+```
+
+**Fix:** Migriere `ChatMessage` zu `pydantic.BaseModel` statt `rx.Base`
 
 ```python
-# lib/settings_manager.py
-def load_settings():
-    # Alte Settings laden
-    if old_file.exists() and not new_file.exists():
-        shutil.copy(old_file, new_file)
-        # Migration erfolgreich
-```
+# Vorher (alt)
+class ChatMessage(rx.Base):
+    role: str
+    content: str
 
-**Was wird migriert:**
-- AI Model Auswahl
-- Automatik Model
-- Voice & TTS Settings
-- Whisper Model
-- Research Mode
-- Alle User-Präferenzen
+# Nachher (neu)
+from pydantic import BaseModel
 
----
-
-## 🛠️ Troubleshooting
-
-### Problem: "ModuleNotFoundError: No module named 'lib'"
-**Lösung**: Virtual Environment aktivieren:
-```bash
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Problem: "Connection refused" bei Ollama
-**Lösung**: Ollama Service starten:
-```bash
-ollama serve  # Oder: systemctl start ollama
-```
-
-### Problem: SSL-Fehler beim Start
-**Lösung**: Zertifikate prüfen oder HTTP nutzen:
-```bash
-# Zertifikate prüfen
-ls -la ssl/
-
-# Oder: Ohne SSL testen (Code fällt auf HTTP zurück)
-```
-
-### Problem: SearXNG nicht erreichbar
-**Lösung**: Docker Container prüfen:
-```bash
-cd docker/searxng
-docker compose ps
-docker compose logs
-```
-
-### Problem: Piper TTS funktioniert nicht
-**Lösung**: Auf Edge TTS umschalten (Cloud):
-```bash
-# In UI: Settings → TTS Engine → "Edge TTS (Cloud)"
-# Oder: Piper Model herunterladen (siehe Schritt 6)
+class ChatMessage(BaseModel):
+    role: str
+    content: str
 ```
 
 ---
 
-## 📊 Portabilitäts-Übersicht
-
-| Komponente | Portabel? | Aktion nötig |
-|---|---|---|
-| Python Code | ✅ Ja | Keine |
-| lib/ Module | ✅ Ja | Keine |
-| requirements.txt | ✅ Ja | `pip install -r requirements.txt` |
-| settings.json | ✅ Ja | Wird automatisch migriert |
-| Ollama Models | ⚠️ Neu pullen | `ollama pull <model>` |
-| SearXNG Docker | ⚠️ Neu starten | `docker compose up -d` |
-| SSL Zertifikate | ❌ Optional | Eigene Zertifikate oder ohne |
-| Piper Model | ❌ Optional | Download oder Edge TTS nutzen |
-| API Keys | ❌ Optional | `.env` neu erstellen |
-| Systemd Service | ❌ Optional | Pfade anpassen |
-
----
-
-## ✅ Minimale Portierung (ohne optionale Features)
-
-**Was du wirklich brauchst:**
-1. Repository klonen
-2. Virtual Environment + Dependencies
-3. Ollama installieren + Models pullen
-4. SearXNG Docker starten
-5. `python aifred_intelligence.py` ausführen
-
-**Alles andere ist optional!**
-- SSL: Nur für HTTPS nötig
-- Piper: Nur für lokales TTS nötig (Edge TTS funktioniert ohne)
-- API Keys: Nur für Brave/Tavily nötig (SearXNG funktioniert ohne)
-- Systemd: Nur für Autostart nötig
-
----
-
-**🎩 AIfred Intelligence - AI at your service**
+**Erstellt:** 2025-10-25
+**Autor:** AI Assistant
+**Version:** Phase 1 - Library Portierung Complete

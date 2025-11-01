@@ -184,15 +184,17 @@ def debug_print_messages(messages: list, model_name: str, context: str = "", **l
     log_message("=" * 60)
 
 
+# Console Separator Konstante (zentral definiert, wird überall verwendet)
+CONSOLE_SEPARATOR = "─" * 20
+
 def console_separator() -> None:
     """Fügt eine horizontale Trennlinie in die Console ein"""
     global _console_messages, _message_queue
-    separator = "─" * 20
-    _console_messages.append(separator)
+    _console_messages.append(CONSOLE_SEPARATOR)
 
     # In Queue schreiben (Pipe für UI-Thread!)
     try:
-        _message_queue.put_nowait(separator)
+        _message_queue.put_nowait(CONSOLE_SEPARATOR)
     except queue.Full:
         pass  # Queue voll, ignorieren
 
