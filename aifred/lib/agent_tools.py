@@ -849,12 +849,7 @@ def build_context(user_text: str, tool_results: List[Dict], max_context_tokens: 
     if max_context_tokens is None:
         max_context_tokens = MAX_RAG_CONTEXT_TOKENS
     context_header = f"# User-Frage\n{user_text}\n\n# Recherche-Ergebnisse\n\n"
-    context_footer = (
-        "# Aufgabe\n"
-        "Beantworte die User-Frage basierend auf den Recherche-Ergebnissen oben. "
-        "WICHTIG: Zitiere JEDE Quelle MIT ihrer URL! "
-        "Format: 'Quelle 1 (https://...) schreibt...'\n\n"
-    )
+    context_footer = ""  # Kein Footer mehr - System-Prompt enthält bereits alle Anweisungen
 
     successful_results = [r for r in tool_results if r.get('success', False)]
 
