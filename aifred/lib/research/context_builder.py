@@ -224,7 +224,6 @@ async def build_and_generate_response(
 
     # Generate cache metadata (async, runs AFTER main response)
     log_message("🔧 Starte Cache-Metadata-Generierung (async generator)...")
-    yield {"type": "debug", "message": "🔧 Cache-Metadata wird generiert..."}
 
     async for metadata_msg in generate_cache_metadata(
         session_id=session_id,
