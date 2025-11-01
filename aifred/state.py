@@ -305,8 +305,6 @@ class AIState(rx.State):
                 self.add_debug(f"🤖 Calling {self.backend_type} ({self.selected_model})...")
 
                 # Stream response
-                import time
-                stream_start = time.time()
                 metrics = None
 
                 async for chunk in backend.chat_stream(self.selected_model, messages, options):

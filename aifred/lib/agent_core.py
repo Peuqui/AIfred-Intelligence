@@ -686,7 +686,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
     log_message(f"✅ Agent fertig: {agent_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     log_message("=" * 60)
-    log_message("═" * 100)  # Separator nach jeder Anfrage
+    console_separator()  # Separator nach jeder Anfrage (im Debug-Console sichtbar)
 
     # Yield final result (vollständige Antwort mit allen Collapsibles)
     yield {"type": "result", "data": (ai_response_complete, history, inference_time)}
@@ -1026,7 +1026,7 @@ BEISPIELE:
             history.append((user_with_time, thinking_html))
 
             log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
-            log_message("═" * 100)  # Separator nach jeder Anfrage
+            console_separator()  # Separator nach jeder Anfrage (im Debug-Console sichtbar)
 
             # Yield final result: thinking_html für AI-Antwort + History (beide mit Collapsible)
             yield {"type": "result", "data": (thinking_html, history, inference_time)}
