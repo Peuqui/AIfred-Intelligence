@@ -135,8 +135,13 @@ class APIKeyMissingError(Exception):
 class BaseTool:
     """Basis-Klasse für alle Agent-Tools"""
 
+    # Class-level attributes (müssen von Subclasses gesetzt werden)
+    name: str
+    description: str
+    min_call_interval: float
+
     def __init__(self):
-        # name, description und min_call_interval werden von Subclasses gesetzt
+        # Subclasses müssen name, description und min_call_interval setzen
         self.last_call_time = 0
 
     def execute(self, query: str, **kwargs) -> Dict:
@@ -508,8 +513,8 @@ class MultiAPISearchTool(BaseTool):
         self.name = "Multi-API Search"
         self.description = "3-Stufen Fallback Search"
 
-        # Initialisiere alle APIs
-        self.apis = []
+        # Initialisiere alle APIs mit explizitem Typ
+        self.apis: List[BaseTool] = []
 
         # Tavily (Primary) - AI-optimiert, bessere Aktualität
         if tavily_key or os.getenv('TAVILY_API_KEY'):
@@ -645,9 +650,12 @@ class WebScraperTool(BaseTool):
         self.trafilatura_config = deepcopy(DEFAULT_CONFIG)
         self.trafilatura_config.set('DEFAULT', 'DOWNLOAD_TIMEOUT', '10')
         self.trafilatura_config.set('DEFAULT', 'MAX_REDIRECTS', '2')  # Max 2 Redirects (default ist mehr)
-    def execute(self, url: str, **kwargs) -> Dict:
+    def execute(self, query: str, **kwargs) -> Dict:
         """
         Scraped eine Webseite komplett ohne Längenlimit
+
+        Args:
+            query: URL der Webseite (umbenennung von 'url' zu 'query' für BaseTool-Kompatibilität)
 
         Strategie (2-Stufen Fallback):
         1. trafilatura (sauberster Content, filtert Werbung/Navigation/Cookies automatisch)
@@ -659,6 +667,9 @@ class WebScraperTool(BaseTool):
         Ollama's dynamisches num_ctx übernimmt die Context-Größen-Kontrolle!
         """
         self._rate_limit_check()
+
+        # Intern verwenden wir 'url' für Klarheit
+        url = query
 
         # Versuch 1: trafilatura (schnell + sauber)
         result = self._scrape_with_trafilatura(url)
