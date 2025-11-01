@@ -70,53 +70,65 @@ Nach Summarization (4.000 Tokens):
 
 ### Performance
 
-#### LLM Pre-Loading (Paralleles Model-Loading)
+#### ✅ LLM Pre-Loading (IMPLEMENTIERT - 01.11.2025)
 
-**Zweck**: Zeit sparen durch paralleles Laden von Haupt-LLM während Automatik-LLM arbeitet
+**Status**: ✅ Implementiert und getestet
 
-**Problem**:
-- Aktuell: Automatik-LLM fertig → dann erst Haupt-LLM laden → User wartet
-- Legacy hatte das besser: Haupt-LLM lädt bereits im Hintergrund
+**Ergebnis**:
+- Performance-Gewinn: **23.3 Sekunden (35% schneller)** bei Cache-Hits
+- Automatik-LLM: Preload beim App-Start
+- Haupt-LLM: Preload während Web-Scraping (parallel)
 
-**Strategie**:
-1. **Während Intent-Detection läuft**: Haupt-LLM vorwärmen (dummy call)
-2. **Während Query-Optimizer läuft**: Haupt-LLM im Speicher halten
-3. **Während URL-Rating läuft**: Haupt-LLM ist bereits geladen
-4. **Während Web-Scraping läuft**: Haupt-LLM bereit für sofortigen Einsatz
-
-**Implementation**:
-```python
-# Beispiel: Parallel Pre-Loading
-import asyncio
-
-async def preload_haupt_llm():
-    """Dummy call to load model into VRAM"""
-    await llm_client.chat(
-        model=haupt_model,
-        messages=[{"role": "user", "content": "test"}],
-        options={"num_predict": 1}  # Nur 1 Token generieren
-    )
-
-# Im Agent-Core:
-# Starte Pre-Loading parallel zu Automatik-Aufgaben
-asyncio.create_task(preload_haupt_llm())  # Fire & forget
-```
-
-**Zeiteinsparung**:
-- Model-Loading: ~3-5 Sekunden (bei großen Models wie qwen3:8b)
-- Gesamtersparnis: 3-5 Sekunden pro Web-Recherche
-
-**Legacy-Referenz**: `gradio-legacy/agent_core.py` - hatte Model-Warming
+**Details**: Siehe Commits vom 01.11.2025
 
 ---
 
 - [ ] Paralleles Scraping optimieren (Timeout-Handling)
 - [ ] Cache-Warming beim App-Start
-- [ ] **LLM Pre-Loading implementieren** (siehe oben)
+- [x] **LLM Pre-Loading implementieren** ✅ DONE (01.11.2025)
 
 ### UI/UX
 - [ ] Quellen-Links in LLM-Antwort unterdrücken (redundant)
 - [ ] Progress-Indicator für lange Scraping-Vorgänge
+
+### Internationalisierung (i18n)
+
+**Zweck**: AIfred für internationale Nutzer verfügbar machen
+
+**Vorteile**:
+- ✅ Englische/mehrsprachige User können AIfred nutzen
+- ✅ Bessere LLM Performance pro Sprache (EN prompts für EN-only models)
+- ✅ Open-Source ready für internationale Community
+- ✅ Flexibilität bei LLM-Wahl
+
+**Struktur**:
+```
+prompts/
+├── de/
+│   ├── system_rag.txt
+│   ├── system_rag_cache_hit.txt
+│   ├── decision_making.txt
+│   └── ...
+├── en/
+│   ├── system_rag.txt
+│   ├── system_rag_cache_hit.txt
+│   ├── decision_making.txt
+│   └── ...
+└── config.yaml  # Language: de/en/auto
+```
+
+**Implementation**:
+- [ ] Prompt-Ordnerstruktur nach Sprachen aufteilen
+- [ ] Language-Parameter in Config (de/en/auto)
+- [ ] Auto-Detection: User-Sprache erkennen (aus erster Frage)
+- [ ] UI-Strings internationalisieren (Reflex i18n)
+- [ ] Debug-Messages mehrsprachig
+
+**Phasen**:
+1. Phase 1: Deutsche + Englische Prompts (Hauptsprachen)
+2. Phase 2: UI-Strings mehrsprachig
+3. Phase 3: Auto-Detection implementieren
+4. Phase 4: Weitere Sprachen (FR, ES, IT, etc.)
 
 ### Code Quality
 - [ ] Unit-Tests für Context-Manager
@@ -125,4 +137,4 @@ asyncio.create_task(preload_haupt_llm())  # Fire & forget
 ---
 
 **Erstellt**: 30.10.2025
-**Letztes Update**: 30.10.2025
+**Letztes Update**: 01.11.2025
