@@ -177,7 +177,7 @@ async def summarize_history_if_needed(
         for i, (user_msg, ai_msg) in enumerate(history):
             if user_msg == "" and ai_msg.startswith("[📊 Komprimiert"):
                 history.pop(i)
-                yield {"type": "debug", "message": f"🗑️ Älteste Summary entfernt (FIFO)"}
+                yield {"type": "debug", "message": "🗑️ Älteste Summary entfernt (FIFO)"}
                 break
 
     # 6. Extrahiere älteste 6 Messages (3 User-AI-Paare) zum Summarizen

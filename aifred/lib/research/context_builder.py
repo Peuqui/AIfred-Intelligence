@@ -15,7 +15,7 @@ from typing import Dict, List, AsyncIterator
 from ..agent_tools import build_context
 from ..cache_manager import get_all_metadata_summaries, save_cached_research, generate_cache_metadata
 from ..prompt_loader import load_prompt
-from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
+from ..context_manager import calculate_dynamic_num_ctx
 from ..message_builder import build_messages_from_history
 from ..formatting import format_thinking_process, build_debug_accordion
 from ..logging_utils import log_message, CONSOLE_SEPARATOR

@@ -8,7 +8,7 @@ Handles:
 """
 
 import time
-from typing import Dict, List, AsyncIterator, Tuple
+from typing import Dict, List, AsyncIterator
 
 from ..query_optimizer import optimize_search_query
 from ..agent_tools import search_web
