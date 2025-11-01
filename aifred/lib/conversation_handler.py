@@ -90,7 +90,7 @@ async def chat_interactive_mode(
     cache_entry = get_cached_research(session_id)
     cached_sources = cache_entry.get('scraped_sources', []) if cache_entry else []
 
-    if cached_sources:
+    if cached_sources and cache_entry:  # Type guard: cache_entry is not None
             cache_age = time.time() - cache_entry.get('timestamp', 0)
 
             # 🆕 Prüfe ob KI-generierte Metadata verfügbar ist

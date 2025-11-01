@@ -10,7 +10,7 @@ Handles:
 """
 
 import time
-from typing import Dict, List, AsyncIterator
+from typing import Dict, List, Optional, AsyncIterator
 
 from ..agent_tools import build_context
 from ..cache_manager import get_all_metadata_summaries, save_cached_research, generate_cache_metadata
@@ -27,15 +27,15 @@ async def build_and_generate_response(
     scraped_results: List[Dict],
     tool_results: List[Dict],
     history: List[tuple],
-    session_id: str,
+    session_id: Optional[str],
     mode: str,
     model_choice: str,
     automatik_model: str,
-    query_reasoning: str,
+    query_reasoning: Optional[str],
     query_opt_time: float,
     llm_client,
     automatik_llm_client,
-    llm_options: Dict,
+    llm_options: Optional[Dict],
     temperature_mode: str,
     temperature: float,
     agent_start: float,

@@ -5,7 +5,7 @@ Extracted from perform_agent_research() to improve modularity.
 """
 
 import time
-from typing import Dict, List, AsyncIterator
+from typing import Dict, List, Optional, AsyncIterator
 
 from ..cache_manager import get_cached_research
 from ..agent_tools import build_context
@@ -17,14 +17,14 @@ from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
 
 
 async def handle_cache_hit(
-    session_id: str,
+    session_id: Optional[str],
     user_text: str,
     history: List[tuple],
     model_choice: str,
     automatik_model: str,
     llm_client,
     automatik_llm_client,
-    llm_options: Dict,
+    llm_options: Optional[Dict],
     temperature_mode: str,
     temperature: float,
     agent_start: float
@@ -52,13 +52,13 @@ async def handle_cache_hit(
     cache_entry = get_cached_research(session_id)
     cached_sources = cache_entry.get('scraped_sources', []) if cache_entry else []
 
-    if not cached_sources:
+    if not cached_sources or not cache_entry:
         # No cache hit
         if session_id:
             log_message(f"⚠️ Kein Cache für Session {session_id[:8]}... gefunden → Normale Web-Recherche")
         return
 
-    # Cache-Hit!
+    # Cache-Hit! (cache_entry is guaranteed not None here)
     log_message(f"💾 Cache-Hit! Nutze gecachte Recherche (Session {session_id[:8]}...)")
     log_message(f"   Ursprüngliche Frage: {cache_entry.get('user_text', 'N/A')[:80]}...")
     log_message(f"   Cache enthält {len(cached_sources)} Quellen")

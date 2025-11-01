@@ -37,8 +37,8 @@ async def orchestrate_scraping(
     Returns (via last yield):
         Tuple[List[Dict], List[Dict]]: (scraped_results, tool_results)
     """
-    scraped_results = []
-    tool_results = []
+    scraped_results: List[Dict] = []
+    tool_results: List[Dict] = []
 
     if not related_urls:
         log_message("⚠️ Keine URLs gefunden, nur Abstract")
