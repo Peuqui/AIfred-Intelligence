@@ -274,8 +274,13 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
             log_message(f"✅ Cache-basierte Antwort fertig in {total_time:.1f}s")
 
+            # Separator nach Cache-Hit
+            from .logging_utils import console_separator
+            console_separator()
+
             # Yield final result
             yield {"type": "result", "data": (ai_text_with_timing, history, total_time)}
+            return  # Generator ends after cache-hit response
     else:
         if session_id:
             log_message(f"⚠️ Kein Cache für Session {session_id[:8]}... gefunden → Normale Web-Recherche")
