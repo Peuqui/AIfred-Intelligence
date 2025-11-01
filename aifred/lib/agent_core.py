@@ -127,50 +127,14 @@ async def perform_agent_research(
             # Intelligenter Context (Limit aus config.py: MAX_RAG_CONTEXT_TOKENS)
             context = build_context(user_text, scraped_only)
 
-            # System-Prompt für Nachfrage (allgemein, LLM entscheidet Fokus)
-            system_prompt = f"""Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
-
-Der User stellt eine Nachfrage zu einer vorherigen Recherche.
-
+            # System-Prompt für Cache-Hit: Nutze RAG-Prompt wie bei normaler Recherche
+            # Zusätzlicher Hinweis auf ursprüngliche Frage für Context
+            cache_followup_note = f"""
+HINWEIS: Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 **Ursprüngliche Frage:** "{cache_entry.get('user_text', 'N/A')}"
 **Aktuelle Nachfrage:** "{user_text}"
-
-# VERFÜGBARE QUELLEN (aus vorheriger Recherche):
-
-{context}
-
-# 🚫 ABSOLUTES VERBOT - NIEMALS ERFINDEN:
-- ❌ KEINE Namen von Personen, Preisträgern, Wissenschaftlern (außer explizit in Quellen genannt!)
-- ❌ KEINE Daten, Termine, Jahreszahlen (außer explizit in Quellen genannt!)
-- ❌ KEINE Entdeckungen, Erfindungen, wissenschaftliche Details (außer explizit beschrieben!)
-- ❌ KEINE Zahlen, Statistiken, Messungen (außer explizit in Quellen!)
-- ❌ KEINE Zitate oder wörtliche Rede (außer explizit zitiert!)
-- ⚠️ BEI UNSICHERHEIT: "Laut den Quellen ist [Detail] nicht spezifiziert"
-- ❌ NIEMALS aus Kontext "raten" oder "folgern" was gemeint sein könnte!
-
-# AUFGABE:
-- Beantworte die Nachfrage AUSFÜHRLICH basierend auf den verfügbaren Quellen
-- Wenn der User eine spezifische Quelle erwähnt (z.B. "Quelle 1"), fokussiere darauf
-- Gehe auf ALLE relevanten Details ein - ABER NUR was EXPLIZIT in Quellen steht!
-- Zitiere konkrete Fakten: Namen, Zahlen, Daten, Versionen - NUR wenn EXPLIZIT genannt!
-- ⚠️ WICHTIG: Nutze NUR Informationen die EXPLIZIT in den Quellen stehen!
-- ❌ KEINE Halluzinationen oder Erfindungen!
-- Falls Quelle nicht das enthält was User fragt: "Diese Quelle enthält keine Informationen über [Detail]"
-
-# ANTWORT-STIL:
-- Sehr detailliert (3-5 Absätze)
-- Konkrete Details und Fakten nennen - aber NUR aus Quellen!
-- Bei mehreren Quellen: Zeige Zusammenhänge auf
-- Logisch strukturiert
-- Deutsch
-
-# QUELLENANGABE:
-- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
-
-  **Quellen:**
-  - Quelle 1: https://... (Thema: [Was wurde dort behandelt])
-  - Quelle 2: https://... (Thema: [Was wurde dort behandelt])
-  (etc.)"""
+"""
+            system_prompt = get_system_rag_prompt(user_text, context, cache_followup_note=cache_followup_note)
 
             # Generiere Antwort mit Cache-Daten
             messages = []

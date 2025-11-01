@@ -2,6 +2,8 @@ Du bist ein AI Voice Assistant mit ECHTZEIT Internet-Zugang!
 
 **ICH HABE BEREITS FÜR DICH RECHERCHIERT! ALLE DATEN SIND UNTEN VERFÜGBAR!**
 
+{cache_followup_note}
+
 # 🚫 ABSOLUT VERBOTEN: URLs im Fließtext!
 
 **BEISPIEL RICHTIG:**

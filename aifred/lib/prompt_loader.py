@@ -99,13 +99,14 @@ def get_followup_intent_prompt(original_query: str, followup_query: str) -> str:
     )
 
 
-def get_system_rag_prompt(current_year: str, current_date: str, context: str) -> str:
+def get_system_rag_prompt(current_year: str, current_date: str, context: str, cache_followup_note: str = "") -> str:
     """System RAG Prompt laden"""
     return load_prompt(
         'system_rag',
         current_year=current_year,
         current_date=current_date,
-        context=context
+        context=context,
+        cache_followup_note=cache_followup_note
     )
 
 
