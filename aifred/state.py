@@ -277,9 +277,11 @@ class AIState(rx.State):
                         # Extract and update history IMMEDIATELY
                         ai_text, updated_history, inference_time = result_data
                         self.chat_history = updated_history
+                        yield  # Update UI to show new history entry first
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
                         self.current_user_message = ""
+                        yield  # Force immediate UI update to clear both windows
                     elif item["type"] == "progress":
                         # Update processing progress
                         if item.get("clear", False):
@@ -336,9 +338,11 @@ class AIState(rx.State):
                         # Extract and update history IMMEDIATELY
                         ai_text, updated_history, inference_time = result_data
                         self.chat_history = updated_history
+                        yield  # Update UI to show new history entry first
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
                         self.current_user_message = ""
+                        yield  # Force immediate UI update to clear both windows
 
                     yield  # Update UI after each item
 
