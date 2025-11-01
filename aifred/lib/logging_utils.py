@@ -136,7 +136,7 @@ def debug_print_prompt(prompt_type: str, prompt: str, model_name: str) -> None:
     Logs prompt with standardized formatting
 
     Args:
-        prompt_type: Type of prompt (e.g., "DECISION", "URL RATING")
+        prompt_type: Type of prompt (e.g., "DECISION", "QUERY_OPT")
         prompt: The actual prompt text
         model_name: Name of the model receiving the prompt
     """

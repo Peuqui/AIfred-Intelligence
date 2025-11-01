@@ -49,7 +49,7 @@ class AIState(rx.State):
     selected_model: str = "qwen3:8b"
     available_models: List[str] = []
 
-    # Automatik-LLM (für Decision, Query-Opt, URL-Rating)
+    # Automatik-LLM (für Decision und Query-Optimierung)
     automatik_model: str = "qwen2.5:3b"
 
     # LLM Options
@@ -443,7 +443,7 @@ class AIState(rx.State):
         self.add_debug(f"🔍 Research mode: {self.research_mode}")
 
     def set_automatik_model(self, model: str):
-        """Set automatik model for decision/query-opt/url-rating"""
+        """Set automatik model for decision and query optimization"""
         self.automatik_model = model
         self.add_debug(f"⚡ Automatik model: {model}")
 

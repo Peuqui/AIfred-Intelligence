@@ -45,9 +45,9 @@ THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 
 # ============================================================
 # NOTE: Cache Management, Context Management, Intent Detection,
-# Query Optimization, and URL Rating have been extracted to
-# separate library modules (cache_manager, context_manager,
-# intent_detector, query_optimizer, url_rater) and are imported above.
+# and Query Optimization have been extracted to separate library
+# modules (cache_manager, context_manager, intent_detector,
+# query_optimizer) and are imported above.
 # ============================================================
 
 
@@ -66,14 +66,14 @@ async def perform_agent_research(
     llm_options: Optional[Dict] = None
 ) -> AsyncIterator[Dict]:
     """
-    Agent-Recherche mit AI-basierter URL-Bewertung und Streaming
+    Agent-Recherche mit Query-Optimierung und parallelemWeb-Scraping
 
     Args:
         user_text: User-Frage
         stt_time: STT-Zeit
         mode: "quick" oder "deep"
         model_choice: Haupt-LLM für finale Antwort
-        automatik_model: Automatik-LLM für Query-Opt & URL-Rating
+        automatik_model: Automatik-LLM für Query-Optimierung
         llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
         history: Chat History
         session_id: Session-ID für Research-Cache (optional)
@@ -300,6 +300,9 @@ async def perform_agent_research(
     related_urls = search_result.get('related_urls', [])
 
     # 3. Scraping-Strategie basierend auf Modus (kein URL-Rating mehr - direktes Scraping!)
+    # Initialisiere scraped_results immer (auch wenn keine URLs gefunden)
+    scraped_results = []
+
     if not related_urls:
         log_message("⚠️ Keine URLs gefunden, nur Abstract")
         urls_to_scrape = []
@@ -334,88 +337,85 @@ async def perform_agent_research(
         log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
         yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
 
-        if not urls_to_scrape:
-            log_message("⚠️ Keine URLs zum Scrapen verfügbar")
-            yield {"type": "debug", "message": "⚠️ Keine URLs verfügbar → 0 Quellen gescraped"}
-        else:
-            log_message(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
+        # Scrape URLs parallel (urls_to_scrape garantiert nicht leer, da related_urls nicht leer)
+        log_message(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
 
-            # Parallel Scraping mit ThreadPoolExecutor
-            scraped_results = []
-            with ThreadPoolExecutor(max_workers=min(5, len(urls_to_scrape))) as executor:
-                # Starte alle Scrape-Tasks parallel (urls_to_scrape ist jetzt simple URL-Liste!)
-                future_to_url = {
-                    executor.submit(scrape_webpage, url): url
-                    for url in urls_to_scrape
-                }
+        # Parallel Scraping mit ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(5, len(urls_to_scrape))) as executor:
+            # Starte alle Scrape-Tasks parallel (urls_to_scrape ist jetzt simple URL-Liste!)
+            future_to_url = {
+                executor.submit(scrape_webpage, url): url
+                for url in urls_to_scrape
+            }
 
-                # Sammle Ergebnisse (in Completion-Order für Live-Feedback)
-                for future in as_completed(future_to_url):
-                    url = future_to_url[future]
-                    url_short = url[:60] + '...' if len(url) > 60 else url
+            # Sammle Ergebnisse (in Completion-Order für Live-Feedback)
+            for future in as_completed(future_to_url):
+                url = future_to_url[future]
+                url_short = url[:60] + '...' if len(url) > 60 else url
 
-                    try:
-                        scrape_result = future.result(timeout=10)  # Max 10s pro URL (Download failed → kein Playwright → max 10s)
+                try:
+                    scrape_result = future.result(timeout=10)  # Max 10s pro URL (Download failed → kein Playwright → max 10s)
 
-                        if scrape_result['success']:
-                            tool_results.append(scrape_result)
-                            scraped_results.append(scrape_result)
-                            log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter")
-                        else:
-                            log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
+                    if scrape_result['success']:
+                        tool_results.append(scrape_result)
+                        scraped_results.append(scrape_result)
+                        log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter")
+                    else:
+                        log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
 
-                    except Exception as e:
-                        log_message(f"  ❌ {url_short}: Exception: {e}")
+                except Exception as e:
+                    log_message(f"  ❌ {url_short}: Exception: {e}")
 
-            log_message(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
+        log_message(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
 
-            # AUTOMATISCHES FALLBACK: Wenn zu wenige Quellen erfolgreich → Scrape weitere URLs
-            if mode == "deep" and len(scraped_results) < target_sources and len(urls_to_scrape) < len(related_urls):
-                missing_count = target_sources - len(scraped_results)
-                already_scraped_urls = set(urls_to_scrape)
+        # AUTOMATISCHES FALLBACK: Wenn zu wenige Quellen erfolgreich → Scrape weitere URLs
+        if mode == "deep" and len(scraped_results) < target_sources and len(urls_to_scrape) < len(related_urls):
+            missing_count = target_sources - len(scraped_results)
+            already_scraped_urls = set(urls_to_scrape)
 
-                # Finde nächste URLs die noch nicht gescraped wurden
-                remaining_urls = [
-                    url for url in related_urls
-                    if url not in already_scraped_urls
-                ][:missing_count + 2]  # +2 Reserve für weitere Fehler
+            # Finde nächste URLs die noch nicht gescraped wurden
+            remaining_urls = [
+                url for url in related_urls
+                if url not in already_scraped_urls
+            ][:missing_count + 2]  # +2 Reserve für weitere Fehler
 
-                if remaining_urls:
-                    log_message(f"🔄 Fallback: {len(scraped_results)}/{target_sources} erfolgreich → Scrape {len(remaining_urls)} weitere URLs")
-                    yield {"type": "debug", "message": f"🔄 Scrape {len(remaining_urls)} zusätzliche URLs (Fallback für Fehler)"}
+            if remaining_urls:
+                log_message(f"🔄 Fallback: {len(scraped_results)}/{target_sources} erfolgreich → Scrape {len(remaining_urls)} weitere URLs")
+                yield {"type": "debug", "message": f"🔄 Scrape {len(remaining_urls)} zusätzliche URLs (Fallback für Fehler)"}
 
-                    # Scrape zusätzliche URLs parallel
-                    with ThreadPoolExecutor(max_workers=min(5, len(remaining_urls))) as executor:
-                        future_to_url = {
-                            executor.submit(scrape_webpage, url): url
-                            for url in remaining_urls
-                        }
+                # Scrape zusätzliche URLs parallel
+                with ThreadPoolExecutor(max_workers=min(5, len(remaining_urls))) as executor:
+                    future_to_url = {
+                        executor.submit(scrape_webpage, url): url
+                        for url in remaining_urls
+                    }
 
-                        for future in as_completed(future_to_url):
-                            url = future_to_url[future]
-                            url_short = url[:60] + '...' if len(url) > 60 else url
+                    for future in as_completed(future_to_url):
+                        url = future_to_url[future]
+                        url_short = url[:60] + '...' if len(url) > 60 else url
 
-                            try:
-                                scrape_result = future.result(timeout=10)
+                        try:
+                            scrape_result = future.result(timeout=10)
 
-                                if scrape_result['success']:
-                                    tool_results.append(scrape_result)
-                                    scraped_results.append(scrape_result)
-                                    log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter")
+                            if scrape_result['success']:
+                                tool_results.append(scrape_result)
+                                scraped_results.append(scrape_result)
+                                log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter")
 
-                                    # Stoppe wenn Ziel erreicht
-                                    if len(scraped_results) >= target_sources:
-                                        log_message(f"🎯 Ziel erreicht: {len(scraped_results)}/{target_sources} Quellen")
-                                        break
-                                else:
-                                    log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
+                                # Stoppe wenn Ziel erreicht
+                                if len(scraped_results) >= target_sources:
+                                    log_message(f"🎯 Ziel erreicht: {len(scraped_results)}/{target_sources} Quellen")
+                                    break
+                            else:
+                                log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
 
-                            except Exception as e:
-                                log_message(f"  ❌ {url_short}: Exception: {e}")
+                        except Exception as e:
+                            log_message(f"  ❌ {url_short}: Exception: {e}")
 
-                    log_message(f"✅ Fallback-Scraping fertig: {len(scraped_results)} total (Ziel: {target_sources})")
+                log_message(f"✅ Fallback-Scraping fertig: {len(scraped_results)} total (Ziel: {target_sources})")
 
-            yield {"type": "debug", "message": f"✅ Web-Scraping fertig: {len(scraped_results)} URLs erfolgreich"}
+    # Scraping-Abschluss: yield immer, auch wenn keine URLs (konsistente UI-Ausgabe)
+    yield {"type": "debug", "message": f"✅ Web-Scraping fertig: {len(scraped_results)} URLs erfolgreich"}
 
     # 6. Context Building - NUR gescrapte Quellen (keine SearXNG Ergebnisse!)
     # Filtere: Nur tool_results die 'word_count' haben (= erfolgreich gescraped)
