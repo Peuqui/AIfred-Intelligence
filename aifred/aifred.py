@@ -663,10 +663,17 @@ def settings_accordion() -> rx.Component:
                 ),
                 rx.vstack(
                     rx.text(
-                        "ℹ️ Ollama-Neustart: Stoppt laufende Generierungen, lädt Models neu (Chats bleiben erhalten)",
+                        "ℹ️ Ollama-Neustart: Stoppt laufende Generierungen, lädt Models neu",
                         font_size="11px",
                         color="#d4913d",  # Dunkles Orange - gut lesbar
                         line_height="1.5",
+                    ),
+                    rx.text(
+                        "(Chats bleiben erhalten)",
+                        font_size="10px",
+                        color="#a67a30",  # Etwas dunkler für Zusatzinfo
+                        line_height="1.3",
+                        margin_top="-2px",  # Näher an die Zeile darüber
                     ),
                     rx.text(
                         "⚠️ AIfred-Neustart: Löscht ALLE Chats, Caches und Debug-Logs komplett!",
