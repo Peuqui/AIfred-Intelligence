@@ -8,7 +8,7 @@ Rates URLs based on relevance to search query:
 """
 
 import re
-from typing import List, Dict
+from typing import List, Dict, Tuple, Optional, Any
 from .logging_utils import log_message
 from .prompt_loader import get_url_rating_prompt
 
@@ -25,7 +25,7 @@ async def _rate_url_batch(
     llm_client,
     rating_num_ctx: int,
     batch_num: int = 1
-) -> List[Dict]:
+) -> Tuple[List[Dict[str, Any]], Optional[int]]:
     """
     Bewertet einen Batch von URLs (interne Helper-Funktion).
 
@@ -151,7 +151,7 @@ async def ai_rate_urls(
     automatik_model: str,
     llm_client,
     automatik_llm_context_limit: int
-) -> List[Dict]:
+) -> Tuple[List[Dict[str, Any]], Optional[int]]:
     """
     KI bewertet URLs mit Batch-Processing (zuverlässig für kleine Modelle!)
 
@@ -171,7 +171,7 @@ async def ai_rate_urls(
             - avg_tokens_per_sec: Durchschnittliche Tokens/Sekunde über alle Batches
     """
     if not urls:
-        return [], None
+        return ([], None)
 
     # Batch-Größe: 10 URLs pro Batch (gut für kleine Modelle wie qwen2.5:3b)
     BATCH_SIZE = 10
@@ -185,8 +185,8 @@ async def ai_rate_urls(
     log_message(f"📊 Batch Context: {rating_num_ctx} Tokens (optimiert für {BATCH_SIZE} URLs)")
     log_message("=" * 60)
 
-    all_rated_urls = []
-    all_tokens_per_sec = []  # Collect t/s from each batch
+    all_rated_urls: List[Dict[str, Any]] = []
+    all_tokens_per_sec: List[int] = []  # Collect t/s from each batch
 
     # Verarbeite URLs in Batches
     for batch_idx in range(0, len(urls), BATCH_SIZE):
@@ -216,7 +216,7 @@ async def ai_rate_urls(
     all_rated_urls.sort(key=lambda x: x['score'], reverse=True)
 
     # Calculate average t/s
-    avg_tokens_per_sec = int(sum(all_tokens_per_sec) / len(all_tokens_per_sec)) if all_tokens_per_sec else None
+    avg_tokens_per_sec: Optional[int] = int(sum(all_tokens_per_sec) / len(all_tokens_per_sec)) if all_tokens_per_sec else None
 
     log_message("=" * 60)
     log_message(f"✅ BATCH-PROCESSING FERTIG: {len(all_rated_urls)} von {len(urls)} URLs bewertet")
@@ -224,4 +224,4 @@ async def ai_rate_urls(
         log_message(f"⚡ Durchschnittliche Performance: {avg_tokens_per_sec} t/s über {len(all_tokens_per_sec)} Batches")
     log_message("=" * 60)
 
-    return all_rated_urls, avg_tokens_per_sec
+    return (all_rated_urls, avg_tokens_per_sec)

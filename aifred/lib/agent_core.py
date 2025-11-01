@@ -366,7 +366,7 @@ async def perform_agent_research(
         # PERFORMANCE-OPTIMIERUNG: Haupt-LLM vorladen (während Scraping läuft!)
         # ============================================================
         import asyncio
-        preload_main_llm_task = asyncio.create_task(llm_client.preload_model(model_choice))
+        asyncio.create_task(llm_client.preload_model(model_choice))  # Fire-and-forget
         log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
         yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
 

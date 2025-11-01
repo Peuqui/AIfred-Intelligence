@@ -79,14 +79,14 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
-    async def chat_stream(
+    def chat_stream(
         self,
         model: str,
         messages: List[LLMMessage],
         options: Optional[LLMOptions] = None
     ) -> AsyncIterator[Dict]:
         """
-        Streaming chat completion
+        Streaming chat completion (async generator)
 
         Args:
             model: Model name/ID
@@ -97,6 +97,12 @@ class LLMBackend(ABC):
             Dict with either:
             - {"type": "content", "text": str} for content chunks
             - {"type": "done", "metrics": {...}} for final metrics
+
+        Note:
+            This returns an AsyncIterator, so implementations should use
+            'async def' with 'yield' (async generator function).
+            The abstract method signature does NOT use 'async def' because
+            it declares the return type AsyncIterator directly.
         """
         pass
 
@@ -111,12 +117,16 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
-    def get_backend_info(self) -> Dict:
+    async def get_backend_info(self) -> Dict:
         """
-        Return backend information
+        Return backend information (async method)
 
         Returns:
             Dict with: version, gpu_available, memory_info, etc.
+
+        Note:
+            This is an async method because it may need to query
+            the backend API for version/model information.
         """
         pass
 

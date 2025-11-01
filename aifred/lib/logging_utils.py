@@ -37,7 +37,7 @@ _console_messages: List[str] = []  # Thread-safe list für Console-Output
 MAX_CONSOLE_MESSAGES = 200
 
 # Queue für Thread-to-UI Kommunikation (Pipe!)
-import queue
+import queue  # noqa: E402
 _message_queue: queue.Queue = queue.Queue(maxsize=500)  # Thread-safe Pipe!
 
 

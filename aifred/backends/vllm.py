@@ -218,7 +218,7 @@ class vLLMBackend(LLMBackend):
         """
         try:
             # Send minimal request to trigger model loading (OpenAI-compatible API)
-            response = await self.client.chat.completions.create(
+            await self.client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=1,

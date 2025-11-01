@@ -137,7 +137,7 @@ class AIState(rx.State):
                         if preload_success:
                             self.add_debug(f"✅ Automatik-LLM ({self.automatik_model}) vorgeladen")
                         else:
-                            self.add_debug(f"⚠️ Automatik-LLM Preload fehlgeschlagen")
+                            self.add_debug("⚠️ Automatik-LLM Preload fehlgeschlagen")
 
                     asyncio.create_task(preload_in_background())
             else:

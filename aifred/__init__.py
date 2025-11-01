@@ -17,6 +17,6 @@ if tavily_key:
 if not brave_key and not tavily_key:
     print("⚠️ Keine API Keys gefunden - nur SearXNG wird verwendet")
 
-from .aifred import app
+from .aifred import app  # noqa: E402
 
 __all__ = ["app"]
