@@ -115,7 +115,10 @@ async def build_and_generate_response(
     yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
 
     # Build messages with history
-    messages = build_messages_from_history(history, system_prompt, user_text)
+    messages = build_messages_from_history(history, user_text)
+
+    # Insert system prompt as first message
+    messages.insert(0, {"role": "system", "content": system_prompt})
 
     # DEBUG: Show message sizes
     for i, msg in enumerate(messages):
