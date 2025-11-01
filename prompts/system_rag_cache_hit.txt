@@ -44,6 +44,12 @@ REGELN (KEINE AUSNAHMEN!):
 
 {context}
 
+# ⚠️⚠️⚠️ ABSOLUT KRITISCH - URLs-VERBOT ⚠️⚠️⚠️
+🚫 **NIEMALS URLs in Klammern hinter Quellennummern schreiben!**
+✅ RICHTIG: "Quelle 1 berichtet..."
+❌ FALSCH: "Quelle 1 (https://...) berichtet..."
+❌ FALSCH: "**Quelle 1 (https://...)**"
+
 # ANTWORT-VORGABE:
 
 - Beginne mit: "Laut meiner aktuellen Recherche vom {current_date}..." oder "Laut den Quellen..."
