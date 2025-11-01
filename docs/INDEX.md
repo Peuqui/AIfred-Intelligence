@@ -1,6 +1,6 @@
 # AIfred Intelligence - Dokumentations-Index
 
-**Letzte Aktualisierung:** 2025-10-18
+**Letzte Aktualisierung:** 2025-11-01
 
 ---
 
@@ -58,12 +58,21 @@ docs/
 | [llm/LLM_COMPARISON.md](llm/LLM_COMPARISON.md) | Vergleich verschiedener LLMs | ✅ Referenz |
 | [llm/MODEL_COMPARISON_DETAILED.md](llm/MODEL_COMPARISON_DETAILED.md) | Detaillierter Model-Vergleich | ✅ Referenz |
 
-### 🏛️ Architektur & Features
+###🏛️ Architektur & Features
 
 | Dokument | Beschreibung | Status |
 |----------|--------------|--------|
+| [architecture/CACHE_SYSTEM.md](architecture/CACHE_SYSTEM.md) | Intelligentes Cache-System mit Metadata | ✅ Aktiv |
 | [architecture/architecture-agentic-features.md](architecture/architecture-agentic-features.md) | Agent-Features & Web-Recherche | ✅ Aktiv |
 | [architecture/LLM_HELP_UI.md](architecture/LLM_HELP_UI.md) | UI-Hilfe & Tooltips | ✅ Aktiv |
+
+### 💻 Entwicklung
+
+| Dokument | Beschreibung | Status |
+|----------|--------------|--------|
+| [development/PRE_COMMIT_CHECKLIST.md](development/PRE_COMMIT_CHECKLIST.md) | Pre-Commit Workflow (ruff, mypy, pytest) | ✅ Aktiv |
+| [development/REFACTORING_REPORT.md](development/REFACTORING_REPORT.md) | Code-Refactoring Report | ✅ Referenz |
+| [development/debug-output-reference.md](development/debug-output-reference.md) | Debug-Output Referenz | ✅ Aktiv |
 
 ### 🔌 API & Integration
 
@@ -112,6 +121,15 @@ docs/
 ---
 
 ## 📝 Changelog
+
+### 2025-11-01
+- ✅ Intelligentes Cache-System implementiert (Metadata-basiert, ~60% Token-Einsparung)
+- ✅ Synchrone Metadata-Generierung (100 Wörter, nach Haupt-LLM)
+- ✅ Smart Context-Building: Alte Metadata + aktuelle volle Quellen
+- ✅ Logging konsolidiert: Zentrale console_separator() Funktion
+- ✅ System-Prompt optimiert: URLs-im-Text Problem behoben
+- ✅ Dokumentation reorganisiert: Alle Docs in docs/ Unterordner
+- ✅ [CACHE_SYSTEM.md](architecture/CACHE_SYSTEM.md) erstellt
 
 ### 2025-10-18
 - ✅ GPU-Beschleunigung erfolgreich implementiert (HSA_OVERRIDE=11.0.2)
