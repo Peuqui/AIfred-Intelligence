@@ -230,7 +230,11 @@ def processing_progress_banner() -> rx.Component:
         rx.cond(
             AIState.progress_phase == "scraping",
             "🔍",
-            "🧠"  # llm
+            rx.cond(
+                AIState.progress_phase == "compress",
+                "🗜️",
+                "🧠"  # llm
+            )
         )
     )
 
@@ -240,7 +244,11 @@ def processing_progress_banner() -> rx.Component:
         rx.cond(
             AIState.progress_phase == "scraping",
             "Web-Scraping",
-            "Generiere Antwort ..."
+            rx.cond(
+                AIState.progress_phase == "compress",
+                "Komprimiere Kontext ...",
+                "Generiere Antwort ..."
+            )
         )
     )
 
@@ -474,6 +482,98 @@ def tts_section() -> rx.Component:
     )
 
 
+def render_chat_message(msg: tuple) -> rx.Component:
+    """Rendert eine einzelne Chat-Message (User+AI oder Summary)"""
+    # Check ob es eine Summary ist (leerer User-Teil + "[📊 Komprimiert" am Anfang)
+    # Verwende Reflex bitwise operators: & statt 'and'
+    is_summary = (msg[0] == "") & msg[1].startswith("[📊 Komprimiert")
+
+    return rx.cond(
+        is_summary,
+        # Summary-Anzeige (Collapsible ganz oben)
+        rx.box(
+            rx.details(
+                rx.summary(
+                    rx.hstack(
+                        rx.text("📊", font_size="14px"),
+                        rx.text(
+                            msg[1].split("]")[0] + "]",  # Nur "[📊 Komprimiert: X Messages]"
+                            font_weight="bold",
+                            font_size="13px",
+                            color=COLORS["accent_warning"]
+                        ),
+                        spacing="2",
+                    ),
+                ),
+                rx.box(
+                    rx.markdown(
+                        msg[1].split("\n", 1)[1] if "\n" in msg[1] else msg[1],  # Text nach dem Header
+                        color=COLORS["text_primary"],
+                        font_size="12px"
+                    ),
+                    padding="3",
+                    margin_top="2",
+                ),
+                width="100%",
+            ),
+            background_color="rgba(255, 165, 0, 0.1)",  # Orange Tint
+            padding="3",
+            border_radius="8px",
+            border=f"1px solid {COLORS['accent_warning']}",
+            width="100%",
+            margin_bottom="3",
+        ),
+        # Normale Message-Anzeige (User + AI)
+        rx.vstack(
+            # User message (rechts, max 70%) - mit hellgrauem Container
+            rx.box(
+                rx.hstack(
+                    rx.spacer(),
+                    rx.box(
+                        rx.text(msg[0], color=COLORS["user_text"], font_size="13px"),
+                        background_color=COLORS["user_msg"],
+                        padding="3",
+                        border_radius="6px",
+                        max_width="70%",
+                    ),
+                    rx.text("👤", font_size="13px"),
+                    spacing="2",
+                    align="start",
+                    justify="end",
+                    width="100%",
+                ),
+                background_color="rgba(255, 255, 255, 0.03)",
+                padding="2",
+                border_radius="8px",
+                width="100%",
+            ),
+            # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
+            rx.box(
+                rx.hstack(
+                    rx.text("🤖", font_size="13px"),
+                    rx.box(
+                        rx.markdown(msg[1], color=COLORS["ai_text"], font_size="13px"),
+                        background_color=COLORS["ai_msg"],
+                        padding="3",
+                        border_radius="6px",
+                        width="100%",
+                    ),
+                    spacing="2",
+                    align="start",
+                    justify="start",
+                    width="100%",
+                ),
+                background_color="rgba(255, 255, 255, 0.03)",
+                padding="2",
+                border_radius="8px",
+                width="100%",
+            ),
+            spacing="3",
+            width="100%",
+        )
+    )
+
+
 def chat_history_display() -> rx.Component:
     """Full chat history (like Gradio chatbot)"""
     return rx.vstack(
@@ -484,53 +584,7 @@ def chat_history_display() -> rx.Component:
             rx.auto_scroll(
                 rx.foreach(
                     AIState.chat_history,
-                    lambda msg: rx.vstack(
-                        # User message (rechts, max 70%) - mit hellgrauem Container
-                        rx.box(
-                            rx.hstack(
-                                rx.spacer(),
-                                rx.box(
-                                    rx.text(msg[0], color=COLORS["user_text"], font_size="13px"),
-                                    background_color=COLORS["user_msg"],
-                                    padding="3",
-                                    border_radius="6px",
-                                    max_width="70%",
-                                ),
-                                rx.text("👤", font_size="13px"),
-                                spacing="2",
-                                align="start",
-                                justify="end",
-                                width="100%",
-                            ),
-                            background_color="rgba(255, 255, 255, 0.03)",
-                            padding="2",
-                            border_radius="8px",
-                            width="100%",
-                        ),
-                        # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
-                        rx.box(
-                            rx.hstack(
-                                rx.text("🤖", font_size="13px"),
-                                rx.box(
-                                    rx.markdown(msg[1], color=COLORS["ai_text"], font_size="13px"),
-                                    background_color=COLORS["ai_msg"],
-                                    padding="3",
-                                    border_radius="6px",
-                                    width="100%",
-                                ),
-                                spacing="2",
-                                align="start",
-                                justify="start",
-                                width="100%",
-                            ),
-                            background_color="rgba(255, 255, 255, 0.03)",
-                            padding="2",
-                            border_radius="8px",
-                            width="100%",
-                        ),
-                        spacing="3",
-                        width="100%",
-                    ),
+                    render_chat_message  # Verwende separate Render-Funktion
                 ),
                 id="chat-history-box",
                 width="100%",
@@ -548,53 +602,7 @@ def chat_history_display() -> rx.Component:
             rx.box(
                 rx.foreach(
                     AIState.chat_history,
-                    lambda msg: rx.vstack(
-                        # User message (rechts, max 70%) - mit hellgrauem Container
-                        rx.box(
-                            rx.hstack(
-                                rx.spacer(),
-                                rx.box(
-                                    rx.text(msg[0], color=COLORS["user_text"], font_size="13px"),
-                                    background_color=COLORS["user_msg"],
-                                    padding="3",
-                                    border_radius="6px",
-                                    max_width="70%",
-                                ),
-                                rx.text("👤", font_size="13px"),
-                                spacing="2",
-                                align="start",
-                                justify="end",
-                                width="100%",
-                            ),
-                            background_color="rgba(255, 255, 255, 0.03)",
-                            padding="2",
-                            border_radius="8px",
-                            width="100%",
-                        ),
-                        # AI message (links, bis 100% wenn nötig) - mit hellgrauem Container
-                        rx.box(
-                            rx.hstack(
-                                rx.text("🤖", font_size="13px"),
-                                rx.box(
-                                    rx.markdown(msg[1], color=COLORS["ai_text"], font_size="13px"),
-                                    background_color=COLORS["ai_msg"],
-                                    padding="3",
-                                    border_radius="6px",
-                                    width="100%",
-                                ),
-                                spacing="2",
-                                align="start",
-                                justify="start",
-                                width="100%",
-                            ),
-                            background_color="rgba(255, 255, 255, 0.03)",
-                            padding="2",
-                            border_radius="8px",
-                            width="100%",
-                        ),
-                        spacing="3",
-                        width="100%",
-                    ),
+                    render_chat_message  # Verwende separate Render-Funktion
                 ),
                 id="chat-history-box",
                 width="100%",

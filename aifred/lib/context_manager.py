@@ -25,6 +25,20 @@ def estimate_tokens(messages: List[Dict]) -> int:
     return total_size // 4
 
 
+def estimate_tokens_from_history(history: List[tuple]) -> int:
+    """
+    Schätzt Token-Anzahl aus Chat History (Tuple-Format)
+
+    Args:
+        history: Liste von (user_msg, ai_msg) Tuples
+
+    Returns:
+        int: Geschätzte Anzahl Tokens (Faustregel: 1 Token ≈ 4 Zeichen)
+    """
+    total_size = sum(len(user_msg) + len(ai_msg) for user_msg, ai_msg in history)
+    return total_size // 4
+
+
 async def calculate_dynamic_num_ctx(
     llm_client,
     model_name: str,

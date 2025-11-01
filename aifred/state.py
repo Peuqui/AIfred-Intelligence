@@ -281,6 +281,11 @@ class AIState(rx.State):
                                 total=item.get("total", 0),
                                 failed=item.get("failed", 0)
                             )
+                    elif item["type"] == "history_update":
+                        # Update chat history (e.g. from summarization)
+                        updated_history = item["data"]
+                        self.chat_history = updated_history
+                        self.add_debug(f"📊 History aktualisiert: {len(updated_history)} Messages")
 
                     yield  # Update UI after each item
 
