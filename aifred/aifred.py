@@ -741,7 +741,7 @@ def index() -> rx.Component:
             rx.grid(
                 debug_console(),
                 settings_accordion(),
-                columns="3fr 2fr",  # Debug Console 60% (3fr), Settings 40% (2fr)
+                columns="11fr 9fr",  # Debug Console 55% (11fr), Settings 45% (9fr)
                 spacing="4",
                 width="100%",
             ),
