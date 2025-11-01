@@ -18,7 +18,7 @@ from .agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
 from .logging_utils import log_message
 from .message_builder import build_messages_from_history
-from .prompt_loader import get_decision_making_prompt, get_system_rag_prompt
+from .prompt_loader import get_decision_making_prompt, get_system_rag_prompt, load_prompt
 
 # Local imports - New library modules
 from .cache_manager import (
@@ -127,14 +127,15 @@ async def perform_agent_research(
             # Intelligenter Context (Limit aus config.py: MAX_RAG_CONTEXT_TOKENS)
             context = build_context(user_text, scraped_only)
 
-            # System-Prompt für Cache-Hit: Nutze RAG-Prompt wie bei normaler Recherche
-            # Zusätzlicher Hinweis auf ursprüngliche Frage für Context
-            cache_followup_note = f"""
-HINWEIS: Der User stellt eine Nachfrage zu einer vorherigen Recherche.
-**Ursprüngliche Frage:** "{cache_entry.get('user_text', 'N/A')}"
-**Aktuelle Nachfrage:** "{user_text}"
-"""
-            system_prompt = get_system_rag_prompt(user_text, context, cache_followup_note=cache_followup_note)
+            # System-Prompt für Cache-Hit: Nutze separate Prompt-Datei
+            system_prompt = load_prompt(
+                'system_rag_cache_hit',
+                original_question=cache_entry.get('user_text', 'N/A'),
+                current_question=user_text,
+                current_year=time.strftime("%Y"),
+                current_date=time.strftime("%d.%m.%Y"),
+                context=context
+            )
 
             # Generiere Antwort mit Cache-Daten
             messages = []
@@ -238,9 +239,10 @@ HINWEIS: Der User stellt eine Nachfrage zu einer vorherigen Recherche.
 
             log_message(f"✅ Cache-basierte Antwort fertig in {total_time:.1f}s")
 
-            # Separator nach Cache-Hit
-            from .logging_utils import console_separator
+            # Separator nach Cache-Hit (Log-File + Debug-Konsole)
+            from .logging_utils import console_separator, CONSOLE_SEPARATOR
             console_separator()
+            yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
             # Yield final result
             yield {"type": "result", "data": (ai_text_with_timing, history, total_time)}
