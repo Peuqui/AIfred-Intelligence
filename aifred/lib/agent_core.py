@@ -3,14 +3,14 @@ Agent Core Module - AI Research and Decision Making
 
 This module handles agent-based research workflows including:
 - Query optimization
-- URL rating with AI
 - Multi-mode research (quick/deep/automatic)
 - Interactive decision-making
+- Parallel web scraping
 """
 
 import time
 import re
-from typing import Dict, List, Optional, AsyncIterator, Any
+from typing import Dict, List, Optional, AsyncIterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Local imports - Core utilities
@@ -37,7 +37,7 @@ from .intent_detector import (
     get_temperature_for_intent
 )
 from .query_optimizer import optimize_search_query
-from .url_rater import ai_rate_urls
+# URL-Rating entfernt - Search-Engines liefern bereits gute Rankings
 from .llm_client import LLMClient
 
 # Compiled Regex Patterns (Performance-Optimierung)
@@ -296,68 +296,32 @@ async def perform_agent_research(
         # Single API oder alte Version
         yield {"type": "debug", "message": f"🌐 Web-Suche mit: {api_source}"}
 
-    # 2. URLs + Titel extrahieren (Search-APIs liefern bereits max 10)
+    # 2. URLs extrahieren (Search-APIs liefern bereits max 10)
     related_urls = search_result.get('related_urls', [])
-    titles = search_result.get('titles', [])
 
-    # Initialisiere Variablen für Fälle ohne URLs
-    rated_urls: List[Dict[Any, Any]] = []
-    rating_time = 0.0  # Default: 0.0 statt None für sichere Übergabe an build_debug_accordion
-
+    # 3. Scraping-Strategie basierend auf Modus (kein URL-Rating mehr - direktes Scraping!)
     if not related_urls:
         log_message("⚠️ Keine URLs gefunden, nur Abstract")
+        urls_to_scrape = []
     else:
-        log_message(f"📋 {len(related_urls)} URLs gefunden")
+        log_message(f"📋 {len(related_urls)} URLs von Search-Engine gefunden")
 
-        # 3. AI bewertet alle URLs (1 Call!) - mit Titeln für bessere Aktualitäts-Erkennung
-        log_message(f"🤖 KI bewertet URLs mit {automatik_model}...")
-        yield {"type": "debug", "message": f"⚖️ KI bewertet URLs mit: {automatik_model}"}
-        rating_start = time.time()
-        rated_urls, url_rating_tps = await ai_rate_urls(
-            urls=related_urls,
-            titles=titles,
-            query=user_text,
-            automatik_model=automatik_model,
-            llm_client=automatik_llm_client,
-            automatik_llm_context_limit=automatik_limit
-        )
-        rating_time = time.time() - rating_start
-
-        # Yield t/s metric to UI
-        if url_rating_tps:
-            yield {"type": "debug", "message": f"⚡ URL-Rating Performance: {url_rating_tps} t/s"}
-
-        # Debug: Zeige ALLE Bewertungen (nicht nur Top 5)
-        log_message("=" * 60)
-        log_message("📊 URL-BEWERTUNGEN (alle):")
-        log_message("=" * 60)
-        for idx, item in enumerate(rated_urls, 1):
-            url_short = item['url'][:70] + '...' if len(item['url']) > 70 else item['url']
-            reasoning_short = item['reasoning'][:80] + '...' if len(item['reasoning']) > 80 else item['reasoning']
-            emoji = "✅" if item['score'] >= 7 else "⚠️" if item['score'] >= 5 else "❌"
-            log_message(f"{idx}. {emoji} Score {item['score']}/10: {url_short}")
-            log_message(f"   Grund: {reasoning_short}")
-        log_message("=" * 60)
-
-        # 4. Scraping basierend auf Modus
+        # 4. Scraping basierend auf Modus (Search-Engine-Ranking wird vertraut!)
         if mode == "quick":
             target_sources = 3
             initial_scrape_count = 3  # Quick-Modus: Kein Fallback nötig
-            log_message("⚡ Schnell-Modus: Scrape beste 3 URLs")
+            log_message("⚡ Schnell-Modus: Scrape Top 3 URLs")
         elif mode == "deep":
             target_sources = 5  # Ziel: 5 erfolgreiche Quellen
             initial_scrape_count = 7  # Starte mit 7 URLs (Fallback für Fehler)
-            log_message(f"🔍 Ausführlich-Modus: Scrape beste {initial_scrape_count} URLs (Ziel: {target_sources} erfolgreiche)")
+            log_message(f"🔍 Ausführlich-Modus: Scrape Top {initial_scrape_count} URLs (Ziel: {target_sources} erfolgreiche)")
         else:
             target_sources = 3  # Fallback
             initial_scrape_count = 3
 
-        # 4.5. Validierung: Fallback wenn rated_urls leer ist
-        if not rated_urls:
-            log_message("⚠️ WARNUNG: Keine URLs konnten bewertet werden!")
-            log_message("   Fallback: Nutze Original-URLs ohne Rating")
-            # Fallback: Nutze Original-URLs ohne Rating
-            rated_urls = [{'url': u, 'score': 5, 'reasoning': 'No rating available'} for u in related_urls[:target_sources]]
+        # Nimm direkt die Top-URLs von der Search-Engine (kein Rating mehr!)
+        scrape_limit = initial_scrape_count if mode == "deep" else target_sources
+        urls_to_scrape = related_urls[:scrape_limit]  # Einfach! Vertraue Search-Engine-Ranking
 
         # 5. Scrape URLs PARALLEL (großer Performance-Win!)
         yield {"type": "debug", "message": "🌐 Web-Scraping startet (parallel)"}
@@ -370,23 +334,8 @@ async def perform_agent_research(
         log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
         yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
 
-        # Filtere URLs nach Score und Limit
-        # THRESHOLD GESENKT: 5 → 3 (weniger restriktiv, mehr Quellen)
-        # Deep-Modus: Starte mit initial_scrape_count URLs (Fallback für Fehler)
-        scrape_limit = initial_scrape_count if mode == "deep" else target_sources
-        urls_to_scrape = [
-            item for item in rated_urls
-            if item['score'] >= 3  # ← War 5, jetzt 3!
-        ][:scrape_limit]  # Deep: 7 URLs, Quick: 3 URLs
-
-        # FALLBACK: Wenn ALLE URLs < 3, nimm trotzdem die besten!
-        if not urls_to_scrape and rated_urls:
-            log_message(f"⚠️ Alle URLs haben Score < 3 → Nutze Top {target_sources} als Fallback")
-            yield {"type": "debug", "message": f"⚠️ Niedrige URL-Scores → Nutze beste {target_sources} URLs als Fallback"}
-            urls_to_scrape = rated_urls[:target_sources]
-
         if not urls_to_scrape:
-            log_message("⚠️ Keine URLs zum Scrapen (rated_urls ist leer)")
+            log_message("⚠️ Keine URLs zum Scrapen verfügbar")
             yield {"type": "debug", "message": "⚠️ Keine URLs verfügbar → 0 Quellen gescraped"}
         else:
             log_message(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
@@ -394,16 +343,16 @@ async def perform_agent_research(
             # Parallel Scraping mit ThreadPoolExecutor
             scraped_results = []
             with ThreadPoolExecutor(max_workers=min(5, len(urls_to_scrape))) as executor:
-                # Starte alle Scrape-Tasks parallel
-                future_to_item = {
-                    executor.submit(scrape_webpage, item['url']): item
-                    for item in urls_to_scrape
+                # Starte alle Scrape-Tasks parallel (urls_to_scrape ist jetzt simple URL-Liste!)
+                future_to_url = {
+                    executor.submit(scrape_webpage, url): url
+                    for url in urls_to_scrape
                 }
 
                 # Sammle Ergebnisse (in Completion-Order für Live-Feedback)
-                for future in as_completed(future_to_item):
-                    item = future_to_item[future]
-                    url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
+                for future in as_completed(future_to_url):
+                    url = future_to_url[future]
+                    url_short = url[:60] + '...' if len(url) > 60 else url
 
                     try:
                         scrape_result = future.result(timeout=10)  # Max 10s pro URL (Download failed → kein Playwright → max 10s)
@@ -411,24 +360,24 @@ async def perform_agent_research(
                         if scrape_result['success']:
                             tool_results.append(scrape_result)
                             scraped_results.append(scrape_result)
-                            log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter (Score: {item['score']})")
+                            log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter")
                         else:
-                            log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')} (Score: {item['score']})")
+                            log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
 
                     except Exception as e:
-                        log_message(f"  ❌ {url_short}: Exception: {e} (Score: {item['score']})")
+                        log_message(f"  ❌ {url_short}: Exception: {e}")
 
             log_message(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
 
             # AUTOMATISCHES FALLBACK: Wenn zu wenige Quellen erfolgreich → Scrape weitere URLs
-            if mode == "deep" and len(scraped_results) < target_sources and len(urls_to_scrape) < len(rated_urls):
+            if mode == "deep" and len(scraped_results) < target_sources and len(urls_to_scrape) < len(related_urls):
                 missing_count = target_sources - len(scraped_results)
-                already_scraped_urls = {item['url'] for item in urls_to_scrape}
+                already_scraped_urls = set(urls_to_scrape)
 
                 # Finde nächste URLs die noch nicht gescraped wurden
                 remaining_urls = [
-                    item for item in rated_urls
-                    if item['url'] not in already_scraped_urls and item['score'] >= 3
+                    url for url in related_urls
+                    if url not in already_scraped_urls
                 ][:missing_count + 2]  # +2 Reserve für weitere Fehler
 
                 if remaining_urls:
@@ -437,14 +386,14 @@ async def perform_agent_research(
 
                     # Scrape zusätzliche URLs parallel
                     with ThreadPoolExecutor(max_workers=min(5, len(remaining_urls))) as executor:
-                        future_to_item = {
-                            executor.submit(scrape_webpage, item['url']): item
-                            for item in remaining_urls
+                        future_to_url = {
+                            executor.submit(scrape_webpage, url): url
+                            for url in remaining_urls
                         }
 
-                        for future in as_completed(future_to_item):
-                            item = future_to_item[future]
-                            url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
+                        for future in as_completed(future_to_url):
+                            url = future_to_url[future]
+                            url_short = url[:60] + '...' if len(url) > 60 else url
 
                             try:
                                 scrape_result = future.result(timeout=10)
@@ -452,17 +401,17 @@ async def perform_agent_research(
                                 if scrape_result['success']:
                                     tool_results.append(scrape_result)
                                     scraped_results.append(scrape_result)
-                                    log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter (Score: {item['score']})")
+                                    log_message(f"  ✅ {url_short}: {scrape_result['word_count']} Wörter")
 
                                     # Stoppe wenn Ziel erreicht
                                     if len(scraped_results) >= target_sources:
                                         log_message(f"🎯 Ziel erreicht: {len(scraped_results)}/{target_sources} Quellen")
                                         break
                                 else:
-                                    log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')} (Score: {item['score']})")
+                                    log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
 
                             except Exception as e:
-                                log_message(f"  ❌ {url_short}: Exception: {e} (Score: {item['score']})")
+                                log_message(f"  ❌ {url_short}: Exception: {e}")
 
                     log_message(f"✅ Fallback-Scraping fertig: {len(scraped_results)} total (Ziel: {target_sources})")
 
@@ -670,13 +619,12 @@ async def perform_agent_research(
 
     # Separator als letztes Element in der Debug Console (KEINE AI-Ausgaben danach!)
 
-    # 9. Baue vollständige AI-Antwort mit Debug-Accordion (URL-Bewertung + Thinking + Clean Text)
+    # 9. Baue vollständige AI-Antwort mit Debug-Accordion (Thinking + Clean Text)
     # build_debug_accordion() gibt zurück:
     #   - Query-Optimierung Collapsible
-    #   - URL-Bewertung Collapsible
     #   - Finale Antwort Thinking Collapsible
     #   - Clean AI-Text (ohne <think> Tags)
-    ai_response_complete = build_debug_accordion(query_reasoning, rated_urls, ai_text, automatik_model, model_choice, query_opt_time, rating_time, inference_time)
+    ai_response_complete = build_debug_accordion(query_reasoning, ai_text, automatik_model, model_choice, query_opt_time, inference_time)
 
     # History mit Agent-Timing
     mode_label = "Schnell" if mode == "quick" else "Ausführlich"

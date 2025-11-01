@@ -117,18 +117,16 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None):
         return ai_response
 
 
-def build_debug_accordion(query_reasoning, rated_urls, ai_text, automatik_model, main_model, query_time=None, rating_time=None, final_time=None):
+def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model, query_time=None, final_time=None):
     """
     Baut Debug-Accordion für Agent-Recherche mit allen KI-Denkprozessen.
 
     Args:
         query_reasoning: <think> Content from Query Optimization
-        rated_urls: Liste von {'url', 'score', 'reasoning'} von URL-Rating
         ai_text: Final AI response with optional <think> tags
-        automatik_model: Name des Automatik-Modells (für Query-Opt & URL-Rating)
+        automatik_model: Name des Automatik-Modells (für Query-Opt)
         main_model: Name des Haupt-Modells (für finale Antwort)
         query_time: Inferenz-Zeit für Query Optimization (optional)
-        rating_time: Inferenz-Zeit für URL Rating (optional)
         final_time: Inferenz-Zeit für finale Antwort (optional)
 
     Returns:
@@ -152,22 +150,7 @@ def build_debug_accordion(query_reasoning, rated_urls, ai_text, automatik_model,
 <div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{query_think}</div>
 </details>""")
 
-    # 2. URL Rating Results (Top 5)
-    if rated_urls:
-        rating_text = ""
-        for idx, item in enumerate(rated_urls[:5], 1):
-            emoji = "✅" if item['score'] >= 7 else "⚠️" if item['score'] >= 5 else "❌"
-            url_short = item['url'][:60] + '...' if len(item['url']) > 60 else item['url']
-            rating_text += f"{idx}. {emoji} Score {item['score']}/10: {url_short}\n   Grund: {item['reasoning']}\n"
-
-        rating_text = rating_text.strip()
-        time_suffix = f" • {rating_time:.1f}s" if rating_time else ""
-        debug_sections.append(f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa;">📊 URL-Bewertung Top 5 ({automatik_model}){time_suffix}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{rating_text}</div>
-</details>""")
-
-    # 3. Final Answer <think> process (extract but don't remove yet)
+    # 2. Final Answer <think> process (extract but don't remove yet)
     think_match = re.search(r'<think>(.*?)</think>', ai_text, re.DOTALL)
 
     # FALLBACK: Prüfe auf fehlendes öffnendes Tag (qwen3:4b Bug)
