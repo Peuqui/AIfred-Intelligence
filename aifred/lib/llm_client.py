@@ -5,7 +5,7 @@ Provides async chat completions (streaming and non-streaming)
 with proper integration into the existing Backend system.
 """
 
-from typing import Dict, List, Optional, AsyncIterator, Union
+from typing import Dict, List, Optional, AsyncIterator, Union, Any, cast
 from ..backends import BackendFactory
 from ..backends.base import LLMMessage, LLMOptions, LLMResponse
 
@@ -69,10 +69,15 @@ class LLMClient:
         backend = self._create_backend()
 
         # Convert dicts to LLMMessage if needed
+        converted_messages: List[LLMMessage]
         if messages and isinstance(messages[0], dict):
-            messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
+            dict_messages = cast(List[Dict[str, Any]], messages)
+            converted_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in dict_messages]
+        else:
+            converted_messages = cast(List[LLMMessage], messages)
 
         # Convert dict to LLMOptions if needed
+        llm_options: LLMOptions
         if options and isinstance(options, dict):
             llm_options = LLMOptions(
                 temperature=options.get("temperature", 0.2),
@@ -84,10 +89,10 @@ class LLMClient:
                 seed=options.get("seed")
             )
         else:
-            llm_options = options or LLMOptions()
+            llm_options = LLMOptions()
 
         try:
-            response = await backend.chat(model, messages, llm_options)
+            response = await backend.chat(model, converted_messages, llm_options)
             return response
         finally:
             await backend.close()
@@ -115,10 +120,15 @@ class LLMClient:
         backend = self._create_backend()
 
         # Convert dicts to LLMMessage if needed
+        converted_messages: List[LLMMessage]
         if messages and isinstance(messages[0], dict):
-            messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
+            dict_messages = cast(List[Dict[str, Any]], messages)
+            converted_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in dict_messages]
+        else:
+            converted_messages = cast(List[LLMMessage], messages)
 
         # Convert dict to LLMOptions if needed
+        llm_options: LLMOptions
         if options and isinstance(options, dict):
             llm_options = LLMOptions(
                 temperature=options.get("temperature", 0.2),
@@ -130,10 +140,10 @@ class LLMClient:
                 seed=options.get("seed")
             )
         else:
-            llm_options = options or LLMOptions()
+            llm_options = LLMOptions()
 
         try:
-            async for chunk in backend.chat_stream(model, messages, llm_options):
+            async for chunk in backend.chat_stream(model, converted_messages, llm_options):
                 yield chunk
         finally:
             await backend.close()
