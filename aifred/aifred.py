@@ -490,30 +490,27 @@ def render_chat_message(msg: tuple) -> rx.Component:
 
     return rx.cond(
         is_summary,
-        # Summary-Anzeige (Collapsible ganz oben)
+        # Summary-Anzeige (einfache Box, keine Collapsible - Summary ist eh kompakt)
         rx.box(
-            rx.details(
-                rx.summary(
-                    rx.hstack(
-                        rx.text("📊", font_size="14px"),
-                        rx.text(
-                            msg[1].split("]")[0] + "]",  # Nur "[📊 Komprimiert: X Messages]"
-                            font_weight="bold",
-                            font_size="13px",
-                            color=COLORS["accent_warning"]
-                        ),
-                        spacing="2",
+            rx.vstack(
+                # Header
+                rx.hstack(
+                    rx.text("📊", font_size="14px"),
+                    rx.text(
+                        msg[1].split("]")[0] + "]",  # "[📊 Komprimiert: X Messages]"
+                        font_weight="bold",
+                        font_size="13px",
+                        color=COLORS["accent_warning"]
                     ),
+                    spacing="2",
                 ),
-                rx.box(
-                    rx.markdown(
-                        msg[1].split("\n", 1)[1] if "\n" in msg[1] else msg[1],  # Text nach dem Header
-                        color=COLORS["text_primary"],
-                        font_size="12px"
-                    ),
-                    padding="3",
-                    margin_top="2",
+                # Summary Content
+                rx.markdown(
+                    msg[1].split("\n", 1)[1] if "\n" in msg[1] else msg[1],  # Text nach dem Header
+                    color=COLORS["text_primary"],
+                    font_size="12px"
                 ),
+                spacing="2",
                 width="100%",
             ),
             background_color="rgba(255, 165, 0, 0.1)",  # Orange Tint
