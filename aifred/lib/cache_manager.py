@@ -222,7 +222,8 @@ async def generate_cache_metadata(
             if session_id in _research_cache:
                 _research_cache[session_id]['metadata_summary'] = metadata_summary
 
-        log_message(f"✅ Cache-Metadata generiert ({metadata_time:.1f}s): {metadata_summary}")
+        tokens_per_second = response.tokens_per_second
+        log_message(f"✅ Cache-Metadata generiert ({metadata_time:.1f}s, {tokens_per_second:.1f} t/s): {metadata_summary}")
         log_message(f"✅ Zusammenfassung erstellt: {metadata_summary[:80]}{'...' if len(metadata_summary) > 80 else ''}")
         console_separator()
 
