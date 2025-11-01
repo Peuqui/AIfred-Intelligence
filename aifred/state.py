@@ -122,6 +122,18 @@ class AIState(rx.State):
                 self.backend_info = f"{info['backend']} - {len(self.available_models)} models available"
 
                 self.add_debug(f"✅ {self.backend_type} backend ready: {self.backend_info}")
+
+                # ============================================================
+                # PERFORMANCE-OPTIMIERUNG: Automatik-LLM beim Start vorladen
+                # ============================================================
+                # Lade Automatik-LLM in VRAM, damit erste Recherche sofort schnell ist
+                if self.automatik_model:
+                    self.add_debug(f"🚀 Lade Automatik-LLM ({self.automatik_model}) vor...")
+                    preload_success = await backend.preload_model(self.automatik_model)
+                    if preload_success:
+                        self.add_debug(f"✅ Automatik-LLM ({self.automatik_model}) vorgeladen")
+                    else:
+                        self.add_debug(f"⚠️ Automatik-LLM Preload fehlgeschlagen")
             else:
                 self.backend_info = f"{self.backend_type} not reachable"
                 self.add_debug(f"❌ {self.backend_type} backend not reachable at {self.backend_url}")

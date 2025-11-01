@@ -391,6 +391,14 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         # 5. Scrape URLs PARALLEL (großer Performance-Win!)
         yield {"type": "debug", "message": "🌐 Web-Scraping startet (parallel)"}
 
+        # ============================================================
+        # PERFORMANCE-OPTIMIERUNG: Haupt-LLM vorladen (während Scraping läuft!)
+        # ============================================================
+        import asyncio
+        preload_main_llm_task = asyncio.create_task(llm_client.preload_model(model_choice))
+        log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
+        yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+
         # Filtere URLs nach Score und Limit
         # THRESHOLD GESENKT: 5 → 3 (weniger restriktiv, mehr Quellen)
         # Deep-Modus: Starte mit initial_scrape_count URLs (Fallback für Fehler)
@@ -650,6 +658,7 @@ Der User stellt eine Nachfrage zu einer vorherigen Recherche.
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, faktisch)"}
 
     # Console Log: Haupt-LLM startet (im Agent-Modus)
+    # HINWEIS: Kein await auf preload_main_llm_task nötig - Ollama/vLLM pipelinen Requests automatisch!
     yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice} (mit {len(scraped_only)} Quellen)"}
 
     inference_start = time.time()

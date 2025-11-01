@@ -157,6 +157,23 @@ class LLMClient:
         backend = self._create_backend()
         return await backend.get_model_context_limit(model)
 
+    async def preload_model(self, model: str) -> bool:
+        """
+        Preload a model into VRAM by sending a minimal request.
+        This warms up the model so future requests are faster.
+
+        Args:
+            model: Model name to preload (e.g., 'qwen3:8b')
+
+        Returns:
+            True if preload successful, False otherwise
+        """
+        backend = self._create_backend()
+        try:
+            return await backend.preload_model(model)
+        finally:
+            await backend.close()
+
     async def close(self):
         """Cleanup resources"""
         pass  # No cleanup needed anymore

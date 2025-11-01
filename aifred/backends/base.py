@@ -142,6 +142,20 @@ class LLMBackend(ABC):
         """
         pass
 
+    @abstractmethod
+    async def preload_model(self, model: str) -> bool:
+        """
+        Preload a model into VRAM by sending a minimal request.
+        This warms up the model so future requests are faster.
+
+        Args:
+            model: Model name to preload
+
+        Returns:
+            True if preload successful, False otherwise
+        """
+        pass
+
 
 class BackendError(Exception):
     """Base exception for backend errors"""

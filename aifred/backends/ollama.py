@@ -217,6 +217,39 @@ class OllamaBackend(LLMBackend):
         except Exception as e:
             raise BackendInferenceError(f"Ollama streaming failed: {e}")
 
+    async def preload_model(self, model: str) -> bool:
+        """
+        Preload a model into VRAM by sending a minimal chat request.
+        This warms up the model so future requests are faster.
+
+        Args:
+            model: Model name to preload (e.g., 'qwen3:8b')
+
+        Returns:
+            True if preload successful, False otherwise
+        """
+        try:
+            # Send minimal request to trigger model loading
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+                "options": {
+                    "num_predict": 1,  # Only generate 1 token
+                    "temperature": 0.0
+                }
+            }
+
+            response = await self.client.post(
+                f"{self.base_url}/api/chat",
+                json=payload
+                # Kein Timeout: Ollama queued Requests automatisch, auch während Modell lädt
+            )
+
+            return response.status_code == 200
+        except Exception:
+            return False
+
     async def health_check(self) -> bool:
         """Check if Ollama is reachable"""
         try:

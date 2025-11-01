@@ -205,6 +205,30 @@ class vLLMBackend(LLMBackend):
             else:
                 raise BackendInferenceError(f"vLLM streaming failed: {e}")
 
+    async def preload_model(self, model: str) -> bool:
+        """
+        Preload a model into VRAM by sending a minimal chat request.
+        This warms up the model so future requests are faster.
+
+        Args:
+            model: Model name to preload (e.g., 'qwen3:8b')
+
+        Returns:
+            True if preload successful, False otherwise
+        """
+        try:
+            # Send minimal request to trigger model loading (OpenAI-compatible API)
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+                temperature=0.0
+                # Kein Timeout: vLLM queued Requests automatisch, auch während Modell lädt
+            )
+            return True
+        except Exception:
+            return False
+
     async def health_check(self) -> bool:
         """Check if vLLM is reachable"""
         try:
