@@ -10,7 +10,7 @@ This module handles agent-based research workflows including:
 
 import time
 import re
-from typing import Dict, List, Optional, AsyncIterator
+from typing import Dict, List, Optional, AsyncIterator, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Local imports - Core utilities
@@ -301,7 +301,7 @@ async def perform_agent_research(
     titles = search_result.get('titles', [])
 
     # Initialisiere Variablen für Fälle ohne URLs
-    rated_urls = []
+    rated_urls: List[Dict[Any, Any]] = []
     rating_time = 0.0  # Default: 0.0 statt None für sichere Übergabe an build_debug_accordion
 
     if not related_urls:
