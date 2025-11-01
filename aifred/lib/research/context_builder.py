@@ -13,7 +13,7 @@ import time
 from typing import Dict, List, AsyncIterator
 
 from ..agent_tools import build_context
-from ..cache_manager import get_all_cached_metadata, save_cached_research
+from ..cache_manager import get_all_metadata_summaries, save_cached_research
 from ..prompt_loader import load_prompt
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from ..message_builder import build_messages_from_history
@@ -74,7 +74,7 @@ async def build_and_generate_response(
     # ============================================================
     # METADATA: Integrate old research summaries
     # ============================================================
-    old_research_metadata = get_all_cached_metadata(exclude_session_id=session_id)
+    old_research_metadata = get_all_metadata_summaries(exclude_session_id=session_id)
     metadata_context = ""
 
     if old_research_metadata:
