@@ -20,6 +20,7 @@ from ..message_builder import build_messages_from_history
 from ..formatting import format_thinking_process, build_debug_accordion
 from ..logging_utils import log_message, CONSOLE_SEPARATOR
 from ..config import CHARS_PER_TOKEN
+from ..intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 
 
 async def build_and_generate_response(
@@ -143,8 +144,16 @@ async def build_and_generate_response(
         final_temperature = temperature
         yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
     else:
-        final_temperature = 0.7  # Default for RAG
-        yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto)"}
+        # Auto: Intent-Detection für RAG-Recherche (faktisch/gemischt/kreativ)
+        rag_intent = await detect_query_intent(
+            user_query=user_text,
+            automatik_model=automatik_model,
+            llm_client=automatik_llm_client
+        )
+        final_temperature = get_temperature_for_intent(rag_intent)
+        temp_label = get_temperature_label(rag_intent)
+        log_message(f"🌡️ RAG Temperature: {final_temperature} (Intent: {rag_intent})")
+        yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # LLM Inference
     yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
@@ -214,13 +223,19 @@ async def build_and_generate_response(
     save_cached_research(session_id, user_text, scraped_only, mode, metadata_summary=None)
 
     # Generate cache metadata (async, runs AFTER main response)
+    log_message("🔧 Starte Cache-Metadata-Generierung (async generator)...")
+    yield {"type": "debug", "message": "🔧 Cache-Metadata wird generiert..."}
+
     async for metadata_msg in generate_cache_metadata(
         session_id=session_id,
         metadata_model=automatik_model,
         llm_client=automatik_llm_client,
         haupt_llm_context_limit=final_num_ctx
     ):
+        log_message(f"🔧 Metadata-Message weitergeleitet: {metadata_msg}")
         yield metadata_msg  # Forward debug messages to UI
+
+    log_message("🔧 Cache-Metadata-Generierung abgeschlossen")
 
     log_message(f"✅ Agent fertig: {total_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     log_message("=" * 60)

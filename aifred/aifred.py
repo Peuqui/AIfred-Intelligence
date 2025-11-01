@@ -389,15 +389,7 @@ def chat_display() -> rx.Component:
                 # Auto-Scroll enabled: Use rx.auto_scroll
                 rx.auto_scroll(
                     rx.markdown(
-                        rx.cond(
-                            AIState.current_ai_response != "",
-                            AIState.current_ai_response,
-                            rx.cond(
-                                AIState.chat_history.length() > 0,
-                                AIState.chat_history[-1][1],
-                                ""
-                            )
-                        ),
+                        AIState.current_ai_response,  # Nur current_ai_response anzeigen, wird leer wenn übertragen
                         color=COLORS["text_primary"],
                         font_size="13px",
                     ),
@@ -412,15 +404,7 @@ def chat_display() -> rx.Component:
                 # Auto-Scroll disabled: Use normal box
                 rx.box(
                     rx.markdown(
-                        rx.cond(
-                            AIState.current_ai_response != "",
-                            AIState.current_ai_response,
-                            rx.cond(
-                                AIState.chat_history.length() > 0,
-                                AIState.chat_history[-1][1],
-                                ""
-                            )
-                        ),
+                        AIState.current_ai_response,  # Nur current_ai_response anzeigen, wird leer wenn übertragen
                         color=COLORS["text_primary"],
                         font_size="13px",
                     ),

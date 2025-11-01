@@ -86,13 +86,17 @@ class AIState(rx.State):
         # Initialize debug log (reset on first load, append afterwards)
         initialize_debug_log(force_reset=False)
 
+        # Initialize research cache FIRST (module-level, nicht in State)
+        # WICHTIG: Muss IMMER gesetzt werden, auch bei Hot-Reload!
+        set_research_cache(_research_cache, _cache_lock)
+
         # Generate session ID
         if not self.session_id:
             self.session_id = str(uuid.uuid4())
             self.add_debug(f"🆔 Session ID: {self.session_id[:8]}...")
-
-        # Initialize research cache (module-level, nicht in State)
-        set_research_cache(_research_cache, _cache_lock)
+        else:
+            # Session ID already exists (e.g., hot reload)
+            self.add_debug(f"🔄 Existing Session: {self.session_id[:8]}... (cache re-initialized)")
 
         # Initialize backend
         await self.initialize_backend()
@@ -270,6 +274,12 @@ class AIState(rx.State):
                         self.current_ai_response += item["text"]
                     elif item["type"] == "result":
                         result_data = item["data"]
+                        # Extract and update history IMMEDIATELY
+                        ai_text, updated_history, inference_time = result_data
+                        self.chat_history = updated_history
+                        # Clear AI response and user message windows IMMEDIATELY
+                        self.current_ai_response = ""
+                        self.current_user_message = ""
                     elif item["type"] == "progress":
                         # Update processing progress
                         if item.get("clear", False):
@@ -289,12 +299,11 @@ class AIState(rx.State):
 
                     yield  # Update UI after each item
 
-                # Extract result
+                # Set research_result flag if we got a result
                 if result_data:
                     ai_text, updated_history, inference_time = result_data
                     research_result = ai_text
-                    self.chat_history = updated_history
-                    # Don't clear yet - will be cleared after full_response assignment
+                    # History and clearing already handled in loop above
 
             elif self.research_mode in ["quick", "deep"]:
                 # Direct research mode (quick/deep)
@@ -324,15 +333,20 @@ class AIState(rx.State):
                         self.current_ai_response += item["text"]
                     elif item["type"] == "result":
                         result_data = item["data"]
+                        # Extract and update history IMMEDIATELY
+                        ai_text, updated_history, inference_time = result_data
+                        self.chat_history = updated_history
+                        # Clear AI response and user message windows IMMEDIATELY
+                        self.current_ai_response = ""
+                        self.current_user_message = ""
 
                     yield  # Update UI after each item
 
-                # Extract result
+                # Set research_result flag if we got a result
                 if result_data:
                     ai_text, updated_history, inference_time = result_data
                     research_result = ai_text
-                    self.chat_history = updated_history  # Update history from research
-                    # Don't clear yet - will be cleared after full_response assignment
+                    # History and clearing already handled in loop above
 
             # ============================================================
             # PHASE 2: LLM Response Generation (nur wenn kein Research)
@@ -342,12 +356,10 @@ class AIState(rx.State):
             full_response = ""
 
             if research_result:
-                # Research already provided answer - current_ai_response already contains streamed content
-                full_response = self.current_ai_response
-                # Clear AI response window immediately after copying to full_response
-                self.current_ai_response = ""
-                yield  # Update UI to show cleared response window
+                # Research already provided answer
                 # History already updated by research, don't re-add
+                # current_ai_response was already cleared after history update
+                pass
 
             else:
                 # Kein Research oder Research ohne Antwort → Normaler Chat
@@ -406,6 +418,7 @@ class AIState(rx.State):
 
             # Clear response display
             self.current_ai_response = ""
+            yield  # Final update to clear AI response window
 
             # Debug-Zeile entfernt - User wollte das nicht sehen
             # self.add_debug(f"✅ Response complete ({len(full_response)} chars)")

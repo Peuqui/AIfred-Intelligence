@@ -39,7 +39,8 @@ from .cache_manager import (
 )
 
 from .intent_detector import (
-    detect_query_intent
+    detect_query_intent,
+    get_temperature_label
 )
 
 __all__ = [
@@ -71,4 +72,5 @@ __all__ = [
     "get_all_metadata_summaries",
     # Intent Detector
     "detect_query_intent",
+    "get_temperature_label",
 ]

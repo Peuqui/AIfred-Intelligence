@@ -11,7 +11,7 @@ from ..cache_manager import get_cached_research
 from ..agent_tools import build_context
 from ..prompt_loader import load_prompt
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
-from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent
+from ..intent_detector import detect_cache_followup_intent, get_temperature_for_intent, get_temperature_label
 from ..formatting import format_thinking_process
 from ..logging_utils import log_message, console_separator, CONSOLE_SEPARATOR
 
@@ -129,8 +129,9 @@ async def handle_cache_hit(
             llm_client=automatik_llm_client
         )
         final_temperature = get_temperature_for_intent(followup_intent)
+        temp_label = get_temperature_label(followup_intent)
         log_message(f"🌡️ Cache-Hit Temperature: {final_temperature} (Intent: {followup_intent})")
-        yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {followup_intent})"}
+        yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
     # Console: LLM starts
     yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice} (Cache-Daten)"}

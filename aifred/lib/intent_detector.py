@@ -139,3 +139,21 @@ def get_temperature_for_intent(intent: str) -> float:
         "GEMISCHT": 0.5
     }
     return temp_map.get(intent, 0.2)  # Fallback: 0.2
+
+
+def get_temperature_label(intent: str) -> str:
+    """
+    Gibt das deutsche Label für einen Intent zurück (für UI-Anzeige)
+
+    Args:
+        intent: "FAKTISCH", "KREATIV" oder "GEMISCHT"
+
+    Returns:
+        str: "faktisch", "kreativ" oder "gemischt"
+    """
+    label_map = {
+        "FAKTISCH": "faktisch",
+        "KREATIV": "kreativ",
+        "GEMISCHT": "gemischt"
+    }
+    return label_map.get(intent, "faktisch")  # Fallback: faktisch

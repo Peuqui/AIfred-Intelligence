@@ -16,8 +16,10 @@ from .logging_utils import log_message
 # ============================================================
 # GLOBAL CACHE STATE (Dependency Injection)
 # ============================================================
-_research_cache: Optional[Dict] = None
-_research_cache_lock: Optional[threading.Lock] = None
+# WICHTIG: Initialisiere Cache direkt beim Module-Import!
+# Dies verhindert "Cache nicht initialisiert" Fehler bei Hot-Reloads.
+_research_cache: Dict = {}
+_research_cache_lock: threading.Lock = threading.Lock()
 
 
 def set_research_cache(cache_dict: Dict, lock: threading.Lock) -> None:
@@ -43,10 +45,9 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
     Returns:
         Cached research data or None if not found
     """
-    # WICHTIG: Prüfe _research_cache_lock und session_id, aber NICHT ob _research_cache leer ist!
-    # Ein leeres Dictionary {} ist ein gültiger (aber leerer) Cache-State!
-    if _research_cache is None or _research_cache_lock is None or not session_id:
-        log_message("🔍 DEBUG Cache-Lookup: _research_cache oder _research_cache_lock ist None, oder keine session_id")
+    # WICHTIG: Ein leeres Dictionary {} ist ein gültiger (aber leerer) Cache-State!
+    if not session_id:
+        log_message("🔍 DEBUG Cache-Lookup: Keine session_id")
         return None
 
     with _research_cache_lock:
@@ -79,9 +80,6 @@ def get_all_metadata_summaries(exclude_session_id: Optional[str] = None, max_ent
         Liste von Dicts mit {session_id, user_text, metadata_summary, timestamp}
         Sortiert nach Timestamp (neueste zuerst), max. max_entries Einträge
     """
-    if _research_cache is None or _research_cache_lock is None:
-        return []
-
     result = []
     with _research_cache_lock:
         for session_id, cache_entry in _research_cache.items():
@@ -123,8 +121,8 @@ def save_cached_research(
         mode: Research mode used
         metadata_summary: Optional KI-generated semantic summary of sources
     """
-    if _research_cache is None or _research_cache_lock is None or not session_id:
-        log_message("⚠️ DEBUG Cache-Speicherung fehlgeschlagen: Cache nicht initialisiert oder keine session_id")
+    if not session_id:
+        log_message("⚠️ DEBUG Cache-Speicherung fehlgeschlagen: Keine session_id")
         return
 
     with _research_cache_lock:
@@ -165,7 +163,7 @@ def delete_cached_research(session_id: Optional[str]) -> None:
     Args:
         session_id: Session ID to delete
     """
-    if not _research_cache or not _research_cache_lock or not session_id:
+    if not session_id:
         return
 
     with _research_cache_lock:
@@ -195,7 +193,7 @@ async def generate_cache_metadata(
     Yields:
         Debug messages für UI
     """
-    if not session_id or not _research_cache or not _research_cache_lock:
+    if not session_id:
         return
 
     try:

@@ -21,7 +21,7 @@ from .message_builder import build_messages_from_history
 from .formatting import format_thinking_process
 from .cache_manager import get_cached_research, delete_cached_research
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
-from .intent_detector import detect_query_intent, get_temperature_for_intent
+from .intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 from .research import perform_agent_research
 
 
@@ -252,8 +252,9 @@ async def chat_interactive_mode(
                     llm_client=automatik_llm_client
                 )
                 final_temperature = get_temperature_for_intent(own_knowledge_intent)
+                temp_label = get_temperature_label(own_knowledge_intent)
                 log_message(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent})")
-                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {own_knowledge_intent})"}
+                yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
 
             # Console: LLM starts
             yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
