@@ -124,16 +124,22 @@ class AIState(rx.State):
                 self.add_debug(f"✅ {self.backend_type} backend ready: {self.backend_info}")
 
                 # ============================================================
-                # PERFORMANCE-OPTIMIERUNG: Automatik-LLM beim Start vorladen
+                # PERFORMANCE-OPTIMIERUNG: Automatik-LLM beim Start vorladen (NON-BLOCKING!)
                 # ============================================================
-                # Lade Automatik-LLM in VRAM, damit erste Recherche sofort schnell ist
+                # Lade Automatik-LLM in VRAM im Hintergrund (blockiert NICHT den Startup!)
                 if self.automatik_model:
-                    self.add_debug(f"🚀 Lade Automatik-LLM ({self.automatik_model}) vor...")
-                    preload_success = await backend.preload_model(self.automatik_model)
-                    if preload_success:
-                        self.add_debug(f"✅ Automatik-LLM ({self.automatik_model}) vorgeladen")
-                    else:
-                        self.add_debug(f"⚠️ Automatik-LLM Preload fehlgeschlagen")
+                    import asyncio
+                    self.add_debug(f"🚀 Lade Automatik-LLM ({self.automatik_model}) im Hintergrund vor...")
+
+                    # Fire-and-forget: Blockiert NICHT den Startup!
+                    async def preload_in_background():
+                        preload_success = await backend.preload_model(self.automatik_model)
+                        if preload_success:
+                            self.add_debug(f"✅ Automatik-LLM ({self.automatik_model}) vorgeladen")
+                        else:
+                            self.add_debug(f"⚠️ Automatik-LLM Preload fehlgeschlagen")
+
+                    asyncio.create_task(preload_in_background())
             else:
                 self.backend_info = f"{self.backend_type} not reachable"
                 self.add_debug(f"❌ {self.backend_type} backend not reachable at {self.backend_url}")
