@@ -283,6 +283,10 @@ class AIState(rx.State):
                         self.current_user_message = ""
                         self.is_generating = False  # Stop spinner, switch UI to history display
                         yield  # Force immediate UI update to clear both windows
+                        # Give UI time to render the cleared state before continuing
+                        import asyncio
+                        await asyncio.sleep(0.1)  # 100ms delay for UI to update
+                        yield  # Final yield after delay
                     elif item["type"] == "progress":
                         # Update processing progress
                         if item.get("clear", False):
@@ -345,6 +349,10 @@ class AIState(rx.State):
                         self.current_user_message = ""
                         self.is_generating = False  # Stop spinner, switch UI to history display
                         yield  # Force immediate UI update to clear both windows
+                        # Give UI time to render the cleared state before continuing
+                        import asyncio
+                        await asyncio.sleep(0.1)  # 100ms delay for UI to update
+                        yield  # Final yield after delay
 
                     yield  # Update UI after each item
 
