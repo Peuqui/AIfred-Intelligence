@@ -138,6 +138,25 @@ class LLMClient:
         finally:
             await backend.close()
 
+    async def get_model_context_limit(self, model: str) -> int:
+        """
+        Get context window size for a model.
+
+        Queries the backend for model metadata and extracts the context limit.
+        Very fast (~30ms for Ollama) and does NOT load the model into memory.
+
+        Args:
+            model: Model name (e.g., "qwen3:8b", "phi3:mini")
+
+        Returns:
+            int: Context limit in tokens
+
+        Raises:
+            RuntimeError: If model not found or context limit not available
+        """
+        backend = self._create_backend()
+        return await backend.get_model_context_limit(model)
+
     async def close(self):
         """Cleanup resources"""
         pass  # No cleanup needed anymore

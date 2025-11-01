@@ -343,7 +343,7 @@ ollama run llama3:8b "Hello"
 
 ---
 
-**Recherche:** Claude Code
+**Recherche:** AI Assistant
 **Datum:** 2025-10-18
 **Status:** Bereit für Implementation
 **Nächster Schritt:** BIOS-VRAM auf 8GB + HSA_OVERRIDE testen

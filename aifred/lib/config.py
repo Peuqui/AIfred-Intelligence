@@ -22,6 +22,15 @@ SSL_CERTFILE = PROJECT_ROOT / "ssl" / "fullchain.pem"
 DEBUG_ENABLED = True  # Set to False to disable debug output
 
 # ============================================================
+# LOGGING CONFIGURATION (Unified System)
+# ============================================================
+# Console Debug: Messages ins UI Debug-Console senden
+CONSOLE_DEBUG_ENABLED = True
+
+# File Debug: Messages ins Log-File schreiben
+FILE_DEBUG_ENABLED = True
+
+# ============================================================
 # WHISPER MODELS CONFIGURATION
 # ============================================================
 WHISPER_MODELS = {
@@ -79,3 +88,20 @@ TTS_ENGINES = [
     "Edge TTS (Cloud, beste Qualität)",
     "Piper TTS (Lokal, Offline)"
 ]
+
+# ============================================================
+# CONTEXT MANAGEMENT
+# ============================================================
+# Maximale Tokens für RAG-Context (Recherche-Ergebnisse)
+# Hinweis: Total Context = RAG_CONTEXT + System-Prompt + History + User-Message
+# Bei 40k Model-Limit → empfohlen: 20k RAG Context (50% Reserve)
+# Bei größeren Models (z.B. mit Tesla P40) kann dieser Wert erhöht werden
+MAX_RAG_CONTEXT_TOKENS = 20000
+
+# Maximale Wörter pro einzelner Quelle (Wikipedia, News-Artikel, etc.)
+# Verhindert, dass eine einzelne Quelle den gesamten Context dominiert
+MAX_WORDS_PER_SOURCE = 2000
+
+# Token-zu-Zeichen Ratio für Context-Berechnung
+# Deutsch/Englisch Mix: ~3 Zeichen pro Token
+CHARS_PER_TOKEN = 3

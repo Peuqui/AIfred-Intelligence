@@ -240,30 +240,57 @@ def chat_display() -> rx.Component:
             width="100%",
         ),
 
-        # AI Response Display
+        # AI Response Display with Auto-Scroll Support
         rx.vstack(
             rx.text("AI Antwort:", font_weight="bold", font_size="12px"),
-            rx.text_area(
-                value=rx.cond(
-                    AIState.current_ai_response != "",
-                    AIState.current_ai_response,
-                    rx.cond(
-                        AIState.chat_history.length() > 0,
-                        AIState.chat_history[-1][1],
-                        ""
-                    )
+            rx.cond(
+                AIState.auto_refresh_enabled,
+                # Auto-Scroll enabled: Use rx.auto_scroll
+                rx.auto_scroll(
+                    rx.markdown(
+                        rx.cond(
+                            AIState.current_ai_response != "",
+                            AIState.current_ai_response,
+                            rx.cond(
+                                AIState.chat_history.length() > 0,
+                                AIState.chat_history[-1][1],
+                                ""
+                            )
+                        ),
+                        color=COLORS["text_primary"],
+                        font_size="13px",
+                    ),
+                    id="ai-response-box",
+                    width="100%",
+                    height="400px",
+                    padding="4",
+                    background_color=COLORS["readonly_bg"],
+                    border_radius="8px",
+                    border=f"1px solid {COLORS['border']}",
                 ),
-                is_read_only=True,
-                width="100%",
-                rows="15",
-                background_color=COLORS["readonly_bg"],
-                style={
-                    "border": f"1px solid {COLORS['border']}",  # Normaler grauer Border
-                    "&:focus": {
-                        "border": f"1px solid {COLORS['border']}",  # Kein Orange beim Fokus
-                        "outline": "none",  # Kein zusätzlicher Outline
-                    },
-                },
+                # Auto-Scroll disabled: Use normal box
+                rx.box(
+                    rx.markdown(
+                        rx.cond(
+                            AIState.current_ai_response != "",
+                            AIState.current_ai_response,
+                            rx.cond(
+                                AIState.chat_history.length() > 0,
+                                AIState.chat_history[-1][1],
+                                ""
+                            )
+                        ),
+                        color=COLORS["text_primary"],
+                        font_size="13px",
+                    ),
+                    width="100%",
+                    height="400px",
+                    padding="4",
+                    background_color=COLORS["readonly_bg"],
+                    border_radius="8px",
+                    border=f"1px solid {COLORS['border']}",
+                    overflow_y="auto",
+                ),
             ),
             width="100%",
         ),
@@ -634,10 +661,21 @@ def settings_accordion() -> rx.Component:
                     spacing="3",
                     width="100%",
                 ),
-                rx.text(
-                    "⚠️ AIfred-Neustart löscht alle Chats und Caches",
-                    font_size="11px",
-                    color=COLORS["text_muted"],
+                rx.vstack(
+                    rx.text(
+                        "ℹ️ Ollama-Neustart: Stoppt laufende Generierungen, lädt Models neu (Chats bleiben erhalten)",
+                        font_size="11px",
+                        color="#d4913d",  # Dunkles Orange - gut lesbar
+                        line_height="1.5",
+                    ),
+                    rx.text(
+                        "⚠️ AIfred-Neustart: Löscht ALLE Chats, Caches und Debug-Logs komplett!",
+                        font_size="11px",
+                        color="#d4913d",  # Dunkles Orange - gut lesbar
+                        line_height="1.5",
+                    ),
+                    spacing="2",
+                    width="100%",
                 ),
 
                 spacing="4",

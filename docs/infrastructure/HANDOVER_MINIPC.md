@@ -236,11 +236,11 @@ Vollständige Dokumentation in: `docs/OLLAMA_RESTART_SETUP.md`
 
 Bei Problemen siehe: `docs/OLLAMA_RESTART_SETUP.md`
 
-Oder frage deinen Kollegen Claude Code auf dem Hauptrechner (Aragon) 😉
+Oder frage deinen Kollegen AI Assistant auf dem Hauptrechner (Aragon) 😉
 
 ---
 
 **Erstellt:** 2025-10-24
-**Von:** Claude Code (Aragon)
-**Für:** Claude Code (Mini-PC)
+**Von:** AI Assistant (Aragon)
+**Für:** AI Assistant (Mini-PC)
 **Commits:** 58d9faf, 64daaf3

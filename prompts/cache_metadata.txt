@@ -1,0 +1,17 @@
+Analysiere die Recherche-Quellen und erstelle eine prägnante Zusammenfassung in maximal 60 Wörtern:
+
+QUELLEN:
+{sources_preview}
+
+AUFGABE:
+Beschreibe in 2-3 Sätzen:
+- Welches Thema/Zeitraum wird abgedeckt?
+- Welche Hauptinformationen sind enthalten?
+- Welche wichtigen Details/Fakten werden genannt?
+
+BEISPIELE (jeweils ca. 50-60 Wörter):
+Wetter: "7-Tage-Wettervorhersage Niestetal (01.11-07.11.2025): Temperaturen 6-17°C mit regnerischen Perioden am Wochenende. Windgeschwindigkeiten 10-35 km/h aus südlicher Richtung. Niederschlagswahrscheinlichkeit 65-90% an 3 Tagen, vor allem Samstag und Sonntag."
+News: "Nobelpreis Physik 2025: Verleihung 7. Oktober Stockholm. Preisträger für Quantenmechanik und Teilchenphysik ausgezeichnet. Namen noch nicht offiziell bekanntgegeben, Spekulationen über 3 Kandidaten aus USA und Europa."
+Produkt: "iPhone 16 Pro: OLED Display 6.3 Zoll, A18 Pro Prozessor, 48MP Hauptkamera mit 5x optischem Zoom, 4685mAh Akku mit 30W Fast Charging. Erhältlich in 4 Farben, Preis ab 1299 Euro."
+
+WICHTIG: Antworte NUR mit der Zusammenfassung (maximal 60 Wörter), nichts anderes!

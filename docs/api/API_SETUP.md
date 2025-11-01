@@ -276,5 +276,5 @@ curl "http://localhost:8888/search?q=Donald+Trump&format=json" | jq '.results | 
 ---
 
 **Erstellt:** 2025-10-13
-**Author:** Claude Code
+**Author:** AI Assistant
 **Version:** 1.0 - Multi-API Fallback System

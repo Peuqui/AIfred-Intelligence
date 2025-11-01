@@ -2,22 +2,13 @@
 Context Manager - Token and Context Window Management
 
 Handles context limits and token estimation for LLMs:
-- Query model context limits from Ollama
+- Query model context limits from backends (on-demand, no caching)
 - Calculate optimal num_ctx for requests
 - Token estimation for messages
 """
 
 from typing import Dict, List, Optional
-from .logging_utils import debug_print, console_print
-
-
-# ============================================================
-# MODEL CONTEXT LIMITS
-# ============================================================
-# Speichert die Context-Limits der aktuell genutzten Modelle
-# Diese werden beim Service-Start und bei Modellwechsel von Ollama abgefragt
-_haupt_llm_context_limit = 4096      # Fallback: 4096 Tokens
-_automatik_llm_context_limit = 4096  # Fallback: 4096 Tokens
+from .logging_utils import log_message
 
 
 def estimate_tokens(messages: List[Dict]) -> int:
@@ -34,128 +25,47 @@ def estimate_tokens(messages: List[Dict]) -> int:
     return total_size // 4
 
 
-def query_model_context_limit(model_name: str, ollama_client) -> int:
-    """
-    Fragt das Context-Limit eines Modells von Ollama ab.
-
-    Nutzt die original_context_length (Training Context) als sicheres Limit,
-    nicht die erweiterte context_length (RoPE-Scaling).
-
-    Diese Funktion wird NUR beim Service-Start und bei Modellwechsel aufgerufen,
-    NICHT bei jedem Request!
-
-    Args:
-        model_name: Name des Ollama-Modells (z.B. "phi3:mini", "qwen3:8b")
-        ollama_client: Ollama client instance
-
-    Returns:
-        int: Original Context Limit in Tokens (z.B. 4096 für phi3:mini, 32768 für qwen3:8b)
-             Fallback: 4096 wenn Abfrage fehlschlägt
-    """
-    try:
-        # Ollama API abfragen
-        response = ollama_client.show(model_name)
-        # Konvertiere Pydantic-Objekt zu Dict (model_dump() statt deprecated dict())
-        data = response.model_dump() if hasattr(response, 'model_dump') else response.dict()
-        # WICHTIG: Key heißt 'modelinfo' nicht 'model_info'!
-        model_details = data.get('modelinfo', {})
-
-        # Suche nach original_context_length (sicherstes Limit)
-        # Beispiel phi3: "phi3.rope.scaling.original_context_length": 4096
-        # Beispiel qwen: "qwen2.context_length": 32768
-
-        # PRIORITÄT 1: Suche nach original_context_length (für Modelle mit RoPE-Scaling)
-        for key, value in model_details.items():
-            if 'original_context' in key.lower():
-                limit = int(value)
-                debug_print(f"📏 Model {model_name}: Context Limit = {limit} Tokens (aus {key}, original)")
-                return limit
-
-        # PRIORITÄT 2: Suche nach .context_length (für Modelle ohne RoPE-Scaling)
-        for key, value in model_details.items():
-            if key.endswith('.context_length'):
-                limit = int(value)
-                debug_print(f"📏 Model {model_name}: Context Limit = {limit} Tokens (aus {key})")
-                return limit
-
-        # Fallback: Wenn nicht gefunden, nutze 4K (konservativ)
-        debug_print(f"⚠️ Model {model_name}: Context Limit nicht gefunden, nutze 4096 Fallback")
-        return 4096
-
-    except Exception as e:
-        debug_print(f"⚠️ Fehler beim Abfragen von Model-Info für {model_name}: {e}")
-        return 4096  # Konservativer Fallback
-
-
-def set_haupt_llm_context_limit(model_name: str, ollama_client) -> None:
-    """
-    Setzt das Context-Limit für das Haupt-LLM.
-    Wird beim Service-Start und bei Modellwechsel aufgerufen.
-
-    Args:
-        model_name: Name des Haupt-LLM Modells
-        ollama_client: Ollama client instance
-    """
-    global _haupt_llm_context_limit
-    _haupt_llm_context_limit = query_model_context_limit(model_name, ollama_client)
-    debug_print(f"✅ Haupt-LLM Context-Limit gesetzt: {_haupt_llm_context_limit}")
-
-
-def set_automatik_llm_context_limit(model_name: str, ollama_client) -> None:
-    """
-    Setzt das Context-Limit für das Automatik-LLM.
-    Wird beim Service-Start und bei Modellwechsel aufgerufen.
-
-    Args:
-        model_name: Name des Automatik-LLM Modells
-        ollama_client: Ollama client instance
-    """
-    global _automatik_llm_context_limit
-    _automatik_llm_context_limit = query_model_context_limit(model_name, ollama_client)
-    debug_print(f"✅ Automatik-LLM Context-Limit gesetzt: {_automatik_llm_context_limit}")
-
-
-def get_haupt_llm_context_limit() -> int:
-    """Returns current Haupt-LLM context limit"""
-    return _haupt_llm_context_limit
-
-
-def get_automatik_llm_context_limit() -> int:
-    """Returns current Automatik-LLM context limit"""
-    return _automatik_llm_context_limit
-
-
-def calculate_dynamic_num_ctx(
+async def calculate_dynamic_num_ctx(
+    llm_client,
+    model_name: str,
     messages: List[Dict],
-    llm_options: Optional[Dict] = None,
-    is_automatik_llm: bool = False
+    llm_options: Optional[Dict] = None
 ) -> int:
     """
     Berechnet optimales num_ctx basierend auf Message-Größe und Model-Limit.
 
+    Diese Funktion ist ZENTRAL für alle Context-Berechnungen!
+    Sie fragt das Modell-Limit direkt ab (~30ms) und berechnet optimales num_ctx.
+
     Die Berechnung berücksichtigt:
-    1. Message-Größe + 30% Puffer + 2048 für Antwort
-    2. Model-Maximum (Haupt-LLM oder Automatik-LLM Limit)
+    1. Message-Größe × 2 (50/50 Regel: 50% Input, 50% Output)
+    2. Model-Maximum (via Backend-Abfrage)
     3. User-Override (falls in llm_options gesetzt)
 
     Args:
+        llm_client: LLMClient instance (beliebiger Backend-Typ)
+        model_name: Name des Modells (z.B. "qwen3:8b", "phi3:mini")
         messages: Liste von Message-Dicts mit 'content' Key
         llm_options: Dict mit optionalem 'num_ctx' Override
-        is_automatik_llm: True wenn für Automatik-LLM berechnet wird (default: False = Haupt-LLM)
 
     Returns:
         int: Optimales num_ctx (gerundet auf Standard-Größen, geclippt auf Model-Limit)
+
+    Raises:
+        RuntimeError: Wenn Model-Info nicht abfragbar
     """
     # Check für manuellen Override
     user_num_ctx = llm_options.get('num_ctx') if llm_options else None
     if user_num_ctx:
+        log_message(f"🎯 Context Window: {user_num_ctx} Tokens (manuell gesetzt)")
         return user_num_ctx
 
     # Berechne Tokens aus Message-Größe
     estimated_tokens = estimate_tokens(messages)  # 1 Token ≈ 4 Zeichen
 
-    # Puffer: +30% für Varianz + 2048 für Antwort
-    needed_tokens = int(estimated_tokens * 1.3) + 2048
+    # 50/50 Regel: Context Window = Input × 2 (50% Input, 50% Output)
+    # Gibt LLM genügend Platz für ausführliche Antworten, die den Context nutzen
+    needed_tokens = int(estimated_tokens * 2.0)
 
     # Runde auf Standard-Größe
     if needed_tokens <= 2048:
@@ -178,27 +88,21 @@ def calculate_dynamic_num_ctx(
         calculated_ctx = 28672  # 28K
     elif needed_tokens <= 32768:
         calculated_ctx = 32768  # 32K
-    elif needed_tokens <= 49152:
-        calculated_ctx = 49152  # 48K
-    elif needed_tokens <= 65536:
-        calculated_ctx = 65536  # 64K
-    elif needed_tokens <= 98304:
-        calculated_ctx = 98304  # 96K
+    elif needed_tokens <= 40960:
+        calculated_ctx = 40960  # 40K
     else:
-        calculated_ctx = 131072  # 128K
+        calculated_ctx = 65536  # 64K (Maximum)
 
-    # WICHTIG: Clippe auf Model-Limit
-    model_limit = _automatik_llm_context_limit if is_automatik_llm else _haupt_llm_context_limit
-    llm_type = "Automatik-LLM" if is_automatik_llm else "Haupt-LLM"
+    # Query Model-Limit direkt vom Backend (~30ms, lädt Modell NICHT!)
+    model_limit = await llm_client.get_model_context_limit(model_name)
 
+    # Clippe auf Model-Limit
+    final_num_ctx = min(calculated_ctx, model_limit)
+
+    # Warne wenn Context überschritten
     if calculated_ctx > model_limit:
-        debug_print(f"⚠️ Context {calculated_ctx} > {llm_type}-Limit {model_limit}, clippe auf {model_limit}")
+        log_message(f"⚠️ Context {calculated_ctx} > Modell-Limit {model_limit}, clippe auf {final_num_ctx}")
 
-        # Zusätzliche Warnung NUR wenn Messages TATSÄCHLICH größer als Model-Limit
-        if estimated_tokens > model_limit:  # Kontext ÜBERSCHRITTEN
-            console_print(f"⚠️ WARNUNG: Kontext überschritten! ({estimated_tokens} Tokens > {model_limit} Tokens Limit)")
-            console_print("⚠️ Ältere Messages werden abgeschnitten!")
+    log_message(f"🎯 Context Window: {final_num_ctx} Tokens (dynamisch berechnet, ~{estimated_tokens} Tokens benötigt)")
 
-        return model_limit
-
-    return calculated_ctx
+    return final_num_ctx

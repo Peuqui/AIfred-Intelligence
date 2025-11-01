@@ -6,6 +6,32 @@ and thinking processes in the Gradio UI.
 """
 
 import re
+from .logging_utils import log_message
+from datetime import datetime
+
+
+def get_timestamp() -> str:
+    """
+    Gibt aktuellen Timestamp im Format HH:MM:SS zurück (wie Legacy-Version).
+
+    Returns:
+        Formatted timestamp string (z.B. "18:32:33")
+    """
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def format_debug_message(message: str) -> str:
+    """
+    Formatiert Debug-Message mit Timestamp (wie Legacy-Version).
+
+    Args:
+        message: Debug message text
+
+    Returns:
+        Formatted message mit Timestamp (z.B. "18:32:33 | 📨 User Request empfangen")
+    """
+    timestamp = get_timestamp()
+    return f"{timestamp} | {message}"
 
 
 def format_thinking_process(ai_response, model_name=None, inference_time=None):
@@ -24,13 +50,12 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None):
         Input: "Some text <think>thinking process</think> More text"
         Output: HTML mit collapsible <think> section + clean response
     """
-    from .logging_utils import debug_print
 
     # DEBUG: Logge KOMPLETTE RAW Response
-    debug_print("=" * 80)
-    debug_print("🔍 RAW AI RESPONSE (KOMPLETT):")
-    debug_print(ai_response)
-    debug_print("=" * 80)
+    log_message("=" * 80)
+    log_message("🔍 RAW AI RESPONSE (KOMPLETT):")
+    log_message(ai_response)
+    log_message("=" * 80)
 
     # Suche nach <think>...</think> Tags (normaler Fall)
     think_pattern = r'<think>(.*?)</think>'
@@ -39,7 +64,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None):
     # FALLBACK: Prüfe auf fehlendes öffnendes Tag (qwen3:4b Bug)
     # Wenn nur </think> vorhanden ist, aber kein <think>
     if not matches and '</think>' in ai_response:
-        debug_print("⚠️ Fehlendes <think> Tag erkannt - verwende Fallback-Logik")
+        log_message("⚠️ Fehlendes <think> Tag erkannt - verwende Fallback-Logik")
         # Alles VOR dem ersten </think> ist Denkprozess
         parts = ai_response.split('</think>', 1)
         if len(parts) == 2:
@@ -109,13 +134,12 @@ def build_debug_accordion(query_reasoning, rated_urls, ai_text, automatik_model,
     Returns:
         Formatted AI response with debug accordion prepended
     """
-    from .logging_utils import debug_print
 
     # DEBUG: Logge KOMPLETTE RAW Response
-    debug_print("=" * 80)
-    debug_print("🔍 RAW AI RESPONSE (KOMPLETT):")
-    debug_print(ai_text)
-    debug_print("=" * 80)
+    log_message("=" * 80)
+    log_message("🔍 RAW AI RESPONSE (KOMPLETT):")
+    log_message(ai_text)
+    log_message("=" * 80)
 
     debug_sections = []
 
@@ -148,7 +172,7 @@ def build_debug_accordion(query_reasoning, rated_urls, ai_text, automatik_model,
 
     # FALLBACK: Prüfe auf fehlendes öffnendes Tag (qwen3:4b Bug)
     if not think_match and '</think>' in ai_text:
-        debug_print("⚠️ Fehlendes <think> Tag in Agent Response erkannt")
+        log_message("⚠️ Fehlendes <think> Tag in Agent Response erkannt")
         # Alles VOR dem ersten </think> ist Denkprozess
         parts = ai_text.split('</think>', 1)
         if len(parts) == 2:

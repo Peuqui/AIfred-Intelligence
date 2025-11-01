@@ -424,5 +424,5 @@ ollama pull <model-name>
 ---
 
 **Erstellt:** 2025-10-17
-**Author:** Claude Code
+**Author:** AI Assistant
 **Version:** 2.0 - Vollständige Übersicht aller 15 Modelle + Hardware-Erkennung

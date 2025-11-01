@@ -389,4 +389,4 @@ iostat -x 1
 
 **Letzte Aktualisierung:** 2025-10-15
 **Version:** 2.0 - Dynamic Model Size Detection (keine Hard-Codierung mehr!)
-**Autor:** Claude Code
+**Autor:** AI Assistant

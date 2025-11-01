@@ -368,8 +368,8 @@ curl http://localhost:8888
    cd ~/Projekte/AIfred-Intelligence
    code .
    ```
-4. **Claude Code Extension installieren**:
-   - Extensions → "Claude Code" suchen
+4. **AI Assistant Extension installieren**:
+   - Extensions → "AI Assistant" suchen
    - "Install in WSL: Ubuntu" klicken
 
 ---

@@ -267,4 +267,4 @@ Same as original AIfred Intelligence project.
 
 ---
 
-**Made with ❤️ and Claude Code**
+**Made with ❤️ and AI Assistant**

@@ -6,7 +6,6 @@ Lädt Prompts aus externen Dateien im /prompts/ Verzeichnis.
 Portiert von Gradio-Legacy
 """
 
-import os
 from pathlib import Path
 
 # Basis-Verzeichnis für Prompts (relativ zur Projektroot)
@@ -108,3 +107,8 @@ def get_system_rag_prompt(current_year: str, current_date: str, context: str) ->
         current_date=current_date,
         context=context
     )
+
+
+def get_cache_metadata_prompt(sources_preview: str) -> str:
+    """Cache-Metadata Prompt laden"""
+    return load_prompt('cache_metadata', sources_preview=sources_preview)

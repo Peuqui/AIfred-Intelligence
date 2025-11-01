@@ -6,15 +6,11 @@ Portiert von Gradio-Legacy für Reflex
 
 from .logging_utils import (
     initialize_debug_log,
-    debug_print,
+    log_message,
     debug_print_prompt,
     debug_print_messages,
-    console_print,
     console_separator,
-    get_console_messages,
-    get_new_messages,
-    clear_console,
-    set_message_callback
+    clear_console
 )
 
 from .prompt_loader import (
@@ -50,15 +46,11 @@ from .intent_detector import (
 __all__ = [
     # Logging
     "initialize_debug_log",
-    "debug_print",
+    "log_message",
     "debug_print_prompt",
     "debug_print_messages",
-    "console_print",
     "console_separator",
-    "get_console_messages",
-    "get_new_messages",
     "clear_console",
-    "set_message_callback",
     # Prompts
     "load_prompt",
     "get_url_rating_prompt",

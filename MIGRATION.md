@@ -360,5 +360,5 @@ class ChatMessage(BaseModel):
 ---
 
 **Erstellt:** 2025-10-25
-**Autor:** Claude Code
+**Autor:** AI Assistant
 **Version:** Phase 1 - Library Portierung Complete

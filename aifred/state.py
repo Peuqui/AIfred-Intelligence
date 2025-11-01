@@ -5,22 +5,19 @@ Main state for chat, settings, and backend management
 """
 
 import reflex as rx
-from typing import List, Tuple, Dict, Optional
-import asyncio
+from typing import List, Tuple, Dict
 import threading
 import uuid
 from pydantic import BaseModel
-from .backends import BackendFactory, LLMMessage, LLMOptions, LLMResponse
+from .backends import BackendFactory, LLMMessage, LLMOptions
 from .lib import (
     initialize_debug_log,
-    console_print,
+    log_message,
     clear_console,
     set_research_cache,
-    perform_agent_research,
-    detect_query_intent
+    perform_agent_research
 )
-from .lib.context_manager import set_haupt_llm_context_limit, set_automatik_llm_context_limit
-import ollama
+from .lib.formatting import format_debug_message
 
 # ============================================================
 # Module-Level Cache (außerhalb State, da Lock nicht pickle-bar)
@@ -75,7 +72,7 @@ class AIState(rx.State):
 
     # Debug Console
     debug_messages: List[str] = []
-    auto_refresh_enabled: bool = True
+    auto_refresh_enabled: bool = True  # Für Debug Console + Chat History + AI Response Area
 
     async def on_load(self):
         """Called when page loads - initialize backend"""
@@ -124,12 +121,6 @@ class AIState(rx.State):
                 info = await backend.get_backend_info()
                 self.backend_info = f"{info['backend']} - {len(self.available_models)} models available"
 
-                # Set context limits for models
-                if self.backend_type == "ollama":
-                    set_haupt_llm_context_limit(self.selected_model, ollama)
-                    set_automatik_llm_context_limit(self.automatik_model, ollama)
-                    self.add_debug(f"📊 Context limits set for {self.selected_model} and {self.automatik_model}")
-
                 self.add_debug(f"✅ {self.backend_type} backend ready: {self.backend_info}")
             else:
                 self.backend_info = f"{self.backend_type} not reachable"
@@ -158,7 +149,7 @@ class AIState(rx.State):
         self.debug_messages.append(formatted_msg)
 
         # Also add to lib console (for agent_core logging)
-        console_print(message)
+        log_message(message)
 
         # Keep only last 100 messages
         if len(self.debug_messages) > 100:
@@ -199,7 +190,7 @@ class AIState(rx.State):
 
             if self.research_mode == "automatik":
                 # Automatik mode: AI decides if research is needed
-                self.add_debug(f"🤖 Automatik Mode: KI entscheidet über Recherche...")
+                self.add_debug("🤖 Automatik Mode: KI entscheidet über Recherche...")
 
                 # Import chat_interactive_mode
                 from .lib.agent_core import chat_interactive_mode
@@ -218,7 +209,7 @@ class AIState(rx.State):
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
-                        self.debug_messages.append(item["message"])
+                        self.debug_messages.append(format_debug_message(item["message"]))
                         if len(self.debug_messages) > 100:
                             self.debug_messages = self.debug_messages[-100:]
                     elif item["type"] == "content":
@@ -255,7 +246,7 @@ class AIState(rx.State):
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
-                        self.debug_messages.append(item["message"])
+                        self.debug_messages.append(format_debug_message(item["message"]))
                         # Limit debug messages
                         if len(self.debug_messages) > 100:
                             self.debug_messages = self.debug_messages[-100:]
@@ -372,7 +363,7 @@ class AIState(rx.State):
 
 
     def toggle_auto_refresh(self):
-        """Toggle debug console auto-refresh"""
+        """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)"""
         self.auto_refresh_enabled = not self.auto_refresh_enabled
 
     def restart_ollama(self):
@@ -415,9 +406,6 @@ class AIState(rx.State):
     def set_selected_model(self, model: str):
         """Set selected model"""
         self.selected_model = model
-        # Update context limit for new model
-        if self.backend_type == "ollama":
-            set_haupt_llm_context_limit(model, ollama)
         self.add_debug(f"📝 Model changed to: {model}")
 
     def set_temperature(self, temp: list[float]):
@@ -445,9 +433,6 @@ class AIState(rx.State):
     def set_automatik_model(self, model: str):
         """Set automatik model for decision/query-opt/url-rating"""
         self.automatik_model = model
-        # Update context limit for new automatik model
-        if self.backend_type == "ollama":
-            set_automatik_llm_context_limit(model, ollama)
         self.add_debug(f"⚡ Automatik model: {model}")
 
     def toggle_tts(self):

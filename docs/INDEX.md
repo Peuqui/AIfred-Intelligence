@@ -131,5 +131,5 @@ docs/
 ---
 
 **Autor:** AIfred Intelligence Team
-**Maintainer:** Claude Code + mp
+**Maintainer:** AI Assistant + mp
 **Lizenz:** Siehe Repository

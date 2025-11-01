@@ -14,6 +14,8 @@ config = rx.Config(
     api_url="http://localhost:8002",
     deploy_url="http://localhost:3002",
     env=rx.Env.DEV,
+    # Sitemap-Plugin deaktivieren (wir brauchen keine Sitemap)
+    disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
 )
 
 # Für Mini PC (natives Ubuntu, 192.168.0.252):

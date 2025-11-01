@@ -8,7 +8,7 @@ Implementiert 3-Stufen-Fallback für Web-Suche:
 
 Plus: Web-Scraping, Context-Building
 
-Author: Claude Code
+Author: AI Assistant
 Date: 2025-10-13
 """
 

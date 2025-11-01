@@ -234,7 +234,7 @@ Falls GPU-Mode instabil:
 
 ---
 
-**Autor:** Claude Code
+**Autor:** AI Assistant
 **Erstellt:** 2025-10-18
 **Status:** ✅ **ERFOLGREICH - GPU-MODE AKTIV!**
 

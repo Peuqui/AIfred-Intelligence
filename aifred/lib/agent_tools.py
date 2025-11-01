@@ -8,7 +8,7 @@ Implementiert 3-Stufen-Fallback für Web-Suche:
 
 Plus: Web-Scraping, Context-Building
 
-Author: Claude Code
+Author: AI Assistant
 Date: 2025-10-13
 """
 
@@ -23,7 +23,8 @@ from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
-from .logging_utils import debug_print
+from .logging_utils import log_message
+from .config import MAX_RAG_CONTEXT_TOKENS, MAX_WORDS_PER_SOURCE, CHARS_PER_TOKEN
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -668,15 +669,15 @@ class WebScraperTool(BaseTool):
 
         if not result['success']:
             # Download failed → Site blockiert/down → Playwright bringt nichts!
-            debug_print(f"⚠️ trafilatura Download failed → SKIP Playwright (Site blockiert/down)")
+            log_message("⚠️ trafilatura Download failed → SKIP Playwright (Site blockiert/down)")
             return result
 
         # Trafilatura erfolgreich, aber zu wenig Content? → JS-heavy Site!
         if result.get('word_count', 0) < self.PLAYWRIGHT_FALLBACK_THRESHOLD:
-            debug_print(f"⚠️ trafilatura nur {result['word_count']} Wörter → Retry mit Playwright (JavaScript)")
+            log_message(f"⚠️ trafilatura nur {result['word_count']} Wörter → Retry mit Playwright (JavaScript)")
             playwright_result = self._scrape_with_playwright(url)
             if playwright_result['success']:
-                debug_print(f"✅ Playwright: {playwright_result['word_count']} Wörter (trafilatura: {result.get('word_count', 0)})")
+                log_message(f"✅ Playwright: {playwright_result['word_count']} Wörter (trafilatura: {result.get('word_count', 0)})")
                 return playwright_result
 
         return result
@@ -696,13 +697,13 @@ class WebScraperTool(BaseTool):
         """
         try:
             logger.info(f"🌐 Web Scraping: {url}")
-            logger.debug(f"   Methode: trafilatura (Content-Extraktion)")
+            logger.debug("   Methode: trafilatura (Content-Extraktion)")
 
             # Download HTML mit 15s Timeout (via config)
             downloaded = trafilatura.fetch_url(url, config=self.trafilatura_config)
 
             if not downloaded:
-                logger.error(f"❌ trafilatura: Download fehlgeschlagen")
+                logger.error("❌ trafilatura: Download fehlgeschlagen")
                 return {
                     'success': False,
                     'method': 'trafilatura',
@@ -721,7 +722,7 @@ class WebScraperTool(BaseTool):
             )
 
             if not text:
-                logger.warning(f"⚠️ trafilatura: Kein Content extrahiert")
+                logger.warning("⚠️ trafilatura: Kein Content extrahiert")
                 return {
                     'success': False,
                     'method': 'trafilatura',
@@ -765,7 +766,7 @@ class WebScraperTool(BaseTool):
             from playwright.sync_api import sync_playwright
 
             logger.info(f"🌐 Web Scraping: {url}")
-            logger.debug(f"   Methode: Playwright (JavaScript-Rendering)")
+            logger.debug("   Methode: Playwright (JavaScript-Rendering)")
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -820,48 +821,100 @@ class WebScraperTool(BaseTool):
 # CONTEXT BUILDER (unverändert)
 # ============================================================
 
-def build_context(user_text: str, tool_results: List[Dict]) -> str:
+def build_context(user_text: str, tool_results: List[Dict], max_context_tokens: int = None) -> str:
     """
     Baut strukturierten Kontext für AI aus Tool-Ergebnissen
 
-    Keine Längenbeschränkung - dynamisches num_ctx übernimmt die Größenkontrolle!
+    INTELLIGENT CONTEXT MANAGEMENT:
+    - Priorisiert KURZE, AKTUELLE Quellen
+    - Limitiert LANGE Quellen (Wikipedia) auf MAX_WORDS_PER_SOURCE
+    - Sortiert: News-Artikel > Wikipedia/Lange Artikel
+
+    Args:
+        user_text: User-Frage
+        tool_results: Liste von Recherche-Ergebnissen
+        max_context_tokens: Optional, falls None wird MAX_RAG_CONTEXT_TOKENS aus config.py verwendet
     """
-    context = f"# User-Frage\n{user_text}\n\n"
-    context += "# Recherche-Ergebnisse\n\n"
+    if max_context_tokens is None:
+        max_context_tokens = MAX_RAG_CONTEXT_TOKENS
+    context_header = f"# User-Frage\n{user_text}\n\n# Recherche-Ergebnisse\n\n"
+    context_footer = (
+        "# Aufgabe\n"
+        "Beantworte die User-Frage basierend auf den Recherche-Ergebnissen oben. "
+        "WICHTIG: Zitiere JEDE Quelle MIT ihrer URL! "
+        "Format: 'Quelle 1 (https://...) schreibt...'\n\n"
+    )
 
     successful_results = [r for r in tool_results if r.get('success', False)]
 
     if not successful_results:
-        context += "*Keine erfolgreichen Recherche-Ergebnisse gefunden.*\n\n"
-    else:
-        for i, result in enumerate(successful_results, 1):
-            source = result.get('source', 'Unbekannt')
-            content = result.get('content', result.get('abstract', ''))
-            url = result.get('url', '')
-            title = result.get('title', '')
+        context = context_header + "*Keine erfolgreichen Recherche-Ergebnisse gefunden.*\n\n" + context_footer
+        return context
 
-            # Format: ## Quelle 1: Titel (URL)
-            if title:
-                context += f"## Quelle {i}: {title}\n"
-            else:
-                context += f"## Quelle {i}: {source}\n"
+    # INTELLIGENTE SORTIERUNG: News > Wikipedia
+    def prioritize_source(result):
+        url = result.get('url', '').lower()
+        word_count = result.get('word_count', 0)
 
-            # URL IMMER prominent anzeigen!
-            if url:
-                context += f"**🔗 URL:** {url}\n\n"
+        # Wikipedia = niedrige Priorität (große Zahl = später)
+        if 'wikipedia.org' in url:
+            return 1000
+        # Kurze Artikel (News) = hohe Priorität (kleine Zahl = früher)
+        elif word_count < 5000:
+            return word_count
+        # Lange Artikel = niedrige Priorität
+        else:
+            return 500 + word_count
 
-            if content:
-                # KEINE Kürzung mehr - verwende kompletten gescrapten Content!
-                context += f"{content}\n\n"
+    successful_results.sort(key=prioritize_source)
 
-            context += "---\n\n"
+    # Baue Context mit intelligentem Limiting
+    sources_text = []
+    total_tokens = 0
+    max_source_tokens = max_context_tokens - 1000  # Reserve für Header/Footer
 
-    context += "# Aufgabe\n"
-    context += "Beantworte die User-Frage basierend auf den Recherche-Ergebnissen oben. "
-    context += "WICHTIG: Zitiere JEDE Quelle MIT ihrer URL! "
-    context += "Format: 'Quelle 1 (https://...) schreibt...'\n\n"
+    for i, result in enumerate(successful_results, 1):
+        source = result.get('source', 'Unbekannt')
+        content = result.get('content', result.get('abstract', ''))
+        url = result.get('url', '')
+        title = result.get('title', '')
+        word_count = result.get('word_count', 0)
 
-    logger.info(f"Context gebaut: {len(context)} Zeichen, {len(successful_results)} Quellen")
+        # Limitiere LANGE Quellen (Wikipedia) - Wert aus config.py
+        if word_count > MAX_WORDS_PER_SOURCE:
+            # Schneide Content ab (Grob: 1 Token = 0.75 Wörter)
+            words = content.split()
+            content = ' '.join(words[:MAX_WORDS_PER_SOURCE])
+            log_message(f"⚠️ Quelle {i} ({url}) gekürzt: {word_count} → {MAX_WORDS_PER_SOURCE} Wörter")
+
+        # Format source
+        source_text = ""
+        if title:
+            source_text += f"## Quelle {i}: {title}\n"
+        else:
+            source_text += f"## Quelle {i}: {source}\n"
+
+        if url:
+            source_text += f"**🔗 URL:** {url}\n\n"
+
+        if content:
+            source_text += f"{content}\n\n"
+
+        source_text += "---\n\n"
+
+        # Token-Check - Ratio aus config.py
+        source_tokens = len(source_text) // CHARS_PER_TOKEN
+        if total_tokens + source_tokens > max_source_tokens:
+            log_message(f"⚠️ Context-Limit erreicht bei Quelle {i}, stoppe hier")
+            break
+
+        sources_text.append(source_text)
+        total_tokens += source_tokens
+
+    context = context_header + ''.join(sources_text) + context_footer
+    estimated_tokens = len(context) // CHARS_PER_TOKEN
+    logger.info(f"Context gebaut: {len(context)} Zeichen (~{estimated_tokens} Tokens), {len(sources_text)} Quellen")
+    log_message(f"📦 Context gebaut: {len(context)} Zeichen (~{estimated_tokens} Tokens), {len(sources_text)} Quellen")
 
     return context
 
@@ -956,7 +1009,7 @@ if __name__ == "__main__":
     print(f"🔗 URLs: {len(result.get('related_urls', []))}")
 
     if result.get('related_urls'):
-        print(f"\nErste 3 URLs:")
+        print("\nErste 3 URLs:")
         for i, url in enumerate(result['related_urls'][:3], 1):
             print(f"  {i}. {url}")
 

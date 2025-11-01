@@ -63,3 +63,9 @@ Bilder/
 .web/
 reflex.db
 assets/generated/
+
+# Python Backups (additional patterns)
+*_backup.py
+*.tar.gz
+*.tar
+*.zip

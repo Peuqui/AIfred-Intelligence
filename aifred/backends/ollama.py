@@ -90,9 +90,14 @@ class OllamaBackend(LLMBackend):
 
             data = response.json()
 
-            # Extract metrics
+            # Extract text from response
+            # Support both standard models (content) and thinking models (thinking field)
             message = data.get("message", {})
-            text = message.get("content", "")
+            content = message.get("content", "")
+            thinking = message.get("thinking", "")
+
+            # Use thinking field if content is empty (for reasoning models like qwen3)
+            text = content if content else thinking
 
             eval_count = data.get("eval_count", 0)
             eval_duration = data.get("eval_duration", 1)  # nanoseconds
@@ -251,6 +256,56 @@ class OllamaBackend(LLMBackend):
                 "healthy": False,
                 "error": str(e)
             }
+
+    async def get_model_context_limit(self, model: str) -> int:
+        """
+        Get context limit for an Ollama model.
+
+        Queries /api/show endpoint and extracts context_length from modelinfo.
+        Very fast (~30ms) and does NOT load the model into memory.
+
+        Args:
+            model: Model name (e.g., "qwen3:8b", "phi3:mini")
+
+        Returns:
+            int: Context limit in tokens
+
+        Raises:
+            RuntimeError: If model not found or context limit not extractable
+        """
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/api/show",
+                json={"name": model},
+                timeout=5.0
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # HTTP API uses 'model_info' (underscore), Python SDK uses 'modelinfo' (no underscore)
+            model_details = data.get('model_info') or data.get('modelinfo', {})
+
+            # PRIORITÄT 1: Suche nach original_context_length (für RoPE-Scaling Modelle)
+            for key, value in model_details.items():
+                if 'original_context' in key.lower():
+                    limit = int(value)
+                    return limit
+
+            # PRIORITÄT 2: Suche nach .context_length (Standard)
+            for key, value in model_details.items():
+                if key.endswith('.context_length'):
+                    limit = int(value)
+                    return limit
+
+            # Kein Context-Limit gefunden
+            available_keys = list(model_details.keys())[:10]
+            raise RuntimeError(
+                f"Context limit not found for model '{model}'. "
+                f"Available keys: {available_keys}"
+            )
+
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"Failed to query Ollama for model '{model}': {e}") from e
 
     async def close(self):
         """Close HTTP client"""

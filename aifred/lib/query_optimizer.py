@@ -9,8 +9,8 @@ Optimizes user queries for better web search results:
 
 import re
 from datetime import datetime
-from typing import Optional, Tuple, List, Dict
-from .logging_utils import debug_print, console_print
+from typing import Optional, Tuple, List
+from .logging_utils import log_message
 from .prompt_loader import get_query_optimization_prompt
 from .message_builder import build_messages_from_history
 
@@ -42,35 +42,35 @@ async def optimize_search_query(
     prompt = get_query_optimization_prompt(user_text=user_text)
 
     # DEBUG: Zeige Query Optimization Prompt
-    debug_print("=" * 60)
-    debug_print("📋 QUERY OPTIMIZATION PROMPT:")
-    debug_print("-" * 60)
-    debug_print(prompt)
-    debug_print("-" * 60)
-    debug_print(f"Prompt-Länge: {len(prompt)} Zeichen, ~{len(prompt.split())} Wörter")
-    debug_print("=" * 60)
+    log_message("=" * 60)
+    log_message("📋 QUERY OPTIMIZATION PROMPT:")
+    log_message("-" * 60)
+    log_message(prompt)
+    log_message("-" * 60)
+    log_message(f"Prompt-Länge: {len(prompt)} Zeichen, ~{len(prompt.split())} Wörter")
+    log_message("=" * 60)
 
     try:
-        debug_print(f"🔍 Query-Optimierung mit {automatik_model}")
-        console_print("🔧 Query-Optimierung startet")
+        log_message(f"🔍 Query-Optimierung mit {automatik_model}")
+        log_message("🔧 Query-Optimierung startet")
 
         # Baue Messages mit History (letzte 2-3 Turns für Kontext bei Nachfragen)
         messages = build_messages_from_history(history, prompt, max_turns=3)
 
         # DEBUG: Zeige Messages-Array vollständig
-        debug_print("=" * 60)
-        debug_print(f"📨 MESSAGES an {automatik_model} (Query-Opt):")
-        debug_print("-" * 60)
+        log_message("=" * 60)
+        log_message(f"📨 MESSAGES an {automatik_model} (Query-Opt):")
+        log_message("-" * 60)
         for i, msg in enumerate(messages):
-            debug_print(f"Message {i+1} - Role: {msg['role']}")
-            debug_print(f"Content: {msg['content']}")
-            debug_print("-" * 60)
+            log_message(f"Message {i+1} - Role: {msg['role']}")
+            log_message(f"Content: {msg['content']}")
+            log_message("-" * 60)
 
         # Dynamisches num_ctx basierend auf Automatik-LLM-Limit (100% für Query-Opt wegen History)
         query_num_ctx = min(8192, automatik_llm_context_limit)  # Max 8192 oder volles Limit
 
-        debug_print(f"Total Messages: {len(messages)}, Temperature: 0.3, num_ctx: {query_num_ctx} (Automatik-LLM-Limit: {automatik_llm_context_limit})")
-        debug_print("=" * 60)
+        log_message(f"Total Messages: {len(messages)}, Temperature: 0.3, num_ctx: {query_num_ctx} (Automatik-LLM-Limit: {automatik_llm_context_limit})")
+        log_message("=" * 60)
 
         # Async LLM call
         response = await llm_client.chat(
@@ -82,6 +82,12 @@ async def optimize_search_query(
             }
         )
         raw_response = response.text.strip()
+
+        # Tokens/s Output (wie in Gradio-Version)
+        if hasattr(response, 'tokens_per_second') and response.tokens_per_second:
+            tokens_per_sec = int(response.tokens_per_second)
+            log_message(f"⚡ {tokens_per_sec} t/s")
+            log_message(f"⚡ Query-Opt Performance: {tokens_per_sec} t/s")
 
         # Extrahiere <think> Inhalt BEVOR wir ihn entfernen (für Debug-Output)
         think_match = THINK_TAG_PATTERN.search(raw_response)
@@ -120,21 +126,21 @@ async def optimize_search_query(
         # Regel 1: "beste/neueste X" → + aktuelles Jahr (falls nicht schon vorhanden)
         if any(kw in query_lower for kw in temporal_keywords) and current_year not in optimized_query:
             optimized_query += f" {current_year}"
-            debug_print(f"   ⏰ Temporaler Kontext ergänzt: {current_year}")
+            log_message(f"   ⏰ Temporaler Kontext ergänzt: {current_year}")
 
         # Regel 2: "X vs Y" → + aktuelles Jahr (falls nicht schon vorhanden)
         elif any(kw in query_lower for kw in comparison_keywords) and current_year not in optimized_query:
             optimized_query += f" {current_year}"
-            debug_print(f"   ⚖️ Vergleichs-Kontext ergänzt: {current_year}")
+            log_message(f"   ⚖️ Vergleichs-Kontext ergänzt: {current_year}")
 
-        debug_print(f"🔍 Query-Optimierung:")
-        debug_print(f"   Original: {user_text[:80]}{'...' if len(user_text) > 80 else ''}")
-        debug_print(f"   Optimiert: {optimized_query}")
+        log_message("🔍 Query-Optimierung:")
+        log_message(f"   Original: {user_text[:80]}{'...' if len(user_text) > 80 else ''}")
+        log_message(f"   Optimiert: {optimized_query}")
 
         # Return: Tuple (optimized_query, reasoning)
         return (optimized_query, think_content)
 
     except Exception as e:
-        debug_print(f"⚠️ Fehler bei Query-Optimierung: {e}")
-        debug_print("   Fallback zu Original-Query")
+        log_message(f"⚠️ Fehler bei Query-Optimierung: {e}")
+        log_message("   Fallback zu Original-Query")
         return (user_text, None)

@@ -239,6 +239,42 @@ class vLLMBackend(LLMBackend):
                 "error": str(e)
             }
 
+    async def get_model_context_limit(self, model: str) -> int:
+        """
+        Get context limit for a vLLM model.
+
+        Queries /v1/models endpoint (OpenAI-compatible) and extracts max_model_len.
+
+        Args:
+            model: Model name/ID
+
+        Returns:
+            int: Context limit in tokens
+
+        Raises:
+            RuntimeError: If model not found or context limit not available
+        """
+        try:
+            response = await self.client.get(f"{self.base_url}/v1/models/{model}")
+            response.raise_for_status()
+            data = response.json()
+
+            # vLLM returns max_model_len in model metadata
+            if "max_model_len" in data:
+                return int(data["max_model_len"])
+
+            # Fallback: check in nested metadata
+            if "metadata" in data and "max_model_len" in data["metadata"]:
+                return int(data["metadata"]["max_model_len"])
+
+            raise RuntimeError(
+                f"Context limit not found for vLLM model '{model}'. "
+                f"Available keys: {list(data.keys())}"
+            )
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to query vLLM for model '{model}': {e}") from e
+
     async def close(self):
         """Close HTTP client"""
         await self.client.close()

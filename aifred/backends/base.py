@@ -120,6 +120,28 @@ class LLMBackend(ABC):
         """
         pass
 
+    @abstractmethod
+    async def get_model_context_limit(self, model: str) -> int:
+        """
+        Get the context window size (in tokens) for a specific model.
+
+        This method queries the backend for model metadata and extracts
+        the maximum context length. Implementation is backend-specific:
+        - Ollama: Use /api/show endpoint
+        - vLLM: Use /v1/models endpoint
+        - llama.cpp: Parse model metadata
+
+        Args:
+            model: Model name/ID
+
+        Returns:
+            int: Context limit in tokens (e.g., 4096, 8192, 40960)
+
+        Raises:
+            RuntimeError: If model not found or context limit cannot be determined
+        """
+        pass
+
 
 class BackendError(Exception):
     """Base exception for backend errors"""

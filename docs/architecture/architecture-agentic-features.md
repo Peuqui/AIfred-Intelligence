@@ -1061,5 +1061,5 @@ pip install redis               # Caching Layer
 
 ---
 
-**Erstellt mit:** Claude Code
+**Erstellt mit:** AI Assistant
 **Letzte Aktualisierung:** 2025-10-13

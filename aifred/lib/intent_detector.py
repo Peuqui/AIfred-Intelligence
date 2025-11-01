@@ -7,8 +7,7 @@ Classifies user queries for adaptive temperature selection:
 - GEMISCHT: Mixed queries (medium temperature)
 """
 
-from typing import Optional
-from .logging_utils import debug_print
+from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
 
 
@@ -35,7 +34,7 @@ def parse_intent_from_response(intent_raw: str, context: str = "general") -> str
     else:
         # Fallback
         prefix = "Cache-Intent" if context == "cache_followup" else "Intent"
-        debug_print(f"⚠️ {prefix} unbekannt: '{intent_raw}' → Default: FAKTISCH")
+        log_message(f"⚠️ {prefix} unbekannt: '{intent_raw}' → Default: FAKTISCH")
         return "FAKTISCH"
 
 
@@ -58,7 +57,7 @@ async def detect_query_intent(
     prompt = get_intent_detection_prompt(user_query=user_query)
 
     try:
-        debug_print(f"🎯 Intent-Detection für Query: {user_query[:60]}...")
+        log_message(f"🎯 Intent-Detection für Query: {user_query[:60]}...")
 
         response = await llm_client.chat(
             model=automatik_model,
@@ -71,11 +70,11 @@ async def detect_query_intent(
         intent_raw = response.text
 
         intent = parse_intent_from_response(intent_raw, context="general")
-        debug_print(f"✅ Intent erkannt: {intent}")
+        log_message(f"✅ Intent erkannt: {intent}")
         return intent
 
     except Exception as e:
-        debug_print(f"❌ Intent-Detection Fehler: {e} → Fallback: FAKTISCH")
+        log_message(f"❌ Intent-Detection Fehler: {e} → Fallback: FAKTISCH")
         return "FAKTISCH"  # Safe Fallback
 
 
@@ -103,7 +102,7 @@ async def detect_cache_followup_intent(
     )
 
     try:
-        debug_print(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
+        log_message(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
 
         response = await llm_client.chat(
             model=automatik_model,
@@ -116,11 +115,11 @@ async def detect_cache_followup_intent(
         intent_raw = response.text
 
         intent = parse_intent_from_response(intent_raw, context="cache_followup")
-        debug_print(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")
+        log_message(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")
         return intent
 
     except Exception as e:
-        debug_print(f"❌ Cache-Followup Intent-Detection Fehler: {e} → Fallback: FAKTISCH")
+        log_message(f"❌ Cache-Followup Intent-Detection Fehler: {e} → Fallback: FAKTISCH")
         return "FAKTISCH"
 
 

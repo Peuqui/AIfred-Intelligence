@@ -2,12 +2,18 @@
 Logging Utilities - Reflex Edition
 
 Portiert von Gradio-Legacy mit Anpassungen für Reflex State Management
+
+UNIFIED LOGGING SYSTEM:
+- log_message(): Zentrale Funktion für alle Logging-Anforderungen
+- Config-gesteuert via CONSOLE_DEBUG_ENABLED und FILE_DEBUG_ENABLED
+- debug_print_prompt() und debug_print_messages(): Spezialisierte Formatierung
 """
 
 import os
 import time
 from datetime import datetime
 from typing import List
+from .config import CONSOLE_DEBUG_ENABLED, FILE_DEBUG_ENABLED
 
 # ============================================================
 # DEBUG-LOG-FILE Configuration
@@ -29,7 +35,6 @@ DEBUG_LOG_MAX_SIZE_MB = 1  # Max 1 MB, danach rotieren
 # ============================================================
 _console_messages: List[str] = []  # Thread-safe list für Console-Output
 MAX_CONSOLE_MESSAGES = 200
-_message_callback = None  # Optional callback when new message is added
 
 # Queue für Thread-to-UI Kommunikation (Pipe!)
 import queue
@@ -61,7 +66,7 @@ def initialize_debug_log(force_reset: bool = False) -> None:
 
         # Neue Session: Datei überschreiben oder neu erstellen
         with open(DEBUG_LOG_FILE, 'w', encoding='utf-8') as f:
-            f.write(f"=== AIfred Intelligence Debug Log ===\n")
+            f.write("=== AIfred Intelligence Debug Log ===\n")
             f.write(f"=== Service gestartet: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n\n")
 
         _debug_log_initialized = True
@@ -71,25 +76,59 @@ def initialize_debug_log(force_reset: bool = False) -> None:
         print(f"⚠️ Debug-Log-Initialisierung fehlgeschlagen: {e}", flush=True)
 
 
-def debug_print(message: str) -> None:
+def log_message(message: str, category: str = "info") -> None:
     """
-    Debug-Ausgabe in Log-Datei
+    ZENTRALE LOGGING-FUNKTION - Unified System
+
+    Schreibt Messages basierend auf Config:
+    - FILE_DEBUG_ENABLED: Ins Debug-Log-File
+    - CONSOLE_DEBUG_ENABLED: In Queue für UI Debug-Console
 
     Args:
-        message: Debug-Nachricht
+        message: Die zu loggende Nachricht (ohne Timestamp!)
+        category: Kategorie für Filterung ("startup", "llm", "decision", "stats", "info")
+
+    Behavior:
+        - Fügt automatisch Timestamp hinzu (HH:MM:SS.mmm für File, HH:MM:SS für Console)
+        - Auto-initialisiert Debug-Log beim ersten Aufruf
+        - Thread-safe Queue für UI-Kommunikation
     """
+    global _console_messages, _debug_log_initialized
+
     # Auto-initialize on first call
     if not _debug_log_initialized:
         initialize_debug_log()
 
-    try:
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # HH:MM:SS.mmm
+    # ============================================================
+    # FILE DEBUG (wenn aktiviert)
+    # ============================================================
+    if FILE_DEBUG_ENABLED:
+        try:
+            timestamp_file = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # HH:MM:SS.mmm
+            with open(DEBUG_LOG_FILE, 'a', encoding='utf-8') as f:
+                f.write(f"{timestamp_file} | {message}\n")
+        except Exception as e:
+            print(f"⚠️ Debug-Log-File-Fehler: {e}", flush=True)
 
-        # Append-Modus
-        with open(DEBUG_LOG_FILE, 'a', encoding='utf-8') as f:
-            f.write(f"{timestamp} | {message}\n")
-    except Exception as e:
-        print(f"⚠️ Debug-Log-File-Fehler: {e}", flush=True)
+    # ============================================================
+    # CONSOLE DEBUG (wenn aktiviert)
+    # ============================================================
+    if CONSOLE_DEBUG_ENABLED:
+        timestamp_console = time.strftime("%H:%M:%S")  # HH:MM:SS (wie Legacy)
+        formatted_msg = f"{timestamp_console} | {message}"
+
+        # In Console-State anhängen
+        _console_messages.append(formatted_msg)
+
+        # Limit einhalten (FIFO)
+        if len(_console_messages) > MAX_CONSOLE_MESSAGES:
+            _console_messages = _console_messages[-MAX_CONSOLE_MESSAGES:]
+
+        # In Queue schreiben (für State-Polling!)
+        try:
+            _message_queue.put_nowait(formatted_msg)  # Non-blocking
+        except queue.Full:
+            pass  # Queue voll, alte Messages sind in _console_messages
 
 
 def debug_print_prompt(prompt_type: str, prompt: str, model_name: str) -> None:
@@ -101,13 +140,13 @@ def debug_print_prompt(prompt_type: str, prompt: str, model_name: str) -> None:
         prompt: The actual prompt text
         model_name: Name of the model receiving the prompt
     """
-    debug_print("=" * 60)
-    debug_print(f"📋 {prompt_type} PROMPT an {model_name}:")
-    debug_print("-" * 60)
-    debug_print(prompt)
-    debug_print("-" * 60)
-    debug_print(f"Prompt-Länge: {len(prompt)} Zeichen, ~{len(prompt.split())} Wörter")
-    debug_print("=" * 60)
+    log_message("=" * 60)
+    log_message(f"📋 {prompt_type} PROMPT an {model_name}:")
+    log_message("-" * 60)
+    log_message(prompt)
+    log_message("-" * 60)
+    log_message(f"Prompt-Länge: {len(prompt)} Zeichen, ~{len(prompt.split())} Wörter")
+    log_message("=" * 60)
 
 
 def debug_print_messages(messages: list, model_name: str, context: str = "", **llm_params) -> None:
@@ -120,73 +159,35 @@ def debug_print_messages(messages: list, model_name: str, context: str = "", **l
         context: Additional context (e.g., "(Decision)", "(Query-Opt)")
         **llm_params: Additional LLM parameters to log (temperature, num_ctx, etc.)
     """
-    debug_print("=" * 60)
-    debug_print(f"📨 MESSAGES an {model_name} {context}:")
-    debug_print("-" * 60)
+    log_message("=" * 60)
+    log_message(f"📨 MESSAGES an {model_name} {context}:")
+    log_message("-" * 60)
     for i, msg in enumerate(messages):
-        debug_print(f"Message {i+1} - Role: {msg['role']}")
+        log_message(f"Message {i+1} - Role: {msg['role']}")
         content = msg['content']
 
         # Preview first 500 chars for system prompts, full content for user messages
         if len(content) > 500 and msg['role'] == 'system':
             preview = content[:500]
-            debug_print(f"Content (erste 500 Zeichen): {preview}")
-            debug_print(f"... [noch {len(content) - 500} Zeichen]")
+            log_message(f"Content (erste 500 Zeichen): {preview}")
+            log_message(f"... [noch {len(content) - 500} Zeichen]")
         else:
-            debug_print(f"Content: {content}")
-        debug_print("-" * 60)
+            log_message(f"Content: {content}")
+        log_message("-" * 60)
 
     # Log additional parameters if provided
     if llm_params:
         param_str = ", ".join([f"{k}: {v}" for k, v in llm_params.items()])
-        debug_print(f"Total Messages: {len(messages)}, {param_str}")
+        log_message(f"Total Messages: {len(messages)}, {param_str}")
     else:
-        debug_print(f"Total Messages: {len(messages)}")
-    debug_print("=" * 60)
-
-
-def console_print(message: str, category: str = "info") -> None:
-    """
-    Schreibt Message ins Debug-Log UND in die Console-State für UI
-
-    Args:
-        message: Die Nachricht
-        category: Kategorie für Filterung ("startup", "llm", "decision", "stats", "info")
-    """
-    global _console_messages
-
-    # Timestamp hinzufügen
-    timestamp = time.strftime("%H:%M:%S")
-    formatted_msg = f"{timestamp} | {message}"
-
-    # Ins Debug-Log schreiben
-    debug_print(message)
-
-    # In Console-State anhängen
-    _console_messages.append(formatted_msg)
-
-    # Limit einhalten (FIFO)
-    if len(_console_messages) > MAX_CONSOLE_MESSAGES:
-        _console_messages = _console_messages[-MAX_CONSOLE_MESSAGES:]
-
-    # In Queue schreiben (Pipe für UI-Thread!)
-    try:
-        _message_queue.put_nowait(formatted_msg)  # Non-blocking
-    except queue.Full:
-        pass  # Queue voll, ignorieren (alte Messages sind schon in _console_messages)
-
-    # Trigger callback if registered (optional, alt)
-    if _message_callback:
-        try:
-            _message_callback(formatted_msg)
-        except Exception:
-            pass  # Ignore callback errors
+        log_message(f"Total Messages: {len(messages)}")
+    log_message("=" * 60)
 
 
 def console_separator() -> None:
     """Fügt eine horizontale Trennlinie in die Console ein"""
     global _console_messages, _message_queue
-    separator = "─" * 80
+    separator = "─" * 20
     _console_messages.append(separator)
 
     # In Queue schreiben (Pipe für UI-Thread!)
@@ -200,16 +201,6 @@ def console_separator() -> None:
         _console_messages = _console_messages[-MAX_CONSOLE_MESSAGES:]
 
 
-def get_console_messages() -> List[str]:
-    """
-    Gibt alle Console-Messages als Liste zurück (für Reflex UI)
-
-    Returns:
-        Liste aller Console-Messages
-    """
-    return _console_messages.copy()
-
-
 def clear_console() -> None:
     """Löscht alle Console-Messages und Queue"""
     global _console_messages, _message_queue
@@ -221,31 +212,3 @@ def clear_console() -> None:
             _message_queue.get_nowait()
         except queue.Empty:
             break
-
-
-def set_message_callback(callback):
-    """
-    Registriert einen Callback, der bei jeder neuen Console-Message aufgerufen wird.
-
-    Args:
-        callback: Funktion mit Signatur callback(message: str) -> None
-    """
-    global _message_callback
-    _message_callback = callback
-
-
-def get_new_messages() -> List[str]:
-    """
-    Liest alle neuen Messages aus der Queue (non-blocking).
-
-    Returns:
-        Liste der neuen Messages seit dem letzten Aufruf
-    """
-    new_messages = []
-    try:
-        while True:
-            msg = _message_queue.get_nowait()  # Non-blocking
-            new_messages.append(msg)
-    except queue.Empty:
-        pass  # Keine Messages mehr
-    return new_messages
