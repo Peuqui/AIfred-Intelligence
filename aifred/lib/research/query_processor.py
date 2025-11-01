@@ -34,7 +34,8 @@ async def process_query_and_search(
         Dict: Debug messages and search results
 
     Returns (via last yield):
-        Tuple[str, List[str], List[Dict]]: (optimized_query, related_urls, tool_results)
+        Tuple[str, str, float, List[str], List[Dict]]:
+        (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)
     """
     tool_results = []
 
@@ -83,5 +84,5 @@ async def process_query_and_search(
     # Extract URLs
     related_urls = search_result.get('related_urls', [])
 
-    # Return results as last yield
-    yield {"type": "query_result", "data": (optimized_query, related_urls, tool_results)}
+    # Return results as last yield (includes query_reasoning for debug accordion)
+    yield {"type": "query_result", "data": (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)}

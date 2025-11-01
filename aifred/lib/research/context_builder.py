@@ -13,7 +13,7 @@ import time
 from typing import Dict, List, AsyncIterator
 
 from ..agent_tools import build_context
-from ..cache_manager import get_all_metadata_summaries, save_cached_research
+from ..cache_manager import get_all_metadata_summaries, save_cached_research, generate_cache_metadata
 from ..prompt_loader import load_prompt
 from ..context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from ..message_builder import build_messages_from_history
@@ -30,7 +30,11 @@ async def build_and_generate_response(
     session_id: str,
     mode: str,
     model_choice: str,
+    automatik_model: str,
+    query_reasoning: str,
+    query_opt_time: float,
     llm_client,
+    automatik_llm_client,
     llm_options: Dict,
     temperature_mode: str,
     temperature: float,
@@ -48,7 +52,11 @@ async def build_and_generate_response(
         session_id: Session ID for caching
         mode: Research mode ('quick' or 'deep')
         model_choice: Main LLM model name
+        automatik_model: Automatik LLM model name (for debug accordion)
+        query_reasoning: Query optimization reasoning (for debug accordion)
+        query_opt_time: Query optimization time (for debug accordion)
         llm_client: Main LLM client
+        automatik_llm_client: Automatik LLM client (for cache metadata generation)
         llm_options: LLM options (num_ctx override, etc.)
         temperature_mode: 'manual' or 'auto'
         temperature: Temperature value (if manual)
@@ -178,15 +186,15 @@ async def build_and_generate_response(
     # Format thinking process
     thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
 
-    # Build debug accordion (if scraped sources exist)
-    if scraped_only:
-        debug_accordion = build_debug_accordion(
-            optimized_query=user_text,  # Could pass actual optimized query
-            scraped_results=scraped_only
-        )
-        ai_response_complete = f"{thinking_html}\n\n{debug_accordion}"
-    else:
-        ai_response_complete = thinking_html
+    # Build debug accordion with query reasoning
+    ai_response_complete = build_debug_accordion(
+        query_reasoning=query_reasoning,
+        ai_text=ai_text,
+        automatik_model=automatik_model,
+        main_model=model_choice,
+        query_time=query_opt_time,
+        final_time=inference_time
+    )
 
     # Update history
     total_time = time.time() - agent_start
@@ -204,6 +212,15 @@ async def build_and_generate_response(
     # Save to cache
     log_message(f"🔍 Cache-Speicherung: session_id = {session_id}, scraped = {len(scraped_only)} Quellen")
     save_cached_research(session_id, user_text, scraped_only, mode, metadata_summary=None)
+
+    # Generate cache metadata (async, runs AFTER main response)
+    async for metadata_msg in generate_cache_metadata(
+        session_id=session_id,
+        metadata_model=automatik_model,
+        llm_client=automatik_llm_client,
+        haupt_llm_context_limit=final_num_ctx
+    ):
+        yield metadata_msg  # Forward debug messages to UI
 
     log_message(f"✅ Agent fertig: {total_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     log_message("=" * 60)

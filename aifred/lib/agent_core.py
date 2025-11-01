@@ -224,6 +224,8 @@ async def perform_agent_research(
     # PHASE 2: Query Optimization + Web Search
     # ==============================================================
     optimized_query = None
+    query_reasoning = None
+    query_opt_time = 0.0
     related_urls = []
     tool_results = []
 
@@ -234,7 +236,7 @@ async def perform_agent_research(
         automatik_llm_client=automatik_llm_client
     ):
         if item["type"] == "query_result":
-            optimized_query, related_urls, tool_results = item["data"]
+            optimized_query, query_reasoning, query_opt_time, related_urls, tool_results = item["data"]
         else:
             yield item
 
@@ -266,7 +268,11 @@ async def perform_agent_research(
         session_id=session_id,
         mode=mode,
         model_choice=model_choice,
+        automatik_model=automatik_model,
+        query_reasoning=query_reasoning,
+        query_opt_time=query_opt_time,
         llm_client=llm_client,
+        automatik_llm_client=automatik_llm_client,
         llm_options=llm_options,
         temperature_mode=temperature_mode,
         temperature=temperature,

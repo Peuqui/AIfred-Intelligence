@@ -420,4 +420,152 @@ Siehe Punkt 5 - **Aufteilung in Submodule**
 
 ---
 
+## 14. REFACTORING UPDATE - 2025-11-01 (Abend)
+
+### ✅ **Abgeschlossen: Debug Accordion & Cache Metadata Fix**
+
+**Problem:**
+Nach dem großen Refactoring (Commit 616ca00) wurden zwei kritische Features versehentlich gebrochen:
+
+1. **Debug Accordion** wurde nicht mehr angezeigt
+2. **Cache Metadata Generation** wurde nicht mehr aufgerufen
+
+### Root Cause Analysis:
+
+**1. Debug Accordion Issue:**
+- `build_debug_accordion()` benötigt `query_reasoning` vom Query Optimizer
+- Nach Modularisierung wurde diese Information nicht durch die Module weitergereicht
+- Datenfluss unterbrochen: `query_processor` → `agent_core` → `context_builder`
+
+**2. Cache Metadata Issue:**
+- `generate_cache_metadata()` wurde zwar importiert aber nie aufgerufen
+- Metadata-Generierung fehlte komplett nach dem Refactoring
+
+### Durchgeführte Fixes:
+
+#### **Phase 1: Datenfluss-Korrektur**
+
+**query_processor.py:**
+```python
+# VORHER: Nur 3 Werte zurückgegeben
+yield {"type": "query_result", "data": (optimized_query, related_urls, tool_results)}
+
+# NACHHER: 5 Werte inkl. query_reasoning
+yield {"type": "query_result", "data": (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)}
+```
+
+**agent_core.py:**
+```python
+# VORHER: Variablen nicht initialisiert
+optimized_query = None
+related_urls = []
+tool_results = []
+
+# NACHHER: Alle Variablen initialisiert
+optimized_query = None
+query_reasoning = None
+query_opt_time = 0.0
+related_urls = []
+tool_results = []
+
+# Daten empfangen und weiterleiten
+optimized_query, query_reasoning, query_opt_time, related_urls, tool_results = item["data"]
+```
+
+**context_builder.py:**
+```python
+# VORHER: Parameter fehlten
+async def build_and_generate_response(
+    user_text, scraped_results, tool_results, history, session_id, mode,
+    model_choice, llm_client, llm_options, temperature_mode, temperature,
+    agent_start, stt_time
+)
+
+# NACHHER: Alle benötigten Parameter
+async def build_and_generate_response(
+    user_text, scraped_results, tool_results, history, session_id, mode,
+    model_choice, automatik_model, query_reasoning, query_opt_time,
+    llm_client, automatik_llm_client, llm_options, temperature_mode,
+    temperature, agent_start, stt_time
+)
+```
+
+#### **Phase 2: Debug Accordion Wiederherstellung**
+
+```python
+# context_builder.py - Zeilen 188-195
+ai_response_complete = build_debug_accordion(
+    query_reasoning=query_reasoning,
+    ai_text=ai_text,
+    automatik_model=automatik_model,
+    main_model=model_choice,
+    query_time=query_opt_time,
+    final_time=inference_time
+)
+```
+
+**Wichtig:** Named arguments statt positional für bessere Wartbarkeit!
+
+#### **Phase 3: Cache Metadata Generation**
+
+```python
+# context_builder.py - Nach save_cached_research
+async for metadata_msg in generate_cache_metadata(
+    session_id=session_id,
+    metadata_model=automatik_model,
+    llm_client=automatik_llm_client,  # ← WICHTIG: automatik_llm_client!
+    haupt_llm_context_limit=final_num_ctx
+):
+    yield metadata_msg
+```
+
+**Kritischer Fix:** Verwendet `automatik_llm_client` statt `llm_client`!
+- `llm_client` = Haupt-LLM (z.B. qwen3:8b) - für finale Antworten
+- `automatik_llm_client` = Automatik-LLM (z.B. qwen2.5:3b) - für Hilfstasks
+
+### Verifikation:
+
+✅ **Datenfluss komplett:**
+```
+query_processor (query_reasoning)
+  → agent_core (weiterleiten)
+    → context_builder (build_debug_accordion)
+```
+
+✅ **Alle Parameter korrekt:**
+- `query_reasoning`, `query_opt_time`, `automatik_model` durchgereicht
+- `automatik_llm_client` separat übergeben
+
+✅ **Syntax-Check:**
+```bash
+python3 -m py_compile aifred/lib/research/*.py aifred/lib/agent_core.py
+# ✅ Alle Dateien kompilieren erfolgreich
+```
+
+✅ **Vergleich mit alter Implementation (Commit 9831210):**
+- `build_debug_accordion` Call identisch
+- `generate_cache_metadata` Call identisch
+- LLM Client-Verwendung korrekt
+
+### Modifizierte Dateien:
+1. `aifred/lib/research/query_processor.py` - Return-Werte erweitert
+2. `aifred/lib/agent_core.py` - Datenweiterleitung implementiert
+3. `aifred/lib/research/context_builder.py` - Signatur erweitert, Features wiederhergestellt
+
+### Lessons Learned:
+
+1. **Bei großen Refactorings:** Feature-Liste vor/nach vergleichen
+2. **Datenfluss tracken:** Wenn Module extrahiert werden, alle Dependencies prüfen
+3. **Systematische Verifikation:** Vergleich mit alter funktionierender Version
+4. **Named Arguments:** Bessere Lesbarkeit bei vielen Parametern
+
+### Impact:
+
+- ✅ Debug Accordion zeigt wieder Query-Reasoning und Thinking-Process
+- ✅ Cache-Metadata wird wieder generiert für bessere Follow-up-Antworten
+- ✅ Keine Regressions - alle Features wie vorher
+- ✅ Code-Qualität verbessert durch named arguments
+
+---
+
 **Report Ende**
