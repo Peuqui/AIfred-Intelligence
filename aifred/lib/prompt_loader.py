@@ -80,6 +80,18 @@ def get_decision_making_prompt(user_text: str, cache_metadata: str = "") -> str:
     return load_prompt('decision_making', user_text=user_text, cache_metadata=cache_metadata)
 
 
+def get_cache_decision_addon(user_text: str, original_question: str, cache_age: float, num_sources: int, sources_text: str) -> str:
+    """Cache Decision Addon Prompt laden"""
+    return load_prompt(
+        'cache_decision_addon',
+        user_text=user_text,
+        original_question=original_question,
+        cache_age=f"{cache_age:.0f}",
+        num_sources=str(num_sources),
+        sources_text=sources_text
+    )
+
+
 def get_intent_detection_prompt(user_query: str) -> str:
     """Intent-Detection Prompt laden"""
     return load_prompt('intent_detection', user_query=user_query)

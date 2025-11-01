@@ -746,36 +746,15 @@ async def chat_interactive_mode(
                     source_list.append(f"{i}. {url}\n   Titel: \"{title}\"")
                 sources_text = "\n".join(source_list)
 
-            cache_metadata = f"""
-
-═══════════════════════════════════════════════════════════
-
-⚠️ GECACHTE RECHERCHE VERFÜGBAR!
-
-Ursprüngliche Frage: "{cache_entry.get('user_text', 'N/A')}"
-Cache-Alter: {cache_age:.0f} Sekunden
-Anzahl Quellen: {len(cached_sources)}
-
-{sources_text}
-
-═══════════════════════════════════════════════════════════
-
-WICHTIG: PRÜFE ZUERST DIE REGELN OBEN!
-
-SCHRITT 1: Braucht "{user_text}" Web-Recherche? (Siehe Regeln oben!)
-• Wetter/News/Preise/Live-Daten → Ja, Web-Recherche nötig!
-• Allgemeinwissen/Mathe/Chat → Nein, kein Web nötig!
-
-SCHRITT 2 (nur bei Web-Recherche nötig): Cache nutzbar?
-• Passt Cache-Thema zur neuen Frage? → <search>context</search>
-• Anderes Thema/Zeitraum? → <search>yes</search> (neue Recherche!)
-
-BEISPIELE:
-"Wetter morgen?" → <search>yes</search> (Live-Daten, immer neu!)
-"Wie wird das Wetter am Wochenende?" → <search>yes</search> (Live-Daten!)
-"genauer?" → <search>context</search> (Nachfrage zum Cache-Thema)
-"Was ist 2+2?" → <search>no</search> (Allgemeinwissen, kein Web!)
-"""
+            # Lade Cache-Decision-Addon aus Prompt-Datei
+            from .prompt_loader import get_cache_decision_addon
+            cache_metadata = get_cache_decision_addon(
+                user_text=user_text,
+                original_question=cache_entry.get('user_text', 'N/A'),
+                cache_age=cache_age,
+                num_sources=len(cached_sources),
+                sources_text=sources_text
+            )
             log_message(f"💾 Cache vorhanden: {len(cached_sources)} Quellen, {cache_age:.0f}s alt")
             log_message(f"   Cache-Metadata wird an LLM übergeben ({len(cache_metadata)} Zeichen)")
             log_message("=" * 60)

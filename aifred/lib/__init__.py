@@ -17,6 +17,7 @@ from .prompt_loader import (
     load_prompt,
     get_query_optimization_prompt,
     get_decision_making_prompt,
+    get_cache_decision_addon,
     get_intent_detection_prompt,
     get_followup_intent_prompt,
     get_system_rag_prompt
@@ -55,6 +56,7 @@ __all__ = [
     "load_prompt",
     "get_query_optimization_prompt",
     "get_decision_making_prompt",
+    "get_cache_decision_addon",
     "get_intent_detection_prompt",
     "get_followup_intent_prompt",
     "get_system_rag_prompt",
