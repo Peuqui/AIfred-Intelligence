@@ -10,7 +10,7 @@ Handles caching of research results including:
 import time
 import threading
 from typing import Dict, List, Optional
-from .logging_utils import log_message, console_separator
+from .logging_utils import log_message
 
 
 # ============================================================

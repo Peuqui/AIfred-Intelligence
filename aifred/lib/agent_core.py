@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Local imports - Core utilities
 from .agent_tools import search_web, scrape_webpage, build_context
 from .formatting import format_thinking_process, build_debug_accordion
-from .logging_utils import log_message, console_separator
+from .logging_utils import log_message
 from .message_builder import build_messages_from_history
 from .prompt_loader import get_decision_making_prompt, get_system_rag_prompt
 
