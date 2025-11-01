@@ -493,20 +493,20 @@ def render_chat_message(msg: tuple) -> rx.Component:
         # Summary-Anzeige (einfache Box, keine Collapsible - Summary ist eh kompakt)
         rx.box(
             rx.vstack(
-                # Header
+                # Header mit Icon
                 rx.hstack(
                     rx.text("📊", font_size="14px"),
                     rx.text(
-                        msg[1].split("]")[0] + "]",  # "[📊 Komprimiert: X Messages]"
+                        "Komprimierter Kontext",
                         font_weight="bold",
                         font_size="13px",
                         color=COLORS["accent_warning"]
                     ),
                     spacing="2",
                 ),
-                # Summary Content
+                # Summary Content (ganzer Text als Markdown)
                 rx.markdown(
-                    msg[1].split("\n", 1)[1] if "\n" in msg[1] else msg[1],  # Text nach dem Header
+                    msg[1],  # Kompletter Summary-Text (inkl. Header-Zeile)
                     color=COLORS["text_primary"],
                     font_size="12px"
                 ),
