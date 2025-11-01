@@ -69,11 +69,16 @@ REGELN (KEINE AUSNAHMEN!):
   * ❌ NIEMALS URLs, Links oder Klammern bei Quellenangaben im Fließtext!
   * 🚫 URLs gehören AUSSCHLIESSLICH in die Quellen-Liste am Ende!
 
-- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN AUF:
+- LISTE AM ENDE **NUR** DIE TATSÄCHLICH GENUTZTEN QUELLEN MIT VOLLSTÄNDIGER URL AUF:
 
   **Quellen:**
-  - Quelle 1: https://... (Thema: [Was wurde dort behandelt])
-  - Quelle 2: https://... (Thema: [Was wurde dort behandelt])
+  - Quelle 1: https://vollstaendige-url-hier.de/pfad
+  - Quelle 2: https://vollstaendige-url-hier.de/pfad
+
+  ⚠️ WICHTIG:
+  - Schreibe die KOMPLETTE URL aus den Recherche-Ergebnissen
+  - KEINE Beschreibungen, Themen oder Klammern hinter der URL
+  - NUR die nackten URLs in der Liste
 
 - ❌ NENNE KEINE URLs die NICHT in den Recherche-Ergebnissen oben stehen!
 - Falls Recherche leer: "Die Recherche ergab leider keine verwertbaren Informationen zu dieser Frage"
