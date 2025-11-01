@@ -17,7 +17,7 @@ from .prompt_loader import get_decision_making_prompt, get_system_rag_prompt, lo
 from .logging_utils import log_message
 from .message_builder import build_messages_from_history
 from .formatting import format_thinking_process
-from .cache_manager import generate_cache_metadata
+from .cache_manager import generate_cache_metadata, get_cached_research
 from .context_manager import estimate_tokens_from_history
 from .intent_detector import detect_query_intent, get_temperature_for_intent
 from .llm_client import LLMClient
