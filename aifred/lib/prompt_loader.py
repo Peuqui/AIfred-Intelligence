@@ -70,11 +70,6 @@ def list_available_prompts() -> list:
 # Convenience-Funktionen für häufig genutzte Prompts
 # ============================================================
 
-def get_url_rating_prompt(query: str, url_list: str) -> str:
-    """URL-Rating Prompt laden"""
-    return load_prompt('url_rating', query=query, url_list=url_list)
-
-
 def get_query_optimization_prompt(user_text: str) -> str:
     """Query-Optimization Prompt laden"""
     return load_prompt('query_optimization', user_text=user_text)

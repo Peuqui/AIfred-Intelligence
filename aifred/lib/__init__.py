@@ -15,7 +15,6 @@ from .logging_utils import (
 
 from .prompt_loader import (
     load_prompt,
-    get_url_rating_prompt,
     get_query_optimization_prompt,
     get_decision_making_prompt,
     get_intent_detection_prompt,
@@ -54,7 +53,6 @@ __all__ = [
     "clear_console",
     # Prompts
     "load_prompt",
-    "get_url_rating_prompt",
     "get_query_optimization_prompt",
     "get_decision_making_prompt",
     "get_intent_detection_prompt",
