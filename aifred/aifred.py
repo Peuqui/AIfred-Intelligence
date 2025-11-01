@@ -572,59 +572,77 @@ def render_chat_message(msg: tuple) -> rx.Component:
 
 
 def chat_history_display() -> rx.Component:
-    """Full chat history (like Gradio chatbot)"""
-    return rx.vstack(
-        rx.heading("💬 Chat Verlauf", size="3"),
-        rx.cond(
-            AIState.auto_refresh_enabled,
-            # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
-            rx.auto_scroll(
-                rx.foreach(
-                    AIState.chat_history,
-                    render_chat_message  # Verwende separate Render-Funktion
+    """Full chat history (like Gradio chatbot) - Collapsible"""
+    return rx.accordion.root(
+        rx.accordion.item(
+            value="chat_history",  # Eindeutige ID für das Accordion Item
+            header=rx.box(
+                rx.hstack(
+                    rx.text("💬 Chat Verlauf", font_size="14px", font_weight="500", color=COLORS["text_primary"]),
+                    rx.badge(
+                        f"{AIState.chat_history.length()} messages",
+                        color_scheme="orange",
+                        size="1",
+                    ),
+                    spacing="3",
+                    align="center",
                 ),
-                id="chat-history-box",
-                width="100%",
-                min_height="120px",
-                max_height="1200px",
-                padding="4",
-                background_color=COLORS["readonly_bg"],
-                border_radius="8px",
-                border=f"1px solid {COLORS['border']}",
-                style={
-                    "transition": "all 0.4s ease-out",
+                padding_y="2",  # Kompakter Header
+                background_color=COLORS["card_bg"],  # Dunkles Grau
+                _hover={
+                    "background_color": COLORS["primary_bg"],  # Orange beim Hover (15% Opacity)
                 },
+                border_radius="6px",
+                padding_x="3",
+                cursor="pointer",
+                transition="background-color 0.2s ease",
             ),
-            # Auto-Scroll disabled: normale rx.box (kein Scroll)
-            rx.box(
-                rx.foreach(
-                    AIState.chat_history,
-                    render_chat_message  # Verwende separate Render-Funktion
+            content=rx.cond(
+                AIState.auto_refresh_enabled,
+                # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
+                rx.auto_scroll(
+                    rx.foreach(
+                        AIState.chat_history,
+                        render_chat_message  # Verwende separate Render-Funktion
+                    ),
+                    id="chat-history-box",
+                    width="100%",
+                    min_height="120px",
+                    max_height="1200px",
+                    padding="4",
+                    background_color=COLORS["readonly_bg"],
+                    border_radius="8px",
+                    border=f"1px solid {COLORS['border']}",
+                    style={
+                        "transition": "all 0.4s ease-out",
+                    },
                 ),
-                id="chat-history-box",
-                width="100%",
-                min_height="120px",
-                max_height="1200px",
-                overflow_y="auto",
-                padding="4",
-                background_color=COLORS["readonly_bg"],
-                border_radius="8px",
-                border=f"1px solid {COLORS['border']}",
-                style={
-                    "transition": "all 0.4s ease-out",
-                },
+                # Auto-Scroll disabled: normale rx.box (kein Scroll)
+                rx.box(
+                    rx.foreach(
+                        AIState.chat_history,
+                        render_chat_message  # Verwende separate Render-Funktion
+                    ),
+                    id="chat-history-box",
+                    width="100%",
+                    min_height="120px",
+                    max_height="1200px",
+                    overflow_y="auto",
+                    padding="4",
+                    background_color=COLORS["readonly_bg"],
+                    border_radius="8px",
+                    border=f"1px solid {COLORS['border']}",
+                    style={
+                        "transition": "all 0.4s ease-out",
+                    },
+                ),
             ),
         ),
-        spacing="3",
+        default_value="chat_history",  # Standardmäßig GEÖFFNET
+        collapsible=True,
         width="100%",
-        style={
-            "animation": "fadeIn 0.4s ease-in",
-            "transition": "all 0.4s ease-out",
-            "@keyframes fadeIn": {
-                "from": {"opacity": "0", "transform": "translateY(-10px)"},
-                "to": {"opacity": "1", "transform": "translateY(0)"}
-            }
-        }
+        variant="soft",  # Soft statt ghost für besseres Styling
+        color_scheme="gray",  # Grau statt Blau
     )
 
 

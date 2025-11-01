@@ -29,10 +29,8 @@ from .agent_tools import (
     build_context
 )
 
-from .agent_core import (
-    perform_agent_research,
-    chat_interactive_mode
-)
+from .research import perform_agent_research
+from .conversation_handler import chat_interactive_mode
 
 from .cache_manager import (
     set_research_cache,

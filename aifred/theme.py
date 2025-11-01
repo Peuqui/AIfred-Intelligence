@@ -99,4 +99,14 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #718096;
 }
+
+/* Chat Verlauf Accordion - Orange statt Blau */
+.rt-AccordionTrigger[data-state="open"],
+.rt-AccordionTrigger[data-state="closed"] {
+    background-color: #161b22 !important;  /* Dunkles Grau */
+}
+
+.rt-AccordionTrigger:hover {
+    background-color: rgba(230, 119, 0, 0.15) !important;  /* Orange beim Hover */
+}
 """

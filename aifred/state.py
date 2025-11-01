@@ -247,7 +247,7 @@ class AIState(rx.State):
                 self.add_debug("🤖 Automatik Mode: KI entscheidet über Recherche...")
 
                 # Import chat_interactive_mode
-                from .lib.agent_core import chat_interactive_mode
+                from .lib.conversation_handler import chat_interactive_mode
 
                 # REAL STREAMING: Call async generator directly
                 async for item in chat_interactive_mode(

@@ -1,289 +1,28 @@
 """
-Agent Core Module - AI Research and Decision Making
+Conversation Handler - Interactive Chat and Decision-Making
 
-This module handles agent-based research workflows including:
-- Query optimization
-- Multi-mode research (quick/deep/automatic)
-- Interactive decision-making
-- Parallel web scraping
+This module handles the chat interactive mode where the AI decides
+whether web research is needed or can answer from its own knowledge.
+
+Includes:
+- Automatic decision-making (research vs. direct answer)
+- Keyword-based research triggering
+- Cache-aware decision logic
+- Direct LLM inference for knowledge-based answers
 """
 
 import time
-import re
 from typing import Dict, List, Optional, AsyncIterator
 
-# Local imports - Only needed for chat_interactive_mode
-from .prompt_loader import get_decision_making_prompt, get_system_rag_prompt, load_prompt
-from .logging_utils import log_message
+from .llm_client import LLMClient
+from .logging_utils import log_message, CONSOLE_SEPARATOR
+from .prompt_loader import get_decision_making_prompt, get_cache_decision_addon
 from .message_builder import build_messages_from_history
 from .formatting import format_thinking_process
-from .cache_manager import generate_cache_metadata, get_cached_research, delete_cached_research
-from .context_manager import estimate_tokens_from_history
+from .cache_manager import get_cached_research, delete_cached_research
+from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from .intent_detector import detect_query_intent, get_temperature_for_intent
-from .llm_client import LLMClient
-
-# Research modules (imported dynamically in perform_agent_research)
-# from .research import handle_cache_hit, process_query_and_search, orchestrate_scraping, build_and_generate_response
-
-# Compiled Regex Patterns (Performance-Optimierung)
-THINK_TAG_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
-
-# ============================================================
-# NOTE: Cache Management, Context Management, Intent Detection,
-# and Query Optimization have been extracted to separate library
-# modules (cache_manager, context_manager, intent_detector,
-# query_optimizer) and are imported above.
-# ============================================================
-
-
-async def summarize_history_if_needed(
-    history: List[tuple],
-    llm_client,
-    model_name: str,
-    context_limit: int,
-    max_summaries: int = 2
-) -> AsyncIterator[Dict]:
-    """
-    Komprimiert Chat-History wenn nötig (Context-Overflow-Prevention)
-
-    Args:
-        history: Chat-History als Liste von (user_msg, ai_msg) Tuples
-        llm_client: LLM Client für Summarization
-        model_name: Haupt-LLM Model
-        context_limit: Context Window Limit des Models
-        max_summaries: Maximale Anzahl Summaries bevor FIFO (default: 2)
-
-    Yields:
-        Dict: Progress und Debug Messages
-
-    Returns:
-        None - Funktion modifiziert history in-place nicht, State-Update erfolgt über yield
-    """
-    # 1. Trigger-Check: Nur wenn History > 10 Messages
-    if len(history) <= 10:
-        return
-
-    # 2. Token-Estimation
-    estimated_tokens = estimate_tokens_from_history(history)
-
-    # 3. Nur summarizen wenn > 70% vom Context-Limit
-    threshold = int(context_limit * 0.7)
-    if estimated_tokens < threshold:
-        log_message(f"📊 History OK: {estimated_tokens} Tokens < {threshold} Threshold (70% von {context_limit})")
-        return
-
-    log_message(f"⚠️ History zu lang: {estimated_tokens} Tokens > {threshold} Threshold → Starte Kompression")
-
-    # Progress-Indicator: Komprimiere Kontext
-    yield {"type": "progress", "phase": "compress"}
-    yield {"type": "debug", "message": f"🗜️ History-Kompression: {len(history)} Messages, {estimated_tokens} Tokens"}
-
-    # 4. Zähle bestehende Summaries
-    summary_count = sum(1 for user_msg, ai_msg in history if user_msg == "" and ai_msg.startswith("[📊 Komprimiert"))
-
-    # 5. FIFO wenn bereits max_summaries erreicht
-    if summary_count >= max_summaries:
-        log_message(f"⚠️ Max {max_summaries} Summaries erreicht → Lösche älteste Summary (FIFO)")
-        # Finde und entferne älteste Summary
-        for i, (user_msg, ai_msg) in enumerate(history):
-            if user_msg == "" and ai_msg.startswith("[📊 Komprimiert"):
-                history.pop(i)
-                yield {"type": "debug", "message": f"🗑️ Älteste Summary entfernt (FIFO)"}
-                break
-
-    # 6. Extrahiere älteste 6 Messages (3 User-AI-Paare) zum Summarizen
-    messages_to_summarize = history[:6]
-    remaining_messages = history[6:]
-
-    # 7. Formatiere Konversation für LLM
-    conversation_text = ""
-    for user_msg, ai_msg in messages_to_summarize:
-        conversation_text += f"User: {user_msg}\nAI: {ai_msg}\n\n"
-
-    # 8. Load Summarization Prompt
-    summary_prompt = load_prompt(
-        'history_summarization',
-        conversation=conversation_text.strip(),
-        max_tokens=200,
-        max_words=150
-    )
-
-    # 9. LLM Summarization (Haupt-LLM für bessere Qualität)
-    log_message(f"🗜️ Summarize 6 Messages mit {model_name}...")
-    summary_start = time.time()
-
-    summary_text = ""
-    async for chunk in llm_client.chat_stream(
-        model=model_name,
-        messages=[{"role": "system", "content": summary_prompt}],
-        options={"temperature": 0.3, "num_ctx": 4096}  # Niedrige Temp für faktische Summary
-    ):
-        if chunk["type"] == "content":
-            summary_text += chunk["text"]
-        elif chunk["type"] == "done":
-            summary_time = time.time() - summary_start
-            tokens_generated = chunk["metrics"].get("tokens_generated", 0)
-            log_message(f"✅ Summary generiert: {tokens_generated} Tokens in {summary_time:.1f}s")
-
-    # 10. Erstelle Summary-Entry (Collapsible-Format)
-    summary_entry = (
-        "",  # Leerer User-Teil
-        f"[📊 Komprimiert: {len(messages_to_summarize)} Messages]\n{summary_text.strip()}"
-    )
-
-    # 11. Baue neue History: [Summary] + [Remaining Messages]
-    new_history = [summary_entry] + remaining_messages
-
-    log_message(f"✅ History komprimiert: {len(history)} → {len(new_history)} Messages")
-    log_message(f"   Tokens geschätzt: {estimated_tokens} → ~{estimate_tokens_from_history(new_history)}")
-
-    # 12. Yield Update an State
-    yield {"type": "history_update", "data": new_history}
-    yield {"type": "debug", "message": f"✅ History komprimiert: {len(history)} → {len(new_history)} Messages"}
-
-
-async def perform_agent_research(
-    user_text: str,
-    stt_time: float,
-    mode: str,
-    model_choice: str,
-    automatik_model: str,
-    history: List,
-    session_id: Optional[str] = None,
-    temperature_mode: str = 'auto',
-    temperature: float = 0.2,
-    llm_options: Optional[Dict] = None
-) -> AsyncIterator[Dict]:
-    """
-    Agent-Recherche mit Query-Optimierung und parallelemWeb-Scraping
-
-    REFACTORED: Diese Funktion ist jetzt ein schlanker Orchestrator,
-    der die eigentliche Arbeit an spezialisierte Module delegiert:
-    - cache_handler: Cache-Hit Handling
-    - query_processor: Query-Optimization + Web-Search
-    - scraper_orchestrator: Parallel Web-Scraping
-    - context_builder: Context-Building + LLM-Inference
-
-    Args:
-        user_text: User-Frage
-        stt_time: STT-Zeit
-        mode: "quick" oder "deep"
-        model_choice: Haupt-LLM für finale Antwort
-        automatik_model: Automatik-LLM für Query-Optimierung
-        llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
-        history: Chat History
-        session_id: Session-ID für Research-Cache (optional)
-        temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
-        temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
-
-    Yields:
-        Dict with: {"type": "debug"|"content"|"result", ...}
-    """
-    from .llm_client import LLMClient
-    from .research import (
-        handle_cache_hit,
-        process_query_and_search,
-        orchestrate_scraping,
-        build_and_generate_response
-    )
-
-    agent_start = time.time()
-
-    # Initialize LLM clients
-    llm_client = LLMClient()
-    automatik_llm_client = LLMClient()
-
-    # ==============================================================
-    # PHASE 1: Cache-Hit Check
-    # ==============================================================
-    cache_handled = False
-    async for item in handle_cache_hit(
-        session_id=session_id,
-        user_text=user_text,
-        history=history,
-        model_choice=model_choice,
-        automatik_model=automatik_model,
-        llm_client=llm_client,
-        automatik_llm_client=automatik_llm_client,
-        llm_options=llm_options,
-        temperature_mode=temperature_mode,
-        temperature=temperature,
-        agent_start=agent_start
-    ):
-        if item["type"] == "result":
-            cache_handled = True
-        yield item
-
-    if cache_handled:
-        # Cache hit handled everything - we're done
-        await llm_client.close()
-        await automatik_llm_client.close()
-        return
-
-    # ==============================================================
-    # PHASE 2: Query Optimization + Web Search
-    # ==============================================================
-    optimized_query = None
-    query_reasoning = None
-    query_opt_time = 0.0
-    related_urls = []
-    tool_results = []
-
-    async for item in process_query_and_search(
-        user_text=user_text,
-        history=history,
-        automatik_model=automatik_model,
-        automatik_llm_client=automatik_llm_client
-    ):
-        if item["type"] == "query_result":
-            optimized_query, query_reasoning, query_opt_time, related_urls, tool_results = item["data"]
-        else:
-            yield item
-
-    # ==============================================================
-    # PHASE 3: Parallel Web Scraping
-    # ==============================================================
-    scraped_results = []
-
-    async for item in orchestrate_scraping(
-        related_urls=related_urls,
-        mode=mode,
-        llm_client=llm_client,
-        model_choice=model_choice
-    ):
-        if item["type"] == "scraping_result":
-            scraped_results, scraping_tool_results = item["data"]
-            tool_results.extend(scraping_tool_results)
-        else:
-            yield item
-
-    # ==============================================================
-    # PHASE 4: Context Building + LLM Response Generation
-    # ==============================================================
-    async for item in build_and_generate_response(
-        user_text=user_text,
-        scraped_results=scraped_results,
-        tool_results=tool_results,
-        history=history,
-        session_id=session_id,
-        mode=mode,
-        model_choice=model_choice,
-        automatik_model=automatik_model,
-        query_reasoning=query_reasoning,
-        query_opt_time=query_opt_time,
-        llm_client=llm_client,
-        automatik_llm_client=automatik_llm_client,
-        llm_options=llm_options,
-        temperature_mode=temperature_mode,
-        temperature=temperature,
-        agent_start=agent_start,
-        stt_time=stt_time
-    ):
-        yield item
-
-    # Cleanup
-    await llm_client.close()
-    await automatik_llm_client.close()
+from .research import perform_agent_research
 
 
 async def chat_interactive_mode(
@@ -372,7 +111,6 @@ async def chat_interactive_mode(
                 sources_text = "\n".join(source_list)
 
             # Lade Cache-Decision-Addon aus Prompt-Datei
-            from .prompt_loader import get_cache_decision_addon
             cache_metadata = get_cache_decision_addon(
                 user_text=user_text,
                 original_question=cache_entry.get('user_text', 'N/A'),
@@ -575,7 +313,6 @@ async def chat_interactive_mode(
             yield {"type": "progress", "clear": True}
 
             # Separator direkt yielden
-            from .logging_utils import CONSOLE_SEPARATOR
             yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
             # Yield final result: thinking_html für AI-Antwort + History (beide mit Collapsible)
