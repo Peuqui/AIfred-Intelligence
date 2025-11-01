@@ -16,6 +16,8 @@ config = rx.Config(
     env=rx.Env.DEV,
     # Sitemap-Plugin deaktivieren (wir brauchen keine Sitemap)
     disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
+    # Performance-Optimierungen
+    compile_timeout=90,  # Timeout für Compilation erhöhen (default: 60s)
 )
 
 # Für Mini PC (natives Ubuntu, 192.168.0.252):
