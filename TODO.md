@@ -143,5 +143,27 @@ prompts/
 
 ---
 
+---
+
+## ✅ Erledigte Features (01.11.2025 - Session 3)
+
+### UI Clearing & Temperature-System
+- [x] **AI-Antwortfenster & Eingabefenster Clearing** ✅ DONE
+  - Fenster zeigen nur noch aktuelle State (kein History-Fallback)
+  - Clearing nach Cache-Metadata-Generierung (Reflex-Limitation)
+- [x] **Temperature-Labels (faktisch/gemischt/kreativ)** ✅ DONE
+  - Debug-Ausgabe jetzt lesbar: `🌡️ Temperature: 0.2 (auto, faktisch)`
+- [x] **RAG Intent-Detection** ✅ DONE
+  - RAG nutzt KI-basierte Temperature-Wahl statt hardcoded
+  - Wetterfragen → 0.2 (faktisch), Kreatives → 0.8
+- [x] **Cache-Initialisierung Fix** ✅ DONE
+  - Cache wird bei Import initialisiert (keine Fehler mehr)
+- [x] **Debug-Messages bereinigt** ✅ DONE
+  - Doppelte Cache-Metadata Messages entfernt
+
+**Details**: Siehe `docs/development/CHANGELOG_2025-11-01.md`
+
+---
+
 **Erstellt**: 30.10.2025
-**Letztes Update**: 01.11.2025 (Session 2: Progress-Indicator, UI-Fixes, Cache-Hit Progress-Flow)
+**Letztes Update**: 01.11.2025 (Session 3: UI Clearing, Temperature-Labels, RAG Intent-Detection)
