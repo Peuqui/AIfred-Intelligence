@@ -119,6 +119,7 @@ def text_input_section() -> rx.Component:
             rx.button(
                 "🗑️ Chat löschen",
                 on_click=AIState.clear_chat,
+                disabled=AIState.is_generating,  # Deaktiviert während Inferenz
                 size="2",
                 variant="outline",
                 color_scheme="red",
