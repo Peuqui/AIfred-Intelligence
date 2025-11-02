@@ -13,6 +13,7 @@ from .backends import BackendFactory, LLMMessage, LLMOptions
 from .lib import (
     initialize_debug_log,
     log_message,
+    console_separator,
     clear_console,
     set_research_cache,
     perform_agent_research
@@ -420,7 +421,10 @@ class AIState(rx.State):
                         f"{inference_time:.1f}s, {tokens_per_sec:.1f} tok/s"
                     )
 
-
+                # Separator nach Generation/Cache-Metadata
+                console_separator()  # Schreibt in Log-File
+                self.add_debug("────────────────────")  # Zeigt in Debug-Console
+                yield
 
                 # Add to history (only for non-research mode)
                 self.chat_history.append((user_msg, full_response))
@@ -504,6 +508,11 @@ class AIState(rx.State):
                 self.add_debug(f"Traceback: {traceback.format_exc()}")
                 self.is_compressing = False
                 yield
+
+            # Separator nach Compression-Check
+            console_separator()  # Schreibt in Log-File
+            self.add_debug("────────────────────")  # Zeigt in Debug-Console
+            yield
 
             # Clear response display
             self.current_ai_response = ""
