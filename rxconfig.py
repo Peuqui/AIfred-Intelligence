@@ -10,10 +10,10 @@ config = rx.Config(
     backend_host="0.0.0.0",  # Listen on all interfaces
     backend_port=8002,
     frontend_port=3002,
-    # Lokale Entwicklung (Hauptrechner WSL)
-    api_url="http://localhost:8002",
-    deploy_url="http://localhost:3002",
-    env=rx.Env.DEV,
+    frontend_host="0.0.0.0",  # Frontend auch auf allen Interfaces!
+    # Mini PC Production - MUSS die öffentlich erreichbare URL sein!
+    api_url="https://narnia.spdns.de:8443",
+    env=rx.Env.PROD,
     # Sitemap-Plugin deaktivieren (wir brauchen keine Sitemap)
     disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
     # Performance-Optimierungen
