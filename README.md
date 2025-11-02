@@ -114,6 +114,9 @@ Bei 70% Context-Auslastung werden automatisch ältere Konversationen komprimiert
 Alle wichtigen Parameter in `aifred/lib/config.py`:
 
 ```python
+# Deployment Mode (Production vs Development)
+USE_SYSTEMD_RESTART = True  # True für Production, False für Development
+
 # History Compression
 HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% Context
 HISTORY_MESSAGES_TO_COMPRESS = 6     # 3 Q&A Paare
@@ -131,6 +134,20 @@ TEMPERATURE_PRESETS = {
 }
 ```
 
+### Restart-Button Verhalten
+
+Der AIfred Restart-Button kann in zwei Modi arbeiten:
+
+- **Production Mode** (`USE_SYSTEMD_RESTART = True`):
+  - Startet den kompletten systemd-Service neu
+  - Benötigt Polkit-Regel für sudo-lose Ausführung
+  - Für produktive Systeme mit systemd
+
+- **Development Mode** (`USE_SYSTEMD_RESTART = False`):
+  - Soft-Restart: Löscht nur Caches und History
+  - Behält laufende Instanz für Hot-Reload
+  - Für lokale Entwicklung ohne Service
+
 ---
 
 ## 📦 Deployment
@@ -139,18 +156,18 @@ TEMPERATURE_PRESETS = {
 
 Für produktiven Betrieb als Service:
 
-1. Service-File erstellen: `/etc/systemd/system/aifred.service`
+1. Service-File erstellen: `/etc/systemd/system/aifred-intelligence.service`
 ```ini
 [Unit]
-Description=AIfred Intelligence
+Description=AIfred Intelligence Voice Assistant
 After=network.target ollama.service
 
 [Service]
 Type=simple
-User=aifred
-WorkingDirectory=/opt/aifred
-Environment="PATH=/opt/aifred/venv/bin"
-ExecStart=/opt/aifred/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8001
+User=mp
+WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence
+Environment="PATH=/home/mp/Projekte/AIfred-Intelligence/venv/bin"
+ExecStart=/home/mp/Projekte/AIfred-Intelligence/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
 
 [Install]
@@ -160,8 +177,25 @@ WantedBy=multi-user.target
 2. Service aktivieren:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable aifred
-sudo systemctl start aifred
+sudo systemctl enable aifred-intelligence
+sudo systemctl start aifred-intelligence
+```
+
+3. **Optional: Polkit-Regel für Restart ohne sudo**
+
+Für den Restart-Button in der Web-UI ohne Passwort-Abfrage:
+
+`/etc/polkit-1/rules.d/50-aifred-restart.rules`:
+```javascript
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.systemd1.manage-units") &&
+        (action.lookup("unit") == "aifred-intelligence.service" ||
+         action.lookup("unit") == "ollama.service") &&
+        (action.lookup("verb") == "restart") &&
+        (subject.user == "mp")) {
+        return polkit.Result.YES;
+    }
+});
 ```
 
 ---

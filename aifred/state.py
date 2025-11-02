@@ -559,7 +559,38 @@ class AIState(rx.State):
 
 
     def restart_aifred(self):
-        """Restart AIfred - clear all caches and histories"""
+        """Restart AIfred - choose between production service restart or development hot-reload"""
+
+        # Import configuration from central config file
+        from .lib.config import USE_SYSTEMD_RESTART
+
+        if USE_SYSTEMD_RESTART:
+            # PRODUCTION: Restart via systemd service
+            self._restart_aifred_systemd()
+        else:
+            # DEVELOPMENT: Soft restart for hot-reload
+            self._soft_restart()
+
+    def _restart_aifred_systemd(self):
+        """Production: Restart AIfred service via systemctl"""
+        import subprocess
+        try:
+            self.add_debug("🔄 Restarting AIfred service...")
+            # Restart the actual systemd service (Polkit allows this without sudo)
+            subprocess.run(["systemctl", "restart", "aifred-intelligence"], check=True)
+            self.add_debug("✅ AIfred service restart initiated")
+
+            # Note: The service restart will reload the entire application,
+            # so clearing state here is not necessary - the app will reinitialize
+
+        except Exception as e:
+            self.add_debug(f"❌ AIfred service restart failed: {e}")
+            # Fallback to soft restart if systemctl fails
+            self.add_debug("⚠️ Falling back to soft restart...")
+            self._soft_restart()
+
+    def _soft_restart(self):
+        """Development: Soft restart - clear all caches and histories without restarting service"""
         # Clear lib console FIRST (before adding new message!)
         clear_console()
 
@@ -580,7 +611,7 @@ class AIState(rx.State):
         initialize_debug_log(force_reset=True)
 
         # Add restart message AFTER clearing
-        self.add_debug("🔄 AIfred restarted - all caches and histories cleared")
+        self.add_debug("🔄 AIfred soft restart - all caches and histories cleared (Hot-Reload Mode)")
 
 
     def set_selected_model(self, model: str):
