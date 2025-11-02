@@ -9,9 +9,20 @@ Handles context limits and token estimation for LLMs:
 """
 
 import time
+import asyncio
 from typing import Dict, List, Optional, AsyncIterator
-from .logging_utils import log_message
+from .logging_utils import log_message, console_separator
 from .prompt_loader import load_prompt
+from .config import (
+    HISTORY_COMPRESSION_THRESHOLD,
+    HISTORY_MESSAGES_TO_COMPRESS,
+    HISTORY_MAX_SUMMARIES,
+    HISTORY_SUMMARY_TARGET_TOKENS,
+    HISTORY_SUMMARY_TARGET_WORDS,
+    HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION,
+    HISTORY_SUMMARY_TEMPERATURE,
+    HISTORY_SUMMARY_CONTEXT_LIMIT
+)
 
 
 def estimate_tokens(messages: List[Dict]) -> int:
@@ -130,7 +141,7 @@ async def summarize_history_if_needed(
     llm_client,
     model_name: str,
     context_limit: int,
-    max_summaries: int = 2
+    max_summaries: int = None
 ) -> AsyncIterator[Dict]:
     """
     Komprimiert Chat-History wenn nötig (Context-Overflow-Prevention)
@@ -140,7 +151,7 @@ async def summarize_history_if_needed(
         llm_client: LLM Client für Summarization
         model_name: Haupt-LLM Model
         context_limit: Context Window Limit des Models
-        max_summaries: Maximale Anzahl Summaries bevor FIFO (default: 2)
+        max_summaries: Maximale Anzahl Summaries bevor FIFO (default: aus config)
 
     Yields:
         Dict: Progress und Debug Messages
@@ -148,24 +159,39 @@ async def summarize_history_if_needed(
     Returns:
         None - Funktion modifiziert history in-place nicht, State-Update erfolgt über yield
     """
-    # 1. Trigger-Check: Nur wenn History > 10 Messages
-    if len(history) <= 10:
+    # Entfernt: Unnötige Debug-Zeile über function call details
+
+    # Verwende Config-Werte als Defaults
+    if max_summaries is None:
+        max_summaries = HISTORY_MAX_SUMMARIES
+
+    # 1. Trigger-Check: Nur wenn History > konfiguriertes Minimum
+    if len(history) < HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION:
+        yield {"type": "debug", "message": f"❌ History zu kurz: {len(history)} < {HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION} (Minimum)"}
+        return
+
+    # 1b. Safety-Check: Immer mindestens 1 Message nach Kompression übrig lassen!
+    # KRITISCH: Verhindert dass alle Messages komprimiert werden und Chat leer wird
+    if len(history) <= HISTORY_MESSAGES_TO_COMPRESS:
+        yield {"type": "debug", "message": f"❌ Zu wenig Messages: {len(history)} <= {HISTORY_MESSAGES_TO_COMPRESS} (würde alle Messages komprimieren)"}
+        log_message(f"⚠️ Compression aborted: {len(history)} Messages würden ALLE komprimiert → Chat leer!")
         return
 
     # 2. Token-Estimation
     estimated_tokens = estimate_tokens_from_history(history)
+    yield {"type": "debug", "message": f"📊 Token-Schätzung: {estimated_tokens} Tokens bei {len(history)} Messages"}
 
-    # 3. Nur summarizen wenn > 70% vom Context-Limit
-    threshold = int(context_limit * 0.7)
+    # 3. Nur summarizen wenn > konfigurierten Threshold vom Context-Limit
+    threshold = int(context_limit * HISTORY_COMPRESSION_THRESHOLD)
     if estimated_tokens < threshold:
-        log_message(f"📊 History OK: {estimated_tokens} Tokens < {threshold} Threshold (70% von {context_limit})")
+        yield {"type": "debug", "message": f"📊 History OK: {estimated_tokens} Tokens < {threshold} Threshold ({int(HISTORY_COMPRESSION_THRESHOLD*100)}% von {context_limit})"}
         return
 
     log_message(f"⚠️ History zu lang: {estimated_tokens} Tokens > {threshold} Threshold → Starte Kompression")
 
     # Progress-Indicator: Komprimiere Kontext
     yield {"type": "progress", "phase": "compress"}
-    yield {"type": "debug", "message": f"🗜️ History-Kompression: {len(history)} Messages, {estimated_tokens} Tokens"}
+    yield {"type": "debug", "message": f"🗜️ STARTE History-Kompression: {len(history)} Messages, {estimated_tokens} Tokens > {threshold} Threshold"}
 
     # 4. Zähle bestehende Summaries
     summary_count = sum(1 for user_msg, ai_msg in history if user_msg == "" and ai_msg.startswith("[📊 Komprimiert"))
@@ -180,53 +206,126 @@ async def summarize_history_if_needed(
                 yield {"type": "debug", "message": "🗑️ Älteste Summary entfernt (FIFO)"}
                 break
 
-    # 6. Extrahiere älteste 6 Messages (3 User-AI-Paare) zum Summarizen
-    messages_to_summarize = history[:6]
-    remaining_messages = history[6:]
+    # 6. Extrahiere älteste Messages zum Summarizen (konfigurierbare Anzahl)
+    messages_to_summarize = history[:HISTORY_MESSAGES_TO_COMPRESS]
+    remaining_messages = history[HISTORY_MESSAGES_TO_COMPRESS:]
+
+    log_message(f"📝 Bereite Kompression vor:")
+    log_message(f"   └─ Zu komprimieren: {len(messages_to_summarize)} Messages")
+    log_message(f"   └─ Model: {model_name}")
+    log_message(f"   └─ Temperature: {HISTORY_SUMMARY_TEMPERATURE}")
+    log_message(f"   └─ Context-Limit: {HISTORY_SUMMARY_CONTEXT_LIMIT}")
 
     # 7. Formatiere Konversation für LLM
     conversation_text = ""
-    for user_msg, ai_msg in messages_to_summarize:
+    for i, (user_msg, ai_msg) in enumerate(messages_to_summarize, 1):
+        log_message(f"   └─ Message {i}: User={len(user_msg)} chars, AI={len(ai_msg)} chars")
         conversation_text += f"User: {user_msg}\nAI: {ai_msg}\n\n"
 
     # 8. Load Summarization Prompt
     summary_prompt = load_prompt(
         'history_summarization',
         conversation=conversation_text.strip(),
-        max_tokens=200,
-        max_words=150
+        max_tokens=HISTORY_SUMMARY_TARGET_TOKENS,
+        max_words=HISTORY_SUMMARY_TARGET_WORDS
     )
 
     # 9. LLM Summarization (Haupt-LLM für bessere Qualität)
-    log_message(f"🗜️ Summarize 6 Messages mit {model_name}...")
+    import datetime
+    start_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Millisekunden
+    log_message(f"🗜️ [START {start_timestamp}] Komprimiere {HISTORY_MESSAGES_TO_COMPRESS} Messages mit {model_name}...")
     summary_start = time.time()
 
+    # Token-Anzahl vor Kompression
+    tokens_before = estimate_tokens_from_history(messages_to_summarize)
+
     summary_text = ""
-    async for chunk in llm_client.chat_stream(
-        model=model_name,
-        messages=[{"role": "system", "content": summary_prompt}],
-        options={"temperature": 0.3, "num_ctx": 4096}  # Niedrige Temp für faktische Summary
-    ):
-        if chunk["type"] == "content":
-            summary_text += chunk["text"]
-        elif chunk["type"] == "done":
-            summary_time = time.time() - summary_start
-            tokens_generated = chunk["metrics"].get("tokens_generated", 0)
-            log_message(f"✅ Summary generiert: {tokens_generated} Tokens in {summary_time:.1f}s")
+    tokens_generated = 0
 
-    # 10. Erstelle Summary-Entry (Collapsible-Format)
-    summary_entry = (
-        "",  # Leerer User-Teil
-        f"[📊 Komprimiert: {len(messages_to_summarize)} Messages]\n{summary_text.strip()}"
-    )
+    try:
+        # VIEL EINFACHER: Nutze chat() statt chat_stream() - wir brauchen keinen Stream!
+        log_message(f"   Rufe LLM auf (non-streaming)...")
 
-    # 11. Baue neue History: [Summary] + [Remaining Messages]
-    new_history = [summary_entry] + remaining_messages
+        # Import backend types
+        from ..backends.base import LLMMessage, LLMOptions
 
-    log_message(f"✅ History komprimiert: {len(history)} → {len(new_history)} Messages")
-    log_message(f"   Tokens geschätzt: {estimated_tokens} → ~{estimate_tokens_from_history(new_history)}")
+        # Create proper message and options objects
+        messages = [LLMMessage(role="system", content=summary_prompt)]
+        options = LLMOptions(
+            temperature=HISTORY_SUMMARY_TEMPERATURE,
+            num_ctx=HISTORY_SUMMARY_CONTEXT_LIMIT
+        )
+
+        response = await llm_client.chat(
+            model=model_name,
+            messages=messages,
+            options=options
+        )
+
+        # Response auswerten
+        summary_time = time.time() - summary_start
+        end_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+        # Log raw response for debugging
+        log_message(f"   Raw response type: {type(response)}")
+        log_message(f"   Raw response: {response}")
+
+        # Summary-Text extrahieren (response ist ein LLMResponse Objekt!)
+        summary_text = response.text if response else ""
+
+        # Metrics aus LLMResponse extrahieren
+        if response:
+            tokens_generated = response.tokens_generated
+            tokens_per_second = response.tokens_per_second
+        else:
+            # Fallback: Schätze Tokens basierend auf Text-Länge
+            tokens_generated = len(summary_text) // 4  # Grobe Schätzung
+            tokens_per_second = tokens_generated / summary_time if summary_time > 0 else 0
+
+        # Detaillierte Debug-Ausgabe
+        log_message(f"✅ [END {end_timestamp}] Summary generiert:")
+        log_message(f"   └─ Zeichen generiert: {len(summary_text)}")
+        log_message(f"   └─ Tokens geschätzt: {tokens_generated}")
+        log_message(f"   └─ Zeit: {summary_time:.2f}s")
+        log_message(f"   └─ Geschwindigkeit: {tokens_per_second:.1f} tok/s")
+        if tokens_before > 0 and tokens_generated > 0:
+            log_message(f"   └─ Kompression: {tokens_before} → {tokens_generated} Tokens ({tokens_before/tokens_generated:.1f}:1 Ratio)")
+        console_separator()
+
+    except asyncio.TimeoutError:
+        log_message(f"⚠️ Async Timeout bei Summary-Generierung")
+        yield {"type": "debug", "message": "⚠️ Summary-Generierung timeout"}
+        summary_text = ""  # Sicherstellen dass leer bei Timeout
+    except Exception as e:
+        log_message(f"❌ Fehler bei Summary-Generierung: {e}")
+        yield {"type": "debug", "message": f"❌ Summary-Fehler: {e}"}
+        summary_text = ""  # Sicherstellen dass leer bei Fehler
+
+    # 10. Nur wenn Summary erfolgreich generiert wurde
+    if summary_text and len(summary_text.strip()) > 10:  # Mindestens 10 Zeichen
+        # Erstelle Summary-Entry (Collapsible-Format)
+        summary_entry = (
+            "",  # Leerer User-Teil
+            f"[📊 Komprimiert: {len(messages_to_summarize)} Messages]\n{summary_text.strip()}"
+        )
+        # Baue neue History: [Summary] + [Remaining Messages]
+        new_history = [summary_entry] + remaining_messages
+    else:
+        # Bei Fehler: History unverändert lassen
+        log_message(f"⚠️ Summary zu kurz oder leer - History bleibt unverändert")
+        yield {"type": "debug", "message": "⚠️ Kompression fehlgeschlagen - History unverändert"}
+        return  # Beende hier ohne Änderung
+
+    # Berechne neue Token-Anzahl nach Kompression
+    new_tokens = estimate_tokens_from_history(new_history)
+    compression_ratio = estimated_tokens / new_tokens if new_tokens > 0 else 0
+
+    log_message(f"✅ History erfolgreich komprimiert:")
+    log_message(f"   └─ Messages: {len(history)} → {len(new_history)} (davon {len(remaining_messages)} sichtbar)")
+    log_message(f"   └─ Tokens: {estimated_tokens} → {new_tokens} ({compression_ratio:.1f}:1 Ratio)")
+    log_message(f"   └─ Platz gespart: {estimated_tokens - new_tokens} Tokens")
 
     # 12. Yield Update an State
     yield {"type": "history_update", "data": new_history}
-    yield {"type": "debug", "message": f"✅ History komprimiert: {len(history)} → {len(new_history)} Messages"}
+    yield {"type": "debug", "message": f"✅ Kompression erfolgreich: {len(messages_to_summarize)} alte Messages → 1 Summary (noch {len(remaining_messages)} aktuelle Messages sichtbar)"}
 

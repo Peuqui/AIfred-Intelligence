@@ -105,3 +105,48 @@ MAX_WORDS_PER_SOURCE = 2000
 # Token-zu-Zeichen Ratio für Context-Berechnung
 # Deutsch/Englisch Mix: ~3 Zeichen pro Token
 CHARS_PER_TOKEN = 3
+
+# ============================================================
+# HISTORY SUMMARIZATION CONFIGURATION
+# ============================================================
+# Trigger-Punkt: Bei welchem Prozentsatz des Context-Limits soll komprimiert werden?
+HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% des Context-Limits (Produktiv-Wert)
+
+# Anzahl der Messages die auf einmal komprimiert werden
+# (6 Messages = 3 Frage-Antwort-Paare)
+HISTORY_MESSAGES_TO_COMPRESS = 6  # 3 Frage-Antwort-Paare
+
+# Maximale Anzahl von Summaries die gespeichert werden
+# Bei mehr wird die älteste gelöscht (FIFO)
+HISTORY_MAX_SUMMARIES = 10
+
+# Target-Größe für eine Summary in Tokens
+HISTORY_SUMMARY_TARGET_TOKENS = 1000
+
+# Target-Größe für eine Summary in Wörtern (für Prompt)
+HISTORY_SUMMARY_TARGET_WORDS = 750
+
+# Minimale Anzahl von Messages bevor Compression überhaupt startet
+# (verhindert Compression bei kurzen Gesprächen)
+# WICHTIG: Muss GRÖSSER sein als HISTORY_MESSAGES_TO_COMPRESS um mindestens 1 Message sichtbar zu lassen!
+HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION = 10  # Mindestens 5 Frage-Antwort-Paare vor Kompression
+
+# Temperature für Summary-Generierung (niedriger = faktischer)
+HISTORY_SUMMARY_TEMPERATURE = 0.3
+
+# Context-Limit für Summary-LLM (sollte nicht zu groß sein)
+HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
+
+# ============================================================
+# CONFIG VALIDATION (Safety Checks)
+# ============================================================
+# Validate History Compression Config zur Laufzeit
+if HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION <= HISTORY_MESSAGES_TO_COMPRESS:
+    import warnings
+    warnings.warn(
+        f"⚠️ CONFIG ERROR: HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION ({HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION}) "
+        f"must be GREATER than HISTORY_MESSAGES_TO_COMPRESS ({HISTORY_MESSAGES_TO_COMPRESS})! "
+        f"Otherwise all messages would be compressed and chat history would become empty. "
+        f"Recommended: HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION = HISTORY_MESSAGES_TO_COMPRESS + 1",
+        UserWarning
+    )

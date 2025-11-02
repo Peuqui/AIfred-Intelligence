@@ -57,7 +57,7 @@ def text_input_section() -> rx.Component:
             on_change=AIState.set_user_input,
             width="100%",
             rows="5",
-            disabled=AIState.is_generating,
+            disabled=AIState.is_generating | AIState.is_compressing,
             style={
                 "border": f"1px solid {COLORS['border']}",
                 "&:focus": {
@@ -96,8 +96,8 @@ def text_input_section() -> rx.Component:
                 on_click=AIState.send_message,
                 size="2",
                 variant="solid",  # Explizit solid, ohne color_scheme
-                loading=AIState.is_generating,
-                disabled=AIState.is_generating,
+                loading=AIState.is_generating | AIState.is_compressing,
+                disabled=AIState.is_generating | AIState.is_compressing,
                 flex="1",  # Nimmt mehr Platz
                 style={
                     "background": "#3d2a00 !important",  # Dunkles Orange (wichtig!)
@@ -119,7 +119,7 @@ def text_input_section() -> rx.Component:
             rx.button(
                 "🗑️ Chat löschen",
                 on_click=AIState.clear_chat,
-                disabled=AIState.is_generating,  # Deaktiviert während Inferenz
+                disabled=AIState.is_generating | AIState.is_compressing,  # Deaktiviert während Inferenz und Kompression
                 size="2",
                 variant="outline",
                 color_scheme="red",
@@ -281,7 +281,11 @@ def processing_progress_banner() -> rx.Component:
             rx.cond(
                 AIState.progress_failed > 0,
                 rx.text(
-                    f"({AIState.progress_failed} Fehler)",
+                    rx.cond(
+                        AIState.progress_failed == 1,
+                        "(1 Website nicht erreichbar)",
+                        f"({AIState.progress_failed} Websites nicht erreichbar)"
+                    ),
                     font_size="11px",
                     color=COLORS["accent_warning"],  # Orange statt Grau - besser sichtbar
                     font_weight="500",
@@ -458,6 +462,7 @@ def tts_section() -> rx.Component:
     )
 
 
+
 def render_chat_message(msg: tuple) -> rx.Component:
     """Rendert eine einzelne Chat-Message (User+AI oder Summary)"""
     # Check ob es eine Summary ist (leerer User-Teil + "[📊 Komprimiert" am Anfang)
@@ -466,30 +471,53 @@ def render_chat_message(msg: tuple) -> rx.Component:
 
     return rx.cond(
         is_summary,
-        # Summary-Anzeige (einfache Box, keine Collapsible - Summary ist eh kompakt)
+        # Summary-Anzeige mit Collapsible (vereinfacht für Reflex)
         rx.box(
-            rx.vstack(
-                # Header mit Icon
-                rx.hstack(
-                    rx.text("📊", font_size="14px"),
-                    rx.text(
-                        "Komprimierter Kontext",
-                        font_weight="bold",
-                        font_size="13px",
-                        color=COLORS["accent_warning"]
+            rx.accordion.root(
+                rx.accordion.item(
+                    value="summary_main",
+                    header=rx.box(
+                        rx.hstack(
+                            rx.text("📊", font_size="14px"),
+                            rx.text(
+                                "Komprimierte Messages",  # Fester Text statt StringVar-Operation
+                                font_weight="bold",
+                                font_size="13px",
+                                color=COLORS["accent_warning"]
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        padding_y="2",
+                        padding_x="3",
+                        background_color=COLORS["card_bg"],
+                        border_radius="6px",
+                        cursor="pointer",
+                        transition="background-color 0.2s ease",
+                        _hover={
+                            "background_color": COLORS["primary_bg"],
+                        },
                     ),
-                    spacing="2",
+                    content=rx.box(
+                        rx.markdown(
+                            msg[1],  # Zeige den kompletten Summary-Text
+                            color=COLORS["text_primary"],
+                            font_size="12px"
+                        ),
+                        padding="3",
+                        background_color="rgba(255, 165, 0, 0.05)",  # Leichter Orange-Tint
+                        border_radius="6px",
+                        border=f"1px solid {COLORS['border']}",
+                        width="100%",
+                        max_height="600px",  # Scrollbar bei sehr langen Summaries
+                        overflow_y="auto",
+                    ),
                 ),
-                # Summary Content (ganzer Text als Markdown)
-                rx.markdown(
-                    msg[1],  # Kompletter Summary-Text (inkl. Header-Zeile)
-                    color=COLORS["text_primary"],
-                    font_size="12px"
-                ),
-                spacing="2",
+                collapsible=True,
+                variant="soft",
                 width="100%",
             ),
-            background_color="rgba(255, 165, 0, 0.1)",  # Orange Tint
+            background_color="rgba(255, 165, 0, 0.1)",  # Orange Hintergrund für Container
             padding="3",
             border_radius="8px",
             border=f"1px solid {COLORS['accent_warning']}",

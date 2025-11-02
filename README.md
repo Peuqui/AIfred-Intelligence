@@ -1,270 +1,205 @@
-# 🤖 AIfred Intelligence - Reflex Edition
+# 🤖 AIfred Intelligence - Advanced AI Assistant
 
-**Next-generation AI Voice Assistant with Multi-Backend LLM Support**
+**Production-Ready AI Assistant with Multi-LLM Support, Web Research & Voice Interface**
 
-Complete rewrite of AIfred Intelligence using **Reflex** framework for:
-- ✅ Better Mobile UX (Auto-Reconnect, PWA)
-- ✅ Multi-Backend Support (Ollama, vLLM, llama.cpp)
-- ✅ Modern UI/UX (React-based, generated from Python)
-- ✅ Production-Ready (WebSocket streaming, proper error handling)
+AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web-Recherche, Multi-Model-Support und History-Kompression für unbegrenzte Konversationen.
 
 ---
 
-## 🏗️ Architecture
+## ✨ Features
 
-### Multi-Backend Design
+### 🎯 Core Features
+- **Multi-LLM Support**: Ollama Backend mit verschiedenen Modellen (Qwen, Phi3, etc.)
+- **Automatische Web-Recherche**: KI entscheidet selbst wann Recherche nötig ist
+- **History Compression**: Intelligente Kompression bei 70% Context-Auslastung
+- **Voice Interface**: Speech-to-Text und Text-to-Speech Integration
+- **Cache-System**: Intelligentes Caching von Recherche-Ergebnissen
 
-AIfred-Reflex supports multiple LLM backends out-of-the-box:
-
-| Backend | Status | Best For | Performance |
-|---------|--------|----------|-------------|
-| **Ollama** | ✅ Ready | Local, Easy Setup | Good (12-30 t/s) |
-| **vLLM** | ✅ Ready | NVIDIA GPU, Production | Excellent (30-100+ t/s) |
-| llama.cpp | 🚧 Planned | CPU/AMD GPU | Good |
-| OpenAI | 🚧 Planned | Cloud Fallback | Excellent (cloud) |
-
-**Switch backends at runtime** via Settings UI!
-
-### Directory Structure
-
-```
-AIfred-Intelligence-Reflex/
-├── aifred/
-│   ├── backends/          # LLM Backend Adapters
-│   │   ├── base.py        # Abstract base class
-│   │   ├── ollama.py      # Ollama adapter
-│   │   ├── vllm.py        # vLLM adapter (OpenAI-compatible)
-│   │   └── __init__.py    # BackendFactory
-│   ├── components/        # Reflex UI Components
-│   │   ├── chat.py        # Chat interface
-│   │   ├── debug_console.py  # Debug console (auto-reconnect)
-│   │   └── audio.py       # Audio input/output
-│   ├── pages/             # Reflex Pages
-│   │   ├── index.py       # Main page
-│   │   └── settings.py    # Settings page
-│   ├── state.py           # Reflex State Management
-│   └── lib/               # Shared libraries (from original AIfred)
-│       ├── agent_core.py
-│       ├── agent_tools.py
-│       └── logging_utils.py
-├── assets/                # CSS, JS, Images
-├── rxconfig.py           # Reflex configuration
-└── requirements.txt
-```
+### 🔧 Technical Highlights
+- **Reflex Framework**: React-Frontend aus Python generiert
+- **WebSocket Streaming**: Echtzeit-Updates ohne Polling
+- **Adaptive Temperature**: KI wählt Temperature basierend auf Fragetyp
+- **Token Management**: Dynamische Context-Window-Berechnung
+- **Debug Console**: Umfangreiches Logging und Monitoring
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Installation
 
-### 1. Install Dependencies
+### Voraussetzungen
+- Python 3.10+
+- Ollama (für LLM Backend)
+- 8GB+ RAM empfohlen
 
+### Setup
+
+1. **Repository klonen**:
 ```bash
-cd AIfred-Intelligence-Reflex
+git clone https://github.com/yourusername/AIfred-Intelligence.git
+cd AIfred-Intelligence
+```
+
+2. **Virtual Environment erstellen**:
+```bash
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # Linux/Mac
+# oder
+venv\Scripts\activate     # Windows
+```
+
+3. **Dependencies installieren**:
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Choose Your Backend
+4. **Umgebungsvariablen** (.env):
+```env
+# API Keys für Web-Recherche
+BRAVE_API_KEY=your_key_here
+TAVILY_API_KEY=your_key_here
 
-#### Option A: Ollama (Easiest)
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Start Ollama
-systemctl start ollama
-
-# Pull models
-ollama pull qwen3:8b
-ollama pull phi3:mini
+# Ollama Konfiguration
+OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-#### Option B: vLLM (Fastest - NVIDIA GPU)
+5. **Ollama Models installieren**:
 ```bash
-# Install vLLM
-pip install vllm
-
-# Start vLLM server
-vllm serve Qwen/Qwen3-8B \
-  --gpu-memory-utilization 0.8 \
-  --max-model-len 32768 \
-  --port 8000
+ollama pull qwen3:8b        # Haupt-LLM
+ollama pull qwen2.5:3b      # Automatik-LLM
+ollama pull phi3:mini       # Backup/Test
 ```
 
-### 3. Run AIfred
-
+6. **Starten**:
 ```bash
-# Development mode
 reflex run
-
-# Production mode
-reflex run --env prod
 ```
 
-### 4. Access UI
-
-- **Local:** https://localhost:8443
-- **Mobile:** https://[your-ip]:8443
-- **PWA:** Install from browser menu
+Die App läuft dann unter: http://localhost:3002
 
 ---
 
-## 🎯 Features
+## 🏗️ Architektur
 
-### Core Features
-- ✅ **Multi-Backend Support** - Switch between Ollama, vLLM on-the-fly
-- ✅ **Web Research** - Brave Search, SearXNG, Tavily AI integration
-- ✅ **Voice Input/Output** - Whisper STT + Edge TTS
-- ✅ **Smart Caching** - Redis-based research cache
-- ✅ **Temperature Modes** - Auto, Manual, Custom per query type
+### Directory Structure
+```
+AIfred-Intelligence/
+├── aifred/
+│   ├── backends/          # LLM Backend Adapters
+│   ├── components/        # Reflex UI Components
+│   ├── lib/              # Core Libraries
+│   │   ├── agent_core.py     # Haupt-Agent-Logik
+│   │   ├── context_manager.py # History-Kompression
+│   │   ├── config.py         # Konfiguration
+│   │   └── cache.py         # Cache-System
+│   └── state.py          # Reflex State Management
+├── prompts/              # System Prompts
+├── logs/                 # Debug Logs
+└── docs/                # Dokumentation
+```
 
-### Reflex-Specific Features
-- ✅ **WebSocket Streaming** - Real-time token-by-token responses
-- ✅ **Auto-Reconnect** - Mobile tabs don't lose state
-- ✅ **PWA Support** - Install as app, offline mode
-- ✅ **Responsive Design** - Mobile-first UI
-- ✅ **Service Worker** - Background sync, push notifications
+### History Compression System
 
-### Debug & Monitoring
-- ✅ **Live Debug Console** - Real-time logs (auto-refresh configurable)
-- ✅ **Backend Health Monitoring** - Check LLM server status
-- ✅ **Performance Metrics** - Tokens/sec, inference time
-- ✅ **Service Restart Buttons** - Restart Ollama/vLLM from UI
+Bei 70% Context-Auslastung werden automatisch ältere Konversationen komprimiert:
+
+- **Trigger**: 70% des Context Windows belegt
+- **Kompression**: 3 Frage-Antwort-Paare → 1 Summary
+- **Effizienz**: ~6:1 Kompressionsrate
+- **FIFO**: Maximal 10 Summaries (älteste werden gelöscht)
+- **Safety**: Mindestens 1 aktuelle Konversation bleibt sichtbar
 
 ---
 
-## ⚙️ Configuration
+## 🔧 Konfiguration
 
-### Backend Selection
+Alle wichtigen Parameter in `aifred/lib/config.py`:
 
 ```python
-# In Settings UI or code
-backend = BackendFactory.create(
-    backend_type="vllm",  # or "ollama", "llamacpp"
-    base_url="http://localhost:8000/v1"
-)
-```
+# History Compression
+HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% Context
+HISTORY_MESSAGES_TO_COMPRESS = 6     # 3 Q&A Paare
+HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION = 10
 
-### Environment Variables
+# LLM Settings
+LLM_MAIN_MODEL = "qwen3:8b"
+LLM_AUTOMATIK_MODEL = "qwen2.5:3b"
 
-```bash
-# LLM Backend
-AIFRED_BACKEND=vllm  # or ollama
-AIFRED_BACKEND_URL=http://localhost:8000/v1
-
-# Models
-AIFRED_MAIN_MODEL=qwen3-8b
-AIFRED_AUTO_MODEL=phi3-mini
-
-# Redis Cache
-REDIS_URL=redis://localhost:6379
-
-# Debug
-DEBUG=true
-LOG_LEVEL=INFO
-```
-
----
-
-## 📊 Performance Comparison
-
-Measured on RTX 3060 (12GB VRAM):
-
-| Backend | Model | Prompt t/s | Generate t/s | Notes |
-|---------|-------|------------|--------------|-------|
-| Ollama | qwen3:8b | 139 | 12 | Stable, easy setup |
-| vLLM | qwen3-8b | 450 | 45 | 3-4x faster! |
-| Ollama | phi3:mini | 483 | 31 | Small model |
-| vLLM | phi3-mini | 1200 | 95 | Blazing fast |
-
----
-
-## 🔧 Development
-
-### Adding a New Backend
-
-1. Create adapter in `aifred/backends/your_backend.py`:
-
-```python
-from .base import LLMBackend
-
-class YourBackend(LLMBackend):
-    async def chat(self, model, messages, options):
-        # Your implementation
-        pass
-```
-
-2. Register in `BackendFactory`:
-
-```python
-# aifred/backends/__init__.py
-_backends = {
-    "ollama": OllamaBackend,
-    "vllm": vLLMBackend,
-    "your_backend": YourBackend,  # Add here
+# Temperature Presets
+TEMPERATURE_PRESETS = {
+    "faktisch": 0.2,
+    "gemischt": 0.5,
+    "kreativ": 0.8
 }
 ```
 
-3. Done! Backend is now selectable in UI.
-
 ---
 
-## 🐛 Troubleshooting
+## 📦 Deployment
 
-### GPU Hang with Ollama
-- **Solution:** Switch to vLLM (better memory management)
-- **Workaround:** Reduce `num_ctx` to 16384
+### Systemd Service
 
-### Mobile Tab Freezes
-- **Solution:** Disable Auto-Refresh in Debug Console
-- **Fixed in Reflex:** Auto-reconnect handles this
+Für produktiven Betrieb als Service:
 
-### Backend Not Found
+1. Service-File erstellen: `/etc/systemd/system/aifred.service`
+```ini
+[Unit]
+Description=AIfred Intelligence
+After=network.target ollama.service
+
+[Service]
+Type=simple
+User=aifred
+WorkingDirectory=/opt/aifred
+Environment="PATH=/opt/aifred/venv/bin"
+ExecStart=/opt/aifred/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8001
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+2. Service aktivieren:
 ```bash
-# Check backend is running
-curl http://localhost:11434/api/tags  # Ollama
-curl http://localhost:8000/v1/models  # vLLM
+sudo systemctl daemon-reload
+sudo systemctl enable aifred
+sudo systemctl start aifred
 ```
 
 ---
 
-## 📝 Migration from Original AIfred
+## 🛠️ Development
 
-### What's Different?
+### Debug Logs
+```bash
+tail -f logs/aifred_debug.log
+```
 
-| Aspect | Original (Gradio) | Reflex Edition |
-|--------|-------------------|----------------|
-| Framework | Gradio | Reflex (React-based) |
-| Backend | Ollama only | Multi-backend (Ollama, vLLM, etc.) |
-| Mobile UX | Limited | Excellent (PWA, auto-reconnect) |
-| Reconnection | No | Yes (WebSocket auto-reconnect) |
-| UI Customization | Limited | Full control (Python → React) |
-| Performance | Good | Better (vLLM support) |
-
-### Migration Checklist
-- [ ] Copy `lib/` modules
-- [ ] Port prompts to Reflex State
-- [ ] Test all backends
-- [ ] Verify audio (STT/TTS)
-- [ ] Test on mobile
-- [ ] Setup systemd service
+### Tests ausführen
+```bash
+pytest tests/
+```
 
 ---
 
-## 📜 License
+## 📚 Dokumentation
 
-Same as original AIfred Intelligence project.
-
----
-
-## 🙏 Credits
-
-- **Original AIfred** - Gradio version
-- **Reflex** - https://reflex.dev
-- **vLLM** - https://vllm.ai
-- **Ollama** - https://ollama.com
+Weitere Dokumentation im `docs/` Verzeichnis:
+- [Architecture Overview](docs/architecture/)
+- [API Documentation](docs/api/)
+- [Migration Guide](docs/infrastructure/MIGRATION.md)
 
 ---
 
-**Made with ❤️ and AI Assistant**
+## 🤝 Contributing
+
+Pull Requests sind willkommen! Für größere Änderungen bitte erst ein Issue öffnen.
+
+---
+
+## 📄 License
+
+MIT License - siehe [LICENSE](LICENSE) file
+
+---
+
+**Version**: 2.0.0 (November 2025)
+**Status**: Production-Ready 🚀

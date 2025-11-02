@@ -14,7 +14,8 @@ from typing import List, Dict, Optional, Tuple
 def build_messages_from_history(
     history: List[Tuple[str, str]],
     current_user_text: str,
-    max_turns: Optional[int] = None
+    max_turns: Optional[int] = None,
+    include_summaries: bool = True
 ) -> List[Dict[str, str]]:
     """
     Konvertiert Gradio-History zu Ollama-Messages Format
@@ -22,28 +23,28 @@ def build_messages_from_history(
     Entfernt Timing-Info wie "(STT: 2.5s)", "(Inferenz: 1.3s)", "(Agent: 45.2s)"
     aus User- und AI-Nachrichten.
 
+    Behandelt History-Summaries als System-Messages:
+    - Summary-Format: ("", "[📊 Komprimiert: X Messages]\\n{summary}")
+    - Wird zu: {'role': 'system', 'content': summary}
+
     Args:
         history: Gradio Chat History [[user_msg, ai_msg], ...]
         current_user_text: Aktuelle User-Nachricht
         max_turns: Optional - Nur letzte N Turns verwenden (None = alle)
+        include_summaries: Summaries als System-Messages einbinden (default: True)
 
     Returns:
         list: Ollama Messages Format [{'role': 'user', 'content': '...'}, ...]
 
     Examples:
         >>> history = [
+        ...     ["", "[📊 Komprimiert: 6 Messages]\\nUser fragte nach Wetter..."],
         ...     ["Hallo (STT: 2.5s)", "Hi! (Inferenz: 1.3s)"],
         ...     ["Was ist 2+2? (Agent: 45.2s)", "4 (Inferenz: 0.8s)"]
         ... ]
         >>> msgs = build_messages_from_history(history, "Danke!")
-        >>> msgs
-        [
-            {'role': 'user', 'content': 'Hallo'},
-            {'role': 'assistant', 'content': 'Hi!'},
-            {'role': 'user', 'content': 'Was ist 2+2?'},
-            {'role': 'assistant', 'content': '4'},
-            {'role': 'user', 'content': 'Danke!'}
-        ]
+        >>> msgs[0]
+        {'role': 'system', 'content': '[📊 Komprimiert: 6 Messages]\\nUser fragte nach Wetter...'}
     """
     messages = []
 
@@ -61,6 +62,17 @@ def build_messages_from_history(
 
     # Verarbeite History
     for user_turn, ai_turn in history_to_process:
+        # Erkenne Summary-Einträge: ("", "[📊 Komprimiert: ...")
+        is_summary = (user_turn == "" and
+                     ai_turn.startswith("[📊 Komprimiert:") and
+                     include_summaries)
+
+        if is_summary:
+            # Summary als System-Message hinzufügen
+            messages.append({'role': 'system', 'content': ai_turn})
+            continue
+
+        # Normale User/AI Messages bereinigen
         # Bereinige User-Nachricht
         clean_user = user_turn
         for pattern in timing_patterns:

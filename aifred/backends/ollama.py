@@ -87,7 +87,12 @@ class OllamaBackend(LLMBackend):
 
         try:
             start_time = time.time()
-            response = await self.client.post(f"{self.base_url}/api/chat", json=payload)
+            # Timeout hinzufügen: 60 Sekunden sollten selbst für große Models reichen
+            response = await self.client.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=60.0  # 60 Sekunden Timeout
+            )
             response.raise_for_status()
             inference_time = time.time() - start_time
 

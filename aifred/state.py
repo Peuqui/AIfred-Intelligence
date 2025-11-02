@@ -42,6 +42,7 @@ class AIState(rx.State):
     current_user_message: str = ""  # Die Nachricht die gerade verarbeitet wird
     current_ai_response: str = ""
     is_generating: bool = False
+    is_compressing: bool = False  # NEU: Zeigt ob History-Kompression läuft
 
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm"
@@ -423,6 +424,86 @@ class AIState(rx.State):
 
                 # Add to history (only for non-research mode)
                 self.chat_history.append((user_msg, full_response))
+
+            # ============================================================
+            # POST-RESPONSE: History Summarization Check (im Hintergrund)
+            # ============================================================
+            # Kompression läuft NACH der Antwort, während User liest
+            # Eingabefelder werden während Kompression disabled
+            self.add_debug(f"🔍 Checking compression: {len(self.chat_history)} messages, min required: {2}")
+            yield
+
+            try:
+                from .lib.context_manager import summarize_history_if_needed
+                from .lib.config import HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION
+                from .backends import BackendFactory
+
+                # Nur prüfen wenn History signifikant ist
+                if len(self.chat_history) >= HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION:
+                    self.add_debug(f"✅ Compression check passed: {len(self.chat_history)} >= {HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION}")
+                    yield
+                    # Backend für Summarization
+                    temp_backend = BackendFactory.create(
+                        self.backend_type,
+                        base_url=self.backend_url
+                    )
+
+                    # Context-Limit des aktuellen Models
+                    try:
+                        context_limit = await temp_backend.get_model_context_limit(self.selected_model)
+                    except:
+                        context_limit = 8192  # Fallback
+
+                    # Setze Kompression-Flag (disabled Input-Felder)
+                    self.is_compressing = True
+                    self.add_debug("🔍 Prüfe ob History-Kompression nötig ist...")
+                    yield
+
+                    # Summarization check (yields events wenn nötig)
+                    compressed = False
+                    async for event in summarize_history_if_needed(
+                        history=self.chat_history,
+                        llm_client=temp_backend,
+                        model_name=self.automatik_model,  # Schnelles Model
+                        context_limit=context_limit
+                    ):
+                        compressed = True
+                        if event["type"] == "history_update":
+                            self.chat_history = event["data"]
+                            self.add_debug(f"✅ History komprimiert: {len(self.chat_history)} Messages")
+                            yield
+                        elif event["type"] == "debug":
+                            self.add_debug(event["message"])
+                            yield
+                        elif event["type"] == "progress":
+                            self.set_progress(phase="compress")
+                            yield
+
+                    await temp_backend.close()
+
+                    # Progress clearen falls gesetzt
+                    if self.progress_phase == "compress":
+                        self.clear_progress()
+                        yield
+
+                    # Kompression fertig - Input-Felder wieder enablen
+                    self.is_compressing = False
+                    if compressed:
+                        self.add_debug("✅ History-Kompression abgeschlossen - Eingabe wieder möglich")
+                    else:
+                        self.add_debug("ℹ️ Keine Kompression nötig")
+                    yield
+                else:
+                    self.add_debug(f"❌ History zu kurz: {len(self.chat_history)} < {HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION}")
+                    yield
+
+            except Exception as e:
+                # Nicht kritisch - einfach weitermachen
+                import traceback
+                self.add_debug(f"⚠️ History compression check failed: {e}")
+                self.add_debug(f"Traceback: {traceback.format_exc()}")
+                self.is_compressing = False
+                yield
 
             # Clear response display
             self.current_ai_response = ""
