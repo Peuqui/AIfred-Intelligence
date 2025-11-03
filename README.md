@@ -134,6 +134,13 @@ TEMPERATURE_PRESETS = {
 }
 ```
 
+### HTTP Timeout Konfiguration
+
+In `aifred/backends/ollama.py`:
+- **HTTP Client Timeout**: 300 Sekunden (5 Minuten)
+- Erhöht von 60s für große Research-Anfragen mit 30KB+ Context
+- Verhindert Timeout-Fehler bei erster Token-Generation
+
 ### Restart-Button Verhalten
 
 Der AIfred Restart-Button kann in zwei Modi arbeiten:
@@ -211,6 +218,29 @@ tail -f logs/aifred_debug.log
 ```bash
 pytest tests/
 ```
+
+## 🔨 Troubleshooting
+
+### Häufige Probleme
+
+#### HTTP ReadTimeout bei Research-Anfragen
+**Problem**: `httpx.ReadTimeout` nach 60 Sekunden bei großen Recherchen
+**Lösung**: Timeout ist bereits auf 300s erhöht in `aifred/backends/ollama.py`
+**Falls weiterhin Probleme**: Ollama Service neustarten mit `systemctl restart ollama`
+
+#### Service startet nicht
+**Problem**: AIfred Service startet nicht oder stoppt sofort
+**Lösung**:
+```bash
+# Logs prüfen
+journalctl -u aifred-intelligence -n 50
+# Ollama Status prüfen
+systemctl status ollama
+```
+
+#### Restart-Button funktioniert nicht
+**Problem**: Restart-Button in Web-UI ohne Funktion
+**Lösung**: Polkit-Regel prüfen in `/etc/polkit-1/rules.d/50-aifred-restart.rules`
 
 ---
 

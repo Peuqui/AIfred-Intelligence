@@ -26,7 +26,11 @@ class OllamaBackend(LLMBackend):
 
     def __init__(self, base_url: str = "http://localhost:11434"):
         super().__init__(base_url=base_url)
-        self.client = httpx.AsyncClient(timeout=60.0)  # 60s Timeout - ausreichend für parallele Anfragen
+        # Erhöhter Timeout für große Recherche-Anfragen (30KB+ Context)
+        # 300s = 5 Minuten sollte auch für erste Token-Generation bei großen Prompts reichen
+        # Historisch: War 60s, führte zu ReadTimeout bei Research mit vielen Quellen
+        # Änderung: 2025-11-03 - Fix für Timeout-Fehler bei großen Web-Recherchen
+        self.client = httpx.AsyncClient(timeout=300.0)  # 300s Timeout für große Research-Anfragen
 
     async def list_models(self) -> List[str]:
         """Get list of available Ollama models"""
@@ -87,11 +91,11 @@ class OllamaBackend(LLMBackend):
 
         try:
             start_time = time.time()
-            # Timeout hinzufügen: 60 Sekunden sollten selbst für große Models reichen
+            # Erhöhter Timeout für große Research-Anfragen
             response = await self.client.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
-                timeout=60.0  # 60 Sekunden Timeout
+                timeout=300.0  # 300 Sekunden Timeout für große Prompts
             )
             response.raise_for_status()
             inference_time = time.time() - start_time
