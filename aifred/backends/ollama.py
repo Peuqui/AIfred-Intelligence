@@ -26,11 +26,12 @@ class OllamaBackend(LLMBackend):
 
     def __init__(self, base_url: str = "http://localhost:11434"):
         super().__init__(base_url=base_url)
-        # Erhöhter Timeout für große Recherche-Anfragen (30KB+ Context)
-        # 300s = 5 Minuten sollte auch für erste Token-Generation bei großen Prompts reichen
-        # Historisch: War 60s, führte zu ReadTimeout bei Research mit vielen Quellen
-        # Änderung: 2025-11-03 - Fix für Timeout-Fehler bei großen Web-Recherchen
-        self.client = httpx.AsyncClient(timeout=300.0)  # 300s Timeout für große Research-Anfragen
+        # Timeout: None = UNLIMITED (Reflex will handle timeouts, not httpx)
+        # Limits: Erhöhe Connection-Limits um Pooling-Probleme zu vermeiden
+        # History: Was 300s fixed, jetzt unlimited für bessere Flexibilität
+        limits = httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=300.0)
+        timeout = httpx.Timeout(None)  # UNLIMITED - let Reflex/asyncio handle timeouts
+        self.client = httpx.AsyncClient(timeout=timeout, limits=limits)
 
     async def list_models(self) -> List[str]:
         """Get list of available Ollama models"""
@@ -91,11 +92,11 @@ class OllamaBackend(LLMBackend):
 
         try:
             start_time = time.time()
-            # Erhöhter Timeout für große Research-Anfragen
+            # Use client's default timeout (unlimited) - Reflex handles timeouts
             response = await self.client.post(
                 f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=300.0  # 300 Sekunden Timeout für große Prompts
+                json=payload
+                # No explicit timeout - uses client default (unlimited from __init__)
             )
             response.raise_for_status()
             inference_time = time.time() - start_time
@@ -218,7 +219,9 @@ class OllamaBackend(LLMBackend):
                                     }
                                 }
                                 break
-                        except json.JSONDecodeError:
+                        except json.JSONDecodeError as e:
+                            # Log invalid JSON lines to help debugging
+                            logger.warning(f"Invalid JSON in Ollama stream: {line[:100]}... Error: {e}")
                             continue
 
         except httpx.HTTPStatusError as e:
@@ -229,7 +232,7 @@ class OllamaBackend(LLMBackend):
         except Exception as e:
             raise BackendInferenceError(f"Ollama streaming failed: {e}")
 
-    async def preload_model(self, model: str) -> bool:
+    async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
         This warms up the model so future requests are faster.
@@ -238,9 +241,11 @@ class OllamaBackend(LLMBackend):
             model: Model name to preload (e.g., 'qwen3:8b')
 
         Returns:
-            True if preload successful, False otherwise
+            Tuple of (success: bool, load_time: float in seconds)
         """
         try:
+            start_time = time.time()
+
             # Send minimal request to trigger model loading
             payload = {
                 "model": model,
@@ -258,10 +263,13 @@ class OllamaBackend(LLMBackend):
                 # Kein Timeout: Ollama queued Requests automatisch, auch während Modell lädt
             )
 
-            return response.status_code == 200
+            load_time = time.time() - start_time
+            success = response.status_code == 200
+            return (success, load_time)
         except Exception as e:
+            load_time = time.time() - start_time
             logger.warning(f"Preload failed for {model}: {e}")
-            return False
+            return (False, load_time)
 
     async def health_check(self) -> bool:
         """Check if Ollama is reachable"""

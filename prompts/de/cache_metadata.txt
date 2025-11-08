@@ -1,0 +1,20 @@
+Analysiere die Recherche-Quellen und erstelle eine prägnante Zusammenfassung in maximal 100 Wörtern:
+
+QUELLEN:
+{sources_preview}
+
+AUFGABE:
+Beschreibe in 3-4 Sätzen:
+- Welches Thema/Zeitraum wird abgedeckt?
+- Welche Hauptinformationen sind enthalten?
+- Welche wichtigen Details/Fakten werden genannt?
+- Welche konkreten Zahlen, Daten oder Namen sind relevant?
+
+BEISPIELE (jeweils ca. 80-100 Wörter):
+Wetter: "7-Tage-Wettervorhersage Niestetal (01.11-07.11.2025): Temperaturen zwischen 6°C nachts und 17°C tagsüber. Regnerische Perioden am Wochenende (Samstag/Sonntag) mit 65-90% Niederschlagswahrscheinlichkeit. Windgeschwindigkeiten 10-35 km/h aus südlicher Richtung. Beste Wetterlage Dienstag/Mittwoch mit nur 20% Regenwahrscheinlichkeit. Detaillierte Stundenprognosen für Outdoor-Aktivitäten verfügbar. Quellen: wetter.com, wetter.de, wetteronline.de."
+
+News: "Nobelpreis Physik 2025: Verleihung am 7. Oktober in Stockholm. Preisträger für Arbeiten in Quantenmechanik und Teilchenphysik ausgezeichnet. Namen noch nicht offiziell bekanntgegeben, Spekulationen über 3 Kandidaten aus USA (MIT, Stanford) und Europa (CERN). Preisgeld 11 Millionen Schwedische Kronen. Pressekonferenz live übertragen. Hintergrundinfos zu früheren Preisträgern und Bedeutung der Forschung enthalten. Quellen: nobelprize.org, nature.com, science.org."
+
+Produkt: "iPhone 16 Pro Spezifikationen: 6.3 Zoll OLED ProMotion Display (120Hz), A18 Pro Chip (3nm Prozess), 48MP Hauptkamera mit 5x optischem Zoom und Nachfotografie-Modus. Akku 4685mAh mit 30W Fast Charging und 15W MagSafe Wireless. Erhältlich in Titan Schwarz, Natur, Weiß, Blau. Speicheroptionen 256GB/512GB/1TB. Preise ab 1299 Euro (256GB). Release 22. September 2025. Quellen: apple.com, heise.de, golem.de."
+
+WICHTIG: Antworte NUR mit der Zusammenfassung (maximal 100 Wörter), nichts anderes!

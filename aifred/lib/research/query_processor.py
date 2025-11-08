@@ -42,10 +42,8 @@ async def process_query_and_search(
     # 1. Query Optimization
     query_opt_start = time.time()
 
-    # Query Automatik-Model Context Limit
+    # Query Automatik-Model Context Limit (silent - already shown in decision phase)
     automatik_limit = await automatik_llm_client.get_model_context_limit(automatik_model)
-    log_message(f"📊 Automatik-LLM ({automatik_model}): Max. Context = {automatik_limit} Tokens")
-    yield {"type": "debug", "message": f"📊 Automatik-LLM ({automatik_model}): Max. Context = {automatik_limit} Tokens"}
 
     optimized_query, query_reasoning = await optimize_search_query(
         user_text=user_text,

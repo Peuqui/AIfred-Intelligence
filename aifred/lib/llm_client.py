@@ -41,13 +41,26 @@ class LLMClient:
         """
         self.backend_type = backend_type
         self.base_url = base_url
+        # Cache backend instance to prevent premature GC during async operations
+        self._backend = None
 
-    def _create_backend(self):
-        """Create backend instance (not cached for thread-safety)"""
-        return BackendFactory.create(
-            self.backend_type,
-            base_url=self.base_url
-        )
+    def _get_backend(self):
+        """Get or create backend instance (cached to prevent GC during async ops)"""
+        if self._backend is None:
+            self._backend = BackendFactory.create(
+                self.backend_type,
+                base_url=self.base_url
+            )
+        return self._backend
+
+    async def __aenter__(self):
+        """Async context manager entry - enables 'async with LLMClient() as client:' usage"""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - ensures cleanup even if exception occurs"""
+        await self.close()
+        return False  # Don't suppress exceptions
 
     async def chat(
         self,
@@ -66,7 +79,7 @@ class LLMClient:
         Returns:
             LLMResponse with complete text and metrics
         """
-        backend = self._create_backend()
+        backend = self._get_backend()
 
         # Convert dicts to LLMMessage if needed
         converted_messages: List[LLMMessage]
@@ -91,11 +104,9 @@ class LLMClient:
         else:
             llm_options = LLMOptions()
 
-        try:
-            response = await backend.chat(model, converted_messages, llm_options)
-            return response
-        finally:
-            await backend.close()
+        # NOTE: Backend is cached in self._backend to prevent GC during async operations
+        response = await backend.chat(model, converted_messages, llm_options)
+        return response
 
 
     async def chat_stream(
@@ -117,7 +128,7 @@ class LLMClient:
             - {"type": "content", "text": str} for content chunks
             - {"type": "done", "metrics": {...}} for final metrics
         """
-        backend = self._create_backend()
+        backend = self._get_backend()
 
         # Convert dicts to LLMMessage if needed
         converted_messages: List[LLMMessage]
@@ -142,11 +153,9 @@ class LLMClient:
         else:
             llm_options = LLMOptions()
 
-        try:
-            async for chunk in backend.chat_stream(model, converted_messages, llm_options):
-                yield chunk
-        finally:
-            await backend.close()
+        # NOTE: Backend is cached in self._backend to prevent GC during async operations
+        async for chunk in backend.chat_stream(model, converted_messages, llm_options):
+            yield chunk
 
     async def get_model_context_limit(self, model: str) -> int:
         """
@@ -164,10 +173,10 @@ class LLMClient:
         Raises:
             RuntimeError: If model not found or context limit not available
         """
-        backend = self._create_backend()
+        backend = self._get_backend()
         return await backend.get_model_context_limit(model)
 
-    async def preload_model(self, model: str) -> bool:
+    async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
@@ -176,14 +185,14 @@ class LLMClient:
             model: Model name to preload (e.g., 'qwen3:8b')
 
         Returns:
-            True if preload successful, False otherwise
+            Tuple of (success: bool, load_time: float in seconds)
         """
-        backend = self._create_backend()
-        try:
-            return await backend.preload_model(model)
-        finally:
-            await backend.close()
+        backend = self._get_backend()
+        # NOTE: Backend is cached in self._backend to prevent GC during async operations
+        return await backend.preload_model(model)
 
     async def close(self):
-        """Cleanup resources"""
-        pass  # No cleanup needed anymore
+        """Cleanup resources (close cached backend if exists)"""
+        if self._backend is not None:
+            await self._backend.close()
+            self._backend = None

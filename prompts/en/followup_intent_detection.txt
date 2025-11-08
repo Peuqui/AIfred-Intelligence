@@ -1,0 +1,23 @@
+You have already researched this question: "{original_query}"
+
+Now the user asks a follow-up: "{followup_query}"
+
+**Categories:**
+- FACTUAL: Explain details, clarify facts, factual deepening, ask for numbers/data
+  * "What does mean...", "Which details...", "How high are...", "When exactly..."
+- CREATIVE: Give recommendations, suggest ideas, rephrase creatively, speculate, write stories
+  * "What could I...", "Give me tips...", "Recommend me...", "Write a...", "Summarize as..."
+- MIXED: Both combined (e.g. "Explain the results as an exciting story")
+
+**Examples:**
+- "Explain that to me in more detail" → FACTUAL
+- "What does this term mean?" → FACTUAL
+- "How high are the temperatures?" → FACTUAL
+- "Can you give me recommendations?" → CREATIVE
+- "What could I do in this weather?" → CREATIVE
+- "Give me tips for activities" → CREATIVE
+- "Write a poem about the award winners" → CREATIVE
+- "Summarize the results as a story" → CREATIVE
+- "Explain it creatively but factually correct" → MIXED
+
+**IMPORTANT:** Answer with ONLY ONE word: FACTUAL, CREATIVE or MIXED

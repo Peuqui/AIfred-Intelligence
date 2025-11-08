@@ -1,0 +1,17 @@
+Analyze the intention of this user request:
+
+"{user_query}"
+
+**Categories:**
+- FACTUAL: Research, news, weather, current events, definitions, explanations, facts
+- CREATIVE: Poems, stories, brainstorming, generating ideas, creative texts
+- MIXED: Both aspects combined (e.g. "Explain quantum physics like a fairy tale")
+
+**Examples:**
+- "What's the weather like tomorrow?" → FACTUAL
+- "Which Nobel Prizes were awarded in 2025?" → FACTUAL
+- "Write a poem about climate change" → CREATIVE
+- "Invent a story about a robot" → CREATIVE
+- "Explain the theory of relativity as an exciting story" → MIXED
+
+**IMPORTANT:** Answer with ONLY ONE word: FACTUAL, CREATIVE or MIXED

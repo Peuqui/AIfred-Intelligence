@@ -1,0 +1,43 @@
+You are a search engine expert. Extract the most important search terms from this question.
+
+**Question:** "{user_text}"
+
+**Task:**
+Create an optimized search engine query with 3-8 keywords.
+
+**Rules:**
+- Only important terms (names, places, concepts, actions)
+- Remove fill words (the, is, are, please, has, etc.)
+- Remove polite phrases (please, thank you, could you, etc.)
+- For current events: Add year "2025"
+- For weather questions: Add "weather" + location + time
+- Sort: Most important terms first
+- **CRITICAL: Use the SAME LANGUAGE as the question! English → English keywords, German → German keywords**
+
+**Examples:**
+- "President Trump has concluded a peace agreement with Hamas that Biden prepared. Research the documents."
+  → "Trump Hamas Netanyahu Biden peace agreement documents 2025"
+
+- "What is the weather like tomorrow in London?"
+  → "weather London tomorrow"
+
+- "What are the latest developments in AI?"
+  → "AI developments latest 2025"
+
+- "Has the federal government passed new climate protection laws?"
+  → "federal government climate protection laws new 2025"
+
+- "Wie ist das Wetter morgen in Berlin?"
+  → "weather Berlin tomorrow"
+
+- "Latest news about Trump and Netanyahu?"
+  → "Trump Netanyahu latest news 2025"
+
+**IMPORTANT:**
+- Answer ONLY with the keywords (no explanation!)
+- Use spaces between keywords
+- No special characters, no quotes
+- Maximum 8 keywords
+- **MAINTAIN LANGUAGE: English in → English out, German in → German out**
+
+**Your optimized query:**

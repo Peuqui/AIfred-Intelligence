@@ -105,15 +105,20 @@ async def handle_cache_hit(
         log_message(f"📊 Haupt-LLM ({model_choice}): Max. Context = {model_limit} Tokens (Modell-Parameter von Ollama)")
         yield {"type": "debug", "message": f"📊 Haupt-LLM ({model_choice}): Max. Context = {model_limit} Tokens"}
 
+    # Estimate actual input tokens
+    input_tokens = estimate_tokens(messages)
+
     # Dynamische num_ctx Berechnung für Cache-Hit (Haupt-LLM)
     final_num_ctx = await calculate_dynamic_num_ctx(llm_client, model_choice, messages, llm_options)
+
+    # Show both: actual input and context limit
+    yield {"type": "debug", "message": f"📊 Input Context: ~{input_tokens} Tokens"}
     if llm_options and llm_options.get('num_ctx'):
         log_message(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (manuell)")
-        yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens (manual)"}
+        yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {final_num_ctx} Tokens (manual)"}
     else:
-        estimated_tokens = estimate_tokens(messages)
-        log_message(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (dynamisch, ~{estimated_tokens} Tokens benötigt)")
-        yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens (auto)"}
+        log_message(f"🎯 Cache-Hit Context Window: {final_num_ctx} Tokens (dynamisch, ~{input_tokens} Tokens benötigt)")
+        yield {"type": "debug", "message": f"🪟 num_ctx (Limit): {final_num_ctx} Tokens"}
 
     # Temperature entscheiden: Manual Override oder Auto (Intent-Detection)
     if temperature_mode == 'manual':

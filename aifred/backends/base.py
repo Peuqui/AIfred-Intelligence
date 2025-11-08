@@ -153,7 +153,7 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
-    async def preload_model(self, model: str) -> bool:
+    async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
@@ -162,7 +162,7 @@ class LLMBackend(ABC):
             model: Model name to preload
 
         Returns:
-            True if preload successful, False otherwise
+            Tuple of (success: bool, load_time: float in seconds)
         """
         pass
 

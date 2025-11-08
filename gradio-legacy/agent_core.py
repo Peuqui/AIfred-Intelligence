@@ -1402,7 +1402,7 @@ Kann "{user_text}" mit diesen gecachten Quellen beantwortet werden?
     # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
     decision_prompt = get_decision_making_prompt(
         user_text=user_text,
-        cache_metadata=cache_metadata
+        cache_info=cache_metadata
     )
 
     # DEBUG: Zeige kompletten Prompt für Diagnose

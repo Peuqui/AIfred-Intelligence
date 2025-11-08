@@ -1,0 +1,17 @@
+Analysiere die Intention dieser User-Anfrage:
+
+"{user_query}"
+
+**Kategorien:**
+- FAKTISCH: Recherche, News, Wetter, aktuelle Ereignisse, Definitionen, Erklärungen, Fakten
+- KREATIV: Gedichte, Geschichten, Brainstorming, Ideen generieren, kreative Texte
+- GEMISCHT: Beide Aspekte kombiniert (z.B. "Erkläre Quantenphysik wie ein Märchen")
+
+**Beispiele:**
+- "Wie ist das Wetter morgen?" → FAKTISCH
+- "Welche Nobelpreise wurden 2025 vergeben?" → FAKTISCH
+- "Schreibe ein Gedicht über den Klimawandel" → KREATIV
+- "Erfinde eine Geschichte über einen Roboter" → KREATIV
+- "Erkläre die Relativitätstheorie als spannende Geschichte" → GEMISCHT
+
+**WICHTIG:** Antworte NUR mit einem Wort: FAKTISCH, KREATIV oder GEMISCHT

@@ -1,0 +1,29 @@
+
+
+═══════════════════════════════════════════════════════════
+
+⚠️ CACHED RESEARCH AVAILABLE!
+
+Original question: "{original_question}"
+Cache age: {cache_age} seconds
+Number of sources: {num_sources}
+
+{sources_text}
+
+═══════════════════════════════════════════════════════════
+
+IMPORTANT: CHECK THE RULES ABOVE FIRST!
+
+STEP 1: Does "{user_text}" need web research? (See rules above!)
+• Weather/News/Prices/Live data → Yes, web research needed!
+• General knowledge/Math/Chat → No, no web needed!
+
+STEP 2 (only if web research needed): Can cache be used?
+• Does cache topic match new question? → <search>context</search>
+• Different topic/time period? → <search>yes</search> (new research!)
+
+EXAMPLES:
+"Weather tomorrow?" → <search>yes</search> (Live data, always new!)
+"What will the weather be like on the weekend?" → <search>yes</search> (Live data!)
+"more details?" → <search>context</search> (Follow-up to cache topic)
+"What is 2+2?" → <search>no</search> (General knowledge, no web!)

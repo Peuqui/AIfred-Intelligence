@@ -259,6 +259,26 @@ Pull Requests sind willkommen! Für größere Änderungen bitte erst ein Issue �
 
 ---
 
+## 📝 Session Notes - 03. November 2025
+
+### Internationalisierung (i18n) Implementierung
+- Vollständige Übersetzungstabelle für UI-Strings
+- Automatische Spracherkennung für Prompts (de/en basierend auf Nutzereingabe)
+- Manueller UI-Sprachumschalter in den Einstellungen hinzugefügt
+- Englische Prompt-Dateien vervollständigt (waren unvollständig)
+
+### Netzwerk- und Konfigurationsanpassungen
+- `api_url` in `rxconfig.py` auf lokale IP für Entwicklungsumgebung korrigiert
+- Umgebungsabhängige Konfiguration: `AIFRED_ENV=dev` vs `AIFRED_ENV=prod`
+- Problem behoben: Anfragen wurden zu Mini-PC weitergeleitet statt lokal verarbeitet
+- Entwicklung: `http://172.30.8.72:3002` (mit RTX 3060), Produktion: `https://narnia.spdns.de:8443`
+
+### Bugfixes
+- Parameterfehler behoben: `cache_metadata` → `cache_info` in `get_decision_making_prompt()` Aufrufen
+- Funktioniert jetzt korrekt mit der definierten Funktionssignatur
+
+---
+
 ## 📄 License
 
 MIT License - siehe [LICENSE](LICENSE) file

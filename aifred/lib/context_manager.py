@@ -33,10 +33,11 @@ def estimate_tokens(messages: List[Dict]) -> int:
         messages: Liste von Message-Dicts mit 'content' Key
 
     Returns:
-        int: Geschätzte Anzahl Tokens (Faustregel: 1 Token ≈ 4 Zeichen)
+        int: Geschätzte Anzahl Tokens (Faustregel: 1 Token ≈ 3.5 Zeichen für Deutsch/gemischte Texte)
     """
     total_size = sum(len(m['content']) for m in messages)
-    return total_size // 4
+    # 3.5 Zeichen pro Token (besser für deutsche Texte als 4)
+    return int(total_size / 3.5)
 
 
 def estimate_tokens_from_history(history: List[tuple]) -> int:
@@ -47,10 +48,11 @@ def estimate_tokens_from_history(history: List[tuple]) -> int:
         history: Liste von (user_msg, ai_msg) Tuples
 
     Returns:
-        int: Geschätzte Anzahl Tokens (Faustregel: 1 Token ≈ 4 Zeichen)
+        int: Geschätzte Anzahl Tokens (Faustregel: 1 Token ≈ 3.5 Zeichen für Deutsch/gemischte Texte)
     """
     total_size = sum(len(user_msg) + len(ai_msg) for user_msg, ai_msg in history)
-    return total_size // 4
+    # 3.5 Zeichen pro Token (besser für deutsche Texte als 4)
+    return int(total_size / 3.5)
 
 
 async def calculate_dynamic_num_ctx(

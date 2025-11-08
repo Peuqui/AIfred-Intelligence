@@ -50,6 +50,15 @@ WHISPER_MODELS = {
 USE_SYSTEMD_RESTART = True  # Set to False for development with hot-reload
 
 # ============================================================
+# LANGUAGE CONFIGURATION (i18n)
+# ============================================================
+# Language for prompts and UI
+# "auto" = Detect from user input
+# "de"   = German (Deutsch)
+# "en"   = English
+DEFAULT_LANGUAGE = "auto"
+
+# ============================================================
 # DEFAULT SETTINGS
 # ============================================================
 DEFAULT_SETTINGS = {

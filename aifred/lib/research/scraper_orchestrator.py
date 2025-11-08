@@ -66,7 +66,8 @@ async def orchestrate_scraping(
     yield {"type": "debug", "message": "🌐 Web-Scraping startet (parallel)"}
 
     # PERFORMANCE: Preload Main LLM during scraping
-    asyncio.create_task(llm_client.preload_model(model_choice))
+    preload_task = asyncio.create_task(llm_client.preload_model(model_choice))
+    preload_message_sent = False  # Track if we already sent the completion message
     log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
     yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
 
@@ -101,12 +102,40 @@ async def orchestrate_scraping(
             except Exception as e:
                 log_message(f"  ❌ {url_short}: Exception: {e}")
 
+            # Check if preload finished and send message immediately
+            if not preload_message_sent and preload_task.done():
+                try:
+                    success, load_time = preload_task.result()
+                    if success:
+                        log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
+                        yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}
+                    else:
+                        log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
+                        yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)"}
+                    preload_message_sent = True
+                except Exception as e:
+                    log_message(f"⚠️ Haupt-LLM Preload Exception: {e}")
+                    preload_message_sent = True
+
             # Update progress
             completed = len([f for f in future_to_url if f.done()])
             failed = completed - len(scraped_results)
             yield {"type": "progress", "phase": "scraping", "current": len(scraped_results), "total": len(urls_to_scrape), "failed": failed}
 
     log_message(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
+
+    # Wait for preload task to complete if not done yet
+    if not preload_message_sent:
+        try:
+            success, load_time = await preload_task
+            if success:
+                log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
+                yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}
+            else:
+                log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
+                yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)"}
+        except Exception as e:
+            log_message(f"⚠️ Haupt-LLM Preload Exception: {e}")
 
     # Return results
     yield {"type": "scraping_result", "data": (scraped_results, tool_results)}

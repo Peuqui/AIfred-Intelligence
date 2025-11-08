@@ -1,0 +1,39 @@
+Question: "{user_text}"
+
+You have NO internet! Training data until Jan 2025.
+
+RESPOND ONLY WITH ONE OF THESE XML TAGS:
+
+<search>yes</search>     = Web research needed
+<search>no</search>      = Your knowledge is sufficient
+
+RULES:
+• Weather/News/Prices/Live data → <search>yes</search>
+• Local activities/recommendations/events → <search>yes</search>
+• Restaurants/shops/places in city → <search>yes</search>
+• Time-related questions (today/tomorrow/this year/current/latest) → <search>yes</search>
+• Event dates/results (Emmy/Oscar/Nobel Prize/elections/sports events) → <search>yes</search>
+• General knowledge/Math/Chat → <search>no</search>
+
+EXAMPLES WITH WEB RESEARCH:
+"Weather tomorrow?" → <search>yes</search>
+"What's the weather tomorrow?" → <search>yes</search>
+"Weather in Berlin tomorrow?" → <search>yes</search>
+"Activities in London?" → <search>yes</search>
+"What can I do in Munich?" → <search>yes</search>
+"Restaurants in Hamburg?" → <search>yes</search>
+"Local courses in Kassel?" → <search>yes</search>
+"Have there been any Emmys this year?" → <search>yes</search>
+"Who won the 2025 federal election?" → <search>yes</search>
+"Latest developments in AI field?" → <search>yes</search>
+"Has Tesla announced new products today?" → <search>yes</search>
+
+EXAMPLES WITHOUT WEB RESEARCH:
+"What is weather?" → <search>no</search>
+"Hello" → <search>no</search>
+"What does photosynthesis mean?" → <search>no</search>
+"What is an Emmy Award?" → <search>no</search>
+"How does an election work?" → <search>no</search>
+"Explain artificial intelligence" → <search>no</search>
+
+Respond ONLY with the XML tag (nothing else)!

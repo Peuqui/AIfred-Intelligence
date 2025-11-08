@@ -15,12 +15,20 @@ from .logging_utils import (
 
 from .prompt_loader import (
     load_prompt,
+    set_language,
+    get_language,
+    detect_language,
     get_query_optimization_prompt,
     get_decision_making_prompt,
-    get_cache_decision_addon,
+    # get_cache_decision_addon removed - cache system deprecated
     get_intent_detection_prompt,
     get_followup_intent_prompt,
     get_system_rag_prompt
+)
+
+from .i18n import (
+    TranslationManager,
+    t
 )
 
 from .agent_tools import (
@@ -32,11 +40,8 @@ from .agent_tools import (
 from .research import perform_agent_research
 from .conversation_handler import chat_interactive_mode
 
-from .cache_manager import (
-    set_research_cache,
-    get_cached_research,
-    get_all_metadata_summaries
-)
+# Vector Cache (replacement for old cache system)
+from .vector_cache import VectorCache
 
 from .intent_detector import (
     detect_query_intent,
@@ -53,12 +58,18 @@ __all__ = [
     "clear_console",
     # Prompts
     "load_prompt",
+    "set_language",
+    "get_language",
+    "detect_language",
     "get_query_optimization_prompt",
     "get_decision_making_prompt",
-    "get_cache_decision_addon",
+    # "get_cache_decision_addon",  # removed
     "get_intent_detection_prompt",
     "get_followup_intent_prompt",
     "get_system_rag_prompt",
+    # i18n
+    "TranslationManager",
+    "t",
     # Tools
     "search_web",
     "scrape_webpage",
@@ -66,10 +77,8 @@ __all__ = [
     # Agent Core
     "perform_agent_research",
     "chat_interactive_mode",
-    # Cache Manager
-    "set_research_cache",
-    "get_cached_research",
-    "get_all_metadata_summaries",
+    # Vector Cache (NEW - replaces old cache system)
+    "VectorCache",
     # Intent Detector
     "detect_query_intent",
     "get_temperature_label",

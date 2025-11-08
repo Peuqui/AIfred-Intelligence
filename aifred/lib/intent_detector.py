@@ -54,6 +54,11 @@ async def detect_query_intent(
     Returns:
         str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
     """
+    # Spracherkennung für Nutzereingabe
+    from .prompt_loader import detect_language
+    detected_user_language = detect_language(user_query)
+    log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+
     prompt = get_intent_detection_prompt(user_query=user_query)
 
     try:
@@ -96,6 +101,11 @@ async def detect_cache_followup_intent(
     Returns:
         str: "FAKTISCH", "KREATIV" oder "GEMISCHT"
     """
+    # Spracherkennung für Nachfrage
+    from .prompt_loader import detect_language
+    detected_user_language = detect_language(followup_query)
+    log_message(f"🌐 Spracherkennung: Nachfrage ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+
     prompt = get_followup_intent_prompt(
         original_query=original_query,
         followup_query=followup_query

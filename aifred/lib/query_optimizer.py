@@ -39,6 +39,11 @@ async def optimize_search_query(
     Returns:
         tuple: (optimized_query, reasoning_content)
     """
+    # Spracherkennung für Nutzereingabe
+    from .prompt_loader import detect_language
+    detected_user_language = detect_language(user_text)
+    log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
+
     prompt = get_query_optimization_prompt(user_text=user_text)
 
     # DEBUG: Zeige Query Optimization Prompt

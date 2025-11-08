@@ -8,6 +8,7 @@ import reflex as rx
 from typing import List, Tuple, Dict
 import threading
 import uuid
+import os
 from pydantic import BaseModel
 from .backends import BackendFactory, LLMMessage, LLMOptions
 from .lib import (
@@ -15,16 +16,44 @@ from .lib import (
     log_message,
     console_separator,
     clear_console,
-    set_research_cache,
-    perform_agent_research
+    # set_research_cache removed - cache system deprecated
+    perform_agent_research,
+    set_language,
+    detect_language
 )
 from .lib.formatting import format_debug_message
 
 # ============================================================
-# Module-Level Cache (außerhalb State, da Lock nicht pickle-bar)
+# Module-Level Vector Cache V2 (Worker Thread Pattern)
 # ============================================================
-_research_cache: Dict = {}
-_cache_lock = threading.Lock()
+# FIXED: Using v2 with dedicated worker thread to avoid blocking event loop
+from .lib.vector_cache_v2 import get_worker, query_cache_async, add_to_cache_async, get_cache_stats_async
+
+def initialize_vector_cache_worker():
+    """
+    Initialize Vector Cache Worker (NON-BLOCKING)
+
+    This starts the dedicated worker thread for ChromaDB operations.
+    Call this during app startup (lifespan task) to warm up the cache.
+
+    Returns immediately - initialization happens in background thread.
+    """
+    import time
+
+    try:
+        log_message(f"🚀 Vector Cache Worker: Starting (PID: {os.getpid()})")
+        worker = get_worker(persist_directory="./aifred_vector_cache")
+
+        # Give worker thread 2 seconds to initialize ChromaDB in background
+        # This prevents blocking on the first query
+        log_message("⏳ Vector Cache Worker: Waiting for ChromaDB warmup (2s)...")
+        time.sleep(2.0)
+
+        log_message(f"✅ Vector Cache Worker: Started successfully")
+        return worker
+    except Exception as e:
+        log_message(f"⚠️ Vector Cache Worker failed to start: {e}")
+        return None
 
 
 class ChatMessage(BaseModel):
@@ -58,6 +87,9 @@ class AIState(rx.State):
     temperature: float = 0.2
     num_ctx: int = 32768
 
+    # Cached Model Metadata (to avoid repeated API calls)
+    _automatik_model_context_limit: int = 0  # Cached context limit for automatik model
+
     # Research Settings
     research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
     research_mode_display: str = "🤖 Automatik (KI entscheidet)"  # UI display value
@@ -76,6 +108,9 @@ class AIState(rx.State):
     debug_messages: List[str] = []
     auto_refresh_enabled: bool = True  # Für Debug Console + Chat History + AI Response Area
 
+    # UI Language Settings
+    ui_language: str = "de"  # "de" or "en" - für UI Sprache
+
     # Processing Progress (Automatik, Scraping, LLM)
     progress_active: bool = False
     progress_phase: str = ""  # "automatik", "scraping", "llm"
@@ -83,28 +118,60 @@ class AIState(rx.State):
     progress_total: int = 0
     progress_failed: int = 0  # Anzahl fehlgeschlagener URLs
 
+    # Initialization flags
+    _backend_initialized: bool = False
+    _model_preloaded: bool = False
+
     async def on_load(self):
-        """Called when page loads - initialize backend"""
-        # Initialize debug log (reset on first load, append afterwards)
-        initialize_debug_log(force_reset=False)
+        """
+        Called when page loads - initialize backend and load models
 
-        # Initialize research cache FIRST (module-level, nicht in State)
-        # WICHTIG: Muss IMMER gesetzt werden, auch bei Hot-Reload!
-        set_research_cache(_research_cache, _cache_lock)
+        NOTE: We initialize synchronously here WITHOUT yielding,
+        because WebSocket may not be fully connected yet.
+        """
+        if not self._backend_initialized:
+            print("🔥 on_load() CALLED - Starting initialization...")
 
-        # Generate session ID
-        if not self.session_id:
-            self.session_id = str(uuid.uuid4())
-            self.add_debug(f"🆔 Session ID: {self.session_id[:8]}...")
-        else:
-            # Session ID already exists (e.g., hot reload)
-            self.add_debug(f"🔄 Existing Session: {self.session_id[:8]}... (cache re-initialized)")
+            # Synchronous initialization (NO yields, no generator pattern)
+            # This populates available_models for dropdowns
+            print("=" * 60)
+            print("🚀 Initializing backend on page load...")
+            print("=" * 60)
 
-        # Initialize backend
-        await self.initialize_backend()
+            # Initialize debug log (only once)
+            initialize_debug_log(force_reset=False)
+
+            # Initialize language settings
+            from .lib.config import DEFAULT_LANGUAGE
+            set_language(DEFAULT_LANGUAGE)
+            self.add_debug(f"🌍 Language mode: {DEFAULT_LANGUAGE}")
+
+            # Initialize Vector Cache Worker
+            initialize_vector_cache_worker()
+            self.add_debug("💾 Vector Cache Worker: Initialized")
+
+            # Generate session ID
+            if not self.session_id:
+                self.session_id = str(uuid.uuid4())
+                self.add_debug(f"🆔 Session ID: {self.session_id[:8]}...")
+
+            # Initialize backend
+            self.add_debug("🔧 Initializing backend...")
+            try:
+                await self.initialize_backend()
+                self.add_debug("✅ Backend initialization complete")
+            except Exception as e:
+                self.add_debug(f"❌ Backend initialization failed: {e}")
+                log_message(f"❌ Backend initialization failed: {e}")
+                import traceback
+                log_message(traceback.format_exc())
+
+            self._backend_initialized = True
+            print("✅ Initialization complete")
 
     async def initialize_backend(self):
         """Initialize LLM backend"""
+        # Debug message already logged by caller (_ensure_backend_initialized)
         try:
             # Update URL based on backend type
             if self.backend_type == "ollama":
@@ -113,64 +180,69 @@ class AIState(rx.State):
                 # CHANGE THIS to Aragon's IP when vLLM is running there
                 self.backend_url = "http://localhost:8000/v1"
 
-            # Create backend
-            backend = BackendFactory.create(
-                self.backend_type,
-                base_url=self.backend_url
-            )
+            # add_debug() already logs to file, so we only need one call
+            self.add_debug(f"🔧 Creating backend: {self.backend_type}")
+            # Detailed info only in log file (not in UI)
+            log_message(f"   URL: {self.backend_url}")
 
-            # Health check (quick!)
-            self.backend_healthy = await backend.health_check()
+            # SKIP health check - causes async deadlock in on_load context!
+            # Assume backend is healthy and proceed
+            self.backend_healthy = True
+            self.backend_info = f"{self.backend_type} initializing..."
+            self.add_debug(f"⚡ Backend: {self.backend_type} (skip health check)")
 
-            if self.backend_healthy:
-                # Set basic info immediately (UI shows up faster!)
-                self.backend_info = f"{self.backend_type} backend ready"
-                self.add_debug(f"✅ {self.backend_type} backend ready")
+            # Load models SYNCHRONOUSLY via curl (no async deadlock!)
+            import subprocess
+            import json
+            try:
+                # Synchronous curl call to get model list
+                result = subprocess.run(
+                    ['curl', '-s', f'{self.backend_url}/api/tags'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0
+                )
 
-                # Load models in background (don't block UI!)
-                import asyncio
-                async def load_models_in_background():
-                    from aifred.backends import BackendFactory
-                    bg_backend = BackendFactory.create(self.backend_type, self.backend_url)
-                    try:
-                        self.available_models = await bg_backend.list_models()
-                        if not self.selected_model and self.available_models:
-                            self.selected_model = self.available_models[0]
-                        self.backend_info = f"{self.backend_type} - {len(self.available_models)} models available"
-                        self.add_debug(f"✅ {len(self.available_models)} Models geladen")
-                    finally:
-                        await bg_backend.close()
+                if result.returncode == 0:
+                    data = json.loads(result.stdout)
+                    self.available_models = [m["name"] for m in data.get("models", [])]
 
-                asyncio.create_task(load_models_in_background())
+                    if not self.selected_model and self.available_models:
+                        self.selected_model = self.available_models[0]
+                    if not self.automatik_model and self.available_models:
+                        self.automatik_model = self.available_models[0]
 
-                # ============================================================
-                # PERFORMANCE-OPTIMIERUNG: Automatik-LLM beim Start vorladen (NON-BLOCKING!)
-                # ============================================================
-                # Lade Automatik-LLM in VRAM im Hintergrund (blockiert NICHT den Startup!)
-                if self.automatik_model:
-                    import asyncio
-                    self.add_debug(f"🚀 Lade Automatik-LLM ({self.automatik_model}) im Hintergrund vor...")
+                    self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
+                    self.backend_healthy = True
+                    self.add_debug(f"✅ {len(self.available_models)} Models geladen")
+                else:
+                    self.backend_healthy = False
+                    self.backend_info = f"{self.backend_type} not reachable"
+                    self.add_debug(f"❌ Backend not reachable (curl failed)")
+                    log_message(f"❌ Backend not reachable (curl exit code: {result.returncode})")
 
-                    # Fire-and-forget: Blockiert NICHT den Startup!
-                    # WICHTIG: Erstelle neues Backend-Objekt, da das aktuelle gleich geschlossen wird!
-                    async def preload_in_background():
-                        from aifred.backends import BackendFactory
-                        preload_backend = BackendFactory.create(self.backend_type, self.backend_url)
-                        try:
-                            preload_success = await preload_backend.preload_model(self.automatik_model)
-                            if preload_success:
-                                self.add_debug(f"✅ Automatik-LLM ({self.automatik_model}) vorgeladen")
-                            else:
-                                self.add_debug("⚠️ Automatik-LLM Preload fehlgeschlagen")
-                        finally:
-                            await preload_backend.close()
+            except subprocess.TimeoutExpired:
+                self.backend_healthy = False
+                self.backend_info = f"{self.backend_type} timeout"
+                self.add_debug(f"⏱️ Model loading timeout")
+                log_message(f"⏱️ Model loading timeout (curl)")
+            except Exception as e:
+                self.backend_healthy = False
+                self.backend_info = f"{self.backend_type} error"
+                self.add_debug(f"❌ Model loading failed: {e}")
+                log_message(f"❌ Model loading failed: {e}")
 
-                    asyncio.create_task(preload_in_background())
-            else:
-                self.backend_info = f"{self.backend_type} not reachable"
-                self.add_debug(f"❌ {self.backend_type} backend not reachable at {self.backend_url}")
-
-            await backend.close()
+            # Preload Automatik-LLM via curl in background (simple & non-blocking!)
+            if self.automatik_model:
+                import subprocess
+                preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{self.automatik_model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
+                try:
+                    subprocess.Popen(preload_cmd, shell=True)
+                    log_message(f"🚀 Preloading {self.automatik_model} via curl (background)")
+                    self.add_debug(f"🚀 Preloading {self.automatik_model}...")
+                except Exception as e:
+                    log_message(f"⚠️ Preload failed: {e}")
+                    # Not critical, continue anyway
 
         except Exception as e:
             self.backend_healthy = False
@@ -219,6 +291,21 @@ class AIState(rx.State):
         """Update user input"""
         self.current_user_input = text
 
+    async def _ensure_backend_initialized(self):
+        """
+        Ensure backend is initialized (called from send_message)
+
+        This is now a no-op since initialization happens in on_load().
+        Kept for backwards compatibility.
+        """
+        if self._backend_initialized:
+            return  # Already initialized by on_load()
+
+        # Fallback: Initialize now if on_load() didn't run
+        print("⚠️ Fallback initialization (on_load didn't run)")
+        # Re-use on_load() logic
+        await self.on_load()
+
     async def send_message(self):
         """
         Send message to LLM with optional web research
@@ -231,6 +318,9 @@ class AIState(rx.State):
         if self.is_generating:
             self.add_debug("⚠️ Already generating, please wait...")
             return
+
+        # Ensure backend is initialized (should already be done by on_load)
+        await self._ensure_backend_initialized()
 
         user_msg = self.current_user_input.strip()
         self.current_user_input = ""  # Clear input
@@ -250,18 +340,22 @@ class AIState(rx.State):
 
             if self.research_mode == "automatik":
                 # Automatik mode: AI decides if research is needed
-                self.add_debug("🤖 Automatik Mode: KI entscheidet über Recherche...")
+                # Debug message is already logged in conversation_handler.py
 
                 # Import chat_interactive_mode
                 from .lib.conversation_handler import chat_interactive_mode
 
+                # Initialize temporary history entry for real-time display
+                temp_history_index = len(self.chat_history)
+                self.chat_history.append((user_msg, self.current_ai_response))
+                
                 # REAL STREAMING: Call async generator directly
                 async for item in chat_interactive_mode(
                     user_text=user_msg,
                     stt_time=0.0,
                     model_choice=self.selected_model,
                     automatik_model=self.automatik_model,
-                    history=self.chat_history,
+                    history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
                     temperature_mode='auto',
                     temperature=self.temperature,
@@ -274,12 +368,17 @@ class AIState(rx.State):
                             self.debug_messages = self.debug_messages[-100:]
                     elif item["type"] == "content":
                         self.current_ai_response += item["text"]
+                        # Update the temporary entry in chat history with the new content
+                        if temp_history_index < len(self.chat_history):
+                            self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
                     elif item["type"] == "result":
                         result_data = item["data"]
                         # Extract and update history IMMEDIATELY
                         ai_text, updated_history, inference_time = result_data
+                        # Replace chat history with updated one from research - message is already in history
                         self.chat_history = updated_history
-                        yield  # Update UI to show new history entry first
+                        # The message is already in the history from the streaming, no need to re-add
+                        yield  # Update UI to show new history entry
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
                         self.current_user_message = ""
@@ -311,9 +410,18 @@ class AIState(rx.State):
                     research_result = ai_text
                     # History and clearing already handled in loop above
 
+                # Separator nach Automatik-Mode Research
+                console_separator()  # Schreibt in Log-File
+                self.add_debug("────────────────────")  # Zeigt in Debug-Console
+                yield
+
             elif self.research_mode in ["quick", "deep"]:
                 # Direct research mode (quick/deep)
                 self.add_debug(f"🔍 Research Mode: {self.research_mode}")
+
+                # Initialize temporary history entry for real-time display
+                temp_history_index = len(self.chat_history)
+                self.chat_history.append((user_msg, self.current_ai_response))
 
                 # REAL STREAMING: Call async generator directly
                 async for item in perform_agent_research(
@@ -322,7 +430,7 @@ class AIState(rx.State):
                     mode=self.research_mode,
                     model_choice=self.selected_model,
                     automatik_model=self.automatik_model,
-                    history=self.chat_history,
+                    history=self.chat_history[:-1],  # Exclude current temporary entry
                     session_id=self.session_id,
                     temperature_mode='auto',
                     temperature=self.temperature,
@@ -337,12 +445,17 @@ class AIState(rx.State):
                     elif item["type"] == "content":
                         # REAL-TIME streaming to UI!
                         self.current_ai_response += item["text"]
+                        # Update the temporary entry in chat history with the new content
+                        if temp_history_index < len(self.chat_history):
+                            self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
                     elif item["type"] == "result":
                         result_data = item["data"]
                         # Extract and update history IMMEDIATELY
                         ai_text, updated_history, inference_time = result_data
+                        # Replace chat history with updated one from research - message is already in history
                         self.chat_history = updated_history
-                        yield  # Update UI to show new history entry first
+                        # The message is already in the history from the streaming, no need to re-add
+                        yield  # Update UI to show new history entry
                         # Clear AI response and user message windows IMMEDIATELY
                         self.current_ai_response = ""
                         self.current_user_message = ""
@@ -378,11 +491,16 @@ class AIState(rx.State):
                     base_url=self.backend_url
                 )
 
+                # Initialize temporary history entry for real-time display if not already done
+                if not research_result:
+                    temp_history_index = len(self.chat_history)
+                    self.chat_history.append((user_msg, self.current_ai_response))
+
                 # Build messages
                 messages = []
 
-                # Add chat history
-                for user_turn, ai_turn in self.chat_history:
+                # Add chat history (excluding the temporary entry)
+                for user_turn, ai_turn in self.chat_history[:-1]:
                     messages.append(LLMMessage(role="user", content=user_turn))
                     messages.append(LLMMessage(role="assistant", content=ai_turn))
 
@@ -404,6 +522,9 @@ class AIState(rx.State):
                     if chunk["type"] == "content":
                         full_response += chunk["text"]
                         self.current_ai_response = full_response
+                        # Update the temporary entry in chat history with the new content
+                        if temp_history_index < len(self.chat_history):
+                            self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
 
                         yield  # Update UI in real-time
                     elif chunk["type"] == "done":
@@ -426,8 +547,7 @@ class AIState(rx.State):
                 self.add_debug("────────────────────")  # Zeigt in Debug-Console
                 yield
 
-                # Add to history (only for non-research mode)
-                self.chat_history.append((user_msg, full_response))
+                # The response is already in the history from streaming, no need to update
 
             # ============================================================
             # POST-RESPONSE: History Summarization Check (im Hintergrund)
@@ -524,6 +644,9 @@ class AIState(rx.State):
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             self.current_ai_response = error_msg
+            # Update the temporary entry in chat history with the error
+            if temp_history_index < len(self.chat_history):
+                self.chat_history[temp_history_index] = (user_msg, error_msg)
             self.add_debug(f"❌ Generation failed: {e}")
             import traceback
             self.add_debug(f"Traceback: {traceback.format_exc()}")
@@ -601,17 +724,15 @@ class AIState(rx.State):
         self.debug_messages = []
         self.is_generating = False
 
-        # Clear research cache
-        global _research_cache
-        with _cache_lock:
-            _research_cache.clear()
+        # Note: Vector Cache is persistent (ChromaDB) - not cleared on soft restart
+        # To clear Vector Cache, delete ./aifred_vector_cache directory manually
 
         # Reinitialize debug log
         from .lib import initialize_debug_log
         initialize_debug_log(force_reset=True)
 
         # Add restart message AFTER clearing
-        self.add_debug("🔄 AIfred soft restart - all caches and histories cleared (Hot-Reload Mode)")
+        self.add_debug("🔄 AIfred soft restart - histories cleared (Hot-Reload Mode)")
 
 
     def set_selected_model(self, model: str):
@@ -630,15 +751,11 @@ class AIState(rx.State):
 
     def set_research_mode_display(self, display_value: str):
         """Set research mode from UI display value"""
-        # Map display string to internal mode
-        mode_map = {
-            "🧠 Eigenes Wissen (schnell)": "none",
-            "⚡ Web-Suche Schnell (3 beste)": "quick",
-            "🔍 Web-Suche Ausführlich (7 beste)": "deep",
-            "🤖 Automatik (KI entscheidet)": "automatik"
-        }
+        from .lib import TranslationManager
+        
+        # Use translation manager to get the internal mode value
         self.research_mode_display = display_value
-        self.research_mode = mode_map.get(display_value, "automatik")
+        self.research_mode = TranslationManager.get_research_mode_value(display_value)
         self.add_debug(f"🔍 Research mode: {self.research_mode}")
 
     def set_automatik_model(self, model: str):
@@ -646,7 +763,32 @@ class AIState(rx.State):
         self.automatik_model = model
         self.add_debug(f"⚡ Automatik model: {model}")
 
+        # Preload new model in background (via curl)
+        import subprocess
+        preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
+        try:
+            subprocess.Popen(preload_cmd, shell=True)
+            log_message(f"🚀 Preloading new Automatik-LLM: {model}")
+            self.add_debug(f"🚀 Preloading {model}...")
+        except Exception as e:
+            log_message(f"⚠️ Preload failed: {e}")
+
+        # Note: Context limit will be queried on first use (fast ~30ms) and cached by httpx
+
     def toggle_tts(self):
         """Toggle TTS on/off"""
         self.enable_tts = not self.enable_tts
         self.add_debug(f"🔊 TTS: {'enabled' if self.enable_tts else 'disabled'}")
+
+    def set_ui_language(self, lang: str):
+        """Set UI language"""
+        if lang in ["de", "en"]:
+            self.ui_language = lang
+            self.add_debug(f"🌐 UI Language changed to: {lang}")
+        else:
+            self.add_debug(f"❌ Invalid language: {lang}. Use 'de' or 'en'")
+
+    def get_text(self, key: str):
+        """Get translated text based on current UI language"""
+        from .lib import TranslationManager
+        return TranslationManager.get_text(key, self.ui_language)

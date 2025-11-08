@@ -13,9 +13,9 @@ import time
 from typing import Dict, List, Optional, AsyncIterator
 
 from ..agent_tools import build_context
-from ..cache_manager import get_all_metadata_summaries, save_cached_research, generate_cache_metadata
+# Cache system removed - will be replaced with Vector DB
 from ..prompt_loader import load_prompt
-from ..context_manager import calculate_dynamic_num_ctx
+from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens
 from ..message_builder import build_messages_from_history
 from ..formatting import format_thinking_process, build_debug_accordion
 from ..logging_utils import log_message, CONSOLE_SEPARATOR
@@ -81,30 +81,14 @@ async def build_and_generate_response(
             log_message(f"  📄 Quelle {i} Preview: {content_preview}...")
 
     # ============================================================
-    # METADATA: Integrate old research summaries
+    # Build context from current sources (old metadata system removed)
+    # TODO: Replace with Vector DB semantic search in Phase 1
     # ============================================================
-    old_research_metadata = get_all_metadata_summaries(exclude_session_id=session_id)
-    metadata_context = ""
-
-    if old_research_metadata:
-        metadata_list = [
-            f"- Recherche '{m['user_text'][:40]}...': {m['summary']}"
-            for m in old_research_metadata[:5]  # Max 5 alte Recherchen
-        ]
-        metadata_context = "Frühere Recherchen (Zusammenfassungen):\n" + "\n".join(metadata_list)
-        log_message(f"📚 {len(old_research_metadata)} alte Recherchen als Kontext eingebunden")
-
-    # Build context from current sources
     context = build_context(user_text, scraped_only)
 
-    # Combine: Old metadata + current sources
-    if old_research_metadata:
-        combined_context = f"{metadata_context}\n\n{'-'*60}\n\nAKTUELLE RECHERCHE:\n{context}"
-        context = combined_context
-
-        # Estimate tokens
-        est_tokens = len(context) // CHARS_PER_TOKEN
-        log_message(f"📊 Kombinierter Context: ~{est_tokens} Tokens (Alte Metadata + Aktuelle Quellen)")
+    # Estimate tokens
+    est_tokens = len(context) // CHARS_PER_TOKEN
+    log_message(f"📊 Context: ~{est_tokens} Tokens")
 
     # Show context preview
     if len(context) > 800:
@@ -112,8 +96,6 @@ async def build_and_generate_response(
         log_message(f"📝 Context Preview (erste 800 Zeichen):\n{preview}")
 
     # System prompt
-    yield {"type": "debug", "message": "📋 System-Prompt wird erstellt..."}
-
     system_prompt = load_prompt(
         'system_rag',
         current_year=time.strftime("%Y"),
@@ -135,9 +117,17 @@ async def build_and_generate_response(
         content_len = len(msg['content'])
         log_message(f"  Message {i+1} ({role}): {content_len} Zeichen")
 
+    # Estimate actual input tokens
+    input_tokens = estimate_tokens(messages)
+
     # Dynamic num_ctx calculation
     final_num_ctx = await calculate_dynamic_num_ctx(llm_client, model_choice, messages, llm_options)
-    yield {"type": "debug", "message": f"🪟 Context Window: {final_num_ctx} Tokens"}
+
+    # Get model max context for compact display
+    model_limit = await llm_client.get_model_context_limit(model_choice)
+
+    # Show compact context info (like Automatik-LLM)
+    yield {"type": "debug", "message": f"📊 Haupt-LLM: {input_tokens} / {final_num_ctx} Tokens (max: {model_limit})"}
 
     # Temperature
     if temperature_mode == 'manual':
@@ -218,23 +208,26 @@ async def build_and_generate_response(
 
     log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
 
-    # Save to cache
-    log_message(f"🔍 Cache-Speicherung: session_id = {session_id}, scraped = {len(scraped_only)} Quellen")
-    save_cached_research(session_id, user_text, scraped_only, mode, metadata_summary=None)
+    # ============================================================
+    # Vector DB Auto-Learning: Save successful research to cache
+    # ============================================================
+    try:
+        from ..vector_cache_v2 import add_to_cache_async
 
-    # Generate cache metadata (async, runs AFTER main response)
-    log_message("🔧 Starte Cache-Metadata-Generierung (async generator)...")
+        result = await add_to_cache_async(
+            query=user_text,
+            answer=ai_text,
+            sources=scraped_only,
+            metadata={'mode': mode}
+        )
 
-    async for metadata_msg in generate_cache_metadata(
-        session_id=session_id,
-        metadata_model=automatik_model,
-        llm_client=automatik_llm_client,
-        haupt_llm_context_limit=final_num_ctx
-    ):
-        log_message(f"🔧 Metadata-Message weitergeleitet: {metadata_msg}")
-        yield metadata_msg  # Forward debug messages to UI
-
-    log_message("🔧 Cache-Metadata-Generierung abgeschlossen")
+        if result.get('success'):
+            log_message(f"💾 Vector Cache: Auto-learned from web research ({result.get('total_entries')} entries)")
+            yield {"type": "debug", "message": "💾 Saved to Vector Cache"}
+        else:
+            log_message(f"⚠️ Vector Cache add failed: {result.get('error')}")
+    except Exception as e:
+        log_message(f"⚠️ Vector Cache auto-learning failed: {e}")
 
     log_message(f"✅ Agent fertig: {total_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     log_message("=" * 60)
@@ -242,8 +235,5 @@ async def build_and_generate_response(
     # Clear progress
     yield {"type": "progress", "clear": True}
 
-    # Separator
-    yield {"type": "debug", "message": CONSOLE_SEPARATOR}
-
-    # Final result
+    # Final result (separator wird in state.py hinzugefügt)
     yield {"type": "result", "data": (ai_response_complete, history, inference_time)}
