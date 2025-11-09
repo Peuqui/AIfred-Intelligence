@@ -164,22 +164,38 @@ Der AIfred Restart-Button kann in zwei Modi arbeiten:
 Für produktiven Betrieb als Service:
 
 1. Service-File erstellen: `/etc/systemd/system/aifred-intelligence.service`
+
+**⚠️ WICHTIG**: Die Umgebungsvariable `AIFRED_ENV=prod` **MUSS** gesetzt sein, damit AIfred auf dem MiniPC läuft und nicht auf den Entwicklungsrechner weiterleitet!
+
 ```ini
 [Unit]
 Description=AIfred Intelligence Voice Assistant
 After=network.target ollama.service
+Requires=ollama.service
 
 [Service]
 Type=simple
 User=mp
+Group=mp
 WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence
-Environment="PATH=/home/mp/Projekte/AIfred-Intelligence/venv/bin"
+Environment="PATH=/home/mp/Projekte/AIfred-Intelligence/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="AIFRED_ENV=prod"
 ExecStart=/home/mp/Projekte/AIfred-Intelligence/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+**Umgebungsvariable `AIFRED_ENV` erklärt**:
+- `AIFRED_ENV=dev` (Standard): API-URL = `http://172.30.8.72:8002` (Hauptrechner/WSL mit RTX 3060)
+- `AIFRED_ENV=prod`: API-URL = `https://narnia.spdns.de:8443` (MiniPC mit Tesla P40)
+
+Ohne `AIFRED_ENV=prod` werden alle API-Requests an den Entwicklungsrechner weitergeleitet, auch wenn Nginx korrekt konfiguriert ist!
 
 2. Service aktivieren:
 ```bash
