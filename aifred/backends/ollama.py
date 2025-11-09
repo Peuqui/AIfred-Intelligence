@@ -247,6 +247,8 @@ class OllamaBackend(LLMBackend):
             start_time = time.time()
 
             # Send minimal request to trigger model loading
+            # Note: No keep_alive set - let Ollama manage memory automatically
+            # Ollama will unload models when needed (LRU strategy)
             payload = {
                 "model": model,
                 "messages": [{"role": "user", "content": "hi"}],
