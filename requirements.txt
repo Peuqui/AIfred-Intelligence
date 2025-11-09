@@ -2,24 +2,30 @@
 # Multi-Backend LLM Chat Assistant with PWA support
 
 # Core Framework
-reflex>=0.8.16
+reflex>=0.8.17
+pydantic>=2.0.0         # For data models (required by Reflex State)
 
 # LLM Backends
 httpx>=0.28.0           # For Ollama HTTP API
-openai>=1.0.0          # For vLLM (OpenAI-compatible API)
+openai>=1.0.0           # For vLLM (OpenAI-compatible API)
 
-# Web Search & Scraping (from original AIfred)
-beautifulsoup4>=4.12.0
-trafilatura>=1.13.0
-playwright>=1.50.0
-searxng-search>=0.1.0
+# Web Search & Scraping
+beautifulsoup4>=4.12.0  # HTML parsing
+trafilatura>=1.13.0     # Web content extraction
+playwright>=1.50.0      # JavaScript-heavy page scraping
+searxng-search>=0.1.0   # SearXNG meta-search integration
+requests>=2.31.0        # HTTP requests for search APIs
+lxml>=5.0.0             # XML/HTML parser (trafilatura dependency)
+
+# Vector Database & Semantic Search
+chromadb>=0.4.24        # Vector database for semantic caching
 
 # Audio Processing (STT/TTS)
-edge-tts>=6.1.0
-openai-whisper>=20231117
+edge-tts>=6.1.0         # Text-to-Speech
+openai-whisper>=20231117 # Speech-to-Text
 
-# Database & Caching
-redis>=6.4.0
+# Configuration & Environment
+python-dotenv>=1.0.0    # .env file support
 
 # Utilities
 python-multipart>=0.0.20
