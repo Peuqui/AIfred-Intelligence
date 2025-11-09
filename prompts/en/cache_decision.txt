@@ -1,0 +1,9 @@
+Analyze this search query and decide if the answer should be cached long-term.
+
+Query: {user_query}
+
+Should this query be cached? Answer ONLY with:
+- "CACHE" if the answer is factual, permanent knowledge (e.g., "What is Python?", "History of Berlin", "How does photosynthesis work?")
+- "SKIP" if the answer is time-dependent, personal, or volatile (e.g., "What's trending right now?", "My account balance", "Current stock prices")
+
+Decision:

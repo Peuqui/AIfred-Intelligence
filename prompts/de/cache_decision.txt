@@ -1,0 +1,9 @@
+Analysiere diese Suchanfrage und entscheide, ob die Antwort langfristig gecacht werden sollte.
+
+Anfrage: {user_query}
+
+Sollte diese Anfrage gecacht werden? Antworte NUR mit:
+- "CACHE" wenn die Antwort faktisches, permanentes Wissen ist (z.B. "Was ist Python?", "Geschichte von Berlin", "Wie funktioniert Photosynthese?")
+- "SKIP" wenn die Antwort zeitabhängig, persönlich oder volatil ist (z.B. "Was ist gerade trending?", "Mein Kontostand", "Aktuelle Börsenkurse")
+
+Entscheidung:

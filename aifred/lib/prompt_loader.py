@@ -1,8 +1,9 @@
 """
 Prompt Loader Module with i18n Support
 
-Loads prompts from language-specific directories.
-Supports automatic language detection and fallback.
+Loads prompts from language-specific directories (de/ or en/).
+Supports automatic language detection.
+No fallbacks - prompts must exist in both languages.
 """
 
 from pathlib import Path
@@ -101,21 +102,13 @@ def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: str = N
             # Default to German if no text to analyze
             lang = "de"
 
-    # Try language-specific path first
+    # Load from language-specific directory only (no fallback)
     prompt_file = PROMPTS_DIR / lang / f"{prompt_name}.txt"
-
-    # Fallback to root if not found (for backwards compatibility)
-    if not prompt_file.exists():
-        prompt_file = PROMPTS_DIR / f"{prompt_name}.txt"
-
-    # Fallback to other language if still not found
-    if not prompt_file.exists():
-        other_lang = "de" if lang == "en" else "en"
-        prompt_file = PROMPTS_DIR / other_lang / f"{prompt_name}.txt"
 
     if not prompt_file.exists():
         raise FileNotFoundError(
-            f"Prompt file not found: {prompt_name} (tried {lang} and fallbacks)\n"
+            f"Prompt file not found: {prompt_file}\n"
+            f"Expected language: {lang}\n"
             f"Available prompts: {list_available_prompts()}"
         )
 
@@ -151,10 +144,7 @@ def list_available_prompts() -> list:
 
     prompts = set()
 
-    # Check root directory
-    prompts.update(p.stem for p in PROMPTS_DIR.glob('*.txt'))
-
-    # Check language directories
+    # Check language directories only (no root directory)
     for lang_dir in ['de', 'en']:
         lang_path = PROMPTS_DIR / lang_dir
         if lang_path.exists():
