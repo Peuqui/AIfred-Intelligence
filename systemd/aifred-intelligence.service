@@ -1,0 +1,21 @@
+[Unit]
+Description=AIfred Intelligence Voice Assistant (Reflex Version)
+After=network.target ollama.service aifred-chromadb.service
+Requires=ollama.service aifred-chromadb.service
+
+[Service]
+Type=simple
+User=mp
+Group=mp
+WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence
+Environment="PATH=/home/mp/Projekte/AIfred-Intelligence/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="AIFRED_ENV=prod"
+ExecStart=/home/mp/Projekte/AIfred-Intelligence/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

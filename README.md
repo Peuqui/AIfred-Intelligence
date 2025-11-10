@@ -209,17 +209,52 @@ Der AIfred Restart-Button kann in zwei Modi arbeiten:
 
 ### Systemd Service
 
-Für produktiven Betrieb als Service:
-
-1. Service-File erstellen: `/etc/systemd/system/aifred-intelligence.service`
+Für produktiven Betrieb als Service sind vorkonfigurierte Service-Dateien im `systemd/` Verzeichnis verfügbar.
 
 **⚠️ WICHTIG**: Die Umgebungsvariable `AIFRED_ENV=prod` **MUSS** gesetzt sein, damit AIfred auf dem MiniPC läuft und nicht auf den Entwicklungsrechner weiterleitet!
 
+#### Schnellinstallation
+
+```bash
+# 1. Service-Dateien kopieren
+sudo cp systemd/aifred-chromadb.service /etc/systemd/system/
+sudo cp systemd/aifred-intelligence.service /etc/systemd/system/
+
+# 2. Services aktivieren und starten
+sudo systemctl daemon-reload
+sudo systemctl enable aifred-chromadb.service aifred-intelligence.service
+sudo systemctl start aifred-chromadb.service aifred-intelligence.service
+
+# 3. Status prüfen
+systemctl status aifred-chromadb.service
+systemctl status aifred-intelligence.service
+```
+
+Siehe [systemd/README.md](systemd/README.md) für Details, Troubleshooting und Monitoring.
+
+#### Service-Dateien (Referenz)
+
+**1. ChromaDB Service** (`systemd/aifred-chromadb.service`):
+```ini
+[Unit]
+Description=AIfred ChromaDB Vector Cache (Docker)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence/docker
+ExecStart=/usr/bin/docker compose up -d chromadb
+ExecStop=/usr/bin/docker compose stop chromadb
+```
+
+**2. AIfred Intelligence Service** (`systemd/aifred-intelligence.service`):
 ```ini
 [Unit]
 Description=AIfred Intelligence Voice Assistant
-After=network.target ollama.service
-Requires=ollama.service
+After=network.target ollama.service aifred-chromadb.service
+Requires=ollama.service aifred-chromadb.service
 
 [Service]
 Type=simple
