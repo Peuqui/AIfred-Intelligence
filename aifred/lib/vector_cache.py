@@ -1,103 +1,150 @@
 """
-Vector DB Cache - Semantic Search for Research Results
+Vector Cache - ChromaDB Server Mode (Thread-Safe)
 
-Replaces the old LLM-based cache decision system with fast,
-accurate vector similarity search using ChromaDB.
+ARCHITECTURE:
+- ChromaDB runs as Docker container (docker-compose.yml)
+- AIfred connects via HTTP (chromadb.HttpClient)
+- NO worker threads needed - server handles everything
+- Thread-safe by design (HTTP is stateless)
 
-Features:
-- Semantic similarity search (20ms instead of 2-3s)
-- Auto-learning from web search results
-- 98% accuracy vs 68% with LLM-based decisions
-- Zero LLM tokens for cache lookups
+BENEFITS:
+- ✅ Thread-safe (HTTP client is thread-safe)
+- ✅ No file locks (server manages SQLite)
+- ✅ Portable (data in ./aifred_vector_cache)
+- ✅ Scalable (server can be moved to separate host)
+- ✅ Simple (no complex worker thread management)
+
+USAGE:
+    # Start ChromaDB server:
+    docker-compose up -d chromadb
+
+    # In your code:
+    from aifred.lib.vector_cache import get_cache
+
+    cache = get_cache()
+    result = await cache.query("What is the weather?")
 """
 
 import time
 import chromadb
 from chromadb.config import Settings
-from typing import Dict, List, Optional, Tuple
-from pathlib import Path
+import asyncio
+from typing import Dict, List, Optional
 from .logging_utils import log_message
+from .config import (
+    CACHE_DISTANCE_HIGH,
+    CACHE_DISTANCE_MEDIUM,
+    CACHE_DISTANCE_DUPLICATE,
+    CACHE_TIME_THRESHOLD
+)
+from datetime import datetime
+import uuid
 
 
 class VectorCache:
     """
-    Smart Vector-based Cache using ChromaDB
+    Vector Cache using ChromaDB in Client-Server Mode
+
+    Connects to ChromaDB Docker container via HTTP.
+    All operations are thread-safe by design.
 
     Decision Thresholds (Cosine Distance):
-    - < 0.5:  HIGH CONFIDENCE   → Direct return (instant)
-    - 0.5-0.85: MEDIUM CONFIDENCE → Could verify with LLM (optional)
-    - > 0.85:  LOW CONFIDENCE    → Web search required
-
-    Note: all-MiniLM-L6-v2 embeddings typically give:
-    - Exact/very similar questions: 0.25-0.45
-    - Related questions: 0.5-0.85
-    - Unrelated questions: > 1.0
+    - < 0.5:     HIGH confidence   → Return cached answer
+    - 0.5-0.85:  MEDIUM confidence → Return with warning
+    - > 0.85:    LOW confidence    → Web search required
     """
 
-    def __init__(self, persist_directory: str = "./aifred_vector_cache"):
+    def __init__(self, host: str = "localhost", port: int = 8000):
         """
-        Initialize Vector Cache with ChromaDB
+        Initialize Vector Cache with ChromaDB Server
 
         Args:
-            persist_directory: Where to store the vector database
+            host: ChromaDB server host (default: localhost for Docker)
+            port: ChromaDB server port (default: 8000)
+
+        Raises:
+            ConnectionError: If ChromaDB server is not running
         """
-        self.persist_dir = Path(persist_directory)
-        self.persist_dir.mkdir(parents=True, exist_ok=True)
-
-        # Initialize ChromaDB with persistence
-        self.client = chromadb.PersistentClient(
-            path=str(self.persist_dir),
-            settings=Settings(
-                anonymized_telemetry=False,  # Disable telemetry
-                allow_reset=True
+        try:
+            # HttpClient is thread-safe and can be used from async code
+            self.client = chromadb.HttpClient(
+                host=host,
+                port=port,
+                settings=Settings(anonymized_telemetry=False)
             )
-        )
 
-        # Get or create collection
-        # Using default embedding function (all-MiniLM-L6-v2)
-        self.collection = self.client.get_or_create_collection(
-            name="research_cache",
-            metadata={"description": "Web research results with auto-learning"}
-        )
+            # Test connection with heartbeat
+            self.client.heartbeat()
 
-        log_message(f"✅ Vector Cache initialized: {self.collection.count()} entries")
+            # Get or create collection
+            self.collection = self.client.get_or_create_collection(
+                name="research_cache",
+                metadata={"description": "AIfred web research results with semantic search"}
+            )
 
-    def query(self, user_query: str, n_results: int = 3) -> Dict:
+            count = self.collection.count()
+            log_message(f"✅ Vector Cache connected to ChromaDB server: {count} entries")
+
+        except Exception as e:
+            log_message(f"❌ ChromaDB Server connection failed: {e}")
+            log_message("💡 Hint: Start ChromaDB with: docker-compose up -d chromadb")
+            raise ConnectionError(
+                f"Could not connect to ChromaDB server at {host}:{port}. "
+                "Make sure Docker container is running: docker-compose up -d chromadb"
+            ) from e
+
+    async def query(self, user_query: str, n_results: int = 1) -> Dict:
         """
         Query cache with semantic similarity search
 
         Args:
             user_query: User's question
-            n_results: Number of results to retrieve
+            n_results: Number of similar results to retrieve (default: 1)
 
         Returns:
-            Dict with:
+            Dict with keys:
             - source: 'CACHE' or 'CACHE_MISS'
             - confidence: 'high', 'medium', or 'low'
-            - distance: Cosine distance score
+            - distance: Cosine distance score (0.0 = identical, 2.0 = opposite)
             - answer: Cached answer (if found)
             - metadata: Source metadata (if found)
+            - query_time_ms: Query execution time in milliseconds
         """
         start_time = time.time()
 
+        # Run blocking HTTP call in thread pool
+        # HttpClient calls are fast (typically <50ms), so to_thread overhead is acceptable
+        result = await asyncio.to_thread(
+            self._query_sync,
+            user_query,
+            n_results
+        )
+
+        result['query_time_ms'] = (time.time() - start_time) * 1000
+        return result
+
+    def _query_sync(self, user_query: str, n_results: int) -> Dict:
+        """
+        Synchronous query implementation (called in thread pool)
+
+        This method runs in asyncio's thread pool, not in event loop.
+        Safe to make blocking HTTP calls here.
+        """
         # Check if cache is empty
         if self.collection.count() == 0:
             log_message("💾 Vector Cache empty → Web search required")
             return {
                 'source': 'CACHE_MISS',
                 'confidence': 'low',
-                'distance': 1.0,
-                'query_time_ms': (time.time() - start_time) * 1000
+                'distance': 1.0
             }
 
-        # Perform semantic search
+        # Perform semantic similarity search
         results = self.collection.query(
             query_texts=[user_query],
             n_results=n_results,
             include=['distances', 'documents', 'metadatas']
         )
-
-        query_time = (time.time() - start_time) * 1000  # Convert to ms
 
         # No results found
         if not results['ids'][0]:
@@ -105,8 +152,7 @@ class VectorCache:
             return {
                 'source': 'CACHE_MISS',
                 'confidence': 'low',
-                'distance': 1.0,
-                'query_time_ms': query_time
+                'distance': 1.0
             }
 
         # Get best match
@@ -114,59 +160,242 @@ class VectorCache:
         document = results['documents'][0][0]
         metadata = results['metadatas'][0][0]
 
-        # Determine confidence based on distance thresholds
-        if distance < 0.5:
+        # Determine confidence based on distance thresholds (from config)
+        if distance < CACHE_DISTANCE_HIGH:
             confidence = 'high'
             source = 'CACHE'
-            log_message(f"✅ Vector Cache HIT: distance={distance:.3f} (HIGH confidence)")
-        elif distance < 0.85:
+            log_message(f"✅ Vector Cache HIT: distance={distance:.3f} (HIGH confidence, < {CACHE_DISTANCE_HIGH})")
+        elif distance < CACHE_DISTANCE_MEDIUM:
             confidence = 'medium'
             source = 'CACHE'
-            log_message(f"⚠️  Vector Cache HIT: distance={distance:.3f} (MEDIUM confidence)")
+            log_message(f"⚠️  Vector Cache HIT: distance={distance:.3f} (MEDIUM confidence, < {CACHE_DISTANCE_MEDIUM})")
         else:
             confidence = 'low'
             source = 'CACHE_MISS'
-            log_message(f"❌ Vector Cache miss: distance={distance:.3f} (too high)")
+            log_message(f"❌ Vector Cache miss: distance={distance:.3f} (too high, >= {CACHE_DISTANCE_MEDIUM})")
+
+        # Extract answer from metadata (stored there to keep embedding focused on query)
+        answer = None
+        if source == 'CACHE' and metadata:
+            answer = metadata.get('answer')
 
         return {
             'source': source,
             'confidence': confidence,
             'distance': distance,
-            'answer': document if source == 'CACHE' else None,
-            'metadata': metadata if source == 'CACHE' else None,
-            'query_time_ms': query_time
+            'answer': answer,
+            'metadata': metadata if source == 'CACHE' else None
         }
 
-    def add(
+    async def query_newest(self, user_query: str, n_results: int = 5) -> Dict:
+        """
+        Query cache and return the NEWEST match (by timestamp)
+
+        This is useful for time-based cache checks where we want the most recent
+        entry, not just the best similarity match.
+
+        Args:
+            user_query: User's question
+            n_results: Number of similar results to check (default: 5)
+
+        Returns:
+            Dict with keys:
+            - source: 'CACHE' or 'CACHE_MISS'
+            - confidence: 'high', 'medium', or 'low'
+            - distance: Cosine distance score of the newest match
+            - answer: Cached answer (if found)
+            - metadata: Source metadata (if found)
+            - query_time_ms: Query execution time in milliseconds
+        """
+        start_time = time.time()
+
+        result = await asyncio.to_thread(
+            self._query_newest_sync,
+            user_query,
+            n_results
+        )
+
+        result['query_time_ms'] = (time.time() - start_time) * 1000
+        return result
+
+    def _query_newest_sync(self, user_query: str, n_results: int) -> Dict:
+        """
+        Synchronous query_newest implementation (called in thread pool)
+
+        Retrieves multiple similar results and returns the newest one (by timestamp).
+        """
+        # Check if cache is empty
+        if self.collection.count() == 0:
+            log_message("💾 Vector Cache empty → Web search required")
+            return {
+                'source': 'CACHE_MISS',
+                'confidence': 'low',
+                'distance': 1.0
+            }
+
+        # Perform semantic similarity search (get multiple results)
+        results = self.collection.query(
+            query_texts=[user_query],
+            n_results=min(n_results, self.collection.count()),
+            include=['distances', 'documents', 'metadatas']
+        )
+
+        # No results found
+        if not results['ids'][0]:
+            log_message("❌ Vector Cache miss: No similar queries found")
+            return {
+                'source': 'CACHE_MISS',
+                'confidence': 'low',
+                'distance': 1.0
+            }
+
+        # Find newest entry among matches with configured distance threshold
+        from datetime import datetime
+        newest_entry = None
+        newest_time = None
+
+        for i, distance in enumerate(results['distances'][0]):
+            # Only consider similar queries (distance < CACHE_DISTANCE_DUPLICATE from config)
+            if distance < CACHE_DISTANCE_DUPLICATE:
+                metadata = results['metadatas'][0][i]
+                timestamp_str = metadata.get('timestamp')
+
+                if timestamp_str:
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                    if newest_time is None or timestamp > newest_time:
+                        newest_time = timestamp
+                        newest_entry = {
+                            'distance': distance,
+                            'document': results['documents'][0][i],
+                            'metadata': metadata
+                        }
+
+        # If we found a near-duplicate, return the newest one
+        if newest_entry:
+            distance = newest_entry['distance']
+            metadata = newest_entry['metadata']
+
+            # Determine confidence based on distance thresholds
+            if distance < 0.5:
+                confidence = 'high'
+                source = 'CACHE'
+                log_message(f"✅ Vector Cache HIT (newest): distance={distance:.3f} (HIGH confidence)")
+            elif distance < 0.85:
+                confidence = 'medium'
+                source = 'CACHE'
+                log_message(f"⚠️  Vector Cache HIT (newest): distance={distance:.3f} (MEDIUM confidence)")
+            else:
+                confidence = 'low'
+                source = 'CACHE_MISS'
+                log_message(f"❌ Vector Cache miss: distance={distance:.3f} (too high)")
+
+            # Extract answer from metadata
+            answer = metadata.get('answer') if source == 'CACHE' else None
+
+            return {
+                'source': source,
+                'confidence': confidence,
+                'distance': distance,
+                'answer': answer,
+                'metadata': metadata if source == 'CACHE' else None
+            }
+        else:
+            # No similar queries found (distance >= CACHE_DISTANCE_DUPLICATE)
+            log_message(f"❌ Vector Cache: No similar queries found (all distances >= {CACHE_DISTANCE_DUPLICATE})")
+            return {
+                'source': 'CACHE_MISS',
+                'confidence': 'low',
+                'distance': 1.0
+            }
+
+    async def add(
         self,
         query: str,
         answer: str,
         sources: List[Dict],
         metadata: Optional[Dict] = None
-    ) -> None:
+    ) -> Dict:
         """
         Add new entry to cache (auto-learning from web search)
 
+        Includes duplicate detection: If a very similar query already exists
+        (distance < 0.1), the entry is skipped to prevent duplicates.
+
         Args:
             query: User's question
-            answer: Generated answer
-            sources: List of scraped sources
-            metadata: Additional metadata
-        """
-        import uuid
-        from datetime import datetime
+            answer: Generated answer (full text, no truncation)
+            sources: List of scraped sources with 'url' keys
+            metadata: Additional metadata (optional)
 
-        # Build metadata (ChromaDB only supports str, int, float, bool, None)
+        Returns:
+            Dict with keys:
+            - success: True if added successfully
+            - duplicate: True if skipped due to duplicate
+            - total_entries: Total cache entries after addition
+            - error: Error message (if failed)
+        """
+        # Duplicate check: Query if very similar entry exists
+        # Use query_newest to check for recent duplicates (from config)
+        existing = await self.query_newest(query, n_results=5)
+
+        if existing['source'] == 'CACHE' and existing['distance'] < CACHE_DISTANCE_DUPLICATE:
+            # Check if duplicate is recent (time threshold from config)
+            from datetime import datetime
+            timestamp = existing['metadata'].get('timestamp')
+            if timestamp:
+                cache_time = datetime.fromisoformat(timestamp)
+                age_seconds = (datetime.now() - cache_time).total_seconds()
+
+                if age_seconds < CACHE_TIME_THRESHOLD:
+                    # Recent duplicate - skip save
+                    log_message(f"⚠️ Duplicate detected (distance={existing['distance']:.4f}, age={age_seconds:.0f}s), skipping save")
+                    return {
+                        'success': True,
+                        'duplicate': True,
+                        'total_entries': self.collection.count()
+                    }
+                else:
+                    # Old duplicate (>5min) - allow new entry
+                    log_message(f"✓ Old duplicate found (age={age_seconds/60:.1f}min), saving new entry")
+            else:
+                # No timestamp - treat as duplicate to be safe
+                log_message(f"⚠️ Duplicate detected (distance={existing['distance']:.4f}, no timestamp), skipping save")
+                return {
+                    'success': True,
+                    'duplicate': True,
+                    'total_entries': self.collection.count()
+                }
+
+        # No duplicate, proceed with save
+        return await asyncio.to_thread(
+            self._add_sync,
+            query, answer, sources, metadata
+        )
+
+    def _add_sync(
+        self,
+        query: str,
+        answer: str,
+        sources: List[Dict],
+        metadata: Optional[Dict] = None
+    ) -> Dict:
+        """
+        Synchronous add implementation (called in thread pool)
+        """
+        # Build metadata (ChromaDB only supports str, int, float, bool)
+        # Store answer in metadata since it can be large
         source_urls = [s.get('url', 'N/A')[:100] for s in sources[:3]]  # Max 3 URLs
         cache_metadata = {
             'timestamp': datetime.now().isoformat(),
             'num_sources': len(sources),
-            'source_urls': ', '.join(source_urls),  # Convert list to comma-separated string
+            'source_urls': ', '.join(source_urls),
+            'answer': answer,  # Store full answer in metadata
             **(metadata or {})
         }
 
-        # Create document text (Q&A format for better retrieval)
-        document = f"Q: {query}\nA: {answer[:500]}"  # Limit answer to 500 chars
+        # Store ONLY the query as document (for embedding/similarity search)
+        # The answer is stored in metadata and retrieved later
+        document = query
 
         try:
             # Add to ChromaDB
@@ -176,27 +405,100 @@ class VectorCache:
                 ids=[str(uuid.uuid4())]
             )
 
+            total = self.collection.count()
             log_message(f"💾 Vector Cache: Added entry for '{query[:50]}...'")
-            log_message(f"   Total entries: {self.collection.count()}")
+            log_message(f"   Total entries: {total}")
+
+            return {
+                'success': True,
+                'total_entries': total
+            }
 
         except Exception as e:
             log_message(f"⚠️  Vector Cache add failed: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
 
-    def clear(self) -> None:
-        """Clear all cache entries"""
+    async def get_stats(self) -> Dict:
+        """
+        Get cache statistics
+
+        Returns:
+            Dict with keys:
+            - total_entries: Number of cached entries
+            - server_url: ChromaDB server URL
+        """
+        return await asyncio.to_thread(self._get_stats_sync)
+
+    def _get_stats_sync(self) -> Dict:
+        """Synchronous stats implementation"""
+        # Get settings via public API
+        settings = self.client.get_settings()
+        host = getattr(settings, 'chroma_server_host', 'localhost')
+        port = getattr(settings, 'chroma_server_http_port', 8000)
+
+        return {
+            'total_entries': self.collection.count(),
+            'server_url': f"http://{host}:{port}"
+        }
+
+    async def clear(self) -> Dict:
+        """
+        Clear all cache entries
+
+        Returns:
+            Dict with keys:
+            - success: True if cleared successfully
+            - error: Error message (if failed)
+        """
+        return await asyncio.to_thread(self._clear_sync)
+
+    def _clear_sync(self) -> Dict:
+        """Synchronous clear implementation"""
         try:
             self.client.delete_collection("research_cache")
             self.collection = self.client.get_or_create_collection(
                 name="research_cache",
-                metadata={"description": "Web research results with auto-learning"}
+                metadata={"description": "AIfred web research results with semantic search"}
             )
             log_message("🗑️  Vector Cache cleared")
+            return {'success': True}
         except Exception as e:
             log_message(f"⚠️  Vector Cache clear failed: {e}")
+            return {'success': False, 'error': str(e)}
 
-    def get_stats(self) -> Dict:
-        """Get cache statistics"""
-        return {
-            'total_entries': self.collection.count(),
-            'persist_path': str(self.persist_dir)
-        }
+
+# Global cache instance (singleton)
+_cache_instance: Optional[VectorCache] = None
+
+
+def get_cache(host: str = "localhost", port: int = 8000) -> VectorCache:
+    """
+    Get or create global cache instance (singleton pattern)
+
+    Args:
+        host: ChromaDB server host
+        port: ChromaDB server port
+
+    Returns:
+        VectorCache instance
+
+    Raises:
+        ConnectionError: If ChromaDB server is not available
+    """
+    global _cache_instance
+
+    if _cache_instance is None:
+        _cache_instance = VectorCache(host=host, port=port)
+
+    return _cache_instance
+
+
+def reset_cache_instance():
+    """
+    Reset global cache instance (for testing/restart)
+    """
+    global _cache_instance
+    _cache_instance = None

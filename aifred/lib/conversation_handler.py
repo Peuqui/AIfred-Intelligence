@@ -18,6 +18,7 @@ from .llm_client import LLMClient
 from .logging_utils import log_message, CONSOLE_SEPARATOR
 from .prompt_loader import get_decision_making_prompt
 from .message_builder import build_messages_from_history
+from .config import CACHE_TIME_THRESHOLD, CACHE_DISTANCE_DUPLICATE
 from .formatting import format_thinking_process
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
@@ -77,9 +78,64 @@ async def chat_interactive_mode(
 
         user_lower = user_text.lower()
         if any(keyword in user_lower for keyword in explicit_keywords):
-            log_message("⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt → Skip KI-Entscheidung!")
-            yield {"type": "debug", "message": "⚡ Explizite Recherche erkannt → Web-Suche startet"}
-            # Direkt zur Recherche, KEIN Cache-Check! - Forward all yields from research
+            log_message("⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt")
+            yield {"type": "debug", "message": "⚡ Explizite Recherche erkannt"}
+
+            # Check cache first with time-based logic (Variante B)
+            try:
+                from .vector_cache import get_cache
+                from datetime import datetime
+
+                log_message("🔍 Checking cache for recent research...")
+                cache = get_cache()
+                # Use query_newest() to get the most recent match (not just best similarity)
+                cache_result = await cache.query_newest(user_text, n_results=5)
+
+                # Get distance for logging (always available)
+                distance = cache_result.get('distance', 1.0)
+
+                # Check if similar query found (query_newest uses CACHE_DISTANCE_DUPLICATE from config)
+                if cache_result['source'] == 'CACHE':
+                    # Check cache age against threshold from config
+                    cache_time = datetime.fromisoformat(cache_result['metadata']['timestamp'])
+                    age_seconds = (datetime.now() - cache_time).total_seconds()
+
+                    if age_seconds < CACHE_TIME_THRESHOLD:
+                        # Recent cache hit - use cached result
+                        log_message(f"✅ Recent research in cache ({age_seconds:.0f}s old, distance={distance:.3f}), using cache")
+                        yield {"type": "debug", "message": f"🔄 Recent cache hit ({age_seconds:.0f}s old, d={distance:.3f}) → Using cached result"}
+
+                        answer = cache_result['answer']
+                        cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
+                        timing_suffix = f" (Cache-Hit: {cache_time_ms:.2f}s, Age: {age_seconds:.0f}s)"
+
+                        # Create user_with_time for history
+                        user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
+
+                        # Add to history with timing suffix
+                        history.append((user_with_time, answer + timing_suffix))
+
+                        # Return result in same format as perform_agent_research
+                        yield {
+                            "type": "result",
+                            "data": (answer + timing_suffix, history, cache_time_ms)
+                        }
+                        return  # Done!
+                    else:
+                        # Cache too old - proceed with fresh research
+                        log_message(f"⏰ Cache too old ({age_seconds/60:.1f}min, distance={distance:.3f}), performing fresh search")
+                        yield {"type": "debug", "message": f"⏰ Cache outdated ({age_seconds/60:.1f}min, d={distance:.3f}) → Fresh search"}
+                else:
+                    # No similar cache entry - proceed with fresh research
+                    log_message(f"❌ No recent cache match (distance={distance:.3f} >= {CACHE_DISTANCE_DUPLICATE}), performing fresh search")
+                    yield {"type": "debug", "message": f"❌ No cache match (d={distance:.3f}) → Fresh search"}
+
+            except Exception as e:
+                log_message(f"⚠️ Cache check failed: {e}")
+                yield {"type": "debug", "message": f"⚠️ Cache check failed: {e}"}
+
+            # Proceed with fresh web research (cache miss, too old, or error)
+            yield {"type": "debug", "message": "🌐 Starting fresh web research..."}
             async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options):
                 yield item
             return  # Generator ends after forwarding all items
@@ -87,10 +143,51 @@ async def chat_interactive_mode(
         # ============================================================
         # Phase 1: Vector Cache Check (Semantic Similarity Search)
         # ============================================================
-        # TEMPORARILY DISABLED AGAIN - Model loading causes timeout
-        # TODO: Fix model preloading first, then re-enable cache
-        log_message("⚠️ Vector Cache DISABLED (temporary - debugging model loading)")
-        yield {"type": "debug", "message": "⚠️ Vector Cache disabled (debugging)"}
+        try:
+            from .vector_cache import get_cache
+
+            log_message("🔍 Checking Vector Cache...")
+            yield {"type": "debug", "message": "🔍 Checking Vector Cache..."}
+
+            cache = get_cache()
+            cache_result = await cache.query(user_text, n_results=1)
+
+            if cache_result['source'] == 'CACHE':
+                # Cache HIT! Return cached answer
+                confidence = cache_result['confidence']
+                distance = cache_result['distance']
+                answer = cache_result['answer']
+
+                log_message(f"✅ Vector Cache HIT! Confidence: {confidence.upper()}, Distance: {distance:.3f}")
+                yield {"type": "debug", "message": f"✅ Cache HIT ({confidence}, d={distance:.3f})"}
+
+                # Return cached answer with timing info
+                cache_time = cache_result.get('query_time_ms', 0) / 1000  # Convert to seconds
+                timing_suffix = f" (Cache-Hit: {cache_time:.2f}s)"
+
+                # Add to history
+                from datetime import datetime
+                user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
+                history.append((user_with_time, answer + timing_suffix))
+
+                # Return result in same format as perform_agent_research
+                yield {
+                    "type": "result",
+                    "data": (answer + timing_suffix, history, cache_time)
+                }
+
+                log_message(f"✅ Cache answer returned ({len(answer)} chars, {cache_time:.2f}s)")
+                return  # Done!
+            else:
+                # Cache MISS - continue with normal flow
+                distance = cache_result.get('distance', 1.0)
+                confidence = cache_result.get('confidence', 'low')
+                log_message(f"❌ Vector Cache MISS (distance={distance:.3f}, confidence={confidence})")
+                yield {"type": "debug", "message": f"❌ Cache miss (d={distance:.3f}, {confidence}) → Checking research need..."}
+
+        except Exception as e:
+            log_message(f"⚠️ Vector Cache error (continuing without cache): {e}")
+            yield {"type": "debug", "message": f"⚠️ Cache unavailable: {e}"}
 
         # Spracherkennung für Nutzereingabe
         from .prompt_loader import detect_language

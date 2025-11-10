@@ -155,6 +155,28 @@ HISTORY_SUMMARY_TEMPERATURE = 0.3
 HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
 
 # ============================================================
+# VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
+# ============================================================
+# Distance-Thresholds für semantische Ähnlichkeit (Cosine Distance)
+# 0.0 = identisch, 2.0 = komplett verschieden
+
+# Normale Cache-Abfrage (ohne explizite Keywords wie "recherchiere")
+CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit
+CACHE_DISTANCE_MEDIUM = 0.85   # 0.5-0.85 = MEDIUM confidence Cache-Hit
+                               # > 0.85 = CACHE_MISS
+
+# Explizite Recherche-Keywords ("recherchiere", "google", etc.)
+# Nur für query_newest() - zeitbasierte Duplikat-Erkennung
+CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Sehr ähnlich (potentielles Duplikat wenn < 5min alt)
+                                # Beispiele:
+                                # - "recherchiere Python" vs "recherchiere Python Tutorial" = ~0.15
+                                # - "recherchiere Wetter Berlin" vs "recherchiere Wetter Hamburg" = ~0.25
+                                # - "recherchiere Python" vs "recherchiere Java" = ~0.6
+
+# Zeit-Threshold für Duplikat-Erkennung
+CACHE_TIME_THRESHOLD = 300  # 5 Minuten (in Sekunden)
+
+# ============================================================
 # CONFIG VALIDATION (Safety Checks)
 # ============================================================
 # Validate History Compression Config zur Laufzeit

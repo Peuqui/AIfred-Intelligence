@@ -91,11 +91,22 @@ async def calculate_dynamic_num_ctx(
         return user_num_ctx
 
     # Berechne Tokens aus Message-Größe
-    estimated_tokens = estimate_tokens(messages)  # 1 Token ≈ 4 Zeichen
+    estimated_tokens = estimate_tokens(messages)  # 1 Token ≈ 3.5 Zeichen
 
-    # 50/50 Regel: Context Window = Input × 2 (50% Input, 50% Output)
-    # Gibt LLM genügend Platz für ausführliche Antworten, die den Context nutzen
-    needed_tokens = int(estimated_tokens * 2.0)
+    # GENERÖSE Reserve für lange Antworten:
+    # Input + 8K-16K Reserve (je nach Input-Größe)
+    # Verhindert abgeschnittene Antworten bei ausführlichen Erklärungen
+    if estimated_tokens < 2048:
+        # Kleine Anfragen: +8K Reserve
+        reserve = 8192
+    elif estimated_tokens < 8192:
+        # Mittlere Anfragen: +12K Reserve
+        reserve = 12288
+    else:
+        # Große Anfragen (Research): +16K Reserve
+        reserve = 16384
+
+    needed_tokens = estimated_tokens + reserve
 
     # Runde auf Standard-Größe
     if needed_tokens <= 2048:

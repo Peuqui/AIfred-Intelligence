@@ -13,7 +13,7 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 - **Automatische Web-Recherche**: KI entscheidet selbst wann Recherche nötig ist
 - **History Compression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Voice Interface**: Speech-to-Text und Text-to-Speech Integration
-- **Cache-System**: Intelligentes Caching von Recherche-Ergebnissen
+- **Vector Cache**: ChromaDB-basierter Semantic Cache für Web-Recherchen (Docker)
 
 ### 🔧 Technical Highlights
 - **Reflex Framework**: React-Frontend aus Python generiert
@@ -21,6 +21,7 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 - **Adaptive Temperature**: KI wählt Temperature basierend auf Fragetyp
 - **Token Management**: Dynamische Context-Window-Berechnung
 - **Debug Console**: Umfangreiches Logging und Monitoring
+- **ChromaDB Server Mode**: Thread-safe Vector DB via Docker (0.0 distance für exakte Matches)
 
 ---
 
@@ -69,7 +70,54 @@ ollama pull qwen2.5:3b      # Automatik-LLM
 ollama pull phi3:mini       # Backup/Test
 ```
 
-6. **Starten**:
+6. **ChromaDB Vector Cache starten** (Docker):
+```bash
+cd docker
+docker-compose up -d chromadb
+cd ..
+```
+
+**Optional: SearXNG auch starten** (lokale Suchmaschine):
+```bash
+cd docker
+docker-compose --profile full up -d
+cd ..
+```
+
+**ChromaDB Cache zurücksetzen** (bei Bedarf):
+
+*Option 1: Kompletter Neustart (löscht alle Daten)*
+```bash
+cd docker
+docker-compose stop chromadb
+cd ..
+rm -rf aifred_vector_cache/
+cd docker
+docker-compose up -d chromadb
+cd ..
+```
+
+*Option 2: Nur Collection löschen (während Container läuft)*
+```bash
+./venv/bin/python -c "
+import chromadb
+from chromadb.config import Settings
+
+client = chromadb.HttpClient(
+    host='localhost',
+    port=8000,
+    settings=Settings(anonymized_telemetry=False)
+)
+
+try:
+    client.delete_collection('research_cache')
+    print('✅ Collection gelöscht')
+except Exception as e:
+    print(f'⚠️ Fehler: {e}')
+"
+```
+
+7. **Starten**:
 ```bash
 reflex run
 ```

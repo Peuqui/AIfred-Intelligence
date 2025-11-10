@@ -69,3 +69,6 @@ assets/generated/
 *.tar.gz
 *.tar
 *.zip
+
+# ChromaDB Vector Cache (Docker volume data)
+aifred_vector_cache/

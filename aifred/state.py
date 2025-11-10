@@ -24,35 +24,28 @@ from .lib import (
 from .lib.formatting import format_debug_message
 
 # ============================================================
-# Module-Level Vector Cache V2 (Worker Thread Pattern)
+# Module-Level Vector Cache (ChromaDB Server Mode)
 # ============================================================
-# FIXED: Using v2 with dedicated worker thread to avoid blocking event loop
-from .lib.vector_cache_v2 import get_worker, query_cache_async, add_to_cache_async, get_cache_stats_async
+# NEW: Using ChromaDB server mode via Docker - thread-safe by design
+from .lib.vector_cache import get_cache
 
-def initialize_vector_cache_worker():
+def initialize_vector_cache():
     """
-    Initialize Vector Cache Worker (NON-BLOCKING)
+    Initialize Vector Cache (Server Mode)
 
-    This starts the dedicated worker thread for ChromaDB operations.
-    Call this during app startup (lifespan task) to warm up the cache.
+    Connects to ChromaDB Docker container via HTTP.
+    Thread-safe by design - no worker threads needed.
 
-    Returns immediately - initialization happens in background thread.
+    Returns immediately after testing connection.
     """
-    import time
-
     try:
-        log_message(f"🚀 Vector Cache Worker: Starting (PID: {os.getpid()})")
-        worker = get_worker(persist_directory="./aifred_vector_cache")
-
-        # Give worker thread 2 seconds to initialize ChromaDB in background
-        # This prevents blocking on the first query
-        log_message("⏳ Vector Cache Worker: Waiting for ChromaDB warmup (2s)...")
-        time.sleep(2.0)
-
-        log_message(f"✅ Vector Cache Worker: Started successfully")
-        return worker
+        log_message(f"🚀 Vector Cache: Connecting to ChromaDB server (PID: {os.getpid()})")
+        cache = get_cache()
+        log_message("✅ Vector Cache: Connected successfully")
+        return cache
     except Exception as e:
-        log_message(f"⚠️ Vector Cache Worker failed to start: {e}")
+        log_message(f"⚠️ Vector Cache connection failed: {e}")
+        log_message("💡 Make sure ChromaDB is running: docker-compose up -d chromadb")
         return None
 
 
@@ -146,9 +139,9 @@ class AIState(rx.State):
             set_language(DEFAULT_LANGUAGE)
             self.add_debug(f"🌍 Language mode: {DEFAULT_LANGUAGE}")
 
-            # Initialize Vector Cache Worker
-            initialize_vector_cache_worker()
-            self.add_debug("💾 Vector Cache Worker: Initialized")
+            # Initialize Vector Cache
+            initialize_vector_cache()
+            self.add_debug("💾 Vector Cache: Connected")
 
             # Generate session ID
             if not self.session_id:

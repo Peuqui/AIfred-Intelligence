@@ -212,9 +212,10 @@ async def build_and_generate_response(
     # Vector DB Auto-Learning: Save successful research to cache
     # ============================================================
     try:
-        from ..vector_cache_v2 import add_to_cache_async
+        from ..vector_cache import get_cache
 
-        result = await add_to_cache_async(
+        cache = get_cache()
+        result = await cache.add(
             query=user_text,
             answer=ai_text,
             sources=scraped_only,
@@ -222,8 +223,14 @@ async def build_and_generate_response(
         )
 
         if result.get('success'):
-            log_message(f"💾 Vector Cache: Auto-learned from web research ({result.get('total_entries')} entries)")
-            yield {"type": "debug", "message": "💾 Saved to Vector Cache"}
+            if result.get('duplicate'):
+                # Entry was skipped due to duplicate detection
+                log_message(f"⚠️ Vector Cache: Duplicate detected, skipped (distance < 0.1)")
+                yield {"type": "debug", "message": "⚠️ Cache duplicate - not saved"}
+            else:
+                # Entry was successfully added
+                log_message(f"💾 Vector Cache: Auto-learned from web research ({result.get('total_entries')} entries)")
+                yield {"type": "debug", "message": "💾 Saved to Vector Cache"}
         else:
             log_message(f"⚠️ Vector Cache add failed: {result.get('error')}")
     except Exception as e:
