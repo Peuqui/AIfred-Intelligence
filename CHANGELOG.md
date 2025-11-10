@@ -110,6 +110,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **UnboundLocalError**: Fixed duplicate `load_prompt` import causing variable shadowing
   - Removed local imports at lines 231 and 261 in `context_builder.py`
   - Now uses module-level import correctly
+- **Deadlock in Cache Decision**: Fixed LLM client resource conflict
+  - Was creating new LLMClient instances for cache decision
+  - Now uses existing `automatik_llm_client` parameter
+  - Prevents deadlock when Haupt-LLM just finished generating
+  - Removed unnecessary `from ..llm_client import LLMClient` import
 
 #### Technical Details
 - **Cache Decision Flow**:

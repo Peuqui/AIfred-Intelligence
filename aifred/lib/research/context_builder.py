@@ -214,7 +214,6 @@ async def build_and_generate_response(
     try:
         from ..vector_cache import get_cache
         from ..config import CACHE_EXCLUDE_VOLATILE
-        from ..llm_client import LLMClient
 
         # Step 1: Check for volatile keywords
         user_text_lower = user_text.lower()
@@ -231,10 +230,9 @@ async def build_and_generate_response(
             answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
             cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview)
 
-            # Ask Automatik-LLM for decision (fast, small model)
-            automatik_llm = LLMClient(backend_type="ollama")
+            # Ask Automatik-LLM for decision (use existing client to avoid deadlock)
             try:
-                response = await automatik_llm.chat(
+                response = await automatik_llm_client.chat(
                     model=automatik_model,
                     messages=[{'role': 'user', 'content': cache_prompt}],
                     options={'temperature': 0.1, 'num_ctx': 2048}  # Very deterministic
@@ -260,9 +258,9 @@ async def build_and_generate_response(
             answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
             cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview)
 
-            automatik_llm = LLMClient(backend_type="ollama")
+            # Use existing client to avoid deadlock
             try:
-                response = await automatik_llm.chat(
+                response = await automatik_llm_client.chat(
                     model=automatik_model,
                     messages=[{'role': 'user', 'content': cache_prompt}],
                     options={'temperature': 0.1, 'num_ctx': 2048}
