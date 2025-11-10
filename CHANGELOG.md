@@ -71,10 +71,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2025-11-10
+
+### 🧠 Intelligent Cache Decision System
+
+#### Added
+- **LLM-Based Cache Decision**: Automatic cache filtering with AI-powered override capability
+  - Two-stage filter: Volatile keywords → LLM decision
+  - Override logic: Concept questions (e.g., "Was ist Wetter?") are cached despite volatile keywords
+  - Automatik-LLM makes decision (fast, deterministic with temperature=0.1)
+- **Volatile Keywords List** (`aifred/lib/config.py`):
+  - `CACHE_EXCLUDE_VOLATILE` - 40+ keywords for volatile data detection
+  - Weather, finance, live sports, breaking news, time-specific queries
+  - Triggers LLM decision for smart caching
+- **Cache Decision Prompt** (`prompts/de/cache_decision.txt`):
+  - Clear rules: Cache facts/concepts, don't cache live data
+  - Examples for both cacheable and non-cacheable queries
+  - Override examples for ambiguous cases
+- **Source Attribution**: Transparent source labeling in chat history
+  - "Quelle: LLM-Trainingsdaten" - Answer from model's training data
+  - "Quelle: Vector Cache" - Answer from semantic cache
+  - "Quelle: Session Cache" - Answer from session-based cache
+  - "Quelle: Web-Recherche" - Answer from fresh web research
+- **Cache Inspection Scripts**:
+  - `scripts/list_cache.py` - List all cached entries with timestamps
+  - `scripts/search_cache.py` - Semantic similarity search in cache
+
+#### Changed
+- **Cache Distance Thresholds**: Stricter matching for better quality
+  - `CACHE_DISTANCE_MEDIUM` lowered from 0.85 to 0.5
+  - Preparation for RAG mode (0.5-1.2 range)
+- **Cache Auto-Learning Logic** (`context_builder.py`):
+  - Intelligent filtering before saving to cache
+  - LLM evaluates if content is timeless or volatile
+  - Debug messages for cache decision transparency
+
+#### Fixed
+- **UnboundLocalError**: Fixed duplicate `load_prompt` import causing variable shadowing
+  - Removed local imports at lines 231 and 261 in `context_builder.py`
+  - Now uses module-level import correctly
+
+#### Technical Details
+- **Cache Decision Flow**:
+  1. Check user query for volatile keywords
+  2. If keyword found → Ask LLM (can override to "cacheable")
+  3. If no keyword → Ask LLM (default decision)
+  4. Save to cache only if LLM approves
+- **Source Display Format**:
+  - Appears at end of AI answer (not user question)
+  - Format: `(Inferenz: 2.5s, Quelle: <source>)`
+  - Consistent across all answer types
+
+---
+
 ## [Unreleased]
 
 ### Planned Features
-- Adjustable cache retention policies
+- RAG mode: Use cache as context when distance is 0.5-1.2
+- Garbage collection for old cache entries
 - Cache statistics dashboard in UI
 - Export/import cache entries
 - Multi-language support for cache queries

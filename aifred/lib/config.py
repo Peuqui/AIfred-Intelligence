@@ -176,6 +176,40 @@ CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Sehr ähnlich (potentielles Duplikat w
 # Zeit-Threshold für Duplikat-Erkennung
 CACHE_TIME_THRESHOLD = 300  # 5 Minuten (in Sekunden)
 
+# RAG-Mode Distance Threshold
+CACHE_DISTANCE_RAG = 1.2  # < 1.2 = Ähnlich genug für RAG-Kontext (später implementiert)
+
+# Volatile Keywords - Daten die sich häufig ändern und nicht gecacht werden sollten
+# Diese Keywords triggern eine LLM-Entscheidung, ob trotzdem gecacht werden soll
+CACHE_EXCLUDE_VOLATILE = [
+    # Wetter & Klima (zeitabhängig)
+    'wetter', 'weather', 'temperatur', 'temperature', 'regen', 'rain', 'schnee', 'snow',
+    'sonnig', 'bewölkt', 'gewitter', 'sturm', 'frost', 'hitze',
+
+    # Zeitpunkte (momentan, nicht historisch)
+    'jetzt', 'gerade', 'momentan', 'aktuell', 'heute', 'morgen', 'übermorgen',
+    'now', 'currently', 'right now', 'at the moment', 'today', 'tomorrow',
+    'live', 'live-', 'livestream',
+
+    # Finanzen & Kurse (volatil)
+    'kurs', 'aktie', 'börse', 'stock', 'preis', 'price', 'cost',
+    'bitcoin', 'ethereum', 'krypto', 'crypto', 'coin',
+    'aktienkurs', 'wechselkurs', 'exchange rate',
+    'steigt', 'fällt', 'gestiegen', 'gefallen', 'rallye',
+
+    # Sport (Live-Scores)
+    'wie steht', "what's the score", 'spielstand', 'ergebnis', 'score',
+    'live-ticker', 'ticker',
+
+    # Breaking News
+    'breaking', 'eilmeldung', 'neueste meldung', 'gerade passiert',
+    'just happened', 'breaking news',
+
+    # Status-Abfragen
+    'aktueller stand', 'current status', 'latest update',
+    'wie läuft', 'how is going'
+]
+
 # ============================================================
 # CONFIG VALIDATION (Safety Checks)
 # ============================================================

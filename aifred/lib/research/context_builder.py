@@ -197,7 +197,7 @@ async def build_and_generate_response(
 
     # Update history
     total_time = time.time() - agent_start
-    timing_suffix = f" (Inferenz: {inference_time:.1f}s, {tokens_per_sec:.1f} tok/s)"
+    timing_suffix = f" (Inferenz: {inference_time:.1f}s, {tokens_per_sec:.1f} tok/s, Quelle: Web-Recherche)"
 
     if stt_time > 0:
         user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Agent: {mode}, {len(scraped_only)} Quellen)"
@@ -213,26 +213,97 @@ async def build_and_generate_response(
     # ============================================================
     try:
         from ..vector_cache import get_cache
+        from ..config import CACHE_EXCLUDE_VOLATILE
+        from ..llm_client import LLMClient
 
-        cache = get_cache()
-        result = await cache.add(
-            query=user_text,
-            answer=ai_text,
-            sources=scraped_only,
-            metadata={'mode': mode}
-        )
+        # Step 1: Check for volatile keywords
+        user_text_lower = user_text.lower()
+        has_volatile_keyword = any(keyword in user_text_lower for keyword in CACHE_EXCLUDE_VOLATILE)
 
-        if result.get('success'):
-            if result.get('duplicate'):
-                # Entry was skipped due to duplicate detection
-                log_message(f"⚠️ Vector Cache: Duplicate detected, skipped (distance < 0.1)")
-                yield {"type": "debug", "message": "⚠️ Cache duplicate - not saved"}
-            else:
-                # Entry was successfully added
-                log_message(f"💾 Vector Cache: Auto-learned from web research ({result.get('total_entries')} entries)")
-                yield {"type": "debug", "message": "💾 Saved to Vector Cache"}
+        should_cache = True  # Default: cache everything
+
+        if has_volatile_keyword:
+            # Volatile keyword found → Ask LLM for override decision
+            log_message(f"⚠️ Volatile keyword detected in query, asking LLM for cache decision...")
+            yield {"type": "debug", "message": "🤔 Volatile keyword → Checking if cacheable..."}
+
+            # Load cache decision prompt
+            answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
+            cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview)
+
+            # Ask Automatik-LLM for decision (fast, small model)
+            automatik_llm = LLMClient(backend_type="ollama")
+            try:
+                response = await automatik_llm.chat(
+                    model=automatik_model,
+                    messages=[{'role': 'user', 'content': cache_prompt}],
+                    options={'temperature': 0.1, 'num_ctx': 2048}  # Very deterministic
+                )
+                decision = response.get('message', {}).get('content', '').strip().lower()
+
+                if 'cacheable' in decision and 'not_cacheable' not in decision:
+                    should_cache = True
+                    log_message(f"✅ LLM Override: Cacheable (concept question with volatile keyword)")
+                    yield {"type": "debug", "message": "✅ LLM: Cacheable (override)"}
+                else:
+                    should_cache = False
+                    log_message(f"❌ LLM Decision: Not cacheable (volatile data)")
+                    yield {"type": "debug", "message": "❌ LLM: Not cacheable (volatile)"}
+            except Exception as e:
+                log_message(f"⚠️ LLM cache decision failed: {e}, defaulting to NOT cache")
+                should_cache = False
         else:
-            log_message(f"⚠️ Vector Cache add failed: {result.get('error')}")
+            # No volatile keyword → Ask LLM for normal decision
+            log_message(f"🤔 No volatile keyword, asking LLM for cache decision...")
+            yield {"type": "debug", "message": "🤔 Checking if cacheable..."}
+
+            answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
+            cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview)
+
+            automatik_llm = LLMClient(backend_type="ollama")
+            try:
+                response = await automatik_llm.chat(
+                    model=automatik_model,
+                    messages=[{'role': 'user', 'content': cache_prompt}],
+                    options={'temperature': 0.1, 'num_ctx': 2048}
+                )
+                decision = response.get('message', {}).get('content', '').strip().lower()
+
+                if 'cacheable' in decision and 'not_cacheable' not in decision:
+                    should_cache = True
+                    log_message(f"✅ LLM Decision: Cacheable")
+                    yield {"type": "debug", "message": "✅ LLM: Cacheable"}
+                else:
+                    should_cache = False
+                    log_message(f"❌ LLM Decision: Not cacheable")
+                    yield {"type": "debug", "message": "❌ LLM: Not cacheable"}
+            except Exception as e:
+                log_message(f"⚠️ LLM cache decision failed: {e}, defaulting to cache")
+                should_cache = True  # Bei Fehler: cachen (safe default)
+
+        # Step 2: Save to cache if decision is positive
+        if should_cache:
+            cache = get_cache()
+            result = await cache.add(
+                query=user_text,
+                answer=ai_text,
+                sources=scraped_only,
+                metadata={'mode': mode}
+            )
+
+            if result.get('success'):
+                if result.get('duplicate'):
+                    log_message(f"⚠️ Vector Cache: Duplicate detected, skipped")
+                    yield {"type": "debug", "message": "⚠️ Cache duplicate - not saved"}
+                else:
+                    log_message(f"💾 Vector Cache: Auto-learned from web research ({result.get('total_entries')} entries)")
+                    yield {"type": "debug", "message": "💾 Saved to Vector Cache"}
+            else:
+                log_message(f"⚠️ Vector Cache add failed: {result.get('error')}")
+        else:
+            log_message(f"🚫 Vector Cache: Skipped (LLM decision: not cacheable)")
+            yield {"type": "debug", "message": "🚫 Not cached (volatile data)"}
+
     except Exception as e:
         log_message(f"⚠️ Vector Cache auto-learning failed: {e}")
 

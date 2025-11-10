@@ -184,7 +184,7 @@ async def handle_cache_hit(
     final_answer_formatted = format_thinking_process(final_answer, model_name=model_choice, inference_time=llm_time)
 
     # Zeitmessung-Text
-    timing_text = f" (Cache-Hit: {total_time:.1f}s = LLM {llm_time:.1f}s, {tokens_per_sec:.1f} tok/s)"
+    timing_text = f" (Cache-Hit: {total_time:.1f}s = LLM {llm_time:.1f}s, {tokens_per_sec:.1f} tok/s, Quelle: Session Cache)"
     ai_text_with_timing = final_answer_formatted + timing_text
 
     # Update History

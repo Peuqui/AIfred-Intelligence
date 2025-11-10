@@ -107,7 +107,7 @@ async def chat_interactive_mode(
 
                         answer = cache_result['answer']
                         cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
-                        timing_suffix = f" (Cache-Hit: {cache_time_ms:.2f}s, Age: {age_seconds:.0f}s)"
+                        timing_suffix = f" (Cache-Hit: {cache_time_ms:.2f}s, Age: {age_seconds:.0f}s, Quelle: Vector Cache)"
 
                         # Create user_with_time for history
                         user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
@@ -163,7 +163,7 @@ async def chat_interactive_mode(
 
                 # Return cached answer with timing info
                 cache_time = cache_result.get('query_time_ms', 0) / 1000  # Convert to seconds
-                timing_suffix = f" (Cache-Hit: {cache_time:.2f}s)"
+                timing_suffix = f" (Cache-Hit: {cache_time:.2f}s, Quelle: Vector Cache)"
 
                 # Add to history
                 from datetime import datetime
@@ -357,12 +357,15 @@ async def chat_interactive_mode(
 
                 # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
                 if stt_time > 0:
-                    user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Entscheidung: {decision_time:.1f}s, Inferenz: {inference_time:.1f}s)"
+                    user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Entscheidung: {decision_time:.1f}s)"
                 else:
-                    user_with_time = f"{user_text} (Entscheidung: {decision_time:.1f}s, Inferenz: {inference_time:.1f}s)"
+                    user_with_time = f"{user_text} (Entscheidung: {decision_time:.1f}s)"
 
-                # Füge thinking_html zur History hinzu (MIT Thinking Collapsible!)
-                history.append((user_with_time, thinking_html))
+                # AI-Antwort mit Timing + Quelle
+                ai_with_source = f"{thinking_html} (Inferenz: {inference_time:.1f}s, Quelle: LLM-Trainingsdaten)"
+
+                # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
+                history.append((user_with_time, ai_with_source))
 
                 log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
 
@@ -372,8 +375,8 @@ async def chat_interactive_mode(
                 # Separator direkt yielden
                 yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
-                # Yield final result: thinking_html für AI-Antwort + History (beide mit Collapsible)
-                yield {"type": "result", "data": (thinking_html, history, inference_time)}
+                # Yield final result: ai_with_source für AI-Antwort + History (mit Quelle!)
+                yield {"type": "result", "data": (ai_with_source, history, inference_time)}
 
         except Exception as e:
             log_message(f"⚠️ Fehler bei Automatik-Modus Entscheidung: {e}")
