@@ -13,6 +13,11 @@ Prüfe ob die gecachten Informationen helfen können, die aktuelle Frage zu bean
   - "Machine Learning" → "Python Libraries" (eng verbunden)
   - "React" → "Next.js" (Next.js nutzt React)
 
+- **Gleiches Kernthema**: Auch wenn Frageform unterschiedlich ist
+  - Cache: "Suche nach Python" → Frage: "Was ist Python?" (beides über Python!)
+  - Cache: "Erkläre FastAPI" → Frage: "FastAPI Tutorial" (beides über FastAPI!)
+  - Cache: "Informationen zu React" → Frage: "React Vorteile?" (gleiches Thema!)
+
 - **Ergänzende Information**: Cache liefert Kontext für tiefere Frage
   - Cache: "Quantencomputer Grundlagen" → Frage: "Quantenalgorithmen"
   - Cache: "REST APIs" → Frage: "API Authentifizierung"
@@ -30,6 +35,10 @@ Prüfe ob die gecachten Informationen helfen können, die aktuelle Frage zu bean
 # BEISPIELE
 
 ## RELEVANT
+Gecachte Frage: "Suche im Internet nach Python"
+Aktuelle Frage: "Was ist Python?"
+→ relevant (beides behandelt Python!)
+
 Gecachte Frage: "Erkläre Python Programmierung"
 Aktuelle Frage: "Was sind die Vorteile von FastAPI?"
 → relevant (FastAPI ist Python Web-Framework, Cache liefert Python-Kontext)

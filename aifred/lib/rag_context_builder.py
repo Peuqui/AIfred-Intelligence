@@ -54,10 +54,25 @@ async def build_rag_context(
     # Filter candidates by relevance using Automatik-LLM
     relevant_entries = []
 
+    # Extract keywords from current query for quick heuristic check
+    current_keywords = set(user_query.lower().split())
+    # Remove common stop words
+    stop_words = {'was', 'ist', 'der', 'die', 'das', 'ein', 'eine', 'im', 'in', 'nach', 'suche', 'internet', 'zu', 'von', 'für'}
+    current_keywords = current_keywords - stop_words
+
     for candidate in rag_candidates:
         cached_query = candidate['query']
         cached_answer = candidate['answer']
         distance = candidate['distance']
+
+        # Quick heuristic check: Do queries share significant keywords?
+        cached_keywords = set(cached_query.lower().split()) - stop_words
+        shared_keywords = current_keywords & cached_keywords
+
+        # If they share at least one significant keyword, likely relevant
+        has_shared_keyword = len(shared_keywords) > 0
+        if has_shared_keyword:
+            log_message(f"  🎯 Quick match via keyword: {shared_keywords} (d={distance:.3f})")
 
         # Create preview of cached content (first 300 chars)
         content_preview = cached_answer[:300] + "..." if len(cached_answer) > 300 else cached_answer
@@ -70,6 +85,11 @@ async def build_rag_context(
             current_query=user_query
         )
 
+        # Log prompt for first candidate (debugging)
+        if candidate == rag_candidates[0]:
+            log_message(f"  📄 Relevance Prompt Preview: cached='{cached_query[:40]}...' current='{user_query[:40]}...'")
+            log_message(f"  📝 Full Prompt (first 500 chars):\n{relevance_prompt[:500]}...")
+
         # Ask Automatik-LLM: Is this relevant?
         try:
             response = await automatik_llm_client.chat(
@@ -81,10 +101,18 @@ async def build_rag_context(
             # LLMResponse object has .text attribute, not dict
             decision = response.text.strip().lower()
 
-            if 'relevant' in decision and 'not_relevant' not in decision:
+            # Log full LLM decision for debugging
+            log_message(f"  🤖 LLM Decision: '{decision}' for query '{cached_query[:50]}...'")
+
+            # Decision: LLM says relevant OR shared keyword heuristic triggered
+            is_relevant_llm = 'relevant' in decision and 'not_relevant' not in decision
+            is_relevant = is_relevant_llm or has_shared_keyword
+
+            if is_relevant:
                 # Relevant! Include in context
                 relevant_entries.append(candidate)
-                log_message(f"  ✅ Relevant (d={distance:.3f}): {cached_query[:60]}...")
+                reason = "LLM" if is_relevant_llm else "keyword match"
+                log_message(f"  ✅ Relevant via {reason} (d={distance:.3f}): {cached_query[:60]}...")
             else:
                 log_message(f"  ❌ Not relevant (d={distance:.3f}): {cached_query[:60]}...")
 
