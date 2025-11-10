@@ -105,6 +105,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Intelligent filtering before saving to cache
   - LLM evaluates if content is timeless or volatile
   - Debug messages for cache decision transparency
+- **Volatile Keywords**: Moved to external file for easier maintenance
+  - Now loaded from `prompts/cache_volatile_keywords.txt`
+  - Multilingual file (German + English keywords)
+  - Easy to edit without code changes
+  - 68 keywords covering weather, finance, sports, news, time references
 
 #### Fixed
 - **UnboundLocalError**: Fixed duplicate `load_prompt` import causing variable shadowing

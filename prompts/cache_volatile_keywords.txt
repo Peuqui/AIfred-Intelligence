@@ -1,0 +1,84 @@
+# Volatile Keywords - Trigger LLM cache decision
+# Diese Keywords deuten auf volatile Daten hin (Wetter, Kurse, Live-Scores)
+# Bei Fund wird die LLM gefragt, ob trotzdem gecacht werden soll (Override möglich)
+# Format: Ein Keyword pro Zeile, Leerzeilen und # Kommentare werden ignoriert
+
+# Wetter & Klima (zeitabhängig)
+wetter
+weather
+temperatur
+temperature
+regen
+rain
+schnee
+snow
+sonnig
+bewölkt
+gewitter
+sturm
+frost
+hitze
+
+# Zeitpunkte (momentan, nicht historisch)
+jetzt
+gerade
+momentan
+aktuell
+heute
+morgen
+übermorgen
+now
+currently
+right now
+at the moment
+today
+tomorrow
+live
+live-
+livestream
+
+# Finanzen & Kurse (volatil)
+kurs
+aktie
+börse
+stock
+preis
+price
+cost
+bitcoin
+ethereum
+krypto
+crypto
+coin
+aktienkurs
+wechselkurs
+exchange rate
+steigt
+fällt
+gestiegen
+gefallen
+rallye
+
+# Sport (Live-Scores)
+wie steht
+what's the score
+spielstand
+ergebnis
+score
+live-ticker
+ticker
+
+# Breaking News
+breaking
+eilmeldung
+neueste meldung
+gerade passiert
+just happened
+breaking news
+
+# Status-Abfragen
+aktueller stand
+current status
+latest update
+wie läuft
+how is going
