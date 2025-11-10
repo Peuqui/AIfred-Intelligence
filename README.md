@@ -155,6 +155,102 @@ Bei 70% Context-Auslastung werden automatisch ältere Konversationen komprimiert
 - **FIFO**: Maximal 10 Summaries (älteste werden gelöscht)
 - **Safety**: Mindestens 1 aktuelle Konversation bleibt sichtbar
 
+### Vector Cache & RAG System
+
+AIfred nutzt ein mehrstufiges Cache-System basierend auf semantischer Ähnlichkeit (Cosine Distance):
+
+#### Cache-Entscheidungs-Logik
+
+**Phase 1a: Direct Cache Hit Check**
+```
+User Query → ChromaDB Similarity Search
+├─ Distance < 0.5 (HIGH Confidence)
+│  ├─ Cache Age < 5min → ✅ Use Cached Answer (Session Cache)
+│  └─ Cache Age ≥ 5min → ❌ Cache Outdated → Web Research
+├─ Distance 0.5-1.2 (MEDIUM Confidence) → Continue to Phase 1b (RAG)
+└─ Distance > 1.2 (LOW Confidence) → Continue to Phase 2 (Research Decision)
+```
+
+**Phase 1b: RAG Context Check** (NEW in v1.2.0)
+```
+Cache Miss (d ≥ 0.5) → Query for RAG Candidates (0.5 ≤ d < 1.2)
+├─ Found RAG Candidates?
+│  ├─ YES → Automatik-LLM checks relevance for each candidate
+│  │   ├─ Relevant (semantic match) → Inject as System Message Context
+│  │   │   Example: "Python" → "FastAPI" ✅ (FastAPI is Python framework)
+│  │   └─ Not Relevant → Skip
+│  │       Example: "Python" → "Weather" ❌ (no connection)
+│  └─ NO → Continue to Phase 2
+└─ LLM Answer with RAG Context (Source: "Cache+LLM (RAG)")
+```
+
+**Phase 2: Research Decision**
+```
+No Direct Cache Hit & No RAG Context
+└─ Automatik-LLM decides: Web Research needed?
+   ├─ YES → Web Research + Cache Result
+   └─ NO  → Pure LLM Answer (Source: "LLM-Trainingsdaten")
+```
+
+#### Cache Distance Thresholds
+
+| Distance | Confidence | Behavior | Example |
+|----------|-----------|----------|---------|
+| `0.0 - 0.1` | VERY HIGH | Exact match (if age < 5min) | Identical query |
+| `0.1 - 0.5` | HIGH | Direct cache hit (if age < 5min) | "Python tutorial" vs "Python Anleitung" |
+| `0.5 - 1.2` | MEDIUM | RAG candidate (relevance check via LLM) | "Python" vs "FastAPI" |
+| `1.2+` | LOW | Cache miss → Research decision | "Python" vs "Weather" |
+
+#### Cache Freshness (TTL Logic)
+
+**Duplicate Detection**:
+- Cache entries with `distance < 0.5` and `age < 5min` are considered recent duplicates
+- **Recent duplicates**: Answer from cache, skip new save
+- **Old duplicates** (age ≥ 5min): Perform web research, save new answer
+
+**Rationale**:
+- 5-minute threshold prevents stale data for volatile queries
+- Old cache entries are refreshed automatically on re-query
+- RAG mode provides context from older related searches
+
+#### RAG (Retrieval-Augmented Generation) Mode
+
+**How it works**:
+1. Query finds related cache entries (distance 0.5-1.2)
+2. Automatik-LLM checks if cached content is relevant to current question
+3. Relevant entries are injected as system message: "Previous research shows..."
+4. Main LLM combines cached context + training knowledge for enhanced answer
+
+**Example Flow**:
+```
+User: "Was ist Python?" → Web Research → Cache Entry 1 (d=0.0)
+User: "Was ist FastAPI?" → RAG finds Entry 1 (d=0.7)
+  → LLM checks: "Python" relevant for "FastAPI"? YES (FastAPI uses Python)
+  → Inject Entry 1 as context → Enhanced LLM answer
+  → Source: "Cache+LLM (RAG)"
+```
+
+**Benefits**:
+- Leverages related past research without exact cache hits
+- Avoids false context (LLM filters irrelevant entries)
+- Multi-level context awareness (cache + conversation history)
+
+#### Configuration
+
+Cache behavior in `aifred/lib/config.py`:
+
+```python
+# Cache Distance Thresholds
+CACHE_DISTANCE_DUPLICATE = 0.5   # < 0.5 = potential cache hit
+CACHE_DISTANCE_MEDIUM = 0.5      # 0.5-1.2 = RAG range
+CACHE_DISTANCE_RAG = 1.2         # < 1.2 = similar enough for RAG context
+
+# Time Thresholds
+CACHE_TIME_THRESHOLD = 300       # 5 minutes (in seconds)
+```
+
+**RAG Relevance Check**: Uses Automatik-LLM with dedicated prompt (`prompts/de/rag_relevance_check.txt`)
+
 ---
 
 ## 🔧 Konfiguration

@@ -179,15 +179,55 @@ async def chat_interactive_mode(
                 log_message(f"✅ Cache answer returned ({len(answer)} chars, {cache_time:.2f}s)")
                 return  # Done!
             else:
-                # Cache MISS - continue with normal flow
+                # Cache MISS - check for RAG context (distance 0.5-1.2)
                 distance = cache_result.get('distance', 1.0)
                 confidence = cache_result.get('confidence', 'low')
                 log_message(f"❌ Vector Cache MISS (distance={distance:.3f}, confidence={confidence})")
-                yield {"type": "debug", "message": f"❌ Cache miss (d={distance:.3f}, {confidence}) → Checking research need..."}
+                yield {"type": "debug", "message": f"❌ Cache miss (d={distance:.3f}, {confidence}) → Checking RAG context..."}
 
         except Exception as e:
             log_message(f"⚠️ Vector Cache error (continuing without cache): {e}")
             yield {"type": "debug", "message": f"⚠️ Cache unavailable: {e}"}
+
+        # ============================================================
+        # Phase 1b: RAG Context Check (if direct cache miss)
+        # ============================================================
+        rag_context = None
+        try:
+            from .vector_cache import get_cache
+            from .rag_context_builder import build_rag_context
+
+            cache = get_cache()
+            rag_result = await build_rag_context(
+                user_query=user_text,
+                cache=cache,
+                automatik_llm_client=automatik_llm_client,
+                automatik_model=automatik_model,
+                max_candidates=5
+            )
+
+            if rag_result:
+                # Found relevant context!
+                rag_context = rag_result['context']
+                num_sources = rag_result['num_relevant']
+                num_checked = rag_result['num_checked']
+                sources = rag_result['sources']
+
+                # Log RAG context details
+                log_message(f"✅ RAG context available: {num_sources} relevant cache entries (from {num_checked} candidates)")
+                yield {"type": "debug", "message": f"🎯 RAG: {num_sources}/{num_checked} relevant entries"}
+
+                # Log which cache entries were used as context
+                for i, source in enumerate(sources, 1):
+                    cached_query_preview = source['query'][:60] + "..." if len(source['query']) > 60 else source['query']
+                    log_message(f"  📌 RAG Source {i}: \"{cached_query_preview}\" (d={source['distance']:.3f})")
+            else:
+                log_message("❌ No relevant RAG context found")
+                yield {"type": "debug", "message": "❌ No RAG context available"}
+
+        except Exception as e:
+            log_message(f"⚠️ RAG context building failed: {e}")
+            # Continue without RAG context
 
         # Spracherkennung für Nutzereingabe
         from .prompt_loader import detect_language
@@ -282,6 +322,26 @@ async def chat_interactive_mode(
                 # Build messages from history (all turns)
                 messages = build_messages_from_history(history, user_text)
 
+                # If RAG context available, inject as system message
+                if rag_context:
+                    rag_system_message = {
+                        'role': 'system',
+                        'content': f"""
+ZUSÄTZLICHER KONTEXT AUS VORHERIGEN RECHERCHEN:
+
+{rag_context}
+
+Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für die aktuelle Frage relevant sind.
+"""
+                    }
+                    # Insert before user message (after history)
+                    messages.insert(-1, rag_system_message)
+                    log_message(f"💡 RAG context injected into system prompt ({len(rag_context)} chars)")
+
+                    # Log RAG context content (preview)
+                    rag_preview = rag_context[:500] + "..." if len(rag_context) > 500 else rag_context
+                    log_message(f"📄 RAG Context Preview:\n{rag_preview}")
+
                 # Estimate actual input tokens
                 input_tokens = estimate_tokens(messages)
 
@@ -361,8 +421,13 @@ async def chat_interactive_mode(
                 else:
                     user_with_time = f"{user_text} (Entscheidung: {decision_time:.1f}s)"
 
-                # AI-Antwort mit Timing + Quelle
-                ai_with_source = f"{thinking_html} (Inferenz: {inference_time:.1f}s, Quelle: LLM-Trainingsdaten)"
+                # AI-Antwort mit Timing + Quelle (dynamisch basierend auf RAG)
+                if rag_context:
+                    source_label = "Cache+LLM (RAG)"
+                else:
+                    source_label = "LLM-Trainingsdaten"
+
+                ai_with_source = f"{thinking_html} (Inferenz: {inference_time:.1f}s, Quelle: {source_label})"
 
                 # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
                 history.append((user_with_time, ai_with_source))

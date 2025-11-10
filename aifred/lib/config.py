@@ -10,7 +10,7 @@ from pathlib import Path
 # ============================================================
 # PROJECT PATHS
 # ============================================================
-PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo root
 PIPER_MODEL_PATH = PROJECT_ROOT / "piper_models" / "de_DE-thorsten-medium.onnx"
 SETTINGS_FILE = PROJECT_ROOT / "assistant_settings.json"
 SSL_KEYFILE = PROJECT_ROOT / "ssl" / "privkey.pem"

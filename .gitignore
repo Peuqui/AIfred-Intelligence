@@ -72,3 +72,4 @@ assets/generated/
 
 # ChromaDB Vector Cache (Docker volume data)
 aifred_vector_cache/
+Mathematik_Loesungen.html

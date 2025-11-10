@@ -35,6 +35,7 @@ from .config import (
     CACHE_DISTANCE_HIGH,
     CACHE_DISTANCE_MEDIUM,
     CACHE_DISTANCE_DUPLICATE,
+    CACHE_DISTANCE_RAG,
     CACHE_TIME_THRESHOLD
 )
 from datetime import datetime
@@ -355,8 +356,18 @@ class VectorCache:
                         'total_entries': self.collection.count()
                     }
                 else:
-                    # Old duplicate (>5min) - allow new entry
-                    log_message(f"✓ Old duplicate found (age={age_seconds/60:.1f}min), saving new entry")
+                    # Old duplicate (>5min) - update existing entry
+                    log_message(f"✓ Old duplicate found (age={age_seconds/60:.1f}min), updating entry")
+                    # Delete old entry and save new one (ChromaDB has no "update" operation)
+                    old_id = existing['metadata'].get('id')
+                    if old_id:
+                        return await asyncio.to_thread(
+                            self._update_sync,
+                            old_id, query, answer, sources, metadata
+                        )
+                    else:
+                        # No ID found, fallback to save as new entry
+                        log_message(f"⚠️ No ID in old entry, saving as new entry")
             else:
                 # No timestamp - treat as duplicate to be safe
                 log_message(f"⚠️ Duplicate detected (distance={existing['distance']:.4f}, no timestamp), skipping save")
@@ -385,7 +396,12 @@ class VectorCache:
         # Build metadata (ChromaDB only supports str, int, float, bool)
         # Store answer in metadata since it can be large
         source_urls = [s.get('url', 'N/A')[:100] for s in sources[:3]]  # Max 3 URLs
+
+        # Generate unique ID
+        entry_id = str(uuid.uuid4())
+
         cache_metadata = {
+            'id': entry_id,  # Store ID in metadata for later updates
             'timestamp': datetime.now().isoformat(),
             'num_sources': len(sources),
             'source_urls': ', '.join(source_urls),
@@ -402,7 +418,7 @@ class VectorCache:
             self.collection.add(
                 documents=[document],
                 metadatas=[cache_metadata],
-                ids=[str(uuid.uuid4())]
+                ids=[entry_id]
             )
 
             total = self.collection.count()
@@ -416,6 +432,32 @@ class VectorCache:
 
         except Exception as e:
             log_message(f"⚠️  Vector Cache add failed: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def _update_sync(
+        self,
+        old_id: str,
+        query: str,
+        answer: str,
+        sources: List[Dict],
+        metadata: Optional[Dict] = None
+    ) -> Dict:
+        """
+        Update existing cache entry (delete old, add new with same query)
+        """
+        try:
+            # Delete old entry
+            self.collection.delete(ids=[old_id])
+            log_message(f"🗑️ Deleted old cache entry (id={old_id})")
+
+            # Add new entry with updated data
+            return self._add_sync(query, answer, sources, metadata)
+
+        except Exception as e:
+            log_message(f"⚠️ Vector Cache update failed: {e}")
             return {
                 'success': False,
                 'error': str(e)
@@ -468,6 +510,81 @@ class VectorCache:
         except Exception as e:
             log_message(f"⚠️  Vector Cache clear failed: {e}")
             return {'success': False, 'error': str(e)}
+
+    async def query_for_rag(self, user_query: str, n_results: int = 5) -> List[Dict]:
+        """
+        Query cache for RAG (Retrieval-Augmented Generation) purposes.
+        Returns multiple results in the RAG distance range (0.5 - 1.2) that might be
+        relevant as context, not as direct answers.
+
+        Args:
+            user_query: User's current question
+            n_results: Max number of potential context entries to return
+
+        Returns:
+            List of dicts with: {
+                'query': original cached query,
+                'answer': cached answer,
+                'distance': semantic distance,
+                'metadata': cache metadata
+            }
+        """
+        start_time = time.time()
+
+        # Run in thread pool
+        results = await asyncio.to_thread(
+            self._query_for_rag_sync,
+            user_query,
+            n_results
+        )
+
+        query_time_ms = (time.time() - start_time) * 1000
+        log_message(f"📊 RAG query completed in {query_time_ms:.1f}ms, found {len(results)} candidates")
+
+        return results
+
+    def _query_for_rag_sync(self, user_query: str, n_results: int) -> List[Dict]:
+        """
+        Synchronous RAG query implementation (called in thread pool)
+        """
+        # Check if cache is empty
+        if self.collection.count() == 0:
+            return []
+
+        # Perform semantic similarity search
+        results = self.collection.query(
+            query_texts=[user_query],
+            n_results=n_results,
+            include=['distances', 'documents', 'metadatas']
+        )
+
+        # No results found
+        if not results['ids'][0]:
+            return []
+
+        # Filter results in RAG range (CACHE_DISTANCE_MEDIUM to CACHE_DISTANCE_RAG)
+        rag_candidates = []
+
+        for i, (distance, document, metadata) in enumerate(zip(
+            results['distances'][0],
+            results['documents'][0],
+            results['metadatas'][0]
+        )):
+            # Only include results in RAG range
+            if CACHE_DISTANCE_MEDIUM <= distance < CACHE_DISTANCE_RAG:
+                rag_candidates.append({
+                    'query': document,  # Original cached query
+                    'answer': metadata.get('answer', ''),
+                    'distance': distance,
+                    'metadata': metadata
+                })
+
+        if rag_candidates:
+            log_message(f"🎯 Found {len(rag_candidates)} RAG candidates (d: {CACHE_DISTANCE_MEDIUM}-{CACHE_DISTANCE_RAG})")
+        else:
+            log_message(f"❌ No RAG candidates in range {CACHE_DISTANCE_MEDIUM}-{CACHE_DISTANCE_RAG}")
+
+        return rag_candidates
 
 
 # Global cache instance (singleton)
