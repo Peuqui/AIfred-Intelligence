@@ -162,7 +162,7 @@ HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
 
 # Normale Cache-Abfrage (ohne explizite Keywords wie "recherchiere")
 CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit
-CACHE_DISTANCE_MEDIUM = 0.85   # 0.5-0.85 = MEDIUM confidence Cache-Hit
+CACHE_DISTANCE_MEDIUM = 0.5   # 0.5-0.85 = MEDIUM confidence Cache-Hit
                                # > 0.85 = CACHE_MISS
 
 # Explizite Recherche-Keywords ("recherchiere", "google", etc.)
