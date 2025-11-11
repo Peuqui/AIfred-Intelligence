@@ -65,9 +65,15 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 5. **Ollama Models installieren**:
 ```bash
-ollama pull qwen3:8b        # Haupt-LLM
-ollama pull qwen2.5:3b      # Automatik-LLM
-ollama pull phi3:mini       # Backup/Test
+# Haupt-LLM (für Tesla P40 mit 24GB VRAM)
+ollama pull qwen3:30b-instruct
+
+# Automatik-LLM (Research-Entscheidungen)
+ollama pull qwen3:8b
+
+# Optional: Kleinmodelle für spezielle Tasks
+ollama pull qwen2.5:3b      # Ultra-schnelle Automatik
+ollama pull qwen3:14b       # Backup-Modell
 ```
 
 6. **ChromaDB Vector Cache starten** (Docker):
@@ -266,9 +272,11 @@ HISTORY_COMPRESSION_THRESHOLD = 0.7  # 70% Context
 HISTORY_MESSAGES_TO_COMPRESS = 6     # 3 Q&A Paare
 HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION = 10
 
-# LLM Settings
-LLM_MAIN_MODEL = "qwen3:8b"
-LLM_AUTOMATIK_MODEL = "qwen2.5:3b"
+# LLM Settings (Default Models)
+DEFAULT_SETTINGS = {
+    "model": "qwen3:30b-instruct",      # Haupt-LLM (Tesla P40 optimiert)
+    "automatik_model": "qwen3:8b",      # Automatik-Entscheidungen
+}
 
 # Temperature Presets
 TEMPERATURE_PRESETS = {

@@ -62,8 +62,8 @@ DEFAULT_LANGUAGE = "auto"
 # DEFAULT SETTINGS
 # ============================================================
 DEFAULT_SETTINGS = {
-    "model": "qwen3:8b",
-    "automatik_model": "phi3:mini",
+    "model": "qwen3:30b-instruct",
+    "automatik_model": "qwen3:8b",
     "voice": "Deutsch (Katja)",
     "tts_speed": 1.25,
     "enable_tts": False,

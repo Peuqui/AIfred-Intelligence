@@ -1,18 +1,24 @@
 #!/bin/bash
 
-echo "🤖 AIfred Intelligence - Complete Model Download"
-echo "========================================"
+echo "🤖 AIfred Intelligence - Optimized Model Download (Tesla P40)"
+echo "=============================================================="
+echo ""
+echo "⚠️  Basierend auf Modell-Evaluation vom November 2025"
+echo "✅ Optimiert für 24GB VRAM (Tesla P40)"
 echo ""
 
-# Research Models (Primary LLMs)
-echo "📦 Research Models (Primary LLMs)"
+# ============================================================
+# 🎯 CORE MODELS (Essential)
+# ============================================================
+echo "🎯 Core Models (Essential für AIfred)"
 echo "----------------------------"
-research_models=(
-    "qwen2.5:14b"           # 9 GB - ⭐ EMPFOHLEN für Research
-    "gemma2:9b"             # 5.4 GB - Q4 variant
+core_models=(
+    "qwen3:30b-instruct"    # 18 GB - ⭐ HAUPT-LLM (256K context)
+    "qwen3:8b"              # 5.2 GB - Automatik-Entscheidungen
+    "qwen2.5:3b"            # 1.9 GB - Ultra-schnelle Automatik
 )
 
-for model in "${research_models[@]}"; do
+for model in "${core_models[@]}"; do
     echo ""
     echo "⬇️  Downloading: $model"
     echo "----------------------------------------"
@@ -24,16 +30,18 @@ for model in "${research_models[@]}"; do
     fi
 done
 
+# ============================================================
+# 📦 BACKUP MODELS (Optional aber empfohlen)
+# ============================================================
 echo ""
-echo "📦 Helper Models (Intent-Detection, Classification)"
+echo "📦 Backup Models (Recommended)"
 echo "----------------------------"
-helper_models=(
-    "qwen2.5:3b"            # 1.9 GB - Intent-Detection
-    "qwen3:1.7b"            # 1.4 GB - Ultra-fast
-    "qwen3:0.6b"            # 522 MB - Kleinster Qwen3
+backup_models=(
+    "qwen3:14b"             # 9.3 GB - Backup/Testing
+    "qwen2.5:0.5b"          # 397 MB - Ultra-schnelle Tasks
 )
 
-for model in "${helper_models[@]}"; do
+for model in "${backup_models[@]}"; do
     echo ""
     echo "⬇️  Downloading: $model"
     echo "----------------------------------------"
@@ -45,97 +53,19 @@ for model in "${helper_models[@]}"; do
     fi
 done
 
+# ============================================================
+# 🧪 SPECIALIZED MODELS (Optional)
+# ============================================================
 echo ""
-echo "📦 Qwen3 Models (Standard & Thinking)"
+echo "🧪 Specialized Models (Optional)"
 echo "----------------------------"
-qwen3_models=(
-    "qwen3:32b"             # 20 GB - Beste Qualität
-    "qwen3:32b-q4_K_M"      # 20 GB - Q4_K_M variant
-    "qwen3:8b"              # 5.2 GB - Täglicher Driver
-    "qwen3:4b"              # 2.5 GB - Thinking Model
-)
-
-for model in "${qwen3_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
-echo ""
-echo "📦 Reasoning Models (DeepSeek-R1 - ⚠️ NOT for research!)"
-echo "----------------------------"
-reasoning_models=(
-    "deepseek-r1:8b"        # 5.2 GB - Q4, hallucinations!
-)
-
-for model in "${reasoning_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
-echo ""
-echo "📦 Code Specialists"
-echo "----------------------------"
-code_models=(
-    "deepseek-coder-v2:16b" # 8.9 GB - Code-Spezialist
-    "qwen2.5-coder:0.5b"    # 397 MB - Mini Code-Completion
-)
-
-for model in "${code_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
-echo ""
-echo "📦 Vision & Multimodal Models"
-echo "----------------------------"
-vision_models=(
-    "qwen2.5vl:7b-fp16"     # 16 GB - Vision Model (Text + Bild)
-)
-
-for model in "${vision_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
-echo ""
-echo "📦 Legacy/General Models"
-echo "----------------------------"
-legacy_models=(
+specialized_models=(
     "command-r:latest"      # 18 GB - RAG-optimiert, 128K Context
-    "llama3.1:8b"           # 4.9 GB - Meta's Allround
-    "llama3.2:3b"           # 2 GB - Schnell, kompakt
-    "mistral:latest"        # 4.4 GB - Code-Spezialist
+    "phi3:mini"             # 2.2 GB - Code-Tasks
+    "llama3.2:1b"           # 1.3 GB - Speed-Tests
 )
 
-for model in "${legacy_models[@]}"; do
+for model in "${specialized_models[@]}"; do
     echo ""
     echo "⬇️  Downloading: $model"
     echo "----------------------------------------"
@@ -147,17 +77,20 @@ for model in "${legacy_models[@]}"; do
     fi
 done
 
+# ============================================================
+# 🎨 ADVANCED MODELS (Nur für Testing/Experimente)
+# ============================================================
 echo ""
-echo "📦 FP16 Models (High Precision - No Quantization)"
+echo "🎨 Advanced Models (Testing/Experiments)"
 echo "----------------------------"
-fp16_models=(
-    "qwen3:8b-fp16"         # 16 GB - Maximale Präzision
-    "qwen3:4b-fp16"         # 8.1 GB - Thinking Model FP16
-    "qwen3:1.7b-fp16"       # 4.1 GB - Intent-Detection FP16
-    "qwen3:0.6b-fp16"       # 1.5 GB - Mini FP16
+echo "⚠️  Diese Modelle sind optional und für spezielle Anwendungsfälle:"
+echo ""
+advanced_models=(
+    "mixtral:8x7b-instruct-v0.1-q4_0"  # 26 GB - MoE-Architektur
+    "qwen3:30b-thinking"                # 18 GB - Chain-of-Thought (Spezial)
 )
 
-for model in "${fp16_models[@]}"; do
+for model in "${advanced_models[@]}"; do
     echo ""
     echo "⬇️  Downloading: $model"
     echo "----------------------------------------"
@@ -169,30 +102,22 @@ for model in "${fp16_models[@]}"; do
     fi
 done
 
+# ============================================================
+# 📝 SUMMARY
+# ============================================================
 echo ""
-echo "📦 Q8 Models (High Quality, may require RAM overflow)"
-echo "----------------------------"
-
-# Q8 Quantized Models (Better quality than Q4, smaller than FP16)
-# Note: Larger models (14b+) may overflow 12GB VRAM but work via RAM
-q8_models=(
-    "gemma2:9b-instruct-q8_0"           # 9.8 GB - fits in 12GB VRAM
-    "deepseek-r1:8b-0528-qwen3-q8_0"    # 8.9 GB - fits in 12GB VRAM
-    "qwen2.5:14b-instruct-q8_0"         # 15 GB - requires RAM overflow
-)
-
-for model in "${q8_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
+echo "=============================================================="
+echo "🎉 Download abgeschlossen!"
 echo ""
-echo "🎉 All downloads completed!"
-echo "========================================"
+echo "📊 Empfohlene Konfiguration in aifred/lib/config.py:"
+echo "   DEFAULT_SETTINGS = {"
+echo "       'model': 'qwen3:30b-instruct',    # Haupt-LLM"
+echo "       'automatik_model': 'qwen3:8b',     # Automatik"
+echo "   }"
+echo ""
+echo "💾 Speicherplatz Core Models: ~25 GB"
+echo "💾 Speicherplatz mit Backups: ~35 GB"
+echo "💾 Speicherplatz mit Allen: ~108 GB"
+echo ""
+echo "✅ Bereit für AIfred Intelligence auf Tesla P40!"
+echo "=============================================================="
