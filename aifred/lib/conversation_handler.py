@@ -26,6 +26,39 @@ from .intent_detector import detect_query_intent, get_temperature_for_intent, ge
 from .research import perform_agent_research
 
 
+def format_age(seconds: float) -> str:
+    """
+    Format age in seconds to human-readable format.
+
+    Examples:
+        30s → "30s"
+        90s → "1min 30s"
+        3600s → "1h"
+        7200s → "2h"
+        86400s → "1d"
+        90061s → "1d 1h 1min"
+    """
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}min")
+    if secs > 0 and days == 0:  # Only show seconds if less than a day
+        parts.append(f"{secs}s")
+
+    return " ".join(parts)
+
+
 async def chat_interactive_mode(
     user_text: str,
     stt_time: float,
@@ -98,13 +131,14 @@ async def chat_interactive_mode(
                     # Exact duplicate found - use cached result (avoid redundant research)
                     cache_time = datetime.fromisoformat(cache_result['metadata']['timestamp'])
                     age_seconds = (datetime.now() - cache_time).total_seconds()
+                    age_formatted = format_age(age_seconds)
 
-                    log_message(f"✅ Exact duplicate in cache ({age_seconds:.0f}s old, distance={distance:.4f}), using cache")
-                    yield {"type": "debug", "message": f"✅ Exact match in cache ({age_seconds:.0f}s ago, d={distance:.4f}) → Using cached result"}
+                    log_message(f"✅ Exact duplicate in cache ({age_formatted} old, distance={distance:.4f}), using cache")
+                    yield {"type": "debug", "message": f"✅ Exact match in cache ({age_formatted} ago, d={distance:.4f}) → Using cached result"}
 
                     answer = cache_result['answer']
                     cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
-                    timing_suffix = f" (Cache-Hit: {cache_time_ms:.2f}s, Age: {age_seconds:.0f}s, Quelle: Vector Cache)"
+                    timing_suffix = f" (Cache-Hit: {cache_time_ms:.2f}s, Age: {age_formatted}, Quelle: Vector Cache)"
 
                     # Create user_with_time for history
                     user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
