@@ -7,6 +7,7 @@ Handles:
 - Context assembly for RAG-enhanced answers
 """
 
+import string
 from typing import List, Dict, Optional
 from .logging_utils import log_message
 from .prompt_loader import load_prompt
@@ -55,24 +56,29 @@ async def build_rag_context(
     relevant_entries = []
 
     # Extract keywords from current query for quick heuristic check
-    current_keywords = set(user_query.lower().split())
+    # Remove punctuation first, then split
+    query_cleaned = user_query.lower().translate(str.maketrans('', '', string.punctuation))
+    current_keywords = set(query_cleaned.split())
     # Remove common stop words
     stop_words = {'was', 'ist', 'der', 'die', 'das', 'ein', 'eine', 'im', 'in', 'nach', 'suche', 'internet', 'zu', 'von', 'für'}
     current_keywords = current_keywords - stop_words
 
-    for candidate in rag_candidates:
+    for idx, candidate in enumerate(rag_candidates, 1):
         cached_query = candidate['query']
         cached_answer = candidate['answer']
         distance = candidate['distance']
 
+        log_message(f"🔍 RAG Candidate {idx}/{len(rag_candidates)}: '{cached_query[:50]}...' (d={distance:.3f})")
+
         # Quick heuristic check: Do queries share significant keywords?
-        cached_keywords = set(cached_query.lower().split()) - stop_words
+        cached_cleaned = cached_query.lower().translate(str.maketrans('', '', string.punctuation))
+        cached_keywords = set(cached_cleaned.split()) - stop_words
         shared_keywords = current_keywords & cached_keywords
 
         # If they share at least one significant keyword, likely relevant
         has_shared_keyword = len(shared_keywords) > 0
         if has_shared_keyword:
-            log_message(f"  🎯 Quick match via keyword: {shared_keywords} (d={distance:.3f})")
+            log_message(f"  🎯 Keyword match: {shared_keywords}")
 
         # Create preview of cached content (first 300 chars)
         content_preview = cached_answer[:300] + "..." if len(cached_answer) > 300 else cached_answer
@@ -85,11 +91,6 @@ async def build_rag_context(
             current_query=user_query
         )
 
-        # Log prompt for first candidate (debugging)
-        if candidate == rag_candidates[0]:
-            log_message(f"  📄 Relevance Prompt Preview: cached='{cached_query[:40]}...' current='{user_query[:40]}...'")
-            log_message(f"  📝 Full Prompt (first 500 chars):\n{relevance_prompt[:500]}...")
-
         # Ask Automatik-LLM: Is this relevant?
         try:
             response = await automatik_llm_client.chat(
@@ -101,9 +102,6 @@ async def build_rag_context(
             # LLMResponse object has .text attribute, not dict
             decision = response.text.strip().lower()
 
-            # Log full LLM decision for debugging
-            log_message(f"  🤖 LLM Decision: '{decision}' for query '{cached_query[:50]}...'")
-
             # Decision: LLM says relevant OR shared keyword heuristic triggered
             is_relevant_llm = 'relevant' in decision and 'not_relevant' not in decision
             is_relevant = is_relevant_llm or has_shared_keyword
@@ -111,10 +109,10 @@ async def build_rag_context(
             if is_relevant:
                 # Relevant! Include in context
                 relevant_entries.append(candidate)
-                reason = "LLM" if is_relevant_llm else "keyword match"
-                log_message(f"  ✅ Relevant via {reason} (d={distance:.3f}): {cached_query[:60]}...")
+                reason = "LLM" if is_relevant_llm else "Keyword"
+                log_message(f"  ✅ RELEVANT via {reason} | LLM said: '{decision}'")
             else:
-                log_message(f"  ❌ Not relevant (d={distance:.3f}): {cached_query[:60]}...")
+                log_message(f"  ❌ NOT RELEVANT | LLM said: '{decision}' | No keyword match")
 
         except Exception as e:
             log_message(f"  ⚠️ Relevance check failed: {e}, skipping candidate")

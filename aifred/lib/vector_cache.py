@@ -163,17 +163,15 @@ class VectorCache:
 
         # Determine confidence based on distance thresholds (from config)
         if distance < CACHE_DISTANCE_HIGH:
+            # Direct cache hit - use cached answer
             confidence = 'high'
             source = 'CACHE'
             log_message(f"✅ Vector Cache HIT: distance={distance:.3f} (HIGH confidence, < {CACHE_DISTANCE_HIGH})")
-        elif distance < CACHE_DISTANCE_MEDIUM:
-            confidence = 'medium'
-            source = 'CACHE'
-            log_message(f"⚠️  Vector Cache HIT: distance={distance:.3f} (MEDIUM confidence, < {CACHE_DISTANCE_MEDIUM})")
         else:
+            # No direct hit - will trigger RAG check
             confidence = 'low'
             source = 'CACHE_MISS'
-            log_message(f"❌ Vector Cache miss: distance={distance:.3f} (too high, >= {CACHE_DISTANCE_MEDIUM})")
+            log_message(f"❌ Vector Cache miss: distance={distance:.3f} (>= {CACHE_DISTANCE_HIGH}) → Will check RAG")
 
         # Extract answer from metadata (stored there to keep embedding focused on query)
         answer = None
@@ -562,7 +560,8 @@ class VectorCache:
         if not results['ids'][0]:
             return []
 
-        # Filter results in RAG range (CACHE_DISTANCE_MEDIUM to CACHE_DISTANCE_RAG)
+        # Filter results in RAG range (CACHE_DISTANCE_HIGH to CACHE_DISTANCE_RAG)
+        # Start from CACHE_DISTANCE_HIGH because anything below that is a direct cache hit
         rag_candidates = []
 
         for i, (distance, document, metadata) in enumerate(zip(
@@ -570,8 +569,8 @@ class VectorCache:
             results['documents'][0],
             results['metadatas'][0]
         )):
-            # Only include results in RAG range
-            if CACHE_DISTANCE_MEDIUM <= distance < CACHE_DISTANCE_RAG:
+            # Only include results in RAG range (not direct hits, but related)
+            if CACHE_DISTANCE_HIGH <= distance < CACHE_DISTANCE_RAG:
                 rag_candidates.append({
                     'query': document,  # Original cached query
                     'answer': metadata.get('answer', ''),
@@ -580,9 +579,9 @@ class VectorCache:
                 })
 
         if rag_candidates:
-            log_message(f"🎯 Found {len(rag_candidates)} RAG candidates (d: {CACHE_DISTANCE_MEDIUM}-{CACHE_DISTANCE_RAG})")
+            log_message(f"🎯 Found {len(rag_candidates)} RAG candidates (d: {CACHE_DISTANCE_HIGH}-{CACHE_DISTANCE_RAG})")
         else:
-            log_message(f"❌ No RAG candidates in range {CACHE_DISTANCE_MEDIUM}-{CACHE_DISTANCE_RAG}")
+            log_message(f"❌ No RAG candidates in range {CACHE_DISTANCE_HIGH}-{CACHE_DISTANCE_RAG}")
 
         return rag_candidates
 

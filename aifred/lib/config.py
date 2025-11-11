@@ -62,7 +62,7 @@ DEFAULT_LANGUAGE = "auto"
 # DEFAULT SETTINGS
 # ============================================================
 DEFAULT_SETTINGS = {
-    "model": "qwen3:30b-instruct",
+    "model": "qwen3:8b",
     "automatik_model": "qwen3:8b",
     "voice": "Deutsch (Katja)",
     "tts_speed": 1.25,
@@ -161,9 +161,8 @@ HISTORY_SUMMARY_CONTEXT_LIMIT = 4096
 # 0.0 = identisch, 2.0 = komplett verschieden
 
 # Normale Cache-Abfrage (ohne explizite Keywords wie "recherchiere")
-CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit
-CACHE_DISTANCE_MEDIUM = 0.5   # 0.5-0.85 = MEDIUM confidence Cache-Hit
-                               # > 0.85 = CACHE_MISS
+CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit (direct answer)
+CACHE_DISTANCE_MEDIUM = 0.5    # >= 0.5 = Trigger RAG check (not direct cache hit)
 
 # Explizite Recherche-Keywords ("recherchiere", "google", etc.)
 # Nur für query_newest() - zeitbasierte Duplikat-Erkennung
