@@ -22,6 +22,7 @@ from .lib import (
     detect_language
 )
 from .lib.formatting import format_debug_message
+from .lib import config
 
 # ============================================================
 # Module-Level Vector Cache (ChromaDB Server Mode)
@@ -70,11 +71,11 @@ class AIState(rx.State):
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm"
     backend_url: str = "http://localhost:11434"  # Default Ollama URL
-    selected_model: str = "qwen3:8b"
+    selected_model: str = config.DEFAULT_SETTINGS["model"]
     available_models: List[str] = []
 
     # Automatik-LLM (für Decision und Query-Optimierung)
-    automatik_model: str = "qwen2.5:3b"
+    automatik_model: str = config.DEFAULT_SETTINGS["automatik_model"]
 
     # LLM Options
     temperature: float = 0.2
@@ -200,14 +201,18 @@ class AIState(rx.State):
                     data = json.loads(result.stdout)
                     self.available_models = [m["name"] for m in data.get("models", [])]
 
-                    if not self.selected_model and self.available_models:
+                    # Validate that configured models exist, fallback to first available if not
+                    if self.selected_model not in self.available_models and self.available_models:
+                        log_message(f"⚠️ Configured model '{self.selected_model}' not found, using '{self.available_models[0]}'")
                         self.selected_model = self.available_models[0]
-                    if not self.automatik_model and self.available_models:
+
+                    if self.automatik_model not in self.available_models and self.available_models:
+                        log_message(f"⚠️ Configured automatik model '{self.automatik_model}' not found, using '{self.available_models[0]}'")
                         self.automatik_model = self.available_models[0]
 
                     self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
                     self.backend_healthy = True
-                    self.add_debug(f"✅ {len(self.available_models)} Models geladen")
+                    self.add_debug(f"✅ {len(self.available_models)} Models geladen (Main: {self.selected_model}, Automatik: {self.automatik_model})")
                 else:
                     self.backend_healthy = False
                     self.backend_info = f"{self.backend_type} not reachable"
