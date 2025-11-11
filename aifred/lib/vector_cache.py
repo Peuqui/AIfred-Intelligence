@@ -35,8 +35,7 @@ from .config import (
     CACHE_DISTANCE_HIGH,
     CACHE_DISTANCE_MEDIUM,
     CACHE_DISTANCE_DUPLICATE,
-    CACHE_DISTANCE_RAG,
-    CACHE_TIME_THRESHOLD
+    CACHE_DISTANCE_RAG
 )
 from datetime import datetime
 import uuid
@@ -317,8 +316,9 @@ class VectorCache:
         """
         Add new entry to cache (auto-learning from web search)
 
-        Includes duplicate detection: If a very similar query already exists
-        (distance < 0.1), the entry is skipped to prevent duplicates.
+        Includes duplicate detection: If a semantically similar query already exists
+        (distance < CACHE_DISTANCE_DUPLICATE), the old entry is replaced with the new one.
+        This ensures the latest research results are always used.
 
         Args:
             query: User's question
@@ -328,52 +328,31 @@ class VectorCache:
 
         Returns:
             Dict with keys:
-            - success: True if added successfully
-            - duplicate: True if skipped due to duplicate
-            - total_entries: Total cache entries after addition
+            - success: True if added/updated successfully
+            - duplicate: True if updated existing entry
+            - total_entries: Total cache entries after addition/update
             - error: Error message (if failed)
         """
         # Duplicate check: Query if very similar entry exists
-        # Use query_newest to check for recent duplicates (from config)
+        # Use query_newest to check for semantic duplicates (from config)
         existing = await self.query_newest(query, n_results=5)
 
         if existing['source'] == 'CACHE' and existing['distance'] < CACHE_DISTANCE_DUPLICATE:
-            # Check if duplicate is recent (time threshold from config)
-            from datetime import datetime
-            timestamp = existing['metadata'].get('timestamp')
-            if timestamp:
-                cache_time = datetime.fromisoformat(timestamp)
-                age_seconds = (datetime.now() - cache_time).total_seconds()
+            # Semantic duplicate found - ALWAYS update (replace old with new)
+            # This ensures the latest research results are always used
+            log_message(f"♻️ Duplicate detected (distance={existing['distance']:.4f}), updating with fresh data...")
 
-                if age_seconds < CACHE_TIME_THRESHOLD:
-                    # Recent duplicate - skip save
-                    log_message(f"⚠️ Duplicate detected (distance={existing['distance']:.4f}, age={age_seconds:.0f}s), skipping save")
-                    return {
-                        'success': True,
-                        'duplicate': True,
-                        'total_entries': self.collection.count()
-                    }
-                else:
-                    # Old duplicate (>5min) - update existing entry
-                    log_message(f"✓ Old duplicate found (age={age_seconds/60:.1f}min), updating entry")
-                    # Delete old entry and save new one (ChromaDB has no "update" operation)
-                    old_id = existing['metadata'].get('id')
-                    if old_id:
-                        return await asyncio.to_thread(
-                            self._update_sync,
-                            old_id, query, answer, sources, metadata
-                        )
-                    else:
-                        # No ID found, fallback to save as new entry
-                        log_message(f"⚠️ No ID in old entry, saving as new entry")
+            old_id = existing['metadata'].get('id')
+            if old_id:
+                # Delete old entry and save new one (ChromaDB has no "update" operation)
+                return await asyncio.to_thread(
+                    self._update_sync,
+                    old_id, query, answer, sources, metadata
+                )
             else:
-                # No timestamp - treat as duplicate to be safe
-                log_message(f"⚠️ Duplicate detected (distance={existing['distance']:.4f}, no timestamp), skipping save")
-                return {
-                    'success': True,
-                    'duplicate': True,
-                    'total_entries': self.collection.count()
-                }
+                # No ID found, fallback to save as new entry
+                log_message(f"⚠️ No ID in old entry, saving as new entry")
+                # Fall through to normal save below
 
         # No duplicate, proceed with save
         return await asyncio.to_thread(

@@ -63,7 +63,7 @@ DEFAULT_LANGUAGE = "auto"
 # ============================================================
 DEFAULT_SETTINGS = {
     "model": "qwen3:8b",
-    "automatik_model": "qwen3:8b",
+    "automatik_model": "qwen2.5:3b",
     "voice": "Deutsch (Katja)",
     "tts_speed": 1.25,
     "enable_tts": False,
@@ -165,15 +165,12 @@ CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit (direct answe
 CACHE_DISTANCE_MEDIUM = 0.5    # >= 0.5 = Trigger RAG check (not direct cache hit)
 
 # Explizite Recherche-Keywords ("recherchiere", "google", etc.)
-# Nur für query_newest() - zeitbasierte Duplikat-Erkennung
-CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Sehr ähnlich (potentielles Duplikat wenn < 5min alt)
+# Semantische Duplikat-Erkennung (zeitunabhängig)
+CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Sehr ähnlich (semantisches Duplikat, wird immer gemerged)
                                 # Beispiele:
                                 # - "recherchiere Python" vs "recherchiere Python Tutorial" = ~0.15
                                 # - "recherchiere Wetter Berlin" vs "recherchiere Wetter Hamburg" = ~0.25
                                 # - "recherchiere Python" vs "recherchiere Java" = ~0.6
-
-# Zeit-Threshold für Duplikat-Erkennung
-CACHE_TIME_THRESHOLD = 300  # 5 Minuten (in Sekunden)
 
 # RAG-Mode Distance Threshold
 CACHE_DISTANCE_RAG = 1.2  # < 1.2 = Ähnlich genug für RAG-Kontext (später implementiert)

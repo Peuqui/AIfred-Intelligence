@@ -237,7 +237,7 @@ async def build_and_generate_response(
                     messages=[{'role': 'user', 'content': cache_prompt}],
                     options={'temperature': 0.1, 'num_ctx': 2048}  # Very deterministic
                 )
-                decision = response.get('message', {}).get('content', '').strip().lower()
+                decision = response.text.strip().lower()
 
                 if 'cacheable' in decision and 'not_cacheable' not in decision:
                     should_cache = True
@@ -265,7 +265,7 @@ async def build_and_generate_response(
                     messages=[{'role': 'user', 'content': cache_prompt}],
                     options={'temperature': 0.1, 'num_ctx': 2048}
                 )
-                decision = response.get('message', {}).get('content', '').strip().lower()
+                decision = response.text.strip().lower()
 
                 if 'cacheable' in decision and 'not_cacheable' not in decision:
                     should_cache = True

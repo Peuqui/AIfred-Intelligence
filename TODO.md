@@ -1,20 +1,56 @@
 # AIfred Intelligence - TODO Liste
 
-## ✅ Erledigte Features (02.11.2025 - Session 4)
+## ✅ Erledigte Features
 
-### History-Summarization mit intelligenter Kompression
-- [x] **Vollständige Implementation der History-Kompression** ✅ DONE
+### Session 4 (02.11.2025) - History-Summarization
+- [x] **Vollständige Implementation der History-Kompression** ✅
   - Triggert bei 70% Context-Auslastung (konfigurierbar)
   - Komprimiert 3 Frage-Antwort-Paare → 1 Summary
   - FIFO-System: Max. 10 Summaries (älteste werden gelöscht)
   - Safety-Checks: Mindestens 1 aktuelles Gespräch bleibt sichtbar
   - Umfangreiches Logging mit Token-Metriken
   - 6:1 Kompressionsrate bei faktischen Inhalten
-- [x] **Bug-Fixes** ✅ DONE
+- [x] **Bug-Fixes** ✅
   - Vergleichsoperator-Bug behoben (< statt <=)
   - LLMMessage/LLMOptions Format korrigiert
   - HTTP-Timeout für Ollama hinzugefügt (60s)
   - Chat-Löschungs-Problem behoben
+
+### Session 5 (10.11.2025) - Vector Cache & RAG
+- [x] **ChromaDB Vector Cache Production Ready** ✅
+  - Docker-based ChromaDB server mode
+  - Semantic caching for web research results
+  - Configurable distance thresholds
+  - Auto-learning from web research
+- [x] **RAG (Retrieval-Augmented Generation) Mode** ✅
+  - LLM-based relevance detection for cache entries
+  - Multi-level context awareness (cache + history)
+  - Smart context injection for related queries
+- [x] **Intelligent Cache Decision System** ✅
+  - LLM-based cache filtering
+  - Volatile keyword detection
+  - Override logic for concept questions
+
+### Session 6 (11.11.2025) - Cache Optimization
+- [x] **Pure Semantic Deduplication** ✅
+  - Removed time-based duplicate detection (5-minute threshold)
+  - Always update semantic duplicates (distance < 0.3)
+  - Fixed 10x Python duplicates issue
+  - Consistent behavior, no race conditions
+- [x] **Smart Cache for Explicit Research** ✅
+  - Cache check before web research for keywords ("recherchiere", "google")
+  - Distance < 0.05 → Use cache (0.15s instead of 100s)
+  - Transparent cache age display
+- [x] **ChromaDB Maintenance Tool** ✅
+  - Stats display, duplicate detection/removal
+  - Age-based cleanup, dry-run mode
+- [x] **Automatik-LLM Optimization** ✅
+  - Switched to qwen2.5:3b (from qwen3:8b)
+  - 2.7x faster decisions (0.3s instead of 0.8s)
+  - 63% less VRAM usage
+- [x] **Bug Fixes** ✅
+  - LLMResponse AttributeError in cache decision
+  - Import errors after removing CACHE_TIME_THRESHOLD
 
 ## 🚀 High Priority Features
 

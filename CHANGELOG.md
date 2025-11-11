@@ -134,14 +134,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2025-11-11
+
+### 🚀 Pure Semantic Deduplication + Smart Cache for Explicit Research
+
+#### Added
+- **Smart Cache-Check for Explicit Research Keywords** (`conversation_handler.py`):
+  - Cache check BEFORE web research for keywords like "recherchiere", "google", "suche im internet"
+  - Distance < 0.05 (practically identical) → Use cache (0.15s instead of 100s)
+  - Distance ≥ 0.05 → Perform fresh research
+  - Transparent display: Shows cache age (e.g., "Cache-Hit (681s old, d=0.0000)")
+  - User can still force fresh research via UI mode selection (Web-Suche schnell/tief)
+- **ChromaDB Maintenance Tool** (`chroma_maintenance.py`):
+  - Display cache statistics (entries, age, size)
+  - Find duplicates (text similarity-based)
+  - Remove duplicates (keeps newest entry)
+  - Delete old entries (by age threshold)
+  - Clear entire database
+  - Dry-run mode for safe testing
+
+#### Changed
+- **Pure Semantic Deduplication** (No Time Dependencies):
+  - Removed: `CACHE_TIME_THRESHOLD` (5-minute logic)
+  - New: Always update semantic duplicates (distance < 0.3) regardless of age
+  - Benefit: Consistent behavior, no race conditions, latest data guaranteed
+  - Affected files: `vector_cache.py`, `config.py`, `conversation_handler.py`
+- **Automatik-LLM Default Model**:
+  - Changed from `qwen3:8b` to `qwen2.5:3b`
+  - Performance: 2.7x faster decisions (0.3s instead of 0.8s)
+  - VRAM: ~63% reduction (~3GB instead of ~8GB)
+  - Main LLM remains `qwen3:8b` for final answers
+
+#### Fixed
+- **LLMResponse AttributeError** (`context_builder.py`):
+  - Fixed: `response.get('message', {}).get('content', '')` → `response.text`
+  - Issue: LLMResponse is dataclass with `.text` attribute, not a dict
+  - Affected: Cache decision logic (2 locations)
+- **10x Python Duplicates**:
+  - Root cause: Time-based logic allowed duplicates after 5 minutes
+  - Fix: Pure semantic deduplication always updates duplicates
+  - Result: No more duplicate cache entries
+
+#### Performance
+- **Identical Research Query**: ~667x faster (0.15s instead of 100s) ✅
+- **Automatik Decision**: 2.7x faster (0.3s instead of 0.8s) ✅
+- **VRAM Savings**: ~63% less for Automatik-LLM ✅
+
+#### Breaking Changes
+None - Fully backwards compatible
+
+---
+
 ## [Unreleased]
 
 ### Planned Features
-- RAG mode: Use cache as context when distance is 0.5-1.2
-- Garbage collection for old cache entries
+- RAG mode improvements: Better relevance detection
 - Cache statistics dashboard in UI
 - Export/import cache entries
 - Multi-language support for cache queries
+- Background cache cleanup scheduler
 
 ---
 

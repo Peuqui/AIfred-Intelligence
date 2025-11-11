@@ -163,21 +163,30 @@ Bei 70% Context-Auslastung werden automatisch ältere Konversationen komprimiert
 
 ### Vector Cache & RAG System
 
-AIfred nutzt ein mehrstufiges Cache-System basierend auf semantischer Ähnlichkeit (Cosine Distance):
+AIfred nutzt ein mehrstufiges Cache-System basierend auf **semantischer Ähnlichkeit** (Cosine Distance). **Neu in v1.3.0**: Pure Semantic Deduplication ohne Zeit-Abhängigkeit + intelligente Cache-Nutzung bei expliziten Recherche-Keywords.
 
 #### Cache-Entscheidungs-Logik
+
+**Phase 0: Explizite Recherche-Keywords** (NEW in v1.3.0)
+```
+User Query: "recherchiere Python" / "google Python" / "suche im internet Python"
+└─ Explizites Keyword erkannt → Cache-Check ZUERST
+   ├─ Distance < 0.05 (praktisch identisch)
+   │  └─ ✅ Cache-Hit (0.15s statt 100s) - Zeigt Alter transparent an
+   └─ Distance ≥ 0.05 (nicht identisch)
+      └─ Neue Web-Recherche (User will neue Daten)
+```
 
 **Phase 1a: Direct Cache Hit Check**
 ```
 User Query → ChromaDB Similarity Search
 ├─ Distance < 0.5 (HIGH Confidence)
-│  ├─ Cache Age < 5min → ✅ Use Cached Answer (Session Cache)
-│  └─ Cache Age ≥ 5min → ❌ Cache Outdated → Web Research
+│  └─ ✅ Use Cached Answer (sofort, keine Zeit-Checks mehr!)
 ├─ Distance 0.5-1.2 (MEDIUM Confidence) → Continue to Phase 1b (RAG)
 └─ Distance > 1.2 (LOW Confidence) → Continue to Phase 2 (Research Decision)
 ```
 
-**Phase 1b: RAG Context Check** (NEW in v1.2.0)
+**Phase 1b: RAG Context Check**
 ```
 Cache Miss (d ≥ 0.5) → Query for RAG Candidates (0.5 ≤ d < 1.2)
 ├─ Found RAG Candidates?
@@ -198,26 +207,54 @@ No Direct Cache Hit & No RAG Context
    └─ NO  → Pure LLM Answer (Source: "LLM-Trainingsdaten")
 ```
 
+#### Semantic Deduplication (v1.3.0)
+
+**Beim Speichern in Vector Cache:**
+```
+New Research Result → Check for Semantic Duplicates
+└─ Distance < 0.3 (semantisch ähnlich)
+   └─ ✅ IMMER Update (zeitunabhängig!)
+      - Löscht alten Eintrag
+      - Speichert neuen Eintrag
+      - Garantiert: Neueste Daten werden verwendet
+```
+
+**Vorher (v1.2.0):**
+- Zeit-basierte Logik: < 5min = Skip, ≥ 5min = Update
+- Führte zu Race Conditions und Duplikaten
+
+**Jetzt (v1.3.0):**
+- Rein semantisch: Distance < 0.3 = IMMER Update
+- Keine Zeit-Checks mehr → Konsistentes Verhalten
+
 #### Cache Distance Thresholds
 
 | Distance | Confidence | Behavior | Example |
 |----------|-----------|----------|---------|
-| `0.0 - 0.1` | VERY HIGH | Exact match (if age < 5min) | Identical query |
-| `0.1 - 0.5` | HIGH | Direct cache hit (if age < 5min) | "Python tutorial" vs "Python Anleitung" |
+| `0.0 - 0.05` | EXACT | Explizite Recherche nutzt Cache | Identische Query |
+| `0.05 - 0.5` | HIGH | Direct cache hit | "Python tutorial" vs "Python Anleitung" |
 | `0.5 - 1.2` | MEDIUM | RAG candidate (relevance check via LLM) | "Python" vs "FastAPI" |
 | `1.2+` | LOW | Cache miss → Research decision | "Python" vs "Weather" |
 
-#### Cache Freshness (TTL Logic)
+#### ChromaDB Maintenance Tool (v1.3.0)
 
-**Duplicate Detection**:
-- Cache entries with `distance < 0.5` and `age < 5min` are considered recent duplicates
-- **Recent duplicates**: Answer from cache, skip new save
-- **Old duplicates** (age ≥ 5min): Perform web research, save new answer
+**Neues Wartungstool** für Vector Cache:
+```bash
+# Stats anzeigen
+python3 chroma_maintenance.py --stats
 
-**Rationale**:
-- 5-minute threshold prevents stale data for volatile queries
-- Old cache entries are refreshed automatically on re-query
-- RAG mode provides context from older related searches
+# Duplikate finden
+python3 chroma_maintenance.py --find-duplicates
+
+# Duplikate entfernen (Dry-Run)
+python3 chroma_maintenance.py --remove-duplicates
+
+# Duplikate entfernen (Execute)
+python3 chroma_maintenance.py --remove-duplicates --execute
+
+# Alte Einträge löschen (> 30 Tage)
+python3 chroma_maintenance.py --remove-old 30 --execute
+```
 
 #### RAG (Retrieval-Augmented Generation) Mode
 

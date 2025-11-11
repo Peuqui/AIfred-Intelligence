@@ -18,7 +18,7 @@ from .llm_client import LLMClient
 from .logging_utils import log_message, CONSOLE_SEPARATOR
 from .prompt_loader import get_decision_making_prompt
 from .message_builder import build_messages_from_history
-from .config import CACHE_TIME_THRESHOLD, CACHE_DISTANCE_DUPLICATE
+from .config import CACHE_DISTANCE_DUPLICATE
 from .formatting import format_thinking_process
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
@@ -81,60 +81,53 @@ async def chat_interactive_mode(
             log_message("⚡ CODE-OVERRIDE: Explizite Recherche-Aufforderung erkannt")
             yield {"type": "debug", "message": "⚡ Explizite Recherche erkannt"}
 
-            # Check cache first with time-based logic (Variante B)
+            # Check cache first for exact duplicates (semantic distance < 0.05)
+            # This avoids redundant web research for identical queries
             try:
                 from .vector_cache import get_cache
                 from datetime import datetime
 
-                log_message("🔍 Checking cache for recent research...")
+                log_message("🔍 Checking cache for exact duplicates before web research...")
                 cache = get_cache()
-                # Use query_newest() to get the most recent match (not just best similarity)
-                cache_result = await cache.query_newest(user_text, n_results=5)
+                cache_result = await cache.query(user_text, n_results=1)
 
-                # Get distance for logging (always available)
                 distance = cache_result.get('distance', 1.0)
 
-                # Check if similar query found (query_newest uses CACHE_DISTANCE_DUPLICATE from config)
-                if cache_result['source'] == 'CACHE':
-                    # Check cache age against threshold from config
+                # Check if EXACT duplicate found (distance < 0.05 = practically identical)
+                if cache_result['source'] == 'CACHE' and distance < 0.05:
+                    # Exact duplicate found - use cached result (avoid redundant research)
                     cache_time = datetime.fromisoformat(cache_result['metadata']['timestamp'])
                     age_seconds = (datetime.now() - cache_time).total_seconds()
 
-                    if age_seconds < CACHE_TIME_THRESHOLD:
-                        # Recent cache hit - use cached result
-                        log_message(f"✅ Recent research in cache ({age_seconds:.0f}s old, distance={distance:.3f}), using cache")
-                        yield {"type": "debug", "message": f"🔄 Recent cache hit ({age_seconds:.0f}s old, d={distance:.3f}) → Using cached result"}
+                    log_message(f"✅ Exact duplicate in cache ({age_seconds:.0f}s old, distance={distance:.4f}), using cache")
+                    yield {"type": "debug", "message": f"✅ Exact match in cache ({age_seconds:.0f}s ago, d={distance:.4f}) → Using cached result"}
 
-                        answer = cache_result['answer']
-                        cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
-                        timing_suffix = f" (Cache-Hit: {cache_time_ms:.2f}s, Age: {age_seconds:.0f}s, Quelle: Vector Cache)"
+                    answer = cache_result['answer']
+                    cache_time_ms = cache_result.get('query_time_ms', 0) / 1000
+                    timing_suffix = f" (Cache-Hit: {cache_time_ms:.2f}s, Age: {age_seconds:.0f}s, Quelle: Vector Cache)"
 
-                        # Create user_with_time for history
-                        user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
+                    # Create user_with_time for history
+                    user_with_time = f"[{datetime.now().strftime('%H:%M')}] {user_text}"
 
-                        # Add to history with timing suffix
-                        history.append((user_with_time, answer + timing_suffix))
+                    # Add to history with timing suffix
+                    history.append((user_with_time, answer + timing_suffix))
 
-                        # Return result in same format as perform_agent_research
-                        yield {
-                            "type": "result",
-                            "data": (answer + timing_suffix, history, cache_time_ms)
-                        }
-                        return  # Done!
-                    else:
-                        # Cache too old - proceed with fresh research
-                        log_message(f"⏰ Cache too old ({age_seconds/60:.1f}min, distance={distance:.3f}), performing fresh search")
-                        yield {"type": "debug", "message": f"⏰ Cache outdated ({age_seconds/60:.1f}min, d={distance:.3f}) → Fresh search"}
+                    # Return result in same format as perform_agent_research
+                    yield {
+                        "type": "result",
+                        "data": (answer + timing_suffix, history, cache_time_ms)
+                    }
+                    return  # Done!
                 else:
-                    # No similar cache entry - proceed with fresh research
-                    log_message(f"❌ No recent cache match (distance={distance:.3f} >= {CACHE_DISTANCE_DUPLICATE}), performing fresh search")
-                    yield {"type": "debug", "message": f"❌ No cache match (d={distance:.3f}) → Fresh search"}
+                    # No exact duplicate - proceed with fresh research
+                    log_message(f"❌ No exact duplicate (distance={distance:.4f} >= 0.05), performing fresh search")
+                    yield {"type": "debug", "message": f"❌ No exact match (d={distance:.4f}) → Fresh web research"}
 
             except Exception as e:
                 log_message(f"⚠️ Cache check failed: {e}")
                 yield {"type": "debug", "message": f"⚠️ Cache check failed: {e}"}
 
-            # Proceed with fresh web research (cache miss, too old, or error)
+            # Proceed with fresh web research (no exact match or error)
             yield {"type": "debug", "message": "🌐 Starting fresh web research..."}
             async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options):
                 yield item
