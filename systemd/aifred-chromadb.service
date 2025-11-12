@@ -7,7 +7,7 @@ PartOf=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence/docker
+WorkingDirectory=__PROJECT_DIR__/docker
 ExecStart=/usr/bin/docker compose up -d chromadb
 ExecStop=/usr/bin/docker compose stop chromadb
 ExecReload=/usr/bin/docker compose restart chromadb

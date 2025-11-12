@@ -32,10 +32,19 @@ if [ ! -f "$SCRIPT_DIR/aifred-chromadb.service" ] || [ ! -f "$SCRIPT_DIR/aifred-
     exit 1
 fi
 
-echo "1️⃣  Kopiere Service-Dateien..."
-cp "$SCRIPT_DIR/aifred-chromadb.service" /etc/systemd/system/
-cp "$SCRIPT_DIR/aifred-intelligence.service" /etc/systemd/system/
-echo "   ✅ Service-Dateien kopiert"
+echo "1️⃣  Erstelle Service-Dateien (mit aktuellen Pfaden)..."
+# Replace placeholders in service files
+sed -e "s|__USER__|$ACTUAL_USER|g" \
+    -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+    "$SCRIPT_DIR/aifred-chromadb.service" > /etc/systemd/system/aifred-chromadb.service
+
+sed -e "s|__USER__|$ACTUAL_USER|g" \
+    -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+    "$SCRIPT_DIR/aifred-intelligence.service" > /etc/systemd/system/aifred-intelligence.service
+
+echo "   ✅ Service-Dateien erstellt mit:"
+echo "      User: $ACTUAL_USER"
+echo "      Projekt: $PROJECT_DIR"
 echo
 
 echo "2️⃣  Lade Systemd neu..."
