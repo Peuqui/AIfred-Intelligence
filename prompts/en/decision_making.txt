@@ -1,3 +1,5 @@
+Today's date: {current_date}
+
 Question: "{user_text}"
 
 You have NO internet! Training data until Jan 2025.

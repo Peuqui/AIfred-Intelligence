@@ -163,8 +163,10 @@ def get_query_optimization_prompt(user_text: str, lang: Optional[str] = None) ->
 
 
 def get_decision_making_prompt(user_text: str, lang: Optional[str] = None) -> str:
-    """Load decision-making prompt (cache_info parameter removed)"""
-    return load_prompt('decision_making', lang=lang, user_text=user_text)
+    """Load decision-making prompt with current date context"""
+    from datetime import datetime
+    current_date = datetime.now().strftime("%d.%m.%Y")  # Format: 12.11.2025
+    return load_prompt('decision_making', lang=lang, user_text=user_text, current_date=current_date)
 
 
 # Cache decision addon removed - will be replaced with Vector DB semantic search
