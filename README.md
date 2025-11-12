@@ -24,6 +24,7 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 - **Token Management**: Dynamische Context-Window-Berechnung
 - **Debug Console**: Umfangreiches Logging und Monitoring
 - **ChromaDB Server Mode**: Thread-safe Vector DB via Docker (0.0 distance für exakte Matches)
+- **GPU Detection**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
 
 ---
 
@@ -33,10 +34,11 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 - Python 3.10+
 - **LLM Backend** (wähle eins):
   - **Ollama** (einfach, GGUF-Modelle) - empfohlen für Start
-  - **vLLM** (schnell, AWQ-Modelle) - beste Performance
+  - **vLLM** (schnell, AWQ-Modelle) - beste Performance (requires Compute Capability 7.5+)
   - **TabbyAPI** (ExLlamaV2/V3, EXL2-Modelle) - experimentell
 - 8GB+ RAM (12GB+ empfohlen für größere Modelle)
 - Docker (für ChromaDB Vector Cache)
+- **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))
 
 ### Setup
 

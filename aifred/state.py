@@ -209,7 +209,6 @@ class AIState(rx.State):
                     self.add_debug("ℹ️ No GPU detected or nvidia-smi not available")
             except Exception as e:
                 self.add_debug(f"⚠️ GPU detection failed: {e}")
-                log_message(f"⚠️ GPU detection failed: {e}")
 
             # Initialize backend
             self.add_debug("🔧 Initializing backend...")
