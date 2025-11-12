@@ -251,7 +251,8 @@ async def generate_cache_metadata(
             options={
                 'temperature': 0.1,
                 'num_ctx': metadata_num_ctx,
-                'num_predict': 100
+                'num_predict': 100,
+                'enable_thinking': False  # Fast metadata generation, no reasoning needed
             }
         )
 

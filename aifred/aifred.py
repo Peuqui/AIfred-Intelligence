@@ -58,9 +58,12 @@ def t(key: str) -> rx.Var:
         "main_llm": "Haupt-LLM:",
         "automatic_llm": "Automatik-LLM:",
         "system_control": "🔄 System-Steuerung",
-        "restart_ollama": "🔄 Ollama neu starten",
+        "restart_ollama": "🔄 Ollama Neustart",
+        "restart_vllm": "🔄 vLLM Neustart",
         "restart_aifred": "🔄 AIfred neu starten",
-        "ollama_restart_info": "ℹ️ Ollama-Neustart: Stoppt laufende Generierungen, lädt Models neu",
+        "ollama_restart_info": "ℹ️ Neustart: Stoppt laufende Generierungen, lädt Models neu",
+        "vllm_restart_info": "ℹ️ Neustart: Stoppt vLLM Server, startet neu mit gewähltem Modell",
+        "backend_restart_info": "ℹ️ Neustart: Startet Backend neu",
         "chat_preserved": "(Chats bleiben erhalten)",
         "aifred_restart_warning": "⚠️ AIfred-Neustart: Löscht ALLE Chats, Caches und Debug-Logs komplett!",
         "aifred_intelligence": "🎩 AIfred Intelligence",
@@ -111,9 +114,12 @@ def t(key: str) -> rx.Var:
         "main_llm": "Main LLM:",
         "automatic_llm": "Automatic LLM:",
         "system_control": "🔄 System Control",
-        "restart_ollama": "🔄 Restart Ollama",
+        "restart_ollama": "🔄 Ollama Restart",
+        "restart_vllm": "🔄 vLLM Restart",
         "restart_aifred": "🔄 Restart AIfred",
-        "ollama_restart_info": "ℹ️ Ollama restart: Stops ongoing generations, reloads models",
+        "ollama_restart_info": "ℹ️ Restart: Stops ongoing generations, reloads models",
+        "vllm_restart_info": "ℹ️ Restart: Stops vLLM server, restarts with selected model",
+        "backend_restart_info": "ℹ️ Restart: Restarts backend",
         "chat_preserved": "(Chats are preserved)",
         "aifred_restart_warning": "⚠️ AIfred restart: Deletes ALL chats, caches and debug logs completely!",
         "aifred_intelligence": "🎩 AIfred Intelligence",
@@ -989,14 +995,31 @@ def settings_accordion() -> rx.Component:
                         value=AIState.backend_type,
                         on_change=AIState.switch_backend,
                         size="2",
+                        disabled=AIState.backend_switching,  # Disable during backend switch
                     ),
                     rx.cond(
-                        AIState.backend_healthy,
-                        rx.badge(AIState.backend_info, color_scheme="green"),
-                        rx.badge(AIState.backend_info, color_scheme="red"),
+                        AIState.backend_switching,
+                        rx.badge("Switching...", color_scheme="orange"),
+                        rx.cond(
+                            AIState.backend_healthy,
+                            rx.badge(AIState.backend_info, color_scheme="green"),
+                            rx.badge(AIState.backend_info, color_scheme="red"),
+                        ),
                     ),
                     spacing="3",
                     align="center",
+                ),
+
+                # vLLM Single Model Warning
+                rx.cond(
+                    AIState.backend_type == "vllm",
+                    rx.text(
+                        "ℹ️ vLLM kann nur EIN Modell gleichzeitig laden (Haupt- und Automatik-LLM nutzen dasselbe Modell)",
+                        font_size="11px",
+                        color="#d4913d",  # Dunkles Orange - gut lesbar
+                        line_height="1.5",
+                        margin_top="8px",
+                    ),
                 ),
 
                 # Model Selection
@@ -1007,6 +1030,7 @@ def settings_accordion() -> rx.Component:
                         value=AIState.selected_model,
                         on_change=AIState.set_selected_model,
                         size="2",
+                        disabled=AIState.backend_switching,  # Disable during backend switch
                     ),
                     spacing="3",
                     align="center",
@@ -1019,9 +1043,50 @@ def settings_accordion() -> rx.Component:
                         value=AIState.automatik_model,
                         on_change=AIState.set_automatik_model,
                         size="2",
+                        disabled=AIState.backend_switching,  # Disable during backend switch
                     ),
                     spacing="3",
                     align="center",
+                ),
+
+                # Qwen3 Thinking Mode Toggle (nur sichtbar bei Qwen3/QwQ-Modellen)
+                rx.divider(),
+                rx.cond(
+                    AIState.selected_model.lower().contains("qwen3") | AIState.selected_model.lower().contains("qwq"),
+                    rx.vstack(
+                        rx.hstack(
+                            rx.text("🧠 Thinking Mode:", font_weight="bold", font_size="12px"),
+                            rx.switch(
+                                checked=AIState.enable_thinking,
+                                on_change=AIState.toggle_thinking_mode,
+                                size="1",
+                            ),
+                            rx.text(
+                                rx.cond(
+                                    AIState.enable_thinking,
+                                    "ON (temp=0.6, CoT)",
+                                    "OFF (temp=0.7, direct)"
+                                ),
+                                font_size="11px",
+                                color=rx.cond(
+                                    AIState.enable_thinking,
+                                    "#4CAF50",
+                                    "#999"
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.text(
+                            "ℹ️ Chain-of-Thought Reasoning für komplexe Aufgaben",
+                            font_size="10px",
+                            color="#999",
+                            line_height="1.3",
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.box(),  # Empty box when not Qwen3/QwQ
                 ),
 
                 # Restart Buttons
@@ -1029,11 +1094,20 @@ def settings_accordion() -> rx.Component:
                 rx.text(t("system_control"), font_weight="bold", font_size="12px"),
                 rx.hstack(
                     rx.button(
-                        t("restart_ollama"),
-                        on_click=AIState.restart_ollama,
+                        rx.cond(
+                            AIState.backend_type == "ollama",
+                            t("restart_ollama"),
+                            rx.cond(
+                                AIState.backend_type == "vllm",
+                                t("restart_vllm"),
+                                rx.text(f"🔄 {AIState.backend_type.upper()} Neustart")
+                            )
+                        ),
+                        on_click=AIState.restart_backend,
                         size="2",
                         variant="soft",
                         color_scheme="blue",
+                        disabled=AIState.backend_switching,  # Disable during backend switch
                     ),
                     rx.button(
                         t("restart_aifred"),
@@ -1041,13 +1115,22 @@ def settings_accordion() -> rx.Component:
                         size="2",
                         variant="soft",
                         color_scheme="orange",
+                        disabled=AIState.backend_switching,  # Disable during backend switch
                     ),
                     spacing="3",
                     width="100%",
                 ),
                 rx.vstack(
                     rx.text(
-                        t("ollama_restart_info"),
+                        rx.cond(
+                            AIState.backend_type == "ollama",
+                            t("ollama_restart_info"),
+                            rx.cond(
+                                AIState.backend_type == "vllm",
+                                t("vllm_restart_info"),
+                                t("backend_restart_info")
+                            )
+                        ),
                         font_size="11px",
                         color="#d4913d",  # Dunkles Orange - gut lesbar
                         line_height="1.5",

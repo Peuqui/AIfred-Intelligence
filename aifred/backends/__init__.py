@@ -9,7 +9,6 @@ from .base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
 from .ollama import OllamaBackend
 from .vllm import vLLMBackend
 from .tabbyapi import TabbyAPIBackend
-from .llamacpp import LlamaCppBackend
 
 
 class BackendFactory:
@@ -20,14 +19,12 @@ class BackendFactory:
         backend = BackendFactory.create("ollama")
         backend = BackendFactory.create("vllm", base_url="http://localhost:8000/v1")
         backend = BackendFactory.create("tabbyapi", base_url="http://localhost:5000/v1")
-        backend = BackendFactory.create("llamacpp", base_url="http://localhost:8080/v1")
     """
 
     _backends = {
         "ollama": OllamaBackend,
         "vllm": vLLMBackend,
-        "tabbyapi": TabbyAPIBackend,  # ExLlamaV2/V3
-        "llamacpp": LlamaCppBackend,
+        "tabbyapi": TabbyAPIBackend,  # ExLlamaV2 (V3 noch experimentell)
         # "openai": OpenAIBackend,      # TODO
     }
 
@@ -42,7 +39,7 @@ class BackendFactory:
         Create a backend instance
 
         Args:
-            backend_type: "ollama", "vllm", "tabbyapi", "llamacpp", "openai"
+            backend_type: "ollama", "vllm", "tabbyapi", "openai"
             base_url: Override default base URL
             api_key: API key (for cloud backends)
 
@@ -68,14 +65,13 @@ class BackendFactory:
             "ollama": "http://localhost:11434",
             "vllm": "http://localhost:8000/v1",
             "tabbyapi": "http://localhost:5000/v1",
-            "llamacpp": "http://localhost:8080/v1",
         }
 
         if base_url is None:
             base_url = default_urls.get(backend_type, "http://localhost:8000")
 
         # Create instance
-        if backend_type in ["vllm", "tabbyapi", "llamacpp", "openai"]:
+        if backend_type in ["vllm", "tabbyapi", "openai"]:
             # OpenAI-compatible backends need api_key (even if dummy)
             api_key = api_key or "dummy"
             return backend_class(base_url=base_url, api_key=api_key)
@@ -98,5 +94,4 @@ __all__ = [
     "OllamaBackend",
     "vLLMBackend",
     "TabbyAPIBackend",
-    "LlamaCppBackend",
 ]

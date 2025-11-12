@@ -77,6 +77,25 @@ DEFAULT_SETTINGS = {
 }
 
 # ============================================================
+# BACKEND-SPECIFIC DEFAULT MODELS
+# ============================================================
+# Jedes Backend hat andere Modellnamen und nicht alle Modelle sind überall verfügbar
+BACKEND_DEFAULT_MODELS = {
+    "ollama": {
+        "selected_model": "qwen3:8b",           # GGUF Q4/Q8, ~5.2GB
+        "automatik_model": "qwen2.5:3b",        # GGUF Q4/Q8, ~1.9GB
+    },
+    "vllm": {
+        "selected_model": "Qwen/Qwen3-8B-AWQ",  # AWQ 4-bit, ~5GB (Main LLM)
+        "automatik_model": "Qwen/Qwen3-8B-AWQ", # Same as main (vLLM loads only ONE model at a time)
+    },
+    "tabbyapi": {
+        "selected_model": "turboderp/Qwen3-8B-4.0bpw-exl2",   # EXL2 4bpw
+        "automatik_model": "turboderp/Qwen3-8B-4.0bpw-exl2",  # Same as main (TabbyAPI loads only ONE model)
+    },
+}
+
+# ============================================================
 # AVAILABLE VOICES
 # ============================================================
 VOICES = {

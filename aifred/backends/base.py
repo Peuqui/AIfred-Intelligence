@@ -26,6 +26,7 @@ class LLMOptions:
     top_p: float = 0.9
     top_k: int = 40
     seed: Optional[int] = None
+    enable_thinking: Optional[bool] = None  # Qwen3 Thinking Mode (Chain-of-Thought)
 
 
 @dataclass

@@ -25,7 +25,9 @@ async def perform_agent_research(
     session_id: Optional[str] = None,
     temperature_mode: str = 'auto',
     temperature: float = 0.2,
-    llm_options: Optional[Dict] = None
+    llm_options: Optional[Dict] = None,
+    backend_type: str = "ollama",
+    backend_url: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Agent-Recherche mit Query-Optimierung und parallelemWeb-Scraping
@@ -48,6 +50,8 @@ async def perform_agent_research(
         session_id: Session-ID für Research-Cache (optional)
         temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
         temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
+        backend_type: LLM Backend ("ollama", "vllm", "tabbyapi")
+        backend_url: Backend URL (optional, uses default if not provided)
 
     Yields:
         Dict with: {"type": "debug"|"content"|"result", ...}
@@ -55,9 +59,9 @@ async def perform_agent_research(
 
     agent_start = time.time()
 
-    # Initialize LLM clients
-    llm_client = LLMClient()
-    automatik_llm_client = LLMClient()
+    # Initialize LLM clients with correct backend
+    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+    automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
 
     # ==============================================================
     # PHASE 1: Cache-Hit Check
