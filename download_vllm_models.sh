@@ -17,39 +17,108 @@ echo "✅ Optional Thinking Mode (enable_thinking=True/False)"
 echo "✅ Beste Performance mit AWQ Marlin kernel"
 echo ""
 
-qwen3_models=(
-    "Qwen/Qwen3-4B-AWQ"         # ~2.5 GB - Testing (40K context, YaRN→128K)
-    "Qwen/Qwen3-8B-AWQ"         # ~5 GB - Main LLM (40K context, YaRN→128K)
-    "Qwen/Qwen3-14B-AWQ"        # ~8 GB - High Quality (32K context, YaRN→128K)
-    # "Qwen/Qwen3-32B-AWQ"      # ~18 GB - Maximum Performance (32K context, YaRN→128K)
-)
-
-read -p "Qwen3 AWQ Modelle herunterladen? (y/n) " -n 1 -r
+# Model 1: Qwen3-4B-AWQ
+echo ""
+echo "📦 Qwen/Qwen3-4B-AWQ"
+echo "   Größe: ~2.5 GB"
+echo "   Context: 40K native (YaRN→128K)"
+echo "   Use Case: Testing/Experiments"
+read -p "Herunterladen? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    for model in "${qwen3_models[@]}"; do
-        echo ""
-        echo "⬇️  Downloading: $model"
-        echo "----------------------------------------"
-        ./venv/bin/python3 -c "
+    echo "⬇️  Downloading: Qwen/Qwen3-4B-AWQ"
+    echo "----------------------------------------"
+    ./venv/bin/python3 -c "
 from huggingface_hub import snapshot_download
 import os
 
 cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
 path = snapshot_download(
-    repo_id='$model',
+    repo_id='Qwen/Qwen3-4B-AWQ',
     cache_dir=cache_dir,
     resume_download=True,
     local_files_only=False
 )
 print(f'✅ Downloaded to: {path}')
 "
-        if [ $? -eq 0 ]; then
-            echo "✅ Successfully downloaded: $model"
-        else
-            echo "❌ Failed to download: $model"
-        fi
-    done
+fi
+
+# Model 2: Qwen3-8B-AWQ
+echo ""
+echo "📦 Qwen/Qwen3-8B-AWQ"
+echo "   Größe: ~5 GB"
+echo "   Context: 40K native (YaRN→128K)"
+echo "   Use Case: Main LLM (empfohlen)"
+read -p "Herunterladen? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "⬇️  Downloading: Qwen/Qwen3-8B-AWQ"
+    echo "----------------------------------------"
+    ./venv/bin/python3 -c "
+from huggingface_hub import snapshot_download
+import os
+
+cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
+path = snapshot_download(
+    repo_id='Qwen/Qwen3-8B-AWQ',
+    cache_dir=cache_dir,
+    resume_download=True,
+    local_files_only=False
+)
+print(f'✅ Downloaded to: {path}')
+"
+fi
+
+# Model 3: Qwen3-14B-AWQ
+echo ""
+echo "📦 Qwen/Qwen3-14B-AWQ"
+echo "   Größe: ~8 GB"
+echo "   Context: 32K native (YaRN→128K)"
+echo "   Use Case: High Quality (beste Balance)"
+read -p "Herunterladen? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "⬇️  Downloading: Qwen/Qwen3-14B-AWQ"
+    echo "----------------------------------------"
+    ./venv/bin/python3 -c "
+from huggingface_hub import snapshot_download
+import os
+
+cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
+path = snapshot_download(
+    repo_id='Qwen/Qwen3-14B-AWQ',
+    cache_dir=cache_dir,
+    resume_download=True,
+    local_files_only=False
+)
+print(f'✅ Downloaded to: {path}')
+"
+fi
+
+# Model 4: Qwen3-32B-AWQ (optional)
+echo ""
+echo "📦 Qwen/Qwen3-32B-AWQ (Optional)"
+echo "   Größe: ~18 GB"
+echo "   Context: 32K native (YaRN→128K)"
+echo "   Use Case: Maximum Performance"
+read -p "Herunterladen? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "⬇️  Downloading: Qwen/Qwen3-32B-AWQ"
+    echo "----------------------------------------"
+    ./venv/bin/python3 -c "
+from huggingface_hub import snapshot_download
+import os
+
+cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
+path = snapshot_download(
+    repo_id='Qwen/Qwen3-32B-AWQ',
+    cache_dir=cache_dir,
+    resume_download=True,
+    local_files_only=False
+)
+print(f'✅ Downloaded to: {path}')
+"
 fi
 
 # ============================================================
@@ -63,38 +132,82 @@ echo "✅ Optional Thinking Mode"
 echo "⚠️  Ältere Generation als Qwen3"
 echo ""
 
-qwen25_models=(
-    "Qwen/Qwen2.5-7B-Instruct-AWQ"      # ~4 GB - Balanced (128K context)
-    "Qwen/Qwen2.5-14B-Instruct-AWQ"     # ~8 GB - High Quality (128K context)
-    # "Qwen/Qwen2.5-32B-Instruct-AWQ"   # ~18 GB - Maximum Performance (128K context)
-)
-
-read -p "Qwen2.5 Instruct-AWQ Modelle herunterladen? (y/n) " -n 1 -r
+# Model 1: Qwen2.5-7B-Instruct-AWQ
+echo ""
+echo "📦 Qwen/Qwen2.5-7B-Instruct-AWQ"
+echo "   Größe: ~4 GB"
+echo "   Context: 128K native (kein YaRN nötig)"
+echo "   Use Case: Balanced (ältere Generation)"
+read -p "Herunterladen? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    for model in "${qwen25_models[@]}"; do
-        echo ""
-        echo "⬇️  Downloading: $model"
-        echo "----------------------------------------"
-        ./venv/bin/python3 -c "
+    echo "⬇️  Downloading: Qwen/Qwen2.5-7B-Instruct-AWQ"
+    echo "----------------------------------------"
+    ./venv/bin/python3 -c "
 from huggingface_hub import snapshot_download
 import os
 
 cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
 path = snapshot_download(
-    repo_id='$model',
+    repo_id='Qwen/Qwen2.5-7B-Instruct-AWQ',
     cache_dir=cache_dir,
     resume_download=True,
     local_files_only=False
 )
 print(f'✅ Downloaded to: {path}')
 "
-        if [ $? -eq 0 ]; then
-            echo "✅ Successfully downloaded: $model"
-        else
-            echo "❌ Failed to download: $model"
-        fi
-    done
+fi
+
+# Model 2: Qwen2.5-14B-Instruct-AWQ
+echo ""
+echo "📦 Qwen/Qwen2.5-14B-Instruct-AWQ"
+echo "   Größe: ~8 GB"
+echo "   Context: 128K native (kein YaRN nötig)"
+echo "   Use Case: High Quality (ältere Generation)"
+read -p "Herunterladen? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "⬇️  Downloading: Qwen/Qwen2.5-14B-Instruct-AWQ"
+    echo "----------------------------------------"
+    ./venv/bin/python3 -c "
+from huggingface_hub import snapshot_download
+import os
+
+cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
+path = snapshot_download(
+    repo_id='Qwen/Qwen2.5-14B-Instruct-AWQ',
+    cache_dir=cache_dir,
+    resume_download=True,
+    local_files_only=False
+)
+print(f'✅ Downloaded to: {path}')
+"
+fi
+
+# Model 3: Qwen2.5-32B-Instruct-AWQ (optional)
+echo ""
+echo "📦 Qwen/Qwen2.5-32B-Instruct-AWQ (Optional)"
+echo "   Größe: ~18 GB"
+echo "   Context: 128K native (kein YaRN nötig)"
+echo "   Use Case: Maximum Performance (ältere Generation)"
+read -p "Herunterladen? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "⬇️  Downloading: Qwen/Qwen2.5-32B-Instruct-AWQ"
+    echo "----------------------------------------"
+    ./venv/bin/python3 -c "
+from huggingface_hub import snapshot_download
+import os
+
+cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
+path = snapshot_download(
+    repo_id='Qwen/Qwen2.5-32B-Instruct-AWQ',
+    cache_dir=cache_dir,
+    resume_download=True,
+    local_files_only=False
+)
+print(f'✅ Downloaded to: {path}')
+"
 fi
 
 # ============================================================
