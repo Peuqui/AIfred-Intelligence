@@ -176,6 +176,10 @@ class OllamaBackend(LLMBackend):
             ollama_options["num_predict"] = options.num_predict
         if options.seed:
             ollama_options["seed"] = options.seed
+        # Thinking Mode: Only works if model supports it (e.g., Qwen3 models with Chain-of-Thought)
+        # If model doesn't support it, this parameter is silently ignored by Ollama
+        if options.enable_thinking is not None:
+            ollama_options["enable_thinking"] = options.enable_thinking
 
         payload = {
             "model": model,
@@ -361,6 +365,70 @@ class OllamaBackend(LLMBackend):
 
         except httpx.HTTPError as e:
             raise RuntimeError(f"Failed to query Ollama for model '{model}': {e}") from e
+
+    async def unload_all_models(self) -> int:
+        """
+        Unload all currently loaded Ollama models from VRAM
+
+        This is useful when switching to another backend (e.g., vLLM)
+        to free up VRAM.
+
+        Returns:
+            Number of models unloaded
+        """
+        import subprocess
+
+        try:
+            # Get list of running models via ollama ps
+            result = subprocess.run(
+                ["ollama", "ps"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"⚠️ ollama ps failed: {result.stderr}")
+                return 0
+
+            # Parse output (skip header line)
+            lines = result.stdout.strip().split('\n')[1:]
+            unloaded_count = 0
+
+            for line in lines:
+                if not line.strip():
+                    continue
+
+                # Extract model name (first column)
+                parts = line.split()
+                if parts:
+                    model_name = parts[0]
+
+                    # Unload model
+                    stop_result = subprocess.run(
+                        ["ollama", "stop", model_name],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+
+                    if stop_result.returncode == 0:
+                        logger.info(f"🛑 Unloaded Ollama model: {model_name}")
+                        unloaded_count += 1
+                    else:
+                        logger.warning(f"⚠️ Failed to unload {model_name}: {stop_result.stderr}")
+
+            if unloaded_count > 0:
+                logger.info(f"✅ Unloaded {unloaded_count} Ollama model(s)")
+
+            return unloaded_count
+
+        except subprocess.TimeoutExpired:
+            logger.error("❌ Timeout while unloading Ollama models")
+            return 0
+        except Exception as e:
+            logger.error(f"❌ Error unloading Ollama models: {e}")
+            return 0
 
     async def close(self):
         """Close HTTP client"""

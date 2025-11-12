@@ -99,7 +99,11 @@ async def build_rag_context(
             response = await automatik_llm_client.chat(
                 model=automatik_model,
                 messages=[{'role': 'user', 'content': relevance_prompt}],
-                options={'temperature': 0.1, 'num_ctx': 2048}  # Deterministic
+                options={
+                    'temperature': 0.1,  # Deterministic
+                    'num_ctx': 2048,
+                    'enable_thinking': False  # Fast decisions, no reasoning needed
+                }
             )
 
             # LLMResponse object has .text attribute, not dict

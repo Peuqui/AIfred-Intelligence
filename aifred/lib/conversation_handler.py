@@ -18,7 +18,6 @@ from .llm_client import LLMClient
 from .logging_utils import log_message, CONSOLE_SEPARATOR
 from .prompt_loader import get_decision_making_prompt
 from .message_builder import build_messages_from_history
-from .config import CACHE_DISTANCE_DUPLICATE
 from .formatting import format_thinking_process
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
@@ -68,7 +67,9 @@ async def chat_interactive_mode(
     session_id: Optional[str] = None,
     temperature_mode: str = 'auto',
     temperature: float = 0.2,
-    llm_options: Optional[Dict] = None
+    llm_options: Optional[Dict] = None,
+    backend_type: str = "ollama",
+    backend_url: Optional[str] = None
 ) -> AsyncIterator[Dict]:
     """
     Automatik-Modus: KI entscheidet selbst, ob Web-Recherche nötig ist
@@ -83,14 +84,16 @@ async def chat_interactive_mode(
         temperature_mode: 'auto' (Intent-Detection) oder 'manual' (fixer Wert)
         temperature: Temperature-Wert (0.0-2.0) - nur bei mode='manual'
         llm_options: Dict mit Ollama-Optionen (num_ctx, etc.) - Optional
+        backend_type: LLM Backend ("ollama", "vllm", "tabbyapi")
+        backend_url: Backend URL (optional, uses default if not provided)
 
     Yields:
         Dict with: {"type": "debug"|"content"|"metrics"|"separator"|"result", ...}
     """
 
-    # Initialize LLM clients
-    llm_client = LLMClient(backend_type="ollama")
-    automatik_llm_client = LLMClient(backend_type="ollama")
+    # Initialize LLM clients with correct backend
+    llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
+    automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
 
     try:
         log_message("🤖 Automatik-Modus: KI prüft, ob Recherche nötig...")
@@ -163,7 +166,7 @@ async def chat_interactive_mode(
 
             # Proceed with fresh web research (no exact match or error)
             yield {"type": "debug", "message": "🌐 Starting fresh web research..."}
-            async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options):
+            async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options, backend_type, backend_url):
                 yield item
             return  # Generator ends after forwarding all items
 
@@ -290,8 +293,8 @@ async def chat_interactive_mode(
             automatik_limit = await automatik_llm_client.get_model_context_limit(automatik_model)
             decision_num_ctx = min(2048, automatik_limit // 2)  # Max 2048 oder 50% des Limits
 
-            # Estimate input tokens
-            input_tokens = estimate_tokens(messages)
+            # Count input tokens (using real tokenizer)
+            input_tokens = estimate_tokens(messages, model_name=automatik_model)
 
             # Show compact context info
             yield {"type": "debug", "message": f"📊 Automatik-LLM: {input_tokens} / {decision_num_ctx} Tokens (max: {automatik_limit})"}
@@ -299,13 +302,17 @@ async def chat_interactive_mode(
 
             decision_start = time.time()
             try:
+                # Build automatik options (ALWAYS disable thinking for fast decisions!)
+                automatik_options = {
+                    'temperature': 0.2,  # Niedrig für konsistente yes/no Entscheidungen
+                    'num_ctx': decision_num_ctx,  # Dynamisch basierend auf Model
+                    'enable_thinking': False  # IMMER aus für schnelle Entscheidungen!
+                }
+
                 response = await automatik_llm_client.chat(
                     model=automatik_model,
                     messages=messages,
-                    options={
-                        'temperature': 0.2,  # Niedrig für konsistente yes/no Entscheidungen
-                        'num_ctx': decision_num_ctx  # Dynamisch basierend auf Model
-                    }
+                    options=automatik_options
                 )
 
                 decision = response.text.strip().lower()
@@ -320,7 +327,7 @@ async def chat_interactive_mode(
                 decision_time = time.time() - decision_start
                 log_message(f"⚠️ Automatik-Entscheidung fehlgeschlagen: {e}")
                 log_message("   Fallback: Direkte Antwort ohne Recherche")
-                yield {"type": "debug", "message": f"⚠️ Decision failed, using fallback (direct answer)"}
+                yield {"type": "debug", "message": "⚠️ Decision failed, using fallback (direct answer)"}
                 # Fallback: Assume no research needed, proceed with direct LLM answer
                 decision = "no"
 
@@ -332,7 +339,7 @@ async def chat_interactive_mode(
                 # Debug message already yielded above (line 153)
 
                 # Start web research - Forward all yields
-                async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options):
+                async for item in perform_agent_research(user_text, stt_time, "deep", model_choice, automatik_model, history, session_id, temperature_mode, temperature, llm_options, backend_type, backend_url):
                     yield item
                 return
 
@@ -369,8 +376,8 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                     rag_preview = rag_context[:500] + "..." if len(rag_context) > 500 else rag_context
                     log_message(f"📄 RAG Context Preview:\n{rag_preview}")
 
-                # Estimate actual input tokens
-                input_tokens = estimate_tokens(messages)
+                # Count actual input tokens (using real tokenizer)
+                input_tokens = estimate_tokens(messages, model_name=model_choice)
 
                 # Dynamische num_ctx Berechnung für Eigenes Wissen (Haupt-LLM)
                 final_num_ctx = await calculate_dynamic_num_ctx(llm_client, model_choice, messages, llm_options)
@@ -389,18 +396,34 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                     yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (manual)"}
                 else:
                     # Auto: Intent-Detection für Eigenes Wissen
+                    intent_start = time.time()
+                    log_message("🎯 Starting Intent-Detection...")
+                    yield {"type": "debug", "message": "🎯 Intent-Detection läuft..."}
+
                     own_knowledge_intent = await detect_query_intent(
                         user_query=user_text,
                         automatik_model=automatik_model,
                         llm_client=automatik_llm_client
                     )
+                    intent_time = time.time() - intent_start
+
                     final_temperature = get_temperature_for_intent(own_knowledge_intent)
                     temp_label = get_temperature_label(own_knowledge_intent)
-                    log_message(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent})")
-                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label})"}
+                    log_message(f"🌡️ Eigenes Wissen Temperature: {final_temperature} (Intent: {own_knowledge_intent}, {intent_time:.1f}s)")
+                    yield {"type": "debug", "message": f"🌡️ Temperature: {final_temperature} (auto, {temp_label}, {intent_time:.1f}s)"}
 
                 # Console: LLM starts
                 yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
+
+                # Build main LLM options (include enable_thinking from user settings)
+                main_llm_options = {
+                    'temperature': final_temperature,  # Adaptive oder Manual Temperature!
+                    'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+                }
+
+                # Add enable_thinking if provided in llm_options (user toggle)
+                if llm_options and 'enable_thinking' in llm_options:
+                    main_llm_options['enable_thinking'] = llm_options['enable_thinking']
 
                 # Zeit messen für finale Inferenz - STREAM response
                 inference_start = time.time()
@@ -412,10 +435,7 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 async for chunk in llm_client.chat_stream(
                     model=model_choice,
                     messages=messages,
-                    options={
-                        'temperature': final_temperature,  # Adaptive oder Manual Temperature!
-                        'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
-                    }
+                    options=main_llm_options
                 ):
                     if chunk["type"] == "content":
                         # Measure TTFT

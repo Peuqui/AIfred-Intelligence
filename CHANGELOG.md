@@ -5,6 +5,54 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-11-12
+
+### 🚀 Performance - 8x Faster Automatik, 7s Saved per Web Research
+
+#### vLLM Preloading Optimization
+- **Skip unnecessary preloading** for vLLM/TabbyAPI (models stay in VRAM)
+- **Result**: 7s faster web research, UI shows "ℹ️ Haupt-LLM bereits geladen"
+- **Files**: `aifred/backends/vllm.py`, `aifred/backends/tabbyapi.py`, `aifred/lib/research/scraper_orchestrator.py`
+
+#### Thinking Mode Disabled for Automatik Tasks
+- **Problem**: Qwen3 Thinking Mode slowed decisions from 1-2s to 7-13s
+- **Solution**: `enable_thinking=False` for all automatik tasks (decisions, intent, RAG)
+- **Result**: 8x faster total flow (3s instead of 24s)
+  - Automatik decision: 8.7s → 2.1s (4x faster)
+  - Intent detection: 13.0s → 0.3s (43x faster)
+- **Files**: Fixed parameter passing in `llm_client.py`, vLLM `chat_template_kwargs` structure, 9 LLM call sites
+
+### 🎯 Context Window Improvements
+
+#### Real Tokenizer instead of Estimation
+- **Problem**: Token estimation (3.5 chars/token) was 25% too low → context overflow
+- **Solution**: HuggingFace AutoTokenizer with local cache
+- **Fallback**: 2.5 chars/token (conservative) when tokenizer unavailable
+- **Files**: `aifred/lib/context_manager.py` + 5 call sites
+
+#### vLLM Context Auto-Detection (16K → 40K for Qwen3)
+- **Problem**: vLLM hardcoded to 16K despite Qwen3-8B supporting 40K
+- **Solution**: Remove `--max-model-len` → auto-detect from model config
+- **Benefits**:
+  - Qwen3-8B: 40K context (matches Ollama)
+  - Qwen2.5-32B: 128K context automatically
+  - No hardcoding, each model uses native limit
+- **Files**: `vllm_startup.py`, `aifred/lib/vllm_manager.py`
+
+### 🐛 Bug Fixes
+
+- **Backend switching**: Fixed AttributeError and wrong model selection
+- **Dead code**: Removed 83 lines (77 unreachable + 6 unused variables)
+- **UI**: Debug console limit 100 → 500 messages
+
+### 🔄 Portability
+
+- ✅ No absolute paths
+- ✅ No system-specific dependencies
+- ✅ HuggingFace tokenizer: offline-capable (local cache)
+- ✅ vLLM auto-detection: works on any system
+- ✅ **Fully portable to MiniPC**
+
 ## [1.0.0] - 2025-11-10
 
 ### 🎉 Milestone: Vector Cache Production Ready

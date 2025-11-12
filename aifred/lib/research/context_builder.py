@@ -117,8 +117,8 @@ async def build_and_generate_response(
         content_len = len(msg['content'])
         log_message(f"  Message {i+1} ({role}): {content_len} Zeichen")
 
-    # Estimate actual input tokens
-    input_tokens = estimate_tokens(messages)
+    # Count actual input tokens (using real tokenizer)
+    input_tokens = estimate_tokens(messages, model_name=model_choice)
 
     # Dynamic num_ctx calculation
     final_num_ctx = await calculate_dynamic_num_ctx(llm_client, model_choice, messages, llm_options)
@@ -149,6 +149,16 @@ async def build_and_generate_response(
     yield {"type": "debug", "message": f"🤖 Haupt-LLM startet: {model_choice}"}
     yield {"type": "progress", "phase": "llm"}
 
+    # Build LLM options (include enable_thinking from user settings)
+    research_llm_options = {
+        'temperature': final_temperature,
+        'num_ctx': final_num_ctx
+    }
+
+    # Add enable_thinking if provided in llm_options (user toggle)
+    if llm_options and 'enable_thinking' in llm_options:
+        research_llm_options['enable_thinking'] = llm_options['enable_thinking']
+
     inference_start = time.time()
     ai_text = ""
     metrics = {}
@@ -158,10 +168,7 @@ async def build_and_generate_response(
     async for chunk in llm_client.chat_stream(
         model=model_choice,
         messages=messages,
-        options={
-            'temperature': final_temperature,
-            'num_ctx': final_num_ctx
-        }
+        options=research_llm_options
     ):
         if chunk["type"] == "content":
             if not first_token_received:

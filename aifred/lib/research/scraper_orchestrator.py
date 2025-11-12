@@ -65,11 +65,20 @@ async def orchestrate_scraping(
 
     yield {"type": "debug", "message": "🌐 Web-Scraping startet (parallel)"}
 
-    # PERFORMANCE: Preload Main LLM during scraping
-    preload_task = asyncio.create_task(llm_client.preload_model(model_choice))
-    preload_message_sent = False  # Track if we already sent the completion message
-    log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
-    yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+    # PERFORMANCE: Preload Main LLM during scraping (only for backends that need it)
+    # vLLM and TabbyAPI keep models loaded in VRAM, so preloading is unnecessary
+    needs_preload = llm_client.backend_type not in ["vllm", "tabbyapi"]
+    preload_task = None
+    preload_message_sent = False
+
+    if needs_preload:
+        preload_task = asyncio.create_task(llm_client.preload_model(model_choice))
+        log_message(f"🚀 Haupt-LLM ({model_choice}) wird parallel vorgeladen...")
+        yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+    else:
+        log_message(f"ℹ️ Haupt-LLM ({model_choice}) bereits geladen (Backend: {llm_client.backend_type})")
+        yield {"type": "debug", "message": f"ℹ️ Haupt-LLM ({model_choice}) bereits geladen"}
+        preload_message_sent = True  # Skip preload messages
 
     # Parallel Scraping
     log_message(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs gleichzeitig")
@@ -103,7 +112,7 @@ async def orchestrate_scraping(
                 log_message(f"  ❌ {url_short}: Exception: {e}")
 
             # Check if preload finished and send message immediately
-            if not preload_message_sent and preload_task.done():
+            if not preload_message_sent and preload_task and preload_task.done():
                 try:
                     success, load_time = preload_task.result()
                     if success:
@@ -125,7 +134,7 @@ async def orchestrate_scraping(
     log_message(f"✅ Parallel Scraping fertig: {len(scraped_results)}/{len(urls_to_scrape)} erfolgreich")
 
     # Wait for preload task to complete if not done yet
-    if not preload_message_sent:
+    if not preload_message_sent and preload_task:
         try:
             success, load_time = await preload_task
             if success:

@@ -212,7 +212,10 @@ class TabbyAPIBackend(LLMBackend):
     async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
-        This warms up the model so future requests are faster.
+
+        For TabbyAPI: Models are already loaded at startup and kept in VRAM.
+        Preloading is unnecessary and wastes time (~3-4s for queued test request).
+        We return immediately with success.
 
         Args:
             model: Model name to preload
@@ -220,23 +223,10 @@ class TabbyAPIBackend(LLMBackend):
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
         """
-        try:
-            start_time = time.time()
-
-            # Send minimal request to trigger model loading (OpenAI-compatible API)
-            await self.client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "hi"}],
-                max_tokens=1,
-                temperature=0.0
-            )
-
-            load_time = time.time() - start_time
-            return (True, load_time)
-        except Exception as e:
-            load_time = time.time() - start_time
-            logger.warning(f"Preload failed for {model}: {e}")
-            return (False, load_time)
+        # TabbyAPI keeps models loaded in VRAM at all times
+        # No preloading needed - return immediately
+        logger.debug(f"TabbyAPI: Skipping preload for {model} (already loaded)")
+        return (True, 0.0)
 
     async def health_check(self) -> bool:
         """Check if TabbyAPI is reachable"""

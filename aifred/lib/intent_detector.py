@@ -69,7 +69,8 @@ async def detect_query_intent(
             messages=[{'role': 'user', 'content': prompt}],
             options={
                 'temperature': 0.2,  # Niedrig für konsistente Intent-Detection
-                'num_ctx': 4096  # Standard Context für Intent-Detection
+                'num_ctx': 4096,  # Standard Context für Intent-Detection
+                'enable_thinking': False  # Fast decisions, no reasoning needed
             }
         )
         intent_raw = response.text
@@ -119,7 +120,8 @@ async def detect_cache_followup_intent(
             messages=[{'role': 'user', 'content': prompt}],
             options={
                 'temperature': 0.2,
-                'num_ctx': 4096
+                'num_ctx': 4096,
+                'enable_thinking': False  # Fast decisions, no reasoning needed
             }
         )
         intent_raw = response.text

@@ -5,8 +5,7 @@ Main state for chat, settings, and backend management
 """
 
 import reflex as rx
-from typing import List, Tuple, Dict
-import threading
+from typing import List, Tuple, Optional
 import uuid
 import os
 from pydantic import BaseModel
@@ -18,11 +17,11 @@ from .lib import (
     clear_console,
     # set_research_cache removed - cache system deprecated
     perform_agent_research,
-    set_language,
-    detect_language
+    set_language
 )
 from .lib.formatting import format_debug_message
 from .lib import config
+from .lib.vllm_manager import vLLMProcessManager
 
 # ============================================================
 # Module-Level Vector Cache (ChromaDB Server Mode)
@@ -69,13 +68,13 @@ class AIState(rx.State):
     is_compressing: bool = False  # NEU: Zeigt ob History-Kompression läuft
 
     # Backend Settings
-    backend_type: str = "ollama"  # "ollama", "vllm"
+    backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi"
     backend_url: str = "http://localhost:11434"  # Default Ollama URL
-    selected_model: str = config.DEFAULT_SETTINGS["model"]
+    selected_model: str = config.BACKEND_DEFAULT_MODELS["ollama"]["selected_model"]
     available_models: List[str] = []
 
     # Automatik-LLM (für Decision und Query-Optimierung)
-    automatik_model: str = config.DEFAULT_SETTINGS["automatik_model"]
+    automatik_model: str = config.BACKEND_DEFAULT_MODELS["ollama"]["automatik_model"]
 
     # LLM Options
     temperature: float = 0.2
@@ -88,6 +87,9 @@ class AIState(rx.State):
     research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
     research_mode_display: str = "🤖 Automatik (KI entscheidet)"  # UI display value
 
+    # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
+    enable_thinking: bool = True  # True = Thinking Mode (temp=0.6), False = Non-Thinking (temp=0.7)
+
     # TTS Settings
     enable_tts: bool = False
 
@@ -97,6 +99,7 @@ class AIState(rx.State):
     # Backend Status
     backend_healthy: bool = False
     backend_info: str = ""
+    backend_switching: bool = False  # True während Backend-Wechsel (UI wird disabled)
 
     # Debug Console
     debug_messages: List[str] = []
@@ -116,6 +119,9 @@ class AIState(rx.State):
     _backend_initialized: bool = False
     _model_preloaded: bool = False
 
+    # vLLM Process Manager (non-serializable, managed separately)
+    _vllm_manager: Optional[vLLMProcessManager] = None
+
     async def on_load(self):
         """
         Called when page loads - initialize backend and load models
@@ -134,6 +140,33 @@ class AIState(rx.State):
 
             # Initialize debug log (only once)
             initialize_debug_log(force_reset=False)
+
+            # Load saved settings
+            from .lib.settings import load_settings
+            saved_settings = load_settings()
+
+            if saved_settings:
+                # Use saved settings
+                self.backend_type = saved_settings.get("backend_type", self.backend_type)
+                self.research_mode = saved_settings.get("research_mode", self.research_mode)
+                self.temperature = saved_settings.get("temperature", self.temperature)
+                self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
+
+                # NEW: Load per-backend models (if available)
+                backend_models = saved_settings.get("backend_models", {})
+                if self.backend_type in backend_models:
+                    # Use per-backend saved models
+                    self.selected_model = backend_models[self.backend_type].get("selected_model", self.selected_model)
+                    self.automatik_model = backend_models[self.backend_type].get("automatik_model", self.automatik_model)
+                else:
+                    # Fallback: Use old-style global model settings (backward compatibility)
+                    self.selected_model = saved_settings.get("selected_model", self.selected_model)
+                    self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)
+
+                self.add_debug(f"⚙️ Settings loaded from file (backend: {self.backend_type})")
+            else:
+                # Use config.py defaults
+                self.add_debug("⚙️ Using default settings from config.py")
 
             # Initialize language settings
             from .lib.config import DEFAULT_LANGUAGE
@@ -171,8 +204,10 @@ class AIState(rx.State):
             if self.backend_type == "ollama":
                 self.backend_url = "http://localhost:11434"
             elif self.backend_type == "vllm":
-                # CHANGE THIS to Aragon's IP when vLLM is running there
-                self.backend_url = "http://localhost:8000/v1"
+                # Use port 8001 for development (8000 will be used on production MiniPC)
+                self.backend_url = "http://localhost:8001/v1"
+            elif self.backend_type == "tabbyapi":
+                self.backend_url = "http://localhost:5000/v1"
 
             # add_debug() already logs to file, so we only need one call
             self.add_debug(f"🔧 Creating backend: {self.backend_type}")
@@ -189,55 +224,85 @@ class AIState(rx.State):
             import subprocess
             import json
             try:
-                # Synchronous curl call to get model list
-                result = subprocess.run(
-                    ['curl', '-s', f'{self.backend_url}/api/tags'],
-                    capture_output=True,
-                    text=True,
-                    timeout=5.0
-                )
+                # For vLLM/TabbyAPI: Get models from HuggingFace cache (local files)
+                # For Ollama: Get models from server API
+                if self.backend_type in ["vllm", "tabbyapi"]:
+                    # Scan HuggingFace cache for downloaded models
+                    from pathlib import Path
+                    hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
 
-                if result.returncode == 0:
-                    data = json.loads(result.stdout)
-                    self.available_models = [m["name"] for m in data.get("models", [])]
+                    if hf_cache.exists():
+                        # Find all model directories (format: models--Org--ModelName)
+                        model_dirs = [d for d in hf_cache.iterdir() if d.is_dir() and d.name.startswith("models--")]
+                        # Convert directory names to model IDs (e.g., models--Qwen--Qwen3-8B-AWQ -> Qwen/Qwen3-8B-AWQ)
+                        self.available_models = [
+                            d.name.replace("models--", "").replace("--", "/", 1)
+                            for d in model_dirs
+                        ]
+                        self.add_debug(f"📂 Found {len(self.available_models)} models in HuggingFace cache")
+                    else:
+                        self.available_models = []
+                        self.add_debug("⚠️ HuggingFace cache not found")
 
-                    # Validate that configured models exist, fallback to first available if not
-                    if self.selected_model not in self.available_models and self.available_models:
-                        log_message(f"⚠️ Configured model '{self.selected_model}' not found, using '{self.available_models[0]}'")
-                        self.selected_model = self.available_models[0]
-
-                    if self.automatik_model not in self.available_models and self.available_models:
-                        log_message(f"⚠️ Configured automatik model '{self.automatik_model}' not found, using '{self.available_models[0]}'")
-                        self.automatik_model = self.available_models[0]
-
-                    self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
-                    self.backend_healthy = True
-                    self.add_debug(f"✅ {len(self.available_models)} Models geladen (Main: {self.selected_model}, Automatik: {self.automatik_model})")
                 else:
-                    self.backend_healthy = False
-                    self.backend_info = f"{self.backend_type} not reachable"
-                    self.add_debug(f"❌ Backend not reachable (curl failed)")
-                    log_message(f"❌ Backend not reachable (curl exit code: {result.returncode})")
+                    # Ollama: Query server API
+                    endpoint = f'{self.backend_url}/api/tags'
 
-            except subprocess.TimeoutExpired:
-                self.backend_healthy = False
-                self.backend_info = f"{self.backend_type} timeout"
-                self.add_debug(f"⏱️ Model loading timeout")
-                log_message(f"⏱️ Model loading timeout (curl)")
+                    # Synchronous curl call to get model list
+                    result = subprocess.run(
+                        ['curl', '-s', endpoint],
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+
+                    if result.returncode == 0:
+                        data = json.loads(result.stdout)
+                        self.available_models = [m["name"] for m in data.get("models", [])]
+                    else:
+                        self.available_models = []
+
+                # Common validation for all backends
+                # Validate that configured models exist, fallback to first available if not
+                if self.selected_model not in self.available_models and self.available_models:
+                    log_message(f"⚠️ Configured model '{self.selected_model}' not found, using '{self.available_models[0]}'")
+                    self.selected_model = self.available_models[0]
+
+                if self.automatik_model not in self.available_models and self.available_models:
+                    log_message(f"⚠️ Configured automatik model '{self.automatik_model}' not found, using '{self.available_models[0]}'")
+                    self.automatik_model = self.available_models[0]
+
+                self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
+                self.backend_healthy = True
+                self.add_debug(f"✅ {len(self.available_models)} Models vorhanden (Main: {self.selected_model}, Automatik: {self.automatik_model})")
+
             except Exception as e:
                 self.backend_healthy = False
                 self.backend_info = f"{self.backend_type} error"
                 self.add_debug(f"❌ Model loading failed: {e}")
                 log_message(f"❌ Model loading failed: {e}")
 
+            # Start vLLM process if backend is vLLM
+            if self.backend_type == "vllm":
+                await self._start_vllm_server()
+
             # Preload Automatik-LLM via curl in background (simple & non-blocking!)
-            if self.automatik_model:
+            # Note: For vLLM, skip preload curl since server was just started with the model
+            if self.automatik_model and self.backend_type != "vllm":
                 import subprocess
-                preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{self.automatik_model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
                 try:
-                    subprocess.Popen(preload_cmd, shell=True)
-                    log_message(f"🚀 Preloading {self.automatik_model} via curl (background)")
-                    self.add_debug(f"🚀 Preloading {self.automatik_model}...")
+                    if self.backend_type == "ollama":
+                        # Ollama-specific preload
+                        preload_cmd = f'curl -s http://localhost:11434/api/chat -d \'{{"model":"{self.automatik_model}","messages":[{{"role":"user","content":"hi"}}],"stream":false,"options":{{"num_predict":1}}}}\' > /dev/null 2>&1 &'
+                        subprocess.Popen(preload_cmd, shell=True)
+                        log_message(f"🚀 Preloading {self.automatik_model} via curl (background)")
+                        self.add_debug(f"🚀 Preloading {self.automatik_model}...")
+                    elif self.backend_type == "tabbyapi":
+                        # OpenAI-compatible preload (TabbyAPI)
+                        preload_cmd = f'curl -s {self.backend_url}/chat/completions -H "Content-Type: application/json" -d \'{{"model":"{self.automatik_model}","messages":[{{"role":"user","content":"hi"}}],"max_tokens":1}}\' > /dev/null 2>&1 &'
+                        subprocess.Popen(preload_cmd, shell=True)
+                        log_message(f"🚀 Preloading {self.automatik_model} via {self.backend_type} (background)")
+                        self.add_debug(f"🚀 Preloading {self.automatik_model}...")
                 except Exception as e:
                     log_message(f"⚠️ Preload failed: {e}")
                     # Not critical, continue anyway
@@ -247,11 +312,93 @@ class AIState(rx.State):
             self.backend_info = f"Error: {str(e)}"
             self.add_debug(f"❌ Backend initialization failed: {e}")
 
+    def _save_settings(self):
+        """Save current settings to file (per-backend models)"""
+        from .lib.settings import save_settings, load_settings
+
+        # Load existing settings to preserve other backends
+        existing = load_settings() or {}
+        backend_models = existing.get("backend_models", {})
+
+        # Update current backend's models
+        backend_models[self.backend_type] = {
+            "selected_model": self.selected_model,
+            "automatik_model": self.automatik_model,
+        }
+
+        settings = {
+            "backend_type": self.backend_type,
+            "research_mode": self.research_mode,
+            "temperature": self.temperature,
+            "enable_thinking": self.enable_thinking,
+            "backend_models": backend_models,  # Merged: preserves all backends
+        }
+        save_settings(settings)
+
     async def switch_backend(self, new_backend: str):
-        """Switch to different backend"""
-        self.add_debug(f"🔄 Switching backend from {self.backend_type} to {new_backend}...")
-        self.backend_type = new_backend
-        await self.initialize_backend()
+        """Switch to different backend and restore last used models"""
+        # Prevent concurrent backend switches
+        if self.backend_switching:
+            self.add_debug("⚠️ Backend switch already in progress, please wait...")
+            return
+
+        self.backend_switching = True
+        yield  # Update UI to disable controls
+
+        try:
+            self.add_debug(f"🔄 Switching backend from {self.backend_type} to {new_backend}...")
+
+            # Save current backend's models before switching
+            self._save_settings()
+
+            # Clean up old backend resources (unload models, stop servers)
+            old_backend = self.backend_type
+            await self._cleanup_old_backend(old_backend)
+
+            # Load saved settings for target backend BEFORE switching
+            from .lib.settings import load_settings
+            settings = load_settings() or {}
+            backend_models = settings.get("backend_models", {})
+
+            # Determine which models to use for new backend
+            target_main_model = None
+            target_auto_model = None
+
+            if new_backend in backend_models:
+                # Use saved models from backend_models.json
+                saved_models = backend_models[new_backend]
+                target_main_model = saved_models.get("selected_model")
+                target_auto_model = saved_models.get("automatik_model")
+                self.add_debug(f"📝 Found saved models for {new_backend}: Main={target_main_model}, Auto={target_auto_model}")
+            else:
+                # Use backend-specific defaults from config.py
+                default_models = config.BACKEND_DEFAULT_MODELS.get(new_backend, {})
+                target_main_model = default_models.get("selected_model")
+                target_auto_model = default_models.get("automatik_model")
+                self.add_debug(f"📝 Using default models for {new_backend}: Main={target_main_model}, Auto={target_auto_model}")
+
+            # Set target models BEFORE initialize_backend() so validation doesn't override them
+            if target_main_model:
+                self.selected_model = target_main_model
+            if target_auto_model:
+                self.automatik_model = target_auto_model
+
+            # Switch backend and load models
+            self.backend_type = new_backend
+            await self.initialize_backend()
+
+            # vLLM and TabbyAPI can only load ONE model at a time
+            if new_backend in ["vllm", "tabbyapi"] and self.automatik_model != self.selected_model:
+                self.add_debug(f"⚠️ {new_backend} can only load one model - using {self.selected_model} for both Main and Automatik")
+                self.automatik_model = self.selected_model
+
+            # Save settings for new backend
+            self._save_settings()
+
+        finally:
+            # Re-enable UI controls
+            self.backend_switching = False
+            yield  # Force UI update to re-enable controls and refresh model dropdowns
 
     def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0):
         """Update processing progress"""
@@ -281,9 +428,9 @@ class AIState(rx.State):
         # Also add to lib console (for agent_core logging)
         log_message(message)
 
-        # Keep only last 100 messages
-        if len(self.debug_messages) > 100:
-            self.debug_messages = self.debug_messages[-100:]
+        # Keep only last 500 messages
+        if len(self.debug_messages) > 500:
+            self.debug_messages = self.debug_messages[-500:]
 
     def set_user_input(self, text: str):
         """Update user input"""
@@ -303,6 +450,65 @@ class AIState(rx.State):
         print("⚠️ Fallback initialization (on_load didn't run)")
         # Re-use on_load() logic
         await self.on_load()
+
+    async def _start_vllm_server(self):
+        """Start vLLM server process with selected model"""
+        try:
+            self.add_debug(f"🚀 Starting vLLM server with {self.selected_model}...")
+
+            # Initialize vLLM Process Manager
+            self._vllm_manager = vLLMProcessManager(
+                port=8001,
+                max_model_len=16384,
+                gpu_memory_utilization=0.85
+            )
+
+            # Start server with selected model (timeout 120s - first load can take ~70s)
+            await self._vllm_manager.start(self.selected_model, timeout=120)
+
+            self.add_debug("✅ vLLM server ready on port 8001")
+
+        except Exception as e:
+            self.add_debug(f"❌ Failed to start vLLM: {e}")
+            self._vllm_manager = None
+            raise
+
+    async def _stop_vllm_server(self):
+        """Stop vLLM server process gracefully"""
+        if self._vllm_manager and self._vllm_manager.is_running():
+            self.add_debug("🛑 Stopping vLLM server...")
+            await self._vllm_manager.stop()
+            self._vllm_manager = None
+            self.add_debug("✅ vLLM server stopped")
+
+    async def _cleanup_old_backend(self, old_backend: str):
+        """
+        Clean up resources from previous backend before switching
+
+        Args:
+            old_backend: Backend type to clean up ("ollama", "vllm", etc.)
+        """
+        if old_backend == "ollama":
+            # Unload all Ollama models from VRAM
+            self.add_debug("🧹 Unloading Ollama models from VRAM...")
+            try:
+                # Create Ollama backend instance to call unload_all_models
+                from .lib.llm_client import LLMClient
+                llm_client = LLMClient(backend_type="ollama", base_url="http://localhost:11434")
+                backend = llm_client.backend
+
+                if hasattr(backend, 'unload_all_models'):
+                    count = await backend.unload_all_models()
+                    if count > 0:
+                        self.add_debug(f"✅ Unloaded {count} Ollama model(s)")
+                    else:
+                        self.add_debug("ℹ️ No Ollama models were loaded")
+            except Exception as e:
+                self.add_debug(f"⚠️ Error unloading Ollama models: {e}")
+
+        elif old_backend == "vllm":
+            # Stop vLLM server to free VRAM
+            await self._stop_vllm_server()
 
     async def send_message(self):
         """
@@ -333,7 +539,6 @@ class AIState(rx.State):
             # ============================================================
             # PHASE 1: Research/Automatik Mode - REAL STREAMING
             # ============================================================
-            research_result = None
             result_data = None
 
             if self.research_mode == "automatik":
@@ -347,6 +552,11 @@ class AIState(rx.State):
                 temp_history_index = len(self.chat_history)
                 self.chat_history.append((user_msg, self.current_ai_response))
                 
+                # Build LLM options (include enable_thinking toggle)
+                llm_options = {
+                    'enable_thinking': self.enable_thinking
+                }
+
                 # REAL STREAMING: Call async generator directly
                 async for item in chat_interactive_mode(
                     user_text=user_msg,
@@ -357,13 +567,15 @@ class AIState(rx.State):
                     session_id=self.session_id,
                     temperature_mode='auto',
                     temperature=self.temperature,
-                    llm_options=None
+                    llm_options=llm_options,
+                    backend_type=self.backend_type,
+                    backend_url=self.backend_url
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
                         self.debug_messages.append(format_debug_message(item["message"]))
-                        if len(self.debug_messages) > 100:
-                            self.debug_messages = self.debug_messages[-100:]
+                        if len(self.debug_messages) > 500:
+                            self.debug_messages = self.debug_messages[-500:]
                     elif item["type"] == "content":
                         self.current_ai_response += item["text"]
                         # Update the temporary entry in chat history with the new content
@@ -402,12 +614,6 @@ class AIState(rx.State):
 
                     yield  # Update UI after each item
 
-                # Set research_result flag if we got a result
-                if result_data:
-                    ai_text, updated_history, inference_time = result_data
-                    research_result = ai_text
-                    # History and clearing already handled in loop above
-
                 # Separator nach Automatik-Mode Research
                 console_separator()  # Schreibt in Log-File
                 self.add_debug("────────────────────")  # Zeigt in Debug-Console
@@ -432,14 +638,16 @@ class AIState(rx.State):
                     session_id=self.session_id,
                     temperature_mode='auto',
                     temperature=self.temperature,
-                    llm_options=None
+                    llm_options=None,
+                    backend_type=self.backend_type,
+                    backend_url=self.backend_url
                 ):
                     # Route messages based on type
                     if item["type"] == "debug":
                         self.debug_messages.append(format_debug_message(item["message"]))
                         # Limit debug messages
-                        if len(self.debug_messages) > 100:
-                            self.debug_messages = self.debug_messages[-100:]
+                        if len(self.debug_messages) > 500:
+                            self.debug_messages = self.debug_messages[-500:]
                     elif item["type"] == "content":
                         # REAL-TIME streaming to UI!
                         self.current_ai_response += item["text"]
@@ -470,84 +678,6 @@ class AIState(rx.State):
                     # History and clearing already handled in loop above
 
             # ============================================================
-            # PHASE 2: LLM Response Generation (nur wenn kein Research)
-            # ============================================================
-
-            # Initialize full_response for history
-            full_response = ""
-
-            if research_result:
-                # Research already provided answer
-                # History already updated by research, don't re-add
-                # current_ai_response was already cleared after history update
-                pass
-
-            else:
-                # Kein Research oder Research ohne Antwort → Normaler Chat
-                backend = BackendFactory.create(
-                    self.backend_type,
-                    base_url=self.backend_url
-                )
-
-                # Initialize temporary history entry for real-time display if not already done
-                if not research_result:
-                    temp_history_index = len(self.chat_history)
-                    self.chat_history.append((user_msg, self.current_ai_response))
-
-                # Build messages
-                messages = []
-
-                # Add chat history (excluding the temporary entry)
-                for user_turn, ai_turn in self.chat_history[:-1]:
-                    messages.append(LLMMessage(role="user", content=user_turn))
-                    messages.append(LLMMessage(role="assistant", content=ai_turn))
-
-                # Add current message
-                messages.append(LLMMessage(role="user", content=user_msg))
-
-                # LLM Options
-                options = LLMOptions(
-                    temperature=self.temperature,
-                    num_ctx=self.num_ctx
-                )
-
-                self.add_debug(f"🤖 Calling {self.backend_type} ({self.selected_model})...")
-
-                # Stream response
-                metrics = None
-
-                async for chunk in backend.chat_stream(self.selected_model, messages, options):
-                    if chunk["type"] == "content":
-                        full_response += chunk["text"]
-                        self.current_ai_response = full_response
-                        # Update the temporary entry in chat history with the new content
-                        if temp_history_index < len(self.chat_history):
-                            self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
-
-                        yield  # Update UI in real-time
-                    elif chunk["type"] == "done":
-                        metrics = chunk["metrics"]
-
-                await backend.close()
-
-                # Log metrics if available
-                if metrics:
-                    tokens_per_sec = metrics.get("tokens_per_second", 0)
-                    inference_time = metrics.get("inference_time", 0)
-                    tokens_generated = metrics.get("tokens_generated", 0)
-                    self.add_debug(
-                        f"✅ Generation complete: {tokens_generated} tokens, "
-                        f"{inference_time:.1f}s, {tokens_per_sec:.1f} tok/s"
-                    )
-
-                # Separator nach Generation/Cache-Metadata
-                console_separator()  # Schreibt in Log-File
-                self.add_debug("────────────────────")  # Zeigt in Debug-Console
-                yield
-
-                # The response is already in the history from streaming, no need to update
-
-            # ============================================================
             # POST-RESPONSE: History Summarization Check (im Hintergrund)
             # ============================================================
             # Kompression läuft NACH der Antwort, während User liest
@@ -573,7 +703,7 @@ class AIState(rx.State):
                     # Context-Limit des aktuellen Models
                     try:
                         context_limit = await temp_backend.get_model_context_limit(self.selected_model)
-                    except:
+                    except Exception:
                         context_limit = 8192  # Fallback
 
                     # Setze Kompression-Flag (disabled Input-Felder)
@@ -667,16 +797,31 @@ class AIState(rx.State):
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)"""
         self.auto_refresh_enabled = not self.auto_refresh_enabled
 
-    def restart_ollama(self):
-        """Restart Ollama service"""
+    def restart_backend(self):
+        """Restart current LLM backend service"""
         import subprocess
         try:
-            self.add_debug("🔄 Restarting Ollama service...")
-            subprocess.run(["systemctl", "restart", "ollama"], check=True)  # Ohne sudo - Polkit regelt das
-            self.add_debug("✅ Ollama restarted successfully")
+            backend_name = self.backend_type.upper()
+            self.add_debug(f"🔄 Restarting {backend_name} service...")
+
+            if self.backend_type == "ollama":
+                subprocess.run(["systemctl", "restart", "ollama"], check=True)
+            elif self.backend_type == "vllm":
+                # vLLM läuft nicht als systemd service, nur Info-Message
+                self.add_debug("ℹ️ vLLM läuft nicht als Service - bitte manuell neu starten")
+                return
+            elif self.backend_type == "tabbyapi":
+                self.add_debug("ℹ️ TabbyAPI läuft nicht als Service - bitte manuell neu starten")
+                return
+
+            self.add_debug(f"✅ {backend_name} restarted successfully")
 
         except Exception as e:
-            self.add_debug(f"❌ Ollama restart failed: {e}")
+            self.add_debug(f"❌ {backend_name} restart failed: {e}")
+
+    def restart_ollama(self):
+        """Legacy method - calls restart_backend()"""
+        self.restart_backend()
 
 
     def restart_aifred(self):
@@ -737,10 +882,20 @@ class AIState(rx.State):
         """Set selected model"""
         self.selected_model = model
         self.add_debug(f"📝 Model changed to: {model}")
+        self._save_settings()
+
+    def toggle_thinking_mode(self):
+        """Toggle Qwen3 Thinking Mode"""
+        self.enable_thinking = not self.enable_thinking
+        mode_name = "Thinking Mode" if self.enable_thinking else "Non-Thinking Mode"
+        temp = "0.6" if self.enable_thinking else "0.7"
+        self.add_debug(f"🧠 {mode_name} aktiviert (temp={temp})")
+        self._save_settings()
 
     def set_temperature(self, temp: list[float]):
         """Set temperature (from slider which returns list[float])"""
         self.temperature = temp[0] if isinstance(temp, list) else temp
+        self._save_settings()
 
     def set_research_mode(self, mode: str):
         """Set research mode"""
@@ -760,6 +915,7 @@ class AIState(rx.State):
         """Set automatik model for decision and query optimization"""
         self.automatik_model = model
         self.add_debug(f"⚡ Automatik model: {model}")
+        self._save_settings()
 
         # Preload new model in background (via curl)
         import subprocess

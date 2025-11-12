@@ -4,7 +4,7 @@ Context Manager - Token and Context Window Management
 Handles context limits and token estimation for LLMs:
 - Query model context limits from backends (on-demand, no caching)
 - Calculate optimal num_ctx for requests
-- Token estimation for messages
+- Token estimation for messages (using HuggingFace tokenizers)
 - History compression (summarize_history_if_needed)
 """
 
@@ -24,20 +24,71 @@ from .config import (
     HISTORY_SUMMARY_CONTEXT_LIMIT
 )
 
+# Global tokenizer cache (model_name -> tokenizer)
+_tokenizer_cache = {}
 
-def estimate_tokens(messages: List[Dict]) -> int:
+
+def count_tokens_with_tokenizer(text: str, model_name: str) -> int:
     """
-    Schätzt Token-Anzahl aus Messages
+    Count tokens using HuggingFace AutoTokenizer (cached, fast after first load)
+
+    Args:
+        text: Text to tokenize
+        model_name: HuggingFace model name (e.g., "Qwen/Qwen3-8B-AWQ")
+
+    Returns:
+        int: Exact token count
+    """
+    global _tokenizer_cache
+
+    # Check cache first
+    if model_name not in _tokenizer_cache:
+        try:
+            from transformers import AutoTokenizer
+            # Load tokenizer (cached by HuggingFace after first download)
+            _tokenizer_cache[model_name] = AutoTokenizer.from_pretrained(
+                model_name,
+                trust_remote_code=True,
+                local_files_only=False  # Allow download if not cached
+            )
+            log_message(f"✅ Loaded tokenizer for {model_name}")
+        except Exception as e:
+            log_message(f"⚠️ Could not load tokenizer for {model_name}: {e}")
+            return None
+
+    try:
+        tokenizer = _tokenizer_cache[model_name]
+        tokens = tokenizer.encode(text, add_special_tokens=True)
+        return len(tokens)
+    except Exception as e:
+        log_message(f"⚠️ Tokenization failed: {e}")
+        return None
+
+
+def estimate_tokens(messages: List[Dict], model_name: Optional[str] = None) -> int:
+    """
+    Count tokens in messages using real tokenizer (with fallback)
 
     Args:
         messages: Liste von Message-Dicts mit 'content' Key
+        model_name: Optional model name for accurate tokenization
 
     Returns:
-        int: Geschätzte Anzahl Tokens (Faustregel: 1 Token ≈ 3.5 Zeichen für Deutsch/gemischte Texte)
+        int: Token count (exact with tokenizer, estimated with fallback)
     """
-    total_size = sum(len(m['content']) for m in messages)
-    # 3.5 Zeichen pro Token (besser für deutsche Texte als 4)
-    return int(total_size / 3.5)
+    # Combine all message content
+    total_text = "\n".join(m['content'] for m in messages)
+    total_chars = len(total_text)
+
+    # Try real tokenizer first (if model_name provided)
+    if model_name:
+        token_count = count_tokens_with_tokenizer(total_text, model_name)
+        if token_count is not None:
+            return token_count
+
+    # Fallback: Conservative estimation (2.5 chars/token)
+    # This overestimates tokens by ~20% to prevent context overflow
+    return int(total_chars / 2.5)
 
 
 def estimate_tokens_from_history(history: List[tuple]) -> int:
@@ -223,7 +274,7 @@ async def summarize_history_if_needed(
     messages_to_summarize = history[:HISTORY_MESSAGES_TO_COMPRESS]
     remaining_messages = history[HISTORY_MESSAGES_TO_COMPRESS:]
 
-    log_message(f"📝 Bereite Kompression vor:")
+    log_message("📝 Bereite Kompression vor:")
     log_message(f"   └─ Zu komprimieren: {len(messages_to_summarize)} Messages")
     log_message(f"   └─ Model: {model_name}")
     log_message(f"   └─ Temperature: {HISTORY_SUMMARY_TEMPERATURE}")
@@ -257,7 +308,7 @@ async def summarize_history_if_needed(
 
     try:
         # VIEL EINFACHER: Nutze chat() statt chat_stream() - wir brauchen keinen Stream!
-        log_message(f"   Rufe LLM auf (non-streaming)...")
+        log_message("   Rufe LLM auf (non-streaming)...")
 
         # Import backend types
         from ..backends.base import LLMMessage, LLMOptions
@@ -266,7 +317,8 @@ async def summarize_history_if_needed(
         messages = [LLMMessage(role="system", content=summary_prompt)]
         options = LLMOptions(
             temperature=HISTORY_SUMMARY_TEMPERATURE,
-            num_ctx=HISTORY_SUMMARY_CONTEXT_LIMIT
+            num_ctx=HISTORY_SUMMARY_CONTEXT_LIMIT,
+            enable_thinking=False  # Fast summarization, no reasoning needed
         )
 
         response = await llm_client.chat(
@@ -306,7 +358,7 @@ async def summarize_history_if_needed(
         console_separator()
 
     except asyncio.TimeoutError:
-        log_message(f"⚠️ Async Timeout bei Summary-Generierung")
+        log_message("⚠️ Async Timeout bei Summary-Generierung")
         yield {"type": "debug", "message": "⚠️ Summary-Generierung timeout"}
         summary_text = ""  # Sicherstellen dass leer bei Timeout
     except Exception as e:
@@ -325,7 +377,7 @@ async def summarize_history_if_needed(
         new_history = [summary_entry] + remaining_messages
     else:
         # Bei Fehler: History unverändert lassen
-        log_message(f"⚠️ Summary zu kurz oder leer - History bleibt unverändert")
+        log_message("⚠️ Summary zu kurz oder leer - History bleibt unverändert")
         yield {"type": "debug", "message": "⚠️ Kompression fehlgeschlagen - History unverändert"}
         return  # Beende hier ohne Änderung
 
@@ -333,7 +385,7 @@ async def summarize_history_if_needed(
     new_tokens = estimate_tokens_from_history(new_history)
     compression_ratio = estimated_tokens / new_tokens if new_tokens > 0 else 0
 
-    log_message(f"✅ History erfolgreich komprimiert:")
+    log_message("✅ History erfolgreich komprimiert:")
     log_message(f"   └─ Messages: {len(history)} → {len(new_history)} (davon {len(remaining_messages)} sichtbar)")
     log_message(f"   └─ Tokens: {estimated_tokens} → {new_tokens} ({compression_ratio:.1f}:1 Ratio)")
     log_message(f"   └─ Platz gespart: {estimated_tokens - new_tokens} Tokens")

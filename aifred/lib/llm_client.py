@@ -99,7 +99,8 @@ class LLMClient:
                 repeat_penalty=options.get("repeat_penalty", 1.1),
                 top_p=options.get("top_p", 0.9),
                 top_k=options.get("top_k", 40),
-                seed=options.get("seed")
+                seed=options.get("seed"),
+                enable_thinking=options.get("enable_thinking")
             )
         else:
             llm_options = LLMOptions()
@@ -148,7 +149,8 @@ class LLMClient:
                 repeat_penalty=options.get("repeat_penalty", 1.1),
                 top_p=options.get("top_p", 0.9),
                 top_k=options.get("top_k", 40),
-                seed=options.get("seed")
+                seed=options.get("seed"),
+                enable_thinking=options.get("enable_thinking")
             )
         else:
             llm_options = LLMOptions()

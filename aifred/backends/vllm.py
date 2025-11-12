@@ -63,7 +63,7 @@ class vLLMBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
-        # Convert LLMMessage to OpenAI format
+        # Convert LLLMMessage to OpenAI format
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
         # Build kwargs
@@ -84,8 +84,14 @@ class vLLMBackend(LLMBackend):
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
 
+        # Qwen3 Thinking Mode (enable_thinking) - MUST be in chat_template_kwargs!
+        if options.enable_thinking is not None:
+            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+            logger.info(f"🧠 enable_thinking set to: {options.enable_thinking}")
+
         if extra_body:
             kwargs["extra_body"] = extra_body
+            logger.info(f"📦 extra_body: {extra_body}")
 
         try:
             start_time = time.time()
@@ -162,8 +168,14 @@ class vLLMBackend(LLMBackend):
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
 
+        # Qwen3 Thinking Mode (enable_thinking) - MUST be in chat_template_kwargs!
+        if options.enable_thinking is not None:
+            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+            logger.info(f"🧠 enable_thinking set to: {options.enable_thinking}")
+
         if extra_body:
             kwargs["extra_body"] = extra_body
+            logger.info(f"📦 extra_body: {extra_body}")
 
         try:
             import time
@@ -211,7 +223,10 @@ class vLLMBackend(LLMBackend):
     async def preload_model(self, model: str) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
-        This warms up the model so future requests are faster.
+
+        For vLLM: Models are already loaded at startup and kept in VRAM.
+        Preloading is unnecessary and wastes time (~3-4s for queued test request).
+        We return immediately with success.
 
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
@@ -219,24 +234,10 @@ class vLLMBackend(LLMBackend):
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
         """
-        try:
-            start_time = time.time()
-
-            # Send minimal request to trigger model loading (OpenAI-compatible API)
-            await self.client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "hi"}],
-                max_tokens=1,
-                temperature=0.0
-                # Kein Timeout: vLLM queued Requests automatisch, auch während Modell lädt
-            )
-
-            load_time = time.time() - start_time
-            return (True, load_time)
-        except Exception as e:
-            load_time = time.time() - start_time
-            logger.warning(f"Preload failed for {model}: {e}")
-            return (False, load_time)
+        # vLLM keeps models loaded in VRAM at all times
+        # No preloading needed - return immediately
+        logger.debug(f"vLLM: Skipping preload for {model} (already loaded)")
+        return (True, 0.0)
 
     async def health_check(self) -> bool:
         """Check if vLLM is reachable"""
@@ -276,7 +277,8 @@ class vLLMBackend(LLMBackend):
         """
         Get context limit for a vLLM model.
 
-        Queries /v1/models endpoint (OpenAI-compatible) and extracts max_model_len.
+        vLLM doesn't support /v1/models/{id} endpoint (returns 404).
+        Instead, we query /v1/models (list) and find the model's max_model_len.
 
         Args:
             model: Model name/ID
@@ -285,27 +287,40 @@ class vLLMBackend(LLMBackend):
             int: Context limit in tokens
 
         Raises:
-            RuntimeError: If model not found or context limit not available
+            RuntimeError: If query fails or model not found
         """
         try:
-            response = await self.client.get(f"{self.base_url}/v1/models/{model}")
-            response.raise_for_status()
-            data = response.json()
+            # Query /v1/models endpoint (list all models)
+            models_response = await self.client.models.list()
 
-            # vLLM returns max_model_len in model metadata
-            if "max_model_len" in data:
-                return int(data["max_model_len"])
+            # Find the requested model in the list
+            for model_obj in models_response.data:
+                if model_obj.id == model:
+                    # Extract max_model_len from model object
+                    if hasattr(model_obj, 'max_model_len'):
+                        return int(model_obj.max_model_len)
 
-            # Fallback: check in nested metadata
-            if "metadata" in data and "max_model_len" in data["metadata"]:
-                return int(data["metadata"]["max_model_len"])
+                    # Try as dict if object doesn't have attribute
+                    model_dict = model_obj.model_dump() if hasattr(model_obj, 'model_dump') else dict(model_obj)
 
-            raise RuntimeError(
-                f"Context limit not found for vLLM model '{model}'. "
-                f"Available keys: {list(data.keys())}"
+                    if "max_model_len" in model_dict:
+                        return int(model_dict["max_model_len"])
+
+                    raise RuntimeError(
+                        f"Context limit field 'max_model_len' not found for vLLM model '{model}'. "
+                        f"Available keys: {list(model_dict.keys())}"
+                    )
+
+            # Model not found in list - return reasonable default
+            logger.warning(
+                f"⚠️ Model '{model}' not found in vLLM models list. "
+                f"Using default context limit: 16384 tokens"
             )
+            return 16384  # Reasonable default for Qwen3 models
 
         except Exception as e:
+            # Other errors are unexpected
+            logger.error(f"❌ Failed to query vLLM for model '{model}': {e}")
             raise RuntimeError(f"Failed to query vLLM for model '{model}': {e}") from e
 
     async def close(self):

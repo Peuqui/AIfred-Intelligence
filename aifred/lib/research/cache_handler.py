@@ -105,8 +105,8 @@ async def handle_cache_hit(
         log_message(f"📊 Haupt-LLM ({model_choice}): Max. Context = {model_limit} Tokens (Modell-Parameter von Ollama)")
         yield {"type": "debug", "message": f"📊 Haupt-LLM ({model_choice}): Max. Context = {model_limit} Tokens"}
 
-    # Estimate actual input tokens
-    input_tokens = estimate_tokens(messages)
+    # Count actual input tokens (using real tokenizer)
+    input_tokens = estimate_tokens(messages, model_name=model_choice)
 
     # Dynamische num_ctx Berechnung für Cache-Hit (Haupt-LLM)
     final_num_ctx = await calculate_dynamic_num_ctx(llm_client, model_choice, messages, llm_options)

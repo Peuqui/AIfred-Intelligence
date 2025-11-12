@@ -83,7 +83,8 @@ async def optimize_search_query(
             messages=messages,
             options={
                 'temperature': 0.3,  # Leicht kreativ für Keywords, aber stabil
-                'num_ctx': query_num_ctx
+                'num_ctx': query_num_ctx,
+                'enable_thinking': False  # Fast query optimization, no reasoning needed
             }
         )
         raw_response = response.text.strip()
