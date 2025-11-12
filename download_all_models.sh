@@ -1,10 +1,10 @@
 #!/bin/bash
 
-echo "🤖 AIfred Intelligence - Optimized Model Download (Tesla P40)"
+echo "🤖 AIfred Intelligence - Multi-Backend Model Download"
 echo "=============================================================="
 echo ""
 echo "⚠️  Basierend auf Modell-Evaluation vom November 2025"
-echo "✅ Optimiert für 24GB VRAM (Tesla P40)"
+echo "✅ Unterstützt: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)"
 echo ""
 
 # ============================================================
@@ -103,21 +103,94 @@ for model in "${advanced_models[@]}"; do
 done
 
 # ============================================================
+# 🚀 vLLM MODELS (AWQ Quantization - High Performance)
+# ============================================================
+echo ""
+echo "🚀 vLLM Models (AWQ Quantization)"
+echo "----------------------------"
+echo "⚠️  Diese Modelle werden von HuggingFace heruntergeladen"
+echo "   Verwendung: ./venv/bin/vllm serve MODEL --quantization awq_marlin"
+echo ""
+
+vllm_models=(
+    "Qwen/Qwen3-4B-AWQ"         # ~2.5 GB - Testing/Experiments (40K context)
+    "Qwen/Qwen3-8B-AWQ"         # ~5 GB - Haupt-LLM (40K context)
+    "Qwen/Qwen3-14B-AWQ"        # ~8 GB - Balanced Performance (40K context)
+    "Qwen/Qwen3-32B-AWQ"        # ~18 GB - Maximum Performance (40K context)
+)
+
+read -p "vLLM-Modelle herunterladen? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    for model in "${vllm_models[@]}"; do
+        echo ""
+        echo "⬇️  Downloading: $model"
+        echo "----------------------------------------"
+        ./venv/bin/python3 -c "
+from huggingface_hub import snapshot_download
+import os
+
+cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
+path = snapshot_download(
+    repo_id='$model',
+    cache_dir=cache_dir,
+    resume_download=True,
+    local_files_only=False
+)
+print(f'✅ Downloaded to: {path}')
+"
+    done
+fi
+
+# ============================================================
+# 🔥 TabbyAPI MODELS (EXL2 Quantization - ExLlamaV2/V3)
+# ============================================================
+echo ""
+echo "🔥 TabbyAPI Models (EXL2 Quantization)"
+echo "----------------------------"
+echo "⚠️  EXL2-Modelle sind noch nicht implementiert"
+echo "   Empfohlene Quelle: https://huggingface.co/turboderp"
+echo ""
+echo "Beispiele:"
+echo "  - turboderp/Qwen3-8B-4.0bpw-exl2"
+echo "  - turboderp/Qwen3-14B-5.0bpw-exl2"
+echo ""
+
+# ============================================================
 # 📝 SUMMARY
 # ============================================================
 echo ""
 echo "=============================================================="
 echo "🎉 Download abgeschlossen!"
 echo ""
-echo "📊 Empfohlene Konfiguration in aifred/lib/config.py:"
-echo "   DEFAULT_SETTINGS = {"
-echo "       'model': 'qwen3:30b-instruct',    # Haupt-LLM"
-echo "       'automatik_model': 'qwen3:8b',     # Automatik"
-echo "   }"
+echo "📊 Backend-spezifische Konfiguration:"
 echo ""
-echo "💾 Speicherplatz Core Models: ~25 GB"
-echo "💾 Speicherplatz mit Backups: ~35 GB"
-echo "💾 Speicherplatz mit Allen: ~108 GB"
+echo "🔹 Ollama (GGUF Q4/Q8):"
+echo "   - Beste Kompatibilität"
+echo "   - Qwen3:30b-instruct (18GB) - Haupt-LLM"
+echo "   - Qwen3:8b (5.2GB) - Automatik"
 echo ""
-echo "✅ Bereit für AIfred Intelligence auf Tesla P40!"
+echo "🔹 vLLM (AWQ 4-bit) - Qwen3 Series:"
+echo "   - Beste Performance (AWQ Marlin kernel)"
+echo "   - Qwen3-4B-AWQ (~2.5GB, 40K context)"
+echo "   - Qwen3-8B-AWQ (~5GB, 40K context)"
+echo "   - Qwen3-14B-AWQ (~8GB, 40K context)"
+echo "   - Qwen3-32B-AWQ (~18GB, 40K context)"
+echo ""
+echo "🔹 TabbyAPI (EXL2):"
+echo "   - ExLlamaV2/V3 Engine"
+echo "   - Noch nicht konfiguriert"
+echo ""
+echo "💾 Speicherplatz:"
+echo "   Core Ollama Models: ~25 GB"
+echo "   vLLM AWQ Models (4+8+14+32B): ~33.5 GB"
+echo "   Total mit Backups: ~60-70 GB"
+echo ""
+echo "💡 P40 (24GB VRAM) Empfehlung:"
+echo "   - Qwen3-8B-AWQ: ~5GB VRAM (Schnell + Effizient)"
+echo "   - Qwen3-14B-AWQ: ~8GB VRAM (Bessere Qualität)"
+echo "   - Qwen3-32B-AWQ: ~18GB VRAM (Maximale Leistung)"
+echo "   Hinweis: Alle Qwen3 haben 40K context window"
+echo ""
+echo "✅ Multi-Backend Setup bereit!"
 echo "=============================================================="
