@@ -187,6 +187,15 @@ AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechsel
 - **vLLM**: AWQ-Modelle (4-bit), beste Performance mit AWQ Marlin Kernel
 - **TabbyAPI**: EXL2-Modelle (ExLlamaV2/V3), experimentell
 
+### GPU Compatibility Detection
+
+AIfred erkennt automatisch beim Start deine GPU und warnt vor inkompatiblen Backend-Konfigurationen:
+
+- **Tesla P40 / GTX 10 Series** (Pascal): Nutze Ollama (GGUF) - vLLM/AWQ wird nicht unterstützt
+- **RTX 20+ Series** (Turing/Ampere/Ada): vLLM (AWQ) empfohlen für beste Performance
+
+Detaillierte Informationen: [GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md)
+
 ### Settings-Persistenz
 
 Settings werden in `~/.config/aifred/settings.json` gespeichert:

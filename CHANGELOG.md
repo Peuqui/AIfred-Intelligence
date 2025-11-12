@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-12
 
+### 🔍 GPU Detection & Compatibility Checking
+
+#### GPU Detection System
+- **Added**: `aifred/lib/gpu_detection.py` - Automatic GPU capability detection
+- **Features**:
+  - Detects GPU compute capability via nvidia-smi
+  - Identifies compatible/incompatible backends per GPU
+  - Warns about known GPU limitations (Tesla P40 FP16 issues, etc.)
+- **State Integration**:
+  - GPU info stored in AIState (gpu_name, gpu_compute_cap, gpu_warnings)
+  - Detection runs on startup via `on_load()`
+  - Debug console shows GPU capabilities and warnings
+
+#### UI Warnings
+- **Added**: Visual warning in Settings when vLLM selected on incompatible GPU
+- **Shows**:
+  - GPU name and compute capability
+  - Backend requirements (Compute Cap 7.5+ for vLLM/AWQ)
+  - Recommendation to switch to Ollama for better performance
+- **Styling**: Red warning box with icon, auto-shows when vLLM + Pascal GPU
+
+#### Download Scripts Enhanced
+- **Enhanced**: `download_vllm_models.sh` with GPU compatibility check
+- **Features**:
+  - Automatic GPU detection before download
+  - Detailed warning for incompatible GPUs (P40, GTX 10 series)
+  - Explains why vLLM/AWQ won't work (Triton, FP16 ratio, Compute Cap)
+  - Offers exit with recommendation to use Ollama
+  - User can override with explicit confirmation
+
+#### Documentation
+- **Added**: `docs/GPU_COMPATIBILITY.md` - Comprehensive GPU compatibility guide
+- **Covers**:
+  - GPU compatibility matrix (Pascal, Turing, Ampere, Ada, Hopper)
+  - Backend comparison (Ollama GGUF vs vLLM AWQ vs TabbyAPI EXL2)
+  - Technical explanation of Pascal limitations
+  - Performance benchmarks (P40 vs RTX 4090)
+  - Recommendations by use case
+  - Troubleshooting guide
+
+#### Backend Compatibility Summary
+- **Ollama (GGUF)**: ✅ Works on all GPUs (Compute Cap 3.5+)
+- **vLLM (AWQ)**: ⚠️ Requires Compute Cap 7.5+ (Turing+), fast FP16
+- **TabbyAPI (EXL2)**: ⚠️ Requires Compute Cap 7.0+ (Volta+), fast FP16
+
+#### Known GPU Issues Documented
+- **Tesla P40**: FP16 ratio 1:64 → vLLM/ExLlama ~1-5 tok/s (unusable)
+- **Tesla P100**: FP16 ratio 1:2 → vLLM possible but slower than Ollama
+- **GTX 10 Series**: Compute Cap 6.1 → vLLM not supported
+- **Recommendation**: Use Ollama (GGUF) on Pascal GPUs for best performance
+
 ### 🚀 Performance - 8x Faster Automatik, 7s Saved per Web Research
 
 #### vLLM Preloading Optimization

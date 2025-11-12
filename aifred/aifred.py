@@ -1010,6 +1010,36 @@ def settings_accordion() -> rx.Component:
                     align="center",
                 ),
 
+                # GPU Compatibility Warning for vLLM
+                rx.cond(
+                    (AIState.backend_type == "vllm") & (AIState.gpu_detected) & (AIState.gpu_compute_cap < 7.5),
+                    rx.box(
+                        rx.text(
+                            f"⚠️ GPU Warning: {AIState.gpu_name} (Compute {AIState.gpu_compute_cap})",
+                            font_size="11px",
+                            font_weight="600",
+                            color="#e63946",  # Red
+                        ),
+                        rx.text(
+                            "vLLM/AWQ requires Compute Capability 7.5+ (Turing or newer)",
+                            font_size="10px",
+                            color="#d4913d",  # Orange
+                            margin_top="2px",
+                        ),
+                        rx.text(
+                            "→ Recommended: Switch to Ollama backend for better performance",
+                            font_size="10px",
+                            color="#2a9d8f",  # Teal
+                            margin_top="2px",
+                            font_style="italic",
+                        ),
+                        padding="8px",
+                        background="rgba(230, 57, 70, 0.1)",  # Light red background
+                        border_radius="4px",
+                        margin_top="8px",
+                    ),
+                ),
+
                 # vLLM Single Model Warning
                 rx.cond(
                     AIState.backend_type == "vllm",

@@ -9,7 +9,6 @@ from typing import List, Tuple, Optional
 import uuid
 import os
 from pydantic import BaseModel
-from .backends import BackendFactory, LLMMessage, LLMOptions
 from .lib import (
     initialize_debug_log,
     log_message,
@@ -122,6 +121,12 @@ class AIState(rx.State):
     # vLLM Process Manager (non-serializable, managed separately)
     _vllm_manager: Optional[vLLMProcessManager] = None
 
+    # GPU Detection (for backend compatibility warnings)
+    gpu_detected: bool = False
+    gpu_name: str = ""
+    gpu_compute_cap: float = 0.0
+    gpu_warnings: List[str] = []
+
     async def on_load(self):
         """
         Called when page loads - initialize backend and load models
@@ -181,6 +186,30 @@ class AIState(rx.State):
             if not self.session_id:
                 self.session_id = str(uuid.uuid4())
                 self.add_debug(f"🆔 Session ID: {self.session_id[:8]}...")
+
+            # GPU Detection
+            self.add_debug("🔍 Detecting GPU capabilities...")
+            try:
+                from .lib.gpu_detection import detect_gpu
+                gpu_info = detect_gpu()
+                if gpu_info:
+                    self.gpu_detected = True
+                    self.gpu_name = gpu_info.name
+                    self.gpu_compute_cap = gpu_info.compute_capability
+                    self.gpu_warnings = gpu_info.warnings
+                    self.add_debug(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability})")
+
+                    # Log warnings
+                    if gpu_info.unsupported_backends:
+                        self.add_debug(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
+                    if gpu_info.warnings:
+                        for warning in gpu_info.warnings[:2]:  # Show first 2 warnings
+                            self.add_debug(f"⚠️ {warning}")
+                else:
+                    self.add_debug("ℹ️ No GPU detected or nvidia-smi not available")
+            except Exception as e:
+                self.add_debug(f"⚠️ GPU detection failed: {e}")
+                log_message(f"⚠️ GPU detection failed: {e}")
 
             # Initialize backend
             self.add_debug("🔧 Initializing backend...")

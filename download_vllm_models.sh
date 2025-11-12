@@ -3,8 +3,82 @@
 echo "🚀 AIfred Intelligence - vLLM Model Download (AWQ Quantization)"
 echo "================================================================"
 echo ""
+
+# ============================================================
+# 🔍 GPU COMPATIBILITY CHECK
+# ============================================================
+echo "🔍 GPU Compatibility Check"
+echo "----------------------------"
+
+# Check if nvidia-smi is available
+if ! command -v nvidia-smi &> /dev/null; then
+    echo "⚠️  WARNING: nvidia-smi not found"
+    echo "   Cannot detect GPU - proceeding without check"
+    echo ""
+else
+    # Get GPU name and compute capability
+    GPU_INFO=$(nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1)
+
+    if [ -n "$GPU_INFO" ]; then
+        GPU_NAME=$(echo "$GPU_INFO" | cut -d',' -f1 | xargs)
+        COMPUTE_CAP=$(echo "$GPU_INFO" | cut -d',' -f2 | xargs)
+
+        echo "✅ Detected GPU: $GPU_NAME"
+        echo "   Compute Capability: $COMPUTE_CAP"
+        echo ""
+
+        # Check for known incompatible GPUs
+        if [[ "$GPU_NAME" == *"P40"* ]] || [[ "$GPU_NAME" == *"P4 "* ]] || [[ "$COMPUTE_CAP" < "7.0" ]]; then
+            echo "═══════════════════════════════════════════════════════════"
+            echo "❌ INCOMPATIBLE GPU DETECTED!"
+            echo "═══════════════════════════════════════════════════════════"
+            echo ""
+            echo "Your GPU: $GPU_NAME (Compute Capability $COMPUTE_CAP)"
+            echo ""
+            echo "⚠️  vLLM/AWQ REQUIREMENTS:"
+            echo "   • Minimum Compute Capability: 7.5 (Turing)"
+            echo "   • Your GPU has: $COMPUTE_CAP (Pascal/Volta)"
+            echo "   • AWQ requires fast FP16 (unavailable on Pascal)"
+            echo ""
+            echo "📊 KNOWN ISSUES:"
+            if [[ "$GPU_NAME" == *"P40"* ]]; then
+                echo "   • Tesla P40: FP16 ratio 1:64 (extremely slow)"
+                echo "   • ExLlamaV2/vLLM: ~1-5 tok/s (unusable)"
+                echo "   • Triton compiler: Not supported on Pascal"
+            elif [[ "$GPU_NAME" == *"P100"* ]]; then
+                echo "   • Tesla P100: Moderate FP16, but still slow"
+                echo "   • vLLM performance: Suboptimal"
+            fi
+            echo ""
+            echo "✅ RECOMMENDED ALTERNATIVE:"
+            echo "   Use Ollama with GGUF models instead!"
+            echo "   • Better performance on Pascal GPUs"
+            echo "   • INT8/Q4/Q8 quantization (no FP16 bottleneck)"
+            echo "   • Script: ./download_ollama_models.sh"
+            echo ""
+            echo "═══════════════════════════════════════════════════════════"
+            echo ""
+            read -p "Continue anyway? (NOT RECOMMENDED) (y/n) " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "Aborted. Please use ./download_ollama_models.sh instead."
+                exit 0
+            fi
+            echo ""
+            echo "⚠️  Proceeding at your own risk..."
+            echo ""
+        else
+            echo "✅ GPU is compatible with vLLM/AWQ"
+            echo ""
+        fi
+    else
+        echo "⚠️  Could not detect GPU information"
+        echo ""
+    fi
+fi
+
 echo "⚠️  Diese Modelle werden von HuggingFace heruntergeladen"
-echo "✅ Optimiert für P40 24GB VRAM mit YaRN Context Extension Support"
+echo "✅ Optimiert für Ampere/Ada GPUs (RTX 30/40 series, A100, etc.)"
 echo ""
 
 # ============================================================
