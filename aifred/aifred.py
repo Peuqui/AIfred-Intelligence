@@ -211,6 +211,9 @@ def text_input_section() -> rx.Component:
             width="100%",
         ),
 
+        # Processing Progress Banner (above the send button - always visible)
+        processing_progress_banner(),
+
         # Action Buttons
         rx.hstack(
             rx.button(
@@ -255,9 +258,6 @@ def text_input_section() -> rx.Component:
 
         # TTS Section (zwischen Senden-Button und LLM-Parametern platzieren)
         tts_section(),
-
-        # Processing Progress Banner (unterhalb der Buttons)
-        processing_progress_banner(),
 
         spacing="3",
         width="100%",
@@ -380,7 +380,7 @@ def left_column() -> rx.Component:
 # ============================================================
 
 def processing_progress_banner() -> rx.Component:
-    """Progress banner for all processing phases (Automatik, Scraping, LLM)"""
+    """Progress banner for all processing phases (Automatik, Scraping, LLM) - Always visible"""
 
     # Berechne Fortschritt in Prozent (nur für Scraping relevant)
     progress_pct = rx.cond(
@@ -391,53 +391,66 @@ def processing_progress_banner() -> rx.Component:
 
     # Icon und Text basierend auf Phase
     phase_icon = rx.cond(
-        AIState.progress_phase == "automatik",
-        "🤖",
+        AIState.progress_active,
         rx.cond(
-            AIState.progress_phase == "scraping",
-            "🔍",
+            AIState.progress_phase == "automatik",
+            "🤖",
             rx.cond(
-                AIState.progress_phase == "compress",
-                "🗜️",
-                "🧠"  # llm
+                AIState.progress_phase == "scraping",
+                "🔍",
+                rx.cond(
+                    AIState.progress_phase == "compress",
+                    "🗜️",
+                    "🧠"  # llm
+                )
             )
-        )
+        ),
+        "💤"  # Idle icon - sleeping/waiting
     )
 
     phase_text = rx.cond(
-        AIState.progress_phase == "automatik",
+        AIState.progress_active,
         rx.cond(
-            AIState.ui_language == "de",
-            "Automatik-Entscheidung ...",
-            "Automatic decision ..."
-        ),
-        rx.cond(
-            AIState.progress_phase == "scraping",
+            AIState.progress_phase == "automatik",
             rx.cond(
                 AIState.ui_language == "de",
-                "Web-Scraping",
-                "Web Scraping"
+                "Automatik-Entscheidung ...",
+                "Automatic decision ..."
             ),
             rx.cond(
-                AIState.progress_phase == "compress",
+                AIState.progress_phase == "scraping",
                 rx.cond(
                     AIState.ui_language == "de",
-                    "Komprimiere Kontext ...",
-                    "Compressing Context ..."
+                    "Web-Scraping",
+                    "Web Scraping"
                 ),
                 rx.cond(
-                    AIState.ui_language == "de",
-                    "Generiere Antwort ...",
-                    "Generating Answer ..."
+                    AIState.progress_phase == "compress",
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "Komprimiere Kontext ...",
+                        "Compressing Context ..."
+                    ),
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "Generiere Antwort ...",
+                        "Generating Answer ..."
+                    )
                 )
             )
+        ),
+        # Idle state text
+        rx.cond(
+            AIState.ui_language == "de",
+            "Warte auf Eingabe ...",
+            "Waiting for input ..."
         )
     )
 
     # Fortschrittsanzeige basierend auf Phase
     progress_content = rx.cond(
-        # Progress-Bar nur für Scraping
-        AIState.progress_phase == "scraping",
+        # Progress-Bar nur für Scraping (wenn aktiv)
+        (AIState.progress_active) & (AIState.progress_phase == "scraping"),
         rx.hstack(
             rx.text(phase_icon, font_size="14px"),
             rx.text(phase_text, font_weight="bold", font_size="13px", color=COLORS["primary"]),
@@ -487,48 +500,53 @@ def processing_progress_banner() -> rx.Component:
             spacing="2",
             align="center",
         ),
-        # Nur Text für Automatik und LLM (mit Pulsier-Animation)
+        # Nur Text für Automatik, LLM und Idle (mit Pulsier-Animation nur wenn aktiv)
         rx.hstack(
             rx.text(
                 phase_icon,
                 font_size="14px",
-                style={
-                    "animation": "pulse 2s ease-in-out infinite",
-                    "@keyframes pulse": {
-                        "0%, 100%": {"opacity": "1"},
-                        "50%": {"opacity": "0.5"},
-                    }
-                }
+                style=rx.cond(
+                    AIState.progress_active,
+                    {
+                        "animation": "pulse 2s ease-in-out infinite",
+                        "@keyframes pulse": {
+                            "0%, 100%": {"opacity": "1"},
+                            "50%": {"opacity": "0.5"},
+                        }
+                    },
+                    {}  # No animation when idle
+                )
             ),
             rx.text(
                 phase_text,
-                font_weight="bold",
+                font_weight=rx.cond(AIState.progress_active, "bold", "500"),
                 font_size="13px",
-                color=COLORS["primary"],
-                style={
-                    "animation": "pulse 2s ease-in-out infinite",
-                    "@keyframes pulse": {
-                        "0%, 100%": {"opacity": "1"},
-                        "50%": {"opacity": "0.5"},
-                    }
-                }
+                color=COLORS["primary"],  # Always orange text
+                style=rx.cond(
+                    AIState.progress_active,
+                    {
+                        "animation": "pulse 2s ease-in-out infinite",
+                        "@keyframes pulse": {
+                            "0%, 100%": {"opacity": "1"},
+                            "50%": {"opacity": "0.5"},
+                        }
+                    },
+                    {}  # No animation when idle
+                )
             ),
             spacing="2",
             align="center",
         )
     )
 
-    return rx.cond(
-        AIState.progress_active,
-        rx.box(
-            progress_content,
-            padding="2",
-            background_color=COLORS["primary_bg"],
-            border_radius="6px",
-            border=f"1px solid {COLORS['primary']}",
-            width="100%",
-        ),
-        rx.box(),  # Empty box when not active
+    # Always return the banner (no conditional rendering)
+    return rx.box(
+        progress_content,
+        padding="2",
+        background_color=COLORS["primary_bg"],  # Always orange/yellow background
+        border_radius="6px",
+        border=f"1px solid {COLORS['primary']}",  # Always orange border
+        width="100%",
     )
 
 

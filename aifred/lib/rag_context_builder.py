@@ -8,7 +8,7 @@ Handles:
 """
 
 import string
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 from .logging_utils import log_message
 from .prompt_loader import load_prompt
 
@@ -41,7 +41,7 @@ async def build_rag_context(
         OR None if no relevant context found
     """
 
-    log_message(f"🔍 Checking cache for RAG context...")
+    log_message("🔍 Checking cache for RAG context...")
 
     # Query cache for potential RAG candidates (distance 0.5-1.2)
     rag_candidates = await cache.query_for_rag(user_query, n_results=max_candidates)
@@ -83,12 +83,15 @@ async def build_rag_context(
         # Create preview of cached content (first 300 chars)
         content_preview = cached_answer[:300] + "..." if len(cached_answer) > 300 else cached_answer
 
-        # Load relevance check prompt
+        # Load relevance check prompt with current date
+        import time
+        current_date = time.strftime("%d.%m.%Y")
         relevance_prompt = load_prompt(
             'rag_relevance_check',
             cached_query=cached_query,
             cached_content_preview=content_preview,
-            current_query=user_query
+            current_query=user_query,
+            current_date=current_date
         )
 
         # Ask Automatik-LLM: Is this relevant?

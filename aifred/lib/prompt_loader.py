@@ -158,8 +158,12 @@ def list_available_prompts() -> list:
 # ============================================================
 
 def get_query_optimization_prompt(user_text: str, lang: Optional[str] = None) -> str:
-    """Load query optimization prompt"""
-    return load_prompt('query_optimization', lang=lang, user_text=user_text)
+    """Load query optimization prompt with current date context"""
+    from datetime import datetime
+    current_date = datetime.now().strftime("%d.%m.%Y")
+    current_year = datetime.now().strftime("%Y")
+    return load_prompt('query_optimization', lang=lang, user_text=user_text,
+                      current_date=current_date, current_year=current_year)
 
 
 def get_decision_making_prompt(user_text: str, lang: Optional[str] = None) -> str:

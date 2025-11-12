@@ -18,7 +18,7 @@ from ..prompt_loader import load_prompt
 from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens
 from ..message_builder import build_messages_from_history
 from ..formatting import format_thinking_process, build_debug_accordion
-from ..logging_utils import log_message, CONSOLE_SEPARATOR
+from ..logging_utils import log_message
 from ..config import CHARS_PER_TOKEN
 from ..intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
 
@@ -223,12 +223,13 @@ async def build_and_generate_response(
 
         if has_volatile_keyword:
             # Volatile keyword found → Ask LLM for override decision
-            log_message(f"⚠️ Volatile keyword detected in query, asking LLM for cache decision...")
+            log_message("⚠️ Volatile keyword detected in query, asking LLM for cache decision...")
             yield {"type": "debug", "message": "🤔 Volatile keyword → Checking if cacheable..."}
 
-            # Load cache decision prompt
+            # Load cache decision prompt with current date
             answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
-            cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview)
+            current_date = time.strftime("%d.%m.%Y")
+            cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview, current_date=current_date)
 
             # Ask Automatik-LLM for decision (use existing client to avoid deadlock)
             try:
@@ -241,22 +242,23 @@ async def build_and_generate_response(
 
                 if 'cacheable' in decision and 'not_cacheable' not in decision:
                     should_cache = True
-                    log_message(f"✅ LLM Override: Cacheable (concept question with volatile keyword)")
+                    log_message("✅ LLM Override: Cacheable (concept question with volatile keyword)")
                     yield {"type": "debug", "message": "✅ LLM: Cacheable (override)"}
                 else:
                     should_cache = False
-                    log_message(f"❌ LLM Decision: Not cacheable (volatile data)")
+                    log_message("❌ LLM Decision: Not cacheable (volatile data)")
                     yield {"type": "debug", "message": "❌ LLM: Not cacheable (volatile)"}
             except Exception as e:
                 log_message(f"⚠️ LLM cache decision failed: {e}, defaulting to NOT cache")
                 should_cache = False
         else:
             # No volatile keyword → Ask LLM for normal decision
-            log_message(f"🤔 No volatile keyword, asking LLM for cache decision...")
+            log_message("🤔 No volatile keyword, asking LLM for cache decision...")
             yield {"type": "debug", "message": "🤔 Checking if cacheable..."}
 
             answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
-            cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview)
+            current_date = time.strftime("%d.%m.%Y")
+            cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview, current_date=current_date)
 
             # Use existing client to avoid deadlock
             try:
@@ -269,11 +271,11 @@ async def build_and_generate_response(
 
                 if 'cacheable' in decision and 'not_cacheable' not in decision:
                     should_cache = True
-                    log_message(f"✅ LLM Decision: Cacheable")
+                    log_message("✅ LLM Decision: Cacheable")
                     yield {"type": "debug", "message": "✅ LLM: Cacheable"}
                 else:
                     should_cache = False
-                    log_message(f"❌ LLM Decision: Not cacheable")
+                    log_message("❌ LLM Decision: Not cacheable")
                     yield {"type": "debug", "message": "❌ LLM: Not cacheable"}
             except Exception as e:
                 log_message(f"⚠️ LLM cache decision failed: {e}, defaulting to cache")
@@ -291,7 +293,7 @@ async def build_and_generate_response(
 
             if result.get('success'):
                 if result.get('duplicate'):
-                    log_message(f"⚠️ Vector Cache: Duplicate detected, skipped")
+                    log_message("⚠️ Vector Cache: Duplicate detected, skipped")
                     yield {"type": "debug", "message": "⚠️ Cache duplicate - not saved"}
                 else:
                     log_message(f"💾 Vector Cache: Auto-learned from web research ({result.get('total_entries')} entries)")
@@ -299,7 +301,7 @@ async def build_and_generate_response(
             else:
                 log_message(f"⚠️ Vector Cache add failed: {result.get('error')}")
         else:
-            log_message(f"🚫 Vector Cache: Skipped (LLM decision: not cacheable)")
+            log_message("🚫 Vector Cache: Skipped (LLM decision: not cacheable)")
             yield {"type": "debug", "message": "🚫 Not cached (volatile data)"}
 
     except Exception as e:

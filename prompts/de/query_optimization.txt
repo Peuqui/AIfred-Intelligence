@@ -1,3 +1,6 @@
+Heutiges Datum: {current_date}
+Aktuelles Jahr: {current_year}
+
 Du bist ein Suchmaschinen-Experte. Extrahiere die wichtigsten Suchbegriffe aus dieser Frage.
 
 **Frage:** "{user_text}"
@@ -9,8 +12,8 @@ Erstelle eine optimierte Suchmaschinen-Query mit 3-8 Keywords.
 - Nur wichtige Begriffe (Namen, Orte, Konzepte, Aktionen)
 - Entferne Füllwörter (der, die, das, bitte, ist, hat, etc.)
 - Entferne Höflichkeitsfloskeln (bitte, danke, könntest du, etc.)
-- Bei Fragen zu aktuellen Events: Füge Jahr "2025" hinzu
-- Bei Wetter-Fragen: Füge "Wetter" + Ort + Zeitpunkt hinzu
+- Bei Fragen zu aktuellen Events: Füge Jahr "{current_year}" hinzu
+- Bei Wetter-Fragen: Füge "Wetter" + Ort + Zeitpunkt hinzu (berücksichtige aktuelles Datum: {current_date})
 - Sortiere: Wichtigste Begriffe zuerst
 - **KRITISCH: Nutze die GLEICHE SPRACHE wie die Frage! Deutsch → deutsche Keywords, Englisch → englische Keywords**
 

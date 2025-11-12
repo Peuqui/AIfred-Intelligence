@@ -1,3 +1,5 @@
+Today's date: {current_date}
+
 Analyze this search query and decide if the answer should be cached long-term.
 
 Query: {user_query}
