@@ -15,28 +15,6 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-def detect_quantization(model_name: str) -> str:
-    """
-    Detect quantization format from model name
-
-    Args:
-        model_name: Model name (e.g., "Qwen/Qwen3-8B-AWQ")
-
-    Returns:
-        Quantization type: "awq_marlin", "gguf", "gptq", or ""
-    """
-    model_lower = model_name.lower()
-
-    if "awq" in model_lower:
-        return "awq_marlin"  # Fastest on Ampere+ GPUs
-    elif "gguf" in model_lower:
-        return "gguf"
-    elif "gptq" in model_lower:
-        return "gptq"
-    else:
-        return ""  # No quantization (FP16/BF16)
-
-
 class vLLMProcessManager:
     """
     Manages vLLM server process lifecycle
@@ -95,9 +73,6 @@ class vLLMProcessManager:
 
         logger.info(f"🚀 Starting vLLM server with model: {model}")
 
-        # Detect quantization
-        quant = detect_quantization(model)
-
         # Build command
         cmd = [
             str(self.vllm_bin),
@@ -112,9 +87,11 @@ class vLLMProcessManager:
         if self.max_model_len is not None:
             cmd.extend(["--max-model-len", str(self.max_model_len)])
 
-        if quant:
-            cmd.extend(["--quantization", quant])
-            logger.info(f"✅ Using quantization: {quant}")
+        # Note: We don't add --quantization for AWQ models because:
+        # 1. AWQ models have quantization in their config.json
+        # 2. vLLM auto-detects AWQ and uses Marlin kernel on Ampere+ GPUs
+        # 3. Specifying --quantization awq_marlin causes a config mismatch error
+        logger.info(f"✅ vLLM will auto-detect quantization from model config")
 
         # Environment variables
         import os
