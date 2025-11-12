@@ -9,11 +9,13 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 ## ✨ Features
 
 ### 🎯 Core Features
-- **Multi-LLM Support**: Ollama Backend mit verschiedenen Modellen (Qwen, Phi3, etc.)
+- **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)
+- **Qwen3 Thinking Mode**: Chain-of-Thought Reasoning für komplexe Aufgaben
 - **Automatische Web-Recherche**: KI entscheidet selbst wann Recherche nötig ist
 - **History Compression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Voice Interface**: Speech-to-Text und Text-to-Speech Integration
 - **Vector Cache**: ChromaDB-basierter Semantic Cache für Web-Recherchen (Docker)
+- **Per-Backend Settings**: Jedes Backend merkt sich seine bevorzugten Modelle
 
 ### 🔧 Technical Highlights
 - **Reflex Framework**: React-Frontend aus Python generiert
@@ -29,8 +31,12 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ### Voraussetzungen
 - Python 3.10+
-- Ollama (für LLM Backend)
-- 8GB+ RAM empfohlen
+- **LLM Backend** (wähle eins):
+  - **Ollama** (einfach, GGUF-Modelle) - empfohlen für Start
+  - **vLLM** (schnell, AWQ-Modelle) - beste Performance
+  - **TabbyAPI** (ExLlamaV2/V3, EXL2-Modelle) - experimentell
+- 8GB+ RAM (12GB+ empfohlen für größere Modelle)
+- Docker (für ChromaDB Vector Cache)
 
 ### Setup
 
@@ -63,17 +69,56 @@ TAVILY_API_KEY=your_key_here
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-5. **Ollama Models installieren**:
+5. **LLM Models installieren**:
+
+**Option A: Alle Models (Empfohlen)**
 ```bash
-# Haupt-LLM (für Tesla P40 mit 24GB VRAM)
-ollama pull qwen3:30b-instruct
+# Master-Script für beide Backends
+./download_all_models.sh
+```
 
-# Automatik-LLM (Research-Entscheidungen)
-ollama pull qwen3:8b
+**Option B: Nur Ollama (GGUF) - Einfachste Installation**
+```bash
+# Ollama Models (GGUF Q4/Q8)
+./download_ollama_models.sh
 
-# Optional: Kleinmodelle für spezielle Tasks
-ollama pull qwen2.5:3b      # Ultra-schnelle Automatik
-ollama pull qwen3:14b       # Backup-Modell
+# Empfohlene Core-Modelle:
+# - qwen3:30b-instruct (18GB) - Haupt-LLM, 256K context
+# - qwen3:8b (5.2GB) - Automatik, optional thinking
+# - qwen2.5:3b (1.9GB) - Ultra-schnelle Automatik
+```
+
+**Option C: Nur vLLM (AWQ) - Beste Performance**
+```bash
+# vLLM installieren (falls noch nicht geschehen)
+pip install vllm
+
+# vLLM Models (AWQ Quantization)
+./download_vllm_models.sh
+
+# Empfohlene Modelle:
+# - Qwen3-8B-AWQ (~5GB, 40K→128K mit YaRN)
+# - Qwen3-14B-AWQ (~8GB, 32K→128K mit YaRN)
+# - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K native)
+
+# vLLM Server starten mit YaRN (64K context)
+./venv/bin/vllm serve Qwen/Qwen3-14B-AWQ \
+  --quantization awq_marlin \
+  --port 8001 \
+  --rope-scaling '{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}' \
+  --max-model-len 65536 \
+  --gpu-memory-utilization 0.85
+
+# Oder als systemd Service
+sudo cp vllm_qwen3_awq.service /etc/systemd/system/
+sudo systemctl enable vllm_qwen3_awq
+sudo systemctl start vllm_qwen3_awq
+```
+
+**Option C: TabbyAPI (EXL2) - Experimentell**
+```bash
+# Noch nicht vollständig implementiert
+# Siehe: https://github.com/theroyallab/tabbyAPI
 ```
 
 6. **ChromaDB Vector Cache starten** (Docker):
@@ -132,6 +177,59 @@ Die App läuft dann unter: http://localhost:3002
 
 ---
 
+## ⚙️ Backend-Wechsel & Settings
+
+### Multi-Backend Support
+
+AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechselt werden können:
+
+- **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation
+- **vLLM**: AWQ-Modelle (4-bit), beste Performance mit AWQ Marlin Kernel
+- **TabbyAPI**: EXL2-Modelle (ExLlamaV2/V3), experimentell
+
+### Settings-Persistenz
+
+Settings werden in `~/.config/aifred/settings.json` gespeichert:
+
+**Per-Backend Modell-Speicherung:**
+- Jedes Backend merkt sich seine zuletzt verwendeten Modelle
+- Beim Backend-Wechsel werden automatisch die richtigen Modelle wiederhergestellt
+- Beim ersten Start werden Defaults aus `aifred/lib/config.py` verwendet
+
+**Beispiel Settings-Struktur:**
+```json
+{
+  "backend_type": "vllm",
+  "enable_thinking": true,
+  "backend_models": {
+    "ollama": {
+      "selected_model": "qwen3:8b",
+      "automatik_model": "qwen2.5:3b"
+    },
+    "vllm": {
+      "selected_model": "Qwen/Qwen3-8B-AWQ",
+      "automatik_model": "Qwen/Qwen3-4B-AWQ"
+    }
+  }
+}
+```
+
+### Qwen3 Thinking Mode
+
+**Chain-of-Thought Reasoning für komplexe Aufgaben:**
+
+- **Thinking Mode ON**: Temperature 0.6, generiert `<think>...</think>` Blocks
+- **Thinking Mode OFF**: Temperature 0.7, direkte Antworten ohne CoT
+- Toggle erscheint nur bei Qwen3/QwQ-Modellen in der UI
+- Funktioniert mit allen Backends (Ollama, vLLM, TabbyAPI)
+
+**Empfohlene Modelle für Thinking Mode:**
+- `qwen3:8b`, `qwen3:14b`, `qwen3:30b` (Ollama)
+- `Qwen/Qwen3-8B-AWQ`, `Qwen/Qwen3-4B-AWQ` (vLLM)
+- `qwq:32b` (dediziertes Reasoning-Modell, nur Ollama)
+
+---
+
 ## 🏗️ Architektur
 
 ### Directory Structure
@@ -139,16 +237,23 @@ Die App läuft dann unter: http://localhost:3002
 AIfred-Intelligence/
 ├── aifred/
 │   ├── backends/          # LLM Backend Adapters
+│   │   ├── base.py           # Abstract Base Class
+│   │   ├── ollama.py         # Ollama Backend (GGUF)
+│   │   ├── vllm.py           # vLLM Backend (AWQ)
+│   │   └── tabbyapi.py       # TabbyAPI Backend (EXL2)
 │   ├── components/        # Reflex UI Components
 │   ├── lib/              # Core Libraries
 │   │   ├── agent_core.py     # Haupt-Agent-Logik
 │   │   ├── context_manager.py # History-Kompression
-│   │   ├── config.py         # Konfiguration
-│   │   └── cache.py         # Cache-System
+│   │   ├── config.py         # Default Settings
+│   │   ├── settings.py       # Settings Persistence
+│   │   └── vector_cache.py   # ChromaDB Vector Cache
 │   └── state.py          # Reflex State Management
 ├── prompts/              # System Prompts
-├── logs/                 # Debug Logs
-└── docs/                # Dokumentation
+├── download_all_models.sh     # Multi-Backend Model Downloader
+├── download_qwen3_models.py   # vLLM AWQ Models
+├── vllm_qwen3_awq.service    # systemd Service for vLLM
+└── SETTINGS_FORMAT.md         # Settings Documentation
 ```
 
 ### History Compression System

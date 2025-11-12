@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Download Qwen3 models for vLLM"""
+
+from huggingface_hub import snapshot_download
+import os
+
+models = [
+    "Qwen/Qwen3-4B-AWQ",        # Für Experimente (AWQ quantized, ~2.5GB, vLLM-optimized)
+    "Qwen/Qwen3-8B-AWQ",        # Haupt-LLM (AWQ quantized, ~5GB, vLLM-optimized)
+]
+
+print("Downloading Qwen3 models from HuggingFace...")
+print("=" * 60)
+
+for model in models:
+    print(f"\n📥 Downloading {model}...")
+    try:
+        cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+        path = snapshot_download(
+            repo_id=model,
+            cache_dir=cache_dir,
+            resume_download=True,
+            local_files_only=False
+        )
+        print(f"✅ Downloaded to: {path}")
+    except Exception as e:
+        print(f"❌ Error downloading {model}: {e}")
+
+print("\n" + "=" * 60)
+print("✅ All models downloaded!")
+print("\nTo use with vLLM (AWQ):")
+print("  ./venv/bin/vllm serve Qwen/Qwen3-4B-AWQ --quantization awq --port 8001")
+print("  ./venv/bin/vllm serve Qwen/Qwen3-8B-AWQ --quantization awq --port 8001")
+print("\nFor even faster inference (AWQ Marlin kernel):")
+print("  ./venv/bin/vllm serve Qwen/Qwen3-8B-AWQ --quantization awq_marlin --port 8001")

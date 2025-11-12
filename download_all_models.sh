@@ -1,195 +1,84 @@
 #!/bin/bash
 
-echo "🤖 AIfred Intelligence - Multi-Backend Model Download"
-echo "=============================================================="
+echo "🤖 AIfred Intelligence - Complete Model Download"
+echo "================================================="
 echo ""
 echo "⚠️  Basierend auf Modell-Evaluation vom November 2025"
-echo "✅ Unterstützt: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)"
+echo "✅ Downloads alle empfohlenen Modelle für beide Backends"
 echo ""
 
 # ============================================================
-# 🎯 CORE MODELS (Essential)
+# 🎯 OLLAMA MODELS (GGUF)
 # ============================================================
-echo "🎯 Core Models (Essential für AIfred)"
-echo "----------------------------"
-core_models=(
-    "qwen3:30b-instruct"    # 18 GB - ⭐ HAUPT-LLM (256K context)
-    "qwen3:8b"              # 5.2 GB - Automatik-Entscheidungen
-    "qwen2.5:3b"            # 1.9 GB - Ultra-schnelle Automatik
-)
-
-for model in "${core_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
-# ============================================================
-# 📦 BACKUP MODELS (Optional aber empfohlen)
-# ============================================================
+echo "═══════════════════════════════════════════════════════"
+echo "🤖 SCHRITT 1: Ollama Models (GGUF Q4/Q8)"
+echo "═══════════════════════════════════════════════════════"
 echo ""
-echo "📦 Backup Models (Recommended)"
-echo "----------------------------"
-backup_models=(
-    "qwen3:14b"             # 9.3 GB - Backup/Testing
-    "qwen2.5:0.5b"          # 397 MB - Ultra-schnelle Tasks
-)
-
-for model in "${backup_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
-# ============================================================
-# 🧪 SPECIALIZED MODELS (Optional)
-# ============================================================
-echo ""
-echo "🧪 Specialized Models (Optional)"
-echo "----------------------------"
-specialized_models=(
-    "command-r:latest"      # 18 GB - RAG-optimiert, 128K Context
-    "phi3:mini"             # 2.2 GB - Code-Tasks
-    "llama3.2:1b"           # 1.3 GB - Speed-Tests
-)
-
-for model in "${specialized_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
-# ============================================================
-# 🎨 ADVANCED MODELS (Nur für Testing/Experimente)
-# ============================================================
-echo ""
-echo "🎨 Advanced Models (Testing/Experiments)"
-echo "----------------------------"
-echo "⚠️  Diese Modelle sind optional und für spezielle Anwendungsfälle:"
-echo ""
-advanced_models=(
-    "mixtral:8x7b-instruct-v0.1-q4_0"  # 26 GB - MoE-Architektur
-    "qwen3:30b-thinking"                # 18 GB - Chain-of-Thought (Spezial)
-)
-
-for model in "${advanced_models[@]}"; do
-    echo ""
-    echo "⬇️  Downloading: $model"
-    echo "----------------------------------------"
-    ollama pull "$model"
-    if [ $? -eq 0 ]; then
-        echo "✅ Successfully downloaded: $model"
-    else
-        echo "❌ Failed to download: $model"
-    fi
-done
-
-# ============================================================
-# 🚀 vLLM MODELS (AWQ Quantization - High Performance)
-# ============================================================
-echo ""
-echo "🚀 vLLM Models (AWQ Quantization)"
-echo "----------------------------"
-echo "⚠️  Diese Modelle werden von HuggingFace heruntergeladen"
-echo "   Verwendung: ./venv/bin/vllm serve MODEL --quantization awq_marlin"
-echo ""
-
-vllm_models=(
-    "Qwen/Qwen2.5-7B-Instruct-AWQ"      # ~4 GB - Balanced (128K context)
-    "Qwen/Qwen2.5-14B-Instruct-AWQ"     # ~8 GB - High Quality (128K context)
-    "Qwen/Qwen2.5-32B-Instruct-AWQ"     # ~18 GB - Maximum Performance (128K context)
-    # Optional: "Qwen/Qwen2.5-72B-Instruct-AWQ" # ~40 GB - Zu groß für P40 24GB
-)
-
-read -p "vLLM-Modelle herunterladen? (y/n) " -n 1 -r
+read -p "Ollama-Modelle jetzt herunterladen? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    for model in "${vllm_models[@]}"; do
-        echo ""
-        echo "⬇️  Downloading: $model"
-        echo "----------------------------------------"
-        ./venv/bin/python3 -c "
-from huggingface_hub import snapshot_download
-import os
-
-cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
-path = snapshot_download(
-    repo_id='$model',
-    cache_dir=cache_dir,
-    resume_download=True,
-    local_files_only=False
-)
-print(f'✅ Downloaded to: {path}')
-"
-    done
+    ./download_ollama_models.sh
+else
+    echo "⏭️  Ollama-Download übersprungen"
 fi
 
 # ============================================================
-# 🔥 TabbyAPI MODELS (EXL2 Quantization - ExLlamaV2/V3)
+# 🚀 vLLM MODELS (AWQ)
 # ============================================================
 echo ""
-echo "🔥 TabbyAPI Models (EXL2 Quantization)"
-echo "----------------------------"
-echo "⚠️  EXL2-Modelle sind noch nicht implementiert"
-echo "   Empfohlene Quelle: https://huggingface.co/turboderp"
+echo "═══════════════════════════════════════════════════════"
+echo "🚀 SCHRITT 2: vLLM Models (AWQ Quantization)"
+echo "═══════════════════════════════════════════════════════"
 echo ""
-echo "Beispiele:"
-echo "  - turboderp/Qwen3-8B-4.0bpw-exl2"
-echo "  - turboderp/Qwen3-14B-5.0bpw-exl2"
-echo ""
+read -p "vLLM-Modelle jetzt herunterladen? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    ./download_vllm_models.sh
+else
+    echo "⏭️  vLLM-Download übersprungen"
+fi
 
 # ============================================================
-# 📝 SUMMARY
+# 📝 FINAL SUMMARY
 # ============================================================
 echo ""
-echo "=============================================================="
-echo "🎉 Download abgeschlossen!"
+echo "═══════════════════════════════════════════════════════"
+echo "🎉 Model Download Abgeschlossen!"
+echo "═══════════════════════════════════════════════════════"
 echo ""
-echo "📊 Backend-spezifische Konfiguration:"
+echo "📊 Multi-Backend Setup:"
 echo ""
 echo "🔹 Ollama (GGUF Q4/Q8):"
 echo "   - Beste Kompatibilität"
-echo "   - Qwen3:30b-instruct (18GB) - Haupt-LLM"
-echo "   - Qwen3:8b (5.2GB) - Automatik"
+echo "   - Qwen3:30b-instruct (18GB) - Haupt-LLM, 256K context"
+echo "   - Qwen3:8b (5.2GB) - Automatik, optional thinking"
+echo "   - Qwen2.5:3b (1.9GB) - Ultra-schnelle Automatik"
 echo ""
-echo "🔹 vLLM (AWQ 4-bit) - Qwen2.5 Series:"
+echo "🔹 vLLM (AWQ 4-bit):"
 echo "   - Beste Performance (AWQ Marlin kernel)"
-echo "   - Qwen2.5-7B-Instruct-AWQ (~4GB, 128K context)"
-echo "   - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K context)"
-echo "   - Qwen2.5-32B-Instruct-AWQ (~18GB, 128K context)"
+echo "   - Qwen3-8B-AWQ (~5GB, 40K→128K mit YaRN)"
+echo "   - Qwen3-14B-AWQ (~8GB, 32K→128K mit YaRN)"
+echo "   - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K native)"
 echo ""
-echo "🔹 TabbyAPI (EXL2):"
-echo "   - ExLlamaV2/V3 Engine"
-echo "   - Noch nicht konfiguriert"
+echo "💾 Speicherplatz Total:"
+echo "   Ollama Core: ~25 GB"
+echo "   vLLM AWQ: ~15-20 GB (je nach Auswahl)"
+echo "   Total: ~40-60 GB"
 echo ""
-echo "💾 Speicherplatz:"
-echo "   Core Ollama Models: ~25 GB"
-echo "   vLLM AWQ Models (7+14+32B): ~30 GB"
-echo "   Total mit Backups: ~60-70 GB"
+echo "💡 Empfohlene Konfiguration für P40 24GB:"
+echo "   - Backend: vLLM (für maximale Performance)"
+echo "   - Main LLM: Qwen3-14B-AWQ + YaRN factor=2.0 (64K context)"
+echo "   - Automatik: Qwen2.5:3b (Ollama, ultra-schnell)"
 echo ""
-echo "💡 P40 (24GB VRAM) Empfehlung:"
-echo "   - Qwen2.5-7B-Instruct-AWQ: ~4GB VRAM (Schnell + Effizient)"
-echo "   - Qwen2.5-14B-Instruct-AWQ: ~8GB VRAM (Bessere Qualität)"
-echo "   - Qwen2.5-32B-Instruct-AWQ: ~18GB VRAM (Maximale Leistung)"
-echo "   Hinweis: Alle Qwen2.5-Instruct haben 128K context window"
+echo "🧮 YaRN Context Extension (für Qwen3 + vLLM):"
+echo "   - Native: 32K-40K tokens"
+echo "   - YaRN factor=2.0: 64K (empfohlen für Chat-Historie)"
+echo "   - YaRN factor=4.0: 128K (für lange Dokumente)"
+echo ""
+echo "📝 Weitere Infos:"
+echo "   - Ollama Details: ./download_ollama_models.sh"
+echo "   - vLLM Details: ./download_vllm_models.sh"
+echo "   - YaRN Config: Siehe vLLM script summary"
 echo ""
 echo "✅ Multi-Backend Setup bereit!"
-echo "=============================================================="
+echo "═══════════════════════════════════════════════════════"

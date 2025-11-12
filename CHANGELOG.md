@@ -56,16 +56,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📦 Model Configuration
 
-#### Qwen2.5 128K Context Models for vLLM
-- **Changed**: Model list in `download_all_models.sh` from Qwen3 (40K) to Qwen2.5-Instruct (128K)
-- **New Models**:
-  - Qwen2.5-7B-Instruct-AWQ (~4GB, 128K context)
-  - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K context)
-  - Qwen2.5-32B-Instruct-AWQ (~18GB, 128K context)
-- **Benefits**:
-  - 3.2x larger context window (128K vs 40K)
-  - Better for long documents and extensive RAG contexts
-  - Auto-detected by vLLM (no hardcoding needed)
+#### Restructured Download Scripts with YaRN Support
+- **Added**: Separate download scripts for better organization
+  - `download_ollama_models.sh` - Ollama (GGUF) models
+  - `download_vllm_models.sh` - vLLM (AWQ) models with YaRN docs
+  - `download_all_models.sh` - Master script for both backends
+- **Archived**: Old scripts renamed to `.old` (preserved for reference)
+
+#### Qwen3 AWQ Models (Primary Recommendation)
+- **Added**: Qwen3 AWQ series with YaRN context extension support
+  - Qwen3-4B-AWQ (~2.5GB, 40K native, YaRN→128K)
+  - Qwen3-8B-AWQ (~5GB, 40K native, YaRN→128K)
+  - Qwen3-14B-AWQ (~8GB, 32K native, YaRN→128K)
+- **Features**:
+  - Optional Thinking Mode (enable_thinking parameter)
+  - Newest generation (2025)
+  - Flexible context: Native 32-40K, YaRN extendable to 64K/128K
+
+#### Qwen2.5 Instruct-AWQ Models (Alternative)
+- **Available**: As alternative option with native 128K context
+  - Qwen2.5-7B-Instruct-AWQ (~4GB, 128K native)
+  - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K native)
+  - Qwen2.5-32B-Instruct-AWQ (~18GB, 128K native)
+- **Benefits**: No YaRN needed, older generation but proven stable
+
+#### YaRN Context Extension Support
+- **Documentation**: Added comprehensive YaRN configuration examples
+- **Flexible Factors**:
+  - factor=2.0 → 64K context (recommended for chat history)
+  - factor=4.0 → 128K context (for long documents)
+- **Implementation**: Command-line and Python examples in download scripts
+- **Trade-offs**: Documented perplexity loss vs context gain
 
 ## [1.0.0] - 2025-11-10
 
