@@ -51,7 +51,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✅ No system-specific dependencies
 - ✅ HuggingFace tokenizer: offline-capable (local cache)
 - ✅ vLLM auto-detection: works on any system
+- ✅ Systemd services: Template-based with sed substitution
 - ✅ **Fully portable to MiniPC**
+
+### 📦 Model Configuration
+
+#### Qwen2.5 128K Context Models for vLLM
+- **Changed**: Model list in `download_all_models.sh` from Qwen3 (40K) to Qwen2.5-Instruct (128K)
+- **New Models**:
+  - Qwen2.5-7B-Instruct-AWQ (~4GB, 128K context)
+  - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K context)
+  - Qwen2.5-32B-Instruct-AWQ (~18GB, 128K context)
+- **Benefits**:
+  - 3.2x larger context window (128K vs 40K)
+  - Better for long documents and extensive RAG contexts
+  - Auto-detected by vLLM (no hardcoding needed)
 
 ## [1.0.0] - 2025-11-10
 

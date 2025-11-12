@@ -113,10 +113,10 @@ echo "   Verwendung: ./venv/bin/vllm serve MODEL --quantization awq_marlin"
 echo ""
 
 vllm_models=(
-    "Qwen/Qwen3-4B-AWQ"         # ~2.5 GB - Testing/Experiments (40K context)
-    "Qwen/Qwen3-8B-AWQ"         # ~5 GB - Haupt-LLM (40K context)
-    "Qwen/Qwen3-14B-AWQ"        # ~8 GB - Balanced Performance (40K context)
-    "Qwen/Qwen3-32B-AWQ"        # ~18 GB - Maximum Performance (40K context)
+    "Qwen/Qwen2.5-7B-Instruct-AWQ"      # ~4 GB - Balanced (128K context)
+    "Qwen/Qwen2.5-14B-Instruct-AWQ"     # ~8 GB - High Quality (128K context)
+    "Qwen/Qwen2.5-32B-Instruct-AWQ"     # ~18 GB - Maximum Performance (128K context)
+    # Optional: "Qwen/Qwen2.5-72B-Instruct-AWQ" # ~40 GB - Zu groß für P40 24GB
 )
 
 read -p "vLLM-Modelle herunterladen? (y/n) " -n 1 -r
@@ -170,12 +170,11 @@ echo "   - Beste Kompatibilität"
 echo "   - Qwen3:30b-instruct (18GB) - Haupt-LLM"
 echo "   - Qwen3:8b (5.2GB) - Automatik"
 echo ""
-echo "🔹 vLLM (AWQ 4-bit) - Qwen3 Series:"
+echo "🔹 vLLM (AWQ 4-bit) - Qwen2.5 Series:"
 echo "   - Beste Performance (AWQ Marlin kernel)"
-echo "   - Qwen3-4B-AWQ (~2.5GB, 40K context)"
-echo "   - Qwen3-8B-AWQ (~5GB, 40K context)"
-echo "   - Qwen3-14B-AWQ (~8GB, 40K context)"
-echo "   - Qwen3-32B-AWQ (~18GB, 40K context)"
+echo "   - Qwen2.5-7B-Instruct-AWQ (~4GB, 128K context)"
+echo "   - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K context)"
+echo "   - Qwen2.5-32B-Instruct-AWQ (~18GB, 128K context)"
 echo ""
 echo "🔹 TabbyAPI (EXL2):"
 echo "   - ExLlamaV2/V3 Engine"
@@ -183,14 +182,14 @@ echo "   - Noch nicht konfiguriert"
 echo ""
 echo "💾 Speicherplatz:"
 echo "   Core Ollama Models: ~25 GB"
-echo "   vLLM AWQ Models (4+8+14+32B): ~33.5 GB"
+echo "   vLLM AWQ Models (7+14+32B): ~30 GB"
 echo "   Total mit Backups: ~60-70 GB"
 echo ""
 echo "💡 P40 (24GB VRAM) Empfehlung:"
-echo "   - Qwen3-8B-AWQ: ~5GB VRAM (Schnell + Effizient)"
-echo "   - Qwen3-14B-AWQ: ~8GB VRAM (Bessere Qualität)"
-echo "   - Qwen3-32B-AWQ: ~18GB VRAM (Maximale Leistung)"
-echo "   Hinweis: Alle Qwen3 haben 40K context window"
+echo "   - Qwen2.5-7B-Instruct-AWQ: ~4GB VRAM (Schnell + Effizient)"
+echo "   - Qwen2.5-14B-Instruct-AWQ: ~8GB VRAM (Bessere Qualität)"
+echo "   - Qwen2.5-32B-Instruct-AWQ: ~18GB VRAM (Maximale Leistung)"
+echo "   Hinweis: Alle Qwen2.5-Instruct haben 128K context window"
 echo ""
 echo "✅ Multi-Backend Setup bereit!"
 echo "=============================================================="
