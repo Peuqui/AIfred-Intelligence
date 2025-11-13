@@ -28,6 +28,8 @@ ssl/
 
 # User Settings (persönlich)
 assistant_settings.json
+settings.json
+**/settings.json  # Alle settings.json in allen Unterordnern
 
 # Environment Variables (API Keys - NIEMALS committen!)
 .env

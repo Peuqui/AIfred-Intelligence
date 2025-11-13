@@ -1190,22 +1190,52 @@ def settings_accordion() -> rx.Component:
                                         width="80px",
                                     ),
                                     rx.text(
-                                        f"({int(40960 * AIState.yarn_factor)} tokens)",
+                                        rx.cond(
+                                            AIState.vllm_max_tokens > 0,
+                                            f"(~{(AIState.vllm_max_tokens * AIState.yarn_factor).to(int)} tokens)",
+                                            "(auto-detect erst nach Start)"
+                                        ),
                                         font_size="10px",
                                         color="#999",
                                     ),
                                     spacing="2",
                                     align="center",
                                 ),
+                                # Warning for high YaRN factors (>2.0x)
+                                rx.cond(
+                                    AIState.yarn_factor > 2.0,
+                                    rx.box(
+                                        rx.text(
+                                            f"⚠️ Hoher Faktor ({AIState.yarn_factor}x) kann VRAM überschreiten → Crash-Risiko!",
+                                            font_size="10px",
+                                            color="#ff6b6b",
+                                            line_height="1.3",
+                                        ),
+                                        background="rgba(255, 107, 107, 0.1)",
+                                        border_radius="4px",
+                                        padding="6px 8px",
+                                        margin_top="4px",
+                                    ),
+                                    rx.box(),
+                                ),
                                 spacing="2",
                             ),
                             rx.box(),
                         ),
-                        rx.text(
-                            "ℹ️ Erweitert Context über natives Limit (40K → 80K bei 2.0x). Benötigt Backend-Neustart!",
-                            font_size="10px",
-                            color="#999",
-                            line_height="1.3",
+                        rx.cond(
+                            AIState.vllm_max_tokens > 0,
+                            rx.text(
+                                f"ℹ️ Modell: {(AIState.vllm_native_context / 1000).to(int)}K nativ | HW-Limit: {(AIState.vllm_max_tokens / 1000).to(int)}K. Benötigt Backend-Neustart!",
+                                font_size="10px",
+                                color="#999",
+                                line_height="1.3",
+                            ),
+                            rx.text(
+                                "ℹ️ Context-Limits werden beim ersten vLLM-Start automatisch erkannt",
+                                font_size="10px",
+                                color="#999",
+                                line_height="1.3",
+                            ),
                         ),
                         spacing="2",
                         width="100%",

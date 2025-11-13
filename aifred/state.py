@@ -109,6 +109,8 @@ class AIState(rx.State):
     # vLLM YaRN Settings (RoPE Scaling for Context Extension)
     enable_yarn: bool = False  # Enable YaRN context extension
     yarn_factor: float = 1.0  # Scaling factor (1.0 = disabled, 2.0 = 2x context, 4.0 = 4x context)
+    vllm_max_tokens: int = 0  # vLLM max_model_len (0 = auto-detect on first run, then saved)
+    vllm_native_context: int = 0  # Native model context (0 = auto-detect from config.json)
 
     # TTS Settings
     enable_tts: bool = False
@@ -213,6 +215,12 @@ class AIState(rx.State):
                 self.research_mode = saved_settings.get("research_mode", self.research_mode)
                 self.temperature = saved_settings.get("temperature", self.temperature)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
+
+                # Load vLLM YaRN & Context Settings
+                self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
+                self.yarn_factor = saved_settings.get("yarn_factor", self.yarn_factor)
+                self.vllm_max_tokens = saved_settings.get("vllm_max_tokens", self.vllm_max_tokens)
+                self.vllm_native_context = saved_settings.get("vllm_native_context", self.vllm_native_context)
 
                 # Load per-backend models (if available)
                 backend_models = saved_settings.get("backend_models", {})
@@ -450,6 +458,11 @@ class AIState(rx.State):
             "temperature": self.temperature,
             "enable_thinking": self.enable_thinking,
             "backend_models": backend_models,  # Merged: preserves all backends
+            # vLLM YaRN & Context Settings
+            "enable_yarn": self.enable_yarn,
+            "yarn_factor": self.yarn_factor,
+            "vllm_max_tokens": self.vllm_max_tokens,
+            "vllm_native_context": self.vllm_native_context,
         }
         save_settings(settings)
 
@@ -585,44 +598,69 @@ class AIState(rx.State):
             self.add_debug(f"🚀 Starting vLLM server with {self.selected_model}...")
 
             # Auto-detect context from model config.json (no hardcoded values!)
-            # vLLMProcessManager will read max_position_embeddings from HuggingFace cache
-            self.add_debug("📏 Auto-detecting context limit from model config...")
-
             # Build YaRN config if enabled
             yarn_config = None
             if self.enable_yarn and self.yarn_factor > 1.0:
-                # Get native context limit from model (for original_max_position_embeddings)
-                from .lib.vllm_manager import get_model_max_position_embeddings
-                try:
-                    native_context = get_model_max_position_embeddings(self.selected_model)
-                    yarn_config = {
-                        "factor": self.yarn_factor,
-                        "original_max_position_embeddings": native_context
-                    }
-                    self.add_debug(f"🔧 YaRN: {self.yarn_factor}x scaling ({native_context} → {int(native_context * self.yarn_factor)} tokens)")
-                except Exception as e:
-                    self.add_debug(f"⚠️ YaRN: Could not detect native context, using default (40960): {e}")
-                    yarn_config = {
-                        "factor": self.yarn_factor,
-                        "original_max_position_embeddings": 40960  # Default for Qwen3
-                    }
+                yarn_config = {
+                    "factor": self.yarn_factor,
+                    "original_max_position_embeddings": self.vllm_native_context
+                }
+                self.add_debug(f"🔧 YaRN: {self.yarn_factor}x scaling ({self.vllm_native_context:,} → {int(self.vllm_native_context * self.yarn_factor):,} tokens)")
 
             # Initialize vLLM Process Manager
-            # RTX 3060 (12GB, Ampere 8.6) - Optimized configuration
+            # Use saved vllm_max_tokens if available (from previous auto-detection)
+            # Otherwise use None to trigger auto-detection
+            max_len = self.vllm_max_tokens if self.vllm_max_tokens > 0 else None
+            if max_len:
+                self.add_debug(f"📋 Using saved context limit: {max_len:,} tokens (aus Settings)")
+
             self._vllm_manager = vLLMProcessManager(
                 port=8001,
-                max_model_len=26608,  # Maximum for RTX 3060 12GB (~26K context)
-                gpu_memory_utilization=0.90,  # 90% safe on Ampere GPU
+                max_model_len=max_len,  # Use saved value or None for auto-detect
+                gpu_memory_utilization=0.90,  # 90% safe on modern GPUs
                 yarn_config=yarn_config  # YaRN context extension (if enabled)
             )
 
-            # Start server with selected model (timeout 120s - first load can take ~70s)
-            await self._vllm_manager.start(self.selected_model, timeout=120)
+            # Start server with automatic context detection (only if max_len=None)
+            # If saved value exists: Direct start with known limit (no crash)
+            # If no saved value: Auto-detection cycle:
+            #   1. Try native context (40K)
+            #   2. If fail → extract hardware limit from error
+            #   3. Restart with hardware limit + save to settings
+            success, context_info = await self._vllm_manager.start_with_auto_detection(
+                model=self.selected_model,
+                timeout=120,
+                feedback_callback=self.add_debug
+            )
 
-            # Store in global state so it persists across page reloads
-            _global_backend_state["vllm_manager"] = self._vllm_manager
+            if success and context_info:
+                # Check if values changed (i.e., new detection occurred)
+                values_changed = (
+                    self.vllm_native_context != context_info["native_context"] or
+                    self.vllm_max_tokens != context_info["hardware_limit"]
+                )
 
-            self.add_debug("✅ vLLM server ready on port 8001")
+                # Update state with detected values
+                self.vllm_native_context = context_info["native_context"]
+                self.vllm_max_tokens = context_info["hardware_limit"]
+
+                # Persist detected values to settings file (only if changed)
+                if values_changed:
+                    self._save_settings()
+
+                self.add_debug(f"📊 Context Info:")
+                self.add_debug(f"  • Native: {context_info['native_context']:,} tokens (config.json)")
+                self.add_debug(f"  • Hardware Limit: {context_info['hardware_limit']:,} tokens (VRAM)")
+                self.add_debug(f"  • Used: {context_info['used_context']:,} tokens")
+                if values_changed:
+                    self.add_debug(f"💾 Werte in Settings gespeichert (kein erneuter Crash-Detection-Zyklus beim nächsten Start)")
+
+                # Store in global state so it persists across page reloads
+                _global_backend_state["vllm_manager"] = self._vllm_manager
+
+                self.add_debug("✅ vLLM server ready on port 8001")
+            else:
+                raise RuntimeError("vLLM failed to start with auto-detection")
 
         except Exception as e:
             self.add_debug(f"❌ Failed to start vLLM: {e}")
@@ -654,7 +692,7 @@ class AIState(rx.State):
                 # Create Ollama backend instance to call unload_all_models
                 from .lib.llm_client import LLMClient
                 llm_client = LLMClient(backend_type="ollama", base_url="http://localhost:11434")
-                backend = llm_client.backend
+                backend = llm_client._get_backend()
 
                 if hasattr(backend, 'unload_all_models'):
                     count = await backend.unload_all_models()
@@ -1041,8 +1079,15 @@ class AIState(rx.State):
             factor_float = float(factor)
             if 1.0 <= factor_float <= 8.0:
                 self.yarn_factor = factor_float
-                estimated_context = int(40960 * factor_float)
+                # Use actual vLLM max_model_len (26608), not native model context (40960)
+                estimated_context = int(self.vllm_max_tokens * factor_float)
                 self.add_debug(f"📏 YaRN Faktor: {factor_float}x (~{estimated_context} tokens)")
+
+                # Warn if factor is high (potential VRAM overflow)
+                if factor_float > 2.0:
+                    self.add_debug(f"⚠️ Hoher YaRN-Faktor ({factor_float}x) kann VRAM überschreiten → möglicher Crash!")
+                    self.add_debug("💡 Tipp: Bei VRAM-Problemen Faktor reduzieren oder mehr GPU-RAM nutzen")
+
                 self._save_settings()
         except ValueError:
             self.add_debug(f"❌ Ungültiger YaRN-Faktor: {factor}")

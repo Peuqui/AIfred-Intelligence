@@ -73,4 +73,9 @@ def get_default_settings() -> Dict[str, Any]:
         "temperature": 0.2,
         "enable_thinking": True,
         "backend_models": BACKEND_DEFAULT_MODELS,  # Backend-spezifische Modelle
+        # vLLM YaRN & Context Settings (0 = auto-detect on first run)
+        "enable_yarn": False,
+        "yarn_factor": 1.0,
+        "vllm_max_tokens": 0,
+        "vllm_native_context": 0,
     }
