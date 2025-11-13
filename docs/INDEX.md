@@ -14,7 +14,13 @@ docs/
 ├── development/               # Entwicklungs-Guides & Archive
 ├── hardware/                  # Hardware-Erkennung
 ├── infrastructure/            # Infrastruktur (Ollama, ROCm)
-└── llm/                       # LLM-Konfiguration & Vergleiche
+├── llm/                       # LLM-Konfiguration & Vergleiche
+├── vllm/                      # vLLM-spezifische Dokumentation
+│   ├── VLLM_RTX3060_CONFIG.md     # RTX 3060 Optimierung
+│   ├── VLLM_FIX_SUMMARY.md        # Crash-Fix Zusammenfassung
+│   └── VLLM_CHANGES_ANALYSIS.md   # Commit-History-Analyse
+├── GPU_COMPATIBILITY.md       # GPU Kompatibilitäts-Matrix
+└── TODO.md                    # Projekt-Aufgabenliste
 ```
 
 ---
@@ -45,6 +51,9 @@ docs/
 
 | Dokument | Beschreibung | Status |
 |----------|--------------|--------|
+| [GPU_COMPATIBILITY.md](GPU_COMPATIBILITY.md) | GPU Kompatibilitäts-Matrix (Ollama/vLLM/TabbyAPI) | ✅ Aktiv |
+| [vllm/VLLM_RTX3060_CONFIG.md](vllm/VLLM_RTX3060_CONFIG.md) | RTX 3060 Optimierung (26K context @ 90% GPU) | ✅ Aktiv |
+| [vllm/VLLM_FIX_SUMMARY.md](vllm/VLLM_FIX_SUMMARY.md) | vLLM Crash-Fix Zusammenfassung | ✅ Referenz |
 | [infrastructure/OLLAMA_ROCM_GPU_STATUS.md](infrastructure/OLLAMA_ROCM_GPU_STATUS.md) | Ollama GPU-Beschleunigung mit AMD Radeon 780M | ✅ Aktiv |
 | [infrastructure/OLLAMA_0.12.6_ROCM_RADEON780M_RESEARCH.md](infrastructure/OLLAMA_0.12.6_ROCM_RADEON780M_RESEARCH.md) | Web-Recherche: Community-Lösungen für gfx1103 | ✅ Referenz |
 | [hardware/HARDWARE_DETECTION.md](hardware/HARDWARE_DETECTION.md) | Automatische Hardware-Erkennung (CPU/GPU/RAM) | ✅ Aktiv |

@@ -76,13 +76,13 @@ OLLAMA_BASE_URL=http://localhost:11434
 **Option A: Alle Models (Empfohlen)**
 ```bash
 # Master-Script für beide Backends
-./download_all_models.sh
+./scripts/download_all_models.sh
 ```
 
 **Option B: Nur Ollama (GGUF) - Einfachste Installation**
 ```bash
 # Ollama Models (GGUF Q4/Q8)
-./download_ollama_models.sh
+./scripts/download_ollama_models.sh
 
 # Empfohlene Core-Modelle:
 # - qwen3:30b-instruct (18GB) - Haupt-LLM, 256K context
@@ -96,7 +96,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 pip install vllm
 
 # vLLM Models (AWQ Quantization)
-./download_vllm_models.sh
+./scripts/download_vllm_models.sh
 
 # Empfohlene Modelle:
 # - Qwen3-8B-AWQ (~5GB, 40K→128K mit YaRN)
@@ -261,10 +261,16 @@ AIfred-Intelligence/
 │   │   └── vector_cache.py   # ChromaDB Vector Cache
 │   └── state.py          # Reflex State Management
 ├── prompts/              # System Prompts
-├── download_all_models.sh     # Multi-Backend Model Downloader
-├── download_qwen3_models.py   # vLLM AWQ Models
-├── vllm_qwen3_awq.service    # systemd Service for vLLM
-└── SETTINGS_FORMAT.md         # Settings Documentation
+├── scripts/              # Utility Scripts
+│   ├── download_all_models.sh     # Multi-Backend Model Downloader
+│   ├── download_ollama_models.sh  # Ollama GGUF Models
+│   ├── download_vllm_models.sh    # vLLM AWQ Models
+│   ├── run_aifred.sh              # Development Runner
+│   └── chroma_maintenance.py      # Vector Cache Maintenance
+├── docs/                 # Documentation
+│   ├── vllm/                      # vLLM-specific docs
+│   └── GPU_COMPATIBILITY.md       # GPU compatibility matrix
+└── CHANGELOG.md          # Project Changelog
 ```
 
 ### History Compression System
