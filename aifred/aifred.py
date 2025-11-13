@@ -991,7 +991,7 @@ def settings_accordion() -> rx.Component:
                 rx.hstack(
                     rx.text(t("backend"), font_weight="bold", font_size="12px"),
                     rx.select(
-                        ["ollama", "vllm"],
+                        AIState.available_backends,  # Dynamically filtered by GPU compatibility
                         value=AIState.backend_type,
                         on_change=AIState.switch_backend,
                         size="2",
@@ -1010,33 +1010,57 @@ def settings_accordion() -> rx.Component:
                     align="center",
                 ),
 
-                # GPU Compatibility Warning for vLLM
+                # GPU Info: Show detected GPU and filtered backends
                 rx.cond(
-                    (AIState.backend_type == "vllm") & (AIState.gpu_detected) & (AIState.gpu_compute_cap < 7.5),
+                    AIState.gpu_detected,
                     rx.box(
                         rx.text(
-                            f"⚠️ GPU Warning: {AIState.gpu_name} (Compute {AIState.gpu_compute_cap})",
+                            f"🎮 GPU: {AIState.gpu_name} (Compute {AIState.gpu_compute_cap})",
+                            font_size="10px",
+                            font_weight="500",
+                            color="#2a9d8f",
+                        ),
+                        padding="4px 8px",
+                        background="rgba(42, 157, 143, 0.1)",
+                        border_radius="4px",
+                        margin_top="4px",
+                    ),
+                ),
+
+                # Backend Compatibility Info: Show why backends are filtered
+                rx.cond(
+                    AIState.gpu_detected & (AIState.gpu_compute_cap < 7.0),
+                    rx.box(
+                        rx.text(
+                            "ℹ️ Backend-Einschränkung",
                             font_size="11px",
                             font_weight="600",
-                            color="#e63946",  # Red
+                            color="#b71c1c",  # Dark red (dezent)
                         ),
                         rx.text(
-                            "vLLM/AWQ requires Compute Capability 7.5+ (Turing or newer)",
+                            f"vLLM & TabbyAPI benötigen Compute Capability 7.0+ und schnelles FP16.",
                             font_size="10px",
-                            color="#d4913d",  # Orange
+                            color="#666",
                             margin_top="2px",
                         ),
                         rx.text(
-                            "→ Recommended: Switch to Ollama backend for better performance",
+                            f"Deine GPU ({AIState.gpu_name}) hat Compute {AIState.gpu_compute_cap} → Nur Ollama verfügbar.",
                             font_size="10px",
-                            color="#2a9d8f",  # Teal
+                            color="#666",
                             margin_top="2px",
+                        ),
+                        rx.text(
+                            "💡 Ollama nutzt INT8/Q4-Quantisierung und funktioniert optimal auf älteren GPUs!",
+                            font_size="10px",
+                            color="#2a9d8f",
+                            margin_top="4px",
                             font_style="italic",
                         ),
                         padding="8px",
-                        background="rgba(230, 57, 70, 0.1)",  # Light red background
+                        background="rgba(183, 28, 28, 0.08)",  # Dark red transparent background (dezent)
                         border_radius="4px",
                         margin_top="8px",
+                        border_left="3px solid #b71c1c",  # Dark red border
                     ),
                 ),
 

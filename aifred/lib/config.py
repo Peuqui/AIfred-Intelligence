@@ -42,14 +42,6 @@ WHISPER_MODELS = {
 }
 
 # ============================================================
-# DEPLOYMENT MODE CONFIGURATION
-# ============================================================
-# Determines how the AIfred restart button behaves
-# True:  Production mode - restarts systemd service (aifred-intelligence.service)
-# False: Development mode - soft restart for hot-reload (clears caches/history only)
-USE_SYSTEMD_RESTART = True  # Set to False for development with hot-reload
-
-# ============================================================
 # LANGUAGE CONFIGURATION (i18n)
 # ============================================================
 # Language for prompts and UI

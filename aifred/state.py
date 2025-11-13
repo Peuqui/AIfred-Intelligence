@@ -5,7 +5,7 @@ Main state for chat, settings, and backend management
 """
 
 import reflex as rx
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any
 import uuid
 import os
 from pydantic import BaseModel
@@ -46,6 +46,23 @@ def initialize_vector_cache():
         log_message(f"⚠️ Vector Cache connection failed: {e}")
         log_message("💡 Make sure ChromaDB is running: docker-compose up -d chromadb")
         return None
+
+
+# ============================================================
+# Module-Level Backend State (Global across all sessions)
+# ============================================================
+# Prevents re-initialization on page reload
+# Backend is initialized once at server startup
+_global_backend_initialized = False
+_global_backend_state: dict[str, Any] = {
+    "backend_type": None,
+    "backend_url": None,
+    "selected_model": None,
+    "automatik_model": None,
+    "available_models": [],
+    "gpu_info": None,
+    "vllm_manager": None,  # Global vLLM process manager (persists across reloads)
+}
 
 
 class ChatMessage(BaseModel):
@@ -126,25 +143,61 @@ class AIState(rx.State):
     gpu_name: str = ""
     gpu_compute_cap: float = 0.0
     gpu_warnings: List[str] = []
+    available_backends: List[str] = ["ollama", "vllm", "tabbyapi"]  # Filtered by GPU compatibility
 
     async def on_load(self):
         """
         Called when page loads - initialize backend and load models
 
-        NOTE: We initialize synchronously here WITHOUT yielding,
-        because WebSocket may not be fully connected yet.
+        NEW: Backend is initialized once globally at server startup.
+        Page reloads simply restore state from global variables.
         """
-        if not self._backend_initialized:
-            print("🔥 on_load() CALLED - Starting initialization...")
+        global _global_backend_initialized, _global_backend_state
 
-            # Synchronous initialization (NO yields, no generator pattern)
-            # This populates available_models for dropdowns
+        print(f"🔥 on_load() CALLED - Global init: {_global_backend_initialized}, Session init: {self._backend_initialized}")
+
+        # FIRST-TIME GLOBAL INITIALIZATION (once per server start)
+        if not _global_backend_initialized:
             print("=" * 60)
-            print("🚀 Initializing backend on page load...")
+            print("🚀 FIRST-TIME SERVER INITIALIZATION...")
             print("=" * 60)
 
             # Initialize debug log (only once)
             initialize_debug_log(force_reset=False)
+
+            # Initialize language settings
+            from .lib.config import DEFAULT_LANGUAGE
+            set_language(DEFAULT_LANGUAGE)
+            log_message(f"🌍 Language mode: {DEFAULT_LANGUAGE}")
+
+            # Initialize Vector Cache
+            initialize_vector_cache()
+            log_message("💾 Vector Cache: Connected")
+
+            # GPU Detection (once per server)
+            log_message("🔍 Detecting GPU capabilities...")
+            try:
+                from .lib.gpu_detection import detect_gpu
+                gpu_info = detect_gpu()
+                if gpu_info:
+                    _global_backend_state["gpu_info"] = gpu_info
+                    log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability})")
+                    if gpu_info.unsupported_backends:
+                        log_message(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
+                    if gpu_info.warnings:
+                        for warning in gpu_info.warnings[:2]:
+                            log_message(f"⚠️ {warning}")
+                else:
+                    log_message("ℹ️ No GPU detected or nvidia-smi not available")
+            except Exception as e:
+                log_message(f"⚠️ GPU detection failed: {e}")
+
+            _global_backend_initialized = True
+            print("✅ Global initialization complete")
+
+        # PER-SESSION INITIALIZATION (every user/tab/reload)
+        if not self._backend_initialized:
+            print("📱 Initializing session...")
 
             # Load saved settings
             from .lib.settings import load_settings
@@ -157,76 +210,99 @@ class AIState(rx.State):
                 self.temperature = saved_settings.get("temperature", self.temperature)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
 
-                # NEW: Load per-backend models (if available)
+                # Load per-backend models (if available)
                 backend_models = saved_settings.get("backend_models", {})
                 if self.backend_type in backend_models:
-                    # Use per-backend saved models
                     self.selected_model = backend_models[self.backend_type].get("selected_model", self.selected_model)
                     self.automatik_model = backend_models[self.backend_type].get("automatik_model", self.automatik_model)
                 else:
-                    # Fallback: Use old-style global model settings (backward compatibility)
+                    # Fallback: Use old-style global model settings
                     self.selected_model = saved_settings.get("selected_model", self.selected_model)
                     self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)
 
-                self.add_debug(f"⚙️ Settings loaded from file (backend: {self.backend_type})")
+                self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")
             else:
-                # Use config.py defaults
-                self.add_debug("⚙️ Using default settings from config.py")
-
-            # Initialize language settings
-            from .lib.config import DEFAULT_LANGUAGE
-            set_language(DEFAULT_LANGUAGE)
-            self.add_debug(f"🌍 Language mode: {DEFAULT_LANGUAGE}")
-
-            # Initialize Vector Cache
-            initialize_vector_cache()
-            self.add_debug("💾 Vector Cache: Connected")
+                self.add_debug("⚙️ Using default settings")
 
             # Generate session ID
             if not self.session_id:
                 self.session_id = str(uuid.uuid4())
-                self.add_debug(f"🆔 Session ID: {self.session_id[:8]}...")
+                self.add_debug(f"🆔 Session: {self.session_id[:8]}...")
 
-            # GPU Detection
-            self.add_debug("🔍 Detecting GPU capabilities...")
-            try:
-                from .lib.gpu_detection import detect_gpu
-                gpu_info = detect_gpu()
-                if gpu_info:
-                    self.gpu_detected = True
-                    self.gpu_name = gpu_info.name
-                    self.gpu_compute_cap = gpu_info.compute_capability
-                    self.gpu_warnings = gpu_info.warnings
-                    self.add_debug(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability})")
+            # Restore GPU info from global state
+            gpu_info = _global_backend_state.get("gpu_info")
+            if gpu_info:
+                self.gpu_detected = True
+                self.gpu_name = gpu_info.name
+                self.gpu_compute_cap = gpu_info.compute_capability
+                self.gpu_warnings = gpu_info.warnings
 
-                    # Log warnings
-                    if gpu_info.unsupported_backends:
-                        self.add_debug(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
-                    if gpu_info.warnings:
-                        for warning in gpu_info.warnings[:2]:  # Show first 2 warnings
-                            self.add_debug(f"⚠️ {warning}")
-                else:
-                    self.add_debug("ℹ️ No GPU detected or nvidia-smi not available")
-            except Exception as e:
-                self.add_debug(f"⚠️ GPU detection failed: {e}")
+                # Filter available backends based on GPU compatibility
+                # Only show backends that are actually compatible with the GPU
+                if gpu_info.recommended_backends:
+                    self.available_backends = gpu_info.recommended_backends
+                    self.add_debug(f"✅ Compatible backends: {', '.join(self.available_backends)}")
 
-            # Initialize backend
+                    # If current backend is not compatible, switch to first available
+                    if self.backend_type not in self.available_backends:
+                        old_backend = self.backend_type
+                        self.backend_type = self.available_backends[0]
+                        self.add_debug(f"⚠️ Backend '{old_backend}' not compatible with {gpu_info.name}")
+                        self.add_debug(f"🔄 Auto-switched to '{self.backend_type}'")
+
+            # Initialize backend (or restore from global state)
             self.add_debug("🔧 Initializing backend...")
             try:
                 await self.initialize_backend()
-                self.add_debug("✅ Backend initialization complete")
+                self.add_debug("✅ Backend ready")
             except Exception as e:
-                self.add_debug(f"❌ Backend initialization failed: {e}")
-                log_message(f"❌ Backend initialization failed: {e}")
+                self.add_debug(f"❌ Backend init failed: {e}")
+                log_message(f"❌ Backend init failed: {e}")
                 import traceback
                 log_message(traceback.format_exc())
 
             self._backend_initialized = True
-            print("✅ Initialization complete")
+            print("✅ Session initialization complete")
 
     async def initialize_backend(self):
-        """Initialize LLM backend"""
-        # Debug message already logged by caller (_ensure_backend_initialized)
+        """
+        Initialize LLM backend
+
+        NEW: Uses global state to prevent re-initialization on page reload.
+        - First call: Load models, start vLLM if needed, store in global state
+        - Subsequent calls: Restore from global state (fast!)
+        """
+        global _global_backend_state
+
+        # Check if this backend was already initialized globally
+        is_same_backend = (_global_backend_state["backend_type"] == self.backend_type)
+
+        if is_same_backend and _global_backend_state["available_models"]:
+            # FAST PATH: Restore from global state (page reload case)
+            print(f"⚡ Backend '{self.backend_type}' already initialized, restoring from global state...")
+
+            self.backend_url = _global_backend_state["backend_url"]
+            self.available_models = _global_backend_state["available_models"]
+            self.selected_model = _global_backend_state["selected_model"]
+            self.automatik_model = _global_backend_state["automatik_model"]
+
+            # Restore vLLM manager if exists
+            if self.backend_type == "vllm":
+                self._vllm_manager = _global_backend_state["vllm_manager"]
+                if self._vllm_manager and self._vllm_manager.is_running():
+                    self.add_debug("✅ vLLM server already running (restored from global state)")
+                else:
+                    self.add_debug("⚠️ vLLM manager exists but server not running")
+
+            self.backend_healthy = True
+            self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
+            self.add_debug(f"✅ Backend ready (restored: {len(self.available_models)} models)")
+
+            return  # Done! No expensive initialization needed
+
+        # SLOW PATH: Full initialization (first time or backend switch)
+        print(f"🔧 Full backend initialization for '{self.backend_type}'...")
+
         try:
             # Update URL based on backend type
             if self.backend_type == "ollama":
@@ -334,6 +410,16 @@ class AIState(rx.State):
                 except Exception as e:
                     log_message(f"⚠️ Preload failed: {e}")
                     # Not critical, continue anyway
+
+            # Store in global state for future page reloads
+            _global_backend_state["backend_type"] = self.backend_type
+            _global_backend_state["backend_url"] = self.backend_url
+            _global_backend_state["selected_model"] = self.selected_model
+            _global_backend_state["automatik_model"] = self.automatik_model
+            _global_backend_state["available_models"] = self.available_models
+            _global_backend_state["vllm_manager"] = self._vllm_manager
+
+            print(f"✅ Backend '{self.backend_type}' fully initialized and stored in global state")
 
         except Exception as e:
             self.backend_healthy = False
@@ -481,32 +567,53 @@ class AIState(rx.State):
 
     async def _start_vllm_server(self):
         """Start vLLM server process with selected model"""
+        global _global_backend_state
+
         try:
+            # Check if vLLM is already running from global state
+            existing_manager = _global_backend_state.get("vllm_manager")
+            if existing_manager and existing_manager.is_running():
+                self.add_debug("✅ vLLM server already running (using existing process)")
+                self._vllm_manager = existing_manager
+                _global_backend_state["vllm_manager"] = existing_manager
+                return
+
             self.add_debug(f"🚀 Starting vLLM server with {self.selected_model}...")
 
+            # Auto-detect context from model config.json (no hardcoded values!)
+            # vLLMProcessManager will read max_position_embeddings from HuggingFace cache
+            self.add_debug("📏 Auto-detecting context limit from model config...")
+
             # Initialize vLLM Process Manager
+            # RTX 3060 (12GB, Ampere 8.6) - Optimized configuration
             self._vllm_manager = vLLMProcessManager(
                 port=8001,
-                max_model_len=16384,
-                gpu_memory_utilization=0.85
+                max_model_len=26608,  # Maximum for RTX 3060 12GB (~26K context)
+                gpu_memory_utilization=0.90  # 90% safe on Ampere GPU
             )
 
             # Start server with selected model (timeout 120s - first load can take ~70s)
             await self._vllm_manager.start(self.selected_model, timeout=120)
+
+            # Store in global state so it persists across page reloads
+            _global_backend_state["vllm_manager"] = self._vllm_manager
 
             self.add_debug("✅ vLLM server ready on port 8001")
 
         except Exception as e:
             self.add_debug(f"❌ Failed to start vLLM: {e}")
             self._vllm_manager = None
-            raise
+            _global_backend_state["vllm_manager"] = None
 
     async def _stop_vllm_server(self):
         """Stop vLLM server process gracefully"""
+        global _global_backend_state
+
         if self._vllm_manager and self._vllm_manager.is_running():
             self.add_debug("🛑 Stopping vLLM server...")
             await self._vllm_manager.stop()
             self._vllm_manager = None
+            _global_backend_state["vllm_manager"] = None  # Clear from global state
             self.add_debug("✅ vLLM server stopped")
 
     async def _cleanup_old_backend(self, old_backend: str):
@@ -702,7 +809,6 @@ class AIState(rx.State):
                 # Set research_result flag if we got a result
                 if result_data:
                     ai_text, updated_history, inference_time = result_data
-                    research_result = ai_text
                     # History and clearing already handled in loop above
 
             # ============================================================
@@ -825,7 +931,7 @@ class AIState(rx.State):
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)"""
         self.auto_refresh_enabled = not self.auto_refresh_enabled
 
-    def restart_backend(self):
+    async def restart_backend(self):
         """Restart current LLM backend service"""
         import subprocess
         try:
@@ -834,76 +940,52 @@ class AIState(rx.State):
 
             if self.backend_type == "ollama":
                 subprocess.run(["systemctl", "restart", "ollama"], check=True)
+                self.add_debug(f"✅ {backend_name} restarted successfully")
             elif self.backend_type == "vllm":
-                # vLLM läuft nicht als systemd service, nur Info-Message
-                self.add_debug("ℹ️ vLLM läuft nicht als Service - bitte manuell neu starten")
-                return
+                # vLLM: Stop and restart with current model
+                await self._stop_vllm_server()
+                await self._start_vllm_server()
+                self.add_debug(f"✅ {backend_name} restarted successfully")
             elif self.backend_type == "tabbyapi":
                 self.add_debug("ℹ️ TabbyAPI läuft nicht als Service - bitte manuell neu starten")
                 return
 
-            self.add_debug(f"✅ {backend_name} restarted successfully")
-
         except Exception as e:
             self.add_debug(f"❌ {backend_name} restart failed: {e}")
 
-    def restart_ollama(self):
+    async def restart_ollama(self):
         """Legacy method - calls restart_backend()"""
-        self.restart_backend()
+        await self.restart_backend()
 
 
     def restart_aifred(self):
-        """Restart AIfred - choose between production service restart or development hot-reload"""
-
-        # Import configuration from central config file
-        from .lib.config import USE_SYSTEMD_RESTART
-
-        if USE_SYSTEMD_RESTART:
-            # PRODUCTION: Restart via systemd service
-            self._restart_aifred_systemd()
-        else:
-            # DEVELOPMENT: Soft restart for hot-reload
-            self._soft_restart()
-
-    def _restart_aifred_systemd(self):
-        """Production: Restart AIfred service via systemctl"""
+        """Restart AIfred service via systemctl"""
         import subprocess
+        import threading
+
         try:
             self.add_debug("🔄 Restarting AIfred service...")
-            # Restart the actual systemd service (Polkit allows this without sudo)
-            subprocess.run(["systemctl", "restart", "aifred-intelligence"], check=True)
-            self.add_debug("✅ AIfred service restart initiated")
 
-            # Note: The service restart will reload the entire application,
-            # so clearing state here is not necessary - the app will reinitialize
+            # Schedule systemd restart in background thread
+            # This allows us to return rx.call_script() BEFORE the service dies
+            def restart_service_delayed():
+                import time
+                time.sleep(0.5)  # Short delay to let browser script execute first
+                subprocess.run(["systemctl", "restart", "aifred-intelligence"], check=False)
+
+            thread = threading.Thread(target=restart_service_delayed, daemon=True)
+            thread.start()
+
+            self.add_debug("✅ AIfred service restart initiated")
+            self.add_debug("🔄 Browser wird in 0.5s neu geladen...")
+
+            # Return the reload script IMMEDIATELY
+            # This executes in browser BEFORE systemd kills the service
+            # Browser will reload, wait for service to come back up, then reconnect
+            return rx.call_script("window.location.reload(true)")
 
         except Exception as e:
             self.add_debug(f"❌ AIfred service restart failed: {e}")
-            # Fallback to soft restart if systemctl fails
-            self.add_debug("⚠️ Falling back to soft restart...")
-            self._soft_restart()
-
-    def _soft_restart(self):
-        """Development: Soft restart - clear all caches and histories without restarting service"""
-        # Clear lib console FIRST (before adding new message!)
-        clear_console()
-
-        self.chat_history = []
-        self.current_user_input = ""
-        self.current_user_message = ""
-        self.current_ai_response = ""
-        self.debug_messages = []
-        self.is_generating = False
-
-        # Note: Vector Cache is persistent (ChromaDB) - not cleared on soft restart
-        # To clear Vector Cache, delete ./aifred_vector_cache directory manually
-
-        # Reinitialize debug log
-        from .lib import initialize_debug_log
-        initialize_debug_log(force_reset=True)
-
-        # Add restart message AFTER clearing
-        self.add_debug("🔄 AIfred soft restart - histories cleared (Hot-Reload Mode)")
 
 
     def set_selected_model(self, model: str):

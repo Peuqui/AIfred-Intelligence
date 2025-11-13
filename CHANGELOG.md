@@ -5,7 +5,145 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-11-12
+## [Unreleased] - 2025-11-13
+
+### 🛡️ GPU Compatibility Backend Filter
+
+#### Problem Solved
+- **Fixed**: Incompatible backends (vLLM, TabbyAPI) were selectable on Pascal GPUs (P40, GTX 10 series)
+- **Impact**: vLLM would crash with Triton compiler errors or be extremely slow (FP16 1:64 ratio)
+- **Root Cause**: Backend selection showed all backends regardless of GPU capabilities
+- **Solution**: Automatic backend filtering based on GPU detection
+
+#### Implementation
+- **GPU Detection**: Existing `GPUDetector` now filters UI backend options
+  - Detects GPU compute capability and FP16 performance
+  - Tesla P40 (Compute 6.1) → Only shows "ollama" backend
+  - RTX 3060+ (Compute 8.6) → Shows "ollama", "vllm", "tabbyapi"
+- **Auto-Switch**: If saved backend is incompatible, auto-switch to first available backend
+- **UI Updates**:
+  - Backend select dropdown shows only compatible backends
+  - GPU info badge shows detected GPU and compute capability
+  - Removed redundant GPU warning box (no longer needed)
+- **Backend Requirements**:
+  - **Ollama**: Works on ALL GPUs (Compute 3.5+, INT8/Q4/Q8 quantization)
+  - **vLLM**: Requires Compute 7.0+, fast FP16 performance (Volta or newer)
+  - **TabbyAPI**: Same as vLLM (Compute 7.0+, fast FP16)
+
+#### GPU Compatibility Matrix
+| GPU | Compute Cap | Available Backends | Reason |
+|-----|-------------|-------------------|--------|
+| Tesla P40 | 6.1 | ollama only | FP16 ratio 1:64 (extremely slow) |
+| Tesla P100 | 6.0 | ollama only | Compute < 7.0 (Triton unsupported) |
+| GTX 1080 Ti | 6.1 | ollama only | Pascal architecture (slow FP16) |
+| RTX 2080 | 7.5 | ollama, vllm, tabbyapi | Turing (fast FP16, Tensor Cores) |
+| RTX 3060 | 8.6 | ollama, vllm, tabbyapi | Ampere (fast FP16, AWQ Marlin) |
+| RTX 4090 | 8.9 | ollama, vllm, tabbyapi | Ada Lovelace (excellent) |
+
+#### Files Modified
+- [aifred/state.py](aifred/state.py#L146): Added `available_backends` state field
+- [aifred/state.py](aifred/state.py#L240-L251): Backend filtering logic on session load
+- [aifred/aifred.py](aifred/aifred.py#L994): Dynamic backend select with `AIState.available_backends`
+- [aifred/aifred.py](aifred/aifred.py#L1013-L1028): GPU info badge
+- [aifred/lib/gpu_detection.py](aifred/lib/gpu_detection.py): Existing GPU detection (no changes)
+
+---
+
+### 📐 vLLM Context Auto-Detection (40K-128K+ Support)
+
+#### Problem Solved
+- **Fixed**: vLLM context limit was only 16K tokens
+- **Impact**: Responses were cut off mid-sentence, chat history was severely limited
+- **Root Cause**: Hardcoded context limits didn't match actual model capabilities
+- **Solution**: Automatic detection from model's config.json
+
+#### Implementation
+- **Auto-Detection**: `get_model_max_position_embeddings()` reads `max_position_embeddings` from HuggingFace cache
+  - Searches `~/.cache/huggingface/hub/models--{vendor}--{model}/snapshots/*/config.json`
+  - Returns native context limit (e.g., 40,960 for Qwen3-8B-AWQ, 131,072 for Qwen2.5-Instruct)
+  - No more hardcoded values - works with any model!
+- **Enhanced**: `vLLMProcessManager.start()` uses auto-detected context
+  - `max_model_len=None` triggers auto-detection
+  - Falls back to vLLM default if config not found
+- **YaRN Support**: Optional RoPE scaling for extending context beyond training limits
+  - Accepts YaRN config dict: `{"rope_type": "yarn", "factor": 2.0, "original_max_position_embeddings": 40960}`
+  - Can extend context (e.g., 40K → 80K with factor=2.0)
+  - Not used by default - native context is sufficient
+- **Error Diagnostics**: Improved vLLM startup error logging (captures stderr)
+- **Memory Fix**: Increase GPU memory utilization to 95% (40K context needs ~5.6 GiB KV cache)
+- **Compatibility**: Use vLLM v0.11.0 defaults (v1 engine with multiprocessing)
+
+#### Context Limits
+- **Before**: 16K tokens (hardcoded, responses cut off!)
+- **After**: Hardware-constrained maximum:
+  - **RTX 3060 (12GB, Ampere 8.6)**: **26,608 tokens** @ 90% GPU memory ✅ Tested
+  - Native model support: 40,960 tokens (requires ~5.6 GiB KV cache)
+- **Note**: Context size limited by VRAM + GPU architecture, not model capability
+- **VRAM Usage**: ~12 GB (97.7% utilization) at 26K context - GPU fully utilized but stable
+- **Future**: Can use YaRN for extension when more VRAM available (e.g., RTX 3090, A100, H100)
+
+#### Files Modified
+- [aifred/lib/vllm_manager.py](aifred/lib/vllm_manager.py#L19-L64): Added `get_model_max_position_embeddings()`
+- [aifred/lib/vllm_manager.py](aifred/lib/vllm_manager.py#L134-L158): Auto-detect in `start()` method
+- [aifred/state.py](aifred/state.py#L569-L580): Removed hardcoded values, use auto-detection
+
+---
+
+### ⚡ Backend Pre-Initialization (Page Reload Performance)
+
+#### Problem Solved
+- **Fixed**: Backend re-initialization on every page reload (F5)
+- **Impact**: Eliminated 30-120s wait time on page refresh
+- **Behavior**: Backend now initializes ONCE at server start, persists across page reloads
+
+#### Implementation
+- **Added**: Module-level `_global_backend_state` dict for persistent backend state
+- **Added**: `_global_backend_initialized` flag to prevent redundant initialization
+- **Refactored**: `on_load()` method with two-phase initialization:
+  - **Global Phase** (runs once at server start):
+    - Debug log initialization
+    - Language settings
+    - Vector Cache connection
+    - GPU detection
+  - **Session Phase** (runs per user/tab/reload):
+    - Load user settings
+    - Generate session ID
+    - Restore backend state from global cache
+- **Optimized**: `initialize_backend()` with fast/slow paths:
+  - **Fast Path**: Backend already initialized → Restore from global state (instant!)
+  - **Slow Path**: First initialization or backend switch → Full model loading
+- **Optimized**: vLLM Process Manager persistence:
+  - `_vllm_manager` stored in global state
+  - vLLM server survives page reloads
+  - Prevents unnecessary vLLM restarts (saves 70-120s)
+
+#### State Persistence
+- **Preserved on page reload**:
+  - Chat history
+  - Debug console messages
+  - Backend configuration
+  - Loaded models
+  - vLLM server process
+  - GPU detection results
+
+#### Restart Buttons
+- **Enhanced**: `restart_backend()` method:
+  - Ollama: Restarts systemd service
+  - vLLM: Stops and restarts vLLM server process
+  - TabbyAPI: Shows info message (manual restart)
+- **Preserved**: "AIfred Neustarten" button behavior:
+  - Clears chat history, debug console, caches
+  - Does NOT restart backend or vLLM
+  - Soft restart for development (hot-reload mode)
+  - Hard restart via systemd for production
+
+#### Code Quality
+- **Passed**: ruff linter checks (no errors)
+- **Fixed**: Unused variable `research_result` in generate loop
+- **Added**: Type annotations for `_global_backend_state: dict[str, Any]`
+- **Tested**: Backend switching, page reload, restart buttons
+
+---
 
 ### 🔍 GPU Detection & Compatibility Checking
 
