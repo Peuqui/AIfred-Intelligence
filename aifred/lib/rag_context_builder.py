@@ -83,11 +83,16 @@ async def build_rag_context(
         # Create preview of cached content (first 300 chars)
         content_preview = cached_answer[:300] + "..." if len(cached_answer) > 300 else cached_answer
 
+        # Spracherkennung für User-Query
+        from .prompt_loader import detect_language
+        detected_user_language = detect_language(user_query)
+
         # Load relevance check prompt with current date
         import time
         current_date = time.strftime("%d.%m.%Y")
         relevance_prompt = load_prompt(
             'rag_relevance_check',
+            lang=detected_user_language,
             cached_query=cached_query,
             cached_content_preview=content_preview,
             current_query=user_query,

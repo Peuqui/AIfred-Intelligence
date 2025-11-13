@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-13
 
+### 🔄 Auto-Reload Model List on Backend Restart
+
+#### Added
+- **Model List Auto-Refresh on Ollama Restart** ([aifred/state.py:1044-1092](aifred/state.py#L1044-L1092)):
+  - After Ollama service restart via UI, automatically reload model list from `/api/tags`
+  - Update both session state (`self.available_models`) and global state (`_global_backend_state`)
+  - No need to restart AIfred just to see newly downloaded models
+  - Shows immediate feedback: "🔄 Reloading model list..." and "✅ Model list updated: N models found"
+
+#### Changed
+- **`restart_backend()` Method Enhancement**:
+  - Added automatic model list refresh after Ollama restart
+  - Uses same curl-based API call as initial backend initialization
+  - Preserves existing vLLM/TabbyAPI restart logic unchanged
+
+#### Impact
+- **User Experience**: Download new models → Restart Ollama → Models instantly available in dropdown
+- **Before**: Had to restart entire AIfred service to refresh model list
+- **After**: Just click "Restart Ollama" button in system control panel
+
+#### Files Modified
+- [aifred/state.py](aifred/state.py): Lines 1044-1092
+
+---
+
+### 🌍 Language Detection for All Prompts
+
+#### Fixed
+- **Language Not Passed to Prompt Loading Functions** (8 locations across 7 files):
+  - Language was detected but not passed as `lang=` parameter to prompt functions
+  - German user queries were receiving English prompts despite correct detection
+  - Root cause: Missing `detected_user_language` parameter in function calls
+
+#### Changed
+- **Intent Detection** ([aifred/lib/intent_detector.py](aifred/lib/intent_detector.py)):
+  - Line 62: Added `lang=detected_user_language` to `get_intent_detection_prompt()`
+  - Lines 110-113: Added language detection for followup intent classification
+- **Query Optimization** ([aifred/lib/query_optimizer.py:47](aifred/lib/query_optimizer.py#L47)):
+  - Added `lang=detected_user_language` to `get_query_optimization_prompt()`
+- **Decision Making** ([aifred/lib/conversation_handler.py:268](aifred/lib/conversation_handler.py#L268)):
+  - Added `lang=detected_user_language` to `get_decision_making_prompt()`
+- **Cache Hit Prompt** ([aifred/lib/research/cache_handler.py:77](aifred/lib/research/cache_handler.py#L77)):
+  - Added `lang=detected_user_language` to `load_prompt('system_rag_cache_hit')`
+- **System RAG Prompt** ([aifred/lib/research/context_builder.py:99](aifred/lib/research/context_builder.py#L99)):
+  - Added `lang=detected_user_language` and `user_text` parameter
+- **Cache Decision** ([aifred/lib/research/context_builder.py:241](aifred/lib/research/context_builder.py#L241)):
+  - Added `lang=detected_user_language` to `load_prompt('cache_decision')`
+- **RAG Relevance Check** ([aifred/lib/rag_context_builder.py:89](aifred/lib/rag_context_builder.py#L89)):
+  - Added `lang=detected_user_language` to `load_prompt('rag_relevance_check')`
+- **History Summarization** ([aifred/lib/context_manager.py:290](aifred/lib/context_manager.py#L290)):
+  - Special case: Detects language from first user message in conversation history
+  - Fallback to "de" if no messages available
+
+#### Impact
+- **User Experience**: German queries now receive German prompts, English queries receive English prompts
+- **All Subsystems Affected**: Intent detection, query optimization, research mode, cache decisions, history compression
+- **Consistent i18n**: All 8 prompt loading locations now respect detected language
+
+#### Files Modified
+- [aifred/lib/intent_detector.py](aifred/lib/intent_detector.py): Lines 62, 110-113
+- [aifred/lib/query_optimizer.py](aifred/lib/query_optimizer.py): Line 47
+- [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py): Lines 268-270
+- [aifred/lib/research/cache_handler.py](aifred/lib/research/cache_handler.py): Lines 76-89
+- [aifred/lib/research/context_builder.py](aifred/lib/research/context_builder.py): Lines 98-110, 244-251
+- [aifred/lib/rag_context_builder.py](aifred/lib/rag_context_builder.py): Lines 86-100
+- [aifred/lib/context_manager.py](aifred/lib/context_manager.py): Lines 289-301
+
+---
+
 ### 🧠 Thinking Mode Support for Ollama and vLLM Backends
 
 #### Added

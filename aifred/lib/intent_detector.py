@@ -109,7 +109,8 @@ async def detect_cache_followup_intent(
 
     prompt = get_followup_intent_prompt(
         original_query=original_query,
-        followup_query=followup_query
+        followup_query=followup_query,
+        lang=detected_user_language
     )
 
     try:

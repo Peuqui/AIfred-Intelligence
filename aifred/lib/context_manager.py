@@ -286,9 +286,15 @@ async def summarize_history_if_needed(
         log_message(f"   └─ Message {i}: User={len(user_msg)} chars, AI={len(ai_msg)} chars")
         conversation_text += f"User: {user_msg}\nAI: {ai_msg}\n\n"
 
+    # Spracherkennung für Konversation (nutze ersten User-Text als Referenz)
+    from .prompt_loader import detect_language
+    first_user_msg = messages_to_summarize[0][0] if messages_to_summarize else ""
+    detected_language = detect_language(first_user_msg) if first_user_msg else "de"
+
     # 8. Load Summarization Prompt
     summary_prompt = load_prompt(
         'history_summarization',
+        lang=detected_language,
         conversation=conversation_text.strip(),
         max_tokens=HISTORY_SUMMARY_TARGET_TOKENS,
         max_words=HISTORY_SUMMARY_TARGET_WORDS

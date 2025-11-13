@@ -95,9 +95,15 @@ async def build_and_generate_response(
         preview = context[:800] + "..."
         log_message(f"📝 Context Preview (erste 800 Zeichen):\n{preview}")
 
+    # Spracherkennung für User-Text
+    from ..prompt_loader import detect_language
+    detected_user_language = detect_language(user_text)
+
     # System prompt
     system_prompt = load_prompt(
         'system_rag',
+        lang=detected_user_language,
+        user_text=user_text,
         current_year=time.strftime("%Y"),
         current_date=time.strftime("%d.%m.%Y"),
         context=context
@@ -235,10 +241,14 @@ async def build_and_generate_response(
             log_message("⚠️ Volatile keyword detected in query, asking LLM for cache decision...")
             yield {"type": "debug", "message": "🤔 Volatile keyword → Checking if cacheable..."}
 
+            # Spracherkennung für User-Text
+            from ..prompt_loader import detect_language
+            detected_user_language = detect_language(user_text)
+
             # Load cache decision prompt with current date
             answer_preview = ai_text[:300] + "..." if len(ai_text) > 300 else ai_text
             current_date = time.strftime("%d.%m.%Y")
-            cache_prompt = load_prompt("cache_decision", query=user_text, answer_preview=answer_preview, current_date=current_date)
+            cache_prompt = load_prompt("cache_decision", lang=detected_user_language, query=user_text, answer_preview=answer_preview, current_date=current_date)
 
             # Ask Automatik-LLM for decision (use existing client to avoid deadlock)
             try:

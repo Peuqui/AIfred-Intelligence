@@ -73,9 +73,14 @@ async def handle_cache_hit(
     # Intelligenter Context (Limit aus config.py: MAX_RAG_CONTEXT_TOKENS)
     context = build_context(user_text, scraped_only)
 
+    # Spracherkennung für User-Text
+    from ..prompt_loader import detect_language
+    detected_user_language = detect_language(user_text)
+
     # System-Prompt für Cache-Hit: Nutze separate Prompt-Datei
     system_prompt = load_prompt(
         'system_rag_cache_hit',
+        lang=detected_user_language,
         original_question=cache_entry.get('user_text', 'N/A'),
         current_question=user_text,
         current_year=time.strftime("%Y"),

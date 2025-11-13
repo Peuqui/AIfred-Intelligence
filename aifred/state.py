@@ -1042,8 +1042,11 @@ class AIState(rx.State):
         self.auto_refresh_enabled = not self.auto_refresh_enabled
 
     async def restart_backend(self):
-        """Restart current LLM backend service"""
+        """Restart current LLM backend service and reload model list"""
         import subprocess
+        import json
+        global _global_backend_state
+
         try:
             backend_name = self.backend_type.upper()
             self.add_debug(f"🔄 Restarting {backend_name} service...")
@@ -1051,6 +1054,31 @@ class AIState(rx.State):
             if self.backend_type == "ollama":
                 subprocess.run(["systemctl", "restart", "ollama"], check=True)
                 self.add_debug(f"✅ {backend_name} restarted successfully")
+
+                # Reload model list from Ollama API
+                self.add_debug("🔄 Reloading model list...")
+                try:
+                    endpoint = f'{self.backend_url}/api/tags'
+                    result = subprocess.run(
+                        ['curl', '-s', endpoint],
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+
+                    if result.returncode == 0:
+                        data = json.loads(result.stdout)
+                        self.available_models = [m["name"] for m in data.get("models", [])]
+
+                        # Update global state
+                        _global_backend_state["available_models"] = self.available_models
+
+                        self.add_debug(f"✅ Model list updated: {len(self.available_models)} models found")
+                    else:
+                        self.add_debug("⚠️ Failed to reload model list")
+                except Exception as e:
+                    self.add_debug(f"⚠️ Model list reload failed: {e}")
+
             elif self.backend_type == "vllm":
                 # vLLM: Stop and restart with current model
                 await self._stop_vllm_server()
