@@ -122,6 +122,7 @@ class AIState(rx.State):
     backend_healthy: bool = False
     backend_info: str = ""
     backend_switching: bool = False  # True während Backend-Wechsel (UI wird disabled)
+    backend_initializing: bool = True  # True während erster Initialisierung (zeigt Loading Spinner)
 
     # Debug Console
     debug_messages: List[str] = []
@@ -310,6 +311,9 @@ class AIState(rx.State):
             self.backend_info = f"{self.backend_type} - {len(self.available_models)} models"
             self.add_debug(f"✅ Backend ready (restored: {len(self.available_models)} models)")
 
+            # Hide loading spinner (fast path = already initialized)
+            self.backend_initializing = False
+
             return  # Done! No expensive initialization needed
 
         # SLOW PATH: Full initialization (first time or backend switch)
@@ -433,10 +437,14 @@ class AIState(rx.State):
 
             print(f"✅ Backend '{self.backend_type}' fully initialized and stored in global state")
 
+            # Mark initialization as complete (hide loading spinner)
+            self.backend_initializing = False
+
         except Exception as e:
             self.backend_healthy = False
             self.backend_info = f"Error: {str(e)}"
             self.add_debug(f"❌ Backend initialization failed: {e}")
+            self.backend_initializing = False  # Hide spinner even on error
 
     def _save_settings(self):
         """Save current settings to file (per-backend models)"""
@@ -627,6 +635,7 @@ class AIState(rx.State):
             #   1. Try native context (40K)
             #   2. If fail → extract hardware limit from error
             #   3. Restart with hardware limit + save to settings
+
             success, context_info = await self._vllm_manager.start_with_auto_detection(
                 model=self.selected_model,
                 timeout=120,

@@ -737,44 +737,74 @@ def render_chat_message(msg: tuple) -> rx.Component:
 
 def chat_history_display() -> rx.Component:
     """Full chat history (like Gradio chatbot) - Collapsible"""
-    chat_content = rx.cond(
-        AIState.auto_refresh_enabled,
-        # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
-        rx.auto_scroll(
-            rx.foreach(
-                AIState.chat_history,
-                render_chat_message  # Verwende separate Render-Funktion
-            ),
-            id="chat-history-box",
-            width="100%",
-            min_height="360px",  # Dreifache Höhe (120*3)
-            max_height="2400px",  # Höheres Maximum (1200*2)
-            padding="4",
-            background_color=COLORS["readonly_bg"],
-            border_radius="8px",
-            border=f"1px solid {COLORS['border']}",
-            style={
-                "transition": "all 0.4s ease-out",
-            },
+    # Loading spinner während Initialisierung
+    loading_spinner = rx.vstack(
+        rx.spinner(size="3", color="orange"),
+        rx.text(
+            "AIfred wird initialisiert...",
+            font_size="14px",
+            color=COLORS["text_secondary"],
+            margin_top="3",
         ),
-        # Auto-Scroll disabled: normale rx.box (kein Scroll)
-        rx.box(
-            rx.foreach(
-                AIState.chat_history,
-                render_chat_message  # Verwende separate Render-Funktion
+        rx.text(
+            "Bitte warten, Backend startet (~40-70 Sekunden bei erster Nutzung)",
+            font_size="11px",
+            color=COLORS["text_tertiary"],
+            font_style="italic",
+            margin_top="1",
+        ),
+        align="center",
+        justify="center",
+        width="100%",
+        min_height="360px",
+        padding="4",
+        background_color=COLORS["readonly_bg"],
+        border_radius="8px",
+        border=f"1px solid {COLORS['border']}",
+    )
+
+    chat_content = rx.cond(
+        AIState.backend_initializing,
+        loading_spinner,  # Show spinner during initialization
+        rx.cond(
+            AIState.auto_refresh_enabled,
+            # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch
+            rx.auto_scroll(
+                rx.foreach(
+                    AIState.chat_history,
+                    render_chat_message  # Verwende separate Render-Funktion
+                ),
+                id="chat-history-box",
+                width="100%",
+                min_height="360px",  # Dreifache Höhe (120*3)
+                max_height="2400px",  # Höheres Maximum (1200*2)
+                padding="4",
+                background_color=COLORS["readonly_bg"],
+                border_radius="8px",
+                border=f"1px solid {COLORS['border']}",
+                style={
+                    "transition": "all 0.4s ease-out",
+                },
             ),
-            id="chat-history-box",
-            width="100%",
-            min_height="360px",  # Dreifache Höhe (120*3)
-            max_height="2400px",  # Höheres Maximum (1200*2)
-            overflow_y="auto",
-            padding="4",
-            background_color=COLORS["readonly_bg"],
-            border_radius="8px",
-            border=f"1px solid {COLORS['border']}",
-            style={
-                "transition": "all 0.4s ease-out",
-            },
+            # Auto-Scroll disabled: normale rx.box (kein Scroll)
+            rx.box(
+                rx.foreach(
+                    AIState.chat_history,
+                    render_chat_message  # Verwende separate Render-Funktion
+                ),
+                id="chat-history-box",
+                width="100%",
+                min_height="360px",  # Dreifache Höhe (120*3)
+                max_height="2400px",  # Höheres Maximum (1200*2)
+                overflow_y="auto",
+                padding="4",
+                background_color=COLORS["readonly_bg"],
+                border_radius="8px",
+                border=f"1px solid {COLORS['border']}",
+                style={
+                    "transition": "all 0.4s ease-out",
+                },
+            ),
         ),
     )
     
