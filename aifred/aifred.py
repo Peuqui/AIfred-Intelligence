@@ -1000,7 +1000,12 @@ def settings_accordion() -> rx.Component:
                     ),
                     rx.cond(
                         AIState.backend_switching,
-                        rx.badge("Switching...", color_scheme="orange"),
+                        rx.hstack(
+                            rx.spinner(size="1", color="orange"),
+                            rx.badge("Switching...", color_scheme="orange"),
+                            spacing="2",
+                            align="center",
+                        ),
                         rx.cond(
                             AIState.backend_healthy,
                             rx.badge(AIState.backend_info, color_scheme="green"),
