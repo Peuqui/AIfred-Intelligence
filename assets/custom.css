@@ -147,6 +147,40 @@ textarea:focus {
     background-color: rgba(230, 119, 0, 0.15) !important;
 }
 
+/* Thinking Process Collapsible - HÖCHSTE PRIORITÄT */
+details {
+    background-color: #252c35 !important;  /* Deutlich helleres Grau */
+    border-radius: 4px !important;
+    padding: 0.5em !important;
+    margin-bottom: 1em !important;
+}
+
+details summary {
+    cursor: pointer !important;
+    font-weight: bold !important;
+    color: #aaa !important;  /* Gleiche Farbe wie "Denkprozess (model)" */
+}
+
+.thinking-compact {
+    color: #aaa !important;  /* GLEICHE Farbe wie Summary */
+    background-color: transparent !important;
+    padding: 0.5em !important;
+}
+
+.thinking-compact p {
+    margin-top: 0.75em !important;
+    margin-bottom: 0.75em !important;
+    color: #aaa !important;  /* GLEICHE Farbe wie Summary */
+}
+
+.thinking-compact > :first-child {
+    margin-top: 0.5em !important;
+}
+
+.thinking-compact > :last-child {
+    margin-bottom: 0.3em !important;
+}
+
 /* Links - Helles Grau statt Blau (überall!) */
 a,
 a:link,

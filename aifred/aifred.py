@@ -253,9 +253,10 @@ def text_input_section() -> rx.Component:
                 disabled=AIState.is_generating | AIState.is_compressing,  # Deaktiviert während Inferenz und Kompression
                 size="2",
                 variant="outline",
-                color_scheme="red",
+                color_scheme="orange",
                 style={
                     "min_width": "140px",  # Schmaler als Text senden
+                    "background": "rgba(100, 10, 0, 0.4)",  # Dezenter transparenter roter Hintergrund
                 },
             ),
             spacing="2",
