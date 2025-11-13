@@ -1055,6 +1055,11 @@ class AIState(rx.State):
                 subprocess.run(["systemctl", "restart", "ollama"], check=True)
                 self.add_debug(f"✅ {backend_name} restarted successfully")
 
+                # Wait for Ollama to be ready (usually 1-2 seconds)
+                import time
+                self.add_debug("⏳ Waiting for Ollama to be ready...")
+                time.sleep(2)
+
                 # Reload model list from Ollama API
                 self.add_debug("🔄 Reloading model list...")
                 try:
