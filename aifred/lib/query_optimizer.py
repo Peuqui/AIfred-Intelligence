@@ -44,7 +44,7 @@ async def optimize_search_query(
     detected_user_language = detect_language(user_text)
     log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
 
-    prompt = get_query_optimization_prompt(user_text=user_text)
+    prompt = get_query_optimization_prompt(user_text=user_text, lang=detected_user_language)
 
     # DEBUG: Zeige Query Optimization Prompt
     log_message("=" * 60)

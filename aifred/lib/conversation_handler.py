@@ -266,7 +266,8 @@ async def chat_interactive_mode(
 
         # Schritt 1: KI fragen, ob Recherche nötig ist (mit Zeitmessung!)
         decision_prompt = get_decision_making_prompt(
-            user_text=user_text
+            user_text=user_text,
+            lang=detected_user_language
             # cache_info removed - Vector DB will replace this
         )
 

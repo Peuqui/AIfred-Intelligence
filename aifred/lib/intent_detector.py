@@ -59,7 +59,7 @@ async def detect_query_intent(
     detected_user_language = detect_language(user_query)
     log_message(f"🌐 Spracherkennung: Nutzereingabe ist wahrscheinlich '{detected_user_language.upper()}' (für Prompt-Auswahl)")
 
-    prompt = get_intent_detection_prompt(user_query=user_query)
+    prompt = get_intent_detection_prompt(user_query=user_query, lang=detected_user_language)
 
     try:
         log_message(f"🎯 Intent-Detection für Query: {user_query[:60]}...")
