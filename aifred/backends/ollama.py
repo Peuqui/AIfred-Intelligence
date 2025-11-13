@@ -17,6 +17,7 @@ from .base import (
     BackendModelNotFoundError,
     BackendInferenceError
 )
+from ..lib.logging_utils import log_message
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +91,8 @@ class OllamaBackend(LLMBackend):
             "stream": False
         }
 
-        # Thinking Mode: Add "think" parameter if enabled
-        if options.enable_thinking:
-            payload["think"] = True
+        # Thinking Mode: Always send "think" parameter (true or false)
+        payload["think"] = options.enable_thinking
 
         try:
             start_time = time.time()
@@ -142,6 +142,53 @@ class OllamaBackend(LLMBackend):
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise BackendModelNotFoundError(f"Model '{model}' not found in Ollama")
+            elif e.response.status_code == 400 and options.enable_thinking == True:
+                # Check if error is about thinking mode not supported
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get("error", "")
+                    if "does not support thinking" in error_msg:
+                        # Retry without thinking mode
+                        logger.warning(f"⚠️ Model '{model}' does not support thinking mode, retrying with think=false")
+                        payload["think"] = False
+
+                        # Retry request
+                        start_time = time.time()
+                        response = await self.client.post(
+                            f"{self.base_url}/api/chat",
+                            json=payload
+                        )
+                        response.raise_for_status()
+                        inference_time = time.time() - start_time
+
+                        data = response.json()
+                        message = data.get("message", {})
+                        content = message.get("content", "")
+                        thinking = message.get("thinking", "")
+
+                        if thinking and content:
+                            text = f"<think>{thinking}</think>\n\n{content}"
+                        elif thinking and not content:
+                            text = f"<think>{thinking}</think>"
+                        else:
+                            text = content
+
+                        eval_count = data.get("eval_count", 0)
+                        eval_duration = data.get("eval_duration", 1)
+                        prompt_eval_count = data.get("prompt_eval_count", 0)
+                        tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
+
+                        return LLMResponse(
+                            text=text,
+                            tokens_prompt=prompt_eval_count,
+                            tokens_generated=eval_count,
+                            tokens_per_second=tokens_per_second,
+                            inference_time=inference_time,
+                            model=model
+                        )
+                except:
+                    pass  # If JSON parsing fails, fall through to normal error handling
+                raise BackendInferenceError(f"Ollama HTTP error: {e}")
             elif e.response.status_code == 500:
                 error_msg = e.response.text
                 raise BackendInferenceError(f"Ollama inference error: {error_msg}")
@@ -158,12 +205,12 @@ class OllamaBackend(LLMBackend):
     ) -> AsyncIterator[Dict]:
         """
         Streaming chat with Ollama
-
+        
         Args:
             model: Ollama model name
             messages: List of LLMMessage
             options: Generation options
-
+        
         Yields:
             Dict with either:
             - {"type": "content", "text": str} for content chunks
@@ -171,10 +218,10 @@ class OllamaBackend(LLMBackend):
         """
         if options is None:
             options = LLMOptions()
-
+        
         # Convert LLMMessage to Ollama format
         ollama_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-
+        
         # Build options
         ollama_options = {
             "temperature": options.temperature,
@@ -188,85 +235,114 @@ class OllamaBackend(LLMBackend):
             ollama_options["num_predict"] = options.num_predict
         if options.seed:
             ollama_options["seed"] = options.seed
-
+        
         payload = {
             "model": model,
             "messages": ollama_messages,
             "options": ollama_options,
             "stream": True
         }
+        
+        # Thinking Mode: Always send "think" parameter (true or false)
+        payload["think"] = options.enable_thinking
 
-        # Thinking Mode: Add "think" parameter if enabled
-        if options.enable_thinking:
-            payload["think"] = True
+        # Retry loop: try once, retry with think=false if needed
+        retry_message_shown = False
+        first_content_sent = False
+        for attempt in range(2):
 
-        try:
-            start_time = time.time()
-            thinking_started = False
-            thinking_buffer = ""
+            try:
+                start_time = time.time()
+                thinking_started = False
+                thinking_buffer = ""
 
-            async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
-                response.raise_for_status()
-
-                async for line in response.aiter_lines():
-                    if line.strip():
+                async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
+                    # Check for 400 error with thinking mode BEFORE raise_for_status
+                    if response.status_code == 400 and options.enable_thinking == True and attempt == 0:
+                        # Read error body while stream is still open
                         import json
-                        try:
-                            data = json.loads(line)
-                            message = data.get("message", {})
-                            content = message.get("content", "")
-                            thinking = message.get("thinking", "")
+                        error_body = await response.aread()
+                        error_data = json.loads(error_body.decode('utf-8'))
+                        error_msg = error_data.get("error", "")
+                        
+                        if "does not support thinking" in error_msg:
+                            log_message(f"⚠️ Model '{model}' does not support thinking mode, retrying with think=false")
+                            # Set payload for retry
+                            payload["think"] = False
+                            continue  # Retry with attempt=1 (warning will be shown with first content)
+                        else:
+                            # Different 400 error
+                            response.raise_for_status()
+                    elif response.status_code == 404:
+                        raise BackendModelNotFoundError(f"Model '{model}' not found")
+                    elif response.status_code >= 400:
+                        response.raise_for_status()
+                    
+                    # Process stream
+                    async for line in response.aiter_lines():
+                        if line.strip():
+                            import json
+                            try:
+                                data = json.loads(line)
+                                message = data.get("message", {})
+                                content = message.get("content", "")
+                                thinking = message.get("thinking", "")
+                                
+                                # Handle thinking chunks
+                                if thinking:
+                                    if not thinking_started:
+                                        yield {"type": "content", "text": "<think>"}
+                                        thinking_started = True
+                                    thinking_buffer += thinking
+                                    yield {"type": "content", "text": thinking}
+                                
+                                # Handle content chunks
+                                if content:
+                                    # Show retry message and warning before first content (only on attempt 1)
+                                    if not first_content_sent and attempt == 1 and not retry_message_shown:
+                                        yield {"type": "thinking_warning", "model": model}
+                                        yield {"type": "debug", "message": f"⚠️ Modell '{model}' unterstützt kein Reasoning - läuft ohne Think-Modus"}
+                                        retry_message_shown = True
+                                        first_content_sent = True
 
-                            # Handle thinking chunks
-                            if thinking:
-                                if not thinking_started:
-                                    # First thinking chunk: yield opening tag
-                                    yield {"type": "content", "text": "<think>"}
-                                    thinking_started = True
-                                thinking_buffer += thinking
-                                yield {"type": "content", "text": thinking}
-
-                            # Handle content chunks
-                            if content:
-                                # If we were thinking, close the tag first
-                                if thinking_started and thinking_buffer:
-                                    yield {"type": "content", "text": "</think>\n\n"}
-                                    thinking_started = False
-                                    thinking_buffer = ""
-                                yield {"type": "content", "text": content}
-
-                            # Check if done - extract metrics
-                            if data.get("done", False):
-                                inference_time = time.time() - start_time
-                                eval_count = data.get("eval_count", 0)
-                                eval_duration = data.get("eval_duration", 1)  # nanoseconds
-                                prompt_eval_count = data.get("prompt_eval_count", 0)
-
-                                tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
-
-                                yield {
-                                    "type": "done",
-                                    "metrics": {
-                                        "tokens_prompt": prompt_eval_count,
-                                        "tokens_generated": eval_count,
-                                        "tokens_per_second": tokens_per_second,
-                                        "inference_time": inference_time,
-                                        "model": model
+                                    if thinking_started and thinking_buffer:
+                                        yield {"type": "content", "text": "</think>\n\n"}
+                                        thinking_started = False
+                                        thinking_buffer = ""
+                                    yield {"type": "content", "text": content}
+                                
+                                # Check if done - extract metrics
+                                if data.get("done", False):
+                                    inference_time = time.time() - start_time
+                                    eval_count = data.get("eval_count", 0)
+                                    eval_duration = data.get("eval_duration", 1)
+                                    prompt_eval_count = data.get("prompt_eval_count", 0)
+                                    tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
+                                    
+                                    yield {
+                                        "type": "done",
+                                        "metrics": {
+                                            "tokens_prompt": prompt_eval_count,
+                                            "tokens_generated": eval_count,
+                                            "tokens_per_second": tokens_per_second,
+                                            "inference_time": inference_time,
+                                            "model": model
+                                        }
                                     }
-                                }
-                                break
-                        except json.JSONDecodeError as e:
-                            # Log invalid JSON lines to help debugging
-                            logger.warning(f"Invalid JSON in Ollama stream: {line[:100]}... Error: {e}")
-                            continue
-
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                raise BackendModelNotFoundError(f"Model '{model}' not found")
-            else:
-                raise BackendInferenceError(f"Ollama streaming error: {e}")
-        except Exception as e:
-            raise BackendInferenceError(f"Ollama streaming failed: {e}")
+                                    return  # Success, exit function
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Invalid JSON in Ollama stream: {line[:100]}... Error: {e}")
+                                continue
+            
+            except httpx.HTTPStatusError as e:
+                # If this is attempt 0 and might be thinking-related, loop will retry
+                # If this is attempt 1 or not thinking-related, raise the error
+                if attempt == 1 or not (e.response.status_code == 400 and options.enable_thinking == True):
+                    if e.response.status_code == 404:
+                        raise BackendModelNotFoundError(f"Model '{model}' not found")
+                    else:
+                        raise BackendInferenceError(f"Ollama streaming error: {e}")
+                # else: continue to retry
 
     async def preload_model(self, model: str) -> tuple[bool, float]:
         """

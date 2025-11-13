@@ -105,6 +105,7 @@ class AIState(rx.State):
 
     # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
     enable_thinking: bool = True  # True = Thinking Mode (temp=0.6), False = Non-Thinking (temp=0.7)
+    thinking_mode_warning: str = ""  # Empty = no warning, otherwise show model name that doesn't support thinking
 
     # vLLM YaRN Settings (RoPE Scaling for Context Extension)
     enable_yarn: bool = False  # Enable YaRN context extension
@@ -856,13 +857,16 @@ class AIState(rx.State):
                         updated_history = item["data"]
                         self.chat_history = updated_history
                         self.add_debug(f"📊 History aktualisiert: {len(updated_history)} Messages")
+                    elif item["type"] == "thinking_warning":
+                        # Show thinking mode warning (model doesn't support reasoning)
+                        self.thinking_mode_warning = item["model"]
 
                     yield  # Update UI after each item
 
-                # Separator nach Automatik-Mode Research
-                console_separator()  # Schreibt in Log-File
-                self.add_debug("────────────────────")  # Zeigt in Debug-Console
-                yield
+                # Separator wird bereits von conversation_handler gesendet
+                # console_separator()  # Schreibt in Log-File
+                # self.add_debug("────────────────────")  # Zeigt in Debug-Console
+                # yield
 
             elif self.research_mode in ["quick", "deep"]:
                 # Direct research mode (quick/deep)
@@ -989,6 +993,11 @@ class AIState(rx.State):
                     else:
                         self.add_debug("ℹ️ Keine Kompression nötig")
                     yield
+
+                    # Separator nach Compression-Check (nur wenn Check durchgeführt wurde)
+                    console_separator()  # Schreibt in Log-File
+                    self.add_debug("────────────────────")  # Zeigt in Debug-Console
+                    yield
                 else:
                     self.add_debug(f"❌ History zu kurz: {len(self.chat_history)} < {HISTORY_MIN_MESSAGES_BEFORE_COMPRESSION}")
                     yield
@@ -1001,7 +1010,7 @@ class AIState(rx.State):
                 self.is_compressing = False
                 yield
 
-            # Separator nach Compression-Check
+            # Separator nach Compression-Check (immer, auch wenn zu kurz)
             console_separator()  # Schreibt in Log-File
             self.add_debug("────────────────────")  # Zeigt in Debug-Console
             yield
@@ -1134,6 +1143,8 @@ class AIState(rx.State):
     def set_selected_model(self, model: str):
         """Set selected model"""
         self.selected_model = model
+        # Clear thinking mode warning when model changes
+        self.thinking_mode_warning = ""
         self.add_debug(f"📝 Model changed to: {model}")
         self._save_settings()
 

@@ -448,6 +448,12 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                         ai_text += chunk["text"]
                         yield {"type": "content", "text": chunk["text"]}
+                    elif chunk["type"] == "debug":
+                        # Forward debug messages from backend (e.g., thinking mode retry warning)
+                        yield chunk
+                    elif chunk["type"] == "thinking_warning":
+                        # Forward thinking mode warning (model doesn't support reasoning)
+                        yield chunk
                     elif chunk["type"] == "done":
                         metrics = chunk["metrics"]
 

@@ -84,10 +84,9 @@ class vLLMBackend(LLMBackend):
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
 
-        # Qwen3 Thinking Mode (enable_thinking) - MUST be in chat_template_kwargs!
-        if options.enable_thinking is not None:
-            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
-            logger.info(f"🧠 enable_thinking set to: {options.enable_thinking}")
+        # Thinking Mode - Always send (true or false)
+        extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+        logger.info(f"🧠 enable_thinking set to: {options.enable_thinking}")
 
         if extra_body:
             kwargs["extra_body"] = extra_body
@@ -168,10 +167,9 @@ class vLLMBackend(LLMBackend):
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
 
-        # Qwen3 Thinking Mode (enable_thinking) - MUST be in chat_template_kwargs!
-        if options.enable_thinking is not None:
-            extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
-            logger.info(f"🧠 enable_thinking set to: {options.enable_thinking}")
+        # Thinking Mode - Always send (true or false)
+        extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+        logger.info(f"🧠 enable_thinking set to: {options.enable_thinking}")
 
         if extra_body:
             kwargs["extra_body"] = extra_body

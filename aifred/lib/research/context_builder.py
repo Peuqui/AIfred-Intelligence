@@ -185,6 +185,12 @@ async def build_and_generate_response(
 
             ai_text += chunk["text"]
             yield {"type": "content", "text": chunk["text"]}
+        elif chunk["type"] == "debug":
+            # Forward debug messages from backend (e.g., thinking mode retry warning)
+            yield chunk
+        elif chunk["type"] == "thinking_warning":
+            # Forward thinking mode warning (model doesn't support reasoning)
+            yield chunk
         elif chunk["type"] == "done":
             metrics = chunk["metrics"]
 
@@ -194,6 +200,11 @@ async def build_and_generate_response(
     tokens_generated = metrics.get("tokens_generated", 0)
     tokens_per_sec = metrics.get("tokens_per_second", 0)
     yield {"type": "debug", "message": f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)"}
+
+    # Separator nach LLM-Antwort-Block (Ende der Einheit)
+    from ..logging_utils import console_separator, CONSOLE_SEPARATOR
+    console_separator()
+    yield {"type": "debug", "message": CONSOLE_SEPARATOR}
 
     # Format thinking process
     thinking_html = format_thinking_process(ai_text, model_name=model_choice, inference_time=inference_time)
@@ -255,7 +266,7 @@ async def build_and_generate_response(
                 response = await automatik_llm_client.chat(
                     model=automatik_model,
                     messages=[{'role': 'user', 'content': cache_prompt}],
-                    options={'temperature': 0.1, 'num_ctx': 2048}  # Very deterministic
+                    options={'temperature': 0.1, 'num_ctx': 2048, 'enable_thinking': False}  # Very deterministic, no reasoning
                 )
                 decision = response.text.strip().lower()
 
@@ -284,7 +295,7 @@ async def build_and_generate_response(
                 response = await automatik_llm_client.chat(
                     model=automatik_model,
                     messages=[{'role': 'user', 'content': cache_prompt}],
-                    options={'temperature': 0.1, 'num_ctx': 2048}
+                    options={'temperature': 0.1, 'num_ctx': 2048, 'enable_thinking': False}  # Fast decision, no reasoning
                 )
                 decision = response.text.strip().lower()
 
@@ -326,11 +337,16 @@ async def build_and_generate_response(
     except Exception as e:
         log_message(f"⚠️ Vector Cache auto-learning failed: {e}")
 
+    # Separator nach Cache-Decision-Block (Ende der Einheit)
+    from ..logging_utils import console_separator, CONSOLE_SEPARATOR
+    console_separator()
+    yield {"type": "debug", "message": CONSOLE_SEPARATOR}
+
     log_message(f"✅ Agent fertig: {total_time:.1f}s gesamt, {len(ai_text)} Zeichen")
     log_message("=" * 60)
 
     # Clear progress
     yield {"type": "progress", "clear": True}
 
-    # Final result (separator wird in state.py hinzugefügt)
+    # Final result
     yield {"type": "result", "data": (ai_response_complete, history, inference_time)}

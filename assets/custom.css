@@ -204,3 +204,19 @@ li a:hover,
 .radix-themes a:hover {
     color: #d1d5db !important;  /* Noch heller beim Hover */
 }
+
+/* Thinking Mode Warning - Pulsing Animation */
+@keyframes pulse-warning {
+    0%, 100% {
+        opacity: 1;
+        border-color: rgba(255, 152, 0, 0.4);
+    }
+    50% {
+        opacity: 0.7;
+        border-color: rgba(255, 152, 0, 0.2);
+    }
+}
+
+.thinking-warning-pulse {
+    animation: pulse-warning 2s ease-in-out infinite;
+}

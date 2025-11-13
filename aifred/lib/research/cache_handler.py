@@ -155,14 +155,21 @@ async def handle_cache_hit(
     ttft = None
     first_token_received = False
 
+    # Build LLM options (include enable_thinking from user settings)
+    cache_llm_options = {
+        'temperature': final_temperature,  # Adaptive oder Manual Temperature!
+        'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
+    }
+
+    # Add enable_thinking if provided in llm_options (user toggle)
+    if llm_options and 'enable_thinking' in llm_options:
+        cache_llm_options['enable_thinking'] = llm_options['enable_thinking']
+
     # Stream response from LLM
     async for chunk in llm_client.chat_stream(
         model=model_choice,
         messages=messages,
-        options={
-            'temperature': final_temperature,  # Adaptive oder Manual Temperature!
-            'num_ctx': final_num_ctx  # Dynamisch berechnet oder User-Vorgabe
-        }
+        options=cache_llm_options
     ):
         if chunk["type"] == "content":
             # Measure TTFT
@@ -174,6 +181,12 @@ async def handle_cache_hit(
 
             final_answer += chunk["text"]
             yield {"type": "content", "text": chunk["text"]}
+        elif chunk["type"] == "debug":
+            # Forward debug messages from backend (e.g., thinking mode retry warning)
+            yield chunk
+        elif chunk["type"] == "thinking_warning":
+            # Forward thinking mode warning (model doesn't support reasoning)
+            yield chunk
         elif chunk["type"] == "done":
             metrics = chunk["metrics"]
 

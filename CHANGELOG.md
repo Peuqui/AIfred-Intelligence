@@ -5,7 +5,39 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-11-13
+## [Unreleased] - 2025-11-14
+
+### 🧹 Debug Console Separator Structure
+
+#### Fixed
+- **Separator Placement Logic** ([aifred/lib/research/context_builder.py](aifred/lib/research/context_builder.py), [aifred/state.py](aifred/state.py)):
+  - Separators now appear AFTER each logical processing unit (not before)
+  - Implemented "separator marks end of unit" principle across all code paths
+  - Eliminated double separators after LLM completion
+  - Three logical units with proper separation:
+    1. LLM Response Generation → Separator
+    2. Vector Cache Decision (web research only) → Separator
+    3. History Compression Check → Separator
+
+#### Changed
+- **Web Research Path** ([aifred/lib/research/context_builder.py:204-207](aifred/lib/research/context_builder.py#L204-L207)):
+  - Added separator after "✅ Haupt-LLM fertig" message
+  - Added separator after Cache-Decision block (lines 329-332)
+- **Normal Chat Path** ([aifred/state.py:866-869](aifred/state.py#L866-L869)):
+  - Removed redundant separator (conversation_handler already emits one)
+- **Compression Check** ([aifred/state.py:997-1016](aifred/state.py#L997-L1016)):
+  - Separator now appears after compression completion message
+
+#### Impact
+- **Debug Console Output**: Clean, predictable structure with logical block boundaries
+- **Before**: Inconsistent separator placement, double separators in some paths
+- **After**: Each processing unit ends with exactly one separator line
+
+#### Files Modified
+- [aifred/lib/research/context_builder.py](aifred/lib/research/context_builder.py): Lines 204-207, 329-332
+- [aifred/state.py](aifred/state.py): Lines 866-869 (commented), 997-1016
+
+---
 
 ### 🔄 Auto-Reload Model List on Backend Restart
 

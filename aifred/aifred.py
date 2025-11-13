@@ -1186,51 +1186,66 @@ def settings_accordion() -> rx.Component:
                     align="center",
                 ),
 
-                # Qwen3 Thinking Mode Toggle (nur sichtbar bei Qwen3/QwQ-Modellen)
-                rx.divider(),
-                rx.cond(
-                    AIState.selected_model.lower().contains("qwen3") | AIState.selected_model.lower().contains("qwq"),
-                    rx.vstack(
-                        rx.hstack(
-                            rx.text("🧠 Thinking Mode:", font_weight="bold", font_size="12px"),
-                            rx.switch(
-                                checked=AIState.enable_thinking,
-                                on_change=AIState.toggle_thinking_mode,
-                                size="1",
-                            ),
-                            rx.text(
-                                rx.cond(
-                                    AIState.enable_thinking,
-                                    "ON (temp=0.6, CoT)",
-                                    "OFF (temp=0.7, direct)"
-                                ),
-                                font_size="11px",
-                                color=rx.cond(
-                                    AIState.enable_thinking,
-                                    "#4CAF50",
-                                    "#999"
-                                ),
-                            ),
-                            spacing="2",
-                            align="center",
+                # Thinking Mode Toggle (für alle Modelle sichtbar)
+                rx.divider(margin_top="12px", margin_bottom="12px"),
+                rx.vstack(
+                    rx.hstack(
+                        rx.text("🧠 Thinking Mode:", font_weight="bold", font_size="12px"),
+                        rx.switch(
+                            checked=AIState.enable_thinking,
+                            on_change=AIState.toggle_thinking_mode,
+                            size="1",
                         ),
                         rx.text(
-                            "ℹ️ Chain-of-Thought Reasoning für komplexe Aufgaben",
-                            font_size="10px",
-                            color="#999",
-                            line_height="1.3",
+                            rx.cond(
+                                AIState.enable_thinking,
+                                "ON",
+                                "OFF"
+                            ),
+                            font_size="11px",
+                            color=rx.cond(
+                                AIState.enable_thinking,
+                                "#4CAF50",
+                                "#999"
+                            ),
                         ),
                         spacing="2",
-                        width="100%",
+                        align="center",
                     ),
-                    rx.box(),  # Empty box when not Qwen3/QwQ
+                    rx.text(
+                        "ℹ️ Chain-of-Thought Reasoning für komplexe Aufgaben",
+                        font_size="10px",
+                        color="#999",
+                        line_height="1.3",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+                # Pulsierende Warnung unterhalb der Erklärung (nur sichtbar wenn thinking_mode_warning gesetzt)
+                rx.cond(
+                    AIState.thinking_mode_warning != "",
+                    rx.box(
+                        rx.text(
+                            f"⚠️ Nicht verfügbar für {AIState.thinking_mode_warning}",
+                            font_size="11px",
+                            font_weight="bold",
+                            color="#ff9800",
+                        ),
+                        padding="6px 10px",
+                        border_radius="4px",
+                        background_color="rgba(255, 152, 0, 0.15)",
+                        border=f"2px solid rgba(255, 152, 0, 0.5)",
+                        class_name="thinking-warning-pulse",
+                        margin_top="3px",
+                        margin_bottom="-12px",
+                    ),
                 ),
 
                 # vLLM YaRN Context Extension (nur sichtbar bei vLLM)
                 rx.cond(
                     AIState.backend_type == "vllm",
                     rx.vstack(
-                        rx.divider(),
+                        rx.divider(margin="0px 0px 12px 0px"),
                         rx.hstack(
                             rx.text("📏 YaRN Context Extension:", font_weight="bold", font_size="12px"),
                             rx.switch(
