@@ -59,6 +59,18 @@ body {
     background-color: transparent;
 }
 
+/* Select dropdown content - max height with scroll for mobile */
+.rt-SelectContent {
+    max-height: min(var(--radix-select-content-available-height), 300px) !important;
+    overflow-y: auto !important;
+}
+
+/* Ensure select viewport is scrollable */
+.rt-SelectViewport {
+    max-height: inherit !important;
+    overflow-y: auto !important;
+}
+
 /* Debug console monospace */
 .debug-console {
     font-family: 'Courier New', Consolas, monospace !important;

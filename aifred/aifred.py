@@ -995,6 +995,7 @@ def settings_accordion() -> rx.Component:
                         value=AIState.backend_type,
                         on_change=AIState.switch_backend,
                         size="2",
+                        position="popper",  # Better mobile positioning (adapts to viewport)
                         disabled=AIState.backend_switching,  # Disable during backend switch
                     ),
                     rx.cond(
@@ -1084,6 +1085,7 @@ def settings_accordion() -> rx.Component:
                         value=AIState.selected_model,
                         on_change=AIState.set_selected_model,
                         size="2",
+                        position="popper",  # Better mobile positioning (adapts to viewport)
                         disabled=AIState.backend_switching,  # Disable during backend switch
                     ),
                     spacing="3",
@@ -1097,6 +1099,7 @@ def settings_accordion() -> rx.Component:
                         value=AIState.automatik_model,
                         on_change=AIState.set_automatik_model,
                         size="2",
+                        position="popper",  # Better mobile positioning (adapts to viewport)
                         disabled=AIState.backend_switching,  # Disable during backend switch
                     ),
                     spacing="3",

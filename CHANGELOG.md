@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-13
 
+### 📱 Mobile Dropdown Optimization
+
+#### Problem Solved
+- **Fixed**: Select dropdowns disappeared below viewport on mobile devices
+- **Impact**: Users couldn't select models/backends when list was too long or positioned at bottom
+- **Root Cause**: Default "item-aligned" positioning opens downward without viewport awareness
+- **Solution**: Intelligent positioning + scrollable dropdowns with max-height
+
+#### Implementation
+- **Intelligent Positioning**: Added `position="popper"` to all select dropdowns
+  - Backend select, Model select, Automatik-Model select
+  - Adapts to available viewport space (opens upward if no space below)
+- **Scrollable Dropdowns**: CSS max-height with internal scroll
+  - Max height: 300px or available viewport height (whichever is smaller)
+  - Internal scrollbar when list exceeds height
+  - Dropdown stays open while scrolling (no accidental close)
+- **Mobile-Friendly**: Touch scroll works correctly inside dropdown
+
+#### Files Modified
+- [aifred/aifred.py](aifred/aifred.py): Added `position="popper"` to 3 select components
+- [aifred/theme.py](aifred/theme.py): CSS for `.rt-SelectContent` and `.rt-SelectViewport`
+
+---
+
 ### 🛡️ GPU Compatibility Backend Filter
 
 #### Problem Solved
