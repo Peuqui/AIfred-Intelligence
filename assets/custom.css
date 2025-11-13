@@ -89,18 +89,45 @@ html, body, #root, .radix-themes {
 .rt-Grid,
 .rt-Box,
 .rt-Dialog,
-.rt-AlertDialog {
-    background-color: #161b22 !important;
+.rt-AlertDialog,
+.rt-Heading,
+.rt-Text,
+.rt-Label,
+.rt-VStack,
+.rt-HStack {
+    background-color: transparent !important;  /* Transparent statt #161b22 für innere Elemente */
 }
 
-/* Input/Textarea dark backgrounds */
+/* Nur Top-Level Container bekommen Farbe */
+body > .rt-Box,
+body > .rt-Container,
+body > .rt-Flex,
+#root > .rt-Box,
+#root > .rt-Container {
+    background-color: #0b0f19 !important;
+}
+
+/* Input/Textarea dark backgrounds - alle möglichen Selektoren */
 .rt-TextFieldInput,
 .rt-TextAreaInput,
 .rt-SelectTrigger,
-.rt-TextAreaRoot textarea {
+.rt-TextAreaRoot,
+.rt-TextAreaRoot textarea,
+textarea,
+input[type="text"],
+input[type="search"] {
     background-color: #21262d !important;
     color: #e6edf3 !important;
     border-color: #30363d !important;
+}
+
+/* Auch für Focus-State */
+.rt-TextAreaRoot:focus,
+.rt-TextAreaRoot:focus-within,
+.rt-TextAreaRoot textarea:focus,
+textarea:focus {
+    background-color: #21262d !important;
+    color: #e6edf3 !important;
 }
 
 /* Select dropdown content dark background */
