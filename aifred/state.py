@@ -106,6 +106,10 @@ class AIState(rx.State):
     # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
     enable_thinking: bool = True  # True = Thinking Mode (temp=0.6), False = Non-Thinking (temp=0.7)
 
+    # vLLM YaRN Settings (RoPE Scaling for Context Extension)
+    enable_yarn: bool = False  # Enable YaRN context extension
+    yarn_factor: float = 1.0  # Scaling factor (1.0 = disabled, 2.0 = 2x context, 4.0 = 4x context)
+
     # TTS Settings
     enable_tts: bool = False
 
@@ -584,12 +588,32 @@ class AIState(rx.State):
             # vLLMProcessManager will read max_position_embeddings from HuggingFace cache
             self.add_debug("📏 Auto-detecting context limit from model config...")
 
+            # Build YaRN config if enabled
+            yarn_config = None
+            if self.enable_yarn and self.yarn_factor > 1.0:
+                # Get native context limit from model (for original_max_position_embeddings)
+                from .lib.vllm_manager import get_model_max_position_embeddings
+                try:
+                    native_context = get_model_max_position_embeddings(self.selected_model)
+                    yarn_config = {
+                        "factor": self.yarn_factor,
+                        "original_max_position_embeddings": native_context
+                    }
+                    self.add_debug(f"🔧 YaRN: {self.yarn_factor}x scaling ({native_context} → {int(native_context * self.yarn_factor)} tokens)")
+                except Exception as e:
+                    self.add_debug(f"⚠️ YaRN: Could not detect native context, using default (40960): {e}")
+                    yarn_config = {
+                        "factor": self.yarn_factor,
+                        "original_max_position_embeddings": 40960  # Default for Qwen3
+                    }
+
             # Initialize vLLM Process Manager
             # RTX 3060 (12GB, Ampere 8.6) - Optimized configuration
             self._vllm_manager = vLLMProcessManager(
                 port=8001,
                 max_model_len=26608,  # Maximum for RTX 3060 12GB (~26K context)
-                gpu_memory_utilization=0.90  # 90% safe on Ampere GPU
+                gpu_memory_utilization=0.90,  # 90% safe on Ampere GPU
+                yarn_config=yarn_config  # YaRN context extension (if enabled)
             )
 
             # Start server with selected model (timeout 120s - first load can take ~70s)
@@ -1001,6 +1025,27 @@ class AIState(rx.State):
         temp = "0.6" if self.enable_thinking else "0.7"
         self.add_debug(f"🧠 {mode_name} aktiviert (temp={temp})")
         self._save_settings()
+
+    def toggle_yarn(self):
+        """Toggle YaRN context extension"""
+        self.enable_yarn = not self.enable_yarn
+        status = "aktiviert" if self.enable_yarn else "deaktiviert"
+        self.add_debug(f"📏 YaRN Context Extension {status} (Faktor: {self.yarn_factor}x)")
+        if self.enable_yarn:
+            self.add_debug("⚠️ Backend-Neustart erforderlich für YaRN-Aktivierung!")
+        self._save_settings()
+
+    def set_yarn_factor(self, factor: str):
+        """Set YaRN scaling factor"""
+        try:
+            factor_float = float(factor)
+            if 1.0 <= factor_float <= 8.0:
+                self.yarn_factor = factor_float
+                estimated_context = int(40960 * factor_float)
+                self.add_debug(f"📏 YaRN Faktor: {factor_float}x (~{estimated_context} tokens)")
+                self._save_settings()
+        except ValueError:
+            self.add_debug(f"❌ Ungültiger YaRN-Faktor: {factor}")
 
     def set_temperature(self, temp: list[float]):
         """Set temperature (from slider which returns list[float])"""

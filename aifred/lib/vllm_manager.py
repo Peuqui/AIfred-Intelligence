@@ -48,7 +48,13 @@ class vLLMProcessManager:
         await manager.stop()
     """
 
-    def __init__(self, port: int = 8001, max_model_len: int = None, gpu_memory_utilization: float = 0.85):
+    def __init__(
+        self,
+        port: int = 8001,
+        max_model_len: int = None,
+        gpu_memory_utilization: float = 0.85,
+        yarn_config: Optional[dict] = None
+    ):
         """
         Initialize vLLM Process Manager
 
@@ -56,10 +62,13 @@ class vLLMProcessManager:
             port: Port for vLLM server (default: 8001)
             max_model_len: Maximum context length (default: None = auto-detect from model)
             gpu_memory_utilization: GPU memory to use (default: 0.85 = 85%)
+            yarn_config: YaRN RoPE scaling config (default: None = disabled)
+                Example: {"factor": 2.0, "original_max_position_embeddings": 40960}
         """
         self.port = port
         self.max_model_len = max_model_len  # None = auto-detect
         self.gpu_memory_utilization = gpu_memory_utilization
+        self.yarn_config = yarn_config  # YaRN configuration
         self.process: Optional[subprocess.Popen] = None
         self.current_model: Optional[str] = None
 
@@ -115,6 +124,20 @@ class vLLMProcessManager:
         if quant:
             cmd.extend(["--quantization", quant])
             logger.info(f"✅ Using quantization: {quant}")
+
+        # YaRN RoPE Scaling (if enabled)
+        if self.yarn_config and self.yarn_config.get("factor", 1.0) > 1.0:
+            import json
+            rope_scaling_config = {
+                "rope_type": "yarn",
+                "factor": self.yarn_config["factor"],
+                "original_max_position_embeddings": self.yarn_config.get(
+                    "original_max_position_embeddings",
+                    40960  # Default for Qwen3 models
+                )
+            }
+            cmd.extend(["--rope-scaling", json.dumps(rope_scaling_config)])
+            logger.info(f"✅ YaRN enabled: factor={rope_scaling_config['factor']}x")
 
         # Environment variables
         import os

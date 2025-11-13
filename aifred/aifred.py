@@ -1146,6 +1146,73 @@ def settings_accordion() -> rx.Component:
                     rx.box(),  # Empty box when not Qwen3/QwQ
                 ),
 
+                # vLLM YaRN Context Extension (nur sichtbar bei vLLM)
+                rx.cond(
+                    AIState.backend_type == "vllm",
+                    rx.vstack(
+                        rx.divider(),
+                        rx.hstack(
+                            rx.text("📏 YaRN Context Extension:", font_weight="bold", font_size="12px"),
+                            rx.switch(
+                                checked=AIState.enable_yarn,
+                                on_change=AIState.toggle_yarn,
+                                size="1",
+                            ),
+                            rx.text(
+                                rx.cond(
+                                    AIState.enable_yarn,
+                                    f"ON ({AIState.yarn_factor}x)",
+                                    "OFF"
+                                ),
+                                font_size="11px",
+                                color=rx.cond(
+                                    AIState.enable_yarn,
+                                    "#4CAF50",
+                                    "#999"
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.cond(
+                            AIState.enable_yarn,
+                            rx.vstack(
+                                rx.hstack(
+                                    rx.text("Faktor:", font_size="11px", font_weight="500"),
+                                    rx.input(
+                                        value=AIState.yarn_factor,
+                                        on_change=AIState.set_yarn_factor,
+                                        type="number",
+                                        step="0.5",
+                                        min="1.0",
+                                        max="8.0",
+                                        size="1",
+                                        width="80px",
+                                    ),
+                                    rx.text(
+                                        f"({int(40960 * AIState.yarn_factor)} tokens)",
+                                        font_size="10px",
+                                        color="#999",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                spacing="2",
+                            ),
+                            rx.box(),
+                        ),
+                        rx.text(
+                            "ℹ️ Erweitert Context über natives Limit (40K → 80K bei 2.0x). Benötigt Backend-Neustart!",
+                            font_size="10px",
+                            color="#999",
+                            line_height="1.3",
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.box(),  # Empty box when not vLLM
+                ),
+
                 # Restart Buttons
                 rx.divider(),
                 rx.text(t("system_control"), font_weight="bold", font_size="12px"),
