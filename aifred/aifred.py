@@ -619,6 +619,41 @@ def tts_section() -> rx.Component:
     )
 
 
+def parse_thinking(ai_response: str) -> tuple[str, str]:
+    """
+    Parse AI response to separate thinking from final answer.
+
+    Returns:
+        (thinking_text, final_answer)
+    """
+    # Check for common thinking patterns
+    thinking_markers = [
+        "After considering",
+        "Let me think",
+        "First, I'll",
+        "To solve this",
+        "Breaking this down",
+        "Let's analyze",
+        "Step by step"
+    ]
+
+    # Find if response starts with thinking
+    for marker in thinking_markers:
+        if ai_response.startswith(marker):
+            # Find where thinking ends (usually before the actual answer)
+            # Look for paragraph break or colon followed by newline
+            parts = ai_response.split('\n\n', 1)
+            if len(parts) == 2:
+                return parts[0], parts[1]
+            # Try splitting at colon + newline
+            parts = ai_response.split(':\n', 1)
+            if len(parts) == 2:
+                return parts[0], parts[1]
+
+    # No thinking found
+    return "", ai_response
+
+
 def render_chat_message(msg: tuple) -> rx.Component:
     """Rendert eine einzelne Chat-Message (User+AI oder Summary)"""
     # Check ob es eine Summary ist (leerer User-Teil + "[📊 Komprimiert" am Anfang)
@@ -687,7 +722,7 @@ def render_chat_message(msg: tuple) -> rx.Component:
                 rx.hstack(
                     rx.spacer(),
                     rx.box(
-                        rx.text(msg[0], color=COLORS["user_text"], font_size="13px"),
+                        rx.markdown(msg[0], color=COLORS["user_text"], font_size="13px"),
                         background_color=COLORS["user_msg"],
                         padding="3",
                         border_radius="6px",
@@ -737,19 +772,28 @@ def render_chat_message(msg: tuple) -> rx.Component:
 
 def chat_history_display() -> rx.Component:
     """Full chat history (like Gradio chatbot) - Collapsible"""
-    # Loading spinner während Initialisierung
+    # Loading spinner während Initialisierung oder Backend-Wechsel
     loading_spinner = rx.vstack(
         rx.spinner(size="3", color="orange"),
-        rx.text(
-            "AIfred wird initialisiert...",
-            font_size="14px",
-            color=COLORS["text_secondary"],
-            margin_top="3",
+        rx.cond(
+            AIState.backend_initializing,
+            rx.text(
+                "AIfred wird initialisiert...",
+                font_size="14px",
+                color=COLORS["text_secondary"],
+                margin_top="3",
+            ),
+            rx.text(
+                "Backend wird gewechselt...",
+                font_size="14px",
+                color=COLORS["text_secondary"],
+                margin_top="3",
+            ),
         ),
         rx.text(
             "Bitte warten, Backend startet (~40-70 Sekunden bei erster Nutzung)",
             font_size="11px",
-            color=COLORS["text_tertiary"],
+            color=COLORS["text_muted"],
             font_style="italic",
             margin_top="1",
         ),
@@ -764,8 +808,8 @@ def chat_history_display() -> rx.Component:
     )
 
     chat_content = rx.cond(
-        AIState.backend_initializing,
-        loading_spinner,  # Show spinner during initialization
+        AIState.backend_initializing | AIState.backend_switching,
+        loading_spinner,  # Show spinner during initialization or backend switch
         rx.cond(
             AIState.auto_refresh_enabled,
             # Auto-Scroll enabled: rx.auto_scroll scrollt automatisch

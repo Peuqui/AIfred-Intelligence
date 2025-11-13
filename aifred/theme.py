@@ -122,5 +122,24 @@ body {
     background-color: rgba(230, 119, 0, 0.15) !important;  /* Orange beim Hover */
 }
 
+/* Thinking Process Collapsible - Kompaktere Absätze */
+.thinking-compact {
+    color: #aaa !important;
+}
+
+.thinking-compact p {
+    margin-top: 0.75em !important;
+    margin-bottom: 0.75em !important;
+    color: #aaa !important;
+}
+
+.thinking-compact > :first-child {
+    margin-top: 0.5em !important;
+}
+
+.thinking-compact > :last-child {
+    margin-bottom: 0.3em !important;
+}
+
 /* NOTE: Link styles moved to assets/custom.css for proper loading */
 """

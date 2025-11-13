@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-13
 
+### 🧠 Thinking Mode Support for Ollama and vLLM Backends
+
+#### Added
+- **Ollama Thinking Mode Implementation** ([aifred/backends/ollama.py](aifred/backends/ollama.py)):
+  - Added `"think": true` API parameter support in `chat()` and `chat_stream()` methods
+  - Parse separate `thinking` and `content` fields from Ollama response
+  - Wrap thinking output in `<think>...</think>` tags for unified formatting
+  - Streaming support: Properly handle thinking chunks before content chunks
+- **vLLM Thinking Mode Enhancement** ([aifred/backends/vllm.py](aifred/backends/vllm.py)):
+  - Improved type safety: Replaced `# type: ignore` with proper `Dict[str, Any]` annotations
+  - Use `chat_template_kwargs: {"enable_thinking": bool}` in `extra_body` for Qwen3 models
+  - Consistent implementation across `chat()` and `chat_stream()` methods
+- **Unified Thinking Process Formatting** ([aifred/lib/formatting.py](aifred/lib/formatting.py)):
+  - Created `format_metadata()` function for metadata display (color: `#bbb`, font-size: `0.85em`)
+  - Enhanced `format_thinking_process()` with model name and inference time in collapsible header
+  - Added line break reduction regex (`r'\n\n+'`) to reduce excessive blank lines while preserving paragraphs
+  - Fallback logic for malformed `<think>` tags (missing opening tag)
+  - Updated `build_debug_accordion()` with same improvements for agent research mode
+- **UI Styling** ([aifred/theme.py](aifred/theme.py)):
+  - Added `.thinking-compact` CSS class for proper paragraph spacing (`0.75em` margins)
+  - Text color matches collapsible header (`#aaa`)
+  - Compact spacing for first/last child elements
+- **User Message HTML Rendering** ([aifred/aifred.py](aifred/aifred.py#L725)):
+  - Changed from `rx.text()` to `rx.markdown()` to properly render HTML metadata spans
+- **Settings Update** ([aifred/lib/settings.py](aifred/lib/settings.py#L74)):
+  - Default `enable_thinking` set to `True` for optimal user experience
+
+#### Changed
+- **Type Safety Improvements**:
+  - Import `Any` from typing in vLLM backend
+  - Declare `extra_body: Dict[str, Any] = {}` instead of untyped dict with `# type: ignore`
+  - Removed all type ignore comments in vLLM backend
+- **Metadata Color**: Adjusted from `#999` → `#aaa` → `#bbb` for better readability
+- **Collapsible Styling**: Removed complex inline div styling in favor of CSS class approach
+
+#### Fixed
+- **HTML Rendering in User Messages**: Metadata now properly displays as styled HTML instead of raw tags
+- **Type Safety**: MyPy passes without warnings for vLLM `extra_body` dictionary assignments
+- **Line Break Handling**: Regex correctly reduces 2+ consecutive newlines to exactly 2 (one blank line)
+- **Paragraph Spacing**: Thinking process collapsibles now have proper spacing (not too cramped, not too spaced)
+
+#### Technical Details
+- **Ollama API**: Uses `"think": true` payload parameter (not `enable_thinking` in options)
+- **Ollama Response Structure**: Provides separate `thinking` and `content` fields in message dict
+- **vLLM API**: Uses `extra_body["chat_template_kwargs"] = {"enable_thinking": bool}`
+- **Unified Format**: Both backends output `<think>...</think>` wrapped content for consistent parsing
+- **Automatik-LLM**: Thinking mode intentionally DISABLED for all automatik tasks (8x faster decisions)
+
+#### Files Modified
+- [aifred/backends/ollama.py](aifred/backends/ollama.py): Lines 93-95, 116-125, 199-236
+- [aifred/backends/vllm.py](aifred/backends/vllm.py): Lines 9, 79, 88-90, 163, 172-174
+- [aifred/lib/formatting.py](aifred/lib/formatting.py): Lines 13-37, 64-152, 155-235
+- [aifred/theme.py](aifred/theme.py): Lines 125-142
+- [aifred/lib/settings.py](aifred/lib/settings.py): Line 74
+- [aifred/aifred.py](aifred/aifred.py): Line 725
+- [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py): Lines 467-478
+
+---
+
 ### 📱 Mobile Dropdown Optimization
 
 #### Problem Solved

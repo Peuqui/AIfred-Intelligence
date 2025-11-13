@@ -10,7 +10,7 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ### 🎯 Core Features
 - **Multi-Backend Support**: Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2)
-- **Qwen3 Thinking Mode**: Chain-of-Thought Reasoning für komplexe Aufgaben
+- **Qwen3 Thinking Mode**: Chain-of-Thought Reasoning für komplexe Aufgaben (Ollama + vLLM)
 - **Automatische Web-Recherche**: KI entscheidet selbst wann Recherche nötig ist
 - **History Compression**: Intelligente Kompression bei 70% Context-Auslastung
 - **Voice Interface**: Speech-to-Text und Text-to-Speech Integration
@@ -229,15 +229,28 @@ Settings werden in `~/.config/aifred/settings.json` gespeichert:
 
 **Chain-of-Thought Reasoning für komplexe Aufgaben:**
 
-- **Thinking Mode ON**: Temperature 0.6, generiert `<think>...</think>` Blocks
+AIfred unterstützt Thinking Mode für Qwen3-Modelle in Ollama und vLLM Backends:
+
+- **Thinking Mode ON**: Temperature 0.6, generiert `<think>...</think>` Blocks mit Denkprozess
 - **Thinking Mode OFF**: Temperature 0.7, direkte Antworten ohne CoT
-- Toggle erscheint nur bei Qwen3/QwQ-Modellen in der UI
-- Funktioniert mit allen Backends (Ollama, vLLM, TabbyAPI)
+- **UI**: Toggle erscheint nur bei Qwen3/QwQ-Modellen
+- **Backends**:
+  - **Ollama**: Nutzt `"think": true` API-Parameter, liefert separate `thinking` und `content` Felder
+  - **vLLM**: Nutzt `chat_template_kwargs: {"enable_thinking": true/false}` in `extra_body`
+  - **TabbyAPI**: Noch nicht implementiert
+- **Formatierung**: Denkprozess als ausklappbares Collapsible mit Modellname und Inferenzzeit
+- **Automatik-LLM**: Thinking Mode für Automatik-Entscheidungen DEAKTIVIERT (8x schneller)
 
 **Empfohlene Modelle für Thinking Mode:**
 - `qwen3:8b`, `qwen3:14b`, `qwen3:30b` (Ollama)
 - `Qwen/Qwen3-8B-AWQ`, `Qwen/Qwen3-4B-AWQ` (vLLM)
 - `qwq:32b` (dediziertes Reasoning-Modell, nur Ollama)
+
+**Technische Details:**
+- Ollama sendet `thinking` + `content` in separaten Message-Feldern
+- vLLM nutzt Qwen3's Chat-Template mit `enable_thinking` Flag
+- Beide Backends wrappen Output in `<think>...</think>` Tags für einheitliche Formatierung
+- Formatting-Modul (`aifred/lib/formatting.py`) rendert Collapsibles mit kompakter Absatz-Formatierung
 
 ---
 

@@ -90,6 +90,10 @@ class OllamaBackend(LLMBackend):
             "stream": False
         }
 
+        # Thinking Mode: Add "think" parameter if enabled
+        if options.enable_thinking:
+            payload["think"] = True
+
         try:
             start_time = time.time()
             # Use client's default timeout (unlimited) - Reflex handles timeouts
@@ -109,8 +113,16 @@ class OllamaBackend(LLMBackend):
             content = message.get("content", "")
             thinking = message.get("thinking", "")
 
-            # Use thinking field if content is empty (for reasoning models like qwen3)
-            text = content if content else thinking
+            # If thinking mode enabled and thinking present, wrap in <think> tags
+            if thinking and content:
+                # Both present: wrap thinking in tags, append content
+                text = f"<think>{thinking}</think>\n\n{content}"
+            elif thinking and not content:
+                # Only thinking present: wrap in tags
+                text = f"<think>{thinking}</think>"
+            else:
+                # No thinking or only content: use content
+                text = content
 
             eval_count = data.get("eval_count", 0)
             eval_duration = data.get("eval_duration", 1)  # nanoseconds
@@ -160,7 +172,7 @@ class OllamaBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
-        # Convert messages
+        # Convert LLMMessage to Ollama format
         ollama_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
         # Build options
@@ -176,10 +188,6 @@ class OllamaBackend(LLMBackend):
             ollama_options["num_predict"] = options.num_predict
         if options.seed:
             ollama_options["seed"] = options.seed
-        # Thinking Mode: Only works if model supports it (e.g., Qwen3 models with Chain-of-Thought)
-        # If model doesn't support it, this parameter is silently ignored by Ollama
-        if options.enable_thinking is not None:
-            ollama_options["enable_thinking"] = options.enable_thinking
 
         payload = {
             "model": model,
@@ -188,8 +196,15 @@ class OllamaBackend(LLMBackend):
             "stream": True
         }
 
+        # Thinking Mode: Add "think" parameter if enabled
+        if options.enable_thinking:
+            payload["think"] = True
+
         try:
             start_time = time.time()
+            thinking_started = False
+            thinking_buffer = ""
+
             async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
                 response.raise_for_status()
 
@@ -200,7 +215,24 @@ class OllamaBackend(LLMBackend):
                             data = json.loads(line)
                             message = data.get("message", {})
                             content = message.get("content", "")
+                            thinking = message.get("thinking", "")
+
+                            # Handle thinking chunks
+                            if thinking:
+                                if not thinking_started:
+                                    # First thinking chunk: yield opening tag
+                                    yield {"type": "content", "text": "<think>"}
+                                    thinking_started = True
+                                thinking_buffer += thinking
+                                yield {"type": "content", "text": thinking}
+
+                            # Handle content chunks
                             if content:
+                                # If we were thinking, close the tag first
+                                if thinking_started and thinking_buffer:
+                                    yield {"type": "content", "text": "</think>\n\n"}
+                                    thinking_started = False
+                                    thinking_buffer = ""
                                 yield {"type": "content", "text": content}
 
                             # Check if done - extract metrics

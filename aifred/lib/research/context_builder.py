@@ -17,7 +17,7 @@ from ..agent_tools import build_context
 from ..prompt_loader import load_prompt
 from ..context_manager import calculate_dynamic_num_ctx, estimate_tokens
 from ..message_builder import build_messages_from_history
-from ..formatting import format_thinking_process, build_debug_accordion
+from ..formatting import format_thinking_process, build_debug_accordion, format_metadata
 from ..logging_utils import log_message
 from ..config import CHARS_PER_TOKEN
 from ..intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
@@ -204,14 +204,16 @@ async def build_and_generate_response(
 
     # Update history
     total_time = time.time() - agent_start
-    timing_suffix = f" (Inferenz: {inference_time:.1f}s, {tokens_per_sec:.1f} tok/s, Quelle: Web-Recherche)"
+    metadata = format_metadata(f"(Inferenz: {inference_time:.1f}s, {tokens_per_sec:.1f} tok/s, Quelle: Web-Recherche)")
 
     if stt_time > 0:
-        user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Agent: {mode}, {len(scraped_only)} Quellen)"
+        user_metadata = format_metadata(f"(STT: {stt_time:.1f}s, Agent: {mode}, {len(scraped_only)} Quellen)")
+        user_with_time = f"{user_text} {user_metadata}"
     else:
-        user_with_time = f"{user_text} (Agent: {mode}, {len(scraped_only)} Quellen)"
+        user_metadata = format_metadata(f"(Agent: {mode}, {len(scraped_only)} Quellen)")
+        user_with_time = f"{user_text} {user_metadata}"
 
-    history.append((user_with_time, thinking_html + timing_suffix))
+    history.append((user_with_time, thinking_html + " " + metadata))
 
     log_message(f"✅ AI-Antwort generiert ({len(ai_text)} Zeichen, Inferenz: {inference_time:.1f}s)")
 

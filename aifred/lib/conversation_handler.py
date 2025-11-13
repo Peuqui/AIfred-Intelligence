@@ -18,7 +18,7 @@ from .llm_client import LLMClient
 from .logging_utils import log_message, CONSOLE_SEPARATOR
 from .prompt_loader import get_decision_making_prompt
 from .message_builder import build_messages_from_history
-from .formatting import format_thinking_process
+from .formatting import format_thinking_process, format_metadata
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, calculate_dynamic_num_ctx
 from .intent_detector import detect_query_intent, get_temperature_for_intent, get_temperature_label
@@ -464,9 +464,11 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                 # User-Text mit Timing (Entscheidungszeit + Inferenzzeit)
                 if stt_time > 0:
-                    user_with_time = f"{user_text} (STT: {stt_time:.1f}s, Entscheidung: {decision_time:.1f}s)"
+                    user_metadata = format_metadata(f"(STT: {stt_time:.1f}s, Entscheidung: {decision_time:.1f}s)")
+                    user_with_time = f"{user_text} {user_metadata}"
                 else:
-                    user_with_time = f"{user_text} (Entscheidung: {decision_time:.1f}s)"
+                    user_metadata = format_metadata(f"(Entscheidung: {decision_time:.1f}s)")
+                    user_with_time = f"{user_text} {user_metadata}"
 
                 # AI-Antwort mit Timing + Quelle (dynamisch basierend auf RAG)
                 if rag_context:
@@ -474,7 +476,8 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                 else:
                     source_label = "LLM-Trainingsdaten"
 
-                ai_with_source = f"{thinking_html} (Inferenz: {inference_time:.1f}s, Quelle: {source_label})"
+                metadata = format_metadata(f"(Inferenz: {inference_time:.1f}s, Quelle: {source_label})")
+                ai_with_source = f"{thinking_html} {metadata}"
 
                 # Füge zur History hinzu (MIT Thinking Collapsible + Quelle!)
                 history.append((user_with_time, ai_with_source))

@@ -6,7 +6,7 @@ vLLM uses OpenAI-compatible API, so we use the openai Python client
 
 import time
 import logging
-from typing import List, Optional, AsyncIterator, Dict
+from typing import List, Optional, AsyncIterator, Dict, Any
 from openai import AsyncOpenAI
 from .base import (
     LLMBackend,
@@ -76,7 +76,7 @@ class vLLMBackend(LLMBackend):
         }
 
         # vLLM-specific parameters (via extra_body)
-        extra_body = {}
+        extra_body: Dict[str, Any] = {}
         if options.repeat_penalty and options.repeat_penalty != 1.0:
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:
@@ -160,7 +160,7 @@ class vLLMBackend(LLMBackend):
         }
 
         # vLLM-specific parameters
-        extra_body = {}
+        extra_body: Dict[str, Any] = {}
         if options.repeat_penalty and options.repeat_penalty != 1.0:
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:

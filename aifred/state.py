@@ -485,13 +485,14 @@ class AIState(rx.State):
         yield  # Update UI to disable controls
 
         try:
-            self.add_debug(f"🔄 Switching backend from {self.backend_type} to {new_backend}...")
+            # Clean up old backend resources (unload models, stop servers)
+            old_backend = self.backend_type
+            self.add_debug(f"🔄 Switching backend from {old_backend} to {new_backend}...")
 
             # Save current backend's models before switching
             self._save_settings()
 
-            # Clean up old backend resources (unload models, stop servers)
-            old_backend = self.backend_type
+            # Now clean up the old backend
             await self._cleanup_old_backend(old_backend)
 
             # Load saved settings for target backend BEFORE switching
@@ -537,6 +538,7 @@ class AIState(rx.State):
         finally:
             # Re-enable UI controls
             self.backend_switching = False
+            self.add_debug("✅ Backend switch complete")
             yield  # Force UI update to re-enable controls and refresh model dropdowns
 
     def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0):
@@ -713,8 +715,45 @@ class AIState(rx.State):
                 self.add_debug(f"⚠️ Error unloading Ollama models: {e}")
 
         elif old_backend == "vllm":
-            # Stop vLLM server to free VRAM
-            await self._stop_vllm_server()
+            # Stop vLLM server to free VRAM - ALWAYS use pkill for reliability
+            self.add_debug("🛑 Stopping vLLM server...")
+            try:
+                import subprocess
+
+                # Check if vLLM is running
+                result = subprocess.run(["pgrep", "-f", "vllm serve"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    # Kill vLLM process
+                    subprocess.run(["pkill", "-f", "vllm serve"])
+                    self.add_debug("✅ vLLM server stopped")
+
+                    # Clean up manager reference
+                    if self._vllm_manager:
+                        self._vllm_manager = None
+                        _global_backend_state["vllm_manager"] = None
+                else:
+                    self.add_debug("ℹ️ vLLM server was not running")
+
+            except Exception as e:
+                self.add_debug(f"❌ Failed to stop vLLM: {e}")
+
+        elif old_backend == "tabbyapi":
+            # Stop TabbyAPI server to free VRAM
+            self.add_debug("🛑 Stopping TabbyAPI server...")
+            try:
+                import subprocess
+
+                # Check if TabbyAPI is running (main.py or start.sh)
+                result = subprocess.run(["pgrep", "-f", "tabbyapi"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    # Kill TabbyAPI process
+                    subprocess.run(["pkill", "-f", "tabbyapi"])
+                    self.add_debug("✅ TabbyAPI server stopped")
+                else:
+                    self.add_debug("ℹ️ TabbyAPI server was not running")
+
+            except Exception as e:
+                self.add_debug(f"❌ Failed to stop TabbyAPI: {e}")
 
     async def send_message(self):
         """

@@ -2,12 +2,39 @@
 Formatting Utilities - UI text formatting functions
 
 This module provides formatting functions for displaying AI responses
-and thinking processes in the Gradio UI.
+and thinking processes in the Reflex UI.
 """
 
 import re
 from .logging_utils import log_message
 from datetime import datetime
+
+
+def format_metadata(metadata_text: str) -> str:
+    """
+    Formatiert Metadaten (Inferenzzeiten, Quellen, etc.) mit kleinerem Font und grauer Farbe.
+
+    Args:
+        metadata_text: Text in Klammern, z.B. "(Inferenz: 1.3s, Quelle: Web-Recherche)"
+
+    Returns:
+        HTML-formatierter Text mit kleiner Schrift und hellgrauer Farbe
+
+    Example:
+        >>> format_metadata("(Inferenz: 1.3s, Quelle: LLM)")
+        '<span style="font-size: 0.85em; color: #aaa;">( Inferenz: 1.3s, Quelle: LLM )</span>'
+    """
+    if not metadata_text:
+        return metadata_text
+
+    # Entferne äußere Klammern für Formatierung
+    text = metadata_text.strip()
+    if text.startswith("(") and text.endswith(")"):
+        inner = text[1:-1]
+        return f'<span style="font-size: 0.85em; color: #bbb;">( {inner} )</span>'
+
+    # Falls keine Klammern: formatiere komplett
+    return f'<span style="font-size: 0.85em; color: #bbb;">{text}</span>'
 
 
 def get_timestamp() -> str:
@@ -69,7 +96,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None):
         parts = ai_response.split('</think>', 1)
         if len(parts) == 2:
             thinking = parts[0].strip()
-            thinking = re.sub(r'\n\n+', '\n', thinking)
+            thinking = re.sub(r'\n\n+', '\n\n', thinking)  # Reduziere mehrfache Leerzeilen auf maximal 1
             clean_response = parts[1].strip()
 
             # Baue Summary mit Modell-Name und Inferenz-Zeit
@@ -80,9 +107,13 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None):
                 summary_parts.append(f"• {inference_time:.1f}s")
             summary_text = " ".join(summary_parts)
 
-            formatted = f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 1em; margin-top: 0.2em;">
+            formatted = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{thinking}</div>
+<div class="thinking-compact">
+
+{thinking}
+
+</div>
 </details>
 
 {clean_response}"""
@@ -92,7 +123,7 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None):
     if matches:
         # Normaler Fall: Ein <think> Block gefunden
         thinking = matches[0].strip()
-        thinking = re.sub(r'\n\n+', '\n', thinking)  # Kompakt
+        # thinking = re.sub(r'\n\n\n+', '\n\n', thinking)  # DEAKTIVIERT zum Testen
         clean_response = re.sub(think_pattern, '', ai_response, flags=re.DOTALL).strip()
 
         # Baue Summary mit Modell-Name und Inferenz-Zeit
@@ -103,10 +134,14 @@ def format_thinking_process(ai_response, model_name=None, inference_time=None):
             summary_parts.append(f"• {inference_time:.1f}s")
         summary_text = " ".join(summary_parts)
 
-        # Formatiere mit HTML Details/Summary (Gradio unterstützt HTML in Markdown)
-        formatted = f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 1em; margin-top: 0.2em;">
+        # Formatiere mit HTML Details/Summary (Reflex unterstützt HTML in Markdown)
+        formatted = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa;">{summary_text}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{thinking}</div>
+<div class="thinking-compact">
+
+{thinking}
+
+</div>
 </details>
 
 {clean_response}"""
@@ -143,11 +178,15 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
 
     # 1. Query Optimization Reasoning (falls vorhanden)
     if query_reasoning:
-        query_think = re.sub(r'\n\n+', '\n', query_reasoning)  # Kompakt
+        query_think = re.sub(r'\n\n+', '\n\n', query_reasoning)  # Reduziere mehrfache Leerzeilen auf maximal 1
         time_suffix = f" • {query_time:.1f}s" if query_time else ""
-        debug_sections.append(f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">
+        debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa;">🔍 Query-Optimierung ({automatik_model}){time_suffix}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{query_think}</div>
+<div class="thinking-compact">
+
+{query_think}
+
+</div>
 </details>""")
 
     # 2. Final Answer <think> process (extract but don't remove yet)
@@ -160,19 +199,23 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
         parts = ai_text.split('</think>', 1)
         if len(parts) == 2:
             final_think = parts[0].strip()
-            final_think = re.sub(r'\n\n+', '\n', final_think)
+            final_think = re.sub(r'\n\n+', '\n\n', final_think)  # Reduziere mehrfache Leerzeilen auf maximal 1
             time_suffix = f" • {final_time:.1f}s" if final_time else ""
-            debug_sections.append(f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">
+            debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Finale Antwort Denkprozess ({main_model}){time_suffix}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{final_think}</div>
+<div class="thinking-compact">
+
+{final_think}
+
+</div>
 </details>""")
     elif think_match:
         final_think = think_match.group(1).strip()
-        final_think = re.sub(r'\n\n+', '\n', final_think)  # Kompakt
+        final_think = re.sub(r'\n\n+', '\n\n', final_think)  # Reduziere mehrfache Leerzeilen auf maximal 1
         time_suffix = f" • {final_time:.1f}s" if final_time else ""
         debug_sections.append(f"""<details style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa;">💭 Finale Antwort Denkprozess ({main_model}){time_suffix}</summary>
-<div style="margin: 0; padding: 0.3em 0.8em; background: #3a3a3a; border-left: 3px solid #666; font-size: 0.9em; color: #e8e8e8; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{final_think}</div>
+<div style="margin: 0; padding: 0.3em 0.8em; background: #2a2a2a; border-left: 3px solid #666; font-size: 0.95em; color: #e8e8e8; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;">{final_think}</div>
 </details>""")
 
     # Kombiniere alle Debug-Sections
