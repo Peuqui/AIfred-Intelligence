@@ -1,3 +1,10 @@
+/* Force Dark Theme - Override Browser Light/Dark Mode */
+html, body, #root, .radix-themes {
+    background-color: #0b0f19 !important;
+    color: #e2e8f0 !important;
+    color-scheme: dark !important;  /* Force dark mode detection */
+}
+
 /* Radix UI Custom Orange Color Scale Override */
 .radix-themes {
     /* Override Orange Scale mit Warning Colors */
@@ -72,6 +79,45 @@
     accent-color: transparent !important;
     outline-color: transparent !important;
     border-color: #30363d !important;
+}
+
+/* Force dark backgrounds on all card/container components */
+.rt-Card,
+.rt-Container,
+.rt-Section,
+.rt-Flex,
+.rt-Grid,
+.rt-Box,
+.rt-Dialog,
+.rt-AlertDialog {
+    background-color: #161b22 !important;
+}
+
+/* Input/Textarea dark backgrounds */
+.rt-TextFieldInput,
+.rt-TextAreaInput,
+.rt-SelectTrigger,
+.rt-TextAreaRoot textarea {
+    background-color: #21262d !important;
+    color: #e6edf3 !important;
+    border-color: #30363d !important;
+}
+
+/* Select dropdown content dark background */
+.rt-SelectContent,
+.rt-SelectViewport {
+    background-color: #161b22 !important;
+    color: #e6edf3 !important;
+}
+
+/* Select items dark background */
+.rt-SelectItem {
+    background-color: #161b22 !important;
+    color: #e6edf3 !important;
+}
+
+.rt-SelectItem[data-highlighted] {
+    background-color: rgba(230, 119, 0, 0.15) !important;
 }
 
 /* Links - Helles Grau statt Blau (überall!) */
