@@ -42,4 +42,24 @@
 
 ## Completed
 
-(Completed tasks will be moved here)
+### Fix: Automatik-LLM Double-Loading on Startup
+**Problem**: Automatik-LLM wurde beim Start zweimal geladen (Load → Unload → Reload), sichtbar in `nvidia-smi` als VRAM-Thrashing innerhalb von Sekunden.
+
+**Root Cause**:
+- `state.py` Line 93 setzte `automatik_model` mit hardcodiertem `config.py` Default bei Class-Init
+- `settings.json` wurde erst später in `on_load()` geladen
+- Resultat: Falsches Modell initial geladen → richtiges Modell nachgeladen → unnötiger Cycle
+
+**Solution Implemented**:
+- Models werden nicht mehr bei Class-Definition initialisiert (leere Strings)
+- `settings.json` wird ZUERST geladen in `on_load()`
+- `config.py` dient nur als Fallback wenn `settings.json` leer/nicht vorhanden
+- Betrifft sowohl `selected_model` als auch `automatik_model`
+
+**Files Modified**:
+- [aifred/state.py](aifred/state.py) Lines 89-95, 239-256
+
+**Status**: ✅ Completed (2025-11-14)
+**Result**: Keine doppelten Model-Loads mehr beim Start, kein VRAM-Thrashing
+
+---

@@ -86,11 +86,13 @@ class AIState(rx.State):
     # Backend Settings
     backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi"
     backend_url: str = "http://localhost:11434"  # Default Ollama URL
-    selected_model: str = config.BACKEND_DEFAULT_MODELS["ollama"]["selected_model"]
+    # NOTE: Models loaded from settings.json first, fallback to config.py only if settings don't exist
+    selected_model: str = ""  # Initialized in on_load() from settings.json or config.py
     available_models: List[str] = []
 
     # Automatik-LLM (für Decision und Query-Optimierung)
-    automatik_model: str = config.BACKEND_DEFAULT_MODELS["ollama"]["automatik_model"]
+    # NOTE: Loaded from settings.json first, fallback to config.py only if settings don't exist
+    automatik_model: str = ""  # Initialized in on_load() from settings.json or config.py
 
     # LLM Options
     temperature: float = 0.2
@@ -235,8 +237,23 @@ class AIState(rx.State):
                     self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)
 
                 self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")
-            else:
-                self.add_debug("⚙️ Using default settings")
+
+            # Apply config.py defaults as final fallback (only if settings.json didn't provide values)
+            backend_defaults = config.BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
+
+            if not self.selected_model:
+                self.selected_model = backend_defaults.get("selected_model", "")
+                if self.selected_model:
+                    self.add_debug(f"⚙️ Using default selected_model from config.py: {self.selected_model}")
+                else:
+                    self.add_debug("⚠️ No selected_model configured")
+
+            if not self.automatik_model:
+                self.automatik_model = backend_defaults.get("automatik_model", "")
+                if self.automatik_model:
+                    self.add_debug(f"⚙️ Using default automatik_model from config.py: {self.automatik_model}")
+                else:
+                    self.add_debug("⚠️ No automatik_model configured")
 
             # Generate session ID
             if not self.session_id:
