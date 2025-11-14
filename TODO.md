@@ -42,6 +42,86 @@
 
 ## Completed
 
+### Fix: Automatic Date/Time Injection in All Prompts (2025-11-15)
+**Problem**: LLM hatte kein Bewusstsein für aktuelles Datum/Zeit, konnte nicht unterscheiden ob Trainingsdaten veraltet sind oder welches Jahr/Monat aktuell ist.
+
+**Root Cause**:
+- Kein System-Prompt mit Datum/Zeit im "Eigenes Wissen"-Modus
+- Manuelle Datum-Injektion in einigen Prompts (system_rag, query_optimization), aber inkonsistent
+- Keine zentrale Stelle für Timestamp-Injection
+
+**Solution Implemented**:
+**Zentrale Timestamp-Injection in `load_prompt()`** (Option 2 - User-approved):
+1. ✅ `load_prompt()` injiziert automatisch Datum/Zeit **vor** jeden geladenen Prompt
+2. ✅ Neue minimale System-Prompts für "Eigenes Wissen"-Modus (`system_minimal.txt`)
+3. ✅ Alle manuellen `{current_date}` / `{current_year}` Platzhalter aus Prompts entfernt
+4. ✅ Convenience-Functions cleanup (get_query_optimization_prompt, get_decision_making_prompt, get_system_rag_prompt)
+
+**Implementation Details**:
+
+**1. Central Timestamp Injection** - [aifred/lib/prompt_loader.py](aifred/lib/prompt_loader.py) Lines 123-152
+```python
+# Inject current date/time (always, for all prompts)
+now = datetime.now()
+if lang == "de":
+    timestamp_prefix = f"""AKTUELLES DATUM UND UHRZEIT:
+- Datum: {weekday_de}, {now.strftime('%d.%m.%Y')}
+- Uhrzeit: {now.strftime('%H:%M:%S')} Uhr
+- Jahr: {now.year}
+
+"""
+# Prepend to every loaded prompt
+prompt_template = timestamp_prefix + prompt_template
+```
+
+**2. Minimal System Prompts** - [prompts/de/system_minimal.txt](prompts/de/system_minimal.txt), [prompts/en/system_minimal.txt](prompts/en/system_minimal.txt)
+```
+Du bist ein hilfreicher AI-Assistent.
+
+Beantworte Fragen präzise und nutze dein Trainingswissen. Wenn deine Trainingsdaten veraltet sind oder du dir unsicher bist, weise den Nutzer darauf hin.
+```
+(Timestamp wird automatisch von `load_prompt()` vorangestellt)
+
+**3. Eigenes Wissen Mode Update** - [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py) Lines 360-363
+```python
+# Inject minimal system prompt with timestamp
+from .prompt_loader import load_prompt
+system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
+messages.insert(0, {"role": "system", "content": system_prompt_minimal})
+```
+
+**4. Cleanup - Removed Manual Date Injection**:
+- [aifred/lib/prompt_loader.py](aifred/lib/prompt_loader.py) Lines 195-230: Removed `current_date`/`current_year` parameters from convenience functions
+- [aifred/lib/research/context_builder.py](aifred/lib/research/context_builder.py) Lines 102-108: Removed manual date params
+- **All prompt files**: Removed `{current_date}` and `{current_year}` placeholders (10 files updated)
+
+**Files Modified**:
+- [aifred/lib/prompt_loader.py](aifred/lib/prompt_loader.py) - Central timestamp injection + cleanup
+- [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py) - System prompt for "Eigenes Wissen"
+- [aifred/lib/research/context_builder.py](aifred/lib/research/context_builder.py) - Removed manual date params
+- [prompts/de/system_minimal.txt](prompts/de/system_minimal.txt) - New minimal system prompt (German)
+- [prompts/en/system_minimal.txt](prompts/en/system_minimal.txt) - New minimal system prompt (English)
+- 10 prompt files updated (system_rag, query_optimization, decision_making, cache_decision, etc.)
+
+**How it works**:
+1. **Every `load_prompt()` call** automatically prepends timestamp (Date, Time, Weekday, Year)
+2. **"Eigenes Wissen" mode** loads `system_minimal.txt` → gets timestamp automatically
+3. **Web-Recherche modes** load `system_rag.txt` → gets timestamp automatically
+4. **Decision-Making & Query-Optimization** → get timestamp automatically
+5. **All modes** now have consistent date/time awareness
+
+**Result**:
+✅ LLM knows current date/time in ALL modes (Eigenes Wissen, Quick, Deep, Automatik)
+✅ Can determine if training data is outdated
+✅ Can use current year for query expansion ("neueste Ereignisse" → adds current year)
+✅ Central maintenance - only one place to update timestamp format
+✅ No duplicate timestamp injection
+
+**Status**: ✅ Completed (2025-11-15)
+**Testing**: Pending - User will test all 4 research modes
+
+---
+
 ### Fix: Research Mode Persistence (2025-11-14)
 **Problem**: Research Mode wurde beim Programmstart nicht korrekt wiederhergestellt. Einstellung ging verloren.
 

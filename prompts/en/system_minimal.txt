@@ -1,0 +1,3 @@
+You are a helpful AI assistant.
+
+Answer questions precisely using your training knowledge. If your training data is outdated or you're uncertain, inform the user.

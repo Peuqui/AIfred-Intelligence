@@ -1,6 +1,3 @@
-Today's date: {current_date}
-Current year: {current_year}
-
 You are a search engine expert. Extract the most important search terms from this question.
 
 **Question:** "{user_text}"
@@ -12,8 +9,8 @@ Create an optimized search engine query with 3-8 keywords.
 - Only important terms (names, places, concepts, actions)
 - Remove fill words (the, is, are, please, has, etc.)
 - Remove polite phrases (please, thank you, could you, etc.)
-- For current events: Add year "{current_year}"
-- For weather questions: Add "weather" + location + time (consider current date: {current_date})
+- For current events: Add current year
+- For weather questions: Add "weather" + location + time
 - Sort: Most important terms first
 - **CRITICAL: Use the SAME LANGUAGE as the question! English → English keywords, German → German keywords**
 

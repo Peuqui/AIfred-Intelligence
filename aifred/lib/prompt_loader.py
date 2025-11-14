@@ -75,6 +75,8 @@ def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: str = N
     """
     Load a prompt from a file with language support
 
+    Automatically injects current date/time at the beginning of every prompt.
+
     Args:
         prompt_name: Name of the prompt file (without .txt extension)
         lang: Language override ("de", "en", or None for current setting)
@@ -82,12 +84,14 @@ def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: str = N
         **kwargs: Keyword arguments for string formatting
 
     Returns:
-        Formatted prompt string
+        Formatted prompt string with timestamp prefix
 
     Raises:
         FileNotFoundError: If prompt file doesn't exist
         KeyError: If required placeholders are missing
     """
+    from datetime import datetime
+
     # Determine language
     if lang is None:
         lang = _current_language
@@ -115,6 +119,37 @@ def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: str = N
     # Load prompt file
     with open(prompt_file, 'r', encoding='utf-8') as f:
         prompt_template = f.read()
+
+    # ============================================================
+    # INJECT CURRENT DATE/TIME (always, for all prompts)
+    # ============================================================
+    now = datetime.now()
+
+    if lang == "de":
+        # German weekday translation
+        weekday_map = {
+            "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch",
+            "Thursday": "Donnerstag", "Friday": "Freitag",
+            "Saturday": "Samstag", "Sunday": "Sonntag"
+        }
+        weekday_de = weekday_map.get(now.strftime("%A"), now.strftime("%A"))
+
+        timestamp_prefix = f"""AKTUELLES DATUM UND UHRZEIT:
+- Datum: {weekday_de}, {now.strftime('%d.%m.%Y')}
+- Uhrzeit: {now.strftime('%H:%M:%S')} Uhr
+- Jahr: {now.year}
+
+"""
+    else:  # English
+        timestamp_prefix = f"""CURRENT DATE AND TIME:
+- Date: {now.strftime('%A')}, {now.strftime('%Y-%m-%d')}
+- Time: {now.strftime('%H:%M:%S')}
+- Year: {now.year}
+
+"""
+
+    # Prepend timestamp to prompt
+    prompt_template = timestamp_prefix + prompt_template
 
     # Format with kwargs if provided
     if kwargs or user_text:
@@ -158,19 +193,13 @@ def list_available_prompts() -> list:
 # ============================================================
 
 def get_query_optimization_prompt(user_text: str, lang: Optional[str] = None) -> str:
-    """Load query optimization prompt with current date context"""
-    from datetime import datetime
-    current_date = datetime.now().strftime("%d.%m.%Y")
-    current_year = datetime.now().strftime("%Y")
-    return load_prompt('query_optimization', lang=lang, user_text=user_text,
-                      current_date=current_date, current_year=current_year)
+    """Load query optimization prompt (timestamp injected automatically by load_prompt)"""
+    return load_prompt('query_optimization', lang=lang, user_text=user_text)
 
 
 def get_decision_making_prompt(user_text: str, lang: Optional[str] = None) -> str:
-    """Load decision-making prompt with current date context"""
-    from datetime import datetime
-    current_date = datetime.now().strftime("%d.%m.%Y")  # Format: 12.11.2025
-    return load_prompt('decision_making', lang=lang, user_text=user_text, current_date=current_date)
+    """Load decision-making prompt (timestamp injected automatically by load_prompt)"""
+    return load_prompt('decision_making', lang=lang, user_text=user_text)
 
 
 # Cache decision addon removed - will be replaced with Vector DB semantic search
@@ -191,15 +220,12 @@ def get_followup_intent_prompt(original_query: str, followup_query: str, lang: O
     )
 
 
-def get_system_rag_prompt(current_year: str, current_date: str, context: str,
-                          user_text: str = "", lang: Optional[str] = None) -> str:
-    """Load system RAG prompt"""
+def get_system_rag_prompt(context: str, user_text: str = "", lang: Optional[str] = None) -> str:
+    """Load system RAG prompt (timestamp injected automatically by load_prompt)"""
     return load_prompt(
         'system_rag',
         lang=lang,
         user_text=user_text,
-        current_year=current_year,
-        current_date=current_date,
         context=context
     )
 

@@ -10,6 +10,7 @@ Nachher: 1 zentrale Funktion mit robustem Pattern Matching
 
 import re
 from typing import List, Dict, Optional, Tuple
+from datetime import datetime
 
 
 def build_messages_from_history(
@@ -111,3 +112,62 @@ def build_messages_from_history(
     messages.append({'role': 'user', 'content': current_user_text})
 
     return messages
+
+
+def build_system_prompt(language: str = "de") -> Dict[str, str]:
+    """
+    Build system prompt with current date and time
+
+    This ensures the LLM knows the current date/time for temporal queries
+    like "aktuelle Ereignisse", "neueste News", etc.
+
+    Args:
+        language: "de" or "en" (default: "de")
+
+    Returns:
+        dict: {'role': 'system', 'content': '...'}
+
+    Examples:
+        >>> prompt = build_system_prompt("de")
+        >>> "Aktuelles Datum" in prompt['content']
+        True
+    """
+    now = datetime.now()
+
+    if language == "de":
+        date_str = now.strftime("%d.%m.%Y")  # 15.11.2025
+        time_str = now.strftime("%H:%M")     # 14:30
+        weekday = now.strftime("%A")         # Monday
+
+        # Translate weekday to German
+        weekday_map = {
+            "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch",
+            "Thursday": "Donnerstag", "Friday": "Freitag",
+            "Saturday": "Samstag", "Sunday": "Sonntag"
+        }
+        weekday_de = weekday_map.get(weekday, weekday)
+
+        content = f"""Du bist ein hilfreicher AI-Assistent.
+
+WICHTIGE ZEITANGABEN:
+- Aktuelles Datum: {weekday_de}, {date_str}
+- Aktuelle Uhrzeit: {time_str} Uhr
+- Jahr: {now.year}
+
+Nutze diese Informationen für zeitbezogene Fragen (z.B. "Was ist heute?", "Welches Jahr haben wir?", "Aktuelle Ereignisse")."""
+
+    else:  # English
+        date_str = now.strftime("%Y-%m-%d")  # 2025-11-15
+        time_str = now.strftime("%H:%M")     # 14:30
+        weekday = now.strftime("%A")         # Monday
+
+        content = f"""You are a helpful AI assistant.
+
+IMPORTANT TIME INFORMATION:
+- Current date: {weekday}, {date_str}
+- Current time: {time_str}
+- Year: {now.year}
+
+Use this information for time-related queries (e.g., "What's today's date?", "What year is it?", "Current events")."""
+
+    return {'role': 'system', 'content': content}

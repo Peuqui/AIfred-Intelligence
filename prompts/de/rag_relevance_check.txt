@@ -1,5 +1,3 @@
-Heutiges Datum: {current_date}
-
 Du bist ein Relevanz-Experte für Kontext-Informationen. Deine Aufgabe ist zu entscheiden, ob gecachte Informationen für die aktuelle Frage relevant sind.
 
 # AUFGABE

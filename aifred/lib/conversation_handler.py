@@ -357,7 +357,12 @@ async def chat_interactive_mode(
                 # Build messages from history (all turns)
                 messages = build_messages_from_history(history, user_text)
 
-                # If RAG context available, inject as system message
+                # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
+                from .prompt_loader import load_prompt
+                system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
+                messages.insert(0, {"role": "system", "content": system_prompt_minimal})
+
+                # If RAG context available, inject as additional system message
                 if rag_context:
                     rag_system_message = {
                         'role': 'system',

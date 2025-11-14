@@ -99,13 +99,11 @@ async def build_and_generate_response(
     from ..prompt_loader import detect_language
     detected_user_language = detect_language(user_text)
 
-    # System prompt
+    # System prompt (timestamp injected automatically by load_prompt)
     system_prompt = load_prompt(
         'system_rag',
         lang=detected_user_language,
         user_text=user_text,
-        current_year=time.strftime("%Y"),
-        current_date=time.strftime("%d.%m.%Y"),
         context=context
     )
 
