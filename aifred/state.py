@@ -1163,44 +1163,66 @@ class AIState(rx.State):
         """Restart current LLM backend service and reload model list"""
         import subprocess
         import json
+        import asyncio
         global _global_backend_state
+
+        # Prevent concurrent restarts
+        if self.backend_switching:
+            self.add_debug("⚠️ Backend restart already in progress, please wait...")
+            return
+
+        self.backend_switching = True
+        yield  # Update UI to disable buttons
 
         try:
             backend_name = self.backend_type.upper()
             self.add_debug(f"🔄 Restarting {backend_name} service...")
+            yield  # Update UI
 
             if self.backend_type == "ollama":
                 subprocess.run(["systemctl", "restart", "ollama"], check=True)
-                self.add_debug(f"✅ {backend_name} restarted successfully")
+                self.add_debug(f"✅ {backend_name} service restarted")
+                yield  # Update UI after restart
 
-                # Wait for Ollama to be ready (usually 1-2 seconds)
-                import time
-                self.add_debug("⏳ Waiting for Ollama to be ready...")
-                time.sleep(2)
+                # Wait for Ollama to be ready (active polling with retry)
+                self.add_debug("⏳ Waiting for Ollama API to be ready...")
+                yield  # Update UI
 
-                # Reload model list from Ollama API
-                self.add_debug("🔄 Reloading model list...")
-                try:
-                    endpoint = f'{self.backend_url}/api/tags'
-                    result = subprocess.run(
-                        ['curl', '-s', endpoint],
-                        capture_output=True,
-                        text=True,
-                        timeout=5.0
-                    )
+                max_retries = 10
+                ollama_ready = False
 
-                    if result.returncode == 0:
-                        data = json.loads(result.stdout)
-                        self.available_models = [m["name"] for m in data.get("models", [])]
+                for attempt in range(max_retries):
+                    try:
+                        endpoint = f'{self.backend_url}/api/tags'
+                        result = subprocess.run(
+                            ['curl', '-s', endpoint],
+                            capture_output=True,
+                            text=True,
+                            timeout=2.0
+                        )
 
-                        # Update global state
-                        _global_backend_state["available_models"] = self.available_models
+                        if result.returncode == 0:
+                            # Try to parse JSON to verify API is actually ready
+                            data = json.loads(result.stdout)
+                            self.available_models = [m["name"] for m in data.get("models", [])]
 
-                        self.add_debug(f"✅ Model list updated: {len(self.available_models)} models found")
-                    else:
-                        self.add_debug("⚠️ Failed to reload model list")
-                except Exception as e:
-                    self.add_debug(f"⚠️ Model list reload failed: {e}")
+                            # Update global state
+                            _global_backend_state["available_models"] = self.available_models
+
+                            elapsed_time = (attempt + 1) * 0.5
+                            self.add_debug(f"✅ Ollama ready after {elapsed_time:.1f}s ({len(self.available_models)} models found)")
+                            ollama_ready = True
+                            break
+                    except Exception:
+                        pass  # Retry on any error
+
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(0.5)  # Short polling interval
+                        yield  # Update UI during polling
+
+                if not ollama_ready:
+                    self.add_debug("⚠️ Ollama API might not be ready yet (timeout after 5s)")
+                    yield
 
             elif self.backend_type == "vllm":
                 # vLLM: Stop and restart with current model
@@ -1209,10 +1231,15 @@ class AIState(rx.State):
                 self.add_debug(f"✅ {backend_name} restarted successfully")
             elif self.backend_type == "tabbyapi":
                 self.add_debug("ℹ️ TabbyAPI läuft nicht als Service - bitte manuell neu starten")
+                self.backend_switching = False
+                yield  # Update UI
                 return
 
         except Exception as e:
             self.add_debug(f"❌ {backend_name} restart failed: {e}")
+        finally:
+            self.backend_switching = False
+            yield  # Re-enable buttons
 
     async def restart_ollama(self):
         """Legacy method - calls restart_backend()"""

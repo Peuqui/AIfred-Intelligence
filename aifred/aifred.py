@@ -1366,7 +1366,7 @@ def settings_accordion() -> rx.Component:
                         size="2",
                         variant="soft",
                         color_scheme="blue",
-                        disabled=AIState.backend_switching,  # Disable during backend switch
+                        disabled=AIState.backend_switching,  # Disable during backend switch only
                     ),
                     rx.button(
                         t("restart_aifred"),
@@ -1374,7 +1374,7 @@ def settings_accordion() -> rx.Component:
                         size="2",
                         variant="soft",
                         color_scheme="orange",
-                        disabled=AIState.backend_switching,  # Disable during backend switch
+                        disabled=AIState.backend_switching,  # Disable during backend switch only
                     ),
                     spacing="3",
                     width="100%",
