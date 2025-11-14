@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-14
 
+### 🏷️ Source Label Consistency & Double Metadata Bug Fix
+
+#### Fixed
+- **Double Source Metadata Bug** ([aifred/lib/message_builder.py](aifred/lib/message_builder.py), [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py)):
+  - Fixed issue where responses showed duplicate source labels (e.g., `( Inferenz: 62.3s, Quelle: Web-Recherche ) ( Inferenz: 53.2s, Quelle: LLM-Trainingsdaten )`)
+  - Root cause: HTML metadata (`<span>` tags) and thinking collapsibles (`<details>` tags) were NOT removed from chat history before passing to LLM
+  - LLM sometimes copied old metadata into new responses, resulting in duplicate sources
+  - Solution: Enhanced `build_messages_from_history()` to strip ALL HTML tags and metadata using regex patterns
+
+#### Changed
+- **Message History Cleaning** ([aifred/lib/message_builder.py:86-100](aifred/lib/message_builder.py#L86-L100)):
+  - Added `import re` for regex-based HTML tag removal
+  - Four-step cleaning process for AI messages:
+    1. Remove thinking collapsibles: `<details>...</details>`
+    2. Remove metadata spans: `<span style="...">( Inferenz: ... )</span>`
+    3. Fallback: Remove text-based metadata patterns
+    4. Cleanup: Remove multiple newlines and excess whitespace
+  - Prevents LLM from seeing or copying old metadata from history
+
+- **Source Label Consistency** ([aifred/lib/conversation_handler.py:480-486](aifred/lib/conversation_handler.py#L480-L486)):
+  - Replaced ambiguous `"LLM-Trainingsdaten"` label with context-aware labels:
+    - `"Cache+LLM (RAG)"` - RAG context from Vector Cache
+    - `"LLM (mit History)"` - Chat history available as context (NEW)
+    - `"LLM"` - Pure LLM without additional context (NEW)
+  - Consistent with existing labels: `"Vector Cache"` (direct hit), `"Web-Recherche"` (agent research)
+
+#### Impact
+- **Before**: Confusing duplicate source labels, inconsistent terminology
+- **After**: Clean, single source label per response with clear context indication
+- **User Experience**: Users can now clearly see where each response comes from:
+  - First message: `( Inferenz: 2.5s, Quelle: LLM )`
+  - Follow-up with history: `( Inferenz: 3.2s, Quelle: LLM (mit History) )`
+  - RAG context: `( Inferenz: 4.1s, Quelle: Cache+LLM (RAG) )`
+  - Web research: `( Inferenz: 62.3s, 35.2 tok/s, Quelle: Web-Recherche )`
+
+#### Files Modified
+- [aifred/lib/message_builder.py](aifred/lib/message_builder.py): Lines 11 (import re), 84-100 (HTML cleaning)
+- [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py): Lines 480-486 (source labels)
+
+---
+
 ### 🧹 Debug Console Separator Structure
 
 #### Fixed

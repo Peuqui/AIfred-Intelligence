@@ -8,6 +8,7 @@ Vorher: 6+ duplizierte Code-Stellen mit jeweils 10-15 Zeilen
 Nachher: 1 zentrale Funktion mit robustem Pattern Matching
 """
 
+import re
 from typing import List, Dict, Optional, Tuple
 
 
@@ -20,8 +21,10 @@ def build_messages_from_history(
     """
     Konvertiert Gradio-History zu Ollama-Messages Format
 
-    Entfernt Timing-Info wie "(STT: 2.5s)", "(Inferenz: 1.3s)", "(Agent: 45.2s)"
-    aus User- und AI-Nachrichten.
+    Entfernt Timing-Info, HTML-Tags und Metadata aus User- und AI-Nachrichten:
+    - Timing-Patterns: "(STT: 2.5s)", "(Inferenz: 1.3s)", "(Agent: 45.2s)"
+    - HTML-Metadata: <span style="...">( Inferenz: ... )</span>
+    - Thinking-Collapsibles: <details>...</details>
 
     Behandelt History-Summaries als System-Messages:
     - Summary-Format: ("", "[📊 Komprimiert: X Messages]\\n{summary}")
@@ -80,12 +83,23 @@ def build_messages_from_history(
                 # Schneide alles ab dem ersten Timing-Pattern ab
                 clean_user = clean_user.split(pattern)[0]
 
-        # Bereinige AI-Nachricht
+        # Bereinige AI-Nachricht (entferne HTML-Tags UND Text-Metadata)
         clean_ai = ai_turn
+
+        # 1. Entferne Thinking-Collapsibles (<details>...</details>)
+        clean_ai = re.sub(r'<details[^>]*>.*?</details>', '', clean_ai, flags=re.DOTALL)
+
+        # 2. Entferne Metadata-Spans (<span style="...">( Inferenz: ... )</span>)
+        clean_ai = re.sub(r'<span[^>]*>\s*\([^)]+\)\s*</span>', '', clean_ai, flags=re.DOTALL)
+
+        # 3. Fallback: Entferne verbleibende Text-Metadata (falls HTML-Tags fehlen)
         for pattern in timing_patterns:
             if pattern in clean_ai:
                 # Schneide alles ab dem ersten Timing-Pattern ab
                 clean_ai = clean_ai.split(pattern)[0]
+
+        # 4. Cleanup: Entferne mehrfache Leerzeilen und Whitespace
+        clean_ai = re.sub(r'\n\n+', '\n\n', clean_ai.strip())
 
         # Füge bereinigte Messages hinzu
         messages.extend([

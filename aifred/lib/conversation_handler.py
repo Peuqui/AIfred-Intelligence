@@ -477,11 +477,13 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
                     user_metadata = format_metadata(f"(Entscheidung: {decision_time:.1f}s)")
                     user_with_time = f"{user_text} {user_metadata}"
 
-                # AI-Antwort mit Timing + Quelle (dynamisch basierend auf RAG)
+                # AI-Antwort mit Timing + Quelle (dynamisch basierend auf RAG/History)
                 if rag_context:
                     source_label = "Cache+LLM (RAG)"
+                elif len(history) > 0:
+                    source_label = "LLM (mit History)"
                 else:
-                    source_label = "LLM-Trainingsdaten"
+                    source_label = "LLM"
 
                 metadata = format_metadata(f"(Inferenz: {inference_time:.1f}s, Quelle: {source_label})")
                 ai_with_source = f"{thinking_html} {metadata}"
