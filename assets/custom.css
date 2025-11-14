@@ -82,12 +82,12 @@ html, body, #root, .radix-themes {
 }
 
 /* Force dark backgrounds on all card/container components */
+/* NOTE: .rt-Box excluded to preserve progress bar colors and other colored elements */
 .rt-Card,
 .rt-Container,
 .rt-Section,
 .rt-Flex,
 .rt-Grid,
-.rt-Box,
 .rt-Dialog,
 .rt-AlertDialog,
 .rt-Heading,
