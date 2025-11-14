@@ -360,6 +360,14 @@ async def chat_interactive_mode(
                 # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
                 from .prompt_loader import load_prompt
                 system_prompt_minimal = load_prompt('system_minimal', lang=detected_user_language)
+
+                # DEBUG: Verify timestamp injection
+                print("=" * 80)
+                print("DEBUG: SYSTEM PROMPT FOR 'EIGENES WISSEN' MODE")
+                print("=" * 80)
+                print(system_prompt_minimal[:600])
+                print("=" * 80)
+
                 messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 
                 # If RAG context available, inject as additional system message
