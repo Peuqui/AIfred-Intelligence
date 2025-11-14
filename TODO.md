@@ -42,6 +42,32 @@
 
 ## Completed
 
+### Fix: Broken Progress Bar in Web-Scraping
+**Problem**: Progress bar wurde angezeigt (Box-Container sichtbar), aber der orangene Füllbalken war unsichtbar.
+
+**Root Cause**:
+- Commit d8e4d55 ("Force dark theme") fügte CSS-Override hinzu: `.rt-Box { background-color: #161b22 !important; }`
+- Dies überschrieb die orangene Progress Bar Farbe (`#e67700`) mit dunklem Grau
+- Der innere `rx.box` mit `background_color=COLORS["primary"]` wurde unsichtbar
+
+**Investigation Method**:
+1. Systematisches Git-Bisecting: Commit-für-Commit Testing von c282fdc (working) bis main (broken)
+2. Identifiziert: d8e4d55 als ersten kaputten Commit
+3. CSS-Analyse zeigte `.rt-Box` Override als Problem
+
+**Solution Implemented**:
+- Entfernte `.rt-Box` aus dem globalen dark background CSS-Override
+- Behält dark theme für andere Container (Card, Container, Section, etc.)
+- Progress Bar kann jetzt seine orangene Farbe behalten
+
+**Files Modified**:
+- [assets/custom.css](assets/custom.css) Line 90 - Removed `.rt-Box` from selector
+
+**Status**: ✅ Completed (2025-11-14)
+**Result**: Progress Bar funktioniert wieder in allen Modi (Automatik, Quick, Deep)
+
+---
+
 ### Fix: Automatik-LLM Double-Loading on Startup
 **Problem**: Automatik-LLM wurde beim Start zweimal geladen (Load → Unload → Reload), sichtbar in `nvidia-smi` als VRAM-Thrashing innerhalb von Sekunden.
 
