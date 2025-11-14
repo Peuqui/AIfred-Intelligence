@@ -893,6 +893,11 @@ class AIState(rx.State):
                 temp_history_index = len(self.chat_history)
                 self.chat_history.append((user_msg, self.current_ai_response))
 
+                # Build LLM options (include enable_thinking toggle)
+                llm_options = {
+                    'enable_thinking': self.enable_thinking
+                }
+
                 # REAL STREAMING: Call async generator directly
                 async for item in perform_agent_research(
                     user_text=user_msg,
@@ -904,7 +909,7 @@ class AIState(rx.State):
                     session_id=self.session_id,
                     temperature_mode='auto',
                     temperature=self.temperature,
-                    llm_options=None,
+                    llm_options=llm_options,
                     backend_type=self.backend_type,
                     backend_url=self.backend_url
                 ):
@@ -941,6 +946,74 @@ class AIState(rx.State):
                 if result_data:
                     ai_text, updated_history, inference_time = result_data
                     # History and clearing already handled in loop above
+
+            elif self.research_mode == "none":
+                # No research mode: Direct LLM inference without web search
+                self.add_debug(f"🧠 Eigenes Wissen (keine Websuche)")
+
+                # Initialize temporary history entry for real-time display
+                temp_history_index = len(self.chat_history)
+                self.chat_history.append((user_msg, self.current_ai_response))
+
+                # Build messages from history
+                from .lib.message_builder import build_messages_from_history
+                messages = build_messages_from_history(
+                    history=self.chat_history[:-1],  # Exclude current temporary entry
+                    current_user_text=user_msg
+                )
+
+                # Create backend instance
+                from .backends import BackendFactory, LLMOptions, LLMMessage
+                backend = BackendFactory.create(
+                    self.backend_type,
+                    base_url=self.backend_url
+                )
+
+                # Build LLM options
+                llm_options = LLMOptions(
+                    temperature=self.temperature,
+                    enable_thinking=self.enable_thinking
+                )
+
+                # Convert to LLMMessage format
+                llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
+
+                # Stream response directly from LLM
+                import time
+                inference_start = time.time()
+                full_response = ""
+
+                async for chunk in backend.chat_stream(
+                    model=self.selected_model,
+                    messages=llm_messages,
+                    options=llm_options
+                ):
+                    if chunk["type"] == "content":
+                        # Stream content to UI in real-time
+                        self.current_ai_response += chunk["text"]
+                        full_response += chunk["text"]
+                        # Update the temporary entry in chat history
+                        if temp_history_index < len(self.chat_history):
+                            self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
+                        yield  # Update UI
+
+                inference_time = time.time() - inference_start
+
+                # Add timing metadata to response
+                timing_metadata = f'\n\n<span style="color: #888; font-size: 0.9em;">( Inferenz: {inference_time:.1f}s )</span>'
+                final_response = full_response + timing_metadata
+
+                # Update chat history with final response
+                self.chat_history[temp_history_index] = (user_msg, final_response)
+                yield  # Update UI
+
+                # Clear response windows
+                self.current_ai_response = ""
+                self.current_user_message = ""
+                self.is_generating = False
+                yield  # Force UI update
+
+                await backend.close()
 
             # ============================================================
             # POST-RESPONSE: History Summarization Check (im Hintergrund)

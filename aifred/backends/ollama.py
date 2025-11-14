@@ -91,8 +91,9 @@ class OllamaBackend(LLMBackend):
             "stream": False
         }
 
-        # Thinking Mode: Always send "think" parameter (true or false)
-        payload["think"] = options.enable_thinking
+        # Thinking Mode: ALWAYS False for non-streaming chat (used by Automatik-LLM)
+        # Automatik-LLM should never do reasoning - only fast decisions
+        payload["think"] = False
 
         try:
             start_time = time.time()
@@ -242,9 +243,10 @@ class OllamaBackend(LLMBackend):
             "options": ollama_options,
             "stream": True
         }
-        
+
         # Thinking Mode: Always send "think" parameter (true or false)
-        payload["think"] = options.enable_thinking
+        # Treat None as False (disabled)
+        payload["think"] = options.enable_thinking if options.enable_thinking is not None else False
 
         # Retry loop: try once, retry with think=false if needed
         retry_message_shown = False
