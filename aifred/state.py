@@ -1234,7 +1234,37 @@ class AIState(rx.State):
                 yield  # Update UI
                 await self._start_vllm_server()
 
-                self.add_debug(f"✅ {backend_name} restarted successfully")
+                # Verify vLLM is ready
+                self.add_debug("⏳ Waiting for vLLM API to be ready...")
+                yield
+
+                max_retries = 10
+                vllm_ready = False
+
+                for attempt in range(max_retries):
+                    try:
+                        import requests
+                        # vLLM health check endpoint
+                        response = requests.get(
+                            f"{self.backend_url}/health",
+                            timeout=2.0
+                        )
+
+                        if response.status_code == 200:
+                            elapsed_time = (attempt + 1) * 0.5
+                            self.add_debug(f"✅ vLLM ready after {elapsed_time:.1f}s")
+                            vllm_ready = True
+                            break
+                    except Exception:
+                        pass  # Retry on any error
+
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(0.5)
+                        yield
+
+                if not vllm_ready:
+                    self.add_debug("⚠️ vLLM might not be ready yet (timeout after 5s)")
+
                 yield  # Update UI
             elif self.backend_type == "tabbyapi":
                 # TabbyAPI: Unload and reload model via API
@@ -1266,7 +1296,41 @@ class AIState(rx.State):
                         )
 
                         if load_response.status_code == 200:
-                            self.add_debug(f"✅ {backend_name} restarted successfully")
+                            self.add_debug("✅ Model load command successful")
+                            yield
+
+                            # Verify model is actually loaded
+                            self.add_debug("⏳ Verifying model is loaded...")
+                            yield
+
+                            max_retries = 10
+                            model_ready = False
+
+                            for attempt in range(max_retries):
+                                try:
+                                    verify_response = requests.get(
+                                        f"{self.backend_url}/v1/models",
+                                        headers={"Content-Type": "application/json"},
+                                        timeout=2.0
+                                    )
+
+                                    if verify_response.status_code == 200:
+                                        data = verify_response.json()
+                                        # Check if any model is loaded
+                                        if data.get("data") and len(data["data"]) > 0:
+                                            elapsed_time = (attempt + 1) * 0.5
+                                            self.add_debug(f"✅ TabbyAPI ready after {elapsed_time:.1f}s")
+                                            model_ready = True
+                                            break
+                                except Exception:
+                                    pass
+
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(0.5)
+                                    yield
+
+                            if not model_ready:
+                                self.add_debug("⚠️ Model might not be fully loaded yet (timeout after 5s)")
                         else:
                             self.add_debug(f"⚠️ Model reload failed: {load_response.status_code}")
                     else:
