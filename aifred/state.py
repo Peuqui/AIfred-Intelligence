@@ -1226,9 +1226,16 @@ class AIState(rx.State):
 
             elif self.backend_type == "vllm":
                 # vLLM: Stop and restart with current model
+                self.add_debug("⏹️ Stopping vLLM server...")
+                yield  # Update UI
                 await self._stop_vllm_server()
+
+                self.add_debug("🚀 Starting vLLM server...")
+                yield  # Update UI
                 await self._start_vllm_server()
+
                 self.add_debug(f"✅ {backend_name} restarted successfully")
+                yield  # Update UI
             elif self.backend_type == "tabbyapi":
                 self.add_debug("ℹ️ TabbyAPI läuft nicht als Service - bitte manuell neu starten")
                 self.backend_switching = False
