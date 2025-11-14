@@ -1237,10 +1237,45 @@ class AIState(rx.State):
                 self.add_debug(f"✅ {backend_name} restarted successfully")
                 yield  # Update UI
             elif self.backend_type == "tabbyapi":
-                self.add_debug("ℹ️ TabbyAPI läuft nicht als Service - bitte manuell neu starten")
-                self.backend_switching = False
+                # TabbyAPI: Unload and reload model via API
+                self.add_debug("⏹️ Unloading TabbyAPI model...")
                 yield  # Update UI
-                return
+
+                try:
+                    # Unload current model
+                    import requests
+                    response = requests.post(
+                        f"{self.backend_url}/v1/model/unload",
+                        headers={"Content-Type": "application/json"},
+                        timeout=10.0
+                    )
+
+                    if response.status_code == 200:
+                        self.add_debug("✅ Model unloaded successfully")
+                        yield
+
+                        # Reload model
+                        self.add_debug("🚀 Reloading TabbyAPI model...")
+                        yield
+
+                        load_response = requests.post(
+                            f"{self.backend_url}/v1/model/load",
+                            json={"name": self.selected_model},
+                            headers={"Content-Type": "application/json"},
+                            timeout=30.0
+                        )
+
+                        if load_response.status_code == 200:
+                            self.add_debug(f"✅ {backend_name} restarted successfully")
+                        else:
+                            self.add_debug(f"⚠️ Model reload failed: {load_response.status_code}")
+                    else:
+                        self.add_debug(f"⚠️ Model unload failed: {response.status_code}")
+
+                except Exception as e:
+                    self.add_debug(f"⚠️ TabbyAPI restart failed: {e}")
+
+                yield  # Update UI
 
         except Exception as e:
             self.add_debug(f"❌ {backend_name} restart failed: {e}")
