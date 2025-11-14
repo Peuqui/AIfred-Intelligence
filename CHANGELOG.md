@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-11-14
 
+### Fix: Research Mode Persistence
+
+#### Fixed
+- **Research Mode not persisted** ([aifred/state.py:1314](aifred/state.py#L1314)):
+  - `set_research_mode_display()` changed the variable but didn't call `_save_settings()`
+  - Settings infrastructure was complete (load + save to dict), only the trigger was missing
+  - Inconsistent with other setters like `set_automatik_model()` which correctly save
+  - Now calls `_save_settings()` after mode change to persist immediately
+
+#### How it works
+1. **Startup**: Loads `research_mode` from `settings.json` (Line 219) or falls back to `"automatik"` from `config.py`
+2. **User changes mode**: UI calls `set_research_mode_display()` → `_save_settings()` → `settings.json` updated
+3. **Next startup**: Saved mode is restored correctly
+
+#### Impact
+- **Before**: Research mode reset to default on every restart
+- **After**: Research mode persists across sessions like all other settings
+
+#### Files Modified
+- [aifred/state.py](aifred/state.py): Line 1314 (added `_save_settings()` call)
+
+---
+
+### 🎯 Progress UI System Complete - MILESTONE
+
+#### Added
+- **Complete Progress Event Handling** ([aifred/state.py:942-960](aifred/state.py#L942-L960)):
+  - Quick/Deep research modes now handle all progress events (`progress`, `history_update`, `thinking_warning`)
+  - Identical event routing logic as Automatik mode
+  - Shows Web-Scraping progress (1/3, 2/3, 3/3) and LLM generation phase
+  - Visual feedback for all research pipeline stages
+
+- **Pulsing Animation for All Modes** ([aifred/aifred.py:526,539,543](aifred/aifred.py#L526)):
+  - Animation triggers on `progress_active | is_generating` (previously only `progress_active`)
+  - "Generiere Antwort" now pulses in "none" mode (Eigenes Wissen) during LLM inference
+  - Consistent visual feedback across all 4 research modes
+  - Bold text weight during active phases
+
+- **Dynamic Status Text** ([aifred/aifred.py:449-464](aifred/aifred.py#L449-L464)):
+  - Status text shows "Generiere Antwort" when `is_generating=True` even if `progress_active=False`
+  - Fixes idle state in "none" mode where status stayed on "Warte auf Eingabe"
+  - Properly reflects system activity in all modes
+
+#### Fixed
+- **Progress Bar Visibility** ([assets/custom.css:90](assets/custom.css#L90)):
+  - Removed `.rt-Box` from dark theme CSS selector
+  - Orange progress bar fill (#e67700) was hidden by `!important` background override
+  - Progress bar now visible in all research modes
+  - Root cause: Commit d8e4d55 ("Force dark theme") introduced CSS specificity conflict
+
+- **Missing Progress Events in Quick/Deep Modes**:
+  - Quick/Deep modes had no progress event handling (only debug, content, result)
+  - Web-Scraping and LLM phases were invisible to user
+  - Now shows full pipeline: "Web-Scraping 1/7" → "Generiere Antwort"
+
+#### Testing Results
+- ✅ **Automatik Mode**: Progress bar + phases (Automatik → Scraping → LLM)
+- ✅ **Quick Mode**: Progress bar + phases (Scraping 1/3 → LLM)
+- ✅ **Deep Mode**: Progress bar + phases (Scraping 1/7 → LLM)
+- ✅ **None Mode**: Pulsing "Generiere Antwort" during LLM
+
+#### Technical Details
+- Progress event flow: `scraper_orchestrator.py` → `orchestrator.py` → `state.py` → `aifred.py`
+- Event types: `progress` (scraping, llm, compress), `debug`, `content`, `result`, `history_update`
+- State variables: `progress_active`, `progress_phase`, `progress_current`, `progress_total`, `is_generating`
+- Reflex reactive rendering: `rx.cond()` for conditional UI updates
+
+#### Impact
+- **Before**: Inconsistent progress feedback, Quick/Deep modes had no visual pipeline status
+- **After**: Professional, consistent UI feedback across all modes. User always knows system status.
+- **UX Improvement**: No more confusion about "is it working?" - clear visual feedback at every stage
+
+#### Files Modified
+- [assets/custom.css](assets/custom.css): Line 90 (removed `.rt-Box`)
+- [aifred/state.py](aifred/state.py): Lines 942-960 (progress event handling)
+- [aifred/aifred.py](aifred/aifred.py): Lines 449-464, 526, 539, 543 (status text, pulsing animation)
+- [TODO.md](TODO.md): Comprehensive milestone documentation
+
+---
+
 ### 🏷️ Source Label Consistency & Double Metadata Bug Fix
 
 #### Fixed

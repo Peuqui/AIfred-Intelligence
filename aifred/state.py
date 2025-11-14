@@ -939,6 +939,25 @@ class AIState(rx.State):
                         self.is_generating = False  # Stop spinner, switch UI to history display
                         yield  # Force immediate UI update to clear both windows
                         # NOTE: Loop continues for cache metadata generation (important!)
+                    elif item["type"] == "progress":
+                        # Update processing progress
+                        if item.get("clear", False):
+                            self.clear_progress()
+                        else:
+                            self.set_progress(
+                                phase=item.get("phase", ""),
+                                current=item.get("current", 0),
+                                total=item.get("total", 0),
+                                failed=item.get("failed", 0)
+                            )
+                    elif item["type"] == "history_update":
+                        # Update chat history (e.g. from summarization)
+                        updated_history = item["data"]
+                        self.chat_history = updated_history
+                        self.add_debug(f"📊 History aktualisiert: {len(updated_history)} Messages")
+                    elif item["type"] == "thinking_warning":
+                        # Show thinking mode warning (model doesn't support reasoning)
+                        self.thinking_mode_warning = item["model"]
 
                     yield  # Update UI after each item
 
@@ -1287,11 +1306,12 @@ class AIState(rx.State):
     def set_research_mode_display(self, display_value: str):
         """Set research mode from UI display value"""
         from .lib import TranslationManager
-        
+
         # Use translation manager to get the internal mode value
         self.research_mode_display = display_value
         self.research_mode = TranslationManager.get_research_mode_value(display_value)
         self.add_debug(f"🔍 Research mode: {self.research_mode}")
+        self._save_settings()  # Persist research mode to settings.json
 
     def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization"""

@@ -446,11 +446,21 @@ def processing_progress_banner() -> rx.Component:
                 )
             )
         ),
-        # Idle state text
+        # Idle state text - aber zeige "Generiere Antwort" wenn is_generating=True
         rx.cond(
-            AIState.ui_language == "de",
-            "Warte auf Eingabe ...",
-            "Waiting for input ..."
+            AIState.is_generating,
+            # Während Generierung (ohne Research)
+            rx.cond(
+                AIState.ui_language == "de",
+                "Generiere Antwort ...",
+                "Generating Answer ..."
+            ),
+            # Wirklich idle
+            rx.cond(
+                AIState.ui_language == "de",
+                "Warte auf Eingabe ...",
+                "Waiting for input ..."
+            )
         )
     )
 
@@ -513,7 +523,7 @@ def processing_progress_banner() -> rx.Component:
                 phase_icon,
                 font_size="14px",
                 style=rx.cond(
-                    AIState.progress_active,
+                    AIState.progress_active | AIState.is_generating,  # Pulse if progress OR generating
                     {
                         "animation": "pulse 2s ease-in-out infinite",
                         "@keyframes pulse": {
@@ -526,11 +536,11 @@ def processing_progress_banner() -> rx.Component:
             ),
             rx.text(
                 phase_text,
-                font_weight=rx.cond(AIState.progress_active, "bold", "500"),
+                font_weight=rx.cond(AIState.progress_active | AIState.is_generating, "bold", "500"),  # Bold if active OR generating
                 font_size="13px",
                 color=COLORS["primary"],  # Always orange text
                 style=rx.cond(
-                    AIState.progress_active,
+                    AIState.progress_active | AIState.is_generating,  # Pulse if progress OR generating
                     {
                         "animation": "pulse 2s ease-in-out infinite",
                         "@keyframes pulse": {
