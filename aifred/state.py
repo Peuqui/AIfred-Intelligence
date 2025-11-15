@@ -1029,12 +1029,16 @@ class AIState(rx.State):
 
                 inference_time = time.time() - inference_start
 
-                # Add timing metadata to response
-                timing_metadata = f'\n\n<span style="color: #888; font-size: 0.9em;">( Inferenz: {inference_time:.1f}s )</span>'
-                final_response = full_response + timing_metadata
+                # Format <think> tags as collapsible (if present)
+                from .lib.formatting import format_thinking_process
+                formatted_response = format_thinking_process(
+                    full_response,
+                    model_name=self.selected_model,
+                    inference_time=inference_time
+                )
 
-                # Update chat history with final response
-                self.chat_history[temp_history_index] = (user_msg, final_response)
+                # Update chat history with formatted response (thinking already includes timing)
+                self.chat_history[temp_history_index] = (user_msg, formatted_response)
                 yield  # Update UI
 
                 # Clear response windows
