@@ -117,8 +117,31 @@ messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 ✅ Central maintenance - only one place to update timestamp format
 ✅ No duplicate timestamp injection
 
-**Status**: ✅ Completed (2025-11-15)
-**Testing**: Pending - User will test all 4 research modes
+**Additional Fixes (2025-11-15 Evening)**:
+
+**Fix 1: Missing Import in state.py**
+- **Problem**: "Eigenes Wissen" mode crashed with `ModuleNotFoundError: No module named 'aifred.lib.language_detection'`
+- **Root Cause**: [aifred/state.py](aifred/state.py#L990) tried to import `detect_language` from non-existent module
+- **Solution**: Changed import to `from .lib.prompt_loader import load_prompt, detect_language` (Lines 990)
+- **Files Modified**: [aifred/state.py](aifred/state.py#L989-L993)
+
+**Fix 2: Research Mode Settings Not Persisting**
+- **Problem**: Research mode reset to "Automatik" on every restart, even though `settings.json` stored `"research_mode": "none"`
+- **Root Cause**: [aifred/state.py](aifred/state.py#L219) loaded `research_mode` from settings, but `research_mode_display` (UI value) was never updated → UI always showed default "🤖 Automatik"
+- **Solution**: Added automatic `research_mode_display` sync when loading settings (Lines 221-223)
+- **Implementation**:
+```python
+# Update research_mode_display to match loaded research_mode
+from .lib import TranslationManager
+self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode)
+```
+- **Files Modified**: [aifred/state.py](aifred/state.py#L219-L223)
+
+**Status**: ✅ Completed & Tested (2025-11-15)
+- ✅ Timestamp injection working in all 4 research modes
+- ✅ "Eigenes Wissen" mode no longer crashes
+- ✅ Research mode settings persist across restarts
+- ✅ LLM correctly knows current date (tested: November 15, 2024)
 
 ---
 

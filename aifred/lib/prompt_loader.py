@@ -151,10 +151,6 @@ def load_prompt(prompt_name: str, lang: Optional[str] = None, user_text: str = N
     # Prepend timestamp to prompt
     prompt_template = timestamp_prefix + prompt_template
 
-    # DEBUG: Verify timestamp injection
-    print(f"DEBUG [load_prompt]: Injected timestamp for prompt '{prompt_name}' (lang={lang})")
-    print(f"DEBUG [load_prompt]: Timestamp prefix: {timestamp_prefix[:100]}...")
-
     # Format with kwargs if provided
     if kwargs or user_text:
         try:

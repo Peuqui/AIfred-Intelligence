@@ -217,6 +217,11 @@ class AIState(rx.State):
                 # Use saved settings
                 self.backend_type = saved_settings.get("backend_type", self.backend_type)
                 self.research_mode = saved_settings.get("research_mode", self.research_mode)
+
+                # Update research_mode_display to match loaded research_mode
+                from .lib import TranslationManager
+                self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode)
+
                 self.temperature = saved_settings.get("temperature", self.temperature)
                 self.enable_thinking = saved_settings.get("enable_thinking", self.enable_thinking)
 
@@ -980,6 +985,12 @@ class AIState(rx.State):
                     history=self.chat_history[:-1],  # Exclude current temporary entry
                     current_user_text=user_msg
                 )
+
+                # Inject minimal system prompt with timestamp (from load_prompt - automatically includes date/time)
+                from .lib.prompt_loader import load_prompt, detect_language
+                detected_language = detect_language(user_msg)
+                system_prompt_minimal = load_prompt('system_minimal', lang=detected_language)
+                messages.insert(0, {"role": "system", "content": system_prompt_minimal})
 
                 # Create backend instance
                 from .backends import BackendFactory, LLMOptions, LLMMessage
