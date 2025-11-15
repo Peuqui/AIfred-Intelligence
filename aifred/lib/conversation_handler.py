@@ -353,6 +353,9 @@ async def chat_interactive_mode(
                 # Clear progress - keine Web-Recherche nötig, zeige LLM-Phase
                 yield {"type": "progress", "phase": "llm"}
 
+                # Start timing for preload phase
+                preload_start = time.time()
+
                 # Jetzt normale Inferenz MIT Zeitmessung
                 # Build messages from history (all turns)
                 messages = build_messages_from_history(history, user_text)
@@ -390,6 +393,28 @@ Nutze diese Informationen ZUSÄTZLICH zu deinem Trainingswissen, wenn sie für d
 
                 # Get model max context for compact display
                 model_limit = await llm_client.get_model_context_limit(model_choice)
+
+                # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
+                if backend_type == "ollama":
+                    yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+
+                    # Preload via backend (measures actual model loading time)
+                    success, load_time = await llm_client._get_backend().preload_model(model_choice)
+
+                    if success:
+                        yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)"}
+                        log_message(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
+                    else:
+                        yield {"type": "debug", "message": f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)"}
+                        log_message(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
+                else:
+                    # vLLM/TabbyAPI: Model bereits in VRAM, zeige nur Vorbereitungszeit
+                    prep_time = time.time() - preload_start
+                    yield {"type": "debug", "message": f"🚀 Haupt-LLM ({model_choice}) wird vorgeladen..."}
+                    yield {"type": "debug", "message": f"✅ Haupt-LLM vorgeladen ({prep_time:.1f}s)"}
+                    log_message(f"✅ Haupt-LLM vorgeladen ({prep_time:.1f}s - vorbereitung)")
+
+                yield {"type": "debug", "message": "✅ System-Prompt erstellt"}
 
                 # Show compact context info (like Automatik-LLM and Web-Recherche)
                 yield {"type": "debug", "message": f"📊 Haupt-LLM: {input_tokens} / {final_num_ctx} Tokens (max: {model_limit})"}

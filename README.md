@@ -6,20 +6,26 @@ AIfred Intelligence ist ein fortschrittlicher KI-Assistent mit automatischer Web
 
 ---
 
-## 🎉 Latest Updates (2025-11-14)
+## 🎉 Latest Updates (2025-11-15)
 
-### 🔧 Research Mode Persistence
+### 🔍 Enhanced Debug Logging & Query Visibility
+- ✅ **Consistent Debug Output** across all research modes (Eigenes Wissen, Automatik, Quick, Deep)
+- ✅ **Precise Preload Timing** with `✅ Haupt-LLM vorgeladen (X.Xs)` in all modes
+- ✅ **Optimized Query Display** shows LLM-generated search terms: `🔎 Optimierte Query: [terms]`
+- ✅ **Backend-Aware Timing**: Ollama (actual load time) vs vLLM/TabbyAPI (prep time)
+- 🔧 Added comprehensive debug messages: Token stats, Temperature, TTFT, Tokens/s
+- **Impact**: Professional debug output, easier performance optimization, better web search quality assessment
+
+### 🔧 Research Mode Persistence (2025-11-14)
 - ✅ **Research Mode now persists** across application restarts
 - 🔧 Fixed missing `_save_settings()` call in `set_research_mode_display()`
 - **Impact**: Your preferred research mode (Automatik/Quick/Deep/None) is remembered
 
-### 🎯 Progress UI System Complete - MILESTONE
+### 🎯 Progress UI System Complete - MILESTONE (2025-11-14)
 - ✅ **Full Progress Feedback** across all 4 research modes (Automatik, Quick, Deep, None)
 - ✅ **Pulsing Animation** for "Generiere Antwort" in all modes (including "Eigenes Wissen")
 - ✅ **Web-Scraping Progress Bar** now visible (1/3, 2/3, 3/3) with orange fill
 - ✅ **Dynamic Status Text** reflects system activity in real-time
-- 🔧 Fixed CSS specificity conflict that hid progress bar fill color
-- 🔧 Added complete progress event handling to Quick/Deep modes
 - **Impact**: Professional, consistent UI feedback - users always know what the system is doing
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed changes.

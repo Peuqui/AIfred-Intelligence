@@ -42,6 +42,59 @@
 
 ## Completed
 
+### Enhanced Debug Logging & Query Visibility (2025-11-15)
+**Achievement**: Consistent, detailed debug output across all research modes with precise timing measurements and optimized query visibility.
+
+**Problems Solved**:
+1. **Inconsistent Debug Output** - "Eigenes Wissen" mode had sparse logging compared to "Automatik" mode
+2. **Missing Preload Timing** - "Haupt-LLM vorgeladen" showed no time measurement
+3. **Hidden Optimized Queries** - Users couldn't see what search terms the LLM generated for web research
+
+**Solutions Implemented**:
+
+#### 1. Comprehensive Debug Logging for "Eigenes Wissen" Mode
+- **File**: [aifred/state.py](aifred/state.py) Lines 1014-1093
+- **Added Messages**:
+  - `🚀 Haupt-LLM (model) wird vorgeladen...`
+  - `✅ Haupt-LLM vorgeladen (X.Xs)` - with precise timing
+  - `✅ System-Prompt erstellt`
+  - `📊 Haupt-LLM: input / num_ctx Tokens (max: limit)`
+  - `🌡️ Temperature: X.X (manual)`
+  - `🤖 Haupt-LLM startet: model_name`
+  - `⚡ TTFT: X.XXs` - Time To First Token
+  - `✅ Haupt-LLM fertig (X.Xs, Y tokens, Z.Z tok/s)`
+- **Result**: Debug output now matches Automatik mode quality
+
+#### 2. Precise Preload Time Measurement
+- **Files**: [aifred/state.py](aifred/state.py#L1019-L1030), [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py#L395-L412)
+- **Implementation**:
+  - **Ollama Backend**: Calls `backend.preload_model()` for actual model loading time (1-5 seconds)
+  - **vLLM/TabbyAPI**: Measures preparation time only (models stay in VRAM, 0.1-0.5 seconds)
+  - Backend-aware timing ensures accurate performance metrics
+- **Result**: All "vorgeladen" messages show precise timing in parentheses
+
+#### 3. Optimized Query Display in Debug Console
+- **File**: [aifred/lib/research/query_processor.py](aifred/lib/research/query_processor.py#L61)
+- **Added Message**: `🔎 Optimierte Query: [optimized search terms]`
+- **Visible in**: All web research modes (Automatik, Websuche schnell, Websuche ausführlich)
+- **Result**: Users can now assess quality of LLM-generated search queries
+
+**Files Modified**:
+- [aifred/state.py](aifred/state.py): Lines 982-1030, 1036-1093 (Eigenes Wissen mode logging)
+- [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py): Lines 356-417 (Automatik mode logging)
+- [aifred/lib/research/query_processor.py](aifred/lib/research/query_processor.py): Line 61 (optimized query display)
+
+**Testing Results**:
+- ✅ **Eigenes Wissen**: Shows all debug messages with precise timing
+- ✅ **Automatik (Eigenes Wissen branch)**: Shows preload timing (previously missing)
+- ✅ **Web-Recherche Modi**: Show optimized query + all existing debug info
+- ✅ **Backend-Awareness**: Different timing for Ollama (actual load) vs vLLM/TabbyAPI (prep only)
+
+**Status**: ✅ Completed & Tested (2025-11-15)
+**Impact**: Professional debug output across all modes, easier performance optimization and web search quality assessment
+
+---
+
 ### Fix: Automatic Date/Time Injection in All Prompts (2025-11-15)
 **Problem**: LLM hatte kein Bewusstsein für aktuelles Datum/Zeit, konnte nicht unterscheiden ob Trainingsdaten veraltet sind oder welches Jahr/Monat aktuell ist.
 

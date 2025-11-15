@@ -40,6 +40,8 @@ async def process_query_and_search(
     tool_results = []
 
     # 1. Query Optimization
+    yield {"type": "debug", "message": "🔍 Query-Optimierung läuft..."}
+
     query_opt_start = time.time()
 
     # Query Automatik-Model Context Limit (silent - already shown in decision phase)
@@ -53,6 +55,10 @@ async def process_query_and_search(
         automatik_llm_context_limit=automatik_limit
     )
     query_opt_time = time.time() - query_opt_start
+
+    # Show query optimization completion AND optimized query
+    yield {"type": "debug", "message": f"✅ Query-Optimierung fertig ({query_opt_time:.1f}s)"}
+    yield {"type": "debug", "message": f"🔎 Optimierte Query: {optimized_query}"}
 
     # 2. Web-Suche
     log_message("=" * 60)

@@ -5,6 +5,49 @@ All notable changes to AIfred Intelligence will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-11-15
+
+### 🔍 Enhanced Debug Logging & Query Visibility
+
+#### Added
+- **Consistent Debug Logging Across All Modes** ([aifred/state.py:1014-1030](aifred/state.py#L1014-L1030), [aifred/lib/conversation_handler.py:395-414](aifred/lib/conversation_handler.py#L395-L414)):
+  - "Eigenes Wissen" mode now shows comprehensive debug messages matching Automatik mode style
+  - LLM preloading messages with precise timing: `🚀 Haupt-LLM wird vorgeladen...` → `✅ Haupt-LLM vorgeladen (X.Xs)`
+  - System prompt creation confirmation
+  - Token statistics: `📊 Haupt-LLM: input / num_ctx Tokens (max: limit)`
+  - Temperature settings display
+  - TTFT (Time To First Token) measurement
+  - Final completion stats with tokens/s
+
+- **Precise Preload Time Measurement** ([aifred/state.py:1019-1030](aifred/state.py#L1019-L1030)):
+  - Ollama backend: Actual model loading time via `backend.preload_model()` (1-5 seconds)
+  - vLLM/TabbyAPI: Preparation time only (models stay in VRAM, 0.1-0.5 seconds)
+  - Backend-aware timing ensures accurate performance metrics
+
+- **Optimized Query Display in Debug Console** ([aifred/lib/research/query_processor.py:61](aifred/lib/research/query_processor.py#L61)):
+  - Shows the LLM-optimized search query after query optimization completes
+  - Enables quality assessment of web research queries
+  - Visible in all web research modes (Automatik, Websuche schnell, Websuche ausführlich)
+  - Format: `🔎 Optimierte Query: [optimized search terms]`
+
+#### Enhanced
+- **Web Research Modes Debug Output** ([aifred/lib/research/query_processor.py:43-61](aifred/lib/research/query_processor.py#L43-L61)):
+  - Query optimization progress: `🔍 Query-Optimierung läuft...`
+  - Completion with timing: `✅ Query-Optimierung fertig (X.Xs)`
+  - Optimized query display for quality assessment
+
+#### Impact
+- **Before**: Debug output varied significantly between modes, making performance comparison difficult
+- **After**: All modes show consistent, detailed debug information for easier troubleshooting and optimization
+- **User Benefit**: Better visibility into AIfred's internal processes, easier quality assessment of web searches
+
+#### Files Modified
+- [aifred/state.py](aifred/state.py): Lines 982-1030, 1036-1093 (Eigenes Wissen mode logging)
+- [aifred/lib/conversation_handler.py](aifred/lib/conversation_handler.py): Lines 356-417 (Automatik mode logging)
+- [aifred/lib/research/query_processor.py](aifred/lib/research/query_processor.py): Line 61 (optimized query display)
+
+---
+
 ## [Unreleased] - 2025-11-14
 
 ### Fix: Research Mode Persistence

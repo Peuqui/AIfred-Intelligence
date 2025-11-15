@@ -979,6 +979,10 @@ class AIState(rx.State):
                 temp_history_index = len(self.chat_history)
                 self.chat_history.append((user_msg, self.current_ai_response))
 
+                # Start timing for preload phase (preparation + actual model loading)
+                import time
+                preload_start = time.time()
+
                 # Build messages from history
                 from .lib.message_builder import build_messages_from_history
                 messages = build_messages_from_history(
@@ -999,6 +1003,47 @@ class AIState(rx.State):
                     base_url=self.backend_url
                 )
 
+                # Get model context limit
+                model_limit = await backend.get_model_context_limit(self.selected_model)
+
+                # Count actual input tokens (using real tokenizer)
+                from .lib.context_manager import estimate_tokens
+                input_tokens = estimate_tokens(messages, model_name=self.selected_model)
+
+                # Dynamic num_ctx calculation
+                from .lib.context_manager import calculate_dynamic_num_ctx
+                final_num_ctx = await calculate_dynamic_num_ctx(backend, self.selected_model, messages, None)
+
+                # Actual model preloading (only for Ollama - vLLM/TabbyAPI keep models in VRAM)
+                if self.backend_type == "ollama":
+                    self.add_debug(f"🚀 Haupt-LLM ({self.selected_model}) wird vorgeladen...")
+                    yield
+
+                    # Preload via backend (measures actual model loading time)
+                    success, load_time = await backend.preload_model(self.selected_model)
+
+                    if success:
+                        self.add_debug(f"✅ Haupt-LLM vorgeladen ({load_time:.1f}s)")
+                    else:
+                        self.add_debug(f"⚠️ Haupt-LLM Preload fehlgeschlagen ({load_time:.1f}s)")
+                else:
+                    # vLLM/TabbyAPI: Model bereits in VRAM, zeige nur Vorbereitungszeit
+                    prep_time = time.time() - preload_start
+                    self.add_debug(f"🚀 Haupt-LLM ({self.selected_model}) wird vorgeladen...")
+                    yield
+                    self.add_debug(f"✅ Haupt-LLM vorgeladen ({prep_time:.1f}s)")
+
+                self.add_debug(f"✅ System-Prompt erstellt")
+                yield
+
+                # Show compact context info (matching Automatik mode style)
+                self.add_debug(f"📊 Haupt-LLM: {input_tokens} / {final_num_ctx} Tokens (max: {model_limit})")
+                yield
+
+                # Temperature (matching Automatik mode style)
+                self.add_debug(f"🌡️ Temperature: {self.temperature} (manual)")
+                yield
+
                 # Build LLM options
                 llm_options = LLMOptions(
                     temperature=self.temperature,
@@ -1008,10 +1053,17 @@ class AIState(rx.State):
                 # Convert to LLMMessage format
                 llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
 
+                # Console: LLM starts (matching Automatik mode)
+                self.add_debug(f"🤖 Haupt-LLM startet: {self.selected_model}")
+                yield
+
                 # Stream response directly from LLM
                 import time
                 inference_start = time.time()
                 full_response = ""
+                ttft = None
+                first_token_received = False
+                tokens_generated = 0
 
                 async for chunk in backend.chat_stream(
                     model=self.selected_model,
@@ -1019,6 +1071,13 @@ class AIState(rx.State):
                     options=llm_options
                 ):
                     if chunk["type"] == "content":
+                        # Measure TTFT (matching Automatik mode)
+                        if not first_token_received:
+                            ttft = time.time() - inference_start
+                            first_token_received = True
+                            self.add_debug(f"⚡ TTFT: {ttft:.2f}s")
+                            yield
+
                         # Stream content to UI in real-time
                         self.current_ai_response += chunk["text"]
                         full_response += chunk["text"]
@@ -1026,8 +1085,16 @@ class AIState(rx.State):
                         if temp_history_index < len(self.chat_history):
                             self.chat_history[temp_history_index] = (user_msg, self.current_ai_response)
                         yield  # Update UI
+                    elif chunk["type"] == "done":
+                        metrics = chunk.get("metrics", {})
+                        tokens_generated = metrics.get("tokens_generated", 0)
 
                 inference_time = time.time() - inference_start
+
+                # Console: LLM finished (matching Automatik mode)
+                tokens_per_sec = tokens_generated / inference_time if inference_time > 0 else 0
+                self.add_debug(f"✅ Haupt-LLM fertig ({inference_time:.1f}s, {tokens_generated} tokens, {tokens_per_sec:.1f} tok/s)")
+                yield
 
                 # Format <think> tags as collapsible (if present)
                 from .lib.formatting import format_thinking_process
