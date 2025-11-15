@@ -54,6 +54,433 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
 
 ---
 
+## 🔄 Research Mode Workflows
+
+AIfred bietet 4 verschiedene Research-Modi, die je nach Anforderung unterschiedliche Strategien verwenden. Hier ist der detaillierte Ablauf jedes Modus:
+
+### 📊 LLM Calls Übersicht
+
+| Modus | Min LLM Calls | Max LLM Calls | Typische Dauer |
+|-------|---------------|---------------|----------------|
+| **Eigenes Wissen** | 1 | 1 | 5-30s |
+| **Automatik** (Cache Hit) | 0 | 0 | <1s |
+| **Automatik** (Direct Answer) | 2 | 3 | 5-35s |
+| **Automatik** (Web Research) | 4 | 5 | 15-60s |
+| **Websuche Schnell** | 3 | 4 | 10-40s |
+| **Websuche Ausführlich** | 3 | 4 | 15-60s |
+
+---
+
+### 1️⃣ Eigenes Wissen Mode (Direct LLM)
+
+**Einfachster Modus**: Direkter LLM-Aufruf ohne Web-Recherche oder KI-Entscheidung.
+
+**Workflow:**
+```
+1. Message Building
+   └─ Build from chat history
+   └─ Inject system_minimal prompt (mit Timestamp)
+
+2. Model Preloading (Ollama only)
+   └─ backend.preload_model() - misst echte Ladezeit
+   └─ vLLM/TabbyAPI: Skip (bereits in VRAM)
+
+3. Token Management
+   └─ estimate_tokens(messages, model_name)
+   └─ calculate_dynamic_num_ctx()
+
+4. LLM Call - Main Response
+   ├─ Model: Haupt-LLM (z.B. Qwen2.5-32B)
+   ├─ Temperature: Manual (User-Einstellung)
+   ├─ Streaming: Ja (Echtzeit-Updates)
+   └─ TTFT + Tokens/s Messung
+
+5. Format & Save
+   └─ format_thinking_process() für <think> Tags
+   └─ Update chat history
+```
+
+**LLM Calls:** 1 (nur Haupt-LLM)
+**Async Tasks:** Keine
+**Code:** `aifred/state.py` Lines 974-1117
+
+---
+
+### 2️⃣ Automatik Mode (AI Decision System)
+
+**Intelligentester Modus**: KI entscheidet selbst, ob Web-Recherche nötig ist.
+
+#### Phase 1: Vector Cache Check
+```
+1. Query ChromaDB für ähnliche Fragen
+   └─ Distance < 0.5: HIGH Confidence → Cache Hit
+   └─ Distance ≥ 0.5: CACHE_MISS → Weiter
+
+2. IF CACHE HIT:
+   └─ Antwort direkt aus Cache
+   └─ RETURN (0 LLM Calls!)
+```
+
+#### Phase 2: RAG Context Check
+```
+1. Query cache für RAG candidates (distance 0.5-1.2)
+
+2. FOR EACH candidate:
+   ├─ LLM Relevance Check (Automatik-LLM)
+   │  └─ Prompt: rag_relevance_check
+   │  └─ Options: temp=0.1, num_ctx=2048
+   └─ Keep if relevant
+
+3. Build formatted context from relevant entries
+```
+
+#### Phase 3: Keyword Override Check
+```
+1. Check für explicit research keywords:
+   └─ "recherchiere", "suche im internet", "google", etc.
+
+2. IF keyword found:
+   └─ Trigger fresh web research (mode='deep')
+   └─ BYPASS Automatik decision
+```
+
+#### Phase 4: Automatik Decision
+```
+1. LLM Call - Decision Making
+   ├─ Model: Automatik-LLM (z.B. Qwen2.5-3B)
+   ├─ Prompt: decision_making
+   ├─ Messages: NO history (focused decision)
+   ├─ Options:
+   │  ├─ temperature: 0.2 (consistent decisions)
+   │  ├─ num_ctx: min(2048, automatik_limit // 2)
+   │  └─ enable_thinking: False (fast)
+   └─ Response: '<search>yes</search>' | '<search>no</search>'
+
+2. Parse decision:
+   ├─ IF yes: → Web Research (mode='deep')
+   └─ IF no:  → Direct LLM Answer (Phase 5)
+```
+
+#### Phase 5: Direct LLM Answer (if decision = no)
+```
+1. Model Preloading (Ollama only)
+
+2. Build Messages
+   ├─ From chat history
+   ├─ Inject system_minimal prompt
+   └─ Optional: Inject RAG context (if found in Phase 2)
+
+3. Intent Detection (if auto temp mode)
+   ├─ LLM Call (Automatik-LLM)
+   ├─ Prompt: intent_detection
+   ├─ Response: "FAKTISCH" | "KREATIV" | "GEMISCHT"
+   └─ Map to temperature: 0.2 | 0.8 | 0.5
+
+4. LLM Call - Main Response
+   ├─ Model: Haupt-LLM
+   ├─ Temperature: From intent detection or manual
+   ├─ Streaming: Ja
+   └─ TTFT + Tokens/s Messung
+
+5. Format & Update History
+   └─ Metadata: "Cache+LLM (RAG)" or "LLM"
+```
+
+**LLM Calls:**
+- Cache Hit: 0
+- RAG Context: 2-6 (relevance checks + main response)
+- Web Research: 4-5 (decision + optimization + intent + main + cache)
+- Direct Answer: 2-3 (decision + optional intent + main)
+
+**Code:** `aifred/lib/conversation_handler.py`
+
+---
+
+### 3️⃣ Websuche Schnell Mode (Quick Research)
+
+**Schnellster Web-Research Modus**: Top 3 URLs, optimiert für Speed.
+
+#### Phase 1: Session Cache Check
+```
+1. Check session-based cache
+   └─ IF cache hit: Use cached sources → Skip to Phase 4
+   └─ IF miss: Continue to Phase 2
+```
+
+#### Phase 2: Query Optimization + Web Search
+```
+1. LLM Call - Query Optimization
+   ├─ Model: Automatik-LLM
+   ├─ Prompt: query_optimization
+   ├─ Messages: Last 3 history turns (for follow-up context)
+   ├─ Options:
+   │  ├─ temperature: 0.3 (balanced for keywords)
+   │  ├─ num_ctx: min(8192, automatik_limit)
+   │  └─ enable_thinking: False
+   ├─ Post-processing:
+   │  ├─ Extract <think> tags (reasoning)
+   │  ├─ Clean query (remove quotes)
+   │  └─ Add temporal context (current year)
+   └─ Output: optimized_query, query_reasoning
+
+2. Web Search (Multi-API with Fallback)
+   ├─ Try: Brave API
+   ├─ Fallback: Tavily
+   ├─ Fallback: SearXNG (local)
+   └─ Deduplication across APIs
+```
+
+#### Phase 3: Parallel Web Scraping
+```
+PARALLEL EXECUTION:
+├─ ThreadPoolExecutor (max 5 workers)
+│  └─ Scrape Top 3 URLs simultaneously
+│     └─ Extract text content + word count
+│
+└─ Async Task: Main LLM Preload (Ollama only)
+   └─ llm_client.preload_model(model)
+   └─ Runs parallel to scraping
+   └─ vLLM/TabbyAPI: Skip (already loaded)
+
+Progress Updates:
+└─ Yield after each URL completion
+```
+
+#### Phase 4: Context Building + LLM Response
+```
+1. Build Context
+   ├─ Filter successful scrapes (word_count > 0)
+   ├─ build_context() - smart token limit aware
+   └─ Build system_rag prompt (with context + timestamp)
+
+2. Intent Detection (if auto temp mode)
+   ├─ LLM Call (Automatik-LLM)
+   └─ Map to temperature
+
+3. LLM Call - Final Response
+   ├─ Model: Haupt-LLM
+   ├─ Context: ~3 sources, 5K-10K tokens
+   ├─ Streaming: Ja
+   └─ TTFT + Tokens/s Messung
+
+4. Cache Decision
+   ├─ Check for volatile keywords
+   ├─ LLM Call (Automatik-LLM)
+   │  └─ Prompt: cache_decision
+   │  └─ Response: 'cacheable' | 'not_cacheable'
+   ├─ IF cacheable:
+   │  └─ cache.add(query, answer, sources)
+   │  └─ Duplicate detection (distance < 0.3)
+   └─ Log result
+
+5. Format & Update History
+   └─ Metadata: "(Agent: quick, {n} Quellen)"
+```
+
+**LLM Calls:**
+- With Cache: 1-2 (optional intent + main)
+- Without Cache: 3-4 (optimization + optional intent + main + cache decision)
+
+**Async Tasks:**
+- Parallel URL scraping (3 URLs)
+- Background LLM preload (Ollama only)
+
+**Code:** `aifred/lib/research/orchestrator.py` + Submodules
+
+---
+
+### 4️⃣ Websuche Ausführlich Mode (Deep Research)
+
+**Gründlichster Modus**: Top 7 URLs für maximale Informationstiefe.
+
+**Workflow:** Identisch zu Websuche Schnell, mit folgenden Unterschieden:
+
+#### Scraping Strategy
+```
+Quick Mode:  3 URLs → ~3 successful sources
+Deep Mode:   7 URLs → ~5-7 successful sources
+
+Parallel Execution:
+├─ ThreadPoolExecutor (max 5 workers)
+│  └─ Scrape Top 7 URLs simultaneously
+│  └─ Continue until 5 successful OR all tried
+│
+└─ Async: Main LLM Preload (parallel)
+```
+
+#### Context Size
+```
+Quick: ~5K-10K tokens context
+Deep:  ~10K-20K tokens context
+
+→ Mehr Quellen = reicherer Kontext
+→ Längere LLM Inference (10-40s vs 5-30s)
+```
+
+**LLM Calls:** Identisch zu Quick (3-4)
+**Async Tasks:** Mehr URLs parallel (7 vs 3)
+**Trade-off:** Höhere Qualität vs längere Dauer
+
+---
+
+### 🔀 Decision Flow Diagram
+
+```
+USER INPUT
+    │
+    ▼
+┌─────────────────────┐
+│ Research Mode?      │
+└─────────────────────┘
+    │
+    ├── "none" ────────────────────────┐
+    │                                   │
+    ├── "automatik" ──────────────┐   │
+    │                              │   │
+    ├── "quick" ──────────────┐  │   │
+    │                          │  │   │
+    └── "deep" ────────────┐  │  │   │
+                           │  │  │   │
+                           ▼  ▼  ▼   ▼
+                      ╔═══════════════════╗
+                      ║ MODE HANDLER      ║
+                      ╚═══════════════════╝
+                               │
+     ┌─────────────────────────┼──────────────────────┐
+     │                         │                      │
+     ▼                         ▼                      ▼
+┌──────────┐         ┌──────────────┐       ┌─────────────┐
+│ EIGENES  │         │ AUTOMATIK    │       │ WEB         │
+│ WISSEN   │         │ (AI Decides) │       │ RESEARCH    │
+└──────────┘         └──────────────┘       │ (quick/deep)│
+     │                       │               └─────────────┘
+     │                       ▼                      │
+     │              ┌────────────────┐              │
+     │              │ Vector Cache   │              │
+     │              │ Check          │              │
+     │              └────────────────┘              │
+     │                       │                      │
+     │          ┌────────────┼─────────────┐        │
+     │          │            │             │        │
+     │          ▼            ▼             ▼        │
+     │     ┌────────┐  ┌─────────┐  ┌─────────┐   │
+     │     │ CACHE  │  │ RAG     │  │ CACHE   │   │
+     │     │ HIT    │  │ CONTEXT │  │ MISS    │   │
+     │     │ RETURN │  │ FOUND   │  │         │   │
+     │     └────────┘  └─────────┘  └─────────┘   │
+     │                       │            │         │
+     │                       │            ▼         │
+     │                       │    ┌──────────────┐ │
+     │                       │    │ Keyword      │ │
+     │                       │    │ Override?    │ │
+     │                       │    └──────────────┘ │
+     │                       │         │     │      │
+     │                       │         NO   YES     │
+     │                       │         │     │      │
+     │                       │         │     └──────┤
+     │                       │         ▼            │
+     │                       │   ┌──────────────┐  │
+     │                       │   │ LLM Decision │  │
+     │                       │   │ (yes/no)     │  │
+     │                       │   └──────────────┘  │
+     │                       │         │     │      │
+     │                       │         NO   YES     │
+     │                       │         │     │      │
+     │                       │         │     └──────┤
+     ▼                       ▼         ▼            ▼
+╔══════════════════════════════════════════════════════╗
+║         DIRECT LLM INFERENCE                         ║
+║  1. Build Messages (with/without RAG)                ║
+║  2. Intent Detection (auto mode)                     ║
+║  3. Main LLM Call (streaming)                        ║
+║  4. Format & Update History                          ║
+╚══════════════════════════════════════════════════════╝
+                           │
+                           ▼
+                    ┌──────────┐
+                    │ RESPONSE │
+                    └──────────┘
+
+         WEB RESEARCH PIPELINE
+         ═════════════════════
+                    │
+                    ▼
+        ┌───────────────────┐
+        │ Session Cache?    │
+        └───────────────────┘
+                    │
+        ┌───────────┴────────────┐
+        │                        │
+        ▼                        ▼
+   ┌────────┐          ┌─────────────────┐
+   │ CACHE  │          │ Query           │
+   │ HIT    │          │ Optimization    │
+   └────────┘          │ (Automatik-LLM) │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ Web Search      │
+                       │ (Multi-API)     │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ PARALLEL TASKS  │
+                       ├─────────────────┤
+                       │ • Scraping      │
+                       │   (3 or 7 URLs) │
+                       │ • LLM Preload   │
+                       │   (async)       │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ Context Build   │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ Main LLM        │
+                       │ (streaming)     │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ Cache Decision  │
+                       │ (Automatik-LLM) │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ RESPONSE        │
+                       └─────────────────┘
+```
+
+### 📁 Code Structure Reference
+
+**Core Entry Points:**
+- `aifred/state.py` - Main state management, send_message()
+
+**Automatik Mode:**
+- `aifred/lib/conversation_handler.py` - Decision logic, RAG context
+
+**Web Research Pipeline:**
+- `aifred/lib/research/orchestrator.py` - Top-level orchestration
+- `aifred/lib/research/cache_handler.py` - Session cache
+- `aifred/lib/research/query_processor.py` - Query optimization + search
+- `aifred/lib/research/scraper_orchestrator.py` - Parallel scraping
+- `aifred/lib/research/context_builder.py` - Context building + LLM
+
+**Supporting Modules:**
+- `aifred/lib/vector_cache.py` - ChromaDB semantic cache
+- `aifred/lib/rag_context_builder.py` - RAG context from cache
+- `aifred/lib/query_optimizer.py` - Search query optimization
+- `aifred/lib/intent_detector.py` - Temperature selection
+- `aifred/lib/agent_tools.py` - Web search, scraping, context building
+
+---
+
 ## 🚀 Installation
 
 ### Voraussetzungen
