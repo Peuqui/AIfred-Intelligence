@@ -2002,4 +2002,4 @@ Frei für persönliche, bildungsbezogene und nicht-kommerzielle Nutzung. Kommerz
 
 Wenn dir dieses Projekt gefällt, kannst du mich unterstützen:
 
-<a href="https://ko-fi.com/peuqui" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi2.png?v=6" alt="Unterstütze mich auf Ko-fi" height="50"></a>
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/peuqui)
