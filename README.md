@@ -2127,32 +2127,15 @@ More documentation in the `docs/` directory:
 
 ---
 
-## 🤝 Contributing
-
-Pull requests are welcome! For major changes, please open an issue first.
-
----
-
-## ☕ Support
-
-If you like AIfred, consider buying me a coffee:
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/peuqui)
-
----
-
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Peuqui/AIfred-Intelligence&type=Date)](https://star-history.com/#Peuqui/AIfred-Intelligence&Date)
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file
+PolyForm Noncommercial License 1.0.0 - see [LICENSE](LICENSE) file
+
+Free for personal, educational, and non-commercial use. Commercial use requires a separate license from the author.
 
 ---
 
-## ☕ Support
-
-If you find this project useful, consider supporting me:
-
-<a href="https://ko-fi.com/peuqui" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi2.png?v=6" alt="Support me on Ko-fi" height="50"></a>
