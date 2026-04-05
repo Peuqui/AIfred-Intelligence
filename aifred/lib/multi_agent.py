@@ -690,11 +690,9 @@ async def _run_agent_direct_response(
         _default_agents = ("aifred", "sokrates", "salomo", "vision")
         if agent in _default_agents:
             agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
-            agent_model_display = getattr(state, f"{agent}_model", None) or state.aifred_model  # type: ignore[has-type]
         else:
             agent_model_id = state._effective_model_id("aifred")
-            agent_model_display = state.aifred_model  # type: ignore[has-type]
-        state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_display}")
+        state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_id} ({state.backend_type})")
 
         # Context limit — custom agents use AIfred's context
         from .research.context_utils import get_agent_num_ctx

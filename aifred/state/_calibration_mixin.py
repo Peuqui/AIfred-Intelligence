@@ -508,26 +508,26 @@ class CalibrationMixin(rx.State, mixin=True):
 
                     stop_fn()
 
-                if tts_ctx and tts_ctx > 0:
-                    added = add_llamaswap_tts_variant(
-                        LLAMASWAP_CONFIG_PATH,
-                        calibration_model_id,
-                        tts_ctx,
-                        tts_backend,
-                        kv_quant=tts_kv,
-                        tensor_split=tts_tensor_split,
-                        num_gpus=tts_num_gpus,
-                    )
-                    if added:
-                        self.add_debug(  # type: ignore[attr-defined]
-                            f"   ✅ {tts_label} variant: {calibration_model_id}-tts-{tts_backend} "
-                            f"(ctx {format_number(tts_ctx)})"
+                    if tts_ctx and tts_ctx > 0:
+                        added = add_llamaswap_tts_variant(
+                            LLAMASWAP_CONFIG_PATH,
+                            calibration_model_id,
+                            tts_ctx,
+                            tts_backend,
+                            kv_quant=tts_kv,
+                            tensor_split=tts_tensor_split,
+                            num_gpus=tts_num_gpus,
                         )
+                        if added:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   ✅ {tts_label} variant: {calibration_model_id}-tts-{tts_backend} "
+                                f"(ctx {format_number(tts_ctx)})"
+                            )
+                        else:
+                            self.add_debug(f"   ⚠️ Could not write {tts_label} variant to config")  # type: ignore[attr-defined]
                     else:
-                        self.add_debug(f"   ⚠️ Could not write {tts_label} variant to config")  # type: ignore[attr-defined]
-                else:
-                    self.add_debug(f"   ❌ {tts_label} variant calibration failed")  # type: ignore[attr-defined]
-                yield
+                        self.add_debug(f"   ❌ {tts_label} variant calibration failed")  # type: ignore[attr-defined]
+                    yield
 
             # Step 6: Restart llama-swap
             self.add_debug("🔄 Restarting llama-swap service...")  # type: ignore[attr-defined]
