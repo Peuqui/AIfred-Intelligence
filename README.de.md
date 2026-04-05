@@ -1990,28 +1990,16 @@ Weitere Dokumentation im `docs/` Verzeichnis:
 
 ---
 
-## 🤝 Contributing
+## 📄 Lizenz
 
-Pull Requests sind willkommen! Für größere Änderungen bitte erst ein Issue öffnen.
+PolyForm Noncommercial License 1.0.0 - siehe [LICENSE](LICENSE)
+
+Frei für persönliche, bildungsbezogene und nicht-kommerzielle Nutzung. Kommerzielle Nutzung erfordert eine separate Lizenz vom Autor.
 
 ---
 
 ## ☕ Unterstützung
 
-Wenn dir AIfred gefällt, spendier mir einen Kaffee:
+Wenn dir dieses Projekt gefällt, kannst du mich unterstützen:
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/peuqui)
-
----
-
-## 📄 License
-
-MIT License - siehe [LICENSE](LICENSE) file
-
----
-
-## ☕ Unterstuetzen
-
-Wenn dir dieses Projekt gefaellt, kannst du mich unterstuetzen:
-
-<a href="https://ko-fi.com/peuqui" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi2.png?v=6" alt="Unterstuetze mich auf Ko-fi" height="50"></a>
+<a href="https://ko-fi.com/peuqui" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi2.png?v=6" alt="Unterstütze mich auf Ko-fi" height="50"></a>
