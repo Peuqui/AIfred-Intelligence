@@ -853,7 +853,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("⏳ Waiting for llama-swap to be ready...")  # type: ignore[attr-defined]
                 yield
 
-                max_retries = 20  # up to 10s — autoscan ExecStartPre can take time
+                max_retries = 40  # up to 20s — autoscan ExecStartPre can take time
                 llamacpp_ready = False
                 for attempt in range(max_retries):
                     try:
@@ -870,7 +870,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         yield
 
                 if not llamacpp_ready:
-                    self.add_debug("⚠️ llama-swap might not be ready yet (timeout after 10s)")  # type: ignore[attr-defined]
+                    self.add_debug("⚠️ llama-swap might not be ready yet (timeout after 20s)")  # type: ignore[attr-defined]
                 yield
 
             elif self.backend_type == "tabbyapi":  # type: ignore[attr-defined]

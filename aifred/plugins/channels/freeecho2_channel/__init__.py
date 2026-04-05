@@ -94,6 +94,13 @@ class FreeEchoChannel(BaseChannel):
         port = values.get("FREEECHO2_PORT", str(_DEFAULT_PORT))
         broker.set_runtime("freeecho2", "port", port)
 
+        ssl_cert = values.get("FREEECHO2_SSL_CERT", "")
+        ssl_key = values.get("FREEECHO2_SSL_KEY", "")
+        if ssl_cert:
+            broker.set_runtime("freeecho2", "ssl_cert", ssl_cert)
+        if ssl_key:
+            broker.set_runtime("freeecho2", "ssl_key", ssl_key)
+
         # Engine setting is saved here, actual start happens on first Puck request
         # via ensure_engine_ready() in _run_tts()
         new_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
@@ -107,9 +114,12 @@ class FreeEchoChannel(BaseChannel):
 
     async def listener_loop(self) -> None:
         """Run WebSocket server for FreeEcho.2 devices."""
+        import ssl
         from ....lib.credential_broker import broker
 
         port = int(broker.get("freeecho2", "port") or str(_DEFAULT_PORT))
+        cert_file = broker.get("freeecho2", "ssl_cert") or ""
+        key_file = broker.get("freeecho2", "ssl_key") or ""
 
         try:
             from aiohttp import web
@@ -122,9 +132,18 @@ class FreeEchoChannel(BaseChannel):
 
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", port)
+
+        # TLS setup
+        ssl_ctx = None
+        if cert_file and key_file:
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(cert_file, key_file)
+            self.channel_log(f"TLS enabled (cert: {cert_file})")
+
+        site = web.TCPSite(runner, "0.0.0.0", port, ssl_context=ssl_ctx)
         await site.start()
-        self.channel_log(f"WebSocket server listening on 0.0.0.0:{port}{_DEFAULT_PATH}")
+        proto = "wss" if ssl_ctx else "ws"
+        self.channel_log(f"WebSocket server listening on {proto}://0.0.0.0:{port}{_DEFAULT_PATH}")
 
         try:
             # Keep running until cancelled
@@ -423,7 +442,6 @@ class FreeEchoChannel(BaseChannel):
                 try:
                     while True:
                         msg = next(gen)
-                        self.channel_log(f"TTS: {msg}")
                         debug(f"🔊 {msg}")
                 except StopIteration as e:
                     if e.value:
@@ -455,7 +473,6 @@ class FreeEchoChannel(BaseChannel):
                 try:
                     while True:
                         msg = next(gen)
-                        self.channel_log(f"TTS switch: {msg}")
                         debug(f"🔊 {msg}")
                 except StopIteration:
                     pass

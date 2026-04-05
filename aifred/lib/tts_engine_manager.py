@@ -73,13 +73,14 @@ def _is_llm_loaded(backend_type: str) -> bool:
     try:
         import requests
         from .config import DEFAULT_LLAMACPP_URL
-        # llama-swap base URL (strip /v1 suffix for /running endpoint)
         base_url = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
-        r = requests.get(f"{base_url}/running", timeout=2)
+        r = requests.get(f"{base_url}/running", timeout=TTS_HEALTH_CHECK_TIMEOUT)
         if r.ok:
-            models = r.json()
+            data = r.json()
+            # Response is {"running": [...]} — check the list, not the dict
+            models = data.get("running", []) if isinstance(data, dict) else data
             return len(models) > 0
-    except OSError:
+    except Exception:
         pass
     return False
 
@@ -182,9 +183,7 @@ def _do_switch(
     # Step 1: Stop old engine
     if old_engine and old_engine in GPU_ENGINES:
         success, msg = stop_engine(old_engine)
-        status = f"{old_engine.upper()} stopped" if success else f"{old_engine.upper()} stop failed: {msg}"
-        log_message(status)
-        yield status
+        yield f"{old_engine.upper()} stopped" if success else f"{old_engine.upper()} stop failed: {msg}"
 
     # Step 2: Free VRAM — only if something needs to be removed.
     # old_engine is already known from caller (no extra HTTP call needed).
@@ -192,21 +191,17 @@ def _do_switch(
     if old_engine or _is_llm_loaded(backend_type):
         actions = unload_all_gpu_models(backend_type, keep_tts=new_engine)
         if actions:
-            status = f"VRAM freed: {', '.join(actions)}"
-            log_message(status)
-            yield status
+            yield f"VRAM freed: {', '.join(actions)}"
 
     # Step 3: Start new engine + wait for model load
     if new_engine == "xtts":
         from .process_utils import set_xtts_cpu_mode, ensure_xtts_ready
 
         success, msg = set_xtts_cpu_mode(xtts_force_cpu)
-        log_message(msg)
         yield msg
 
         if success:
             success, ready_msg = ensure_xtts_ready(timeout=60)
-            log_message(ready_msg)
             yield ready_msg
 
     elif new_engine == "moss":
@@ -214,7 +209,6 @@ def _do_switch(
 
         yield "MOSS-TTS: Loading model..."
         success, msg, device = ensure_moss_ready(timeout=120)
-        log_message(msg)
         yield msg
 
     # Step 4: Restart LLM with TTS-calibrated profile
