@@ -288,6 +288,7 @@ _READ_DOM_JS = (
 def _config_view() -> rx.Component:
     """Config tab: agent dropdown at top, all settings below."""
     is_new = AIState.editor_agent_id == ""
+    is_automatik = AIState.editor_agent_id == "automatik"
     is_default = (
         (AIState.editor_agent_id == "aifred")
         | (AIState.editor_agent_id == "sokrates")
@@ -330,21 +331,24 @@ def _config_view() -> rx.Component:
                             min_width="0",
                         ),
                     ),
-                    # New Agent button
-                    rx.tooltip(
-                        rx.icon_button(
-                            rx.icon("plus", size=16),
-                            on_click=AIState.start_new_agent,
-                            size="2",
-                            variant="soft",
-                            color_scheme="green",
-                            cursor="pointer",
-                        ),
-                        content=t("agent_editor_new"),
-                    ),
-                    # Delete button (only custom agents, not during create)
+                    # New Agent button (not for Automatik)
                     rx.cond(
-                        ~is_new & ~is_default,
+                        ~is_automatik,
+                        rx.tooltip(
+                            rx.icon_button(
+                                rx.icon("plus", size=16),
+                                on_click=AIState.start_new_agent,
+                                size="2",
+                                variant="soft",
+                                color_scheme="green",
+                                cursor="pointer",
+                            ),
+                            content=t("agent_editor_new"),
+                        ),
+                    ),
+                    # Delete button (only custom agents, not during create, not Automatik)
+                    rx.cond(
+                        ~is_new & ~is_default & ~is_automatik,
                         rx.tooltip(
                             rx.icon_button(
                                 rx.icon("trash-2", size=16),
@@ -364,9 +368,9 @@ def _config_view() -> rx.Component:
                             ),
                         ),
                     ),
-                    # Clear memory button (not during create)
+                    # Clear memory button (not during create, not Automatik)
                     rx.cond(
-                        ~is_new,
+                        ~is_new & ~is_automatik,
                         rx.tooltip(
                             rx.icon_button(
                                 rx.icon("eraser", size=16),
@@ -391,8 +395,8 @@ def _config_view() -> rx.Component:
                     width="100%",
                 ),
 
-                # ── Metadata ────────────────────────────────────
-                rx.hstack(
+                # ── Metadata (hidden for Automatik) ────────────
+                rx.cond(~is_automatik, rx.hstack(
                     # Name
                     rx.vstack(
                         rx.text(t("agent_editor_name"), color="#aaa", font_size="12px"),
@@ -473,10 +477,10 @@ def _config_view() -> rx.Component:
                     ),
                     width="100%",
                     spacing="3",
-                ),
+                )),  # end rx.cond(~is_automatik) for Metadata
 
-                # Role + Description
-                rx.hstack(
+                # Role + Description (hidden for Automatik)
+                rx.cond(~is_automatik, rx.hstack(
                     rx.vstack(
                         rx.text(t("agent_editor_role"), color="#aaa", font_size="12px"),
                         rx.select(
@@ -503,11 +507,11 @@ def _config_view() -> rx.Component:
                     width="100%",
                     spacing="3",
                     align="end",
-                ),
+                )),
 
-                # ── TTS Settings (only existing agents) ─
+                # ── TTS Settings (only existing agents, not Automatik) ─
                 rx.cond(
-                    ~is_new,
+                    ~is_new & ~is_automatik,
                     rx.vstack(
                         # Header: Title + Enabled toggle
                         rx.hstack(
@@ -584,9 +588,9 @@ def _config_view() -> rx.Component:
                     ),
                 ),
 
-                # ── Tool Whitelist (only existing agents) ──
+                # ── Tool Whitelist (only existing agents, not Automatik) ──
                 rx.cond(
-                    ~is_new,
+                    ~is_new & ~is_automatik,
                     rx.vstack(
                         rx.hstack(
                             rx.text(

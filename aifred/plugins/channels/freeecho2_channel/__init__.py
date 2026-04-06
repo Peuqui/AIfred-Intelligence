@@ -420,8 +420,10 @@ class FreeEchoChannel(BaseChannel):
         from ....lib.debug_bus import debug, _current_session
 
         wanted = self._get_wanted_tts()
-        if wanted not in GPU_ENGINES:
-            return False
+        # Map lightweight engines to "" (no GPU TTS needed).
+        # The SSOT still needs to run: if a GPU TTS container is in VRAM
+        # but we switched to Edge/Piper/eSpeak, it must be cleaned up.
+        wanted_gpu = wanted if wanted in GPU_ENGINES else ""
 
         backend_type = self._get_backend_type()
 
@@ -434,7 +436,7 @@ class FreeEchoChannel(BaseChannel):
             token = _current_session.set(caller_session_id) if caller_session_id else None
             try:
                 gen = ensure_tts_state(
-                    wanted_tts=wanted,
+                    wanted_tts=wanted_gpu,
                     backend_type=backend_type,
                     check_defer=True,
                 )
@@ -459,17 +461,19 @@ class FreeEchoChannel(BaseChannel):
         Called after LLM used existing model. Now: switch TTS, then
         restart LLM with TTS-calibrated profile. All blocking, sequential.
         """
-        from ....lib.tts_engine_manager import force_tts_switch
+        from ....lib.tts_engine_manager import force_tts_switch, GPU_ENGINES
         from ....lib.debug_bus import debug, _current_session
 
         wanted = self._get_wanted_tts()
+        # Map lightweight engines to "" — force_tts_switch needs GPU key or ""
+        wanted_gpu = wanted if wanted in GPU_ENGINES else ""
         backend_type = self._get_backend_type()
         caller_session_id = _current_session.get()
 
         def _run() -> None:
             token = _current_session.set(caller_session_id) if caller_session_id else None
             try:
-                gen = force_tts_switch(wanted, backend_type)
+                gen = force_tts_switch(wanted_gpu, backend_type)
                 try:
                     while True:
                         msg = next(gen)

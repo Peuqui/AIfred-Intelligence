@@ -301,28 +301,17 @@ class ChatMixin(rx.State, mixin=True):
         audio_urls = msg_metadata.get("audio_urls", [])
         if audio_urls:
             msg_metadata["playback_rate"] = "1.0x"  # Speed is baked into audio via engine or ffmpeg
-        # Resolve agent display info for UI rendering
-        from ..lib.agent_config import get_agent_config
-        agent_cfg = get_agent_config(agent)
-        agent_display_name = agent_cfg.display_name if agent_cfg else agent.capitalize()
-        agent_emoji = agent_cfg.emoji if agent_cfg else "\U0001f916"
+        # SSOT: base dict from shared builder
+        from ..lib.formatting import build_assistant_chat_entry
+        new_message: Dict[str, Any] = build_assistant_chat_entry(final_content, agent, msg_metadata)
 
-        new_message: Dict[str, Any] = {
-            "role": "assistant",
-            "content": final_content,
-            "agent": agent,
-            "agent_display_name": agent_display_name,
-            "agent_emoji": agent_emoji,
-            "mode": mode,
-            "round_num": round_num,
-            "metadata": msg_metadata,
-            "timestamp": datetime.now().isoformat(),
-            "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
-            "used_sources": [],
-            "failed_sources": [],
-            "has_audio": bool(audio_urls),
-            "audio_urls_json": json.dumps(audio_urls) if audio_urls else "[]",
-        }
+        # Browser-specific fields (mode, round, audio, sources)
+        new_message["mode"] = mode
+        new_message["round_num"] = round_num
+        new_message["used_sources"] = []
+        new_message["failed_sources"] = []
+        new_message["has_audio"] = bool(audio_urls)
+        new_message["audio_urls_json"] = json.dumps(audio_urls) if audio_urls else "[]"
 
         # 5. Append to chat_history (no more replace_last!)
         self._chat_sub().chat_history.append(new_message)

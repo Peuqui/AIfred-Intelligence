@@ -1064,19 +1064,28 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Reconstruct the label from current editor state
         return f"{self.editor_emoji} {self.editor_display_name}" if self.editor_agent_id else ""
 
+    # Separator + label for Automatik-LLM in agent dropdown
+    _AUTOMATIK_SEPARATOR = "─────────────────"
+    _AUTOMATIK_LABEL = "⚡ Automatik-LLM"
+
     def _refresh_agent_dropdown(self) -> None:
         """Refresh the agent dropdown items from config."""
         from ..lib.agent_config import load_agents_raw
         raw = load_agents_raw()
-        self._agent_dropdown_items = [
+        items = [
             f"{data['emoji']} {data['display_name']}"
             for data in raw.values()
         ]
+        # Append separator + Automatik-LLM at the bottom
+        items.append(self._AUTOMATIK_SEPARATOR)
+        items.append(self._AUTOMATIK_LABEL)
+        self._agent_dropdown_items = items
         # Store id mapping for lookup
         self._agent_id_by_label = {
             f"{data['emoji']} {data['display_name']}": aid
             for aid, data in raw.items()
         }
+        self._agent_id_by_label[self._AUTOMATIK_LABEL] = "automatik"
 
     def open_agent_editor(self):
         """Open the agent editor modal, select first agent."""
@@ -1369,6 +1378,8 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def select_editor_agent(self, label: str):
         """Select an agent from the dropdown by its display label."""
+        if label == self._AUTOMATIK_SEPARATOR:
+            return  # Ignore separator click
         agent_id = self._agent_id_by_label.get(label, "")
         if agent_id:
             self._load_agent_into_state(agent_id)
@@ -1376,6 +1387,17 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def _load_agent_into_state(self, agent_id: str) -> None:
         """Load an agent's config into editor state vars (no DOM touch)."""
+        self.editor_delete_confirm = ""
+        self.editor_emoji_picker_open = False
+        self.editor_dirty = False
+        self.editor_reset_confirm = False
+        self.editor_prompt_lang = self.ui_language  # type: ignore[attr-defined]
+
+        # Automatik-LLM: no AgentConfig — load prompts directly from directory
+        if agent_id == "automatik":
+            self._load_automatik_into_state()
+            return
+
         from ..lib.agent_config import get_agent_config
         config = get_agent_config(agent_id)
         if config is None:
@@ -1387,12 +1409,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self._editor_description = config.description
         self.editor_role = config.role
         self.editor_prompt_tab = "identity"
-        self.editor_prompt_lang = self.ui_language  # type: ignore[attr-defined]
         self.editor_prompt_keys = list(config.prompts.keys())
-        self.editor_delete_confirm = ""
-        self.editor_emoji_picker_open = False
-        self.editor_dirty = False
-        self.editor_reset_confirm = False
 
         # Load tool whitelist — None means all tools allowed
         from ..lib.plugin_registry import discover_tools
@@ -1426,6 +1443,35 @@ class AgentConfigMixin(rx.State, mixin=True):
 
         self._load_editor_prompt("identity")
 
+    def _load_automatik_into_state(self) -> None:
+        """Load Automatik-LLM pseudo-agent into editor (prompts only)."""
+        from ..lib.prompt_loader import PROMPTS_DIR
+
+        self.editor_agent_id = "automatik"
+        self.editor_display_name = "Automatik-LLM"
+        self.editor_emoji = "⚡"
+        self._editor_description = "Intent Detection, Routing, Research Decisions"
+        self.editor_role = "system"
+        self.editor_tools = {}
+
+        # Discover prompt files from both language directories
+        prompt_keys: list[str] = []
+        seen: set[str] = set()
+        for lang in ("de", "en"):
+            prompt_dir = PROMPTS_DIR / lang / "automatik"
+            if prompt_dir.is_dir():
+                for f in sorted(prompt_dir.glob("*.txt")):
+                    key = f.stem  # e.g. "intent_detection"
+                    if key not in seen:
+                        prompt_keys.append(key)
+                        seen.add(key)
+
+        self.editor_prompt_keys = prompt_keys
+        first_key = prompt_keys[0] if prompt_keys else ""
+        self.editor_prompt_tab = first_key
+        if first_key:
+            self._load_editor_prompt(first_key)
+
     def _push_editor_dom(self):
         """Push current editor state values into DOM fields via JS and store initial state."""
         import json as _json
@@ -1442,19 +1488,21 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def _load_editor_prompt(self, prompt_key: str) -> None:
         """Load a prompt file's content into state (for JS population)."""
-        from ..lib.agent_config import get_agent_config
         from ..lib.prompt_loader import PROMPTS_DIR
 
-        config = get_agent_config(self.editor_agent_id)
-        if config is None:
-            return
+        if self.editor_agent_id == "automatik":
+            full_path = PROMPTS_DIR / self.editor_prompt_lang / "automatik" / f"{prompt_key}.txt"
+        else:
+            from ..lib.agent_config import get_agent_config
+            config = get_agent_config(self.editor_agent_id)
+            if config is None:
+                return
+            prompt_path = config.prompts.get(prompt_key, "")
+            if not prompt_path:
+                self._editor_prompt_content = ""
+                return
+            full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
 
-        prompt_path = config.prompts.get(prompt_key, "")
-        if not prompt_path:
-            self._editor_prompt_content = ""
-            return
-
-        full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
         if full_path.exists():
             self._editor_prompt_content = full_path.read_text(encoding="utf-8")
         else:
@@ -1505,21 +1553,23 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def _save_editor_prompt_to_disk(self) -> None:
         """Save current prompt content to disk (editor_prompt_lang)."""
-        from ..lib.agent_config import get_agent_config
         from ..lib.prompt_loader import PROMPTS_DIR
 
         if not self.editor_agent_id:
             return
 
-        config = get_agent_config(self.editor_agent_id)
-        if not config:
-            return
+        if self.editor_agent_id == "automatik":
+            full_path = PROMPTS_DIR / self.editor_prompt_lang / "automatik" / f"{self.editor_prompt_tab}.txt"
+        else:
+            from ..lib.agent_config import get_agent_config
+            config = get_agent_config(self.editor_agent_id)
+            if not config:
+                return
+            prompt_path = config.prompts.get(self.editor_prompt_tab, "")
+            if not prompt_path:
+                return
+            full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
 
-        prompt_path = config.prompts.get(self.editor_prompt_tab, "")
-        if not prompt_path:
-            return
-
-        full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(self._editor_prompt_content, encoding="utf-8")
 
@@ -1550,6 +1600,13 @@ class AgentConfigMixin(rx.State, mixin=True):
         tools_value = None if all_enabled else [
             name for name, enabled in self.editor_tools.items() if enabled
         ]
+
+        if self.editor_agent_id == "automatik":
+            # Automatik-LLM: only save prompt files, no agents.json entry
+            self._save_editor_prompt_to_disk()
+            self.editor_dirty_confirm = False
+            self.add_debug("\u2705 Automatik-LLM prompt saved")  # type: ignore[attr-defined]
+            return rx.toast.success("Automatik-LLM gespeichert", duration=2000)
 
         if self.editor_agent_id:
             # Update existing agent metadata

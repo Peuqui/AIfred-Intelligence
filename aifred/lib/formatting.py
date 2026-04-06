@@ -253,6 +253,45 @@ def format_performance_footer(metadata: dict) -> str:
     return format_metadata(metadata_text)
 
 
+def build_assistant_chat_entry(
+    content: str,
+    agent: str = "aifred",
+    metadata: dict | None = None,
+) -> dict:
+    """Build a chat_history dict for an assistant message.
+
+    Single source of truth for the dict shape that the UI renderer expects.
+    Used by both the browser path (add_agent_panel) and the hub/channel path
+    (_append_response in message_processor).
+
+    Args:
+        content: Display content (already formatted, with footer if needed).
+        agent: Agent identifier ("aifred", "sokrates", "salomo", etc.)
+        metadata: Optional raw metadata dict (stored for export/replay).
+
+    Returns:
+        Dict ready to append to chat_history.
+    """
+    from .agent_config import get_agent_config
+
+    agent_cfg = get_agent_config(agent)
+    agent_display_name = agent_cfg.display_name if agent_cfg else agent.capitalize()
+    agent_emoji = agent_cfg.emoji if agent_cfg else "\U0001f916"
+
+    return {
+        "role": "assistant",
+        "content": content,
+        "agent": agent,
+        "agent_display_name": agent_display_name,
+        "agent_emoji": agent_emoji,
+        "metadata": metadata or {},
+        "timestamp": datetime.now().isoformat(),
+        "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
+        "has_audio": False,
+        "audio_urls_json": "[]",
+    }
+
+
 def build_inference_metadata(
     ttft: float | None,
     inference_time: float,

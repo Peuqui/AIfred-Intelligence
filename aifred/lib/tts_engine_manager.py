@@ -11,6 +11,7 @@ Central function: ensure_tts_state(wanted_tts, backend_type)
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Generator
 
@@ -96,6 +97,32 @@ def stop_engine(engine: str) -> tuple[bool, str]:
     return True, ""
 
 
+# Background TTS stop — runs parallel to LLM inference (Case 2b)
+_tts_stop_thread: threading.Thread | None = None
+
+
+def _start_async_tts_stop(engine: str) -> None:
+    """Start TTS container stop in background (parallel to LLM inference).
+
+    Docker compose down is CPU/IO, LLM inference is GPU — no interference.
+    """
+    global _tts_stop_thread
+    _tts_stop_thread = threading.Thread(
+        target=stop_engine, args=(engine,), daemon=True, name=f"tts-stop-{engine}",
+    )
+    _tts_stop_thread.start()
+    log_message(f"Background TTS stop started: {engine}")
+
+
+def _await_tts_stop(timeout: float = 30) -> None:
+    """Wait for background TTS stop to complete (if one is in progress)."""
+    global _tts_stop_thread
+    if _tts_stop_thread is not None and _tts_stop_thread.is_alive():
+        log_message("Waiting for background TTS stop to complete...")
+        _tts_stop_thread.join(timeout=timeout)
+    _tts_stop_thread = None
+
+
 def ensure_tts_state(
     wanted_tts: str,
     backend_type: str = "llamacpp",
@@ -137,10 +164,20 @@ def ensure_tts_state(
             yield f"{running.upper()} already running"
         return TTSState(success=True)
 
-    # Case 2: Puck optimization — LLM loaded, wrong/no TTS
+    # Case 2a: Puck optimization — LLM loaded, want different GPU TTS
     # Caller can inferize with current LLM first, then switch
     if check_defer and wanted_tts and _is_llm_loaded(backend_type):
         yield "LLM loaded, deferring TTS switch to after inference"
+        return TTSState(success=True, deferred=True)
+
+    # Case 2b: Puck optimization — LLM loaded, GPU TTS running but not needed
+    # (User switched to lightweight engine like Edge/Piper/eSpeak)
+    # Start container stop NOW (background thread) — docker compose down is
+    # CPU/IO and doesn't interfere with GPU inference running in parallel.
+    # After inference, force_tts_switch() will join the thread and load base model.
+    if check_defer and not wanted_tts and running and _is_llm_loaded(backend_type):
+        _start_async_tts_stop(running)
+        yield f"LLM loaded, {running.upper()} stop started — deferring model switch to after inference"
         return TTSState(success=True, deferred=True)
 
     # Case 3: Want TTS but wrong/none running → switch
@@ -231,10 +268,33 @@ def force_tts_switch(
     Now load TTS and switch LLM to TTS-calibrated profile.
 
     Cases:
+    - wanted_tts="" → no GPU TTS needed, clean up container + load base model
     - TTS already running (correct engine) → only switch LLM profile
     - TTS not running → unload all, start TTS, load LLM with TTS profile
     - Wrong TTS running → unload all, start correct TTS, load LLM with TTS profile
     """
+    # No GPU TTS wanted — clean up and switch to base model
+    if not wanted_tts:
+        from .process_utils import stop_llama_swap
+
+        # Wait for background TTS stop (started in Case 2b, parallel to inference)
+        _await_tts_stop()
+
+        # Verify container is actually gone
+        still_running = _detect_running_tts_engine()
+        if still_running:
+            yield f"Stopping {still_running.upper()} (not yet stopped)..."
+            stop_engine(still_running)
+            yield f"{still_running.upper()} container stopped"
+
+        # Stop LLM (TTS variant), then restart with base profile
+        stop_llama_swap()
+        yield "VRAM freed: llama-swap stopped"
+        restart_llm_backend(backend_type)
+        model_info = get_effective_model_info(backend_type)
+        yield f"LLM restarted: {model_info}" if model_info else "LLM restarted with base profile"
+        return TTSState(success=True, changed=True)
+
     running = _detect_running_tts_engine()
 
     if running == wanted_tts:

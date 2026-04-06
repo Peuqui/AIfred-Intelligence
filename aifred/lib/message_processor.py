@@ -244,7 +244,7 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         debug(f"✅ Response generated ({len(response_text)} chars)")
 
         # ── Phase 3: Save response to session ─────────────────
-        _append_response(session_id, response_text, metadata=result_metadata)
+        _append_response(session_id, response_text, metadata=result_metadata, agent=message.target_agent)
 
         # ── Phase 3b: Sanitize output for external channels ───
         from .security import sanitize_outbound
@@ -448,13 +448,19 @@ def _save_to_session(
     set_update_flag(session_id)
 
 
-def _append_response(session_id: str, response_text: str, metadata: dict | None = None) -> None:
+def _append_response(
+    session_id: str,
+    response_text: str,
+    metadata: dict | None = None,
+    agent: str = "aifred",
+) -> None:
     """Append the assistant response to an existing session.
 
     If metadata is provided, appends a performance footer (TTFT, tok/s, etc.)
     to the chat content — same format as browser-path add_agent_panel.
     """
     from .session_storage import load_session
+    from .formatting import format_performance_footer, build_assistant_chat_entry
 
     session = load_session(session_id)
     data = session.get("data", {}) if session else {}
@@ -464,12 +470,12 @@ def _append_response(session_id: str, response_text: str, metadata: dict | None 
     # Build metadata footer (shared with browser-path add_agent_panel)
     display_content = response_text
     if metadata:
-        from .formatting import format_performance_footer
         meta_footer = format_performance_footer(metadata)
         if meta_footer:
             display_content = f"{response_text}\n\n{meta_footer}"
 
-    existing_chat.append({"role": "assistant", "content": display_content})
+    # SSOT: same dict shape as browser-path add_agent_panel
+    existing_chat.append(build_assistant_chat_entry(display_content, agent, metadata))
     existing_llm.append({"role": "assistant", "content": response_text})
 
     update_chat_data(
