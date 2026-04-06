@@ -133,8 +133,14 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
     return agent, intent, lang
 
 
-async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
+async def process_inbound(message: InboundMessage, user_saved: bool = False) -> Optional[OutboundMessage]:
     """Process an inbound message through the full pipeline.
+
+    Args:
+        message: The inbound message to process.
+        user_saved: If True, the user question is already saved to the session
+                    (both chat_history and llm_history). Skips _save_to_session.
+                    Used by FreeEcho.2 for early browser flush after STT.
 
     Uses the Debug Bus (session_scope) so all debug() calls from any
     depth (tools, research, plugins) automatically go to the session.
@@ -207,7 +213,8 @@ async def process_inbound(message: InboundMessage) -> Optional[OutboundMessage]:
         debug(f"🎯 {format_intent_result(intent, agent if agent != 'aifred' else None, detected_lang)}")
 
         # Save incoming message to session (chat + llm history)
-        _save_to_session(session_id, message, "")
+        if not user_saved:
+            save_user_to_session(session_id, message)
 
         # ── Phase 2: Call AIfred engine ───────────────────────
         _notify("processing")
@@ -407,17 +414,12 @@ async def _call_engine(
     return "".join(response_parts), {}
 
 
-def _save_to_session(
-    session_id: str,
-    message: InboundMessage,
-    response_text: str,
-) -> None:
-    """Append the inbound message (and optional response) to the session.
+def build_user_chat_content(message: InboundMessage) -> str:
+    """Build the chat_history content string for a user message.
 
-    Debug messages are handled by the Debug Bus (not passed here).
+    Single source of truth for the "[Channel] Sender" header format.
+    Used by both the normal save path and FreeEcho.2's early flush.
     """
-    from .session_storage import load_session
-
     from .plugin_registry import get_channel as _get_ch
     _ch = _get_ch(message.channel)
     channel_label = _ch.display_name if _ch else message.channel.capitalize()
@@ -425,18 +427,25 @@ def _save_to_session(
     header = f"[{channel_label}] {message.sender}"
     if subject:
         header += f" — {subject}"
+    return f"{header}\n\n{message.text}"
+
+
+def save_user_to_session(session_id: str, message: InboundMessage) -> None:
+    """Save user message to session (chat + llm history) and set update flag.
+
+    Single source of truth for persisting inbound user messages.
+    Called by process_inbound (normal path) or directly by channels
+    that need early browser flush (FreeEcho.2 after STT).
+    """
+    from .session_storage import load_session
 
     session = load_session(session_id)
     data = session.get("data", {}) if session else {}
     existing_chat = data.get("chat_history", [])
     existing_llm = data.get("llm_history", [])
 
-    existing_chat.append({"role": "user", "content": header + "\n\n" + message.text})
+    existing_chat.append({"role": "user", "content": build_user_chat_content(message)})
     existing_llm.append({"role": "user", "content": message.text})
-
-    if response_text:
-        existing_chat.append({"role": "assistant", "content": response_text})
-        existing_llm.append({"role": "assistant", "content": response_text})
 
     update_chat_data(
         session_id=session_id,
@@ -445,6 +454,7 @@ def _save_to_session(
         debug_messages=data.get("debug_messages", []),
         owner=MESSAGE_HUB_OWNER,
     )
+    set_update_flag(session_id)
     set_update_flag(session_id)
 
 

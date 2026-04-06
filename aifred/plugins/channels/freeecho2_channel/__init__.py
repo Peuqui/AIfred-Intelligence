@@ -291,6 +291,17 @@ class FreeEchoChannel(BaseChannel):
                 self.channel_log(f"[FreeEcho.2 {room}] STT ({_puck_time.monotonic()-_puck_t0:.1f}s): {text}")
                 debug(f"🎤 STT: \"{text}\" ({_puck_time.monotonic()-_puck_t0:.1f}s)")
 
+                # Flush user question to session immediately so browser shows it
+                # BEFORE TTS setup (which can take 25s+) and LLM inference.
+                # Uses the same SSOT function as process_inbound.
+                from ....lib.message_processor import save_user_to_session
+                _early_msg = InboundMessage(
+                    channel="freeecho2", channel_id=room, sender=room,
+                    text=text, timestamp=datetime.now(timezone.utc),
+                    metadata={"room": room},
+                )
+                save_user_to_session(session_id, _early_msg)
+
                 # Start heartbeat BEFORE TTS check — TTS loading can take 30s+
                 await ws.send_str(json.dumps({"type": "processing"}))
                 heartbeat_task = asyncio.create_task(_heartbeat())
@@ -316,7 +327,8 @@ class FreeEchoChannel(BaseChannel):
             _devices[room] = ws
 
             # process_inbound calls send_reply automatically (via auto_reply)
-            await process_inbound(inbound)
+            # User question already flushed to session above (early browser update)
+            await process_inbound(inbound, user_saved=True)
 
             # Stop heartbeat
             heartbeat_running = False
