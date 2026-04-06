@@ -22,7 +22,7 @@ from .ui.helpers import t, left_column  # noqa: F401
 from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, research_help_modal, reasoning_thinking_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
-    document_manager_modal, channel_credentials_modal, plugin_manager_modal, audit_log_modal,
+    document_manager_modal, channel_credentials_modal, audit_log_modal,
 )
 from .ui.chat_display import (  # noqa: F401
     session_list_display, chat_history_display,
@@ -669,7 +669,6 @@ console.log('✂️ Crop handler loaded');
 
         # Email Credentials Modal (Message Hub)
         channel_credentials_modal(),
-        plugin_manager_modal(),
         audit_log_modal(),
 
         # Hidden element to trigger camera detection on mount

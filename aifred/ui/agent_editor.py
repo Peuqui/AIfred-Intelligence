@@ -168,19 +168,53 @@ def _editor_header() -> rx.Component:
 # TOOL PILLS — grouped by plugin (built statically)
 # ============================================================
 
-def _build_tool_pill(tool_name: str) -> rx.Component:
-    """Render a single tool as a clickable pill toggle (orange active style)."""
+# Tier badge colors: 0=green, 1=blue, 2=orange, 3=red, 4=purple
+_TIER_COLORS = {0: "#4CAF50", 1: "#2196F3", 2: "#FF9800", 3: "#f44336", 4: "#9C27B0"}
+
+def _tier_help_content() -> rx.Component:
+    """Shared popover content explaining security tiers with colored badges (i18n)."""
+    from ..lib.security import TIER_I18N_KEYS
+    return rx.vstack(
+        rx.text(t("security_tiers_title"), font_weight="bold", font_size="12px", color="white"),
+        *[
+            rx.hstack(
+                rx.text(f"T{tier}", color=_TIER_COLORS[tier], font_weight="bold", font_size="11px", min_width="22px"),
+                rx.text(t(label_key), font_size="11px", color="white", font_weight="bold"),
+                rx.text(t(desc_key), font_size="11px", color="#ccc"),
+                spacing="2", align="center",
+            )
+            for tier, label_key, desc_key in TIER_I18N_KEYS
+        ],
+        spacing="1",
+        padding="8px",
+    )
+
+
+def _build_tool_pill(tool_name: str, tier: int = 0) -> rx.Component:
+    """Render a single tool as a clickable pill toggle with tier badge."""
     is_enabled = AIState.editor_tools[tool_name].to(bool)
-    return rx.button(
-        tool_name,
-        on_click=AIState.toggle_editor_tool(tool_name),
-        size="1",
-        variant=rx.cond(is_enabled, "solid", "soft"),
-        color_scheme=rx.cond(is_enabled, "orange", "gray"),
-        cursor="pointer",
-        font_size="11px",
-        padding_x="10px",
-        height="26px",
+    color = _TIER_COLORS.get(tier, "#666")
+    return rx.hstack(
+        rx.button(
+            tool_name,
+            on_click=AIState.toggle_editor_tool(tool_name),
+            size="1",
+            variant=rx.cond(is_enabled, "solid", "soft"),
+            color_scheme=rx.cond(is_enabled, "orange", "gray"),
+            cursor="pointer",
+            font_size="11px",
+            padding_x="10px",
+            height="26px",
+        ),
+        rx.text(
+            f"T{tier}",
+            font_size="9px",
+            color=color,
+            font_weight="bold",
+            min_width="18px",
+        ),
+        spacing="1",
+        align="center",
     )
 
 
@@ -192,12 +226,14 @@ def _build_tool_groups() -> list[rx.Component]:
     ctx = PluginContext(agent_id="__build__", lang="de", session_id="")
     groups: list[rx.Component] = []
 
-    # Memory (always first)
+    from ..lib.security import TIER_WRITE_DATA
+
+    # Memory (always first — tier 2 = write data)
     groups.append(
         rx.vstack(
             rx.text("Memory", font_size="10px", color="#888"),
             rx.flex(
-                _build_tool_pill("store_memory"),
+                _build_tool_pill("store_memory", tier=TIER_WRITE_DATA),
                 wrap="wrap", gap="4px",
             ),
             spacing="1", width="100%",
@@ -208,14 +244,14 @@ def _build_tool_groups() -> list[rx.Component]:
     for plugin in discover_tools():
         if not plugin.is_available():
             continue
-        tool_names = [t.name for t in plugin.get_tools(ctx)]
-        if not tool_names:
+        tools = plugin.get_tools(ctx)
+        if not tools:
             continue
         groups.append(
             rx.vstack(
                 rx.text(plugin.display_name, font_size="10px", color="#888"),
                 rx.flex(
-                    *[_build_tool_pill(name) for name in tool_names],
+                    *[_build_tool_pill(t.name, tier=t.tier) for t in tools],
                     wrap="wrap", gap="4px",
                 ),
                 spacing="1", width="100%",
@@ -228,7 +264,7 @@ def _build_tool_groups() -> list[rx.Component]:
         if not ch.is_configured():
             continue
         for tool in ch.get_tools(ctx):
-            channel_pills.append(_build_tool_pill(tool.name))
+            channel_pills.append(_build_tool_pill(tool.name, tier=tool.tier))
     if channel_pills:
         groups.append(
             rx.vstack(
@@ -600,6 +636,16 @@ def _config_view() -> rx.Component:
                                 font_size="14px",
                             ),
                             rx.spacer(),
+                            rx.popover.root(
+                                rx.popover.trigger(
+                                    rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer"),
+                                ),
+                                rx.popover.content(
+                                    _tier_help_content(),
+                                    side="left",
+                                    style={"background": "#2a2a3e", "border": "1px solid #555", "border-radius": "8px"},
+                                ),
+                            ),
                             rx.button(
                                 t("tools_all_on"),
                                 on_click=AIState.set_all_editor_tools(True),
@@ -1172,6 +1218,14 @@ def _db_entry_row(entry: rx.Var) -> rx.Component:
 def _plugins_view() -> rx.Component:
     """Plugins tab: channel and tool plugin management."""
     from ..lib.plugin_registry import all_channels, discover_tools
+    from ..lib.security import TIER_I18N_KEYS
+    from ..lib.i18n import TranslationManager as _TM
+    # Build tier dropdown options per language (select needs static lists)
+    _tier_opts = {
+        lang: [f"{tier} — {_TM.get_text(lk, lang)}" for tier, lk, _dk in TIER_I18N_KEYS]
+        for lang in ("de", "en")
+    }
+    tier_options = rx.cond(AIState.ui_language == "de", _tier_opts["de"], _tier_opts["en"])
 
     # ── Build tool plugin rows at build time (static, like channels) ──
     tool_rows: list[rx.Component] = []
@@ -1221,10 +1275,44 @@ def _plugins_view() -> rx.Component:
     for name, plugin in all_channels().items():
         enabled_var = AIState.channel_toggles[name]["monitor"].to(bool)
 
+        # Build tier dropdown for middle column (if not browser)
+        _tier_col: list[rx.Component] = []
+        if name != "browser":
+            _tier_match_de = rx.match(
+                AIState.channel_security_tiers[name],
+                *[(tier, f"{tier} — {_TM.get_text(lk, 'de')}") for tier, lk, _dk in TIER_I18N_KEYS],
+                f"1 — {_TM.get_text('tier_1_label', 'de')}",
+            )
+            _tier_match_en = rx.match(
+                AIState.channel_security_tiers[name],
+                *[(tier, f"{tier} — {_TM.get_text(lk, 'en')}") for tier, lk, _dk in TIER_I18N_KEYS],
+                f"1 — {_TM.get_text('tier_1_label', 'en')}",
+            )
+            _tier_match = rx.cond(AIState.ui_language == "de", _tier_match_de, _tier_match_en)
+            _tier_col = [
+                rx.cond(
+                    enabled_var,
+                    rx.select(
+                        tier_options,
+                        value=_tier_match,
+                        on_change=lambda val, ch=name: AIState.set_channel_security_tier([ch, val]),
+                        size="1",
+                        width="180px",
+                    ),
+                ),
+            ]
+
         header = rx.hstack(
-            rx.icon(plugin.icon, size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
-            rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+            # Col 1: Icon + Name (fixed width for alignment)
+            rx.hstack(
+                rx.icon(plugin.icon, size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
+                rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+                spacing="2", align="center", min_width="220px",
+            ),
+            # Col 2: Tier dropdown (fixed position)
+            rx.box(*_tier_col, width="190px", flex_shrink="0") if _tier_col else rx.box(width="190px", flex_shrink="0"),
             rx.spacer(),
+            # Col 3: Gear + Switch + ON/OFF
             rx.icon_button(
                 rx.icon("settings", size=14),
                 on_click=AIState.open_channel_credentials(name),
@@ -1290,7 +1378,7 @@ def _plugins_view() -> rx.Component:
                 )
             )
 
-        # Allowlist (only for channels that declare has_allowlist)
+        # Allowlist row (separate from tier)
         ch_plugin = all_channels().get(name)
         if ch_plugin and ch_plugin.has_allowlist:
             children.append(
@@ -1299,8 +1387,12 @@ def _plugins_view() -> rx.Component:
                     rx.hstack(
                         rx.box(width="14px"),
                         rx.icon("shield", size=12, color="#666"),
-                        rx.text("Allowlist: ", font_size="10px", color="#666"),
-                        rx.text(AIState.channel_allowlists[name], font_size="10px", color="#888", overflow="hidden", text_overflow="ellipsis", white_space="nowrap", max_width="200px"),
+                        rx.text(
+                            AIState.channel_allowlists[name],
+                            font_size="10px", color="#888",
+                            overflow="hidden", text_overflow="ellipsis",
+                            white_space="nowrap",
+                        ),
                         spacing="1", align="center", width="100%",
                     ),
                 )
@@ -1313,7 +1405,22 @@ def _plugins_view() -> rx.Component:
         rx.box(
             rx.vstack(
                 # Channels
-                rx.text(t("plugin_channels"), font_size="14px", font_weight="bold", color="#999"),
+                rx.hstack(
+                    rx.text(t("plugin_channels"), font_size="14px", font_weight="bold", color="#999"),
+                    rx.spacer(),
+                    rx.popover.root(
+                        rx.popover.trigger(
+                            rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer"),
+                        ),
+                        rx.popover.content(
+                            _tier_help_content(),
+                            side="right",
+                            style={"background": "#2a2a3e", "border": "1px solid #555", "border-radius": "8px"},
+                        ),
+                    ),
+                    align="center",
+                    width="100%",
+                ),
                 rx.vstack(*channel_rows, spacing="2", width="100%"),
                 rx.divider(),
                 # Tool Plugins

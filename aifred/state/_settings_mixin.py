@@ -26,6 +26,8 @@ class SettingsMixin(rx.State, mixin=True):
     # ── Message Hub Settings (generic, per-channel) ────────────
     # Toggles per channel: {"email": {"monitor": True, "auto_reply": False}, ...}
     channel_toggles: dict[str, dict[str, bool]] = {}
+    # Security tier per channel: {"freeecho2": 4, "email": 1, ...}
+    channel_security_tiers: dict[str, int] = {}
 
     # Generic Credentials Modal (one modal, dynamic fields per channel)
     channel_credentials_modal_open: bool = False
@@ -162,8 +164,9 @@ class SettingsMixin(rx.State, mixin=True):
             "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,  # type: ignore[attr-defined, has-type]
-            # Message Hub Settings (per-channel toggles)
+            # Message Hub Settings (per-channel toggles + security tiers)
             "channel_toggles": self.channel_toggles,
+            "channel_security_tiers": self.channel_security_tiers,
         }
         # Update tts_voices_per_language with current voice selection
         engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
@@ -331,8 +334,9 @@ class SettingsMixin(rx.State, mixin=True):
         from ..lib.prompt_loader import set_user_name
         set_user_name(self.user_name)
 
-        # Message Hub settings (per-channel toggles)
+        # Message Hub settings (per-channel toggles + security tiers)
         self.channel_toggles = settings.get("channel_toggles", {})
+        self.channel_security_tiers = settings.get("channel_security_tiers", {})
 
     # ================================================================
     # UI LANGUAGE
@@ -450,6 +454,19 @@ class SettingsMixin(rx.State, mixin=True):
     # ================================================================
     # MESSAGE HUB — GENERIC CHANNEL TOGGLES
     # ================================================================
+
+    def set_channel_security_tier(self, data: list) -> None:
+        """Set security tier for a channel. Called from UI with [channel_name, tier_label].
+
+        tier_label is either "1" or "1 — Communicate" format.
+        """
+        channel, tier_label = data[0], data[1]
+        # Extract leading integer from "1 — Communicate" or plain "1"
+        tier_value = int(tier_label.split(" ")[0])
+        tiers = dict(self.channel_security_tiers)
+        tiers[channel] = tier_value
+        self.channel_security_tiers = tiers
+        self._save_settings()
 
     def _get_channel_toggle(self, channel: str, key: str) -> bool:
         """Read a toggle value for a channel."""
@@ -744,6 +761,14 @@ class SettingsMixin(rx.State, mixin=True):
             "discord": broker.get("discord", "channel_ids") or "-",
             "freeecho2": "",
         }
+        # Ensure all channels have a tier entry (fill defaults for missing)
+        from ..lib.security import DEFAULT_TIER_BY_SOURCE, TIER_COMMUNICATE
+        from ..lib.plugin_registry import all_channels
+        tiers = dict(self.channel_security_tiers)
+        for ch_name in all_channels():
+            if ch_name not in tiers:
+                tiers[ch_name] = DEFAULT_TIER_BY_SOURCE.get(ch_name, TIER_COMMUNICATE)
+        self.channel_security_tiers = tiers
         self.plugin_manager_open = True
 
     def close_plugin_manager(self) -> None:

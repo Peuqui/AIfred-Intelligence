@@ -35,12 +35,22 @@ TIER_ADMIN = 4          # Shell, unrestricted code execution (future)
 # Default max tier per source context
 DEFAULT_TIER_BY_SOURCE: dict[str, int] = {
     "browser": TIER_ADMIN,          # User sits in front of the screen
+    "freeecho2": TIER_COMMUNICATE,  # Voice terminal — configurable via Plugin Manager
     "email": TIER_COMMUNICATE,      # External message
     "discord": TIER_COMMUNICATE,    # External message
     "telegram": TIER_COMMUNICATE,   # External message
     "cron": TIER_COMMUNICATE,       # Unattended
     "webhook": TIER_READONLY,       # Externally triggered
 }
+
+# Tier i18n keys for labels and descriptions (value → label_key, desc_key)
+TIER_I18N_KEYS: list[tuple[int, str, str]] = [
+    (TIER_READONLY, "tier_0_label", "tier_0_desc"),
+    (TIER_COMMUNICATE, "tier_1_label", "tier_1_desc"),
+    (TIER_WRITE_DATA, "tier_2_label", "tier_2_desc"),
+    (TIER_WRITE_SYSTEM, "tier_3_label", "tier_3_desc"),
+    (TIER_ADMIN, "tier_4_label", "tier_4_desc"),
+]
 
 
 # Owner tier: what the owner gets when messaging via external channels.
@@ -53,10 +63,17 @@ def resolve_tier_for_sender(
 ) -> int:
     """Determine the max tier for a sender on a channel.
 
-    If the sender is the owner (matched via channel-specific allowlist),
-    they get OWNER_TIER. Otherwise, the channel default applies.
+    Priority: user-configured tier (settings.json) > DEFAULT_TIER_BY_SOURCE.
+    Owner gets max(channel_tier, OWNER_TIER).
     """
-    channel_default = DEFAULT_TIER_BY_SOURCE.get(channel, TIER_COMMUNICATE)
+    # Check user-configured tier override from Plugin Manager
+    from .settings import load_settings
+    settings = load_settings() or {}
+    configured_tiers = settings.get("channel_security_tiers", {})
+    if channel in configured_tiers:
+        channel_default = int(configured_tiers[channel])
+    else:
+        channel_default = DEFAULT_TIER_BY_SOURCE.get(channel, TIER_COMMUNICATE)
 
     if _is_owner(channel, sender, metadata or {}):
         return max(channel_default, OWNER_TIER)

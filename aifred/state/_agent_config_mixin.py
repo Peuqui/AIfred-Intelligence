@@ -1184,7 +1184,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         elif tab == "plugins":
             # Reuse logic from open_plugin_manager (without opening separate modal)
             from ..lib.credential_broker import broker
-            from ..lib.plugin_registry import discover_tools
+            from ..lib.plugin_registry import discover_tools, all_channels
             self.tool_plugin_toggles = {
                 p.name: ("1" if p.is_available() else "") for p in discover_tools()
             }
@@ -1192,7 +1192,15 @@ class AgentConfigMixin(rx.State, mixin=True):
                 "email": broker.get("email", "allowed_senders") or "-",
                 "telegram": broker.get("telegram", "allowed_users") or "-",
                 "discord": broker.get("discord", "channel_ids") or "-",
+                "freeecho2": "",
             }
+            # Ensure all channels have a security tier entry
+            from ..lib.security import DEFAULT_TIER_BY_SOURCE, TIER_COMMUNICATE
+            tiers = dict(self.channel_security_tiers)
+            for ch_name in all_channels():
+                if ch_name not in tiers:
+                    tiers[ch_name] = DEFAULT_TIER_BY_SOURCE.get(ch_name, TIER_COMMUNICATE)
+            self.channel_security_tiers = tiers
         elif tab == "audit":
             # Reuse logic from open_audit_log (without opening separate modal)
             import sqlite3
