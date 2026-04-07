@@ -66,6 +66,12 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 - [ ] Signal Plugin (signal-cli-rest-api Docker)
 
 ### Neue Tool Plugins
+- [ ] **Settings Control Plugin**: Puck-Fernsteuerung fuer Browser-Einstellungen via Tool-Use
+  - `set_discussion_mode()` — Standard, Kritische Pruefung, Tribunal, Symposion
+  - `set_research_mode()` — Automatik, Wissen, Web3, Web7
+  - `set_active_agent()` — AIfred, Sokrates, Codi, etc.
+  - Aendert Settings ueber API, Browser uebernimmt per Update-Flag
+  - Muss als Tool-Use laufen (nicht Automatik), weil z.B. Web7-Modus die Automatik umgeht
 - [ ] RSS/News Feed Plugin: Nachrichten-Quellen ueberwachen und zusammenfassen
 - [ ] Home Assistant Plugin: Smart Home Geraete steuern (REST API)
 - [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhaengig von EPIM)

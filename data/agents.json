@@ -94,8 +94,8 @@
       "prompts": {
         "identity": "pater/identity.txt",
         "personality": "pater/personality.txt",
-        "task": "pater/system_minimal.txt",
-        "direct": "pater/direct.txt",
+        "task": "pater/task.txt",
+        "direct": "pater/task.txt",
         "memory_context": "pater/memory_context.txt"
       },
       "toggles": {
@@ -140,8 +140,8 @@
       "prompts": {
         "identity": "codi/identity.txt",
         "personality": "codi/personality.txt",
-        "task": "codi/system_minimal.txt",
-        "direct": "codi/direct.txt",
+        "task": "codi/task.txt",
+        "direct": "codi/task.txt",
         "memory_context": "codi/memory_context.txt"
       },
       "toggles": {
@@ -159,8 +159,8 @@
         "identity": "hal/identity.txt",
         "personality": "hal/personality.txt",
         "reminder": "hal/reminder.txt",
-        "task": "hal/system_minimal.txt",
-        "direct": "hal/direct.txt",
+        "task": "hal/task.txt",
+        "direct": "hal/task.txt",
         "memory_context": "hal/memory_context.txt"
       },
       "toggles": {
@@ -178,8 +178,8 @@
       "prompts": {
         "identity": "rabbi/identity.txt",
         "personality": "rabbi/personality.txt",
-        "task": "rabbi/system_minimal.txt",
-        "direct": "rabbi/direct.txt",
+        "task": "rabbi/task.txt",
+        "direct": "rabbi/task.txt",
         "memory_context": "rabbi/memory_context.txt"
       },
       "toggles": {
