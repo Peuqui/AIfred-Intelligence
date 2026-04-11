@@ -906,11 +906,43 @@ prompts/
 
 AIfred bietet eine vollständige REST-API für programmatische Steuerung - ermöglicht Fernbedienung via Cloud, Automatisierungs-Systeme und Drittanbieter-Integrationen.
 
+### Session-Config als SSOT
+
+Agent-Auswahl, Diskussionsmodus und Research-Modus werden **pro Session** gespeichert, nicht global. Jede Chat-Session hat ihren eigenen `config`-Block direkt in der Session-Datei:
+
+```json
+{
+  "data": {
+    "config": {
+      "active_agent": "aifred",
+      "multi_agent_mode": "standard",
+      "symposion_agents": [],
+      "research_mode": "automatik"
+    }
+  }
+}
+```
+
+**Clean Default** bei neuer Session: Jeder neue Chat startet mit `aifred + standard + automatik` — nie geerbt von einer vorherigen Session.
+
+**Multi-Tab- und Cross-Channel-Sync** via Session-Datei-mtime-Watching: Wenn irgendein Writer (Browser-Tab, API, Email-Channel, Voice-Puck) die Session-Datei ändert, erkennen alle anderen Tabs mit dieser Session die Änderung innerhalb von 1 Sekunde und laden neu — ohne Polling, ohne Events, ohne Race Conditions. Ersetzt den Legacy-`update_flag`-Mechanismus vollständig.
+
+### Voice-basierter Modus-Wechsel
+
+Die Intent Detection läuft ohnehin vor jeder Nachricht und erkennt jetzt zusätzlich **sprachunabhängig** Modus-Wechsel-Kommandos. Du kannst sagen (oder tippen):
+- "Starte Tribunal und diskutiert den Klimawandel" — wechselt zu Tribunal UND antwortet direkt
+- "Schalt auf Tiefrecherche" — wechselt auf Tiefrecherche
+- "Démarre le tribunal" — funktioniert auch auf Französisch
+- "Nur Sokrates soll antworten" — fixiert den Agent auf Sokrates
+
+Der Detector extrahiert die **Rest-Frage** aus dem Satz, damit du Modus-Wechsel und inhaltliche Frage in einem Satz kombinieren kannst. Reine Kommandos erhalten eine Bestätigungs-Antwort; kombinierte Kommandos wechseln den Modus und bearbeiten die Rest-Frage direkt im neuen Modus.
+
 ### Hauptmerkmale
 
 - **Vollständige Fernsteuerung**: AIfred von überall via HTTPS steuern
-- **Live Browser-Sync**: API-Änderungen erscheinen automatisch im Browser (kein Refresh nötig)
+- **Live Browser-Sync**: API-Änderungen erscheinen automatisch im Browser (kein Refresh nötig, mtime-basiert)
 - **Session-Management**: Zugriff und Verwaltung mehrerer Browser-Sessions
+- **Per-Session-Config**: Agent, Diskussionsmodus und Research-Modus pro Session gespeichert (nicht global)
 - **OpenAPI Dokumentation**: Interaktive Swagger UI unter `/docs`
 
 ### API Endpoints
@@ -920,8 +952,9 @@ Die API ermöglicht **reine Fernsteuerung** - Messages werden in Browser-Session
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
 | `/api/health` | GET | Health-Check mit Backend-Status |
-| `/api/settings` | GET | Alle Einstellungen abrufen |
-| `/api/settings` | PATCH | Einstellungen ändern (partielles Update) |
+| `/api/settings` | GET | Globale Einstellungen abrufen |
+| `/api/settings` | PATCH | Globale Einstellungen ändern (Backend, Modelle, TTS, …) |
+| `/api/session/config` | POST | Session-Config ändern (Agent, Modus, Research-Modus) |
 | `/api/models` | GET | Verfügbare Modelle auflisten |
 | `/api/chat/inject` | POST | Nachricht in Browser-Session injizieren |
 | `/api/chat/status` | GET | Inferenz-Status abfragen (is_generating, message_count) |
@@ -932,25 +965,40 @@ Die API ermöglicht **reine Fernsteuerung** - Messages werden in Browser-Session
 | `/api/system/restart-aifred` | POST | AIfred neustarten |
 | `/api/calibrate` | POST | Kontext-Kalibrierung starten |
 
+**Global vs. pro Session:** `/api/settings` verwaltet nur wirklich globale Einstellungen (Backend, Modelle, TTS-Stimmen, Sprache, Sampling). Alles was zu einem bestimmten Chat gehört — Agent, Multi-Agent-Modus, Research-Modus, Symposion-Teilnehmer — läuft über `/api/session/config` und ist in der Session-Datei als SSOT gespeichert.
+
 ### Browser-Synchronisation
 
 Wenn du Einstellungen änderst oder Nachrichten via API sendest, aktualisiert sich das Browser-UI automatisch:
 
 - **Chat-Sync**: Via API gesendete Nachrichten erscheinen im Browser innerhalb von 2 Sekunden
-- **Settings-Sync**: Model-Änderungen, RoPE-Faktoren, Temperatur etc. werden live im UI aktualisiert
+- **Session-Config-Sync**: Änderungen an Modus / Agent / Research-Modus erreichen alle offenen Tabs innerhalb ~1 Sekunde via Session-Datei-mtime-Watching
+- **Globale Settings-Sync**: Model-Änderungen, TTS-Stimmen, Temperatur etc. werden live im UI aktualisiert
+- **Status-Polling**: Nutze `/api/chat/status` um auf Inferenz-Ende zu warten
 
 Dies ermöglicht echte Fernsteuerung - ändere AIfred's Konfiguration von einem anderen Gerät und sieh die Änderungen sofort in jedem verbundenen Browser.
 
 ### Beispiel-Verwendung
 
 ```bash
-# Aktuelle Einstellungen abrufen
+# Aktuelle globale Einstellungen abrufen
 curl http://localhost:8002/api/settings
 
-# Model und RoPE-Faktor ändern
+# Model ändern (globale Einstellung)
 curl -X PATCH http://localhost:8002/api/settings \
   -H "Content-Type: application/json" \
-  -d '{"aifred_model": "qwen3:14b", "sokrates_rope_factor": 2.0}'
+  -d '{"aifred_model": "qwen3:14b"}'
+
+# Eine Session in den Tribunal-Modus schalten (per-session)
+# Alle Tabs mit dieser Session erkennen die Änderung automatisch.
+curl -X POST http://localhost:8002/api/session/config \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "abc123...", "multi_agent_mode": "tribunal"}'
+
+# Agent und Research-Modus gleichzeitig wechseln
+curl -X POST http://localhost:8002/api/session/config \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "abc123...", "active_agent": "sokrates", "research_mode": "deep"}'
 
 # Nachricht injizieren (Browser verarbeitet und zeigt live)
 curl -X POST http://localhost:8002/api/chat/inject \
