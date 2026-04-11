@@ -152,13 +152,21 @@ class SessionMixin(rx.State, mixin=True):
 
     def _load_session_by_id(self, session_id: str):
         """Load a specific session by ID (internal helper)."""
-        from ..lib.session_storage import load_session, get_session_title
+        from ..lib.session_storage import load_session, get_session_title, get_session_path
         from ..lib.context_manager import estimate_tokens_from_llm_history
         from ..lib.formatting import format_number
         from ..lib.config import HISTORY_COMPRESSION_TRIGGER
+        import os as _os
 
         self.session_id = session_id
         session = load_session(session_id)
+
+        # Initialize mtime tracker so the tick-handler doesn't trigger
+        # an immediate reload on the session we just loaded
+        try:
+            self._last_session_mtime = _os.path.getmtime(get_session_path(session_id))  # type: ignore[attr-defined]
+        except (OSError, ValueError):
+            self._last_session_mtime = 0.0  # type: ignore[attr-defined]
 
         if session and session.get("data"):
             self._restore_session(session)
@@ -234,6 +242,25 @@ class SessionMixin(rx.State, mixin=True):
         # Session title wiederherstellen
         self.current_session_title = data.get("title", "")
 
+        # ── Session Config (SSOT für Agent/Mode) ──────────────────────
+        # Loads active_agent, multi_agent_mode, symposion_agents, research_mode
+        # from the session's config block. Falls back to hardcoded defaults
+        # if the session has no config (new session).
+        from ..lib.session_storage import DEFAULT_SESSION_CONFIG
+        from ..lib import TranslationManager
+        config = dict(DEFAULT_SESSION_CONFIG)
+        stored_config = data.get("config")
+        if isinstance(stored_config, dict):
+            config.update(stored_config)
+        self.active_agent = config["active_agent"]  # type: ignore[attr-defined]
+        self.multi_agent_mode = config["multi_agent_mode"]  # type: ignore[attr-defined]
+        self.symposion_agents = list(config["symposion_agents"])  # type: ignore[attr-defined]
+        self.research_mode = config["research_mode"]  # type: ignore[attr-defined]
+        # Update research_mode_display to match loaded research_mode + current UI language
+        self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined]
+            self.research_mode, self.ui_language  # type: ignore[attr-defined]
+        )
+
         # Note: Don't refresh_session_list() here - it's called once in on_load()
         # and only needs updating when new messages are sent (via _save_current_session)
 
@@ -249,8 +276,9 @@ class SessionMixin(rx.State, mixin=True):
         if not self.session_id:
             return
 
-        from ..lib.session_storage import update_chat_data
+        from ..lib.session_storage import update_chat_data, get_session_path
         from ..lib.config import DEBUG_LOG_MAX_ENTRIES
+        import os as _os
 
         # DEBUG-PERSISTENCE: Keep only last N entries
         debug_to_save = self.debug_messages[-DEBUG_LOG_MAX_ENTRIES:] if self.debug_messages else []  # type: ignore[attr-defined]
@@ -264,6 +292,45 @@ class SessionMixin(rx.State, mixin=True):
             is_generating=self.is_generating,  # type: ignore[attr-defined]
             owner=self.logged_in_user  # type: ignore[attr-defined]
         )
+
+        # Update mtime tracker so our own write doesn't trigger a reload
+        # in the tick-handler (SSOT: we are the writer, skip self-sync)
+        try:
+            self._last_session_mtime = _os.path.getmtime(  # type: ignore[attr-defined]
+                get_session_path(self.session_id)
+            )
+        except (OSError, ValueError):
+            pass
+
+    def _persist_session_config(self) -> None:
+        """Persist agent/mode choices to the current session file (SSOT).
+
+        Called from handlers (set_active_agent, set_multi_agent_mode,
+        set_research_mode, toggle_symposion_agent) to instantly save
+        the user's choice. Also updates _last_session_mtime so our own
+        write doesn't trigger a reload in the tick-handler.
+        """
+        if not self.session_id:
+            return
+
+        from ..lib.session_storage import update_session_config, get_session_path
+        import os as _os
+
+        update_session_config(
+            self.session_id,
+            active_agent=self.active_agent,  # type: ignore[attr-defined]
+            multi_agent_mode=self.multi_agent_mode,  # type: ignore[attr-defined]
+            symposion_agents=list(self.symposion_agents),  # type: ignore[attr-defined]
+            research_mode=self.research_mode,  # type: ignore[attr-defined]
+        )
+
+        # Update mtime tracker so our own write doesn't trigger reload
+        try:
+            self._last_session_mtime = _os.path.getmtime(  # type: ignore[attr-defined]
+                get_session_path(self.session_id)
+            )
+        except OSError:
+            pass
 
     # ── Session List ─────────────────────────────────────────────────
 

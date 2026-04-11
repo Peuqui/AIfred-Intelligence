@@ -473,8 +473,8 @@ class BackendMixin(rx.State, mixin=True):
                     self.cloud_api_provider = saved_provider
                     self.cloud_api_provider_label = CLOUD_API_PROVIDERS[saved_provider]["name"]
 
-                self.research_mode = saved_settings.get("research_mode", self.research_mode)  # type: ignore[attr-defined, has-type]
-
+                # NOTE: research_mode is per-session now, loaded in _restore_session().
+                # Here we just keep the class default (DEFAULT_SESSION_CONFIG["research_mode"]).
                 from ..lib import TranslationManager
                 self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, self.ui_language)  # type: ignore[attr-defined, has-type, arg-type]
 

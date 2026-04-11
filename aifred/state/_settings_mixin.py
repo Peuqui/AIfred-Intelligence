@@ -48,6 +48,7 @@ class SettingsMixin(rx.State, mixin=True):
 
     # ── Settings File Tracking ────────────────────────────────────
     _last_settings_mtime: float = 0.0  # Last seen settings.json mtime (for multi-browser sync)
+    _last_session_mtime: float = 0.0  # Last seen session file mtime (for multi-tab/cross-channel sync)
 
     # ================================================================
     # SETTINGS PERSISTENCE
@@ -84,7 +85,7 @@ class SettingsMixin(rx.State, mixin=True):
         settings: Dict[str, Any] = {
             "backend_type": saved_backend_type,
             "cloud_api_provider": self.cloud_api_provider,  # type: ignore[attr-defined, has-type]
-            "research_mode": self.research_mode,  # type: ignore[attr-defined, has-type]
+            # NOTE: research_mode, multi_agent_mode are per-session now (session_storage.DEFAULT_SESSION_CONFIG)
             "temperature": self.temperature,  # type: ignore[attr-defined, has-type]
             "temperature_mode": self.temperature_mode,  # type: ignore[attr-defined, has-type]
             "sokrates_temperature": self.sokrates_temperature,  # type: ignore[attr-defined, has-type]
@@ -93,8 +94,7 @@ class SettingsMixin(rx.State, mixin=True):
             "user_name": self.user_name,  # User's name for personalized responses
             "user_gender": self.user_gender,  # Gender for salutation (male/female)
             "backend_models": backend_models,  # Merged: preserves all backends
-            # Multi-Agent Settings
-            "multi_agent_mode": self.multi_agent_mode,  # type: ignore[attr-defined, has-type]
+            # Multi-Agent debate params (still global)
             "max_debate_rounds": self.max_debate_rounds,  # type: ignore[attr-defined, has-type]
             "consensus_type": self.consensus_type,  # type: ignore[attr-defined, has-type]
             "sokrates_model": self.sokrates_model_id,  # type: ignore[attr-defined, has-type]
@@ -202,14 +202,12 @@ class SettingsMixin(rx.State, mixin=True):
         # Core settings
         self.temperature = settings.get("temperature", self.temperature)  # type: ignore[attr-defined, has-type]
         self.temperature_mode = settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
-        # Research mode
-        self.research_mode = settings.get("research_mode", self.research_mode)  # type: ignore[attr-defined, has-type]
-        self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined, has-type]
-            self.research_mode, self.ui_language  # type: ignore[attr-defined, has-type, arg-type]
-        )
 
-        # Multi-Agent settings
-        self.multi_agent_mode = settings.get("multi_agent_mode", self.multi_agent_mode)  # type: ignore[attr-defined, has-type]
+        # NOTE: research_mode, multi_agent_mode, active_agent, symposion_agents
+        # are now per-session config, NOT global settings. They are loaded from
+        # the session file in _restore_session().
+
+        # Multi-Agent debate params (still global)
         self.max_debate_rounds = settings.get("max_debate_rounds", self.max_debate_rounds)  # type: ignore[attr-defined, has-type]
         self.consensus_type = settings.get("consensus_type", self.consensus_type)  # type: ignore[attr-defined, has-type]
 
@@ -419,9 +417,16 @@ class SettingsMixin(rx.State, mixin=True):
                 self.current_backend_label = self.available_backends_dict.get(  # type: ignore[attr-defined, has-type]
                     self.backend_id, self.backend_id  # type: ignore[attr-defined, has-type]
                 )
-                self.research_mode = saved_settings["research_mode"]  # type: ignore[attr-defined, has-type]
 
-                # Update research_mode_display to match loaded research_mode
+                # NOTE: research_mode, multi_agent_mode are now per-session.
+                # Reset to clean defaults (matches DEFAULT_SESSION_CONFIG).
+                from ..lib.session_storage import DEFAULT_SESSION_CONFIG
+                self.research_mode = DEFAULT_SESSION_CONFIG["research_mode"]  # type: ignore[attr-defined, has-type]
+                self.multi_agent_mode = DEFAULT_SESSION_CONFIG["multi_agent_mode"]  # type: ignore[attr-defined, has-type]
+                self.active_agent = DEFAULT_SESSION_CONFIG["active_agent"]  # type: ignore[attr-defined, has-type]
+                self.symposion_agents = list(DEFAULT_SESSION_CONFIG["symposion_agents"])  # type: ignore[attr-defined, has-type]
+
+                # Update research_mode_display to match reset research_mode
                 self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined, has-type]
                     self.research_mode, self.ui_language  # type: ignore[attr-defined, has-type]
                 )

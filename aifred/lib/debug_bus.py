@@ -72,7 +72,7 @@ def debug(msg: str) -> None:
 
 def _flush_to_session(session_id: str, messages: list[str]) -> None:
     """Write buffered debug messages to the session file."""
-    from .session_storage import load_session, update_chat_data, set_update_flag
+    from .session_storage import load_session, update_chat_data
     from .config import MESSAGE_HUB_OWNER
 
     session = load_session(session_id)
@@ -80,10 +80,10 @@ def _flush_to_session(session_id: str, messages: list[str]) -> None:
     existing = data.get("debug_messages", [])
     existing.extend(messages)
 
+    # Browser detects via session file mtime-watch (SSOT)
     update_chat_data(
         session_id=session_id,
         chat_history=data.get("chat_history", []),
         debug_messages=existing,
         owner=MESSAGE_HUB_OWNER,
     )
-    set_update_flag(session_id)

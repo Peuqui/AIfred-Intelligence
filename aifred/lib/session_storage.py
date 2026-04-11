@@ -457,6 +457,9 @@ def create_empty_session(session_id: str, owner: str) -> bool:
     This is called when a user creates a new chat.
     Creates the file immediately so the API can inject messages right away.
 
+    New sessions start with DEFAULT_SESSION_CONFIG — always clean defaults,
+    not inherited from previous sessions or global settings.
+
     Args:
         session_id: Session identifier
         owner: Username who owns this session
@@ -464,7 +467,13 @@ def create_empty_session(session_id: str, owner: str) -> bool:
     Returns:
         True on success, False on error
     """
-    return save_session(session_id, {"data": {}, "owner": owner.lower()})
+    return save_session(
+        session_id,
+        {
+            "data": {"config": dict(DEFAULT_SESSION_CONFIG)},
+            "owner": owner.lower(),
+        },
+    )
 
 
 def save_session(
@@ -540,7 +549,7 @@ def update_chat_data(
             raise ValueError(f"Cannot create session {session_id}: owner is required")
         session = {
             "created_at": datetime.now().isoformat(),
-            "data": {},
+            "data": {"config": dict(DEFAULT_SESSION_CONFIG)},
             "owner": owner.lower()
         }
 
@@ -562,6 +571,75 @@ def update_chat_data(
     if is_generating is not None:
         session["data"]["is_generating"] = is_generating
 
+    return save_session(session_id, session)
+
+
+# ============================================================
+# Session Config (per-session agent/mode persistence)
+# ============================================================
+
+# Clean defaults for new sessions — explicitly hardcoded, not inherited
+# from global settings. Every new session starts from this state.
+DEFAULT_SESSION_CONFIG: Dict[str, Any] = {
+    "active_agent": "aifred",
+    "multi_agent_mode": "standard",
+    "symposion_agents": [],
+    "research_mode": "automatik",
+}
+
+
+def get_session_config(session_id: str) -> Dict[str, Any]:
+    """
+    Get the config block of a session.
+
+    Returns DEFAULT_SESSION_CONFIG if session has no config block
+    (new session or session without config yet).
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        Config dict with keys: active_agent, multi_agent_mode,
+        symposion_agents, research_mode
+    """
+    session = load_session(session_id)
+    if not session:
+        return dict(DEFAULT_SESSION_CONFIG)
+    config = session.get("data", {}).get("config")
+    if not isinstance(config, dict):
+        return dict(DEFAULT_SESSION_CONFIG)
+    # Merge with defaults so callers always get all expected keys
+    merged = dict(DEFAULT_SESSION_CONFIG)
+    merged.update(config)
+    return merged
+
+
+def update_session_config(session_id: str, **config_updates: Any) -> bool:
+    """
+    Update the config block of a session.
+
+    Only the fields passed as kwargs are updated — the rest stays.
+    Used by browser handlers, API endpoints, and message processors
+    to persist agent/mode choices per session.
+
+    Args:
+        session_id: Session identifier
+        **config_updates: Fields to update (active_agent, multi_agent_mode,
+            symposion_agents, research_mode)
+
+    Returns:
+        True on success, False if session not found or write failed
+    """
+    if not config_updates:
+        return True
+
+    session = load_session(session_id)
+    if session is None:
+        return False
+
+    data = session.setdefault("data", {})
+    config = data.setdefault("config", dict(DEFAULT_SESSION_CONFIG))
+    config.update(config_updates)
     return save_session(session_id, session)
 
 
@@ -791,55 +869,9 @@ def cleanup_old_sessions(max_age_days: int = 30) -> int:
 # API Update Flags (for Browser Auto-Reload)
 # ============================================================
 
-def set_update_flag(session_id: str) -> bool:
-    """
-    Set update flag file to signal browser should reload.
-
-    Called by API after modifying session data.
-    Browser timer checks for this flag and triggers reload.
-
-    Args:
-        session_id: Session identifier
-
-    Returns:
-        True on success
-    """
-    _ensure_session_dir()
-
-    try:
-        safe_id = _sanitize_session_id(session_id)
-        flag_path = SESSION_DIR / f"{safe_id}.update"
-        flag_path.touch()
-        return True
-    except (ValueError, IOError):
-        return False
-
-
-def check_and_clear_update_flag(session_id: str) -> bool:
-    """
-    Check if update flag exists and clear it.
-
-    Called by browser timer to detect API updates.
-    Returns True if flag was present (browser should reload).
-
-    Args:
-        session_id: Session identifier
-
-    Returns:
-        True if flag was present (now cleared), False otherwise
-    """
-    _ensure_session_dir()
-
-    try:
-        safe_id = _sanitize_session_id(session_id)
-        flag_path = SESSION_DIR / f"{safe_id}.update"
-
-        if flag_path.exists():
-            flag_path.unlink()
-            return True
-        return False
-    except (ValueError, IOError):
-        return False
+# NOTE: The legacy update_flag mechanism (set_update_flag / check_and_clear_update_flag)
+# was removed. Browser tabs now detect session changes via mtime-watching on the
+# session file directly (SSOT). See _base.py tick-handler for the implementation.
 
 
 # ============================================================

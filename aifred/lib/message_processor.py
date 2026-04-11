@@ -16,7 +16,7 @@ from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage
 from .logging_utils import log_message
 from .routing_table import routing_table
-from .session_storage import create_empty_session, update_chat_data, set_update_flag
+from .session_storage import create_empty_session, update_chat_data
 
 # Global notification file for Message Hub events (read by UI timer)
 _NOTIFICATION_FILE = None
@@ -447,6 +447,7 @@ def save_user_to_session(session_id: str, message: InboundMessage) -> None:
     existing_chat.append({"role": "user", "content": build_user_chat_content(message)})
     existing_llm.append({"role": "user", "content": message.text})
 
+    # Browser detects via session file mtime-watch (SSOT)
     update_chat_data(
         session_id=session_id,
         chat_history=existing_chat,
@@ -454,8 +455,6 @@ def save_user_to_session(session_id: str, message: InboundMessage) -> None:
         debug_messages=data.get("debug_messages", []),
         owner=MESSAGE_HUB_OWNER,
     )
-    set_update_flag(session_id)
-    set_update_flag(session_id)
 
 
 def _append_response(
@@ -488,13 +487,13 @@ def _append_response(
     existing_chat.append(build_assistant_chat_entry(display_content, agent, metadata))
     existing_llm.append({"role": "assistant", "content": response_text})
 
+    # Browser detects via session file mtime-watch (SSOT)
     update_chat_data(
         session_id=session_id,
         chat_history=existing_chat,
         llm_history=existing_llm,
         owner=MESSAGE_HUB_OWNER,
     )
-    set_update_flag(session_id)
 
 
 

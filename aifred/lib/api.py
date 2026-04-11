@@ -483,7 +483,7 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest(session_id=Non
     The browser will auto-reload and show empty chat.
     """
     from .session_storage import (
-        update_chat_data, set_update_flag, get_latest_session_file
+        update_chat_data, get_latest_session_file
     )
 
     # Determine which session to clear
@@ -507,8 +507,7 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest(session_id=Non
     )
 
     if success:
-        # Set update flag to trigger browser reload
-        set_update_flag(session_id)
+        # Browser detects the change automatically via session file mtime-watch (SSOT)
         log_message(f"🗑️ API: Chat session {session_id[:8]}... cleared")
         return SystemActionResponse(
             success=True,

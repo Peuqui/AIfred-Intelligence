@@ -33,6 +33,8 @@ class UIConfigMixin(rx.State, mixin=True):
     vision_num_ctx: int = 32768  # Manual context value (default: 32K)
 
     # ── Research Settings ─────────────────────────────────────────
+    # NOTE: research_mode is now per-session (session_storage.DEFAULT_SESSION_CONFIG).
+    # Class default only applies before any session is loaded.
     research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
     research_mode_display: str = "\u2728 Automatik (KI entscheidet)"  # UI display value
 
@@ -299,7 +301,7 @@ class UIConfigMixin(rx.State, mixin=True):
             mode, self.ui_language  # type: ignore[attr-defined]
         )
         self.add_debug(f"\U0001f50d Research mode: {mode}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self._persist_session_config()  # type: ignore[attr-defined]
 
     def set_research_mode_display(self, display_value: str) -> None:
         """Set research mode from UI display value."""
@@ -311,7 +313,7 @@ class UIConfigMixin(rx.State, mixin=True):
             display_value, self.ui_language  # type: ignore[attr-defined]
         )
         self.add_debug(f"\U0001f50d Research mode: {self.research_mode} (from: '{display_value}')")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self._persist_session_config()  # type: ignore[attr-defined]
 
     # ================================================================
     # STT (WHISPER) SETTINGS

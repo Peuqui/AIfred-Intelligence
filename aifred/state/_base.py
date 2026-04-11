@@ -261,28 +261,46 @@ class AIState(  # type: ignore[misc]
                 toast_msg = _t("hub_toast_error", lang=self.ui_language, channel=channel, sender=sender)
                 toast_event = rx.toast.error(toast_msg, duration=8000, **toast_kwargs)
 
-        # Check for API update flag (only if session_id is set)
-        if self.session_id:
-            from ..lib.session_storage import check_and_clear_update_flag, load_session
-            if check_and_clear_update_flag(self.session_id):
-                # Load session directly from file (no browser reload needed!)
-                session = load_session(self.session_id)
-                if session and session.get("data"):
-                    # For update-flag reloads: set debug messages from file directly
-                    # (skip _restore_session's prepend logic which would duplicate)
-                    file_debug = session["data"].pop("debug_messages", None)
-                    if file_debug:
-                        self.debug_messages = file_debug
-                    self._restore_session(session)
-                    msg_count = len(self._chat_sub().chat_history)
-                    self.add_debug(f"🔄 API update: Session reloaded ({msg_count} messages)")
-                # Force scroll + toast (if any) in one yield
-                if toast_event:
-                    yield toast_event
-                yield rx.call_script("forceScrollToBottom()")
-                return
+        # SSOT MTIME WATCH: Check if session file was modified externally
+        # (other tab, API, channel, message_processor, debug_bus).
+        #
+        # This is the single source of truth for detecting session changes —
+        # replaces the legacy update_flag mechanism. Every writer (browser,
+        # API, hub) updates the session file → mtime changes → all tabs
+        # detect and reload on the next tick.
+        #
+        # Skipped during generation (is_generating) because local state
+        # is ahead of disk (user message added before LLM call).
+        if self.session_id and not self.is_generating:
+            from ..lib.session_storage import get_session_path, load_session
+            try:
+                session_path = get_session_path(self.session_id)
+                if session_path.exists():
+                    session_mtime = os.path.getmtime(session_path)
+                    if session_mtime > self._last_session_mtime:
+                        # External write detected → full session reload
+                        session = load_session(self.session_id)
+                        if session and session.get("data"):
+                            # Use file's debug_messages directly (no prepend of startup
+                            # messages which are already in browser memory).
+                            file_debug = session["data"].pop("debug_messages", None)
+                            if file_debug is not None:
+                                self.debug_messages = file_debug
+                            self._restore_session(session)
+                            msg_count = len(self._chat_sub().chat_history)
+                            self.add_debug(
+                                f"🔄 Session synced ({msg_count} messages)"
+                            )
+                        self._last_session_mtime = session_mtime
+                        # Force scroll + toast (if any) in one yield
+                        if toast_event:
+                            yield toast_event
+                        yield rx.call_script("forceScrollToBottom()")
+                        return
+            except (OSError, ValueError):
+                pass
 
-        # Toast without update flag (notification for a different session)
+        # Toast without session change (notification for a different session)
         if toast_event:
             yield toast_event
             return

@@ -136,12 +136,15 @@ class AgentConfigMixin(rx.State, mixin=True):
     vision_temperature: float = VISION_DEFAULT_TEMPERATURE
 
     # ── Active Agent (direct chat) ─────────────────────────────────
+    # NOTE: active_agent, multi_agent_mode, symposion_agents are now
+    # per-session (session_storage.DEFAULT_SESSION_CONFIG). Class defaults
+    # only apply before any session is loaded.
     active_agent: str = "aifred"  # Which agent responds (default: aifred)
     agent_memory_enabled: bool = True  # Global toggle: agents use long-term memory
 
-    # ── Multi-Agent Settings (PERSISTENT) ─────────────────────────
+    # ── Multi-Agent Settings (per-session) ────────────────────────
     multi_agent_mode: str = "standard"
-    max_debate_rounds: int = 3
+    max_debate_rounds: int = 3  # still global (debate param)
     symposion_agents: list[str] = []  # Selected agents for Symposion mode
     consensus_type: str = "majority"
     sokrates_model: str = ""
@@ -659,7 +662,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             # These modes always use AIfred + Sokrates + Salomo
             self.active_agent = "aifred"
 
-        self._save_settings()  # type: ignore[attr-defined]
+        self._persist_session_config()  # type: ignore[attr-defined]
 
         mode_labels = {
             "standard": "Standard",
@@ -786,6 +789,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         cfg = get_agent_config(agent_id)
         label = cfg.display_name if cfg else agent_id.capitalize()
         self.add_debug(f"🎯 Active agent: {label}")  # type: ignore[attr-defined]
+        self._persist_session_config()  # type: ignore[attr-defined]
 
     def toggle_symposion_agent(self, agent_id: str) -> None:
         """Toggle an agent's participation in Symposion mode."""
@@ -802,6 +806,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         else:
             self.symposion_agents = self.symposion_agents + [agent_id]
             self.add_debug(f"🏛️ Symposion: {label} added")  # type: ignore[attr-defined]
+        self._persist_session_config()  # type: ignore[attr-defined]
 
     @rx.var(deps=["ui_language", "multi_agent_mode"], auto_deps=False)
     def multi_agent_mode_info(self) -> str:
