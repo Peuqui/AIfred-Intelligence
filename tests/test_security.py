@@ -231,12 +231,17 @@ class TestResolveTierForSender:
             assert tier == OWNER_TIER
 
     def test_email_owner_gets_elevated(self):
-        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}):
+        # Mock load_settings so user-configured channel_security_tiers don't
+        # interfere with the test (the real settings.json may have a higher
+        # email tier configured by the user).
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}), \
+             patch("aifred.lib.settings.load_settings", return_value={}):
             tier = resolve_tier_for_sender("email", '"Owner" <owner@mail.de>')
             assert tier == OWNER_TIER
 
     def test_email_non_owner_gets_default(self):
-        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}):
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}), \
+             patch("aifred.lib.settings.load_settings", return_value={}):
             tier = resolve_tier_for_sender("email", '"Friend" <friend@mail.de>')
             assert tier == TIER_COMMUNICATE
 
