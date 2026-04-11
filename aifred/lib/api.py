@@ -609,6 +609,87 @@ async def get_chat_history(session_id: Optional[str] = None):
 
 
 # ============================================================
+# Session Config Endpoint (agent/mode per session - SSOT)
+# ============================================================
+
+
+class SessionConfigRequest(BaseModel):
+    """Session config update request.
+
+    Only fields that are provided (non-None) will be updated.
+    Browser tabs viewing this session detect the change automatically
+    via mtime-watching on the session file.
+    """
+    session_id: str = Field(..., description="Session identifier")
+    active_agent: Optional[str] = Field(
+        None,
+        description="Agent that responds to messages (e.g. 'aifred', 'sokrates', custom IDs)"
+    )
+    multi_agent_mode: Optional[str] = Field(
+        None,
+        description="Multi-agent mode: 'standard', 'sokrates', 'tribunal', 'symposion', 'critical_review', 'auto_consensus'"
+    )
+    symposion_agents: Optional[List[str]] = Field(
+        None,
+        description="Selected agents for Symposion mode (list of agent IDs)"
+    )
+    research_mode: Optional[str] = Field(
+        None,
+        description="Research mode: 'none', 'quick', 'deep', 'automatik'"
+    )
+
+
+class SessionConfigResponse(BaseModel):
+    """Session config response (reflects the current state after update)."""
+    success: bool
+    session_id: str
+    config: Dict[str, Any]
+
+
+@api_app.post("/session/config", response_model=SessionConfigResponse, tags=["Chat"])
+async def update_session_config_endpoint(request: SessionConfigRequest):
+    """
+    Update the config block (agent, mode, research mode) of a session.
+
+    Only the fields you provide are updated — omit a field to leave it
+    unchanged. Browser tabs viewing this session detect the change
+    automatically via the session file mtime and reload their UI.
+
+    Use this endpoint to:
+    - Switch agents from external scripts/automation
+    - Change discussion modes programmatically
+    - Integrate voice assistants / external channels
+
+    Returns the full current config after the update.
+    """
+    from .session_storage import update_session_config, get_session_config
+
+    updates = request.model_dump(exclude={"session_id"}, exclude_none=True)
+    if not updates:
+        raise HTTPException(
+            status_code=400,
+            detail="No config fields provided (at least one of: active_agent, multi_agent_mode, symposion_agents, research_mode)"
+        )
+
+    success = update_session_config(request.session_id, **updates)
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {request.session_id[:8]}... not found"
+        )
+
+    current = get_session_config(request.session_id)
+    log_message(
+        f"⚙️ API: Session {request.session_id[:8]}... config updated: {updates}"
+    )
+    return SessionConfigResponse(
+        success=True,
+        session_id=request.session_id,
+        config=current,
+    )
+
+
+# ============================================================
 # System Endpoints
 # ============================================================
 
