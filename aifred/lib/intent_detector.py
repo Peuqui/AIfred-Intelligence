@@ -13,10 +13,106 @@ Also detects dialog addressing (who is being spoken to):
 - None: No specific addressee
 """
 
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Any, List
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
 from .context_manager import strip_thinking_blocks
+
+
+# Valid values for mode-switch field validation (defensive parsing)
+_VALID_RESEARCH_MODES = {"none", "quick", "deep", "automatik"}
+_VALID_MULTI_AGENT_MODES = {
+    "standard", "sokrates", "tribunal", "symposion",
+    "critical_review", "auto_consensus",
+}
+
+
+def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
+    """
+    Parse the MODE_SWITCH field of the intent detection output.
+
+    Format: comma-separated key=value pairs, e.g. "multi=tribunal,research=deep"
+    or "agent=sokrates,multi=standard".
+
+    Defensive parsing: unknown keys/values are ignored, never raises.
+
+    Args:
+        mode_field: Raw mode switch string from LLM
+
+    Returns:
+        Dict with validated config updates (keys: research_mode,
+        multi_agent_mode, active_agent). Empty dict if nothing valid.
+    """
+    updates: Dict[str, Any] = {}
+    if not mode_field or not mode_field.strip():
+        return updates
+
+    for pair in mode_field.split(","):
+        if "=" not in pair:
+            continue
+        key, _, value = pair.partition("=")
+        key = key.strip().lower()
+        value = value.strip().lower()
+        if not key or not value:
+            continue
+
+        if key == "research":
+            if value in _VALID_RESEARCH_MODES:
+                updates["research_mode"] = value
+        elif key == "multi":
+            if value in _VALID_MULTI_AGENT_MODES:
+                updates["multi_agent_mode"] = value
+        elif key == "agent":
+            # Check against known agents (built-in + custom)
+            from .agent_config import load_agents_raw
+            agents = load_agents_raw()
+            if value in agents:
+                updates["active_agent"] = value
+    return updates
+
+
+def format_mode_switch_summary(updates: Dict[str, Any], lang: str = "de") -> str:
+    """Format a human-readable summary of a mode switch for confirmation messages."""
+    if not updates:
+        return ""
+    parts: List[str] = []
+    if lang == "de":
+        research_labels = {
+            "none": "eigenes Wissen",
+            "quick": "schnelle Recherche",
+            "deep": "Tiefrecherche",
+            "automatik": "Automatik",
+        }
+        multi_labels = {
+            "standard": "Standard",
+            "sokrates": "Sokrates",
+            "tribunal": "Tribunal",
+            "symposion": "Symposion",
+            "critical_review": "Kritische Prüfung",
+            "auto_consensus": "Auto-Konsens",
+        }
+    else:
+        research_labels = {
+            "none": "own knowledge",
+            "quick": "quick research",
+            "deep": "deep research",
+            "automatik": "automatic",
+        }
+        multi_labels = {
+            "standard": "standard",
+            "sokrates": "Sokrates",
+            "tribunal": "Tribunal",
+            "symposion": "Symposion",
+            "critical_review": "critical review",
+            "auto_consensus": "auto consensus",
+        }
+    if "research_mode" in updates:
+        parts.append(f"Research: {research_labels.get(updates['research_mode'], updates['research_mode'])}")
+    if "multi_agent_mode" in updates:
+        parts.append(f"Mode: {multi_labels.get(updates['multi_agent_mode'], updates['multi_agent_mode'])}")
+    if "active_agent" in updates:
+        parts.append(f"Agent: {updates['active_agent'].capitalize()}")
+    return " · ".join(parts)
 
 
 def format_intent_result(intent: str, addressee: Optional[str], language: str) -> str:
@@ -37,25 +133,31 @@ def format_intent_result(intent: str, addressee: Optional[str], language: str) -
 def parse_intent_addressee_language(
     response_raw: str,
     context: str = "general"
-) -> Tuple[str, Optional[str], str]:
+) -> Tuple[str, Optional[str], str, Dict[str, Any], str]:
     """
-    Extract intent, addressee, and language from LLM response.
+    Extract intent, addressee, language, mode-switch, and remaining query from LLM response.
 
-    Expected format: "INTENT|ADDRESSEE|LANGUAGE" (e.g., "FAKTISCH|sokrates|DE", "KREATIV||EN")
+    Expected format: "INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|REMAINING"
+    Examples:
+        "FACTUAL||DE||"                         → no mode switch, no remainder
+        "FACTUAL||EN|multi=tribunal|"           → tribunal switch, pure command
+        "FACTUAL||DE|research=deep|zu Thema X"  → deep research + question about X
+        "MIXED|sokrates|DE||"                   → direct addressing Sokrates
+
+    Legacy 3-field format is also supported for backward compatibility with
+    cache_followup and other callers (MODE_SWITCH + REMAINING default to empty).
 
     Args:
         response_raw: Raw LLM response
         context: Context for logging ("general" or "cache_followup")
 
     Returns:
-        Tuple[str, Optional[str], str]: (intent, addressee, language)
-            - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
-            - addressee: "aifred", "sokrates", "salomo" or None
-            - language: "de" or "en"
+        Tuple[str, Optional[str], str, Dict[str, Any], str]:
+            (intent, addressee, language, mode_switch_updates, remaining_query)
     """
     raw = response_raw.strip()
 
-    # Parse pipe-separated format: INTENT|ADDRESSEE|LANGUAGE
+    # Parse pipe-separated format
     parts = raw.split("|") if "|" in raw else [raw]
 
     intent_part = parts[0].strip().upper() if len(parts) > 0 else ""
@@ -64,16 +166,26 @@ def parse_intent_addressee_language(
     # Handle language field - can be at parts[2] OR parts[3] if LLM adds "(empty)"
     # Expected: "FACTUAL||DE" → parts[2]="DE"
     # But LLM may return: "FACTUAL||(empty)|DE" → parts[2]="(empty)", parts[3]="DE"
-    if len(parts) > 3:
-        # Check if parts[2] looks like "(empty)" marker and parts[3] is the real language
-        if parts[2].strip().lower() in ("(empty)", "empty", "none", ""):
-            language_part = parts[3].strip().upper()
-        else:
-            language_part = parts[2].strip().upper()
+    language_part = ""
+    language_index = 2
+    if len(parts) > 3 and parts[2].strip().lower() in ("(empty)", "empty", "none", ""):
+        # LLM inserted "(empty)" as 3rd field — language shifts by one
+        language_part = parts[3].strip().upper() if len(parts) > 3 else ""
+        language_index = 3
     elif len(parts) > 2:
         language_part = parts[2].strip().upper()
-    else:
-        language_part = ""
+        language_index = 2
+
+    # MODE_SWITCH field is at position language_index + 1
+    mode_switch_part = ""
+    if len(parts) > language_index + 1:
+        mode_switch_part = parts[language_index + 1].strip()
+
+    # REMAINING is everything after position language_index + 2 (join back)
+    # in case the remaining query contains pipes
+    remaining_query = ""
+    if len(parts) > language_index + 2:
+        remaining_query = "|".join(parts[language_index + 2:]).strip()
 
     # Parse intent (with English/German support)
     if "FAKTISCH" in intent_part or "FACTUAL" in intent_part:
@@ -116,23 +228,14 @@ def parse_intent_addressee_language(
         from .prompt_loader import get_language
         language = get_language()
 
-    return (intent, addressee, language)
+    # Parse mode switch field (defensive — unknown values are ignored)
+    mode_switch_updates = _parse_mode_switch(mode_switch_part)
 
+    # Strip trailing/leading placeholders from remaining query
+    if remaining_query.lower() in ("(empty)", "empty", "none"):
+        remaining_query = ""
 
-def parse_intent_and_addressee(
-    response_raw: str,
-    context: str = "general"
-) -> Tuple[str, Optional[str]]:
-    """
-    Extract intent and addressee from LLM response (legacy wrapper).
-
-    For backwards compatibility. Use parse_intent_addressee_language() instead.
-
-    Returns:
-        Tuple[str, Optional[str]]: (intent, addressee)
-    """
-    intent, addressee, _ = parse_intent_addressee_language(response_raw, context)
-    return (intent, addressee)
+    return (intent, addressee, language, mode_switch_updates, remaining_query)
 
 
 # Keep old function for backwards compatibility (used by cache_followup)
@@ -147,7 +250,7 @@ def parse_intent_from_response(intent_raw: str, context: str = "general") -> str
     Returns:
         str: "FAKTISCH", "KREATIV" or "GEMISCHT"
     """
-    intent, _ = parse_intent_and_addressee(intent_raw, context)
+    intent, _, _, _, _ = parse_intent_addressee_language(intent_raw, context)
     return intent
 
 
@@ -157,13 +260,16 @@ async def detect_query_intent_and_addressee(
     llm_client,
     llm_options: Optional[Dict] = None,
     automatik_num_ctx: Optional[int] = None
-) -> Tuple[str, Optional[str], str, str]:
+) -> Tuple[str, Optional[str], str, Dict[str, Any], str, str]:
     """
-    Detect intent, addressee, and language of user query.
+    Detect intent, addressee, language, mode-switch, and remaining query.
 
-    Combines intent detection (for temperature selection), addressee
-    detection (for dialog routing), and language detection (for prompt selection)
-    in a single LLM call.
+    Combines all five detection tasks into a single LLM call:
+    - intent (for temperature selection)
+    - addressee (for dialog routing)
+    - language (for prompt selection)
+    - mode-switch (voice/text-based config change requests)
+    - remaining query (for Option C: mode-switch + question in one message)
 
     Args:
         user_query: User question
@@ -175,10 +281,15 @@ async def detect_query_intent_and_addressee(
             int = explicit value (e.g. AUTOMATIK_LLM_NUM_CTX for different models).
 
     Returns:
-        Tuple[str, Optional[str], str, str]: (intent, addressee, detected_language, raw_response)
+        Tuple[str, Optional[str], str, Dict[str, Any], str, str]:
+            (intent, addressee, detected_language, mode_switch_updates,
+             remaining_query, raw_response)
+
             - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
             - addressee: "aifred", "sokrates", "salomo" or None
             - detected_language: "de" or "en" (LLM-detected from user query)
+            - mode_switch_updates: dict with config changes ({} if none)
+            - remaining_query: user's question after stripping mode command
             - raw_response: Raw LLM output for debugging
     """
     # Use English prompt for intent detection (universal, handles all languages)
@@ -204,9 +315,15 @@ async def detect_query_intent_and_addressee(
     # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
     response_clean = strip_thinking_blocks(response_raw).strip()
 
-    intent, addressee, detected_language = parse_intent_addressee_language(response_clean, context="general")
-    log_message(f"✅ {format_intent_result(intent, addressee, detected_language)}, Raw: '{response_clean}'")
-    return (intent, addressee, detected_language, response_raw)
+    intent, addressee, detected_language, mode_switch, remaining = parse_intent_addressee_language(
+        response_clean, context="general"
+    )
+    log_message(
+        f"✅ {format_intent_result(intent, addressee, detected_language)}, "
+        f"ModeSwitch: {mode_switch or '-'}, Remaining: {remaining[:40] or '-'}, "
+        f"Raw: '{response_clean}'"
+    )
+    return (intent, addressee, detected_language, mode_switch, remaining, response_raw)
 
 
 async def detect_cache_followup_intent(

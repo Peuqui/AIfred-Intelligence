@@ -982,11 +982,20 @@ class ChatMixin(rx.State, mixin=True):
                 addressed_to = None
                 detected_language = get_language()
                 intent_raw = ""
+                mode_switch_updates: dict = {}
+                remaining_query = ""
                 _reason = "URL-only" if _is_url_only else "image-only"
                 self.add_debug(f"🎯 Intent: {detected_intent} ({_reason}), Lang: {detected_language.upper()} (UI)")
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
             else:
-                detected_intent, addressed_to, detected_language, intent_raw = await detect_query_intent_and_addressee(
+                (
+                    detected_intent,
+                    addressed_to,
+                    detected_language,
+                    mode_switch_updates,
+                    remaining_query,
+                    intent_raw,
+                ) = await detect_query_intent_and_addressee(
                     user_msg,
                     effective_auto,
                     llm_client,
@@ -996,6 +1005,82 @@ class ChatMixin(rx.State, mixin=True):
                 from ..lib.intent_detector import format_intent_result
                 self.add_debug(f"🎯 {format_intent_result(detected_intent, addressed_to, detected_language)}")
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
+
+            # ============================================================
+            # MODE SWITCH HANDLER (Option C: pure + combined)
+            # ============================================================
+            # If the user requested a mode/config change (voice or text),
+            # apply it here BEFORE the rest of the pipeline. The detection
+            # happens inside Intent Detection (same LLM call, no extra latency).
+            #
+            # Cases:
+            # - Pure switch ("Start tribunal"): apply + confirmation message
+            # - Combined ("Start tribunal and discuss X"): apply + continue
+            #   with remaining query in the new mode
+            if mode_switch_updates:
+                from ..lib.intent_detector import format_mode_switch_summary
+                from ..lib.session_storage import update_session_config
+
+                # Apply to state (so the rest of the pipeline uses the new mode)
+                if "active_agent" in mode_switch_updates:
+                    self.active_agent = mode_switch_updates["active_agent"]  # type: ignore[attr-defined]
+                if "multi_agent_mode" in mode_switch_updates:
+                    self.multi_agent_mode = mode_switch_updates["multi_agent_mode"]  # type: ignore[attr-defined]
+                if "research_mode" in mode_switch_updates:
+                    from ..lib import TranslationManager
+                    self.research_mode = mode_switch_updates["research_mode"]  # type: ignore[attr-defined]
+                    self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined]
+                        self.research_mode, self.ui_language  # type: ignore[attr-defined]
+                    )
+
+                # Persist to session file (SSOT) — no _last_session_mtime update
+                # yet because _save_current_session below will do it
+                if self.session_id:
+                    update_session_config(
+                        self.session_id,
+                        **mode_switch_updates,
+                    )
+
+                summary = format_mode_switch_summary(mode_switch_updates, lang=detected_language)
+                self.add_debug(f"🔧 Mode switch: {summary}")
+
+                if not remaining_query:
+                    # Pure command → confirmation message, skip normal agent pipeline
+                    from datetime import datetime as _dt
+                    confirm_text = (
+                        f"✅ **{summary}**"
+                        if detected_language == "en"
+                        else f"✅ **{summary}**"
+                    )
+                    self._chat_sub().chat_history.append({
+                        "role": "assistant",
+                        "content": confirm_text,
+                        "agent": "system",
+                        "mode": "mode_switch",
+                        "round_num": 0,
+                        "metadata": {},
+                        "timestamp": _dt.now().isoformat(),
+                        "time_display": _dt.now().strftime("%d.%m. \u2014 %H:%M"),
+                        "used_sources": [],
+                        "failed_sources": [],
+                        "has_audio": False,
+                        "audio_urls_json": "[]",
+                    })
+                    self._chat_sub().llm_history.append({
+                        "role": "assistant",
+                        "content": confirm_text,
+                    })
+                    self._save_current_session()
+                    yield
+                    return
+
+                # Combined → replace user_msg with remaining and continue normally.
+                # Important: also update llm_history so the LLM sees the cleaned question.
+                user_msg = remaining_query
+                if self._chat_sub().llm_history and self._chat_sub().llm_history[-1]["role"] == "user":
+                    self._chat_sub().llm_history[-1]["content"] = remaining_query
+                self.add_debug(f"➡️ Continuing with: {remaining_query[:60]}")
+                yield
 
             # PRE-MESSAGE: History Compression Check
             async for _ in self._phase_pre_message_compression(llm_client, detected_language):

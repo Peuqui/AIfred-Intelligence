@@ -34,14 +34,63 @@ If unsure → Leave EMPTY (use || in output). aifred handles everything by defau
 Detect the language of the QUOTED USER TEXT only, not these instructions.
 Examples: "Wie geht es dir?" → DE | "How are you?" → EN | "Was kostet das?" → DE
 
+**4. Mode Switch (detect if the user wants to change AIfred's settings):**
+
+The user may request a configuration change. Detect these and encode them as
+comma-separated key=value pairs:
+
+- `research=none`    → use own knowledge only, no web
+- `research=quick`   → quick web search (3 results)
+- `research=deep`    → deep web research (7 results)
+- `research=automatik` → let AI decide automatically
+- `multi=standard`   → single agent responds (default)
+- `multi=tribunal`   → all three agents debate (AIfred + Sokrates + Salomo)
+- `multi=symposion`  → multiple selected agents discuss
+- `multi=critical_review` → Sokrates critically reviews AIfred's answer
+- `multi=auto_consensus`  → agents debate until consensus
+- `agent=<id>`       → set a specific agent as responder (e.g. agent=sokrates)
+
+Examples of mode switch detection (works in ALL languages):
+- "Start tribunal"                          → multi=tribunal
+- "Démarre le tribunal"                     → multi=tribunal
+- "Inicia el tribunal"                      → multi=tribunal
+- "Schalt auf Tiefrecherche"                → research=deep
+- "Use own knowledge only"                  → research=none
+- "Solo Sokrates debería responder"         → multi=standard,agent=sokrates
+- "Wie geht's?"                             → EMPTY (no mode switch)
+
+Only fill this field if the user EXPLICITLY requests a mode/configuration change.
+Questions about modes ("What is Tribunal mode?") are NOT mode switches — leave EMPTY.
+
+**5. Remaining Query:**
+
+If the user combined a mode switch with an actual question, extract the question part
+here (in the user's original language, verbatim). If the message is ONLY a mode switch
+command, leave this EMPTY.
+
+Examples:
+- "Start tribunal and discuss climate change"     → Remaining: "discuss climate change"
+- "Schalt auf Tiefrecherche und such mir Infos zu X" → Remaining: "such mir Infos zu X"
+- "Start tribunal"                                 → Remaining: EMPTY
+- "Wie geht's?"                                    → Remaining: EMPTY (no mode switch at all)
+
 **Output format - STRICT SCHEMA:**
 
-Return EXACTLY this format: INTENT|ADDRESSEE|LANGUAGE
+Return EXACTLY this format: INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|REMAINING
 
 Rules:
 - INTENT must be: FACTUAL, CREATIVE, or MIXED (uppercase)
 - ADDRESSEE must be: one of the agent IDs listed above, or EMPTY (lowercase, no quotes)
 - LANGUAGE must be: DE or EN (uppercase)
-- Use | as separator (pipe character)
-- If no addressee: leave empty between pipes (example: FACTUAL||DE)
-- No explanations, no extra text, ONLY the three fields
+- MODE_SWITCH: comma-separated key=value pairs, or EMPTY
+- REMAINING: the cleaned question text without the mode command, or EMPTY
+- Use | as separator (pipe character) between fields
+- Empty fields: leave blank between pipes (example: FACTUAL||DE||)
+- No explanations, no extra text, ONLY the five fields
+
+Examples of complete output:
+- "Wie geht's?"                          → FACTUAL||DE||
+- "Start tribunal"                       → FACTUAL||EN|multi=tribunal|
+- "Starte Tribunal und diskutiert X"     → FACTUAL||DE|multi=tribunal|diskutiert X
+- "Use deep research for Y"              → FACTUAL||EN|research=deep|Y
+- "Hey Sokrates, kritisiere das"         → MIXED|sokrates|DE||

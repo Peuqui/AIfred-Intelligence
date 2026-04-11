@@ -121,12 +121,15 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
 
     client = LLMClient(backend_type)
 
-    intent, addressee, lang, _raw = await detect_query_intent_and_addressee(
+    intent, addressee, lang, _mode_switch, _remaining, _raw = await detect_query_intent_and_addressee(
         user_query=text,
         automatik_model=automatik_model,
         llm_client=client,
         automatik_num_ctx=None,
     )
+    # NOTE: Mode-switch handling in the hub path is not yet supported.
+    # Hub messages have their own session per channel and the user typically
+    # controls mode via direct UI access or the /api/session/config endpoint.
     from .intent_detector import format_intent_result
     agent = addressee or "aifred"
     log_message(f"🎯 {format_intent_result(intent, addressee, lang)}")
