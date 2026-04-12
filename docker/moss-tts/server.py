@@ -310,13 +310,14 @@ def get_model():
 # TTS Generation
 # ============================================================
 
-def generate_tts(text: str, speaker: str | None = None) -> tuple[str, str]:
+def generate_tts(text: str, speaker: str | None = None, language: str | None = None) -> tuple[str, str]:
     """
     Generate TTS audio.
 
     Args:
         text: Text to synthesize
         speaker: Voice name (WAV file in voices/ dir), or None for default voice
+        language: Language code (e.g. "de", "en", "fr") — passed to model
 
     Returns:
         Tuple of (file_path, mimetype) for the generated audio
@@ -351,14 +352,16 @@ def generate_tts(text: str, speaker: str | None = None) -> tuple[str, str]:
         normalized.append(line)
     text = ' '.join(normalized)
 
-    # Build conversation with optional voice reference
+    # Build conversation with optional voice reference and language
+    msg_kwargs = {"text": text}
+    if language:
+        msg_kwargs["language"] = language
     if speaker:
         ref_audio = str(VOICES_DIR / f"{speaker}.wav")
         if not Path(ref_audio).exists():
             raise ValueError(f"Voice file not found: {speaker}.wav")
-        conversation = [_processor.build_user_message(text=text, reference=[ref_audio])]
-    else:
-        conversation = [_processor.build_user_message(text=text)]
+        msg_kwargs["reference"] = [ref_audio]
+    conversation = [_processor.build_user_message(**msg_kwargs)]
 
     # Generate audio
     with torch.no_grad():
@@ -519,17 +522,17 @@ def tts():
 
     text = data.get("text", "").strip()
     speaker = data.get("speaker")
-    # language parameter accepted for API compatibility but MOSS-TTS
-    # auto-detects language from text
+    language = data.get("language")  # optional — None = auto-detect from text
 
     if not text:
         return jsonify({"error": "Empty text"}), 400
 
-    logger.info(f"TTS request: '{text[:60]}...' speaker={speaker}")
+    lang_info = f" lang={language}" if language else ""
+    logger.info(f"TTS request: '{text[:60]}...' speaker={speaker}{lang_info}")
 
     _active_requests += 1
     try:
-        file_path, mimetype = generate_tts(text, speaker)
+        file_path, mimetype = generate_tts(text, speaker, language)
 
         # Clear CUDA cache
         if _device == "cuda":
@@ -671,6 +674,21 @@ WEB_UI_HTML = """
                 <label for="voice">Voice (Reference Audio)</label>
                 <select id="voice"></select>
             </div>
+            <div>
+                <label for="language">Language (optional)</label>
+                <select id="language">
+                    <option value="">Auto-detect</option>
+                    <option value="de">Deutsch</option>
+                    <option value="en">English</option>
+                    <option value="fr">Francais</option>
+                    <option value="es">Espanol</option>
+                    <option value="it">Italiano</option>
+                    <option value="pt">Portugues</option>
+                    <option value="ja">Japanese</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ko">Korean</option>
+                </select>
+            </div>
         </div>
 
         <button onclick="generateTTS()" id="generateBtn">Generate Audio</button>
@@ -720,6 +738,7 @@ WEB_UI_HTML = """
         async function generateTTS() {
             const text = document.getElementById('text').value.trim();
             const voice = document.getElementById('voice').value;
+            const lang = document.getElementById('language').value;
             const status = document.getElementById('status');
             const audio = document.getElementById('audioPlayer');
             const btn = document.getElementById('generateBtn');
@@ -735,6 +754,7 @@ WEB_UI_HTML = """
                 const startTime = Date.now();
                 const body = { text };
                 if (voice) body.speaker = voice;
+                if (lang) body.language = lang;
 
                 const res = await fetch('/tts', {
                     method: 'POST',

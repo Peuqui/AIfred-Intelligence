@@ -5,21 +5,27 @@ AIfred Admin CLI
 Manage whitelist and user accounts from command line.
 
 Usage:
-    aifred-admin users              List allowed users (whitelist)
-    aifred-admin add <username>     Add user to whitelist
-    aifred-admin remove <username>  Remove user from whitelist
-    aifred-admin accounts           List registered accounts
-    aifred-admin delete <username>  Delete account (with confirmation)
-    aifred-admin delete <username> --sessions  Also delete user's sessions
+    aifred-admin users                          List allowed users (whitelist)
+    aifred-admin add <username>                 Add user to whitelist
+    aifred-admin remove <username>              Remove user from whitelist
+    aifred-admin accounts                       List registered accounts
+    aifred-admin create <username> [password]   Create account (prompts for PW if omitted)
+    aifred-admin delete <username>              Delete account (with confirmation)
+    aifred-admin delete <username> --sessions   Also delete user's sessions
 """
 
 import sys
 import os
 import json
+import hashlib
+import secrets
+import getpass
 from pathlib import Path
 
-# Direct path to config dir (avoid importing aifred package which requires reflex)
-SETTINGS_DIR = Path.home() / ".config" / "aifred"
+# Paths MUST match aifred/lib/config.py DATA_DIR = PROJECT_ROOT / "data"
+# (not ~/.config/aifred which never existed)
+PROJECT_ROOT = Path(__file__).resolve().parent
+SETTINGS_DIR = PROJECT_ROOT / "data"
 WHITELIST_FILE = SETTINGS_DIR / "allowed_users.json"
 ACCOUNTS_FILE = SETTINGS_DIR / "accounts.json"
 SESSION_DIR = SETTINGS_DIR / "sessions"
@@ -197,6 +203,61 @@ def cmd_accounts() -> None:
     print(f"\nDatei: {ACCOUNTS_FILE}")
 
 
+def hash_password(password: str) -> str:
+    """Hash password with SHA-256 — matches aifred/lib/session_storage.py."""
+    return f"sha256:{hashlib.sha256(password.encode()).hexdigest()}"
+
+
+def cmd_create(username: str, password: str = "") -> None:
+    """Create new account (or fail if exists).
+
+    Adds username to whitelist if not already there, hashes the
+    password, and stores it in accounts.json. Prompts interactively
+    for the password if omitted.
+    """
+    if not username:
+        print("Fehler: Username erforderlich")
+        sys.exit(1)
+
+    username_lower = username.lower()
+    accounts = _load_accounts()
+
+    if username_lower in accounts:
+        print(f"✗ Account '{username}' existiert bereits")
+        print(f"  Zum Überschreiben: ./aifred-admin delete {username} && ./aifred-admin create {username}")
+        sys.exit(1)
+
+    # Ensure whitelist entry exists (create_account() in the app requires it)
+    whitelist = _load_whitelist()
+    if username_lower not in whitelist:
+        whitelist.append(username_lower)
+        if _save_whitelist(whitelist):
+            print(f"✓ '{username}' zur Whitelist hinzugefügt")
+        else:
+            print(f"✗ Konnte Whitelist nicht speichern")
+            sys.exit(1)
+
+    # Get password — either from CLI arg or interactive prompt
+    if not password:
+        password = getpass.getpass(f"Passwort für '{username}': ")
+        password_confirm = getpass.getpass("Passwort wiederholen: ")
+        if password != password_confirm:
+            print("✗ Passwörter stimmen nicht überein")
+            sys.exit(1)
+
+    if len(password) < 6:
+        print("✗ Passwort muss mindestens 6 Zeichen lang sein")
+        sys.exit(1)
+
+    accounts[username_lower] = hash_password(password)
+    if _save_accounts(accounts):
+        print(f"✓ Account '{username}' erstellt")
+        print(f"  Datei: {ACCOUNTS_FILE}")
+    else:
+        print(f"✗ Fehler beim Speichern")
+        sys.exit(1)
+
+
 def cmd_delete(username: str, with_sessions: bool = False) -> None:
     """Delete account."""
     if not username:
@@ -258,6 +319,10 @@ def main() -> None:
         cmd_remove(username)
     elif cmd == "accounts":
         cmd_accounts()
+    elif cmd == "create":
+        username = sys.argv[2] if len(sys.argv) > 2 else ""
+        password = sys.argv[3] if len(sys.argv) > 3 else ""
+        cmd_create(username, password)
     elif cmd == "delete":
         username = sys.argv[2] if len(sys.argv) > 2 else ""
         with_sessions = "--sessions" in sys.argv
