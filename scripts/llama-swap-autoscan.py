@@ -1570,7 +1570,11 @@ def _parse_model_cmds(config_path: Path) -> dict[str, str]:
                     cmd_lines = [raw[1:]]
                     collecting_cmd = True
             else:
+                # Plain scalar — may span multiple lines as YAML folded scalar.
+                # Enable continuation collection so lines with 6+ space indent
+                # are appended to the cmd.
                 cmd_lines = [raw]
+                collecting_cmd = True
             continue
 
         if collecting_cmd and current_name:
