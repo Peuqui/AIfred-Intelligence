@@ -86,6 +86,12 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 ### UI Verbesserungen
 - [ ] Tages-Separatoren bei Datumswechsel in Chat (Messenger-Stil)
 - [ ] Clickable Tooltips: Hilfe-Modale fuer alle UI-Bereiche (Agenten-Editor, etc.)
+- [ ] **Scheduler UI: Benutzerfreundliche Zeiteingabe** (statt rohem Cron-Textfeld)
+  - Cron: 5 separate Inputs (Minute, Stunde, Tag, Monat, Wochentag) mit Presets
+    ("Jeden Tag um 8", "Werktags um 9", "Jede Stunde", "Jeden Montag")
+  - Interval: Zahleneingabe + Einheit-Dropdown (Minuten/Stunden/Tage)
+  - Once: Datum+Uhrzeit-Picker
+  - Bug: Schedule-Feld aendert sich nicht beim Typ-Wechsel (cron/interval/once)
 
 ## Offene Verbesserungen
 
