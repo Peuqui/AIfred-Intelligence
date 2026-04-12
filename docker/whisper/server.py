@@ -51,17 +51,102 @@ _last_gpu_request = 0.0
 _gpu_ttl_timer = None
 
 
+_gpu_device_index: int | None = None  # Which GPU was selected
+
+# Minimum free VRAM (MiB) to load GPU model. Whisper medium ≈ 1500 MiB.
+_MIN_VRAM_MIB = int(os.environ.get("WHISPER_MIN_VRAM_MIB", "2000"))
+
+
+def _find_best_gpu() -> int | None:
+    """Find the GPU with the most free VRAM. Prefers completely empty GPUs.
+
+    Returns GPU index, or None if no GPU has enough free VRAM.
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.free,memory.used,name",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        best_idx: int | None = None
+        best_free, best_used = 0, float("inf")
+        for line in result.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 4:
+                idx, free, used = int(parts[0]), int(parts[1]), int(parts[2])
+                name = parts[3]
+                print(f"[Whisper]   GPU {idx}: {name} — {free} MiB free, {used} MiB used", flush=True)
+                if free < _MIN_VRAM_MIB:
+                    continue  # Not enough VRAM
+                # Prefer: 1) completely empty (used=0), 2) most free VRAM
+                if best_idx is None:
+                    best_idx, best_free, best_used = idx, free, used
+                elif used == 0 and best_used > 0:
+                    best_idx, best_free, best_used = idx, free, used
+                elif (used == 0) == (best_used == 0) and free > best_free:
+                    best_idx, best_free, best_used = idx, free, used
+
+        if best_idx is not None:
+            print(f"[Whisper] Selected GPU {best_idx} "
+                  f"(free={best_free} MiB, used={int(best_used)} MiB)", flush=True)
+        else:
+            print(f"[Whisper] No GPU with >= {_MIN_VRAM_MIB} MiB free VRAM", flush=True)
+        return best_idx
+    except Exception as e:
+        print(f"[Whisper] GPU detection failed: {e}", flush=True)
+        return None
+
+
 def _load_model(device: str):
     """Load faster-whisper model for the given device."""
-    global _model_cpu, _model_gpu
+    global _model_cpu, _model_gpu, _gpu_device_index
     from faster_whisper import WhisperModel
 
     compute = _config["cpu_compute"] if device == "cpu" else _config["gpu_compute"]
     model_name = _config["model"]
+
+    if device != "cpu":
+        # Select best GPU dynamically
+        gpu_idx = _find_best_gpu()
+        if gpu_idx is None:
+            print("[Whisper] Cannot load GPU model — no GPU with enough free VRAM", flush=True)
+            return
+        _gpu_device_index = gpu_idx
+
+        # Auto-detect best compute type for this GPU
+        import subprocess
+        try:
+            cc_result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=index,compute_cap",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5,
+            )
+            cc_map = {}
+            for line in cc_result.stdout.strip().split("\n"):
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2:
+                    cc_map[int(parts[0])] = float(parts[1])
+            gpu_cc = cc_map.get(_gpu_device_index, 0)
+            # CC >= 7.0: float16 efficient, CC < 7.0 (P40 = 6.1): use int8
+            if gpu_cc >= 7.0:
+                compute = _config["gpu_compute"]  # float16 or int8_float16
+            else:
+                compute = "int8"
+                print(f"[Whisper] GPU {_gpu_device_index} CC {gpu_cc} < 7.0 → using int8", flush=True)
+        except Exception:
+            compute = "int8"  # Safe fallback
+
+        print(f"[Whisper] Using GPU {_gpu_device_index} ({compute})", flush=True)
+
     t0 = time.time()
     print(f"[Whisper] Loading model '{model_name}' on {device} ({compute})...", flush=True)
 
-    model = WhisperModel(model_name, device=device, compute_type=compute)
+    if device != "cpu":
+        model = WhisperModel(model_name, device=device, compute_type=compute,
+                             device_index=_gpu_device_index)
+    else:
+        model = WhisperModel(model_name, device=device, compute_type=compute)
     elapsed = time.time() - t0
     print(f"[Whisper] Model loaded on {device} in {elapsed:.1f}s", flush=True)
 
@@ -73,11 +158,13 @@ def _load_model(device: str):
 
 def _unload_gpu():
     """Unload GPU model to free VRAM."""
-    global _model_gpu
+    global _model_gpu, _gpu_device_index
     if _model_gpu is None:
         return
-    print("[Whisper] GPU TTL expired — unloading GPU model", flush=True)
+    gpu_idx = _gpu_device_index
+    print(f"[Whisper] GPU TTL expired — unloading GPU model (GPU {gpu_idx})", flush=True)
     _model_gpu = None
+    _gpu_device_index = None
     _cleanup_gpu_memory()
     print("[Whisper] GPU model unloaded", flush=True)
 
@@ -169,7 +256,7 @@ input[type=number] {{ width: 70px; text-align: right; }}
 
 <div class="card">
   <div class="row"><label>CPU Model:</label> {cpu_badge}</div>
-  <div class="row"><label>GPU Model:</label> {gpu_badge}</div>
+  <div class="row"><label>GPU Model:</label> {gpu_badge}{f' (GPU {_gpu_device_index})' if gpu_loaded and _gpu_device_index is not None else ''}</div>
   <div class="btn-row">
     <button class="btn btn-load" onclick="load('cpu')">Load CPU</button>
     <button class="btn btn-unload" onclick="unload('cpu')">Unload CPU</button>
@@ -264,14 +351,16 @@ def health():
     else:
         status, model_loaded = "idle", False
 
-    return jsonify({
+    result = {
         "status": status,
         "model_loaded": model_loaded,
         "model": _config["model"],
         "cpu_loaded": cpu_loaded,
         "gpu_loaded": gpu_loaded,
+        "gpu_device_index": _gpu_device_index,
         "gpu_ttl_minutes": _config["gpu_ttl_minutes"],
-    })
+    }
+    return jsonify(result)
 
 
 @app.route("/transcribe", methods=["POST"])
@@ -334,7 +423,7 @@ def transcribe():
 @app.route("/status", methods=["GET"])
 def status():
     """Detailed status including memory usage and full config."""
-    result = {**_config, "cpu_loaded": _model_cpu is not None, "gpu_loaded": _model_gpu is not None}
+    result = {**_config, "cpu_loaded": _model_cpu is not None, "gpu_loaded": _model_gpu is not None, "gpu_device_index": _gpu_device_index}
 
     try:
         import torch
@@ -356,13 +445,14 @@ def status():
 @app.route("/unload", methods=["POST"])
 def unload():
     """Unload model(s). Query param device: cpu, gpu, cuda, or all (default)."""
-    global _model_cpu, _model_gpu
+    global _model_cpu, _model_gpu, _gpu_device_index
     device = request.args.get("device", "all")
     unloaded = []
 
     with _lock:
         if device in ("gpu", "cuda", "all") and _model_gpu is not None:
             _model_gpu = None
+            _gpu_device_index = None
             unloaded.append("gpu")
         if device in ("cpu", "all") and _model_cpu is not None:
             _model_cpu = None

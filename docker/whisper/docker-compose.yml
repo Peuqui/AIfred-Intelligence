@@ -11,16 +11,15 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['${FASTEST_GPU_ID:-1}']
+              count: all
               capabilities: [gpu]
     environment:
-      - NVIDIA_VISIBLE_DEVICES=${FASTEST_GPU_ID:-1}
-      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=all
       # Whisper model size (tiny, base, small, medium, large-v3)
       - WHISPER_MODEL=${WHISPER_MODEL:-medium}
       # Compute type per device (int8 for CPU, float16 for GPU)
       - WHISPER_CPU_COMPUTE=int8
-      - WHISPER_GPU_COMPUTE=float16
+      - WHISPER_GPU_COMPUTE=int8_float16
       # GPU auto-unload: minutes of GPU inactivity before unloading GPU model
       # CPU model stays loaded permanently. Set to 0 to disable GPU TTL.
       - WHISPER_GPU_TTL_MINUTES=${WHISPER_GPU_TTL_MINUTES:-30}
