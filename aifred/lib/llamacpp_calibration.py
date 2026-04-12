@@ -1280,6 +1280,7 @@ async def _binary_search_context(
     run_thinking_test: bool = False,
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
     start_iteration: int = 0,
+    early_abort_threshold: int = 0,
 ) -> AsyncIterator[str | int | dict]:
     """Binary search for max fitting context between low and high.
 
@@ -1289,10 +1290,16 @@ async def _binary_search_context(
     server start where the server comes up (regardless of fits).
     Yields {"thinking_result": bool} once captured.
     Yields {"iteration": int} with final counter for continuous numbering.
+
+    early_abort_threshold: when > 0 and search upper bound drops to/below
+    this value after a failing test, abort early — any further result
+    would also be ≤ threshold, so the caller will try the next fallback
+    (e.g. lower KV quantization) anyway.
     """
     result = 0
     iteration = start_iteration
     thinking_done = False
+    last_success_gpus: list[dict] | None = None
 
     while high - low > precision:
         mid = (low + high) // 2
@@ -1310,10 +1317,19 @@ async def _binary_search_context(
         if mid_fits:
             low = mid
             result = mid
+            last_success_gpus = mid_gpus
         else:
             high = mid
+            # Early abort: further search can only yield results ≤ high.
+            # If high is already ≤ threshold, any further test is wasted time.
+            if early_abort_threshold > 0 and high <= early_abort_threshold:
+                yield (
+                    f"Ceiling {format_number(high)} ≤ threshold "
+                    f"{format_number(early_abort_threshold)} — aborting search"
+                )
+                break
 
-    yield {"iteration": iteration}
+    yield {"iteration": iteration, "final_gpu_list": last_success_gpus}
     yield result
 
 
@@ -1327,6 +1343,7 @@ async def _physical_context_search(
     run_thinking_test: bool = False,
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
     projected_hint: Optional[int] = None,
+    early_abort_threshold: int = 0,
 ) -> AsyncIterator[str | int | dict]:
     """Fit-params projection + physical binary search for max context.
 
@@ -1335,6 +1352,8 @@ async def _physical_context_search(
     before binary search (avoids searching with unbalanced split).
     skip_balance: skip layer balance step (when speed-split will follow anyway).
     projected_hint: if provided, skip fit-params projection and use this value.
+    early_abort_threshold: passed through to binary search — abort when the
+    search upper bound falls below this value (skip the futile tail).
 
     Yields: progress strings, metadata dict, final int result.
     Dict: {"gpu_list": [...], "balanced_cmd": str | None}
@@ -1412,19 +1431,26 @@ async def _physical_context_search(
                     cuda_gpu_names=cuda_gpu_names, label=ctx_label)
 
     # 3. Multi-GPU layer optimization (N-GPU compatible).
-    # A) Native context fits: speed-optimize (push layers to fastest GPU).
-    # B) Context is tight: balance (equalize VRAM across GPUs).
+    # Only speed-optimize when native fits. Balance (if needed) is deferred
+    # until AFTER the binary search has found a fitting ctx — testing balance
+    # at a ctx that causes OOM is wasted work (balance can only help if the
+    # test at least loads).
     balance_adjusted = False
     skip_speed = False
     current_ratios = _parse_tensor_split_ratios(full_cmd)
-
-    if (
+    total_layers = 0
+    mb_per_layer = 0
+    layers: list[int] = []
+    old_layers_fmt = ""
+    balance_eligible = (
         not skip_balance
         and len(cuda_gpu_list) >= 2
         and current_ratios
         and len(current_ratios) == len(cuda_gpu_list)
-    ):
-        total_layers = get_gguf_layer_count(gguf_path)
+    )
+
+    if balance_eligible:
+        total_layers = get_gguf_layer_count(gguf_path) or 0
         if total_layers:
             from .gguf_utils import get_gguf_total_size
 
@@ -1515,101 +1541,14 @@ async def _physical_context_search(
                         if best_cuda0 >= total_layers:
                             skip_speed = True
 
-            else:
-                # --- 3B: Balance (context is tight, equalize VRAM) ---
-                free_values = [g["free_mb"] for g in cuda_gpu_list]
-                diff = max(free_values) - min(free_values)
-
-                if diff >= 1024:
-                    from aifred.backends.ollama import wait_for_vram_stable
-
-                    bottleneck_idx = free_values.index(min(free_values))
-                    most_free_idx = free_values.index(max(free_values))
-
-                    yield (
-                        f"VRAM imbalance: {_format_cuda_detail(cuda_gpu_list)} "
-                        f"(diff {format_number(diff)} MB) — "
-                        f"layers {old_layers_fmt} (~{format_number(mb_per_layer)} MB/layer)"
-                    )
-
-                    # Move 1 layer from bottleneck to most-free GPU
-                    new_layers = list(layers)
-                    new_layers[bottleneck_idx] -= 1
-                    new_layers[most_free_idx] += 1
-                    new_ratios = [float(n) for n in new_layers]
-                    new_layers_fmt = _format_layer_split(new_ratios)
-
-                    yield f"Moving 1 layer: {old_layers_fmt} → {new_layers_fmt}"
-
-                    full_cmd = _replace_tensor_split(full_cmd, new_ratios)
-                    old_min_free = min(free_values)
-
-                    await wait_for_vram_stable(max_wait_seconds=10.0)
-
-                    iteration += 1
-                    want_thinking = run_thinking_test and thinking_result is None
-                    bal_fits, _, new_gpu_list, bal_thinking = await _test_context_physical(
-                        full_cmd, projected, port, run_thinking_test=want_thinking,
-                        safety_margin=safety_margin,
-                    )
-                    if bal_thinking is not None:
-                        thinking_result = bal_thinking
-
-                    # Update cuda_gpu_list with fresh VRAM measurements
-                    if new_gpu_list:
-                        new_gpu_list = _to_cuda_order(new_gpu_list)
-                        if len(new_gpu_list) == len(cuda_gpu_list):
-                            cuda_gpu_list = new_gpu_list
-
-                    new_free = [g["free_mb"] for g in cuda_gpu_list]
-                    new_min_free = min(new_free)
-                    new_diff = max(new_free) - new_min_free
-
-                    if new_min_free > old_min_free:
-                        balance_adjusted = True
-                        current_ratios = new_ratios
-                        fits = bal_fits  # Update — balance may have made it fit
-                        yield _fmt_test(iteration, projected, fits=bal_fits,
-                                        gpu_list=cuda_gpu_list,
-                                        cuda_gpu_names=cuda_gpu_names,
-                                        split=new_layers_fmt, label="balanced")
-                        if new_diff < 1024:
-                            yield f"Balance OK (diff {format_number(new_diff)} MB)"
-                    else:
-                        # Revert — layer shift didn't help
-                        full_cmd = _replace_tensor_split(
-                            full_cmd, [float(n) for n in layers],
-                        )
-                        fits = bal_fits  # Update — may still fit at old split
-                        yield _fmt_test(iteration, projected, fits=bal_fits,
-                                        gpu_list=cuda_gpu_list,
-                                        cuda_gpu_names=cuda_gpu_names,
-                                        split=new_layers_fmt, label="balanced")
-                        yield (
-                            f"Layer shift didn't improve balance "
-                            f"(min free {format_number(new_min_free)} vs "
-                            f"{format_number(old_min_free)} MB) — reverting to "
-                            f"{old_layers_fmt}"
-                        )
-                        # If bottleneck GPU already has highest ratio,
-                        # speed calibration (pushing more onto it) is pointless.
-                        dominant_idx = current_ratios.index(max(current_ratios))
-                        if bottleneck_idx == dominant_idx:
-                            skip_speed = True
-
-    # Yield metadata for caller
-    yield {
-        "gpu_list": cuda_gpu_list,
-        "balanced_cmd": full_cmd if balance_adjusted else None,
-        "skip_speed": skip_speed,
-        "thinking_result": thinking_result,
-    }
-
     # 4. Binary search with (possibly adjusted) full_cmd and projected
     result = 0
+    # GPU list from the last successful test (used for post-search balance)
+    post_search_gpu_list: list[dict] | None = None
 
     if fits:
         result = projected
+        post_search_gpu_list = cuda_gpu_list
 
         # 4a. If projected < native, test native directly first
         if result < native_context:
@@ -1628,6 +1567,8 @@ async def _physical_context_search(
             if native_fits:
                 # Native fits — done, no binary search needed
                 result = native_context
+                if native_gpus:
+                    post_search_gpu_list = native_gpus
             else:
                 # Native doesn't fit — binary search between projected and native
                 async for item in _binary_search_context(
@@ -1636,6 +1577,7 @@ async def _physical_context_search(
                     run_thinking_test=run_thinking_test and thinking_result is None,
                     safety_margin=safety_margin,
                     start_iteration=iteration,
+                    early_abort_threshold=early_abort_threshold,
                 ):
                     if isinstance(item, int):
                         if item > result:
@@ -1645,6 +1587,8 @@ async def _physical_context_search(
                             iteration = item["iteration"]
                         if item.get("thinking_result") is not None:
                             thinking_result = item["thinking_result"]
+                        if item.get("final_gpu_list"):
+                            post_search_gpu_list = item["final_gpu_list"]
                     else:
                         yield item
 
@@ -1659,6 +1603,12 @@ async def _physical_context_search(
                 f"≤ min-useful {format_number(MIN_USEFUL_CONTEXT_TOKENS)} — "
                 f"skipping downward search"
             )
+            yield {
+                "gpu_list": cuda_gpu_list,
+                "balanced_cmd": None,
+                "skip_speed": skip_speed,
+                "thinking_result": thinking_result,
+            }
             yield 0
             return
 
@@ -1671,6 +1621,7 @@ async def _physical_context_search(
             run_thinking_test=run_thinking_test and thinking_result is None,
             safety_margin=safety_margin,
             start_iteration=iteration,
+            early_abort_threshold=early_abort_threshold,
         ):
             if isinstance(item, int):
                 result = item
@@ -1679,11 +1630,131 @@ async def _physical_context_search(
                     iteration = item["iteration"]
                 if item.get("thinking_result") is not None:
                     thinking_result = item["thinking_result"]
+                if item.get("final_gpu_list"):
+                    post_search_gpu_list = item["final_gpu_list"]
             else:
                 yield item
 
-        if result and result < native_context:
-            yield f"Optimum: {format_number(result)} tokens (native: {format_number(native_context)})"
+    # 5. Post-search balance: at the found ctx, check VRAM imbalance and try
+    # a single layer shift. Unlike the old pre-search balance, this tests at
+    # an actually-loadable ctx — so the result is meaningful. If the shift
+    # improves min-free, search upward for a higher ctx with the new split.
+    if (
+        result > 0
+        and balance_eligible
+        and total_layers
+        and not balance_adjusted
+        and post_search_gpu_list
+        and len(post_search_gpu_list) == len(cuda_gpu_list)
+    ):
+        ordered = _to_cuda_order(post_search_gpu_list)
+        if ordered and len(ordered) == len(cuda_gpu_list):
+            post_search_gpu_list = ordered
+
+        free_values = [g["free_mb"] for g in post_search_gpu_list]
+        diff = max(free_values) - min(free_values)
+
+        if diff >= 1024:
+            from aifred.backends.ollama import wait_for_vram_stable
+
+            bottleneck_idx = free_values.index(min(free_values))
+            most_free_idx = free_values.index(max(free_values))
+            old_min_free = min(free_values)
+
+            yield (
+                f"Post-search balance: {_format_cuda_detail(post_search_gpu_list)} "
+                f"(diff {format_number(diff)} MB) at ctx={format_number(result)} — "
+                f"layers {old_layers_fmt} (~{format_number(mb_per_layer)} MB/layer)"
+            )
+
+            new_layers = list(layers)
+            new_layers[bottleneck_idx] -= 1
+            new_layers[most_free_idx] += 1
+            new_ratios = [float(n) for n in new_layers]
+            new_layers_fmt = _format_layer_split(new_ratios)
+
+            yield f"Moving 1 layer: {old_layers_fmt} → {new_layers_fmt}"
+
+            candidate_cmd = _replace_tensor_split(full_cmd, new_ratios)
+            await wait_for_vram_stable(max_wait_seconds=10.0)
+
+            iteration += 1
+            bal_fits, _, bal_gpus, _ = await _test_context_physical(
+                candidate_cmd, result, port,
+                safety_margin=safety_margin,
+            )
+            ordered_bal = _to_cuda_order(bal_gpus) if bal_gpus else None
+            bal_display = ordered_bal if ordered_bal and len(ordered_bal) == len(cuda_gpu_list) else bal_gpus
+            yield _fmt_test(iteration, result, fits=bal_fits,
+                            gpu_list=bal_display,
+                            cuda_gpu_names=cuda_gpu_names,
+                            split=new_layers_fmt, label="balanced")
+
+            if bal_fits and bal_display:
+                new_free = [g["free_mb"] for g in bal_display]
+                new_min_free = min(new_free)
+                new_diff = max(new_free) - new_min_free
+
+                if new_min_free > old_min_free:
+                    balance_adjusted = True
+                    full_cmd = candidate_cmd
+                    current_ratios = new_ratios
+                    cuda_gpu_list = bal_display
+                    yield (
+                        f"Balance improved (min free "
+                        f"{format_number(old_min_free)}→{format_number(new_min_free)} MB, "
+                        f"diff {format_number(new_diff)} MB)"
+                    )
+
+                    # Upward search: try higher ctx with the balanced split
+                    if result < native_context:
+                        yield "Searching upward with balanced split..."
+                        async for item in _binary_search_context(
+                            full_cmd, port, result, native_context,
+                            cuda_gpu_names=cuda_gpu_names,
+                            safety_margin=safety_margin,
+                            start_iteration=iteration,
+                            early_abort_threshold=early_abort_threshold,
+                        ):
+                            if isinstance(item, int):
+                                if item > result:
+                                    result = item
+                            elif isinstance(item, dict):
+                                if item.get("iteration") is not None:
+                                    iteration = item["iteration"]
+                                if item.get("final_gpu_list"):
+                                    new_gpus = item["final_gpu_list"]
+                                    ordered_new = _to_cuda_order(new_gpus)
+                                    if ordered_new and len(ordered_new) == len(cuda_gpu_list):
+                                        cuda_gpu_list = ordered_new
+                            else:
+                                yield item
+                else:
+                    yield (
+                        f"Layer shift didn't improve balance "
+                        f"(min free {format_number(old_min_free)}→"
+                        f"{format_number(new_min_free)} MB) — keeping original split"
+                    )
+                    # Bottleneck on dominant GPU → pushing more onto it won't help
+                    dominant_idx = current_ratios.index(max(current_ratios))
+                    if bottleneck_idx == dominant_idx:
+                        skip_speed = True
+            else:
+                yield (
+                    f"Balance candidate {new_layers_fmt} doesn't fit at "
+                    f"ctx={format_number(result)} — keeping original split"
+                )
+
+    if result and result < native_context:
+        yield f"Optimum: {format_number(result)} tokens (native: {format_number(native_context)})"
+
+    # Final metadata for caller
+    yield {
+        "gpu_list": cuda_gpu_list,
+        "balanced_cmd": full_cmd if balance_adjusted else None,
+        "skip_speed": skip_speed,
+        "thinking_result": thinking_result,
+    }
 
     yield result
 
@@ -2832,6 +2903,15 @@ async def calibrate_llamacpp_model(
         ts_display = _format_layer_split(ts_ratios) if ts_ratios else "auto"
         yield f"Phase 1: GPU-only (ngl=99, KV={kv_level}, ts={ts_display})"
 
+        # For f16/q8_0: abort downward search early if ceiling drops below
+        # MIN_USEFUL — a fallback KV level will be tried anyway. q4_0 is the
+        # last resort, so let it search fully.
+        abort_threshold = (
+            MIN_USEFUL_CONTEXT_TOKENS
+            if kv_level != "q4_0" and native_context > MIN_USEFUL_CONTEXT_TOKENS
+            else 0
+        )
+
         result = 0
         skip_speed = False
         # Run thinking test on first KV iteration (piggyback on first successful test)
@@ -2841,6 +2921,7 @@ async def calibrate_llamacpp_model(
             skip_balance=is_single_gpu,
             run_thinking_test=run_thinking,
             safety_margin=safety_margin,
+            early_abort_threshold=abort_threshold,
         ):
             if isinstance(item, int):
                 result = item
