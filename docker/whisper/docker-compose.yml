@@ -1,0 +1,41 @@
+services:
+  whisper:
+    image: whisper-stt
+    build: .
+    container_name: whisper-stt
+    restart: unless-stopped  # Always running (CPU mode has no VRAM cost)
+    ports:
+      - "5052:5052"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['${FASTEST_GPU_ID:-1}']
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${FASTEST_GPU_ID:-1}
+      - CUDA_VISIBLE_DEVICES=0
+      # Whisper model size (tiny, base, small, medium, large-v3)
+      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
+      # Compute type per device (int8 for CPU, float16 for GPU)
+      - WHISPER_CPU_COMPUTE=int8
+      - WHISPER_GPU_COMPUTE=float16
+      # GPU auto-unload: minutes of GPU inactivity before unloading GPU model
+      # CPU model stays loaded permanently. Set to 0 to disable GPU TTL.
+      - WHISPER_GPU_TTL_MINUTES=${WHISPER_GPU_TTL_MINUTES:-30}
+      # Eager load CPU model at startup (1=yes, 0=lazy)
+      - WHISPER_EAGER_LOAD=${WHISPER_EAGER_LOAD:-1}
+    volumes:
+      # Persistent HuggingFace model cache
+      - whisper_models:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5052/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  whisper_models:
+    name: whisper_models

@@ -111,7 +111,10 @@ def format_mode_switch_summary(updates: Dict[str, Any], lang: str = "de") -> str
     if "multi_agent_mode" in updates:
         parts.append(f"Mode: {multi_labels.get(updates['multi_agent_mode'], updates['multi_agent_mode'])}")
     if "active_agent" in updates:
-        parts.append(f"Agent: {updates['active_agent'].capitalize()}")
+        from .agent_config import get_agent_config
+        _cfg = get_agent_config(updates["active_agent"])
+        _name = _cfg.display_name if _cfg else updates["active_agent"].capitalize()
+        parts.append(f"Agent: {_name}")
     return " · ".join(parts)
 
 

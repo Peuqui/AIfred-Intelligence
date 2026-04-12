@@ -521,3 +521,49 @@ def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
     return False, f"MOSS-TTS: Timeout after {timeout}s waiting for model", ""
 
 
+def start_whisper_container() -> tuple[bool, str]:
+    """Start the Whisper STT Docker container."""
+    from .config import WHISPER_DOCKER_COMPOSE_PATH
+    return _docker_compose_action(WHISPER_DOCKER_COMPOSE_PATH, "up", "Whisper")
+
+
+def stop_whisper_container() -> tuple[bool, str]:
+    """Stop the Whisper STT Docker container."""
+    from .config import WHISPER_DOCKER_COMPOSE_PATH
+    return _docker_compose_action(WHISPER_DOCKER_COMPOSE_PATH, "down", "Whisper")
+
+
+def ensure_whisper_ready(timeout: int = 60) -> tuple[bool, str]:
+    """Ensure Whisper container is running and model is loaded.
+
+    Starts container if needed and waits for health check.
+    """
+    import time
+    import requests
+    from .config import WHISPER_SERVICE_URL
+
+    try:
+        r = requests.get(f"{WHISPER_SERVICE_URL}/health", timeout=2)
+        if r.ok and r.json().get("model_loaded"):
+            return True, "Whisper already ready"
+    except OSError:
+        pass
+
+    success, msg = start_whisper_container()
+    if not success:
+        return False, msg
+
+    log_message("Whisper: Waiting for model to load...")
+    for i in range(timeout):
+        try:
+            r = requests.get(f"{WHISPER_SERVICE_URL}/health", timeout=2)
+            if r.ok and r.json().get("model_loaded"):
+                log_message("Whisper: Model loaded")
+                return True, "Whisper ready"
+        except (OSError, subprocess.CalledProcessError):
+            pass
+        time.sleep(1)
+
+    return False, f"Whisper: Timeout after {timeout}s waiting for model"
+
+

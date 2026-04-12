@@ -1003,7 +1003,13 @@ class ChatMixin(rx.State, mixin=True):
                 )
                 # Log Intent Detection result to UI debug console (always visible)
                 from ..lib.intent_detector import format_intent_result
-                self.add_debug(f"🎯 {format_intent_result(detected_intent, addressed_to, detected_language)}")
+                from ..lib.intent_detector import format_mode_switch_summary
+                switch_str = format_mode_switch_summary(mode_switch_updates) if mode_switch_updates else "–"
+                remaining_str = remaining_query[:50] if remaining_query else "–"
+                self.add_debug(
+                    f"🎯 {format_intent_result(detected_intent, addressed_to, detected_language)}"
+                    f", Switch: {switch_str}, Remaining: {remaining_str}"
+                )
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
 
             # ============================================================
@@ -1047,11 +1053,15 @@ class ChatMixin(rx.State, mixin=True):
                 if not remaining_query:
                     # Pure command → confirmation message, skip normal agent pipeline
                     from datetime import datetime as _dt
-                    confirm_text = (
-                        f"✅ **{summary}**"
-                        if detected_language == "en"
-                        else f"✅ **{summary}**"
-                    )
+                    # Always show who the active agent is after the switch
+                    confirm_parts = [summary]
+                    if "active_agent" not in mode_switch_updates:
+                        from ..lib.agent_config import get_agent_config
+                        _active = self.active_agent  # type: ignore[attr-defined]
+                        _cfg = get_agent_config(_active)
+                        _name = _cfg.display_name if _cfg else _active.capitalize()
+                        confirm_parts.append(f"Agent: {_name}")
+                    confirm_text = f"✅ **{' · '.join(confirm_parts)}**"
                     self._chat_sub().chat_history.append({
                         "role": "assistant",
                         "content": confirm_text,

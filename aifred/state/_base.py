@@ -87,13 +87,9 @@ _global_backend_state: dict[str, Any] = {
 _backend_init_lock = asyncio.Lock()
 
 # ============================================================
-# Whisper STT - Now in aifred/lib/audio_processing.py
+# Whisper STT — Docker service (aifred/lib/audio_processing.py)
 # ============================================================
-# Import from audio_processing module
-from ..lib.audio_processing import (  # noqa: E402
-    initialize_whisper_model,
-    get_whisper_model
-)
+from ..lib.audio_processing import is_whisper_ready  # noqa: E402
 
 # Mixins
 from ._auth_mixin import AuthMixin  # noqa: E402
@@ -332,13 +328,13 @@ class AIState(  # type: ignore[misc]
 
     async def handle_audio_upload(self, files: List[rx.UploadFile]):
         """Handle audio file uploads and transcribe with Whisper STT"""
-        # Lazy load Whisper model if not already loaded
-        whisper_model = get_whisper_model()
-        if whisper_model is None:
-            self.add_debug("🎤 Loading Whisper model...")
-            whisper_model = initialize_whisper_model(self.whisper_model_key)  # type: ignore[arg-type]
-            if whisper_model is None:
-                self.add_debug("❌ Failed to load Whisper model")
+        # Check Whisper Docker service is ready
+        if not is_whisper_ready():
+            self.add_debug("🎤 Starting Whisper service...")
+            from ..lib.process_utils import ensure_whisper_ready
+            success, msg = ensure_whisper_ready(timeout=60)
+            if not success:
+                self.add_debug(f"❌ {msg}")
                 return
 
         # Validate file
@@ -385,7 +381,7 @@ class AIState(  # type: ignore[misc]
 
             self.add_debug(f"🎤 Transcribing audio: {file.filename} ({size_display})...")
 
-            user_text, stt_time = transcribe_audio(tmp_path, whisper_model, self.ui_language)
+            user_text, stt_time = transcribe_audio(tmp_path, language=self.ui_language)
 
             if user_text:
                 # German number format: 0,2s instead of 0.2s

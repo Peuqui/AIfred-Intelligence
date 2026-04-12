@@ -148,7 +148,8 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
-      }
+      },
+      "tools": null
     },
     "hal": {
       "display_name": "HAL 9000",

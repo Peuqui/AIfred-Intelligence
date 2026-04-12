@@ -15,9 +15,9 @@ import asyncio
 import atexit
 import httpx
 import edge_tts
+from pathlib import Path
 from .config import PIPER_MODEL_PATH, PROJECT_ROOT, DATA_DIR
 from .logging_utils import log_message
-from .timer import Timer
 
 
 # Determine platform-specific Piper binary path
@@ -1755,35 +1755,52 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
     return deleted
 
 
-def transcribe_audio(audio_path, whisper_model, language="de"):
-    """
-    Transcribe audio to text with Whisper.
+def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu") -> tuple[str, float]:
+    """Transcribe audio to text via Whisper Docker service.
 
     Args:
-        audio_path: Path to audio file
-        whisper_model: Loaded WhisperModel object
+        audio_path: Path to audio file (WAV, MP3, M4A, OGG, FLAC, WebM)
         language: Language code ("de" or "en")
+        device: "cpu" or "cuda" (default: "cpu")
 
     Returns:
         tuple: (transcribed_text, time_in_seconds)
     """
-    if audio_path is None or audio_path == "":
+    if not audio_path:
         return "", 0.0
 
-    timer = Timer()
-    # Use specified language for better accuracy
-    segments, _ = whisper_model.transcribe(
-        audio_path,
-        language=language,
-        vad_filter=True,               # Filter silence/noise before transcription
-        condition_on_previous_text=False,  # Prevent hallucinations from prior context
-    )
-    stt_time = timer.elapsed()
+    import requests
+    from .config import WHISPER_SERVICE_URL
 
-    user_text = " ".join([s.text for s in segments])
-    log_message(f"✅ STT Transcription: {user_text[:100]}{'...' if len(user_text) > 100 else ''} (Time: {stt_time:.1f}s)")
+    try:
+        with open(audio_path, "rb") as f:
+            resp = requests.post(
+                f"{WHISPER_SERVICE_URL}/transcribe",
+                files={"file": (Path(audio_path).name, f)},
+                data={"device": device, "language": language},
+                timeout=120,
+            )
 
-    return user_text, stt_time
+        if resp.ok:
+            data = resp.json()
+            user_text = data.get("text", "").strip()
+            stt_time = data.get("time", 0.0)
+            log_message(
+                f"✅ STT Transcription: {user_text[:100]}"
+                f"{'...' if len(user_text) > 100 else ''} "
+                f"(Time: {stt_time:.1f}s)"
+            )
+            return user_text, stt_time
+
+        log_message(f"❌ Whisper service error: {resp.status_code} {resp.text[:200]}", "error")
+        return "", 0.0
+
+    except requests.ConnectionError:
+        log_message("❌ Whisper service not reachable (container running?)", "error")
+        return "", 0.0
+    except Exception as e:
+        log_message(f"❌ Whisper transcription failed: {e}", "error")
+        return "", 0.0
 
 
 async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0, agent: str = "aifred", language: str = "de"):
@@ -1903,71 +1920,12 @@ except (OSError, ValueError):
     pass
 
 
-# ============================================================
-# WHISPER STT MODEL MANAGEMENT
-# ============================================================
-# Module-level Whisper model (shared across all sessions for efficiency)
-_whisper_model = None
-
-
-def unload_whisper_model():
-    """Unload Whisper model from memory (free GPU/RAM)"""
-    global _whisper_model
-    if _whisper_model is not None:
-        _whisper_model = None
-        from .process_utils import cleanup_gpu_memory
-        cleanup_gpu_memory()
-        log_message("🗑️ Whisper: Model unloaded from memory")
-    else:
-        log_message("⚠️ Whisper: No model loaded")
-
-
-def initialize_whisper_model(model_name: str = "small"):
-    """
-    Initialize Whisper STT model (module-level, shared across sessions)
-
-    Args:
-        model_name: Whisper model size (tiny, base, small, medium, large)
-
-    Returns:
-        WhisperModel instance or None on failure
-    """
-    global _whisper_model
-
-    if _whisper_model is not None:
-        log_message(f"✅ Whisper: Model already loaded ({model_name})")
-        return _whisper_model
-
+def is_whisper_ready() -> bool:
+    """Check if the Whisper Docker service is running and ready."""
+    import requests
+    from .config import WHISPER_SERVICE_URL
     try:
-        from faster_whisper import WhisperModel
-        from .config import WHISPER_MODELS, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
-
-        # Extract model ID from display name (e.g., "small (466MB, ...)" -> "small")
-        model_id = WHISPER_MODELS.get(model_name, model_name)
-
-        log_message(f"🎤 Whisper: Loading model '{model_id}'...")
-
-        # Use device and compute type from config.py
-        # Default: CPU to preserve GPU VRAM for LLM inference
-        device = WHISPER_DEVICE
-        compute_type = WHISPER_COMPUTE_TYPE
-
-        _whisper_model = WhisperModel(model_id, device=device, compute_type=compute_type)
-
-        log_message(f"✅ Whisper: Model '{model_id}' loaded on {device} ({compute_type})")
-        return _whisper_model
-
-    except ImportError as e:
-        log_message(f"❌ Whisper: faster-whisper not installed: {e}")
-        log_message("   Install with: pip install faster-whisper")
-        return None
-
-    except Exception as e:
-        log_message(f"❌ Whisper: Failed to load model: {e}")
-        return None
-
-
-def get_whisper_model():
-    """Get the currently loaded Whisper model (or None if not loaded)"""
-    global _whisper_model
-    return _whisper_model
+        r = requests.get(f"{WHISPER_SERVICE_URL}/health", timeout=2)
+        return r.ok and r.json().get("model_loaded", False)
+    except Exception:
+        return False

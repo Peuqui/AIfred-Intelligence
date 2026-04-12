@@ -57,7 +57,16 @@ Examples of mode switch detection (works in ALL languages):
 - "Schalt auf Tiefrecherche"                → research=deep
 - "Use own knowledge only"                  → research=none
 - "Solo Sokrates debería responder"         → multi=standard,agent=sokrates
+- "Ich will mit Sokrates weiter reden"      → agent=sokrates
+- "I want to keep talking to HAL"           → agent=hal
+- "Bleib bei Pater Tuck"                    → agent=pater
 - "Wie geht's?"                             → EMPTY (no mode switch)
+
+Detecting persistent agent switch:
+- If the user says they want to CONTINUE talking to / discussing with / stay with a specific agent,
+  that is an `agent=<id>` switch (persistent). This is different from a one-time addressee (field 2).
+- One-time: "Sokrates, erkläre mir X" → Addressee only, no mode switch
+- Persistent: "Ich möchte mit Sokrates weiter diskutieren" → agent=sokrates mode switch
 
 Only fill this field if the user EXPLICITLY requests a mode/configuration change.
 Questions about modes ("What is Tribunal mode?") are NOT mode switches — leave EMPTY.

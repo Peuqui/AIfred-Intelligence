@@ -340,21 +340,15 @@ class UIConfigMixin(rx.State, mixin=True):
         return TranslationManager.get_text(translation_key, self.ui_language)  # type: ignore[attr-defined]
 
     def set_whisper_model(self, model_display_name: str) -> None:
-        """Set Whisper model and reload.
+        """Set Whisper model selection.
 
-        Args:
-            model_display_name: Display name from dropdown
-                (e.g., "small (466MB, bessere Qualitaet, multilingual)")
+        The model runs in a Docker container — changing the model here
+        saves the preference. The container uses the WHISPER_MODEL env var.
+        To apply a model change, the Whisper container must be restarted.
         """
-        from ..lib.audio_processing import initialize_whisper_model, unload_whisper_model
-
-        # Extract key from display name (e.g., "small (466MB, ...)" -> "small")
         model_key = model_display_name.split("(")[0].strip() if "(" in model_display_name else model_display_name
         self.whisper_model_key = model_key
-        self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (reload required)")  # type: ignore[attr-defined]
-        # Reload Whisper model with new selection
-        unload_whisper_model()  # Clear old model from memory
-        initialize_whisper_model(model_key)
+        self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (container restart needed to apply)")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_show_transcription(self) -> None:

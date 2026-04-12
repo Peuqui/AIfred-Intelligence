@@ -954,6 +954,10 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 XTTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "xtts", "docker-compose.yml")
 MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "moss-tts", "docker-compose.yml")
+WHISPER_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "whisper", "docker-compose.yml")
+
+# Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)
+WHISPER_SERVICE_URL = "http://localhost:5052"
 
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:

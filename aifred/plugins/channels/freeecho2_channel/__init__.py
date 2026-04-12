@@ -351,16 +351,13 @@ class FreeEchoChannel(BaseChannel):
             Path(wav_path).unlink(missing_ok=True)
 
     async def _run_stt(self, wav_path: str) -> str:
-        """Run Speech-to-Text on a WAV file."""
-        from ....lib.audio_processing import transcribe_audio, get_whisper_model
-
-        model = get_whisper_model()
-        if not model:
-            self.channel_log("Whisper model not loaded", "error")
-            return ""
+        """Run Speech-to-Text via Whisper Docker service."""
+        from ....lib.audio_processing import transcribe_audio
 
         loop = asyncio.get_event_loop()
-        text, stt_time = await loop.run_in_executor(None, transcribe_audio, wav_path, model, "de")
+        text, stt_time = await loop.run_in_executor(
+            None, transcribe_audio, wav_path, "de", "cpu",
+        )
         self.channel_log(f"STT: '{text[:80]}' ({stt_time:.1f}s)")
         return text or ""
 

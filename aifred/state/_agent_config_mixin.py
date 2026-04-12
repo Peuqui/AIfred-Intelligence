@@ -1519,7 +1519,18 @@ class AgentConfigMixin(rx.State, mixin=True):
         if full_path.exists():
             self._editor_prompt_content = full_path.read_text(encoding="utf-8")
         else:
-            self._editor_prompt_content = ""
+            # Fallback: try the other language (EN-only prompts like intent_detection)
+            fallback_lang = "en" if self.editor_prompt_lang == "de" else "de"
+            if self.editor_agent_id == "automatik":
+                fallback_path = PROMPTS_DIR / fallback_lang / "automatik" / f"{prompt_key}.txt"
+            else:
+                fallback_path = PROMPTS_DIR / fallback_lang / prompt_path if prompt_path else None  # type: ignore[assignment]
+            if fallback_path and fallback_path.exists():
+                content = fallback_path.read_text(encoding="utf-8")
+                hint = f"[{fallback_lang.upper()} only]\n\n"
+                self._editor_prompt_content = hint + content
+            else:
+                self._editor_prompt_content = ""
 
     def set_editor_prompt_tab(self, tab: str) -> None:
         """Switch prompt layer tab — load from disk and push to DOM."""
@@ -1583,8 +1594,15 @@ class AgentConfigMixin(rx.State, mixin=True):
                 return
             full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
 
+        # Strip fallback language hint if present (e.g. "[EN only]\n\n")
+        content = self._editor_prompt_content
+        for prefix in ("[EN only]\n\n", "[DE only]\n\n"):
+            if content.startswith(prefix):
+                content = content[len(prefix):]
+                break
+
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(self._editor_prompt_content, encoding="utf-8")
+        full_path.write_text(content, encoding="utf-8")
 
     def save_agent_editor(self, dom_values: str = "{}") -> None:
         """Save agent editor — receives DOM values JSON from UI call_script callback."""

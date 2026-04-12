@@ -35,6 +35,7 @@ Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-I
 - **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unbegrenzt eigene Agenten
 - **Benutzerdefinierte Agenten**: Name, Emoji, Rolle, zweisprachige Prompts (DE/EN), eigenes Langzeitgedächtnis. Agenten-Editor in der UI
 - **5 Diskussionsmodi**: Standard, Kritische Prüfung, Auto-Konsens, Tribunal, Symposion
+- **Sprachgesteuerte Modus-Umschaltung**: Modi, Agenten und Research-Einstellungen per natürlicher Sprache umschalten — "Starte Tribunal", "Schalte auf Sokrates um", "Tiefrecherche und diskutiere X". Die Automatik-LLM erkennt Modus-Wechsel, persistente Agenten-Änderungen ("Ich möchte mit Pater Tuck weiter reden") und kombinierte Befehle in einem Satz. Funktioniert aus Browser, Sprach-Terminal (FreeEcho.2) und allen Kanälen
 - **Direkte Ansprache**: Jeden Agenten per Name adressieren — auch über Telegram, Discord und E-Mail via Message Hub
 - **User-Mapping**: Externe Identitäten (Telegram-ID, E-Mail-Adresse) werden auf AIfred-Benutzernamen gemappt (`data/user_mapping.json`) — AIfred erkennt dich über alle Kanäle
 - **6-Schichten Prompt-System**: Identität + Reasoning + Multi-Agent + Aufgabe + Gedächtnis + Persönlichkeit
@@ -52,14 +53,15 @@ Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-I
 
 ### 🎤 Sprach- & Vision-Interface
 
-- **Sprachschnittstelle**: STT (Whisper) und TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud-Streaming, Piper, espeak). Per-Agent TTS-Konfiguration (Stimme, Speed, Pitch, Ein/Aus pro Agent), nahtlose Echtzeit-Audioausgabe
+- **Sprachschnittstelle**: STT via Whisper Docker-Container (Dual-Device: CPU permanent + GPU mit TTL Auto-Unload, Web-UI für Modell-/Einstellungsverwaltung). TTS-Engines: Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud-Streaming, Piper, espeak. Per-Agent TTS-Konfiguration (Stimme, Speed, Pitch, Ein/Aus pro Agent), nahtlose Echtzeit-Audioausgabe
+- **FreeEcho.2 Sprach-Terminal**: Dediziertes Sprachinterface für Echo Dot 2 Hardware (Custom-Firmware). Wake-Word-Erkennung, sofortiger Browser-Flush (User-Frage innerhalb 500ms nach STT sichtbar), verzögertes TTS-Container-Management (paralleler GPU-Cleanup während LLM-Inferenz)
 - **Vision/OCR**: Bildanalyse mit multimodalen LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), VL Follow-Up, interaktiver Bild-Zuschnitt, 2-Modell-Architektur (Vision-LLM + Haupt-LLM)
 
 ### 🔒 Security-Architektur
 
 Mehrstufiges Sicherheitskonzept — Security wird im Framework erzwungen, nicht in Plugins:
 
-- **5-Stufen Permission-System** (Tier 0–4): READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN. Jedes Tool hat einen festen Tier, externe Kanäle bekommen einen maximalen Tier zugewiesen
+- **5-Stufen Permission-System** (Tier 0–4): READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN. Jedes Tool hat einen festen Tier mit farbigen Badges (T0–T3) im Agenten-Editor. Per-Channel Security-Tier konfigurierbar im Plugin Manager — steuert was jeder Kanal (FreeEcho.2, Discord, E-Mail, Telegram) tun darf
 - **Inbound Sanitization**: HTML-Strip, Zero-Width-Character-Entfernung, NFC-Normalisierung aller eingehenden Nachrichten
 - **Delimiter Defense**: Externe Nachrichten werden in `<external_message>` Tags gewrapped mit Sender, Channel und Trust-Level
 - **Security Boundary Prompt**: LLM wird instruiert, keine Anweisungen aus externen Nachrichten auszuführen

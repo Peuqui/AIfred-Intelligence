@@ -24,9 +24,9 @@ from ..lib.config import (
 )
 from ..backends.cloud_api import is_cloud_api_configured
 from ..lib.model_manager import sort_models_grouped, is_backend_compatible
-from ..lib.gpu_utils import round_to_nominal_vram
+from ..lib.gpu_utils import total_actual_vram_gb
 from ..lib.vector_cache import initialize_vector_cache
-from ..lib.audio_processing import initialize_whisper_model
+from ..lib.audio_processing import is_whisper_ready
 from ..lib.vllm_manager import vLLMProcessManager
 
 # Module-level globals are in _base.py and re-exported from __init__.py.
@@ -88,7 +88,7 @@ class BackendMixin(rx.State, mixin=True):
     gpu_compute_cap: float = 0.0
     gpu_warnings: List[str] = []
     gpu_count: int = 1
-    gpu_vram_gb: int = 0
+    gpu_vram_gb: float = 0
     gpu_all_names: List[str] = []
     available_backends: List[str] = [
         "ollama", "llamacpp", "tabbyapi", "vllm", "cloud_api",
@@ -383,11 +383,11 @@ class BackendMixin(rx.State, mixin=True):
             initialize_vector_cache()
             log_message("💾 Vector Cache: Connected")
 
-            from ..lib.config import DEFAULT_SETTINGS
-            whisper_model_key = str(DEFAULT_SETTINGS.get("whisper_model", "small"))
-            if "(" in whisper_model_key:
-                whisper_model_key = whisper_model_key.split("(")[0].strip()
-            initialize_whisper_model(whisper_model_key)
+            # Whisper STT: Docker container (started on demand or always-on)
+            if is_whisper_ready():
+                log_message("✅ Whisper: Docker service ready")
+            else:
+                log_message("⚠️ Whisper: Docker service not running (will start on first STT request)")
 
             # GPU Detection (once per server)
             log_message("🔍 Detecting GPU capabilities...")
@@ -397,9 +397,7 @@ class BackendMixin(rx.State, mixin=True):
                 if gpu_info:
                     _global_backend_state["gpu_info"] = gpu_info
 
-                    total_vram_gb = sum(
-                        round_to_nominal_vram(v) for v in gpu_info.all_gpu_vram_mb
-                    ) if gpu_info.all_gpu_vram_mb else round_to_nominal_vram(gpu_info.vram_mb)
+                    total_vram_gb = total_actual_vram_gb(gpu_info)
 
                     unique_names = list(dict.fromkeys(gpu_info.all_gpu_names))
                     if gpu_info.gpu_count == 1:
@@ -694,10 +692,7 @@ class BackendMixin(rx.State, mixin=True):
                 self.gpu_count = gpu_info.gpu_count
                 self.gpu_all_names = gpu_info.all_gpu_names
 
-                if gpu_info.all_gpu_vram_mb:
-                    self.gpu_vram_gb = sum(round_to_nominal_vram(v) for v in gpu_info.all_gpu_vram_mb)
-                else:
-                    self.gpu_vram_gb = round_to_nominal_vram(gpu_info.vram_mb)
+                self.gpu_vram_gb = total_actual_vram_gb(gpu_info)
 
                 self.add_debug(f"🎮 GPU: {self.gpu_display_text}")  # type: ignore[attr-defined, has-type]
 

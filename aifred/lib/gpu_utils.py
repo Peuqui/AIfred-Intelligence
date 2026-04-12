@@ -62,6 +62,16 @@ def round_to_nominal_vram(vram_mb: int) -> int:
     return math.ceil(vram_gb)
 
 
+def total_actual_vram_gb(gpu_info) -> float:
+    """Calculate total actual VRAM from GPU info (not nominal/marketing).
+
+    Single source of truth for VRAM total display.
+    """
+    if gpu_info.all_gpu_vram_mb:
+        return round(sum(gpu_info.all_gpu_vram_mb) / 1024, 1)
+    return round(gpu_info.vram_mb / 1024, 1)
+
+
 # NOTE: is_model_loaded() was moved to backends/base.py as abstractmethod
 # Each backend implements its own logic:
 # - Ollama: Query /api/ps endpoint

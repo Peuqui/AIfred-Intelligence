@@ -35,6 +35,7 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 - **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unlimited custom agents
 - **Custom Agents**: Name, emoji, role, bilingual prompts (DE/EN), own long-term memory. Agent Editor in UI
 - **5 Discussion Modes**: Standard, Critical Review, Auto-Consensus, Tribunal, Symposion
+- **Voice-Based Mode Switching**: Switch modes, agents, and research settings via natural language — "Start Tribunal", "Switch to Sokrates", "Use deep research and discuss X". The Automatik-LLM detects mode switches, persistent agent changes ("I want to keep talking to Pater Tuck"), and combined commands in a single utterance. Works from browser, voice terminal (FreeEcho.2), and all channels
 - **Direct Addressing**: Address any agent by name — also via Telegram, Discord and Email through Message Hub
 - **User Mapping**: External identities (Telegram ID, email address) mapped to AIfred usernames (`data/user_mapping.json`) — AIfred recognizes you across all channels
 - **6-Layer Prompt System**: Identity + Reasoning + Multi-Agent + Task + Memory + Personality
@@ -52,14 +53,15 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 
 ### 🎤 Voice & Vision Interface
 
-- **Voice Interface**: STT (Whisper) and TTS (Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud Streaming, Piper, espeak). Per-agent TTS configuration (voice, speed, pitch, on/off per agent), gapless realtime audio playback
+- **Voice Interface**: STT via Whisper Docker container (dual-device: CPU permanent + GPU with TTL auto-unload, Web-UI for model/settings management). TTS engines: Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud Streaming, Piper, espeak. Per-agent TTS configuration (voice, speed, pitch, on/off per agent), gapless realtime audio playback
+- **FreeEcho.2 Voice Terminal**: Dedicated voice interface for Echo Dot 2 hardware (custom firmware). Wake word detection, immediate browser flush (user question visible within 500ms after STT), deferred TTS container management (parallel GPU cleanup during LLM inference)
 - **Vision/OCR**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), VL Follow-Up, interactive image crop, 2-model architecture (Vision-LLM + Main-LLM)
 
 ### 🔒 Security Architecture
 
 Multi-layered security — enforced at the framework level, not in plugins:
 
-- **5-Level Permission System** (Tier 0–4): READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN. Every tool has a fixed tier, external channels get a maximum tier assigned
+- **5-Level Permission System** (Tier 0–4): READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN. Every tool has a fixed tier. Colored tier badges (T0–T3) on each tool in the Agent Editor. Per-channel security tier configurable in Plugin Manager — control what each channel (FreeEcho.2, Discord, Email, Telegram) is allowed to do
 - **Inbound Sanitization**: HTML strip, zero-width character removal, NFC normalization of all incoming messages
 - **Delimiter Defense**: External messages wrapped in `<external_message>` tags with sender, channel and trust level
 - **Security Boundary Prompt**: LLM instructed to not execute commands from external messages
