@@ -38,8 +38,11 @@ app = Flask(__name__)
 
 AVAILABLE_MODELS = ["tiny", "base", "small", "medium", "large-v3"]
 
+_default_model = os.environ.get("WHISPER_MODEL", "medium")
+
 _config = {
-    "model": os.environ.get("WHISPER_MODEL", "medium"),
+    "cpu_model": os.environ.get("WHISPER_CPU_MODEL", _default_model),
+    "gpu_model": os.environ.get("WHISPER_GPU_MODEL", _default_model),
     "cpu_compute": os.environ.get("WHISPER_CPU_COMPUTE", "int8"),
     "gpu_compute": os.environ.get("WHISPER_GPU_COMPUTE", "float16"),
     "gpu_ttl_minutes": int(os.environ.get("WHISPER_GPU_TTL_MINUTES", "30")),
@@ -60,16 +63,20 @@ _model_cpu = None
 _cpu_lock = threading.Lock()
 
 
+_cpu_model_name: str = ""  # Track which model is actually loaded on CPU
+
+
 def _load_cpu_model():
     """Load Whisper model on CPU in the main process."""
-    global _model_cpu
+    global _model_cpu, _cpu_model_name
     from faster_whisper import WhisperModel
 
-    model_name = _config["model"]
+    model_name = _config["cpu_model"]
     compute = _config["cpu_compute"]
     t0 = time.time()
     print(f"[Whisper] Loading model '{model_name}' on cpu ({compute})...", flush=True)
     _model_cpu = WhisperModel(model_name, device="cpu", compute_type=compute)
+    _cpu_model_name = model_name
     print(f"[Whisper] Model loaded on cpu in {time.time() - t0:.1f}s", flush=True)
 
 
@@ -108,6 +115,7 @@ _gpu_lock = threading.Lock()
 _gpu_ttl_timer: threading.Timer | None = None
 _last_gpu_request = 0.0
 _gpu_device_index: int | None = None
+_gpu_model_name: str = ""  # Track which model is loaded on GPU
 
 
 def _find_best_gpu() -> int | None:
@@ -221,7 +229,7 @@ def _gpu_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Que
 
 def _start_gpu_worker() -> bool:
     """Start GPU child process on the best available GPU."""
-    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index
+    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index, _gpu_model_name
 
     gpu_idx = _find_best_gpu()
     if gpu_idx is None:
@@ -229,13 +237,14 @@ def _start_gpu_worker() -> bool:
 
     compute = _detect_gpu_compute(gpu_idx)
     _gpu_device_index = gpu_idx
+    _gpu_model_name = _config["gpu_model"]
 
     _gpu_request_queue = multiprocessing.Queue()
     _gpu_result_queue = multiprocessing.Queue()
 
     _gpu_process = multiprocessing.Process(
         target=_gpu_worker,
-        args=(_gpu_request_queue, _gpu_result_queue, gpu_idx, _config["model"], compute),
+        args=(_gpu_request_queue, _gpu_result_queue, gpu_idx, _config["gpu_model"], compute),
         daemon=True,
         name=f"whisper-gpu-{gpu_idx}",
     )
@@ -257,7 +266,7 @@ def _start_gpu_worker() -> bool:
 
 def _kill_gpu_worker():
     """Kill the GPU child process to fully release CUDA context + VRAM."""
-    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index
+    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index, _gpu_model_name
 
     if _gpu_process is not None:
         gpu_idx = _gpu_device_index
@@ -284,6 +293,7 @@ def _kill_gpu_worker():
             pass
         _gpu_result_queue = None
     _gpu_device_index = None
+    _gpu_model_name = ""
 
 
 def _reset_gpu_ttl():
@@ -336,8 +346,12 @@ def index():
     cpu_badge = '<span style="color:#4CAF50">loaded</span>' if cpu_loaded else '<span style="color:#999">idle</span>'
     gpu_badge = '<span style="color:#4CAF50">loaded</span>' if gpu_alive else '<span style="color:#999">idle</span>'
 
-    model_options = "".join(
-        f'<option value="{m}"{" selected" if m == _config["model"] else ""}>{m}</option>'
+    cpu_model_options = "".join(
+        f'<option value="{m}"{" selected" if m == _config["cpu_model"] else ""}>{m}</option>'
+        for m in AVAILABLE_MODELS
+    )
+    gpu_model_options = "".join(
+        f'<option value="{m}"{" selected" if m == _config["gpu_model"] else ""}>{m}</option>'
         for m in AVAILABLE_MODELS
     )
 
@@ -381,10 +395,21 @@ input[type=number] {{ width: 70px; text-align: right; }}
   </div>
 </div>
 
-<h2>Settings</h2>
+<h2>Models</h2>
+<div style="display:flex; gap:12px;">
+  <div class="card" style="flex:1;">
+    <div style="font-size:13px; font-weight:600; color:#4CAF50; margin-bottom:8px;">CPU Engine</div>
+    <div class="row"><label>Model</label> <select id="cfg-cpu-model">{cpu_model_options}</select></div>
+  </div>
+  <div class="card" style="flex:1;">
+    <div style="font-size:13px; font-weight:600; color:#FF9800; margin-bottom:8px;">GPU Engine</div>
+    <div class="row"><label>Model</label> <select id="cfg-gpu-model">{gpu_model_options}</select></div>
+    <div class="row"><label>TTL (min)</label> <input type="number" id="cfg-ttl" value="{_config["gpu_ttl_minutes"]}" min="0" max="1440"></div>
+  </div>
+</div>
+
+<h2>Transcription</h2>
 <div class="card">
-  <div class="row"><label>Model</label> <select id="cfg-model">{model_options}</select></div>
-  <div class="row"><label>GPU TTL (min)</label> <input type="number" id="cfg-ttl" value="{_config["gpu_ttl_minutes"]}" min="0" max="1440"></div>
   <div class="row"><label>Beam Size</label> <input type="number" id="cfg-beam" value="{_config["beam_size"]}" min="1" max="20"></div>
   <div class="row"><label>Default Language</label>
     <select id="cfg-lang">
@@ -431,7 +456,8 @@ async function unload(device) {{
 }}
 async function saveConfig() {{
   const cfg = {{
-    model: document.getElementById('cfg-model').value,
+    cpu_model: document.getElementById('cfg-cpu-model').value,
+    gpu_model: document.getElementById('cfg-gpu-model').value,
     gpu_ttl_minutes: parseInt(document.getElementById('cfg-ttl').value) || 30,
     beam_size: parseInt(document.getElementById('cfg-beam').value) || 5,
     language: document.getElementById('cfg-lang').value,
@@ -470,9 +496,10 @@ def health():
     return jsonify({
         "status": status,
         "model_loaded": model_loaded,
-        "model": _config["model"],
         "cpu_loaded": cpu_loaded,
+        "cpu_model": _cpu_model_name if cpu_loaded else _config["cpu_model"],
         "gpu_loaded": gpu_alive,
+        "gpu_model": _gpu_model_name if gpu_alive else _config["gpu_model"],
         "gpu_device_index": _gpu_device_index,
         "gpu_ttl_minutes": _config["gpu_ttl_minutes"],
     })
@@ -567,10 +594,18 @@ def config_endpoint():
     data = request.get_json(silent=True) or {}
     changed = []
 
+    # Per-device model selection
+    if "cpu_model" in data and data["cpu_model"] in AVAILABLE_MODELS:
+        _config["cpu_model"] = data["cpu_model"]
+        changed.append("cpu_model")
+    if "gpu_model" in data and data["gpu_model"] in AVAILABLE_MODELS:
+        _config["gpu_model"] = data["gpu_model"]
+        changed.append("gpu_model")
+    # Legacy: "model" sets both
     if "model" in data and data["model"] in AVAILABLE_MODELS:
-        if data["model"] != _config["model"]:
-            _config["model"] = data["model"]
-            changed.append("model")
+        _config["cpu_model"] = data["model"]
+        _config["gpu_model"] = data["model"]
+        changed.append("model (both)")
     if "gpu_ttl_minutes" in data:
         _config["gpu_ttl_minutes"] = max(0, int(data["gpu_ttl_minutes"]))
         changed.append("gpu_ttl_minutes")
@@ -599,5 +634,5 @@ if EAGER_LOAD:
         _load_cpu_model()
     threading.Thread(target=_eager_load, daemon=True).start()
 
-print(f'[Whisper] Server starting — model={_config["model"]}, '
+print(f'[Whisper] Server starting — cpu={_config["cpu_model"]}, gpu={_config["gpu_model"]}, '
       f'eager_load={EAGER_LOAD}, gpu_ttl={_config["gpu_ttl_minutes"]}min', flush=True)
