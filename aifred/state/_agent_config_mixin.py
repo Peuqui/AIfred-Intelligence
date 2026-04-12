@@ -1005,6 +1005,16 @@ class AgentConfigMixin(rx.State, mixin=True):
     scheduler_edit_tier: str = "1"
     scheduler_edit_webhook_url: str = ""
     scheduler_edit_recipient: str = ""
+    # Structured schedule fields (compose to scheduler_edit_expr on save)
+    scheduler_cron_min: str = "0"
+    scheduler_cron_hour: str = "8"
+    scheduler_cron_dom: str = "*"
+    scheduler_cron_month: str = "*"
+    scheduler_cron_dow: str = "*"
+    scheduler_interval_value: str = "60"
+    scheduler_interval_unit: str = "minutes"  # minutes, hours, days
+    scheduler_once_date: str = ""
+    scheduler_once_time: str = "10:00"
 
     # Database browser state (system collections: research_cache, aifred_documents)
     db_browser_collection: str = ""  # Selected collection name
@@ -1231,6 +1241,135 @@ class AgentConfigMixin(rx.State, mixin=True):
         elif tab == "scheduler":
             self._load_scheduler_jobs()
 
+    @staticmethod
+    def _human_cron(expr: str, lang: str) -> str:
+        """Convert cron expression to human-readable text."""
+        parts = expr.split()
+        if len(parts) != 5:
+            return expr
+        minute, hour, dom, month, dow = parts
+
+        dow_names = {
+            "de": {"*": "", "1-5": "Mo–Fr", "6,0": "Wochenende",
+                   "0": "So", "1": "Mo", "2": "Di", "3": "Mi",
+                   "4": "Do", "5": "Fr", "6": "Sa"},
+            "en": {"*": "", "1-5": "Mon–Fri", "6,0": "Weekend",
+                   "0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed",
+                   "4": "Thu", "5": "Fri", "6": "Sat"},
+        }
+        month_names = {
+            "de": {"*": "", "1": "Jan", "2": "Feb", "3": "Mär", "4": "Apr",
+                   "5": "Mai", "6": "Jun", "7": "Jul", "8": "Aug",
+                   "9": "Sep", "10": "Okt", "11": "Nov", "12": "Dez"},
+            "en": {"*": "", "1": "Jan", "2": "Feb", "3": "Mar", "4": "Apr",
+                   "5": "May", "6": "Jun", "7": "Jul", "8": "Aug",
+                   "9": "Sep", "10": "Oct", "11": "Nov", "12": "Dec"},
+        }
+        lc = lang if lang in ("de", "en") else "de"
+
+        # Time part
+        if hour == "*" and minute == "0":
+            time_str = "Stündlich" if lc == "de" else "Hourly"
+        elif hour == "*":
+            time_str = f":{minute}"
+        else:
+            time_str = f"{hour}:{minute.zfill(2)}"
+
+        # Day/week part
+        dow_str = dow_names[lc].get(dow, dow)
+        month_str = month_names[lc].get(month, month)
+
+        fragments: list[str] = []
+        fragments.append(time_str)
+
+        if dow_str:
+            fragments.append(dow_str)
+        if dom != "*":
+            tag = "Tag" if lc == "de" else "day"
+            fragments.append(f"{dom}. {tag}" if lc == "de" else f"{tag} {dom}")
+        if month_str:
+            fragments.append(month_str)
+
+        return " · ".join(fragments) if fragments else expr
+
+    @staticmethod
+    def _human_interval(expr: str, lang: str) -> str:
+        """Convert interval seconds to human-readable text."""
+        try:
+            seconds = int(expr)
+        except ValueError:
+            return expr
+        lc = lang if lang in ("de", "en") else "de"
+        if seconds >= 86400 and seconds % 86400 == 0:
+            n = seconds // 86400
+            unit = "Tage" if lc == "de" else "days"
+            prefix = "Alle" if lc == "de" else "Every"
+            return f"{prefix} {n} {unit}"
+        if seconds >= 3600 and seconds % 3600 == 0:
+            n = seconds // 3600
+            unit = "Stunden" if lc == "de" else "hours"
+            if n == 1:
+                unit = "Stunde" if lc == "de" else "hour"
+            prefix = "Alle" if lc == "de" else "Every"
+            return f"{prefix} {n} {unit}"
+        n = max(1, seconds // 60)
+        unit = "Minuten" if lc == "de" else "minutes"
+        if n == 1:
+            unit = "Minute" if lc == "de" else "minute"
+        prefix = "Alle" if lc == "de" else "Every"
+        return f"{prefix} {n} {unit}"
+
+    @staticmethod
+    def _human_once(expr: str, _lang: str) -> str:
+        """Format ISO datetime for display."""
+        if "T" in expr:
+            date, time = expr.split("T", 1)
+            return f"{date} {time[:5]}"
+        return expr
+
+    def _format_schedule_display(self, stype: str, expr: str) -> str:
+        """Format schedule expression for human-readable display."""
+        lang = self.ui_language if hasattr(self, "ui_language") else "de"
+        if stype == "cron":
+            return self._human_cron(expr, lang)
+        if stype == "interval":
+            return self._human_interval(expr, lang)
+        if stype == "once":
+            return self._human_once(expr, lang)
+        return expr
+
+    def _format_agent_display(self, agent_id: str) -> str:
+        """Resolve agent ID to emoji + display name."""
+        from ..lib.agent_config import get_agent_config
+        cfg = get_agent_config(agent_id)
+        if cfg:
+            return f"{cfg.emoji} {cfg.display_name}"
+        return agent_id
+
+    def _format_delivery_display(self, delivery: str, channel: str) -> str:
+        """Format delivery + channel for display."""
+        lang = self.ui_language if hasattr(self, "ui_language") else "de"
+        label = self._DELIVERY_DISPLAY.get(lang, self._DELIVERY_DISPLAY["de"]).get(
+            delivery, delivery
+        )
+        if channel:
+            return f"{label} → {channel}"
+        return label
+
+    @staticmethod
+    def _format_datetime(iso_str: str) -> str:
+        """Format ISO datetime to readable 'DD.MM.YYYY  HH:MM'."""
+        if not iso_str or len(iso_str) < 16:
+            return iso_str
+        # "2026-04-13T10:00:00" → "13.04.2026  10:00"
+        date_part = iso_str[:10]  # 2026-04-13
+        time_part = iso_str[11:16]  # 10:00
+        try:
+            y, m, d = date_part.split("-")
+            return f"{d}.{m}.{y}  {time_part}"
+        except ValueError:
+            return iso_str
+
     def _load_scheduler_jobs(self) -> None:
         """Load all scheduler jobs for display."""
         from ..lib.scheduler import get_job_store
@@ -1242,10 +1381,24 @@ class AgentConfigMixin(rx.State, mixin=True):
                 "name": j.name,
                 "schedule_type": j.schedule_type,
                 "schedule_expr": j.schedule_expr,
+                "type_display": self._TYPE_DISPLAY.get(
+                    self.ui_language if hasattr(self, "ui_language") else "de",
+                    self._TYPE_DISPLAY["de"],
+                ).get(j.schedule_type, j.schedule_type),
+                "schedule_display": self._format_schedule_display(
+                    j.schedule_type, j.schedule_expr
+                ),
+                "agent_display": self._format_agent_display(
+                    j.payload.get("agent", "aifred")
+                ),
+                "delivery_display": self._format_delivery_display(
+                    j.payload.get("delivery", ""),
+                    j.payload.get("channel", ""),
+                ),
                 "enabled": "1" if j.enabled else "",
-                "next_run": j.next_run[:19] if j.next_run else "",
-                "last_run": j.last_run[:19] if j.last_run else "",
-                "created_at": j.created_at[:19] if j.created_at else "",
+                "next_run": self._format_datetime(j.next_run[:19]) if j.next_run else "",
+                "last_run": self._format_datetime(j.last_run[:19]) if j.last_run else "",
+                "created_at": self._format_datetime(j.created_at[:19]) if j.created_at else "",
                 "message": j.payload.get("message", ""),
                 "agent": j.payload.get("agent", "aifred"),
                 "delivery": j.payload.get("delivery", ""),
@@ -1294,6 +1447,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.scheduler_edit_webhook_url = job.payload.get("webhook_url", "")
         self.scheduler_edit_recipient = job.payload.get("recipient", "")
         self.scheduler_edit_tier = str(job.max_tier)
+        self._decompose_schedule_expr()
 
     def new_scheduler_job(self) -> None:
         """Open empty edit form for a new job."""
@@ -1308,10 +1462,251 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.scheduler_edit_webhook_url = ""
         self.scheduler_edit_recipient = ""
         self.scheduler_edit_tier = "1"
+        self.scheduler_cron_min = "0"
+        self.scheduler_cron_hour = "8"
+        self.scheduler_cron_dom = "*"
+        self.scheduler_cron_month = "*"
+        self.scheduler_cron_dow = "*"
+        self.scheduler_interval_value = "60"
+        self.scheduler_interval_unit = "minutes"
+        self.scheduler_once_date = ""
+        self.scheduler_once_time = "10:00"
 
     def set_scheduler_edit_channel_safe(self, value: str) -> None:
         """Set channel, converting placeholder to empty string."""
         self.scheduler_edit_channel = "" if value in ("—", "keiner") else value
+
+    # ── Schedule type / delivery i18n mapping ──────────────────
+
+    _TYPE_MAP: dict[str, str] = {
+        "Zeitplan": "cron", "Cron": "cron",
+        "Intervall": "interval", "Interval": "interval",
+        "Einmalig": "once", "Once": "once",
+    }
+    _TYPE_DISPLAY: dict[str, dict[str, str]] = {
+        "de": {"cron": "Zeitplan", "interval": "Intervall", "once": "Einmalig"},
+        "en": {"cron": "Cron", "interval": "Interval", "once": "Once"},
+    }
+    _DELIVERY_MAP: dict[str, str] = {
+        "Vorschau": "review", "Review": "review",
+        "Senden": "announce", "Send": "announce",
+        "Webhook": "webhook",
+    }
+    _DELIVERY_DISPLAY: dict[str, dict[str, str]] = {
+        "de": {"review": "Vorschau", "announce": "Senden", "webhook": "Webhook"},
+        "en": {"review": "Review", "announce": "Send", "webhook": "Webhook"},
+    }
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def sched_type_options(self) -> list[str]:
+        lang = "de" if self.ui_language == "de" else "en"
+        return list(self._TYPE_DISPLAY[lang].values())
+
+    @rx.var(deps=["scheduler_edit_type", "ui_language"], auto_deps=False)
+    def sched_type_display(self) -> str:
+        lang = "de" if self.ui_language == "de" else "en"
+        return self._TYPE_DISPLAY[lang].get(self.scheduler_edit_type, self.scheduler_edit_type)
+
+    def set_scheduler_type_from_label(self, label: str) -> None:
+        new_type = self._TYPE_MAP.get(label, "cron")
+        self.scheduler_edit_type = new_type
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def sched_delivery_options(self) -> list[str]:
+        lang = "de" if self.ui_language == "de" else "en"
+        return list(self._DELIVERY_DISPLAY[lang].values())
+
+    @rx.var(deps=["scheduler_edit_delivery", "ui_language"], auto_deps=False)
+    def sched_delivery_display(self) -> str:
+        lang = "de" if self.ui_language == "de" else "en"
+        return self._DELIVERY_DISPLAY[lang].get(self.scheduler_edit_delivery, self.scheduler_edit_delivery)
+
+    def set_scheduler_delivery_from_label(self, label: str) -> None:
+        self.scheduler_edit_delivery = self._DELIVERY_MAP.get(label, "review")
+
+    # ── Cron presets ───────────────────────────────────────────
+
+    _CRON_PRESETS: list[tuple[str, str, str, str, str, str, str]] = [
+        # (label_de, label_en, min, hour, dom, month, dow)
+        ("Stündlich", "Hourly", "0", "*", "*", "*", "*"),
+        ("Täglich", "Daily", "0", "8", "*", "*", "*"),
+        ("Werktags", "Weekdays", "0", "8", "*", "*", "1-5"),
+        ("Wöchentlich", "Weekly", "0", "8", "*", "*", "1"),
+        ("Monatlich", "Monthly", "0", "8", "1", "*", "*"),
+    ]
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def sched_preset_options(self) -> list[str]:
+        idx = 0 if self.ui_language == "de" else 1
+        return [p[idx] for p in self._CRON_PRESETS]
+
+    def apply_cron_preset(self, label: str) -> None:
+        for p in self._CRON_PRESETS:
+            if label in (p[0], p[1]):
+                self.scheduler_cron_min = p[2]
+                self.scheduler_cron_hour = p[3]
+                self.scheduler_cron_dom = p[4]
+                self.scheduler_cron_month = p[5]
+                self.scheduler_cron_dow = p[6]
+                return
+
+    # ── Weekday dropdown ──────────────────────────────────────
+
+    _DOW_OPTIONS: list[tuple[str, str, str]] = [
+        # (label_de, label_en, cron_value)
+        ("Jeden Tag", "Every day", "*"),
+        ("Mo–Fr", "Mon–Fri", "1-5"),
+        ("Wochenende", "Weekend", "6,0"),
+        ("Montag", "Monday", "1"),
+        ("Dienstag", "Tuesday", "2"),
+        ("Mittwoch", "Wednesday", "3"),
+        ("Donnerstag", "Thursday", "4"),
+        ("Freitag", "Friday", "5"),
+        ("Samstag", "Saturday", "6"),
+        ("Sonntag", "Sunday", "0"),
+    ]
+    _DOW_LABEL_TO_VAL: dict[str, str] = {
+        label: val for de, en, val in _DOW_OPTIONS for label in (de, en)
+    }
+    _DOW_VAL_TO_LABEL: dict[str, dict[str, str]] = {
+        "de": {val: de for de, _en, val in _DOW_OPTIONS},
+        "en": {val: en for _de, en, val in _DOW_OPTIONS},
+    }
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def sched_dow_options(self) -> list[str]:
+        idx = 0 if self.ui_language == "de" else 1
+        return [o[idx] for o in self._DOW_OPTIONS]
+
+    @rx.var(deps=["scheduler_cron_dow", "ui_language"], auto_deps=False)
+    def sched_dow_display(self) -> str:
+        lang = "de" if self.ui_language == "de" else "en"
+        return self._DOW_VAL_TO_LABEL[lang].get(
+            self.scheduler_cron_dow, self.scheduler_cron_dow
+        )
+
+    def set_scheduler_dow_from_label(self, label: str) -> None:
+        self.scheduler_cron_dow = self._DOW_LABEL_TO_VAL.get(label, "*")
+
+    # ── Month dropdown ────────────────────────────────────────
+
+    _MONTH_OPTIONS: list[tuple[str, str, str]] = [
+        ("Jeden", "Every", "*"),
+        ("Januar", "January", "1"),
+        ("Februar", "February", "2"),
+        ("März", "March", "3"),
+        ("April", "April", "4"),
+        ("Mai", "May", "5"),
+        ("Juni", "June", "6"),
+        ("Juli", "July", "7"),
+        ("August", "August", "8"),
+        ("September", "September", "9"),
+        ("Oktober", "October", "10"),
+        ("November", "November", "11"),
+        ("Dezember", "December", "12"),
+    ]
+    _MONTH_LABEL_TO_VAL: dict[str, str] = {
+        label: val for de, en, val in _MONTH_OPTIONS for label in (de, en)
+    }
+    _MONTH_VAL_TO_LABEL: dict[str, dict[str, str]] = {
+        "de": {val: de for de, _en, val in _MONTH_OPTIONS},
+        "en": {val: en for _de, en, val in _MONTH_OPTIONS},
+    }
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def sched_month_options(self) -> list[str]:
+        idx = 0 if self.ui_language == "de" else 1
+        return [o[idx] for o in self._MONTH_OPTIONS]
+
+    @rx.var(deps=["scheduler_cron_month", "ui_language"], auto_deps=False)
+    def sched_month_display(self) -> str:
+        lang = "de" if self.ui_language == "de" else "en"
+        return self._MONTH_VAL_TO_LABEL[lang].get(
+            self.scheduler_cron_month, self.scheduler_cron_month
+        )
+
+    def set_scheduler_month_from_label(self, label: str) -> None:
+        self.scheduler_cron_month = self._MONTH_LABEL_TO_VAL.get(label, "*")
+
+    # ── Interval unit i18n ─────────────────────────────────────
+
+    _UNIT_MAP: dict[str, str] = {
+        "Minuten": "minutes", "Minutes": "minutes",
+        "Stunden": "hours", "Hours": "hours",
+        "Tage": "days", "Days": "days",
+    }
+    _UNIT_DISPLAY: dict[str, dict[str, str]] = {
+        "de": {"minutes": "Minuten", "hours": "Stunden", "days": "Tage"},
+        "en": {"minutes": "Minutes", "hours": "Hours", "days": "Days"},
+    }
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def sched_interval_unit_options(self) -> list[str]:
+        lang = "de" if self.ui_language == "de" else "en"
+        return list(self._UNIT_DISPLAY[lang].values())
+
+    @rx.var(deps=["scheduler_interval_unit", "ui_language"], auto_deps=False)
+    def sched_interval_unit_display(self) -> str:
+        lang = "de" if self.ui_language == "de" else "en"
+        return self._UNIT_DISPLAY[lang].get(self.scheduler_interval_unit, self.scheduler_interval_unit)
+
+    def set_scheduler_interval_unit_from_label(self, label: str) -> None:
+        self.scheduler_interval_unit = self._UNIT_MAP.get(label, "minutes")
+
+    # ── Compose / decompose schedule expression ────────────────
+
+    def _compose_schedule_expr(self) -> str:
+        """Build schedule_expr from the structured fields."""
+        if self.scheduler_edit_type == "cron":
+            return (
+                f"{self.scheduler_cron_min} {self.scheduler_cron_hour} "
+                f"{self.scheduler_cron_dom} {self.scheduler_cron_month} "
+                f"{self.scheduler_cron_dow}"
+            )
+        if self.scheduler_edit_type == "interval":
+            multiplier = {"minutes": 60, "hours": 3600, "days": 86400}
+            try:
+                val = int(self.scheduler_interval_value)
+            except ValueError:
+                val = 60
+            return str(val * multiplier.get(self.scheduler_interval_unit, 60))
+        if self.scheduler_edit_type == "once":
+            date = self.scheduler_once_date or "2026-01-01"
+            time = self.scheduler_once_time or "00:00"
+            return f"{date}T{time}:00"
+        return self.scheduler_edit_expr
+
+    def _decompose_schedule_expr(self) -> None:
+        """Parse schedule_expr into structured fields."""
+        expr = self.scheduler_edit_expr.strip()
+        if self.scheduler_edit_type == "cron":
+            parts = expr.split()
+            if len(parts) >= 5:
+                self.scheduler_cron_min = parts[0]
+                self.scheduler_cron_hour = parts[1]
+                self.scheduler_cron_dom = parts[2]
+                self.scheduler_cron_month = parts[3]
+                self.scheduler_cron_dow = parts[4]
+        elif self.scheduler_edit_type == "interval":
+            try:
+                seconds = int(expr)
+                if seconds >= 86400 and seconds % 86400 == 0:
+                    self.scheduler_interval_value = str(seconds // 86400)
+                    self.scheduler_interval_unit = "days"
+                elif seconds >= 3600 and seconds % 3600 == 0:
+                    self.scheduler_interval_value = str(seconds // 3600)
+                    self.scheduler_interval_unit = "hours"
+                else:
+                    self.scheduler_interval_value = str(max(1, seconds // 60))
+                    self.scheduler_interval_unit = "minutes"
+            except ValueError:
+                self.scheduler_interval_value = "60"
+                self.scheduler_interval_unit = "minutes"
+        elif self.scheduler_edit_type == "once":
+            if "T" in expr:
+                date_part, time_part = expr.split("T", 1)
+                self.scheduler_once_date = date_part
+                self.scheduler_once_time = time_part[:5]
 
     @rx.var(auto_deps=False)
     def scheduler_agent_options(self) -> list[str]:
@@ -1347,6 +1742,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.scheduler import get_job_store
 
         store = get_job_store()
+        expr = self._compose_schedule_expr()
         payload = {
             "message": self.scheduler_edit_message,
             "agent": self.scheduler_edit_agent,
@@ -1362,16 +1758,14 @@ class AgentConfigMixin(rx.State, mixin=True):
                 payload["webhook_url"] = self.scheduler_edit_webhook_url
 
         if self.scheduler_edit_id == "new":
-            # Create new job
             store.add(
                 name=self.scheduler_edit_name,
                 schedule_type=self.scheduler_edit_type,
-                schedule_expr=self.scheduler_edit_expr,
+                schedule_expr=expr,
                 payload=payload,
                 max_tier=int(self.scheduler_edit_tier),
             )
         else:
-            # Update existing: delete + recreate (SQLite has no easy UPDATE for all fields)
             job_id = int(self.scheduler_edit_id)
             old_job = store.get(job_id)
             enabled = old_job.enabled if old_job else True
@@ -1379,7 +1773,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             new_job = store.add(
                 name=self.scheduler_edit_name,
                 schedule_type=self.scheduler_edit_type,
-                schedule_expr=self.scheduler_edit_expr,
+                schedule_expr=expr,
                 payload=payload,
                 max_tier=int(self.scheduler_edit_tier),
             )
