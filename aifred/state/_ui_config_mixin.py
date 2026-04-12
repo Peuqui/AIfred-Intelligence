@@ -340,16 +340,29 @@ class UIConfigMixin(rx.State, mixin=True):
         return TranslationManager.get_text(translation_key, self.ui_language)  # type: ignore[attr-defined]
 
     def set_whisper_model(self, model_display_name: str) -> None:
-        """Set Whisper model selection.
+        """Set Whisper model and push to Docker container.
 
-        The model runs in a Docker container — changing the model here
-        saves the preference. The container uses the WHISPER_MODEL env var.
-        To apply a model change, the Whisper container must be restarted.
+        Updates the container config via /config API, then unloads both
+        models so the next transcription loads the new model.
         """
+        import requests
+        from ..lib.config import WHISPER_SERVICE_URL
+
         model_key = model_display_name.split("(")[0].strip() if "(" in model_display_name else model_display_name
         self.whisper_model_key = model_key
-        self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (container restart needed to apply)")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
+
+        # Push to Docker container + unload old models
+        try:
+            requests.post(
+                f"{WHISPER_SERVICE_URL}/config",
+                json={"model": model_key},
+                timeout=5,
+            )
+            requests.post(f"{WHISPER_SERVICE_URL}/unload?device=all", timeout=5)
+            self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (unloaded, reloads on next STT)")  # type: ignore[attr-defined]
+        except requests.ConnectionError:
+            self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (container not running)")  # type: ignore[attr-defined]
 
     def toggle_show_transcription(self) -> None:
         """Toggle show transcription mode."""
