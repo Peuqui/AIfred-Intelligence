@@ -1442,11 +1442,13 @@ async def _physical_context_search(
     mb_per_layer = 0
     layers: list[int] = []
     old_layers_fmt = ""
+    # Balance eligibility depends on the command having a multi-GPU split —
+    # NOT on cuda_gpu_list length (which is empty when the initial test OOMs,
+    # but we may still be able to balance after binary search finds a fitting ctx).
     balance_eligible = (
         not skip_balance
-        and len(cuda_gpu_list) >= 2
         and current_ratios
-        and len(current_ratios) == len(cuda_gpu_list)
+        and len(current_ratios) >= 2
     )
 
     if balance_eligible:
@@ -1466,7 +1468,9 @@ async def _physical_context_search(
             layers[-1] = total_layers - sum(layers[:-1])
             old_layers_fmt = _format_layer_split([float(n) for n in layers])
 
-            if fits and projected == native_context:
+            # Phase 3A (speed-optimize at native) requires a fitting native test
+            # AND cuda_gpu_list populated — which implies the test succeeded.
+            if fits and projected == native_context and len(cuda_gpu_list) >= 2:
                 # --- 3A: Speed-optimize (native context fits with headroom) ---
                 fastest_free = cuda_gpu_list[0]["free_mb"]
                 fastest_name = cuda_gpu_list[0]["name"]
@@ -1639,17 +1643,23 @@ async def _physical_context_search(
     # a single layer shift. Unlike the old pre-search balance, this tests at
     # an actually-loadable ctx — so the result is meaningful. If the shift
     # improves min-free, search upward for a higher ctx with the new split.
+    # Checks against post_search_gpu_list (populated by the last successful
+    # test), NOT cuda_gpu_list — that list is empty when the native test OOMed.
     if (
         result > 0
         and balance_eligible
         and total_layers
         and not balance_adjusted
         and post_search_gpu_list
-        and len(post_search_gpu_list) == len(cuda_gpu_list)
+        and len(post_search_gpu_list) == len(current_ratios)
     ):
         ordered = _to_cuda_order(post_search_gpu_list)
-        if ordered and len(ordered) == len(cuda_gpu_list):
+        if ordered and len(ordered) == len(current_ratios):
             post_search_gpu_list = ordered
+
+        # Propagate to cuda_gpu_list if the initial test OOMed (left it empty)
+        if not cuda_gpu_list:
+            cuda_gpu_list = post_search_gpu_list
 
         free_values = [g["free_mb"] for g in post_search_gpu_list]
         diff = max(free_values) - min(free_values)
