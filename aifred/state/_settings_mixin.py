@@ -466,8 +466,9 @@ class SettingsMixin(rx.State, mixin=True):
         tier_label is either "1" or "1 — Communicate" format.
         """
         channel, tier_label = data[0], data[1]
-        # Extract leading integer from "1 — Communicate" or plain "1"
-        tier_value = int(tier_label.split(" ")[0])
+        # Extract integer from "T1 — Communicate", "1 — Communicate", or plain "1"
+        prefix = tier_label.split(" ")[0]  # "T1" or "1"
+        tier_value = int(prefix.lstrip("T"))
         tiers = dict(self.channel_security_tiers)
         tiers[channel] = tier_value
         self.channel_security_tiers = tiers

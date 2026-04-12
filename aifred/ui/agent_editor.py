@@ -1222,7 +1222,7 @@ def _plugins_view() -> rx.Component:
     from ..lib.i18n import TranslationManager as _TM
     # Build tier dropdown options per language (select needs static lists)
     _tier_opts = {
-        lang: [f"{tier} — {_TM.get_text(lk, lang)}" for tier, lk, _dk in TIER_I18N_KEYS]
+        lang: [f"T{tier} — {_TM.get_text(lk, lang)}" for tier, lk, _dk in TIER_I18N_KEYS]
         for lang in ("de", "en")
     }
     tier_options = rx.cond(AIState.ui_language == "de", _tier_opts["de"], _tier_opts["en"])
@@ -1280,13 +1280,13 @@ def _plugins_view() -> rx.Component:
         if name != "browser":
             _tier_match_de = rx.match(
                 AIState.channel_security_tiers[name],
-                *[(tier, f"{tier} — {_TM.get_text(lk, 'de')}") for tier, lk, _dk in TIER_I18N_KEYS],
-                f"1 — {_TM.get_text('tier_1_label', 'de')}",
+                *[(tier, f"T{tier} — {_TM.get_text(lk, 'de')}") for tier, lk, _dk in TIER_I18N_KEYS],
+                f"T1 — {_TM.get_text('tier_1_label', 'de')}",
             )
             _tier_match_en = rx.match(
                 AIState.channel_security_tiers[name],
-                *[(tier, f"{tier} — {_TM.get_text(lk, 'en')}") for tier, lk, _dk in TIER_I18N_KEYS],
-                f"1 — {_TM.get_text('tier_1_label', 'en')}",
+                *[(tier, f"T{tier} — {_TM.get_text(lk, 'en')}") for tier, lk, _dk in TIER_I18N_KEYS],
+                f"T1 — {_TM.get_text('tier_1_label', 'en')}",
             )
             _tier_match = rx.cond(AIState.ui_language == "de", _tier_match_de, _tier_match_en)
             _tier_col = [
@@ -1407,6 +1407,7 @@ def _plugins_view() -> rx.Component:
                 # Channels
                 rx.hstack(
                     rx.text(t("plugin_channels"), font_size="14px", font_weight="bold", color="#999"),
+                    rx.text(t("security_tiers_title"), font_size="11px", color="#666"),
                     rx.spacer(),
                     rx.popover.root(
                         rx.popover.trigger(
