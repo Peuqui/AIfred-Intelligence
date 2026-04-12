@@ -61,20 +61,13 @@ async def stop_process(
 
 def cleanup_gpu_memory():
     """
-    Force GPU memory cleanup using gc.collect() and torch.cuda.empty_cache().
+    Force garbage collection to release Python objects holding resources.
 
-    Safe to call even if torch/CUDA is not available.
+    GPU VRAM is managed by Docker containers (XTTS, MOSS, Whisper) and
+    llama-swap — no torch needed in the AIfred process.
     """
     import gc
     gc.collect()
-
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            log_message("GPU memory cache cleared")
-    except ImportError:
-        pass  # torch not installed
 
 
 def restart_service(service_name: str, check: bool = False) -> bool:
