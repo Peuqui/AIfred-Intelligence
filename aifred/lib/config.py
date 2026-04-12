@@ -57,23 +57,9 @@ CONSOLE_DEBUG_ENABLED = True
 # File Debug: Write messages to log file
 FILE_DEBUG_ENABLED = True
 
-# ============================================================
-# WHISPER MODELS CONFIGURATION
-# ============================================================
-WHISPER_MODELS = {
-    "tiny (39MB, fast, english)": "tiny",
-    "base (74MB, faster, multilingual)": "base",
-    "small (466MB, better quality, multilingual)": "small",
-    "medium (1.5GB, high quality, multilingual)": "medium",
-    "large-v3 (2.9GB, best quality, multilingual)": "large-v3"
-}
-
-# Whisper Device Configuration
-# "cpu" = Runs on CPU (preserves GPU VRAM for LLM inference)
-# "cuda" = Runs on GPU (faster but uses VRAM - not recommended with Tesla P40)
-# NOTE: CPU inference on Ryzen 7 7840HS is very fast (0.1-0.2s) and recommended
-WHISPER_DEVICE = "cpu"
-WHISPER_COMPUTE_TYPE = "int8"  # int8 for CPU, float16 for GPU
+# Whisper STT: runs as Docker container (docker/whisper/)
+# Config constants in docker-compose.yml, not here.
+# See WHISPER_SERVICE_URL and WHISPER_DOCKER_COMPOSE_PATH below.
 
 # ============================================================
 # LANGUAGE CONFIGURATION (i18n)

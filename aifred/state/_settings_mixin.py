@@ -154,7 +154,6 @@ class SettingsMixin(rx.State, mixin=True):
             "tts_playback_rate": self.tts_playback_rate,  # type: ignore[attr-defined, has-type]
             "tts_pitch": self.tts_pitch,  # type: ignore[attr-defined, has-type]
             "whisper_model": self.whisper_model_key,  # type: ignore[attr-defined, has-type]
-            # whisper_device removed - now in config.py
             "show_transcription": self.show_transcription,  # type: ignore[attr-defined, has-type]
             # Language-specific TTS voices (user preferences per engine/language)
             "tts_voices_per_language": existing.get("tts_voices_per_language", {}),

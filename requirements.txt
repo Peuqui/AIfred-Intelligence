@@ -23,10 +23,11 @@ chromadb>=0.4.24        # Vector database for semantic caching
 ollama>=0.4.0           # Ollama Python client for embeddings
 numpy>=1.24.0           # Required by chromadb embeddings
 
-# Audio Processing (STT/TTS)
+# Audio Processing (TTS only — STT runs in Docker container: docker/whisper/)
 edge-tts==7.2.1         # Text-to-Speech (7.2.3 has NoAudioReceived bug)
 dashscope>=1.24.6       # DashScope Qwen3-TTS Cloud API
-openai-whisper>=20231117 # Speech-to-Text
+# Whisper STT: NOT needed here — runs as Docker service (docker/whisper/)
+# Build: cd docker/whisper && docker compose build && docker compose up -d
 
 # Configuration & Environment
 python-dotenv>=1.0.0    # .env file support
