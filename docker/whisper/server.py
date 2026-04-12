@@ -1,9 +1,13 @@
 """
 Whisper STT Docker Service — faster-whisper based transcription API.
 
-Supports dual-device operation: CPU (permanent) + GPU (with TTL auto-unload).
-Device is selected per request, not globally. Model and parameters are
-changeable at runtime via the Web-UI or /config endpoint.
+Supports dual-device operation:
+- CPU: runs in main process (permanent, no VRAM)
+- GPU: runs in a separate child process (killed after TTL to fully release
+  CUDA context + VRAM, enabling GPU P8 power state)
+
+Device is selected per request. Model and parameters are changeable at
+runtime via the Web-UI or /config endpoint.
 
 Endpoints:
     GET  /          — Web-UI (status, model management, settings)
@@ -15,12 +19,16 @@ Endpoints:
     POST /config    — Update configuration (JSON body)
 """
 
+from __future__ import annotations
+
 import gc
+import multiprocessing
 import os
 import time
 import tempfile
 import threading
 from pathlib import Path
+from typing import Optional
 
 from flask import Flask, request, jsonify
 
@@ -42,26 +50,68 @@ _config = {
 }
 EAGER_LOAD = os.environ.get("WHISPER_EAGER_LOAD", "1") in ("1", "true", "True")
 
-# ── Model State ──────────────────────────────────────────────
-
-_model_cpu = None
-_model_gpu = None
-_lock = threading.Lock()
-_last_gpu_request = 0.0
-_gpu_ttl_timer = None
-
-
-_gpu_device_index: int | None = None  # Which GPU was selected
-
 # Minimum free VRAM (MiB) to load GPU model. Whisper medium ≈ 1500 MiB.
 _MIN_VRAM_MIB = int(os.environ.get("WHISPER_MIN_VRAM_MIB", "2000"))
 
 
-def _find_best_gpu() -> int | None:
-    """Find the GPU with the most free VRAM. Prefers completely empty GPUs.
+# ── CPU Model (main process, permanent) ──────────────────────
 
-    Returns GPU index, or None if no GPU has enough free VRAM.
-    """
+_model_cpu = None
+_cpu_lock = threading.Lock()
+
+
+def _load_cpu_model():
+    """Load Whisper model on CPU in the main process."""
+    global _model_cpu
+    from faster_whisper import WhisperModel
+
+    model_name = _config["model"]
+    compute = _config["cpu_compute"]
+    t0 = time.time()
+    print(f"[Whisper] Loading model '{model_name}' on cpu ({compute})...", flush=True)
+    _model_cpu = WhisperModel(model_name, device="cpu", compute_type=compute)
+    print(f"[Whisper] Model loaded on cpu in {time.time() - t0:.1f}s", flush=True)
+
+
+def _transcribe_cpu(audio_path: str, language: str) -> dict:
+    """Transcribe using CPU model (main process)."""
+    global _model_cpu
+    with _cpu_lock:
+        if _model_cpu is None:
+            _load_cpu_model()
+        model = _model_cpu
+
+    t0 = time.time()
+    segments, info = model.transcribe(
+        audio_path,
+        language=language if language != "auto" else None,
+        vad_filter=_config["vad_filter"],
+        beam_size=_config["beam_size"],
+        condition_on_previous_text=_config["condition_on_previous_text"],
+    )
+    text = " ".join(s.text for s in segments).strip()
+    elapsed = time.time() - t0
+    print(f"[Whisper] Transcribed (cpu, {elapsed:.2f}s): {text[:80]}...", flush=True)
+    return {
+        "text": text, "time": round(elapsed, 3), "device": "cpu",
+        "language": info.language,
+        "language_probability": round(info.language_probability, 3),
+    }
+
+
+# ── GPU Worker (child process, killed after TTL) ─────────────
+
+_gpu_process: multiprocessing.Process | None = None
+_gpu_request_queue: multiprocessing.Queue | None = None
+_gpu_result_queue: multiprocessing.Queue | None = None
+_gpu_lock = threading.Lock()
+_gpu_ttl_timer: threading.Timer | None = None
+_last_gpu_request = 0.0
+_gpu_device_index: int | None = None
+
+
+def _find_best_gpu() -> int | None:
+    """Find the GPU with the most free VRAM. Prefers completely empty GPUs."""
     import subprocess
     try:
         result = subprocess.run(
@@ -78,15 +128,13 @@ def _find_best_gpu() -> int | None:
                 name = parts[3]
                 print(f"[Whisper]   GPU {idx}: {name} — {free} MiB free, {used} MiB used", flush=True)
                 if free < _MIN_VRAM_MIB:
-                    continue  # Not enough VRAM
-                # Prefer: 1) completely empty (used=0), 2) most free VRAM
+                    continue
                 if best_idx is None:
                     best_idx, best_free, best_used = idx, free, used
                 elif used == 0 and best_used > 0:
                     best_idx, best_free, best_used = idx, free, used
                 elif (used == 0) == (best_used == 0) and free > best_free:
                     best_idx, best_free, best_used = idx, free, used
-
         if best_idx is not None:
             print(f"[Whisper] Selected GPU {best_idx} "
                   f"(free={best_free} MiB, used={int(best_used)} MiB)", flush=True)
@@ -98,91 +146,148 @@ def _find_best_gpu() -> int | None:
         return None
 
 
-def _load_model(device: str):
-    """Load faster-whisper model for the given device."""
-    global _model_cpu, _model_gpu, _gpu_device_index
+def _detect_gpu_compute(gpu_idx: int) -> str:
+    """Detect best compute type for a GPU based on Compute Capability."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,compute_cap",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 2 and int(parts[0]) == gpu_idx:
+                cc = float(parts[1])
+                if cc >= 7.0:
+                    return _config["gpu_compute"]
+                print(f"[Whisper] GPU {gpu_idx} CC {cc} < 7.0 → using int8", flush=True)
+                return "int8"
+    except Exception:
+        pass
+    return "int8"
+
+
+def _gpu_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Queue,
+                gpu_idx: int, model_name: str, compute: str):
+    """Child process: load model on GPU, process requests until killed."""
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_idx)
+    print(f"[Whisper/GPU] Worker started on GPU {gpu_idx} (PID {os.getpid()})", flush=True)
+
     from faster_whisper import WhisperModel
 
-    compute = _config["cpu_compute"] if device == "cpu" else _config["gpu_compute"]
-    model_name = _config["model"]
-
-    if device != "cpu":
-        # Select best GPU dynamically
-        gpu_idx = _find_best_gpu()
-        if gpu_idx is None:
-            print("[Whisper] Cannot load GPU model — no GPU with enough free VRAM", flush=True)
-            return
-        _gpu_device_index = gpu_idx
-
-        # Auto-detect best compute type for this GPU
-        import subprocess
-        try:
-            cc_result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=index,compute_cap",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5,
-            )
-            cc_map = {}
-            for line in cc_result.stdout.strip().split("\n"):
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 2:
-                    cc_map[int(parts[0])] = float(parts[1])
-            gpu_cc = cc_map.get(_gpu_device_index, 0)
-            # CC >= 7.0: float16 efficient, CC < 7.0 (P40 = 6.1): use int8
-            if gpu_cc >= 7.0:
-                compute = _config["gpu_compute"]  # float16 or int8_float16
-            else:
-                compute = "int8"
-                print(f"[Whisper] GPU {_gpu_device_index} CC {gpu_cc} < 7.0 → using int8", flush=True)
-        except Exception:
-            compute = "int8"  # Safe fallback
-
-        print(f"[Whisper] Using GPU {_gpu_device_index} ({compute})", flush=True)
-
     t0 = time.time()
-    print(f"[Whisper] Loading model '{model_name}' on {device} ({compute})...", flush=True)
+    print(f"[Whisper/GPU] Loading model '{model_name}' ({compute})...", flush=True)
+    model = WhisperModel(model_name, device="cuda", compute_type=compute, device_index=0)
+    print(f"[Whisper/GPU] Model loaded in {time.time() - t0:.1f}s", flush=True)
 
-    if device != "cpu":
-        model = WhisperModel(model_name, device=device, compute_type=compute,
-                             device_index=_gpu_device_index)
-    else:
-        model = WhisperModel(model_name, device=device, compute_type=compute)
-    elapsed = time.time() - t0
-    print(f"[Whisper] Model loaded on {device} in {elapsed:.1f}s", flush=True)
+    # Signal parent that we're ready
+    res_queue.put({"status": "ready"})
 
-    if device == "cpu":
-        _model_cpu = model
-    else:
-        _model_gpu = model
+    while True:
+        try:
+            job = req_queue.get(timeout=10)
+        except Exception:
+            continue  # Keep waiting
+
+        if job is None:
+            break  # Poison pill → exit
+
+        audio_path = job["audio_path"]
+        language = job["language"]
+
+        try:
+            t0 = time.time()
+            segments, info = model.transcribe(
+                audio_path,
+                language=language if language != "auto" else None,
+                vad_filter=job.get("vad_filter", True),
+                beam_size=job.get("beam_size", 5),
+                condition_on_previous_text=job.get("condition_on_previous_text", False),
+            )
+            text = " ".join(s.text for s in segments).strip()
+            elapsed = time.time() - t0
+            print(f"[Whisper/GPU] Transcribed ({elapsed:.2f}s): {text[:80]}...", flush=True)
+            res_queue.put({
+                "text": text, "time": round(elapsed, 3), "device": "cuda",
+                "language": info.language,
+                "language_probability": round(info.language_probability, 3),
+            })
+        except Exception as e:
+            res_queue.put({"error": str(e)})
+
+    print(f"[Whisper/GPU] Worker exiting (PID {os.getpid()})", flush=True)
 
 
-def _unload_gpu():
-    """Unload GPU model to free VRAM."""
-    global _model_gpu, _gpu_device_index
-    if _model_gpu is None:
-        return
-    gpu_idx = _gpu_device_index
-    print(f"[Whisper] GPU TTL expired — unloading GPU model (GPU {gpu_idx})", flush=True)
-    _model_gpu = None
-    _gpu_device_index = None
-    _cleanup_gpu_memory()
-    print("[Whisper] GPU model unloaded", flush=True)
+def _start_gpu_worker() -> bool:
+    """Start GPU child process on the best available GPU."""
+    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index
 
+    gpu_idx = _find_best_gpu()
+    if gpu_idx is None:
+        return False
 
-def _cleanup_gpu_memory():
-    """Free GPU memory after unloading."""
-    gc.collect()
+    compute = _detect_gpu_compute(gpu_idx)
+    _gpu_device_index = gpu_idx
+
+    _gpu_request_queue = multiprocessing.Queue()
+    _gpu_result_queue = multiprocessing.Queue()
+
+    _gpu_process = multiprocessing.Process(
+        target=_gpu_worker,
+        args=(_gpu_request_queue, _gpu_result_queue, gpu_idx, _config["model"], compute),
+        daemon=True,
+        name=f"whisper-gpu-{gpu_idx}",
+    )
+    _gpu_process.start()
+
+    # Wait for ready signal
     try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-    except ImportError:
+        msg = _gpu_result_queue.get(timeout=120)
+        if msg.get("status") == "ready":
+            print(f"[Whisper] GPU worker ready on GPU {gpu_idx}", flush=True)
+            return True
+    except Exception:
         pass
+
+    print("[Whisper] GPU worker failed to start", flush=True)
+    _kill_gpu_worker()
+    return False
+
+
+def _kill_gpu_worker():
+    """Kill the GPU child process to fully release CUDA context + VRAM."""
+    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index
+
+    if _gpu_process is not None:
+        gpu_idx = _gpu_device_index
+        pid = _gpu_process.pid
+        print(f"[Whisper] Killing GPU worker (PID {pid}, GPU {gpu_idx})", flush=True)
+        try:
+            _gpu_process.kill()
+            _gpu_process.join(timeout=5)
+        except Exception:
+            pass
+        _gpu_process = None
+        print(f"[Whisper] GPU worker killed — VRAM fully released", flush=True)
+
+    if _gpu_request_queue is not None:
+        try:
+            _gpu_request_queue.close()
+        except Exception:
+            pass
+        _gpu_request_queue = None
+    if _gpu_result_queue is not None:
+        try:
+            _gpu_result_queue.close()
+        except Exception:
+            pass
+        _gpu_result_queue = None
+    _gpu_device_index = None
 
 
 def _reset_gpu_ttl():
-    """Reset the GPU auto-unload timer."""
+    """Reset the GPU auto-kill timer."""
     global _gpu_ttl_timer, _last_gpu_request
     _last_gpu_request = time.time()
     ttl = _config["gpu_ttl_minutes"]
@@ -190,24 +295,35 @@ def _reset_gpu_ttl():
         return
     if _gpu_ttl_timer is not None:
         _gpu_ttl_timer.cancel()
-    _gpu_ttl_timer = threading.Timer(ttl * 60, _unload_gpu)
+    _gpu_ttl_timer = threading.Timer(ttl * 60, _kill_gpu_worker)
     _gpu_ttl_timer.daemon = True
     _gpu_ttl_timer.start()
 
 
-def _get_model(device: str):
-    """Get or lazy-load model for the requested device."""
-    global _model_cpu, _model_gpu
-    with _lock:
-        if device == "cpu":
-            if _model_cpu is None:
-                _load_model("cpu")
-            return _model_cpu
-        else:
-            if _model_gpu is None:
-                _load_model("cuda")
-            _reset_gpu_ttl()
-            return _model_gpu
+def _transcribe_gpu(audio_path: str, language: str) -> dict | None:
+    """Transcribe using GPU child process."""
+    with _gpu_lock:
+        # Start worker if not running
+        if _gpu_process is None or not _gpu_process.is_alive():
+            if not _start_gpu_worker():
+                return None
+
+        # Send job
+        _gpu_request_queue.put({
+            "audio_path": audio_path,
+            "language": language,
+            "vad_filter": _config["vad_filter"],
+            "beam_size": _config["beam_size"],
+            "condition_on_previous_text": _config["condition_on_previous_text"],
+        })
+
+    # Wait for result (outside lock so CPU requests aren't blocked)
+    try:
+        result = _gpu_result_queue.get(timeout=300)
+        _reset_gpu_ttl()
+        return result
+    except Exception:
+        return {"error": "GPU worker timeout"}
 
 
 # ── Web-UI ───────────────────────────────────────────────────
@@ -216,9 +332,9 @@ def _get_model(device: str):
 def index():
     """Web-UI for status, model management, and settings."""
     cpu_loaded = _model_cpu is not None
-    gpu_loaded = _model_gpu is not None
+    gpu_alive = _gpu_process is not None and _gpu_process.is_alive()
     cpu_badge = '<span style="color:#4CAF50">loaded</span>' if cpu_loaded else '<span style="color:#999">idle</span>'
-    gpu_badge = '<span style="color:#4CAF50">loaded</span>' if gpu_loaded else '<span style="color:#999">idle</span>'
+    gpu_badge = '<span style="color:#4CAF50">loaded</span>' if gpu_alive else '<span style="color:#999">idle</span>'
 
     model_options = "".join(
         f'<option value="{m}"{" selected" if m == _config["model"] else ""}>{m}</option>'
@@ -256,7 +372,7 @@ input[type=number] {{ width: 70px; text-align: right; }}
 
 <div class="card">
   <div class="row"><label>CPU Model:</label> {cpu_badge}</div>
-  <div class="row"><label>GPU Model:</label> {gpu_badge}{f' (GPU {_gpu_device_index})' if gpu_loaded and _gpu_device_index is not None else ''}</div>
+  <div class="row"><label>GPU Worker:</label> {gpu_badge}{f' (GPU {_gpu_device_index})' if gpu_alive and _gpu_device_index is not None else ''}</div>
   <div class="btn-row">
     <button class="btn btn-load" onclick="load('cpu')">Load CPU</button>
     <button class="btn btn-unload" onclick="unload('cpu')">Unload CPU</button>
@@ -343,24 +459,23 @@ function msg(text, bg) {{
 def health():
     """Health check — reports model status per device."""
     cpu_loaded = _model_cpu is not None
-    gpu_loaded = _model_gpu is not None
-    if cpu_loaded or gpu_loaded:
+    gpu_alive = _gpu_process is not None and _gpu_process.is_alive()
+    if cpu_loaded or gpu_alive:
         status, model_loaded = "ok", True
     elif EAGER_LOAD:
         status, model_loaded = "loading", False
     else:
         status, model_loaded = "idle", False
 
-    result = {
+    return jsonify({
         "status": status,
         "model_loaded": model_loaded,
         "model": _config["model"],
         "cpu_loaded": cpu_loaded,
-        "gpu_loaded": gpu_loaded,
+        "gpu_loaded": gpu_alive,
         "gpu_device_index": _gpu_device_index,
         "gpu_ttl_minutes": _config["gpu_ttl_minutes"],
-    }
-    return jsonify(result)
+    })
 
 
 @app.route("/transcribe", methods=["POST"])
@@ -388,34 +503,17 @@ def transcribe():
         tmp_path = tmp.name
 
     try:
-        model = _get_model(device)
-        if model is None:
-            return jsonify({"error": f"Failed to load model on {device}"}), 500
+        if device == "cpu":
+            result = _transcribe_cpu(tmp_path, language)
+        else:
+            result = _transcribe_gpu(tmp_path, language)
 
-        t0 = time.time()
-        segments, info = model.transcribe(
-            tmp_path,
-            language=language if language != "auto" else None,
-            vad_filter=_config["vad_filter"],
-            beam_size=_config["beam_size"],
-            condition_on_previous_text=_config["condition_on_previous_text"],
-        )
+        if result is None:
+            return jsonify({"error": "Failed to start GPU worker — no GPU with enough VRAM"}), 500
+        if "error" in result:
+            return jsonify({"error": result["error"]}), 500
 
-        text_parts = []
-        for segment in segments:
-            text_parts.append(segment.text)
-        text = " ".join(text_parts).strip()
-        elapsed = time.time() - t0
-
-        print(f"[Whisper] Transcribed ({device}, {elapsed:.2f}s): {text[:80]}...", flush=True)
-
-        return jsonify({
-            "text": text,
-            "time": round(elapsed, 3),
-            "device": device,
-            "language": info.language,
-            "language_probability": round(info.language_probability, 3),
-        })
+        return jsonify(result)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
@@ -423,21 +521,21 @@ def transcribe():
 @app.route("/status", methods=["GET"])
 def status():
     """Detailed status including memory usage and full config."""
-    result = {**_config, "cpu_loaded": _model_cpu is not None, "gpu_loaded": _model_gpu is not None, "gpu_device_index": _gpu_device_index}
-
-    try:
-        import torch
-        if torch.cuda.is_available():
-            result["gpu_memory_allocated_gb"] = round(torch.cuda.memory_allocated() / 1024**3, 2)
-            result["gpu_memory_reserved_gb"] = round(torch.cuda.memory_reserved() / 1024**3, 2)
-    except ImportError:
-        pass
+    gpu_alive = _gpu_process is not None and _gpu_process.is_alive()
+    result = {
+        **_config,
+        "cpu_loaded": _model_cpu is not None,
+        "gpu_loaded": gpu_alive,
+        "gpu_device_index": _gpu_device_index,
+        "gpu_worker_pid": _gpu_process.pid if gpu_alive else None,
+    }
 
     if _last_gpu_request > 0:
         idle = time.time() - _last_gpu_request
         result["gpu_idle_seconds"] = round(idle, 0)
         if _config["gpu_ttl_minutes"] > 0:
-            result["gpu_ttl_remaining_seconds"] = round(max(0, _config["gpu_ttl_minutes"] * 60 - idle), 0)
+            result["gpu_ttl_remaining_seconds"] = round(
+                max(0, _config["gpu_ttl_minutes"] * 60 - idle), 0)
 
     return jsonify(result)
 
@@ -445,30 +543,24 @@ def status():
 @app.route("/unload", methods=["POST"])
 def unload():
     """Unload model(s). Query param device: cpu, gpu, cuda, or all (default)."""
-    global _model_cpu, _model_gpu, _gpu_device_index
+    global _model_cpu
     device = request.args.get("device", "all")
     unloaded = []
 
-    with _lock:
-        if device in ("gpu", "cuda", "all") and _model_gpu is not None:
-            _model_gpu = None
-            _gpu_device_index = None
-            unloaded.append("gpu")
-        if device in ("cpu", "all") and _model_cpu is not None:
-            _model_cpu = None
-            unloaded.append("cpu")
+    if device in ("gpu", "cuda", "all"):
+        _kill_gpu_worker()
+        unloaded.append("gpu")
+    if device in ("cpu", "all") and _model_cpu is not None:
+        _model_cpu = None
+        gc.collect()
+        unloaded.append("cpu")
 
-    _cleanup_gpu_memory()
     return jsonify({"success": True, "unloaded": unloaded})
 
 
 @app.route("/config", methods=["GET", "POST"])
 def config_endpoint():
-    """Get or update runtime configuration.
-
-    POST body (JSON, all fields optional):
-        model, gpu_ttl_minutes, beam_size, language, vad_filter, condition_on_previous_text
-    """
+    """Get or update runtime configuration."""
     if request.method == "GET":
         return jsonify({**_config, "available_models": AVAILABLE_MODELS})
 
@@ -504,7 +596,7 @@ def config_endpoint():
 if EAGER_LOAD:
     def _eager_load():
         time.sleep(2)
-        _get_model("cpu")
+        _load_cpu_model()
     threading.Thread(target=_eager_load, daemon=True).start()
 
 print(f'[Whisper] Server starting — model={_config["model"]}, '
