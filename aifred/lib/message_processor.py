@@ -397,7 +397,7 @@ async def _call_engine(
             num_ctx_source_label=ctx_label,
             agent=agent,
             external_toolkit=toolkit,
-            rag_context=memory_ctx if memory_ctx else None,
+            memory_ctx=memory_ctx if memory_ctx else None,
             source=source,
         ):
             if chunk.get("type") == "content":

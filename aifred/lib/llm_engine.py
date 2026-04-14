@@ -42,6 +42,7 @@ async def call_llm(
     use_direct_prompt: bool = False,
     multimodal_content: Optional[List[Dict]] = None,
     rag_context: Optional[str] = None,
+    memory_ctx: Optional[str] = None,
     vision_json_context: Optional[Dict] = None,
     stt_time: float = 0.0,
     cloud_provider_label: Optional[str] = None,
@@ -72,7 +73,8 @@ async def call_llm(
         state: AIState Objekt für num_ctx Lookup (optional)
         use_direct_prompt: True wenn User AIfred direkt angesprochen hat
         multimodal_content: Multimodal Content für Bilder (optional)
-        rag_context: RAG-Kontext zum Injizieren (optional)
+        rag_context: Web-/Dokument-Recherche-Kontext (wird im "RECHERCHE-ERGEBNISSE"-Wrapper eingebettet — NUR für echte Recherchedaten nutzen)
+        memory_ctx: Agent-Memory-Kontext aus prepare_agent_toolkit (wird roh an system_prompt angehängt — für vom Caller bereits gesammelte Erinnerungen)
         vision_json_context: Vision JSON Kontext (optional)
         stt_time: Speech-to-Text Zeit für Metadata (optional)
         cloud_provider_label: Cloud Provider Label für Debug-Ausgabe (optional)
@@ -97,12 +99,17 @@ async def call_llm(
     # Uses perspective="aifred" to correctly assign roles for all agents
     from .message_builder import build_messages_from_llm_history
 
+    # Perspective must match the actual agent — NOT hardcoded to "aifred".
+    # build_messages_from_llm_history uses the perspective to load the correct
+    # personality reminder (prompts/<lang>/<agent>/reminder.txt) as user-message
+    # prefix. With "aifred" hardcoded, every agent (Pater Tuck, Sokrates, etc.)
+    # would get AIfred's "[STIL: Britischer Butler]" reminder → agent-identity leak.
     messages: list[dict[str, Any]]
     if multimodal_content is not None:
         # Multimodal: Build without user text, then append multimodal content
         messages = list(build_messages_from_llm_history(
             llm_history,
-            perspective="aifred",
+            perspective=agent,
             detected_language=detected_language
         ))
         messages.append({"role": "user", "content": multimodal_content})
@@ -112,7 +119,7 @@ async def call_llm(
         messages = list(build_messages_from_llm_history(
             llm_history,
             current_user_text=user_text,
-            perspective="aifred",
+            perspective=agent,
             detected_language=detected_language
         ))
 
@@ -136,35 +143,47 @@ async def call_llm(
     else:
         system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
     # Agent Memory: recall + toolkit
+    # Three possible sources (SSOT: memory_ctx is always appended RAW to system_prompt,
+    # never wrapped in the "web research" rag_context template):
+    #   1. external_toolkit + memory_ctx from caller (Message Hub / Scheduler path)
+    #   2. state-based self-lookup (legacy VL / direct call_llm path with agent_memory_enabled)
+    #   3. No memory (multi_agent.py path assembles memory_ctx itself before calling)
     memory_toolkit = external_toolkit
     if memory_toolkit:
-        pass  # External toolkit provided (e.g. from Message Hub) — already logged by caller
+        # External toolkit provided (e.g. from Message Hub / Scheduler) — already logged by caller
+        pass
     elif state and getattr(state, 'agent_memory_enabled', False):
         from .agent_memory import prepare_agent_toolkit
-        memory_ctx, memory_toolkit = await prepare_agent_toolkit(
+        self_memory_ctx, memory_toolkit = await prepare_agent_toolkit(
             agent, user_text, lang=detected_language or "de",
             research_tools_enabled=False,
         )
-        if memory_ctx:
-            system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-            mem_tok = estimate_tokens([{"content": memory_ctx}])
-            yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok)"}
+        # state-based lookup overrides any memory_ctx parameter (state-path is authoritative here)
+        if self_memory_ctx:
+            memory_ctx = self_memory_ctx
         if memory_toolkit:
             yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
 
+    # Append memory_ctx RAW to system_prompt (matches the SSOT used by multi_agent.py:723
+    # and the state-based path above). DO NOT route through rag_context — that wraps the
+    # content in the "# AKTUELLE RECHERCHE-ERGEBNISSE" web-search template which confuses
+    # the agent when the payload is really agent memory, not web research.
+    if memory_ctx:
+        system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+        mem_tok = estimate_tokens([{"content": memory_ctx}])
+        yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok)"}
+
     messages.insert(0, {"role": "system", "content": system_prompt})
 
-    # Inject additional context (RAG documents or Memory) into system prompt
+    # Inject RAG context — ONLY for real web/document research results.
+    # The rag_context wrapper (shared/rag_context.txt) tells the LLM:
+    # "You have internet access, these are research results, do not use training data".
+    # That is correct for web_search/document_store hits, but WRONG for agent memory
+    # (which is handled above via memory_ctx).
     if rag_context:
         inject_rag_context(messages, rag_context)
-        # Distinguish Memory from RAG in debug output
         rag_tok = estimate_tokens([{"content": rag_context}])
-        if external_toolkit:
-            # Memory context (from prepare_agent_toolkit via Message Hub)
-            yield {"type": "debug", "message": f"🧠 Memory context injected ({rag_tok:,} tok)"}
-        else:
-            # RAG context (from document store)
-            yield {"type": "debug", "message": f"💡 RAG context injected ({rag_tok:,} tok)"}
+        yield {"type": "debug", "message": f"💡 RAG context injected ({rag_tok:,} tok)"}
 
     # Inject Vision JSON context if available
     if vision_json_context:
