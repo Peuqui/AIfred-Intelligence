@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import (
+    DOCUMENTS_DIR,
     SANDBOX_MAX_OUTPUT_BYTES,
     SANDBOX_MAX_RAM_MB,
     SANDBOX_TIMEOUT_SECONDS,
@@ -54,10 +55,12 @@ if "matplotlib" in _sys.modules or "matplotlib.pyplot" in _sys.modules:
 
 
 def _build_wrapper_script(code: str, work_dir: Path) -> str:
-    """Build the full Python script with guards and hooks."""
+    """Build the full Python script with guards and hooks.
+
+    Note: CWD is set by the bwrap --chdir flag; no os.chdir here.
+    """
     parts = [
         _IMPORT_GUARD,
-        f"import os; os.chdir({str(work_dir)!r})",
         code,
         _MATPLOTLIB_HOOK,
     ]
@@ -122,13 +125,30 @@ def _collect_html(work_dir: Path, session_id: str) -> str:
     return url
 
 
-async def execute_sandboxed_code(code: str, session_id: str = "") -> SandboxResult:
-    """Execute Python code in a sandboxed subprocess.
+async def execute_sandboxed_code(
+    code: str,
+    session_id: str = "",
+    allow_write: bool = False,
+) -> SandboxResult:
+    """Execute Python code in a bubblewrap-sandboxed subprocess.
 
     Args:
         code: Python code to execute
         session_id: Session ID for output file organization and cleanup
+        allow_write: If True, documents/ is mounted read-write (needs higher tier).
+                     If False (default), documents/ is read-only.
     """
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        result = SandboxResult()
+        result.stderr = (
+            "Sandbox error: bubblewrap (bwrap) not installed. "
+            "Install with: sudo apt install bubblewrap"
+        )
+        result.exit_code = -1
+        log_message("Sandbox: bwrap not available — refusing to execute")
+        return result
+
     exec_id = uuid.uuid4().hex[:12]
     work_dir = Path(SANDBOX_WORK_DIR) / exec_id
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -137,34 +157,67 @@ async def execute_sandboxed_code(code: str, session_id: str = "") -> SandboxResu
     script_path = work_dir / "__main.py"
     script_path.write_text(script, encoding="utf-8")
 
-    venv_python = str(Path(__file__).parent.parent.parent / "venv" / "bin" / "python3")
+    project_root = Path(__file__).parent.parent.parent
+    venv_path = project_root / "venv"
+    venv_python = str(venv_path / "bin" / "python3")
     if not Path(venv_python).exists():
         venv_python = shutil.which("python3") or "python3"
+    site_packages = venv_path / "lib" / "python3.12" / "site-packages"
 
-    cmd = [venv_python, str(script_path)]
+    # Inside the sandbox: work_dir is mounted at /work, documents at /work/documents
+    sandbox_work = "/work"
+    sandbox_script = f"{sandbox_work}/__main.py"
+    sandbox_docs = f"{sandbox_work}/documents"
 
-    site_packages = Path(__file__).parent.parent.parent / "venv" / "lib" / "python3.12" / "site-packages"
-    env = {
-        "MPLBACKEND": "Agg",
-        "HOME": str(work_dir),
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONUNBUFFERED": "1",
-        "PYTHONPATH": str(site_packages) if site_packages.exists() else "",
-        "PATH": "/usr/bin:/bin",
-    }
+    bwrap_args: list[str] = [
+        bwrap,
+        "--die-with-parent",
+        "--unshare-all",             # user, pid, net, ipc, uts, cgroup, mount
+        "--new-session",
+        "--proc", "/proc",
+        "--dev", "/dev",
+        "--tmpfs", "/tmp",
+        "--ro-bind", "/usr", "/usr",
+        "--ro-bind", "/etc", "/etc",
+        "--symlink", "usr/bin", "/bin",
+        "--symlink", "usr/lib", "/lib",
+    ]
+    if Path("/lib64").exists():
+        bwrap_args += ["--symlink", "usr/lib64", "/lib64"]
+    # Venv Python interpreter + site-packages (read-only)
+    bwrap_args += ["--ro-bind", str(venv_path), str(venv_path)]
+    # Work dir (read-write) for script + outputs
+    bwrap_args += ["--bind", str(work_dir), sandbox_work]
+    # Documents: read-only (default) or read-write (elevated tier)
+    if DOCUMENTS_DIR.exists():
+        mount_flag = "--bind" if allow_write else "--ro-bind"
+        bwrap_args += [mount_flag, str(DOCUMENTS_DIR), sandbox_docs]
+    # Environment + chdir
+    bwrap_args += [
+        "--chdir", sandbox_work,
+        "--setenv", "HOME", sandbox_work,
+        "--setenv", "MPLBACKEND", "Agg",
+        "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
+        "--setenv", "PYTHONUNBUFFERED", "1",
+        "--setenv", "PYTHONPATH", str(site_packages) if site_packages.exists() else "",
+        "--setenv", "PATH", "/usr/bin:/bin",
+        "--",
+        venv_python, sandbox_script,
+    ]
 
-    log_message(f"Sandbox({exec_id}): executing {len(code)} chars of code")
+    log_message(
+        f"Sandbox({exec_id}): executing {len(code)} chars "
+        f"(docs={'rw' if allow_write else 'ro'})"
+    )
 
     result = SandboxResult()
     sid = session_id or "unknown"
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            *cmd,
+            *bwrap_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,
-            cwd=str(work_dir),
             preexec_fn=_set_resource_limits,
         )
 

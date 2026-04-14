@@ -24,13 +24,13 @@ class SandboxPlugin:
         return ""
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
-        if tool_name != "execute_code":
+        if tool_name not in ("execute_code", "execute_code_write"):
             return ""
         if not tool_args:
-            # tool_call_start (args not yet parsed)
             return t("tool_code_generating", lang=lang)
         desc = tool_args.get("description", "")
-        return f"⚙️ {desc[:60]}" if desc else t("tool_code_running", lang=lang)
+        prefix = "✍️" if tool_name == "execute_code_write" else "⚙️"
+        return f"{prefix} {desc[:60]}" if desc else t("tool_code_running", lang=lang)
 
 
 plugin = SandboxPlugin()
