@@ -27,9 +27,14 @@ class DocumentMixin(rx.State, mixin=True):
     doc_rename_value: str = ""  # new name input
 
     # Delete confirmation dialog
-    doc_delete_target: str = ""  # filename to delete
+    doc_delete_target: str = ""  # filename or foldername to delete
+    doc_delete_is_folder: bool = False  # target is a folder (recursive delete)
     doc_delete_from_disk: bool = True
     doc_delete_from_index: bool = True
+
+    # Create folder state
+    doc_creating_folder: bool = False
+    doc_new_folder_name: str = ""
 
     # ================================================================
     # MODAL OPEN / CLOSE
@@ -142,27 +147,40 @@ class DocumentMixin(rx.State, mixin=True):
     # CREATE / DELETE FOLDER
     # ================================================================
 
-    def doc_create_folder(self, folder_name: str) -> None:
-        """Create a subfolder in current directory."""
+    def doc_open_create_folder(self) -> None:
+        """Show inline input for new folder name."""
+        self.doc_creating_folder = True
+        self.doc_new_folder_name = ""
+
+    def doc_cancel_create_folder(self) -> None:
+        """Hide new-folder input."""
+        self.doc_creating_folder = False
+        self.doc_new_folder_name = ""
+
+    def doc_set_new_folder_name(self, value: str) -> None:
+        """Update new-folder input value."""
+        self.doc_new_folder_name = value
+
+    def doc_confirm_create_folder(self) -> None:
+        """Create subfolder from doc_new_folder_name in current directory."""
         from ..lib.config import DOCUMENTS_DIR
 
-        if not folder_name or "/" in folder_name or "\\" in folder_name:
+        name = self.doc_new_folder_name.strip()
+        if not name or "/" in name or "\\" in name:
+            self.doc_cancel_create_folder()
             return
-        target = DOCUMENTS_DIR / self.doc_current_folder / folder_name
+        target = DOCUMENTS_DIR / self.doc_current_folder / name
         target.mkdir(parents=True, exist_ok=True)
+        self.doc_creating_folder = False
+        self.doc_new_folder_name = ""
         self._refresh_file_list()
 
-    def doc_delete_empty_folder(self, folder_name: str) -> None:
-        """Delete an empty subfolder."""
-        from ..lib.config import DOCUMENTS_DIR
-
-        target = DOCUMENTS_DIR / self.doc_current_folder / folder_name
-        if target.is_dir():
-            try:
-                target.rmdir()  # Only works if empty
-                self._refresh_file_list()
-            except OSError:
-                pass  # Not empty
+    def doc_open_delete_folder_dialog(self, folder_name: str) -> None:
+        """Open delete confirmation for a folder (recursive)."""
+        self.doc_delete_target = folder_name
+        self.doc_delete_is_folder = True
+        self.doc_delete_from_disk = True
+        self.doc_delete_from_index = True
 
     # ================================================================
     # RENAME
@@ -385,12 +403,14 @@ class DocumentMixin(rx.State, mixin=True):
     def doc_open_delete_dialog(self, filename: str) -> None:
         """Open delete confirmation for a file."""
         self.doc_delete_target = filename
+        self.doc_delete_is_folder = False
         self.doc_delete_from_disk = True
         self.doc_delete_from_index = True
 
     def doc_close_delete_dialog(self) -> None:
         """Close delete confirmation."""
         self.doc_delete_target = ""
+        self.doc_delete_is_folder = False
 
     def doc_toggle_delete_disk(self, _val: bool) -> None:
         """Toggle 'delete from disk' checkbox."""
@@ -401,42 +421,61 @@ class DocumentMixin(rx.State, mixin=True):
         self.doc_delete_from_index = not self.doc_delete_from_index
 
     async def doc_confirm_delete(self) -> None:
-        """Execute delete with selected options."""
+        """Execute delete with selected options (file or folder)."""
+        import shutil
         from ..lib.config import DOCUMENTS_DIR
         from ..lib.document_store import get_document_store
         from ..lib.i18n import t
 
-        filename = self.doc_delete_target
-        if not filename:
+        target_name = self.doc_delete_target
+        is_folder = self.doc_delete_is_folder
+        if not target_name:
             return
 
-        file_path = DOCUMENTS_DIR / self.doc_current_folder / filename
-        rel_path = str(file_path.relative_to(DOCUMENTS_DIR))
+        target_path = DOCUMENTS_DIR / self.doc_current_folder / target_name
+        rel_path = str(target_path.relative_to(DOCUMENTS_DIR))
         actions: list[str] = []
 
         # Delete from index
         if self.doc_delete_from_index:
             store = get_document_store()
             if store:
-                count = await store.delete_document(rel_path, delete_file=False)
-                if count == 0:
-                    count = await store.delete_document(filename, delete_file=False)
-                actions.append(f"Index ({count} chunks)")
+                if is_folder:
+                    # Remove all indexed files whose path starts with this folder
+                    prefix = rel_path.rstrip("/") + "/"
+                    total = 0
+                    all_data = store._collection.get()
+                    if all_data and all_data.get("metadatas"):
+                        matching_files = {
+                            m["filename"] for m in all_data["metadatas"]
+                            if m.get("filename", "").startswith(prefix)
+                        }
+                        for fn in matching_files:
+                            total += await store.delete_document(fn, delete_file=False)
+                    actions.append(f"Index ({total} chunks)")
+                else:
+                    count = await store.delete_document(rel_path, delete_file=False)
+                    if count == 0:
+                        count = await store.delete_document(target_name, delete_file=False)
+                    actions.append(f"Index ({count} chunks)")
 
         # Delete from disk
-        if self.doc_delete_from_disk:
-            if file_path.exists():
-                file_path.unlink()
-                actions.append("Disk")
+        if self.doc_delete_from_disk and target_path.exists():
+            if is_folder:
+                shutil.rmtree(target_path)
+            else:
+                target_path.unlink()
+            actions.append("Disk")
 
         action_str = " + ".join(actions) if actions else "nothing"
         self.document_upload_status = t(
             "doc_delete_done", lang=self.ui_language,  # type: ignore[attr-defined]
-            filename=filename, actions=action_str,
+            filename=target_name, actions=action_str,
         )
-        self.add_debug(f"\U0001f5d1\ufe0f Deleted {filename}: {action_str}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f5d1\ufe0f Deleted {target_name}: {action_str}")  # type: ignore[attr-defined]
 
         self.doc_delete_target = ""
+        self.doc_delete_is_folder = False
         self._refresh_file_list()
         yield  # type: ignore[misc]
 

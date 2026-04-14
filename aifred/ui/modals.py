@@ -875,7 +875,7 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
                 rx.icon_button(
                     rx.icon("folder-minus", size=14),
                     size="1", variant="ghost", color_scheme="red",
-                    on_click=AIState.doc_delete_empty_folder(name), cursor="pointer",
+                    on_click=AIState.doc_open_delete_folder_dialog(name), cursor="pointer",
                 ),
                 spacing="0", align="center",
             ),
@@ -895,7 +895,11 @@ def _doc_delete_dialog() -> rx.Component:
         rx.box(
             rx.vstack(
                 rx.text(
-                    t("doc_delete_confirm_title"),
+                    rx.cond(
+                        AIState.doc_delete_is_folder,
+                        rx.cond(AIState.ui_language == "de", "Ordner löschen (rekursiv)", "Delete folder (recursive)"),
+                        t("doc_delete_confirm_title"),
+                    ),
                     font_weight="bold", font_size="14px", color="white",
                 ),
                 rx.text(
@@ -976,7 +980,7 @@ def document_manager_modal() -> rx.Component:
                     width="100%", align="center",
                 ),
 
-                # Breadcrumb navigation
+                # Breadcrumb navigation + create folder
                 rx.hstack(
                     rx.icon_button(
                         rx.icon("home", size=14), size="1",
@@ -996,6 +1000,43 @@ def document_manager_modal() -> rx.Component:
                                 font_size="12px", color="#888",
                             ),
                             spacing="1", align="center",
+                        ),
+                    ),
+                    rx.spacer(),
+                    rx.cond(
+                        AIState.doc_creating_folder,
+                        rx.hstack(
+                            rx.input(
+                                value=AIState.doc_new_folder_name,
+                                on_change=AIState.doc_set_new_folder_name,
+                                on_key_down=lambda key: rx.cond(
+                                    key == "Enter",
+                                    AIState.doc_confirm_create_folder(),
+                                    rx.cond(key == "Escape", AIState.doc_cancel_create_folder(), rx.noop()),  # type: ignore[arg-type]
+                                ),
+                                placeholder=rx.cond(AIState.ui_language == "de", "Ordnername", "Folder name"),
+                                size="1", font_size="12px", width="160px",
+                                auto_focus=True,
+                            ),
+                            rx.icon_button(
+                                rx.icon("check", size=12), size="1",
+                                variant="ghost", color_scheme="green",
+                                on_click=AIState.doc_confirm_create_folder, cursor="pointer",
+                            ),
+                            rx.icon_button(
+                                rx.icon("x", size=12), size="1",
+                                variant="ghost", color_scheme="gray",
+                                on_click=AIState.doc_cancel_create_folder, cursor="pointer",
+                            ),
+                            spacing="1", align="center",
+                        ),
+                        rx.tooltip(
+                            rx.icon_button(
+                                rx.icon("folder-plus", size=14), size="1",
+                                variant="ghost", color_scheme="yellow",
+                                on_click=AIState.doc_open_create_folder, cursor="pointer",
+                            ),
+                            content=rx.cond(AIState.ui_language == "de", "Ordner anlegen", "Create folder"),
                         ),
                     ),
                     spacing="1", align="center", width="100%",

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ....lib.config import DATA_DIR, DOCUMENTS_DIR
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from ....lib.plugin_base import PluginContext
@@ -18,8 +19,8 @@ from ....lib.logging_utils import log_message
 from ....lib.prompt_loader import load_prompt
 
 # Base directory for all file operations (path traversal protection)
-_DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
-_DOCUMENTS_DIR = _DATA_DIR / "documents"
+_DATA_DIR = DATA_DIR
+_DOCUMENTS_DIR = DOCUMENTS_DIR
 
 
 def _safe_resolve(relative_path: str) -> tuple[Path | None, str | None]:
