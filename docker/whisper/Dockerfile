@@ -8,11 +8,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Python dependencies
 # faster-whisper uses CTranslate2 (optimized C++ inference)
+# nvidia-cublas-cu12 + nvidia-cudnn-cu12 = GPU runtime libs (libcublas.so.12, libcudnn.so.9)
 RUN pip install --no-cache-dir \
     flask \
     gunicorn \
     faster-whisper \
-    numpy
+    numpy \
+    nvidia-cublas-cu12 \
+    nvidia-cudnn-cu12
+
+# Make NVIDIA libs discoverable at runtime
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}
 
 # Copy server
 COPY server.py /app/server.py
