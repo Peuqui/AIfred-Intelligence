@@ -50,17 +50,26 @@ def _detect_running_tts_engine(timeout: float = TTS_HEALTH_CHECK_TIMEOUT) -> str
 
     from .config import XTTS_SERVICE_URL, MOSS_TTS_SERVICE_URL
 
+    # Identify services by fields unique to each TTS engine. A shared port
+    # (e.g. misconfigured Whisper on 5055) would also answer model_loaded=true
+    # but lacks the engine-specific field.
+    #   XTTS  : "custom_voices"
+    #   MOSS  : "voices" + "sample_rate"
     try:
         r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=timeout)
-        if r.ok and r.json().get("model_loaded"):
-            return "xtts"
+        if r.ok:
+            data = r.json()
+            if data.get("model_loaded") and "custom_voices" in data:
+                return "xtts"
     except Exception:
         pass
 
     try:
         r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=timeout)
-        if r.ok and r.json().get("model_loaded"):
-            return "moss"
+        if r.ok:
+            data = r.json()
+            if data.get("model_loaded") and "sample_rate" in data:
+                return "moss"
     except Exception:
         pass
 
@@ -196,6 +205,18 @@ def ensure_tts_state(
         yield f"Stopping {running.upper()} (not needed)..."
         success, msg = stop_engine(running)
         yield msg
+        # Verify the container is actually gone — if the stop silently failed,
+        # the base LLM profile (full VRAM budget) would OOM when loaded. Poll
+        # the health endpoint until it stops answering, up to a short deadline.
+        import time
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            if not _detect_running_tts_engine():
+                break
+            time.sleep(0.5)
+        else:
+            yield f"⚠️ {running.upper()} still responds after stop — VRAM may not be free"
+            return TTSState(success=False, changed=True)
         return TTSState(success=success, changed=True)
 
     return TTSState(success=True)

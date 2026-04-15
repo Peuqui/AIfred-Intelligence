@@ -5,7 +5,7 @@ services:
     container_name: whisper-stt
     restart: unless-stopped  # Always running (CPU mode has no VRAM cost)
     ports:
-      - "5052:5052"
+      - "5080:5052"
     deploy:
       resources:
         reservations:

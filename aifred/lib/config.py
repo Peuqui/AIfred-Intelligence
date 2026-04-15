@@ -943,7 +943,7 @@ MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "moss-tts",
 WHISPER_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "whisper", "docker-compose.yml")
 
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)
-WHISPER_SERVICE_URL = "http://localhost:5052"
+WHISPER_SERVICE_URL = "http://localhost:5080"
 
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:

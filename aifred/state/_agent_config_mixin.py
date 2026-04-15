@@ -403,20 +403,22 @@ class AgentConfigMixin(rx.State, mixin=True):
             return f"{base_id}-speed"
 
         # TTS on GPU: use TTS-calibrated variant (reduced -c for VRAM sharing)
-        # Check actual container state — Puck may have started TTS
-        # independently of the browser toggle.
-        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
-            from ..lib.tts_engine_manager import _detect_running_tts_engine
-            running_tts = _detect_running_tts_engine()
-            if running_tts:
-                from ..lib.llamacpp_calibration import parse_llamaswap_config
-                from ..lib.config import LLAMASWAP_CONFIG_PATH
-                tts_variant = f"{base_id}-tts-{running_tts}"
-                swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-                if tts_variant in swap_cfg:
-                    return tts_variant
-                from ..lib.logging_utils import log_message
-                log_message(f"⚠️ _effective_model_id: TTS variant {tts_variant} NOT in config")
+        # Only when TTS is explicitly enabled in the UI. A leftover running
+        # TTS container from a previous session must NOT silently switch the
+        # model profile — the user's toggle is authoritative.
+        if self.backend_type == "llamacpp" and self.enable_tts:  # type: ignore[attr-defined]
+            from ..lib.tts_engine_manager import _detect_running_tts_engine, GPU_ENGINES
+            if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
+                running_tts = _detect_running_tts_engine()
+                if running_tts:
+                    from ..lib.llamacpp_calibration import parse_llamaswap_config
+                    from ..lib.config import LLAMASWAP_CONFIG_PATH
+                    tts_variant = f"{base_id}-tts-{running_tts}"
+                    swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                    if tts_variant in swap_cfg:
+                        return tts_variant
+                    from ..lib.logging_utils import log_message
+                    log_message(f"⚠️ _effective_model_id: TTS variant {tts_variant} NOT in config")
 
         return base_id
 
