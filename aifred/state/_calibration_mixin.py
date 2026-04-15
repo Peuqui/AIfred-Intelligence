@@ -428,6 +428,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     speed_split_context,
                     num_gpus=speed_num_gpus,
                     kv_quant=speed_kv_quant,
+                    speed_layer_split=speed_layer_split,
                 )
                 if added_speed:
                     gpu_info_str = f", {speed_num_gpus} GPUs" if speed_num_gpus else ""

@@ -1790,6 +1790,7 @@ def add_llamaswap_speed_variant(
     speed_context: int,
     num_gpus: int = 0,
     kv_quant: str = "f16",
+    speed_layer_split: str = "",
 ) -> bool:
     """
     Add (or update) a -speed variant YAML entry in the llama-swap config.
@@ -1798,13 +1799,18 @@ def add_llamaswap_speed_variant(
     and writes it as model_id-speed.
 
     Args:
-        speed_split_cuda0: Layer count for fastest GPU (CUDA0)
-        speed_split_rest: Layer count for remaining GPU(s)
+        speed_split_cuda0: Layer count for fastest GPU (CUDA0) — legacy,
+                           ignored when speed_layer_split is provided.
+        speed_split_rest: Layer count for remaining GPU(s) — legacy,
+                          ignored when speed_layer_split is provided.
         speed_context: Context size for speed variant
         num_gpus: Number of active GPUs for speed variant (0 = use all,
                   same as base). Unused GPUs get tensor-split ratio 0.
         kv_quant: KV cache quantization for speed variant (independent
                   from base). "f16" means no -ctk/-ctv flags.
+        speed_layer_split: Full balanced layer split as "A:B:C:D" string.
+                           If provided, used directly instead of reconstructing
+                           from cuda0/rest.
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
@@ -1819,16 +1825,19 @@ def add_llamaswap_speed_variant(
         return False
 
     cmd = speed_entry.get("cmd", "")
-
-    # Replace tensor-split with calibrated layer counts (N-GPU compatible)
     original_ratios = _parse_tensor_split_ratios(cmd)
-    total_layers = speed_split_cuda0 + speed_split_rest
 
-    if num_gpus > 0 and num_gpus < len(original_ratios):
-        active_ratios = original_ratios[:num_gpus]
-        speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, active_ratios)
+    # Use full layer split directly if provided (balanced distribution)
+    if speed_layer_split:
+        speed_ratios = [float(x) for x in speed_layer_split.split(":")]
     else:
-        speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, original_ratios)
+        # Legacy path: reconstruct from cuda0/rest
+        total_layers = speed_split_cuda0 + speed_split_rest
+        if num_gpus > 0 and num_gpus < len(original_ratios):
+            active_ratios = original_ratios[:num_gpus]
+            speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, active_ratios)
+        else:
+            speed_ratios = _build_layer_split(total_layers, speed_split_cuda0, original_ratios)
 
     # Trim trailing zeros (CUDA_VISIBLE_DEVICES limits visible GPUs)
     while len(speed_ratios) > 1 and speed_ratios[-1] == 0:
@@ -2096,6 +2105,73 @@ def _build_layer_split(
     return result
 
 
+def _group_gpus_by_name(gpu_names: list[str]) -> list[list[int]]:
+    """Group GPU indices by model name.
+
+    Input:  ["RTX 8000", "RTX 8000", "P40", "P40"]
+    Output: [[0, 1], [2, 3]]  (RTX group, P40 group)
+
+    Order: First group = fastest (GPU0 is always in first group).
+    """
+    groups: dict[str, list[int]] = {}
+    for i, name in enumerate(gpu_names):
+        groups.setdefault(name, []).append(i)
+    first_name = gpu_names[0]
+    result = [groups.pop(first_name)]
+    result.extend(groups.values())
+    return result
+
+
+def _build_balanced_split(
+    total_layers: int,
+    fast_group_total: int,
+    gpu_names: list[str],
+) -> list[float]:
+    """Build tensor-split with balanced distribution within speed classes.
+
+    GPUs with the same name form a speed class. Layers are distributed
+    equally within each class. The fast group (GPU0's class) gets
+    fast_group_total layers, the rest is split among remaining groups
+    proportionally by VRAM (approximated by group size, since GPUs of
+    the same type have the same VRAM).
+
+    Example: total=88, fast_total=72, names=["RTX 8000","RTX 8000","P40"]
+    → Fast group (2x RTX): 72/2 = 36 each
+    → Slow group (1x P40): 88-72 = 16
+    → [36.0, 36.0, 16.0]
+    """
+    groups = _group_gpus_by_name(gpu_names)
+    rest = total_layers - fast_group_total
+
+    result = [0.0] * len(gpu_names)
+
+    # Fast group: distribute equally
+    fast_indices = groups[0]
+    per_fast = fast_group_total // len(fast_indices)
+    remainder = fast_group_total % len(fast_indices)
+    for i, idx in enumerate(fast_indices):
+        result[idx] = float(per_fast + (1 if i < remainder else 0))
+
+    # Remaining groups: distribute rest proportionally by group size
+    slow_groups = groups[1:]
+    total_slow_gpus = sum(len(g) for g in slow_groups)
+    if total_slow_gpus > 0 and rest > 0:
+        assigned = 0
+        for gi, group in enumerate(slow_groups):
+            if gi == len(slow_groups) - 1:
+                # Last group gets remainder (fixes rounding)
+                group_total = rest - assigned
+            else:
+                group_total = round(rest * len(group) / total_slow_gpus)
+                assigned += group_total
+            per_gpu = group_total // len(group)
+            group_remainder = group_total % len(group)
+            for i, idx in enumerate(group):
+                result[idx] = float(per_gpu + (1 if i < group_remainder else 0))
+
+    return result
+
+
 def _format_layer_split(ratios: list[float]) -> str:
     """Format layer split as 'A:B:C' string."""
     return ":".join(str(int(r)) for r in ratios)
@@ -2107,29 +2183,32 @@ async def _optimize_gpu_layers(
     target_context: int,
     port: int,
     initial_layers: list[int],
-    active_ratios: list[float],
+    active_gpu_names: list[str],
     total_layers: int,
     total_gpus: int,
     min_gpus: int,
     mb_per_layer: float,
     phase_label: str,
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
-    gpu0_total_mb: int = 0,
+    per_gpu_total_mb: list[int] | None = None,
 ) -> AsyncIterator[str | list[float]]:
-    """Binary search for max layers on fastest GPU at fixed context.
+    """Binary search for max layers on fast GPU group at fixed context.
 
-    Extracts the Phase-A logic: project free VRAM via fit-params, then
-    binary search for the maximum number of layers on CUDA0 that still
-    fit at ``target_context``.
+    Groups GPUs by name (same name = same speed class). The fast group
+    (GPU0's class) is optimized as a unit — layers are distributed equally
+    within it. Binary search finds the max total layers for the fast group.
 
     Args:
-        gpu0_total_mb: Total VRAM of GPU0 in MiB. Used to cap the search
-                       so we don't assign more layers than physically fit.
+        active_gpu_names: GPU model names for active GPUs (length == min_gpus).
+        per_gpu_total_mb: Total VRAM per active GPU in MiB (length == min_gpus).
+                          Used to cap the search so we don't exceed physical VRAM.
 
     Yields progress strings.  Final yield is the optimized padded ratios
     as ``list[float]`` (length == total_gpus).
     """
-    padded_ratios = [float(n) for n in initial_layers] + [0.0] * (total_gpus - min_gpus)
+    initial_fast_total = sum(initial_layers[i] for i in _group_gpus_by_name(active_gpu_names)[0])
+    padded_ratios = _build_balanced_split(total_layers, initial_fast_total, active_gpu_names)
+    padded_ratios += [0.0] * (total_gpus - min_gpus)
     initial_cmd = _replace_tensor_split(base_cmd, padded_ratios)
 
     # fit-params projection at target context
@@ -2148,9 +2227,11 @@ async def _optimize_gpu_layers(
         yield padded_ratios
         return
 
-    cuda0_info = per_gpu.get("CUDA0", {})
-    free_fastest = cuda0_info.get("free", 0)
-    fastest_name = _short_gpu_name(str(cuda0_info.get("name", "GPU0")))
+    # Identify fast group from GPU names
+    groups = _group_gpus_by_name(active_gpu_names)
+    fast_indices = groups[0]
+    fast_count = len(fast_indices)
+    fastest_name = _short_gpu_name(active_gpu_names[fast_indices[0]])
 
     free_info = ", ".join(
         f"{_short_gpu_name(str(per_gpu[gid].get('name', gid)))} ({gid}): "
@@ -2159,27 +2240,41 @@ async def _optimize_gpu_layers(
     )
     yield f"Projected at ctx={format_number(target_context)}: {free_info}"
 
-    # Cap: GPU0 can't hold more layers than its physical VRAM allows
-    if gpu0_total_mb > 0 and mb_per_layer > 0:
-        max_physical_gpu0 = int(gpu0_total_mb / mb_per_layer)
+    # Sum free VRAM across the entire fast group
+    free_fast_total = sum(
+        per_gpu.get(f"CUDA{i}", {}).get("free", 0) for i in fast_indices
+    )
+
+    # Cap: fast group can't hold more layers than physical VRAM allows
+    if per_gpu_total_mb and mb_per_layer > 0:
+        max_physical_fast = sum(
+            int(per_gpu_total_mb[i] / mb_per_layer) for i in fast_indices
+        )
     else:
-        max_physical_gpu0 = total_layers
+        max_physical_fast = total_layers
 
-    extra_layers_possible = int(free_fastest / mb_per_layer)
-    estimated_max = min(initial_layers[0] + extra_layers_possible, total_layers, max_physical_gpu0)
+    extra_layers_possible = int(free_fast_total / mb_per_layer)
+    estimated_max = min(
+        initial_fast_total + extra_layers_possible,
+        total_layers,
+        max_physical_fast,
+    )
 
-    if estimated_max <= initial_layers[0]:
-        yield f"No headroom for layer optimization on {fastest_name}"
+    if estimated_max <= initial_fast_total:
+        yield f"No headroom for layer optimization on {fastest_name} (x{fast_count})"
         yield padded_ratios
         return
 
     yield (
-        f"Phase {phase_label}: Max layers on {fastest_name} "
+        f"Phase {phase_label}: Max layers on {fastest_name} (x{fast_count}) "
         f"at ctx={format_number(target_context)}"
     )
 
-    est_active = _build_layer_split(total_layers, estimated_max, active_ratios)
-    est_padded = est_active + [0.0] * (total_gpus - min_gpus)
+    def _split_and_pad(fast_total: int) -> list[float]:
+        active = _build_balanced_split(total_layers, fast_total, active_gpu_names)
+        return active + [0.0] * (total_gpus - min_gpus)
+
+    est_padded = _split_and_pad(estimated_max)
     est_split = _format_layer_split(est_padded)
     est_cmd = _replace_tensor_split(base_cmd, est_padded)
 
@@ -2195,17 +2290,16 @@ async def _optimize_gpu_layers(
 
     if est_fits:
         low = estimated_max + 1
-        high = min(total_layers, max_physical_gpu0)
-        best_cuda0 = estimated_max
+        high = min(total_layers, max_physical_fast)
+        best_fast_total = estimated_max
     else:
-        low = initial_layers[0] + 1
+        low = initial_fast_total + 1
         high = estimated_max - 1
-        best_cuda0 = initial_layers[0]
+        best_fast_total = initial_fast_total
 
     while low <= high:
         mid = (low + high) // 2
-        mid_active = _build_layer_split(total_layers, mid, active_ratios)
-        mid_padded = mid_active + [0.0] * (total_gpus - min_gpus)
+        mid_padded = _split_and_pad(mid)
         mid_split = _format_layer_split(mid_padded)
         mid_cmd = _replace_tensor_split(base_cmd, mid_padded)
 
@@ -2220,13 +2314,12 @@ async def _optimize_gpu_layers(
         )
 
         if mid_fits:
-            best_cuda0 = mid
+            best_fast_total = mid
             low = mid + 1
         else:
             high = mid - 1
 
-    best_active = _build_layer_split(total_layers, best_cuda0, active_ratios)
-    padded_ratios = best_active + [0.0] * (total_gpus - min_gpus)
+    padded_ratios = _split_and_pad(best_fast_total)
     best_split = _format_layer_split(padded_ratios)
     yield f"Phase {phase_label} result: {best_split} ({min_gpus}/{total_gpus} GPUs)"
     yield padded_ratios
@@ -2242,13 +2335,14 @@ async def _calibrate_speed_split(
     safety_margin: int = LLAMACPP_VRAM_SAFETY_MARGIN,
     base_kv: str = "f16",
     per_gpu_free_mb: list[int] | None = None,
+    cuda_gpu_names: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """Speed split: use minimum GPUs for fewer boundary transfers.
 
     Strategy: fewer GPU boundaries = less transfer overhead per token = faster.
     1. Find minimum GPU count needed to hold model weights.
     2. Build tensor-split with only those GPUs active (rest get 0).
-    3. Phase A: Binary search for max layers on fastest GPU at target_context.
+    3. Phase A: Binary search for max layers on fast GPU group at target_context.
     4. Phase B: Maximize context at found split. KV chain starts at base_kv
        (inherited from Phase 1), falls back to q8_0/q4_0 if needed.
 
@@ -2257,10 +2351,12 @@ async def _calibrate_speed_split(
                           (FASTEST_FIRST order).
         per_gpu_free_mb: Free VRAM per GPU in MiB (same order). If provided,
                          used for min_gpus calculation (accounts for TTS VRAM).
+        cuda_gpu_names: GPU model names in CUDA order (FASTEST_FIRST).
+                        Used for balanced layer distribution within speed classes.
 
     Yields progress messages.
     Final: "__SPEED__:{layer_split},{context},{num_gpus},{kv_quant}" or "__SPEED__:0".
-    layer_split is the full distribution e.g. "26:11:11:0".
+    layer_split is the full distribution e.g. "36:36:16:0".
     """
     from .gguf_utils import get_gguf_total_size
 
@@ -2310,6 +2406,7 @@ async def _calibrate_speed_split(
             try_gpus, total_gpus, total_layers, per_gpu_total_mb, mb_per_layer,
             full_cmd, gguf_path, native_context, target_context, port,
             base_kv, safety_margin,
+            cuda_gpu_names=cuda_gpu_names,
         ):
             if isinstance(item, str):
                 if item.startswith("__SPEED__:") and not item.startswith("__SPEED__:0"):
@@ -2340,22 +2437,39 @@ async def _try_speed_split_for_gpu_count(
     port: int,
     base_kv: str,
     safety_margin: int,
+    cuda_gpu_names: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """Try speed calibration with a specific GPU count. Yields progress + __SPEED__ result."""
     min_gpus = try_gpus
 
-    # VRAM-proportional ratios for active GPUs only
-    active_vram = per_gpu_total_mb[:min_gpus]
-    min_vram = min(active_vram)
-    active_ratios = [float(max(1, round(v / min_vram))) for v in active_vram]
+    # Active GPU names (first min_gpus entries)
+    active_names = (cuda_gpu_names or [])[:min_gpus]
 
-    # Initial layer distribution from active ratios
-    sum_active = sum(active_ratios)
-    layers = [round(total_layers * r / sum_active) for r in active_ratios]
-    layers[-1] = total_layers - sum(layers[:-1])
+    # Initial layer distribution: balanced within speed classes
+    if active_names and len(active_names) == min_gpus:
+        # Use balanced split from the start
+        groups = _group_gpus_by_name(active_names)
+        # Initial: distribute proportionally by VRAM across groups
+        active_vram = per_gpu_total_mb[:min_gpus]
+        fast_vram = sum(active_vram[i] for i in groups[0])
+        total_active_vram = sum(active_vram)
+        initial_fast_total = round(total_layers * fast_vram / total_active_vram)
+        # Ensure we don't exceed total
+        initial_fast_total = min(initial_fast_total, total_layers)
+        padded_ratios = _build_balanced_split(total_layers, initial_fast_total, active_names)
+    else:
+        # No GPU names available — fall back to VRAM-proportional
+        active_vram = per_gpu_total_mb[:min_gpus]
+        min_vram = min(active_vram)
+        active_ratios = [float(max(1, round(v / min_vram))) for v in active_vram]
+        sum_active = sum(active_ratios)
+        layers = [round(total_layers * r / sum_active) for r in active_ratios]
+        layers[-1] = total_layers - sum(layers[:-1])
+        padded_ratios = [float(n) for n in layers]
 
     # Pad with zeros for inactive GPUs
-    padded_ratios = [float(n) for n in layers] + [0.0] * (total_gpus - min_gpus)
+    padded_ratios += [0.0] * (total_gpus - min_gpus)
+    layers = [int(r) for r in padded_ratios[:min_gpus]]
 
     # Speed variant inherits KV level from Phase 1 (if f16 didn't fit there,
     # it won't fit here with fewer GPUs either)
@@ -2364,21 +2478,21 @@ async def _try_speed_split_for_gpu_count(
     layers_fmt = _format_layer_split(padded_ratios)
     yield f"Initial speed split: {layers_fmt}"
 
-    # ── Phase A: Optimize layers on fastest GPU via binary search ──
+    # ── Phase A: Optimize layers on fast GPU group via binary search ──
     async for opt_result in _optimize_gpu_layers(
         base_cmd=speed_base_cmd,
         gguf_path=gguf_path,
         target_context=target_context,
         port=port,
         initial_layers=layers,
-        active_ratios=active_ratios,
+        active_gpu_names=active_names if active_names else [f"GPU{i}" for i in range(min_gpus)],
         total_layers=total_layers,
         total_gpus=total_gpus,
         min_gpus=min_gpus,
         mb_per_layer=mb_per_layer,
         phase_label="A",
         safety_margin=safety_margin,
-        gpu0_total_mb=per_gpu_total_mb[0] if per_gpu_total_mb else 0,
+        per_gpu_total_mb=per_gpu_total_mb[:min_gpus] if per_gpu_total_mb else None,
     ):
         if isinstance(opt_result, list):
             padded_ratios = opt_result
@@ -3007,10 +3121,16 @@ async def calibrate_llamacpp_model(
                 model_size_mb_1b = get_gguf_total_size(gguf_path) / (1024 ** 2)
                 mb_per_layer_1b = model_size_mb_1b / total_layers_1b
                 total_gpus_1b = gpu_info["gpu_count"]
-                per_gpu_total_mb_sorted = sorted(
-                    [g["total_mb"] for g in gpu_info["per_gpu"]],
+                _gpus_sorted_1b = sorted(
+                    gpu_info["per_gpu"],
+                    key=lambda g: g["total_mb"],
                     reverse=True,
                 )
+                per_gpu_total_mb_sorted = [g["total_mb"] for g in _gpus_sorted_1b]
+                gpu_names_sorted_1b = [
+                    _short_gpu_name(g.get("gpu_model", f"GPU{i}"))
+                    for i, g in enumerate(_gpus_sorted_1b)
+                ]
                 min_gpus_1b = _find_min_gpus(
                     model_size_mb_1b, per_gpu_total_mb_sorted,
                 )
@@ -3065,20 +3185,21 @@ async def calibrate_llamacpp_model(
                             base_cmd_1b = _ensure_tensor_split(
                                 full_cmd, padded_1b,
                             )
+                            active_names_1b = gpu_names_sorted_1b[:n_gpus]
                             async for opt_result in _optimize_gpu_layers(
                                 base_cmd=base_cmd_1b,
                                 gguf_path=gguf_path,
                                 target_context=best_result,
                                 port=port,
                                 initial_layers=layers_1b,
-                                active_ratios=active_ratios_1b,
+                                active_gpu_names=active_names_1b,
                                 total_layers=total_layers_1b,
                                 total_gpus=total_gpus_1b,
                                 min_gpus=n_gpus,
                                 mb_per_layer=mb_per_layer_1b,
                                 phase_label="1b",
                                 safety_margin=safety_margin,
-                                gpu0_total_mb=per_gpu_total_mb_sorted[0],
+                                per_gpu_total_mb=per_gpu_total_mb_sorted[:n_gpus],
                             ):
                                 if isinstance(opt_result, list):
                                     optimized_ratios = opt_result
@@ -3130,11 +3251,17 @@ async def calibrate_llamacpp_model(
             else:
                 yield "Phase 2: Speed variant calibration (min-GPU optimization)"
                 await wait_for_vram_stable(max_wait_seconds=10.0)
-                # Build per-GPU VRAM lists sorted descending (FASTEST_FIRST)
-                per_gpu_total_mb = sorted(
-                    [g["total_mb"] for g in gpu_info["per_gpu"]],
+                # Build per-GPU lists sorted descending by VRAM (FASTEST_FIRST)
+                _gpus_sorted = sorted(
+                    gpu_info["per_gpu"],
+                    key=lambda g: g["total_mb"],
                     reverse=True,
                 ) if gpu_info and gpu_info.get("per_gpu") else []
+                per_gpu_total_mb = [g["total_mb"] for g in _gpus_sorted]
+                cuda_gpu_names = [
+                    _short_gpu_name(g.get("gpu_model", f"GPU{i}"))
+                    for i, g in enumerate(_gpus_sorted)
+                ]
                 # Free VRAM for min_gpus (accounts for TTS in VRAM)
                 from .gpu_utils import get_all_gpus_memory_info as _get_gpu_info
                 _fresh_gpu = _get_gpu_info()
@@ -3149,6 +3276,7 @@ async def calibrate_llamacpp_model(
                     safety_margin=safety_margin,
                     base_kv=best_kv,
                     per_gpu_free_mb=per_gpu_free_mb,
+                    cuda_gpu_names=cuda_gpu_names,
                 ):
                     yield msg
         async for msg in _finish_calibration(best_result, 99, "gpu", thinking_result=thinking_result):
