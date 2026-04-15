@@ -513,8 +513,6 @@ class DocumentMixin(rx.State, mixin=True):
 
         try:
             text = parser(file_path)
-            if len(text) > 10_000:
-                text = text[:10_000] + f"\n\n... ({len(text) - 10_000} chars truncated)"
             self.document_preview_filename = filename
             self.document_preview_content = text
         except Exception as e:
