@@ -942,9 +942,10 @@ def _doc_delete_dialog() -> rx.Component:
                 ),
                 spacing="3",
                 padding="16px",
-                background="#2a1a1a",
+                background="#1a1a1a",
                 border_radius="8px",
                 border="1px solid #c0392b",
+                box_shadow="0 -4px 20px rgba(0, 0, 0, 0.8)",
                 width="100%",
             ),
         ),
@@ -1030,19 +1031,30 @@ def document_manager_modal() -> rx.Component:
                             ),
                             spacing="1", align="center",
                         ),
-                        rx.tooltip(
-                            rx.icon_button(
-                                rx.icon("folder-plus", size=14), size="1",
-                                variant="ghost", color_scheme="yellow",
-                                on_click=AIState.doc_open_create_folder, cursor="pointer",
+                        rx.hstack(
+                            rx.tooltip(
+                                rx.icon_button(
+                                    rx.icon("folder-plus", size=14), size="1",
+                                    variant="ghost", color_scheme="yellow",
+                                    on_click=AIState.doc_open_create_folder, cursor="pointer",
+                                ),
+                                content=rx.cond(AIState.ui_language == "de", "Ordner anlegen", "Create folder"),
                             ),
-                            content=rx.cond(AIState.ui_language == "de", "Ordner anlegen", "Create folder"),
+                            rx.tooltip(
+                                rx.icon_button(
+                                    rx.icon("refresh-cw", size=14), size="1",
+                                    variant="ghost", color_scheme="gray",
+                                    on_click=AIState.doc_refresh, cursor="pointer",
+                                ),
+                                content=rx.cond(AIState.ui_language == "de", "Aktualisieren", "Refresh"),
+                            ),
+                            spacing="1",
                         ),
                     ),
                     spacing="1", align="center", width="100%",
                 ),
 
-                # Two-column layout: file list | preview
+                # Two-column layout: file list | preview (flex=1 fills remaining modal height)
                 rx.flex(
                     # Left: File list
                     rx.vstack(
@@ -1066,22 +1078,31 @@ def document_manager_modal() -> rx.Component:
                             border="none", padding="0", width="100%",
                         ),
 
-                        # File listing
-                        rx.cond(
-                            AIState.doc_file_list.length() > 0,
-                            rx.vstack(
-                                rx.foreach(AIState.doc_file_list, _doc_file_row),
-                                spacing="0", width="100%",
+                        # File listing (own scroll container)
+                        rx.box(
+                            rx.cond(
+                                AIState.doc_file_list.length() > 0,
+                                rx.vstack(
+                                    rx.foreach(AIState.doc_file_list, _doc_file_row),
+                                    # File count
+                                    rx.text(
+                                        AIState.doc_file_list.length().to(str) + rx.cond(
+                                            AIState.ui_language == "de", " Dateien", " files"),
+                                        font_size="10px", color="#555", padding="4px 0",
+                                    ),
+                                    spacing="0", width="100%",
+                                ),
+                                rx.text(
+                                    rx.cond(AIState.ui_language == "de",
+                                            "Leerer Ordner", "Empty folder"),
+                                    color="#666", font_size="13px", padding="20px 0",
+                                ),
                             ),
-                            rx.text(
-                                rx.cond(AIState.ui_language == "de",
-                                        "Leerer Ordner", "Empty folder"),
-                                color="#666", font_size="13px", padding="20px 0",
-                            ),
+                            flex="1",
+                            min_height="0",
+                            overflow_y="scroll",
+                            width="100%",
                         ),
-
-                        # Delete confirmation dialog
-                        _doc_delete_dialog(),
 
                         # Status message
                         rx.cond(
@@ -1090,10 +1111,22 @@ def document_manager_modal() -> rx.Component:
                                     font_size="12px", color="#aaa"),
                         ),
 
+                        # Delete confirmation dialog (absolute overlay)
+                        rx.box(
+                            _doc_delete_dialog(),
+                            position="absolute",
+                            bottom="0",
+                            left="0",
+                            right="0",
+                            z_index="10",
+                            background="#1a1a1a",
+                        ),
+
+                        position="relative",
                         flex=["1 1 100%", "1 1 100%", "0 0 45%"],
-                        max_height=["40vh", "40vh", "70vh"],
-                        overflow_y="auto",
-                        overflow_x="hidden",
+                        height="100%",
+                        min_height="0",
+                        overflow="hidden",
                         padding_right=["0", "0", "15px"],
                         border_right=["none", "none", "1px solid #333"],
                         spacing="2",
@@ -1137,13 +1170,16 @@ def document_manager_modal() -> rx.Component:
                             ),
                         ),
                         flex=["1 1 100%", "1 1 100%", "0 0 55%"],
-                        max_height=["40vh", "40vh", "70vh"],
+                        min_height="0",
                         overflow_y="auto",
                         padding_left=["0", "0", "15px"],
                     ),
 
                     width="100%", align="start", gap="0",
                     direction=rx.breakpoints(initial="column", md="row"),
+                    flex="1",
+                    min_height="0",
+                    overflow="hidden",
                 ),
 
                 spacing="3",

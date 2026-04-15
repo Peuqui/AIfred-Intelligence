@@ -117,6 +117,7 @@ class DocumentMixin(rx.State, mixin=True):
             })
 
         self.doc_file_list = items
+        self.add_debug(f"📂 _refresh_file_list: folder={self.doc_current_folder!r}, {len(items)} items: {[i['name'] for i in items]}")  # type: ignore[attr-defined]
 
     def doc_navigate_folder(self, folder_name: str) -> None:
         """Navigate into a subfolder."""
@@ -146,6 +147,10 @@ class DocumentMixin(rx.State, mixin=True):
     # ================================================================
     # CREATE / DELETE FOLDER
     # ================================================================
+
+    def doc_refresh(self) -> None:
+        """Refresh the file list (e.g. after agent wrote files)."""
+        self._refresh_file_list()
 
     def doc_open_create_folder(self) -> None:
         """Show inline input for new folder name."""
