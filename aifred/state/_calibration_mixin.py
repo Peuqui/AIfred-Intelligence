@@ -856,9 +856,12 @@ class CalibrationMixin(rx.State, mixin=True):
 
                 max_retries = 40  # up to 20s — autoscan ExecStartPre can take time
                 llamacpp_ready = False
+                # backend_url already includes /v1 (see config.BACKEND_URLS) —
+                # append only /models, not /v1/models.
+                models_url = f"{str(self.backend_url).rstrip('/')}/models"  # type: ignore[attr-defined]
                 for attempt in range(max_retries):
                     try:
-                        response = httpx.get(f"{self.backend_url}/v1/models", timeout=2.0)  # type: ignore[attr-defined]
+                        response = httpx.get(models_url, timeout=2.0)
                         if response.status_code == 200:
                             elapsed = (attempt + 1) * 0.5
                             self.add_debug(f"✅ llama-swap ready after {elapsed:.1f}s")  # type: ignore[attr-defined]
