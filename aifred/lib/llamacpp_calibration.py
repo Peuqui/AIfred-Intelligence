@@ -2144,18 +2144,30 @@ def _build_balanced_split(
     → Fast group (2x RTX): 72/2 = 36 each
     → Slow group (1x P40): 88-72 = 16
     → [36.0, 36.0, 16.0]
+
+    When fast_group_total is not evenly divisible, the remainder goes to the
+    *later* fast-GPU indices (CUDA1, CUDA2, …), not CUDA0. Reason: llama.cpp
+    places the token-embedding matrix and LM-head on CUDA0 regardless of
+    tensor-split. For large-vocab models this is ~2–3 GB of extra VRAM that
+    never shows up in the ratio. Giving the extra transformer layer to a
+    later GPU keeps CUDA0 headroom for that invisible overhead and lets the
+    binary-search in _optimize_gpu_layers push one more layer onto the fast
+    group before hitting OOM.
     """
     groups = _group_gpus_by_name(gpu_names)
     rest = total_layers - fast_group_total
 
     result = [0.0] * len(gpu_names)
 
-    # Fast group: distribute equally
+    # Fast group: distribute equally, remainder goes to later GPUs (not CUDA0).
     fast_indices = groups[0]
     per_fast = fast_group_total // len(fast_indices)
     remainder = fast_group_total % len(fast_indices)
+    fast_len = len(fast_indices)
     for i, idx in enumerate(fast_indices):
-        result[idx] = float(per_fast + (1 if i < remainder else 0))
+        # Give the extra layer(s) to the LAST indices in the fast group.
+        extra = 1 if (fast_len - 1 - i) < remainder else 0
+        result[idx] = float(per_fast + extra)
 
     # Remaining groups: distribute rest proportionally by group size
     slow_groups = groups[1:]
@@ -2297,10 +2309,12 @@ async def _optimize_gpu_layers(
         low = estimated_max + 1
         high = min(total_layers, max_physical_fast)
         best_fast_total = estimated_max
+        best_gpu_list = est_gpus
     else:
         low = initial_fast_total + 1
         high = estimated_max - 1
         best_fast_total = initial_fast_total
+        best_gpu_list = None
 
     while low <= high:
         mid = (low + high) // 2
@@ -2320,11 +2334,70 @@ async def _optimize_gpu_layers(
 
         if mid_fits:
             best_fast_total = mid
+            best_gpu_list = mid_gpus
             low = mid + 1
         else:
             high = mid - 1
 
     padded_ratios = _split_and_pad(best_fast_total)
+
+    # ── Greedy layer shift: move layers from slow to fast GPUs ──
+    # After the binary search, individual fast GPUs may still have headroom
+    # (e.g. CUDA1 has 3 GB free while CUDA0 is full due to embedding overhead).
+    # Try moving one layer at a time from the slowest GPU to the fast GPU
+    # with the most free VRAM. Purely data-driven — no model-specific
+    # knowledge needed, just observed free VRAM from the last physical test.
+    if best_gpu_list and mb_per_layer > 0:
+        current_ratios = list(padded_ratios)
+        shifted = True
+        while shifted:
+            shifted = False
+            # Find fast GPU with most free VRAM
+            best_fast_idx = -1
+            best_fast_free = 0
+            for fi in fast_indices:
+                if fi < len(best_gpu_list):
+                    free = best_gpu_list[fi].get("free_mb", 0)
+                    if free > best_fast_free:
+                        best_fast_free = free
+                        best_fast_idx = fi
+            if best_fast_free < mb_per_layer or best_fast_idx < 0:
+                break
+            # Find slow GPU with layers to donate
+            donor_idx = -1
+            for si in range(len(current_ratios)):
+                if si in fast_indices:
+                    continue
+                if current_ratios[si] > 0:
+                    donor_idx = si
+                    break
+            if donor_idx < 0:
+                break
+            # Test the shift physically
+            test_ratios = list(current_ratios)
+            test_ratios[best_fast_idx] += 1
+            test_ratios[donor_idx] -= 1
+            test_cmd = _replace_tensor_split(base_cmd, test_ratios)
+            test_split = _format_layer_split(test_ratios)
+            iteration += 1
+            test_fits, _, test_gpus, _ = await _test_context_physical(
+                test_cmd, target_context, port,
+                safety_margin=safety_margin,
+            )
+            yield _fmt_test(
+                f"{phase_label}.{iteration}", target_context,
+                fits=test_fits, gpu_list=test_gpus, split=test_split,
+            )
+            if test_fits:
+                current_ratios = test_ratios
+                best_gpu_list = test_gpus
+                shifted = True
+            else:
+                break
+
+        if current_ratios != list(padded_ratios):
+            padded_ratios = [float(r) for r in current_ratios]
+
     best_split = _format_layer_split(padded_ratios)
     yield f"Phase {phase_label} result: {best_split} ({min_gpus}/{total_gpus} GPUs)"
     yield padded_ratios
