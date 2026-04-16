@@ -43,6 +43,80 @@ LLAMASWAP_CONFIG = Path.home() / ".config" / "llama-swap" / "config.yaml"
 # Delete an entry manually to re-test after a llama.cpp update.
 AUTOSCAN_SKIP_FILE = LLAMASWAP_CONFIG.parent / "autoscan-skip.json"
 
+
+# ---------------------------------------------------------------------------
+# Config IO — SSOT for llama-swap config.yaml read/write
+# ---------------------------------------------------------------------------
+#
+# The config has strict structural invariants that must hold after every write:
+#   1. Content ends with a newline
+#   2. A 'models:' header exists before any model entries
+#   3. No duplicate model keys under 'models:'
+#
+# All writes to LLAMASWAP_CONFIG go through _write_config(). Any other code
+# path that writes the file directly is a bug. The previous design allowed
+# multiple functions (write_gpu_fingerprint, append_models_to_yaml, …) to
+# write independently, which produced broken files that caused an append-
+# spiral of duplicates when autoscan re-read them.
+
+_MODELS_HEADER_RE = re.compile(r'^models:\s*$', re.MULTILINE)
+_MODEL_KEY_RE = re.compile(r'^  ([A-Za-z0-9][A-Za-z0-9._-]*):\s*$', re.MULTILINE)
+_GPU_FINGERPRINT_PREFIX = "# gpu_hardware:"
+
+
+def _enforce_config_invariants(content: str) -> str:
+    """Return ``content`` normalized so all structural invariants hold.
+
+    - Trailing newline
+    - ``models:`` header present (inserted after the GPU fingerprint comment
+      if that exists on line 1, otherwise prepended)
+    """
+    if not content.endswith("\n"):
+        content += "\n"
+
+    if _MODELS_HEADER_RE.search(content):
+        return content
+
+    # No 'models:' header — heal by inserting one at the correct position.
+    lines = content.splitlines(keepends=True)
+    if lines and lines[0].startswith(_GPU_FINGERPRINT_PREFIX):
+        lines.insert(1, "models:\n")
+    else:
+        lines.insert(0, "models:\n")
+    return "".join(lines)
+
+
+def _assert_no_duplicate_model_keys(content: str, config_path: Path) -> None:
+    """Raise if any 2-space-indent model key appears more than once.
+
+    This catches the append-spiral bug class at write time rather than at
+    llama-swap parse time (which only surfaces after systemd restart).
+    """
+    keys = _MODEL_KEY_RE.findall(content)
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for key in keys:
+        if key in seen and key not in duplicates:
+            duplicates.append(key)
+        seen.add(key)
+    if duplicates:
+        raise RuntimeError(
+            f"Refusing to write {config_path}: duplicate model keys "
+            f"{duplicates} — this indicates a bug in the caller."
+        )
+
+
+def _write_config(config_path: Path, content: str) -> None:
+    """Write ``content`` to ``config_path`` after enforcing all invariants.
+
+    This is the **only** function that should call ``write_text`` on
+    LLAMASWAP_CONFIG. Raises ``RuntimeError`` on structural corruption
+    rather than silently writing a broken file.
+    """
+    content = _enforce_config_invariants(content)
+    _assert_no_duplicate_model_keys(content, config_path)
+    config_path.write_text(content)
+
 # VRAM cache lives in the AIfred data directory
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
@@ -187,15 +261,15 @@ def write_gpu_fingerprint(config_path: Path, fingerprint: str) -> None:
     """Write or update GPU fingerprint as first line comment in config."""
     new_line = f"# gpu_hardware: {fingerprint}\n"
     if not config_path.exists():
-        config_path.write_text(new_line)
+        _write_config(config_path, new_line)
         return
     content = config_path.read_text()
-    if content.startswith("# gpu_hardware:"):
+    if content.startswith(_GPU_FINGERPRINT_PREFIX):
         # Replace existing fingerprint line
         rest = content.split("\n", 1)[1] if "\n" in content else ""
-        config_path.write_text(new_line + rest)
+        _write_config(config_path, new_line + rest)
     else:
-        config_path.write_text(new_line + content)
+        _write_config(config_path, new_line + content)
 
 
 def _parse_fingerprint_vrams(fingerprint: str) -> list[int]:
@@ -359,7 +433,7 @@ def update_all_tensor_splits(config_path: Path, per_gpu_vram: list[int]) -> int:
 
         i = cmd_end + 1
 
-    config_path.write_text("".join(lines))
+    _write_config(config_path, "".join(lines))
     return updated_count
 
 
@@ -1299,7 +1373,7 @@ def append_models_to_yaml(
     else:
         content += new_blocks
 
-    config_path.write_text(content)
+    _write_config(config_path, content)
     return added
 
 
@@ -1414,7 +1488,7 @@ def update_groups_in_yaml(config_path: Path) -> None:
         f"{members_yaml}\n"
     )
 
-    config_path.write_text(content)
+    _write_config(config_path, content)
 
 
 # ---------------------------------------------------------------------------
@@ -1461,7 +1535,7 @@ def normalize_yaml_indentation(config_path: Path) -> int:
             fixed += 1
 
     if fixed:
-        config_path.write_text("".join(lines))
+        _write_config(config_path, "".join(lines))
 
     return fixed
 
@@ -1648,7 +1722,7 @@ def cleanup_stale_config(config_path: Path) -> list[str]:
     # Remove orphaned autoscan markers (consecutive markers with no model between them)
     content = re.sub(r'(  # \[autoscan\]\n)+  # \[autoscan\]\n', '', content)
     content = re.sub(r'\n{3,}', '\n\n', content)
-    config_path.write_text(content)
+    _write_config(config_path, content)
 
     return [name for name, _ in stale]
 
@@ -1861,7 +1935,7 @@ def _recalibrate_reset() -> None:
         result_lines.append(line)
         i += 1
 
-    LLAMASWAP_CONFIG.write_text("".join(result_lines))
+    _write_config(LLAMASWAP_CONFIG, "".join(result_lines))
 
     # Remove only autoscan entries from VRAM cache (keep AIfred calibration data)
     if removed and VRAM_CACHE_FILE.exists():
