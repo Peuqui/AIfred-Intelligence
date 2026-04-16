@@ -135,13 +135,15 @@ def _fmt_test(
     parts.append(status)
 
     # VRAM detail
+    # gpu_list is expected to be in CUDA order (produced by _to_cuda_order);
+    # cuda_gpu_names is parallel to that. We iterate positionally — matching
+    # by name would collapse same-named GPUs (e.g. 2x RTX 8000) onto a single
+    # entry and mis-report per-GPU VRAM.
     if gpu_list:
         vram_parts = []
-        if cuda_gpu_names:
-            for i, name in enumerate(cuda_gpu_names):
-                matched = next((g for g in gpu_list if g["name"] == name), None)
-                if matched:
-                    vram_parts.append(f"{name}: {format_number(matched['free_mb'])} MB")
+        if cuda_gpu_names and len(cuda_gpu_names) == len(gpu_list):
+            for name, g in zip(cuda_gpu_names, gpu_list):
+                vram_parts.append(f"{name}: {format_number(g['free_mb'])} MB")
         else:
             for g in gpu_list:
                 name = g.get("name", f"GPU{g.get('index', '?')}")
@@ -164,14 +166,15 @@ def _format_cuda_detail(
     and label as CUDA0, CUDA1, etc. Otherwise use gpu_list as-is with
     cuda_id field (if present) or GPU index as label.
     """
-    if cuda_gpu_names:
+    # gpu_list is expected to be in CUDA order; cuda_gpu_names parallel to it.
+    # Matching by name (as previously done) silently collapses same-named GPUs
+    # (e.g. 2x RTX 8000) onto a single entry — iterate positionally instead.
+    if cuda_gpu_names and len(cuda_gpu_names) == len(gpu_list):
         parts: list[str] = []
-        for i, name in enumerate(cuda_gpu_names):
-            matched = next((g for g in gpu_list if g["name"] == name), None)
-            if matched:
-                parts.append(
-                    f"{name} (CUDA{i}): {format_number(matched['free_mb'])} MB free"
-                )
+        for i, (name, g) in enumerate(zip(cuda_gpu_names, gpu_list)):
+            parts.append(
+                f"{name} (CUDA{i}): {format_number(g['free_mb'])} MB free"
+            )
         if parts:
             return ", ".join(parts)
     # Use cuda_id if available, else GPU index
@@ -1390,7 +1393,6 @@ async def _physical_context_search(
     #         return
     # --- END DISABLED ---
 
-    per_gpu_low: dict[str, dict[str, int]] = {}
     projected = native_context
 
     # 2. Physical test at native context
@@ -1404,24 +1406,12 @@ async def _physical_context_search(
         full_cmd, projected, port, run_thinking_test=run_thinking_test,
         safety_margin=safety_margin,
     )
-    # Build CUDA-ordered gpu_list by matching fit-params GPU names with nvidia-smi
-    cuda_gpu_list: list[dict[str, Any]] = []
-    if gpu_list and per_gpu_low:
-        for cuda_id in sorted(per_gpu_low.keys()):  # CUDA0, CUDA1, ...
-            cuda_name = _short_gpu_name(str(per_gpu_low[cuda_id].get("name", "")))
-            matched = next((g for g in gpu_list if g["name"] == cuda_name), None)
-            if matched:
-                cuda_gpu_list.append({
-                    "cuda_id": cuda_id,
-                    "name": cuda_name,
-                    "total_mb": matched["total_mb"],
-                    "free_mb": matched["free_mb"],
-                })
-        if len(cuda_gpu_list) != len(gpu_list):
-            # Name matching failed (e.g. same-model GPUs)
-            cuda_gpu_list = gpu_list
-    else:
-        cuda_gpu_list = gpu_list
+    # gpu_list is already in CUDA order (_to_cuda_order tagged it with cuda_id
+    # labels inside _test_context_physical). The previous VRAM-projection code
+    # populated per_gpu_low and did a name-based remap here, but that block is
+    # disabled; per_gpu_low is permanently empty, so the remap never runs and
+    # would collapse same-named GPUs (2x RTX 8000) onto gpu_list[0] anyway.
+    cuda_gpu_list: list[dict[str, Any]] = gpu_list
 
     # CUDA-ordered GPU names for consistent formatting everywhere
     cuda_gpu_names = [g["name"] for g in cuda_gpu_list]
