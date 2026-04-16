@@ -480,6 +480,50 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
                     yield
 
+                    # Isolated-mode shortcut: if speed variant fits on a single
+                    # GPU and a second (non-TTS) GPU is available, skip the
+                    # expensive shared-mode calibration entirely. The speed
+                    # result's full context is valid as long as LLM and TTS
+                    # occupy disjoint GPUs enforced via CUDA_VISIBLE_DEVICES.
+                    if speed_num_gpus == 1 and speed_split_cuda0 > 0:
+                        from ..lib.process_utils import (
+                            _gpu_ranking,
+                            get_llm_speed_gpu_id,
+                            get_tts_gpu_id,
+                        )
+                        ranking = _gpu_ranking()
+                        tts_gpu = get_tts_gpu_id()
+                        llm_gpu = get_llm_speed_gpu_id(tts_gpu)
+                        if len(ranking) >= 2 and llm_gpu != tts_gpu:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   🎯 Isolated mode: LLM on CUDA{llm_gpu}, "
+                                f"{tts_label} on CUDA{tts_gpu} — "
+                                f"reusing speed result (ctx {format_number(speed_split_context)})"
+                            )
+                            yield
+                            speed_model_id = f"{calibration_model_id}-speed"
+                            added = add_llamaswap_tts_variant(
+                                LLAMASWAP_CONFIG_PATH,
+                                calibration_model_id,
+                                speed_split_context,
+                                tts_backend,
+                                kv_quant=speed_kv_quant,
+                                cuda_visible_devices=str(llm_gpu),
+                                source_model_id=speed_model_id,
+                            )
+                            if added:
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   ✅ {tts_label} variant: "
+                                    f"{calibration_model_id}-tts-{tts_backend} "
+                                    f"(isolated, ctx {format_number(speed_split_context)})"
+                                )
+                            else:
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   ⚠️ Could not write {tts_label} variant to config"
+                                )
+                            yield
+                            continue  # skip shared-mode calibration for this backend
+
                     tts_ok = start_fn()
                     if not tts_ok:
                         self.add_debug(f"⚠️ {tts_label} not available, skipping TTS variant")  # type: ignore[attr-defined]

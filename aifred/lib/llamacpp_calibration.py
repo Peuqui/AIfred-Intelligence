@@ -1872,6 +1872,8 @@ def add_llamaswap_tts_variant(
     kv_quant: str = "f16",
     tensor_split: str = "",
     num_gpus: int = 0,
+    cuda_visible_devices: str = "",
+    source_model_id: str | None = None,
 ) -> bool:
     """
     Add (or update) a TTS variant YAML entry in the llama-swap config.
@@ -1886,7 +1888,16 @@ def add_llamaswap_tts_variant(
         tts_backend: TTS backend name ("xtts" or "moss")
         kv_quant: KV cache quantization level ("f16", "q8_0", "q4_0")
         tensor_split: Calibrated tensor-split for TTS variant (e.g. "18,9,9")
-        num_gpus: Number of GPUs for TTS variant (for CUDA_VISIBLE_DEVICES)
+        num_gpus: Number of GPUs for TTS variant. When non-zero and
+            cuda_visible_devices is empty, emits CUDA_VISIBLE_DEVICES=0,1,...
+            (shared mode — LLM occupies the first num_gpus GPUs).
+        cuda_visible_devices: Explicit CUDA_VISIBLE_DEVICES value (e.g. "1").
+            Takes precedence over num_gpus. Used in isolated mode when the
+            LLM should sit on a specific GPU that isn't where TTS runs.
+        source_model_id: Model entry to copy as template. Defaults to model_id
+            (the base variant). In isolated mode pass the speed variant
+            ``f"{model_id}-speed"`` so the TTS variant inherits the already-
+            tuned single-GPU tensor-split and context.
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
@@ -1894,10 +1905,11 @@ def add_llamaswap_tts_variant(
 
     config = _read_llamaswap_yaml(config_path)
     tts_model_id = f"{model_id}-tts-{tts_backend}"
+    src_id = source_model_id or model_id
 
-    tts_entry = _copy_model_entry(config, model_id, tts_model_id)
+    tts_entry = _copy_model_entry(config, src_id, tts_model_id)
     if tts_entry is None:
-        logger.error(f"Model {model_id} not found in llama-swap config")
+        logger.error(f"Source model {src_id} not found in llama-swap config")
         return False
 
     cmd = tts_entry.get("cmd", "")
@@ -1910,8 +1922,11 @@ def add_llamaswap_tts_variant(
 
     tts_entry["cmd"] = cmd
 
-    # Apply TTS-specific CUDA_VISIBLE_DEVICES if GPU count differs
-    if num_gpus > 0:
+    # Apply CUDA_VISIBLE_DEVICES: explicit value wins (isolated mode),
+    # otherwise derive from num_gpus (shared mode legacy behavior).
+    if cuda_visible_devices:
+        tts_entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_visible_devices}"]
+    elif num_gpus > 0:
         cuda_vis = ",".join(str(i) for i in range(num_gpus))
         tts_entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_vis}"]
 

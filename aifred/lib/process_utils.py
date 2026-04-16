@@ -220,29 +220,91 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
     return False, message
 
 
-def _detect_fastest_gpu() -> str:
-    """Detect fastest GPU by VRAM size. Returns GPU index as string.
+def _gpu_ranking() -> list[tuple[int, float, int]]:
+    """Rank all visible GPUs fastest-first.
 
-    Does NOT write any files (avoid triggering Reflex hot-reload).
+    Returns list of ``(gpu_id, compute_capability, memory_total_mb)`` tuples,
+    sorted descending by ``(compute_capability, memory_total_mb)``.
+
+    Rationale: memory.total alone is misleading across GPU generations —
+    a 24 GB RTX 3090 (compute 8.6, ~936 GB/s) outperforms a 48 GB RTX 8000
+    (compute 7.5, ~672 GB/s) on inference workloads. Compute capability
+    is a reliable proxy for architectural speed; VRAM breaks ties within
+    the same architecture.
+
+    Returns empty list on any nvidia-smi failure.
     """
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,memory.total", "--format=csv,noheader,nounits"],
+            ["nvidia-smi",
+             "--query-gpu=index,compute_cap,memory.total",
+             "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode != 0:
-            return "0"
-        best_id, best_vram = "0", 0
-        for line in result.stdout.strip().split("\n"):
-            parts = line.split(",")
-            if len(parts) == 2:
-                gpu_id = parts[0].strip()
-                vram = int(parts[1].strip())
-                if vram > best_vram:
-                    best_id, best_vram = gpu_id, vram
-        return best_id
+            return []
     except (OSError, subprocess.TimeoutExpired):
-        return "0"
+        return []
+
+    entries: list[tuple[int, float, int]] = []
+    for line in result.stdout.strip().split("\n"):
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 3:
+            continue
+        try:
+            entries.append((int(parts[0]), float(parts[1]), int(parts[2])))
+        except ValueError:
+            continue
+
+    # Sort: higher compute_cap first, higher VRAM as tiebreaker
+    entries.sort(key=lambda e: (e[1], e[2]), reverse=True)
+    return entries
+
+
+def _detect_fastest_gpu() -> str:
+    """Return the fastest GPU's index as string.
+
+    Falls back to "0" if nvidia-smi is unavailable. Does NOT write any
+    files (avoid triggering Reflex hot-reload).
+    """
+    ranking = _gpu_ranking()
+    return str(ranking[0][0]) if ranking else "0"
+
+
+def get_tts_gpu_id() -> int:
+    """Return the GPU index that TTS containers are pinned to.
+
+    TTS compose files use ``device_ids: ['${FASTEST_GPU_ID:-1}']`` and
+    ``FASTEST_GPU_ID`` is set by ``_detect_fastest_gpu()`` at container
+    start. So the TTS GPU == the system's currently-fastest GPU.
+
+    Returns GPU index as int (defaults to 1 if detection fails, matching
+    the compose-file fallback).
+    """
+    try:
+        return int(_detect_fastest_gpu())
+    except ValueError:
+        return 1
+
+
+def get_llm_speed_gpu_id(tts_gpu_id: int | None = None) -> int:
+    """Pick the GPU for a single-GPU LLM variant that should NOT collide with TTS.
+
+    Returns the fastest GPU that isn't ``tts_gpu_id``. If only one GPU is
+    visible (or all GPUs are the TTS GPU), falls back to the TTS GPU — caller
+    has to accept the shared-mode collision in that case.
+
+    If ``tts_gpu_id`` is None, the current TTS GPU is auto-detected.
+    """
+    if tts_gpu_id is None:
+        tts_gpu_id = get_tts_gpu_id()
+
+    ranking = _gpu_ranking()
+    for gpu_id, _cap, _vram in ranking:
+        if gpu_id != tts_gpu_id:
+            return gpu_id
+    # Only one GPU or detection failed → caller handles shared mode
+    return tts_gpu_id
 
 
 def _docker_compose_action(
