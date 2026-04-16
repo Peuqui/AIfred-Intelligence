@@ -2755,7 +2755,7 @@ async def calibrate_llamacpp_model(
     port: int = LLAMACPP_CALIBRATION_PORT,
     config_path: Optional[Path] = None,
     min_kv: str = "f16",
-    skip_thinking: bool = False,
+    known_thinking: Optional[bool] = None,
 ) -> AsyncIterator[str]:
     """
     Projection-based calibration for a llama.cpp model.
@@ -2975,7 +2975,9 @@ async def calibrate_llamacpp_model(
     kv_levels = all_kv_levels[min_kv_idx:]
     best_result = 0
     best_kv = min_kv
-    thinking_result: Optional[bool] = True if skip_thinking else None
+    # None → thinking will be tested at native context. True/False → caller
+    # passed the previously-tested value so we skip the re-test and reuse it.
+    thinking_result: Optional[bool] = known_thinking
     optimized_ratios: Optional[list[float]] = None
 
     # For single-GPU: pre-set tensor-split ratios for config write-back

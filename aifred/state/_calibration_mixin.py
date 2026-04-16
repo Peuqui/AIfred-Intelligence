@@ -327,7 +327,9 @@ class CalibrationMixin(rx.State, mixin=True):
             calibrated_ngl = 99
             calibrated_mode = "gpu"
             calibration_kv = "f16"
+            calibrated_num_gpus = 0
             thinking_tested = False
+            supports_thinking = False
             speed_layer_split = ""
             speed_split_cuda0 = 0
             speed_split_rest = 0
@@ -346,6 +348,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     calibrated_ngl = r["ngl"]
                     calibrated_mode = r["mode"]
                     calibration_kv = r["kv"]
+                    calibrated_num_gpus = r["num_gpus"]
                     if r["thinks_tested"]:
                         thinking_tested = True
                         supports_thinking = r["thinks"]
@@ -480,12 +483,24 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
                     yield
 
-                    # Isolated-mode shortcut: if speed variant fits on a single
-                    # GPU and a second (non-TTS) GPU is available, skip the
-                    # expensive shared-mode calibration entirely. The speed
-                    # result's full context is valid as long as LLM and TTS
-                    # occupy disjoint GPUs enforced via CUDA_VISIBLE_DEVICES.
-                    if speed_num_gpus == 1 and speed_split_cuda0 > 0:
+                    # Isolated-mode shortcut: LLM fits on a single GPU and
+                    # a second (non-TTS) GPU is available — skip the expensive
+                    # shared-mode calibration entirely. The base/speed result
+                    # is valid as long as LLM and TTS occupy disjoint GPUs
+                    # enforced via CUDA_VISIBLE_DEVICES.
+                    #
+                    # Two sub-cases:
+                    #  a) speed variant exists and is single-GPU → copy -speed
+                    #  b) base is already single-GPU (speed skipped for small
+                    #     models that already fit on 1 GPU at native context)
+                    #     → copy base
+                    use_speed = speed_num_gpus == 1 and speed_split_cuda0 > 0
+                    use_base = (
+                        not use_speed
+                        and speed_num_gpus == 0
+                        and calibrated_num_gpus == 1
+                    )
+                    if use_speed or use_base:
                         from ..lib.process_utils import (
                             _gpu_ranking,
                             get_llm_speed_gpu_id,
@@ -495,27 +510,33 @@ class CalibrationMixin(rx.State, mixin=True):
                         tts_gpu = get_tts_gpu_id()
                         llm_gpu = get_llm_speed_gpu_id(tts_gpu)
                         if len(ranking) >= 2 and llm_gpu != tts_gpu:
+                            iso_ctx = speed_split_context if use_speed else calibrated_ctx
+                            iso_kv = speed_kv_quant if use_speed else calibration_kv
+                            iso_source = (
+                                f"{calibration_model_id}-speed" if use_speed
+                                else calibration_model_id
+                            )
+                            source_label = "speed" if use_speed else "base"
                             self.add_debug(  # type: ignore[attr-defined]
                                 f"   🎯 Isolated mode: LLM on CUDA{llm_gpu}, "
                                 f"{tts_label} on CUDA{tts_gpu} — "
-                                f"reusing speed result (ctx {format_number(speed_split_context)})"
+                                f"reusing {source_label} result (ctx {format_number(iso_ctx)})"
                             )
                             yield
-                            speed_model_id = f"{calibration_model_id}-speed"
                             added = add_llamaswap_tts_variant(
                                 LLAMASWAP_CONFIG_PATH,
                                 calibration_model_id,
-                                speed_split_context,
+                                iso_ctx,
                                 tts_backend,
-                                kv_quant=speed_kv_quant,
+                                kv_quant=iso_kv,
                                 cuda_visible_devices=str(llm_gpu),
-                                source_model_id=speed_model_id,
+                                source_model_id=iso_source,
                             )
                             if added:
                                 self.add_debug(  # type: ignore[attr-defined]
                                     f"   ✅ {tts_label} variant: "
                                     f"{calibration_model_id}-tts-{tts_backend} "
-                                    f"(isolated, ctx {format_number(speed_split_context)})"
+                                    f"(isolated, ctx {format_number(iso_ctx)})"
                                 )
                             else:
                                 self.add_debug(  # type: ignore[attr-defined]
@@ -537,9 +558,14 @@ class CalibrationMixin(rx.State, mixin=True):
                     tts_kv = calibration_kv
                     tts_tensor_split = ""
                     tts_num_gpus = 0
+                    # Pass through the base-phase thinking result instead of
+                    # just "skip" — previously the sub-calibration hard-coded
+                    # thinking_result=True whenever skipped, causing Instruct
+                    # models to falsely report "Reasoning: yes" in TTS phases.
+                    known_thinking = supports_thinking if thinking_tested else None
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
-                        skip_thinking=thinking_tested,
+                        known_thinking=known_thinking,
                     ):
                         if progress_msg.startswith("__RESULT__:"):
                             r = _parse_calibration_result(progress_msg)

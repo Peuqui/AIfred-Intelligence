@@ -341,7 +341,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         model: str,
         dry_run: bool = False,
         min_kv: str = "f16",
-        skip_thinking: bool = False,
+        known_thinking: Optional[bool] = None,
     ) -> AsyncIterator[str]:
         """
         Calibrate maximum context for a llama.cpp model via binary search.
@@ -434,7 +434,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 full_cmd=cal_cmd,
                 config_path=None if dry_run else LLAMASWAP_CONFIG_PATH,
                 min_kv=min_kv,
-                skip_thinking=skip_thinking,
+                known_thinking=known_thinking,
             ):
                 yield msg
         finally:
