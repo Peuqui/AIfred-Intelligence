@@ -402,21 +402,52 @@ class FreeEchoChannel(BaseChannel):
         # The device expects 48kHz mono int16 PCM
         pcm_data = await self._convert_to_pcm(tts_path, 48000)
         if pcm_data:
+            # Per-send timeout: if Puck stops ACKing the TCP stream (WiFi drop,
+            # crash, reboot), Linux TCP stack takes ~2 min to notice. With this
+            # timeout Alfred gives up cleanly after 10 s, logs it, and frees
+            # the WebSocket slot for the next reconnect.
+            CHUNK_SEND_TIMEOUT = 10.0
+
             chunk_size = 512 * 1024
             total = len(pcm_data)
             num_chunks = (total + chunk_size - 1) // chunk_size
             self.channel_log(f"[FreeEcho.2 {room}] Sending TTS: {total} bytes ({total/96000:.1f}s) in {num_chunks} chunks")
-            await ws.send_str(json.dumps({"type": "audio_start", "total_size": total}))
             offset = 0
             chunk_num = 0
-            while offset < total:
-                end = min(offset + chunk_size, total)
-                await ws.send_bytes(pcm_data[offset:end])
-                chunk_num += 1
-                self.channel_log(f"[FreeEcho.2 {room}] Chunk {chunk_num}/{num_chunks}: {end-offset} bytes sent")
-                offset = end
-            await ws.send_str(json.dumps({"type": "audio_end"}))
-            self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
+            try:
+                await asyncio.wait_for(
+                    ws.send_str(json.dumps({"type": "audio_start", "total_size": total})),
+                    timeout=CHUNK_SEND_TIMEOUT,
+                )
+                while offset < total:
+                    end = min(offset + chunk_size, total)
+                    await asyncio.wait_for(
+                        ws.send_bytes(pcm_data[offset:end]),
+                        timeout=CHUNK_SEND_TIMEOUT,
+                    )
+                    chunk_num += 1
+                    self.channel_log(f"[FreeEcho.2 {room}] Chunk {chunk_num}/{num_chunks}: {end-offset} bytes sent")
+                    offset = end
+                await asyncio.wait_for(
+                    ws.send_str(json.dumps({"type": "audio_end"})),
+                    timeout=CHUNK_SEND_TIMEOUT,
+                )
+                self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
+            except asyncio.TimeoutError:
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] Puck unreachable — giving up at chunk "
+                    f"{chunk_num}/{num_chunks} after {CHUNK_SEND_TIMEOUT:.0f}s timeout; "
+                    f"closing WebSocket for room '{room}'",
+                    "error",
+                )
+                # Close the WebSocket so the WS-handler task drops out of its
+                # receive loop and frees the room slot. Without this close
+                # Alfred would stay blocked on the dead TCP connection until
+                # the Puck eventually reconnects.
+                try:
+                    await ws.close(code=1001, message=b"puck send timeout")
+                except Exception:
+                    pass
         else:
             self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
 
