@@ -411,12 +411,14 @@ async def generate_session_title(
 
         if title:
             update_session_title(session_id, title)
-            log_message(f"Title generated: {title}")
+            from .debug_bus import debug
+            debug(f"📝 Title generated: {title}")
 
         return title
 
     except asyncio.TimeoutError:
-        log_message("Title generation timed out (>30s)")
+        from .debug_bus import debug
+        debug("⚠️ Title generation timed out (>30s)")
         return ""
     except Exception as exc:
         log_message(f"Title generation failed: {exc}", "warning")

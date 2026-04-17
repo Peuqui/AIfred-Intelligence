@@ -30,6 +30,13 @@ class ChatMixin(rx.State, mixin=True):
     current_agent_display_name: str = ""  # Display name for streaming UI
     current_agent_emoji: str = ""  # Emoji for streaming UI
     is_generating: bool = False
+    # True when the current is_generating was triggered by an external
+    # channel (Message Hub: Puck, email, Telegram, …) rather than the
+    # local browser.  The tick handler keeps running its mtime-watch
+    # while a hub-side pipeline is in progress so the user sees the
+    # chat bubble the moment STT / intent / etc. writes to the session
+    # file — instead of only after the whole pipeline finishes.
+    is_generating_hub: bool = False
     is_compressing: bool = False  # Shows if history compression is running
 
     # Debug Console
@@ -949,7 +956,7 @@ class ChatMixin(rx.State, mixin=True):
                         # Extract model details from llama-swap config
                         details = ""
                         try:
-                            from ..lib.llamacpp_calibration import parse_llamaswap_config
+                            from ..lib.calibration import parse_llamaswap_config
                             from ..lib.config import LLAMASWAP_CONFIG_PATH
                             model_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(effective_auto, {})
                             parts: list[str] = []

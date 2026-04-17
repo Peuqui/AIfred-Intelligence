@@ -235,11 +235,16 @@ class AIState(  # type: ignore[misc]
             status = notification.get("status", "received")
             self.refresh_session_list()
 
-            # Ghost browser controls as soon as Hub message arrives (not just processing)
+            # Ghost browser controls as soon as Hub message arrives (not just processing).
+            # is_generating_hub tags this as a hub-triggered pipeline so the
+            # mtime-watch below still runs — without it the user would only
+            # see incoming chat bubbles after the whole pipeline finished.
             if status in ("received", "processing"):
                 self.is_generating = True
+                self.is_generating_hub = True
             elif status in ("done", "error"):
                 self.is_generating = False
+                self.is_generating_hub = False
 
             # Phase-dependent toast (same id="hub" → replaces previous)
             toast_style = {"width": "420px"}
@@ -265,9 +270,13 @@ class AIState(  # type: ignore[misc]
         # API, hub) updates the session file → mtime changes → all tabs
         # detect and reload on the next tick.
         #
-        # Skipped during generation (is_generating) because local state
-        # is ahead of disk (user message added before LLM call).
-        if self.session_id and not self.is_generating:
+        # Skipped only during *local* browser generation, where state is
+        # ahead of disk (user message added before LLM call).  For
+        # hub-driven generation the hub is the sole writer, so the watch
+        # must keep running — otherwise bubbles appear only after the
+        # whole pipeline completes.
+        local_generation_blocks_sync = self.is_generating and not self.is_generating_hub
+        if self.session_id and not local_generation_blocks_sync:
             from ..lib.session_storage import get_session_path, load_session
             try:
                 session_path = get_session_path(self.session_id)
