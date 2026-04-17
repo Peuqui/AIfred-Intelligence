@@ -151,6 +151,19 @@ class FreeEchoChannel(BaseChannel):
                 await asyncio.sleep(3600)
         except asyncio.CancelledError:
             self.channel_log("Shutting down WebSocket server")
+            # Close every active client connection with a proper Close
+            # frame.  Without this the Puck keeps the TCP socket half-
+            # open (aiohttp's cleanup() does not notify websocket peers
+            # by itself) and only notices the disconnect on its next
+            # send attempt — which can be minutes later.
+            for room, ws in list(_devices.items()):
+                try:
+                    await ws.close(code=1001, message=b"server shutting down")
+                except Exception as e:
+                    self.channel_log(
+                        f"Error closing WebSocket for {room}: {e}", "warning",
+                    )
+            _devices.clear()
         finally:
             await runner.cleanup()
 

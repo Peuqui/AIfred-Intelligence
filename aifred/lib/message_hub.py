@@ -61,14 +61,48 @@ class MessageHub:
         """Register a worker coroutine factory.
 
         *factory* is called (without arguments) when the hub starts.
-        The returned coroutine is wrapped in an asyncio.Task.
-        The coroutine should run indefinitely and handle its own errors;
-        it will be cancelled on shutdown.
+        The returned coroutine is wrapped in an asyncio.Task.  If the
+        hub's event loop is already running (late registration, e.g.
+        after the user toggles a channel on in the UI), the task is
+        launched immediately on that loop in a thread-safe way.  Any
+        existing task under the same name is cancelled first.
         """
-        if name in self._workers:
-            _hub_log(f"Message Hub: worker '{name}' already registered, replacing", "warning")
-        self._workers[name] = _Worker(name=name, factory=factory)
+        existing = self._workers.get(name)
+        if existing and existing.task and not existing.task.done():
+            _hub_log(
+                f"Message Hub: worker '{name}' already registered, "
+                f"cancelling previous task before replacing",
+                "warning",
+            )
+            if self._loop is not None:
+                self._loop.call_soon_threadsafe(existing.task.cancel)
+            else:
+                existing.task.cancel()
+
+        worker = _Worker(name=name, factory=factory)
+        self._workers[name] = worker
         _hub_log(f"Message Hub: registered worker '{name}'")
+
+        # If the hub thread is already running, schedule the new worker
+        # on its loop.  Without this, late-registered workers (e.g.
+        # plugins enabled from the UI after startup) are silently
+        # orphaned — their coroutine is never awaited, so no listener
+        # binds its port.
+        if (
+            self._loop is not None
+            and self._thread is not None
+            and self._thread.is_alive()
+        ):
+            loop = self._loop
+
+            def _schedule() -> None:
+                worker.task = loop.create_task(
+                    self._run_worker(worker),
+                    name=f"message_hub:{worker.name}",
+                )
+
+            loop.call_soon_threadsafe(_schedule)
+            _hub_log(f"Message Hub: scheduled '{name}' on running loop")
 
     def unregister(self, name: str) -> None:
         """Remove a worker (stops it first if running)."""
