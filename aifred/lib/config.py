@@ -915,7 +915,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     speed_on = settings.get(f"{agent}_speed_mode", False)
     if speed_on and backend_type == "llamacpp":
         speed_id = f"{base_id}-speed"
-        from .llamacpp_calibration import parse_llamaswap_config
+        from .calibration import parse_llamaswap_config
         swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         if speed_id in swap_cfg:
             return speed_id
@@ -928,7 +928,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         tts_engine = _detect_running_tts_engine()
         if tts_engine:
             tts_id = f"{base_id}-tts-{tts_engine}"
-            from .llamacpp_calibration import parse_llamaswap_config
+            from .calibration import parse_llamaswap_config
             swap_cfg = parse_llamaswap_config(Path(LLAMASWAP_CONFIG_PATH))
             if tts_id in swap_cfg:
                 return tts_id

@@ -53,7 +53,7 @@ def get_model_native_context(model_id: str, backend_type: str) -> int:
 
     # Fallback: read from config (only if variable not set yet)
     if backend_type == "llamacpp":
-        from ..llamacpp_calibration import parse_llamaswap_config
+        from ..calibration import parse_llamaswap_config
         from ..config import LLAMASWAP_CONFIG_PATH
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
@@ -134,7 +134,7 @@ def get_agent_num_ctx(
 
     if backend_type == "llamacpp":
         # llama.cpp: YAML -c value = ground truth (actual server config)
-        from ..llamacpp_calibration import parse_llamaswap_config
+        from ..calibration import parse_llamaswap_config
         from ..config import LLAMASWAP_CONFIG_PATH
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 

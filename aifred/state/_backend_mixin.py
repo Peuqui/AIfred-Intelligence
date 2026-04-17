@@ -250,7 +250,7 @@ class BackendMixin(rx.State, mixin=True):
             if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
                 running_tts = _detect_running_tts_engine()
                 if running_tts:
-                    from ..lib.llamacpp_calibration import parse_llamaswap_config
+                    from ..lib.calibration import parse_llamaswap_config
                     from ..lib.config import LLAMASWAP_CONFIG_PATH
                     tts_variant = f"{self.automatik_model_id}-tts-{running_tts}"
                     swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)

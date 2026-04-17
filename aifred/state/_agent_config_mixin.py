@@ -340,7 +340,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             # Sokrates/Salomo with empty model_id inherit from AIfred
             model_id = getattr(self, f"{agent}_model_id", "") or self.aifred_model_id  # type: ignore[attr-defined]
             if model_id:
-                from ..lib.llamacpp_calibration import parse_llamaswap_config, parse_sampling_from_cmd
+                from ..lib.calibration import parse_llamaswap_config, parse_sampling_from_cmd
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
                 config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
                 if model_id in config:
@@ -411,7 +411,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
                 running_tts = _detect_running_tts_engine()
                 if running_tts:
-                    from ..lib.llamacpp_calibration import parse_llamaswap_config
+                    from ..lib.calibration import parse_llamaswap_config
                     from ..lib.config import LLAMASWAP_CONFIG_PATH
                     tts_variant = f"{base_id}-tts-{running_tts}"
                     swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)

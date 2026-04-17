@@ -266,7 +266,7 @@ class CalibrationMixin(rx.State, mixin=True):
         """
         import subprocess
         from ..lib.formatting import format_number
-        from ..lib.llamacpp_calibration import (
+        from ..lib.calibration import (
             update_llamaswap_context,
             update_llamaswap_ngl,
             add_llamaswap_speed_variant,
@@ -469,7 +469,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # Step 5: TTS variant calibration (XTTS + MOSS)
             # Same calibration but with TTS model pre-loaded in VRAM
             if True:
-                from ..lib.llamacpp_calibration import add_llamaswap_tts_variant
+                from ..lib.calibration import add_llamaswap_tts_variant
 
                 for tts_backend, tts_label, tts_start_fn, tts_stop_fn in [
                     ("xtts", "XTTS", "_start_xtts_for_calibration", "_stop_xtts_for_calibration"),
@@ -624,7 +624,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 # for models that use reasoning_content (not <think> tags).
                 # Qwen3 uses <think> tags natively, doesn't need this flag.
                 if supports_thinking:
-                    from ..lib.llamacpp_calibration import (
+                    from ..lib.calibration import (
                         parse_llamaswap_config,
                         update_llamaswap_reasoning_format,
                     )
@@ -772,9 +772,9 @@ class CalibrationMixin(rx.State, mixin=True):
         Returns total GPU count from tensor-split (0 if not found).
         """
         from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.llamacpp_calibration import (
+        from ..lib.calibration import (
             parse_llamaswap_config,
-            _parse_tensor_split_ratios,
+            parse_tensor_split,
         )
 
         models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
@@ -782,7 +782,7 @@ class CalibrationMixin(rx.State, mixin=True):
         if not model_info:
             return 0
 
-        ratios = _parse_tensor_split_ratios(model_info["full_cmd"])
+        ratios = parse_tensor_split(model_info["full_cmd"])
         if not ratios:
             return 0
 

@@ -144,7 +144,7 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
 def _get_llamacpp_model_sizes() -> Dict[str, float]:
     """Get GGUF file sizes for llama-swap models."""
     try:
-        from .llamacpp_calibration import parse_llamaswap_config
+        from .calibration import parse_llamaswap_config
         from .config import LLAMASWAP_CONFIG_PATH
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)

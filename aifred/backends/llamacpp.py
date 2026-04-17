@@ -45,7 +45,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
     async def _pre_request_check(self, model: str) -> None:
         """Check RPC server connectivity before sending inference request."""
         from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.llamacpp_calibration import parse_llamaswap_config
+        from ..lib.calibration import parse_llamaswap_config
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         if model not in config:
@@ -259,7 +259,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
         # 2. Read native context from GGUF metadata
         try:
-            from ..lib.llamacpp_calibration import parse_llamaswap_config
+            from ..lib.calibration import parse_llamaswap_config
             from ..lib.config import LLAMASWAP_CONFIG_PATH
             from ..lib.gguf_utils import get_gguf_native_context
             from pathlib import Path
@@ -326,7 +326,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             pass
 
         # Priority 3: llama-swap YAML config
-        from ..lib.llamacpp_calibration import parse_llamaswap_config
+        from ..lib.calibration import parse_llamaswap_config
         from ..lib.config import LLAMASWAP_CONFIG_PATH
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
@@ -346,11 +346,11 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         """
         Calibrate maximum context for a llama.cpp model via binary search.
 
-        Delegates to the llamacpp_calibration module. Yields progress messages.
+        Delegates to the aifred.lib.calibration package. Yields progress messages.
         Final yield: "__RESULT__:{context}" or "__RESULT__:0:error"
         """
         from pathlib import Path
-        from ..lib.llamacpp_calibration import (
+        from ..lib.calibration import (
             parse_llamaswap_config,
             calibrate_llamacpp_model,
         )
@@ -372,12 +372,10 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
         # Calibration starts from scratch — strip CUDA_VISIBLE_DEVICES
         # (calibration determines GPU assignment itself, must see all GPUs)
-        import aifred.lib.llamacpp_calibration as _cal_mod
         env: dict[str, str] | None = model_info.get("env") or None
         if env:
             env = {k: v for k, v in env.items() if k != "CUDA_VISIBLE_DEVICES"}
             env = env or None
-        _cal_mod._calibration_env = env
 
         # Replace tensor-split with proportional default based on GPU VRAM.
         # CUDA_DEVICE_ORDER=FASTEST_FIRST is set during calibration, so
@@ -423,22 +421,20 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 cal_cmd = cal_cmd.replace(' --port', ' -ts 1 -sm layer --port')
 
         # Log the tensor-split being used for this calibration run
-        from ..lib.llamacpp_calibration import _parse_tensor_split_ratios
-        _cal_ts = _parse_tensor_split_ratios(cal_cmd)
-        yield f"Calibration tensor-split: {_cal_ts}, env: {_cal_mod._calibration_env}"
+        from ..lib.calibration import parse_tensor_split
+        _cal_ts = parse_tensor_split(cal_cmd)
+        yield f"Calibration tensor-split: {_cal_ts}, env: {env}"
 
-        try:
-            async for msg in calibrate_llamacpp_model(
-                model_id=model,
-                gguf_path=gguf_path,
-                full_cmd=cal_cmd,
-                config_path=None if dry_run else LLAMASWAP_CONFIG_PATH,
-                min_kv=min_kv,
-                known_thinking=known_thinking,
-            ):
-                yield msg
-        finally:
-            _cal_mod._calibration_env = None
+        async for msg in calibrate_llamacpp_model(
+            model_id=model,
+            gguf_path=gguf_path,
+            full_cmd=cal_cmd,
+            config_path=None if dry_run else LLAMASWAP_CONFIG_PATH,
+            min_kv=min_kv,
+            known_thinking=known_thinking,
+            env=env,
+        ):
+            yield msg
 
     async def test_thinking_capability(self, model: str) -> bool:
         """

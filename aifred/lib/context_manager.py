@@ -1073,7 +1073,7 @@ async def prepare_automatik_llm(
             # Extract model details from llama-swap config
             details = ""
             try:
-                from .llamacpp_calibration import parse_llamaswap_config
+                from .calibration import parse_llamaswap_config
                 from .config import LLAMASWAP_CONFIG_PATH
                 model_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(model_name, {})
                 parts = []
