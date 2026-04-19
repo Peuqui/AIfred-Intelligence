@@ -91,6 +91,9 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("webhook", "api_token"): "WEBHOOK_API_TOKEN",
     # DeepL Translation
     ("deepl", "api_key"): "DEEPL_API_KEY",
+    # Google OAuth
+    ("google", "client_id"): "GOOGLE_CLIENT_ID",
+    ("google", "client_secret"): "GOOGLE_CLIENT_SECRET",
 }
 
 

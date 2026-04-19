@@ -23,7 +23,8 @@ Endpoints (all prefixed with /api):
 - POST /calibrate           - Run context calibration
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import asyncio
@@ -1149,6 +1150,78 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
         session_id=session_id,
         message="Agent triggered, running in background",
     )
+
+
+# ============================================================
+# OAuth routes
+# ============================================================
+
+@api_app.get("/oauth/{provider}/callback", response_class=HTMLResponse, include_in_schema=False)
+async def oauth_callback(provider: str, request: Request, code: str = "", state: str = "", error: str = "") -> HTMLResponse:
+    """OAuth 2.0 callback endpoint.  Google redirects here after user login."""
+    from .oauth import oauth_broker
+
+    if error:
+        return HTMLResponse(
+            f"<html><body><h2>❌ OAuth abgebrochen</h2><p>{error}</p>"
+            "<p>Du kannst dieses Fenster schließen.</p></body></html>",
+            status_code=400,
+        )
+    if not code or not state:
+        return HTMLResponse(
+            "<html><body><h2>❌ Ungültiger Callback</h2>"
+            "<p>Fehlende Parameter. Starte den Login-Flow neu.</p></body></html>",
+            status_code=400,
+        )
+
+    # Reconstruct the exact redirect_uri this request arrived on
+    # (must match what was used to generate the auth URL)
+    redirect_uri = str(request.url).split("?")[0]
+
+    try:
+        await oauth_broker.handle_callback(state, code, redirect_uri)
+        return HTMLResponse(
+            f"<html><body style='font-family:sans-serif;padding:2rem'>"
+            f"<h2>✅ {provider.capitalize()} verbunden!</h2>"
+            "<p>Tokens gespeichert. Du kannst dieses Fenster schließen.</p>"
+            "</body></html>"
+        )
+    except Exception as exc:
+        return HTMLResponse(
+            f"<html><body><h2>❌ Fehler</h2><p>{exc}</p></body></html>",
+            status_code=400,
+        )
+
+
+@api_app.get("/oauth/{provider}/status")
+async def oauth_status(provider: str) -> dict:
+    """Check whether a provider is connected (tokens stored)."""
+    from .oauth import oauth_broker
+    return {"provider": provider, "connected": oauth_broker.is_connected(provider)}
+
+
+@api_app.get("/oauth/{provider}/auth-url")
+async def oauth_auth_url(provider: str, redirect_uri: str, scopes: str = "") -> dict:
+    """Generate an authorization URL to start the OAuth flow.
+
+    ``scopes``: comma-separated list of OAuth scopes.
+    ``redirect_uri``: the callback URL (must match Google Cloud Console registration).
+    """
+    from .oauth import oauth_broker
+    scope_list = [s.strip() for s in scopes.split(",") if s.strip()]
+    try:
+        url = oauth_broker.get_auth_url(provider, scope_list, redirect_uri)
+        return {"auth_url": url}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@api_app.delete("/oauth/{provider}")
+async def oauth_disconnect(provider: str) -> dict:
+    """Remove stored tokens for a provider."""
+    from .oauth import oauth_broker
+    oauth_broker.disconnect(provider)
+    return {"provider": provider, "disconnected": True}
 
 
 # ============================================================
