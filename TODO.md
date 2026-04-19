@@ -74,7 +74,22 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
   - Muss als Tool-Use laufen (nicht Automatik), weil z.B. Web7-Modus die Automatik umgeht
 - [ ] RSS/News Feed Plugin: Nachrichten-Quellen ueberwachen und zusammenfassen
 - [ ] Home Assistant Plugin: Smart Home Geraete steuern (REST API)
+- [ ] **Audio-Transkription Plugin**: Watchfolder fuer Audio-Dateien (z.B. Memos,
+      Meeting-Recordings). Whisper ist schon installiert → neu hereingelegte
+      Files automatisch transkribieren und als Text ablegen / in RAG indexieren.
 - [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhaengig von EPIM)
+
+### Google Suite (OAuth-basierte Plugins)
+- [ ] **Google Calendar Plugin**: Termine lesen, erstellen, aendern, loeschen;
+      Konfliktpruefung, Recurrence-Support. Wakeup vor Terminen an Puck.
+- [ ] **Google Contacts Plugin**: Kontakte durchsuchen, fuer Email/Telegram/
+      Discord-Empfaenger-Aufloesung ("schreib Max" → findet Email-Adresse).
+      Bidirektional: Neue Kontakte anlegen lassen.
+- [ ] **Google Drive Plugin** (optional): Dokumente durchsuchen/lesen in
+      Research-Pipeline; Upload von generierten Artefakten (Reports, Code).
+- [ ] **Google Tasks Plugin** (optional): Sync mit AIfred-Scheduler / Todo-Listen.
+- [ ] Gemeinsamer OAuth-Broker fuer alle Google-Plugins
+      (ein Login, Scopes pro Plugin angefordert)
 
 ### KI-gestuetzte Kalibrierung
 - [ ] LLM-basierte Schaetzung der optimalen Kalibrierungsparameter (Proof of Concept abgeschlossen)

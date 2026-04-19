@@ -146,17 +146,17 @@ async def calibrate_llamacpp_model(
                 break
 
     # Fallback: nobody reached native — pick the configuration with the
-    # best max_context, preferring F16 quality.
+    # highest max_context, using KV quality only as tie-breaker.
+    # Rationale: once we're already below native we've lost the "full
+    # quality" anchor, so a Q8 candidate with 150 k context is plainly
+    # more useful than an F16 candidate with 60 k.  F16 only wins when
+    # both candidates reach the same context.
     if base_pick is None and all_tried:
-        # F16 with the highest max_context wins over Q8 with a slightly
-        # higher one — quality > marginal context.
-        for preferred_kv in kv_levels:
-            pool = [c for c in all_tried if c.kv_quant == preferred_kv]
-            if not pool:
-                continue
-            pool.sort(key=lambda c: (-c.max_context, c.n_gpus))
-            base_pick = pool[0]
-            break
+        _kv_rank = {"f16": 0, "q8_0": 1, "q4_0": 2}
+        all_tried.sort(
+            key=lambda c: (-c.max_context, _kv_rank.get(c.kv_quant, 3), c.n_gpus),
+        )
+        base_pick = all_tried[0]
 
     if base_pick is None:
         yield "No GPU-only candidate reaches minimum useful context — trying hybrid"
@@ -429,12 +429,35 @@ async def _project_cell(
         target_context=model.native_context,
     )
 
+    # If not every layer fits at native context, the model's KV cache
+    # at native would eat more VRAM than available.  Before giving up,
+    # binary-search the largest context at which all layers *do* fit —
+    # for very large models (≥ 80 % of total VRAM) that's the only
+    # GPU-only path and is always better than hybrid mode.
     if not opt.reached_target:
-        placed = int(sum(opt.tensor_split))
-        return None, (
-            f"only {placed}/{model.total_layers} layers fit at native "
-            f"context — model too big for {n_gpus} GPU(s)"
+        reduced = _max_ctx_where_all_layers_fit(
+            vmodel=vmodel, budget=budget, gpus=gpus, active=active,
+            total_layers=model.total_layers, model_size_mb=model.size_mb,
+            ceiling=model.native_context,
         )
+        if reduced is None:
+            placed = int(sum(opt.tensor_split))
+            return None, (
+                f"only {placed}/{model.total_layers} layers fit — model "
+                f"too big for {n_gpus} GPU(s) even at minimum context"
+            )
+        # A reduced-context result with context == 0 means the binary
+        # search landed on a split whose layer weights alone exceed a
+        # GPU's budget — the "reached_target=True" path in
+        # fill_fastest_first can report that when the overshoot
+        # fallback crams layers onto an already-tight GPU.  Treat it as
+        # a failure instead of propagating an unusable candidate.
+        if reduced.context < CALIBRATION_MIN_CONTEXT:
+            return None, (
+                f"model too big for {n_gpus} GPU(s) at KV={kv}: no split "
+                f"leaves room for even the minimum context"
+            )
+        opt = reduced
 
     return Candidate(
         mode="gpu",
@@ -446,6 +469,46 @@ async def _project_cell(
         predicted_free_mb=opt.per_gpu_predicted_free_mb,
         vram_model=vmodel,
     ), "ok"
+
+
+def _max_ctx_where_all_layers_fit(
+    vmodel,
+    budget: Budget,
+    gpus: list[GPU],
+    active: list[int],
+    total_layers: int,
+    model_size_mb: float,
+    ceiling: int,
+) -> OptResult | None:
+    """Binary-search the largest context where ``fill_fastest_first``
+    can place every layer.
+
+    For giant models the native context is unreachable because the KV
+    cache alone would exceed available VRAM.  This function walks the
+    context down to the largest multiple of the precision where every
+    layer still has a home on the GPUs.  Returns ``None`` when even
+    the minimum context can't hold the model — the caller then falls
+    through to hybrid.
+    """
+    precision = LLAMACPP_CALIBRATION_PRECISION
+    lo = CALIBRATION_MIN_CONTEXT
+    hi = ceiling
+    best: OptResult | None = None
+    while lo <= hi:
+        mid = ((lo + hi) // 2 // precision) * precision
+        if mid < CALIBRATION_MIN_CONTEXT:
+            break
+        trial = fill_fastest_first(
+            model=vmodel, budget=budget, gpus=gpus, active_gpus=active,
+            total_layers=total_layers, model_size_mb=model_size_mb,
+            target_context=mid,
+        )
+        if trial.reached_target:
+            best = trial
+            lo = mid + precision
+        else:
+            hi = mid - precision
+    return best
 
 
 def _seed_tensor_split(
@@ -571,7 +634,7 @@ async def _verify_and_refine(
 
     # ── Step 2: keep refining split while it helps ─────────────────
     while True:
-        refined = _refine_split_from_measurement(
+        refined, reason = _refine_split_from_measurement(
             current_split, gpus, r, budget,
             vram_model=candidate.vram_model,
             total_layers=model.total_layers,
@@ -579,6 +642,9 @@ async def _verify_and_refine(
             current_context=current_ctx,
         )
         if refined is None:
+            # Always log why refinement stopped — makes it transparent
+            # that the algorithm *did* consider rebalancing.
+            messages.append(f"{status_prefix} balance check: {reason}")
             break
         if refined in seen_splits:
             messages.append(
@@ -590,8 +656,8 @@ async def _verify_and_refine(
 
         iteration += 1
         messages.append(
-            f"{status_prefix} uneven free VRAM — refining split to "
-            f"{_split_str(refined)}"
+            f"{status_prefix} balance check: swap {reason} — "
+            f"trying split {_split_str(refined)}"
         )
         r_new = await verify(
             full_cmd=proj.adjust_cmd_for_projection(
@@ -648,54 +714,46 @@ def _refine_split_from_measurement(
     total_layers: int,
     model_size_mb: float,
     current_context: int,
-) -> tuple[float, ...] | None:
-    """Propose a layer swap *only* when an active GPU is near OOM.
+) -> tuple[tuple[float, ...] | None, str]:
+    """Propose a layer swap when an active GPU is near OOM.
 
-    Two strict rules:
+    Returns ``(new_split, reason)``.  ``new_split`` is ``None`` when no
+    swap would improve the balance; ``reason`` is a short human string
+    the caller can log so it's visible that a swap was considered.
 
-    1. Refine only when the tightest active GPU has less than
-       ``2 × safety_margin`` free.  Otherwise we leave the split alone
-       — headroom on a slower GPU (e.g. an empty P40) is *not* a
-       reason to pull layers off the fast RTXs.
-
-    2. A layer can only move between GPUs of the **same speed class**.
-       Shifting layers from RTX to P40 to "balance free VRAM" trashes
-       inference speed for no good reason.
-
-    Within those rules, the destination is picked by predicted-free
-    math (per-GPU slopes from fit-params) so we don't make a CUDA0
-    that already carries overhead even tighter.
+    Rule 1: refine only when the tightest active GPU has less than
+            ``2 × safety_margin`` free — otherwise nothing to fix.
+    Rule 2: each candidate swap (bottleneck → dest) is accepted only
+            if the predicted post-swap minimum free VRAM exceeds the
+            current minimum by more than ``safety_margin``.  Cross-
+            class swaps (RTX ↔ P40) are allowed — the math is the
+            single arbiter, since slow-class GPUs often have more
+            headroom and can rescue a tight fastest-class GPU.
     """
     from .optimizer import _per_gpu_coefficients
 
     if not verify_r.measured_free_mb:
-        return None
+        return None, "no measurement"
 
     active = [i for i, r in enumerate(current_split) if r > 0]
     if len(active) < 2:
-        return None
+        return None, "only one active GPU"
 
     active_free = [(i, verify_r.measured_free_mb[i]) for i in active
                    if i < len(verify_r.measured_free_mb)]
     if len(active_free) < 2:
-        return None
+        return None, "measurement short"
     active_free.sort(key=lambda t: t[1])
     bottleneck, b_free = active_free[0]
 
-    # Rule 1: only refine if bottleneck is actually in danger
     if b_free >= 2 * budget.safety_margin:
-        return None
+        return None, (
+            f"tightest GPU CUDA{bottleneck} has {b_free} MB free — "
+            f"no OOM danger"
+        )
 
     if current_split[bottleneck] <= 1:
-        return None  # cannot shed further
-
-    # Rule 2: destination must share the bottleneck's speed class
-    class_peers = [
-        (i, f) for (i, f) in active_free[1:]
-        if gpus[i].speed_class == gpus[bottleneck].speed_class
-    ]
-    if not class_peers:
-        return None
+        return None, f"CUDA{bottleneck} already down to 1 layer"
 
     base_overhead, slope_per_layer = _per_gpu_coefficients(
         vram_model, total_layers, model_size_mb,
@@ -705,7 +763,8 @@ def _refine_split_from_measurement(
     save_on_bottleneck = mb_per_layer + slope_per_layer[bottleneck] * current_context
     best_dest: int | None = None
     best_new_min_free: float = float(b_free)
-    for dest, d_free in class_peers:
+    rejected_reasons: list[str] = []
+    for dest, d_free in active_free[1:]:
         cost_on_dest = mb_per_layer + slope_per_layer[dest] * current_context
         new_b = b_free + save_on_bottleneck
         new_d = d_free - cost_on_dest
@@ -713,14 +772,27 @@ def _refine_split_from_measurement(
         if new_min > best_new_min_free + budget.safety_margin:
             best_new_min_free = new_min
             best_dest = dest
+        else:
+            rejected_reasons.append(
+                f"CUDA{bottleneck}→CUDA{dest}: new min would be "
+                f"{int(new_min)} MB"
+            )
 
     if best_dest is None:
-        return None
+        rejected_summary = "; ".join(rejected_reasons) or "no candidates"
+        return None, (
+            f"CUDA{bottleneck} tight at {b_free} MB but no swap improves "
+            f"balance ({rejected_summary})"
+        )
 
     new_split = list(current_split)
     new_split[bottleneck] -= 1
     new_split[best_dest] += 1
-    return tuple(new_split)
+    return (
+        tuple(new_split),
+        f"CUDA{bottleneck} ({b_free} MB) → CUDA{best_dest}: "
+        f"predicted new min {int(best_new_min_free)} MB",
+    )
 
 
 def _shrink_to_fit(
@@ -863,16 +935,34 @@ async def _calibrate_hybrid(
     """
     from ..gpu_utils import get_free_ram_mb
 
+    # Cap the swap we will count as CPU-RAM headroom.  Enough to absorb
+    # a load-time peak when the kernel swaps inactive pages out, but
+    # not so much that we'd invite real inference thrashing.
+    HYBRID_SWAP_BUDGET_MB = 4096
+
+    def _get_free_swap_mb() -> int:
+        """Free swap in MB — treated as a bounded extension of CPU-RAM
+        headroom.  The system must still end up with at least
+        ``MIN_FREE_RAM_MB`` of *real* RAM available after the model
+        loads; the swap headroom only covers transient peaks.
+        """
+        try:
+            import psutil
+            return int(psutil.swap_memory().free / (1024 * 1024))
+        except (ImportError, OSError):
+            return 0
+
     yield "Entering hybrid mode (reducing ngl)..."
     targets = [c for c in (model.native_context, 131072, 65536, 32768, 16384)
                if c <= model.native_context]
-    ts_all = tuple(
-        float(1) for _ in range(len(gpus))  # equal split when hybrid
-    )
+
+    # Equal split used only for overrun measurement (ngl=99, all-GPU projection).
+    # The split doesn't affect the summed overrun so 1:1:...:1 is fine here.
+    ts_equal = tuple(float(1) for _ in range(len(gpus)))
 
     for target in targets:
         # Project oversize at ngl=99
-        cmd_f16 = proj.adjust_cmd_for_projection(full_cmd, ts_all, "f16")
+        cmd_f16 = proj.adjust_cmd_for_projection(full_cmd, ts_equal, "f16")
         try:
             point = await proj.project(cmd_f16, model.gguf_path, target, ngl=99)
         except proj.FitParamsError:
@@ -894,16 +984,27 @@ async def _calibrate_hybrid(
 
         cpu_ram_needed = int(cpu_layers * model.mb_per_layer * 1.1)
         free_ram = get_free_ram_mb() or 0
-        if cpu_ram_needed > free_ram - MIN_FREE_RAM_MB:
+        swap_usable = min(_get_free_swap_mb(), HYBRID_SWAP_BUDGET_MB)
+        # MIN_FREE_RAM_MB must remain free in *real* RAM after the
+        # model is loaded — swap only widens the budget above that.
+        available = free_ram + swap_usable
+        if cpu_ram_needed > available - MIN_FREE_RAM_MB:
+            swap_note = f" + {swap_usable} MB swap" if swap_usable else ""
             yield (
                 f"Hybrid target {format_number(target)}: RAM insufficient "
-                f"({cpu_ram_needed} MB needed, {free_ram} MB free)"
+                f"({cpu_ram_needed} MB needed, {free_ram} MB free{swap_note})"
             )
             continue
 
-        yield f"Hybrid: ngl={ngl}, ctx={format_number(target)} — verifying..."
+        # Dynamic split: distribute ngl GPU-layers proportional to free VRAM,
+        # respecting speed classes and first-GPU handicap — same logic as the
+        # GPU-only path.  Works for any hardware (1 GPU, 4 identical, mixed).
+        seed = _seed_tensor_split(ngl, list(range(len(gpus))), gpus, budget)
+        ts_ngl = tuple(float(x) for x in seed)
+
+        yield f"Hybrid: ngl={ngl}, ctx={format_number(target)}, split={_split_str(ts_ngl)} — verifying..."
         r = await verify(
-            full_cmd=proj.adjust_cmd_for_projection(full_cmd, ts_all, "f16"),
+            full_cmd=proj.adjust_cmd_for_projection(full_cmd, ts_ngl, "f16"),
             context=target,
             port=port,
             gpus=gpus,
@@ -912,12 +1013,19 @@ async def _calibrate_hybrid(
             env=env,
             probe_thinking=known_thinking is None,
         )
-        yield _fmt_verify("hyb", 1, ts_all, target, r)
+        yield _fmt_verify("hyb", 1, ts_ngl, target, r)
         if r.fits:
             thinks = known_thinking if known_thinking is not None else bool(r.thinks)
             if config_path:
                 io.update_llamaswap_context(config_path, model.model_id, target)
                 io.update_llamaswap_ngl(config_path, model.model_id, ngl)
+                io.update_llamaswap_tensor_split(
+                    config_path, model.model_id, list(ts_ngl),
+                )
+                io.update_llamaswap_cuda_visible(
+                    config_path, model.model_id, len(gpus), len(gpus),
+                )
+                io.remove_llamaswap_kv_cache_quant(config_path, model.model_id)
             vram_per_gpu = ",".join(str(g.total_mb) for g in gpus)
             add_llamacpp_calibration(
                 model_id=model.model_id,
@@ -931,9 +1039,10 @@ async def _calibrate_hybrid(
                 mode="hybrid",
                 vram_per_gpu=vram_per_gpu,  # type: ignore[arg-type]
             )
+            ts_csv = ",".join(f"{x:g}" for x in ts_ngl if x > 0)
             yield (
                 f"__RESULT__:{target}:{ngl}:hybrid:"
-                f"{'thinks' if thinks else 'nothink'}:f16::{len(gpus)}"
+                f"{'thinks' if thinks else 'nothink'}:f16:{ts_csv}:{len(gpus)}"
             )
             return
 
