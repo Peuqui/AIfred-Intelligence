@@ -1825,7 +1825,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.plugin_base import PluginContext
         # Collect all available tool names
         all_tool_names: list[str] = []
-        ctx = PluginContext(agent_id=agent_id, lang="de", session_id="")
+        ctx = PluginContext(agent_id=agent_id, lang="de", session_id="", llm_history=[])
         for p in discover_tools():
             if p.is_available():
                 for t in p.get_tools(ctx):

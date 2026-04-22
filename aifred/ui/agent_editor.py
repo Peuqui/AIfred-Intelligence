@@ -223,7 +223,7 @@ def _build_tool_groups() -> list[rx.Component]:
     from ..lib.plugin_registry import discover_tools, all_channels
     from ..lib.plugin_base import PluginContext
 
-    ctx = PluginContext(agent_id="__build__", lang="de", session_id="")
+    ctx = PluginContext(agent_id="__build__", lang="de", session_id="", llm_history=[])
     groups: list[rx.Component] = []
 
     from ..lib.security import TIER_WRITE_DATA

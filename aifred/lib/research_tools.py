@@ -410,11 +410,12 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
 # Tool Definitions (for LLM function calling)
 # ============================================================
 
-def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", session_id: str = "") -> list[Tool]:
+def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", llm_history: Optional[list] = None) -> list[Tool]:
     """Create research tools bound to a specific state instance.
 
     The web_search tool runs the full pipeline (search + scraping).
     """
+    _llm_history: list = llm_history or []
 
     async def _execute_web_search(queries: list[str]) -> str:
         """Tool executor: runs research pipeline with model-provided queries."""
@@ -435,13 +436,8 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", sess
             result = getattr(state, "_research_context", "")
             return result if result else json.dumps({"error": "No results found"})
 
-        # Hub path (Discord, Email) — load history from session, then search
-        hub_history: list[dict] = []
-        if session_id:
-            from .session_storage import load_session
-            session = load_session(session_id)
-            hub_history = session.get("data", {}).get("llm_history", []) if session else []
-        return await _hub_web_search(queries, hub_history)
+        # Hub path (Discord, Email) — history passed from PluginContext
+        return await _hub_web_search(queries, _llm_history)
 
     async def _execute_web_fetch(url: str) -> str:
         """Tool executor: fetch and extract content from a specific URL."""

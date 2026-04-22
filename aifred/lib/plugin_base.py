@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -36,6 +36,7 @@ class PluginContext:
     user_query: str = ""
     max_tier: int = 4        # Max allowed tool tier in this context
     source: str = "browser"  # Origin: browser/email/discord/cron/webhook
+    llm_history: list = field(default_factory=list)  # Conversation history for tools
 
 
 @runtime_checkable

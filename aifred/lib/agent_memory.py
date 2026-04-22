@@ -341,6 +341,7 @@ async def prepare_agent_toolkit(
     research_tools_enabled: bool = True,
     state: Optional[Any] = None,
     session_id: Optional[str] = None,
+    llm_history: Optional[list] = None,
     max_tier: int = 4,
     source: str = "browser",
 ) -> tuple[str, Optional["ToolKit"]]:
@@ -388,6 +389,7 @@ async def prepare_agent_toolkit(
             user_query=user_query,
             max_tier=max_tier,
             source=source,
+            llm_history=llm_history or [],
         )
 
         for p in discover_tools():
