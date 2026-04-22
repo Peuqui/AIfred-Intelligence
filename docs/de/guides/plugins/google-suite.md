@@ -2,12 +2,12 @@
 
 **Dateien:** `aifred/plugins/tools/google_suite/`
 
-Google Calendar und Google Contacts ueber OAuth 2.0. Orchestrator-Plugin mit zwei aktivierbaren Sub-Services (Calendar, Contacts). Benoetigt einmaligen OAuth-Flow in der Google Cloud Console.
+Google Calendar, Contacts, Tasks und Drive ueber OAuth 2.0. Orchestrator-Plugin mit vier aktivierbaren Sub-Services. Benoetigt einmaligen OAuth-Flow in der Google Cloud Console.
 
 ## Setup
 
 1. [Google Cloud Console](https://console.cloud.google.com/) → Neues Projekt → **APIs & Services** → **Credentials** → **Create Credentials** → OAuth 2.0 Client ID (Typ: **Web application**)
-2. Folgende APIs aktivieren: **Google Calendar API**, **People API**
+2. Folgende APIs aktivieren: **Google Calendar API**, **People API**, **Tasks API v1**, **Google Drive API**
 3. Unter **Authorized redirect URIs** eintragen:
    ```
    https://narnia.spdns.de:8443/api/oauth/google/callback
@@ -34,7 +34,9 @@ Google Calendar und Google Contacts ueber OAuth 2.0. Orchestrator-Plugin mit zwe
 ```json
 {
   "GOOGLE_CALENDAR_ENABLED": "true",
-  "GOOGLE_CONTACTS_ENABLED": "true"
+  "GOOGLE_CONTACTS_ENABLED": "true",
+  "GOOGLE_TASKS_ENABLED": "false",
+  "GOOGLE_DRIVE_ENABLED": "false"
 }
 ```
 
@@ -156,3 +158,54 @@ AIfred ruft `google_contacts_search(query="Max Muster")` auf.
 > "Zeig alle Kontakte aus der Gruppe Familie"
 
 AIfred ruft `google_contacts_list_by_group(group_name="Familie")` auf.
+
+---
+
+> "Suche in meinem Drive nach dem Projektplan"
+
+AIfred ruft `google_drive_search(query="Projektplan")` auf.
+
+## Tasks Tools
+
+**Datei:** `aifred/plugins/tools/google_suite/tasks/tools.py`
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `google_tasks_list_tasklists` | Alle Task-Listen auflisten | READONLY |
+| `google_tasks_list` | Aufgaben einer Liste abrufen | READONLY |
+| `google_tasks_create` | Neue Aufgabe erstellen | WRITE_DATA |
+| `google_tasks_update` | Aufgabe aktualisieren | WRITE_DATA |
+| `google_tasks_complete` | Aufgabe als erledigt markieren | WRITE_DATA |
+| `google_tasks_delete` | Aufgabe loeschen | WRITE_DATA |
+
+## Drive Tools
+
+**Datei:** `aifred/plugins/tools/google_suite/drive/tools.py`
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `google_drive_list_files` | Dateien auflisten (optional nach Ordner gefiltert) | READONLY |
+| `google_drive_search` | Volltextsuche im Drive | READONLY |
+| `google_drive_get_file` | Dateiinhalt lesen (Google Docs → Klartext, Sheets → CSV) | READONLY |
+| `google_drive_create_file` | Neue Textdatei erstellen und befuellen | WRITE_DATA |
+| `google_drive_update_file` | Dateiinhalt ueberschreiben | WRITE_DATA |
+| `google_drive_delete_file` | Datei dauerhaft loeschen | WRITE_DATA |
+| `google_drive_create_folder` | Neuen Ordner erstellen | WRITE_DATA |
+| `google_drive_move_file` | Datei in anderen Ordner verschieben | WRITE_DATA |
+
+
+### Parameter `google_drive_search`
+
+| Parameter | Pflicht | Beschreibung |
+|-----------|---------|-------------|
+| `query` | Ja | Suchbegriff oder Drive-Query-Syntax (z.B. `name contains 'Bericht'`) |
+| `page_size` | Nein | Max. Ergebnisse (Standard: 20) |
+
+### Parameter `google_drive_create_file`
+
+| Parameter | Pflicht | Beschreibung |
+|-----------|---------|-------------|
+| `name` | Ja | Dateiname mit Endung (z.B. `notiz.txt`) |
+| `content` | Ja | Dateiinhalt |
+| `folder_id` | Nein | Zielordner-ID (optional) |
+| `mime_type` | Nein | MIME-Typ (Standard: `text/plain`) |

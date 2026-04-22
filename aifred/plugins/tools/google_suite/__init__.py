@@ -1,7 +1,8 @@
-"""Google Suite Plugin — Orchestrator für Calendar und Contacts.
+"""Google Suite Plugin — Orchestrator für Calendar, Contacts, Tasks und Drive.
 
 Aktiviert Sub-Services via settings.json (GOOGLE_CALENDAR_ENABLED,
-GOOGLE_CONTACTS_ENABLED). OAuth-Flow über den generischen OAuthBroker.
+GOOGLE_CONTACTS_ENABLED, GOOGLE_TASKS_ENABLED, GOOGLE_DRIVE_ENABLED).
+OAuth-Flow über den generischen OAuthBroker.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ _SCOPES: dict[str, str] = {
     "GOOGLE_CALENDAR_ENABLED": "https://www.googleapis.com/auth/calendar",
     "GOOGLE_CONTACTS_ENABLED": "https://www.googleapis.com/auth/contacts",
     "GOOGLE_TASKS_ENABLED":    "https://www.googleapis.com/auth/tasks",
+    "GOOGLE_DRIVE_ENABLED":    "https://www.googleapis.com/auth/drive",
 }
 
 
@@ -90,6 +92,13 @@ class GooglePlugin:
                 options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
                 group="services",
             ),
+            CredentialField(
+                env_key="GOOGLE_DRIVE_ENABLED",
+                label_key="google_drive_enabled",
+                default="false",
+                options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
+                group="services",
+            ),
         ]
 
     def is_available(self) -> bool:
@@ -114,6 +123,10 @@ class GooglePlugin:
         if settings.get("GOOGLE_TASKS_ENABLED", "false") == "true":
             from .tasks.tools import get_tasks_tools
             tools.extend(get_tasks_tools(ctx.lang))
+
+        if settings.get("GOOGLE_DRIVE_ENABLED", "false") == "true":
+            from .drive.tools import get_drive_tools
+            tools.extend(get_drive_tools(ctx.lang))
 
         return tools
 
@@ -174,6 +187,32 @@ class GooglePlugin:
                     "Use google_tasks_list_tasklists to see all task lists."
                 )
 
+        if settings.get("GOOGLE_DRIVE_ENABLED", "false") == "true":
+            if lang == "de":
+                parts.append(
+                    "Du hast Zugriff auf Google Drive. "
+                    "Nutze google_drive_list_files um Dateien aufzulisten (optional mit folder_id), "
+                    "google_drive_search für Volltextsuche, "
+                    "google_drive_get_file um Dateiinhalt zu lesen (Google Docs → Klartext, Sheets → CSV), "
+                    "google_drive_create_file um neue Textdateien zu erstellen, "
+                    "google_drive_update_file um Inhalte zu überschreiben, "
+                    "google_drive_delete_file zum Löschen, "
+                    "google_drive_create_folder um Ordner anzulegen und "
+                    "google_drive_move_file um Dateien zu verschieben."
+                )
+            else:
+                parts.append(
+                    "You have access to Google Drive. "
+                    "Use google_drive_list_files to list files (optionally filter by folder_id), "
+                    "google_drive_search for full-text search, "
+                    "google_drive_get_file to read file content (Google Docs → plain text, Sheets → CSV), "
+                    "google_drive_create_file to create new text files, "
+                    "google_drive_update_file to overwrite content, "
+                    "google_drive_delete_file to delete, "
+                    "google_drive_create_folder to create folders, and "
+                    "google_drive_move_file to move files."
+                )
+
         return "\n\n".join(parts)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
@@ -196,6 +235,14 @@ class GooglePlugin:
             "google_tasks_update":             "tool_update_task",
             "google_tasks_complete":           "tool_complete_task",
             "google_tasks_delete":             "tool_delete_task",
+            "google_drive_list_files":         "tool_drive_list_files",
+            "google_drive_search":             "tool_drive_search",
+            "google_drive_get_file":           "tool_drive_get_file",
+            "google_drive_create_file":        "tool_drive_create_file",
+            "google_drive_update_file":        "tool_drive_update_file",
+            "google_drive_delete_file":        "tool_drive_delete_file",
+            "google_drive_create_folder":      "tool_drive_create_folder",
+            "google_drive_move_file":          "tool_drive_move_file",
         }
         key = status_map.get(tool_name)
         if key:

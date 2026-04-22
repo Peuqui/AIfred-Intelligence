@@ -21,5 +21,14 @@
   "tool_create_task":          {"de": "✅ Aufgabe erstellen…", "en": "✅ Creating task…"},
   "tool_update_task":          {"de": "✅ Aufgabe aktualisieren…", "en": "✅ Updating task…"},
   "tool_complete_task":        {"de": "✅ Aufgabe erledigt…",  "en": "✅ Completing task…"},
-  "tool_delete_task":          {"de": "✅ Aufgabe löschen…",   "en": "✅ Deleting task…"}
+  "tool_delete_task":          {"de": "✅ Aufgabe löschen…",   "en": "✅ Deleting task…"},
+  "google_drive_enabled":      {"de": "Drive",                 "en": "Drive"},
+  "tool_drive_list_files":     {"de": "📂 Dateien auflisten…", "en": "📂 Listing files…"},
+  "tool_drive_search":         {"de": "📂 Drive durchsuchen…", "en": "📂 Searching Drive…"},
+  "tool_drive_get_file":       {"de": "📂 Datei lesen…",       "en": "📂 Reading file…"},
+  "tool_drive_create_file":    {"de": "📂 Datei erstellen…",   "en": "📂 Creating file…"},
+  "tool_drive_update_file":    {"de": "📂 Datei aktualisieren…", "en": "📂 Updating file…"},
+  "tool_drive_delete_file":    {"de": "📂 Datei löschen…",     "en": "📂 Deleting file…"},
+  "tool_drive_create_folder":  {"de": "📂 Ordner erstellen…",  "en": "📂 Creating folder…"},
+  "tool_drive_move_file":      {"de": "📂 Datei verschieben…", "en": "📂 Moving file…"}
 }
