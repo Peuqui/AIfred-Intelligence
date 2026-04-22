@@ -4,6 +4,14 @@
 
 Channel-Plugin fuer E-Mail-Kommunikation via IMAP IDLE und SMTP.
 
+## Tools (für das LLM)
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `email` | E-Mails abrufen, lesen, suchen, senden, verschieben, löschen, markieren | COMMUNICATE |
+
+Das `email`-Tool verwendet einen `action`-Parameter: `check`, `read`, `search`, `delete`, `send`, `move`, `list_folders`, `create_folder`, `mark`.
+
 ## Architektur-Ueberblick
 
 ```

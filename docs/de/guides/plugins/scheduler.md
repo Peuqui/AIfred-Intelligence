@@ -1,6 +1,6 @@
 # Scheduler Plugin
 
-**Datei:** `aifred/plugins/tools/scheduler_tool.py`
+**Datei:** `aifred/plugins/tools/scheduler_tool/`
 
 Geplante Aufgaben und Cron-Jobs, die AIfred automatisch zu definierten Zeitpunkten ausführt.
 
@@ -10,11 +10,11 @@ Geplante Aufgaben und Cron-Jobs, die AIfred automatisch zu definierten Zeitpunkt
 |------|-------------|------|
 | `scheduler_create` | Neuen geplanten Job anlegen | WRITE_DATA |
 | `scheduler_list` | Alle geplanten Jobs auflisten | READONLY |
-| `scheduler_delete` | Geplanten Job löschen | WRITE_SYSTEM |
+| `scheduler_delete` | Geplanten Job löschen | WRITE_DATA |
 
 ## Features
 
-- **Cron-Syntax:** Standard-Cron-Ausdrücke für flexible Zeitplanung
+- **Drei Schedule-Typen:** `cron` (Cron-Ausdruck, z.B. `0 8 * * *`), `interval` (Sekunden, z.B. `3600`), `once` (ISO-Timestamp)
+- **Delivery-Modi:** `log` (Standard), `announce` (an Kanal senden), `review` (in UI anzeigen), `webhook` (HTTP POST)
 - **Isolierte Sessions:** Jeder Job läuft in eigener Session
-- **Webhook-API:** Jobs können auch extern per HTTP ausgelöst werden
 - **Auto-Restart:** Jobs überleben Neustarts des Services

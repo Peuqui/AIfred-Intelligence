@@ -1,6 +1,6 @@
 # Calculator Plugin
 
-**File:** `aifred/plugins/tools/calculator.py`
+**File:** `aifred/plugins/tools/calculator/`
 
 Safe evaluation of mathematical expressions.
 
@@ -13,4 +13,4 @@ Safe evaluation of mathematical expressions.
 ## Features
 
 - Evaluates expressions safely without `eval()`
-- Supports basic arithmetic, exponents, parentheses
+- Supports: `+`, `-`, `*`, `/`, `//` (floor division), `%` (modulo), `**` (power), parentheses

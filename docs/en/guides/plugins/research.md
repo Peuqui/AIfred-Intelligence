@@ -1,25 +1,35 @@
 # Web Research Plugin
 
-**File:** `aifred/plugins/tools/research.py`
+**File:** `aifred/plugins/tools/research/`
 
-Multi-API web search with automatic scraping and semantic caching.
+Multi-API web search with automatic scraping and semantic caching. Shares the same
+pipeline (`execute_research`) with the automatic mode — the only difference is who
+triggers the search and whether URL ranking is performed.
 
 ## Tools
 
 | Tool | Description | Tier |
 |------|------------|------|
-| `web_search` | Web search via configured search API | READONLY |
-| `web_fetch` | Fetch URL and extract content | READONLY |
+| `web_search` | Full research pipeline: search → scraping → cache. Takes 1–3 queries. | READONLY |
+| `web_fetch` | Fetch a single URL and extract its content (no scraping pipeline) | READONLY |
 
-## Features
+## Pipeline (`web_search`)
 
-- **Multi-API:** Brave Search, Tavily, SearXNG — configurable per backend
-- **Automatic scraping + ranking:** Search results are fetched and ranked by relevance
-- **Semantic vector cache:** Results are cached in ChromaDB, repeated queries use the cache
-- **Content extraction:** HTML is converted to readable text
+`web_search` runs the full research pipeline — identical to the automatic mode,
+with one difference:
+
+1. **Search** — all 3 queries are sent in parallel to all configured search APIs
+   (Brave, Tavily, SearXNG)
+2. ~~URL ranking~~ — **skipped** (`skip_url_ranking=True`)
+3. **Scraping** — top URLs are scraped in parallel (3 or 7 sites depending on mode)
+4. **Context building** — content is summarised and prepared as context
+5. **Vector cache** — results are stored in ChromaDB (TTL based on volatility)
+
+In **automatic mode**, the automatik-LLM generates the queries itself and URL ranking runs.
+Both paths write to the same vector cache.
 
 ## Configuration
 
-- Search API configured via `.env` (API keys for Brave/Tavily)
+- Search APIs via `.env`: `BRAVE_API_KEY`, `TAVILY_API_KEY`
 - SearXNG as self-hosted alternative without API key
 - ChromaDB collection `research_cache` for the vector cache

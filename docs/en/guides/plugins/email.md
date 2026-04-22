@@ -4,6 +4,14 @@
 
 Channel plugin for email communication via IMAP IDLE and SMTP.
 
+## Tools (for the LLM)
+
+| Tool | Description | Tier |
+|------|------------|------|
+| `email` | Fetch, read, search, send, move, delete, and mark emails | COMMUNICATE |
+
+The `email` tool uses an `action` parameter: `check`, `read`, `search`, `delete`, `send`, `move`, `list_folders`, `create_folder`, `mark`.
+
 ## Features
 
 - **Push-based:** IMAP IDLE for instant notification on new emails

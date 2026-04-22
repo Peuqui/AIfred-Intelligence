@@ -29,7 +29,6 @@ async def execute_research(
     user_query: str,
     lang: str = "de",
     pre_generated_queries: Optional[list[str]] = None,
-    skip_url_ranking: bool = False,
 ) -> AsyncGenerator[None, None]:
     """Execute the full research pipeline.
 
@@ -39,7 +38,7 @@ async def execute_research(
     Single function for both forced path and tool-call path:
     1. Query generation (skipped if pre_generated_queries provided)
     2. Multi-API search (Tavily/Brave/SearXNG)
-    3. URL ranking (LLM-based, skipped if skip_url_ranking=True)
+    3. URL ranking (LLM-based, with conversation history)
     4. Parallel scraping
     5. Context building
     6. Vector cache write (with TTL volatility)
@@ -145,13 +144,9 @@ async def execute_research(
             return
 
         # ==============================================================
-        # PHASE 3: LLM-based URL Ranking (skipped in tool-call path)
+        # PHASE 3: LLM-based URL Ranking (with conversation history)
         # ==============================================================
-        if skip_url_ranking:
-            related_urls = related_urls[:7]
-            state.add_debug(f"⏭️ URL ranking skipped, using top {len(related_urls)} URLs")
-            yield
-        elif related_urls and titles and snippets:
+        if related_urls and titles and snippets:
             top_n = 7
             state.add_debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
             yield
@@ -163,6 +158,7 @@ async def execute_research(
                 snippets=snippets,
                 automatik_llm_client=automatik_llm_client,
                 automatik_model=automatik_model_id,
+                llm_history=state._chat_sub().llm_history,
                 top_n=top_n,
                 llm_options={},
                 automatik_num_ctx=automatik_num_ctx,
@@ -267,7 +263,7 @@ async def execute_research(
 # Hub search (Message Hub — no Reflex State, no async generators)
 # ============================================================
 
-async def _hub_web_search(queries: list[str]) -> str:
+async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
     """Web search for Message Hub (Discord, Email).
 
     Uses the same building blocks as the full pipeline:
@@ -356,6 +352,7 @@ async def _hub_web_search(queries: list[str]) -> str:
                 snippets=snippets,
                 automatik_llm_client=llm_client,
                 automatik_model=model_id,
+                llm_history=llm_history,
                 top_n=7,
                 llm_options={},
                 automatik_num_ctx=num_ctx if num_ctx > 0 else 32768,
@@ -413,7 +410,7 @@ async def _hub_web_search(queries: list[str]) -> str:
 # Tool Definitions (for LLM function calling)
 # ============================================================
 
-def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> list[Tool]:
+def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", session_id: str = "") -> list[Tool]:
     """Create research tools bound to a specific state instance.
 
     The web_search tool runs the full pipeline (search + scraping).
@@ -433,14 +430,18 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de") -> l
                 user_query=queries[0],
                 lang=lang,
                 pre_generated_queries=queries,
-                skip_url_ranking=True,
             ):
                 pass
             result = getattr(state, "_research_context", "")
             return result if result else json.dumps({"error": "No results found"})
 
-        # Hub path (Discord, Email) — direct search + scrape, no State needed
-        return await _hub_web_search(queries)
+        # Hub path (Discord, Email) — load history from session, then search
+        hub_history: list[dict] = []
+        if session_id:
+            from .session_storage import load_session
+            session = load_session(session_id)
+            hub_history = session.get("data", {}).get("llm_history", []) if session else []
+        return await _hub_web_search(queries, hub_history)
 
     async def _execute_web_fetch(url: str) -> str:
         """Tool executor: fetch and extract content from a specific URL."""

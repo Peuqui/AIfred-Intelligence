@@ -1,6 +1,6 @@
 # System Monitor Plugin
 
-**Datei:** `aifred/plugins/tools/system_monitor.py`
+**Datei:** `aifred/plugins/tools/system_monitor/`
 
 Gibt Auskunft über den aktuellen Systemzustand: CPU, RAM, GPU, Festplatte, Temperatur.
 

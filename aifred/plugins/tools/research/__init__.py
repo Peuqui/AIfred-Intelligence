@@ -18,7 +18,7 @@ class ResearchPlugin:
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.research_tools import get_research_tools
-        return get_research_tools(state=ctx.state, lang=ctx.lang)
+        return get_research_tools(state=ctx.state, lang=ctx.lang, session_id=ctx.session_id)
 
     def get_prompt_instructions(self, lang: str) -> str:
         return ""

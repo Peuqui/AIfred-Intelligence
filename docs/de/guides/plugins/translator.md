@@ -1,6 +1,6 @@
 # Translator Plugin (DeepL)
 
-**Datei:** `aifred/plugins/tools/translator.py`
+**Datei:** `aifred/plugins/tools/translator/`
 
 Textubersetzung via [DeepL API](https://www.deepl.com/docs-api). Unterstuetzt 30+ Sprachen mit automatischer Quellsprach-Erkennung.
 

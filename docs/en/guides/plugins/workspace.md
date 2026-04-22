@@ -1,6 +1,6 @@
 # Workspace Plugin
 
-**File:** `aifred/plugins/tools/workspace.py`
+**File:** `aifred/plugins/tools/workspace/`
 
 The Workspace Plugin provides the LLM with direct file access to the documents directory (`data/documents/`) and central management of all ChromaDB vector database collections.
 

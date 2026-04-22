@@ -1,6 +1,6 @@
 # Workspace Plugin
 
-**Datei:** `aifred/plugins/tools/workspace.py`
+**Datei:** `aifred/plugins/tools/workspace/`
 
 Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) sowie die zentrale Verwaltung aller ChromaDB-Vektordatenbank-Collections.
 

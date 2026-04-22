@@ -1,8 +1,14 @@
 # Discord Channel Plugin
 
-**Datei:** `aifred/plugins/channels/discord.py`
+**Datei:** `aifred/plugins/channels/discord_channel/`
 
 Channel-Plugin für Discord-Bot-Integration mit Channel- und DM-Unterstützung.
+
+## Tools (für das LLM)
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `discord_send` | Nachricht in Discord-Kanal oder DM senden | COMMUNICATE |
 
 ## Features
 

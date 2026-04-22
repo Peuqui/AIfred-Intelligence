@@ -80,6 +80,29 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 - [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhaengig von EPIM)
 
 ### Google Suite (OAuth-basierte Plugins)
+
+**Architektur-Entscheidung (2026-04-19):**
+- **Google Orchestrator** als einzelner ToolPlugin-Eintrag (`plugins/tools/google/`)
+- Sub-Services in Unterordnern: `calendar/`, `contacts/`, `drive/`, `tasks/`
+- Jeder Sub-Service per Toggle aktivierbar (settings.json im Plugin-Verzeichnis)
+- **Ein OAuth-Flow** fuer alle Services — Scopes werden aus aktiven Sub-Services aggregiert
+- OAuth-Broker bereits implementiert: `aifred/lib/oauth/` (Fernet-verschluesselt, CSRF-State)
+- `ToolPlugin` hat keine Settings-UI → **Option B gewaehlt**:
+  - Google-Plugin implementiert `load_settings()`/`save_settings()` selbst
+  - Settings-Accordion bekommt neuen "Tool Plugins"-Block fuer Toggles + Credentials
+  - Dieses Muster dann auch fuer Home Assistant, RSS, etc. wiederverwendbar
+
+**Naechste Schritte:**
+- [ ] `plugins/tools/google/__init__.py` — Orchestrator mit Scope-Aggregation + settings.json
+- [ ] `plugins/tools/google/calendar/tools.py` — Calendar CRUD Tools
+- [ ] `plugins/tools/google/contacts/tools.py` — Contacts lesen/suchen
+- [ ] `plugins/tools/google/drive/tools.py` — Drive readonly (optional)
+- [ ] `plugins/tools/google/tasks/tools.py` — Tasks sync (optional)
+- [ ] `plugins/tools/google/i18n.json` — Labels fuer Credentials + Toggles
+- [ ] `plugins/tools/google/settings.json` — Default: calendar+contacts an, drive+tasks aus
+- [ ] Settings-Accordion: "Tool Plugins"-Block fuer ToolPlugins mit settings.json
+
+**Noch offen:**
 - [ ] **Google Calendar Plugin**: Termine lesen, erstellen, aendern, loeschen;
       Konfliktpruefung, Recurrence-Support. Wakeup vor Terminen an Puck.
 - [ ] **Google Contacts Plugin**: Kontakte durchsuchen, fuer Email/Telegram/
@@ -88,8 +111,6 @@ Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 - [ ] **Google Drive Plugin** (optional): Dokumente durchsuchen/lesen in
       Research-Pipeline; Upload von generierten Artefakten (Reports, Code).
 - [ ] **Google Tasks Plugin** (optional): Sync mit AIfred-Scheduler / Todo-Listen.
-- [ ] Gemeinsamer OAuth-Broker fuer alle Google-Plugins
-      (ein Login, Scopes pro Plugin angefordert)
 
 ### KI-gestuetzte Kalibrierung
 - [ ] LLM-basierte Schaetzung der optimalen Kalibrierungsparameter (Proof of Concept abgeschlossen)

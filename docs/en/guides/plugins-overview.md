@@ -13,7 +13,7 @@ Tool Plugins provide tools the LLM can call autonomously during conversations.
 
 ### Workspace (Files & Documents)
 
-**File:** `plugins/tools/workspace.py`
+**File:** `plugins/tools/workspace/`
 
 File access to the documents directory (`data/documents/`) and semantic search via ChromaDB.
 
@@ -69,7 +69,7 @@ Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird d
 
 ### Web Research
 
-**File:** `plugins/tools/research.py`
+**File:** `plugins/tools/research/`
 
 Automatic web research with multiple search APIs and semantic cache.
 
@@ -89,13 +89,14 @@ Automatic web research with multiple search APIs and semantic cache.
 
 ### Sandbox (Code Execution)
 
-**File:** `plugins/tools/sandbox.py`
+**File:** `plugins/tools/sandbox/`
 
 Isolated Python code execution in subprocess.
 
 | Tool | Description | Tier |
 |------|------------|------|
-| `execute_code` | Run Python code (numpy, pandas, matplotlib, plotly, etc.) | WRITE_DATA |
+| `execute_code` | Run Python code (documents read-only) | WRITE_DATA |
+| `execute_code_write` | Run Python code with write access to documents | WRITE_SYSTEM |
 
 > **Details:** [Sandbox Plugin](plugins/sandbox.md)
 
@@ -103,7 +104,7 @@ Isolated Python code execution in subprocess.
 
 ### Calculator
 
-**File:** `plugins/tools/calculator.py`
+**File:** `plugins/tools/calculator/`
 
 | Tool | Description | Tier |
 |------|------------|------|
@@ -115,12 +116,12 @@ Isolated Python code execution in subprocess.
 
 ### Audio Player
 
-**File:** `plugins/tools/audio_player.py`
+**File:** `plugins/tools/audio_player/`
 
 | Tool | Description | Tier |
 |------|------------|------|
-| `audio_play` | Play audio file (WAV, MP3) | WRITE_DATA |
-| `audio_stop` | Stop playback | WRITE_DATA |
+| `audio_play` | Play audio file (WAV, MP3, OGG, FLAC) | WRITE_DATA |
+| `audio_stop` | Stop playback | READONLY |
 | `audio_status` | Query playback status | READONLY |
 
 > **Details:** [Audio Player Plugin](plugins/audio-player.md)
@@ -129,20 +130,20 @@ Isolated Python code execution in subprocess.
 
 ### Scheduler
 
-**File:** `plugins/tools/scheduler_tool.py`
+**File:** `plugins/tools/scheduler_tool/`
 
-Scheduled tasks (cron jobs) for AIfred.
+Scheduled tasks for AIfred.
 
 | Tool | Description | Tier |
 |------|------------|------|
-| `create_job` | Create a scheduled job (one-time or recurring) | WRITE_DATA |
-| `list_jobs` | List all scheduled jobs | READONLY |
-| `delete_job` | Delete a job | WRITE_DATA |
+| `scheduler_create` | Create a scheduled job | WRITE_DATA |
+| `scheduler_list` | List all scheduled jobs | READONLY |
+| `scheduler_delete` | Delete a job | WRITE_DATA |
 
 **Features:**
-- Cron syntax for recurring jobs
+- Three schedule types: `cron`, `interval` (seconds), `once` (ISO timestamp)
+- Delivery modes: `log`, `announce`, `review`, `webhook`
 - Isolated sessions per job
-- Webhook API for external triggers
 
 > **Details:** [Scheduler Plugin](plugins/scheduler.md)
 
@@ -150,7 +151,7 @@ Scheduled tasks (cron jobs) for AIfred.
 
 ### System Monitor
 
-**File:** `plugins/tools/system_monitor.py`
+**File:** `plugins/tools/system_monitor/`
 
 Hardware status: CPU, RAM, GPU, disk, temperature.
 
@@ -162,9 +163,42 @@ Hardware status: CPU, RAM, GPU, disk, temperature.
 
 ---
 
+### Google Suite
+
+**Directory:** `plugins/tools/google_suite/`
+
+OAuth 2.0 integration for Google Calendar and Contacts. Orchestrator plugin with toggleable sub-services.
+
+| Tool | Description | Tier |
+|------|------------|------|
+| `google_calendar_list_events` | List events in a time range | READONLY |
+| `google_calendar_create_event` | Create a new event | WRITE_DATA |
+| `google_calendar_update_event` | Update an existing event | WRITE_DATA |
+| `google_calendar_delete_event` | Delete an event | WRITE_DATA |
+| `google_calendar_list_calendars` | List all calendars | READONLY |
+| `google_contacts_list_all` | Retrieve all contacts (paginated) | READONLY |
+| `google_contacts_list_groups` | List contact groups/labels | READONLY |
+| `google_contacts_list_by_group` | Retrieve contacts in a group | READONLY |
+| `google_contacts_search` | Search contacts by name/email | READONLY |
+| `google_contacts_create` | Create a new contact | WRITE_DATA |
+| `google_contacts_update` | Update a contact | WRITE_DATA |
+| `google_contacts_delete` | Delete a contact | WRITE_DATA |
+
+**Features:**
+- Single OAuth login for all sub-services (scopes aggregated)
+- Sub-services toggleable via `settings.json` (default: Calendar + Contacts on)
+- Group support: categorize contacts, filter by group
+- Fernet-encrypted token storage
+
+**Prerequisite:** Google Cloud Console setup + OAuth flow. See [OAuth Broker](plugins/oauth.md).
+
+> **Details:** [Google Suite Plugin](plugins/google-suite.md)
+
+---
+
 ### Translator (DeepL)
 
-**File:** `plugins/tools/translator.py`
+**File:** `plugins/tools/translator/`
 
 Text translation via DeepL API with automatic source language detection. 30+ languages, 500,000 characters/month free.
 
@@ -198,7 +232,7 @@ IMAP IDLE push-based email monitor with SMTP auto-reply.
 
 ### Discord
 
-**File:** `plugins/channels/discord.py`
+**File:** `plugins/channels/discord_channel/`
 
 Discord bot with channel and DM support.
 
@@ -231,19 +265,22 @@ Telegram bot via long polling.
 ```
 aifred/plugins/
 ├── tools/                  # Tool Plugins (LLM tools)
-│   ├── workspace.py        # Files & ChromaDB
-│   ├── research.py         # Web research
-│   ├── sandbox.py          # Code execution
-│   ├── calculator.py       # Math
-│   ├── audio_player.py     # Audio playback
-│   ├── scheduler_tool.py   # Scheduled tasks
-│   ├── translator.py       # DeepL translation
-│   └── epim/               # EPIM database
-│       ├── tools.py
-│       └── db.py
+│   ├── workspace/          # Files & ChromaDB
+│   ├── research/           # Web research
+│   ├── sandbox/            # Code execution
+│   ├── calculator/         # Math
+│   ├── audio_player/       # Audio playback
+│   ├── scheduler_tool/     # Scheduled tasks
+│   ├── translator/         # DeepL translation
+│   ├── epim/               # EPIM database
+│   │   ├── tools.py
+│   │   └── db.py
+│   └── google_suite/       # Google Calendar + Contacts (OAuth)
+│       ├── calendar/
+│       └── contacts/
 └── channels/               # Channel Plugins (communication)
     ├── email_channel/      # Email (IMAP/SMTP)
-    ├── discord.py          # Discord bot
+    ├── discord_channel/    # Discord bot
     └── telegram_channel/   # Telegram bot
 ```
 

@@ -1,6 +1,6 @@
 # Calculator Plugin
 
-**Datei:** `aifred/plugins/tools/calculator.py`
+**Datei:** `aifred/plugins/tools/calculator/`
 
 Sichere Auswertung mathematischer Ausdrücke.
 
@@ -13,4 +13,4 @@ Sichere Auswertung mathematischer Ausdrücke.
 ## Features
 
 - Evaluiert Ausdrücke sicher ohne `eval()`
-- Unterstützt Grundrechenarten, Potenzen, Klammern
+- Unterstützt: `+`, `-`, `*`, `/`, `//` (ganzzahlige Division), `%` (Modulo), `**` (Potenz), Klammern

@@ -87,6 +87,7 @@ async def rank_urls_by_relevance(
     snippets: List[str],
     automatik_llm_client,
     automatik_model: str,
+    llm_history: List[Dict],
     top_n: int = 7,
     llm_options: Optional[Dict] = None,
     automatik_num_ctx: Optional[int] = None
@@ -127,14 +128,26 @@ async def rank_urls_by_relevance(
     # Format URL list first
     url_list_formatted = format_url_list_for_ranking(urls, titles, snippets)
 
+    # Format last 6 history messages as context (3 user/assistant pairs)
+    conversation_context = ""
+    if llm_history:
+        recent = [m for m in llm_history if m.get("role") in ("user", "assistant")][-6:]
+        if recent:
+            lines = ["CONVERSATION CONTEXT (recent messages):"]
+            for m in recent:
+                role = "User" if m["role"] == "user" else "Assistant"
+                content = str(m.get("content", ""))[:300]
+                lines.append(f"{role}: {content}")
+            conversation_context = "\n".join(lines) + "\n"
+
     # Load and format prompt (always EN - output is numeric indices)
-    # Pass placeholders directly to load_prompt
     prompt = load_prompt(
         "automatik/url_ranking",
         lang="en",
         user_question=user_question,
         url_list=url_list_formatted,
-        top_n=top_n
+        top_n=top_n,
+        conversation_context=conversation_context,
     )
 
     # Call Automatik-LLM

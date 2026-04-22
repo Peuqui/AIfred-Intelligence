@@ -13,7 +13,7 @@ Tool Plugins stellen dem LLM Werkzeuge zur Verfügung, die es autonom aufrufen k
 
 ### Workspace (Dateien & Dokumente)
 
-**Datei:** `plugins/tools/workspace.py`
+**Datei:** `plugins/tools/workspace/`
 
 Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische Suche über ChromaDB.
 
@@ -69,7 +69,7 @@ Vollzugriff auf die [EssentialPIM](https://www.essentialpim.com/) Firebird-Daten
 
 ### Web Research
 
-**Datei:** `plugins/tools/research.py`
+**Datei:** `plugins/tools/research/`
 
 Automatische Web-Recherche mit mehreren Such-APIs und semantischem Cache.
 
@@ -89,13 +89,14 @@ Automatische Web-Recherche mit mehreren Such-APIs und semantischem Cache.
 
 ### Sandbox (Code-Ausführung)
 
-**Datei:** `plugins/tools/sandbox.py`
+**Datei:** `plugins/tools/sandbox/`
 
 Isolierte Python-Code-Ausführung in Subprocess.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `execute_code` | Python-Code ausführen (numpy, pandas, matplotlib, plotly, etc.) | WRITE_DATA |
+| `execute_code` | Python-Code ausführen (Dokumente read-only) | WRITE_DATA |
+| `execute_code_write` | Python-Code ausführen mit Schreibzugriff auf Dokumente | WRITE_SYSTEM |
 
 **Features:**
 - Isolierter Subprocess
@@ -108,7 +109,7 @@ Isolierte Python-Code-Ausführung in Subprocess.
 
 ### Calculator
 
-**Datei:** `plugins/tools/calculator.py`
+**Datei:** `plugins/tools/calculator/`
 
 Mathematische Berechnungen.
 
@@ -122,14 +123,14 @@ Mathematische Berechnungen.
 
 ### Audio Player
 
-**Datei:** `plugins/tools/audio_player.py`
+**Datei:** `plugins/tools/audio_player/`
 
 Audio-Wiedergabe auf dem Server.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `audio_play` | Audio-Datei abspielen (WAV, MP3) | WRITE_DATA |
-| `audio_stop` | Wiedergabe stoppen | WRITE_DATA |
+| `audio_play` | Audio-Datei abspielen (WAV, MP3, OGG, FLAC) | WRITE_DATA |
+| `audio_stop` | Wiedergabe stoppen | READONLY |
 | `audio_status` | Wiedergabe-Status abfragen | READONLY |
 
 > **Details:** [Audio Player Plugin](plugins/audio-player.md)
@@ -138,20 +139,20 @@ Audio-Wiedergabe auf dem Server.
 
 ### Scheduler
 
-**Datei:** `plugins/tools/scheduler_tool.py`
+**Datei:** `plugins/tools/scheduler_tool/`
 
-Geplante Aufgaben (Cron-Jobs) für AIfred.
+Geplante Aufgaben für AIfred.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `create_job` | Zeitgesteuerten Job anlegen (einmalig oder wiederkehrend) | WRITE_DATA |
-| `list_jobs` | Alle geplanten Jobs auflisten | READONLY |
-| `delete_job` | Job löschen | WRITE_DATA |
+| `scheduler_create` | Zeitgesteuerten Job anlegen | WRITE_DATA |
+| `scheduler_list` | Alle geplanten Jobs auflisten | READONLY |
+| `scheduler_delete` | Job löschen | WRITE_DATA |
 
 **Features:**
-- Cron-Syntax für wiederkehrende Jobs
+- Drei Schedule-Typen: `cron`, `interval` (Sekunden), `once` (ISO-Timestamp)
+- Delivery-Modi: `log`, `announce`, `review`, `webhook`
 - Isolierte Sessions pro Job
-- Webhook-API für externe Trigger
 
 > **Details:** [Scheduler Plugin](plugins/scheduler.md)
 
@@ -159,7 +160,7 @@ Geplante Aufgaben (Cron-Jobs) für AIfred.
 
 ### System Monitor
 
-**Datei:** `plugins/tools/system_monitor.py`
+**Datei:** `plugins/tools/system_monitor/`
 
 Hardware-Status: CPU, RAM, GPU, Festplatte, Temperatur.
 
@@ -171,9 +172,42 @@ Hardware-Status: CPU, RAM, GPU, Festplatte, Temperatur.
 
 ---
 
+### Google Suite
+
+**Verzeichnis:** `plugins/tools/google_suite/`
+
+OAuth 2.0 Integration für Google Calendar und Contacts. Orchestrator-Plugin mit aktivierbaren Sub-Services.
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `google_calendar_list_events` | Termine in einem Zeitraum abrufen | READONLY |
+| `google_calendar_create_event` | Neuen Termin erstellen | WRITE_DATA |
+| `google_calendar_update_event` | Bestehenden Termin ändern | WRITE_DATA |
+| `google_calendar_delete_event` | Termin löschen | WRITE_DATA |
+| `google_calendar_list_calendars` | Alle Kalender auflisten | READONLY |
+| `google_contacts_list_all` | Alle Kontakte abrufen (paginiert) | READONLY |
+| `google_contacts_list_groups` | Kontaktgruppen/Labels auflisten | READONLY |
+| `google_contacts_list_by_group` | Kontakte einer Gruppe abrufen | READONLY |
+| `google_contacts_search` | Kontakte nach Name/E-Mail suchen | READONLY |
+| `google_contacts_create` | Neuen Kontakt anlegen | WRITE_DATA |
+| `google_contacts_update` | Kontakt aktualisieren | WRITE_DATA |
+| `google_contacts_delete` | Kontakt löschen | WRITE_DATA |
+
+**Features:**
+- Ein OAuth-Login für alle Sub-Services (Scopes werden aggregiert)
+- Sub-Services per `settings.json` togglebar (Standard: Calendar + Contacts aktiv)
+- Gruppen-Support: Kontakte kategorisieren, nach Gruppe filtern
+- Fernet-verschlüsselte Token-Speicherung
+
+**Voraussetzung:** Google Cloud Console Setup + OAuth-Flow. Siehe [OAuth Broker](plugins/oauth.md).
+
+> **Details:** [Google Suite Plugin](plugins/google-suite.md)
+
+---
+
 ### Translator (DeepL)
 
-**Datei:** `plugins/tools/translator.py`
+**Datei:** `plugins/tools/translator/`
 
 Textuebersetzung via DeepL API mit automatischer Quellsprach-Erkennung. 30+ Sprachen, 500.000 Zeichen/Monat kostenlos.
 
@@ -207,7 +241,7 @@ IMAP IDLE Push-basierter E-Mail-Monitor mit SMTP Auto-Reply.
 
 ### Discord
 
-**Datei:** `plugins/channels/discord.py`
+**Datei:** `plugins/channels/discord_channel/`
 
 Discord Bot mit Channel- und DM-Support.
 
@@ -240,19 +274,22 @@ Telegram Bot via Long Polling.
 ```
 aifred/plugins/
 ├── tools/                  # Tool Plugins (LLM-Werkzeuge)
-│   ├── workspace.py        # Dateien & ChromaDB
-│   ├── research.py         # Web-Recherche
-│   ├── sandbox.py          # Code-Ausführung
-│   ├── calculator.py       # Mathematik
-│   ├── audio_player.py     # Audio-Wiedergabe
-│   ├── scheduler_tool.py   # Geplante Aufgaben
-│   ├── translator.py       # DeepL-Uebersetzung
-│   └── epim/               # EPIM-Datenbank
-│       ├── tools.py
-│       └── db.py
+│   ├── workspace/          # Dateien & ChromaDB
+│   ├── research/           # Web-Recherche
+│   ├── sandbox/            # Code-Ausführung
+│   ├── calculator/         # Mathematik
+│   ├── audio_player/       # Audio-Wiedergabe
+│   ├── scheduler_tool/     # Geplante Aufgaben
+│   ├── translator/         # DeepL-Uebersetzung
+│   ├── epim/               # EPIM-Datenbank
+│   │   ├── tools.py
+│   │   └── db.py
+│   └── google_suite/       # Google Calendar + Contacts (OAuth)
+│       ├── calendar/
+│       └── contacts/
 └── channels/               # Channel Plugins (Kommunikation)
     ├── email_channel/      # E-Mail (IMAP/SMTP)
-    ├── discord.py          # Discord Bot
+    ├── discord_channel/    # Discord Bot
     └── telegram_channel/   # Telegram Bot
 ```
 

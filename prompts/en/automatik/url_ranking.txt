@@ -1,5 +1,5 @@
 Rank these URLs by relevance for the user's question.
-
+{conversation_context}
 USER QUESTION: {user_question}
 
 SEARCH RESULTS (Index: Title - Snippet):

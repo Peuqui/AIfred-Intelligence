@@ -2,13 +2,13 @@
 
 **File:** `aifred/plugins/tools/epim/`
 
-CRUD operations on EssentialPIM Firebird database. Allows the LLM to manage contacts, appointments, notes and tasks.
+CRUD operations on EssentialPIM Firebird database. Allows the LLM to manage contacts, appointments, notes, tasks, passwords and other entities.
 
 ## Tools
 
 | Tool | Description | Tier |
 |------|------------|------|
-| `epim_search` | Search entries (contacts, appointments, notes, tasks) | READONLY |
+| `epim_search` | Search entries (contacts, appointments, notes, tasks, passwords, categories, calendars, todo lists, note trees) | READONLY |
 | `epim_create` | Create new entry | WRITE_DATA |
 | `epim_update` | Update existing entry | WRITE_DATA |
 | `epim_delete` | Delete entry | WRITE_SYSTEM |
