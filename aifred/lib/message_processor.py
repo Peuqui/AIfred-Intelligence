@@ -207,7 +207,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             debug(f"❌ Intent detection FAILED: {e}")
             raise
 
-        from .agent_config import get_agent_config as _get_agent_cfg
+        from .agent_config import get_agent_config as _get_agent_cfg, get_agent_label
         from .intent_detector import format_intent_result
 
         # Channel-level addressee override (e.g. FreeEcho.2 wake-word agent).
@@ -217,10 +217,13 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         wake_agent = message.metadata.get("wake_agent")
         if wake_agent and _get_agent_cfg(wake_agent):
             if wake_agent != agent:
-                debug(f"🎯 Wake-Override: {wake_agent} (LLM hätte '{agent}' gewählt)")
+                debug(
+                    f"🎯 Wake-Override: {get_agent_label(wake_agent)} "
+                    f"(LLM would have chosen {get_agent_label(agent)})"
+                )
             agent = wake_agent
         elif wake_agent:
-            debug(f"⚠️  Wake-Agent '{wake_agent}' nicht konfiguriert — LLM-Entscheidung übernommen")
+            debug(f"⚠️  Wake-Agent '{wake_agent}' not configured — keeping LLM decision")
 
         message.target_agent = agent
 
