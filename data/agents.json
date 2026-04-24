@@ -133,9 +133,9 @@
       ]
     },
     "codi": {
-      "display_name": "Codi",
+      "display_name": "Codine",
       "emoji": "🤖",
-      "description": "Mathematiker und Programmierer",
+      "description": "Mathematikerin und Programmiererin",
       "role": "custom",
       "prompts": {
         "identity": "codi/identity.txt",
