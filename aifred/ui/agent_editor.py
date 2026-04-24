@@ -30,6 +30,18 @@ _INPUT_STYLE = {
     "font_size": "14px",
 }
 
+_ID_INPUT_STYLE = {
+    "width": "100%",
+    "color": "#bbb",
+    "background_color": "#2a2a2a",
+    "border": "1px solid #444",
+    "border_radius": "6px",
+    "padding": "6px 10px",
+    "font_size": "13px",
+    "font_family": "monospace",
+    "cursor": "not-allowed",
+}
+
 
 # ============================================================
 # SHARED HEADER (tabs + close)
@@ -433,6 +445,22 @@ def _config_view() -> rx.Component:
 
                 # ── Metadata (hidden for Automatik) ────────────
                 rx.cond(~is_automatik, rx.hstack(
+                    # Agent-ID (readonly, nur bei bestehenden Agenten)
+                    rx.cond(
+                        ~is_new,
+                        rx.vstack(
+                            rx.text(t("agent_editor_agent_id"), color="#aaa", font_size="12px"),
+                            rx.el.input(
+                                value=AIState.editor_agent_id,
+                                read_only=True,
+                                tab_index=-1,
+                                **_ID_INPUT_STYLE,
+                            ),
+                            spacing="1",
+                            width="140px",
+                            flex_shrink="0",
+                        ),
+                    ),
                     # Name
                     rx.vstack(
                         rx.text(t("agent_editor_name"), color="#aaa", font_size="12px"),

@@ -206,10 +206,24 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             log_message(f"❌ Intent detection FAILED (no fallback): {e}", "error")
             debug(f"❌ Intent detection FAILED: {e}")
             raise
-        message.target_agent = agent
 
         from .agent_config import get_agent_config as _get_agent_cfg
         from .intent_detector import format_intent_result
+
+        # Channel-level addressee override (e.g. FreeEcho.2 wake-word agent).
+        # Only applied if the hinted agent actually exists in agent_config —
+        # unknown wake labels (e.g. "computer", "stopp") fall through to the
+        # LLM-detected addressee.
+        wake_agent = message.metadata.get("wake_agent")
+        if wake_agent and _get_agent_cfg(wake_agent):
+            if wake_agent != agent:
+                debug(f"🎯 Wake-Override: {wake_agent} (LLM hätte '{agent}' gewählt)")
+            agent = wake_agent
+        elif wake_agent:
+            debug(f"⚠️  Wake-Agent '{wake_agent}' nicht konfiguriert — LLM-Entscheidung übernommen")
+
+        message.target_agent = agent
+
         _cfg = _get_agent_cfg(message.target_agent)
         agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
 

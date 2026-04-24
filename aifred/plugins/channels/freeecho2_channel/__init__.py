@@ -35,6 +35,11 @@ if TYPE_CHECKING:
 _devices: dict[str, WebSocketResponse] = {}
 # Pending TTS responses: room_name → asyncio.Future
 _pending_responses: dict[str, asyncio.Future] = {}
+# Wake-Word → Agent-Hint: room_name → agent_id
+# Populated by wake events, consumed by the next audio event from the same room.
+# A stale entry (wake without audio) is harmless: the Puck only sends audio
+# directly after wake detection, and a new wake overwrites or clears this.
+_pending_wake_agent: dict[str, str] = {}
 
 # WebSocket server port
 _DEFAULT_PORT = 9777
@@ -220,7 +225,13 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] Register: {msg}")
 
         elif msg_type == "wake":
-            self.channel_log(f"[FreeEcho.2 {room}] Wake word detected")
+            wake_agent = msg.get("agent")
+            if wake_agent:
+                _pending_wake_agent[room] = str(wake_agent)
+                self.channel_log(f"[FreeEcho.2 {room}] Wake word detected (agent={wake_agent})")
+            else:
+                _pending_wake_agent.pop(room, None)
+                self.channel_log(f"[FreeEcho.2 {room}] Wake word detected")
             # Pre-signal: could trigger model warmup here
             # For now just acknowledge
             await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
@@ -240,6 +251,16 @@ class FreeEchoChannel(BaseChannel):
         duration = num_samples / 16000.0
         audio_kb = len(audio_data) / 1024
         self.channel_log(f"[FreeEcho.2 {room}] Audio received: {num_samples} samples ({duration:.1f}s, {audio_kb:.0f} KB)")
+
+        # Resolve wake-word hint from the preceding "wake" event. Agent IDs with
+        # a leading underscore are command tokens (e.g. "_stop") — handle those
+        # here and skip the full STT/LLM/TTS pipeline. Concrete command handlers
+        # (abort running TTS, cancel inference, …) are TODO.
+        wake_agent = _pending_wake_agent.pop(room, None)
+        if wake_agent and wake_agent.startswith("_"):
+            self.channel_log(f"[FreeEcho.2 {room}] Command '{wake_agent}' received — pipeline skipped (stub)")
+            await ws.send_str(json.dumps({"type": "done", "reason": f"command:{wake_agent}"}))
+            return
 
         # Convert raw PCM to WAV for STT
         wav_buffer = io.BytesIO()
@@ -328,13 +349,19 @@ class FreeEchoChannel(BaseChannel):
 
             # Create inbound message and process through AIfred engine
             # (process_inbound creates its own session_scope)
+            # wake_agent was resolved at the top of this handler.
             inbound = InboundMessage(
                 channel="freeecho2",
                 channel_id=room,
                 sender=room,
                 text=text,
                 timestamp=datetime.now(timezone.utc),
-                metadata={"wav_path": wav_path, "room": room, "tts_deferred": tts_deferred},
+                metadata={
+                    "wav_path": wav_path,
+                    "room": room,
+                    "tts_deferred": tts_deferred,
+                    "wake_agent": wake_agent,
+                },
             )
 
             _devices[room] = ws
