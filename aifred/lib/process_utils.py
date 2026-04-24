@@ -15,6 +15,13 @@ import asyncio
 from .logging_utils import log_message
 
 
+#: Cached TTS GPU id. Computed once per process by :func:`get_tts_gpu_id`
+#: from :func:`_detect_tts_gpu_id` so that the same value is reported
+#: throughout an AIfred run — consistency matters because calibration
+#: profiles encode this assumption in their tensor-split.
+_cached_tts_gpu_id: int | None = None
+
+
 async def stop_process(
     pattern: str,
     wait_for_vram: bool = True,
@@ -155,9 +162,11 @@ def restart_docker_container(
 
     compose_dir = compose_path.parent
 
-    # Pass env vars via process environment (NOT .env file — avoids Reflex hot-reload)
+    # Pass env vars via process environment (NOT .env file — avoids Reflex hot-reload).
+    # TTS compose files reference TTS_GPU_ID; the value is detected dynamically
+    # via _detect_tts_gpu_id (cached per process for stability).
     proc_env = os.environ.copy()
-    proc_env["FASTEST_GPU_ID"] = _detect_fastest_gpu()
+    proc_env["TTS_GPU_ID"] = str(get_tts_gpu_id())
     if env_vars:
         proc_env.update(env_vars)
 
@@ -271,20 +280,46 @@ def _detect_fastest_gpu() -> str:
     return str(ranking[0][0]) if ranking else "0"
 
 
-def get_tts_gpu_id() -> int:
-    """Return the GPU index that TTS containers are pinned to.
+def _detect_tts_gpu_id() -> int:
+    """Pick the GPU that TTS containers should pin to.
 
-    TTS compose files use ``device_ids: ['${FASTEST_GPU_ID:-1}']`` and
-    ``FASTEST_GPU_ID`` is set by ``_detect_fastest_gpu()`` at container
-    start. So the TTS GPU == the system's currently-fastest GPU.
+    Rule: Within the fastest GPU class (matching ``compute_cap`` AND
+    ``memory_total``), prefer the **second** GPU. This leaves the first
+    GPU of that class to the LLM, so a single-GPU LLM variant can run
+    isolated from TTS.
 
-    Returns GPU index as int (defaults to 1 if detection fails, matching
-    the compose-file fallback).
+    If only one GPU of the fastest class exists, fall back to that one —
+    TTS and LLM then share it (caller / calibration handles the budget).
+
+    Examples:
+    - 2× RTX 8000 + 2× P40 → pick the 2nd RTX 8000
+    - 1× RTX 4090           → pick the RTX 4090 (shared)
+    - 3× RTX 5090           → pick the 2nd RTX 5090
+
+    Falls back to 1 when nvidia-smi is unavailable.
     """
-    try:
-        return int(_detect_fastest_gpu())
-    except ValueError:
+    ranking = _gpu_ranking()
+    if not ranking:
         return 1
+
+    fastest_cap, fastest_vram = ranking[0][1], ranking[0][2]
+    fastest_class = [g for g in ranking if g[1] == fastest_cap and g[2] == fastest_vram]
+    if len(fastest_class) >= 2:
+        return fastest_class[1][0]
+    return fastest_class[0][0]
+
+
+def get_tts_gpu_id() -> int:
+    """Return the GPU index that TTS containers run on (cached per process).
+
+    See :func:`_detect_tts_gpu_id` for the selection rule. The value is
+    computed once and cached so it stays stable for the lifetime of this
+    AIfred process — calibration profiles depend on the assumption.
+    """
+    global _cached_tts_gpu_id
+    if _cached_tts_gpu_id is None:
+        _cached_tts_gpu_id = _detect_tts_gpu_id()
+    return _cached_tts_gpu_id
 
 
 def get_llm_speed_gpu_id(tts_gpu_id: int | None = None) -> int:
@@ -336,10 +371,11 @@ def _docker_compose_action(
         cmd.append("down")
 
     try:
-        # Pass FASTEST_GPU_ID as env variable (no file writes to avoid Reflex hot-reload)
+        # Pass TTS_GPU_ID as env variable (no file writes to avoid Reflex hot-reload).
+        # Detection is cached per process — see get_tts_gpu_id().
         proc_env = os.environ.copy()
         if action == "up":
-            proc_env["FASTEST_GPU_ID"] = _detect_fastest_gpu()
+            proc_env["TTS_GPU_ID"] = str(get_tts_gpu_id())
         result = subprocess.run(
             cmd,
             capture_output=True,

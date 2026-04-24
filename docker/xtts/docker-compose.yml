@@ -11,10 +11,10 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['${FASTEST_GPU_ID:-1}']
+              device_ids: ['${TTS_GPU_ID:-1}']
               capabilities: [gpu]
     environment:
-      - NVIDIA_VISIBLE_DEVICES=${FASTEST_GPU_ID:-1}
+      - NVIDIA_VISIBLE_DEVICES=${TTS_GPU_ID:-1}
       - CUDA_VISIBLE_DEVICES=0
       - COQUI_TOS_AGREED=1
       - HF_HUB_OFFLINE=1
