@@ -15,6 +15,7 @@ from ..config import (
     CALIBRATION_MIN_CONTEXT,
     LLAMACPP_CALIBRATION_PORT,
     LLAMACPP_CALIBRATION_PRECISION,
+    LLAMACPP_HYBRID_HEALTH_TIMEOUT,
     LLAMACPP_VISION_VRAM_RESERVE,
     LLAMACPP_VRAM_SAFETY_MARGIN,
     MIN_FREE_RAM_MB,
@@ -1012,6 +1013,7 @@ async def _calibrate_hybrid(
             ngl=ngl,
             env=env,
             probe_thinking=known_thinking is None,
+            health_timeout=LLAMACPP_HYBRID_HEALTH_TIMEOUT,
         )
         yield _fmt_verify("hyb", 1, ts_ngl, target, r)
         if r.fits:

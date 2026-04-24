@@ -187,13 +187,28 @@ def _cleanup_log(process: subprocess.Popen) -> None:
 
 
 def _kill(process: subprocess.Popen) -> None:
+    """Terminate the llama-server child process.
+
+    SIGTERM → wait → SIGKILL → wait. The post-SIGKILL wait must be generous
+    enough to cover mmap-cleanup of huge models (--mlock / --direct-io on
+    100+ GB GGUF files can take 30+ seconds for the kernel to tear down).
+    If reaping still fails, swallow the timeout: the kernel will eventually
+    reap the zombie via init, and propagating the exception would crash the
+    entire calibration run instead of just discarding the failed config.
+    """
     if process.poll() is None:
         process.terminate()
         try:
-            process.wait(timeout=5)
+            process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait(timeout=3)
+            try:
+                process.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    f"llama-server pid {process.pid} did not reap within 60s "
+                    f"after SIGKILL — leaving as zombie, init will reap it."
+                )
 
 
 def _measured_free(gpus: list[GPU]) -> tuple[int, ...]:
@@ -217,10 +232,14 @@ async def verify(
     ngl: Optional[int] = None,
     env: Optional[dict[str, str]] = None,
     probe_thinking: bool = False,
+    health_timeout: Optional[float] = None,
 ) -> VerifyResult:
     """Run one physical test: start → inference → measure → kill.
 
     ``fits`` is True iff every GPU kept >= ``safety_margin_mb`` free.
+    ``health_timeout`` overrides the default health-check window — hybrid-mode
+    callers should pass a large value because mlock + CPU-offload of a 100+ GB
+    GGUF can take multiple minutes before the server is ready.
     """
     from ...backends.ollama import wait_for_vram_stable
 
@@ -230,7 +249,8 @@ async def verify(
 
     thinks: Optional[bool] = None
     try:
-        ready = await _wait_ready(port, LLAMACPP_HEALTH_TIMEOUT, process)
+        effective_timeout = health_timeout if health_timeout is not None else LLAMACPP_HEALTH_TIMEOUT
+        ready = await _wait_ready(port, effective_timeout, process)
         if not ready:
             output = _read_log(process)
             _kill(process)

@@ -207,6 +207,7 @@ LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
     "LLAMASWAP_CONFIG", str(Path.home() / ".config" / "llama-swap" / "config.yaml")
 ))
 LLAMACPP_HEALTH_TIMEOUT = 120     # Seconds until llama-server ready (large models need 60-90s)
+LLAMACPP_HYBRID_HEALTH_TIMEOUT = 600  # Hybrid mode: large models with CPU offload + mlock can take minutes to load
 LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
 
 BACKEND_URLS = {
