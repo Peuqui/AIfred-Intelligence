@@ -254,12 +254,13 @@ class FreeEchoChannel(BaseChannel):
 
         # Resolve wake-word hint from the preceding "wake" event. Agent IDs with
         # a leading underscore are command tokens (e.g. "_stop") — handle those
-        # here and skip the full STT/LLM/TTS pipeline. Concrete command handlers
-        # (abort running TTS, cancel inference, …) are TODO.
+        # here and skip the full STT/LLM/TTS pipeline. The Puck stops its own
+        # playback locally on wake detection (like Action-Button), so no reply
+        # is sent back. Concrete server-side command handlers (abort running
+        # inference, cancel injected music/TTS, …) are TODO.
         wake_agent = _pending_wake_agent.pop(room, None)
         if wake_agent and wake_agent.startswith("_"):
             self.channel_log(f"[FreeEcho.2 {room}] Command '{wake_agent}' received — pipeline skipped (stub)")
-            await ws.send_str(json.dumps({"type": "done", "reason": f"command:{wake_agent}"}))
             return
 
         # Convert raw PCM to WAV for STT
