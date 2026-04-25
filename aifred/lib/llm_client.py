@@ -18,22 +18,29 @@ MessageType = Union[Dict[str, Any], LLMMessage]
 
 
 def build_llm_options(state: "AIState | None", agent: str, temperature: float, num_ctx: int) -> LLMOptions:
-    """Build LLMOptions for an agent — sampling params from state (or defaults).
+    """Build LLMOptions for an agent — sampling params from state or settings.json.
 
     Central function to ensure ALL sampling parameters are passed consistently.
     Called from multi_agent.py, llm_engine.py, etc.
-    When state is None (e.g. Message Hub background worker), uses safe defaults.
+
+    Browser path (state given): reads ``state.<agent>_top_k`` etc. — these are
+    Reflex-state attributes populated from ``settings.json`` at startup.
+    Hub path (state=None, e.g. Message Hub background worker): reads the same
+    keys directly from ``settings.json`` so browser-configured per-agent
+    sampling overrides apply universally — no inconsistency between channels.
     """
     if state is None:
+        from .settings import load_settings
+        s = load_settings() or {}
         return LLMOptions(
             temperature=temperature,
-            enable_thinking=False,
+            enable_thinking=False,  # Hub workers default to no-thinking
             supports_thinking=None,
             num_ctx=num_ctx,
-            top_k=40,
-            top_p=0.9,
-            min_p=0.0,
-            repeat_penalty=1.1,
+            top_k=s.get(f"{agent}_top_k", 40),
+            top_p=s.get(f"{agent}_top_p", 0.9),
+            min_p=s.get(f"{agent}_min_p", 0.0),
+            repeat_penalty=s.get(f"{agent}_repeat_penalty", 1.1),
         )
     return LLMOptions(
         temperature=temperature,
