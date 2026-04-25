@@ -494,6 +494,69 @@ Vokabular nötig.
 - Direkte Adressierung ist genauso schnell wie ein *"zurück"*-Befehl,
   aber unmissverständlich.
 
+#### Geklärte Design-Entscheidung: kein Pattern-Fallback im Code
+
+**Diskutiert und entschieden 2026-04-25** (revert von Commit `c81d071`):
+Es gibt **keinen** Code-Fallback der den Query selbst per Regex auf
+*"Hey Alfred, ..."*-Muster scannt, wenn die LLM kein Addressee setzt.
+
+**Begründung:**
+- CLAUDE.md verbietet explizit *"automatische Fallbacks ohne Diskussion"*
+  und *"Defensive Programming ohne Grund"*.
+- Browser hat zuverlässige UI-Buttons — User klickt den gewünschten
+  Agenten direkt an. Voice-Adressierung im Browser ist Komfort, nicht
+  Notwendigkeit.
+- Puck adressiert primär über Wake-Word (deterministisch, vom Server-
+  side Wake-Override empfangen). Inline-Voice-Anrede *"Hey Alfred"*
+  am Puck ist sekundärer Pfad.
+- LLM-Versagen ist akzeptabel — bessere User-Experience: "LLM hat sich
+  verschluckt, AIfred antwortet" als ein zusätzlicher Code-Pfad mit
+  potentiellen False Positives bei Edge Cases.
+
+**Routing-Pipeline final:**
+1. Wake-Override (Channel-Hint, deterministisch)
+2. Mode-Switch `agent=...` (Voice-Befehl, LLM-erkannt + Parser-validiert)
+3. LLM-Addressee aus aktuellem Query (wenn LLM was zurückgibt)
+4. Sticky-Fallback: ``active_agent`` aus Session-Config (UI-Klick / vorher gesetzt)
+5. Default: ``"aifred"``
+
+Wenn 3. wegen schwacher LLM ausfällt, greift 4. — User sieht den
+"falschen" Agent antworten und korrigiert per UI-Klick (oder direkt
+*"Hey AIfred, ..."* in einem zweiten Anlauf, das funktioniert weil
+der Sticky-Code den klar adressierten Agent dann übernimmt).
+
+---
+
+## Hub-Channel @-Adressierung (E-Mail / Discord / Telegram / Signal)
+
+**Idee (vom User 2026-04-25):** In Multi-User-Channels wie Discord ist
+die `@username`-Konvention etabliert. Analog könnten Hub-Channels einen
+deterministischen `@<agent_id>`-Parser bekommen — Vorteile:
+
+- Funktioniert ohne LLM-Detection (deterministisch, keine Halluzinationen)
+- Integration in Plugins ist trivial (Pre-Parser vor `process_inbound`)
+- Konsistent mit Browser-UI (Klick) und Puck (Wake-Word) — alle drei
+  Routing-Wege sind explizit, keine Heuristik
+
+**Vorgeschlagene Syntax:**
+- `@aifred Wie spät ist es?` → `target_agent="aifred"`
+- `@hal Was siehst du?` → `target_agent="hal"`
+- `@codi @rabbi Diskutiert mal` → kombiniert mit Symposion-Mode (zukünftig)
+
+**Umsetzung:**
+- [ ] Pre-Parser in `message_processor.py` der vor LLM-Detection prüft
+      ob der Text mit `@<word>` startet, gegen `resolve_agent_id` matcht,
+      bei Match: `message.target_agent` setzen + Token strippen.
+- [ ] Channel-spezifische Konventionen respektieren (Discord nutzt
+      `<@user_id>`-Mention, E-Mail vermutlich plain `@id`).
+- [ ] Sticky-Logik gleich wie überall: `@-Adressierung` schaltet
+      `active_agent` persistent um.
+
+**Priorität:** Niedrig — solange E-Mail/Telegram/Signal manuell
+funktionieren ohne explizites Routing (Default-AIfred reicht meistens).
+Wird interessant wenn echte Multi-Agent-Konversationen über
+Text-Channels stattfinden.
+
 ---
 
 ## Calibration-Optimierungen für Hybrid-Modus
