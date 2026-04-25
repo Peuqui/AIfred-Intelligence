@@ -8,28 +8,25 @@ Analyze this user request:
 - MIXED: Combination of both
 
 **2. Addressee (who should respond):**
-Available agents with their specializations:
+Available agents (for context only — DO NOT route based on topic):
 {agent_list}
 
-Select an addressee in TWO cases:
-A) **By name:** User directly addresses an agent ("Hey Sokrates", "Codi, hilf mir")
-B) **By expertise:** The query clearly matches ONE specialist's domain — not general knowledge.
+**Set an addressee ONLY when the user EXPLICITLY addresses an agent by name.**
+Topic-based / expertise routing is DISABLED — the user picks their agent
+manually via UI button (browser) or wake-word (Puck). Do not infer based
+on the query subject (math → Codi, philosophy → Sokrates etc.).
 
 Rules for name detection:
-- Speaking TO someone = addressee. Speaking ABOUT someone = NOT addressee.
+- Speaking TO someone = addressee ("Hey Sokrates, ...", "Codi, hilf mir").
+- Speaking ABOUT someone = NOT addressee ("Was meint Sokrates?" → leer).
 - Ignore grammar/spelling — focus on semantic intent.
 - **Phonetic variations matter**: STT transcripts are noisy (Whisper, Vosk).
   Each agent's entry above lists ``aliases`` if present — these are common
   STT misspellings. Match user input against name AND aliases. If unsure
   whether a phonetic variant refers to an agent: prefer matching it.
 
-Rules for expertise routing:
-- Only route if the query CLEARLY matches ONE specialist's description above.
-- General questions, small talk, time/date, weather → Leave EMPTY (defaults to aifred).
-- If multiple agents could handle it → Leave EMPTY (defaults to aifred).
-- Agents without a description → Only selectable by name, never by expertise.
-
-If unsure → Leave EMPTY (use || in output). aifred handles everything by default.
+If no explicit name address → leave EMPTY (use ``||`` in output). The
+server falls back to the active agent (UI selection / last sticky).
 
 **3. Language of the user text in quotes above:**
 - DE: The text is in German (Deutsch)
