@@ -13,63 +13,10 @@ Also detects dialog addressing (who is being spoken to):
 - None: No specific addressee
 """
 
-import re
 from typing import Optional, Dict, Tuple, Any, List
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
 from .context_manager import strip_thinking_blocks
-
-
-# Vocative greetings that often precede an agent address. Matched case-
-# insensitively at the start of the query — used by the addressee-from-text
-# fallback when the LLM didn't fill the addressee field.
-_VOCATIVE_PREFIXES = (
-    "hey ", "hi ", "hallo ", "hello ", "servus ", "moin ",
-    "guten tag ", "guten morgen ", "guten abend ",
-    "hör mal ", "hör doch ", "hör zu ", "hör mal zu ",
-    "sag mal ", "sage mal ", "sag bitte ",
-    "du, ", "du ",
-)
-
-# Allowed characters in an agent name token (letters, digits for "HAL 9000",
-# spaces and hyphens for multi-word names like "Pater Tuck").
-_NAME_TOKEN_RE = re.compile(r"^([a-zäöüß0-9][a-zäöüß0-9 \-]*?)\s*[,!\?:\.]")
-
-
-def _detect_addressee_from_query(query: str) -> Optional[str]:
-    """Heuristic fallback when the LLM didn't fill the addressee field.
-
-    Scans the query for explicit vocative patterns: an optional greeting
-    ("Hey", "Hi", "Sag mal", …) followed by a token that resolves to an
-    agent (via id, display_name or alias) and a punctuation marker
-    (comma, exclamation, question mark, period). High-confidence patterns
-    only — silent on ambiguous cases.
-
-    Examples that match:
-      "Hey Alfred, wie viel Uhr?"      → aifred
-      "Hi HAL 9000, ..."               → hal
-      "Sokrates, was meinst du?"       → sokrates  (no greeting needed)
-
-    Examples that do NOT match (correctly):
-      "Wie viel Uhr ist es?"           → None
-      "Sokrates ist ein Philosoph"     → None  (no vocative marker)
-    """
-    if not query:
-        return None
-    from .agent_config import resolve_agent_id
-
-    text = query.strip().lower()
-    # Strip an optional leading greeting.
-    for prefix in _VOCATIVE_PREFIXES:
-        if text.startswith(prefix):
-            text = text[len(prefix):]
-            break
-
-    m = _NAME_TOKEN_RE.match(text)
-    if not m:
-        return None
-    candidate = m.group(1).strip()
-    return resolve_agent_id(candidate)
 
 
 # Valid values for mode-switch field validation (defensive parsing)
@@ -364,14 +311,6 @@ async def detect_query_intent_and_addressee(
     intent, addressee, detected_language, mode_switch, remaining = parse_intent_addressee_language(
         response_clean, context="general"
     )
-    # Fallback: small/conservative models often leave the addressee field
-    # empty even when the user clearly said "Hey Alfred, ...". Pattern-match
-    # the query directly as a deterministic safety net.
-    if addressee is None:
-        fallback = _detect_addressee_from_query(user_query)
-        if fallback is not None:
-            log_message(f"🎯 Addressee fallback (pattern match): {fallback}")
-            addressee = fallback
     log_message(
         f"✅ {format_intent_result(intent, addressee, detected_language)}, "
         f"ModeSwitch: {mode_switch or '-'}, Remaining: {remaining[:40] or '-'}, "
