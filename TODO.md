@@ -343,6 +343,256 @@ oder entfernen — das ist die letzte Entscheidung, nicht die erste.
 
 ---
 
+## Mode-Switch- & Routing-Lücken (Voice-Steuerung)
+
+**Stand 2026-04-25:** Browser-Pfad hat funktionierenden Mode-Switch via
+Automatik-LLM (siehe `_parse_mode_switch` in
+[`intent_detector.py`](aifred/lib/intent_detector.py)). Schon umgesetzt:
+
+- `agent=<id>` → setzt `active_agent` (Sticky)
+- `research=none|quick|deep|automatik`
+- `multi=standard|tribunal|symposion|critical_review|auto_consensus`
+
+### Lücke 1: Symposion mit ad-hoc Agenten-Liste
+
+**Problem:** *"Starte Symposion mit Codine, HAL und Rabbi"* → wird zu
+`multi=symposion` geparsed, aber die teilnehmenden Agenten kommen aus
+der UI-Konfig, nicht aus dem Voice-Befehl. Eine ad-hoc Auswahl per
+Sprache ist nicht möglich.
+
+**Lösung:**
+- [ ] Neuen Schlüssel `symposion_agents=<id1>,<id2>,...` im
+      Mode-Switch-Format ergänzen
+- [ ] `_parse_mode_switch` erweitern: kommagetrennte Agent-IDs
+      validieren gegen `agent_config`, ungültige verwerfen
+- [ ] Im Browser-Pfad ([`_chat_mixin.py`](aifred/state/_chat_mixin.py))
+      `symposion_agents` aus `mode_switch_updates` in die Session-Config
+      übernehmen
+- [ ] Prompt-Beispiele in
+      [`intent_detection.txt`](prompts/en/automatik/intent_detection.txt)
+      ergänzen: *"Start symposion with Codine, HAL and Rabbi"* →
+      `multi=symposion,symposion_agents=codi,hal,rabbi`
+
+### Lücke 2: Hub-Pfad (Puck) ignoriert Mode-Switch komplett
+
+**Problem:** [`message_processor.py:124`](aifred/lib/message_processor.py#L124)
+verwirft den `mode_switch`-Output mit Underscore-Präfix:
+
+```python
+intent, addressee, lang, _mode_switch, _remaining, _raw = await detect_query_intent_and_addressee(...)
+# NOTE: Mode-switch handling in the hub path is not yet supported.
+```
+
+→ *"Hey AIfred, schalte um auf Tiefrecherche"* via Puck ändert nichts.
+
+**Lösung:** Im Zuge des SSOT-Refactors (siehe oben) den Mode-Switch
+auch im Hub-Pfad anwenden — über `update_session_config(session_id,
+**mode_switch_updates)`. Browser und Hub teilen dann denselben
+Mechanismus.
+
+### Lücke 2b/2c/3: Universal Active-Agent Routing (vereinheitlicht)
+
+*Diese drei Lücken hängen zusammen — eine einheitliche Regel löst alle drei.*
+
+**Leitidee (vom User):** *"Jede explizite Adressierung — Wake-Word,
+Voice-Switch, UI-Klick oder Inline-Anrede — schaltet `active_agent`
+persistent um. Folge-Turns ohne Anrede laufen automatisch über
+`active_agent`."*
+
+Damit entfällt der separate "Sticky Follow-up"-Mechanismus: jede
+Adressierung ist sticky, bis sie explizit wieder gewechselt wird.
+
+#### Aktuelle Bugs in dieser Logik
+
+**Bug A — Voice-Mode-Switch persistiert nicht**
+[`_chat_mixin.py:1039`](aifred/state/_chat_mixin.py#L1039) setzt
+`self.active_agent` im State, ruft aber **kein**
+`_persist_session_config()`. UI-Klick (`set_active_agent()`) macht
+das richtig — Voice-Switch ist inkonsistent.
+
+**Bug B — Inline-Anrede setzt active_agent nicht um**
+*"Hey Sokrates, was ist X?"* setzt `addressed_to=sokrates` für genau
+diesen Turn. `active_agent` bleibt unverändert. Folge-Turn ohne
+Anrede fällt auf `active_agent` zurück (typischerweise "aifred").
+
+**Bug C — Hub-Pfad ignoriert active_agent**
+[`message_processor.py:204`](aifred/lib/message_processor.py#L204):
+```python
+agent, intent, lang = await detect_target_agent_via_llm(text)
+# Default "aifred", Session-Config nicht gelesen.
+```
+Selbst wenn der Browser `active_agent=pater` korrekt persistiert
+hätte, würde der Puck es ignorieren.
+
+**Bug D — Mode-Switch-Parser matcht nur Agent-IDs**
+[`intent_detector.py:65-70`](aifred/lib/intent_detector.py#L65):
+*"Schalt auf HAL 9000"* → LLM produziert vermutlich `agent=hal 9000`
+oder `agent=HAL 9000` → matcht nicht gegen `agents.keys()` (die ID
+ist `hal`). Verworfen.
+
+Inkonsistent mit der **Addressee-Erkennung**
+([`intent_detector.py:219-221`](aifred/lib/intent_detector.py#L219)),
+die sowohl ID als auch `display_name.lower()` matcht.
+
+#### Einheitliche Lösung (SSOT-konform)
+
+- [ ] **Helper-Funktion `set_session_active_agent(session_id, agent_id)`**
+      in `session_storage.py` — schreibt `active_agent` per
+      `update_session_config(...)` und ist die einzige autorisierte
+      Stelle dafür. Wird von allen Routing-Pfaden gerufen.
+
+- [ ] **Routing-Priorität** klar definieren und an *einer* Stelle
+      implementieren (idealerweise im SSOT-Refactor von Lücke 2):
+      ```
+      1. Wake-Override (Plugin-Hint)         → schaltet active_agent
+      2. Voice-Mode-Switch (`agent=...`)     → schaltet active_agent
+      3. LLM-Addressee aus aktuellem Query   → schaltet active_agent
+      4. (kein Match) → use active_agent     → keine Änderung
+      5. (kein active_agent) → "aifred"      → keine Änderung
+      ```
+      Schritte 1-3 schreiben jeweils per `update_session_config`
+      durch. Browser-Reflex-State liest dieselbe Quelle.
+
+- [ ] **Voice-Mode-Switch im Browser** ergänzen:
+      `_persist_session_config()` muss bei Änderung an `active_agent`,
+      `multi_agent_mode`, `research_mode`, `symposion_agents` greifen.
+
+- [ ] **Inline-Anrede schaltet active_agent**: Wenn LLM-Addressee !=
+      heute-aktiver Agent → persistieren.
+
+- [ ] **Hub-Pfad nutzt Session-Config**: Wenn weder Wake-Override noch
+      Voice-Switch noch LLM-Addressee einen Agent liefern → Default
+      ist `active_agent` aus der Session-Config (statt "aifred"
+      hardgecodet).
+
+- [ ] **Parser akzeptiert Display-Name** beim `agent=`-Switch
+      (Konsistenz mit Addressee-Erkennung). Plus optional:
+      `aliases: [...]`-Feld in `agent_config` für Vosk-Phonetik
+      ("Hell 9000" → `hal`).
+
+- [ ] **Prompt-Hinweis ergänzen** in
+      [`intent_detection.txt`](prompts/en/automatik/intent_detection.txt):
+      *"For agent= mode-switch, ALWAYS use the lowercase ID
+      (e.g. `hal`), never the display name (e.g. `HAL 9000`)."*
+
+#### Geklärte Design-Entscheidung: Sticky-only
+
+**Diskutiert und entschieden 2026-04-25:**
+Jede explizite Adressierung schaltet `active_agent` sticky um.
+Es gibt **keinen** Single-Shot-Modus, **keinen** Voice-*"zurück"*-
+Befehl und **keinen** State-Stack.
+
+**Recovery ist trivial:** Der User adressiert beim nächsten Turn
+einfach den gewünschten Agent direkt (*"Hey AIfred, weiter mit ..."*).
+Direkte Adressierung deckt alle Wechsel-Szenarien ab — vorwärts,
+zurück, oder Sprung zu jedem beliebigen Agent. Kein zusätzliches
+Vokabular nötig.
+
+**Begründung:**
+- KISS: eine Regel, keine Sonderfälle.
+- In der Praxis dominieren fortlaufende Gespräche, nicht Einmal-Fragen.
+- Direkte Adressierung ist genauso schnell wie ein *"zurück"*-Befehl,
+  aber unmissverständlich.
+
+---
+
+## Calibration-Optimierungen für Hybrid-Modus
+
+**Stand:** Hybrid-Mode läuft seit 2026-04-25 wieder (commit `c421a82`, fix für
+Health-Timeout und Kill-Reaping). Bei MiniMax-M2.7-UD-Q4_K_S + MOSS-TTS
+hat die Calibration eine Hybrid-Konfig erzeugt, aber zwei Verbesserungen
+sind beim Lauf aufgefallen:
+
+### 1. Greedy first-fit lässt Headroom liegen
+
+**Beobachtung:** Hybrid-Optimizer in
+[`flow.py:_calibrate_hybrid`](aifred/lib/calibration/flow.py) probiert
+feste Context-Targets in absteigender Reihenfolge `[native, 131k, 65k,
+32k, 16k]`, akzeptiert das erste passende Resultat, und stoppt. Beim
+MiniMax-MOSS-Lauf:
+
+- 196k / 131k / 65k → RAM insufficient
+- 32k mit ngl=53 → ✓ verifiziert mit **7053 / 5133 / 2963 / 4463 MB
+  Headroom** auf den vier GPUs
+
+→ Bei minimal 2.9 GB Headroom pro GPU wäre vermutlich 49k oder 65k
+Context drin gewesen, oder höheres ngl bei gleichem Context. Wurde
+aber nicht probiert, weil first-fit stoppt.
+
+**Lösung:** Nach erstem erfolgreichen Hit eine zweite Suchrunde
+starten — Optimum suchen, nicht first-fit:
+- Binary-Search Context nach oben (zwischen aktuellem Erfolg und
+  vorherigem RAM-Insufficient-Target)
+- ngl schrittweise erhöhen, bis Verify scheitert
+- Beides kombinieren: maximalen Context bei maximalem ngl finden
+
+**Zeit ist nachrangig** — Calibration läuft pro Modell einmalig,
+dafür soll das Ergebnis optimal sein. Auch wenn 3-5 zusätzliche
+Verify-Runs ~5-8 Minuten extra Zeit kosten: das amortisiert sich
+über die Lebensdauer des Profils.
+
+### 1b. Nicht-TTS-GPUs werden im Hybrid-Mode unnötig mitreduziert
+
+**Beobachtung:** Vergleich Base vs. MOSS-Hybrid für MiniMax:
+
+```
+            CUDA0   CUDA1   CUDA2   CUDA3
+Base        20      21      10      11      (kein TTS)
+MOSS-TTS    19      14      10      10      (MOSS belegt 14 GB auf CUDA1)
+                                            
+Diff:       -1      -7       0      -1
+```
+
+Erwartet wäre eigentlich `20:14:10:11` (nur CUDA1 zurücknehmen, weil
+TTS dort sitzt). Stattdessen wurden auch CUDA0 und CUDA3 leicht
+reduziert (–1 Layer je), obwohl die GPUs **kein TTS-belastetes
+Budget** haben — sie hatten in Base bereits 20 bzw. 11 Layer mit
+ausreichend Headroom.
+
+**Warum?** `_seed_tensor_split` in
+[`flow.py`](aifred/lib/calibration/flow.py) verteilt ngl proportional
+zur "verfügbaren VRAM" pro GPU. Wenn das Gesamt-ngl von 99 auf 53
+fällt (CPU-Offload), wird auch der Anteil pro GPU proportional
+geschrumpft — nicht nur die TTS-belastete GPU.
+
+**Idee:** Im Hybrid-Mode den Layer-Count pro GPU **nicht unter den
+Base-Wert** drücken, solange das VRAM-Budget der GPU es erlaubt.
+Konkret: cpu_layers nur von der TTS-belasteten GPU abziehen, nicht
+proportional verteilen. Das würde im MiniMax-MOSS-Fall direkt 2 Layer
+mehr auf GPU geben (CUDA0+CUDA3) und die Inferenz beschleunigen.
+
+### 2. KV=f16 ist im Hybrid-Mode Overhead
+
+**Beobachtung:** Hybrid-Pfad ruft `verify` mit hardcodiertem KV=f16
+([`flow.py:1007`](aifred/lib/calibration/flow.py)). Bei einem Q4-Modell
+(wie MiniMax-Q4_K_S) ist KV-Cache in f16 deutlich überdimensioniert —
+q8_0 würde den KV-Footprint **halbieren** und entsprechend GPU-VRAM
+freigeben, ohne nennenswerte Qualitätseinbußen.
+
+**Konkret bei MiniMax-MOSS:** ctx=32k mit f16 KV-Cache braucht für ein
+122-GB-Q4-Modell mehrere GB pro GPU. Mit q8_0 KV würde der gleiche
+Context entweder ~50% weniger VRAM brauchen → mehr Layer auf GPU
+(höheres ngl) → schnellere Inferenz, ODER mehr Context bei gleichem
+ngl drin sein.
+
+**Idee:** Hybrid-Pfad sollte KV-Quant analog zur GPU-only-Logik wählen
+(q8_0 als Default für Hybrid, weil dort Tempo zweitrangig ist und VRAM
+knapp). Oder direkt `LLAMACPP_CALIBRATION_PRECISION` aus der Config
+respektieren statt f16 hartzucodieren.
+
+### Konkretes Calibration-Ergebnis MiniMax-M2.7-UD-Q4_K_S (für Tracking)
+
+| Variante | Mode | Context | ngl | KV | Tensor-Split | Tightest GPU |
+|---|---|---|---|---|---|---|
+| Base | GPU | 83.712 | 99 | q8_0 | 20:21:10:11 | CUDA3 1.7 GB |
+| -tts-xtts | GPU | 81.408 | 99 | q8_0 | 20:21:10:11 | CUDA1 0.5 GB |
+| -tts-moss | Hybrid | 32.768 | 53 | f16 | 19:14:10:10 | CUDA2 3.0 GB |
+
+→ MOSS-Variante zeigt deutlichen Headroom-Spielraum, der mit den oben
+genannten Optimierungen besser ausgenutzt werden könnte.
+
+---
+
 ## Security-Verfeinerung
 
 ### Guard-LLM (S8)
