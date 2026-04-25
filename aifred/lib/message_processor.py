@@ -92,17 +92,22 @@ def resolve_user_name(channel: str, channel_id: str, sender: str) -> str:
     return sender
 
 
-async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
-    """Detect target agent, intent and language via LLM — same pipeline as browser.
+async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict]:
+    """Detect target agent, intent, language and mode-switch via LLM.
 
-    Uses detect_query_intent_and_addressee() — single source of truth.
-    Model is resolved via get_effective_model_from_settings() so that
-    TTS-calibrated profiles (e.g. "-tts-moss") are used when a GPU TTS
-    engine is running. Otherwise llama-swap would try to load the base
-    profile which segfaults due to insufficient VRAM.
+    Uses detect_query_intent_and_addressee() — single source of truth, same
+    pipeline as the browser. Model is resolved via
+    get_effective_model_from_settings() so that TTS-calibrated profiles
+    (e.g. "-tts-moss") are used when a GPU TTS engine is running. Otherwise
+    llama-swap would try to load the base profile which segfaults due to
+    insufficient VRAM.
 
     Returns:
-        (agent_id, intent, detected_language)
+        (agent_id, intent, detected_language, mode_switch_updates)
+
+        mode_switch_updates is a dict with optional keys ``active_agent``,
+        ``multi_agent_mode``, ``research_mode``, ``symposion_agents`` —
+        empty dict if the user did not request a mode change.
     """
     from .intent_detector import detect_query_intent_and_addressee
     from .llm_client import LLMClient
@@ -117,23 +122,20 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str]:
 
     if not automatik_model:
         log_message("Message Processor: no model for intent detection, defaulting to aifred")
-        return "aifred", "FAKTISCH", "de"
+        return "aifred", "FAKTISCH", "de", {}
 
     client = LLMClient(backend_type)
 
-    intent, addressee, lang, _mode_switch, _remaining, _raw = await detect_query_intent_and_addressee(
+    intent, addressee, lang, mode_switch, _remaining, _raw = await detect_query_intent_and_addressee(
         user_query=text,
         automatik_model=automatik_model,
         llm_client=client,
         automatik_num_ctx=None,
     )
-    # NOTE: Mode-switch handling in the hub path is not yet supported.
-    # Hub messages have their own session per channel and the user typically
-    # controls mode via direct UI access or the /api/session/config endpoint.
     from .intent_detector import format_intent_result
     agent = addressee or "aifred"
     log_message(f"🎯 {format_intent_result(intent, addressee, lang)}")
-    return agent, intent, lang
+    return agent, intent, lang, mode_switch
 
 
 async def process_inbound(message: InboundMessage, user_saved: bool = False) -> Optional[OutboundMessage]:
@@ -201,20 +203,39 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
         # ── Phase 1: Detect target agent via LLM ─────────────
         try:
-            agent, intent, detected_lang = await detect_target_agent_via_llm(message.text)
+            agent, intent, detected_lang, mode_switch_updates = await detect_target_agent_via_llm(message.text)
         except Exception as e:
             log_message(f"❌ Intent detection FAILED (no fallback): {e}", "error")
             debug(f"❌ Intent detection FAILED: {e}")
             raise
 
         from .agent_config import get_agent_config as _get_agent_cfg, get_agent_label
-        from .intent_detector import format_intent_result
+        from .intent_detector import format_intent_result, format_mode_switch_summary
+        from .session_storage import get_session_config, update_session_config
 
-        # Channel-level addressee override (e.g. FreeEcho.2 wake-word agent).
-        # Only applied if the hinted agent actually exists in agent_config —
-        # unknown wake labels (e.g. "computer", "stopp") fall through to the
-        # LLM-detected addressee.
+        # Apply mode-switch updates (multi_agent_mode, research_mode,
+        # symposion_agents, active_agent) before routing — so any active_agent
+        # override from a voice command takes effect immediately.
+        if mode_switch_updates:
+            update_session_config(session_id, **mode_switch_updates)
+            summary = format_mode_switch_summary(mode_switch_updates, lang=detected_lang)
+            debug(f"🔧 Mode switch: {summary}")
+            # Voice mode-switch via "agent=..." overrides whatever the LLM
+            # picked as addressee for this turn.
+            if "active_agent" in mode_switch_updates:
+                agent = mode_switch_updates["active_agent"]
+
+        # Routing priority (highest wins):
+        #   1. Wake-Override (channel hint, e.g. Puck wake-word)
+        #   2. LLM-detected addressee from current query
+        #   3. Session active_agent (sticky from previous turn)
+        #   4. Default "aifred"
         wake_agent = message.metadata.get("wake_agent")
+        llm_addressee = agent if agent != "aifred" else None
+        session_active = get_session_config(session_id).get("active_agent")
+        if session_active == "aifred":
+            session_active = None  # default — treat as "no preference"
+
         if wake_agent and _get_agent_cfg(wake_agent):
             if wake_agent != agent:
                 debug(
@@ -224,6 +245,20 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             agent = wake_agent
         elif wake_agent:
             debug(f"⚠️  Wake-Agent '{wake_agent}' not configured — keeping LLM decision")
+            # llm_addressee or session_active will take effect below
+            if llm_addressee is None and session_active:
+                agent = session_active
+                debug(f"🎯 Sticky agent: {get_agent_label(agent)} (from session)")
+        elif llm_addressee is None and session_active:
+            # No wake hint, no explicit addressee in this query — use sticky agent
+            agent = session_active
+            debug(f"🎯 Sticky agent: {get_agent_label(agent)} (from session)")
+
+        # Persist any explicit address (wake or inline) as the new active_agent
+        # so subsequent unaddressed turns route to the same agent (sticky).
+        if agent != "aifred" and agent != session_active:
+            from .session_storage import set_session_active_agent
+            set_session_active_agent(session_id, agent)
 
         message.target_agent = agent
 

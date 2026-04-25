@@ -48,6 +48,11 @@ class AgentConfig:
     # Tool whitelist — None means all tools allowed
     tools: Optional[list[str]] = None
 
+    # STT phonetic aliases — names the agent should also respond to when
+    # detected by Whisper/Vosk/etc. Always lowercase, no leading/trailing
+    # whitespace. Example for "AIfred": ["alfred", "ai fred", "eifred"].
+    aliases: list[str] = field(default_factory=list)
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -57,6 +62,7 @@ def _default_agents() -> dict[str, dict]:
     return {
         "aifred": {
             "display_name": "AIfred",
+            "aliases": ["alfred", "ai fred", "eifred", "ai-fred"],
             "emoji": "\U0001f3a9",
             "description": "Gentleman-Berater und KI-Butler",
             "role": "main",
@@ -78,6 +84,7 @@ def _default_agents() -> dict[str, dict]:
         },
         "sokrates": {
             "display_name": "Sokrates",
+            "aliases": ["socrates"],
             "emoji": "\U0001f3db\ufe0f",
             "description": "Scharfsinniger Philosoph und Kritiker",
             "role": "critic",
@@ -98,6 +105,7 @@ def _default_agents() -> dict[str, dict]:
         },
         "salomo": {
             "display_name": "Salomo",
+            "aliases": ["salomon", "solomon"],
             "emoji": "\U0001f451",
             "description": "Weiser Richter und Synthesist",
             "role": "judge",
@@ -139,6 +147,8 @@ def _default_agents() -> dict[str, dict]:
 
 def _dict_to_config(data: dict) -> AgentConfig:
     """Convert a raw dict to an AgentConfig instance."""
+    raw_aliases = data.get("aliases") or []
+    aliases = [str(a).strip().lower() for a in raw_aliases if isinstance(a, str) and a.strip()]
     return AgentConfig(
         display_name=data["display_name"],
         emoji=data["emoji"],
@@ -147,6 +157,7 @@ def _dict_to_config(data: dict) -> AgentConfig:
         prompts=data.get("prompts", {}),
         toggles=data.get("toggles", {}),
         tools=data.get("tools"),
+        aliases=aliases,
     )
 
 
@@ -221,6 +232,37 @@ def get_agent_config(agent_id: str) -> Optional[AgentConfig]:
     """Get config for a specific agent, or None if not found."""
     agents = load_agents()
     return agents.get(agent_id)
+
+
+def resolve_agent_id(name_or_alias: str) -> Optional[str]:
+    """Map a user-supplied name to a canonical agent id.
+
+    Tries (in order):
+      1. exact match against agent ID (lowercase)
+      2. exact match against display_name (case-insensitive)
+      3. exact match against any alias (case-insensitive)
+
+    Used by the intent-detection parser, the mode-switch parser, and any
+    other code path that needs to resolve a noisy STT-transcribed name
+    (e.g. "Hey Alfred" → "aifred", "HAL 9000" → "hal").
+
+    Returns the canonical agent id, or None if nothing matched.
+    """
+    if not name_or_alias:
+        return None
+    needle = name_or_alias.strip().lower()
+    if not needle:
+        return None
+    agents = load_agents_raw()
+    if needle in agents:
+        return needle
+    for aid, adata in agents.items():
+        if needle == str(adata.get("display_name", "")).strip().lower():
+            return aid
+        for alias in adata.get("aliases") or []:
+            if isinstance(alias, str) and needle == alias.strip().lower():
+                return aid
+    return None
 
 
 def create_agent(

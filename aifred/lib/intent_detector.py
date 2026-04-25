@@ -63,11 +63,13 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
             if value in _VALID_MULTI_AGENT_MODES:
                 updates["multi_agent_mode"] = value
         elif key == "agent":
-            # Check against known agents (built-in + custom)
-            from .agent_config import load_agents_raw
-            agents = load_agents_raw()
-            if value in agents:
-                updates["active_agent"] = value
+            # Resolve through ID, display_name and aliases (single source of
+            # truth — same logic as the addressee parser). Absorbs LLM hiccups
+            # like ``agent=HAL 9000`` and STT variants like ``agent=alfred``.
+            from .agent_config import resolve_agent_id
+            resolved = resolve_agent_id(value)
+            if resolved is not None:
+                updates["active_agent"] = resolved
     return updates
 
 
@@ -202,24 +204,12 @@ def parse_intent_addressee_language(
         log_message(f"⚠️ {prefix} unknown: '{response_raw}' → Default: FAKTISCH")
         intent = "FAKTISCH"
 
-    # Parse addressee
+    # Parse addressee — resolve_agent_id handles ID, display_name and aliases
+    # in one place. Phonetic STT variations live in agents.json (aliases field).
     addressee: Optional[str] = None
     if addressee_part:
-        # Normalize variations for default agents
-        if addressee_part in ("aifred", "alfred", "eifred", "ai fred"):
-            addressee = "aifred"
-        elif addressee_part in ("sokrates", "socrates"):
-            addressee = "sokrates"
-        elif addressee_part in ("salomo", "solomon"):
-            addressee = "salomo"
-        else:
-            # Check custom agents by ID and display_name
-            from .agent_config import load_agents_raw
-            agents = load_agents_raw()
-            for aid, adata in agents.items():
-                if addressee_part == aid or addressee_part == adata.get("display_name", "").lower():
-                    addressee = aid
-                    break
+        from .agent_config import resolve_agent_id
+        addressee = resolve_agent_id(addressee_part)
 
     # Parse language (fallback to UI language if LLM didn't specify)
     if language_part in ("DE", "DEUTSCH", "GERMAN"):

@@ -1178,6 +1178,15 @@ class ChatMixin(rx.State, mixin=True):
 
             # Determine which agent responds:
             # Priority: addressee from prompt > button selection > default (aifred)
+            #
+            # Sticky-routing: an explicit inline address (LLM-detected, before
+            # the active_agent fallback) persists as the new active_agent so
+            # subsequent unaddressed turns route to the same agent. The user
+            # switches simply by addressing someone else.
+            if addressed_to and addressed_to != self.active_agent:  # type: ignore[attr-defined]
+                self.active_agent = addressed_to  # type: ignore[attr-defined]
+                self._persist_session_config()  # type: ignore[attr-defined]
+
             if not addressed_to and self.active_agent != "aifred":  # type: ignore[attr-defined]
                 addressed_to = self.active_agent  # type: ignore[attr-defined]
 

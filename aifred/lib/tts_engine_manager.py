@@ -29,6 +29,68 @@ LIGHTWEIGHT_ENGINES = {"piper", "edge", "espeak", "dashscope"}
 TTS_HEALTH_CHECK_TIMEOUT = 5
 
 
+# =============================================================================
+# TTS engine refcount — protects active pipelines from stop_engine() races.
+# =============================================================================
+#
+# Use case: a Puck request acquires "xtts" at the start of its pipeline and
+# releases it after the audio is sent. If the browser (or another channel)
+# calls ensure_tts_state() with `wanted_tts != "xtts"` while the Puck is mid-
+# pipeline, the stop_engine() call would tear down the container under the
+# Puck's feet. The refcount makes ensure_tts_state() skip the stop while any
+# active holder still needs the engine.
+#
+# Counter — NOT a binary lock — so multiple concurrent Pucks coexist cleanly.
+# Idle behaviour is unchanged: when nothing holds the engine, ensure_tts_state
+# may stop it, and the container's KEEP_ALIVE will eventually shut it down on
+# its own.
+_engine_refs: dict[str, int] = {engine: 0 for engine in GPU_ENGINES}
+_engine_refs_lock = threading.Lock()
+
+
+def acquire_tts(engine: str) -> None:
+    """Mark a TTS engine as in-use by an active pipeline.
+
+    Idempotent across pipelines — call once per pipeline at start, paired
+    with exactly one ``release_tts(engine)`` in a ``finally`` block. The
+    counter is allowed to grow above 1 when multiple concurrent pipelines
+    use the same engine.
+    """
+    if engine not in _engine_refs:
+        return
+    with _engine_refs_lock:
+        _engine_refs[engine] += 1
+
+
+def release_tts(engine: str) -> None:
+    """Release one acquisition of a TTS engine.
+
+    Safe to call even if the engine was not acquired (no-op below 0).
+    Pipelines must put this in a ``finally`` block to survive crashes
+    and external cancellations (e.g. Puck Action-Button stop event).
+    """
+    if engine not in _engine_refs:
+        return
+    with _engine_refs_lock:
+        _engine_refs[engine] = max(0, _engine_refs[engine] - 1)
+
+
+def is_tts_in_use(engine: str) -> bool:
+    """True if any pipeline currently holds an acquisition for this engine."""
+    if engine not in _engine_refs:
+        return False
+    with _engine_refs_lock:
+        return _engine_refs[engine] > 0
+
+
+def get_tts_refcount(engine: str) -> int:
+    """Current acquisition count (debug/inspection helper)."""
+    if engine not in _engine_refs:
+        return 0
+    with _engine_refs_lock:
+        return _engine_refs[engine]
+
+
 @dataclass
 class TTSState:
     """Result of ensure_tts_state check."""
@@ -184,7 +246,14 @@ def ensure_tts_state(
     # Start container stop NOW (background thread) — docker compose down is
     # CPU/IO and doesn't interfere with GPU inference running in parallel.
     # After inference, force_tts_switch() will join the thread and load base model.
+    # Skip if an active pipeline still holds the engine (refcount > 0).
     if check_defer and not wanted_tts and running and _is_llm_loaded(backend_type):
+        if is_tts_in_use(running):
+            yield (
+                f"{running.upper()} in use by {get_tts_refcount(running)} active pipeline(s) "
+                f"— stop deferred"
+            )
+            return TTSState(success=True)
         _start_async_tts_stop(running)
         yield f"LLM loaded, {running.upper()} stop started — deferring model switch to after inference"
         return TTSState(success=True, deferred=True)
@@ -200,8 +269,17 @@ def ensure_tts_state(
             messages=[],
         )
 
-    # Case 4: Don't want TTS but one is running → stop it
+    # Case 4: Don't want TTS but one is running → stop it … unless an active
+    # pipeline still needs it (refcount > 0). Skipping the stop keeps Puck
+    # responses safe from cross-channel teardown; the container's KEEP_ALIVE
+    # will eventually idle it out anyway.
     if running:
+        if is_tts_in_use(running):
+            yield (
+                f"{running.upper()} in use by {get_tts_refcount(running)} active pipeline(s) "
+                f"— stop deferred"
+            )
+            return TTSState(success=True)
         yield f"Stopping {running.upper()} (not needed)..."
         success, msg = stop_engine(running)
         yield msg

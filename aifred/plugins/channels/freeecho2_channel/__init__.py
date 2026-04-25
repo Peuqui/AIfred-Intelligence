@@ -307,6 +307,12 @@ class FreeEchoChannel(BaseChannel):
                     break
                 await asyncio.sleep(5)
 
+        # Track GPU TTS engines this pipeline acquires so the finally block
+        # always releases them — even if the browser (or another channel)
+        # tries to stop the engine mid-pipeline. Refcount > 0 makes
+        # ensure_tts_state() defer the stop until our pipeline finishes.
+        acquired_tts_engines: list[str] = []
+
         try:
             # Start session_scope so ALL debug messages go to the browser UI
             with session_scope(session_id):
@@ -345,6 +351,16 @@ class FreeEchoChannel(BaseChannel):
                 # Messages go to UI via debug() (session context propagated to executor).
                 write_hub_notification(session_id, f"FreeEcho.2 {room}", "FreeEcho.2", room, status="processing")
                 tts_deferred = await self._ensure_tts_state()
+
+                # Acquire the active GPU TTS engine for the duration of this
+                # pipeline so concurrent channels can't stop it mid-flight.
+                from ....lib.tts_engine_manager import (
+                    _detect_running_tts_engine, acquire_tts,
+                )
+                _active_engine = _detect_running_tts_engine()
+                if _active_engine:
+                    acquire_tts(_active_engine)
+                    acquired_tts_engines.append(_active_engine)
 
                 self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_puck_time.monotonic()-_puck_t0:.1f}s)")
 
@@ -389,6 +405,12 @@ class FreeEchoChannel(BaseChannel):
             except Exception:
                 pass
         finally:
+            # Always release any TTS engine acquisitions — survives crashes
+            # and external cancellations (e.g. Action-Button stop event).
+            if acquired_tts_engines:
+                from ....lib.tts_engine_manager import release_tts
+                for _engine in acquired_tts_engines:
+                    release_tts(_engine)
             Path(wav_path).unlink(missing_ok=True)
 
     async def _run_stt(self, wav_path: str) -> str:

@@ -643,6 +643,31 @@ def update_session_config(session_id: str, **config_updates: Any) -> bool:
     return save_session(session_id, session)
 
 
+def set_session_active_agent(session_id: str, agent_id: str) -> bool:
+    """
+    Set the active agent for a session — universal entry point for routing.
+
+    All routing pathways (Wake-Word-Override, Voice-Mode-Switch,
+    Inline-Address detection, UI agent picker) should funnel through
+    this function. Validates ``agent_id`` against the agent registry;
+    unknown ids are silently ignored to avoid corrupting the session
+    config (callers can decide whether to fall back).
+
+    Args:
+        session_id: Session identifier
+        agent_id: Lowercase agent id (matched against ``agent_config``)
+
+    Returns:
+        True on success, False if session/agent not found or write failed
+    """
+    if not agent_id or not session_id:
+        return False
+    from .agent_config import get_agent_config
+    if get_agent_config(agent_id) is None:
+        return False
+    return update_session_config(session_id, active_agent=agent_id)
+
+
 def delete_session(session_id: str) -> bool:
     """
     Delete session completely, including associated images and audio.
