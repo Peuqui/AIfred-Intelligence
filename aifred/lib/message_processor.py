@@ -232,9 +232,10 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         #   4. Default "aifred"
         wake_agent = message.metadata.get("wake_agent")
         llm_addressee = agent if agent != "aifred" else None
-        session_active = get_session_config(session_id).get("active_agent")
-        if session_active == "aifred":
-            session_active = None  # default — treat as "no preference"
+        session_active_raw = get_session_config(session_id).get("active_agent", "aifred")
+        # For sticky-fallback logic below, "aifred" is treated as "no preference"
+        # so the routing pipeline doesn't loop back to the default agent.
+        session_active = None if session_active_raw == "aifred" else session_active_raw
 
         if wake_agent and _get_agent_cfg(wake_agent):
             if wake_agent != agent:
@@ -254,9 +255,11 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             agent = session_active
             debug(f"🎯 Sticky agent: {get_agent_label(agent)} (from session)")
 
-        # Persist any explicit address (wake or inline) as the new active_agent
-        # so subsequent unaddressed turns route to the same agent (sticky).
-        if agent != "aifred" and agent != session_active:
+        # Persist any explicit address (wake-override or inline) as the new
+        # active_agent so subsequent unaddressed turns route to the same agent
+        # (sticky). Includes switches back to "aifred" — an explicit switch is
+        # an explicit switch, regardless of which agent is the target.
+        if agent != session_active_raw:
             from .session_storage import set_session_active_agent
             set_session_active_agent(session_id, agent)
 
