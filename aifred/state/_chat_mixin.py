@@ -6,6 +6,7 @@ and chat clearing.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncGenerator
@@ -738,6 +739,30 @@ class ChatMixin(rx.State, mixin=True):
         async for _ in self._phase_tts_container_checks():
             yield
 
+        # Acquire active GPU TTS engine + start keep-alive ping for the
+        # duration of the pipeline. Prevents the container from idle-out
+        # during long inference or web research (analogous to Puck channel).
+        from ..lib.tts_engine_manager import (
+            GPU_ENGINES,
+            _detect_running_tts_engine,
+            acquire_tts,
+            release_tts,
+            tts_keepalive_loop,
+        )
+        acquired_tts_engines: list[str] = []
+        tts_keepalive_task = None
+        if self.enable_tts and self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
+            _active_engine = _detect_running_tts_engine()
+            if _active_engine:
+                acquire_tts(_active_engine)
+                acquired_tts_engines.append(_active_engine)
+                tts_keepalive_task = asyncio.create_task(
+                    tts_keepalive_loop(
+                        acquired_tts_engines,
+                        on_warn=lambda m: self.add_debug(f"⚠️ {m}"),  # type: ignore[attr-defined]
+                    )
+                )
+
         try:
             # ============================================================
             # MAIN TRY BLOCK: Covers ALL stages from LLM client creation
@@ -1311,6 +1336,14 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(f"Traceback: {traceback.format_exc()}")
 
         finally:
+            # Stop TTS keep-alive task and release engine refcounts before
+            # any other cleanup runs (so a stuck downstream save doesn't
+            # leak our acquisition).
+            if tts_keepalive_task is not None and not tts_keepalive_task.done():
+                tts_keepalive_task.cancel()
+            for _engine in acquired_tts_engines:
+                release_tts(_engine)
+
             self.is_generating = False
             yield  # Let React update is_generating=False (button re-enables via Reflex binding)
             # NOTE: TTS polling stops automatically via data-polling attribute (MutationObserver)

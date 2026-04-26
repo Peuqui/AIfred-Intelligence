@@ -91,6 +91,59 @@ def get_tts_refcount(engine: str) -> int:
         return _engine_refs[engine]
 
 
+async def tts_keepalive_loop(
+    engines: list[str],
+    interval: int | None = None,
+    on_warn: object = None,
+) -> None:
+    """Ping ``/keep_alive`` on each given GPU TTS engine while a pipeline runs.
+
+    Each ping resets the container-internal idle timer (XTTS_KEEP_ALIVE /
+    MOSS_KEEP_ALIVE) to its full window. Used by the Puck channel and the
+    browser pipeline to prevent the engine from shutting down mid-flight
+    during long-running inference (multi-step web research, large models).
+
+    Args:
+        engines: List of GPU engine names ("xtts" / "moss") to keep alive.
+        interval: Seconds between pings. Defaults to
+            ``TTS_KEEPALIVE_INTERVAL_SECONDS`` from config (5 min).
+        on_warn: Optional callable(msg: str) for logging failed pings.
+                 If None, failures are silently swallowed.
+    """
+    import asyncio
+    import requests
+    from .config import (
+        XTTS_SERVICE_URL,
+        MOSS_TTS_SERVICE_URL,
+        TTS_KEEPALIVE_INTERVAL_SECONDS,
+        TTS_KEEPALIVE_HTTP_TIMEOUT,
+    )
+
+    if interval is None:
+        interval = TTS_KEEPALIVE_INTERVAL_SECONDS
+    urls = {"xtts": XTTS_SERVICE_URL, "moss": MOSS_TTS_SERVICE_URL}
+    loop = asyncio.get_running_loop()
+    while True:
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            return
+        for engine in engines:
+            base_url = urls.get(engine)
+            if not base_url:
+                continue
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda u=base_url: requests.get(
+                        f"{u}/keep_alive", timeout=TTS_KEEPALIVE_HTTP_TIMEOUT
+                    ),
+                )
+            except Exception as exc:
+                if callable(on_warn):
+                    on_warn(f"TTS keep-alive ping for {engine} failed: {exc}")
+
+
 @dataclass
 class TTSState:
     """Result of ensure_tts_state check."""

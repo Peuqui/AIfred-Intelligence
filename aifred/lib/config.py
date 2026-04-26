@@ -298,6 +298,22 @@ XTTS_SERVICE_URL = "http://localhost:5051"
 MOSS_TTS_SERVICE_URL = "http://localhost:5055"
 
 # ============================================================
+# TTS Container Keep-Alive (heartbeat ping interval)
+# ============================================================
+# While a long-running pipeline (Puck inference, browser web research)
+# holds a GPU TTS engine, AIfred pings ``/keep_alive`` on the container
+# every TTS_KEEPALIVE_INTERVAL_SECONDS to reset its idle timer.
+# Container-side timeout is set via XTTS_KEEP_ALIVE / MOSS_KEEP_ALIVE
+# env vars in the docker-compose files (default: 30 minutes).
+# Choose this interval comfortably below the container timeout so a
+# single missed ping (network hiccup) is harmless. Default 5 min.
+TTS_KEEPALIVE_INTERVAL_SECONDS = 300
+
+# Per-request HTTP timeout when pinging /keep_alive — should be tiny,
+# the endpoint just resets a timer and returns immediately.
+TTS_KEEPALIVE_HTTP_TIMEOUT = 5
+
+# ============================================================
 # XTTS voices are loaded dynamically from the service
 # Custom voices are auto-generated from WAV files in docker/xtts/voices/
 # Built-in voices (58 speakers) are always available
