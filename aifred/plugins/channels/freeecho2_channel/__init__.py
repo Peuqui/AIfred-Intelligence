@@ -226,6 +226,35 @@ class FreeEchoChannel(BaseChannel):
 
         elif msg_type == "wake":
             wake_agent = msg.get("agent")
+
+            # Command tokens (leading underscore, e.g. "_stop") are processed
+            # immediately on the WAKE event — no audio is expected to follow.
+            # The Puck just sent us a control signal, not the start of a query.
+            if wake_agent and wake_agent.startswith("_"):
+                _pending_wake_agent.pop(room, None)
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] Command wake-word received: {wake_agent}"
+                )
+                if wake_agent == "_stop":
+                    from ....lib.pipeline_registry import handle_stop_command
+                    from ....lib.routing_table import routing_table
+                    route = routing_table.get_route("freeecho2", room)
+                    if route:
+                        result = await handle_stop_command(route.session_id)
+                        self.channel_log(
+                            f"[FreeEcho.2 {room}] Stop command processed: "
+                            f"pipeline_cancelled={result['pipeline_cancelled']}, "
+                            f"audio_stopped={result['audio_stopped']}"
+                        )
+                    else:
+                        self.channel_log(
+                            f"[FreeEcho.2 {room}] Stop command — no session for room",
+                            "warning",
+                        )
+                # Other "_*" commands are reserved for future use; ignored for now.
+                await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
+                return
+
             if wake_agent:
                 _pending_wake_agent[room] = str(wake_agent)
                 self.channel_log(f"[FreeEcho.2 {room}] Wake word detected (agent={wake_agent})")

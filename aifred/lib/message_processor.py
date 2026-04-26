@@ -191,9 +191,17 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         title = get_session_title(session_id) or subject
         write_hub_notification(session_id, title, channel_label, message.sender, status=status)
 
+    # Register this coroutine so external stop commands (Puck _stop wake-word,
+    # browser stop button, ...) can cancel it via cancel_pipeline().
+    # The pipeline_scope context manager handles register + unregister even on
+    # exceptions/cancellation.
+    import asyncio as _asyncio
+    from .pipeline_registry import pipeline_scope
+    _current_task = _asyncio.current_task()
+
     # ── All phases run inside session_scope ────────────────────
     # Intent detection runs INSIDE scope so its debug messages reach the UI.
-    with session_scope(session_id):
+    with pipeline_scope(session_id, _current_task), session_scope(session_id):
 
         # ── Phase 0: Show incoming message immediately ────────
         debug(f"📨 {channel_label}: message from {message.sender}")

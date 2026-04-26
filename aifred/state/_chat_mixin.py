@@ -739,6 +739,13 @@ class ChatMixin(rx.State, mixin=True):
         async for _ in self._phase_tts_container_checks():
             yield
 
+        # Register this coroutine in the pipeline registry so external stop
+        # commands (UI stop button, future cross-channel stop) can cancel it.
+        from ..lib.pipeline_registry import register_pipeline, unregister_pipeline
+        _pipeline_task = asyncio.current_task()
+        if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
+            register_pipeline(self.session_id, _pipeline_task)  # type: ignore[attr-defined]
+
         # Acquire active GPU TTS engine + start keep-alive ping for the
         # duration of the pipeline. Prevents the container from idle-out
         # during long inference or web research (analogous to Puck channel).
@@ -1343,6 +1350,11 @@ class ChatMixin(rx.State, mixin=True):
                 tts_keepalive_task.cancel()
             for _engine in acquired_tts_engines:
                 release_tts(_engine)
+
+            # Unregister from pipeline registry — only if this is still the
+            # registered task (a newer pipeline may have superseded us).
+            if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
+                unregister_pipeline(self.session_id, _pipeline_task)  # type: ignore[attr-defined]
 
             self.is_generating = False
             yield  # Let React update is_generating=False (button re-enables via Reflex binding)
