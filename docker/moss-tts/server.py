@@ -490,6 +490,22 @@ def health():
     })
 
 
+@app.route("/keep_alive", methods=["GET", "POST"])
+def keep_alive():
+    """Reset the auto-shutdown timer without producing audio.
+
+    Used by long-running upstream pipelines (e.g. AIfred FreeEcho.2 Puck
+    handler during multi-step web research) to keep the container alive
+    while no actual TTS request has happened yet. Each call resets the
+    KEEP_ALIVE_MINUTES idle window.
+    """
+    _reset_restart_timer()
+    return jsonify({
+        "status": "ok",
+        "keep_alive_minutes": KEEP_ALIVE_MINUTES,
+    })
+
+
 @app.route("/status", methods=["GET"])
 def status():
     """Detailed status with GPU/VRAM info."""

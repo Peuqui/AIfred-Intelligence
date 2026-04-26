@@ -23,7 +23,7 @@ import io
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from ....lib.plugin_base import BaseChannel, CredentialField
 
@@ -307,11 +307,44 @@ class FreeEchoChannel(BaseChannel):
                     break
                 await asyncio.sleep(5)
 
+        # TTS keep-alive task — pings the active GPU TTS engine every 5 min
+        # so its idle-timer (XTTS/MOSS_KEEP_ALIVE) doesn't trigger while the
+        # main pipeline is still running (long web research, large model
+        # inference, ...). Each ping resets the timer to the full window.
+        tts_keepalive_running = True
+
+        async def _tts_keepalive(engines: list[str]) -> None:
+            from ....lib.config import XTTS_SERVICE_URL, MOSS_TTS_SERVICE_URL
+            urls = {"xtts": XTTS_SERVICE_URL, "moss": MOSS_TTS_SERVICE_URL}
+            loop = asyncio.get_running_loop()
+            interval = 300  # 5 min — half of the 30 min KEEP_ALIVE window
+            while tts_keepalive_running:
+                await asyncio.sleep(interval)
+                if not tts_keepalive_running:
+                    break
+                for engine in engines:
+                    base_url = urls.get(engine)
+                    if not base_url:
+                        continue
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda u=base_url: __import__("requests").get(
+                                f"{u}/keep_alive", timeout=5
+                            ),
+                        )
+                    except Exception as e:  # network hiccup, container restart, etc.
+                        self.channel_log(
+                            f"[FreeEcho.2 {room}] TTS keep-alive ping for {engine} failed: {e}",
+                            "warning",
+                        )
+
         # Track GPU TTS engines this pipeline acquires so the finally block
         # always releases them — even if the browser (or another channel)
         # tries to stop the engine mid-pipeline. Refcount > 0 makes
         # ensure_tts_state() defer the stop until our pipeline finishes.
         acquired_tts_engines: list[str] = []
+        tts_keepalive_task: Optional[asyncio.Task] = None
 
         try:
             # Start session_scope so ALL debug messages go to the browser UI
@@ -361,6 +394,10 @@ class FreeEchoChannel(BaseChannel):
                 if _active_engine:
                     acquire_tts(_active_engine)
                     acquired_tts_engines.append(_active_engine)
+                    # Start TTS keep-alive ping while pipeline runs.
+                    tts_keepalive_task = asyncio.create_task(
+                        _tts_keepalive(acquired_tts_engines)
+                    )
 
                 self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_puck_time.monotonic()-_puck_t0:.1f}s)")
 
@@ -405,6 +442,10 @@ class FreeEchoChannel(BaseChannel):
             except Exception:
                 pass
         finally:
+            # Stop the TTS keep-alive task before releasing engine refcount.
+            tts_keepalive_running = False
+            if tts_keepalive_task is not None and not tts_keepalive_task.done():
+                tts_keepalive_task.cancel()
             # Always release any TTS engine acquisitions — survives crashes
             # and external cancellations (e.g. Action-Button stop event).
             if acquired_tts_engines:

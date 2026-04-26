@@ -55,7 +55,7 @@ services:
       # ============================================================
       # After X minutes of inactivity, container exits to free VRAM
       # Set to 0 to disable auto-shutdown
-      - MOSS_KEEP_ALIVE=15
+      - MOSS_KEEP_ALIVE=30
     volumes:
       # Cache HuggingFace models persistently
       - moss_models:/root/.cache/huggingface
