@@ -1347,6 +1347,93 @@ def channel_credentials_modal() -> rx.Component:
                     _cred_field_input,
                 ),
 
+                # OAuth Connect-Button (nur wenn Plugin oauth_provider gesetzt hat)
+                rx.cond(
+                    AIState.oauth_connect_provider != "",
+                    rx.vstack(
+                        rx.divider(),
+                        rx.match(
+                            AIState.oauth_connect_status,
+                            (
+                                "connecting",
+                                rx.button(
+                                    rx.hstack(
+                                        rx.spinner(size="1"),
+                                        rx.text(t("oauth_connect_connecting")),
+                                        spacing="2", align="center",
+                                    ),
+                                    variant="solid",
+                                    color_scheme="amber",
+                                    size="2",
+                                    width="100%",
+                                    disabled=True,
+                                ),
+                            ),
+                            (
+                                "connected",
+                                rx.hstack(
+                                    rx.button(
+                                        rx.hstack(
+                                            rx.icon("check-circle", size=14),
+                                            rx.text(t("oauth_connect_connected")),
+                                            spacing="2", align="center",
+                                        ),
+                                        variant="solid",
+                                        color_scheme="green",
+                                        size="2",
+                                        flex="1",
+                                        disabled=True,
+                                    ),
+                                    rx.button(
+                                        t("oauth_connect_disconnect"),
+                                        on_click=AIState.disconnect_oauth,
+                                        variant="soft",
+                                        color_scheme="red",
+                                        size="2",
+                                    ),
+                                    spacing="2",
+                                    width="100%",
+                                ),
+                            ),
+                            (
+                                "error",
+                                rx.button(
+                                    rx.hstack(
+                                        rx.icon("circle-alert", size=14),
+                                        rx.text(t("oauth_connect_error")),
+                                        spacing="2", align="center",
+                                    ),
+                                    on_click=AIState.start_oauth_connection,
+                                    variant="solid",
+                                    color_scheme="red",
+                                    size="2",
+                                    width="100%",
+                                ),
+                            ),
+                            # Default = "idle"
+                            rx.button(
+                                rx.hstack(
+                                    rx.icon("link", size=14),
+                                    rx.text(t("oauth_connect_idle")),
+                                    spacing="2", align="center",
+                                ),
+                                on_click=AIState.start_oauth_connection,
+                                variant="solid",
+                                color_scheme="blue",
+                                size="2",
+                                width="100%",
+                            ),
+                        ),
+                        rx.text(
+                            t("oauth_connect_hint"),
+                            font_size="10px",
+                            color="#888",
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                ),
+
                 # Buttons
                 rx.hstack(
                     rx.button(

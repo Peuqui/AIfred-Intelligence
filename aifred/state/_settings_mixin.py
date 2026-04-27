@@ -37,6 +37,11 @@ class SettingsMixin(rx.State, mixin=True):
     channel_credential_fields: list[dict[str, str]] = []  # Rendered field descriptors
     channel_cred_show_password: bool = False  # Eye toggle
 
+    # OAuth-Verbindung im Credentials-Modal: idle | connecting | connected | error
+    oauth_connect_status: str = "idle"
+    # Provider-Name des aktuell im Modal bearbeiteten OAuth-Plugins (leer wenn nicht OAuth)
+    oauth_connect_provider: str = ""
+
     # ── Plugin Manager Modal ─────────────────────────────────────
     plugin_manager_open: bool = False
     tool_plugin_toggles: dict[str, str] = {}  # {"epim": "1", "calculator": "1", ...}
@@ -630,6 +635,23 @@ class SettingsMixin(rx.State, mixin=True):
         self.channel_cred_show_password = False
         self.channel_credentials_modal_open = True
 
+        # OAuth-Status für den Connect-Button im Modal initialisieren
+        oauth_provider = ""
+        if plugin is not None:
+            oauth_provider = getattr(plugin, "oauth_provider", None) or ""
+        else:
+            tool = get_tool_plugin(channel_name)
+            if tool is not None:
+                oauth_provider = getattr(tool, "oauth_provider", None) or ""
+        self.oauth_connect_provider = oauth_provider
+        if oauth_provider:
+            from ..lib.oauth import oauth_broker
+            self.oauth_connect_status = (
+                "connected" if oauth_broker.is_connected(oauth_provider) else "idle"
+            )
+        else:
+            self.oauth_connect_status = "idle"
+
     def close_channel_credentials(self) -> None:
         """Close credentials modal without saving."""
         self.channel_credentials_modal_open = False
@@ -648,6 +670,98 @@ class SettingsMixin(rx.State, mixin=True):
     def toggle_channel_cred_show_password(self) -> None:
         """Toggle password visibility in credentials modal."""
         self.channel_cred_show_password = not self.channel_cred_show_password
+
+    async def start_oauth_connection(self):  # type: ignore[no-untyped-def]
+        """Start the OAuth flow for the plugin currently being edited.
+
+        Opens the auth URL in a new browser tab and polls ``is_connected``
+        every 3 s for up to 30 s. The button color in the modal reflects
+        the live status (idle / connecting / connected / error).
+        """
+        import asyncio as _aio
+        import json as _json
+        from ..lib.credential_broker import broker
+        from ..lib.oauth import oauth_broker
+        from ..lib.plugin_registry import get_channel, get_tool_plugin
+
+        provider = self.oauth_connect_provider
+        if not provider:
+            return
+
+        plugin_name = self.channel_credentials_editing
+        plugin = get_channel(plugin_name) or get_tool_plugin(plugin_name)
+        if plugin is None:
+            self.oauth_connect_status = "error"
+            return
+
+        # Verify credentials are saved
+        if not broker.get(provider, "client_id"):
+            self.oauth_connect_status = "error"
+            self.add_debug(  # type: ignore[attr-defined]
+                f"⚠️ {plugin.display_name}: Client-ID fehlt — bitte erst speichern."
+            )
+            return
+
+        # Build scope list — plugins with aggregated_scopes() get those,
+        # otherwise fall back to whatever the broker returns by default.
+        scopes_method = getattr(plugin, "aggregated_scopes", None)
+        scope_list: list[str] = []
+        if callable(scopes_method):
+            try:
+                scope_list = list(scopes_method())
+            except Exception:
+                scope_list = []
+
+        # Redirect URI from current request host
+        try:
+            page_host = self.router.page.host  # type: ignore[attr-defined]
+        except Exception:
+            page_host = ""
+        if page_host:
+            redirect_uri = f"{page_host.rstrip('/')}/api/oauth/{provider}/callback"
+        else:
+            redirect_uri = f"http://localhost:8002/api/oauth/{provider}/callback"
+
+        try:
+            auth_url = oauth_broker.get_auth_url(provider, scope_list, redirect_uri)
+        except Exception as exc:
+            self.oauth_connect_status = "error"
+            self.add_debug(  # type: ignore[attr-defined]
+                f"❌ {plugin.display_name}: Auth-URL konnte nicht erzeugt werden: {exc}"
+            )
+            return
+
+        self.oauth_connect_status = "connecting"
+        yield rx.call_script(
+            f"window.open({_json.dumps(auth_url)}, '_blank')"
+        )
+
+        # Poll up to 30 s. Live status visible in the modal button color.
+        for _ in range(10):  # 10 × 3 s
+            await _aio.sleep(3)
+            if oauth_broker.is_connected(provider):
+                self.oauth_connect_status = "connected"
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"✅ {plugin.display_name}: OAuth verbunden — Plugin verfügbar."
+                )
+                return
+
+        # Timeout — set error so the button turns red
+        self.oauth_connect_status = "error"
+        self.add_debug(  # type: ignore[attr-defined]
+            f"⚠️ {plugin.display_name}: OAuth nicht abgeschlossen — bitte erneut versuchen."
+        )
+
+    async def disconnect_oauth(self) -> None:  # type: ignore[no-untyped-def]
+        """Remove stored OAuth tokens for the current plugin."""
+        from ..lib.oauth import oauth_broker
+        provider = self.oauth_connect_provider
+        if not provider:
+            return
+        oauth_broker.disconnect(provider)
+        self.oauth_connect_status = "idle"
+        plugin_name = self.channel_credentials_display_name or provider
+        self.add_debug(f"🔌 {plugin_name}: OAuth-Verbindung getrennt.")  # type: ignore[attr-defined]
 
     def save_channel_credentials(self) -> None:
         """Write credentials to .env (secrets) and plugin settings.json (config).
@@ -684,6 +798,14 @@ class SettingsMixin(rx.State, mixin=True):
         plugin_settings: dict[str, str] = {}
         if channel:
             plugin_settings = channel.load_settings()
+        elif tool:
+            # Tool plugins may have their own settings loader (private convention)
+            tool_loader = getattr(tool, "_load_settings", None)
+            if callable(tool_loader):
+                try:
+                    plugin_settings = dict(tool_loader())
+                except Exception:
+                    plugin_settings = {}
 
         for field in fields:
             val = self.channel_credential_values.get(field.env_key, "")
@@ -703,9 +825,19 @@ class SettingsMixin(rx.State, mixin=True):
                 # Also set in os.environ for runtime access
                 os.environ[field.env_key] = val
 
-        # Write plugin settings.json (non-secrets)
-        if channel and plugin_settings:
-            channel.save_settings(plugin_settings)
+        # Write plugin settings.json (non-secrets) — channel and tool variants
+        if plugin_settings:
+            if channel:
+                channel.save_settings(plugin_settings)
+            elif tool:
+                tool_saver = getattr(tool, "_save_settings", None)
+                if callable(tool_saver):
+                    try:
+                        tool_saver(plugin_settings)
+                    except Exception as exc:
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"⚠️ {display}: Settings konnten nicht geschrieben werden: {exc}"
+                        )
 
         self.add_debug(f"🔧 {display} Einstellungen gespeichert")  # type: ignore[attr-defined, has-type]
 
@@ -751,21 +883,17 @@ class SettingsMixin(rx.State, mixin=True):
     # ================================================================
 
     def open_plugin_manager(self) -> None:
-        """Open plugin manager modal and refresh plugin lists + allowlists."""
+        """Open plugin manager modal and refresh plugin lists + allowlists.
+
+        Toggle reflects ``is_available()`` — the plugin must be technically
+        ready to run (credentials set, OAuth connected, …) to show as ON.
+        Clicking a disabled toggle for an OAuth-capable plugin auto-starts
+        the OAuth flow (see ``toggle_tool_plugin``).
+        """
         from ..lib.plugin_registry import discover_tools
         from ..lib.credential_broker import broker
-        # Toggle reflects the plugin's *user-enabled* state — i.e. whether
-        # the plugin file is present in plugins/tools/ (vs. moved to
-        # plugins/disabled/). ``is_available()`` is orthogonal — it tells us
-        # whether the plugin can technically run right now (credentials
-        # configured, OAuth connected etc.). Mixing both here previously
-        # caused a bug: enabling Google Suite but not yet completing OAuth
-        # would flip the toggle back to OFF on next modal open, because
-        # is_available()=False overrode the user's choice.
-        # discover_tools() returns only currently-enabled plugins (those on
-        # disk in plugins/tools/), so each one shown is "1" by definition.
         self.tool_plugin_toggles = {
-            p.name: "1" for p in discover_tools()
+            p.name: ("1" if p.is_available() else "") for p in discover_tools()
         }
         # Load current allowlists for display
         self.channel_allowlists = {
@@ -807,9 +935,29 @@ class SettingsMixin(rx.State, mixin=True):
         self.plugin_manager_open = False
 
     def toggle_tool_plugin(self, plugin_name: str) -> None:
-        """Toggle a tool plugin in UI state (applied on OK)."""
+        """Toggle a tool plugin.
+
+        OAuth plugins that aren't connected yet are not toggleable from here —
+        the user opens the credentials modal (gear icon) and uses the explicit
+        "Connect" button there. We just leave a hint in the debug log.
+        """
+        from ..lib.plugin_registry import get_tool_plugin
+        from ..lib.oauth import oauth_broker
+
         toggles = dict(self.tool_plugin_toggles)
-        current = toggles.get(plugin_name, "1")
+        current = bool(toggles.get(plugin_name, ""))
+        plugin = get_tool_plugin(plugin_name)
+
+        # Block toggling ON for OAuth plugins that aren't connected yet.
+        if not current and plugin is not None:
+            oauth_provider = getattr(plugin, "oauth_provider", None)
+            if oauth_provider and not oauth_broker.is_connected(oauth_provider):
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"🔐 {plugin.display_name}: bitte über das Zahnrad-Icon "
+                    f"die Verbindung herstellen — danach wird der Toggle aktiv."
+                )
+                return
+
         toggles[plugin_name] = "" if current else "1"
         self.tool_plugin_toggles = toggles
 

@@ -47,6 +47,12 @@ class ToolPlugin(Protocol):
     display_name: str
     description: str  # Short user-facing description (1-2 sentences)
 
+    # Optional — name of the OAuth provider this plugin requires (e.g. "google")
+    # Set to a non-empty string to make the plugin manager auto-trigger the
+    # OAuth flow when the user toggles the plugin ON.
+    # ``None`` (default) means no OAuth needed.
+    oauth_provider: Optional[str]
+
     def is_available(self) -> bool:
         """Check if this plugin can run right now (config flags, services, etc.)."""
         ...

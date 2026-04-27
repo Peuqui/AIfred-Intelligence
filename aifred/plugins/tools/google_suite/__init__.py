@@ -32,6 +32,7 @@ class GooglePlugin:
     name: str = "google"
     display_name: str = "Google Suite"
     description: str = "Zugriff auf Google Calendar, Drive und Gmail (Lesen und Schreiben — OAuth-2.0-authentifiziert)."
+    oauth_provider: str = "google"
 
     # ── Settings ────────────────────────────────────────────────
 
@@ -89,14 +90,14 @@ class GooglePlugin:
             CredentialField(
                 env_key="GOOGLE_TASKS_ENABLED",
                 label_key="google_tasks_enabled",
-                default="false",
+                default="true",
                 options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
                 group="services",
             ),
             CredentialField(
                 env_key="GOOGLE_DRIVE_ENABLED",
                 label_key="google_drive_enabled",
-                default="false",
+                default="true",
                 options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
                 group="services",
             ),
@@ -251,13 +252,21 @@ class GooglePlugin:
         return ""
 
     def aggregated_scopes(self) -> list[str]:
-        """Alle Scopes der aktiven Sub-Services — für den OAuth-Flow."""
+        """Alle Scopes der aktiven Sub-Services — für den OAuth-Flow.
+
+        Plus die userinfo-Scopes (email, profile) — die brauchen wir immer,
+        damit der OAuth-Flow den User identifizieren kann.
+        """
         settings = self._load_settings()
-        return [
+        scopes = [
             scope
             for key, scope in _SCOPES.items()
             if settings.get(key, "true") == "true"
         ]
+        # User-Identität immer mitscopen (sonst gibt Google nichts zurück)
+        scopes.append("https://www.googleapis.com/auth/userinfo.email")
+        scopes.append("https://www.googleapis.com/auth/userinfo.profile")
+        return scopes
 
 
 plugin = GooglePlugin()
