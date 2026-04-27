@@ -754,10 +754,18 @@ class SettingsMixin(rx.State, mixin=True):
         """Open plugin manager modal and refresh plugin lists + allowlists."""
         from ..lib.plugin_registry import discover_tools
         from ..lib.credential_broker import broker
-        # Use plugin.name (not file stem) — must match the static UI rows
-        # Show as ON only if the plugin is actually available (credentials etc.)
+        # Toggle reflects the plugin's *user-enabled* state — i.e. whether
+        # the plugin file is present in plugins/tools/ (vs. moved to
+        # plugins/disabled/). ``is_available()`` is orthogonal — it tells us
+        # whether the plugin can technically run right now (credentials
+        # configured, OAuth connected etc.). Mixing both here previously
+        # caused a bug: enabling Google Suite but not yet completing OAuth
+        # would flip the toggle back to OFF on next modal open, because
+        # is_available()=False overrode the user's choice.
+        # discover_tools() returns only currently-enabled plugins (those on
+        # disk in plugins/tools/), so each one shown is "1" by definition.
         self.tool_plugin_toggles = {
-            p.name: ("1" if p.is_available() else "") for p in discover_tools()
+            p.name: "1" for p in discover_tools()
         }
         # Load current allowlists for display
         self.channel_allowlists = {
