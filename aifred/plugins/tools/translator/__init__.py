@@ -57,6 +57,7 @@ def _get_api_url(api_key: str) -> str:
 class TranslatorPlugin:
     name: str = "translator"
     display_name: str = "DeepL Translator"
+    description: str = "Hochwertige Übersetzungen via DeepL-API zwischen vielen Sprachen — präziser als generische LLM-Übersetzungen."
 
     @property
     def credential_fields(self) -> list[CredentialField]:

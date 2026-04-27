@@ -38,6 +38,10 @@ class TelegramChannel(BaseChannel):
         return "Telegram"
 
     @property
+    def description(self) -> str:
+        return "Telegram-Bot mit Long-Polling — Chat-Nachrichten von Usern in der Allowlist."
+
+    @property
     def icon(self) -> str:
         return "send"  # Lucide icon
 

@@ -60,6 +60,10 @@ class FreeEchoChannel(BaseChannel):
         return "FreeEcho.2"
 
     @property
+    def description(self) -> str:
+        return "WebSocket-Server für FreeEcho.2-Pucks: Sprachsteuerung mit Wake-Word, STT (Whisper) und TTS-Rückkanal."
+
+    @property
     def icon(self) -> str:
         return "radio"
 

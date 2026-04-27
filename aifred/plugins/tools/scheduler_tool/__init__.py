@@ -21,6 +21,7 @@ from ....lib.prompt_loader import load_prompt
 class SchedulerPlugin:
     name: str = "scheduler"
     display_name: str = "Scheduler"
+    description: str = "Plant Aufgaben und Reminder zu bestimmten Uhrzeiten oder als wiederkehrende Cron-Jobs."
 
     def is_available(self) -> bool:
         return True

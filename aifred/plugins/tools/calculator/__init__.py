@@ -15,6 +15,7 @@ from ....lib.plugin_base import PluginContext
 class CalculatorPlugin:
     name: str = "calculator"
     display_name: str = "Calculator"
+    description: str = "Mathematische Berechnungen — von Grundrechenarten bis zu komplexen Ausdrücken (sympy-basiert)."
 
     def is_available(self) -> bool:
         return True

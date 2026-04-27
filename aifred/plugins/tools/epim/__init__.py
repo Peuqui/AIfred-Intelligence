@@ -12,6 +12,7 @@ from ....lib.plugin_base import CredentialField, PluginContext
 class EpimPlugin:
     name: str = "epim"
     display_name: str = "EPIM"
+    description: str = "Lese- und Schreibzugriff auf den persönlichen EPIM-Datenbestand: Termine, Kontakte, Notizen, Aufgaben."
 
     @property
     def credential_fields(self) -> list[CredentialField]:

@@ -1243,6 +1243,26 @@ def _db_entry_row(entry: rx.Var) -> rx.Component:
 # PLUGINS VIEW (Channel & Tool Plugin Management)
 # ============================================================
 
+def _plugin_description_popover(description: str) -> rx.Component:
+    """Lightbulb icon + popover showing the plugin description.
+
+    Empty descriptions render an empty box (so column alignment stays
+    consistent across the whole list).
+    """
+    if not description:
+        return rx.box(width="14px", flex_shrink="0")
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer"),
+        ),
+        rx.popover.content(
+            rx.text(description, font_size="11px", color="white", padding="8px", max_width="320px"),
+            side="right",
+            style={"background": "#2a2a3e", "border": "1px solid #555", "border-radius": "8px"},
+        ),
+    )
+
+
 def _plugins_view() -> rx.Component:
     """Plugins tab: channel and tool plugin management."""
     from ..lib.plugin_registry import all_channels, discover_tools
@@ -1261,10 +1281,16 @@ def _plugins_view() -> rx.Component:
         name = plugin.name
         enabled_var = AIState.tool_plugin_toggles[name].to(str) == "1"
         has_creds = bool(getattr(plugin, "credential_fields", None))
+        description = getattr(plugin, "description", "") or ""
 
         row_children: list[rx.Component] = [
-            rx.icon("puzzle", size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
-            rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+            # Name column — fixed width keeps lightbulb column aligned across rows
+            rx.hstack(
+                rx.icon("puzzle", size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
+                rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+                spacing="2", align="center", min_width="220px",
+            ),
+            _plugin_description_popover(description),
             rx.spacer(),
         ]
 
@@ -1330,6 +1356,7 @@ def _plugins_view() -> rx.Component:
                 ),
             ]
 
+        ch_description = getattr(plugin, "description", "") or ""
         header = rx.hstack(
             # Col 1: Icon + Name (fixed width for alignment)
             rx.hstack(
@@ -1337,6 +1364,8 @@ def _plugins_view() -> rx.Component:
                 rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
                 spacing="2", align="center", min_width="220px",
             ),
+            # Col 1b: lightbulb description popover (aligned across rows)
+            _plugin_description_popover(ch_description),
             # Col 2: Tier dropdown (fixed position)
             rx.box(*_tier_col, width="190px", flex_shrink="0") if _tier_col else rx.box(width="190px", flex_shrink="0"),
             rx.spacer(),

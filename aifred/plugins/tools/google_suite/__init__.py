@@ -31,6 +31,7 @@ _SCOPES: dict[str, str] = {
 class GooglePlugin:
     name: str = "google"
     display_name: str = "Google Suite"
+    description: str = "Zugriff auf Google Calendar, Drive und Gmail (Lesen und Schreiben — OAuth-2.0-authentifiziert)."
 
     # ── Settings ────────────────────────────────────────────────
 

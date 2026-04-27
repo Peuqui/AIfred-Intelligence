@@ -54,6 +54,10 @@ class DiscordChannel(BaseChannel):
         return "Discord"
 
     @property
+    def description(self) -> str:
+        return "Discord-Bot für Server-Kanäle — Watching, Auto-Reply und Slash-Commands."
+
+    @property
     def icon(self) -> str:
         return "message-circle"
 

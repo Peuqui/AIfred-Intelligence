@@ -45,6 +45,7 @@ class ToolPlugin(Protocol):
 
     name: str
     display_name: str
+    description: str  # Short user-facing description (1-2 sentences)
 
     def is_available(self) -> bool:
         """Check if this plugin can run right now (config flags, services, etc.)."""
@@ -172,6 +173,12 @@ class BaseChannel(ABC):
     @abstractmethod
     def display_name(self) -> str:
         ...
+
+    @property
+    def description(self) -> str:
+        """Short user-facing description (1-2 sentences) shown in the
+        plugin manager. Default is empty — channels should override."""
+        return ""
 
     @property
     @abstractmethod

@@ -18,6 +18,7 @@ from ....lib.plugin_base import PluginContext
 class AudioPlayerPlugin:
     name: str = "audio_player"
     display_name: str = "Audio Player"
+    description: str = "Spielt Audio-Dateien lokal ab (Wecker-Töne, kurze Klangschnipsel). Mit Stop- und Status-Kommandos."
 
     def is_available(self) -> bool:
         return True
