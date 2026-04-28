@@ -2016,12 +2016,12 @@ def _audit_view() -> rx.Component:
                 rx.table.root(
                     rx.table.header(
                         rx.table.row(
-                            rx.table.column_header_cell(rx.text("Time", font_size="11px")),
-                            rx.table.column_header_cell(rx.text("Source", font_size="11px")),
-                            rx.table.column_header_cell(rx.text("Tool", font_size="11px")),
-                            rx.table.column_header_cell(rx.text("Tier", font_size="11px")),
-                            rx.table.column_header_cell(rx.text("Status", font_size="11px")),
-                            rx.table.column_header_cell(rx.text("Duration", font_size="11px")),
+                            rx.table.column_header_cell(rx.text(t("audit_col_time"), font_size="11px")),
+                            rx.table.column_header_cell(rx.text(t("audit_col_source"), font_size="11px")),
+                            rx.table.column_header_cell(rx.text(t("audit_col_tool"), font_size="11px")),
+                            rx.table.column_header_cell(rx.text(t("audit_col_tier"), font_size="11px")),
+                            rx.table.column_header_cell(rx.text(t("audit_col_status"), font_size="11px")),
+                            rx.table.column_header_cell(rx.text(t("audit_col_duration"), font_size="11px")),
                         ),
                     ),
                     rx.table.body(

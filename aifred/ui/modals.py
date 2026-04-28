@@ -1573,17 +1573,17 @@ def audit_log_modal() -> rx.Component:
                         align="center",
                         width="100%",
                     ),
-                    rx.text("Last 50 tool executions", font_size="11px", color="gray"),
+                    rx.text(t("audit_log_subtitle"), font_size="11px", color="gray"),
                     rx.box(
                         rx.table.root(
                             rx.table.header(
                                 rx.table.row(
-                                    rx.table.column_header_cell(rx.text("Time", font_size="11px")),
-                                    rx.table.column_header_cell(rx.text("Source", font_size="11px")),
-                                    rx.table.column_header_cell(rx.text("Tool", font_size="11px")),
-                                    rx.table.column_header_cell(rx.text("Tier", font_size="11px")),
-                                    rx.table.column_header_cell(rx.text("Status", font_size="11px")),
-                                    rx.table.column_header_cell(rx.text("Duration", font_size="11px")),
+                                    rx.table.column_header_cell(rx.text(t("audit_col_time"), font_size="11px")),
+                                    rx.table.column_header_cell(rx.text(t("audit_col_source"), font_size="11px")),
+                                    rx.table.column_header_cell(rx.text(t("audit_col_tool"), font_size="11px")),
+                                    rx.table.column_header_cell(rx.text(t("audit_col_tier"), font_size="11px")),
+                                    rx.table.column_header_cell(rx.text(t("audit_col_status"), font_size="11px")),
+                                    rx.table.column_header_cell(rx.text(t("audit_col_duration"), font_size="11px")),
                                 ),
                             ),
                             rx.table.body(
