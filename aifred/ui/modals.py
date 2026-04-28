@@ -1741,6 +1741,22 @@ def _bundle_import_row(agent: dict) -> rx.Component:
     )
 
 
+def _bundle_conflict_select() -> rx.Component:
+    """Conflict-strategy dropdown via rx.select.root — needs separate
+    value/label pairs that the simple ``rx.select`` doesn't support."""
+    return rx.select.root(
+        rx.select.trigger(),
+        rx.select.content(
+            rx.select.item(t("bundle_conflict_rename"), value="rename"),
+            rx.select.item(t("bundle_conflict_overwrite"), value="overwrite"),
+            rx.select.item(t("bundle_conflict_abort"), value="abort"),
+        ),
+        value=AIState.bundle_import_conflict,
+        on_change=AIState.set_bundle_import_conflict,
+        size="1",
+    )
+
+
 def bundle_import_modal() -> rx.Component:
     """Modal: pick a ZIP, then choose which agents to import + conflict strategy."""
     upload_zone = rx.upload(
@@ -1781,16 +1797,7 @@ def bundle_import_modal() -> rx.Component:
             ),
             rx.hstack(
                 rx.text(t("bundle_conflict_label"), font_size="11px", color="#aaa"),
-                rx.select(
-                    [
-                        ("rename", t("bundle_conflict_rename")),
-                        ("overwrite", t("bundle_conflict_overwrite")),
-                        ("abort", t("bundle_conflict_abort")),
-                    ],
-                    value=AIState.bundle_import_conflict,
-                    on_change=AIState.set_bundle_import_conflict,
-                    size="1",
-                ),
+                _bundle_conflict_select(),
                 spacing="2", align="center",
             ),
             spacing="2", width="100%",
