@@ -23,6 +23,7 @@ from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, research_help_modal, reasoning_thinking_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
     document_manager_modal, channel_credentials_modal, audit_log_modal,
+    bundle_export_modal, bundle_import_modal,
 )
 from .ui.chat_display import (  # noqa: F401
     session_list_display, chat_history_display,
@@ -670,6 +671,10 @@ console.log('✂️ Crop handler loaded');
         # Email Credentials Modal (Message Hub)
         channel_credentials_modal(),
         audit_log_modal(),
+
+        # Agent Bundle Export / Import
+        bundle_export_modal(),
+        bundle_import_modal(),
 
         # Hidden element to trigger camera detection on mount
         rx.box(

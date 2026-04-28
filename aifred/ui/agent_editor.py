@@ -438,6 +438,32 @@ def _config_view() -> rx.Component:
                             ),
                         ),
                     ),
+                    # Export bundle (not during create, not Automatik)
+                    rx.cond(
+                        ~is_new & ~is_automatik,
+                        rx.tooltip(
+                            rx.icon_button(
+                                rx.icon("package", size=16),
+                                on_click=AIState.open_bundle_export,
+                                size="2", variant="soft",
+                                color_scheme="blue", cursor="pointer",
+                            ),
+                            content=t("agent_editor_export_tooltip"),
+                        ),
+                    ),
+                    # Import bundle (always visible — even mid-create)
+                    rx.cond(
+                        ~is_automatik,
+                        rx.tooltip(
+                            rx.icon_button(
+                                rx.icon("package-open", size=16),
+                                on_click=AIState.open_bundle_import,
+                                size="2", variant="soft",
+                                color_scheme="cyan", cursor="pointer",
+                            ),
+                            content=t("agent_editor_import_tooltip"),
+                        ),
+                    ),
                     spacing="2",
                     align="center",
                     width="100%",

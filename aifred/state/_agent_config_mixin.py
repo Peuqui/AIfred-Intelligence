@@ -7,7 +7,7 @@ temperature configuration, and model selection for Sokrates/Salomo.
 
 from __future__ import annotations
 
-from typing import ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List
 
 import reflex as rx
 
@@ -1056,6 +1056,19 @@ class AgentConfigMixin(rx.State, mixin=True):
     editor_delete_confirm: str = ""
     # Memory clear confirmation
     editor_memory_confirm: str = ""
+
+    # ── Agent Bundle Export/Import ──────────────────────────────
+    bundle_export_open: bool = False
+    bundle_export_selected: List[str] = []
+    # Snapshot of all agents for the export modal — refreshed when modal opens
+    bundle_all_agents: List[Dict[str, str]] = []
+
+    bundle_import_open: bool = False
+    bundle_import_uploaded_b64: str = ""  # base64-encoded ZIP, kept in state until confirm
+    bundle_import_agents: List[Dict[str, Any]] = []  # output of peek_bundle
+    bundle_import_selected: List[str] = []
+    bundle_import_conflict: str = "rename"  # abort | overwrite | rename
+    bundle_import_error: str = ""
 
     # Emoji picker visibility
     editor_emoji_picker_open: bool = False
@@ -2489,3 +2502,133 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Refresh the view
         self.browse_memory_agent(self.memory_browser_agent)
         self._load_memory_collections()
+
+    # ─────────────────────────────────────────────────────────
+    # Agent Bundle Export
+    # ─────────────────────────────────────────────────────────
+
+    def open_bundle_export(self) -> None:
+        """Open the export modal — preselect the currently edited agent."""
+        from ..lib.agent_config import load_agents_raw
+        raw = load_agents_raw()
+        self.bundle_all_agents = [
+            {
+                "agent_id": aid,
+                "display_name": data.get("display_name", aid),
+                "emoji": data.get("emoji", ""),
+            }
+            for aid, data in raw.items()
+        ]
+        preselect = [self.editor_agent_id] if self.editor_agent_id in raw else []
+        self.bundle_export_selected = preselect
+        self.bundle_export_open = True
+
+    def close_bundle_export(self) -> None:
+        self.bundle_export_open = False
+        self.bundle_export_selected = []
+
+    def toggle_bundle_export_agent(self, agent_id: str) -> None:
+        if agent_id in self.bundle_export_selected:
+            self.bundle_export_selected = [a for a in self.bundle_export_selected if a != agent_id]
+        else:
+            self.bundle_export_selected = [*self.bundle_export_selected, agent_id]
+
+    def confirm_bundle_export(self):  # type: ignore[no-untyped-def]
+        """Trigger a browser download via the /api/agents/export endpoint."""
+        if not self.bundle_export_selected:
+            return
+        ids_param = ",".join(self.bundle_export_selected)
+        url = f"/api/agents/export?ids={ids_param}"
+        self.bundle_export_open = False
+        self.bundle_export_selected = []
+        yield rx.call_script(f"window.location.href = {url!r}")
+
+    # ─────────────────────────────────────────────────────────
+    # Agent Bundle Import
+    # ─────────────────────────────────────────────────────────
+
+    def open_bundle_import(self) -> None:
+        """Open the import modal in its initial empty state."""
+        self.bundle_import_open = True
+        self.bundle_import_uploaded_b64 = ""
+        self.bundle_import_agents = []
+        self.bundle_import_selected = []
+        self.bundle_import_conflict = "rename"
+        self.bundle_import_error = ""
+
+    async def handle_bundle_upload(self, files: list) -> None:  # type: ignore[no-untyped-def]
+        """Reflex on_drop callback — read ZIP, peek manifest, open modal."""
+        import base64
+        from ..lib.agent_bundle import peek_bundle
+
+        if not files:
+            return
+
+        try:
+            zip_bytes = await files[0].read()
+        except Exception as exc:
+            self.bundle_import_error = f"Datei konnte nicht gelesen werden: {exc}"
+            self.bundle_import_open = True
+            return
+
+        try:
+            info = peek_bundle(zip_bytes)
+        except Exception as exc:
+            self.bundle_import_error = f"Kein gültiges Agent-Bundle: {exc}"
+            self.bundle_import_open = True
+            return
+
+        self.bundle_import_uploaded_b64 = base64.b64encode(zip_bytes).decode("ascii")
+        self.bundle_import_agents = info["agents"]
+        self.bundle_import_selected = [a["agent_id"] for a in info["agents"]]
+        self.bundle_import_conflict = "rename"
+        self.bundle_import_error = ""
+        self.bundle_import_open = True
+
+    def close_bundle_import(self) -> None:
+        self.bundle_import_open = False
+        self.bundle_import_uploaded_b64 = ""
+        self.bundle_import_agents = []
+        self.bundle_import_selected = []
+        self.bundle_import_error = ""
+
+    def toggle_bundle_import_agent(self, agent_id: str) -> None:
+        if agent_id in self.bundle_import_selected:
+            self.bundle_import_selected = [a for a in self.bundle_import_selected if a != agent_id]
+        else:
+            self.bundle_import_selected = [*self.bundle_import_selected, agent_id]
+
+    def set_bundle_import_conflict(self, value: str) -> None:
+        if value in ("abort", "overwrite", "rename"):
+            self.bundle_import_conflict = value
+
+    def confirm_bundle_import(self) -> None:
+        """Decode the staged bundle and write the selected agents."""
+        import base64
+        from ..lib.agent_bundle import import_bundle
+
+        if not self.bundle_import_uploaded_b64 or not self.bundle_import_selected:
+            return
+
+        try:
+            zip_bytes = base64.b64decode(self.bundle_import_uploaded_b64)
+            effective_ids, warnings = import_bundle(
+                zip_bytes,
+                selected_ids=self.bundle_import_selected,
+                conflict=self.bundle_import_conflict,  # type: ignore[arg-type]
+            )
+        except FileExistsError as exc:
+            self.bundle_import_error = str(exc)
+            return
+        except Exception as exc:
+            self.bundle_import_error = f"Import fehlgeschlagen: {exc}"
+            return
+
+        for w in warnings:
+            self.add_debug(f"📦 {w}")  # type: ignore[attr-defined]
+        self.add_debug(  # type: ignore[attr-defined]
+            f"✅ Agenten importiert: {', '.join(effective_ids)}"
+        )
+
+        self.close_bundle_import()
+        self._refresh_agent_dropdown()

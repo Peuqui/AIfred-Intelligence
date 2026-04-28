@@ -23,12 +23,13 @@ Endpoints (all prefixed with /api):
 - POST /calibrate           - Run context calibration
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import asyncio
 import subprocess
+import time
 
 from .settings import load_settings, save_settings, get_default_settings
 from .formatting import format_number
@@ -1218,6 +1219,94 @@ async def oauth_disconnect(provider: str) -> dict:
     from .oauth import oauth_broker
     oauth_broker.disconnect(provider)
     return {"provider": provider, "disconnected": True}
+
+
+# ============================================================
+# Agent Bundle Export / Import
+# ============================================================
+
+
+@api_app.get("/agents/export", tags=["Agents"])
+async def export_agents_endpoint(ids: str) -> Response:
+    """Download a ZIP bundle containing one or more agents.
+
+    ``ids`` is a comma-separated list of agent IDs (e.g. ``?ids=codi,hal``).
+    A GET endpoint is used so the UI can trigger a plain browser download
+    via ``<a href>`` without orchestrating a fetch+blob roundtrip.
+    """
+    from .agent_bundle import export_bundle
+
+    agent_ids = [a.strip() for a in ids.split(",") if a.strip()]
+    if not agent_ids:
+        raise HTTPException(status_code=400, detail="No agents selected")
+
+    try:
+        data = export_bundle(agent_ids)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        log_message(f"export_bundle failed: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if len(agent_ids) == 1:
+        filename = f"{agent_ids[0]}.aifred-agent.zip"
+    else:
+        filename = f"aifred-agents-{int(time.time())}.zip"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api_app.post("/agents/import/peek", tags=["Agents"])
+async def peek_agent_bundle(file: UploadFile = File(...)) -> dict:
+    """Inspect a bundle without writing — returns the list of agents inside
+    plus a flag per agent indicating whether it already exists locally.
+    """
+    from .agent_bundle import peek_bundle
+
+    try:
+        zip_bytes = await file.read()
+        return peek_bundle(zip_bytes)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Bundle nicht lesbar: {exc}")
+
+
+@api_app.post("/agents/import", tags=["Agents"])
+async def import_agents_endpoint(
+    file: UploadFile = File(...),
+    ids: str = Form(""),
+    conflict: str = Form("abort"),
+) -> dict:
+    """Import selected agents from a bundle ZIP.
+
+    ``ids`` (comma-separated) selects which agents to import; empty means
+    all agents in the bundle. ``conflict`` is one of abort|overwrite|rename.
+    """
+    from .agent_bundle import import_bundle
+
+    if conflict not in ("abort", "overwrite", "rename"):
+        raise HTTPException(status_code=400, detail=f"Invalid conflict strategy: {conflict}")
+
+    selected = [a.strip() for a in ids.split(",") if a.strip()] or None
+
+    try:
+        zip_bytes = await file.read()
+        effective_ids, warnings = import_bundle(
+            zip_bytes, selected_ids=selected, conflict=conflict,  # type: ignore[arg-type]
+        )
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        log_message(f"import_bundle failed: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"success": True, "agent_ids": effective_ids, "warnings": warnings}
 
 
 # ============================================================
