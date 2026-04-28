@@ -69,7 +69,11 @@ class OAuthBroker:
 
     def __init__(self) -> None:
         self._providers: dict[str, OAuthProvider] = {}
-        self._pending: dict[str, tuple[str, float]] = {}
+        # state_token → (provider_name, expiry_ts, redirect_uri)
+        # redirect_uri MUST be identical at auth-url generation and token exchange,
+        # otherwise Google rejects with 400. Storing it here removes the need to
+        # reconstruct it in the callback (which is unreliable behind a reverse proxy).
+        self._pending: dict[str, tuple[str, float, str]] = {}
 
     def register(self, provider: OAuthProvider) -> None:
         self._providers[provider.name] = provider
@@ -84,16 +88,20 @@ class OAuthBroker:
         if provider_name not in self._providers:
             raise KeyError(f"Unknown OAuth provider: {provider_name}")
         state = secrets.token_urlsafe(32)
-        self._pending[state] = (provider_name, time.time() + _STATE_TTL_SECONDS)
+        self._pending[state] = (provider_name, time.time() + _STATE_TTL_SECONDS, redirect_uri)
         self._purge_expired_states()
         return self._providers[provider_name].get_auth_url(scopes, redirect_uri, state)
 
-    async def handle_callback(self, state: str, code: str, redirect_uri: str) -> str:
-        """Exchange authorization code for tokens.  Returns provider name."""
+    async def handle_callback(self, state: str, code: str) -> str:
+        """Exchange authorization code for tokens.  Returns provider name.
+
+        The redirect_uri used in the token exchange is the one we recorded
+        when the auth URL was created — Google requires byte-for-byte match.
+        """
         entry = self._pending.pop(state, None)
         if entry is None:
             raise ValueError("Unknown or expired OAuth state — restart the login flow")
-        provider_name, expiry = entry
+        provider_name, expiry, redirect_uri = entry
         if time.time() > expiry:
             raise ValueError("OAuth state expired — restart the login flow")
         provider = self._providers[provider_name]

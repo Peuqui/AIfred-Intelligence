@@ -41,17 +41,18 @@ class PluginContext:
 
 @runtime_checkable
 class ToolPlugin(Protocol):
-    """Protocol that every tool plugin must satisfy."""
+    """Protocol that every tool plugin must satisfy.
+
+    **Optional class attribute** ``oauth_provider: str = "<provider_name>"``
+    (e.g. ``"google"``) — when set on the plugin instance, the plugin manager
+    auto-triggers the OAuth flow via the Connect-Button in the credentials
+    modal. Plugins that don't need OAuth simply omit the attribute; access
+    is via ``getattr(plugin, "oauth_provider", None)`` so it stays optional.
+    """
 
     name: str
     display_name: str
     description: str  # Short user-facing description (1-2 sentences)
-
-    # Optional — name of the OAuth provider this plugin requires (e.g. "google")
-    # Set to a non-empty string to make the plugin manager auto-trigger the
-    # OAuth flow when the user toggles the plugin ON.
-    # ``None`` (default) means no OAuth needed.
-    oauth_provider: Optional[str]
 
     def is_available(self) -> bool:
         """Check if this plugin can run right now (config flags, services, etc.)."""

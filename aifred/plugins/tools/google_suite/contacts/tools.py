@@ -177,7 +177,16 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
     ) -> str:
         """Neuen Kontakt anlegen. group ist ein optionaler Gruppenname."""
         token = await _get_token()
-        body: dict = {"names": [{"displayName": display_name}]}
+        # People API: Name.displayName ist OUTPUT_ONLY — Google leitet den Wert
+        # aus givenName/familyName ab. Wir splitten beim letzten Whitespace,
+        # damit z.B. "Max Mustermann" → given="Max", family="Mustermann" wird;
+        # einteilige Namen landen komplett in givenName.
+        if " " in display_name.strip():
+            given, family = display_name.rsplit(" ", 1)
+            name_entry = {"givenName": given.strip(), "familyName": family.strip()}
+        else:
+            name_entry = {"givenName": display_name.strip()}
+        body: dict = {"names": [name_entry]}
         if email:
             body["emailAddresses"] = [{"value": email}]
         if phone:
@@ -236,7 +245,12 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
         update_fields: list[str] = []
 
         if display_name:
-            patch["names"] = [{"displayName": display_name}]
+            # Name.displayName ist OUTPUT_ONLY — selbe Falle wie bei create_contact.
+            if " " in display_name.strip():
+                given, family = display_name.rsplit(" ", 1)
+                patch["names"] = [{"givenName": given.strip(), "familyName": family.strip()}]
+            else:
+                patch["names"] = [{"givenName": display_name.strip()}]
             update_fields.append("names")
         if email:
             patch["emailAddresses"] = [{"value": email}]

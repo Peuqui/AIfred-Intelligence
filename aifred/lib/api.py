@@ -1174,12 +1174,8 @@ async def oauth_callback(provider: str, request: Request, code: str = "", state:
             status_code=400,
         )
 
-    # Reconstruct the exact redirect_uri this request arrived on
-    # (must match what was used to generate the auth URL)
-    redirect_uri = str(request.url).split("?")[0]
-
     try:
-        await oauth_broker.handle_callback(state, code, redirect_uri)
+        await oauth_broker.handle_callback(state, code)
         return HTMLResponse(
             f"<html><body style='font-family:sans-serif;padding:2rem'>"
             f"<h2>✅ {provider.capitalize()} verbunden!</h2>"

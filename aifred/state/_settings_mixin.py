@@ -41,6 +41,9 @@ class SettingsMixin(rx.State, mixin=True):
     oauth_connect_status: str = "idle"
     # Provider-Name des aktuell im Modal bearbeiteten OAuth-Plugins (leer wenn nicht OAuth)
     oauth_connect_provider: str = ""
+    # Vorab generierte Auth-URL — wird vom Connect-Link (target="_blank") direkt genutzt,
+    # damit der Browser-Pop-up-Blocker den Login-Tab nicht abblockt (echter User-Click).
+    oauth_auth_url: str = ""
 
     # ── Plugin Manager Modal ─────────────────────────────────────
     plugin_manager_open: bool = False
@@ -646,11 +649,18 @@ class SettingsMixin(rx.State, mixin=True):
         self.oauth_connect_provider = oauth_provider
         if oauth_provider:
             from ..lib.oauth import oauth_broker
-            self.oauth_connect_status = (
-                "connected" if oauth_broker.is_connected(oauth_provider) else "idle"
+            connected = oauth_broker.is_connected(oauth_provider)
+            self.oauth_connect_status = "connected" if connected else "idle"
+            # Auth-URL vorab generieren — der Modal-Connect-Link nutzt sie
+            # direkt als <a target="_blank"> (umgeht den Pop-up-Blocker, der
+            # window.open() aus async Reflex-Events stillschweigend killt).
+            target_plugin = plugin if plugin is not None else get_tool_plugin(channel_name)
+            self.oauth_auth_url = (
+                "" if connected else self._build_oauth_auth_url(oauth_provider, target_plugin)
             )
         else:
             self.oauth_connect_status = "idle"
+            self.oauth_auth_url = ""
 
     def close_channel_credentials(self) -> None:
         """Close credentials modal without saving."""
@@ -671,39 +681,20 @@ class SettingsMixin(rx.State, mixin=True):
         """Toggle password visibility in credentials modal."""
         self.channel_cred_show_password = not self.channel_cred_show_password
 
-    async def start_oauth_connection(self):  # type: ignore[no-untyped-def]
-        """Start the OAuth flow for the plugin currently being edited.
+    def _build_oauth_auth_url(self, provider: str, plugin: Any) -> str:
+        """Generate the OAuth Auth-URL for the given provider+plugin.
 
-        Opens the auth URL in a new browser tab and polls ``is_connected``
-        every 3 s for up to 30 s. The button color in the modal reflects
-        the live status (idle / connecting / connected / error).
+        Returns "" if credentials are missing or URL generation fails.
+        Called at modal-open so the Connect-Link can use a real ``<a target="_blank">``
+        — that survives the browser pop-up blocker which kills ``window.open()``
+        from async event handlers.
         """
-        import asyncio as _aio
-        import json as _json
         from ..lib.credential_broker import broker
         from ..lib.oauth import oauth_broker
-        from ..lib.plugin_registry import get_channel, get_tool_plugin
 
-        provider = self.oauth_connect_provider
-        if not provider:
-            return
+        if not provider or not broker.get(provider, "client_id"):
+            return ""
 
-        plugin_name = self.channel_credentials_editing
-        plugin = get_channel(plugin_name) or get_tool_plugin(plugin_name)
-        if plugin is None:
-            self.oauth_connect_status = "error"
-            return
-
-        # Verify credentials are saved
-        if not broker.get(provider, "client_id"):
-            self.oauth_connect_status = "error"
-            self.add_debug(  # type: ignore[attr-defined]
-                f"⚠️ {plugin.display_name}: Client-ID fehlt — bitte erst speichern."
-            )
-            return
-
-        # Build scope list — plugins with aggregated_scopes() get those,
-        # otherwise fall back to whatever the broker returns by default.
         scopes_method = getattr(plugin, "aggregated_scopes", None)
         scope_list: list[str] = []
         if callable(scopes_method):
@@ -712,7 +703,6 @@ class SettingsMixin(rx.State, mixin=True):
             except Exception:
                 scope_list = []
 
-        # Redirect URI from current request host
         try:
             page_host = self.router.page.host  # type: ignore[attr-defined]
         except Exception:
@@ -723,43 +713,64 @@ class SettingsMixin(rx.State, mixin=True):
             redirect_uri = f"http://localhost:8002/api/oauth/{provider}/callback"
 
         try:
-            auth_url = oauth_broker.get_auth_url(provider, scope_list, redirect_uri)
-        except Exception as exc:
+            return str(oauth_broker.get_auth_url(provider, scope_list, redirect_uri))
+        except Exception:
+            return ""
+
+    async def start_oauth_connection(self):  # type: ignore[no-untyped-def]
+        """Set status to ``connecting`` and poll ``is_connected`` for up to 5 min.
+
+        The actual login tab is opened by the Connect-Link in the modal
+        (``rx.link target="_blank"``) — that's a direct user click, immune
+        to the pop-up blocker. This handler only manages the polling state.
+        """
+        import asyncio as _aio
+        from ..lib.oauth import oauth_broker
+        from ..lib.plugin_registry import get_channel, get_tool_plugin
+
+        provider = self.oauth_connect_provider
+        if not provider or not self.oauth_auth_url:
             self.oauth_connect_status = "error"
-            self.add_debug(  # type: ignore[attr-defined]
-                f"❌ {plugin.display_name}: Auth-URL konnte nicht erzeugt werden: {exc}"
-            )
             return
 
-        self.oauth_connect_status = "connecting"
-        yield rx.call_script(
-            f"window.open({_json.dumps(auth_url)}, '_blank')"
-        )
+        plugin_name = self.channel_credentials_editing
+        plugin = get_channel(plugin_name) or get_tool_plugin(plugin_name)
+        display = plugin.display_name if plugin is not None else plugin_name
 
-        # Poll up to 30 s. Live status visible in the modal button color.
-        for _ in range(10):  # 10 × 3 s
-            await _aio.sleep(3)
+        self.oauth_connect_status = "connecting"
+
+        # Poll up to 5 min (60 × 5 s) — Google Login + Consent kann dauern.
+        for _ in range(60):
+            await _aio.sleep(5)
             if oauth_broker.is_connected(provider):
                 self.oauth_connect_status = "connected"
                 self.add_debug(  # type: ignore[attr-defined]
-                    f"✅ {plugin.display_name}: OAuth verbunden — Plugin verfügbar."
+                    f"✅ {display}: OAuth verbunden — Plugin verfügbar."
                 )
                 return
 
-        # Timeout — set error so the button turns red
         self.oauth_connect_status = "error"
         self.add_debug(  # type: ignore[attr-defined]
-            f"⚠️ {plugin.display_name}: OAuth nicht abgeschlossen — bitte erneut versuchen."
+            f"⚠️ {display}: OAuth nicht abgeschlossen — bitte erneut versuchen."
         )
 
     async def disconnect_oauth(self) -> None:  # type: ignore[no-untyped-def]
         """Remove stored OAuth tokens for the current plugin."""
         from ..lib.oauth import oauth_broker
+        from ..lib.plugin_registry import get_channel, get_tool_plugin
+
         provider = self.oauth_connect_provider
         if not provider:
             return
         oauth_broker.disconnect(provider)
         self.oauth_connect_status = "idle"
+
+        # Auth-URL neu generieren — Credentials sind noch da, also kann der
+        # User direkt wieder verbinden ohne Modal zu schließen+wieder zu öffnen.
+        plugin_key = self.channel_credentials_editing
+        plugin = get_channel(plugin_key) or get_tool_plugin(plugin_key)
+        self.oauth_auth_url = self._build_oauth_auth_url(provider, plugin)
+
         plugin_name = self.channel_credentials_display_name or provider
         self.add_debug(f"🔌 {plugin_name}: OAuth-Verbindung getrennt.")  # type: ignore[attr-defined]
 

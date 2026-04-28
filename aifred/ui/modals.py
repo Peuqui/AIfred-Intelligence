@@ -1397,31 +1397,75 @@ def channel_credentials_modal() -> rx.Component:
                             ),
                             (
                                 "error",
-                                rx.button(
-                                    rx.hstack(
-                                        rx.icon("circle-alert", size=14),
-                                        rx.text(t("oauth_connect_error")),
-                                        spacing="2", align="center",
+                                rx.cond(
+                                    AIState.oauth_auth_url != "",
+                                    rx.link(
+                                        rx.button(
+                                            rx.hstack(
+                                                rx.icon("circle-alert", size=14),
+                                                rx.text(t("oauth_connect_error")),
+                                                spacing="2", align="center",
+                                            ),
+                                            variant="solid",
+                                            color_scheme="red",
+                                            size="2",
+                                            width="100%",
+                                        ),
+                                        href=AIState.oauth_auth_url,
+                                        target="_blank",
+                                        is_external=True,
+                                        on_click=AIState.start_oauth_connection,
+                                        width="100%",
+                                        underline="none",
                                     ),
-                                    on_click=AIState.start_oauth_connection,
-                                    variant="solid",
-                                    color_scheme="red",
-                                    size="2",
-                                    width="100%",
+                                    rx.button(
+                                        rx.hstack(
+                                            rx.icon("circle-alert", size=14),
+                                            rx.text(t("oauth_connect_no_credentials")),
+                                            spacing="2", align="center",
+                                        ),
+                                        variant="soft",
+                                        color_scheme="gray",
+                                        size="2",
+                                        width="100%",
+                                        disabled=True,
+                                    ),
                                 ),
                             ),
                             # Default = "idle"
-                            rx.button(
-                                rx.hstack(
-                                    rx.icon("link", size=14),
-                                    rx.text(t("oauth_connect_idle")),
-                                    spacing="2", align="center",
+                            rx.cond(
+                                AIState.oauth_auth_url != "",
+                                rx.link(
+                                    rx.button(
+                                        rx.hstack(
+                                            rx.icon("link", size=14),
+                                            rx.text(t("oauth_connect_idle")),
+                                            spacing="2", align="center",
+                                        ),
+                                        variant="solid",
+                                        color_scheme="blue",
+                                        size="2",
+                                        width="100%",
+                                    ),
+                                    href=AIState.oauth_auth_url,
+                                    target="_blank",
+                                    is_external=True,
+                                    on_click=AIState.start_oauth_connection,
+                                    width="100%",
+                                    underline="none",
                                 ),
-                                on_click=AIState.start_oauth_connection,
-                                variant="solid",
-                                color_scheme="blue",
-                                size="2",
-                                width="100%",
+                                rx.button(
+                                    rx.hstack(
+                                        rx.icon("link", size=14),
+                                        rx.text(t("oauth_connect_no_credentials")),
+                                        spacing="2", align="center",
+                                    ),
+                                    variant="soft",
+                                    color_scheme="gray",
+                                    size="2",
+                                    width="100%",
+                                    disabled=True,
+                                ),
                             ),
                         ),
                         rx.text(
