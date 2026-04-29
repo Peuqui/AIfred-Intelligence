@@ -2,7 +2,12 @@
   "agents": {
     "aifred": {
       "display_name": "AIfred",
-      "aliases": ["alfred", "ai fred", "eifred", "ai-fred"],
+      "aliases": [
+        "alfred",
+        "ai fred",
+        "eifred",
+        "ai-fred"
+      ],
       "emoji": "🎩",
       "description": "Gentleman-Berater und KI-Butler",
       "role": "main",
@@ -26,7 +31,9 @@
     },
     "sokrates": {
       "display_name": "Sokrates",
-      "aliases": ["socrates"],
+      "aliases": [
+        "socrates"
+      ],
       "emoji": "🏛️",
       "description": "Scharfsinniger Philosoph und Kritiker",
       "role": "critic",
@@ -49,7 +56,10 @@
     },
     "salomo": {
       "display_name": "Salomo",
-      "aliases": ["salomon", "solomon"],
+      "aliases": [
+        "salomon",
+        "solomon"
+      ],
       "emoji": "👑",
       "description": "Weiser Richter und Synthesist",
       "role": "judge",
@@ -91,7 +101,11 @@
     },
     "pater": {
       "display_name": "Pater Tuck",
-      "aliases": ["pater tag", "pater tuck", "patter"],
+      "aliases": [
+        "pater tag",
+        "pater tuck",
+        "patter"
+      ],
       "emoji": "🔥",
       "description": "Evangelischer Pastor und Seelsorger",
       "role": "custom",
@@ -138,7 +152,11 @@
     },
     "codi": {
       "display_name": "Codine",
-      "aliases": ["kodi", "cody", "kodine"],
+      "aliases": [
+        "kodi",
+        "cody",
+        "kodine"
+      ],
       "emoji": "🤖",
       "description": "Mathematikerin und Programmiererin",
       "role": "custom",
@@ -158,7 +176,14 @@
     },
     "hal": {
       "display_name": "HAL 9000",
-      "aliases": ["hal", "hal 9000", "hell", "hell 9000", "hal9000", "hell-9000"],
+      "aliases": [
+        "hal",
+        "hal 9000",
+        "hell",
+        "hell 9000",
+        "hal9000",
+        "hell-9000"
+      ],
       "emoji": "🔴",
       "description": "Heuristisch programmierter ALgorithmischer Computer",
       "role": "custom",
@@ -179,7 +204,11 @@
     },
     "rabbi": {
       "display_name": "Rabbi Shmuel",
-      "aliases": ["rabi", "shmuel", "rebbe"],
+      "aliases": [
+        "rabi",
+        "shmuel",
+        "rebbe"
+      ],
       "emoji": "🕎",
       "description": "Weiser Rabbi und Schriftgelehrter",
       "role": "custom",
