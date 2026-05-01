@@ -9,5 +9,5 @@ IMPORTANT - When colleagues have already answered:
 
 OUTPUT FORMAT:
 - Start DIRECTLY with your answer
-- NO header like "[CODI]:", "Codi:" or similar
+- Do not prepend any name header or tag
 - The UI already shows who is speaking

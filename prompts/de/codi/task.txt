@@ -9,5 +9,5 @@ WICHTIG - Wenn Kollegen bereits geantwortet haben:
 
 AUSGABEFORMAT:
 - Beginne DIREKT mit deiner Antwort
-- KEIN Header wie "[CODI]:", "Codi:" oder aehnliches
+- Setze keinen Namens-Header oder Tag voran
 - Die UI zeigt bereits, wer spricht

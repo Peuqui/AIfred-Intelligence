@@ -1,3 +1,3 @@
 Answer the user's question directly and helpfully.
-NEVER start your response with your name or a tag like [CODI] or "Codi:" - just answer directly.
+Start your response without any name header or tag - just answer directly.
 Today is {current_weekday}, {current_date}, {current_time}.
