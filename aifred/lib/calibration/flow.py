@@ -8,6 +8,7 @@ existing state-mixin parsers keep working without change.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import AsyncIterator, Optional
 
@@ -31,6 +32,7 @@ from ..gguf_utils import (
 from ..model_vram_cache import add_llamacpp_calibration
 from . import llamaswap_io as io
 from . import projection as proj
+from .llamaswap_io import parse_tensor_split
 from .gpu import (
     build_budget,
     enumerate_gpus,
@@ -111,6 +113,32 @@ async def calibrate_llamacpp_model(
         f"(model = {model.size_mb / sum(gpu_total):.0%} of "
         f"{format_number(sum(gpu_total) / 1024, 1)} GB VRAM)"
     )
+
+    # ── AI-driven calibration (optional, falls back to legacy on error) ─
+    from ..settings import load_settings as _load_settings
+    settings = _load_settings() or {}
+    cal_mode = str(settings.get("calibration_mode", "legacy"))
+    if cal_mode.startswith("ai-"):
+        async for line in _try_ai_calibration(
+            cal_mode=cal_mode,
+            model_id=model_id,
+            full_cmd=full_cmd,
+            safety_margin=safety_margin,
+            port=port,
+            env=env,
+            model_size_mb=model.size_mb,
+            native_ctx=model.native_context,
+            total_layers=model.total_layers,
+            config_path=config_path,
+        ):
+            if line == "__AI_FALLBACK__":
+                yield "🔄 Fallback zum klassischen Algorithmus..."
+                break
+            yield line
+            if line.startswith("__RESULT__:"):
+                return
+        # On fallback, drop into the legacy phase B/C below
+
     yield (
         f"Free VRAM: {format_number(total_free_mb(gpus))} MB, "
         f"first-GPU handicap: {budget.first_gpu_handicap} MB"
@@ -850,6 +878,104 @@ def _build_result(
 
 def _active_gpu_count(ts: tuple[float, ...]) -> int:
     return sum(1 for r in ts if r > 0)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AI calibration adapter
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _ngl_from_cmd(cmd: str) -> int:
+    m = re.search(r"-ngl\s+(\d+)", cmd)
+    return int(m.group(1)) if m else 99
+
+
+def _kv_quant_from_cmd(cmd: str) -> str:
+    m = re.search(r"-ctk\s+(\S+)", cmd)
+    return m.group(1) if m else "f16"
+
+
+async def _try_ai_calibration(
+    cal_mode: str,
+    model_id: str,
+    full_cmd: str,
+    safety_margin: int,
+    port: int,
+    env: Optional[dict[str, str]],
+    model_size_mb: float,
+    native_ctx: int,
+    total_layers: int,
+    config_path: Optional[Path],
+) -> AsyncIterator[str]:
+    """Run the AI-agent calibration and translate its result protocol to
+    the legacy ``__RESULT__:`` sentinel + on-disk config write.
+
+    Yields progress lines. On error, yields ``__AI_FALLBACK__`` so the
+    caller can drop back to the legacy phase B/C.
+    """
+    from .ai_agent import calibrate_with_ai
+
+    qwen_model = cal_mode.removeprefix("ai-")
+    seed_split = parse_tensor_split(full_cmd)
+
+    ai_ctx: Optional[int] = None
+    ai_split: Optional[list[float]] = None
+
+    async for line in calibrate_with_ai(
+        model_id=model_id,
+        full_cmd=full_cmd,
+        safety_margin_mb=safety_margin,
+        seed_ctx=None,
+        seed_split=seed_split if seed_split else None,
+        qwen_model=qwen_model,
+        port=port,
+        env=env,
+        model_size_mb=model_size_mb,
+        native_ctx=native_ctx,
+        total_layers=total_layers,
+    ):
+        if line.startswith("__AI_RESULT__:"):
+            payload = line.removeprefix("__AI_RESULT__:")
+            parts = payload.split(":", 2)
+            try:
+                ai_ctx = int(parts[0])
+                csv = parts[1]
+                ai_split = [float(x) for x in csv.split(",") if x.strip()]
+            except (ValueError, IndexError):
+                yield f"⚠️ KI-Result unparsbar: {payload[:80]}"
+                yield "__AI_FALLBACK__"
+                return
+            break
+        if line.startswith("__AI_ERROR__:"):
+            yield f"⚠️ {line.removeprefix('__AI_ERROR__:')}"
+            yield "__AI_FALLBACK__"
+            return
+        yield line
+
+    if ai_ctx is None or ai_split is None:
+        yield "__AI_FALLBACK__"
+        return
+
+    ngl = _ngl_from_cmd(full_cmd)
+    kv = _kv_quant_from_cmd(full_cmd)
+    num_gpus = sum(1 for r in ai_split if r > 0)
+    ts_colon = ":".join(str(int(round(r))) for r in ai_split)
+
+    if config_path:
+        result = Result(
+            variant="base",
+            mode="gpu",
+            context=ai_ctx,
+            ngl=ngl,
+            kv_quant=kv,
+            tensor_split=tuple(ai_split),
+            num_gpus=num_gpus,
+            thinks=True,  # not re-probed; reasoning is a runtime toggle
+        )
+        async for line in _write_base_config(config_path, model_id, result):
+            yield line
+
+    yield f"__RESULT__:{ai_ctx}:{ngl}:gpu:thinks:{kv}:{ts_colon}:{num_gpus}"
 
 
 # ═══════════════════════════════════════════════════════════════════

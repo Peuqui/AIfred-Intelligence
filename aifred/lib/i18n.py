@@ -332,6 +332,10 @@ class TranslationManager:
             # Context Calibration
             "calibrate_context": "Context kalibrieren",
             "calibrating": "Kalibriere...",
+            "calibration_mode_legacy": "Algorithmus",
+            "calibration_mode_ai_plus": "🤖 KI: Qwen Plus",
+            "calibration_mode_ai_max": "🤖 KI: Qwen Max",
+            "calibration_mode_ai_coder": "🤖 KI: Qwen Coder",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Denkprozess",
             "collapsible_data": "Strukturierte Daten",
@@ -818,6 +822,10 @@ class TranslationManager:
             # Context Calibration
             "calibrate_context": "Calibrate context",
             "calibrating": "Calibrating...",
+            "calibration_mode_legacy": "Algorithm",
+            "calibration_mode_ai_plus": "🤖 AI: Qwen Plus",
+            "calibration_mode_ai_max": "🤖 AI: Qwen Max",
+            "calibration_mode_ai_coder": "🤖 AI: Qwen Coder",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Thinking Process",
             "collapsible_data": "Structured Data",

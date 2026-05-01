@@ -685,6 +685,42 @@ def settings_accordion() -> rx.Component:
                             variant="outline",
                             color_scheme="orange",
                         ),
+                        # Calibration-Mode dropdown — only for llama.cpp.
+                        # Styled to match the orange Calibrate-Button it sits
+                        # next to (variant="surface" gives the framed look,
+                        # color_scheme="orange" links it visually).
+                        rx.cond(
+                            AIState.backend_id == "llamacpp",
+                            rx.select.root(
+                                rx.select.trigger(
+                                    placeholder=t("calibration_mode_legacy"),
+                                    variant="surface",
+                                ),
+                                rx.select.content(
+                                    rx.select.item(t("calibration_mode_legacy"), value="legacy"),
+                                    rx.select.item(
+                                        t("calibration_mode_ai_plus"),
+                                        value="ai-qwen-plus",
+                                        disabled=~AIState.has_dashscope_key,
+                                    ),
+                                    rx.select.item(
+                                        t("calibration_mode_ai_max"),
+                                        value="ai-qwen-max",
+                                        disabled=~AIState.has_dashscope_key,
+                                    ),
+                                    rx.select.item(
+                                        t("calibration_mode_ai_coder"),
+                                        value="ai-qwen3-coder-plus",
+                                        disabled=~AIState.has_dashscope_key,
+                                    ),
+                                ),
+                                value=AIState.calibration_mode,
+                                on_change=AIState.set_calibration_mode,
+                                size="1",
+                                color_scheme="orange",
+                                disabled=AIState.is_calibrating,
+                            ),
+                        ),
                         spacing="2",
                         align="center",
                     ),

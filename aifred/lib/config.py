@@ -78,6 +78,10 @@ DEFAULT_SETTINGS = {
     # They will be merged in settings.py get_default_settings()
     "user_name": "",  # User's name (leave empty - set via UI, saved in settings.json)
     "backend_type": "ollama",  # Default backend: "ollama", "vllm", "tabbyapi"
+    # Calibration mode: "legacy" (deterministic algorithm) or "ai-<model>"
+    # (LLM-driven via DashScope/Qwen). UI auto-selects "legacy" when no
+    # DashScope API key is configured.
+    "calibration_mode": "legacy",
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,

@@ -41,6 +41,29 @@ class CalibrationMixin(rx.State, mixin=True):
     # ------------------------------------------------------------------
     is_calibrating: bool = False  # Shows spinner during context calibration
 
+    # Calibration mode: "legacy" (deterministic algorithm, default) or
+    # "ai-<qwen-model>" (LLM-driven via DashScope). The UI auto-disables
+    # AI options when no DashScope API key is configured.
+    calibration_mode: str = "legacy"
+
+    def set_calibration_mode(self, value: str) -> None:
+        """Persist the chosen calibration mode."""
+        from ..lib.settings import load_settings, save_settings
+        if value not in ("legacy", "ai-qwen-plus", "ai-qwen-max", "ai-qwen3-coder-plus"):
+            return
+        self.calibration_mode = value
+        s = load_settings() or {}
+        s["calibration_mode"] = value
+        save_settings(s)
+        self.add_debug(f"⚙️ Calibration-Modus: {value}")  # type: ignore[attr-defined]
+
+    @rx.var
+    def has_dashscope_key(self) -> bool:
+        """True when a DashScope API key is configured — gates the AI options."""
+        from ..lib.credential_broker import broker
+        import os
+        return bool(broker.get("cloud_qwen", "api_key")) or bool(os.environ.get("DASHSCOPE_API_KEY"))
+
     # ------------------------------------------------------------------
     # Calibration entry point
     # ------------------------------------------------------------------
