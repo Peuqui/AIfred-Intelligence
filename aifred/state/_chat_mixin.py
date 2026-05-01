@@ -334,10 +334,16 @@ class ChatMixin(rx.State, mixin=True):
         self._save_current_session()  # type: ignore[attr-defined]
 
         # 8. Generate TTS and add to queue (if enabled)
-        # Determine if TTS should be generated
-        # SKIP if streaming TTS is ACTIVE (autoplay + streaming both on) —
-        # text was already sent sentence-by-sentence during inference.
-        should_generate_tts = generate_tts if generate_tts is not None else self.enable_tts  # type: ignore[attr-defined]
+        # Implicit path (generate_tts=None): respect tts_autoplay too —
+        # without autoplay there's no consumer for the audio, no point
+        # spinning up XTTS/Moss for nothing. Explicit generate_tts=True
+        # is a caller-side override (e.g. future "replay audio" button).
+        # SKIP if streaming TTS is ACTIVE — text was already sent
+        # sentence-by-sentence during inference.
+        if generate_tts is None:
+            should_generate_tts = self.enable_tts and self.tts_autoplay  # type: ignore[attr-defined]
+        else:
+            should_generate_tts = generate_tts
         streaming_active = self.tts_autoplay and self.tts_streaming_enabled  # type: ignore[attr-defined]
         if should_generate_tts and not streaming_active:
             # Check per-agent TTS enabled setting
