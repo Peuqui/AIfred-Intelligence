@@ -118,18 +118,26 @@ async def _wait_ready(
 
 
 async def _test_inference(port: int, timeout: float = 120.0) -> bool:
-    """Send one tiny request — catches OOM at CUDA-kernel-allocation time.
+    """Run a non-trivial inference to provoke peak VRAM allocation.
 
-    On Pascal with tight VRAM the server can pass /health but crash on
-    first real inference due to additional kernel allocations.  Giving
-    the test 120s handles thinking-mode models that reason before
-    producing content.
+    A 2-token "say ok" probe is enough to catch hard OOM at CUDA-kernel
+    init, but not enough to surface peak activation memory: layers fully
+    allocate their compute buffers only when handling a longer batch.
+    We send a meaningful prompt and ask for ~64 tokens of generation so
+    the server hits a steady state before we measure VRAM.
     """
     url = f"http://localhost:{port}/v1/chat/completions"
     payload = {
         "model": "test",
-        "messages": [{"role": "user", "content": "say ok"}],
-        "max_tokens": 2,
+        "messages": [{
+            "role": "user",
+            "content": (
+                "Write a short paragraph about how GPUs are used in machine "
+                "learning. Mention CUDA, tensor cores and memory bandwidth."
+            ),
+        }],
+        "max_tokens": 64,
+        "temperature": 0.7,
     }
     try:
         async with httpx.AsyncClient() as client:
@@ -266,6 +274,12 @@ async def verify(
             await wait_for_vram_stable(max_wait_seconds=10.0)
             return VerifyResult(False, (), None, "OOM (inference crash)")
 
+        # Wait for VRAM to actually stabilise after inference — without
+        # this, nvidia-smi can return mid-cleanup numbers (one GPU still
+        # holding activations, another already freed). wait_for_vram_stable
+        # polls until consecutive readings agree, so it returns as soon
+        # as the picture is stable instead of a fixed sleep.
+        await wait_for_vram_stable(max_wait_seconds=8.0)
         measured = _measured_free(gpus)
         if not measured:
             fits = True
@@ -285,9 +299,12 @@ async def verify(
         _cleanup_log(process)
         await wait_for_vram_stable(max_wait_seconds=10.0)
 
+        # Always return measured values (even when fits=False) — callers
+        # like the AI calibration agent need to see *which* GPU is tight
+        # to decide if it's a real OOM or just a margin miss.
         return VerifyResult(
             fits=fits,
-            measured_free_mb=measured if fits else (),
+            measured_free_mb=measured,
             thinks=thinks,
             detail=detail,
         )

@@ -254,6 +254,23 @@
         "email",
         "telegram_send"
       ]
+    },
+    "calibration": {
+      "display_name": "Calibration",
+      "aliases": [],
+      "emoji": "📐",
+      "description": "System-Agent für die GPU-Calibration. Nicht direkt im Chat verwendbar — wird vom Calibration-Workflow aufgerufen.",
+      "role": "system",
+      "model": "qwen-plus",
+      "prompts": {
+        "system": "calibration/system.txt"
+      },
+      "toggles": {
+        "personality": false,
+        "reasoning": false,
+        "thinking": false
+      },
+      "tools": null
     }
   }
 }

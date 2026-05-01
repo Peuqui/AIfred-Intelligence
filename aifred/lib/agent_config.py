@@ -22,7 +22,10 @@ from .config import DATA_DIR
 AGENTS_FILE = DATA_DIR / "agents.json"
 
 # Valid agent roles
-VALID_ROLES = ("main", "critic", "judge", "custom")
+# "system" agents (calibration, future helpers) are not selectable as
+# chat partners — they back internal workflows and only expose
+# prompt + model in the editor.
+VALID_ROLES = ("main", "critic", "judge", "custom", "system")
 
 
 @dataclass
@@ -32,7 +35,7 @@ class AgentConfig:
     display_name: str
     emoji: str
     description: str
-    role: str  # "main" | "critic" | "judge" | "custom"
+    role: str  # "main" | "critic" | "judge" | "custom" | "system"
 
     # Prompt file paths relative to prompts/{lang}/
     # Keys: "identity", "personality", "task", "reminder", + role-specific
@@ -47,6 +50,11 @@ class AgentConfig:
 
     # Tool whitelist — None means all tools allowed
     tools: Optional[list[str]] = None
+
+    # Cloud-API model identifier — only meaningful for system agents that
+    # call out to a Cloud LLM (e.g. calibration agent uses Qwen).
+    # Empty/None means "use the workflow's default".
+    model: str = ""
 
     # STT phonetic aliases — names the agent should also respond to when
     # detected by Whisper/Vosk/etc. Always lowercase, no leading/trailing
@@ -157,6 +165,7 @@ def _dict_to_config(data: dict) -> AgentConfig:
         prompts=data.get("prompts", {}),
         toggles=data.get("toggles", {}),
         tools=data.get("tools"),
+        model=data.get("model", ""),
         aliases=aliases,
     )
 

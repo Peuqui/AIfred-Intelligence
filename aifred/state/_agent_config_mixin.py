@@ -1041,6 +1041,12 @@ class AgentConfigMixin(rx.State, mixin=True):
     editor_emoji: str = ""
     _editor_description: str = ""
     editor_role: str = "custom"
+    editor_model: str = ""  # Cloud model id, only used for system-role agents
+    # Reasoning toggle for system-role agents (e.g. calibration). Mirrors
+    # agents.json `toggles.reasoning`. Off by default — system workflows
+    # typically don't benefit enough from chain-of-thought to justify the
+    # 30-120 s per-turn overhead.
+    editor_system_reasoning: bool = False
 
     # Prompt layer editor state
     editor_prompt_tab: str = "identity"
@@ -1098,22 +1104,48 @@ class AgentConfigMixin(rx.State, mixin=True):
     _AUTOMATIK_SEPARATOR = "─────────────────"
     _AUTOMATIK_LABEL = "⚡ Automatik-LLM"
 
+    @rx.var
+    def editor_is_system_agent(self) -> bool:
+        """True for system-role agents that use the locked-down editor view
+        (only model + prompts editable). Excludes Automatik-LLM, which has
+        its own dedicated UI path."""
+        return self.editor_role == "system" and self.editor_agent_id != "automatik"
+
+    def set_editor_model(self, value: str) -> None:
+        """Set the cloud model for a system-role agent."""
+        if value:
+            self.editor_model = value
+            self.editor_dirty = True  # type: ignore[attr-defined]
+
+    def toggle_editor_system_reasoning(self) -> None:
+        """Flip the reasoning toggle for a system-role agent."""
+        self.editor_system_reasoning = not self.editor_system_reasoning
+        self.editor_dirty = True  # type: ignore[attr-defined]
+
     def _refresh_agent_dropdown(self) -> None:
-        """Refresh the agent dropdown items from config."""
+        """Refresh the agent dropdown items from config.
+
+        Layout:
+          - Regular agents (role != "system")
+          - separator
+          - Automatik-LLM
+          - System agents from agents.json (role == "system"),
+            each labelled with its emoji + display_name
+        """
         from ..lib.agent_config import load_agents_raw
         raw = load_agents_raw()
-        items = [
-            f"{data['emoji']} {data['display_name']}"
-            for data in raw.values()
-        ]
-        # Append separator + Automatik-LLM at the bottom
+        regular = {aid: d for aid, d in raw.items() if d.get("role") != "system"}
+        system = {aid: d for aid, d in raw.items() if d.get("role") == "system"}
+
+        items = [f"{d['emoji']} {d['display_name']}" for d in regular.values()]
         items.append(self._AUTOMATIK_SEPARATOR)
         items.append(self._AUTOMATIK_LABEL)
+        for d in system.values():
+            items.append(f"{d['emoji']} {d['display_name']}")
         self._agent_dropdown_items = items
-        # Store id mapping for lookup
+
         self._agent_id_by_label = {
-            f"{data['emoji']} {data['display_name']}": aid
-            for aid, data in raw.items()
+            f"{d['emoji']} {d['display_name']}": aid for aid, d in raw.items()
         }
         self._agent_id_by_label[self._AUTOMATIK_LABEL] = "automatik"
 
@@ -1830,8 +1862,16 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_emoji = config.emoji
         self._editor_description = config.description
         self.editor_role = config.role
-        self.editor_prompt_tab = "identity"
+        self.editor_model = getattr(config, "model", "") or ""
+        self.editor_system_reasoning = bool(config.toggles.get("reasoning", False))
         self.editor_prompt_keys = list(config.prompts.keys())
+        # Pick a sensible initial prompt tab — "identity" if available,
+        # else the first defined prompt (system-role agents like
+        # calibration usually only have "system").
+        self.editor_prompt_tab = (
+            "identity" if "identity" in config.prompts
+            else (self.editor_prompt_keys[0] if self.editor_prompt_keys else "identity")
+        )
 
         # Load tool whitelist — None means all tools allowed
         from ..lib.plugin_registry import discover_tools
@@ -1863,7 +1903,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.editor_tts_engine = "xtts"  # type: ignore[attr-defined]
         self._load_editor_tts_settings()  # type: ignore[attr-defined]
 
-        self._load_editor_prompt("identity")
+        self._load_editor_prompt(self.editor_prompt_tab)
 
     def _load_automatik_into_state(self) -> None:
         """Load Automatik-LLM pseudo-agent into editor (prompts only)."""
@@ -2050,13 +2090,23 @@ class AgentConfigMixin(rx.State, mixin=True):
 
         if self.editor_agent_id:
             # Update existing agent metadata
-            update_agent(self.editor_agent_id, {
+            update_payload: dict = {
                 "display_name": self.editor_display_name,
                 "emoji": self.editor_emoji,
                 "description": self._editor_description,
                 "role": self.editor_role,
                 "tools": tools_value,
-            })
+            }
+            # System-role agents persist a Cloud model id alongside their config
+            # plus their own reasoning toggle (off by default — see toggles spec).
+            if self.editor_role == "system" and self.editor_agent_id != "automatik":
+                update_payload["model"] = self.editor_model
+                update_payload["toggles"] = {
+                    "personality": False,
+                    "reasoning": self.editor_system_reasoning,
+                    "thinking": False,
+                }
+            update_agent(self.editor_agent_id, update_payload)
 
             # Save current prompt tab content to file
             self._save_editor_prompt_to_disk()

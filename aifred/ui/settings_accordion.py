@@ -686,9 +686,9 @@ def settings_accordion() -> rx.Component:
                             color_scheme="orange",
                         ),
                         # Calibration-Mode dropdown — only for llama.cpp.
-                        # Styled to match the orange Calibrate-Button it sits
-                        # next to (variant="surface" gives the framed look,
-                        # color_scheme="orange" links it visually).
+                        # The specific Cloud model used for AI mode is
+                        # configured in the Agent Editor under the
+                        # "Calibration" system agent.
                         rx.cond(
                             AIState.backend_id == "llamacpp",
                             rx.select.root(
@@ -699,18 +699,8 @@ def settings_accordion() -> rx.Component:
                                 rx.select.content(
                                     rx.select.item(t("calibration_mode_legacy"), value="legacy"),
                                     rx.select.item(
-                                        t("calibration_mode_ai_plus"),
-                                        value="ai-qwen-plus",
-                                        disabled=~AIState.has_dashscope_key,
-                                    ),
-                                    rx.select.item(
-                                        t("calibration_mode_ai_max"),
-                                        value="ai-qwen-max",
-                                        disabled=~AIState.has_dashscope_key,
-                                    ),
-                                    rx.select.item(
-                                        t("calibration_mode_ai_coder"),
-                                        value="ai-qwen3-coder-plus",
+                                        AIState.calibration_ai_label,
+                                        value="ai",
                                         disabled=~AIState.has_dashscope_key,
                                     ),
                                 ),

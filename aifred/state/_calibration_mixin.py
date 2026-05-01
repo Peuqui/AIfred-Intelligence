@@ -47,9 +47,14 @@ class CalibrationMixin(rx.State, mixin=True):
     calibration_mode: str = "legacy"
 
     def set_calibration_mode(self, value: str) -> None:
-        """Persist the chosen calibration mode."""
+        """Persist the chosen calibration mode.
+
+        Only ``legacy`` and ``ai`` are valid here — the specific Cloud
+        model for AI mode is read from the calibration system agent in
+        agents.json (editable via the Agent Editor).
+        """
         from ..lib.settings import load_settings, save_settings
-        if value not in ("legacy", "ai-qwen-plus", "ai-qwen-max", "ai-qwen3-coder-plus"):
+        if value not in ("legacy", "ai"):
             return
         self.calibration_mode = value
         s = load_settings() or {}
@@ -63,6 +68,20 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib.credential_broker import broker
         import os
         return bool(broker.get("cloud_qwen", "api_key")) or bool(os.environ.get("DASHSCOPE_API_KEY"))
+
+    @rx.var
+    def calibration_ai_label(self) -> str:
+        """Trigger label that includes the configured Qwen model — e.g.
+        ``🤖 KI: qwen-plus`` — so the user sees at a glance which model
+        the AI calibration would actually use (configured in the Agent
+        Editor under the Calibration system agent)."""
+        from ..lib.agent_config import load_agents_raw
+        try:
+            cfg = load_agents_raw().get("calibration") or {}
+            model = cfg.get("model") or "qwen-plus"
+        except Exception:
+            model = "qwen-plus"
+        return f"🤖 KI: {model}"
 
     # ------------------------------------------------------------------
     # Calibration entry point

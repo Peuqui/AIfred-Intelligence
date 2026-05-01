@@ -337,6 +337,9 @@ def _config_view() -> rx.Component:
     """Config tab: agent dropdown at top, all settings below."""
     is_new = AIState.editor_agent_id == ""
     is_automatik = AIState.editor_agent_id == "automatik"
+    # System-role agents (e.g. calibration) get a locked-down editor:
+    # only metadata + model + prompts visible; no tools, TTS or sampling.
+    is_system = AIState.editor_is_system_agent
     is_default = (
         (AIState.editor_agent_id == "aifred")
         | (AIState.editor_agent_id == "sokrates")
@@ -569,8 +572,60 @@ def _config_view() -> rx.Component:
                     spacing="3",
                 )),  # end rx.cond(~is_automatik) for Metadata
 
-                # Role + Description (hidden for Automatik)
-                rx.cond(~is_automatik, rx.hstack(
+                # Cloud model selector + reasoning toggle — only for system
+                # agents that drive Cloud-LLM workflows (e.g. calibration uses Qwen).
+                rx.cond(
+                    is_system,
+                    rx.vstack(
+                        rx.hstack(
+                            rx.text(t("agent_editor_cloud_model"), color="#aaa", font_size="12px"),
+                            rx.select(
+                                ["qwen-plus", "qwen-max", "qwen3-coder-plus", "qwen-turbo"],
+                                value=AIState.editor_model,
+                                on_change=AIState.set_editor_model,
+                                size="2",
+                                width="200px",
+                            ),
+                            rx.tooltip(
+                                rx.hstack(
+                                    rx.icon("brain", size=14, color=rx.cond(
+                                        AIState.editor_system_reasoning, "#FFD700", "#666",
+                                    )),
+                                    rx.switch(
+                                        checked=AIState.editor_system_reasoning,
+                                        on_change=AIState.toggle_editor_system_reasoning,
+                                        size="1",
+                                    ),
+                                    rx.text(t("agent_editor_reasoning_toggle"), font_size="12px", color="#aaa"),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                content=t("agent_editor_reasoning_tooltip"),
+                            ),
+                            spacing="3",
+                            align="center",
+                        ),
+                        rx.box(
+                            rx.text(
+                                t("agent_editor_cloud_model_hint"),
+                                color="#888",
+                                font_size="11px",
+                                line_height="1.5",
+                            ),
+                            padding="8px 10px",
+                            border_left="2px solid #444",
+                            background="rgba(255,255,255,0.02)",
+                            border_radius="0 4px 4px 0",
+                            width="100%",
+                        ),
+                        width="100%",
+                        spacing="2",
+                        align="start",
+                    ),
+                ),
+
+                # Role + Description (hidden for Automatik and system agents)
+                rx.cond(~is_automatik & ~is_system, rx.hstack(
                     rx.vstack(
                         rx.text(t("agent_editor_role"), color="#aaa", font_size="12px"),
                         rx.select(
@@ -599,9 +654,9 @@ def _config_view() -> rx.Component:
                     align="end",
                 )),
 
-                # ── TTS Settings (only existing agents, not Automatik) ─
+                # ── TTS Settings (only existing agents, not Automatik or system) ─
                 rx.cond(
-                    ~is_new & ~is_automatik,
+                    ~is_new & ~is_automatik & ~is_system,
                     rx.vstack(
                         # Header: Title + Enabled toggle
                         rx.hstack(
@@ -678,9 +733,9 @@ def _config_view() -> rx.Component:
                     ),
                 ),
 
-                # ── Tool Whitelist (only existing agents, not Automatik) ──
+                # ── Tool Whitelist (only existing agents, not Automatik or system) ──
                 rx.cond(
-                    ~is_new & ~is_automatik,
+                    ~is_new & ~is_automatik & ~is_system,
                     rx.vstack(
                         rx.hstack(
                             rx.text(

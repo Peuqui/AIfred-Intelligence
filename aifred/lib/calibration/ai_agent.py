@@ -21,6 +21,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import AsyncIterator, Optional
 
 from ..config import LLAMACPP_CALIBRATION_PORT
@@ -34,7 +35,11 @@ logger = logging.getLogger(__name__)
 
 
 DASHSCOPE_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-MAX_PROBES = 15
+# Safety net — manual calibration of similar configs hits the optimum
+# in 3-6 probes, AI with OOM-recovery realistically lands in 8-12.
+# 25 leaves ample room for unexpected OOM streaks without burning
+# unbounded tokens if the agent fails to converge.
+MAX_PROBES = 25
 DEFAULT_HEALTH_TIMEOUT = 600.0  # large models with mlock take a while
 
 
@@ -47,12 +52,41 @@ CALIBRATION_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "estimate_config",
+            "description": (
+                "FAST (1-2 seconds, no model load): run llama-fit-params "
+                "to project per-GPU VRAM usage analytically — same memory "
+                "math the server uses, but without actually loading "
+                "weights. Use this to quickly explore many configurations "
+                "and narrow down candidates before spending a slow probe. "
+                "Returns "
+                '{"used_mb": [c0,c1,c2,c3], "free_mb": [c0,c1,c2,c3], '
+                '"fits_safety_margin": bool}. Math projection only — '
+                "doesn't account for CUDA kernel reservations and inference "
+                "activations; verify the final candidate with probe_config."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ctx": {"type": "integer"},
+                    "tensor_split": {"type": "string"},
+                },
+                "required": ["ctx", "tensor_split"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "probe_config",
             "description": (
-                "Start llama-server with the given context size and tensor "
-                "split, wait for it to load, run a short inference, then "
-                "kill it and report per-GPU free MB. Returns "
-                '{"status": "ok"|"oom"|"load_failed", "free_mb": [c0, c1, c2, c3], '
+                "SLOW (3-5 minutes for large models): start llama-server "
+                "with the given context and tensor split, wait for it to "
+                "load, run a short inference, then kill it and report "
+                "per-GPU free MB. This is the ground-truth verification — "
+                "use it sparingly on the best candidate(s) you found via "
+                "estimate_config. Returns "
+                '{"status": "ok"|"oom"|"load_failed", "free_mb": [c0,c1,c2,c3], '
                 '"detail": "..."}. On OOM, free_mb may be empty.'
             ),
             "parameters": {
@@ -153,11 +187,19 @@ def _build_system_prompt(
     seed_split: Optional[list[float]],
     extra_constraints: str = "",
 ) -> str:
-    """Render prompts/{lang}/utility/calibration_agent.txt with the runtime
-    placeholders. The template lives in prompts/ so it can be tuned without
-    touching code (CLAUDE.md rule: no hardcoded prompts in source).
+    """Load the calibration agent's system prompt and fill in runtime
+    placeholders. The path is resolved from ``agents.json`` (calibration
+    agent's ``prompts.system`` entry), so the user can edit the prompt
+    file via the Agent Editor without code changes (CLAUDE.md rule: no
+    hardcoded prompts in source).
     """
+    from ..agent_config import load_agents_raw
     from ..prompt_loader import load_prompt
+
+    cal_cfg = load_agents_raw().get("calibration") or {}
+    prompt_path = (cal_cfg.get("prompts") or {}).get("system") or "calibration/system.txt"
+    # load_prompt strips the .txt suffix internally
+    prompt_name = prompt_path.removesuffix(".txt")
 
     seed_block = ""
     if seed_ctx and seed_split:
@@ -171,8 +213,12 @@ def _build_system_prompt(
 
     extra = f"\n\n{extra_constraints}" if extra_constraints else ""
 
+    # Force lang="en" — the prompt is for an LLM tool-use loop, not the
+    # human UI. Tool-calling reasoning is more reliable on English
+    # regardless of UI locale, and we only ship the EN file.
     return load_prompt(
-        "utility/calibration_agent",
+        prompt_name,
+        lang="en",
         safety_margin_mb=safety_margin_mb,
         model_id=model_id,
         model_size_gb=f"{model_size_gb:.1f}",
@@ -183,6 +229,115 @@ def _build_system_prompt(
         seed_block=seed_block,
         extra_constraints=extra,
     )
+
+
+async def _pre_search_max_ctx(
+    full_cmd: str,
+    gguf_path: Path,
+    gpus: list[GPU],
+    safety_margin_mb: int,
+    native_ctx: int,
+    initial_split: list[float],
+) -> tuple[int, list[float], str]:
+    """Binary-search the largest math-projected ctx that fits, starting
+    from the model's native context and shrinking down via fit-params.
+
+    Each step is a 1-2 s fit-params call (no model load), so we can
+    afford ~10 steps to converge on the math-maximum. The AI uses this
+    as its seed, verifies it with one real probe, and finalizes.
+
+    Returns ``(best_ctx, split_used, log_summary)``.
+    """
+    from . import projection as proj
+
+    if native_ctx <= 0:
+        return (0, initial_split, "native_ctx unknown — skipping pre-search")
+
+    cmd = set_tensor_split(full_cmd, initial_split)
+    n_gpus = len(gpus)
+
+    # First check the native ctx directly — many small models fit it whole.
+    try:
+        point = await proj.project(cmd, gguf_path, native_ctx, ngl=99, n_gpus=n_gpus)
+        free = list(point.per_gpu_free_mb)
+        if free and min(free) >= safety_margin_mb:
+            return (native_ctx, initial_split,
+                    f"native ctx={native_ctx} already fits (min free={min(free)} MB)")
+    except Exception as exc:
+        logger.warning(f"pre-search native probe failed: {exc}")
+
+    # Binary search: lo always-fits-by-construction (use a tiny start),
+    # hi never-fits-as-checked.
+    lo, hi = 4096, native_ctx
+    best_ctx = 0
+    iterations = 0
+    while hi - lo > 4096 and iterations < 12:
+        mid = ((lo + hi) // 2) // 1024 * 1024  # round down to 1k boundary
+        if mid <= lo:
+            break
+        try:
+            point = await proj.project(cmd, gguf_path, mid, ngl=99, n_gpus=n_gpus)
+            free = list(point.per_gpu_free_mb)
+        except Exception:
+            free = []
+
+        if free and min(free) >= safety_margin_mb:
+            best_ctx = mid
+            lo = mid
+        else:
+            hi = mid
+        iterations += 1
+
+    if best_ctx == 0:
+        return (0, initial_split, f"pre-search found no fitting ctx in [{lo},{hi}]")
+
+    return (best_ctx, initial_split,
+            f"binary-searched in {iterations} iterations from native={native_ctx}")
+
+
+async def _do_estimate(
+    full_cmd: str,
+    gguf_path: Path,
+    ctx: int,
+    tensor_split: list[float],
+    gpus: list[GPU],
+    safety_margin_mb: int,
+) -> _ProbeOutcome:
+    """Fast math projection via llama-fit-params (no model load).
+
+    Returns a _ProbeOutcome where ``status`` is ``"estimate_ok"`` /
+    ``"estimate_tight"`` / ``"estimate_oom"`` so the AI can distinguish
+    a math projection from a real probe.
+    """
+    from . import projection as proj
+
+    cmd = set_tensor_split(full_cmd, tensor_split)
+    try:
+        point = await proj.project(cmd, gguf_path, ctx, ngl=99, n_gpus=len(gpus))
+    except Exception as exc:
+        logger.exception("project() raised during estimate")
+        return _ProbeOutcome(status="estimate_failed", free_mb=[], detail=str(exc))
+
+    free_list = list(point.per_gpu_free_mb)
+    used_list = list(point.per_gpu_used_mb)
+    if not free_list or all(f == 0 for f in free_list):
+        return _ProbeOutcome(
+            status="estimate_failed",
+            free_mb=[],
+            detail="fit-params returned no per-GPU data",
+        )
+    min_free = min(free_list)
+    if min_free < 0:
+        status = "estimate_oom"
+    elif min_free < safety_margin_mb:
+        status = "estimate_tight"
+    else:
+        status = "estimate_ok"
+    detail = ", ".join(
+        f"{g.name}: used={used_list[i]}MB free={free_list[i]}MB"
+        for i, g in enumerate(gpus) if i < len(free_list)
+    )
+    return _ProbeOutcome(status=status, free_mb=free_list, detail=detail)
 
 
 async def _do_probe(
@@ -210,9 +365,13 @@ async def _do_probe(
         logger.exception("verify() raised during AI calibration probe")
         return _ProbeOutcome(status="load_failed", free_mb=[], detail=str(exc))
 
-    if not result.fits and not result.measured_free_mb:
+    if not result.measured_free_mb:
+        # Hard OOM — server failed to start or load the model entirely.
         return _ProbeOutcome(status="oom", free_mb=[], detail=result.detail)
 
+    # Soft case: server loaded and inference ran, but the tightest GPU is
+    # below the configured safety margin. The AI gets the real numbers
+    # and can decide whether to back off ctx slightly or rebalance.
     return _ProbeOutcome(
         status="ok" if result.fits else "tight",
         free_mb=list(result.measured_free_mb),
@@ -262,9 +421,10 @@ async def calibrate_with_ai(
     model_id: str,
     full_cmd: str,
     safety_margin_mb: int,
+    gguf_path: Optional[Path] = None,
     seed_ctx: Optional[int] = None,
     seed_split: Optional[list[float]] = None,
-    qwen_model: str = "qwen-plus",
+    qwen_model: Optional[str] = None,
     port: int = LLAMACPP_CALIBRATION_PORT,
     env: Optional[dict[str, str]] = None,
     extra_constraints: str = "",
@@ -273,6 +433,10 @@ async def calibrate_with_ai(
     total_layers: Optional[int] = None,
 ) -> AsyncIterator[str]:
     """AI-driven calibration loop. Yields progress strings.
+
+    The Qwen model is read from the ``calibration`` system agent in
+    ``agents.json`` when ``qwen_model`` is not given — that's where the
+    user can edit it via the Agent Editor.
 
     On success the last yielded line is
     ``__AI_RESULT__:{ctx}:{ts_csv}:{reasoning}``.
@@ -288,13 +452,29 @@ async def calibrate_with_ai(
 
     api_key = broker.get("cloud_qwen", "api_key") or os.environ.get("DASHSCOPE_API_KEY")
     if not api_key:
-        yield "__AI_ERROR__:DashScope API-Key fehlt"
+        yield "__AI_ERROR__:DashScope API key missing"
         return
+
+    # Read model + reasoning toggle from the calibration system agent in
+    # agents.json (editable via the Agent Editor). Reasoning costs extra
+    # time per turn (30-120 s on Qwen-Plus) — for the focused decisions
+    # this loop makes ("more ctx" / "rebalance split"), it's often
+    # overkill, so the default is OFF.
+    enable_thinking = False
+    try:
+        from ..agent_config import load_agents_raw
+        cal_cfg = load_agents_raw().get("calibration") or {}
+        if qwen_model is None:
+            qwen_model = cal_cfg.get("model") or "qwen-plus"
+        enable_thinking = bool((cal_cfg.get("toggles") or {}).get("reasoning", False))
+    except Exception:
+        if qwen_model is None:
+            qwen_model = "qwen-plus"
 
     await kill_orphan_on_port(port)
     gpus = enumerate_gpus()
     if not gpus:
-        yield "__AI_ERROR__:Keine GPUs erkannt"
+        yield "__AI_ERROR__:No GPUs detected"
         return
 
     # Seed extraction if not passed
@@ -302,7 +482,38 @@ async def calibrate_with_ai(
         parsed = parse_tensor_split(full_cmd)
         seed_split = parsed if parsed else None
 
-    yield f"🤖 KI-Calibration mit {qwen_model} (max {MAX_PROBES} Probes, Polster {safety_margin_mb} MB)"
+    yield f"🤖 AI calibration with {qwen_model} (max {MAX_PROBES} probes, safety margin {safety_margin_mb} MB)"
+
+    # ─────────────────────────────────────────────────────────────────
+    # Pre-search via fit-params: binary-search from native ctx down to
+    # find the largest math-projected ctx that fits with the seed split.
+    # Hands the AI a strong starting point — typically saves 3-5 probes.
+    # ─────────────────────────────────────────────────────────────────
+    pre_search_block = ""
+    if gguf_path and native_ctx and seed_split:
+        yield "🧮 Pre-searching via fit-params (math projection, no model load)..."
+        searched_ctx, searched_split, search_log = await _pre_search_max_ctx(
+            full_cmd=full_cmd,
+            gguf_path=gguf_path,
+            gpus=gpus,
+            safety_margin_mb=safety_margin_mb,
+            native_ctx=native_ctx,
+            initial_split=seed_split,
+        )
+        if searched_ctx > 0:
+            yield f"   -> math projection suggests ctx={searched_ctx} ({search_log})"
+            seed_ctx = searched_ctx
+            seed_split = searched_split
+            pre_search_block = (
+                f"\n\nMATH PROJECTION (via llama-fit-params, no model load): "
+                f"largest ctx that fits with split {_format_split(searched_split)} "
+                f"is approximately {searched_ctx}. Verify with one probe_config call, "
+                f"then iterate: rebalance layers across GPUs for even free-VRAM "
+                f"distribution, then push ctx higher if there's headroom. "
+                f"Use estimate_config liberally to explore without spending probes."
+            )
+        else:
+            yield f"   -> {search_log}"
 
     system_prompt = _build_system_prompt(
         model_id=model_id,
@@ -313,7 +524,7 @@ async def calibrate_with_ai(
         safety_margin_mb=safety_margin_mb,
         seed_ctx=seed_ctx,
         seed_split=seed_split,
-        extra_constraints=extra_constraints,
+        extra_constraints=extra_constraints + pre_search_block,
     )
 
     messages: list[dict] = [
@@ -328,6 +539,12 @@ async def calibrate_with_ai(
     probe_count = 0
 
     for turn in range(MAX_PROBES + 5):  # extra slack for non-tool messages
+        # The AI always reasons between turns, even without enable_thinking
+        # (chain-of-thought just makes it more thorough + slower).
+        if turn == 0:
+            yield "🧠 AI is reasoning (initial turn — may take up to 2 min)..."
+        else:
+            yield "🧠 AI is reasoning..."
         try:
             response = await client.chat.completions.create(
                 model=qwen_model,
@@ -335,13 +552,13 @@ async def calibrate_with_ai(
                 tools=CALIBRATION_TOOLS,
                 tool_choice="auto",
                 temperature=0.3,
-                extra_body={"enable_thinking": True},
+                extra_body={"enable_thinking": enable_thinking},
             )
         except _openai.OpenAIError as exc:
-            yield f"__AI_ERROR__:DashScope API-Fehler: {exc}"
+            yield f"__AI_ERROR__:DashScope API error: {exc}"
             return
         except Exception as exc:
-            yield f"__AI_ERROR__:Unerwarteter Fehler: {exc}"
+            yield f"__AI_ERROR__:Unexpected error: {exc}"
             return
 
         msg = response.choices[0].message
@@ -366,9 +583,9 @@ async def calibrate_with_ai(
 
         if not tool_calls:
             preview = (msg.content or "").strip().splitlines()[:1]
-            line = preview[0] if preview else "(leer)"
-            yield f"⚠️ KI ohne Tool-Call: {line[:120]}"
-            yield "__AI_ERROR__:Loop beendet ohne finalize"
+            line = preview[0] if preview else "(empty)"
+            yield f"⚠️ AI returned no tool call: {line[:120]}"
+            yield "__AI_ERROR__:Loop ended without finalize"
             return
 
         for tc in tool_calls:
@@ -376,7 +593,7 @@ async def calibrate_with_ai(
             try:
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:
-                yield f"⚠️ KI lieferte ungültiges JSON in {name}"
+                yield f"⚠️ AI returned invalid JSON for {name}"
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -384,9 +601,45 @@ async def calibrate_with_ai(
                 })
                 continue
 
+            if name == "estimate_config":
+                ctx = int(args.get("ctx", 0))
+                split_str = str(args.get("tensor_split", ""))
+                split = _parse_split(split_str, len(gpus))
+                if ctx <= 0 or split is None:
+                    msg_back = f"Bad arguments: ctx={ctx}, tensor_split={split_str!r}"
+                    yield f"⚠️ {msg_back}"
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps({"error": msg_back}),
+                    })
+                    continue
+
+                if not gguf_path:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps({
+                            "error": "estimate_config unavailable: gguf_path missing",
+                        }),
+                    })
+                    continue
+
+                yield f"🧮 Estimate: ctx={ctx}, split={_format_split(split)}"
+                est = await _do_estimate(
+                    full_cmd, gguf_path, ctx, split, gpus, safety_margin_mb,
+                )
+                yield f"   -> {est.status}: {est.detail}"
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": _payload_from_outcome(est),
+                })
+                continue
+
             if name == "probe_config":
                 if probe_count >= MAX_PROBES:
-                    yield "⚠️ Maximum probe count erreicht"
+                    yield "⚠️ Maximum probe count reached"
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -419,7 +672,7 @@ async def calibrate_with_ai(
                 last_ctx = ctx
                 last_split = split
 
-                yield f"   → {outcome.status}: {outcome.detail}"
+                yield f"   -> {outcome.status}: {outcome.detail}"
 
                 messages.append({
                     "role": "tool",
@@ -442,7 +695,7 @@ async def calibrate_with_ai(
                     and all(abs(a - b) < 0.001 for a, b in zip(last_split, split))
                 )
                 if not same_as_last:
-                    yield "⚠️ KI finalisiert nicht mit zuletzt geprobter Config — re-probing"
+                    yield "⚠️ AI finalized with a config not matching the last probe — re-probing"
                     if ctx > 0 and split is not None and probe_count < MAX_PROBES:
                         probe_count += 1
                         outcome = await _do_probe(
@@ -451,14 +704,14 @@ async def calibrate_with_ai(
                         last_outcome = outcome
                         last_ctx = ctx
                         last_split = split
-                        yield f"   → {outcome.status}: {outcome.detail}"
+                        yield f"   -> {outcome.status}: {outcome.detail}"
                     else:
-                        yield "__AI_ERROR__:finalize ohne verifizierte Probe"
+                        yield "__AI_ERROR__:finalize without a verified probe"
                         return
 
                 err = _validate_finalize(ctx, split, last_outcome, safety_margin_mb)
                 if err:
-                    yield f"⚠️ Finalize-Validation: {err}"
+                    yield f"⚠️ Finalize validation: {err}"
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -474,11 +727,11 @@ async def calibrate_with_ai(
                 return
 
             else:
-                yield f"⚠️ Unbekannter Tool-Call: {name}"
+                yield f"⚠️ Unknown tool call: {name}"
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": json.dumps({"error": f"Unknown tool: {name}"}),
                 })
 
-    yield "__AI_ERROR__:Loop-Limit erreicht ohne finalize"
+    yield "__AI_ERROR__:Loop limit reached without finalize"
