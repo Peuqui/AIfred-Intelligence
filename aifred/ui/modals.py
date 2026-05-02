@@ -7,6 +7,12 @@ import reflex as rx
 from ..state import AIState
 from .helpers import t, agent_emoji
 
+# Document Manager Header — gemeinsame Groessen fuer Icons + Buttons,
+# damit der Header als Ganzes skaliert (Radix hat keine Halbschritte
+# zwischen size="1" und size="2").
+DOC_HEADER_ICON_SIZE = 16
+DOC_HEADER_BUTTON_SIZE = "2"
+
 
 def multi_agent_help_modal() -> rx.Component:
     """
@@ -873,7 +879,7 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
                     on_click=AIState.doc_start_rename(name), cursor="pointer",
                 ),
                 rx.icon_button(
-                    rx.icon("folder-minus", size=14),
+                    rx.icon("trash-2", size=14),
                     size="1", variant="ghost", color_scheme="red",
                     on_click=AIState.doc_open_delete_folder_dialog(name), cursor="pointer",
                 ),
@@ -974,36 +980,30 @@ def document_manager_modal() -> rx.Component:
                             font_weight="bold", font_size="18px"),
                     rx.spacer(),
                     rx.icon_button(
-                        rx.icon("x", size=18), size="2",
+                        rx.icon("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                         variant="ghost", color_scheme="gray",
                         on_click=AIState.close_document_manager, cursor="pointer",
                     ),
                     width="100%", align="center",
                 ),
 
-                # Breadcrumb navigation + create folder
+                # Breadcrumb navigation + create folder + refresh
+                # Action-Buttons direkt links neben dem Pfad — vorher
+                # waren sie ganz rechts zu klein und wurden übersehen.
                 rx.hstack(
                     rx.icon_button(
-                        rx.icon("home", size=14), size="1",
+                        rx.icon("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                         variant="ghost", color_scheme="yellow",
                         on_click=AIState.doc_navigate_root, cursor="pointer",
                     ),
                     rx.cond(
                         AIState.doc_current_folder != "",
-                        rx.hstack(
-                            rx.icon_button(
-                                rx.icon("arrow-left", size=14), size="1",
-                                variant="ghost", color_scheme="gray",
-                                on_click=AIState.doc_navigate_up, cursor="pointer",
-                            ),
-                            rx.text(
-                                "/ " + AIState.doc_current_folder,
-                                font_size="12px", color="#888",
-                            ),
-                            spacing="1", align="center",
+                        rx.icon_button(
+                            rx.icon("arrow-left", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                            variant="ghost", color_scheme="gray",
+                            on_click=AIState.doc_navigate_up, cursor="pointer",
                         ),
                     ),
-                    rx.spacer(),
                     rx.cond(
                         AIState.doc_creating_folder,
                         rx.hstack(
@@ -1020,12 +1020,12 @@ def document_manager_modal() -> rx.Component:
                                 auto_focus=True,
                             ),
                             rx.icon_button(
-                                rx.icon("check", size=12), size="1",
+                                rx.icon("check", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                 variant="ghost", color_scheme="green",
                                 on_click=AIState.doc_confirm_create_folder, cursor="pointer",
                             ),
                             rx.icon_button(
-                                rx.icon("x", size=12), size="1",
+                                rx.icon("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                 variant="ghost", color_scheme="gray",
                                 on_click=AIState.doc_cancel_create_folder, cursor="pointer",
                             ),
@@ -1034,7 +1034,7 @@ def document_manager_modal() -> rx.Component:
                         rx.hstack(
                             rx.tooltip(
                                 rx.icon_button(
-                                    rx.icon("folder-plus", size=14), size="1",
+                                    rx.icon("folder-plus", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                     variant="ghost", color_scheme="yellow",
                                     on_click=AIState.doc_open_create_folder, cursor="pointer",
                                 ),
@@ -1042,16 +1042,24 @@ def document_manager_modal() -> rx.Component:
                             ),
                             rx.tooltip(
                                 rx.icon_button(
-                                    rx.icon("refresh-cw", size=14), size="1",
+                                    rx.icon("refresh-cw", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                     variant="ghost", color_scheme="gray",
                                     on_click=AIState.doc_refresh, cursor="pointer",
                                 ),
                                 content=rx.cond(AIState.ui_language == "de", "Aktualisieren", "Refresh"),
                             ),
-                            spacing="1",
+                            spacing="1", align="center",
                         ),
                     ),
-                    spacing="1", align="center", width="100%",
+                    rx.cond(
+                        AIState.doc_current_folder != "",
+                        rx.text(
+                            "/ " + AIState.doc_current_folder,
+                            font_size="12px", color="#888",
+                        ),
+                    ),
+                    rx.spacer(),
+                    spacing="2", align="center", width="100%",
                 ),
 
                 # Two-column layout: file list | preview (flex=1 fills remaining modal height)

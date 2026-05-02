@@ -59,63 +59,9 @@ class DocumentMixin(rx.State, mixin=True):
 
     def _refresh_file_list(self) -> None:
         """Scan filesystem + check ChromaDB index status for current folder."""
-        from ..lib.config import DOCUMENTS_DIR
-        from ..lib.document_store import get_document_store
-
-        folder = DOCUMENTS_DIR / self.doc_current_folder
-        if not folder.exists():
-            self.doc_file_list = []
-            return
-
-        # Get indexed filenames from ChromaDB
-        indexed_docs: dict[str, int] = {}
-        store = get_document_store()
-        if store:
-            for doc in store.list_documents():
-                indexed_docs[doc["filename"]] = doc.get("total_chunks", 0)
-
-        items: list[dict[str, Any]] = []
-
-        # Directories first, then files, both sorted
-        dirs = sorted([d for d in folder.iterdir() if d.is_dir() and not d.name.startswith(".")],
-                       key=lambda p: p.name.lower())
-        files = sorted([f for f in folder.iterdir() if f.is_file() and not f.name.startswith(".")],
-                        key=lambda p: p.name.lower())
-
-        for d in dirs:
-            items.append({
-                "name": d.name,
-                "type": "folder",
-                "size": "",
-                "indexed": False,
-                "chunks": 0,
-            })
-
-        for f in files:
-            # Build relative path for index lookup
-            rel_path = f.relative_to(DOCUMENTS_DIR)
-            rel_str = str(rel_path)
-            size_bytes = f.stat().st_size
-            if size_bytes < 1024:
-                size_str = f"{size_bytes} B"
-            elif size_bytes < 1024 * 1024:
-                size_str = f"{size_bytes / 1024:.1f} KB"
-            else:
-                size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
-
-            chunk_count = indexed_docs.get(rel_str, 0)
-            # Also check just filename (old uploads without subfolder)
-            if not chunk_count:
-                chunk_count = indexed_docs.get(f.name, 0)
-
-            items.append({
-                "name": f.name,
-                "type": "file",
-                "size": size_str,
-                "indexed": chunk_count > 0,
-                "chunks": chunk_count,
-            })
-
+        from ..lib import file_manager as fm
+        result = fm.list_directory(self.doc_current_folder)
+        items = result.metadata.get("items", []) if result.success else []
         self.doc_file_list = items
         self.add_debug(f"📂 _refresh_file_list: folder={self.doc_current_folder!r}, {len(items)} items: {[i['name'] for i in items]}")  # type: ignore[attr-defined]
 
@@ -168,14 +114,11 @@ class DocumentMixin(rx.State, mixin=True):
 
     def doc_confirm_create_folder(self) -> None:
         """Create subfolder from doc_new_folder_name in current directory."""
-        from ..lib.config import DOCUMENTS_DIR
-
+        from ..lib import file_manager as fm
         name = self.doc_new_folder_name.strip()
-        if not name or "/" in name or "\\" in name:
-            self.doc_cancel_create_folder()
-            return
-        target = DOCUMENTS_DIR / self.doc_current_folder / name
-        target.mkdir(parents=True, exist_ok=True)
+        result = fm.create_folder(self.doc_current_folder, name)
+        if not result.success:
+            self.add_debug(f"⚠️ create_folder: {result.detail}")  # type: ignore[attr-defined]
         self.doc_creating_folder = False
         self.doc_new_folder_name = ""
         self._refresh_file_list()
@@ -206,53 +149,16 @@ class DocumentMixin(rx.State, mixin=True):
         self.doc_rename_value = value
 
     def doc_confirm_rename(self) -> None:
-        """Execute rename on disk (and update ChromaDB if indexed)."""
-        from ..lib.config import DOCUMENTS_DIR
-        from ..lib.document_store import get_document_store
-
+        """Execute rename on disk (file_manager updates ChromaDB metadata too)."""
+        from ..lib import file_manager as fm
         old_name = self.doc_rename_target
         new_name = self.doc_rename_value.strip()
         if not old_name or not new_name or old_name == new_name:
             self.doc_rename_target = ""
             return
-        if "/" in new_name or "\\" in new_name:
-            return
-
-        old_path = DOCUMENTS_DIR / self.doc_current_folder / old_name
-        new_path = DOCUMENTS_DIR / self.doc_current_folder / new_name
-
-        if not old_path.exists() or new_path.exists():
-            self.doc_rename_target = ""
-            return
-
-        # Rename on disk
-        old_path.rename(new_path)
-
-        # Update ChromaDB index if file was indexed (re-index under new name)
-        if old_path.is_file():
-            old_rel = str(old_path.relative_to(DOCUMENTS_DIR))
-            new_rel = str(new_path.relative_to(DOCUMENTS_DIR))
-            store = get_document_store()
-            if store:
-                # Check if old name is in index
-                all_data = store._collection.get(where={"filename": old_rel})
-                if all_data and all_data["ids"]:
-                    # Update metadata filename on all chunks
-                    for chunk_id in all_data["ids"]:
-                        store._collection.update(
-                            ids=[chunk_id],
-                            metadatas=[{"filename": new_rel}],
-                        )
-                else:
-                    # Try with just the filename (old uploads)
-                    all_data = store._collection.get(where={"filename": old_name})
-                    if all_data and all_data["ids"]:
-                        for chunk_id in all_data["ids"]:
-                            store._collection.update(
-                                ids=[chunk_id],
-                                metadatas=[{"filename": new_rel}],
-                            )
-
+        result = fm.rename(self.doc_current_folder, old_name, new_name, sync_index=True)
+        if not result.success:
+            self.add_debug(f"⚠️ rename: {result.detail}")  # type: ignore[attr-defined]
         self.doc_rename_target = ""
         self.doc_rename_value = ""
         self._refresh_file_list()
@@ -333,35 +239,28 @@ class DocumentMixin(rx.State, mixin=True):
 
     async def doc_index_file(self, filename: str) -> None:
         """Index a file into ChromaDB."""
-        from ..lib.config import DOCUMENTS_DIR
-        from ..lib.document_store import get_document_store
+        from ..lib import file_manager as fm
         from ..lib.i18n import t
 
-        store = get_document_store()
-        if not store:
-            self.document_upload_status = t("doc_upload_no_store", lang=self.ui_language)  # type: ignore[attr-defined]
-            return
-
-        file_path = DOCUMENTS_DIR / self.doc_current_folder / filename
-        if not file_path.exists():
-            return
-
-        # Use relative path as document name
-        rel_path = str(file_path.relative_to(DOCUMENTS_DIR))
-
+        rel_path = f"{self.doc_current_folder}/{filename}".lstrip("/")
         self.document_upload_status = t(
             "doc_upload_indexing", lang=self.ui_language,  # type: ignore[attr-defined]
             filename=filename,
         )
         yield  # type: ignore[misc]
 
-        chunks = await store.index_document(file_path, rel_path)
+        result = await fm.index_file(rel_path)
+        chunks = result.metadata.get("chunks", 0)
 
-        self.document_upload_status = t(
-            "doc_upload_success", lang=self.ui_language,  # type: ignore[attr-defined]
-            filename=filename, chunks=chunks,
-        )
-        self.add_debug(f"\u2705 Indexed: {rel_path} ({chunks} chunks)")  # type: ignore[attr-defined]
+        if result.success:
+            self.document_upload_status = t(
+                "doc_upload_success", lang=self.ui_language,  # type: ignore[attr-defined]
+                filename=filename, chunks=chunks,
+            )
+            self.add_debug(f"\u2705 Indexed: {rel_path} ({chunks} chunks)")  # type: ignore[attr-defined]
+        else:
+            self.add_debug(f"\u26a0\ufe0f index: {result.detail}")  # type: ignore[attr-defined]
+
         self._refresh_file_list()
         yield  # type: ignore[misc]
 
@@ -372,21 +271,12 @@ class DocumentMixin(rx.State, mixin=True):
 
     async def doc_deindex_file(self, filename: str) -> None:
         """Remove a file from ChromaDB index (file stays on disk)."""
-        from ..lib.config import DOCUMENTS_DIR
-        from ..lib.document_store import get_document_store
+        from ..lib import file_manager as fm
         from ..lib.i18n import t
 
-        store = get_document_store()
-        if not store:
-            return
-
-        file_path = DOCUMENTS_DIR / self.doc_current_folder / filename
-        rel_path = str(file_path.relative_to(DOCUMENTS_DIR))
-
-        count = await store.delete_document(rel_path, delete_file=False)
-        # Also try just filename (old uploads)
-        if count == 0:
-            count = await store.delete_document(filename, delete_file=False)
+        rel_path = f"{self.doc_current_folder}/{filename}".lstrip("/")
+        result = await fm.deindex_file(rel_path, fallback_filename=filename)
+        count = result.metadata.get("chunks_removed", 0)
 
         self.document_upload_status = t(
             "doc_deindex_success", lang=self.ui_language,  # type: ignore[attr-defined]
@@ -427,9 +317,7 @@ class DocumentMixin(rx.State, mixin=True):
 
     async def doc_confirm_delete(self) -> None:
         """Execute delete with selected options (file or folder)."""
-        import shutil
-        from ..lib.config import DOCUMENTS_DIR
-        from ..lib.document_store import get_document_store
+        from ..lib import file_manager as fm
         from ..lib.i18n import t
 
         target_name = self.doc_delete_target
@@ -437,42 +325,28 @@ class DocumentMixin(rx.State, mixin=True):
         if not target_name:
             return
 
-        target_path = DOCUMENTS_DIR / self.doc_current_folder / target_name
-        rel_path = str(target_path.relative_to(DOCUMENTS_DIR))
+        if is_folder:
+            result = await fm.delete_folder(
+                self.doc_current_folder, target_name,
+                recursive=self.doc_delete_from_disk,
+                from_index=self.doc_delete_from_index,
+            )
+        else:
+            result = await fm.delete_file(
+                self.doc_current_folder, target_name,
+                from_disk=self.doc_delete_from_disk,
+                from_index=self.doc_delete_from_index,
+            )
+
+        # Build human-readable summary aligned with the previous wording
         actions: list[str] = []
-
-        # Delete from index
-        if self.doc_delete_from_index:
-            store = get_document_store()
-            if store:
-                if is_folder:
-                    # Remove all indexed files whose path starts with this folder
-                    prefix = rel_path.rstrip("/") + "/"
-                    total = 0
-                    all_data = store._collection.get()
-                    if all_data and all_data.get("metadatas"):
-                        matching_files = {
-                            m["filename"] for m in all_data["metadatas"]
-                            if m.get("filename", "").startswith(prefix)
-                        }
-                        for fn in matching_files:
-                            total += await store.delete_document(fn, delete_file=False)
-                    actions.append(f"Index ({total} chunks)")
-                else:
-                    count = await store.delete_document(rel_path, delete_file=False)
-                    if count == 0:
-                        count = await store.delete_document(target_name, delete_file=False)
-                    actions.append(f"Index ({count} chunks)")
-
-        # Delete from disk
-        if self.doc_delete_from_disk and target_path.exists():
-            if is_folder:
-                shutil.rmtree(target_path)
-            else:
-                target_path.unlink()
+        chunks = result.metadata.get("chunks_removed", 0)
+        if self.doc_delete_from_index and chunks:
+            actions.append(f"Index ({chunks} chunks)")
+        if self.doc_delete_from_disk and result.success:
             actions.append("Disk")
-
         action_str = " + ".join(actions) if actions else "nothing"
+
         self.document_upload_status = t(
             "doc_delete_done", lang=self.ui_language,  # type: ignore[attr-defined]
             filename=target_name, actions=action_str,

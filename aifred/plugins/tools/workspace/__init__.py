@@ -370,6 +370,45 @@ class WorkspacePlugin:
             executor=_delete_folder,
         ))
 
+        async def _rename(path: str, new_name: str) -> str:
+            """Rename a file or folder. Updates the ChromaDB index for indexed files."""
+            parts = path.strip("/").rsplit("/", 1)
+            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            result = fm.rename(parent_rel, leaf, new_name, sync_index=True)
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            return json.dumps({
+                "renamed": path,
+                "to": new_name,
+                "chunks_updated": result.metadata.get("chunks_updated", 0),
+            })
+
+        tools.append(Tool(
+            name="rename",
+            tier=TIER_WRITE_DATA,
+            description=(
+                "Rename a file or folder in the documents directory. "
+                "If the file is indexed in ChromaDB, the index metadata "
+                "is updated to keep the indexed document searchable under "
+                "its new name (no re-indexing required)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Current path relative to documents/ (e.g. 'notes/draft.md')",
+                    },
+                    "new_name": {
+                        "type": "string",
+                        "description": "New name (just the filename or folder name, not a full path)",
+                    },
+                },
+                "required": ["path", "new_name"],
+            },
+            executor=_rename,
+        ))
+
         # ============================================================
         # CHROMA DB TOOLS
         # ============================================================
