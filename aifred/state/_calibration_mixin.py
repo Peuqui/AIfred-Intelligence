@@ -46,6 +46,21 @@ class CalibrationMixin(rx.State, mixin=True):
     # AI options when no DashScope API key is configured.
     calibration_mode: str = "legacy"
 
+    # Allow hybrid mode during calibration (CPU offload of layers).
+    # Off by default — hybrid is slow both during calibration and at
+    # inference. Toggle on for models that exceed total GPU VRAM.
+    calibration_allow_hybrid: bool = False
+
+    def toggle_calibration_allow_hybrid(self) -> None:
+        """Flip the hybrid-mode permission and persist to settings.json."""
+        from ..lib.settings import load_settings, save_settings
+        self.calibration_allow_hybrid = not self.calibration_allow_hybrid
+        s = load_settings() or {}
+        s["calibration_allow_hybrid"] = self.calibration_allow_hybrid
+        save_settings(s)
+        state = "enabled" if self.calibration_allow_hybrid else "disabled"
+        self.add_debug(f"⚙️ Hybrid calibration mode: {state}")  # type: ignore[attr-defined]
+
     def set_calibration_mode(self, value: str) -> None:
         """Persist the chosen calibration mode.
 

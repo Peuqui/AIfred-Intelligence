@@ -218,8 +218,9 @@ class SettingsMixin(rx.State, mixin=True):
         self.max_debate_rounds = settings.get("max_debate_rounds", self.max_debate_rounds)  # type: ignore[attr-defined, has-type]
         self.consensus_type = settings.get("consensus_type", self.consensus_type)  # type: ignore[attr-defined, has-type]
 
-        # Calibration mode (legacy / ai-qwen-*)
+        # Calibration mode (legacy / ai-qwen-*) + hybrid permission
         self.calibration_mode = settings.get("calibration_mode", "legacy")  # type: ignore[attr-defined]
+        self.calibration_allow_hybrid = settings.get("calibration_allow_hybrid", False)  # type: ignore[attr-defined]
 
         # Model IDs - update both ID and display variables
         # AIfred model (top-level "model" field in settings.json)

@@ -334,6 +334,8 @@ class TranslationManager:
             "calibrating": "Kalibriere...",
             "calibration_mode_legacy": "Algorithmus",
             "calibration_mode_ai": "🤖 KI",
+            "calibration_hybrid_label": "Hybrid",
+            "calibration_hybrid_tooltip": "Hybrid-Modus erlauben (Layer auf CPU auslagern, wenn das Modell nicht in den GPU-VRAM passt). Standardmäßig aus — Hybrid-Inferenz ist deutlich langsamer und die Calibration selbst dauert sehr lang. Anschalten nur für Modelle, die größer als der gesamte GPU-VRAM sind.",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Denkprozess",
             "collapsible_data": "Strukturierte Daten",
@@ -826,6 +828,8 @@ class TranslationManager:
             "calibrating": "Calibrating...",
             "calibration_mode_legacy": "Algorithm",
             "calibration_mode_ai": "🤖 AI",
+            "calibration_hybrid_label": "Hybrid",
+            "calibration_hybrid_tooltip": "Allow hybrid mode (offload layers to CPU when the model doesn't fit on GPUs alone). Off by default — hybrid inference is significantly slower and calibration itself takes much longer. Enable only for models larger than the total GPU VRAM.",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Thinking Process",
             "collapsible_data": "Structured Data",

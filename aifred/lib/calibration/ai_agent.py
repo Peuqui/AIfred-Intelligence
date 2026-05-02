@@ -431,6 +431,7 @@ async def calibrate_with_ai(
     model_size_mb: Optional[float] = None,
     native_ctx: Optional[int] = None,
     total_layers: Optional[int] = None,
+    allow_hybrid: bool = False,
 ) -> AsyncIterator[str]:
     """AI-driven calibration loop. Yields progress strings.
 
@@ -512,8 +513,33 @@ async def calibrate_with_ai(
                 f"distribution, then push ctx higher if there's headroom. "
                 f"Use estimate_config liberally to explore without spending probes."
             )
+        elif not allow_hybrid:
+            # Pre-search found nothing AND hybrid is disabled: there's no
+            # GPU-only solution. Fail fast instead of letting the AI burn
+            # through 25 OOM probes trying.
+            yield f"   -> {search_log}"
+            yield (
+                "❌ Model does not fit on the available GPUs. Hybrid mode "
+                "is disabled — calibration cannot proceed."
+            )
+            yield "💡 Enable the Hybrid toggle to allow CPU offload."
+            yield "__AI_ERROR__:no GPU-only fit and hybrid disabled"
+            return
         else:
             yield f"   -> {search_log}"
+
+    hybrid_constraint = (
+        ""
+        if allow_hybrid
+        else (
+            "\n\nIMPORTANT: Hybrid mode (CPU offload of layers, ngl<99) is "
+            "DISABLED for this calibration. You must find a GPU-only "
+            "configuration. If after several probes no GPU-only fit exists, "
+            "call finalize with the best partial result and explain in the "
+            "reasoning that the model exceeds available GPU VRAM — the user "
+            "will then enable the Hybrid toggle if needed."
+        )
+    )
 
     system_prompt = _build_system_prompt(
         model_id=model_id,
@@ -524,7 +550,7 @@ async def calibrate_with_ai(
         safety_margin_mb=safety_margin_mb,
         seed_ctx=seed_ctx,
         seed_split=seed_split,
-        extra_constraints=extra_constraints + pre_search_block,
+        extra_constraints=extra_constraints + pre_search_block + hybrid_constraint,
     )
 
     messages: list[dict] = [

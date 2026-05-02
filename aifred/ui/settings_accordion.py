@@ -711,6 +711,60 @@ def settings_accordion() -> rx.Component:
                                 disabled=AIState.is_calibrating,
                             ),
                         ),
+                        # Hybrid-Mode toggle — only for llama.cpp. When off,
+                        # calibration fails fast for models that exceed GPU
+                        # VRAM instead of falling back to slow CPU-offload.
+                        # The "Hybrid" label colours up when active so the
+                        # state is obvious from across the room. Light-bulb
+                        # popover works on both desktop hover and mobile tap.
+                        rx.cond(
+                            AIState.backend_id == "llamacpp",
+                            rx.hstack(
+                                rx.switch(
+                                    checked=AIState.calibration_allow_hybrid,
+                                    on_change=AIState.toggle_calibration_allow_hybrid,
+                                    size="1",
+                                    color_scheme="orange",
+                                    disabled=AIState.is_calibrating,
+                                ),
+                                rx.text(
+                                    t("calibration_hybrid_label"),
+                                    font_size="11px",
+                                    color=rx.cond(
+                                        AIState.calibration_allow_hybrid, "#FFA85C", "#888",
+                                    ),
+                                ),
+                                rx.popover.root(
+                                    rx.popover.trigger(
+                                        rx.tooltip(
+                                            rx.icon(
+                                                "lightbulb",
+                                                size=14,
+                                                color="#FFD700",
+                                                cursor="pointer",
+                                                style={
+                                                    "transition": "transform 0.2s ease",
+                                                    "&:hover": {"transform": "scale(1.15)"},
+                                                },
+                                            ),
+                                            content=t("calibration_hybrid_tooltip"),
+                                        ),
+                                    ),
+                                    rx.popover.content(
+                                        rx.text(
+                                            t("calibration_hybrid_tooltip"),
+                                            font_size="11px",
+                                            color="#ddd",
+                                            line_height="1.5",
+                                        ),
+                                        max_width="320px",
+                                        padding="10px",
+                                    ),
+                                ),
+                                spacing="2",
+                                align="center",
+                            ),
+                        ),
                         spacing="2",
                         align="center",
                     ),

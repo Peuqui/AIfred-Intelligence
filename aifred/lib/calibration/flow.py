@@ -188,6 +188,15 @@ async def calibrate_llamacpp_model(
         base_pick = all_tried[0]
 
     if base_pick is None:
+        if not _hybrid_allowed_in_settings():
+            yield (
+                "❌ No GPU-only candidate reaches minimum useful context. "
+                "Hybrid mode is disabled in settings — model is too large "
+                "for the available GPU VRAM."
+            )
+            yield "💡 Enable the Hybrid toggle next to the Calibration mode dropdown to allow CPU offload."
+            yield "__RESULT__:0:0:error"
+            return
         yield "No GPU-only candidate reaches minimum useful context — trying hybrid"
         async for msg in _calibrate_hybrid(
             model, gpus, budget, full_cmd, port, env,
@@ -212,6 +221,14 @@ async def calibrate_llamacpp_model(
 
     final = base_result.result
     if final is None:
+        if not _hybrid_allowed_in_settings():
+            yield (
+                "❌ Base calibration failed verification and hybrid mode "
+                "is disabled in settings."
+            )
+            yield "💡 Enable the Hybrid toggle to allow CPU offload as fallback."
+            yield "__RESULT__:0:0:error"
+            return
         yield "Base calibration failed verification — trying hybrid"
         async for msg in _calibrate_hybrid(
             model, gpus, budget, full_cmd, port, env,
@@ -881,6 +898,24 @@ def _active_gpu_count(ts: tuple[float, ...]) -> int:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Settings helpers
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _hybrid_allowed_in_settings() -> bool:
+    """Read the user's hybrid-mode permission from settings.json.
+
+    Off by default — hybrid is slow and the calibration itself takes much
+    longer. Users opt in via the toggle next to the Calibration mode
+    dropdown when they actually need to run a model larger than total
+    GPU VRAM.
+    """
+    from ..settings import load_settings
+    s = load_settings() or {}
+    return bool(s.get("calibration_allow_hybrid", False))
+
+
+# ═══════════════════════════════════════════════════════════════════
 # AI calibration adapter
 # ═══════════════════════════════════════════════════════════════════
 
@@ -939,6 +974,7 @@ async def _try_ai_calibration(
         model_size_mb=model_size_mb,
         native_ctx=native_ctx,
         total_layers=total_layers,
+        allow_hybrid=_hybrid_allowed_in_settings(),
     ):
         if line.startswith("__AI_RESULT__:"):
             payload = line.removeprefix("__AI_RESULT__:")

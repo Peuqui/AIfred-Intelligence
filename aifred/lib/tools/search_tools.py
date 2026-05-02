@@ -324,28 +324,34 @@ class MultiAPISearchTool(BaseTool):
         self.name = "Multi-API Search"
         self.description = "3-Tier Fallback Search"
 
-        # Initialize all APIs with explicit type
+        # Initialize all APIs with explicit type. Order matters because
+        # the multi-query loop hits them round-robin: query 1 → apis[0],
+        # query 2 → apis[1], etc. Self-hosted SearXNG comes first so the
+        # most common case (≤2 queries) always includes a private,
+        # unlimited source — and because AIfred re-ranks + scrapes URLs
+        # itself, Tavily's pre-filtered snippets aren't worth more than
+        # SearXNG's broader meta-search aggregation.
         self.apis: List[BaseTool] = []
 
-        # Tavily (Primary) - AI-optimized, better actuality
+        # SearXNG (Primary) - Self-hosted, unlimited, private
+        self.apis.append(SearXNGSearchTool(searxng_url))
+        logger.info("✅ SearXNG enabled (Primary, self-hosted)")
+
+        # Tavily (Fallback 1) - AI-optimized snippets, good actuality
         if tavily_key or os.getenv('TAVILY_API_KEY'):
             try:
                 self.apis.append(TavilySearchTool(tavily_key))
-                logger.info("✅ Tavily AI enabled (Primary)")
+                logger.info("✅ Tavily AI enabled (Fallback 1)")
             except (APIKeyMissingError, ValueError, RuntimeError) as e:
                 logger.warning(f"⚠️ Tavily AI could not be initialized: {e}")
 
-        # Brave (Fallback 1)
+        # Brave (Fallback 2)
         if brave_key or os.getenv('BRAVE_API_KEY'):
             try:
                 self.apis.append(BraveSearchTool(brave_key))
-                logger.info("✅ Brave Search API enabled (Fallback 1)")
+                logger.info("✅ Brave Search API enabled (Fallback 2)")
             except (APIKeyMissingError, ValueError, RuntimeError) as e:
                 logger.warning(f"⚠️ Brave Search API could not be initialized: {e}")
-
-        # SearXNG (Last Resort - always available if server is running)
-        self.apis.append(SearXNGSearchTool(searxng_url))
-        logger.info("✅ SearXNG enabled (Last Resort)")
 
     def execute(self, query: str, **kwargs) -> Dict:
         """

@@ -82,6 +82,11 @@ DEFAULT_SETTINGS = {
     # (LLM-driven via DashScope/Qwen). UI auto-selects "legacy" when no
     # DashScope API key is configured.
     "calibration_mode": "legacy",
+    # Allow hybrid mode (CPU-offload of layers when the model doesn't fit
+    # on GPUs alone). Default off — hybrid is slow at inference and the
+    # calibration itself takes much longer. Enable explicitly when you
+    # need to run a model that exceeds total GPU VRAM.
+    "calibration_allow_hybrid": False,
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
