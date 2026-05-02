@@ -228,10 +228,13 @@ class DocumentMixin(rx.State, mixin=True):
 
         finally:
             self.is_uploading_document = False
-            import asyncio
-            await asyncio.sleep(4)
+            # Surface the last status message as a toast and clear the
+            # in-place status line so the document manager UI stays clean.
+            final_msg = self.document_upload_status
             self.document_upload_status = ""
-            yield  # type: ignore[misc]
+            if final_msg:
+                kind = "error" if final_msg.startswith("❌") else "success"
+                yield getattr(rx.toast, kind)(final_msg, duration=5000, position="top-center")
 
     # ================================================================
     # INDEX / DEINDEX
@@ -288,13 +291,13 @@ class DocumentMixin(rx.State, mixin=True):
                 self.add_debug(f"⚠️ index: {rel_path}: {result.detail}")  # type: ignore[attr-defined]
 
         if self.ui_language == "de":
-            self.document_upload_status = (
+            final_msg = (
                 f"Fertig: {indexed}/{total} Dateien indexiert "
                 f"({chunks_total} Chunks gesamt)"
                 + (f", {failed} fehlgeschlagen" if failed else "")
             )
         else:
-            self.document_upload_status = (
+            final_msg = (
                 f"Done: {indexed}/{total} files indexed "
                 f"({chunks_total} chunks total)"
                 + (f", {failed} failed" if failed else "")
@@ -303,7 +306,9 @@ class DocumentMixin(rx.State, mixin=True):
             f"📚 Bulk-Index '{self.doc_current_folder or '/'}': "
             f"{indexed}/{total} files, {chunks_total} chunks"
         )
+        self.document_upload_status = ""
         self._refresh_file_list()
+        yield rx.toast.success(final_msg, duration=7000, position="top-center")
 
     async def doc_index_file(self, filename: str) -> None:
         """Index a file into ChromaDB."""
@@ -321,16 +326,20 @@ class DocumentMixin(rx.State, mixin=True):
         chunks = result.metadata.get("chunks", 0)
 
         if result.success:
-            self.document_upload_status = t(
+            msg = t(
                 "doc_upload_success", lang=self.ui_language,  # type: ignore[attr-defined]
                 filename=filename, chunks=chunks,
             )
             self.add_debug(f"\u2705 Indexed: {rel_path} ({chunks} chunks)")  # type: ignore[attr-defined]
+            toast_kind = "success"
         else:
+            msg = result.detail
             self.add_debug(f"\u26a0\ufe0f index: {result.detail}")  # type: ignore[attr-defined]
+            toast_kind = "error"
 
+        self.document_upload_status = ""
         self._refresh_file_list()
-        yield  # type: ignore[misc]
+        yield getattr(rx.toast, toast_kind)(msg, duration=5000, position="top-center")
 
         import asyncio
         await asyncio.sleep(4)
@@ -346,18 +355,14 @@ class DocumentMixin(rx.State, mixin=True):
         result = await fm.deindex_file(rel_path, fallback_filename=filename)
         count = result.metadata.get("chunks_removed", 0)
 
-        self.document_upload_status = t(
+        msg = t(
             "doc_deindex_success", lang=self.ui_language,  # type: ignore[attr-defined]
             filename=filename, chunks=count,
         )
         self.add_debug(f"\U0001f4e4 Deindexed: {filename} ({count} chunks)")  # type: ignore[attr-defined]
-        self._refresh_file_list()
-        yield  # type: ignore[misc]
-
-        import asyncio
-        await asyncio.sleep(4)
         self.document_upload_status = ""
-        yield  # type: ignore[misc]
+        self._refresh_file_list()
+        yield rx.toast.success(msg, duration=5000, position="top-center")
 
     # ================================================================
     # DELETE — with confirmation dialog
@@ -415,7 +420,7 @@ class DocumentMixin(rx.State, mixin=True):
             actions.append("Disk")
         action_str = " + ".join(actions) if actions else "nothing"
 
-        self.document_upload_status = t(
+        msg = t(
             "doc_delete_done", lang=self.ui_language,  # type: ignore[attr-defined]
             filename=target_name, actions=action_str,
         )
@@ -423,13 +428,9 @@ class DocumentMixin(rx.State, mixin=True):
 
         self.doc_delete_target = ""
         self.doc_delete_is_folder = False
-        self._refresh_file_list()
-        yield  # type: ignore[misc]
-
-        import asyncio
-        await asyncio.sleep(4)
         self.document_upload_status = ""
-        yield  # type: ignore[misc]
+        self._refresh_file_list()
+        yield rx.toast.success(msg, duration=5000, position="top-center")
 
     # ================================================================
     # PREVIEW
