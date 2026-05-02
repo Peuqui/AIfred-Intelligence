@@ -286,6 +286,7 @@ class DocumentStore:
         query: str,
         n_results: int = 5,
         folder: Optional[str] = None,
+        neighbor_window: Optional[int] = None,
     ) -> list[dict[str, Any]]:
         """Semantic search across documents. Returns list of chunk results.
 
@@ -295,9 +296,18 @@ class DocumentStore:
             folder: If set, restrict search to this folder. Sub-folders are
                     NOT included — pass the exact folder string as stored
                     in metadata (e.g. "bibel/Schlachter").
+            neighbor_window: Per hit, also include ±N adjacent chunks of the
+                    same document so the model sees the full surrounding
+                    context (mid-sentence chunk cuts are mitigated).
+                    None → use DOCUMENT_SEARCH_NEIGHBOR_WINDOW from config,
+                    0 → off (similarity-only).
         """
         if self._collection.count() == 0:
             return []
+
+        if neighbor_window is None:
+            from .config import DOCUMENT_SEARCH_NEIGHBOR_WINDOW
+            neighbor_window = DOCUMENT_SEARCH_NEIGHBOR_WINDOW
 
         query_kwargs: dict[str, Any] = {
             "query_texts": [query],
@@ -320,7 +330,51 @@ class DocumentStore:
                     "chunk_index": meta.get("chunk_index", 0),
                     "total_chunks": meta.get("total_chunks", 0),
                     "distance": distance,
+                    "_neighbor": False,  # mark original similarity hits
                 })
+
+        # Fetch neighbor chunks for each similarity hit (deduped by ID).
+        # Neighbors are added with _neighbor=True so callers can distinguish
+        # similarity-driven hits from contextual augmentation.
+        if neighbor_window and neighbor_window > 0 and hits:
+            existing_ids = {
+                f"{h['filename']}__chunk_{h['chunk_index']}" for h in hits
+            }
+            neighbor_ids: set[str] = set()
+            for h in hits:
+                fname = h["filename"]
+                idx = h["chunk_index"]
+                total = h.get("total_chunks", 0)
+                for offset in range(-neighbor_window, neighbor_window + 1):
+                    if offset == 0:
+                        continue
+                    nidx = idx + offset
+                    if nidx < 0 or (total and nidx >= total):
+                        continue
+                    nid = f"{fname}__chunk_{nidx}"
+                    if nid not in existing_ids:
+                        neighbor_ids.add(nid)
+
+            if neighbor_ids:
+                neighbor_data = self._collection.get(ids=list(neighbor_ids))
+                if neighbor_data and neighbor_data.get("documents"):
+                    for i, doc in enumerate(neighbor_data["documents"]):
+                        meta = (neighbor_data["metadatas"][i]
+                                if neighbor_data.get("metadatas") else {})  # type: ignore[index]
+                        hits.append({
+                            "content": doc,
+                            "filename": meta.get("filename", ""),
+                            "folder": meta.get("folder", ""),
+                            "chunk_index": meta.get("chunk_index", 0),
+                            "total_chunks": meta.get("total_chunks", 0),
+                            "distance": None,  # not from similarity search
+                            "_neighbor": True,
+                        })
+
+            # Sort by (filename, chunk_index) so consecutive chunks are
+            # adjacent in the output — easier for the model to reconstruct
+            # the original passage.
+            hits.sort(key=lambda h: (h["filename"], h["chunk_index"]))
 
         return hits
 

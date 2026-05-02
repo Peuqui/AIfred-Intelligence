@@ -481,6 +481,9 @@ class WorkspacePlugin:
                     "folder": hit.get("folder", ""),
                     "chunk": f"{hit['chunk_index'] + 1}/{hit['total_chunks']}",
                     "content": hit["content"],
+                    # Tag context-only chunks so the model can distinguish
+                    # similarity hits from neighbor augmentation
+                    **({"context_neighbor": True} if hit.get("_neighbor") else {}),
                 }
                 for hit in hits
             ]
@@ -494,7 +497,10 @@ class WorkspacePlugin:
                 "Only finds documents that have been indexed (uploaded via UI or via index_document). "
                 "Use list_files to see all files on disk, search_documents to search indexed content. "
                 "Pass folder to restrict the search to one folder (e.g. 'bibel/Schlachter') — "
-                "use list_indexed first to see which folders have indexed content."
+                "use list_indexed first to see which folders have indexed content. "
+                "Each similarity hit also returns its immediate neighbor chunks "
+                "(marked context_neighbor=true) so you see the full surrounding "
+                "passage; if a chunk ends mid-sentence, the next chunk is included."
             ),
             parameters={
                 "type": "object",

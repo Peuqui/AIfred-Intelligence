@@ -458,7 +458,10 @@ async def search_index(
 
     Args:
         query: Search query.
-        n_results: Max number of chunks (capped at DOCUMENT_SEARCH_MAX_RESULTS).
+        n_results: Max number of similarity hits (capped at
+                   DOCUMENT_SEARCH_MAX_RESULTS). Each hit may bring
+                   along ±DOCUMENT_SEARCH_NEIGHBOR_WINDOW neighbor chunks
+                   so the model sees the full surrounding context.
         folder: If set, restrict search to this exact folder string
                 (e.g. "bibel/Schlachter"). Sub-folders are not auto-included.
     """

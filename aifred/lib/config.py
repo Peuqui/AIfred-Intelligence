@@ -1107,7 +1107,23 @@ DOCUMENT_CHUNK_OVERLAP = 50         # Overlap between chunks (tokens)
 DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
 EMBEDDING_USE_GPU = True            # True = GPU (~900MB VRAM, ~10× faster — needed for large docs), False = CPU
 DOCUMENT_SEARCH_MAX_RESULTS = 100   # Hard cap for the search_documents tool's n_results parameter
+DOCUMENT_SEARCH_NEIGHBOR_WINDOW = 1 # ±N neighbor chunks returned per hit. Compensates for
+                                     # mid-sentence chunk cuts: a hit at chunk K also returns
+                                     # K-1 and K+1 so the model sees the full sentence/paragraph
+                                     # context, not just a fragment. 0 = off, 1 = standard, 2 = wide.
 DOCUMENT_COLLECTION = "aifred_documents"  # ChromaDB collection name
+
+# Tool-output budget — caps how many tokens a single tool result may occupy
+# in the LLM conversation. A tool result that exceeds the budget is
+# truncated (JSON-aware where possible) so the model still has room for
+# its own answer. Computed dynamically from the active model's context
+# window, not hard-coded — small models stay safe, large models stay free.
+TOOL_OUTPUT_TOTAL_INPUT_RATIO = 0.75   # max share of context for combined input
+                                        # (system + history + memory + tool result)
+                                        # the remaining 25% is reserved for the answer
+TOOL_OUTPUT_MIN_TOKENS = 2000          # floor — even on tight contexts the tool
+                                        # may still emit at least this much, otherwise
+                                        # results would be useless
 DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
 
 # ============================================================

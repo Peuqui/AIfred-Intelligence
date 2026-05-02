@@ -709,6 +709,13 @@ class OpenAICompatibleBackend(LLMBackend):
                     for tc in tool_calls:
                         yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"][:200]}
                         result = await toolkit.execute(tc["name"], tc["arguments"])
+                        # Cap the tool result against the active model's
+                        # context budget — large results would otherwise
+                        # crowd out the model's answer space.
+                        from ..lib.tool_output_cap import budget_var, cap_tool_output
+                        budget = budget_var.get()
+                        if budget > 0:
+                            result = cap_tool_output(result, budget)
                         yield {"type": "tool_result", "name": tc["name"], "result": result}
                         kwargs["messages"].append({
                             "role": "tool",
