@@ -769,6 +769,94 @@ genannten Optimierungen besser ausgenutzt werden könnte.
 
 ---
 
+## RAG / Embedding-Pipeline (offen nach 2026-05-02 Migration)
+
+Seit BGE-M3-Migration und Token-Chunker — folgende Punkte fuer die naechste
+Iteration:
+
+- [ ] **README + zentrale Docs auf den heutigen Stand bringen.** Viele
+  Aenderungen sind unkommunziert, betrifft mindestens:
+  - BGE-M3-Embedding (statt nomic-embed-text-v2-moe) — 8192 Token Context,
+    1024-dim, multilingual; ChromaDB-Collections sind dimension-spezifisch
+    inkompatibel zwischen Modellen
+  - Token-genauer Chunker mit Qwen3-Tokenizer (Char-Heuristik nur als
+    Fallback); `DOCUMENT_CHUNK_SIZE = 800` Tokens
+  - Embedding-Mode-Switch: GPU bei Index (`mode="index"`,
+    `keep_alive=60s`), CPU bei Query (`mode="query"`, `keep_alive=1800s`).
+    Document-Store haelt zwei separate `OllamaEmbeddingFunction`-Instanzen
+  - `delete + upsert` statt nur `upsert` in `index_document` —
+    Zombie-Chunk-Fix bei verkleinerten Dateien
+  - Document Manager UI: Bulk-Index-Button (gruenes Database-Icon im
+    Header), rekursive Datei-Anzahl pro Ordner in der File-Liste
+  - `search_documents` mit `folder`-Parameter (exact match, keine
+    Wildcards) und Chunk-Nachbar-Retrieval (`neighbor_window=1`,
+    `_neighbor=true` markiert Augmentations-Chunks)
+  - `DOCUMENT_SEARCH_MAX_RESULTS = 100` als Hard-Cap (Konstante in
+    config.py, keine Hardcodierung mehr)
+  - Document-Manager Status-Meldungen jetzt via `rx.toast` statt
+    Status-Zeile (SSOT zum restlichen Code)
+  - Sefaria-Downloader (`scripts/download_judaica.py`) +
+    Verifikations-Skript (`scripts/verify_judaica.py`) mit
+    Schema-Inflation-Check
+  - Personality-Prompts fuer Rabbi Shmuel + Pater Tuck jetzt mit
+    Wissensbasis-Hinweis (welche Folder fuer welche Quelle, mit
+    Anti-Konfabulations-Klausel)
+  - Symposion-Modus: Reflection-Prompt-Layer ab Runde 2 (Variante D —
+    Augmentation, kein Replacement); Title-Generation greift jetzt auch
+    im Symposion (SSOT-Fix in `_chat_mixin.py:1316-1325`)
+  - Tool-Output-Cap: `TOOL_OUTPUT_TOTAL_INPUT_RATIO = 0.75` —
+    JSON-aware Truncation der Tool-Results, ContextVar-basiert pro
+    Inferenz, gilt fuer alle Tools
+  - Multi-Agent: Agent-Prefix `[Sokrates]` in Tool-Call-Debug-Zeilen
+    (greift nur in Multi-Agent-Modi)
+  - Tool-Result-Token-Count im Debug-Panel (lokalisiert formatiert)
+  - System-Agenten (`role=system`) automatisch aus Symposion-Auswahl
+    ausgeschlossen — Calibration faellt damit raus, kuenftige interne
+    Agenten ohne Code-Aenderung mit
+  - Orphan-Cleanup im Settings → Datenbank-Panel
+    (`fm.list_orphaned()` + Bulk-Delete-Button, gruppiert pro
+    Dokument)
+  - File-Manager als Single Source of Truth fuer FS+ChromaDB-Operationen
+    (`aifred/lib/file_manager.py` — wird vom Workspace-Plugin und
+    Document-UI genutzt)
+
+- [ ] **Embedding-Modell-Strategie verfeinern.** Aktuell: GPU bei Index,
+  CPU bei Query — global konfiguriert. Verbesserungen:
+  - Dynamische GPU-Auswahl: schnellste verfuegbare Karte beim Index-Modus
+    (statt fester GPU-0-Default in Ollama)
+  - Vor Embedding-Start: pruefen ob LLM-Modell entladen werden muss oder
+    genuegend VRAM-Reserve besteht; ggf. LLM kurz pausieren
+  - Bei aktiver LLM-Inferenz: zwingend auf CPU bleiben fuer maximalen
+    Kontext-Headroom (heute manuell, sollte automatisch erkannt werden)
+
+- [ ] **Sentence-Window-Indexing pruefen.** Statt 800-Token-Chunks pro
+  Vers/Satz indexieren mit gespeichertem Window-Kontext (LlamaIndex-
+  Pattern). Schaerfere Embeddings, hoeherer Index-Aufwand.
+  Lohnt sich evtl. nur fuer dichte Texte wie Talmud/Kommentare.
+
+- [ ] **`_research_context` von State-Variable auf ContextVar umstellen.**
+  Konsistenz mit `doc_rag_tokens_var` und `tool_output_budget_var`.
+  Funktional kein Bug (deklariert in `_chat_mixin.py:58`), nur Stil.
+  Multi-Agent-Tribunal-Reset-Logik beachten.
+
+---
+
+## Hardware (offen)
+
+- [ ] **V100 32GB testen** sobald die SXM2→PCIe-konvertierte Karte
+  geliefert ist. Vermutlich Mai 2026.
+  - Stress-Test (24h Volllast, < 85°C)
+  - cuBLAS-Stabilitaet (war Hauptgrund fuer OOM-Crashes mit MiniMax)
+  - Speed-Vergleich vs. P40 in derselben Pipeline (erwartet: 3-5×
+    schneller bei FP16-Quants wegen HBM2-Bandwidth)
+  - Tensor-Split-Anpassung in `llama-swap config.yaml` —
+    Speed-Klassen-Logik erkennt Volta-Tensor-Cores (Compute 7.0)
+    derzeit nicht als "schnell wie RTX 8000"
+  - Power-Connector pruefen (Custom-Konvertierung kann EPS-12V mit
+    abweichender Pin-Belegung haben)
+
+---
+
 ## Backlog
 
 - [ ] Structured Output / Data Extraction
