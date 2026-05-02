@@ -751,13 +751,20 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
     def selectable_agents(self) -> List[dict[str, str]]:
-        """Agent list for the active-agent toggle row (id, display_name, emoji)."""
+        """Agent list for the active-agent toggle row (id, display_name, emoji).
+
+        Excludes:
+        - vision (image analysis only, triggered automatically)
+        - any agent with role=system (calibration, etc. — internal workflows)
+        """
         from ..lib.agent_config import load_agents_raw
         agents = load_agents_raw()
         result: list[dict[str, str]] = []
         for aid, adata in agents.items():
             if aid == "vision":
-                continue  # Vision is not a chat agent
+                continue
+            if adata.get("role") == "system":
+                continue
             result.append({
                 "id": aid,
                 "display_name": adata.get("display_name", aid.capitalize()),
