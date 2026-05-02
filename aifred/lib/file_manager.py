@@ -134,12 +134,19 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
 
     items: list[dict[str, Any]] = []
     for d in dirs:
+        # Count files recursively so the user can tell at a glance whether
+        # a sub-folder is empty without clicking into it.
+        try:
+            file_count = sum(1 for p in d.rglob("*") if p.is_file())
+        except OSError:
+            file_count = 0
         items.append({
             "name": d.name,
             "type": "folder",
             "size": "",
             "indexed": False,
             "chunks": 0,
+            "file_count": file_count,
         })
     for f in files:
         rel_str = str(f.relative_to(DOCUMENTS_DIR))
@@ -150,6 +157,7 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
             "size": _format_size(f.stat().st_size),
             "indexed": chunk_count > 0,
             "chunks": chunk_count,
+            "file_count": 0,  # only meaningful for folders, kept for schema consistency
         })
     return FileOpResult(True, f"{len(items)} items", {"items": items})
 

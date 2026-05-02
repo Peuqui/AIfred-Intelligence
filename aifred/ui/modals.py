@@ -809,10 +809,20 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
             ),
         ),
         rx.spacer(),
-        # Size (files only)
+        # Size (files) or recursive file count (folders)
         rx.cond(
             ~is_folder,
             rx.text(item["size"].to(str), font_size="10px", color="#666", min_width="60px"),
+            rx.text(
+                item["file_count"].to(str) + rx.cond(
+                    AIState.ui_language == "de",
+                    rx.cond(item["file_count"].to(int) == 1, " Datei", " Dateien"),
+                    rx.cond(item["file_count"].to(int) == 1, " file", " files"),
+                ),
+                font_size="10px",
+                color=rx.cond(item["file_count"].to(int) == 0, "#555", "#888"),
+                min_width="60px",
+            ),
         ),
         # Index status badge
         rx.cond(
@@ -1047,6 +1057,18 @@ def document_manager_modal() -> rx.Component:
                                     on_click=AIState.doc_refresh, cursor="pointer",
                                 ),
                                 content=rx.cond(AIState.ui_language == "de", "Aktualisieren", "Refresh"),
+                            ),
+                            rx.tooltip(
+                                rx.icon_button(
+                                    rx.icon("database", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                                    variant="ghost", color_scheme="green",
+                                    on_click=AIState.doc_index_folder, cursor="pointer",
+                                ),
+                                content=rx.cond(
+                                    AIState.ui_language == "de",
+                                    "Alle Dateien im Ordner (rekursiv) indexieren",
+                                    "Index all files in folder (recursive)",
+                                ),
                             ),
                             spacing="1", align="center",
                         ),

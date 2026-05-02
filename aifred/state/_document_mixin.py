@@ -237,6 +237,74 @@ class DocumentMixin(rx.State, mixin=True):
     # INDEX / DEINDEX
     # ================================================================
 
+    async def doc_index_folder(self):
+        """Bulk-index every file under the current folder (recursive).
+
+        Walks ``doc_current_folder`` and all sub-folders, indexes each
+        file via ``fm.index_file`` sequentially, reports progress in the
+        upload-status line. Files that are already indexed get re-indexed
+        — ChromaDB's upsert makes that idempotent (same chunk-IDs).
+        """
+        from ..lib import file_manager as fm
+        from ..lib.config import DOCUMENTS_DIR
+
+        base = (DOCUMENTS_DIR / self.doc_current_folder).resolve() \
+            if self.doc_current_folder else DOCUMENTS_DIR.resolve()
+        if not base.is_dir():
+            self.document_upload_status = "Ordner nicht gefunden"
+            yield
+            return
+
+        files = sorted(p for p in base.rglob("*") if p.is_file())
+        if not files:
+            self.document_upload_status = (
+                "Keine Dateien zum Indexieren gefunden"
+                if self.ui_language == "de"
+                else "No files to index"
+            )
+            yield
+            return
+
+        total = len(files)
+        indexed = 0
+        failed = 0
+        chunks_total = 0
+
+        for i, file_path in enumerate(files, 1):
+            rel_path = str(file_path.relative_to(DOCUMENTS_DIR))
+            short = file_path.name
+            if self.ui_language == "de":
+                self.document_upload_status = f"({i}/{total}) Indexiere {short}…"
+            else:
+                self.document_upload_status = f"({i}/{total}) Indexing {short}…"
+            yield
+
+            result = await fm.index_file(rel_path)
+            if result.success:
+                indexed += 1
+                chunks_total += int(result.metadata.get("chunks", 0) or 0)
+            else:
+                failed += 1
+                self.add_debug(f"⚠️ index: {rel_path}: {result.detail}")  # type: ignore[attr-defined]
+
+        if self.ui_language == "de":
+            self.document_upload_status = (
+                f"Fertig: {indexed}/{total} Dateien indexiert "
+                f"({chunks_total} Chunks gesamt)"
+                + (f", {failed} fehlgeschlagen" if failed else "")
+            )
+        else:
+            self.document_upload_status = (
+                f"Done: {indexed}/{total} files indexed "
+                f"({chunks_total} chunks total)"
+                + (f", {failed} failed" if failed else "")
+            )
+        self.add_debug(  # type: ignore[attr-defined]
+            f"📚 Bulk-Index '{self.doc_current_folder or '/'}': "
+            f"{indexed}/{total} files, {chunks_total} chunks"
+        )
+        self._refresh_file_list()
+
     async def doc_index_file(self, filename: str) -> None:
         """Index a file into ChromaDB."""
         from ..lib import file_manager as fm
