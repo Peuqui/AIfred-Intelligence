@@ -8,6 +8,7 @@ Uses the same ChromaDB server and embedding function as the research cache.
 """
 
 import uuid
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -24,6 +25,11 @@ from .config import (
 from .function_calling import Tool, ToolKit
 from .logging_utils import log_message
 from .prompt_loader import load_tool_description
+
+# Document-RAG token count for the current request — set by prepare_agent_toolkit,
+# read by multi_agent for the prompt-breakdown debug line. ContextVar is task-local
+# so concurrent requests do not clobber each other (Reflex blocks dynamic state attrs).
+doc_rag_tokens_var: ContextVar[int] = ContextVar("doc_rag_tokens", default=0)
 
 # Reuse embedding config from vector_cache (same model, same Ollama instance)
 OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
@@ -444,9 +450,8 @@ async def prepare_agent_toolkit(
                     log_message(f"📄 Document RAG: {len(doc_parts)} chunks from {len(doc_files)} docs (~{rag_tokens} tok)")
                     if state is not None and hasattr(state, "add_debug"):
                         state.add_debug(f"📄 Document RAG: {len(doc_parts)} chunks (~{rag_tok_str} tok) aus {files_str}")
-                    # Store for prompt breakdown display
-                    if state is not None:
-                        state._doc_rag_tokens = rag_tokens  # type: ignore[attr-defined]
+                    # Store for prompt breakdown display (read by multi_agent)
+                    doc_rag_tokens_var.set(rag_tokens)
 
     # Security: filter tools by tier before building toolkit
     from .security import filter_tools_by_tier

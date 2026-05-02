@@ -770,7 +770,8 @@ async def _run_agent_direct_response(
         total_tok = sys_tok + hist_tok
 
         # Break down sys_tok into components (all appended to system_prompt)
-        doc_rag_tok = getattr(state, "_doc_rag_tokens", 0)
+        from .agent_memory import doc_rag_tokens_var
+        doc_rag_tok = doc_rag_tokens_var.get()
         research_tok = estimate_tokens([{"content": research_context}]) if research_context else 0
         base_sys_tok = sys_tok - mem_tok - research_tok
         # doc_rag_tok is already included in mem_tok (appended to memory_ctx)
@@ -785,9 +786,8 @@ async def _run_agent_direct_response(
             parts.append(f"Research {format_number(research_tok)}")
         parts.append(f"History {format_number(hist_tok)}")
         state.add_debug(f"📊 Prompt: {' + '.join(parts)} = {format_number(total_tok)} / {format_number(agent_num_ctx)} tok ({int(total_tok / agent_num_ctx * 100)}%)")
-        # Clean up temporary state
-        if hasattr(state, "_doc_rag_tokens"):
-            del state._doc_rag_tokens
+        # Reset for next request in this task
+        doc_rag_tokens_var.set(0)
         state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
 
         # Build LLM options — custom agents use AIfred's settings
