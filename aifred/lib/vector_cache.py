@@ -62,10 +62,10 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         self,
         model_name: str = OLLAMA_EMBEDDING_MODEL,
         host: str = OLLAMA_HOST,
-        timeout: int = 60
+        timeout: Optional[int] = None,  # None = use dynamic timeout per call
     ):
         try:
-            from ollama import Client
+            from ollama import Client  # noqa: F401
         except ImportError:
             raise ValueError(
                 "The ollama python package is not installed. "
@@ -74,16 +74,38 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
 
         self.model_name = model_name
         self.host = host
-        self._client = Client(host=host, timeout=timeout)
+        self._timeout_override = timeout
 
     def __call__(self, input: Documents) -> Embeddings:
-        """Generate embeddings using CPU or GPU based on config."""
+        """Generate embeddings using CPU or GPU based on config.
+
+        Timeout scales with batch size — large docs (e.g. a 5 MB Bible
+        split into thousands of chunks) easily push a single embed call
+        past any fixed limit, especially on CPU. We allocate roughly
+        2 s per input chunk on CPU and 0.3 s on GPU, with a 120 s floor
+        for tiny calls. A real hang still surfaces (the client raises
+        ReadTimeout) but normal large-doc indexing runs through.
+        """
+        from ollama import Client
         from .config import EMBEDDING_USE_GPU
         options = {} if EMBEDDING_USE_GPU else {"num_gpu": 0}
-        response = self._client.embed(
+
+        if self._timeout_override is not None:
+            dyn_timeout = self._timeout_override
+        else:
+            per_item = 0.3 if EMBEDDING_USE_GPU else 2.0
+            dyn_timeout = max(120, int(len(input) * per_item))
+
+        client = Client(host=self.host, timeout=dyn_timeout)
+        # keep_alive=0 → Ollama entlädt das Embedding-Modell sofort nach
+        # diesem Aufruf wieder aus dem VRAM. nomic-embed-v2-moe lädt in
+        # 1-2 s neu wenn der nächste Embed-Job kommt — der Trade-off ist
+        # ~780 MB freier VRAM für die LLM-Inferenz wert.
+        response = client.embed(
             model=self.model_name,
             input=input,
             options=options,
+            keep_alive=0,
         )
         return [
             np.array(embedding, dtype=np.float32)

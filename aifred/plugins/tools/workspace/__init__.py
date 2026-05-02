@@ -336,8 +336,9 @@ class WorkspacePlugin:
             executor=_delete_file,
         ))
 
-        async def _delete_folder(folder_name: str) -> str:
-            """Delete an empty folder from data/documents/."""
+        async def _delete_folder(folder_name: str, recursive: bool = False) -> str:
+            """Delete a folder. Empty by default; ``recursive=True`` to wipe contents too."""
+            import shutil
             folder_path, error = _safe_resolve(folder_name)
             if error:
                 return json.dumps({"error": error})
@@ -346,26 +347,56 @@ class WorkspacePlugin:
             if not folder_path.is_dir():
                 return json.dumps({"error": f"Not a directory: {folder_name}. Use delete_file."})
 
-            items = list(folder_path.iterdir())
-            if items:
+            # Count items recursively for audit logging — even on simple
+            # delete_folder this gives an honest answer about the folder state.
+            all_items = list(folder_path.rglob("*"))
+            file_count = sum(1 for p in all_items if p.is_file())
+            dir_count = sum(1 for p in all_items if p.is_dir())
+
+            if file_count + dir_count > 0 and not recursive:
                 return json.dumps({
-                    "error": f"Folder not empty ({len(items)} items). Delete contents first."
+                    "error": (
+                        f"Folder not empty ({file_count} files, {dir_count} subfolders). "
+                        f"Pass recursive=true to delete the entire tree."
+                    ),
+                })
+
+            if recursive:
+                shutil.rmtree(folder_path)
+                log_message(
+                    f"🗑️ delete_folder (recursive): {folder_name} "
+                    f"— removed {file_count} files + {dir_count} subfolders"
+                )
+                return json.dumps({
+                    "deleted": folder_name,
+                    "recursive": True,
+                    "files_removed": file_count,
+                    "subfolders_removed": dir_count,
                 })
 
             folder_path.rmdir()
             log_message(f"🗑️ delete_folder: {folder_name}")
-            return json.dumps({"deleted": folder_name})
+            return json.dumps({"deleted": folder_name, "recursive": False})
 
         tools.append(Tool(
             name="delete_folder",
             tier=TIER_WRITE_SYSTEM,
-            description="Delete an empty folder from the documents directory. Folder must be empty.",
+            description=(
+                "Delete a folder from the documents directory. By default the "
+                "folder must be empty; pass recursive=true to wipe the entire "
+                "tree (use sparingly — this is destructive)."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "folder_name": {
                         "type": "string",
                         "description": "Folder path relative to documents/ (e.g. 'old_project')",
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "If true, deletes folder and all contents (files + subfolders) recursively.",
+                        "default": False,
                     },
                 },
                 "required": ["folder_name"],

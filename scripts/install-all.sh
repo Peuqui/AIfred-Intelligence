@@ -26,10 +26,43 @@ echo "📂 Projekt-Verzeichnis: $PROJECT_DIR"
 echo ""
 
 # ============================================================
-# SCHRITT 1: Python Environment Setup (OHNE sudo)
+# SCHRITT 1: System-Dependencies (mit sudo)
 # ============================================================
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Schritt 1/2: Python Environment Setup${NC}"
+echo -e "${BLUE}  Schritt 1/3: System-Dependencies${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo "Benötigt:"
+echo "  • poppler-utils — pdftotext für saubere PDF-Indexierung"
+echo ""
+
+if command -v pdftotext &>/dev/null; then
+    echo -e "${GREEN}✅ pdftotext bereits installiert${NC}"
+else
+    echo -e "${YELLOW}⚠️  pdftotext fehlt — installiere poppler-utils...${NC}"
+    if command -v apt &>/dev/null; then
+        sudo apt update && sudo apt install -y poppler-utils
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y poppler-utils
+    elif command -v pacman &>/dev/null; then
+        sudo pacman -S --noconfirm poppler
+    elif command -v brew &>/dev/null; then
+        brew install poppler
+    else
+        echo -e "${RED}❌ Kein bekannter Paket-Manager gefunden.${NC}"
+        echo "   Bitte poppler-utils manuell installieren."
+        exit 1
+    fi
+    echo -e "${GREEN}✅ poppler-utils installiert${NC}"
+fi
+echo ""
+sleep 1
+
+# ============================================================
+# SCHRITT 2: Python Environment Setup (OHNE sudo)
+# ============================================================
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Schritt 2/3: Python Environment Setup${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
@@ -46,10 +79,10 @@ echo ""
 sleep 1
 
 # ============================================================
-# SCHRITT 2: Systemd Services Installation (Optional, MIT sudo)
+# SCHRITT 3: Systemd Services Installation (Optional, MIT sudo)
 # ============================================================
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Schritt 2/2: Systemd Services Installation (Optional)${NC}"
+echo -e "${BLUE}  Schritt 3/3: Systemd Services Installation (Optional)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "Systemd-Services für automatischen Start beim Booten."

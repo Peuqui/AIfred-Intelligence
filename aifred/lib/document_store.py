@@ -34,12 +34,31 @@ def _read_text_file(file_path: Path) -> str:
 
 
 def _read_pdf(file_path: Path) -> str:
-    """Extract text from a PDF file using PyMuPDF."""
-    import fitz
-    doc = fitz.open(str(file_path))
-    text = "\n\n".join(page.get_text() for page in doc)
-    doc.close()
-    return text
+    """Extract text from a PDF using pdftotext (poppler-utils).
+
+    pdftotext joins hyphenated line-breaks back into whole words and
+    converts ligatures (ﬂ, ﬁ) to plain letters — both crucial for
+    embedding quality. PyMuPDF/fitz preserves them as-is which results
+    in fragmented embeddings (`Misch-` + `volk` as two halves, `Brotﬂ aden`
+    as a strange unicode word).
+    """
+    import shutil
+    import subprocess
+    if not shutil.which("pdftotext"):
+        raise RuntimeError(
+            "pdftotext not installed. Please install poppler-utils:\n"
+            "  Debian/Ubuntu:  sudo apt install poppler-utils\n"
+            "  Fedora/RHEL:    sudo dnf install poppler-utils\n"
+            "  macOS:          brew install poppler"
+        )
+    result = subprocess.run(
+        ["pdftotext", "-enc", "UTF-8", str(file_path), "-"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=300,
+    )
+    return result.stdout
 
 
 def _read_csv(file_path: Path) -> str:
