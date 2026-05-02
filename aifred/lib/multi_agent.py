@@ -266,8 +266,10 @@ async def _stream_agent_to_history(
             state.add_debug(f"⚡ TTFT: {format_number(event['value'], 2)}s")
 
         elif event_type == "tool_call_start":
+            # Only sets the UI tool-status; the readable debug-log line
+            # is emitted from the "tool_call" event below where the args
+            # are already parsed.
             tool_name = event.get("name", "")
-            state.add_debug(f"🔧 Tool call: {tool_name}(...)")
             status = _get_plugin_ui_status(tool_name, {}, state.ui_language)
             if status:
                 state.set_tool_status(status)
@@ -276,7 +278,8 @@ async def _stream_agent_to_history(
         elif event_type == "tool_call":
             tool_name = event.get("name", "")
             full_args = event.get("arguments", "")
-            state.add_debug(f"🔧 Tool call: {tool_name}({full_args[:80]})")
+            from .debug_format import format_tool_call
+            state.add_debug(f"🔧 {format_tool_call(tool_name, full_args)}")
 
             import json as _json
             tool_args: dict[str, Any] = {}
@@ -296,7 +299,8 @@ async def _stream_agent_to_history(
             yield  # type: ignore[misc]
 
         elif event_type == "tool_result":
-            state.add_debug(f"🔧 Tool result: {event.get('result', '')[:100]}")
+            from .debug_format import format_tool_result
+            state.add_debug(f"   ↳ {format_tool_result(event.get('result', ''))}")
             state.clear_tool_status()
             yield  # type: ignore[misc]
 

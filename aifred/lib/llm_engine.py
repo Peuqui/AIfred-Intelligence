@@ -257,9 +257,11 @@ async def call_llm(
             elif event_type == "ttft":
                 yield {"type": "debug", "message": f"⚡ TTFT: {format_number(event['value'], 2)}s"}
             elif event_type == "tool_call":
-                yield {"type": "debug", "message": f"🔧 Tool call: {event.get('name', '')}(...)"}
+                from .debug_format import format_tool_call
+                yield {"type": "debug", "message": f"🔧 {format_tool_call(event.get('name', ''), event.get('arguments', ''))}"}
             elif event_type == "tool_result":
-                yield {"type": "debug", "message": f"🔧 Tool result: {event.get('result', '')[:100]}"}
+                from .debug_format import format_tool_result
+                yield {"type": "debug", "message": f"   ↳ {format_tool_result(event.get('result', ''))}"}
             elif event_type == "pipeline_result":
                 pipeline_result = event["result"]
 
