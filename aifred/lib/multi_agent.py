@@ -304,7 +304,9 @@ async def _stream_agent_to_history(
 
         elif event_type == "tool_result":
             from .debug_format import format_tool_result
-            state.add_debug(f"   ↳ {format_tool_result(event.get('result', ''))}")
+            result_str = event.get("result", "") or ""
+            result_tokens = estimate_tokens([{"content": result_str}]) if result_str else 0
+            state.add_debug(f"   ↳ {format_tool_result(result_str, token_count=result_tokens)}")
             state.clear_tool_status()
             yield  # type: ignore[misc]
 

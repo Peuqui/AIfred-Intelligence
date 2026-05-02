@@ -86,14 +86,35 @@ def _result_preview(first: dict, snippet_len: int) -> str:
     return ""
 
 
-def format_tool_result(result_str: str, max_len: int = 200, snippet_len: int = 120) -> str:
+def format_tool_result(
+    result_str: str,
+    max_len: int = 200,
+    snippet_len: int = 120,
+    token_count: int | None = None,
+) -> str:
     """Pull the most informative snippet out of a tool result for the debug log.
 
     Tries to surface common shapes (``error``, ``total_results``, ``deleted``,
     ``message``) before falling back to a truncated JSON dump. For result-list
     responses the first hit's source + content snippet is included so the user
     can see *what* was found, not just *how many*.
+
+    When ``token_count`` is set it is appended to the summary line so the user
+    spots bloated tool outputs at a glance — important because chunk-neighbor
+    expansion can multiply hit count silently.
     """
+    formatted = _format_tool_result_body(result_str, max_len, snippet_len)
+    if token_count is None:
+        return formatted
+
+    token_suffix = f" (~{token_count:,} tok)".replace(",", ".")
+    if "\n" in formatted:
+        first, rest = formatted.split("\n", 1)
+        return f"{first}{token_suffix}\n{rest}"
+    return f"{formatted}{token_suffix}"
+
+
+def _format_tool_result_body(result_str: str, max_len: int, snippet_len: int) -> str:
     if not result_str:
         return "(empty)"
 

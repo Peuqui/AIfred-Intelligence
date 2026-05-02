@@ -261,7 +261,9 @@ async def call_llm(
                 yield {"type": "debug", "message": f"🔧 {format_tool_call(event.get('name', ''), event.get('arguments', ''))}"}
             elif event_type == "tool_result":
                 from .debug_format import format_tool_result
-                yield {"type": "debug", "message": f"   ↳ {format_tool_result(event.get('result', ''))}"}
+                result_str = event.get("result", "") or ""
+                result_tokens = estimate_tokens([{"content": result_str}]) if result_str else 0
+                yield {"type": "debug", "message": f"   ↳ {format_tool_result(result_str, token_count=result_tokens)}"}
             elif event_type == "pipeline_result":
                 pipeline_result = event["result"]
 
