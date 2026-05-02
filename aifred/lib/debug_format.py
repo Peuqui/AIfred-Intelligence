@@ -137,10 +137,10 @@ def format_tool_result(result_str: str, max_len: int = 200, snippet_len: int = 1
     if "orphan_count" in result:
         n = result["orphan_count"]
         orphans = result.get("orphans") or []
-        first = ""
+        first_filename = ""
         if isinstance(orphans, list) and orphans and isinstance(orphans[0], dict):
-            first = str(orphans[0].get("filename", ""))
-        return f"{n} orphans" + (f" — first: {first}" if first else "")
+            first_filename = str(orphans[0].get("filename", ""))
+        return f"{n} orphans" + (f" — first: {first_filename}" if first_filename else "")
     if "deleted" in result:
         chunks = result.get("chunks_removed", "")
         return f"deleted: {result['deleted']}" + (f" ({chunks} chunks)" if chunks else "")
