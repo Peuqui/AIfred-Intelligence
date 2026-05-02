@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ....lib.config import DATA_DIR, DOCUMENTS_DIR
+from ....lib import file_manager as fm
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from ....lib.plugin_base import PluginContext
@@ -24,14 +25,8 @@ _DOCUMENTS_DIR = DOCUMENTS_DIR
 
 
 def _safe_resolve(relative_path: str) -> tuple[Path | None, str | None]:
-    """Resolve a relative path safely within data/documents/. Returns (path, error)."""
-    try:
-        file_path = (_DOCUMENTS_DIR / relative_path).resolve()
-        if not str(file_path).startswith(str(_DOCUMENTS_DIR.resolve())):
-            return None, "Access denied: path outside documents directory"
-        return file_path, None
-    except Exception:
-        return None, f"Invalid path: {relative_path}"
+    """Compatibility shim — delegates to the central file_manager.safe_resolve."""
+    return fm.safe_resolve(relative_path)
 
 
 @dataclass
@@ -275,17 +270,14 @@ class WorkspacePlugin:
 
         async def _create_folder(folder_name: str) -> str:
             """Create a subfolder in data/documents/."""
-            folder_path, error = _safe_resolve(folder_name)
-            if error:
-                return json.dumps({"error": error})
-            if not folder_path:
-                return json.dumps({"error": f"Invalid path: {folder_name}"})
-            if folder_path.exists():
-                return json.dumps({"error": f"Already exists: {folder_name}"})
-
-            folder_path.mkdir(parents=True)
-            log_message(f"📁 create_folder: {folder_name}")
-            return json.dumps({"created": folder_name})
+            # Split into parent + leaf so file_manager.create_folder can
+            # validate the leaf name and resolve the parent independently.
+            parts = folder_name.strip("/").rsplit("/", 1)
+            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            result = fm.create_folder(parent_rel, leaf)
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            return json.dumps({"created": folder_name, "path": result.metadata.get("path", folder_name)})
 
         tools.append(Tool(
             name="create_folder",
@@ -305,19 +297,20 @@ class WorkspacePlugin:
         ))
 
         async def _delete_file(filename: str) -> str:
-            """Delete a file from data/documents/."""
-            file_path, error = _safe_resolve(filename)
-            if error:
-                return json.dumps({"error": error})
-            if not file_path or not file_path.exists():
-                return json.dumps({"error": f"File not found: {filename}"})
-            if file_path.is_dir():
-                return json.dumps({"error": f"Is a directory, not a file: {filename}. Use delete_folder."})
-
-            size_kb = round(file_path.stat().st_size / 1024, 1)
-            file_path.unlink()
-            log_message(f"🗑️ delete_file: {filename} ({size_kb} KB)")
-            return json.dumps({"deleted": filename, "size_kb": size_kb})
+            """Delete a file from data/documents/ (also removes from index if present)."""
+            parts = filename.strip("/").rsplit("/", 1)
+            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            # Capture size before delete for the JSON output
+            path, _ = fm.safe_resolve(filename)
+            size_kb = round(path.stat().st_size / 1024, 1) if path and path.is_file() else 0
+            result = await fm.delete_file(parent_rel, leaf, from_disk=True, from_index=True)
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            return json.dumps({
+                "deleted": filename,
+                "size_kb": size_kb,
+                "chunks_removed": result.metadata.get("chunks_removed", 0),
+            })
 
         tools.append(Tool(
             name="delete_file",
@@ -338,45 +331,18 @@ class WorkspacePlugin:
 
         async def _delete_folder(folder_name: str, recursive: bool = False) -> str:
             """Delete a folder. Empty by default; ``recursive=True`` to wipe contents too."""
-            import shutil
-            folder_path, error = _safe_resolve(folder_name)
-            if error:
-                return json.dumps({"error": error})
-            if not folder_path or not folder_path.exists():
-                return json.dumps({"error": f"Folder not found: {folder_name}"})
-            if not folder_path.is_dir():
-                return json.dumps({"error": f"Not a directory: {folder_name}. Use delete_file."})
-
-            # Count items recursively for audit logging — even on simple
-            # delete_folder this gives an honest answer about the folder state.
-            all_items = list(folder_path.rglob("*"))
-            file_count = sum(1 for p in all_items if p.is_file())
-            dir_count = sum(1 for p in all_items if p.is_dir())
-
-            if file_count + dir_count > 0 and not recursive:
-                return json.dumps({
-                    "error": (
-                        f"Folder not empty ({file_count} files, {dir_count} subfolders). "
-                        f"Pass recursive=true to delete the entire tree."
-                    ),
-                })
-
-            if recursive:
-                shutil.rmtree(folder_path)
-                log_message(
-                    f"🗑️ delete_folder (recursive): {folder_name} "
-                    f"— removed {file_count} files + {dir_count} subfolders"
-                )
-                return json.dumps({
-                    "deleted": folder_name,
-                    "recursive": True,
-                    "files_removed": file_count,
-                    "subfolders_removed": dir_count,
-                })
-
-            folder_path.rmdir()
-            log_message(f"🗑️ delete_folder: {folder_name}")
-            return json.dumps({"deleted": folder_name, "recursive": False})
+            parts = folder_name.strip("/").rsplit("/", 1)
+            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            result = await fm.delete_folder(parent_rel, leaf, recursive=recursive, from_index=True)
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            return json.dumps({
+                "deleted": folder_name,
+                "recursive": recursive,
+                "files_removed": result.metadata.get("files_removed", 0),
+                "subfolders_removed": result.metadata.get("subfolders_removed", 0),
+                "chunks_removed": result.metadata.get("chunks_removed", 0),
+            })
 
         tools.append(Tool(
             name="delete_folder",
@@ -410,35 +376,28 @@ class WorkspacePlugin:
 
         async def _index_document(filename: str) -> str:
             """Index a file from data/documents/ into ChromaDB."""
-            from ....lib.document_store import get_document_store
-            store = get_document_store()
-            if not store:
-                return json.dumps({"error": "ChromaDB not available"})
-
-            file_path, error = _safe_resolve(filename)
+            # Extension-Check bleibt hier, weil nur das index-Tool ihn braucht.
+            file_path, error = fm.safe_resolve(filename)
             if error:
                 return json.dumps({"error": error})
             if not file_path or not file_path.exists():
                 return json.dumps({"error": f"File not found: {filename}"})
-
             from ....lib.config import DOCUMENT_ALLOWED_EXTENSIONS
             if file_path.suffix.lower() not in DOCUMENT_ALLOWED_EXTENSIONS:
                 return json.dumps({
                     "error": f"Unsupported file type: {file_path.suffix}. "
                     f"Allowed: {', '.join(sorted(DOCUMENT_ALLOWED_EXTENSIONS))}"
                 })
-
-            log_message(f"📄 index_document: {file_path.name}")
             try:
-                chunks = await store.index_document(file_path, file_path.name)
-                log_message(f"  index_document: {file_path.name} -> {chunks} chunks")
-                return json.dumps({
-                    "indexed": file_path.name,
-                    "chunks": chunks,
-                })
+                result = await fm.index_file(filename)
             except Exception as e:
-                log_message(f"  index_document failed: {e}")
                 return json.dumps({"error": f"Indexing failed: {e}"})
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            return json.dumps({
+                "indexed": file_path.name,
+                "chunks": result.metadata.get("chunks", 0),
+            })
 
         tools.append(Tool(
             name="index_document",
@@ -463,22 +422,20 @@ class WorkspacePlugin:
 
         async def _search_documents(query: str, n_results: int = 5) -> str:
             """Semantic search in ChromaDB."""
-            from ....lib.document_store import get_document_store
-            store = get_document_store()
-            if not store:
-                return json.dumps({"error": "ChromaDB not available"})
-
-            hits = await store.search(query, n_results=min(n_results, 100))
+            result = await fm.search_index(query, n_results=n_results)
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            hits = result.metadata.get("results", [])
             if not hits:
                 return json.dumps({"results": [], "message": "No matching documents found."})
-
-            results = []
-            for hit in hits:
-                results.append({
+            results = [
+                {
                     "filename": hit["filename"],
                     "chunk": f"{hit['chunk_index'] + 1}/{hit['total_chunks']}",
                     "content": hit["content"],
-                })
+                }
+                for hit in hits
+            ]
             return json.dumps({"total_results": len(results), "results": results}, ensure_ascii=False)
 
         tools.append(Tool(
@@ -509,12 +466,10 @@ class WorkspacePlugin:
 
         async def _list_indexed() -> str:
             """List all documents indexed in ChromaDB."""
-            from ....lib.document_store import get_document_store
-            store = get_document_store()
-            if not store:
-                return json.dumps({"error": "ChromaDB not available"})
-
-            docs = store.list_documents()
+            result = fm.list_indexed()
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            docs = result.metadata.get("documents", [])
             if not docs:
                 return json.dumps({"documents": [], "message": "No documents indexed yet."})
             return json.dumps({"total_count": len(docs), "documents": docs}, ensure_ascii=False)
@@ -531,17 +486,14 @@ class WorkspacePlugin:
         ))
 
         async def _delete_document(filename: str) -> str:
-            """Delete a document from ChromaDB (and optionally from disk)."""
-            from ....lib.document_store import get_document_store
-            store = get_document_store()
-            if not store:
-                return json.dumps({"error": "ChromaDB not available"})
-
-            count = await store.delete_document(filename)
-            if count == 0:
+            """Delete a document from ChromaDB (and from disk)."""
+            parts = filename.strip("/").rsplit("/", 1)
+            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            result = await fm.delete_file(parent_rel, leaf, from_disk=True, from_index=True)
+            chunks = result.metadata.get("chunks_removed", 0)
+            if not result.success and chunks == 0:
                 return json.dumps({"error": f"Document not found in index: {filename}"})
-
-            return json.dumps({"deleted": filename, "chunks_removed": count})
+            return json.dumps({"deleted": filename, "chunks_removed": chunks})
 
         tools.append(Tool(
             name="delete_document",
