@@ -21,7 +21,7 @@ from .config import (
     DOCUMENTS_DIR,
 )
 from .logging_utils import log_message
-from .vector_cache import OLLAMA_EMBEDDING_MODEL, OllamaCPUEmbeddingFunction
+from .vector_cache import OLLAMA_EMBEDDING_MODEL, OllamaEmbeddingFunction
 
 
 def _read_text_file(file_path: Path) -> str:
@@ -183,10 +183,58 @@ def _read_odp(file_path: Path) -> str:
 
 
 def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
-    """Split text into chunks by approximate token count (1 token ≈ 4 chars)."""
-    chars_per_token = 4
-    chunk_chars = chunk_size * chars_per_token
-    overlap_chars = overlap * chars_per_token
+    """Split text into chunks of *exactly* chunk_size tokens.
+
+    Uses the Qwen3 tokenizer (already cached locally for token estimation
+    elsewhere in the project) for true token-count accuracy. This replaces
+    the old char-heuristic which under-estimated tokens for token-dense
+    languages (German + Hebrew inserts) and could push embeddings past
+    the model's context limit.
+
+    Falls back to char-based slicing only if the tokenizer cannot be
+    loaded — that path is safe but less accurate.
+    """
+    try:
+        return _chunk_by_tokens(text, chunk_size, overlap)
+    except Exception as exc:
+        log_message(f"⚠️ Tokenizer chunking failed ({exc}) — using char fallback")
+        return _chunk_by_chars(text, chunk_size, overlap)
+
+
+def _chunk_by_tokens(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """Token-accurate chunker using the Qwen3 tokenizer."""
+    from .context_manager import _tokenizer_cache, count_tokens_with_tokenizer
+
+    # Warm the cache via the public counter (handles download + caching)
+    count_tokens_with_tokenizer("warmup")
+    tokenizer = _tokenizer_cache.get("qwen3")
+    if tokenizer is None:
+        raise RuntimeError("Qwen3 tokenizer not initialised")
+
+    encoding = tokenizer.encode(text)
+    token_ids = encoding.ids
+    if len(token_ids) <= chunk_size:
+        stripped = text.strip()
+        return [stripped] if stripped else []
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(token_ids):
+        end = min(start + chunk_size, len(token_ids))
+        piece = tokenizer.decode(token_ids[start:end]).strip()
+        if piece:
+            chunks.append(piece)
+        if end >= len(token_ids):
+            break
+        start = end - overlap
+    return chunks
+
+
+def _chunk_by_chars(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """Char-based fallback. Less accurate, used only when tokenizer unavailable."""
+    from .config import CHARS_PER_TOKEN
+    chunk_chars = chunk_size * CHARS_PER_TOKEN
+    overlap_chars = overlap * CHARS_PER_TOKEN
 
     if len(text) <= chunk_chars:
         return [text]
@@ -199,7 +247,6 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
         if chunk.strip():
             chunks.append(chunk.strip())
         start = end - overlap_chars
-
     return chunks
 
 
@@ -226,10 +273,24 @@ class DocumentStore:
             settings=Settings(anonymized_telemetry=False),
         )
         self._client.heartbeat()
-        self._embed_fn = OllamaCPUEmbeddingFunction(
+        # Two embedding functions for two access patterns:
+        # - bulk indexing (many chunks at once) → GPU + 10 min keep_alive
+        #   so the model stays warm for the duration of the upload
+        # - single-shot query (one user question) → CPU, no GPU residency
+        #   so we don't fight the active LLM for VRAM
+        self._embed_index = OllamaEmbeddingFunction(
             model_name=OLLAMA_EMBEDDING_MODEL,
             host=DEFAULT_OLLAMA_URL,
+            mode="index",
         )
+        self._embed_query = OllamaEmbeddingFunction(
+            model_name=OLLAMA_EMBEDDING_MODEL,
+            host=DEFAULT_OLLAMA_URL,
+            mode="query",
+        )
+        # Collection-default uses the query function — anything that doesn't
+        # explicitly pass embeddings (only happens accidentally) stays on CPU.
+        self._embed_fn = self._embed_query
         self._collection = self._client.get_or_create_collection(
             name=DOCUMENT_COLLECTION,
             metadata={
@@ -271,10 +332,20 @@ class DocumentStore:
             for i in range(len(chunks))
         ]
 
-        # ChromaDB upsert (idempotent — re-uploading same file overwrites)
+        # Delete any existing chunks for this filename first. Without this,
+        # re-indexing a now-shorter file would leave zombie chunks in place
+        # (old chunk_N where N > new total_chunks). With delete-before-upsert
+        # the file always reflects the current source — no stale data.
+        self._collection.delete(where={"filename": filename})
+
+        # Embed via the index-mode function (GPU + warm cache). Passing
+        # the embeddings explicitly bypasses the collection's default
+        # embedding_function (which is the query/CPU one) for this write.
+        embeddings = self._embed_index(chunks)
         self._collection.upsert(
             ids=ids,
             documents=chunks,
+            embeddings=embeddings,
             metadatas=metadatas,  # type: ignore[arg-type]
         )
 
@@ -309,8 +380,11 @@ class DocumentStore:
             from .config import DOCUMENT_SEARCH_NEIGHBOR_WINDOW
             neighbor_window = DOCUMENT_SEARCH_NEIGHBOR_WINDOW
 
+        # Embed the query via the CPU/query-mode function so we don't
+        # wake up the GPU embedding model for a single-shot search.
+        query_embeddings = self._embed_query([query])
         query_kwargs: dict[str, Any] = {
-            "query_texts": [query],
+            "query_embeddings": query_embeddings,
             "n_results": min(n_results, self._collection.count()),
         }
         if folder is not None:

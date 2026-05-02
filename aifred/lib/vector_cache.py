@@ -44,7 +44,7 @@ from datetime import datetime, timedelta
 import uuid
 
 # Ollama Embedding Configuration
-OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
+OLLAMA_EMBEDDING_MODEL = "bge-m3"
 OLLAMA_HOST = DEFAULT_OLLAMA_URL
 
 
@@ -62,7 +62,16 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         model_name: str = OLLAMA_EMBEDDING_MODEL,
         host: str = OLLAMA_HOST,
         timeout: Optional[int] = None,  # None = use dynamic timeout per call
+        mode: str = "query",            # "index" → GPU + warm cache, "query" → CPU
     ):
+        """
+        Args:
+            mode: "index" loads the model on GPU with a generous keep_alive
+                  so a bulk-index run stays warm across many chunks. "query"
+                  forces CPU (num_gpu=0) and keep_alive=0 — single-shot
+                  queries do not warrant GPU residency that competes with
+                  the active LLM. Default "query" is the safe fall-back.
+        """
         try:
             from ollama import Client  # noqa: F401
         except ImportError:
@@ -74,37 +83,47 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         self.model_name = model_name
         self.host = host
         self._timeout_override = timeout
+        self.mode = mode
 
     def __call__(self, input: Documents) -> Embeddings:
-        """Generate embeddings using CPU or GPU based on config.
+        """Generate embeddings — GPU for index mode, CPU for query mode.
 
-        Timeout scales with batch size — large docs (e.g. a 5 MB Bible
-        split into thousands of chunks) easily push a single embed call
-        past any fixed limit, especially on CPU. We allocate roughly
-        2 s per input chunk on CPU and 0.3 s on GPU, with a 120 s floor
-        for tiny calls. A real hang still surfaces (the client raises
-        ReadTimeout) but normal large-doc indexing runs through.
+        Timeout scales with batch size — large docs (e.g. the Goldschmidt
+        Talmud Sanhedrin at ~1.4 MB) easily push a single embed call past
+        any fixed limit, especially on CPU. We allocate roughly 2 s per
+        input chunk on CPU and 0.3 s on GPU, with a 120 s floor for tiny
+        calls. A real hang still surfaces (the client raises ReadTimeout)
+        but normal indexing runs through.
         """
         from ollama import Client
         from .config import EMBEDDING_USE_GPU
-        options = {} if EMBEDDING_USE_GPU else {"num_gpu": 0}
+
+        # Index mode honours EMBEDDING_USE_GPU; query mode is always CPU.
+        on_gpu = self.mode == "index" and EMBEDDING_USE_GPU
+        options = {} if on_gpu else {"num_gpu": 0}
 
         if self._timeout_override is not None:
             dyn_timeout = self._timeout_override
         else:
-            per_item = 0.3 if EMBEDDING_USE_GPU else 2.0
+            per_item = 0.3 if on_gpu else 2.0
             dyn_timeout = max(120, int(len(input) * per_item))
 
+        # GPU index mode: 1 min keep_alive — long enough that the bulk-
+        # index loop doesn't reload between chunks (chunks come back-to-
+        # back), short enough that a finished bulk run releases VRAM
+        # quickly so the LLM can reclaim it.
+        # CPU query mode: 30 min keep_alive — RAM is cheap, model load
+        # on CPU is comparatively slow (bge-m3 is ~1 GB on disk), and a
+        # warm model means user queries get answered without re-load
+        # latency between chats.
+        keep_alive = 60 if on_gpu else 1800
+
         client = Client(host=self.host, timeout=dyn_timeout)
-        # keep_alive=0 → Ollama entlädt das Embedding-Modell sofort nach
-        # diesem Aufruf wieder aus dem VRAM. nomic-embed-v2-moe lädt in
-        # 1-2 s neu wenn der nächste Embed-Job kommt — der Trade-off ist
-        # ~780 MB freier VRAM für die LLM-Inferenz wert.
         response = client.embed(
             model=self.model_name,
             input=input,
             options=options,
-            keep_alive=0,
+            keep_alive=keep_alive,
         )
         return [
             np.array(embedding, dtype=np.float32)
@@ -151,12 +170,14 @@ class VectorCache:
             # Test connection with heartbeat
             self.client.heartbeat()
 
-            # Configure Ollama embedding function (multilingual, MoE architecture)
-            # nomic-embed-text-v2-moe: 305M active params, ~100 languages, MIRACL 65.80
-            # Uses CPU only (num_gpu=0) to keep VRAM free for LLM inference
-            self.embedding_function = OllamaCPUEmbeddingFunction(
+            # Embedding function (currently bge-m3: 1024 dim, multilingual,
+            # 8192 token context). Query-mode → CPU + keep_alive=0; the web
+            # research cache writes a single entry at a time, no bulk flow,
+            # so GPU residency would only steal VRAM from the active LLM.
+            self.embedding_function = OllamaEmbeddingFunction(
                 model_name=OLLAMA_EMBEDDING_MODEL,
-                host=OLLAMA_HOST
+                host=OLLAMA_HOST,
+                mode="query",
             )
 
             # Get or create collection with Ollama embeddings

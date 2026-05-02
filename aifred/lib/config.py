@@ -1102,8 +1102,13 @@ EMAIL_MONITOR_AUTO_REPLY = os.environ.get("EMAIL_MONITOR_AUTO_REPLY", "false").l
 # DOCUMENT UPLOAD & RAG CONFIGURATION
 # ============================================================
 DOCUMENTS_DIR = DATA_DIR / "documents"
-DOCUMENT_CHUNK_SIZE = 500           # Tokens per chunk (~375 words)
-DOCUMENT_CHUNK_OVERLAP = 50         # Overlap between chunks (tokens)
+DOCUMENT_CHUNK_SIZE = 800           # Tokens per chunk. With bge-m3 (8192 token
+                                     # context) this leaves ample headroom even
+                                     # for token-dense German+Hebrew content.
+                                     # Larger chunks = richer semantic embeddings.
+DOCUMENT_CHUNK_OVERLAP = 80         # Overlap between chunks (tokens, ~10% of chunk)
+EMBEDDING_MAX_INPUT_TOKENS = 8192   # Hard input limit of the active embedding model
+                                     # (bge-m3). Keep in sync when switching models.
 DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
 EMBEDDING_USE_GPU = True            # True = GPU (~900MB VRAM, ~10× faster — needed for large docs), False = CPU
 DOCUMENT_SEARCH_MAX_RESULTS = 100   # Hard cap for the search_documents tool's n_results parameter

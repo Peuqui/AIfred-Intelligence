@@ -26,7 +26,7 @@ from .logging_utils import log_message
 from .prompt_loader import load_tool_description
 
 # Reuse embedding config from vector_cache (same model, same Ollama instance)
-OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
+OLLAMA_EMBEDDING_MODEL = "bge-m3"
 
 
 class AgentMemory:
@@ -36,16 +36,19 @@ class AgentMemory:
     """
 
     def __init__(self, host: str = "localhost", port: int = 8000) -> None:
-        from .vector_cache import OllamaCPUEmbeddingFunction
+        from .vector_cache import OllamaEmbeddingFunction
 
         self._client = chromadb.HttpClient(
             host=host, port=port,
             settings=Settings(anonymized_telemetry=False),
         )
         self._client.heartbeat()
-        self._embed_fn = OllamaCPUEmbeddingFunction(
+        # Memory ops are single-shot reads/writes (recall + store_memory),
+        # never bulk — query mode (CPU, keep_alive=0) is right.
+        self._embed_fn = OllamaEmbeddingFunction(
             model_name=OLLAMA_EMBEDDING_MODEL,
             host=DEFAULT_OLLAMA_URL,
+            mode="query",
         )
         self._collections: dict[str, Any] = {}
         log_message("AgentMemory connected to ChromaDB")
