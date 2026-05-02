@@ -1452,7 +1452,8 @@ def update_groups_in_yaml(config_path: Path) -> None:
     """
     Write or replace the groups.main.members section in llama-swap-config.yaml.
 
-    Lists all configured models except -speed variants as members of 'main'.
+    Lists ALL configured models as members of 'main', including -speed variants
+    written by the AIfred calibration routine — when they exist they MUST stay.
     The swap:true flag tells llama-swap that only one model from this group
     can be loaded at a time, enforcing VRAM exclusivity.
     """
@@ -1460,10 +1461,7 @@ def update_groups_in_yaml(config_path: Path) -> None:
         return
 
     all_models = parse_existing_yaml_models(config_path)
-    members = sorted(
-        name for name in all_models
-        if not name.endswith("-speed")
-    )
+    members = sorted(all_models)
 
     if not members:
         return
@@ -2108,10 +2106,7 @@ def main() -> None:
     # Update groups if config was modified (cleanup or new models)
     if config_changed:
         update_groups_in_yaml(LLAMASWAP_CONFIG)
-        all_members = sorted(
-            n for n in parse_existing_yaml_models(LLAMASWAP_CONFIG)
-            if not n.endswith("-speed")
-        )
+        all_members = sorted(parse_existing_yaml_models(LLAMASWAP_CONFIG))
         print(f"Groups updated: main → [{', '.join(all_members)}]")
 
         # Clean up VRAM cache for models no longer in config
