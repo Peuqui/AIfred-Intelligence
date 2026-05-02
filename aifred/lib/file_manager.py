@@ -183,13 +183,16 @@ async def delete_folder(
     *,
     recursive: bool = False,
     from_index: bool = True,
+    from_disk: bool = True,
 ) -> FileOpResult:
-    """Delete folder ``name`` from ``parent_rel``.
+    """Delete folder ``name`` from ``parent_rel`` on disk and/or in ChromaDB.
 
-    With ``recursive=False`` the folder must be empty (matches the safe-
-    by-default Unix ``rmdir`` semantics). With ``recursive=True`` the
-    whole tree is wiped and — when ``from_index=True`` — every indexed
-    document below the folder is removed from ChromaDB as well.
+    Either side can be skipped independently (``from_disk=False`` for a
+    pure index cleanup when the source folder has already been removed
+    manually, ``from_index=False`` to keep the chunks for re-use).
+
+    With ``from_disk=True`` and ``recursive=False`` the folder must be
+    empty (matches the safe-by-default Unix ``rmdir`` semantics).
     """
     if not _is_safe_name(name):
         return FileOpResult(False, f"Invalid folder name: {name!r}")
@@ -198,25 +201,32 @@ async def delete_folder(
         return FileOpResult(False, err)
     assert parent is not None
     target = parent / name
-    if not target.exists():
+    disk_exists = target.exists() and target.is_dir()
+
+    if from_disk and not disk_exists:
+        if target.exists():
+            return FileOpResult(False, f"Not a folder: {name}. Use delete_file.")
         return FileOpResult(False, f"Folder not found: {name}")
-    if not target.is_dir():
-        return FileOpResult(False, f"Not a folder: {name}. Use delete_file.")
 
-    all_items = list(target.rglob("*"))
-    file_count = sum(1 for p in all_items if p.is_file())
-    dir_count = sum(1 for p in all_items if p.is_dir())
+    rel_target = str((target if disk_exists else target).resolve().relative_to(DOCUMENTS_DIR.resolve())) \
+        if disk_exists else str(Path(parent_rel) / name) if parent_rel else name
 
-    if file_count + dir_count > 0 and not recursive:
-        return FileOpResult(
-            False,
-            f"Folder not empty ({file_count} files, {dir_count} subfolders). "
-            f"Pass recursive=True to delete the entire tree.",
-        )
+    file_count = 0
+    dir_count = 0
+    if disk_exists:
+        all_items = list(target.rglob("*"))
+        file_count = sum(1 for p in all_items if p.is_file())
+        dir_count = sum(1 for p in all_items if p.is_dir())
 
-    rel_target = str(target.relative_to(DOCUMENTS_DIR))
+        if from_disk and file_count + dir_count > 0 and not recursive:
+            return FileOpResult(
+                False,
+                f"Folder not empty ({file_count} files, {dir_count} subfolders). "
+                f"Pass recursive=True to delete the entire tree.",
+            )
+
     chunks_removed = 0
-    if recursive and from_index:
+    if from_index:
         try:
             from .document_store import get_document_store
             store = get_document_store()
@@ -233,19 +243,22 @@ async def delete_folder(
         except Exception as exc:
             logger.warning(f"delete_folder: index cleanup partially failed: {exc}")
 
-    if recursive:
-        shutil.rmtree(target)
-        detail = (
-            f"Deleted {name} (recursive): {file_count} files, "
-            f"{dir_count} subfolders"
-        )
-        if from_index and chunks_removed:
-            detail += f", {chunks_removed} index chunks"
-    else:
-        target.rmdir()
-        detail = f"Deleted (empty): {name}"
+    actions: list[str] = []
+    if from_index and chunks_removed:
+        actions.append(f"index({chunks_removed} chunks)")
+    if from_disk and disk_exists:
+        if recursive:
+            shutil.rmtree(target)
+            actions.append(f"disk({file_count} files, {dir_count} subfolders)")
+        else:
+            target.rmdir()
+            actions.append("disk(empty)")
 
-    logger.info(f"delete_folder: {rel_target} (recursive={recursive})")
+    if not actions:
+        return FileOpResult(False, f"Nothing to delete for {name}: no disk folder, no index entries")
+
+    detail = f"Deleted {name}: {', '.join(actions)}"
+    logger.info(f"delete_folder: {rel_target} ({', '.join(actions)})")
     return FileOpResult(True, detail, {
         "files_removed": file_count,
         "subfolders_removed": dir_count,
@@ -469,3 +482,28 @@ def list_indexed() -> FileOpResult:
         return FileOpResult(False, "Document store not available", {"documents": []})
     docs = store.list_documents()
     return FileOpResult(True, f"{len(docs)} indexed documents", {"documents": docs})
+
+
+def list_orphaned() -> FileOpResult:
+    """Return indexed documents whose source file is missing on disk.
+
+    The result groups by filename (one entry per orphaned document, not per
+    chunk) so the caller can review and bulk-delete entire documents
+    without scrolling through individual chunks.
+    """
+    from .document_store import get_document_store
+    store = get_document_store()
+    if not store:
+        return FileOpResult(False, "Document store not available", {"orphans": []})
+
+    docs = store.list_documents()
+    docs_root = DOCUMENTS_DIR.resolve()
+    orphans = [
+        d for d in docs
+        if not (docs_root / d["filename"]).exists()
+    ]
+    return FileOpResult(
+        True,
+        f"{len(orphans)} orphaned documents (out of {len(docs)} indexed)",
+        {"orphans": orphans, "total_indexed": len(docs)},
+    )

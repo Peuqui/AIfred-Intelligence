@@ -1226,6 +1226,12 @@ def _database_view() -> rx.Component:
                     align="center",
                 ),
 
+                # Orphan section — only meaningful for the documents collection
+                rx.cond(
+                    AIState.db_browser_collection == "aifred_documents",
+                    _db_orphan_section(),
+                ),
+
                 # Entries list
                 rx.cond(
                     AIState.db_browser_collection == "",
@@ -1266,6 +1272,123 @@ def _database_view() -> rx.Component:
         width="100%",
         flex="1",
         min_height="0",
+    )
+
+
+def _db_orphan_row(orphan: rx.Var) -> rx.Component:
+    """Single orphaned-document row in the cleanup section."""
+    return rx.hstack(
+        rx.icon("file-x-2", size=14, color="#d29922"),
+        rx.vstack(
+            rx.text(orphan["filename"], font_size="12px", color="white"),
+            rx.text(
+                orphan["total_chunks"].to(str) + rx.cond(
+                    AIState.ui_language == "de", " Chunks", " chunks"),
+                font_size="10px", color="#888",
+            ),
+            spacing="0", align="start", flex="1",
+        ),
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("trash-2", size=12), size="1",
+                variant="ghost", color_scheme="red",
+                on_click=AIState.db_delete_orphan(orphan["filename"]),
+                cursor="pointer",
+            ),
+            content=rx.cond(
+                AIState.ui_language == "de",
+                "Aus Index loeschen",
+                "Delete from index",
+            ),
+        ),
+        spacing="2", align="center", width="100%",
+        padding="6px 8px",
+        border_bottom="1px solid #2a2a2a",
+    )
+
+
+def _db_orphan_section() -> rx.Component:
+    """Collapsible section for documents indexed without a source file on disk."""
+    return rx.box(
+        rx.hstack(
+            rx.icon_button(
+                rx.icon(
+                    rx.cond(AIState.db_orphans_visible, "chevron-down", "chevron-right"),
+                    size=14,
+                ),
+                size="1", variant="ghost", color_scheme="gray",
+                on_click=AIState.db_toggle_orphans,
+                cursor="pointer",
+            ),
+            rx.icon("brush-cleaning", size=14, color="#d29922"),
+            rx.text(
+                rx.cond(
+                    AIState.ui_language == "de",
+                    "Verwaiste Index-Eintraege",
+                    "Orphaned index entries",
+                ),
+                font_size="13px", font_weight="bold", color="#d29922",
+                cursor="pointer",
+                on_click=AIState.db_toggle_orphans,
+            ),
+            rx.cond(
+                AIState.db_orphans_visible & (AIState.db_orphans.length() > 0),
+                rx.badge(
+                    AIState.db_orphans.length().to(str),
+                    variant="soft", color_scheme="orange", font_size="10px",
+                ),
+            ),
+            rx.spacer(),
+            rx.cond(
+                AIState.db_orphans_visible & (AIState.db_orphans.length() > 0),
+                rx.button(
+                    rx.icon("trash-2", size=12),
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "Alle loeschen",
+                        "Delete all",
+                    ),
+                    size="1", variant="soft", color_scheme="red",
+                    on_click=AIState.db_delete_all_orphans,
+                    cursor="pointer",
+                ),
+            ),
+            spacing="2", align="center", width="100%",
+            padding="6px 8px",
+            background="#161616",
+            border="1px solid #2a2a2a",
+            border_radius="6px",
+        ),
+        rx.cond(
+            AIState.db_orphans_visible,
+            rx.cond(
+                AIState.db_orphans.length() > 0,
+                rx.vstack(
+                    rx.foreach(AIState.db_orphans, _db_orphan_row),
+                    spacing="0", width="100%",
+                    margin_top="4px",
+                    background="#161616",
+                    border="1px solid #2a2a2a",
+                    border_radius="6px",
+                    max_height="240px",
+                    overflow_y="auto",
+                ),
+                rx.text(
+                    rx.cond(
+                        AIState.ui_language == "de",
+                        "Keine verwaisten Eintraege.",
+                        "No orphaned entries.",
+                    ),
+                    font_size="12px", color="#666",
+                    padding="12px 8px",
+                    margin_top="4px",
+                    background="#161616",
+                    border="1px solid #2a2a2a",
+                    border_radius="6px",
+                ),
+            ),
+        ),
+        width="100%",
     )
 
 

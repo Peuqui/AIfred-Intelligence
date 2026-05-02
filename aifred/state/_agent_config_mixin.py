@@ -1023,6 +1023,10 @@ class AgentConfigMixin(rx.State, mixin=True):
     db_browser_entries: List[Dict[str, str]] = []  # Entries for selected collection
     db_clear_confirm: bool = False  # Confirmation state for clear-all
 
+    # Orphan-cleanup state (only meaningful when db_browser_collection == aifred_documents)
+    db_orphans: List[Dict[str, Any]] = []      # one entry per orphaned document (not per chunk)
+    db_orphans_visible: bool = False           # toggles the orphan section
+
     # Memory browser state
     memory_browser_agent: str = ""  # Selected agent in memory browser ("" = overview)
     memory_browser_agent_display: str = ""  # Display name of selected agent
@@ -2404,6 +2408,39 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.add_debug(f"🗑️ Cleared {self.db_browser_collection}: {count} entries")  # type: ignore[attr-defined]
         except Exception as e:
             self.add_debug(f"❌ Clear failed: {e}")  # type: ignore[attr-defined]
+        self._load_db_entries()
+
+    def db_toggle_orphans(self) -> None:
+        """Toggle the orphan-cleanup section (only meaningful for aifred_documents)."""
+        self.db_orphans_visible = not self.db_orphans_visible
+        if self.db_orphans_visible:
+            self._reload_db_orphans()
+
+    def _reload_db_orphans(self) -> None:
+        from ..lib import file_manager as fm
+        result = fm.list_orphaned()
+        self.db_orphans = result.metadata.get("orphans", []) if result.success else []
+
+    async def db_delete_orphan(self, filename: str) -> None:
+        """Delete a single orphaned document from the index only."""
+        from ..lib import file_manager as fm
+        parts = filename.strip("/").rsplit("/", 1)
+        parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+        await fm.delete_file(parent_rel, leaf, from_disk=False, from_index=True)
+        self._reload_db_orphans()
+        self._load_db_entries()
+
+    async def db_delete_all_orphans(self) -> None:
+        """Bulk-delete every orphaned document from the index."""
+        from ..lib import file_manager as fm
+        for orphan in list(self.db_orphans):
+            filename = str(orphan.get("filename", ""))
+            if not filename:
+                continue
+            parts = filename.strip("/").rsplit("/", 1)
+            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            await fm.delete_file(parent_rel, leaf, from_disk=False, from_index=True)
+        self._reload_db_orphans()
         self._load_db_entries()
 
     def _load_memory_collections(self) -> None:

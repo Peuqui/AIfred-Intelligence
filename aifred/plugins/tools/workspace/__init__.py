@@ -543,6 +543,37 @@ class WorkspacePlugin:
             executor=_list_indexed,
         ))
 
+        async def _list_orphaned() -> str:
+            """List indexed documents whose source file is missing on disk."""
+            result = fm.list_orphaned()
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            orphans = result.metadata.get("orphans", [])
+            total = result.metadata.get("total_indexed", 0)
+            if not orphans:
+                return json.dumps({
+                    "orphans": [],
+                    "total_indexed": total,
+                    "message": "No orphans found — every indexed document still has its source file.",
+                })
+            return json.dumps({
+                "total_indexed": total,
+                "orphan_count": len(orphans),
+                "orphans": orphans,
+            }, ensure_ascii=False)
+
+        tools.append(Tool(
+            name="list_orphaned",
+            tier=TIER_READONLY,
+            description=(
+                "List documents that are still indexed in the vector database "
+                "but whose source file is no longer on disk. Useful before "
+                "calling delete_document to clean up the index."
+            ),
+            parameters={"type": "object", "properties": {}},
+            executor=_list_orphaned,
+        ))
+
         async def _delete_document(filename: str) -> str:
             """Delete a document from ChromaDB (and from disk)."""
             parts = filename.strip("/").rsplit("/", 1)
