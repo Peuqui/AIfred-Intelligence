@@ -8,7 +8,7 @@ Provides tools for:
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from ....lib.config import DATA_DIR, DOCUMENTS_DIR
 from ....lib import file_manager as fm
@@ -459,17 +459,26 @@ class WorkspacePlugin:
             executor=_index_document,
         ))
 
-        async def _search_documents(query: str, n_results: int = 5) -> str:
-            """Semantic search in ChromaDB."""
-            result = await fm.search_index(query, n_results=n_results)
+        async def _search_documents(
+            query: str,
+            n_results: int = 5,
+            folder: Optional[str] = None,
+        ) -> str:
+            """Semantic search in ChromaDB, optionally restricted to a folder."""
+            result = await fm.search_index(query, n_results=n_results, folder=folder)
             if not result.success:
                 return json.dumps({"error": result.detail})
             hits = result.metadata.get("results", [])
             if not hits:
-                return json.dumps({"results": [], "message": "No matching documents found."})
+                msg = (
+                    f"No matching documents found in folder '{folder}'."
+                    if folder else "No matching documents found."
+                )
+                return json.dumps({"results": [], "message": msg})
             results = [
                 {
                     "filename": hit["filename"],
+                    "folder": hit.get("folder", ""),
                     "chunk": f"{hit['chunk_index'] + 1}/{hit['total_chunks']}",
                     "content": hit["content"],
                 }
@@ -483,7 +492,9 @@ class WorkspacePlugin:
             description=(
                 "Search indexed documents semantically in the vector database. "
                 "Only finds documents that have been indexed (uploaded via UI or via index_document). "
-                "Use list_files to see all files on disk, search_documents to search indexed content."
+                "Use list_files to see all files on disk, search_documents to search indexed content. "
+                "Pass folder to restrict the search to one folder (e.g. 'bibel/Schlachter') — "
+                "use list_indexed first to see which folders have indexed content."
             ),
             parameters={
                 "type": "object",
@@ -496,6 +507,14 @@ class WorkspacePlugin:
                         "type": "integer",
                         "description": "Number of results (default: 5, max: 100)",
                         "default": 5,
+                    },
+                    "folder": {
+                        "type": "string",
+                        "description": (
+                            "Optional folder to restrict the search to "
+                            "(exact match, e.g. 'bibel/Schlachter'). "
+                            "Sub-folders are NOT included automatically."
+                        ),
                     },
                 },
                 "required": ["query"],

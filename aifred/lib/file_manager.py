@@ -436,14 +436,25 @@ async def deindex_file(rel_path: str, fallback_filename: str = "") -> FileOpResu
     return FileOpResult(True, detail, {"chunks_removed": chunks})
 
 
-async def search_index(query: str, n_results: int = 5) -> FileOpResult:
-    """Semantic search over indexed documents."""
+async def search_index(
+    query: str,
+    n_results: int = 5,
+    folder: Optional[str] = None,
+) -> FileOpResult:
+    """Semantic search over indexed documents.
+
+    Args:
+        query: Search query.
+        n_results: Max number of chunks (capped at 100).
+        folder: If set, restrict search to this exact folder string
+                (e.g. "bibel/Schlachter"). Sub-folders are not auto-included.
+    """
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
         return FileOpResult(False, "Document store not available", {"results": []})
 
-    hits = await store.search(query, n_results=min(n_results, 100))
+    hits = await store.search(query, n_results=min(n_results, 100), folder=folder)
     return FileOpResult(True, f"{len(hits)} hits", {"results": hits})
 
 

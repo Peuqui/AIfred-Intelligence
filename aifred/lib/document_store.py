@@ -255,10 +255,14 @@ class DocumentStore:
         chunks = _chunk_text(text, DOCUMENT_CHUNK_SIZE, DOCUMENT_CHUNK_OVERLAP)
         now = datetime.now().isoformat()
 
+        # Folder is the parent path of the relative filename — empty string means root
+        folder = str(Path(filename).parent) if "/" in filename else ""
+
         ids = [f"{filename}__chunk_{i}" for i in range(len(chunks))]
         metadatas = [
             {
                 "filename": filename,
+                "folder": folder,
                 "chunk_index": i,
                 "total_chunks": len(chunks),
                 "upload_date": now,
@@ -277,15 +281,32 @@ class DocumentStore:
         log_message(f"📄 Indexed {filename}: {len(chunks)} chunks")
         return len(chunks)
 
-    async def search(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
-        """Semantic search across all documents. Returns list of chunk results."""
+    async def search(
+        self,
+        query: str,
+        n_results: int = 5,
+        folder: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Semantic search across documents. Returns list of chunk results.
+
+        Args:
+            query: Search query.
+            n_results: Max number of chunks to return.
+            folder: If set, restrict search to this folder. Sub-folders are
+                    NOT included — pass the exact folder string as stored
+                    in metadata (e.g. "bibel/Schlachter").
+        """
         if self._collection.count() == 0:
             return []
 
-        results = self._collection.query(
-            query_texts=[query],
-            n_results=min(n_results, self._collection.count()),
-        )
+        query_kwargs: dict[str, Any] = {
+            "query_texts": [query],
+            "n_results": min(n_results, self._collection.count()),
+        }
+        if folder is not None:
+            query_kwargs["where"] = {"folder": folder}
+
+        results = self._collection.query(**query_kwargs)
 
         hits: list[dict[str, Any]] = []
         if results and results["documents"] and results["documents"][0]:
@@ -295,6 +316,7 @@ class DocumentStore:
                 hits.append({
                     "content": doc,
                     "filename": meta.get("filename", ""),
+                    "folder": meta.get("folder", ""),
                     "chunk_index": meta.get("chunk_index", 0),
                     "total_chunks": meta.get("total_chunks", 0),
                     "distance": distance,
