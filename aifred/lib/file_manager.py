@@ -445,16 +445,19 @@ async def search_index(
 
     Args:
         query: Search query.
-        n_results: Max number of chunks (capped at 100).
+        n_results: Max number of chunks (capped at DOCUMENT_SEARCH_MAX_RESULTS).
         folder: If set, restrict search to this exact folder string
                 (e.g. "bibel/Schlachter"). Sub-folders are not auto-included.
     """
+    from .config import DOCUMENT_SEARCH_MAX_RESULTS
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
         return FileOpResult(False, "Document store not available", {"results": []})
 
-    hits = await store.search(query, n_results=min(n_results, 100), folder=folder)
+    hits = await store.search(
+        query, n_results=min(n_results, DOCUMENT_SEARCH_MAX_RESULTS), folder=folder
+    )
     return FileOpResult(True, f"{len(hits)} hits", {"results": hits})
 
 

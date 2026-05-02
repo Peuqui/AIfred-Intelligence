@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from ....lib.config import DATA_DIR, DOCUMENTS_DIR
+from ....lib.config import DATA_DIR, DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS
 from ....lib import file_manager as fm
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
@@ -505,7 +505,7 @@ class WorkspacePlugin:
                     },
                     "n_results": {
                         "type": "integer",
-                        "description": "Number of results (default: 5, max: 100)",
+                        "description": f"Number of results (default: 5, max: {DOCUMENT_SEARCH_MAX_RESULTS})",
                         "default": 5,
                     },
                     "folder": {

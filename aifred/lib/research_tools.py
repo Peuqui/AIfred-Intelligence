@@ -83,14 +83,18 @@ async def execute_research(
             cache_result = await cache.query(user_query, n_results=1)
             distance = cache_result.get('distance', 1.0)
 
-            if cache_result['source'] == 'CACHE' and distance < 0.05:
-                cache_time = _dt.datetime.fromisoformat(cache_result['metadata']['timestamp'])
-                age_seconds = (_dt.datetime.now() - cache_time).total_seconds()
-                age_formatted = format_age(age_seconds)
-                state.add_debug(f"✅ Cache hit ({age_formatted} ago, d={distance:.4f})")
-                state._research_context = cache_result['answer']  # type: ignore[attr-defined]
-                yield
-                return
+            if cache_result['source'] == 'CACHE':
+                from .config import CACHE_DISTANCE_PER_VOLATILITY, CACHE_DISTANCE_DEFAULT
+                volatility = str(cache_result.get('metadata', {}).get('volatility', '') or '')
+                threshold = CACHE_DISTANCE_PER_VOLATILITY.get(volatility, CACHE_DISTANCE_DEFAULT)
+                if distance < threshold:
+                    cache_time = _dt.datetime.fromisoformat(cache_result['metadata']['timestamp'])
+                    age_seconds = (_dt.datetime.now() - cache_time).total_seconds()
+                    age_formatted = format_age(age_seconds)
+                    state.add_debug(f"✅ Cache hit ({age_formatted} ago, d={distance:.4f}, {volatility or 'unknown'} ≤ {threshold})")
+                    state._research_context = cache_result['answer']  # type: ignore[attr-defined]
+                    yield
+                    return
         except (ConnectionError, OSError, TimeoutError) as e:
             log_message(f"⚠️ Vector cache check failed (connection): {e}")
 
@@ -307,11 +311,15 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
             cache_result = await cache.query(queries[0], n_results=1)
             distance = cache_result.get('distance', 1.0)
 
-            if cache_result['source'] == 'CACHE' and distance < 0.05:
-                cache_time = _dtc.datetime.fromisoformat(cache_result['metadata']['timestamp'])
-                age_seconds = (_dtc.datetime.now() - cache_time).total_seconds()
-                debug(f"✅ Cache hit ({format_age(age_seconds)} ago, d={distance:.4f})")
-                return str(cache_result['answer'])
+            if cache_result['source'] == 'CACHE':
+                from .config import CACHE_DISTANCE_PER_VOLATILITY, CACHE_DISTANCE_DEFAULT
+                volatility = str(cache_result.get('metadata', {}).get('volatility', '') or '')
+                threshold = CACHE_DISTANCE_PER_VOLATILITY.get(volatility, CACHE_DISTANCE_DEFAULT)
+                if distance < threshold:
+                    cache_time = _dtc.datetime.fromisoformat(cache_result['metadata']['timestamp'])
+                    age_seconds = (_dtc.datetime.now() - cache_time).total_seconds()
+                    debug(f"✅ Cache hit ({format_age(age_seconds)} ago, d={distance:.4f}, {volatility or 'unknown'} ≤ {threshold})")
+                    return str(cache_result['answer'])
         except (ConnectionError, OSError, TimeoutError) as e:
             debug(f"⚠️ Cache check failed: {e}")
 

@@ -1013,6 +1013,21 @@ VLLM_IDLE_TTL_SECONDS = 900  # 15 min (matches llama-swap default)
 # Normal cache query (without explicit keywords like "research")
 CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit (direct answer)
 
+# Per-volatility cache-hit threshold for the research-tools "Phase 0"
+# duplicate check: how similar must the new query be to a cached entry to
+# reuse the cached answer instead of running a fresh web search?
+# Stable knowledge tolerates wider matches; time-sensitive topics need to
+# stay tight to avoid serving outdated facts under a slightly different
+# wording. NOCACHE entries are never stored, so no threshold is needed.
+CACHE_DISTANCE_PER_VOLATILITY = {
+    'PERMANENT': 0.20,   # Goethe, photosynthesis — knowledge is stable
+    'MONTHLY':   0.15,
+    'WEEKLY':    0.10,
+    'DAILY':     0.05,   # Politics, news — keep tight to avoid stale facts
+}
+# Fallback threshold when a cache entry has no volatility tag (legacy data)
+CACHE_DISTANCE_DEFAULT = 0.05
+
 # ============================================================
 # TTL-BASED CACHE SYSTEM (Volatility Levels)
 # ============================================================
@@ -1037,9 +1052,6 @@ CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Very similar (semantic duplicate, alwa
                                 # - "research Python" vs "research Python Tutorial" = ~0.15
                                 # - "research weather Berlin" vs "research weather Hamburg" = ~0.25
                                 # - "research Python" vs "research Java" = ~0.6
-
-# RAG-Mode Distance Threshold
-CACHE_DISTANCE_RAG = 1.2  # < 1.2 = Similar enough for RAG context (implemented later)
 
 # ============================================================
 # AGENT MEMORY CONFIGURATION
@@ -1094,7 +1106,7 @@ DOCUMENT_CHUNK_SIZE = 500           # Tokens per chunk (~375 words)
 DOCUMENT_CHUNK_OVERLAP = 50         # Overlap between chunks (tokens)
 DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
 EMBEDDING_USE_GPU = True            # True = GPU (~900MB VRAM, ~10× faster — needed for large docs), False = CPU
-DOCUMENT_RAG_MAX_CHUNKS = 100       # Max chunks auto-injected as RAG context per query
+DOCUMENT_SEARCH_MAX_RESULTS = 100   # Hard cap for the search_documents tool's n_results parameter
 DOCUMENT_COLLECTION = "aifred_documents"  # ChromaDB collection name
 DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
 

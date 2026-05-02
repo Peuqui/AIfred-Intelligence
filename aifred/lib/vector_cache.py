@@ -37,7 +37,6 @@ from .logging_utils import log_message
 from .config import (
     CACHE_DISTANCE_HIGH,
     CACHE_DISTANCE_DUPLICATE,
-    CACHE_DISTANCE_RAG,
     TTL_HOURS,
     DEFAULT_OLLAMA_URL
 )
@@ -722,85 +721,6 @@ class VectorCache:
         except (ChromaError, ConnectionError, OSError) as e:
             log_message(f"⚠️  Vector Cache clear failed: {e}")
             return {'success': False, 'error': str(e)}
-
-    async def query_for_rag(self, user_query: str, n_results: int = 5) -> List[Dict]:
-        """
-        Query cache for RAG (Retrieval-Augmented Generation) purposes.
-        Returns multiple results in the RAG distance range (0.5 - 1.2) that might be
-        relevant as context, not as direct answers.
-
-        Args:
-            user_query: User's current question
-            n_results: Max number of potential context entries to return
-
-        Returns:
-            List of dicts with: {
-                'query': original cached query,
-                'answer': cached answer,
-                'distance': semantic distance,
-                'metadata': cache metadata
-            }
-        """
-        timer = Timer()
-
-        # Run in thread pool
-        results = await asyncio.to_thread(
-            self._query_for_rag_sync,
-            user_query,
-            n_results
-        )
-
-        query_time_ms = timer.elapsed_ms()
-        log_message(f"📊 RAG query completed in {query_time_ms:.1f}ms, found {len(results)} candidates")
-
-        return results
-
-    def _query_for_rag_sync(self, user_query: str, n_results: int) -> List[Dict]:
-        """
-        Synchronous RAG query implementation (called in thread pool)
-        """
-        # Check if cache is empty
-        if self.collection.count() == 0:
-            return []
-
-        # Perform semantic similarity search
-        results = self.collection.query(
-            query_texts=[user_query],
-            n_results=n_results,
-            include=['distances', 'documents', 'metadatas']
-        )
-
-        # No results found
-        if not results['ids'][0]:
-            return []
-
-        # Filter results in RAG range (CACHE_DISTANCE_HIGH to CACHE_DISTANCE_RAG)
-        # Start from CACHE_DISTANCE_HIGH because anything below that is a direct cache hit
-        rag_candidates = []
-
-        assert results['distances'] is not None
-        assert results['documents'] is not None
-        assert results['metadatas'] is not None
-        for i, (distance, document, metadata) in enumerate(zip(
-            results['distances'][0],
-            results['documents'][0],
-            results['metadatas'][0]
-        )):
-            # Only include results in RAG range (not direct hits, but related)
-            if CACHE_DISTANCE_HIGH <= distance < CACHE_DISTANCE_RAG:
-                rag_candidates.append({
-                    'query': document,  # Original cached query
-                    'answer': metadata.get('answer', ''),
-                    'distance': distance,
-                    'metadata': metadata
-                })
-
-        if rag_candidates:
-            log_message(f"🎯 Found {len(rag_candidates)} RAG candidates (d: {CACHE_DISTANCE_HIGH}-{CACHE_DISTANCE_RAG})")
-        else:
-            log_message(f"❌ No RAG candidates in range {CACHE_DISTANCE_HIGH}-{CACHE_DISTANCE_RAG}")
-
-        return rag_candidates
 
     async def delete_expired_entries(self) -> int:
         """
