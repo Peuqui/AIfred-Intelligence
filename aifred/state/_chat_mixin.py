@@ -1310,15 +1310,25 @@ class ChatMixin(rx.State, mixin=True):
                 ):
                     yield
 
-                # Multi-Agent analysis (Sokrates critique etc.)
-                # Get the AI response from the last chat history entry
+                # Multi-Agent analysis (Sokrates critique etc.) — only after
+                # the standard single-agent response. Symposion has no
+                # follow-up critique step.
                 _last = self._chat_sub().chat_history[-1] if self._chat_sub().chat_history else {}
-                ai_text = _last.get("content", "") if _last.get("role") == "assistant" else ""
+                ai_text_for_dispatch = _last.get("content", "") if _last.get("role") == "assistant" else ""
 
                 async for _ in self._dispatch_multi_agent(
-                    user_msg, ai_text, detected_language, skip_sokrates_analysis,
+                    user_msg, ai_text_for_dispatch, detected_language, skip_sokrates_analysis,
                 ):
                     yield
+
+            # Single source of truth for ai_text (used by the finally block
+            # to gate session-title generation): pull the most recent
+            # assistant message from chat_history regardless of which mode
+            # produced it. Without this the symposion branch left ai_text
+            # empty and skipped title generation.
+            _last = self._chat_sub().chat_history[-1] if self._chat_sub().chat_history else {}
+            if _last.get("role") == "assistant":
+                ai_text = _last.get("content", "")
 
             self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
             self.current_user_message = ""

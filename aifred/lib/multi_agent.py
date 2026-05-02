@@ -279,7 +279,11 @@ async def _stream_agent_to_history(
             tool_name = event.get("name", "")
             full_args = event.get("arguments", "")
             from .debug_format import format_tool_call
-            state.add_debug(f"🔧 {format_tool_call(tool_name, full_args)}")
+            # Prefix with agent label only in multi-agent modes so single-agent
+            # logs stay clean. agent_label is the display name passed in here.
+            from_multi_agent = state.multi_agent_mode != "standard"
+            agent_prefix = agent_label if from_multi_agent else ""
+            state.add_debug(f"🔧 {format_tool_call(tool_name, full_args, agent=agent_prefix)}")
 
             import json as _json
             tool_args: dict[str, Any] = {}
@@ -785,6 +789,12 @@ async def _run_agent_direct_response(
         parts.append(f"History {format_number(hist_tok)}")
         state.add_debug(f"📊 Prompt: {' + '.join(parts)} = {format_number(total_tok)} / {format_number(agent_num_ctx)} tok ({int(total_tok / agent_num_ctx * 100)}%)")
         state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
+
+        # Set tool-output budget for this inference: caps how many tokens
+        # a single tool result may inject into the conversation. Read by
+        # backends/base.py just before appending the tool message.
+        from .tool_output_cap import budget_var, compute_budget
+        budget_var.set(compute_budget(agent_num_ctx, sys_tok, hist_tok, mem_tok))
 
         # Build LLM options — custom agents use AIfred's settings
         opts_agent = agent if agent in _default_agents else "aifred"
@@ -1408,8 +1418,13 @@ async def run_symposion(
     yield
 
     try:
-        # Load symposion discussion rules
+        # Load symposion discussion rules + reflection augmentation
+        # (Reflection is appended from round 2 onwards so the discussion
+        # gains depth without sacrificing breadth — agents must address
+        # gaps left by earlier contributions while keeping their own
+        # multiperspective stance.)
         symposion_prompt = load_prompt("shared/symposion", lang=detected_lang)
+        reflection_prompt = load_prompt("shared/symposion_reflection", lang=detected_lang)
 
         # Shared conversation (all agents see prior responses)
         conversation: list[dict[str, str]] = [
@@ -1438,10 +1453,14 @@ async def run_symposion(
                 agent_num_ctx, _ = get_agent_num_ctx(ctx_agent, state, model_id)
 
                 # System prompt: agent identity + symposion rules + memory
+                # From round 2 onwards augment with the reflection prompt so
+                # each follow-up round actively probes for unanswered aspects.
                 agent_system = get_agent_system_prompt(
                     agent_id, prompt_key="direct", lang=detected_lang, memory=memory_enabled
                 )
                 system_prompt = f"{agent_system}\n\n{symposion_prompt}"
+                if round_num >= 2:
+                    system_prompt = f"{system_prompt}\n\n{reflection_prompt}"
 
                 # Memory recall (round 1) + toolkit with research tools (every round)
                 memory_ctx = ""

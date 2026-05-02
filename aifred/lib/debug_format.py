@@ -31,25 +31,33 @@ def _render_value(value: Any, max_value_len: int) -> str:
     return str(value)
 
 
-def format_tool_call(name: str, args_json: str, max_value_len: int = 60) -> str:
+def format_tool_call(
+    name: str,
+    args_json: str,
+    max_value_len: int = 60,
+    agent: str = "",
+) -> str:
     """Render a tool call as ``name(key=value, key=value)`` for the debug log.
 
     Falls back to the raw arg string (truncated) when the payload is not
-    valid JSON.
+    valid JSON. When ``agent`` is set the label is prefixed in brackets
+    so multi-agent debug logs stay readable (e.g. ``[Sokrates] search(...)``).
     """
+    prefix = f"[{agent}] " if agent else ""
+
     if not args_json:
-        return f"{name}()"
+        return f"{prefix}{name}()"
 
     try:
         args = json.loads(args_json)
     except (ValueError, json.JSONDecodeError):
-        return f"{name}({_truncate(args_json, 80)})"
+        return f"{prefix}{name}({_truncate(args_json, 80)})"
 
     if not isinstance(args, dict):
-        return f"{name}({_truncate(str(args), 80)})"
+        return f"{prefix}{name}({_truncate(str(args), 80)})"
 
     parts = [f"{key}={_render_value(val, max_value_len)}" for key, val in args.items()]
-    return f"{name}({', '.join(parts)})"
+    return f"{prefix}{name}({', '.join(parts)})"
 
 
 def _normalize_whitespace(text: str) -> str:
