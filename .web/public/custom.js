@@ -160,8 +160,9 @@ function updateRecordingButton(recording) {
         btn.style.width = '160px';
 
         if (recording) {
-            // Recording state - toggle CSS class (handles color + hover)
-            btn.classList.add('recording');
+            // Recording state - RED, show "Stop"
+            btn.style.backgroundColor = '#dc2626'; // red-600
+            btn.style.color = 'white';
 
             // Update button text (find the text element)
             const textElement = btn.querySelector('.rt-Text');
@@ -171,8 +172,9 @@ function updateRecordingButton(recording) {
 
             console.log('🔴 Button updated to RECORDING state');
         } else {
-            // Idle state - remove CSS class
-            btn.classList.remove('recording');
+            // Idle state - GREEN, show "Aufnahme"
+            btn.style.backgroundColor = ''; // Reset to default (theme color)
+            btn.style.color = '';
 
             // Update button text
             const textElement = btn.querySelector('.rt-Text');
@@ -1512,4 +1514,262 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', setupKatexObserver);
 } else {
     setTimeout(setupKatexObserver, 500);
+}
+
+// ============================================================
+// AUDIO PLAYER (audio_player tool target=browser)
+// ============================================================
+//
+// The shared #tts-audio-player element is SSOT for both TTS speech and
+// media (audio_player tool). TTS has priority — when TTS pushes a chunk
+// while media plays, we save media position, switch to TTS, and resume
+// media after TTS finishes.
+//
+// Server pushes intent via data attributes on the player:
+//   data-media-url            → /api/audio/file?key=... or http stream
+//   data-media-state-key      → for /api/audio/position
+//   data-media-is-stream      → "true" / "false"
+//   data-media-paused-for-tts → set when TTS interrupts media
+//   data-media-pause-pos      → position to resume from (seconds)
+//
+// Browser flow:
+//   1. URL change observed → load + play media (apply pause-pos with pre-roll)
+//   2. TTS push detected → save current pos to /api/audio/position, mark paused-for-tts
+//   3. TTS ends + queue empty → resume media at pause-pos minus pre-roll
+//   4. Periodic position-save every 30s while media plays (cheap)
+//   5. ended event → mark completed via /api/audio/position {completed:true}
+// ============================================================
+
+const AUDIO_PRE_ROLL_SEC = 3;            // resume offset after TTS interrupt
+const AUDIO_POSITION_SAVE_INTERVAL_MS = 30000;  // periodic save while playing
+let audioPositionSaveTimer = null;
+let audioCurrentMediaKey = '';           // track which media is loaded
+let audioCurrentMediaUrl = '';
+
+function audioPlayerEl() {
+    return document.getElementById('tts-audio-player');
+}
+
+/** POST current player position to backend for resume tracking. */
+async function audioPostPosition({ stateKey, posSec, durationSec, completed }) {
+    if (!stateKey) return;
+    try {
+        await fetch('/api/audio/position', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                state_key: stateKey,
+                pos_sec: Math.max(0, Number(posSec) || 0),
+                duration_sec: durationSec ? Number(durationSec) : null,
+                completed: !!completed,
+            }),
+        });
+    } catch (e) {
+        console.warn('🔊 Audio: position POST failed', e);
+    }
+}
+
+/** Save current player position if a media item is loaded. */
+function audioSaveCurrentPosition({ completed = false } = {}) {
+    const player = audioPlayerEl();
+    if (!player) return;
+    if (!audioCurrentMediaKey) return;
+    audioPostPosition({
+        stateKey: audioCurrentMediaKey,
+        posSec: player.currentTime,
+        durationSec: isFinite(player.duration) ? player.duration : null,
+        completed,
+    });
+}
+
+/** Start periodic position-save (idempotent). */
+function audioStartPositionSaver() {
+    if (audioPositionSaveTimer) return;
+    audioPositionSaveTimer = setInterval(() => {
+        const player = audioPlayerEl();
+        if (!player || player.paused || player.ended) return;
+        audioSaveCurrentPosition();
+    }, AUDIO_POSITION_SAVE_INTERVAL_MS);
+}
+
+function audioStopPositionSaver() {
+    if (audioPositionSaveTimer) {
+        clearInterval(audioPositionSaveTimer);
+        audioPositionSaveTimer = null;
+    }
+}
+
+/**
+ * Handle a fresh media URL on the player. Called by the data-media-url
+ * MutationObserver. If TTS is currently playing on top, we just remember
+ * the URL — JS resume logic will pick it up after TTS ends.
+ */
+function audioHandleMediaUrlChange(player, newUrl) {
+    if (!newUrl) {
+        // Cleared → save final position + stop saver
+        if (audioCurrentMediaKey) {
+            audioSaveCurrentPosition();
+        }
+        audioCurrentMediaKey = '';
+        audioCurrentMediaUrl = '';
+        audioStopPositionSaver();
+        return;
+    }
+
+    audioCurrentMediaUrl = newUrl;
+    audioCurrentMediaKey = player.dataset.mediaStateKey || '';
+
+    // If TTS is playing right now, hold off — we'll resume media
+    // automatically when TTS completes (handled by audioOnEnded).
+    const ttsActive = (player.src || '').includes('/_upload/tts_audio/');
+    if (ttsActive && !player.paused) {
+        console.log('🔊 Audio: media URL queued behind active TTS');
+        return;
+    }
+
+    audioLoadAndPlayMedia(newUrl);
+}
+
+/** Load media URL into player, applying any saved pause-pos with pre-roll. */
+function audioLoadAndPlayMedia(url) {
+    const player = audioPlayerEl();
+    if (!player) return;
+
+    const pausedForTts = player.dataset.mediaPausedForTts === 'true';
+    const pausePosRaw = parseFloat(player.dataset.mediaPausePos || '0');
+    const isStream = player.dataset.mediaIsStream === 'true';
+
+    let startPos = 0;
+    if (pausedForTts && pausePosRaw > 0 && !isStream) {
+        startPos = Math.max(0, pausePosRaw - AUDIO_PRE_ROLL_SEC);
+    }
+
+    console.log(`🔊 Audio: loading media ${url} (start=${startPos}s)`);
+    player.src = url;
+    player.load();
+
+    const onLoaded = () => {
+        if (startPos > 0) {
+            try { player.currentTime = startPos; } catch (e) { /* ignore */ }
+        }
+        player.removeEventListener('loadedmetadata', onLoaded);
+        player.play().then(() => {
+            console.log('✅ Audio: media playback started');
+            audioStartPositionSaver();
+        }).catch(err => {
+            console.warn('⚠️ Audio: autoplay blocked:', err.message);
+        });
+    };
+    player.addEventListener('loadedmetadata', onLoaded);
+}
+
+/**
+ * Called when the player switches to TTS while media is loaded.
+ * Save current position so we can resume after TTS.
+ */
+function audioOnTtsTakeover(prevUrl) {
+    // prevUrl was a media URL → save its position
+    if (prevUrl && (prevUrl.includes('/api/audio/file') || /^https?:/.test(prevUrl))) {
+        if (audioCurrentMediaKey) {
+            console.log('🔊 Audio: TTS takeover — saving media position');
+            audioSaveCurrentPosition();
+        }
+    }
+}
+
+/**
+ * Player 'ended' event. If we just finished a TTS chunk and the queue is
+ * empty AND media was paused for TTS, resume media. Otherwise, if a media
+ * item just ended naturally, mark it completed.
+ */
+function audioOnEnded() {
+    const player = audioPlayerEl();
+    if (!player) return;
+
+    const wasMedia = (player.src || '').includes('/api/audio/file');
+    if (wasMedia && audioCurrentMediaKey) {
+        console.log('🔊 Audio: media ended — marking completed');
+        audioPostPosition({ stateKey: audioCurrentMediaKey, posSec: 0, completed: true });
+        audioCurrentMediaKey = '';
+        audioCurrentMediaUrl = '';
+        audioStopPositionSaver();
+        return;
+    }
+
+    // TTS chunk ended — if queue is empty AND media is paused-for-tts, resume
+    const ttsQueue = document.getElementById('tts-queue-data');
+    const queueRaw = ttsQueue ? (ttsQueue.dataset.queue || '[]') : '[]';
+    let queueEmpty = true;
+    try {
+        const parsed = JSON.parse(queueRaw);
+        queueEmpty = !Array.isArray(parsed) || parsed.length === 0;
+    } catch { /* ignore */ }
+
+    if (!queueEmpty) return;  // more TTS coming
+
+    const mediaUrl = player.dataset.mediaUrl || '';
+    const pausedForTts = player.dataset.mediaPausedForTts === 'true';
+    if (mediaUrl && pausedForTts) {
+        console.log('🔊 Audio: TTS queue drained — resuming media');
+        audioLoadAndPlayMedia(mediaUrl);
+    }
+}
+
+/** Set up listeners + MutationObserver for the audio player. */
+function setupAudioPlayer() {
+    const player = audioPlayerEl();
+    if (!player) {
+        // Player not in DOM yet (no TTS, no media) — re-check later
+        setTimeout(setupAudioPlayer, 500);
+        return;
+    }
+
+    // Track the previous src to detect TTS takeover
+    let prevSrc = player.src || '';
+    const srcObserver = new MutationObserver(() => {
+        const newSrc = player.src || '';
+        if (newSrc === prevSrc) return;
+        const wasMedia = prevSrc.includes('/api/audio/file');
+        const nowTts = newSrc.includes('/_upload/tts_audio/');
+        if (wasMedia && nowTts) {
+            audioOnTtsTakeover(prevSrc);
+        }
+        prevSrc = newSrc;
+    });
+    srcObserver.observe(player, { attributes: true, attributeFilter: ['src'] });
+
+    // Watch for media URL changes (server-pushed via data-media-url)
+    const dataObserver = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            if (m.attributeName === 'data-media-url') {
+                const newUrl = player.dataset.mediaUrl || '';
+                if (newUrl !== audioCurrentMediaUrl) {
+                    audioHandleMediaUrlChange(player, newUrl);
+                }
+            }
+        }
+    });
+    dataObserver.observe(player, { attributes: true, attributeFilter: ['data-media-url'] });
+
+    // Player events
+    player.addEventListener('ended', audioOnEnded);
+    player.addEventListener('pause', () => {
+        if (audioCurrentMediaKey && (player.src || '').includes('/api/audio/file')) {
+            audioSaveCurrentPosition();
+        }
+    });
+
+    // If a media URL is already present at setup, handle it
+    const initialUrl = player.dataset.mediaUrl || '';
+    if (initialUrl) {
+        audioHandleMediaUrlChange(player, initialUrl);
+    }
+
+    console.log('🔊 Audio Player observer active');
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(setupAudioPlayer, 600));
+} else {
+    setTimeout(setupAudioPlayer, 600);
 }

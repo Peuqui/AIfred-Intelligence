@@ -386,6 +386,11 @@ class BackendMixin(rx.State, mixin=True):
             initialize_vector_cache()
             log_message("💾 Vector Cache: Connected")
 
+            # Audio state cleanup task (parallel to vector cache cleanup)
+            import asyncio as _asyncio
+            from ..lib.audio_state import cleanup_audio_state_task
+            _asyncio.create_task(cleanup_audio_state_task())
+
             # Whisper STT: Docker container (started on demand or always-on)
             if is_whisper_ready():
                 log_message("✅ Whisper: Docker service ready")
