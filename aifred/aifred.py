@@ -953,6 +953,14 @@ console.log('✂️ Crop handler loaded');
                             "data-tts-active": rx.cond(
                                 AIState.tts_streaming_in_flight, "true", "false"
                             ),
+                            # Enter-sendet-Flag wird hier abgelegt (nicht am
+                            # textarea selbst), weil Radix' TextArea-Wrapper
+                            # custom_attrs nicht zuverlaessig an das innere
+                            # <textarea>-Element weiterreicht. custom.js liest
+                            # diesen Wert beim keydown-Handling.
+                            "data-enter-sends": rx.cond(
+                                AIState.enter_sends_message, "true", "false"
+                            ),
                         },
                         style={"display": "none"},
                     ),

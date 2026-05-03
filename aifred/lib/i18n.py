@@ -179,6 +179,8 @@ class TranslationManager:
             "transcription_edit": "Transkription bearbeiten:",
             "text_edit": "✏️ Text editieren",
             "text_direct": "⚡ Direkt senden",
+            "enter_sends": "⏎ Enter sendet",
+            "enter_sends_hint": "Shift+Enter = Zeilenumbruch",
             "image_hint": "💡 Ziehe Bilder auf den Button oder klicke zum Auswählen",
             "crop_tooltip": "Zuschneiden",
             # Text Input (Phase 2)
@@ -673,6 +675,8 @@ class TranslationManager:
             "transcription_edit": "Edit transcription:",
             "text_edit": "✏️ Edit text",
             "text_direct": "⚡ Send directly",
+            "enter_sends": "⏎ Enter sends",
+            "enter_sends_hint": "Shift+Enter = newline",
             "image_hint": "💡 Drag images to the button or click to select",
             "crop_tooltip": "Crop",
             # Text Input (Phase 2)

@@ -163,6 +163,7 @@ class SettingsMixin(rx.State, mixin=True):
             "tts_pitch": self.tts_pitch,  # type: ignore[attr-defined, has-type]
             "whisper_model": self.whisper_model_key,  # type: ignore[attr-defined, has-type]
             "show_transcription": self.show_transcription,  # type: ignore[attr-defined, has-type]
+            "enter_sends_message": self.enter_sends_message,  # type: ignore[attr-defined, has-type]
             # Language-specific TTS voices (user preferences per engine/language)
             "tts_voices_per_language": existing.get("tts_voices_per_language", {}),
             # Per-engine agent voice settings

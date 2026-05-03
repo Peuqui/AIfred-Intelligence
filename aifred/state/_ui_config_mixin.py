@@ -42,6 +42,13 @@ class UIConfigMixin(rx.State, mixin=True):
     whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     show_transcription: bool = False  # Show transcribed text for editing before sending
 
+    # ── Text-Input Behavior ──────────────────────────────────────
+    # When True, pressing Enter in the textarea sends the message
+    # immediately (Shift+Enter = newline). When False, Enter inserts
+    # a newline and the user clicks the Send button. Default ON for
+    # short prompts; user can toggle off for multi-line code/log paste.
+    enter_sends_message: bool = True
+
     # ================================================================
     # AUTO-REFRESH TOGGLE
     # ================================================================
@@ -369,6 +376,13 @@ class UIConfigMixin(rx.State, mixin=True):
         self.show_transcription = not self.show_transcription
         mode = "Edit text" if self.show_transcription else "Send directly"
         self.add_debug(f"\U0001f3a4 Transcription: {mode}")  # type: ignore[attr-defined]
+        self._save_settings()  # type: ignore[attr-defined]
+
+    def toggle_enter_sends_message(self) -> None:
+        """Toggle whether Enter sends the message or inserts a newline."""
+        self.enter_sends_message = not self.enter_sends_message
+        mode = "Enter sends" if self.enter_sends_message else "Enter = newline"
+        self.add_debug(f"⏎ Text input: {mode}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_audio_recording(self):  # type: ignore[no-untyped-def]

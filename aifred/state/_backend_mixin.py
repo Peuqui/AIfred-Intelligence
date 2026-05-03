@@ -575,6 +575,7 @@ class BackendMixin(rx.State, mixin=True):
                     saved_whisper = saved_whisper.split("(")[0].strip()  # type: ignore[union-attr]
                 self.whisper_model_key = saved_whisper  # type: ignore[attr-defined, has-type]
                 self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)  # type: ignore[attr-defined, has-type]
+                self.enter_sends_message = saved_settings.get("enter_sends_message", self.enter_sends_message)  # type: ignore[attr-defined, has-type]
 
                 # Load TTS voice
                 user_voices = saved_settings.get("tts_voices_per_language", {})
