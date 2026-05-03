@@ -1732,6 +1732,14 @@ function audioOnEnded() {
     if (wasMedia && audioCurrentMediaKey) {
         console.log('🔊 Audio: media ended — marking completed');
         audioPostPosition({ stateKey: audioCurrentMediaKey, posSec: 0, completed: true });
+        // Disarm any TTS-queue `onended` handler that's still attached
+        // (the queue installs one for chunk-advance — if it fires after
+        // a media-end it falsely thinks the next TTS chunk completed,
+        // advances the queue index, hits 'Playback complete', and the
+        // resume-hook re-plays media from start. Endless replay loop.)
+        if (typeof player.onended === 'function') {
+            player.onended = null;
+        }
         audioCurrentMediaKey = '';
         audioCurrentMediaUrl = '';
         audioStopPositionSaver();
