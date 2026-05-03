@@ -373,7 +373,7 @@ class AudioIndex:
         self,
         query: str,
         source: Optional[str] = None,
-        limit: int = 20,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """FTS5 search ranked by BM25.
 
@@ -381,6 +381,9 @@ class AudioIndex:
             "lee dorsey"         → matches artist/album/title/path containing both
             "mozart sonate"      → matches Mozart pieces with 'sonate' in title
             "jazz misbehavin"    → cross-field: genre=Jazz + title contains
+
+        limit=None (default) returns ALL matches — caller is responsible for
+        budget. Use a positive int to cap.
         """
         if not query.strip():
             return []
@@ -402,8 +405,10 @@ class AudioIndex:
         if source:
             sql += " AND files.source = ?"
             params.append(source)
-        sql += " ORDER BY rank LIMIT ?"
-        params.append(limit)
+        sql += " ORDER BY rank"
+        if limit is not None and limit > 0:
+            sql += " LIMIT ?"
+            params.append(limit)
 
         with self._connect() as conn:
             try:
@@ -417,21 +422,33 @@ class AudioIndex:
         self,
         source: str,
         subdir: str = "",
-        limit: int = 200,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        """List files under a relative subdirectory (no recursion into deeper subs).
+        """List files under a relative subdirectory, recursively.
 
-        subdir="" lists immediate children of the source root.
+        subdir="" lists ALL files under the source root (recursive).
+        limit=None (default) returns everything — caller is responsible
+        for budget. Listings are sorted by rel_path for stable ordering.
         """
         prefix = subdir.rstrip("/") + "/" if subdir else ""
-        sql = """
-            SELECT * FROM files
-            WHERE source = ?
-              AND rel_path LIKE ? || '%'
-            ORDER BY rel_path LIMIT ?
-        """
+        if limit is None or limit <= 0:
+            sql = """
+                SELECT * FROM files
+                WHERE source = ?
+                  AND rel_path LIKE ? || '%'
+                ORDER BY rel_path
+            """
+            params: tuple = (source, prefix)
+        else:
+            sql = """
+                SELECT * FROM files
+                WHERE source = ?
+                  AND rel_path LIKE ? || '%'
+                ORDER BY rel_path LIMIT ?
+            """
+            params = (source, prefix, limit)
         with self._connect() as conn:
-            rows = conn.execute(sql, (source, prefix, limit)).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
     def stats(self) -> dict[str, Any]:
