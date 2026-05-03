@@ -715,6 +715,22 @@ console.log('✂️ Crop handler loaded');
         # Load custom.js for MediaRecorder and other features (cache-busting version)
         rx.script(src="/custom.js?v=24"),
 
+        # Hidden flags element — always present in the DOM, regardless of
+        # chat state. custom.js reads UI toggles from here. Currently:
+        #   data-enter-sends — Enter key sends the message (vs. newline).
+        # Other always-on flags can be added here later. (Used to live on
+        # #tts-queue-data, but that element is conditionally rendered, so
+        # the flag was missing on a fresh chat — Enter never sent.)
+        rx.el.div(
+            id="ui-flags",
+            **{
+                "data-enter-sends": rx.cond(
+                    AIState.enter_sends_message, "true", "false"
+                ),
+            },
+            style={"display": "none"},
+        ),
+
         # Login Dialog (rendered but hidden until needed)
         login_dialog(),
 
@@ -952,14 +968,6 @@ console.log('✂️ Crop handler loaded');
                             # Hoerbuch unterbrochen werden.
                             "data-tts-active": rx.cond(
                                 AIState.tts_streaming_in_flight, "true", "false"
-                            ),
-                            # Enter-sendet-Flag wird hier abgelegt (nicht am
-                            # textarea selbst), weil Radix' TextArea-Wrapper
-                            # custom_attrs nicht zuverlaessig an das innere
-                            # <textarea>-Element weiterreicht. custom.js liest
-                            # diesen Wert beim keydown-Handling.
-                            "data-enter-sends": rx.cond(
-                                AIState.enter_sends_message, "true", "false"
                             ),
                         },
                         style={"display": "none"},

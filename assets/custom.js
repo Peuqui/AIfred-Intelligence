@@ -1989,14 +1989,22 @@ if (document.readyState === 'loading') {
 // listener — survives any remounts of the textarea.
 // ============================================================
 document.addEventListener('keydown', (e) => {
-    const target = e.target;
-    if (!target || target.id !== 'user-text-input') return;
     if (e.key !== 'Enter' || e.shiftKey) return;
-    // Flag liegt auf #tts-queue-data (Radix' TextArea-Wrapper reicht
-    // custom_attrs nicht zuverlässig an das innere <textarea> durch).
-    const flagEl = document.getElementById('tts-queue-data');
+    // The only textarea in AIfred's chat UI is the message input.
+    // Radix' TextArea places id="user-text-input" on the wrapper div;
+    // the inner <textarea> has no id. Identify by tagName + sanity-
+    // check that the keydown happened inside #user-text-input subtree.
+    if (!e.target || e.target.tagName !== 'TEXTAREA') return;
+    const wrapper = document.getElementById('user-text-input');
+    if (wrapper && e.target !== wrapper && !wrapper.contains(e.target)) {
+        return;  // some other textarea elsewhere
+    }
+    // Flag lives on #ui-flags (always rendered, unconditional). Earlier
+    // attempts used #tts-queue-data which is conditional on TTS being
+    // enabled with a non-empty chat — fresh chats had no flag element.
+    const flagEl = document.getElementById('ui-flags');
     if (!flagEl || flagEl.dataset.enterSends !== 'true') return;
-    if (target.disabled) return;
+    if (e.target.disabled) return;
     const sendBtn = document.getElementById('send-button');
     if (!sendBtn || sendBtn.disabled) return;
     e.preventDefault();
