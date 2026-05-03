@@ -29,6 +29,7 @@ Usage:
 """
 
 import os
+import unicodedata
 import tempfile
 import logging
 from pathlib import Path
@@ -188,9 +189,13 @@ def normalize_text_for_tts(text: str, language: str = "de") -> str:
     text = re.sub(r'`', '', text)     # Stray backticks
     text = re.sub(r'#+\s*', '', text)  # Markdown headers ###
 
-    # Zero-width characters (invisible but cause issues)
-    text = re.sub(r'[\u200b\u200c\u200d\u2060\ufeff]', '', text)
-    text = text.replace('\u00a0', ' ')  # Non-breaking space → normal space
+    # Defense in depth: catch ALL problematic Unicode chars that crash the
+    # tokenizer (e.g. \u202f NARROW NO-BREAK SPACE crashes XTTS-CUDA hard).
+    # NFKC normalizes compatibility forms; Zs (Space_Separator) -> regular
+    # space; Cf (Format, incl. zero-width chars, BOM, joiners) is dropped.
+    text = unicodedata.normalize('NFKC', text)
+    text = ''.join(' ' if unicodedata.category(c) == 'Zs' else c for c in text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Cf')
 
     # ============================================================
     # Phase 1.6: Convert symbols to speakable text (language-aware)
