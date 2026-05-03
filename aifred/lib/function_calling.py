@@ -15,6 +15,7 @@ Usage:
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -147,3 +148,185 @@ class ToolKit:
                 )
             except Exception:
                 pass  # Audit must never block tool execution
+
+
+# ============================================================================
+# Text-Tool-Call-Extractor (für Modelle die Tool-Calls als Text statt API ausgeben)
+# ============================================================================
+
+# Wrapper-Pattern für Tool-Calls die das Modell als Text einbettet.
+# Reihenfolge: spezifischste zuerst (sonst frisst markdown-codeblock auch JSON).
+_TOOL_CALL_PATTERNS = [
+    # 1. <tool_call>...</tool_call> — Qwen, Hermes-JSON
+    ("qwen-hermes-json", re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)),
+    # 2. <function=name>...</function> — Hermes-XML, Llama 3.1
+    ("hermes-xml", re.compile(r"<function=([^>\s]+)\s*>(.*?)</function>", re.DOTALL)),
+    # 3. ```json {...} ``` — Markdown-Codeblock
+    ("markdown-json", re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)),
+]
+
+# Hermes-XML innere Parameter: <parameter=key>value (Wert bis zum nächsten
+# <parameter=, </function>, </tool_call>, oder Stringende).
+_HERMES_PARAM_PATTERN = re.compile(
+    r"<parameter=([^>\s]+)\s*>(.*?)(?=<parameter=|</function>|</tool_call>|$)",
+    re.DOTALL,
+)
+
+# Hermes-XML Inner-Pattern (für den Fall dass <function=...> ohne </function>
+# innerhalb von <tool_call>...</tool_call> steht — manche Modelle lassen das
+# schließende Tag weg). Matcht alles ab <function=name> bis Ende der inneren
+# Sequenz; Parameter werden separat extrahiert.
+_HERMES_XML_INNER_PATTERN = re.compile(
+    r"<function=([^>\s]+)\s*>(.*)",
+    re.DOTALL,
+)
+
+
+def _try_parse_tool_call_json(text: str) -> dict | None:
+    """Try to interpret a JSON string as a tool call.
+
+    Accepts these shapes (different models use different conventions):
+      {"name": "...", "arguments": {...}}        # Qwen, OpenAI-style
+      {"name": "...", "parameters": {...}}        # Anthropic-style
+      {"function": {"name": "...", "arguments": ...}}  # Wrapped
+      {"name": "...", "arguments": "{json string}"}    # Stringified args
+
+    Returns dict with normalized keys {name, arguments} or None if not a tool call.
+    """
+    try:
+        obj = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+
+    # Variant: {"function": {...}}
+    if "function" in obj and isinstance(obj["function"], dict):
+        obj = obj["function"]
+
+    if "name" not in obj or not isinstance(obj["name"], str):
+        return None
+
+    args = obj.get("arguments")
+    if args is None:
+        args = obj.get("parameters", {})
+    # Stringified arguments: re-parse
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            pass  # leave as string, executor will handle
+    if not isinstance(args, (dict, str)):
+        args = {}
+
+    return {"name": obj["name"], "arguments": args}
+
+
+def extract_text_tool_calls(
+    content_text: str,
+    toolkit: "ToolKit",
+) -> tuple[list[dict[str, Any]], str, list[str]]:
+    """Extract tool calls from raw content text.
+
+    Used as fallback for models that emit tool calls as text instead of using
+    the structured tool_calls API (e.g. Hermes-tunes, some merges, llama.cpp
+    chat templates that don't translate to the OpenAI tools schema).
+
+    Tries multiple wrapper patterns and validates extracted name against the
+    toolkit. The function is intentionally LOUD: every detected pattern produces
+    a debug message, so silent fallbacks cannot mask model misbehavior.
+
+    Behavior:
+      - Pattern matched + name in toolkit  → extract, execute, return debug
+      - Pattern matched + name unknown      → log "halluzinated", do NOT remove
+      - Pattern matched + body unparsable   → log "unparsable", do NOT remove
+
+    Only successful extractions are stripped from the returned content (so the
+    next LLM round doesn't see its own tool-call tag and loop). Failed matches
+    stay in the content so the user/operator sees what the model actually did.
+
+    Args:
+        content_text: Accumulated assistant content from the stream.
+        toolkit: Active toolkit. Validates names against toolkit._by_name.
+
+    Returns:
+        Tuple of:
+          tool_calls: List of OpenAI-shape tool call dicts ({id, name, arguments-str}).
+          cleaned_content: content_text with successful extractions removed.
+                            Use this for the assistant_msg in the next round.
+          debug_messages: List of human-readable debug strings (loudness budget).
+    """
+    debug_messages: list[str] = []
+    extracted: list[dict[str, Any]] = []
+    cleaned = content_text
+    valid_names = set(toolkit._by_name.keys()) if toolkit else set()
+    counter = 0
+
+    # Track which positions are already consumed (avoid double-extracting when
+    # an outer <tool_call> wraps an inner <function=...> tag).
+    consumed_spans: list[tuple[int, int]] = []
+
+    def _overlaps_consumed(span: tuple[int, int]) -> bool:
+        return any(span[0] < e and span[1] > s for s, e in consumed_spans)
+
+    for format_name, pattern in _TOOL_CALL_PATTERNS:
+        for match in pattern.finditer(content_text):
+            if _overlaps_consumed(match.span()):
+                continue
+            full_tag = match.group(0)
+            preview = full_tag[:80].replace("\n", " ")
+
+            # Format-specific extraction
+            parsed: dict[str, Any] | None = None
+            if format_name == "hermes-xml":
+                tool_name = match.group(1).strip()
+                body = match.group(2)
+                params: dict[str, Any] = {}
+                for p in _HERMES_PARAM_PATTERN.finditer(body):
+                    params[p.group(1).strip()] = p.group(2).strip()
+                parsed = {"name": tool_name, "arguments": params}
+            else:
+                # JSON-shaped wrappers (qwen-hermes-json, markdown-json).
+                # Try JSON first, then Hermes-XML inside (some models double-
+                # wrap: <tool_call><function=...></tool_call>).
+                inner = match.group(1).strip()
+                parsed = _try_parse_tool_call_json(inner)
+                if parsed is None:
+                    inner_xml = _HERMES_XML_INNER_PATTERN.search(inner)
+                    if inner_xml:
+                        tool_name = inner_xml.group(1).strip()
+                        body = inner_xml.group(2)
+                        params = {}
+                        for p in _HERMES_PARAM_PATTERN.finditer(body):
+                            params[p.group(1).strip()] = p.group(2).strip()
+                        parsed = {"name": tool_name, "arguments": params}
+
+            if parsed is None:
+                debug_messages.append(
+                    f"⚠️ Tool-Call-Pattern ({format_name}) aber unparsbar: {preview!r}"
+                )
+                continue
+
+            name = parsed["name"]
+            if name not in valid_names:
+                debug_messages.append(
+                    f"⚠️ Halluzinierter Tool-Call ({format_name}): '{name}' "
+                    f"nicht im Toolkit, ignoriert. Body: {preview!r}"
+                )
+                continue
+
+            counter += 1
+            args = parsed["arguments"]
+            args_str = args if isinstance(args, str) else json.dumps(args)
+            extracted.append({
+                "id": f"text-{format_name}-{counter}",
+                "name": name,
+                "arguments": args_str,
+            })
+            cleaned = cleaned.replace(full_tag, "")
+            debug_messages.append(
+                f"⚠️ Tool-Call als Text ausgegeben (Format: {format_name}, "
+                f"erwartet: API). Tool: {name}"
+            )
+
+    return extracted, cleaned, debug_messages
