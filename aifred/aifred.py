@@ -642,7 +642,7 @@ console.log('✂️ Crop handler loaded');
         rx.script(crop_js),
 
         # Load custom.js for MediaRecorder and other features (cache-busting version)
-        rx.script(src="/custom.js?v=20"),
+        rx.script(src="/custom.js?v=21"),
 
         # Login Dialog (rendered but hidden until needed)
         login_dialog(),

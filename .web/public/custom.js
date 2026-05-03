@@ -1560,6 +1560,10 @@ const AUDIO_POSITION_SAVE_INTERVAL_MS = 30000;  // periodic save while playing
 let audioPositionSaveTimer = null;
 let audioCurrentMediaKey = '';           // track which media is loaded
 let audioCurrentMediaUrl = '';
+// Client-side snapshot of media position at the moment TTS interrupts.
+// Used to resume after TTS — the server-side data-media-pause-pos is
+// only set by the audio_play tool, not by JS, so we keep our own value.
+let audioTtsPauseSnapshotSec = 0;
 
 function audioPlayerEl() {
     return document.getElementById('tts-audio-player');
@@ -1659,13 +1663,20 @@ function audioLoadAndPlayMedia(url) {
     if (!player) return;
 
     const pausedForTts = player.dataset.mediaPausedForTts === 'true';
-    const pausePosRaw = parseFloat(player.dataset.mediaPausePos || '0');
+    const datasetPos = parseFloat(player.dataset.mediaPausePos || '0');
+    // JS-snapshot wins if it's newer (server-state only updates from the
+    // audio_play tool, not from JS-side TTS-takeover position-save).
+    const pausePosRaw = audioTtsPauseSnapshotSec > 0
+        ? audioTtsPauseSnapshotSec
+        : datasetPos;
     const isStream = player.dataset.mediaIsStream === 'true';
 
     let startPos = 0;
     if (pausedForTts && pausePosRaw > 0 && !isStream) {
         startPos = Math.max(0, pausePosRaw - AUDIO_PRE_ROLL_SEC);
     }
+    // Consume the snapshot — next interrupt-cycle starts fresh
+    audioTtsPauseSnapshotSec = 0;
 
     console.log(`🔊 Audio: loading media ${url} (start=${startPos}s)`);
     player.src = url;
@@ -1691,10 +1702,18 @@ function audioLoadAndPlayMedia(url) {
  * Save current position so we can resume after TTS.
  */
 function audioOnTtsTakeover(prevUrl) {
-    // prevUrl was a media URL → save its position
+    // prevUrl was a media URL → save its position both server-side
+    // (audio_state.json) and as a client-side snapshot for resume.
     if (prevUrl && (prevUrl.includes('/api/audio/file') || /^https?:/.test(prevUrl))) {
         if (audioCurrentMediaKey) {
-            console.log('🔊 Audio: TTS takeover — saving media position');
+            const player = audioPlayerEl();
+            if (player) {
+                audioTtsPauseSnapshotSec = player.currentTime || 0;
+            }
+            console.log(
+                '🔊 Audio: TTS takeover — snapshot at',
+                audioTtsPauseSnapshotSec.toFixed(2), 's'
+            );
             audioSaveCurrentPosition();
         }
     }
