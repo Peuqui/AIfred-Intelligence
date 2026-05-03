@@ -200,14 +200,19 @@ def log_raw_messages(agent_name: str, messages: list, token_counter=None,
     else:
         log_message(f"TOTAL: {len(messages)} messages")
 
-    # Log toolkit definitions (what tools the LLM can call)
+    # Log toolkit names (compact — full JSON schemas only with
+    # DEBUG_LOG_TOOLKIT_DEFINITIONS=True, since 70+ tools spam the log).
     if toolkit and hasattr(toolkit, 'definitions'):
-        import json
+        from .config import DEBUG_LOG_TOOLKIT_DEFINITIONS
         log_message("-" * 40)
-        log_message(f"🔧 TOOLKIT: {len(toolkit.definitions)} tools")
-        log_message("-" * 40)
-        for tool_def in toolkit.definitions:
-            log_message(json.dumps(tool_def, ensure_ascii=False, indent=2))
+        names = [
+            td.get("function", {}).get("name", "?") for td in toolkit.definitions
+        ]
+        log_message(f"🔧 TOOLKIT: {len(names)} tools — {names}")
+        if DEBUG_LOG_TOOLKIT_DEFINITIONS:
+            import json
+            for tool_def in toolkit.definitions:
+                log_message(json.dumps(tool_def, ensure_ascii=False, indent=2))
         log_message("-" * 40)
 
     log_message("=" * 80)

@@ -642,7 +642,7 @@ console.log('✂️ Crop handler loaded');
         rx.script(crop_js),
 
         # Load custom.js for MediaRecorder and other features (cache-busting version)
-        rx.script(src="/custom.js?v=19"),
+        rx.script(src="/custom.js?v=20"),
 
         # Login Dialog (rendered but hidden until needed)
         login_dialog(),
@@ -850,9 +850,10 @@ console.log('✂️ Crop handler loaded');
                         ),
                         id="tts-audio-player",
                         controls=True,
-                        # Autoplay covers both TTS pushes and media activation
-                        autoPlay=(AIState.tts_autoplay & (AIState.tts_audio_path != ""))
-                        | (AIState.media_audio_url != ""),
+                        # autoPlay only for TTS — media is started via JS
+                        # (custom.js audioHandleMediaUrlChange) so the
+                        # paused-for-tts hold-off can take effect cleanly.
+                        autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),
                         # Force remount on new content (counter for TTS, state_key for media)
                         key="audio-" + AIState.tts_trigger_counter.to(str)
                         + "-" + AIState.media_state_key,
