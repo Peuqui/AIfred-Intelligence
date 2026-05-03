@@ -266,8 +266,9 @@ def file_picker_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.92)",
-                # stop_propagation: don't let click reach modals beneath
-                on_click=AIState.picker_close.stop_propagation,
+                # Backdrop fängt den Klick aber schließt das Modal nicht —
+                # User schließt nur explizit via X / Abbrechen / Diesen Ordner wählen.
+                on_click=rx.stop_propagation,
             ),
             # Modal content
             rx.vstack(
