@@ -248,16 +248,26 @@ def rename_entry(root: str, rel_path: str, new_name: str) -> tuple[bool, str]:
     return True, str(new_target.relative_to(Path(root).resolve()))
 
 
-def create_symlink(root: str, rel_path: str, name: str, target_abs: str) -> tuple[bool, str]:
+def create_symlink(
+    root: str,
+    rel_path: str,
+    name: str,
+    target_abs: str,
+    target_must_be_under_root: bool = False,
+) -> tuple[bool, str]:
     """Create a symlink under (root/rel_path) pointing to target_abs.
 
-    Used by audio-source UI: 'add NAS folder as source' creates a
-    symlink named ``name`` under data/media/audio/ pointing to the
-    user-picked external path.
+    Args:
+        root: sandbox root.
+        rel_path: relative path inside root where the symlink is placed.
+        name: filename of the symlink (no slashes, no dot-prefix).
+        target_abs: absolute path the symlink points at.
+        target_must_be_under_root: if True, refuse targets that resolve
+            outside the sandbox root. Use for callers that must prevent
+            sandbox escape via symlink (e.g. audio-source picker).
 
-    target_abs must be an absolute path that resolves to a directory.
-    Validation: target must exist and be a directory. We do *not*
-    require it to be inside any sandbox — this is admin-level config.
+    Returns:
+        (success, message_or_relpath)
     """
     if not name or "/" in name or name.startswith("."):
         return False, "invalid symlink name"
@@ -272,6 +282,16 @@ def create_symlink(root: str, rel_path: str, name: str, target_abs: str) -> tupl
         return False, "target must be an absolute path"
     if not target_p.is_dir():
         return False, f"target is not a directory: {target_abs}"
+    if target_must_be_under_root:
+        try:
+            target_resolved = target_p.resolve()
+            root_resolved = Path(root).expanduser().resolve()
+            target_resolved.relative_to(root_resolved)
+        except ValueError:
+            return False, (
+                f"target {target_abs} is outside the sandbox root {root} — "
+                f"refusing symlink that would enable sandbox escape"
+            )
     try:
         link_path.symlink_to(target_p)
     except OSError as exc:
