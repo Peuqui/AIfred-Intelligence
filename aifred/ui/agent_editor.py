@@ -1509,6 +1509,25 @@ def _plugins_view() -> rx.Component:
                     cursor="pointer",
                 ),
             )
+        else:
+            # Plugins can declare a custom settings event (e.g. audio_player
+            # → "open_audio_settings"). The Plugin-Tab gear icon then
+            # dispatches that state event instead of opening the generic
+            # credentials modal.
+            settings_event_name = getattr(plugin, "settings_event_name", None)
+            if settings_event_name:
+                handler = getattr(AIState, settings_event_name, None)
+                if callable(handler):
+                    row_children.append(
+                        rx.icon_button(
+                            rx.icon("settings", size=14),
+                            on_click=handler,
+                            size="1",
+                            variant="ghost",
+                            color_scheme="gray",
+                            cursor="pointer",
+                        ),
+                    )
 
         row_children.extend([
             rx.switch(

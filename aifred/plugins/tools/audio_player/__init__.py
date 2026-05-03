@@ -90,6 +90,9 @@ class AudioPlayerPlugin:
         "Spielt lokale Audio-Dateien und Internet-Streams (Musik, Hörbücher, "
         "Radio) mit Pause/Resume und Positions-Speicherung ab."
     )
+    # Triggers a custom settings modal (vs. credential_fields-based):
+    # the Plugin-Tab gear icon dispatches this state event name.
+    settings_event_name: str = "open_audio_settings"
 
     def is_available(self) -> bool:
         return True
