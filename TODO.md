@@ -30,7 +30,10 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
 **Phase 1.2 — TODO offen**
 - [ ] Auto-Pause-fuer-TTS End-to-End-Test (Hörbuch → Frage stellen → Resume mit Pre-Roll verifizieren)
 - [ ] Source-Settings-UI (Zahnrad, Add/Edit/Remove statt manueller JSON-Edit)
-- [ ] Plugin-Prompt: "Auto-Pick" bei klarem Item (skip audio_list wenn item bekannt)
+- [ ] (vielleicht) Plugin-Prompt "Auto-Pick" bei klarem Item — fragwuerdig, ca. 50%
+  der natuerlichen Audio-Anfragen brauchen listing fuer fuzzy-match (Tippfehler,
+  Kuenstler statt Filename, Genre-Anfragen). Latenz-Gewinn ~5s pro direct-play
+  steht gegen Halluzinations-Risiko (LLM erfindet nicht-existierenden Pfad).
 
 **Phase 2.0 — TODO**
 - [ ] YouTube-Plugin (yt-dlp Stream → mpv für target=local, Direkt-URL für target=browser)
@@ -43,6 +46,27 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
 **Phase 4.0 — TODO**
 - [ ] Hörbuch-Modus mit Auto-Pause bei Wake-Word/Inferenz (analog zu TTS-Hook)
 - [ ] Integration mit Scheduler: Weckerton zu bestimmter Uhrzeit
+
+---
+
+## Video-Plugin (später)
+
+Idee: analog zum Audio-Player ein video_player Plugin mit:
+
+- **HDMI-Out am Mini** als Hauptziel (mpv mit `--vo=gpu` auf physischen Display)
+- **Sources** wie Audio: lokale Folder, NAS-Mount (Vuplus / Mediaserver), Streams
+- **Index ueber SQLite-FTS5** (gleicher Mechanismus wie audio_search), zusaetzlich aber:
+  - **Metadaten-Anreicherung** ueber TMDB/IMDB-API ODER lokale `.nfo`-Files (Kodi-Standard) →
+    Schauspieler, Genre, Jahr, Plot, Original-Title
+  - Anfragen wie *„suche alle Filme mit Bud Spencer"*, *„zeig mir was von Tarantino"*,
+    *„welche Komoedien ab 90er habe ich"* werden so beantwortbar
+- **Tools**: `video_search(query)`, `video_play(item, target='hdmi')`, `video_pause`,
+  `video_stop`, `video_seek`, `video_subtitles(lang)`, `video_audio_track(idx)`
+- **Browser-Target** optional: HTML5 `<video>` im AIfred-Tab fuer Office-Wiedergabe
+- **Puck-Target**: vermutlich nicht sinnvoll (kein Display)
+
+Aufwand grob: ~6-8h fuer Plugin + Index + TMDB-Anbindung. Nicht jetzt — erst nach
+Audio-Phase 1.2/2.0/3.0.
 
 ---
 
