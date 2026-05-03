@@ -894,7 +894,13 @@ console.log('✂️ Crop handler loaded');
                     ),
                     # Hidden element for TTS queue data - JavaScript reads this to update local queue
                     # The MutationObserver in custom.js watches for changes to data-queue attribute
-                    # data-polling triggers start/stop of API polling for streaming TTS
+                    # data-polling triggers start/stop of SSE for streaming TTS.
+                    # Wir koppeln NICHT an is_generating: TTS-Tasks laufen bis zu
+                    # 10s laenger als die LLM-Antwort (XTTS-Synthese). Frueher
+                    # wurde SSE bei is_generating=False geschlossen → Pushes
+                    # an tote Queue ('No SSE connections at all') → Browser
+                    # hat nichts gehoert. Jetzt: SSE offen solange TTS+
+                    # Streaming aktiviert sind.
                     rx.el.div(
                         id="tts-queue-data",
                         **{
@@ -902,7 +908,7 @@ console.log('✂️ Crop handler loaded');
                             "data-version": AIState.tts_queue_version.to(str),
                             "data-autoplay": rx.cond(AIState.tts_autoplay, "true", "false"),
                             "data-polling": rx.cond(
-                                AIState.is_generating & AIState.enable_tts & AIState.tts_streaming_enabled,
+                                AIState.enable_tts & AIState.tts_streaming_enabled,
                                 "true",
                                 "false"
                             ),
