@@ -1049,6 +1049,9 @@ CACHE_STARTUP_CLEANUP = True        # Delete expired entries on server startup
 AUDIO_STATE_CLEANUP_AGE_DAYS = 7        # Completed entries older than this are removed
 AUDIO_STATE_CLEANUP_INTERVAL_HOURS = 12  # Background task runs every 12 hours
 
+# Debug logging — full toolkit JSON schemas (off by default; 70+ tools = log spam)
+DEBUG_LOG_TOOLKIT_DEFINITIONS = False
+
 # Explicit research keywords ("research", "google", etc.)
 # Semantic duplicate detection (time-independent)
 CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Very similar (semantic duplicate, always merged)

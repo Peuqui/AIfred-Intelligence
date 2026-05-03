@@ -710,6 +710,21 @@ function playNextChunk() {
             URL.revokeObjectURL(blobUrl);
         }
         ttsBlobCache = {};
+
+        // If media was queued behind TTS, kick it off now.
+        // This is the reliable place — server-side data-queue is only
+        // cleared on the next user request, so checking it from
+        // audioOnEnded would be too eager. Client-side ttsQueue is the
+        // source of truth.
+        const player = document.getElementById('tts-audio-player');
+        if (player) {
+            const mediaUrl = player.dataset.mediaUrl || '';
+            const pausedForTts = player.dataset.mediaPausedForTts === 'true';
+            if (mediaUrl && pausedForTts) {
+                console.log('🔊 Audio: TTS done — resuming media');
+                audioLoadAndPlayMedia(mediaUrl);
+            }
+        }
         return;
     }
 
@@ -1619,11 +1634,19 @@ function audioHandleMediaUrlChange(player, newUrl) {
     audioCurrentMediaUrl = newUrl;
     audioCurrentMediaKey = player.dataset.mediaStateKey || '';
 
-    // If TTS is playing right now, hold off — we'll resume media
-    // automatically when TTS completes (handled by audioOnEnded).
+    // Hold off if TTS is playing right now — audioOnEnded will resume.
     const ttsActive = (player.src || '').includes('/_upload/tts_audio/');
     if (ttsActive && !player.paused) {
         console.log('🔊 Audio: media URL queued behind active TTS');
+        return;
+    }
+
+    // Hold off if the server flagged the media as paused-for-tts. This
+    // happens when audio_play is called while TTS is enabled — the LLM
+    // is about to speak; we wait for that to finish first.
+    const pausedForTts = player.dataset.mediaPausedForTts === 'true';
+    if (pausedForTts) {
+        console.log('🔊 Audio: media queued — waiting for TTS to finish');
         return;
     }
 
@@ -1715,31 +1738,45 @@ function audioOnEnded() {
     }
 }
 
-/** Set up listeners + MutationObserver for the audio player. */
-function setupAudioPlayer() {
-    const player = audioPlayerEl();
-    if (!player) {
-        // Player not in DOM yet (no TTS, no media) — re-check later
-        setTimeout(setupAudioPlayer, 500);
-        return;
-    }
-
-    // Track the previous src to detect TTS takeover
-    let prevSrc = player.src || '';
-    const srcObserver = new MutationObserver(() => {
-        const newSrc = player.src || '';
-        if (newSrc === prevSrc) return;
-        const wasMedia = prevSrc.includes('/api/audio/file');
-        const nowTts = newSrc.includes('/_upload/tts_audio/');
-        if (wasMedia && nowTts) {
-            audioOnTtsTakeover(prevSrc);
+// Document-level capture listeners — survive React remounts of the
+// player element (the `key=` on <audio> forces remount on every TTS
+// push, so per-element addEventListener wouldn't last).
+// 'ended', 'pause', 'play' don't bubble, so we use capture phase.
+document.addEventListener('ended', (e) => {
+    if (e.target && e.target.id === 'tts-audio-player') audioOnEnded();
+}, true);
+document.addEventListener('pause', (e) => {
+    if (e.target && e.target.id === 'tts-audio-player') {
+        if (audioCurrentMediaKey && (e.target.src || '').includes('/api/audio/file')) {
+            audioSaveCurrentPosition();
         }
-        prevSrc = newSrc;
-    });
-    srcObserver.observe(player, { attributes: true, attributeFilter: ['src'] });
+    }
+}, true);
 
-    // Watch for media URL changes (server-pushed via data-media-url)
-    const dataObserver = new MutationObserver((mutations) => {
+// Re-attach MutationObservers whenever the player element gets remounted.
+// Tracks the current player instance and re-binds observers when a new
+// one shows up (React replaces the node when `key=` changes).
+let audioCurrentPlayer = null;
+let audioPrevSrc = '';
+let audioSrcObserver = null;
+let audioDataObserver = null;
+
+function audioBindObservers(player) {
+    if (audioSrcObserver) audioSrcObserver.disconnect();
+    if (audioDataObserver) audioDataObserver.disconnect();
+
+    audioPrevSrc = player.src || '';
+    audioSrcObserver = new MutationObserver(() => {
+        const newSrc = player.src || '';
+        if (newSrc === audioPrevSrc) return;
+        const wasMedia = audioPrevSrc.includes('/api/audio/file');
+        const nowTts = newSrc.includes('/_upload/tts_audio/');
+        if (wasMedia && nowTts) audioOnTtsTakeover(audioPrevSrc);
+        audioPrevSrc = newSrc;
+    });
+    audioSrcObserver.observe(player, { attributes: true, attributeFilter: ['src'] });
+
+    audioDataObserver = new MutationObserver((mutations) => {
         for (const m of mutations) {
             if (m.attributeName === 'data-media-url') {
                 const newUrl = player.dataset.mediaUrl || '';
@@ -1749,23 +1786,28 @@ function setupAudioPlayer() {
             }
         }
     });
-    dataObserver.observe(player, { attributes: true, attributeFilter: ['data-media-url'] });
+    audioDataObserver.observe(player, { attributes: true, attributeFilter: ['data-media-url'] });
 
-    // Player events
-    player.addEventListener('ended', audioOnEnded);
-    player.addEventListener('pause', () => {
-        if (audioCurrentMediaKey && (player.src || '').includes('/api/audio/file')) {
-            audioSaveCurrentPosition();
-        }
-    });
-
-    // If a media URL is already present at setup, handle it
+    // If a media URL is already present at bind, handle it
     const initialUrl = player.dataset.mediaUrl || '';
-    if (initialUrl) {
+    if (initialUrl && initialUrl !== audioCurrentMediaUrl) {
         audioHandleMediaUrlChange(player, initialUrl);
     }
+}
 
-    console.log('🔊 Audio Player observer active');
+/** Watch for player element appearance/replacement and re-bind. */
+function setupAudioPlayer() {
+    const tick = () => {
+        const player = audioPlayerEl();
+        if (player && player !== audioCurrentPlayer) {
+            audioCurrentPlayer = player;
+            audioBindObservers(player);
+            console.log('🔊 Audio Player bound (remount detected)');
+        }
+    };
+    tick();
+    // Re-check periodically — Reflex re-renders force remount on `key=` changes
+    setInterval(tick, 500);
 }
 
 if (document.readyState === 'loading') {

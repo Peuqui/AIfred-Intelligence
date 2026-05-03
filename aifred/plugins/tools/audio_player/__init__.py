@@ -127,25 +127,29 @@ class AudioPlayerPlugin:
                 audio_url = f"/api/audio/file?key={quote(src.state_key)}"
 
                 state = getattr(ctx, "state", None)
-                if state is not None:
-                    # Reflex tracks attribute writes during a tool's
-                    # event chain — the player UI picks up these changes.
-                    state.media_audio_url = audio_url
-                    state.media_state_key = src.state_key
-                    state.media_is_stream = src.is_stream
-                    state.media_paused_for_tts = False
-                    state.media_pause_pos_sec = 0.0
 
                 resumed_at = 0.0
                 if not restart and not src.is_stream:
                     existing = audio_state.get(src.state_key)
                     if existing and not existing.get("completed"):
                         resumed_at = float(existing.get("pos_sec", 0))
-                        # Browser-side JS reads pause-pos via data attribute and
-                        # applies pre-roll; we just signal the resume intent.
-                        if state is not None and resumed_at > 0:
-                            state.media_paused_for_tts = True  # reuses resume path
-                            state.media_pause_pos_sec = resumed_at
+
+                # If TTS is enabled, the LLM's textual answer will be spoken
+                # through the same player — let TTS finish first, then resume
+                # media. Mark paused-for-tts so JS waits for TTS-ended.
+                tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
+
+                if state is not None:
+                    # Reflex tracks attribute writes during a tool's event
+                    # chain — the player UI picks up these changes.
+                    state.media_audio_url = audio_url
+                    state.media_state_key = src.state_key
+                    state.media_is_stream = src.is_stream
+                    # Either we want to resume from a saved position, or
+                    # we want media to wait for TTS to finish — both paths
+                    # use the same paused-for-tts flag.
+                    state.media_paused_for_tts = tts_active or resumed_at > 0
+                    state.media_pause_pos_sec = resumed_at
 
                 return json.dumps({
                     "success": True,
