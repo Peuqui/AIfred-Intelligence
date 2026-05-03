@@ -31,7 +31,8 @@ def multi_agent_help_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.85)",
-                on_click=AIState.close_multi_agent_help,
+                # Backdrop fängt den Klick aber schließt nicht (user nutzt X / Schließen)
+                on_click=rx.stop_propagation,
             ),
 
             # Modal Content - zentriert
@@ -182,7 +183,7 @@ def reasoning_thinking_help_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.85)",
-                on_click=AIState.close_reasoning_thinking_help,
+                on_click=rx.stop_propagation,
             ),
 
             # Modal Content - zentriert
@@ -302,7 +303,7 @@ def research_help_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.85)",
-                on_click=AIState.close_research_help,
+                on_click=rx.stop_propagation,
             ),
             # Modal Content
             rx.vstack(
@@ -544,7 +545,7 @@ def crop_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.85)",
-                on_click=AIState.cancel_crop,
+                on_click=rx.stop_propagation,
             ),
 
             # Modal Content - zentriert
@@ -697,8 +698,7 @@ def image_lightbox_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.92)",
-                on_click=AIState.close_lightbox,
-                cursor="pointer",
+                on_click=rx.stop_propagation,
             ),
 
             # Close button (top-right corner)
@@ -978,7 +978,7 @@ def document_manager_modal() -> rx.Component:
                 position="absolute", top="0", left="0",
                 width="100%", height="100%",
                 background_color="#000000",
-                on_click=AIState.close_document_manager,
+                on_click=rx.stop_propagation,
             ),
 
             # Modal Content
@@ -1353,7 +1353,7 @@ def channel_credentials_modal() -> rx.Component:
         rx.box(
             # Backdrop
             rx.box(
-                on_click=AIState.close_channel_credentials,
+                on_click=rx.stop_propagation,
                 position="fixed",
                 top="0",
                 left="0",
@@ -1581,7 +1581,7 @@ def audit_log_modal() -> rx.Component:
         rx.box(
             # Backdrop
             rx.box(
-                on_click=AIState.close_audit_log,
+                on_click=rx.stop_propagation,
                 position="fixed",
                 top="0", left="0",
                 width="100vw", height="100vh",
@@ -1679,7 +1679,7 @@ def bundle_export_modal() -> rx.Component:
         AIState.bundle_export_open,
         rx.box(
             rx.box(
-                on_click=AIState.close_bundle_export,
+                on_click=rx.stop_propagation,
                 position="fixed", top="0", left="0",
                 width="100vw", height="100vh",
                 bg="rgba(0,0,0,0.5)", z_index="1000",
@@ -1853,7 +1853,7 @@ def bundle_import_modal() -> rx.Component:
         AIState.bundle_import_open,
         rx.box(
             rx.box(
-                on_click=AIState.close_bundle_import,
+                on_click=rx.stop_propagation,
                 position="fixed", top="0", left="0",
                 width="100vw", height="100vh",
                 bg="rgba(0,0,0,0.5)", z_index="1000",
