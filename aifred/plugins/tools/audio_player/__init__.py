@@ -666,10 +666,9 @@ class AudioPlayerPlugin:
             subdir: str | None = None,
             limit: int | None = None,
         ) -> str:
-            # Default from settings.json (overridable per call)
-            if limit is None:
-                cfg = _load_settings()
-                limit = int(cfg.get("list", {}).get("default_limit", 200))
+            # limit=None (default) → return ALL files. The token-budget cap
+            # in tool_output_cap.py protects the context if the result is huge.
+            # Caller can pass an explicit limit to cap earlier.
             resolver = _make_resolver()
             if source is None:
                 # Top-level: just list configured sources + per-source counts
@@ -740,7 +739,7 @@ class AudioPlayerPlugin:
                 if p.suffix.lower() not in ALLOWED_EXTENSIONS:
                     continue
                 items.append(str(p.relative_to(root)))
-                if len(items) >= limit:
+                if limit is not None and limit > 0 and len(items) >= limit:
                     break
             items.sort()
             return json.dumps({
@@ -776,8 +775,7 @@ class AudioPlayerPlugin:
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Max items to return. Default 200.",
-                        "default": 200,
+                        "description": "Optional cap on returned items. Omit (default) to return ALL — the token-budget cap protects context if the result is huge.",
                     },
                 },
             },
@@ -787,10 +785,9 @@ class AudioPlayerPlugin:
     def _tool_search(self) -> Tool:
         async def _search(query: str, source: str | None = None, limit: int | None = None) -> str:
             from ....lib.audio_index import audio_index
-            if limit is None:
-                cfg = _load_settings()
-                limit = int(cfg.get("list", {}).get("search_default_limit", 20))
-            rows = audio_index.search(query=query, source=source, limit=int(limit))
+            # limit=None → all matches. Token-budget cap in tool_output_cap.py
+            # protects the context if a query yields very many hits.
+            rows = audio_index.search(query=query, source=source, limit=limit)
             results = [
                 {
                     "state_key": f"{r['source']}/{r['rel_path']}",
@@ -838,8 +835,7 @@ class AudioPlayerPlugin:
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Max results. Default 20.",
-                        "default": 20,
+                        "description": "Optional cap on returned hits. Omit (default) to return ALL matches — the token-budget cap protects context if a query yields very many.",
                     },
                 },
                 "required": ["query"],
