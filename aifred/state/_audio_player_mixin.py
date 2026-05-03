@@ -40,6 +40,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
     audio_settings_busy: str = ""                    # "indexing" | "clearing" | ""
     audio_settings_busy_source: str = ""             # which source is being worked on
     audio_settings_status: str = ""                  # last result message
+    audio_picker_root_input: str = ""                # UI input for picker sandbox
 
     # ── Public event handlers ───────────────────────────────────────
 
@@ -138,13 +139,21 @@ class AudioPlayerMixin(rx.State, mixin=True):
         view.sort(key=lambda v: v["label"].lower())
         self.audio_sources_view = view
 
+    audio_settings_help_open: bool = False
+
     @rx.event
     def open_audio_settings(self) -> None:
         self._refresh_audio_sources_view()
         self.audio_settings_status = ""
         self.audio_settings_busy = ""
         self.audio_settings_busy_source = ""
+        # Pre-fill the picker-root input with the current settings value
+        self.audio_picker_root_input = self._audio_picker_root()
         self.audio_settings_open = True
+
+    @rx.event
+    def toggle_audio_settings_help(self) -> None:
+        self.audio_settings_help_open = not self.audio_settings_help_open
 
     @rx.event
     def close_audio_settings(self) -> None:
@@ -223,51 +232,133 @@ class AudioPlayerMixin(rx.State, mixin=True):
         )
         self._refresh_audio_sources_view()
 
-    # Allowlist for new audio source roots. Restricts the picker so users
-    # can only navigate inside trusted mount-trees (auto-mounted NAS,
-    # removable media). Without this, the user could symlink any system
-    # path (/etc, /var/log, ...) into data/media/audio/ and expose it via
-    # /api/audio/file. Add new roots here only with admin awareness.
-    AUDIO_SOURCE_PICKER_ROOT = "/mnt"
+    # Default sandbox root for the source-picker. User-configurable via
+    # the plugin settings.json (key: picker.root) — restricts the picker
+    # to a subtree the admin trusts (typically /mnt). Without sandboxing
+    # the user could symlink arbitrary system paths into data/media/
+    # audio/ and expose them via /api/audio/file.
+    _AUDIO_SOURCE_PICKER_ROOT_DEFAULT = "/mnt"
+
+    def _audio_picker_root(self) -> str:
+        """Resolve the picker sandbox root from settings.json (or default)."""
+        import json as _json
+        from pathlib import Path as _Path
+        path = (
+            _Path(__file__).parent.parent / "plugins" / "tools"
+            / "audio_player" / "settings.json"
+        )
+        if path.exists():
+            try:
+                with open(path, encoding="utf-8") as f:
+                    cfg = _json.load(f)
+                root = cfg.get("picker", {}).get("root", "")
+                if isinstance(root, str) and root.strip():
+                    return root.strip()
+            except (OSError, _json.JSONDecodeError):
+                pass
+        return self._AUDIO_SOURCE_PICKER_ROOT_DEFAULT
 
     @rx.event
     def open_audio_source_picker(self) -> None:
-        """Open the file-picker so the user can add a NAS-path as a new source.
-        Sandboxed to /mnt to prevent symlinking arbitrary system paths.
-        Read-only browse — no folder/symlink creation, no delete (user only
-        picks an existing folder; the symlink under data/media/audio/ is
-        created server-side by audio_on_source_picked).
+        """Open the file-picker so the user can add a folder as audio source.
+
+        Sandboxed to the user-configured root (default /mnt). The user
+        can curate the source area inside that sandbox — create folders,
+        create symlinks (e.g. only-audiobooks-folder with symlinks to
+        specific subfolders) — but symlinks must keep their targets
+        inside the sandbox, otherwise it's an escape vector.
         """
         self.picker_open_for(  # type: ignore[attr-defined]
             title="Neue Audio-Source hinzufügen",
-            root=self.AUDIO_SOURCE_PICKER_ROOT,
+            root=self._audio_picker_root(),
             start_at="",
             mode="pick_folder",
-            caps={},  # explicitly read-only — no create/delete buttons
+            caps={
+                "can_create_folder": True,
+                "can_create_symlink": True,
+                "can_delete": True,
+            },
             file_filter=[],
             show_files=False,
             callback_event="audio_on_source_picked",
             callback_args={},
+            symlink_target_must_be_under_root=True,
         )
+
+    @rx.event
+    def audio_set_picker_root_input(self, value: str) -> None:
+        self.audio_picker_root_input = value
+
+    @rx.event
+    def audio_save_picker_root(self) -> None:
+        """Persist picker.root to settings.json."""
+        import json as _json
+        from pathlib import Path as _Path
+        new_root = (self.audio_picker_root_input or "").strip()
+        if not new_root:
+            self.audio_settings_status = "⚠️ Sandbox-Root darf nicht leer sein"
+            return
+        target = _Path(new_root).expanduser()
+        if not target.is_absolute():
+            self.audio_settings_status = (
+                f"⚠️ Sandbox-Root muss ein absoluter Pfad sein: {new_root}"
+            )
+            return
+        if not target.is_dir():
+            self.audio_settings_status = (
+                f"⚠️ Pfad ist kein Ordner: {new_root}"
+            )
+            return
+        path = (
+            _Path(__file__).parent.parent / "plugins" / "tools"
+            / "audio_player" / "settings.json"
+        )
+        try:
+            cfg: dict[str, Any] = {}
+            if path.exists():
+                with open(path, encoding="utf-8") as f:
+                    cfg = _json.load(f)
+            cfg.setdefault("picker", {})["root"] = new_root
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except OSError as exc:
+            self.audio_settings_status = f"⚠️ Konnte settings.json nicht schreiben: {exc}"
+            return
+        self.audio_settings_status = f"✅ Sandbox-Root → {new_root}"
 
     @rx.event
     def audio_on_source_picked(self, rel_path: str, **_: Any) -> None:
         """Picker callback — rel_path is relative to the picker's sandbox
-        root (AUDIO_SOURCE_PICKER_ROOT, e.g. '/mnt'). Reconstruct the
-        absolute target path and create a symlink under data/media/audio/.
+        root (read from settings.json). Reconstruct the absolute target
+        path and create a symlink under data/media/audio/.
         """
         from ..lib.config import MEDIA_AUDIO_DIR
         from pathlib import Path as _Path
 
+        sandbox_root = self._audio_picker_root()
         if not rel_path:
-            # User picked the sandbox root itself (rare but possible)
-            target_p = _Path(self.AUDIO_SOURCE_PICKER_ROOT)
+            target_p = _Path(sandbox_root)
         else:
-            target_p = _Path(self.AUDIO_SOURCE_PICKER_ROOT) / rel_path.lstrip("/")
+            target_p = _Path(sandbox_root) / rel_path.lstrip("/")
         target_abs = str(target_p)
 
         if not target_p.is_dir():
             self.audio_settings_status = f"⚠️ Pfad ist kein Ordner: {target_abs}"
+            return
+
+        # Sandbox-escape protection: even if the user navigated to a
+        # symlink that points outside the sandbox, we refuse it as an
+        # audio source. Otherwise the picker's safe_resolve guard could
+        # be circumvented by chained-symlink tricks.
+        try:
+            resolved = target_p.resolve()
+            sandbox_resolved = _Path(sandbox_root).expanduser().resolve()
+            resolved.relative_to(sandbox_resolved)
+        except ValueError:
+            self.audio_settings_status = (
+                f"⚠️ Pfad zeigt außerhalb der Sandbox '{sandbox_root}'. "
+                f"Quelle wurde nicht angelegt (sandbox escape geblockt)."
+            )
             return
 
         # Generate a unique label from the basename

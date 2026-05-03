@@ -18,6 +18,123 @@ import reflex as rx
 from ..state import AIState
 
 
+def _help_panel() -> rx.Component:
+    """Toggleable help panel — explains the workflow + each button."""
+    bullet = lambda label, text: rx.hstack(  # noqa: E731
+        rx.text(label, font_weight="bold", min_width="120px", color="#ffd166"),
+        rx.text(text, font_size="12px", color="#ddd", flex="1"),
+        spacing="2",
+        align="start",
+        width="100%",
+    )
+    return rx.box(
+        rx.vstack(
+            rx.text(
+                "💡 Workflow + Buttons im Überblick",
+                font_weight="bold",
+                font_size="13px",
+                color="#ffd166",
+            ),
+            rx.divider(margin="4px 0"),
+            rx.text(
+                "Sources sind Ordner oder Symlinks unter ",
+                rx.code("data/media/audio/"),
+                ". Symlinks zeigen NAS-Inhalt transparent. "
+                "HTTP-Streams werden in der settings.json verwaltet.",
+                font_size="12px",
+                color="#bbb",
+                line_height="1.5",
+            ),
+            bullet(
+                "Indexieren",
+                "Liest neue/geänderte Dateien und ihre Tags. Schnell wenn nichts "
+                "geändert (mtime-Check). Macht audio_search erst nutzbar.",
+            ),
+            bullet(
+                "Force",
+                "Wie Indexieren, aber liest ALLE Tags neu. Nutze nach Mass-Tag-"
+                "Edit oder wenn der Index 'komisch' aussieht.",
+            ),
+            bullet(
+                "Mülleimer 🗑️",
+                "Löscht Index-Einträge dieser Source (die Audio-Dateien bleiben). "
+                "Anschließend Indexieren bauf den Index neu auf.",
+            ),
+            bullet(
+                "Rotes X",
+                "Source komplett entfernen (Symlink/leerer Ordner weg + Index-"
+                "Einträge weg). Symlink-Targets (z.B. /mnt/auto/...) bleiben "
+                "unverändert — nur der Pointer hier wird gelöscht.",
+            ),
+            bullet(
+                "Neue Source hinzufügen…",
+                "Öffnet den Datei-Browser. Sandbox-Root ist konfigurierbar "
+                "(siehe unten). Du wählst einen Ordner — wir legen einen Symlink "
+                "unter data/media/audio/ an.",
+            ),
+            bullet(
+                "Sandbox-Root",
+                "Welcher Pfad-Bereich vom Picker erreichbar ist. Default /mnt "
+                "(NAS-Mounts). Höher (z.B. /) wäre ein Sicherheits-Risiko, "
+                "weil dann beliebige System-Pfade exposed werden könnten.",
+            ),
+            bullet(
+                "Im Picker: Neuer Ordner / Symlink",
+                "Du kannst innerhalb der Sandbox eigene Ordner anlegen oder "
+                "Symlinks setzen — z.B. einen Ordner 'meine_hörbücher' mit "
+                "Symlinks zu Subfoldern, um eine kuratierte Auswahl zu schaffen. "
+                "Symlink-Targets MÜSSEN in der Sandbox bleiben (Schutz vor "
+                "Sandbox-Escape).",
+            ),
+            bullet(
+                "Tipp",
+                "Bei großen NAS-Mounts: erst 'Indexieren' klicken (3–5 Min für "
+                "~17k Files), dann ist audio_search sub-Sekunde. Background-"
+                "Sync läuft alle 24h für Sources die schon Einträge haben.",
+            ),
+            spacing="2",
+            width="100%",
+        ),
+        padding="12px 16px",
+        background_color="rgba(255, 209, 102, 0.05)",
+        border="1px solid rgba(255, 209, 102, 0.3)",
+        border_radius="6px",
+        width="100%",
+    )
+
+
+def _sandbox_root_editor() -> rx.Component:
+    """Inline editor for picker.root in plugin settings.json."""
+    return rx.hstack(
+        rx.icon("shield", size=14, color="#888"),
+        rx.text(
+            "Sandbox-Root",
+            font_size="12px",
+            color="#aaa",
+            min_width="100px",
+        ),
+        rx.input(
+            value=AIState.audio_picker_root_input,
+            on_change=AIState.audio_set_picker_root_input,
+            placeholder="/mnt",
+            size="1",
+            flex="1",
+            font_family="monospace",
+        ),
+        rx.button(
+            rx.icon("save", size=14),
+            "Speichern",
+            size="1",
+            variant="soft",
+            on_click=AIState.audio_save_picker_root,
+            cursor="pointer",
+        ),
+        spacing="2",
+        align="center",
+        width="100%",
+    )
+
+
 def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
     """Single row per source — type icon, label, target, indexed-count, action buttons."""
     is_busy = (AIState.audio_settings_busy_source == src["label"]) & (
@@ -167,6 +284,16 @@ def audio_settings_modal() -> rx.Component:
                     rx.icon("music", size=20, color="#4287f5"),
                     rx.text("Audio Player — Sources & Index", font_weight="bold", font_size="15px"),
                     rx.spacer(),
+                    # Help / lightbulb
+                    rx.button(
+                        rx.icon("lightbulb", size=16),
+                        size="1",
+                        variant="ghost",
+                        color_scheme="yellow",
+                        on_click=AIState.toggle_audio_settings_help,
+                        cursor="pointer",
+                        title="Hilfe: was macht was?",
+                    ),
                     rx.button(
                         rx.icon("x", size=16),
                         size="1",
@@ -180,6 +307,14 @@ def audio_settings_modal() -> rx.Component:
                     padding_bottom="8px",
                     border_bottom="1px solid #333",
                 ),
+                # Help panel (toggled via lightbulb)
+                rx.cond(
+                    AIState.audio_settings_help_open,
+                    _help_panel(),
+                    rx.fragment(),
+                ),
+                # Sandbox-Root editor (for the source picker)
+                _sandbox_root_editor(),
                 # Hint
                 rx.text(
                     "Sources sind Ordner oder Symlinks unter ",

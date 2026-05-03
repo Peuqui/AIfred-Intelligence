@@ -29,6 +29,7 @@ class FilePickerMixin(rx.State, mixin=True):
     picker_current: str = ""            # rel_path inside root
     picker_entries: List[Dict[str, Any]] = []  # serialized BrowseEntry list
     picker_caps: Dict[str, bool] = {}   # can_create_folder/delete/rename/upload/can_create_symlink
+    picker_symlink_target_must_be_under_root: bool = False  # for sandbox-escape protection
     picker_file_filter: List[str] = []
     picker_show_files: bool = True
     picker_show_hidden: bool = False
@@ -95,8 +96,15 @@ class FilePickerMixin(rx.State, mixin=True):
         show_files: bool = True,
         callback_event: str = "",
         callback_args: Dict[str, str] | None = None,
+        symlink_target_must_be_under_root: bool = False,
     ) -> None:
-        """Initialize and open the picker modal."""
+        """Initialize and open the picker modal.
+
+        Args:
+            symlink_target_must_be_under_root: if True, refuse symlinks
+                whose target resolves outside the sandbox root. Prevents
+                sandbox-escape via 'create symlink to /etc' attacks.
+        """
         self.picker_title = title
         self.picker_root = root
         self.picker_current = start_at
@@ -106,6 +114,7 @@ class FilePickerMixin(rx.State, mixin=True):
         self.picker_show_files = show_files if mode != "pick_folder" else show_files
         self.picker_callback_event = callback_event
         self.picker_callback_args = callback_args or {}
+        self.picker_symlink_target_must_be_under_root = symlink_target_must_be_under_root
         self.picker_filter_text = ""
         self.picker_path_input = start_at
         self.picker_error = ""
@@ -285,6 +294,7 @@ class FilePickerMixin(rx.State, mixin=True):
             self.picker_current,
             self.picker_symlink_name,
             self.picker_symlink_target,
+            target_must_be_under_root=self.picker_symlink_target_must_be_under_root,
         )
         if not ok:
             self.picker_error = msg
