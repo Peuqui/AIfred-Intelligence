@@ -96,6 +96,20 @@ class AudioIndex:
                 CREATE INDEX IF NOT EXISTS idx_files_source ON files(source);
                 CREATE INDEX IF NOT EXISTS idx_files_mtime  ON files(mtime);
 
+                -- Folder-mtime tracking: lets scan_source skip whole
+                -- subtrees that haven't been touched since the last scan.
+                -- Linux folder mtime changes when direct children are
+                -- added/removed/renamed (NOT when their content changes
+                -- or when nested folders change) — perfect cheap skip.
+                CREATE TABLE IF NOT EXISTS folders (
+                    id        INTEGER PRIMARY KEY,
+                    source    TEXT NOT NULL,
+                    rel_path  TEXT NOT NULL,
+                    mtime     INTEGER NOT NULL,
+                    UNIQUE(source, rel_path)
+                );
+                CREATE INDEX IF NOT EXISTS idx_folders_source ON folders(source);
+
                 CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
                     artist, album, title, genre, filename, rel_path,
                     content='files', content_rowid='id',
@@ -183,82 +197,73 @@ class AudioIndex:
         on_progress: Optional[Any] = None,
         force: bool = False,
     ) -> ScanResult:
-        """Walk root_path, update index incrementally based on mtime.
+        """Walk root_path, update index incrementally.
 
-        Returns scan statistics. Files no longer present are removed.
+        Optimization: a per-folder mtime cache lets us skip whole subtrees
+        whose folder.mtime hasn't changed since the last scan. Linux
+        folder mtime updates when direct children are added/removed/
+        renamed — exactly when our index needs an update.
+
+        Tag-only edits (e.g. mutagen rewrites a file in place without
+        removing/adding any siblings) update file.mtime but NOT folder.
+        mtime. To pick those up, the user must use force=True.
 
         Args:
-            source: source label (e.g. 'nas_music').
-            root_path: absolute filesystem root for the source.
-            on_progress: optional callback (scanned, inserted, updated)
-                         every 50 files for UI updates.
-            force: if True, ignore mtime and re-read tags for every file
-                   (useful when ID3-tags were mass-edited without changing
-                   mtime, or when the index is suspected corrupt).
+            source: source label.
+            root_path: absolute filesystem root.
+            on_progress: callback (scanned, inserted, updated).
+            force: if True, ignore both folder.mtime and file.mtime
+                   caches and re-tag everything.
         """
         start = time.monotonic()
         root = Path(root_path).expanduser().resolve()
         if not root.is_dir():
             return ScanResult(source, 0, 0, 0, 0, 0.0, 1)
 
-        scanned = inserted = updated = errors = 0
+        stats = {"scanned": 0, "inserted": 0, "updated": 0, "errors": 0,
+                 "skipped_folders": 0}
 
-        # Track which rel_paths we see — anything in DB not seen will be deleted.
-        seen: set[str] = set()
+        # Tracks files we *know* still exist (via either re-stat or "folder
+        # unchanged → all its files are implicitly seen"). Anything in DB
+        # not in this set will be deleted at the end.
+        seen_files: set[str] = set()
+        seen_folders: set[str] = set()
 
         with self._lock, self._connect() as conn:
-            # Build mtime-index of existing rows for fast lookup
-            existing: dict[str, tuple[int, int]] = {
+            existing_files: dict[str, tuple[int, int]] = {
                 row["rel_path"]: (row["id"], row["mtime"])
                 for row in conn.execute(
                     "SELECT id, rel_path, mtime FROM files WHERE source = ?", (source,)
                 )
             }
+            existing_folders: dict[str, int] = {
+                row["rel_path"]: row["mtime"]
+                for row in conn.execute(
+                    "SELECT rel_path, mtime FROM folders WHERE source = ?", (source,)
+                )
+            }
 
-            for fpath in root.rglob("*"):
-                if not fpath.is_file():
-                    continue
-                if fpath.suffix.lower() not in AUDIO_EXTENSIONS:
-                    continue
+            def process_file(fpath: Path, rel: str) -> None:
                 try:
-                    stat = fpath.stat()
+                    fstat = fpath.stat()
                 except OSError:
-                    errors += 1
-                    continue
-
-                try:
-                    rel = str(fpath.relative_to(root))
-                except ValueError:
-                    continue
-
-                seen.add(rel)
-                scanned += 1
-                mtime = int(stat.st_mtime)
-
-                row = existing.get(rel)
+                    stats["errors"] += 1
+                    return
+                seen_files.add(rel)
+                stats["scanned"] += 1
+                mtime = int(fstat.st_mtime)
+                row = existing_files.get(rel)
                 if not force and row is not None and row[1] == mtime:
-                    # Unchanged — skip tag read (force=True bypasses this fast-path)
-                    if on_progress and scanned % 50 == 0:
-                        on_progress(scanned, inserted, updated)
-                    continue
-
-                # New or modified — read tags
+                    return  # unchanged — skip tag read
                 tags = self._read_tags(fpath)
                 params = {
-                    "source": source,
-                    "rel_path": rel,
-                    "filename": fpath.name,
-                    "mtime": mtime,
-                    "size": stat.st_size,
-                    "artist": tags.get("artist"),
-                    "album": tags.get("album"),
-                    "title": tags.get("title"),
-                    "year": tags.get("year"),
-                    "genre": tags.get("genre"),
-                    "duration": tags.get("duration"),
+                    "source": source, "rel_path": rel, "filename": fpath.name,
+                    "mtime": mtime, "size": fstat.st_size,
+                    "artist": tags.get("artist"), "album": tags.get("album"),
+                    "title": tags.get("title"), "year": tags.get("year"),
+                    "genre": tags.get("genre"), "duration": tags.get("duration"),
                     "track": tags.get("track"),
                 }
-
                 if row is None:
                     conn.execute("""
                         INSERT INTO files (source, rel_path, filename, mtime, size,
@@ -266,7 +271,7 @@ class AudioIndex:
                         VALUES (:source, :rel_path, :filename, :mtime, :size,
                                 :artist, :album, :title, :year, :genre, :duration, :track)
                     """, params)
-                    inserted += 1
+                    stats["inserted"] += 1
                 else:
                     params["id"] = row[0]
                     conn.execute("""
@@ -275,26 +280,94 @@ class AudioIndex:
                             year=:year, genre=:genre, duration=:duration, track=:track
                         WHERE id = :id
                     """, params)
-                    updated += 1
+                    stats["updated"] += 1
+                if on_progress and stats["scanned"] % 50 == 0:
+                    on_progress(stats["scanned"], stats["inserted"], stats["updated"])
 
-                if on_progress and scanned % 50 == 0:
-                    on_progress(scanned, inserted, updated)
+            def mark_folder_files_seen(rel_folder: str) -> None:
+                """Mark all DB files + sub-folder cache rows under this
+                folder as seen, so the cleanup step at the end doesn't
+                delete them."""
+                if not rel_folder:
+                    # Root: everything is "under" this folder
+                    seen_files.update(existing_files.keys())
+                    seen_folders.update(existing_folders.keys())
+                    return
+                prefix = rel_folder + "/"
+                for db_rel in existing_files:
+                    if db_rel.startswith(prefix):
+                        seen_files.add(db_rel)
+                for db_folder in existing_folders:
+                    if db_folder == rel_folder or db_folder.startswith(prefix):
+                        seen_folders.add(db_folder)
 
-            # Delete rows for files that no longer exist on disk
-            stale = [rel for rel in existing if rel not in seen]
-            for rel in stale:
+            def walk(folder_path: Path, rel_folder: str) -> None:
+                try:
+                    folder_stat = folder_path.stat()
+                except OSError:
+                    stats["errors"] += 1
+                    return
+                folder_mtime = int(folder_stat.st_mtime)
+                seen_folders.add(rel_folder)
+
+                # Fast-path: folder unchanged → skip recursion entirely
+                cached_mtime = existing_folders.get(rel_folder)
+                if not force and cached_mtime is not None and cached_mtime == folder_mtime:
+                    mark_folder_files_seen(rel_folder)
+                    stats["skipped_folders"] += 1
+                    return
+
+                # Folder changed (or first scan) — list children
+                try:
+                    children = list(folder_path.iterdir())
+                except OSError:
+                    stats["errors"] += 1
+                    return
+                for child in children:
+                    try:
+                        rel_child = str(child.relative_to(root))
+                    except ValueError:
+                        continue
+                    if child.is_dir():
+                        walk(child, rel_child)
+                    elif child.is_file():
+                        if child.suffix.lower() in AUDIO_EXTENSIONS:
+                            process_file(child, rel_child)
+
+                # Persist this folder's mtime for next-scan fast-path
+                conn.execute("""
+                    INSERT INTO folders (source, rel_path, mtime) VALUES (?, ?, ?)
+                    ON CONFLICT(source, rel_path) DO UPDATE SET mtime = excluded.mtime
+                """, (source, rel_folder, folder_mtime))
+
+            walk(root, "")
+
+            # Delete files no longer on disk
+            stale_files = [rel for rel in existing_files if rel not in seen_files]
+            for rel in stale_files:
                 conn.execute("DELETE FROM files WHERE source = ? AND rel_path = ?",
                              (source, rel))
-            deleted = len(stale)
+            deleted = len(stale_files)
+
+            # Delete folder-cache rows for folders that no longer exist
+            stale_folders = [rel for rel in existing_folders if rel not in seen_folders]
+            for rel in stale_folders:
+                conn.execute("DELETE FROM folders WHERE source = ? AND rel_path = ?",
+                             (source, rel))
 
             conn.commit()
 
         elapsed = time.monotonic() - start
         log_message(
-            f"AudioIndex[{source}]: scanned={scanned} +{inserted} ~{updated} "
-            f"-{deleted} errors={errors} in {elapsed:.1f}s"
+            f"AudioIndex[{source}]: scanned={stats['scanned']} "
+            f"+{stats['inserted']} ~{stats['updated']} -{deleted} "
+            f"skipped_folders={stats['skipped_folders']} "
+            f"errors={stats['errors']} in {elapsed:.1f}s"
         )
-        return ScanResult(source, scanned, inserted, updated, deleted, elapsed, errors)
+        return ScanResult(
+            source, stats["scanned"], stats["inserted"], stats["updated"],
+            deleted, elapsed, stats["errors"],
+        )
 
     def search(
         self,
@@ -374,28 +447,31 @@ class AudioIndex:
         }
 
     def remove_source(self, source: str) -> int:
-        """Delete all index entries for a source. Returns rows affected."""
+        """Delete all index entries for a source. Returns file rows affected.
+        Also clears the folder-mtime cache for this source.
+        """
         with self._lock, self._connect() as conn:
             cur = conn.execute("DELETE FROM files WHERE source = ?", (source,))
+            conn.execute("DELETE FROM folders WHERE source = ?", (source,))
             conn.commit()
             return cur.rowcount
 
     def clear_all(self) -> int:
-        """Wipe the entire index (all sources). Returns rows deleted.
+        """Wipe the entire index (all sources). Returns file rows deleted.
 
         Use when the index is suspected corrupt — schema is rebuilt from
         scratch on the next instance creation. Files-table rows + FTS
-        entries are removed via cascading triggers.
+        entries are removed via cascading triggers, folder cache too.
         """
         with self._lock, self._connect() as conn:
             cnt = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             conn.execute("DELETE FROM files")
+            conn.execute("DELETE FROM folders")
             conn.commit()
-            # VACUUM reclaims disk space + may resolve FTS5 corruption
             try:
                 conn.execute("VACUUM")
             except sqlite3.OperationalError:
-                pass  # VACUUM can fail if other connections hold locks
+                pass
             return int(cnt)
 
 
