@@ -906,22 +906,32 @@ def tts_queue_push(session_id: str, audio_url: str, playback_rate: str = "1.0x")
 
     This is the bridge between asyncio.create_task (which can't update Reflex state)
     and the frontend (via SSE stream or polling).
+
+    Versions are monotonic per session — they NEVER decrease, even after a
+    queue clear at the start of a new message. The client dedupes by version
+    on SSE events; if the counter wrapped back to 0 the new response would
+    be silently skipped (v1 <= ttsQueueVersion=3 -> "already-known").
     """
     if session_id not in _tts_queue_storage:
-        _tts_queue_storage[session_id] = {"queue": [], "version": 0, "playback_rate": "1.0x"}
+        _tts_queue_storage[session_id] = {
+            "queue": [],          # list of {"url": str, "version": int}
+            "version": 0,         # last assigned version, monotonic
+            "playback_rate": "1.0x",
+        }
 
     storage = _tts_queue_storage[session_id]
-    storage["queue"].append(audio_url)
     storage["version"] += 1
+    new_version = storage["version"]
+    storage["queue"].append({"url": audio_url, "version": new_version})
     storage["playback_rate"] = playback_rate
-    log_message(f"🔊 TTS API: Pushed {audio_url.split('/')[-1]} to session {session_id[:8]}... (v{storage['version']})")
+    log_message(f"🔊 TTS API: Pushed {audio_url.split('/')[-1]} to session {session_id[:8]}... (v{new_version})")
 
     # Also push to SSE queue if listener is connected
     if session_id in _tts_sse_queues:
         try:
             _tts_sse_queues[session_id].put_nowait({
                 "audio_url": audio_url,
-                "version": storage["version"],
+                "version": new_version,
                 "playback_rate": playback_rate
             })
             log_message(f"🔊 TTS SSE: Queued for stream (session {session_id[:8]}...)")
@@ -938,10 +948,18 @@ def tts_queue_push(session_id: str, audio_url: str, playback_rate: str = "1.0x")
 
 
 def tts_queue_clear(session_id: str) -> None:
-    """Clear TTS queue for session (called at start of new message)."""
+    """Clear TTS items for session (called at start of new message).
+
+    The monotonic version counter is INTENTIONALLY preserved — clients
+    dedupe SSE events by version, and a counter reset would make the next
+    message's v1, v2, ... look like already-seen items to the client.
+    """
     if session_id in _tts_queue_storage:
-        _tts_queue_storage[session_id] = {"queue": [], "version": 0, "playback_rate": "1.0x"}
-        log_message(f"🔊 TTS API: Cleared queue for session {session_id[:8]}...")
+        _tts_queue_storage[session_id]["queue"] = []
+        log_message(
+            f"🔊 TTS API: Cleared queue for session {session_id[:8]}... "
+            f"(version stays at {_tts_queue_storage[session_id]['version']})"
+        )
 
 
 @api_app.get("/tts/queue/{session_id}", response_model=TTSQueueResponse, tags=["TTS"])
@@ -962,7 +980,7 @@ async def get_tts_queue(session_id: str, since_version: int = 0):
         return TTSQueueResponse(queue=[], version=storage["version"], playback_rate=storage["playback_rate"])
 
     return TTSQueueResponse(
-        queue=storage["queue"],
+        queue=[it["url"] for it in storage["queue"]],
         version=storage["version"],
         playback_rate=storage["playback_rate"]
     )
@@ -1017,24 +1035,21 @@ async def tts_stream(session_id: str, request: Request):
         if session_id in _tts_queue_storage:
             storage = _tts_queue_storage[session_id]
             if storage["queue"]:
-                missed = [
-                    (i + 1, url)
-                    for i, url in enumerate(storage["queue"])
-                    if (i + 1) > last_event_id
-                ]
+                missed = [it for it in storage["queue"] if it["version"] > last_event_id]
                 if missed:
                     log_message(
                         f"🔊 TTS SSE: Replaying {len(missed)} missed item(s) "
-                        f"(v{missed[0][0]}..v{missed[-1][0]}, total stored {len(storage['queue'])})"
+                        f"(v{missed[0]['version']}..v{missed[-1]['version']}, "
+                        f"total stored {len(storage['queue'])})"
                     )
-                    for version, audio_url in missed:
+                    for it in missed:
                         item = {
-                            "audio_url": audio_url,
-                            "version": version,
+                            "audio_url": it["url"],
+                            "version": it["version"],
                             "playback_rate": storage["playback_rate"],
                         }
                         data = json.dumps(item)
-                        yield f"id: {version}\ndata: {data}\n\n"
+                        yield f"id: {it['version']}\ndata: {data}\n\n"
 
         try:
             while True:
