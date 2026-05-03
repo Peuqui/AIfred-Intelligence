@@ -32,6 +32,10 @@ import os
 import unicodedata
 import tempfile
 import logging
+import json
+import time
+import threading
+import uuid
 from pathlib import Path
 from flask import Flask, request, send_file, jsonify, render_template_string
 
@@ -74,9 +78,18 @@ _last_request_time = None  # Timestamp of last TTS request
 _restart_timer = None  # Background timer for auto-shutdown
 _active_requests = 0  # Counter for in-flight requests
 
+# Modell-Lock: XTTS' GPT-Backbone teilt KV-Cache, Sampling-State und Attention-
+# Buffer zwischen aufeinanderfolgenden generate()-Schritten. Parallele
+# model.inference()-Aufrufe (gunicorn --threads 2) korrumpieren diesen State und
+# führen reproduzierbar zu CUDA-Embedding-OOB (srcIndex<srcSelectDimSize), was
+# den CUDA-Kontext für den ganzen Worker vergiftet. Lock serialisiert nur die
+# Inference, /health & /status bleiben responsive.
+_inference_lock = threading.Lock()
+
 # Paths
 CUSTOM_VOICES_DIR = Path("/app/custom_voices")  # Persistent storage for embeddings
 REFERENCE_AUDIO_DIR = Path("/app/voices")  # Reference WAV files (mounted from host)
+CRASH_DUMP_DIR = Path("/app/crash_dumps")  # Diagnose: JSON-Dump pro Inferenz-Crash
 
 # Default speaker from XTTS speaker library
 DEFAULT_SPEAKER = "Claribel Dervla"
@@ -1469,6 +1482,56 @@ def _reset_restart_timer():
     logger.debug(f"Auto-restart timer reset: {KEEP_ALIVE_MINUTES} min")
 
 
+def _char_inventory(s: str) -> dict:
+    """Verdichtete Zeichen-Statistik: Kategorien, ungewöhnliche Zeichen, Codepoints."""
+    cats: dict[str, int] = {}
+    non_ascii: list[str] = []
+    for ch in s:
+        cat = unicodedata.category(ch)
+        cats[cat] = cats.get(cat, 0) + 1
+        if ord(ch) > 127:
+            non_ascii.append(f"U+{ord(ch):04X}({ch})")
+    return {
+        "len": len(s),
+        "categories": cats,
+        "non_ascii": non_ascii[:50],  # erste 50, sonst zu lang
+        "non_ascii_count": len(non_ascii),
+    }
+
+
+def _tokenize_for_diagnostic(chunk: str, language: str) -> dict:
+    """Tokenizer-Output inspizieren BEVOR es ans CUDA-Embedding geht."""
+    try:
+        model = _synthesizer
+        tk = model.tokenizer if model is not None else None
+        if tk is None:
+            return {"error": "tokenizer_not_loaded"}
+        ids = tk.encode(chunk, lang=language)
+        return {
+            "n_tokens": len(ids),
+            "max_id": max(ids) if ids else None,
+            "min_id": min(ids) if ids else None,
+            "ids": ids,
+        }
+    except Exception as e:
+        return {"error": f"tokenize_failed: {e}"}
+
+
+def _write_crash_dump(payload: dict) -> str:
+    """Schreibt JSON-Dump nach /app/crash_dumps/ und gibt den Pfad zurück."""
+    try:
+        CRASH_DUMP_DIR.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        fname = f"{ts}_{uuid.uuid4().hex[:8]}.json"
+        path = CRASH_DUMP_DIR / fname
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        return str(path)
+    except Exception as e:
+        logger.error(f"crash-dump write failed: {e}")
+        return ""
+
+
 @app.route("/tts", methods=["POST"])
 def tts():
     """
@@ -1514,13 +1577,22 @@ def tts():
     if language not in supported_languages:
         return jsonify({"error": f"Unsupported language: {language}. Supported: {supported_languages}"}), 400
 
+    # Diagnose: eindeutige Request-ID für jeden Crash-Dump
+    req_id = uuid.uuid4().hex[:8]
+
     # Normalize text to prevent hallucinations (ensure proper punctuation)
     original_text = text
     text = normalize_text_for_tts(text, language)
     if text != original_text:
-        logger.info("Text normalized for TTS (added punctuation)")
+        logger.info(f"[{req_id}] Text normalized for TTS (added punctuation)")
 
-    logger.info(f"Generating TTS: '{text[:50]}...' ({len(text)} chars) with language {language}, speaker {speaker}")
+    # Diagnose: VOLLSTÄNDIGER Text vor + nach Normalisierung mit repr()
+    # → unsichtbare Zeichen (NBSP, ZWJ, ...) werden als   etc. sichtbar
+    logger.info(f"[{req_id}] ORIG  ({len(original_text):>4} chars) lang={language} speaker={speaker}: {original_text!r}")
+    if text != original_text:
+        logger.info(f"[{req_id}] NORM  ({len(text):>4} chars): {text!r}")
+    inv = _char_inventory(text)
+    logger.info(f"[{req_id}] CHARS cats={inv['categories']} non_ascii={inv['non_ascii_count']} sample={inv['non_ascii'][:20]}")
 
     # Track active requests for safe auto-restart
     global _active_requests
@@ -1552,21 +1624,68 @@ def tts():
         # Generate audio for each chunk
         audio_arrays = []
         for i, chunk in enumerate(chunks):
-            logger.info(f"  Generating chunk {i+1}/{len(chunks)}: '{chunk[:40]}...' ({len(chunk)} chars)")
+            # Diagnose: Token-Stats VOR dem CUDA-Embedding-Lookup
+            # Vocab-Größe ist 6681; Position-Embedding-Limit 402.
+            # max_id >= 6681 oder n_tokens > 402 → erklärt srcIndex<srcSelectDimSize.
+            tok_info = _tokenize_for_diagnostic(chunk, language)
+            logger.info(
+                f"[{req_id}] CHUNK {i+1}/{len(chunks)} ({len(chunk):>4} chars) "
+                f"tokens={tok_info.get('n_tokens')} max_id={tok_info.get('max_id')} "
+                f"min_id={tok_info.get('min_id')} text={chunk!r}"
+            )
+            if tok_info.get("max_id") is not None and tok_info["max_id"] >= 6681:
+                logger.error(f"[{req_id}] !! TOKEN-ID OUT OF VOCAB (>=6681): {tok_info['max_id']} — IDs={tok_info['ids']}")
+            if tok_info.get("n_tokens") is not None and tok_info["n_tokens"] > 402:
+                logger.error(f"[{req_id}] !! TOKEN-COUNT OUT OF POS-EMBED (>402): {tok_info['n_tokens']}")
 
             # XTTS inference with configurable parameters (via environment variables)
             # See: https://github.com/coqui-ai/TTS/discussions/4146
-            outputs = model.inference(
-                text=chunk,
-                language=language,
-                gpt_cond_latent=gpt_cond_latent,
-                speaker_embedding=speaker_embedding,
-                temperature=XTTS_TEMPERATURE,
-                repetition_penalty=XTTS_REPETITION_PENALTY,
-                length_penalty=XTTS_LENGTH_PENALTY,
-                top_k=XTTS_TOP_K,
-                top_p=XTTS_TOP_P,
-            )
+            #
+            # Lock serialisiert die Inferenz pro Worker (Modell ist nicht
+            # thread-safe — siehe _inference_lock-Definition oben).
+            try:
+                with _inference_lock:
+                    outputs = model.inference(
+                        text=chunk,
+                        language=language,
+                        gpt_cond_latent=gpt_cond_latent,
+                        speaker_embedding=speaker_embedding,
+                        temperature=XTTS_TEMPERATURE,
+                        repetition_penalty=XTTS_REPETITION_PENALTY,
+                        length_penalty=XTTS_LENGTH_PENALTY,
+                        top_k=XTTS_TOP_K,
+                        top_p=XTTS_TOP_P,
+                    )
+            except Exception as inf_exc:
+                # Diagnose: bei Inferenz-Fehler Crash-Dump schreiben (vollständiger
+                # Kontext, damit Trigger nach Container-Restart reproduzierbar ist)
+                import traceback
+                dump = {
+                    "req_id": req_id,
+                    "timestamp": time.time(),
+                    "language": language,
+                    "speaker": speaker,
+                    "original_text": original_text,
+                    "normalized_text": text,
+                    "chunk_index": i,
+                    "chunk_count": len(chunks),
+                    "chunk_text": chunk,
+                    "chunk_repr": repr(chunk),
+                    "char_inventory": _char_inventory(chunk),
+                    "token_info": tok_info,
+                    "inference_params": {
+                        "temperature": XTTS_TEMPERATURE,
+                        "repetition_penalty": XTTS_REPETITION_PENALTY,
+                        "length_penalty": XTTS_LENGTH_PENALTY,
+                        "top_k": XTTS_TOP_K,
+                        "top_p": XTTS_TOP_P,
+                    },
+                    "exception": repr(inf_exc),
+                    "traceback": traceback.format_exc(),
+                }
+                dump_path = _write_crash_dump(dump)
+                logger.error(f"[{req_id}] !! INFERENCE CRASH — dump: {dump_path}")
+                raise
 
             audio_arrays.append(outputs["wav"])
 

@@ -60,6 +60,8 @@ services:
       - xtts_voices:/app/custom_voices
       # Reference audio files for voice cloning (from project)
       - ./voices:/app/voices:ro
+      # Diagnose: Crash-Dumps vom Host lesbar (überlebt Container-Restart)
+      - ./crash_dumps:/app/crash_dumps
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5051/health"]
       interval: 30s
