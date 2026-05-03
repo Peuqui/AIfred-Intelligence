@@ -31,6 +31,7 @@ from .ui.chat_display import (  # noqa: F401
 from .ui.input_sections import debug_console  # noqa: F401
 from .ui.settings_accordion import settings_accordion  # noqa: F401
 from .ui.agent_editor import agent_editor_modal  # noqa: F401
+from .ui.file_picker import file_picker_modal  # noqa: F401
 
 
 # ============================================================
@@ -675,6 +676,9 @@ console.log('✂️ Crop handler loaded');
         # Agent Bundle Export / Import
         bundle_export_modal(),
         bundle_import_modal(),
+
+        # Generic file/folder picker (used by multiple callers)
+        file_picker_modal(),
 
         # Hidden element to trigger camera detection on mount
         rx.box(
