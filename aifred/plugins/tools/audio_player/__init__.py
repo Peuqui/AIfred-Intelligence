@@ -483,8 +483,12 @@ class AudioPlayerPlugin:
         async def _list(
             source: str | None = None,
             subdir: str | None = None,
-            limit: int = 200,
+            limit: int | None = None,
         ) -> str:
+            # Default from settings.json (overridable per call)
+            if limit is None:
+                cfg = _load_settings()
+                limit = int(cfg.get("list", {}).get("default_limit", 200))
             resolver = _make_resolver()
             if source is None:
                 # Top-level: just list configured sources + per-source counts
@@ -580,8 +584,11 @@ class AudioPlayerPlugin:
         )
 
     def _tool_search(self) -> Tool:
-        async def _search(query: str, source: str | None = None, limit: int = 20) -> str:
+        async def _search(query: str, source: str | None = None, limit: int | None = None) -> str:
             from ....lib.audio_index import audio_index
+            if limit is None:
+                cfg = _load_settings()
+                limit = int(cfg.get("list", {}).get("search_default_limit", 20))
             rows = audio_index.search(query=query, source=source, limit=int(limit))
             results = [
                 {
