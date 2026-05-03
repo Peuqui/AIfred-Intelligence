@@ -42,7 +42,9 @@ def audio_help_modal() -> rx.Component:
                 position="absolute", top="0", left="0",
                 width="100%", height="100%",
                 background_color="rgba(0, 0, 0, 0.92)",
-                on_click=AIState.toggle_audio_settings_help.stop_propagation,
+                # Backdrop fängt den Klick aber schließt das Modal nicht —
+                # User schließt nur explizit via X oder Schließen-Button.
+                on_click=rx.stop_propagation,
             ),
             rx.vstack(
                 rx.hstack(
@@ -361,10 +363,9 @@ def audio_settings_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.92)",
-                # stop_propagation prevents the click from bubbling through
-                # to any modal beneath us (e.g. settings modal would otherwise
-                # also close, dropping the user back to the home page).
-                on_click=AIState.close_audio_settings.stop_propagation,
+                # Backdrop fängt den Klick aber schließt das Modal nicht —
+                # User schließt nur explizit via X oder Schließen-Button.
+                on_click=rx.stop_propagation,
             ),
             rx.vstack(
                 # Header
