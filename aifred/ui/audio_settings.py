@@ -172,6 +172,16 @@ def _help_content() -> rx.Component:
                 "lieber audio_search benutzen (BM25-Ranking, weniger Treffer).",
             ),
             _help_bullet(
+                "TTS-Listen-Filter",
+                "Lange Listen werden nicht vorgelesen, sondern durch einen "
+                "kurzen Hinweis ersetzt ('Hier wird eine Liste mit X "
+                "Einträgen angezeigt') — analog zum Tabellen-Filter. "
+                "Threshold = ab wie vielen Einträgen das passiert. Default: 5. "
+                "Im Browser ist die Liste vollständig sichtbar; nur die TTS-"
+                "Ausgabe wird gekürzt. So wird die Sprachausgabe (z.B. am "
+                "Puck) nicht durch hundert Hörbuch-Treffer geflutet.",
+            ),
+            _help_bullet(
                 "Im Picker: Neuer Ordner / Symlink",
                 "Du kannst innerhalb der Sandbox eigene Ordner anlegen oder "
                 "Symlinks setzen — z.B. einen Ordner 'meine_hörbücher' mit "
@@ -274,6 +284,45 @@ def _list_limits_editor() -> rx.Component:
             size="1",
             variant="soft",
             on_click=AIState.audio_save_list_limits,
+            cursor="pointer",
+        ),
+        spacing="2",
+        align="center",
+        width="100%",
+    )
+
+
+def _tts_list_threshold_editor() -> rx.Component:
+    """Inline editor for tts_list.full_max_items (TTS list filter threshold)."""
+    return rx.hstack(
+        rx.icon("megaphone-off", size=14, color="#888"),
+        rx.text(
+            "TTS-Listen-Filter",
+            font_size="12px",
+            color="#aaa",
+            min_width="100px",
+        ),
+        rx.text("ab:", font_size="11px", color="#666"),
+        rx.input(
+            value=AIState.audio_tts_list_max_input,
+            on_change=AIState.audio_set_tts_list_max_input,
+            placeholder="5",
+            size="1",
+            width="80px",
+            font_family="monospace",
+        ),
+        rx.text(
+            "Einträgen wird nicht vorgelesen",
+            font_size="11px",
+            color="#666",
+        ),
+        rx.spacer(),
+        rx.button(
+            rx.icon("save", size=14),
+            "Speichern",
+            size="1",
+            variant="soft",
+            on_click=AIState.audio_save_tts_list_max,
             cursor="pointer",
         ),
         spacing="2",
@@ -458,6 +507,8 @@ def audio_settings_modal() -> rx.Component:
                 _sandbox_root_editor(),
                 # List/search default limits
                 _list_limits_editor(),
+                # TTS list filter threshold
+                _tts_list_threshold_editor(),
                 # Hint
                 rx.text(
                     "Sources sind Ordner oder Symlinks unter ",

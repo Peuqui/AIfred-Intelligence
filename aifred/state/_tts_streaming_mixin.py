@@ -92,10 +92,18 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Note: This is a simple async function, NOT a generator. State updates happen directly.
         """
         try:
-            from ..lib.audio_processing import clean_text_for_tts, generate_tts, set_tts_agent
+            from ..lib.audio_processing import (
+                clean_text_for_tts,
+                generate_tts,
+                reset_content_hint_flags,
+                set_tts_agent,
+            )
 
             # Set agent name for audio filename prefixing
             set_tts_agent(agent)
+
+            # Reset content-hint flags so this response starts clean.
+            reset_content_hint_flags()
 
             # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
             clean_text = clean_text_for_tts(ai_response)
@@ -217,10 +225,18 @@ class TTSStreamingMixin(rx.State, mixin=True):
             content: The text content to convert to speech (will be cleaned)
             agent: Agent name for per-agent voice settings (aifred, sokrates, salomo)
         """
-        from ..lib.audio_processing import clean_text_for_tts, generate_tts, set_tts_agent
+        from ..lib.audio_processing import (
+            clean_text_for_tts,
+            generate_tts,
+            reset_content_hint_flags,
+            set_tts_agent,
+        )
         from ..lib.config import DATA_DIR
 
         try:
+            # Reset content-hint flags so this response starts clean.
+            reset_content_hint_flags()
+
             # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
             clean_text = clean_text_for_tts(content)
 
@@ -406,6 +422,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         log_message(f"🔊 TTS Init: Starting streaming TTS for agent={agent}")
         log_message(f"🔊 TTS Init: enable_tts={self.enable_tts}, tts_streaming_enabled={self.tts_streaming_enabled}, engine={self.tts_engine}")  # type: ignore[attr-defined]
+        # Reset content-hint flags so a new response starts with a clean slate.
+        # Otherwise stale streaming state from the previous response (e.g. a
+        # list counter stuck above threshold) would suppress early sentences.
+        from ..lib.audio_processing import reset_content_hint_flags
+        reset_content_hint_flags()
         self._tts_sentence_buffer = ""
         self._tts_short_carry = ""
         self._tts_in_think_block = False

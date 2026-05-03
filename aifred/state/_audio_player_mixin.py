@@ -43,6 +43,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
     audio_picker_root_input: str = ""                # UI input for picker sandbox
     audio_list_limit_input: str = ""                 # default limit for audio_list
     audio_search_limit_input: str = ""               # default limit for audio_search
+    audio_tts_list_max_input: str = ""               # max items for TTS list filter
 
     # ── Public event handlers ───────────────────────────────────────
 
@@ -158,6 +159,9 @@ class AudioPlayerMixin(rx.State, mixin=True):
         )
         self.audio_search_limit_input = str(
             cfg.get("list", {}).get("search_default_limit", 20)
+        )
+        self.audio_tts_list_max_input = str(
+            cfg.get("tts_list", {}).get("full_max_items", 5)
         )
         self.audio_settings_open = True
 
@@ -338,6 +342,10 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.audio_search_limit_input = value
 
     @rx.event
+    def audio_set_tts_list_max_input(self, value: str) -> None:
+        self.audio_tts_list_max_input = value
+
+    @rx.event
     def audio_save_list_limits(self) -> None:
         """Persist list.default_limit and list.search_default_limit."""
         try:
@@ -357,6 +365,26 @@ class AudioPlayerMixin(rx.State, mixin=True):
             return
         self.audio_settings_status = (
             f"✅ Limits gespeichert: list={list_lim}, search={search_lim}"
+        )
+
+    @rx.event
+    def audio_save_tts_list_max(self) -> None:
+        """Persist tts_list.full_max_items (TTS list filter threshold)."""
+        try:
+            tts_max = int(self.audio_tts_list_max_input.strip())
+        except ValueError:
+            self.audio_settings_status = "⚠️ Threshold muss eine Zahl sein"
+            return
+        if tts_max < 1:
+            self.audio_settings_status = "⚠️ Threshold muss ≥ 1 sein"
+            return
+        cfg = self._read_audio_settings_json()
+        cfg.setdefault("tts_list", {})["full_max_items"] = tts_max
+        if not self._write_audio_settings_json(cfg):
+            self.audio_settings_status = "⚠️ Konnte settings.json nicht schreiben"
+            return
+        self.audio_settings_status = (
+            f"✅ TTS-Listen-Filter: ab {tts_max} Einträgen wird gekürzt"
         )
 
     @rx.event

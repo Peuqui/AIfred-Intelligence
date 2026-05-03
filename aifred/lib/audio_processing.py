@@ -47,6 +47,8 @@ _table_hint_announced: bool = False
 _formula_hint_announced: bool = False
 _code_hint_announced: bool = False
 _inside_details_block: bool = False  # Track if we're inside a <details> block (streaming)
+_list_streaming_count: int = 0       # consecutive list items seen (streaming mode)
+_list_hint_announced: bool = False   # "und weitere Einträge" emitted once per overflow
 
 
 # ---------------------------------------------------------------------------
@@ -81,10 +83,39 @@ def _validate_audio_output(output_path: str, min_size: int = 100) -> bool:
 def reset_content_hint_flags() -> None:
     """Reset all content hint flags (for new streaming session or after regular text)."""
     global _table_hint_announced, _formula_hint_announced, _code_hint_announced, _inside_details_block
+    global _list_streaming_count, _list_hint_announced
     _table_hint_announced = False
     _formula_hint_announced = False
     _code_hint_announced = False
     _inside_details_block = False
+    _list_streaming_count = 0
+    _list_hint_announced = False
+
+
+def _get_tts_list_max_items() -> int:
+    """Read tts_list.full_max_items from audio_player settings.json.
+
+    Threshold for the TTS list filter: lists with > max_items entries are
+    replaced with a spoken hint instead of being read aloud. Browser
+    display is unaffected (filter only runs in TTS path).
+    """
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        p = (
+            _Path(__file__).parent.parent / "plugins" / "tools"
+            / "audio_player" / "settings.json"
+        )
+        if p.exists():
+            with open(p, encoding="utf-8") as f:
+                cfg = _json.load(f)
+            return int(cfg.get("tts_list", {}).get("full_max_items", 5))
+    except (OSError, ValueError, KeyError):
+        pass
+    return 5
+
+
+_LIST_ITEM_RE = re.compile(r'^[ \t]*(?:[-*+]|\d+[.)])\s+')
 
 
 def set_tts_agent(agent_name: str) -> None:
@@ -1522,6 +1553,7 @@ def clean_text_for_tts(text):
     # Checks 1-4 are for STREAMING mode only (single-line sentences)
     # In Re-Synth mode (multi-line), we skip these and use table_block_pattern below
     global _table_hint_announced, _formula_hint_announced, _code_hint_announced
+    global _list_streaming_count, _list_hint_announced
 
     if not is_multiline:
         # Check for table content (4 patterns)
@@ -1552,12 +1584,29 @@ def clean_text_for_tts(text):
                 return "Hier steht Code."
             return ""
 
+        # List-item detection (streaming mode): count consecutive items;
+        # once threshold is exceeded, suppress the rest with a single hint.
+        # Items 1..N pass through to TTS, item N+1 becomes the hint, and
+        # any further consecutive items are dropped until a non-list line.
+        if _LIST_ITEM_RE.match(stripped):
+            _list_streaming_count += 1
+            if _list_streaming_count > _get_tts_list_max_items():
+                if not _list_hint_announced:
+                    _list_hint_announced = True
+                    return "und weitere Einträge."
+                return ""
+            # within threshold → fall through, item gets read normally
+        elif _list_streaming_count > 0 and stripped and re.search(r'[a-zA-ZäöüÄÖÜß]{2,}', stripped):
+            # Non-list readable line ended the run — reset list state
+            _list_streaming_count = 0
+            _list_hint_announced = False
+
         # Regular text detected - reset all flags for next block
         # Only reset if there's actual readable content (words), not just:
         # - Empty strings (from filtered decorative lines ═══)
         # - Pure punctuation or formatting remnants
         # This prevents false resets between table rows
-        if stripped and re.search(r'[a-zA-ZäöüÄÖÜß]{2,}', stripped):
+        if stripped and re.search(r'[a-zA-ZäöüÄÖÜß]{2,}', stripped) and not _LIST_ITEM_RE.match(stripped):
             reset_content_hint_flags()
 
     # Multi-line: replace table blocks with hint (Re-Synth / non-streaming full response)
@@ -1572,7 +1621,28 @@ def clean_text_for_tts(text):
             return '\n'
         clean_text = table_block_pattern.sub(replace_table, clean_text)
 
-    # Clean up multiple empty lines left by table replacement
+    # Multi-line: replace LONG markdown list blocks with a spoken hint.
+    # Threshold from settings.json (audio_player → tts_list.full_max_items).
+    # Short lists (≤ threshold) pass through unchanged so TTS reads them.
+    # A "list block" = ≥ 2 consecutive lines starting with -, *, +, or N. / N).
+    list_block_pattern = re.compile(
+        r'(?:^[ \t]*(?:[-*+]|\d+[.)])\s+[^\n]*\n?){2,}',
+        flags=re.MULTILINE,
+    )
+    _list_max_multi = _get_tts_list_max_items()
+
+    def _replace_long_list(m: 're.Match[str]') -> str:
+        block = m.group(0)
+        item_count = len(re.findall(
+            r'^[ \t]*(?:[-*+]|\d+[.)])\s+', block, flags=re.MULTILINE,
+        ))
+        if item_count > _list_max_multi:
+            return f'\nHier wird eine Liste mit {item_count} Einträgen angezeigt.\n'
+        return block
+
+    clean_text = list_block_pattern.sub(_replace_long_list, clean_text)
+
+    # Clean up multiple empty lines left by table/list replacement
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
 
     # Replace LaTeX formulas with spoken hint - both inline ($...$) and block ($$...$$)
