@@ -105,7 +105,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                         color_scheme="gray",
                         on_click=AIState.audio_index_clear_source(src["label"]),
                         cursor="pointer",
-                        title="Index-Eintraege loeschen (Source bleibt)",
+                        title="Index-Einträge löschen (Source bleibt)",
                     ),
                     rx.button(
                         rx.icon("x", size=14),
@@ -114,7 +114,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                         color_scheme="red",
                         on_click=AIState.audio_remove_source(src["label"]),
                         cursor="pointer",
-                        title="Source komplett entfernen (Symlink/Folder weg + Index-Eintraege weg)",
+                        title="Source komplett entfernen (Symlink/Ordner weg + Index-Einträge weg)",
                     ),
                     spacing="2",
                 ),
@@ -142,8 +142,11 @@ def audio_settings_modal() -> rx.Component:
                 left="0",
                 width="100%",
                 height="100%",
-                background_color="rgba(0, 0, 0, 0.6)",
-                on_click=AIState.close_audio_settings,
+                background_color="rgba(0, 0, 0, 0.92)",
+                # stop_propagation prevents the click from bubbling through
+                # to any modal beneath us (e.g. settings modal would otherwise
+                # also close, dropping the user back to the home page).
+                on_click=AIState.close_audio_settings.stop_propagation,
             ),
             rx.vstack(
                 # Header
@@ -166,7 +169,7 @@ def audio_settings_modal() -> rx.Component:
                 ),
                 # Hint
                 rx.text(
-                    "Sources sind Folders oder Symlinks unter ",
+                    "Sources sind Ordner oder Symlinks unter ",
                     rx.code("data/media/audio/"),
                     ". Symlinks zeigen NAS-Inhalt transparent. "
                     "HTTP-Streams werden in der settings.json verwaltet.",
@@ -200,7 +203,7 @@ def audio_settings_modal() -> rx.Component:
                 rx.hstack(
                     rx.button(
                         rx.icon("folder-plus", size=14),
-                        "Neue Source hinzufuegen…",
+                        "Neue Source hinzufügen…",
                         size="2",
                         variant="soft",
                         on_click=AIState.open_audio_source_picker,
@@ -208,7 +211,7 @@ def audio_settings_modal() -> rx.Component:
                     ),
                     rx.spacer(),
                     rx.button(
-                        "Schliessen",
+                        "Schließen",
                         size="2",
                         variant="soft",
                         on_click=AIState.close_audio_settings,
@@ -219,8 +222,11 @@ def audio_settings_modal() -> rx.Component:
                     padding_top="10px",
                     border_top="1px solid #333",
                 ),
+                # Modal content — stop click bubbling so clicks inside don't
+                # close the modal (only the backdrop click does)
+                on_click=rx.stop_propagation,
                 spacing="3",
-                width="min(800px, 95vw)",
+                width="min(1000px, 95vw)",
                 max_height="90vh",
                 overflow_y="auto",
                 padding="20px",
@@ -229,7 +235,7 @@ def audio_settings_modal() -> rx.Component:
                 border="1px solid #444",
                 box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
                 position="relative",
-                z_index="1000",
+                z_index="1201",
             ),
             position="fixed",
             top="0",
@@ -239,7 +245,7 @@ def audio_settings_modal() -> rx.Component:
             display="flex",
             align_items="center",
             justify_content="center",
-            z_index="999",
+            z_index="1200",
         ),
         rx.fragment(),
     )

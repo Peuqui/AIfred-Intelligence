@@ -223,16 +223,22 @@ class AudioPlayerMixin(rx.State, mixin=True):
         )
         self._refresh_audio_sources_view()
 
+    # Allowlist for new audio source roots. Restricts the picker so users
+    # can only navigate inside trusted mount-trees (auto-mounted NAS,
+    # removable media). Without this, the user could symlink any system
+    # path (/etc, /var/log, ...) into data/media/audio/ and expose it via
+    # /api/audio/file. Add new roots here only with admin awareness.
+    AUDIO_SOURCE_PICKER_ROOT = "/mnt"
+
     @rx.event
     def open_audio_source_picker(self) -> None:
-        """Open the file-picker so the user can add a NAS-path as a new source."""
-        # Initialize the picker on a clean slate — sandbox is the system root
-        # so the user can navigate to any mount point. The picker creates a
-        # symlink under data/media/audio/ when the user confirms.
+        """Open the file-picker so the user can add a NAS-path as a new source.
+        Sandboxed to /mnt to prevent symlinking arbitrary system paths.
+        """
         self.picker_open_for(  # type: ignore[attr-defined]
-            title="Neue Audio-Source hinzufuegen",
-            root="/",
-            start_at="mnt",
+            title="Neue Audio-Source hinzufügen",
+            root=self.AUDIO_SOURCE_PICKER_ROOT,
+            start_at="",
             mode="pick_folder",
             caps={
                 "can_create_folder": False,
