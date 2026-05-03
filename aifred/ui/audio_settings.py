@@ -18,15 +18,92 @@ import reflex as rx
 from ..state import AIState
 
 
-def _help_panel() -> rx.Component:
-    """Toggleable help panel — explains the workflow + each button."""
-    bullet = lambda label, text: rx.hstack(  # noqa: E731
-        rx.text(label, font_weight="bold", min_width="120px", color="#ffd166"),
+def _help_bullet(label: str, text: str) -> rx.Component:
+    return rx.hstack(
+        rx.text(label, font_weight="bold", min_width="180px", color="#ffd166"),
         rx.text(text, font_size="12px", color="#ddd", flex="1"),
         spacing="2",
         align="start",
         width="100%",
     )
+
+
+def audio_help_modal() -> rx.Component:
+    """Standalone modal explaining the Audio-Settings workflow.
+
+    Sits above the audio_settings_modal (z-index 1400 vs 1200) so the
+    user can read the help without losing the underlying settings view.
+    Closing this modal does NOT close the settings modal beneath.
+    """
+    return rx.cond(
+        AIState.audio_settings_help_open,
+        rx.box(
+            rx.box(
+                position="absolute", top="0", left="0",
+                width="100%", height="100%",
+                background_color="rgba(0, 0, 0, 0.92)",
+                on_click=AIState.toggle_audio_settings_help.stop_propagation,
+            ),
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("lightbulb", size=20, color="#ffd166"),
+                    rx.text(
+                        "Hilfe — Audio Player Sources & Index",
+                        font_weight="bold", font_size="15px",
+                    ),
+                    rx.spacer(),
+                    rx.button(
+                        rx.icon("x", size=16),
+                        size="1", variant="ghost",
+                        on_click=AIState.toggle_audio_settings_help,
+                        cursor="pointer",
+                    ),
+                    spacing="2", align="center", width="100%",
+                    padding_bottom="8px",
+                    border_bottom="1px solid #333",
+                ),
+                rx.box(
+                    _help_content(),
+                    flex="1",
+                    overflow_y="auto",
+                    min_height="0",
+                    width="100%",
+                    padding_right="8px",
+                ),
+                rx.hstack(
+                    rx.spacer(),
+                    rx.button(
+                        "Schließen", size="2", variant="soft",
+                        on_click=AIState.toggle_audio_settings_help,
+                        cursor="pointer",
+                    ),
+                    width="100%",
+                    padding_top="10px",
+                    border_top="1px solid #333",
+                ),
+                on_click=rx.stop_propagation,
+                spacing="3",
+                width="min(820px, 95vw)",
+                height="min(640px, 90vh)",
+                padding="20px",
+                background_color="#1f1f1f",
+                border_radius="8px",
+                border="1px solid rgba(255, 209, 102, 0.4)",
+                box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
+                position="relative",
+                z_index="1401",
+            ),
+            position="fixed", top="0", left="0",
+            width="100vw", height="100vh",
+            display="flex", align_items="center", justify_content="center",
+            z_index="1400",
+        ),
+        rx.fragment(),
+    )
+
+
+def _help_content() -> rx.Component:
+    """Body of the help modal — bullet list of all settings + buttons."""
     return rx.box(
         rx.vstack(
             rx.text(
@@ -45,40 +122,40 @@ def _help_panel() -> rx.Component:
                 color="#bbb",
                 line_height="1.5",
             ),
-            bullet(
+            _help_bullet(
                 "Indexieren",
                 "Liest neue/geänderte Dateien und ihre Tags. Schnell wenn nichts "
                 "geändert (mtime-Check). Macht audio_search erst nutzbar.",
             ),
-            bullet(
+            _help_bullet(
                 "Force",
                 "Wie Indexieren, aber liest ALLE Tags neu. Nutze nach Mass-Tag-"
                 "Edit oder wenn der Index 'komisch' aussieht.",
             ),
-            bullet(
+            _help_bullet(
                 "Mülleimer 🗑️",
                 "Löscht Index-Einträge dieser Source (die Audio-Dateien bleiben). "
                 "Anschließend Indexieren bauf den Index neu auf.",
             ),
-            bullet(
+            _help_bullet(
                 "Rotes X",
                 "Source komplett entfernen (Symlink/leerer Ordner weg + Index-"
                 "Einträge weg). Symlink-Targets (z.B. /mnt/auto/...) bleiben "
                 "unverändert — nur der Pointer hier wird gelöscht.",
             ),
-            bullet(
+            _help_bullet(
                 "Neue Source hinzufügen…",
                 "Öffnet den Datei-Browser. Sandbox-Root ist konfigurierbar "
                 "(siehe unten). Du wählst einen Ordner — wir legen einen Symlink "
                 "unter data/media/audio/ an.",
             ),
-            bullet(
+            _help_bullet(
                 "Sandbox-Root",
                 "Welcher Pfad-Bereich vom Picker erreichbar ist. Default /mnt "
                 "(NAS-Mounts). Höher (z.B. /) wäre ein Sicherheits-Risiko, "
                 "weil dann beliebige System-Pfade exposed werden könnten.",
             ),
-            bullet(
+            _help_bullet(
                 "Im Picker: Neuer Ordner / Symlink",
                 "Du kannst innerhalb der Sandbox eigene Ordner anlegen oder "
                 "Symlinks setzen — z.B. einen Ordner 'meine_hörbücher' mit "
@@ -86,13 +163,13 @@ def _help_panel() -> rx.Component:
                 "Symlink-Targets MÜSSEN in der Sandbox bleiben (Schutz vor "
                 "Sandbox-Escape).",
             ),
-            bullet(
+            _help_bullet(
                 "Tipp",
                 "Bei großen NAS-Mounts: erst 'Indexieren' klicken (3–5 Min für "
                 "~17k Files), dann ist audio_search sub-Sekunde. Background-"
                 "Sync läuft alle 24h für Sources die schon Einträge haben.",
             ),
-            bullet(
+            _help_bullet(
                 "Überlappende Sources",
                 "Wenn du sowohl einen Parent (z.B. 'nas_audio') als auch "
                 "einzelne Sub-Folders (z.B. 'Hörbücher', 'Lustiges') als Sources "
@@ -318,12 +395,7 @@ def audio_settings_modal() -> rx.Component:
                     padding_bottom="8px",
                     border_bottom="1px solid #333",
                 ),
-                # Help panel (toggled via lightbulb)
-                rx.cond(
-                    AIState.audio_settings_help_open,
-                    _help_panel(),
-                    rx.fragment(),
-                ),
+                # (Help is rendered as separate modal via audio_help_modal)
                 # Sandbox-Root editor (for the source picker)
                 _sandbox_root_editor(),
                 # Hint
