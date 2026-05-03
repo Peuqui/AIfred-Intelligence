@@ -653,43 +653,28 @@ class OpenAICompatibleBackend(LLMBackend):
                     for item in self._finalize_stream(stream_state):
                         yield item
 
-                    # Fallback: detect tool calls in text output
-                    # Some models (GPT-OSS) output tool calls as JSON text
-                    # instead of using the structured tool_calls API
+                    # Fallback: extract tool calls from text content for models
+                    # that emit them as text instead of using the structured
+                    # tool_calls API (Hermes-tunes, model merges, llama.cpp
+                    # chat templates without OpenAI tools translation).
+                    # Loud by design: every detected pattern emits a debug
+                    # message — successful extractions, halluzinations and
+                    # unparsable patterns alike. No silent recoveries.
                     if not tool_calls and toolkit and toolkit.definitions:
-                        import re as _re
+                        from ..lib.function_calling import extract_text_tool_calls
                         content_text = stream_state.get("_content_acc", "")
-                        # Look for store_memory JSON pattern in content
-                        json_match = _re.search(
-                            r'\{\s*"content"\s*:\s*"[^"]+"\s*,\s*"memory_type"\s*:\s*"[^"]+"\s*,\s*"summary"\s*:\s*"[^"]+"',
-                            content_text,
+                        extracted, cleaned, debug_msgs = extract_text_tool_calls(
+                            content_text, toolkit
                         )
-                        if json_match:
-                            import json as _json
-                            try:
-                                # Find the complete JSON object
-                                start = json_match.start()
-                                brace_count = 0
-                                end = start
-                                for ci, c in enumerate(content_text[start:], start):
-                                    if c == '{':
-                                        brace_count += 1
-                                    elif c == '}':
-                                        brace_count -= 1
-                                        if brace_count == 0:
-                                            end = ci + 1
-                                            break
-                                json_str = content_text[start:end]
-                                _json.loads(json_str)  # Validate
-                                tool_calls = [{
-                                    "id": f"fallback-{id(json_str)}",
-                                    "name": "store_memory",
-                                    "arguments": json_str,
-                                }]
-                                from ..lib.logging_utils import log_message
-                                log_message("🔧 Tool call detected in text (fallback parsing)")
-                            except (ValueError, _json.JSONDecodeError):
-                                pass
+                        for msg in debug_msgs:
+                            yield {"type": "debug", "message": msg}
+                        if extracted:
+                            tool_calls = extracted
+                            # Replace accumulated content with the cleaned
+                            # version so the next round's assistant_msg doesn't
+                            # echo the tool-call tag back to the model (which
+                            # would either confuse it or trigger a re-call).
+                            stream_state["_content_acc"] = cleaned
 
                     # No tool calls → done
                     if not tool_calls or not toolkit:
