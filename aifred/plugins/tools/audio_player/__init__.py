@@ -516,13 +516,33 @@ class AudioPlayerPlugin:
                     "via": "index",
                 })
 
-            # Fallback: live filesystem walk (bounded by subdir if given)
-            cfg = _load_settings().get("sources", {}).get(source, {})
-            if cfg.get("type") != "local_folder":
+            # Fallback: live filesystem walk (bounded by subdir if given).
+            # Use the resolver (filesystem-discovery + http_streams) instead
+            # of just settings.json, so we can give precise error messages:
+            # - source unknown → list available sources
+            # - source is http_stream → tell user it's not browsable
+            available = [s["label"] for s in resolver.list_sources()]
+            if source not in available:
                 return json.dumps({
                     "source": source, "items": [], "count": 0,
-                    "error": "source has no filesystem (likely an http_stream)",
+                    "error": (
+                        f"Unknown source: '{source}'. "
+                        f"Available: {available} (case-sensitive!)"
+                    ),
                 })
+            src_info = next(
+                (s for s in resolver.list_sources() if s["label"] == source),
+                {},
+            )
+            if src_info.get("type") != "local_folder":
+                return json.dumps({
+                    "source": source, "items": [], "count": 0,
+                    "error": (
+                        f"Source '{source}' is an http_stream, not a folder. "
+                        f"Use audio_play(item='{source}') to play it directly."
+                    ),
+                })
+            cfg = {"type": "local_folder", "path": src_info["target"]}
             from pathlib import Path as _Path
             root = _Path(cfg.get("path", "")).expanduser().resolve()
             if subdir:
