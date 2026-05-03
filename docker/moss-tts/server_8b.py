@@ -29,6 +29,7 @@ Usage:
 import importlib.util
 import os
 import re
+import unicodedata
 import tempfile
 import logging
 import time
@@ -372,6 +373,14 @@ def generate_tts(text: str, speaker: str | None = None,
     import torchaudio
 
     model = get_model()
+
+    # Defense in depth: catch ALL problematic Unicode chars that may crash
+    # the tokenizer (e.g. NARROW NO-BREAK SPACE U+202F). NFKC normalizes
+    # compatibility forms; Zs (Space_Separator) -> regular space; Cf (Format,
+    # incl. zero-width chars, BOM, joiners) is dropped.
+    text = unicodedata.normalize('NFKC', text)
+    text = ''.join(' ' if unicodedata.category(c) == 'Zs' else c for c in text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Cf')
 
     # Text preprocessing for better prosody
     text = text.replace('...', '. \u2013')
