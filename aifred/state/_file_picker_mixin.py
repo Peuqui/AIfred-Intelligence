@@ -43,6 +43,7 @@ class FilePickerMixin(rx.State, mixin=True):
     # UI sub-states
     picker_loading: bool = False
     picker_error: str = ""
+    picker_writable: bool = False       # current folder accepts new entries
     picker_filter_text: str = ""        # client-side live filter on entry names
 
     # Inline forms
@@ -157,7 +158,9 @@ class FilePickerMixin(rx.State, mixin=True):
         if not result.success:
             self.picker_error = result.error
             self.picker_entries = []
+            self.picker_writable = False
             return
+        self.picker_writable = result.writable
         # Serialize BrowseEntry to dicts (Reflex-State-friendly)
         self.picker_entries = [
             {
