@@ -121,4 +121,3 @@ tools/echo_dot/tflite/lib/
 tools/echo_dot/tflite/*.tflite
 tools/echo_dot/
 data/FreeEchoDot2/
-docs/de/hardware/
