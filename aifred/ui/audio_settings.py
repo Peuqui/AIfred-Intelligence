@@ -24,6 +24,9 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
         AIState.audio_settings_busy != ""
     )
 
+    # Fixed width for the action button group so all rows align flush right
+    actions_width = "260px"
+
     return rx.box(
         rx.hstack(
             # Type icon
@@ -42,8 +45,9 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                 font_weight="bold",
                 font_size="14px",
                 min_width="120px",
+                flex_shrink="0",
             ),
-            # Target (Pfad/URL) + indexed-count
+            # Target (Pfad/URL) + indexed-count — takes remaining space
             rx.vstack(
                 rx.text(
                     src["target"],
@@ -53,6 +57,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                     overflow="hidden",
                     text_overflow="ellipsis",
                     white_space="nowrap",
+                    width="100%",
                 ),
                 rx.cond(
                     src["is_stream"],
@@ -67,57 +72,64 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                 align="start",
                 flex="1",
                 min_width="0",
+                width="100%",
             ),
-            rx.spacer(),
-            # Action buttons (only for local_folder sources)
-            rx.cond(
-                src["is_stream"],
-                rx.fragment(),
-                rx.hstack(
-                    rx.button(
-                        rx.cond(
-                            is_busy,
-                            rx.spinner(size="1"),
-                            rx.icon("refresh-cw", size=14),
+            # Action buttons — fixed width for alignment, hstack with
+            # justify="end" pushes them flush right within that width
+            rx.box(
+                rx.cond(
+                    src["is_stream"],
+                    rx.fragment(),
+                    rx.hstack(
+                        rx.button(
+                            rx.cond(
+                                is_busy,
+                                rx.spinner(size="1"),
+                                rx.icon("refresh-cw", size=14),
+                            ),
+                            "Indexieren",
+                            size="1",
+                            variant="soft",
+                            on_click=AIState.audio_index_rebuild_source(src["label"], False),
+                            cursor="pointer",
+                            disabled=AIState.audio_settings_busy != "",
                         ),
-                        "Indexieren",
-                        size="1",
-                        variant="soft",
-                        on_click=AIState.audio_index_rebuild_source(src["label"], False),
-                        cursor="pointer",
-                        disabled=AIState.audio_settings_busy != "",
+                        rx.button(
+                            rx.icon("zap", size=14),
+                            "Force",
+                            size="1",
+                            variant="soft",
+                            color_scheme="orange",
+                            on_click=AIState.audio_index_rebuild_source(src["label"], True),
+                            cursor="pointer",
+                            disabled=AIState.audio_settings_busy != "",
+                            title="Komplett neu indexieren (ignoriert mtime, liest alle Tags neu)",
+                        ),
+                        rx.button(
+                            rx.icon("trash", size=14),
+                            size="1",
+                            variant="soft",
+                            color_scheme="gray",
+                            on_click=AIState.audio_index_clear_source(src["label"]),
+                            cursor="pointer",
+                            title="Index-Einträge löschen (Source bleibt)",
+                        ),
+                        rx.button(
+                            rx.icon("x", size=14),
+                            size="1",
+                            variant="soft",
+                            color_scheme="red",
+                            on_click=AIState.audio_remove_source(src["label"]),
+                            cursor="pointer",
+                            title="Source komplett entfernen (Symlink/Ordner weg + Index-Einträge weg)",
+                        ),
+                        spacing="2",
+                        justify="end",
+                        width="100%",
                     ),
-                    rx.button(
-                        rx.icon("zap", size=14),
-                        "Force",
-                        size="1",
-                        variant="soft",
-                        color_scheme="orange",
-                        on_click=AIState.audio_index_rebuild_source(src["label"], True),
-                        cursor="pointer",
-                        disabled=AIState.audio_settings_busy != "",
-                        title="Komplett neu indexieren (ignoriert mtime, liest alle Tags neu)",
-                    ),
-                    rx.button(
-                        rx.icon("trash", size=14),
-                        size="1",
-                        variant="soft",
-                        color_scheme="gray",
-                        on_click=AIState.audio_index_clear_source(src["label"]),
-                        cursor="pointer",
-                        title="Index-Einträge löschen (Source bleibt)",
-                    ),
-                    rx.button(
-                        rx.icon("x", size=14),
-                        size="1",
-                        variant="soft",
-                        color_scheme="red",
-                        on_click=AIState.audio_remove_source(src["label"]),
-                        cursor="pointer",
-                        title="Source komplett entfernen (Symlink/Ordner weg + Index-Einträge weg)",
-                    ),
-                    spacing="2",
                 ),
+                width=actions_width,
+                flex_shrink="0",
             ),
             spacing="3",
             align="center",
