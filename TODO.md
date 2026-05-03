@@ -11,11 +11,38 @@ Pipeline: Inbound Sanitization → Tier-Check → Tool-Aufruf → Output-Sanitiz
 
 ## Audio-Player Plugin
 
-- [ ] Live-Test im Browser (AIfred soll WAV abspielen)
+Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio-pipeline.md)
+
+**Phase 1.0 ✅ Core mpv + State + Sources**
+- mpv-IPC AudioManager, audio_state.json SSOT, SourceResolver mit Path-Whitelist
+- 13 Tools (play/pause/resume/resume_last/stop/seek/skip/speed/volume/status/list/list_unfinished/targets)
+- Default-Sources: alarms, music, sandbox
+
+**Phase 1.1 ✅ Browser-Adapter (HTML5 nativ)**
+- `/api/audio/file?key=...` mit HTTP Range-Support (Seek funktioniert nativ)
+- `/api/audio/position` fuer Browser→Server Position-Sync
+- Auto-Target aus PluginContext.source: browser-Anfrage → media im selben Tab
+- Native HTML5-Controls fuer Pause/Seek/Volume — keine Extra-Tools noetig
+- Auto-Pause-fuer-TTS: TTS pausiert media, resumt mit 3s Pre-Roll
+- Live verifiziert mit Qwen3.5-122B; A3B-MoE-Modelle haben Tool-Calling-Issues
+  bei finalem Round (parking-Patch in `aifred/backends/base.py:570-585`)
+
+**Phase 1.2 — TODO offen**
+- [ ] Auto-Pause-fuer-TTS End-to-End-Test (Hörbuch → Frage stellen → Resume mit Pre-Roll verifizieren)
+- [ ] Source-Settings-UI (Zahnrad, Add/Edit/Remove statt manueller JSON-Edit)
+- [ ] Plugin-Prompt: "Auto-Pick" bei klarem Item (skip audio_list wenn item bekannt)
+
+**Phase 2.0 — TODO**
+- [ ] YouTube-Plugin (yt-dlp Stream → mpv für target=local, Direkt-URL für target=browser)
+- [ ] Internet-Radio-Beispiele in default settings.json
+
+**Phase 3.0 — TODO**
+- [ ] Puck-Output-Adapter (mpv → FIFO PCM → FreeEcho2-WS audio_type=music)
+- [ ] Multi-Manager-Architektur (ein mpv pro Puck-Target, Registry statt Singleton)
+
+**Phase 4.0 — TODO**
+- [ ] Hörbuch-Modus mit Auto-Pause bei Wake-Word/Inferenz (analog zu TTS-Hook)
 - [ ] Integration mit Scheduler: Weckerton zu bestimmter Uhrzeit
-- [ ] Netzwerk-Playback (PulseAudio remote oder eigener Audio-Server fuer Pucks)
-- [ ] **Musik-Streaming an Puck** — eigener Streaming-Kanal (nicht ueber TTS-Protokoll),
-  Playlisten, Pause/Skip/Resume, setzt Bluetooth-Speaker am Puck voraus
 
 ---
 

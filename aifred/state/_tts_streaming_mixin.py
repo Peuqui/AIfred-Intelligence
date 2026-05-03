@@ -806,6 +806,17 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         from ..lib.api import tts_queue_push
 
+        # Auto-pause media playback before the first TTS chunk goes to the
+        # browser. Position is saved by the browser via /api/audio/position
+        # on the source-switch — here we just flip the resume flag so the
+        # player picks media back up after the TTS queue drains.
+        if (
+            getattr(self, "media_audio_url", "") != ""
+            and not getattr(self, "media_paused_for_tts", False)
+            and self._tts_push_seq in self._tts_order_buffer
+        ):
+            self.media_paused_for_tts = True  # type: ignore[attr-defined]
+
         while self._tts_push_seq in self._tts_order_buffer:
             entry = self._tts_order_buffer[self._tts_push_seq]
 

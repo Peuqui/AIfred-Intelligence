@@ -805,10 +805,11 @@ console.log('✂️ Crop handler loaded');
             # NOTE: Sokrates now streams directly into chat_history (no separate panel)
             chat_history_display(),
 
-            # TTS Audio Player - shows when TTS enabled AND chat history exists
-            # This allows "Neu generieren" after app restart (before any audio generated)
+            # Audio Player — shared by TTS and audio_player tool (SSOT).
+            # Visible when TTS enabled (chat existing) OR a media item is loaded.
             rx.cond(
-                AIState.enable_tts & (ChatHistoryState.chat_history.length() > 0),
+                (AIState.enable_tts & (ChatHistoryState.chat_history.length() > 0))
+                | (AIState.media_audio_url != ""),
                 rx.box(
                     rx.hstack(
                         rx.text("🔊", font_size="18px"),
@@ -838,24 +839,42 @@ console.log('✂️ Crop handler loaded');
                         spacing="2",
                         align="center",
                     ),
-                    # HTML5 Audio Element - ALWAYS rendered to avoid React Hook order issues
-                    # Use display:none instead of rx.cond to prevent mount/unmount cycles
+                    # HTML5 Audio Element — SSOT for TTS and audio_player tool.
+                    # `src` priority: TTS speech wins over media (LLM voice has priority).
+                    # When TTS clears (tts_audio_path=""), src falls back to media_audio_url.
                     rx.el.audio(
-                        src=AIState.tts_audio_path,
+                        src=rx.cond(
+                            AIState.tts_audio_path != "",
+                            AIState.tts_audio_path,
+                            AIState.media_audio_url,
+                        ),
                         id="tts-audio-player",
                         controls=True,
-                        # Only autoplay when AutoPlay is ON and path exists
-                        autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),
-                        key="tts-audio-" + AIState.tts_trigger_counter.to(str),  # Force remount on new audio
-                        # Set playback rate from agent settings via data attribute
-                        # JavaScript reads this on play event
-                        **{"data-playback-rate": AIState.tts_playback_rate},  # type: ignore[arg-type]
+                        # Autoplay covers both TTS pushes and media activation
+                        autoPlay=(AIState.tts_autoplay & (AIState.tts_audio_path != ""))
+                        | (AIState.media_audio_url != ""),
+                        # Force remount on new content (counter for TTS, state_key for media)
+                        key="audio-" + AIState.tts_trigger_counter.to(str)
+                        + "-" + AIState.media_state_key,
+                        **{
+                            "data-playback-rate": AIState.tts_playback_rate,
+                            "data-media-url": AIState.media_audio_url,
+                            "data-media-state-key": AIState.media_state_key,
+                            "data-media-is-stream": rx.cond(AIState.media_is_stream, "true", "false"),
+                            "data-media-paused-for-tts": rx.cond(
+                                AIState.media_paused_for_tts, "true", "false"
+                            ),
+                            "data-media-pause-pos": AIState.media_pause_pos_sec.to(str),
+                        },  # type: ignore[arg-type]
                         style={
                             "width": "100%",
                             "height": "40px",
                             "margin_top": "8px",
-                            # Visible when: tts_audio_path OR tts_audio_queue has items
-                            "display": rx.cond(AIState.tts_player_visible, "block", "none"),
+                            "display": rx.cond(
+                                AIState.tts_player_visible | (AIState.media_audio_url != ""),
+                                "block",
+                                "none",
+                            ),
                         },
                     ),
                     # Hidden element for TTS queue data - JavaScript reads this to update local queue
@@ -882,8 +901,11 @@ console.log('✂️ Crop handler loaded');
                         color="#888",
                         margin_top="8px",
                         font_style="italic",
-                        # Hide when player is visible (audio playing or queued)
-                        display=rx.cond(AIState.tts_player_visible, "none", "block"),
+                        display=rx.cond(
+                            AIState.tts_player_visible | (AIState.media_audio_url != ""),
+                            "none",
+                            "block",
+                        ),
                     ),
                     padding="3",
                     background_color="rgba(66, 135, 245, 0.08)",

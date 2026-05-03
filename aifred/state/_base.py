@@ -99,6 +99,7 @@ from ._export_mixin import ExportMixin  # noqa: E402
 from ._session_mixin import SessionMixin  # noqa: E402
 from ._tts_config_mixin import TTSConfigMixin  # noqa: E402
 from ._tts_streaming_mixin import TTSStreamingMixin  # noqa: E402
+from ._audio_player_mixin import AudioPlayerMixin  # noqa: E402
 from ._agent_config_mixin import AgentConfigMixin  # noqa: E402
 from ._settings_mixin import SettingsMixin  # noqa: E402
 from ._calibration_mixin import CalibrationMixin  # noqa: E402
@@ -114,6 +115,7 @@ class AIState(  # type: ignore[misc]
     SessionMixin,
     TTSConfigMixin,
     TTSStreamingMixin,
+    AudioPlayerMixin,
     AgentConfigMixin,
     SettingsMixin,
     CalibrationMixin,
