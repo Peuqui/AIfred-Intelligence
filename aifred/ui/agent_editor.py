@@ -2284,7 +2284,8 @@ def agent_editor_modal() -> rx.Component:
                 width="100%",
                 height="100%",
                 background_color="rgba(0, 0, 0, 0.85)",
-                on_click=AIState.close_editor_with_dirty_check,
+                # Backdrop fängt den Klick aber schließt nicht (user nutzt X)
+                on_click=rx.stop_propagation,
             ),
             # Modal content — switches between tabs
             rx.box(
