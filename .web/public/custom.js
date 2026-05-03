@@ -684,12 +684,24 @@ function updateTtsQueue(queue, version) {
     const prevLength = ttsQueue.length;
     ttsQueue = [...queue];
 
-    // Auto-start playback if new items arrived and not already playing
+    // Auto-start playback if there's anything queued that we haven't
+    // played yet AND we're not currently playing.
+    //
+    // The trigger condition is intentionally NOT "queue grew" — after a
+    // "Playback complete" the index sits at the previous queue length,
+    // and a new server-pushed chunk extends the queue beyond that. We
+    // need to resume regardless of whether `prevLength` is older state
+    // (typical) or whether we missed a chunk between socket reconnects.
+    //
+    // We also drop the `!document.hidden` check: the browser handles
+    // autoplay restrictions itself; gating playback in JS just hides
+    // the symptom and leaves the queue stuck when the tab returns.
     const queueElement = document.getElementById('tts-queue-data');
     const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
+    const hasUnplayed = ttsQueueCurrentIndex < ttsQueue.length;
 
-    if (queue.length > prevLength && !ttsQueuePlaying && autoplayEnabled && !document.hidden) {
-        console.log(`🔊 TTS Queue: New items, starting playback`);
+    if (hasUnplayed && !ttsQueuePlaying && autoplayEnabled) {
+        console.log(`🔊 TTS Queue: Resuming playback at chunk ${ttsQueueCurrentIndex + 1}/${ttsQueue.length}`);
         playNextChunk();
     } else if (queue.length > prevLength && ttsQueuePlaying) {
         // Already playing - prefetch upcoming chunks
@@ -710,6 +722,19 @@ function playNextChunk() {
             URL.revokeObjectURL(blobUrl);
         }
         ttsBlobCache = {};
+
+        // Clear the player's src so it doesn't dangle on a revoked blob.
+        // Without this, the next time something else (Reflex re-render,
+        // socket reconnect, MutationObserver) pokes the audio element,
+        // it tries to load the now-dead blob URL and the browser logs
+        // ERR_FILE_NOT_FOUND. Setting src to '' detaches the resource.
+        const completedPlayer = document.getElementById('tts-audio-player');
+        if (completedPlayer) {
+            try {
+                completedPlayer.removeAttribute('src');
+                completedPlayer.load();
+            } catch { /* ignore — player may not be in a state to load */ }
+        }
 
         // If media was queued behind TTS, kick it off now.
         // Resume only when media is *currently* paused-for-tts — the
@@ -941,8 +966,24 @@ function startTtsStream(sessionIdParam) {
 
     ttsEventSource.onopen = () => {
         console.log('🔊 TTS SSE: Connection opened');
+        const wasReconnect = ttsStreamRetryCount > 0;
         ttsStreamRetryCount = 0;
         ttsStreamGaveUp = false;
+
+        // Reconnect can land between server-pushed chunks: the browser
+        // re-establishes EventSource, the server resends pending items,
+        // but the local queue was already extended past the index where
+        // we got stuck. Kick playback back to life if there's anything
+        // waiting and we're not playing.
+        if (wasReconnect) {
+            const hasUnplayed = ttsQueueCurrentIndex < ttsQueue.length;
+            const queueElement = document.getElementById('tts-queue-data');
+            const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
+            if (hasUnplayed && !ttsQueuePlaying && autoplayEnabled) {
+                console.log(`🔊 TTS SSE: Reconnect — resuming idle queue at chunk ${ttsQueueCurrentIndex + 1}/${ttsQueue.length}`);
+                playNextChunk();
+            }
+        }
     };
 
     ttsEventSource.onmessage = (event) => {
