@@ -959,8 +959,14 @@ function startTtsStream(sessionIdParam) {
                     }
                 }
 
+                // Dedupe by version: on reconnect the server may resend items
+                // with version <= ttsQueueVersion. Skip them silently.
+                if (data.version <= ttsQueueVersion && ttsQueueVersion > 0) {
+                    console.log(`🔊 TTS SSE: Skipping already-known v${data.version} (current v${ttsQueueVersion})`);
+                    return;
+                }
+
                 // Build queue incrementally and schedule for gapless playback
-                // Version reset detection happens inside updateTtsQueue()
                 const newQueue = [...ttsQueue, data.audio_url];
                 updateTtsQueue(newQueue, data.version);
             }

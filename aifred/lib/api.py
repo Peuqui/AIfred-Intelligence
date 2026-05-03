@@ -976,45 +976,65 @@ async def clear_tts_queue(session_id: str):
 
 
 @api_app.get("/tts/stream/{session_id}", tags=["TTS"])
-async def tts_stream(session_id: str):
+async def tts_stream(session_id: str, request: Request):
     """
     Server-Sent Events (SSE) endpoint for real-time TTS audio streaming.
 
     Browser opens this connection once. Server pushes audio URLs immediately
     when they become available - no polling needed.
+
+    Reconnect-safe: each event carries `id: <version>`. On reconnect the
+    browser auto-sends `Last-Event-ID`, so we only replay items with a higher
+    version — no duplicates, no client-side reset.
     """
     from fastapi.responses import StreamingResponse
     import json
+
+    # Browser sets this header automatically on reconnect (SSE spec).
+    last_event_id_raw = request.headers.get("last-event-id", "0")
+    try:
+        last_event_id = int(last_event_id_raw)
+    except (TypeError, ValueError):
+        last_event_id = 0
 
     async def event_generator():
         # Create queue for this session
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
         old_queue = _tts_sse_queues.get(session_id)
         if old_queue is not None:
-            log_message(f"🔊 TTS SSE: Replacing existing queue for session {session_id[:8]}... (reconnect)")
+            log_message(f"🔊 TTS SSE: Replacing existing queue for session {session_id[:8]}... (reconnect, last_id={last_event_id})")
         _tts_sse_queues[session_id] = queue
-        log_message(f"🔊 TTS SSE: Stream opened for session {session_id[:8]}...")
+        log_message(f"🔊 TTS SSE: Stream opened for session {session_id[:8]}... (last_id={last_event_id})")
 
         # Flush HTTP headers immediately by yielding an SSE comment.
         # Without this, the proxy buffers until the first data (up to 15s keepalive),
         # keeping EventSource stuck in CONNECTING state.
         yield ": connected\n\n"
 
-        # IMPORTANT: Send any already-generated audio URLs immediately
-        # This handles the race condition where TTS generation starts before SSE connects
+        # Replay items the client missed (version > last_event_id). On a fresh
+        # connect last_event_id is 0 so all items are sent; on reconnect only
+        # the gap is filled.
         if session_id in _tts_queue_storage:
             storage = _tts_queue_storage[session_id]
             if storage["queue"]:
-                log_message(f"🔊 TTS SSE: Sending {len(storage['queue'])} existing items (v{storage['version']})")
-                for i, audio_url in enumerate(storage["queue"]):
-                    item = {
-                        "audio_url": audio_url,
-                        "version": i + 1,  # Reconstruct version sequence
-                        "playback_rate": storage["playback_rate"]
-                    }
-                    data = json.dumps(item)
-                    yield f"data: {data}\n\n"
-                    log_message(f"🔊 TTS SSE: Sent existing {audio_url.split('/')[-1]}")
+                missed = [
+                    (i + 1, url)
+                    for i, url in enumerate(storage["queue"])
+                    if (i + 1) > last_event_id
+                ]
+                if missed:
+                    log_message(
+                        f"🔊 TTS SSE: Replaying {len(missed)} missed item(s) "
+                        f"(v{missed[0][0]}..v{missed[-1][0]}, total stored {len(storage['queue'])})"
+                    )
+                    for version, audio_url in missed:
+                        item = {
+                            "audio_url": audio_url,
+                            "version": version,
+                            "playback_rate": storage["playback_rate"],
+                        }
+                        data = json.dumps(item)
+                        yield f"id: {version}\ndata: {data}\n\n"
 
         try:
             while True:
@@ -1022,10 +1042,10 @@ async def tts_stream(session_id: str):
                     # Wait for next audio item (with timeout for keepalive)
                     item = await asyncio.wait_for(queue.get(), timeout=15.0)
 
-                    # Send audio URL as SSE event
+                    # Send audio URL as SSE event with id: for reconnect resume
                     data = json.dumps(item)
-                    yield f"data: {data}\n\n"
-                    log_message(f"🔊 TTS SSE: Sent {item['audio_url'].split('/')[-1]}")
+                    yield f"id: {item['version']}\ndata: {data}\n\n"
+                    log_message(f"🔊 TTS SSE: Sent v{item['version']} {item['audio_url'].split('/')[-1]}")
 
                 except asyncio.TimeoutError:
                     # Send keepalive comment (SSE spec: lines starting with : are comments)
