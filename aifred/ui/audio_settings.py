@@ -140,6 +140,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
         border="1px solid #333",
         border_radius="6px",
         margin_bottom="6px",
+        width="100%",
     )
 
 

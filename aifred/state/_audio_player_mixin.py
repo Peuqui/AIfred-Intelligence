@@ -234,19 +234,16 @@ class AudioPlayerMixin(rx.State, mixin=True):
     def open_audio_source_picker(self) -> None:
         """Open the file-picker so the user can add a NAS-path as a new source.
         Sandboxed to /mnt to prevent symlinking arbitrary system paths.
+        Read-only browse — no folder/symlink creation, no delete (user only
+        picks an existing folder; the symlink under data/media/audio/ is
+        created server-side by audio_on_source_picked).
         """
         self.picker_open_for(  # type: ignore[attr-defined]
             title="Neue Audio-Source hinzufügen",
             root=self.AUDIO_SOURCE_PICKER_ROOT,
             start_at="",
             mode="pick_folder",
-            caps={
-                "can_create_folder": False,
-                "can_delete": False,
-                "can_rename": False,
-                "can_create_symlink": False,
-                "can_upload": False,
-            },
+            caps={},  # explicitly read-only — no create/delete buttons
             file_filter=[],
             show_files=False,
             callback_event="audio_on_source_picked",
@@ -254,21 +251,21 @@ class AudioPlayerMixin(rx.State, mixin=True):
         )
 
     @rx.event
-    def audio_on_source_picked(self, abs_path: str, **_: Any) -> None:
-        """Picker callback — abs_path is the chosen folder.
-        Now create a symlink under data/media/audio/ pointing to it.
-        Default the symlink-name to the picked folder's basename.
+    def audio_on_source_picked(self, rel_path: str, **_: Any) -> None:
+        """Picker callback — rel_path is relative to the picker's sandbox
+        root (AUDIO_SOURCE_PICKER_ROOT, e.g. '/mnt'). Reconstruct the
+        absolute target path and create a symlink under data/media/audio/.
         """
         from ..lib.config import MEDIA_AUDIO_DIR
         from pathlib import Path as _Path
 
-        # The picker passed us a path *relative to its root* (which was "/").
-        # Reconstruct absolute path.
-        target_abs = "/" + abs_path.lstrip("/") if abs_path else ""
-        if not target_abs:
-            self.audio_settings_status = "⚠️ Kein Pfad gewaehlt"
-            return
-        target_p = _Path(target_abs)
+        if not rel_path:
+            # User picked the sandbox root itself (rare but possible)
+            target_p = _Path(self.AUDIO_SOURCE_PICKER_ROOT)
+        else:
+            target_p = _Path(self.AUDIO_SOURCE_PICKER_ROOT) / rel_path.lstrip("/")
+        target_abs = str(target_p)
+
         if not target_p.is_dir():
             self.audio_settings_status = f"⚠️ Pfad ist kein Ordner: {target_abs}"
             return
