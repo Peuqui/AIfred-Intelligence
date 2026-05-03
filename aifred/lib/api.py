@@ -1319,24 +1319,37 @@ _audio_active: Dict[str, str] = {}
 
 
 def _audio_resolver():  # type: ignore[no-untyped-def]
-    """Build a fresh SourceResolver from the audio_player plugin settings."""
+    """Build a fresh SourceResolver: filesystem-discovery + http_streams.
+
+    Mirrors the plugin's _make_resolver() — local sources come from the
+    data/media/audio/ filesystem (folders + symlinks), HTTP streams from
+    plugin settings.json. Without this, the file endpoint would only see
+    http_stream entries and 404 on every NAS-mounted source.
+    """
     import json as _json
     from pathlib import Path as _Path
-    from .audio_sources import SourceResolver
+    from .audio_sources import SourceResolver, build_source_map
+    from .config import MEDIA_AUDIO_DIR
+
     settings_path = (
         _Path(__file__).parent.parent
         / "plugins" / "tools" / "audio_player" / "settings.json"
     )
-    cfg: Dict[str, Any] = {}
+    streams: Dict[str, Dict[str, str]] = {}
     if settings_path.exists():
         try:
             with open(settings_path, encoding="utf-8") as f:
                 data = _json.load(f)
             if isinstance(data, dict):
-                cfg = data
+                streams = {
+                    label: src
+                    for label, src in data.get("sources", {}).items()
+                    if src.get("type") == "http_stream"
+                }
         except (OSError, _json.JSONDecodeError):
             pass
-    return SourceResolver(cfg.get("sources", {}))
+    sources = build_source_map(MEDIA_AUDIO_DIR, streams)
+    return SourceResolver(sources)
 
 
 @api_app.get("/audio/file", tags=["Audio"])
