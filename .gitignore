@@ -20,6 +20,9 @@ build/
 # Piper Models (zu groß für Git)
 piper_models/
 
+# XTTS Runtime-Daten (Diagnose-Dumps bei CUDA-Crash, Runtime-only)
+docker/xtts/crash_dumps/
+
 # Firebird 2.5 embedded libraries (binaries, ~67 MB)
 lib/firebird25/
 
