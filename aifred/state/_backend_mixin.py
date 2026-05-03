@@ -391,6 +391,10 @@ class BackendMixin(rx.State, mixin=True):
             from ..lib.audio_state import cleanup_audio_state_task
             _asyncio.create_task(cleanup_audio_state_task())
 
+            # Audio index incremental sync (only for sources already populated)
+            from ..lib.audio_index import sync_audio_index_task
+            _asyncio.create_task(sync_audio_index_task())
+
             # Whisper STT: Docker container (started on demand or always-on)
             if is_whisper_ready():
                 log_message("✅ Whisper: Docker service ready")

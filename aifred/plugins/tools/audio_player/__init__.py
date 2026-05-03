@@ -103,6 +103,8 @@ class AudioPlayerPlugin:
             self._tool_list(),
             self._tool_list_unfinished(),
             self._tool_targets(ctx),
+            self._tool_search(),
+            self._tool_index_rebuild(),
         ]
 
     # ── Tool factories ───────────────────────────────────
@@ -469,33 +471,220 @@ class AudioPlayerPlugin:
         )
 
     def _tool_list(self) -> Tool:
-        async def _list(source: str | None = None) -> str:
+        async def _list(
+            source: str | None = None,
+            subdir: str | None = None,
+            limit: int = 200,
+        ) -> str:
             resolver = _make_resolver()
             if source is None:
-                return json.dumps({"sources": resolver.list_sources()})
-            items = resolver.list_items(source)
-            return json.dumps({"source": source, "items": items, "count": len(items)})
+                # Top-level: just list configured sources + per-source counts
+                from ....lib.audio_index import audio_index
+                stats = audio_index.stats()
+                sources = resolver.list_sources()
+                for s in sources:
+                    s["indexed"] = stats["per_source"].get(s["label"], 0)
+                return json.dumps({"sources": sources})
+
+            # Prefer index lookup (fast, scales to 100k+ files); fall back
+            # to filesystem rglob when index is empty for this source.
+            from ....lib.audio_index import audio_index
+            from ....lib.audio_sources import ALLOWED_EXTENSIONS
+            stats = audio_index.stats()
+            if stats["per_source"].get(source, 0) > 0:
+                rows = audio_index.list_subdir(source, subdir or "", limit=limit)
+                items = [r["rel_path"] for r in rows]
+                return json.dumps({
+                    "source": source,
+                    "subdir": subdir or "",
+                    "items": items,
+                    "count": len(items),
+                    "indexed": stats["per_source"][source],
+                    "via": "index",
+                })
+
+            # Fallback: live filesystem walk (bounded by subdir if given)
+            cfg = _load_settings().get("sources", {}).get(source, {})
+            if cfg.get("type") != "local_folder":
+                return json.dumps({
+                    "source": source, "items": [], "count": 0,
+                    "error": "source has no filesystem (likely an http_stream)",
+                })
+            from pathlib import Path as _Path
+            root = _Path(cfg.get("path", "")).expanduser().resolve()
+            if subdir:
+                root = (root / subdir).resolve()
+            if not root.is_dir():
+                return json.dumps({
+                    "source": source, "items": [], "count": 0,
+                    "error": f"path not found: {root}",
+                })
+            items = []
+            for p in root.rglob("*"):
+                if not p.is_file():
+                    continue
+                if p.suffix.lower() not in ALLOWED_EXTENSIONS:
+                    continue
+                items.append(str(p.relative_to(root)))
+                if len(items) >= limit:
+                    break
+            items.sort()
+            return json.dumps({
+                "source": source,
+                "subdir": subdir or "",
+                "items": items,
+                "count": len(items),
+                "via": "filesystem (no index — call audio_index_rebuild first)",
+            })
 
         return Tool(
             name="audio_list",
             tier=TIER_READONLY,
             description=(
                 "List configured audio sources (when 'source' is omitted) or items "
-                "in a specific source folder (when 'source' is set to a label). "
-                "DOES NOT PLAY ANYTHING — this is only for discovery. After finding "
-                "the right item you MUST call audio_play(item='label/file.mp3') to "
-                "actually start playback."
+                "in a specific source folder (with optional 'subdir' to scope deeper). "
+                "Uses the SQLite index when populated (fast, scales to 100k+ files); "
+                "falls back to filesystem walk if the source isn't indexed yet. "
+                "DOES NOT PLAY ANYTHING — only for discovery. To start playback, "
+                "call audio_play(item='label/file.mp3') after finding the right item. "
+                "For large sources, prefer audio_search() over listing everything."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Source label (omit to list all sources).",
+                        "description": "Source label. Omit to list all sources with item counts.",
+                    },
+                    "subdir": {
+                        "type": "string",
+                        "description": "Optional sub-path inside the source (e.g. 'Klassik/Mozart') to narrow listing.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max items to return. Default 200.",
+                        "default": 200,
                     },
                 },
             },
             executor=_list,
+        )
+
+    def _tool_search(self) -> Tool:
+        async def _search(query: str, source: str | None = None, limit: int = 20) -> str:
+            from ....lib.audio_index import audio_index
+            rows = audio_index.search(query=query, source=source, limit=int(limit))
+            results = [
+                {
+                    "state_key": f"{r['source']}/{r['rel_path']}",
+                    "source": r["source"],
+                    "rel_path": r["rel_path"],
+                    "filename": r["filename"],
+                    "artist": r.get("artist"),
+                    "album": r.get("album"),
+                    "title": r.get("title"),
+                    "year": r.get("year"),
+                    "genre": r.get("genre"),
+                    "duration_sec": r.get("duration"),
+                }
+                for r in rows
+            ]
+            return json.dumps({
+                "query": query,
+                "source": source,
+                "count": len(results),
+                "results": results,
+            })
+
+        return Tool(
+            name="audio_search",
+            tier=TIER_READONLY,
+            description=(
+                "Full-text search across the audio index (artist, album, title, "
+                "filename, path) ranked by BM25. Tokens are AND-combined as "
+                "prefixes. Use this instead of audio_list for large sources "
+                "(NAS, etc.) — sub-millisecond search even with 100k+ files. "
+                "Returns 'state_key' values that you can pass to audio_play. "
+                "Examples: query='lee dorsey', query='mozart sonate', "
+                "query='jazz misbehavin'."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search terms. Will be AND-combined as prefix match.",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Optional source label to limit search scope.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results. Default 20.",
+                        "default": 20,
+                    },
+                },
+                "required": ["query"],
+            },
+            executor=_search,
+        )
+
+    def _tool_index_rebuild(self) -> Tool:
+        async def _rebuild(source: str | None = None) -> str:
+            from ....lib.audio_index import audio_index
+            cfg = _load_settings().get("sources", {})
+            targets = (
+                {source: cfg[source]} if source and source in cfg
+                else {k: v for k, v in cfg.items() if v.get("type") == "local_folder"}
+            )
+            results = []
+            for label, src_cfg in targets.items():
+                if src_cfg.get("type") != "local_folder":
+                    continue
+                path = src_cfg.get("path", "")
+                if not path:
+                    continue
+                # Run scan in thread to avoid blocking the event loop
+                # (NFS scan can take minutes for large mounts)
+                import asyncio as _asyncio
+                loop = _asyncio.get_event_loop()
+                stats = await loop.run_in_executor(
+                    None, audio_index.scan_source, label, path
+                )
+                results.append({
+                    "source": label,
+                    "scanned": stats.scanned,
+                    "inserted": stats.inserted,
+                    "updated": stats.updated,
+                    "deleted": stats.deleted,
+                    "errors": stats.errors,
+                    "elapsed_sec": round(stats.elapsed_sec, 1),
+                })
+            return json.dumps({"results": results, "total_sources": len(results)})
+
+        return Tool(
+            name="audio_index_rebuild",
+            tier=TIER_WRITE_DATA,
+            description=(
+                "Rebuild the audio index for one or all local_folder sources. "
+                "Walks the filesystem, reads ID3/FLAC/Vorbis tags via mutagen, "
+                "and updates the SQLite/FTS5 index incrementally (only new/"
+                "changed/deleted files are touched, based on mtime). "
+                "Run this once after configuring a new source, or whenever the "
+                "library has been substantially modified. May take minutes for "
+                "large NAS mounts."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Source label. Omit to rebuild all local_folder sources.",
+                    },
+                },
+            },
+            executor=_rebuild,
         )
 
     def _tool_list_unfinished(self) -> Tool:
