@@ -1982,3 +1982,24 @@ if (document.readyState === 'loading') {
     setTimeout(setupAudioPlayer, 600);
 }
 
+// ============================================================
+// Enter-to-send: Enter pressed in #user-text-input clicks #send-button
+// when the user has enabled the toggle. Shift+Enter falls through to
+// the textarea's default behavior (newline). Document-level capture
+// listener — survives any remounts of the textarea.
+// ============================================================
+document.addEventListener('keydown', (e) => {
+    const target = e.target;
+    if (!target || target.id !== 'user-text-input') return;
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    // Flag liegt auf #tts-queue-data (Radix' TextArea-Wrapper reicht
+    // custom_attrs nicht zuverlässig an das innere <textarea> durch).
+    const flagEl = document.getElementById('tts-queue-data');
+    if (!flagEl || flagEl.dataset.enterSends !== 'true') return;
+    if (target.disabled) return;
+    const sendBtn = document.getElementById('send-button');
+    if (!sendBtn || sendBtn.disabled) return;
+    e.preventDefault();
+    sendBtn.click();
+}, true);
+

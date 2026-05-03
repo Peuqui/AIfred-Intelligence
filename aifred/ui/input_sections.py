@@ -319,8 +319,9 @@ def image_upload_section() -> rx.Component:
             flex_wrap="wrap",  # Wrap to next line on very narrow screens
         ),
 
-        # Row 2: Transkription bearbeiten Toggle (direkt unter Aufnahme-Button)
+        # Row 2: Transkription-Toggle + Enter-sends-Toggle (zwei kleine Switches)
         rx.hstack(
+            # Transkription bearbeiten ──────────────────────
             rx.text(t("transcription_edit"), font_size="11px", font_weight="500"),
             rx.switch(
                 checked=AIState.show_transcription,
@@ -340,10 +341,29 @@ def image_upload_section() -> rx.Component:
                     "#999"
                 ),
             ),
+            # Trenner
+            rx.text("·", font_size="11px", color="#666", margin_x="6px"),
+            # Enter-sendet ─────────────────────────────────
+            rx.switch(
+                checked=AIState.enter_sends_message,
+                on_change=AIState.toggle_enter_sends_message,
+                size="1",
+            ),
+            rx.text(
+                t("enter_sends"),
+                font_size="10px",
+                color=rx.cond(AIState.enter_sends_message, "#4CAF50", "#999"),
+            ),
+            rx.text(
+                rx.cond(AIState.enter_sends_message, t("enter_sends_hint"), ""),
+                font_size="10px",
+                color="#777",
+            ),
             spacing="2",
             align="center",
             margin_top="8px",
             margin_bottom="4px",
+            flex_wrap="wrap",
         ),
 
         # Row 3: Image previews (only if images present) - linksbündig
