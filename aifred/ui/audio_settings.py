@@ -126,13 +126,18 @@ def _help_content() -> rx.Component:
             ),
             _help_bullet(
                 "Indexieren",
-                "Liest neue/geänderte Dateien und ihre Tags. Schnell wenn nichts "
-                "geändert (mtime-Check). Macht audio_search erst nutzbar.",
+                "Liest neue/geänderte Dateien und ihre Tags. Sehr schnell wenn "
+                "nichts geändert: pro Folder wird die mtime gecached, unveränderte "
+                "Subtrees werden komplett übersprungen. Macht audio_search "
+                "erst nutzbar.",
             ),
             _help_bullet(
                 "Force",
-                "Wie Indexieren, aber liest ALLE Tags neu. Nutze nach Mass-Tag-"
-                "Edit oder wenn der Index 'komisch' aussieht.",
+                "Wie Indexieren, aber ignoriert die mtime-Caches und liest ALLE "
+                "Tags neu. Nutze nach Mass-Tag-Edit (z.B. via mp3tag-Tool — der "
+                "ändert nur File-Inhalt, nicht Folder-Struktur, daher merkt der "
+                "schnelle Folder-mtime-Check das nicht), oder wenn der Index "
+                "'komisch' aussieht.",
             ),
             _help_bullet(
                 "Mülleimer 🗑️",
