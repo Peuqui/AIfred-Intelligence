@@ -712,12 +712,14 @@ function playNextChunk() {
         ttsBlobCache = {};
 
         // If media was queued behind TTS, kick it off now.
-        // This is the reliable place — server-side data-queue is only
-        // cleared on the next user request, so checking it from
-        // audioOnEnded would be too eager. Client-side ttsQueue is the
-        // source of truth.
+        // Resume only when media is *currently* paused-for-tts — the
+        // client-side audioCurrentMediaKey is set when a media URL is
+        // active and cleared on media-end. Without that check, every
+        // bubble-audio replay or TTS-regenerate after a finished
+        // hörbuch would falsely re-start the media from 0 (the
+        // server-side data-paused-for-tts flag stays sticky).
         const player = document.getElementById('tts-audio-player');
-        if (player) {
+        if (player && audioCurrentMediaKey) {
             const mediaUrl = player.dataset.mediaUrl || '';
             const pausedForTts = player.dataset.mediaPausedForTts === 'true';
             if (mediaUrl && pausedForTts) {
