@@ -631,7 +631,7 @@ class AudioPlayerPlugin:
         )
 
     def _tool_index_rebuild(self) -> Tool:
-        async def _rebuild(source: str | None = None) -> str:
+        async def _rebuild(source: str | None = None, force: bool = False) -> str:
             from ....lib.audio_index import audio_index
             cfg = _load_settings().get("sources", {})
             targets = (
@@ -650,7 +650,10 @@ class AudioPlayerPlugin:
                 import asyncio as _asyncio
                 loop = _asyncio.get_event_loop()
                 stats = await loop.run_in_executor(
-                    None, audio_index.scan_source, label, path
+                    None,
+                    lambda lbl=label, p=path: audio_index.scan_source(
+                        lbl, p, force=force
+                    ),
                 )
                 results.append({
                     "source": label,
@@ -660,6 +663,7 @@ class AudioPlayerPlugin:
                     "deleted": stats.deleted,
                     "errors": stats.errors,
                     "elapsed_sec": round(stats.elapsed_sec, 1),
+                    "force": force,
                 })
             return json.dumps({"results": results, "total_sources": len(results)})
 
@@ -669,11 +673,11 @@ class AudioPlayerPlugin:
             description=(
                 "Rebuild the audio index for one or all local_folder sources. "
                 "Walks the filesystem, reads ID3/FLAC/Vorbis tags via mutagen, "
-                "and updates the SQLite/FTS5 index incrementally (only new/"
-                "changed/deleted files are touched, based on mtime). "
-                "Run this once after configuring a new source, or whenever the "
-                "library has been substantially modified. May take minutes for "
-                "large NAS mounts."
+                "updates the SQLite/FTS5 index. By default incremental (only "
+                "new/changed/deleted files are touched, based on mtime). "
+                "Set force=true to re-read tags for every file even if mtime "
+                "hasn't changed (use after mass tag-edits or if you suspect "
+                "the index is stale). May take minutes for large NAS mounts."
             ),
             parameters={
                 "type": "object",
@@ -682,9 +686,45 @@ class AudioPlayerPlugin:
                         "type": "string",
                         "description": "Source label. Omit to rebuild all local_folder sources.",
                     },
+                    "force": {
+                        "type": "boolean",
+                        "description": "If true, ignore mtime and re-read tags for every file.",
+                        "default": False,
+                    },
                 },
             },
             executor=_rebuild,
+        )
+
+    def _tool_index_clear(self) -> Tool:
+        async def _clear(source: str | None = None) -> str:
+            from ....lib.audio_index import audio_index
+            if source:
+                removed = audio_index.remove_source(source)
+                return json.dumps({"source": source, "removed": removed})
+            removed = audio_index.clear_all()
+            return json.dumps({"all_sources": True, "removed": removed})
+
+        return Tool(
+            name="audio_index_clear",
+            tier=TIER_WRITE_DATA,
+            description=(
+                "Delete index entries — for one source (use 'source' "
+                "parameter) or for ALL sources if omitted. Use this when "
+                "the index is suspected corrupt or when you want a truly "
+                "clean rebuild. After clearing, call audio_index_rebuild "
+                "to repopulate. The audio files themselves are not touched."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Source label to clear. Omit to clear ALL index entries.",
+                    },
+                },
+            },
+            executor=_clear,
         )
 
     def _tool_list_unfinished(self) -> Tool:
