@@ -24,6 +24,16 @@ from typing import Any
 import reflex as rx
 
 
+# ── Runtime-only Player-Persistenz ──────────────────────────────────
+# Modul-globaler Dict, keyed by session_id. Snapshot der media_*-Vars
+# zwischen Tab-Reloads. Lebt im Server-Prozess — bei Service-Restart
+# leer, was genau das gewuenschte Verhalten ist:
+#   - Tab-Reload (gleiche Server-Instanz)  -> Player laeuft weiter
+#   - Service-Restart (neuer Prozess)      -> Player komplett zurueck
+#   - Clear-Chat (explizite User-Aktion)   -> snapshot wird geloescht
+_audio_runtime_state: dict[str, dict[str, Any]] = {}
+
+
 class AudioPlayerMixin(rx.State, mixin=True):
     """Mixin: browser media playback state."""
 
@@ -33,6 +43,12 @@ class AudioPlayerMixin(rx.State, mixin=True):
     media_is_stream: bool = False    # True for http_stream sources (no resume)
     media_paused_for_tts: bool = False  # set when TTS interrupts media
     media_pause_pos_sec: float = 0.0    # saved position when TTS interrupts
+
+    # ── Sequenzielles Playback (audio_play_folder) ──────────────────
+    # Liste der NACH dem aktuellen Item folgenden Tracks. Beim Ende des
+    # aktuellen Tracks popt custom.js den ersten Eintrag und spielt ihn.
+    # Items: [{"audio_url": "/api/audio/file?key=...", "state_key": "label/path"}]
+    media_queue: list[dict[str, str]] = []
 
     # ── Audio Settings Modal (Source-Liste + Index-Buttons) ─────────
     audio_settings_open: bool = False
@@ -46,6 +62,47 @@ class AudioPlayerMixin(rx.State, mixin=True):
     audio_tts_list_max_input: str = ""               # max items for TTS list filter
 
     # ── Public event handlers ───────────────────────────────────────
+
+    # ── Player-Persistenz ────────────────────────────────────────────
+
+    def _persist_audio_state(self) -> None:
+        """Snapshot media_*-Vars in den Modul-globalen Runtime-Dict.
+
+        Wird nach jedem Set-Aufruf (play_media, audio_play tool, queue
+        update) aufgerufen. Ermoeglicht Tab-Reload-Resume ohne Service-
+        Restart-Persistenz (Dict lebt nur im Server-Prozess).
+        """
+        sid = getattr(self, "session_id", "") or ""
+        if not sid:
+            return
+        if not self.media_audio_url and not self.media_queue:
+            # Nichts zu speichern -> entferne Eintrag (Aufraeumen)
+            _audio_runtime_state.pop(sid, None)
+            return
+        _audio_runtime_state[sid] = {
+            "media_audio_url": self.media_audio_url,
+            "media_state_key": self.media_state_key,
+            "media_is_stream": self.media_is_stream,
+            "media_paused_for_tts": self.media_paused_for_tts,
+            "media_pause_pos_sec": self.media_pause_pos_sec,
+            "media_queue": list(self.media_queue),
+        }
+
+    def _restore_audio_state(self) -> None:
+        """Lade media_*-Vars aus dem Runtime-Dict (nach _restore_session)."""
+        sid = getattr(self, "session_id", "") or ""
+        if not sid:
+            return
+        snap = _audio_runtime_state.get(sid)
+        if not snap:
+            return
+        self.media_audio_url = str(snap.get("media_audio_url", ""))
+        self.media_state_key = str(snap.get("media_state_key", ""))
+        self.media_is_stream = bool(snap.get("media_is_stream", False))
+        self.media_paused_for_tts = bool(snap.get("media_paused_for_tts", False))
+        self.media_pause_pos_sec = float(snap.get("media_pause_pos_sec", 0.0))
+        queue = snap.get("media_queue", [])
+        self.media_queue = list(queue) if isinstance(queue, list) else []
 
     @rx.event
     def play_media(
@@ -65,15 +122,26 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.media_is_stream = bool(is_stream)
         self.media_paused_for_tts = False
         self.media_pause_pos_sec = 0.0
+        # Single-track playback overrides any pending folder queue
+        self.media_queue = []
+        self._persist_audio_state()
 
     @rx.event
     def stop_media(self) -> None:
-        """Stop playback and clear media slot."""
+        """Stop playback, clear media slot AND any pending queue."""
         self.media_audio_url = ""
         self.media_state_key = ""
         self.media_is_stream = False
         self.media_paused_for_tts = False
         self.media_pause_pos_sec = 0.0
+        self.media_queue = []
+        self._persist_audio_state()  # entfernt den Snapshot-Eintrag
+
+    @rx.var(cache=True)
+    def media_queue_json(self) -> str:
+        """JSON-serialized queue for the audio element's data-media-queue attribute."""
+        import json as _json
+        return _json.dumps(self.media_queue)
 
     @rx.event
     def pause_media_for_tts(self, pos_sec: float = 0.0) -> None:
@@ -87,6 +155,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
             return  # nothing to pause
         self.media_paused_for_tts = True
         self.media_pause_pos_sec = float(pos_sec)
+        self._persist_audio_state()
 
     @rx.event
     def resume_media_after_tts(self) -> None:
@@ -99,6 +168,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         if self.media_paused_for_tts:
             self.media_paused_for_tts = False
             # media_pause_pos_sec stays so JS can use it
+            self._persist_audio_state()
 
     # ── Audio Settings Modal ─────────────────────────────────────────
 

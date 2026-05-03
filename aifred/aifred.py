@@ -81,6 +81,10 @@ def _audio_player_element() -> rx.Component:
             AIState.media_paused_for_tts, "true", "false"
         ),
         "data-media-pause-pos": AIState.media_pause_pos_sec.to(str),
+        # JSON-array of {audio_url, state_key} items for sequential playback
+        # (audio_play_folder). custom.js reads this on update + advances on
+        # media-ended. Empty for single-track playback.
+        "data-media-queue": AIState.media_queue_json,
     }
     return rx.cond(
         (AIState.tts_audio_path != "") | (AIState.media_audio_url != ""),
@@ -940,6 +944,14 @@ console.log('✂️ Crop handler loaded');
                                 AIState.enable_tts & AIState.tts_streaming_enabled,
                                 "true",
                                 "false"
+                            ),
+                            # "true" solange noch TTS-Sentences kommen koennen.
+                            # custom.js audioOnEnded blockiert media-resume bis
+                            # dieses Flag false ist — verhindert dass die
+                            # letzten Worte einer Antwort durch das gestartete
+                            # Hoerbuch unterbrochen werden.
+                            "data-tts-active": rx.cond(
+                                AIState.tts_streaming_in_flight, "true", "false"
                             ),
                         },
                         style={"display": "none"},

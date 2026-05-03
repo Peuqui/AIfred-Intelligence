@@ -261,6 +261,12 @@ class SessionMixin(rx.State, mixin=True):
             self.research_mode, self.ui_language  # type: ignore[attr-defined]
         )
 
+        # Audio-Player-State aus Runtime-Memory restaurieren (nicht aus
+        # Session-File). Tab-Reload setzt den Reflex-State auf Default
+        # zurueck, der Server-Prozess haelt aber einen Snapshot pro
+        # session_id im Memory. Bei Service-Restart ist der weg.
+        self._restore_audio_state()  # type: ignore[attr-defined]
+
         # Note: Don't refresh_session_list() here - it's called once in on_load()
         # and only needs updating when new messages are sent (via _save_current_session)
 
@@ -394,6 +400,12 @@ class SessionMixin(rx.State, mixin=True):
         self.debug_messages = []  # type: ignore[attr-defined]
         self.pending_images = []  # type: ignore[attr-defined, var-annotated]
         self.image_upload_warning = ""  # type: ignore[attr-defined]
+
+        # Player komplett raeumen: Chat-Loeschen ist eine explizite User-Aktion,
+        # ein laufendes Hoerbuch oder eine ausstehende Folder-Queue duerfen
+        # nicht in die naechste Inferenz hineinwirken (TTS-Ende -> alter Track
+        # resumiert ungewollt). Cleart auch den Runtime-Persist-Snapshot.
+        self.stop_media()  # type: ignore[attr-defined]
 
         # TTS Audio-Dateien aufraeumen
         from ..lib.audio_processing import cleanup_old_tts_audio
