@@ -959,8 +959,14 @@ function startTtsStream(sessionIdParam) {
                     }
                 }
 
+                // Dedupe by version: on reconnect the server may resend items
+                // with version <= ttsQueueVersion. Skip them silently.
+                if (data.version <= ttsQueueVersion && ttsQueueVersion > 0) {
+                    console.log(`🔊 TTS SSE: Skipping already-known v${data.version} (current v${ttsQueueVersion})`);
+                    return;
+                }
+
                 // Build queue incrementally and schedule for gapless playback
-                // Version reset detection happens inside updateTtsQueue()
                 const newQueue = [...ttsQueue, data.audio_url];
                 updateTtsQueue(newQueue, data.version);
             }
@@ -1567,6 +1573,16 @@ let audioCurrentMediaUrl = '';
 // only set by the audio_play tool, not by JS, so we keep our own value.
 let audioTtsPauseSnapshotSec = 0;
 
+// Sequenzielles Playback (audio_play_folder).
+// audioMediaQueue: full list of {audio_url, state_key} items as set by the
+// audio_play_folder tool. JS owns the cursor (audioMediaQueueIdx) once
+// playback starts — server state.media_audio_url stays at the FIRST item
+// for the entire queue lifetime, and React doesn't re-render src as long
+// as that prop doesn't change. JS advances player.src locally when one
+// item ends.
+let audioMediaQueue = [];
+let audioMediaQueueIdx = 0;
+
 function audioPlayerEl() {
     return document.getElementById('tts-audio-player');
 }
@@ -1742,13 +1758,49 @@ function audioOnEnded() {
         if (typeof player.onended === 'function') {
             player.onended = null;
         }
+
+        // Sequenzielles Playback: wenn noch ein Item in audioMediaQueue
+        // wartet, lade es DIREKT (player.src=...) — der Reflex-State
+        // bleibt am ersten Item, React rerendered src nicht, weil sich
+        // state.media_audio_url nicht ändert.
+        if (audioMediaQueue.length > 0 && audioMediaQueueIdx < audioMediaQueue.length - 1) {
+            audioMediaQueueIdx += 1;
+            const next = audioMediaQueue[audioMediaQueueIdx];
+            if (next && next.audio_url) {
+                console.log(
+                    `🔊 Audio Queue: advancing ${audioMediaQueueIdx + 1}/${audioMediaQueue.length}: ${next.state_key}`
+                );
+                audioCurrentMediaKey = next.state_key || '';
+                audioCurrentMediaUrl = next.audio_url;
+                player.src = next.audio_url;
+                player.load();
+                player.play().then(() => {
+                    audioStartPositionSaver();
+                }).catch((err) => {
+                    console.warn('⚠️ Audio Queue: autoplay blocked on advance:', err.message);
+                });
+                return;
+            }
+        }
+
+        // Queue erschöpft (oder keine Queue) — Player räumt auf
         audioCurrentMediaKey = '';
         audioCurrentMediaUrl = '';
         audioStopPositionSaver();
+        if (audioMediaQueue.length > 0) {
+            console.log('🔊 Audio Queue: playback complete');
+        }
         return;
     }
 
-    // TTS chunk ended — if queue is empty AND media is paused-for-tts, resume
+    // TTS chunk ended — resume media only if BOTH:
+    //   1. tts queue is empty (no chunk waiting in JS)
+    //   2. data-tts-active === 'false' (server says streaming session
+    //      has finalized — all pending sentence tasks awaited)
+    // The active flag is the authoritative "more TTS may come" signal.
+    // Without it, the queue is transiently empty between chunks during
+    // streaming and we'd start media too early, cutting off the last
+    // sentence ("Soll ich noch etwas..." → schwupps Musik).
     const ttsQueue = document.getElementById('tts-queue-data');
     const queueRaw = ttsQueue ? (ttsQueue.dataset.queue || '[]') : '[]';
     let queueEmpty = true;
@@ -1757,12 +1809,21 @@ function audioOnEnded() {
         queueEmpty = !Array.isArray(parsed) || parsed.length === 0;
     } catch { /* ignore */ }
 
-    if (!queueEmpty) return;  // more TTS coming
+    if (!queueEmpty) return;  // chunk already in queue
 
-    const mediaUrl = player.dataset.mediaUrl || '';
+    const ttsActive = ttsQueue && ttsQueue.dataset.ttsActive === 'true';
+    if (ttsActive) {
+        console.log('🔊 Audio: TTS chunk done but stream still active — holding media');
+        return;
+    }
+
+    // Resume-URL prefers JS-side audioCurrentMediaUrl (correct after queue-
+    // advance) over the server-pushed data-media-url (which still points to
+    // the FIRST queue item — Reflex state stays put while JS owns the cursor).
+    const mediaUrl = audioCurrentMediaUrl || (player.dataset.mediaUrl || '');
     const pausedForTts = player.dataset.mediaPausedForTts === 'true';
     if (mediaUrl && pausedForTts) {
-        console.log('🔊 Audio: TTS queue drained — resuming media');
+        console.log('🔊 Audio: TTS stream finalized — resuming media');
         audioLoadAndPlayMedia(mediaUrl);
     }
 }
@@ -1812,16 +1873,54 @@ function audioBindObservers(player) {
                 if (newUrl !== audioCurrentMediaUrl) {
                     audioHandleMediaUrlChange(player, newUrl);
                 }
+            } else if (m.attributeName === 'data-media-queue') {
+                audioSyncMediaQueue(player);
             }
         }
     });
-    audioDataObserver.observe(player, { attributes: true, attributeFilter: ['data-media-url'] });
+    audioDataObserver.observe(player, {
+        attributes: true,
+        attributeFilter: ['data-media-url', 'data-media-queue'],
+    });
 
-    // If a media URL is already present at bind, handle it
+    // Sync queue + initial URL on bind
+    audioSyncMediaQueue(player);
     const initialUrl = player.dataset.mediaUrl || '';
     if (initialUrl && initialUrl !== audioCurrentMediaUrl) {
         audioHandleMediaUrlChange(player, initialUrl);
     }
+}
+
+/**
+ * Re-sync audioMediaQueue from data-media-queue. Reset cursor to the item
+ * matching the current src — so when a new queue arrives we don't lose
+ * position. If the current track isn't in the new queue, start at 0.
+ */
+function audioSyncMediaQueue(player) {
+    const raw = player.dataset.mediaQueue || '[]';
+    let parsed = [];
+    try {
+        parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) parsed = [];
+    } catch {
+        parsed = [];
+    }
+    audioMediaQueue = parsed;
+
+    if (parsed.length === 0) {
+        audioMediaQueueIdx = 0;
+        return;
+    }
+
+    const currentKey = audioCurrentMediaKey || player.dataset.mediaStateKey || '';
+    const idx = currentKey
+        ? parsed.findIndex((it) => it && it.state_key === currentKey)
+        : -1;
+    audioMediaQueueIdx = idx >= 0 ? idx : 0;
+    console.log(
+        `🔊 Audio Queue: synced ${parsed.length} items, ` +
+        `cursor=${audioMediaQueueIdx} (${parsed[audioMediaQueueIdx]?.state_key || '?'})`
+    );
 }
 
 /** Watch for player element appearance/replacement and re-bind. */
@@ -1839,8 +1938,76 @@ function setupAudioPlayer() {
     setInterval(tick, 500);
 }
 
+// ── TTS-Active-Falling-Edge Watcher ───────────────────────────────────
+// audioOnEnded prüft data-tts-active und hält media zurück solange noch
+// TTS-Sentences kommen können. Aber: wenn der LETZTE Chunk endet, BEVOR
+// data-tts-active auf false flippt, läuft audioOnEnded leer (queue empty
+// + tts active=true → halt) und feuert nicht nochmal. Dieser Observer
+// fängt den Wechsel true→false und triggert dann den resume-check.
+let ttsActivePrev = null;
+let ttsActiveObserverBound = null;
+function bindTtsActiveObserver() {
+    const node = document.getElementById('tts-queue-data');
+    if (!node || node === ttsActiveObserverBound) return;
+    ttsActiveObserverBound = node;
+    ttsActivePrev = node.dataset.ttsActive || 'false';
+    const obs = new MutationObserver(() => {
+        const now = node.dataset.ttsActive || 'false';
+        if (ttsActivePrev === 'true' && now === 'false') {
+            // Stream-Ende: prüfe ob media-resume fällig ist
+            const player = audioPlayerEl();
+            if (!player) { ttsActivePrev = now; return; }
+            const queueRaw = node.dataset.queue || '[]';
+            let queueEmpty = true;
+            try {
+                const parsed = JSON.parse(queueRaw);
+                queueEmpty = !Array.isArray(parsed) || parsed.length === 0;
+            } catch { /* ignore */ }
+            const mediaUrl = audioCurrentMediaUrl || (player.dataset.mediaUrl || '');
+            const pausedForTts = player.dataset.mediaPausedForTts === 'true';
+            if (queueEmpty && mediaUrl && pausedForTts && player.paused) {
+                console.log('🔊 Audio: TTS stream finalized (post-chunk) — resuming media');
+                audioLoadAndPlayMedia(mediaUrl);
+            }
+        }
+        ttsActivePrev = now;
+    });
+    obs.observe(node, { attributes: true, attributeFilter: ['data-tts-active'] });
+}
+setInterval(bindTtsActiveObserver, 500);
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => setTimeout(setupAudioPlayer, 600));
 } else {
     setTimeout(setupAudioPlayer, 600);
 }
+
+// ============================================================
+// Enter-to-send: Enter pressed in #user-text-input clicks #send-button
+// when the user has enabled the toggle. Shift+Enter falls through to
+// the textarea's default behavior (newline). Document-level capture
+// listener — survives any remounts of the textarea.
+// ============================================================
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    // The only textarea in AIfred's chat UI is the message input.
+    // Radix' TextArea places id="user-text-input" on the wrapper div;
+    // the inner <textarea> has no id. Identify by tagName + sanity-
+    // check that the keydown happened inside #user-text-input subtree.
+    if (!e.target || e.target.tagName !== 'TEXTAREA') return;
+    const wrapper = document.getElementById('user-text-input');
+    if (wrapper && e.target !== wrapper && !wrapper.contains(e.target)) {
+        return;  // some other textarea elsewhere
+    }
+    // Flag lives on #ui-flags (always rendered, unconditional). Earlier
+    // attempts used #tts-queue-data which is conditional on TTS being
+    // enabled with a non-empty chat — fresh chats had no flag element.
+    const flagEl = document.getElementById('ui-flags');
+    if (!flagEl || flagEl.dataset.enterSends !== 'true') return;
+    if (e.target.disabled) return;
+    const sendBtn = document.getElementById('send-button');
+    if (!sendBtn || sendBtn.disabled) return;
+    e.preventDefault();
+    sendBtn.click();
+}, true);
+
