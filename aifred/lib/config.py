@@ -1055,6 +1055,16 @@ DEBUG_LOG_TOOLKIT_DEFINITIONS = False
 # Audio index (SQLite/FTS5) — periodic mtime-based incremental sync
 AUDIO_INDEX_SYNC_INTERVAL_HOURS = 24
 
+# Media root — sandbox for the file-picker.
+# Audio sources live as folders or symlinks under MEDIA_AUDIO_DIR; future
+# video sources will live under MEDIA_VIDEO_DIR. Anything outside this
+# tree is unreachable from the picker UI, no path-traversal possible.
+MEDIA_DIR = DATA_DIR / "media"
+MEDIA_AUDIO_DIR = MEDIA_DIR / "audio"
+MEDIA_VIDEO_DIR = MEDIA_DIR / "video"
+MEDIA_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+MEDIA_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
 # Explicit research keywords ("research", "google", etc.)
 # Semantic duplicate detection (time-independent)
 CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Very similar (semantic duplicate, always merged)

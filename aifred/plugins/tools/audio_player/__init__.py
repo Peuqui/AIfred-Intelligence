@@ -40,10 +40,16 @@ def _load_settings() -> dict[str, Any]:
 
 
 def _make_resolver():  # type: ignore[no-untyped-def]
-    """Build a fresh SourceResolver from current settings."""
-    from ....lib.audio_sources import SourceResolver
+    """Build a fresh SourceResolver: filesystem-discovery + http_streams."""
+    from ....lib.audio_sources import SourceResolver, build_source_map
+    from ....lib.config import MEDIA_AUDIO_DIR
     cfg = _load_settings()
-    return SourceResolver(cfg.get("sources", {}))
+    streams = {
+        label: src for label, src in cfg.get("sources", {}).items()
+        if src.get("type") == "http_stream"
+    }
+    sources = build_source_map(MEDIA_AUDIO_DIR, streams)
+    return SourceResolver(sources)
 
 
 def _resolve_target(ctx: PluginContext, requested: str | None) -> str:

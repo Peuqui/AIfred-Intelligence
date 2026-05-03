@@ -1,23 +1,26 @@
 """Audio Source Resolver — turns user-facing labels into mpv URIs.
 
-The LLM never sees raw paths or URLs. It only sees source labels
-(defined in the plugin's settings.json) plus item names within those
-sources. This module resolves those references to concrete file paths
-or stream URLs, with path-traversal protection on local sources.
+Architecture:
+- **Local folder sources** are auto-discovered as direct children of
+  ``data/media/audio/`` — each subfolder (real or symlink) becomes a
+  source whose label is the folder/symlink name. Symlinks make NAS
+  mounts transparent (e.g. ``data/media/audio/nas_music`` →
+  ``/mnt/auto/vuplus/MediaServ/Musik``).
+- **HTTP-stream sources** (Internet radio) are read from the audio_player
+  plugin's ``settings.json`` ``sources`` block, only entries with
+  ``type: http_stream``.
 
-Source-config schema (from settings.json):
-    {
-      "sources": {
-        "hoerbuecher": {"type": "local_folder", "path": "/mnt/nas/Hoerbuecher"},
-        "swr3":        {"type": "http_stream", "url": "https://liveradio.swr.de/..."}
-      }
-    }
+The LLM never sees raw paths or URLs — only labels + relative items.
+Path-traversal protection: an item must stay within its source root
+(symlink target counts as the root for content listing, but the user-
+facing path always starts with the source label).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 # Audio extensions mpv reliably plays
 ALLOWED_EXTENSIONS = {
@@ -34,24 +37,76 @@ class ResolvedSource:
     item: str           # Item path within source ("" for streams)
 
 
+def _discover_local_sources(audio_root: Path) -> dict[str, dict[str, Any]]:
+    """Scan audio_root for direct children (folders + symlinks).
+
+    Each becomes a local_folder source. Broken symlinks are skipped with
+    a warning. Hidden entries (leading dot) are excluded.
+    """
+    from .logging_utils import log_message
+
+    sources: dict[str, dict[str, Any]] = {}
+    if not audio_root.is_dir():
+        return sources
+
+    for child in audio_root.iterdir():
+        if child.name.startswith("."):
+            continue
+        # Resolve symlinks; broken symlinks raise or return non-dir.
+        try:
+            real = child.resolve()
+        except (OSError, RuntimeError) as exc:
+            log_message(f"Audio source '{child.name}': resolve failed ({exc})", "warning")
+            continue
+        if not real.is_dir():
+            # Broken symlink or not a folder — skip but inform.
+            if child.is_symlink():
+                log_message(
+                    f"Audio source '{child.name}' → '{real}' is a broken symlink",
+                    "warning",
+                )
+            continue
+        sources[child.name] = {
+            "type": "local_folder",
+            "path": str(real),
+            "is_symlink": child.is_symlink(),
+        }
+    return sources
+
+
+def build_source_map(
+    audio_root: Path,
+    settings_streams: dict[str, dict[str, str]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Combine filesystem-discovered local folders with HTTP-stream entries
+    from plugin settings.json into a single source map."""
+    sources = _discover_local_sources(audio_root)
+    if settings_streams:
+        for label, cfg in settings_streams.items():
+            if cfg.get("type") == "http_stream":
+                sources[label] = dict(cfg)
+    return sources
+
+
 class SourceResolver:
     """Resolves source labels + items to concrete URIs."""
 
-    def __init__(self, sources_config: dict[str, dict[str, str]]) -> None:
+    def __init__(self, sources_config: dict[str, dict[str, Any]]) -> None:
         self._sources = sources_config
 
-    def reload(self, sources_config: dict[str, dict[str, str]]) -> None:
+    def reload(self, sources_config: dict[str, dict[str, Any]]) -> None:
         self._sources = sources_config
 
     # ── Listings ──────────────────────────────────────────
 
-    def list_sources(self) -> list[dict[str, str]]:
-        """Return [{label, type, target}] for UI/LLM."""
+    def list_sources(self) -> list[dict[str, Any]]:
+        """Return [{label, type, target, is_symlink}] for UI/LLM."""
         return [
             {
                 "label": label,
                 "type": cfg.get("type", "?"),
                 "target": cfg.get("path") or cfg.get("url", ""),
+                "is_symlink": cfg.get("is_symlink", False),
             }
             for label, cfg in self._sources.items()
         ]
@@ -88,8 +143,7 @@ class SourceResolver:
 
         Item formats:
           "swr3"                       → http_stream by label
-          "hoerbuecher/foo.mp3"        → local_folder/file
-          "hoerbuecher/sub/foo.mp3"    → nested file
+          "nas_music/Klassik/foo.mp3"  → local_folder/file (symlink ok)
         """
         if "/" not in item:
             label, sub = item, ""
