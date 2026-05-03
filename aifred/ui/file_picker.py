@@ -66,7 +66,8 @@ def _entry_row(entry: rx.Var) -> rx.Component:  # type: ignore[type-arg]
 
 def _breadcrumbs() -> rx.Component:
     """Clickable path segments for navigation. Labels are pre-prefixed with
-    '/' (in the state's computed var) so no extra separator is needed."""
+    '/' (in the state's computed var). Small gap between buttons so the
+    leading slashes don't visually merge into '//'."""
     return rx.hstack(
         rx.foreach(
             AIState.picker_breadcrumbs,
@@ -78,7 +79,7 @@ def _breadcrumbs() -> rx.Component:
                 cursor="pointer",
             ),
         ),
-        spacing="0",
+        spacing="1",
         align="center",
         flex_wrap="wrap",
     )
