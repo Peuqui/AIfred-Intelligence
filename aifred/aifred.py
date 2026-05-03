@@ -713,7 +713,7 @@ console.log('✂️ Crop handler loaded');
         rx.script(crop_js),
 
         # Load custom.js for MediaRecorder and other features (cache-busting version)
-        rx.script(src="/custom.js?v=24"),
+        rx.script(src="/custom.js?v=25"),
 
         # Hidden flags element — always present in the DOM, regardless of
         # chat state. custom.js reads UI toggles from here. Currently:
