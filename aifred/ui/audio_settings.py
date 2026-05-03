@@ -163,6 +163,15 @@ def _help_content() -> rx.Component:
                 "weil dann beliebige System-Pfade exposed werden könnten.",
             ),
             _help_bullet(
+                "Default-Limits (list / search)",
+                "Maximale Anzahl Treffer die audio_list bzw. audio_search an "
+                "die LLM zurückgeben. Default: list=200, search=20. Die LLM "
+                "kann pro Tool-Call überschreiben (limit=...). Achtung: jeder "
+                "Treffer kostet Tokens — bei 3600 Hörbuch-Files frisst "
+                "audio_list(limit=200) ca. 6700 Tokens. Bei großen Sourcen "
+                "lieber audio_search benutzen (BM25-Ranking, weniger Treffer).",
+            ),
+            _help_bullet(
                 "Im Picker: Neuer Ordner / Symlink",
                 "Du kannst innerhalb der Sandbox eigene Ordner anlegen oder "
                 "Symlinks setzen — z.B. einen Ordner 'meine_hörbücher' mit "
