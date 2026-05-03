@@ -51,16 +51,9 @@ def _entry_row(entry: rx.Var) -> rx.Component:  # type: ignore[type-arg]
             ),
             rx.fragment(),
         ),
-        # Click: navigate if folder, pick if file (in pick_file mode)
-        on_click=rx.cond(
-            entry["is_dir"],
-            AIState.picker_navigate(entry["rel_path"]),
-            rx.cond(
-                AIState.picker_mode == "pick_file",
-                AIState.picker_pick(entry["rel_path"]),
-                rx.fragment(),
-            ),
-        ),
+        # Click handling is done in the state event itself (rx.cond can't
+        # branch over EventSpecs in on_click — it's for Components).
+        on_click=AIState.picker_entry_clicked(entry["rel_path"], entry["is_dir"]),
         spacing="2",
         align="center",
         padding="6px 10px",
@@ -72,21 +65,17 @@ def _entry_row(entry: rx.Var) -> rx.Component:  # type: ignore[type-arg]
 
 
 def _breadcrumbs() -> rx.Component:
-    """Clickable path segments for navigation."""
+    """Clickable path segments for navigation. Labels are pre-prefixed with
+    '/' (in the state's computed var) so no extra separator is needed."""
     return rx.hstack(
         rx.foreach(
             AIState.picker_breadcrumbs,
-            lambda crumb: rx.hstack(
-                rx.button(
-                    crumb["label"],
-                    size="1",
-                    variant="ghost",
-                    on_click=AIState.picker_navigate(crumb["rel_path"]),
-                    cursor="pointer",
-                ),
-                rx.text("/", color="#666", font_size="13px"),
-                spacing="1",
-                align="center",
+            lambda crumb: rx.button(
+                crumb["label"],
+                size="1",
+                variant="ghost",
+                on_click=AIState.picker_navigate(crumb["rel_path"]),
+                cursor="pointer",
             ),
         ),
         spacing="0",
@@ -252,8 +241,9 @@ def file_picker_modal() -> rx.Component:
                 left="0",
                 width="100%",
                 height="100%",
-                background_color="rgba(0, 0, 0, 0.6)",
-                on_click=AIState.picker_close,
+                background_color="rgba(0, 0, 0, 0.92)",
+                # stop_propagation: don't let click reach modals beneath
+                on_click=AIState.picker_close.stop_propagation,
             ),
             # Modal content
             rx.vstack(
@@ -344,8 +334,10 @@ def file_picker_modal() -> rx.Component:
                     padding_top="10px",
                     border_top="1px solid #333",
                 ),
+                # Don't let inner clicks bubble to the backdrop
+                on_click=rx.stop_propagation,
                 spacing="2",
-                width="min(720px, 95vw)",
+                width="min(900px, 95vw)",
                 max_height="90vh",
                 overflow_y="auto",
                 padding="20px",
@@ -354,7 +346,7 @@ def file_picker_modal() -> rx.Component:
                 border="1px solid #444",
                 box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
                 position="relative",
-                z_index="1000",
+                z_index="1301",
             ),
             position="fixed",
             top="0",
@@ -364,7 +356,7 @@ def file_picker_modal() -> rx.Component:
             display="flex",
             align_items="center",
             justify_content="center",
-            z_index="999",
+            z_index="1300",
         ),
         rx.fragment(),
     )

@@ -58,7 +58,10 @@ class FilePickerMixin(rx.State, mixin=True):
 
     @rx.var
     def picker_breadcrumbs(self) -> List[Dict[str, str]]:
-        """Breadcrumb segments [{label, rel_path}] from root → current."""
+        """Breadcrumb segments [{label, rel_path}] from root → current.
+        Each non-root label is prefixed with '/' so the segments render
+        cleanly without an extra separator between buttons.
+        """
         crumbs = [{"label": "/", "rel_path": ""}]
         if not self.picker_current:
             return crumbs
@@ -67,7 +70,7 @@ class FilePickerMixin(rx.State, mixin=True):
             accumulated = (
                 str(PurePosixPath(accumulated) / part) if accumulated else part
             )
-            crumbs.append({"label": part, "rel_path": accumulated})
+            crumbs.append({"label": "/" + part, "rel_path": accumulated})
         return crumbs
 
     @rx.var
@@ -202,6 +205,16 @@ class FilePickerMixin(rx.State, mixin=True):
     def picker_pick(self, rel_path: str) -> None:
         """Pick a specific entry (used for pick_file mode or click-to-pick)."""
         self._dispatch_callback(rel_path)
+
+    @rx.event
+    def picker_entry_clicked(self, rel_path: str, is_dir: bool) -> None:
+        """Default entry click handler: navigate into folders, pick files
+        in pick_file mode, ignore file clicks in pick_folder mode."""
+        if is_dir:
+            self.picker_navigate(rel_path)
+            return
+        if self.picker_mode == "pick_file":
+            self._dispatch_callback(rel_path)
 
     def _dispatch_callback(self, rel_path: str) -> None:
         """Call the registered callback event with the picked path + args."""
