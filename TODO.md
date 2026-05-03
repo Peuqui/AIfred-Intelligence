@@ -29,7 +29,14 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
 
 **Phase 1.2 — TODO offen**
 - [ ] Auto-Pause-fuer-TTS End-to-End-Test (Hörbuch → Frage stellen → Resume mit Pre-Roll verifizieren)
-- [ ] Source-Settings-UI (Zahnrad, Add/Edit/Remove statt manueller JSON-Edit)
+- [ ] **Generischer Folder-Picker** (eigene Lib + Reflex-Component) mit
+  Capability-Flags `read_only`, `allow_delete`, `allow_rename`, `allow_upload`,
+  `allow_create_folder`, `file_filter`, `root_path`, `on_pick`. Document-Manager
+  (data/documents) + Audio-Plugin-Settings (NAS-Pfade) sollen ihn beide nutzen
+  (DRY/SSOT) — heute hat der Document-Manager seinen eigenen, sandboxed auf
+  data/documents (file_manager.safe_resolve blockt absolute Pfade).
+- [ ] Audio-Plugin-Settings-Modal mit Source-Liste (Add/Edit/Remove) +
+  Folder-Picker statt manueller JSON-Edit
 - [ ] (vielleicht) Plugin-Prompt "Auto-Pick" bei klarem Item — fragwuerdig, ca. 50%
   der natuerlichen Audio-Anfragen brauchen listing fuer fuzzy-match (Tippfehler,
   Kuenstler statt Filename, Genre-Anfragen). Latenz-Gewinn ~5s pro direct-play

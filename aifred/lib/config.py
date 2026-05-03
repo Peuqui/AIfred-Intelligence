@@ -1052,6 +1052,9 @@ AUDIO_STATE_CLEANUP_INTERVAL_HOURS = 12  # Background task runs every 12 hours
 # Debug logging — full toolkit JSON schemas (off by default; 70+ tools = log spam)
 DEBUG_LOG_TOOLKIT_DEFINITIONS = False
 
+# Audio index (SQLite/FTS5) — periodic mtime-based incremental sync
+AUDIO_INDEX_SYNC_INTERVAL_HOURS = 24
+
 # Explicit research keywords ("research", "google", etc.)
 # Semantic duplicate detection (time-independent)
 CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Very similar (semantic duplicate, always merged)
