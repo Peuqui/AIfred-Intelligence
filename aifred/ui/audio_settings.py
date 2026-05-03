@@ -189,13 +189,18 @@ def audio_settings_modal() -> rx.Component:
                     color="#888",
                     line_height="1.5",
                 ),
-                # Source list
-                rx.vstack(
-                    rx.foreach(AIState.audio_sources_view, _source_row),
-                    spacing="0",
-                    width="100%",
-                    max_height="50vh",
+                # Source list — flex=1 keeps the modal at a fixed size
+                # regardless of how many sources the user has configured.
+                rx.box(
+                    rx.vstack(
+                        rx.foreach(AIState.audio_sources_view, _source_row),
+                        spacing="0",
+                        width="100%",
+                    ),
+                    flex="1",
                     overflow_y="auto",
+                    min_height="0",
+                    width="100%",
                 ),
                 # Status line
                 rx.cond(
@@ -238,9 +243,9 @@ def audio_settings_modal() -> rx.Component:
                 # close the modal (only the backdrop click does)
                 on_click=rx.stop_propagation,
                 spacing="3",
+                # Fixed responsive size — stays stable as sources are added
                 width="min(1000px, 95vw)",
-                max_height="90vh",
-                overflow_y="auto",
+                height="min(680px, 90vh)",
                 padding="20px",
                 background_color="#1f1f1f",
                 border_radius="8px",
