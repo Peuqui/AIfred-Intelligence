@@ -59,11 +59,16 @@ class FilePickerMixin(rx.State, mixin=True):
 
     @rx.var
     def picker_breadcrumbs(self) -> List[Dict[str, str]]:
-        """Breadcrumb segments [{label, rel_path}] from root → current.
-        Each non-root label is prefixed with '/' so the segments render
-        cleanly without an extra separator between buttons.
+        """Breadcrumb segments [{label, rel_path}] from sandbox root → current.
+
+        - First crumb (root): shows the actual sandbox path (e.g. '/mnt')
+          so the user sees exactly where the sandbox starts. NOT a generic
+          '/' which would imply filesystem root.
+        - Subsequent crumbs: '/<segment>' so adjacent buttons read like
+          a path without needing extra separator text.
         """
-        crumbs = [{"label": "/", "rel_path": ""}]
+        root_label = self.picker_root or "/"
+        crumbs = [{"label": root_label, "rel_path": ""}]
         if not self.picker_current:
             return crumbs
         accumulated = ""
