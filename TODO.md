@@ -33,14 +33,20 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
   in DB-Spalte, beim naechsten Sync nur Folders mit veraenderter mtime
   anfassen. Aufwand ~30 Min. Heute: kompletter rglob walk pro Sync.
 - [ ] Auto-Pause-fuer-TTS End-to-End-Test (Hörbuch → Frage stellen → Resume mit Pre-Roll verifizieren)
-- [ ] **Generischer Folder-Picker** (eigene Lib + Reflex-Component) mit
-  Capability-Flags `read_only`, `allow_delete`, `allow_rename`, `allow_upload`,
-  `allow_create_folder`, `file_filter`, `root_path`, `on_pick`. Document-Manager
-  (data/documents) + Audio-Plugin-Settings (NAS-Pfade) sollen ihn beide nutzen
-  (DRY/SSOT) — heute hat der Document-Manager seinen eigenen, sandboxed auf
-  data/documents (file_manager.safe_resolve blockt absolute Pfade).
-- [ ] Audio-Plugin-Settings-Modal mit Source-Liste (Add/Edit/Remove) +
-  Folder-Picker statt manueller JSON-Edit
+- [x] ~~Generischer Folder-Picker (eigene Lib + Reflex-Component)~~ ✅ implementiert
+  in `aifred/lib/file_browser.py` + `aifred/state/_file_picker_mixin.py` +
+  `aifred/ui/file_picker.py`. Capability-Flags fuer create_folder/delete/
+  rename/upload/create_symlink, Sandbox per `root`-Param, Symlinks werden
+  transparent gefolgt, Path-Traversal-Guard auf user-facing Pfad.
+- [x] ~~Audio-Plugin-Settings-Modal mit Source-Liste + Folder-Picker~~ ✅
+  `aifred/ui/audio_settings.py` — Zahnrad neben "Audio Player" im Plugin-Tab,
+  Source-Liste mit Type-Icons, Indexieren/Force/Clear/Remove, "Neue Source"
+  via Picker (Symlink-auto-Anlage mit unique label).
+- [ ] Document-Manager-Migration auf neuen Picker: **bewusst NICHT gemacht**
+  (Option C, 2026-05-03). Document-Manager hat zu viel Domain-Logik
+  (ChromaDB-Indexing, Bulk-Index, Preview, Upload) die ein "Folder-Picker"
+  nicht braucht. Backend-Code-Duplikation in Filesystem-Walking
+  (`file_manager.list_directory` vs `file_browser.browse`) wird akzeptiert.
 - [ ] (vielleicht) Plugin-Prompt "Auto-Pick" bei klarem Item — fragwuerdig, ca. 50%
   der natuerlichen Audio-Anfragen brauchen listing fuer fuzzy-match (Tippfehler,
   Kuenstler statt Filename, Genre-Anfragen). Latenz-Gewinn ~5s pro direct-play
