@@ -23,6 +23,18 @@ from ..lib.logging_utils import log_message
 _dashscope_rt_instances: dict[str, Any] = {}
 
 
+# Concurrency-Throttle fuer TTS-HTTP-Calls. Verhindert dass AIfred bei langen
+# Antworten 80+ parallele Requests auf den XTTS-Container kippt — der hat
+# einen einzigen GPU-Worker, alle weiteren stapeln sich in der Gunicorn-Queue
+# und stauen GPU-Memory bis zum CUDA-device-side-assert. Mit Semaphore(N)
+# laufen maximal N Requests gleichzeitig, der Rest wartet brav in der FIFO.
+# LLM-Stream wird NICHT blockiert (Tasks werden weiterhin sofort per
+# create_task gestartet), nur der HTTP-Call innerhalb des Tasks wartet.
+# Die Sentence-Order bleibt durch _tts_order_buffer erzwungen.
+TTS_CONCURRENT_REQUESTS = 2
+_tts_concurrency_sema: asyncio.Semaphore = asyncio.Semaphore(TTS_CONCURRENT_REQUESTS)
+
+
 class TTSStreamingMixin(rx.State, mixin=True):
     """Mixin for TTS streaming, generation, and queue management."""
 
@@ -785,15 +797,19 @@ class TTSStreamingMixin(rx.State, mixin=True):
             log_message(f"🔊 TTS Generate: Calling generate_tts() seq={seq} for agent={agent}: {repr(clean_text)}")
             log_message(f"🔊 TTS Generate: voice={voice_choice}, speed={speed_value}, pitch={pitch_value}, engine={tts_engine}, lang={tts_language}")
 
-            audio_url = await generate_tts(
-                text=clean_text,
-                voice_choice=voice_choice,
-                speed_choice=speed_value,
-                tts_engine=tts_engine,
-                pitch=pitch_value,
-                agent=agent,  # Pass agent for correct filename prefix
-                language=tts_language
-            )
+            # Concurrency-Throttle: max TTS_CONCURRENT_REQUESTS parallel an TTS-Backend.
+            # Verhindert GPU-Memory-Pile-Up wenn die LLM in Sekunden 80+ Sentences
+            # produziert. Tasks warten in der Semaphore-FIFO statt am Container.
+            async with _tts_concurrency_sema:
+                audio_url = await generate_tts(
+                    text=clean_text,
+                    voice_choice=voice_choice,
+                    speed_choice=speed_value,
+                    tts_engine=tts_engine,
+                    pitch=pitch_value,
+                    agent=agent,  # Pass agent for correct filename prefix
+                    language=tts_language
+                )
 
             if audio_url:
                 filename = audio_url.split("/")[-1]
