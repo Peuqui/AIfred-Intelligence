@@ -23,10 +23,11 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 - **Message Hub — AIfred as Communication Central**: AIfred monitors external channels and processes incoming messages autonomously. **Runs headless** — no browser needed. Channel plugins listen in the background, the LLM processes and replies via Discord/Email independently. The web UI is only needed for initial setup (credentials, plugin toggles) and optional monitoring. **Unified plugin system**: drop a `.py` file into `plugins/channels/` or `plugins/tools/` — auto-discovered, no code changes needed. **Built-in channels**: E-Mail Monitor (IMAP IDLE push-based + SMTP auto-reply), Discord (bot with channel + DM support, `/clear` command). **Plugin Manager** UI modal to enable/disable any plugin at runtime (moves files to `disabled/`). Pipeline: **Channel listener** → **Envelope normalization** → **SQLite routing table** → **AIfred engine call** (with full toolkit incl. web research, calendar check) → **Auto-reply** (optional, per-channel toggle). Agent routing: address Sokrates or Salomo by name. **Note**: Hub messages are processed without browser State — progress bars, live streaming and sources HTML are not available for Hub-processed messages; this is by design, not a limitation. See [Architecture & Setup](docs/plans/message-hub-architecture.md)
 - **Email Integration**: Read, search, and send emails via IMAP/SMTP. Sending requires explicit user confirmation (draft → review → confirm). Credentials via `.env` or UI modal
 - **EPIM Database Integration**: Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 database — the LLM autonomously searches, creates, updates and deletes calendar events, contacts, notes, todos and password entries. Automatic name-to-ID resolution, anti-hallucination guardrails, 7-day date reference
-- **Workspace (Files & Documents)**: Upload documents (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatic chunking and embedding in ChromaDB. LLM can autonomously browse, read (PDFs page-by-page), write and edit files on disk — then index them into the vector database for semantic search. Document manager with preview, download and delete
+- **Workspace (Files & Documents)**: Upload documents (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatic chunking and embedding in ChromaDB via **BGE-M3** (8192-token context, 1024-dim, multilingual). Token-accurate chunking with the local Qwen3 tokenizer. LLM can autonomously browse, read (PDFs page-by-page), write, edit, **rename** and delete files on disk — then index them into the vector database for semantic search with **folder filter** (`search_documents(query=…, folder="bibel/Schlachter")`) and **chunk-neighbor retrieval** (each hit returns its immediate neighbor chunks for full surrounding context). Document Manager UI with preview, **bulk-folder index** (one click for an entire tree), live file count per folder, **orphan cleanup** (find indexed entries whose source file is gone) and toast-based feedback for terminal status messages
 - **Sandboxed Code Execution**: LLM writes and runs Python code in isolated subprocess. Supports numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interactive HTML/JS visualizations (Plotly 3D, Canvas games, simulations) directly in chat
-- **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB — agents autonomously store insights, combined recall (10 recent + semantic search), session pinning. Memory Browser for inspection and cleanup. Incognito mode (🔒)
-- **Automatic Web Research**: AI decides autonomously when research is needed. Multi-API (Brave, Tavily, SearXNG) with automatic scraping and ranking. Semantic vector cache via ChromaDB
+- **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB (BGE-M3 embeddings) — agents autonomously store insights, combined recall (10 recent + semantic search), session pinning. Memory Browser for inspection and cleanup. Incognito mode (🔒)
+- **Tool-Output Token Cap**: Single tool result is capped to keep `system + history + memory + tool_result ≤ 75%` of the active model's context window — guarantees the model has 25% headroom for its answer. JSON-aware truncation: result-list responses are shortened from the end (with `_truncated` marker) so the model still sees structured data
+- **Automatic Web Research**: AI decides autonomously when research is needed. Multi-API (SearXNG primary, Tavily + Brave as fallback) with automatic scraping and LLM-based URL ranking. Semantic vector cache via ChromaDB with **volatility-aware reuse threshold** (PERMANENT 0.20 / MONTHLY 0.15 / WEEKLY 0.10 / DAILY 0.05) — stable knowledge tolerates wider matches, news-class topics stay tight to avoid stale facts
 - Additional tools: `calculate` (math), `web_fetch` (URL extraction), `store_memory` (memory)
 - **Full plugin overview:** [Available Plugins](docs/en/guides/plugins-overview.md)
 
@@ -34,7 +35,7 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 
 - **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unlimited custom agents
 - **Custom Agents**: Name, emoji, role, bilingual prompts (DE/EN), own long-term memory. Agent Editor in UI
-- **5 Discussion Modes**: Standard, Critical Review, Auto-Consensus, Tribunal, Symposion
+- **5 Discussion Modes**: Standard, Critical Review, Auto-Consensus, Tribunal, Symposion (with reflection layer from round 2)
 - **Voice-Based Mode Switching**: Switch modes, agents, and research settings via natural language — "Start Tribunal", "Switch to Sokrates", "Use deep research and discuss X". The Automatik-LLM detects mode switches, persistent agent changes ("I want to keep talking to Pater Tuck"), and combined commands in a single utterance. Works from browser, voice terminal (FreeEcho.2), and all channels
 - **Direct Addressing**: Address any agent by name — also via Telegram, Discord and Email through Message Hub
 - **User Mapping**: External identities (Telegram ID, email address) mapped to AIfred usernames (`data/user_mapping.json`) — AIfred recognizes you across all channels
@@ -94,7 +95,16 @@ AIfred supports various discussion modes with Sokrates (critic) and Salomo (judg
 | **Critical Review** | AIfred → Sokrates (+ Pro/Contra) → STOP | User |
 | **Auto-Consensus** | AIfred → Sokrates → Salomo (X rounds) | Salomo |
 | **Tribunal** | AIfred ↔ Sokrates (X rounds) → Salomo | Salomo (Verdict) |
-| **Symposion** | 2+ freely selected agents discuss (X rounds) | No judge — multiperspective |
+| **Symposion** | 2+ freely selected agents discuss (X rounds), reflection layer added from round 2 onwards | No judge — multiperspective |
+
+**Symposion-Reflection** (from round 2): Each agent is asked, in addition
+to its normal contribution, "Which aspects of the original question are
+still unanswered? Which perspective has been overlooked? Which assumption
+has gone unchallenged?". This produces depth without forcing
+confrontation — agents address gaps rather than just stating their own
+view a second time. Implemented as an additive prompt layer
+(`prompts/{de,en}/shared/symposion_reflection.txt`), not a replacement
+of the discussion prompt.
 
 **Agents:**
 - 🎩 **AIfred** - Butler & Scholar - answers questions (British butler style with subtle elegance)
@@ -577,39 +587,46 @@ When an agent is directly addressed, that agent is activated immediately, regard
 
 **Fastest web research mode**: Scrapes top 3 URLs in parallel, optimized for speed.
 
-#### Phase 1: Session Cache Check
+#### Phase 1: Vector Cache Check (Volatility-Aware)
 ```
-1. Check session-based cache
-   └─ IF cache hit: Use cached sources → Skip to Phase 4
-   └─ IF miss: Continue to Phase 2
+1. Query ChromaDB for similar past research
+   └─ Same volatility-aware threshold as Automatik Mode
+      (PERMANENT 0.20 / MONTHLY 0.15 / WEEKLY 0.10 / DAILY 0.05)
+
+2. IF cache accepted:
+   └─ Return cached answer directly (with age annotation)
+   └─ NO web search, NO LLM call
+   └─ RETURN
+
+3. IF cache rejected:
+   └─ Continue to Phase 2
 ```
 
-#### Phase 2: Query Optimization + Web Search
+#### Phase 2: Query Generation + Multi-API Web Search
 ```
-1. LLM Call - Query Optimization
+1. LLM Call - Query Generation
    ├─ Model: Automatik-LLM
-   ├─ Prompt: query_optimization (+ Vision JSON if present)
+   ├─ Prompt: query_generation (+ Vision JSON if present)
    ├─ Messages: ✅ Last 3 history turns (for follow-up context)
    ├─ Options:
    │  ├─ temperature: 0.3 (balanced for keywords)
    │  ├─ num_ctx: min(8192, automatik_limit)
-   │  ├─ num_predict: 128 (keyword extraction)
+   │  ├─ num_predict: 128
    │  └─ enable_thinking: False
-   ├─ Post-processing:
-   │  ├─ Extract <think> tags (reasoning)
-   │  ├─ Clean query (remove quotes)
-   │  └─ Add temporal context (current year)
-   └─ Output: optimized_query, query_reasoning
+   └─ Output: 3 queries
+      ├─ Query 1: ALWAYS in English (international sources)
+      ├─ Query 2-3: In the language of the question
+      └─ Each query: 4-8 keywords + temporal context
 
-2. Web Search (Multi-API with Fallback)
-   ├─ Try: Brave Search API
-   ├─ Fallback: Tavily Search API
-   ├─ Fallback: SearXNG (local instance)
+2. Web Search (Multi-API Round-Robin with Fallback)
+   ├─ Primary:    SearXNG (self-hosted, unlimited, private)
+   ├─ Fallback 1: Tavily Search API (AI-optimized snippets)
+   ├─ Fallback 2: Brave Search API
    ├─ Each API returns up to 10 URLs
    └─ Deduplication across APIs
 ```
 
-**Why history for Query-Optimization?**
+**Why history for Query-Generation?**
 - Enables context-aware follow-up queries (e.g., "Tell me more about that")
 - Limited to 3 turns to keep prompt focused
 - Vision JSON injected for image-based searches
@@ -927,9 +944,24 @@ USER INPUT
 - `aifred/lib/research/scraper_orchestrator.py` - Parallel scraping
 - `aifred/lib/research/context_builder.py` - Context building + LLM
 
+**Document RAG Pipeline:**
+- `aifred/lib/document_store.py` - ChromaDB Documents collection — token-accurate
+  chunking (Qwen3 tokenizer, char fallback), `delete + upsert` for clean
+  re-indexing, dual embedding functions (index/query mode), folder filter
+  + chunk-neighbor retrieval in `search()`
+- `aifred/lib/file_manager.py` - Single source of truth for file-system +
+  ChromaDB operations (used by Document UI and Workspace plugin):
+  list/create/delete/rename/index/deindex/search/list_orphaned
+
 **Supporting Modules:**
-- `aifred/lib/vector_cache.py` - ChromaDB semantic cache
-- `aifred/lib/rag_context_builder.py` - RAG context from cache
+- `aifred/lib/vector_cache.py` - ChromaDB semantic cache for web research,
+  includes `OllamaEmbeddingFunction` with mode-switch (index→GPU+warm,
+  query→CPU)
+- `aifred/lib/agent_memory.py` - Per-agent ChromaDB memory collections
+- `aifred/lib/tool_output_cap.py` - Token budget for tool results
+  (75% input ratio, JSON-aware truncation, ContextVar-based)
+- `aifred/lib/debug_format.py` - Tool-call/result formatting for the
+  debug panel (key=value rendering, agent prefix, token count)
 - `aifred/lib/intent_detector.py` - Temperature selection
 - `aifred/lib/agent_tools.py` - Web search, scraping, context building
 
@@ -1226,7 +1258,20 @@ pip install vllm
 # See: https://github.com/theroyallab/tabbyAPI
 ```
 
-6. **Start ChromaDB Vector Cache** (Docker):
+6. **Pull the Embedding Model**:
+
+The vector database uses **BGE-M3** (multilingual, 8192 token context,
+1024-dim) via Ollama. Pull it once:
+```bash
+ollama pull bge-m3
+```
+The model is shared by all three ChromaDB collections (web research
+cache, indexed documents, agent memory). At runtime AIfred picks
+**GPU mode** for bulk indexing (warm for ~1 min between chunks) and
+**CPU mode** for single-shot queries (warm for ~30 min, no VRAM
+contention with the active LLM).
+
+7. **Start ChromaDB Vector Cache** (Docker):
 
 **Prerequisites:** Docker Compose v2 recommended
 ```bash
@@ -1289,7 +1334,7 @@ except Exception as e:
 "
 ```
 
-7. **Start XTTS Voice Cloning** (Optional, Docker):
+8. **Start XTTS Voice Cloning** (Optional, Docker):
 
 XTTS v2 provides high-quality voice cloning with multilingual support and smart GPU/CPU selection.
 
@@ -1312,7 +1357,7 @@ First start takes ~2-3 minutes (model download ~1.5GB). After that, XTTS is avai
 
 See [docker/xtts/README.md](docker/xtts/README.md) for full documentation.
 
-8. **Start MOSS-TTS Voice Cloning** (Optional, Docker):
+9. **Start MOSS-TTS Voice Cloning** (Optional, Docker):
 
 MOSS-TTS (MossTTSLocal 1.7B) provides state-of-the-art zero-shot voice cloning across 20 languages with excellent speech quality.
 
@@ -1334,7 +1379,7 @@ First start takes ~5-10 minutes (model download ~3-5 GB). After that, MOSS-TTS i
 - **VRAM Management**: In GPU mode, ~11.5 GB VRAM is reserved and deducted from LLM context window
 - Recommended for high-quality offline audio generation, not for real-time streaming
 
-9. **Start application**:
+10. **Start application**:
 ```bash
 reflex run
 ```

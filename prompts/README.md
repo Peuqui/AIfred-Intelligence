@@ -67,13 +67,12 @@ Each agent uses a layered prompt architecture:
 | File | Purpose | Placeholders |
 |------|---------|--------------|
 | `decision_making.txt` | Auto-mode decision (search/cache/knowledge) | `{user_text}`, `{image_context}`, `{vision_json_context}` |
-| `query_optimization.txt` | Extract search keywords from user query | `{user_text}`, `{vision_json_context}` |
+| `query_generation.txt` | Generate three web-search queries from user query (1× EN + 2× user-language) | `{user_text}`, `{vision_json_context}` |
 | `intent_detection.txt` | Detect query intent for temperature tuning | `{user_query}` |
 | `followup_intent_detection.txt` | Intent for follow-up queries | `{original_query}`, `{followup_query}` |
 | `history_summarization.txt` | Compress conversation history | *(content passed separately)* |
 | `cache_decision.txt` | Decide if cache hit is relevant | *(various)* |
 | `cache_metadata.txt` | Generate cache entry summary | `{sources_preview}` |
-| `rag_relevance_check.txt` | Check if RAG context is relevant | *(query + context)* |
 | `vision_ocr.txt` | OCR extraction from images | *(none)* |
 | `vision_templateless_*.txt` | Prompts for template-less vision models | *(none)* |
 
