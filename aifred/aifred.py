@@ -35,6 +35,71 @@ from .ui.file_picker import file_picker_modal  # noqa: F401
 from .ui.audio_settings import audio_settings_modal, audio_help_modal  # noqa: F401
 
 
+def _audio_player_element() -> rx.Component:
+    """HTML5 audio element used by TTS + audio_player tool.
+
+    Returns one of two variants depending on whether a source is available:
+    - With `src=...` when tts_audio_path or media_audio_url is set.
+    - Without `src` attribute when both are empty (avoids React warning
+      `An empty string ("") was passed to the src attribute` and the
+      bandwidth-wasting page-URL fetch the browser triggers in that case).
+
+    Both variants share the same DOM type (`<audio>`), so React reconciles
+    props in place — no remount when transitioning between them.
+    """
+    common_kwargs: dict = dict(
+        id="tts-audio-player",
+        controls=True,
+        # autoPlay only for TTS — media is started via JS
+        # (custom.js audioHandleMediaUrlChange) so the
+        # paused-for-tts hold-off can take effect cleanly.
+        autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),
+        # Force remount only on TTS counter changes — never
+        # on media_state_key. If the audio_play tool fires
+        # while TTS is still streaming, we MUST NOT remount
+        # the element (would kill the current TTS chunk
+        # mid-playback). Media-source switches happen via
+        # JS-side data-media-url observer in custom.js.
+        key="audio-" + AIState.tts_trigger_counter.to(str),
+        style={
+            "width": "100%",
+            "height": "40px",
+            "margin_top": "8px",
+            "display": rx.cond(
+                AIState.tts_player_visible | (AIState.media_audio_url != ""),
+                "block",
+                "none",
+            ),
+        },
+    )
+    data_attrs = {
+        "data-playback-rate": AIState.tts_playback_rate,
+        "data-media-url": AIState.media_audio_url,
+        "data-media-state-key": AIState.media_state_key,
+        "data-media-is-stream": rx.cond(AIState.media_is_stream, "true", "false"),
+        "data-media-paused-for-tts": rx.cond(
+            AIState.media_paused_for_tts, "true", "false"
+        ),
+        "data-media-pause-pos": AIState.media_pause_pos_sec.to(str),
+    }
+    return rx.cond(
+        (AIState.tts_audio_path != "") | (AIState.media_audio_url != ""),
+        rx.el.audio(
+            src=rx.cond(
+                AIState.tts_audio_path != "",
+                AIState.tts_audio_path,
+                AIState.media_audio_url,
+            ),
+            **common_kwargs,
+            **data_attrs,  # type: ignore[arg-type]
+        ),
+        rx.el.audio(
+            **common_kwargs,
+            **data_attrs,  # type: ignore[arg-type]
+        ),
+    )
+
+
 # ============================================================
 # MAIN PAGE
 # ============================================================
@@ -852,46 +917,10 @@ console.log('✂️ Crop handler loaded');
                     # HTML5 Audio Element — SSOT for TTS and audio_player tool.
                     # `src` priority: TTS speech wins over media (LLM voice has priority).
                     # When TTS clears (tts_audio_path=""), src falls back to media_audio_url.
-                    rx.el.audio(
-                        src=rx.cond(
-                            AIState.tts_audio_path != "",
-                            AIState.tts_audio_path,
-                            AIState.media_audio_url,
-                        ),
-                        id="tts-audio-player",
-                        controls=True,
-                        # autoPlay only for TTS — media is started via JS
-                        # (custom.js audioHandleMediaUrlChange) so the
-                        # paused-for-tts hold-off can take effect cleanly.
-                        autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),
-                        # Force remount only on TTS counter changes — never
-                        # on media_state_key. If the audio_play tool fires
-                        # while TTS is still streaming, we MUST NOT remount
-                        # the element (would kill the current TTS chunk
-                        # mid-playback). Media-source switches happen via
-                        # JS-side data-media-url observer in custom.js.
-                        key="audio-" + AIState.tts_trigger_counter.to(str),
-                        **{
-                            "data-playback-rate": AIState.tts_playback_rate,
-                            "data-media-url": AIState.media_audio_url,
-                            "data-media-state-key": AIState.media_state_key,
-                            "data-media-is-stream": rx.cond(AIState.media_is_stream, "true", "false"),
-                            "data-media-paused-for-tts": rx.cond(
-                                AIState.media_paused_for_tts, "true", "false"
-                            ),
-                            "data-media-pause-pos": AIState.media_pause_pos_sec.to(str),
-                        },  # type: ignore[arg-type]
-                        style={
-                            "width": "100%",
-                            "height": "40px",
-                            "margin_top": "8px",
-                            "display": rx.cond(
-                                AIState.tts_player_visible | (AIState.media_audio_url != ""),
-                                "block",
-                                "none",
-                            ),
-                        },
-                    ),
+                    # When BOTH are empty, the element is rendered without a `src`
+                    # attribute — passing src="" makes the browser fetch the page URL
+                    # itself (React warns about it, wastes bandwidth).
+                    _audio_player_element(),
                     # Hidden element for TTS queue data - JavaScript reads this to update local queue
                     # The MutationObserver in custom.js watches for changes to data-queue attribute
                     # data-polling triggers start/stop of SSE for streaming TTS.
