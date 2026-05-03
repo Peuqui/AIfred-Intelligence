@@ -28,6 +28,10 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
   bei finalem Round (parking-Patch in `aifred/backends/base.py:570-585`)
 
 **Phase 1.2 — TODO offen**
+- [ ] **Folder-mtime-Tracking** fuer audio_index.scan_source — bei "nichts
+  geaendert" Sub-Sekunde-Sync statt 30-60s. Pro Folder last-scan-mtime
+  in DB-Spalte, beim naechsten Sync nur Folders mit veraenderter mtime
+  anfassen. Aufwand ~30 Min. Heute: kompletter rglob walk pro Sync.
 - [ ] Auto-Pause-fuer-TTS End-to-End-Test (Hörbuch → Frage stellen → Resume mit Pre-Roll verifizieren)
 - [ ] **Generischer Folder-Picker** (eigene Lib + Reflex-Component) mit
   Capability-Flags `read_only`, `allow_delete`, `allow_rename`, `allow_upload`,
