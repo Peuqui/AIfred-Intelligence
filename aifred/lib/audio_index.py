@@ -181,13 +181,20 @@ class AudioIndex:
         source: str,
         root_path: str,
         on_progress: Optional[Any] = None,
+        force: bool = False,
     ) -> ScanResult:
         """Walk root_path, update index incrementally based on mtime.
 
         Returns scan statistics. Files no longer present are removed.
 
-        on_progress(scanned, inserted, updated): optional callback
-        called every 50 files for UI updates.
+        Args:
+            source: source label (e.g. 'nas_music').
+            root_path: absolute filesystem root for the source.
+            on_progress: optional callback (scanned, inserted, updated)
+                         every 50 files for UI updates.
+            force: if True, ignore mtime and re-read tags for every file
+                   (useful when ID3-tags were mass-edited without changing
+                   mtime, or when the index is suspected corrupt).
         """
         start = time.monotonic()
         root = Path(root_path).expanduser().resolve()
@@ -229,8 +236,8 @@ class AudioIndex:
                 mtime = int(stat.st_mtime)
 
                 row = existing.get(rel)
-                if row is not None and row[1] == mtime:
-                    # Unchanged — skip tag read
+                if not force and row is not None and row[1] == mtime:
+                    # Unchanged — skip tag read (force=True bypasses this fast-path)
                     if on_progress and scanned % 50 == 0:
                         on_progress(scanned, inserted, updated)
                     continue
@@ -372,6 +379,24 @@ class AudioIndex:
             cur = conn.execute("DELETE FROM files WHERE source = ?", (source,))
             conn.commit()
             return cur.rowcount
+
+    def clear_all(self) -> int:
+        """Wipe the entire index (all sources). Returns rows deleted.
+
+        Use when the index is suspected corrupt — schema is rebuilt from
+        scratch on the next instance creation. Files-table rows + FTS
+        entries are removed via cascading triggers.
+        """
+        with self._lock, self._connect() as conn:
+            cnt = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+            conn.execute("DELETE FROM files")
+            conn.commit()
+            # VACUUM reclaims disk space + may resolve FTS5 corruption
+            try:
+                conn.execute("VACUUM")
+            except sqlite3.OperationalError:
+                pass  # VACUUM can fail if other connections hold locks
+            return int(cnt)
 
 
 audio_index = AudioIndex()
