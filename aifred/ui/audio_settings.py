@@ -92,6 +92,17 @@ def _help_panel() -> rx.Component:
                 "~17k Files), dann ist audio_search sub-Sekunde. Background-"
                 "Sync läuft alle 24h für Sources die schon Einträge haben.",
             ),
+            bullet(
+                "Überlappende Sources",
+                "Wenn du sowohl einen Parent (z.B. 'nas_audio') als auch "
+                "einzelne Sub-Folders (z.B. 'Hörbücher', 'Lustiges') als Sources "
+                "hast UND beide indexierst, werden die Files doppelt im Index "
+                "geführt — jede Source hat einen eigenen Namespace + eigenen "
+                "Resume-State. audio_search liefert dann doppelte Treffer. "
+                "Empfehlung: entweder nur die Sub-Folders ODER nur den Parent "
+                "indexieren, nicht beides. Speicher-Overhead bei 3600 Files "
+                "ist allerdings nur ~1 MB — kein echtes Problem.",
+            ),
             spacing="2",
             width="100%",
         ),
