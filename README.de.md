@@ -432,31 +432,33 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
 
 **Intelligentester Modus**: KI entscheidet selbst, ob Web-Recherche nötig ist.
 
-#### Phase 1: Vector Cache Check
+#### Phase 1: Vector Cache Check (Volatility-Aware)
 ```
 1. Query ChromaDB für ähnliche Fragen
-   └─ Distance < 0.5: HIGH Confidence → Cache Hit
-   └─ Distance ≥ 0.5: CACHE_MISS → Weiter
+   └─ Distance < 0.5 → source=CACHE   (ChromaDB-interne Schwelle)
+   └─ Distance ≥ 0.5 → source=CACHE_MISS → weiter zu Phase 2
 
-2. IF CACHE HIT:
-   └─ Antwort direkt aus Cache
+2. IF source=CACHE → Volatility-aware Threshold anwenden
+   (CACHE_DISTANCE_PER_VOLATILITY in config.py — stabiles Wissen
+    toleriert breitere Treffer, aktuelle News brauchen einen engen
+    Threshold damit der Cache keine veralteten Fakten unter leicht
+    anderer Formulierung herausgibt):
+
+   ├─ PERMANENT: distance < 0.20 → Cache verwenden
+   ├─ MONTHLY:   distance < 0.15 → Cache verwenden
+   ├─ WEEKLY:    distance < 0.10 → Cache verwenden
+   ├─ DAILY:     distance < 0.05 → Cache verwenden (eng)
+   └─ Ohne Tag:  distance < 0.05 → Cache verwenden (CACHE_DISTANCE_DEFAULT)
+
+3. IF Cache akzeptiert:
+   └─ Cached Antwort + Alters-Hinweis zurueckgeben
    └─ RETURN (0 LLM Calls!)
+
+4. IF Cache abgelehnt (distance ≥ Volatility-Threshold):
+   └─ Weiter zu Phase 2
 ```
 
-#### Phase 2: RAG Context Check
-```
-1. Query cache für RAG candidates (distance 0.5-1.2)
-
-2. FOR EACH candidate:
-   ├─ LLM Relevance Check (Automatik-LLM)
-   │  └─ Prompt: rag_relevance_check
-   │  └─ Options: temp=0.1, num_ctx=AUTOMATIK_LLM_NUM_CTX
-   └─ Keep if relevant
-
-3. Build formatted context from relevant entries
-```
-
-#### Phase 3: Keyword Override Check
+#### Phase 2: Keyword Override Check
 ```
 1. Check für explicit research keywords:
    └─ "recherchiere", "suche im internet", "google", etc.
@@ -466,7 +468,7 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    └─ BYPASS Automatik decision
 ```
 
-#### Phase 4: Automatik Decision (Kombinierter LLM-Call)
+#### Phase 3: Automatik Decision (Kombinierter LLM-Call)
 ```
 1. LLM Call - Research Decision + Query Generation (kombiniert)
    ├─ Model: Automatik-LLM (z.B. Qwen3:4B)
@@ -490,17 +492,16 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
 
 3. Parse decision:
    ├─ IF web=true: → Web Research mit vorgenerierten Queries
-   └─ IF web=false: → Direct LLM Answer (Phase 5)
+   └─ IF web=false: → Direct LLM Answer (Phase 4)
 ```
 
-#### Phase 5: Direct LLM Answer (if decision = no)
+#### Phase 4: Direct LLM Answer (if decision = no)
 ```
 1. Model Preloading (Ollama only)
 
 2. Build Messages
    ├─ From chat history
-   ├─ Inject system_minimal prompt
-   └─ Optional: Inject RAG context (if found in Phase 2)
+   └─ Inject system_minimal prompt
 
 3. LLM Call - Main Response
    ├─ Model: Haupt-LLM
@@ -876,10 +877,9 @@ Das Automatik-LLM nutzt dedizierte Prompts in `prompts/{de,en}/automatik/` für 
 | Prompt | Sprache | Wann aufgerufen | Zweck |
 |--------|---------|-----------------|-------|
 | `intent_detection.txt` | nur EN | Pre-Processing | Query-Intent bestimmen (FACTUAL/MIXED/CREATIVE) und Addressee |
-| `research_decision.txt` | DE + EN | Phase 4 | Entscheiden ob Web-Recherche nötig + Queries generieren |
-| `rag_relevance_check.txt` | DE + EN | Phase 2 (RAG) | Prüfen ob Cache-Eintrag zur aktuellen Frage relevant ist |
+| `research_decision.txt` | DE + EN | Phase 3 | Entscheiden ob Web-Recherche nötig + Queries generieren |
 | `followup_intent_detection.txt` | DE + EN | Cache-Nachfrage | Erkennen ob User mehr Details aus Cache möchte |
-| `url_ranking.txt` | nur EN | Phase 2.5 | URLs nach Relevanz ranken (Output: numerische Indizes) |
+| `url_ranking.txt` | nur EN | Quick-Search Phase 2.5 | URLs nach Relevanz ranken (Output: numerische Indizes) |
 
 **Sprach-Regeln:**
 - **nur EN**: Output ist strukturiert/numerisch (parsebar), Sprache beeinflusst Ergebnis nicht
@@ -891,13 +891,11 @@ prompts/
 ├── de/
 │   └── automatik/
 │       ├── research_decision.txt      # Deutsche Queries für deutsche User
-│       ├── rag_relevance_check.txt    # Deutsches semantisches Matching
 │       └── followup_intent_detection.txt
 └── en/
     └── automatik/
         ├── intent_detection.txt       # Universelle Intent-Erkennung
         ├── research_decision.txt      # Englische Queries (Query 1 immer EN)
-        ├── rag_relevance_check.txt    # Englisches semantisches Matching
         ├── followup_intent_detection.txt
         └── url_ranking.txt            # Numerischer Output (Indizes)
 ```
@@ -1422,34 +1420,32 @@ User Query: "recherchiere Python" / "google Python" / "suche im internet Python"
       └─ Neue Web-Recherche (User will neue Daten)
 ```
 
-**Phase 1a: Direct Cache Hit Check**
+**Phase 1: Volatility-Aware Cache Check**
 ```
 User Query → ChromaDB Similarity Search
-├─ Distance < 0.5 (HIGH Confidence)
-│  └─ ✅ Use Cached Answer (sofort, keine Zeit-Checks mehr!)
-├─ Distance 0.5-1.2 (MEDIUM Confidence) → Continue to Phase 1b (RAG)
-└─ Distance > 1.2 (LOW Confidence) → Continue to Phase 2 (Research Decision)
+├─ Distance ≥ 0.5 (CACHE_MISS)
+│  └─ Weiter zu Phase 2 (Research Decision)
+└─ Distance < 0.5 (source=CACHE)
+   └─ Volatility-aware Threshold anwenden (CACHE_DISTANCE_PER_VOLATILITY):
+      ├─ PERMANENT (zeitlose Fakten):  distance < 0.20 → ✅ Cache verwenden
+      ├─ MONTHLY:                      distance < 0.15 → ✅ Cache verwenden
+      ├─ WEEKLY:                       distance < 0.10 → ✅ Cache verwenden
+      ├─ DAILY (News, Aktuelles):      distance < 0.05 → ✅ Cache verwenden
+      └─ Sonst                                        → Weiter zu Phase 2
 ```
 
-**Phase 1b: RAG Context Check**
-```
-Cache Miss (d ≥ 0.5) → Query for RAG Candidates (0.5 ≤ d < 1.2)
-├─ Found RAG Candidates?
-│  ├─ YES → Automatik-LLM checks relevance for each candidate
-│  │   ├─ Relevant (semantic match) → Inject as System Message Context
-│  │   │   Example: "Python" → "FastAPI" ✅ (FastAPI is Python framework)
-│  │   └─ Not Relevant → Skip
-│  │       Example: "Python" → "Weather" ❌ (no connection)
-│  └─ NO → Continue to Phase 2
-└─ LLM Answer with RAG Context (Source: "Cache+LLM (RAG)")
-```
+Stabiles Wissen toleriert breitere semantische Treffer; News-Themen
+brauchen einen engen Threshold damit der Cache nicht veraltete Fakten
+unter leicht abweichender Formulierung herausgibt. Das Volatility-Tag
+setzt das LLM selbst beim Schreiben des Cache-Eintrags
+(`<volatility>` in der Antwort).
 
 **Phase 2: Research Decision**
 ```
-No Direct Cache Hit & No RAG Context
-└─ Automatik-LLM decides: Web Research needed?
-   ├─ YES → Web Research + Cache Result
-   └─ NO  → Pure LLM Answer (Source: "LLM-Trainingsdaten")
+Kein Direct Cache Hit
+└─ Automatik-LLM entscheidet: Web-Recherche nötig?
+   ├─ YES → Web-Recherche + Cache-Eintrag (mit Volatility-Tag)
+   └─ NO  → Pure LLM-Antwort (Source: "LLM-Trainingsdaten")
 ```
 
 #### Semantic Deduplication
@@ -1468,12 +1464,23 @@ Rein semantische Deduplizierung ohne Zeit-Checks → Konsistentes Verhalten.
 
 #### Cache Distance Thresholds
 
-| Distance | Confidence | Behavior | Example |
-|----------|-----------|----------|---------|
-| `0.0 - 0.05` | EXACT | Explizite Recherche nutzt Cache | Identische Query |
-| `0.05 - 0.5` | HIGH | Direct cache hit | "Python tutorial" vs "Python Anleitung" |
-| `0.5 - 1.2` | MEDIUM | RAG candidate (relevance check via LLM) | "Python" vs "FastAPI" |
-| `1.2+` | LOW | Cache miss → Research decision | "Python" vs "Weather" |
+ChromaDB liefert `source=CACHE` wenn der naechste Eintrag innerhalb von
+`CACHE_DISTANCE_HIGH = 0.5` liegt. Ob die gecachte Antwort *tatsaechlich
+ausgegeben wird*, haengt von einem zweiten, volatility-aware Check ab,
+der pro Themen-Frische getunt ist:
+
+| Volatility | Threshold | Anwendungsfall |
+|------------|-----------|----------------|
+| `PERMANENT` | `< 0.20` | Zeitlose Fakten (historisch, wissenschaftliche Konzepte) |
+| `MONTHLY`   | `< 0.15` | Langsame Themen (Statistiken, etablierte Referenzen) |
+| `WEEKLY`    | `< 0.10` | Mid-velocity (politische Analyse, Trends) |
+| `DAILY`     | `< 0.05` | News, Aktuelles — eng damit keine veralteten Fakten |
+| (untagged)  | `< 0.05` | `CACHE_DISTANCE_DEFAULT` — sicherer Fallback |
+
+| Distance | Behavior |
+|----------|----------|
+| `≥ 0.5`     | `CACHE_MISS` → Research-Entscheidung |
+| `< 0.3`     | Semantischer Duplikat (beim Schreiben immer gemerged) |
 
 #### ChromaDB Maintenance Tool
 
@@ -1495,28 +1502,6 @@ python3 chroma_maintenance.py --remove-duplicates --execute
 python3 chroma_maintenance.py --remove-old 30 --execute
 ```
 
-#### RAG (Retrieval-Augmented Generation) Mode
-
-**How it works**:
-1. Query finds related cache entries (distance 0.5-1.2)
-2. Automatik-LLM checks if cached content is relevant to current question
-3. Relevant entries are injected as system message: "Previous research shows..."
-4. Main LLM combines cached context + training knowledge for enhanced answer
-
-**Example Flow**:
-```
-User: "Was ist Python?" → Web Research → Cache Entry 1 (d=0.0)
-User: "Was ist FastAPI?" → RAG finds Entry 1 (d=0.7)
-  → LLM checks: "Python" relevant for "FastAPI"? YES (FastAPI uses Python)
-  → Inject Entry 1 as context → Enhanced LLM answer
-  → Source: "Cache+LLM (RAG)"
-```
-
-**Benefits**:
-- Leverages related past research without exact cache hits
-- Avoids false context (LLM filters irrelevant entries)
-- Multi-level context awareness (cache + conversation history)
-
 #### TTL-Based Cache System (Volatility)
 
 Das Main LLM bestimmt die Cache-Lebensdauer via `<volatility>` Tag in der Antwort:
@@ -1536,20 +1521,32 @@ Cache-Verhalten in `aifred/lib/config.py`:
 
 ```python
 # Cache Distance Thresholds
-CACHE_DISTANCE_HIGH = 0.5        # < 0.5 = HIGH confidence cache hit
-CACHE_DISTANCE_DUPLICATE = 0.3   # < 0.3 = semantic duplicate (wird immer gemerged)
-CACHE_DISTANCE_RAG = 1.2         # < 1.2 = ähnlich genug für RAG-Kontext
+CACHE_DISTANCE_HIGH = 0.5        # < 0.5 → ChromaDB liefert source=CACHE
+CACHE_DISTANCE_DUPLICATE = 0.3   # < 0.3 = semantischer Duplikat (immer gemerged)
+
+# Volatility-aware Phase-0 Cache-Acceptance — geprueft in
+# research_tools.py *nach* ChromaDB's source=CACHE-Antwort. Stabiles
+# Wissen toleriert breitere semantische Treffer; News-Themen brauchen
+# einen engen Threshold damit der Cache keine veralteten Fakten unter
+# leicht abweichender Formulierung herausgibt. NOCACHE-Eintraege
+# werden gar nicht erst gespeichert.
+CACHE_DISTANCE_PER_VOLATILITY = {
+    'PERMANENT': 0.20,
+    'MONTHLY':   0.15,
+    'WEEKLY':    0.10,
+    'DAILY':     0.05,
+}
+CACHE_DISTANCE_DEFAULT = 0.05    # Fallback wenn Eintrag kein Volatility-Tag hat
 
 # TTL (Time-To-Live)
 TTL_HOURS = {
-    'DAILY': 24,
-    'WEEKLY': 168,
-    'MONTHLY': 720,
-    'PERMANENT': None
+    'NOCACHE':   0,    # Niemals cachen (Wetter, Live-Scores, Aktienkurse)
+    'DAILY':     24,
+    'WEEKLY':    168,
+    'MONTHLY':   720,
+    'PERMANENT': None,
 }
 ```
-
-**RAG Relevance Check**: Nutzt Automatik-LLM mit dediziertem Prompt (`prompts/de/rag_relevance_check.txt`)
 
 ---
 
