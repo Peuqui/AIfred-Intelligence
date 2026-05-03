@@ -106,6 +106,12 @@ def _toolbar() -> rx.Component:
                 variant="soft",
                 on_click=AIState.picker_create_folder_start,
                 cursor="pointer",
+                disabled=~AIState.picker_writable,
+                title=rx.cond(
+                    AIState.picker_writable,
+                    "Neuen Ordner anlegen",
+                    "Kein Schreibrecht in diesem Ordner",
+                ),
             ),
             rx.fragment(),
         ),
@@ -118,10 +124,27 @@ def _toolbar() -> rx.Component:
                 variant="soft",
                 on_click=AIState.picker_create_symlink_start,
                 cursor="pointer",
+                disabled=~AIState.picker_writable,
+                title=rx.cond(
+                    AIState.picker_writable,
+                    "Symlink anlegen",
+                    "Kein Schreibrecht in diesem Ordner",
+                ),
             ),
             rx.fragment(),
         ),
         rx.spacer(),
+        # Read-only indicator
+        rx.cond(
+            ~AIState.picker_writable,
+            rx.hstack(
+                rx.icon("lock", size=12, color="#888"),
+                rx.text("read-only", font_size="11px", color="#888"),
+                spacing="1",
+                align="center",
+            ),
+            rx.fragment(),
+        ),
         rx.select(
             ["name", "mtime", "size"],
             value=AIState.picker_sort_by,

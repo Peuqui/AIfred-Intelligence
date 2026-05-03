@@ -60,6 +60,7 @@ class BrowseResult:
     rel_path: str               # the listing's location, relative to root
     entries: list[BrowseEntry] = field(default_factory=list)
     error: str = ""             # populated when success=False
+    writable: bool = False      # True if the current folder accepts new entries
 
 
 # Pseudo-filesystems that should never be entered (huge fake files,
@@ -192,7 +193,20 @@ def browse(req: BrowseRequest) -> BrowseResult:
     else:  # default: name
         entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
 
-    return BrowseResult(success=True, rel_path=req.rel_path, entries=entries)
+    # Check if the current folder accepts new entries (mkdir/symlink).
+    # os.access can give false negatives on NFS (it doesn't query the
+    # remote ACL), but it correctly catches the common cases: read-only
+    # mounts, foreign-owned folders. False positives = user clicks and
+    # gets the actual error from the server — same as today.
+    import os as _os
+    try:
+        is_writable = _os.access(target, _os.W_OK)
+    except OSError:
+        is_writable = False
+
+    return BrowseResult(
+        success=True, rel_path=req.rel_path, entries=entries, writable=is_writable,
+    )
 
 
 def create_folder(root: str, rel_path: str, name: str) -> tuple[bool, str]:
