@@ -289,24 +289,29 @@ def file_picker_modal() -> rx.Component:
                     rx.callout(AIState.picker_error, color_scheme="red", size="1"),
                     rx.fragment(),
                 ),
-                # File list
-                rx.cond(
-                    AIState.picker_loading,
-                    rx.center(rx.spinner(size="2"), padding="20px"),
+                # File list — flex=1 fills remaining modal height,
+                # internal scroll keeps modal size stable.
+                rx.box(
                     rx.cond(
-                        AIState.picker_filtered_entries.length() == 0,
-                        rx.center(
-                            rx.text("(Ordner leer oder kein Treffer)", color="#888", font_size="13px"),
-                            padding="20px",
-                        ),
-                        rx.vstack(
-                            rx.foreach(AIState.picker_filtered_entries, _entry_row),
-                            spacing="0",
-                            width="100%",
-                            max_height="50vh",
-                            overflow_y="auto",
+                        AIState.picker_loading,
+                        rx.center(rx.spinner(size="2"), padding="20px"),
+                        rx.cond(
+                            AIState.picker_filtered_entries.length() == 0,
+                            rx.center(
+                                rx.text("(Ordner leer oder kein Treffer)", color="#888", font_size="13px"),
+                                padding="20px",
+                            ),
+                            rx.vstack(
+                                rx.foreach(AIState.picker_filtered_entries, _entry_row),
+                                spacing="0",
+                                width="100%",
+                            ),
                         ),
                     ),
+                    flex="1",
+                    overflow_y="auto",
+                    min_height="0",  # required for flex children to shrink
+                    width="100%",
                 ),
                 # Footer
                 rx.hstack(
@@ -337,9 +342,10 @@ def file_picker_modal() -> rx.Component:
                 # Don't let inner clicks bubble to the backdrop
                 on_click=rx.stop_propagation,
                 spacing="2",
+                # Fixed responsive size — modal stays stable regardless
+                # of how many entries the listing returns
                 width="min(900px, 95vw)",
-                max_height="90vh",
-                overflow_y="auto",
+                height="min(720px, 90vh)",
                 padding="20px",
                 background_color="#1f1f1f",
                 border_radius="8px",
