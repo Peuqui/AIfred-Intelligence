@@ -864,9 +864,13 @@ console.log('✂️ Crop handler loaded');
                         # (custom.js audioHandleMediaUrlChange) so the
                         # paused-for-tts hold-off can take effect cleanly.
                         autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),
-                        # Force remount on new content (counter for TTS, state_key for media)
-                        key="audio-" + AIState.tts_trigger_counter.to(str)
-                        + "-" + AIState.media_state_key,
+                        # Force remount only on TTS counter changes — never
+                        # on media_state_key. If the audio_play tool fires
+                        # while TTS is still streaming, we MUST NOT remount
+                        # the element (would kill the current TTS chunk
+                        # mid-playback). Media-source switches happen via
+                        # JS-side data-media-url observer in custom.js.
+                        key="audio-" + AIState.tts_trigger_counter.to(str),
                         **{
                             "data-playback-rate": AIState.tts_playback_rate,
                             "data-media-url": AIState.media_audio_url,
