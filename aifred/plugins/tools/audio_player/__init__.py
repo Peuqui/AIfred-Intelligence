@@ -102,8 +102,7 @@ class AudioPlayerPlugin:
             self._tool_play(ctx),
             self._tool_play_folder(ctx),
             self._tool_pause(),
-            self._tool_resume(),
-            self._tool_resume_last(),
+            self._tool_resume(ctx),
             self._tool_stop(ctx),
             self._tool_seek(),
             self._tool_skip(),
@@ -119,6 +118,92 @@ class AudioPlayerPlugin:
 
     # ── Tool factories ───────────────────────────────────
 
+    async def _route_play(
+        self,
+        ctx: PluginContext,
+        src,  # ResolvedSource
+        target: str | None,
+        start_pos_sec: float | None,
+    ) -> dict[str, Any]:
+        """Route a resolved audio source to the right output sink.
+
+        - Browser target → set state.media_* attrs so the HTML5 player loads it.
+        - Local target → hand to the mpv-backed AudioManager.
+
+        start_pos_sec=None means "use natural start"; for non-streams the
+        caller pre-computed any saved-position / pre-roll math. Streams
+        ignore start positions.
+
+        Returns a dict suitable for json.dumps() in the calling tool.
+        Single source of truth shared by audio_play and audio_resume.
+        """
+        target_id = _resolve_target(ctx, target)
+
+        # ── Browser target ─────────────────────────────────
+        if target_id.startswith("browser") or target_id == "browser":
+            from urllib.parse import quote
+            audio_url = f"/api/audio/file?key={quote(src.state_key)}"
+            state = getattr(ctx, "state", None)
+
+            # Browser uses media_pause_pos_sec to seek after load. Streams
+            # have no seek concept, so drop the position there.
+            seek_to = 0.0
+            if not src.is_stream and start_pos_sec is not None and start_pos_sec > 0:
+                seek_to = float(start_pos_sec)
+
+            tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
+
+            if state is not None:
+                state.media_audio_url = audio_url
+                state.media_state_key = src.state_key
+                state.media_is_stream = src.is_stream
+                # Either we want media to seek after TTS finishes, or the
+                # browser's auto-resume needs to wait for TTS — both use
+                # the paused-for-tts flag as the gate.
+                state.media_paused_for_tts = tts_active or seek_to > 0
+                state.media_pause_pos_sec = seek_to
+                state.media_queue = []
+                if hasattr(state, "_persist_audio_state"):
+                    state._persist_audio_state()
+
+            return {
+                "success": True,
+                "label": src.label,
+                "item": src.item,
+                "state_key": src.state_key,
+                "is_stream": src.is_stream,
+                "target": target_id,
+                "audio_url": audio_url,
+                "resumed_at_sec": seek_to,
+            }
+
+        # ── Local target (mpv) ─────────────────────────────
+        from ....lib.audio_manager import audio_manager
+        settings = _load_settings()
+        interval = settings.get("resume", {}).get("position_save_interval_sec", 30)
+        audio_manager.configure_save_interval(int(interval))
+
+        local_start = start_pos_sec if (start_pos_sec and start_pos_sec > 0 and not src.is_stream) else None
+        try:
+            result = await audio_manager.play(
+                src.uri,
+                state_key=src.state_key,
+                start_pos_sec=local_start,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {"success": False, "error": f"playback failed: {exc}"}
+
+        return {
+            "success": True,
+            "label": src.label,
+            "item": src.item,
+            "uri": src.uri,
+            "state_key": src.state_key,
+            "is_stream": src.is_stream,
+            "target": target_id,
+            "resumed_at_sec": result["start_pos_sec"],
+        }
+
     def _tool_play(self, ctx: PluginContext) -> Tool:
         async def _play(item: str, target: str | None = None, restart: bool = False) -> str:
             from ....lib.audio_state import audio_state
@@ -128,89 +213,15 @@ class AudioPlayerPlugin:
             except ValueError as exc:
                 return json.dumps({"success": False, "error": str(exc)})
 
-            target_id = _resolve_target(ctx, target)
-
-            # ── Browser target: hand off to the shared HTML5 player ──
-            if target_id.startswith("browser") or target_id == "browser":
-                # Build a server-relative URL the browser can fetch.
-                # For HTTP streams we redirect to the upstream URL inside
-                # /api/audio/file, so the same endpoint handles both cases.
-                from urllib.parse import quote
-                audio_url = f"/api/audio/file?key={quote(src.state_key)}"
-
-                state = getattr(ctx, "state", None)
-
-                resumed_at = 0.0
-                if not restart and not src.is_stream:
-                    existing = audio_state.get(src.state_key)
-                    if existing and not existing.get("completed"):
-                        resumed_at = float(existing.get("pos_sec", 0))
-
-                # If TTS is enabled, the LLM's textual answer will be spoken
-                # through the same player — let TTS finish first, then resume
-                # media. Mark paused-for-tts so JS waits for TTS-ended.
-                tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
-
-                if state is not None:
-                    # Reflex tracks attribute writes during a tool's event
-                    # chain — the player UI picks up these changes.
-                    state.media_audio_url = audio_url
-                    state.media_state_key = src.state_key
-                    state.media_is_stream = src.is_stream
-                    # Either we want to resume from a saved position, or
-                    # we want media to wait for TTS to finish — both paths
-                    # use the same paused-for-tts flag.
-                    state.media_paused_for_tts = tts_active or resumed_at > 0
-                    state.media_pause_pos_sec = resumed_at
-                    # Single-track playback: drop any pending folder queue.
-                    state.media_queue = []
-                    if hasattr(state, "_persist_audio_state"):
-                        state._persist_audio_state()
-
-                return json.dumps({
-                    "success": True,
-                    "label": src.label,
-                    "item": src.item,
-                    "state_key": src.state_key,
-                    "is_stream": src.is_stream,
-                    "target": target_id,
-                    "audio_url": audio_url,
-                    "resumed_at_sec": resumed_at,
-                })
-
-            # ── Local target: use the mpv-backed AudioManager ──
-            from ....lib.audio_manager import audio_manager
-
-            # Update save interval from settings (lazy config push)
-            settings = _load_settings()
-            interval = settings.get("resume", {}).get("position_save_interval_sec", 30)
-            audio_manager.configure_save_interval(int(interval))
-
+            # Determine start position from saved state (unless restart)
             start_pos: float | None = None
             if not restart and not src.is_stream:
                 existing = audio_state.get(src.state_key)
                 if existing and not existing.get("completed"):
                     start_pos = float(existing.get("pos_sec", 0)) or None
 
-            try:
-                result = await audio_manager.play(
-                    src.uri,
-                    state_key=src.state_key,
-                    start_pos_sec=start_pos,
-                )
-            except Exception as exc:  # noqa: BLE001
-                return json.dumps({"success": False, "error": f"playback failed: {exc}"})
-
-            return json.dumps({
-                "success": True,
-                "label": src.label,
-                "item": src.item,
-                "uri": src.uri,
-                "state_key": src.state_key,
-                "is_stream": src.is_stream,
-                "target": target_id,
-                "resumed_at_sec": result["start_pos_sec"],
-            })
+            result = await self._route_play(ctx, src, target, start_pos)
+            return json.dumps(result)
 
         return Tool(
             name="audio_play",
@@ -431,25 +442,37 @@ class AudioPlayerPlugin:
             executor=_pause,
         )
 
-    def _tool_resume(self) -> Tool:
-        async def _resume() -> str:
-            from ....lib.audio_manager import audio_manager
-            ok = await audio_manager.resume()
-            return json.dumps({"success": ok, "resumed": ok})
+    def _tool_resume(self, ctx: PluginContext) -> Tool:
+        async def _resume(item: str | None = None, target: str | None = None) -> str:
+            """Smart resume — handles three cases with one call:
 
-        return Tool(
-            name="audio_resume",
-            tier=TIER_READONLY,
-            description="Resume playback from a paused state.",
-            parameters={"type": "object", "properties": {}},
-            executor=_resume,
-        )
-
-    def _tool_resume_last(self) -> Tool:
-        async def _resume_last(item: str | None = None) -> str:
+            1. item explicitly passed → load that specific state_key from
+               saved position (with pre-roll for audiobooks) on the routed
+               output target.
+            2. Player is currently paused (and no item passed) → simple
+               local-mpv unpause. Fast path; only relevant for local target.
+            3. Player stopped/idle → fall back to the most recently played
+               unfinished item from audio_state, with pre-roll, routed to
+               the appropriate target.
+            """
             from ....lib.audio_manager import audio_manager
             from ....lib.audio_state import audio_state
 
+            # Case 2: fast path for local-mpv unpause. Only when caller
+            # didn't ask for a specific item AND mpv is actually paused.
+            # Explicit item always means "load this from saved pos" — even
+            # if something else is paused, that something is to be replaced.
+            if not item:
+                ok = await audio_manager.resume()
+                if ok:
+                    return json.dumps({
+                        "success": True,
+                        "resumed": True,
+                        "method": "unpause",
+                    })
+
+            # Case 1 + 3: load from saved position with pre-roll, routed
+            # to the appropriate output (browser/local/puck).
             settings = _load_settings()
             resume_cfg = settings.get("resume", {})
             pre_roll = float(resume_cfg.get("pre_roll_sec", 7))
@@ -458,54 +481,80 @@ class AudioPlayerPlugin:
 
             key = item or audio_state.last_played_key()
             if not key:
-                return json.dumps({"success": False, "error": "no unfinished audio in state"})
+                return json.dumps({
+                    "success": False,
+                    "error": "no paused playback and no unfinished audio in state",
+                })
 
             entry = audio_state.get(key)
             if not entry:
                 return json.dumps({"success": False, "error": f"no saved position for '{key}'"})
 
-            uri = entry["uri"]
             saved_pos = float(entry.get("pos_sec", 0))
             duration = entry.get("duration_sec")
 
-            # Pre-roll decision
-            is_stream = "://" in uri  # crude but effective for http/https URIs
-            apply_pre_roll = pre_roll > 0 and not (is_stream and not pre_roll_streams)
+            # Resolve the state_key against the source registry so we get a
+            # proper ResolvedSource (with label, is_stream, uri, …) — same
+            # path audio_play takes. This is what makes browser routing work.
+            try:
+                resolver = _make_resolver()
+                src = resolver.resolve(key)
+            except ValueError as exc:
+                return json.dumps({"success": False, "error": f"cannot resolve '{key}': {exc}"})
+
+            apply_pre_roll = pre_roll > 0 and not (src.is_stream and not pre_roll_streams)
             if apply_pre_roll and duration is not None and duration < min_dur_for_pre_roll:
                 apply_pre_roll = False
             start_pos = max(0.0, saved_pos - pre_roll) if apply_pre_roll else saved_pos
 
-            try:
-                result = await audio_manager.play(uri, state_key=key, start_pos_sec=start_pos)
-            except Exception as exc:  # noqa: BLE001
-                return json.dumps({"success": False, "error": f"playback failed: {exc}"})
+            result = await self._route_play(ctx, src, target, start_pos)
+            if not result.get("success"):
+                return json.dumps(result)
 
-            return json.dumps({
-                "success": True,
-                "state_key": key,
+            # Augment the play-result with resume-specific bookkeeping
+            started_pos = float(result.get("resumed_at_sec", 0.0))
+            result.update({
+                "method": "saved-position",
                 "saved_pos_sec": saved_pos,
-                "started_pos_sec": result["start_pos_sec"],
-                "pre_roll_applied_sec": saved_pos - result["start_pos_sec"],
+                "started_pos_sec": started_pos,
+                "pre_roll_applied_sec": max(0.0, saved_pos - started_pos),
             })
+            return json.dumps(result)
 
         return Tool(
-            name="audio_resume_last",
+            name="audio_resume",
+            # Tier reflects the worst case (loading a new audio from saved
+            # position when the player was stopped). The fast unpause path
+            # does no fresh I/O but tier is per-tool, not per-branch.
             tier=TIER_WRITE_DATA,
             description=(
-                "Resume the most recently played unfinished audio (or a specific "
-                "one via 'item'/state_key). For audiobooks, playback starts a "
-                "few seconds before the saved position so the user gets context."
+                "Resume audio playback. Three behaviors auto-selected:\n"
+                "  - If 'item' is given: resume that specific state_key from "
+                "its saved position (pre-roll for audiobooks).\n"
+                "  - If currently paused: simple unpause, no parameter needed.\n"
+                "  - If stopped/idle: resume the most recently unfinished "
+                "audio from saved position.\n"
+                "Use after 'audio_pause', 'audio_stop', or to continue an "
+                "audiobook. Pair with 'audio_list_unfinished()' to discover "
+                "specific state_keys. The 'target' parameter selects the "
+                "output sink ('browser:<id>', 'local', 'puck:<room>'); when "
+                "omitted, audio is routed to the channel where the request "
+                "came from (same routing as audio_play)."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "item": {
                         "type": "string",
-                        "description": "Optional state_key from audio_list_unfinished(). Omit to resume the most recent one.",
+                        "description": "Optional state_key from audio_list_unfinished() to resume a specific audio. Omit to unpause the current player or resume the most recent unfinished item.",
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Output destination ('browser:<id>', 'local', 'puck:<room>'). Omit to auto-route.",
                     },
                 },
             },
-            executor=_resume_last,
+            executor=_resume,
         )
 
     def _tool_stop(self, ctx: PluginContext) -> Tool:
@@ -543,7 +592,7 @@ class AudioPlayerPlugin:
             description=(
                 "Stop playback on the active target (browser tab or local "
                 "speakers). The current position is saved automatically — "
-                "audio_resume_last() can pick up later."
+                "audio_resume() can pick up later."
             ),
             parameters={"type": "object", "properties": {}},
             executor=_stop,
@@ -1008,7 +1057,7 @@ class AudioPlayerPlugin:
                 "Workflow-Stufen:\n"
                 "1. Datei bekannt → direkt `audio_play(item='label/datei.mp3')`.\n"
                 "2. Datei unklar → `audio_list(source='X')` → `audio_play(...)`.\n"
-                "3. Hörbuch fortsetzen → `audio_list_unfinished()` → `audio_resume_last(item='<key>')`.\n\n"
+                "3. Hörbuch fortsetzen → `audio_list_unfinished()` → `audio_resume(item='<key>')`.\n\n"
                 "════════════════════════════════════════\n"
                 "KEINE HALLUZINATIONEN BEI 0 TREFFERN\n"
                 "════════════════════════════════════════\n"
@@ -1059,7 +1108,7 @@ class AudioPlayerPlugin:
             "Workflow stages:\n"
             "1. File known → directly `audio_play(item='label/file.mp3')`.\n"
             "2. File unclear → `audio_list(source='X')` → `audio_play(...)`.\n"
-            "3. Resume audiobook → `audio_list_unfinished()` → `audio_resume_last(item='<key>')`.\n\n"
+            "3. Resume audiobook → `audio_list_unfinished()` → `audio_resume(item='<key>')`.\n\n"
             "Item format: `label/relative-path.mp3` for folder sources, just "
             "`label` for streams. Routing override via `target` param "
             "(see `audio_targets()`)."
@@ -1071,10 +1120,8 @@ class AudioPlayerPlugin:
         if tool_name == "audio_pause":
             return "Pausiere..."
         if tool_name == "audio_resume":
-            return "Setze fort..."
-        if tool_name == "audio_resume_last":
             it = tool_args.get("item")
-            return f"Setze fort: {it}" if it else "Setze letztes Audio fort..."
+            return f"Setze fort: {it}" if it else "Setze fort..."
         if tool_name == "audio_stop":
             return "Stoppe Audio..."
         if tool_name == "audio_seek":

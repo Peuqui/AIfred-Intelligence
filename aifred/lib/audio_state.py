@@ -1,7 +1,7 @@
 """Audio Position State — SSOT for resume across audio source plugins.
 
 JSON file persistence with thread-safe access. Used by audio_manager to
-save playback positions and by tools (audio_resume_last,
+save playback positions and by tools (audio_resume,
 audio_list_unfinished) to query them.
 
 Schema (data/audio_state.json):
