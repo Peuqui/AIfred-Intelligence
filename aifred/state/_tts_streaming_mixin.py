@@ -69,6 +69,19 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         return json.dumps(self.tts_audio_queue)
 
+    @rx.var(deps=["_tts_streaming_active"], auto_deps=False)
+    def tts_streaming_in_flight(self) -> bool:
+        """Public proxy for the internal streaming-lifetime flag.
+
+        True from _init_streaming_tts() until finalize_tts_streaming()
+        has awaited every pending sentence task. The frontend uses this
+        as the authoritative "more TTS may still arrive" signal — empty
+        tts_audio_queue alone is not enough (it's transiently empty
+        between chunks during streaming, which made audioOnEnded resume
+        media too early and chop off the last sentence).
+        """
+        return bool(self._tts_streaming_active)
+
     # ── TTS Callback ──────────────────────────────────────────────────
 
     def handle_tts_callback(self, result: str):

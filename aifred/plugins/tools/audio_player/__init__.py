@@ -100,6 +100,7 @@ class AudioPlayerPlugin:
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         return [
             self._tool_play(ctx),
+            self._tool_play_folder(ctx),
             self._tool_pause(),
             self._tool_resume(),
             self._tool_resume_last(),
@@ -161,6 +162,10 @@ class AudioPlayerPlugin:
                     # use the same paused-for-tts flag.
                     state.media_paused_for_tts = tts_active or resumed_at > 0
                     state.media_pause_pos_sec = resumed_at
+                    # Single-track playback: drop any pending folder queue.
+                    state.media_queue = []
+                    if hasattr(state, "_persist_audio_state"):
+                        state._persist_audio_state()
 
                 return json.dumps({
                     "success": True,
@@ -240,6 +245,176 @@ class AudioPlayerPlugin:
                 "required": ["item"],
             },
             executor=_play,
+        )
+
+    def _tool_play_folder(self, ctx: PluginContext) -> Tool:  # noqa: PLR0915
+        """Sequential playback of all audio files in a folder, alphabetically."""
+
+        async def _play_folder(folder: str, target: str | None = None, restart: bool = False) -> str:
+            from urllib.parse import quote
+            from ....lib.audio_sources import ALLOWED_EXTENSIONS, build_source_map
+            from ....lib.audio_state import audio_state
+            from ....lib.config import MEDIA_AUDIO_DIR
+
+            # Parse "label" or "label/sub/path"
+            if "/" in folder:
+                label, sub = folder.split("/", 1)
+                sub = sub.strip("/")
+            else:
+                label, sub = folder, ""
+
+            # Resolve source — must be a local_folder, not an http_stream.
+            settings = _load_settings()
+            streams = {
+                lbl: src for lbl, src in settings.get("sources", {}).items()
+                if src.get("type") == "http_stream"
+            }
+            sources = build_source_map(MEDIA_AUDIO_DIR, streams)
+            cfg = sources.get(label)
+            if cfg is None:
+                available = list(sources.keys())
+                return json.dumps({
+                    "success": False,
+                    "error": f"Unknown source label: '{label}'. Available: {available}",
+                })
+            if cfg.get("type") != "local_folder":
+                return json.dumps({
+                    "success": False,
+                    "error": f"Source '{label}' is not a local folder (type={cfg.get('type')!r})",
+                })
+
+            root = Path(str(cfg.get("path", ""))).expanduser().resolve()
+            if not root.is_dir():
+                return json.dumps({
+                    "success": False,
+                    "error": f"Source path does not exist: {root}",
+                })
+
+            # Path-traversal guard
+            if ".." in Path(sub).parts:
+                return json.dumps({"success": False, "error": f"Path traversal denied: {sub!r}"})
+            target_dir = (root / sub).resolve() if sub else root
+            try:
+                target_dir.relative_to(root)
+            except ValueError:
+                return json.dumps({"success": False, "error": f"Path '{sub}' escapes source folder"})
+            if not target_dir.is_dir():
+                return json.dumps({
+                    "success": False,
+                    "error": f"Folder not found in '{label}': {sub or '(root)'}",
+                })
+
+            # Recursively gather audio files; sort with natural-order so
+            # 'CD 1' < 'CD 2' < 'CD 10' (ASCII would order 1<10<2).
+            def _natural_key(p: str) -> list:
+                import re as _re
+                return [
+                    int(part) if part.isdigit() else part.lower()
+                    for part in _re.split(r"(\d+)", p)
+                ]
+
+            files: list[str] = []
+            for f in target_dir.rglob("*"):
+                if not f.is_file():
+                    continue
+                if f.suffix.lower() not in ALLOWED_EXTENSIONS:
+                    continue
+                try:
+                    rel = f.relative_to(root)
+                except ValueError:
+                    continue
+                files.append(str(rel))
+
+            files.sort(key=_natural_key)
+
+            if not files:
+                return json.dumps({
+                    "success": False,
+                    "error": f"No audio files found in '{label}/{sub}'",
+                })
+
+            target_id = _resolve_target(ctx, target)
+            state = getattr(ctx, "state", None)
+
+            # Browser target: build queue + push first to player ────────────
+            if target_id.startswith("browser") or target_id == "browser":
+                queue_items: list[dict[str, str]] = []
+                for rel_path in files:
+                    state_key = f"{label}/{rel_path}"
+                    audio_url = f"/api/audio/file?key={quote(state_key)}"
+                    queue_items.append({"audio_url": audio_url, "state_key": state_key})
+
+                first = queue_items[0]
+                first_key = first["state_key"]
+                first_url = first["audio_url"]
+
+                resumed_at = 0.0
+                if not restart:
+                    existing = audio_state.get(first_key)
+                    if existing and not existing.get("completed"):
+                        resumed_at = float(existing.get("pos_sec", 0))
+
+                tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
+
+                if state is not None:
+                    state.media_audio_url = first_url
+                    state.media_state_key = first_key
+                    state.media_is_stream = False
+                    state.media_paused_for_tts = tts_active or resumed_at > 0
+                    state.media_pause_pos_sec = resumed_at
+                    state.media_queue = queue_items
+                    if hasattr(state, "_persist_audio_state"):
+                        state._persist_audio_state()
+
+                return json.dumps({
+                    "success": True,
+                    "label": label,
+                    "folder": sub or "(root)",
+                    "target": target_id,
+                    "queued_count": len(queue_items),
+                    "first": {"state_key": first_key, "audio_url": first_url, "resumed_at_sec": resumed_at},
+                    "files": files[:10] + (["..."] if len(files) > 10 else []),
+                })
+
+            # Local target: mpv has no built-in playlist API in our wrapper —
+            # for now, only browser is supported. Easy follow-up in audio_manager.
+            return json.dumps({
+                "success": False,
+                "error": f"Sequential playback for target '{target_id}' is not implemented yet. Use target='browser' for now.",
+            })
+
+        return Tool(
+            name="audio_play_folder",
+            tier=TIER_WRITE_DATA,
+            description=(
+                "Play ALL audio files in a folder sequentially in natural alphabetical "
+                "order (e.g. 'CD 1' < 'CD 2' < 'CD 10'). Use this for audiobooks "
+                "with multiple parts or albums. The 'folder' parameter is a "
+                "label-prefixed path: 'hoerbuecher' for the entire source, or "
+                "'hoerbuecher/Tolkien_HdR' for a sub-folder. Resolution is "
+                "recursive — all audio files below the folder are queued. "
+                "Currently supports target='browser' only; local/puck not yet."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder": {
+                        "type": "string",
+                        "description": "Source label or label/sub/path (e.g. 'hoerbuecher', 'hoerbuecher/Tolkien_HdR').",
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Output destination ('browser:<id>'). Omit to auto-route.",
+                    },
+                    "restart": {
+                        "type": "boolean",
+                        "description": "Ignore saved position on the first item. Default: false.",
+                        "default": False,
+                    },
+                },
+                "required": ["folder"],
+            },
+            executor=_play_folder,
         )
 
     def _tool_pause(self) -> Tool:
@@ -338,7 +513,10 @@ class AudioPlayerPlugin:
             stopped_browser = False
             stopped_local = False
             state = getattr(ctx, "state", None)
-            if state is not None and getattr(state, "media_audio_url", "") != "":
+            if state is not None and (
+                getattr(state, "media_audio_url", "") != ""
+                or getattr(state, "media_queue", [])
+            ):
                 # Save current pos via state isn't possible from here
                 # (the live position lives in the browser); JS already
                 # saves on pause/end events. Just clear the slot.
@@ -347,6 +525,9 @@ class AudioPlayerPlugin:
                 state.media_is_stream = False
                 state.media_paused_for_tts = False
                 state.media_pause_pos_sec = 0.0
+                state.media_queue = []
+                if hasattr(state, "_persist_audio_state"):
+                    state._persist_audio_state()
                 stopped_browser = True
             from ....lib.audio_manager import audio_manager
             stopped_local = await audio_manager.stop()
