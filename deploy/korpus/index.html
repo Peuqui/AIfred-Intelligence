@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIfred Korpus</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-elev: #1e293b;
+    --bg-card: #0b1220;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --danger: #dc2626;
+    --danger-hover: #ef4444;
+    --success: #10b981;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    padding: 1.25rem 2rem;
+    background: linear-gradient(135deg, #1a1a2e, #2d1f4a);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0; font-size: 1.4rem; font-weight: 500; }
+  header .sub { font-size: 0.85rem; color: var(--text-dim); margin-top: 0.25rem; }
+  nav.tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elev);
+    padding: 0 1rem;
+    overflow-x: auto;
+  }
+  nav.tabs button {
+    background: transparent;
+    color: var(--text-dim);
+    border: none;
+    padding: 0.85rem 1.4rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  nav.tabs button:hover { color: var(--text); }
+  nav.tabs button.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+  main { padding: 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+  }
+  .field { display: flex; flex-direction: column; gap: 0.25rem; }
+  .field label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  input[type=text], input[type=number], select, textarea {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 0.55rem 0.75rem;
+    font-size: 0.95rem;
+    font-family: inherit;
+  }
+  input[type=text]:focus, input[type=number]:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  input[type=text].grow { min-width: 320px; flex: 1; }
+  button.primary, button.danger, button.secondary {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 0.55rem 1.2rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  button.primary:hover { background: var(--accent-hover); }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  button.secondary:hover { border-color: var(--accent); }
+  button.danger { background: var(--danger); }
+  button.danger:hover { background: var(--danger-hover); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .toggle-group {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .toggle-group button {
+    background: transparent;
+    color: var(--text-dim);
+    border: none;
+    padding: 0.55rem 0.9rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .toggle-group button:last-child { border-right: none; }
+  .toggle-group button.active { background: var(--accent); color: white; }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+  }
+  .stat-card .label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.2rem;
+  }
+  .stat-card .value { font-size: 1.4rem; font-weight: 500; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.65rem 0.85rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  th {
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(99, 102, 241, 0.05); }
+  td.actions { white-space: nowrap; }
+  td.actions button {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    margin-right: 0.25rem;
+  }
+  code, .mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .hit {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .hit .meta {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  .hit .meta .file { color: var(--accent-hover); font-weight: 500; }
+  .hit .meta .neighbor { color: var(--text-dim); font-style: italic; }
+  .hit .content { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.55; }
+  .hit .content mark { background: rgba(99, 102, 241, 0.35); color: var(--text); padding: 1px 2px; border-radius: 2px; }
+  .empty {
+    text-align: center;
+    padding: 3rem;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+  .toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 6px;
+    padding: 0.75rem 1.25rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    transform: translateY(150%);
+    transition: transform 0.3s ease;
+    z-index: 100;
+    max-width: 480px;
+  }
+  .toast.show { transform: translateY(0); }
+  .toast.error { border-left-color: var(--danger); }
+  .toast.success { border-left-color: var(--success); }
+  details summary { cursor: pointer; padding: 0.4rem 0; color: var(--accent-hover); font-size: 0.9rem; }
+  details summary:hover { color: var(--text); }
+  .chunk-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.6rem 0.85rem;
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+  .chunk-block .idx { color: var(--text-dim); font-size: 0.75rem; margin-bottom: 0.25rem; }
+  .pagination {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0.75rem 0;
+  }
+  .small { font-size: 0.8rem; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AIfred Korpus</h1>
+  <div class="sub">Vector-DB Suche, Verwaltung, Upload &mdash; ChromaDB / bge-m3</div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="search" class="active">Suche</button>
+  <button data-tab="overview">&Uuml;bersicht</button>
+  <button data-tab="upload">Hochladen</button>
+  <button data-tab="manage">Verwaltung</button>
+</nav>
+
+<main>
+
+<!-- ================== SEARCH ================== -->
+<section id="panel-search" class="panel active">
+  <div class="row">
+    <div class="field">
+      <label>Modus</label>
+      <div class="toggle-group" id="search-mode">
+        <button data-mode="semantic" class="active">Semantisch</button>
+        <button data-mode="literal">Wortgenau</button>
+      </div>
+    </div>
+    <div class="field" style="flex:1; min-width:300px">
+      <label>Anfrage</label>
+      <input type="text" id="search-query" class="grow"
+             placeholder="z.B. Heiliger Geist  (oder exakte Phrase im Wortgenau-Modus)">
+    </div>
+    <div class="field">
+      <label>Folder (Prefix-Match)</label>
+      <select id="search-folder">
+        <option value="">&mdash; alle &mdash;</option>
+      </select>
+    </div>
+    <div class="field" style="width:80px">
+      <label>Anzahl</label>
+      <input type="number" id="search-n" value="10" min="1" max="200">
+    </div>
+    <div class="field" style="width:80px">
+      <label>Nachbarn ±</label>
+      <input type="number" id="search-neighbor" value="1" min="0" max="5">
+    </div>
+    <button class="primary" id="search-btn">Suchen</button>
+  </div>
+  <div id="search-results"></div>
+</section>
+
+<!-- ================== OVERVIEW ================== -->
+<section id="panel-overview" class="panel">
+  <div class="stats" id="overview-stats"></div>
+  <h3>Folder</h3>
+  <table id="overview-folders">
+    <thead><tr><th>Folder</th><th style="text-align:right">Chunks</th><th>Aktion</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <h3 style="margin-top: 2rem">Dokumente</h3>
+  <div class="row">
+    <div class="field" style="flex:1">
+      <label>Filter (Filename enth&auml;lt)</label>
+      <input type="text" id="overview-filter" placeholder="z.B. talmud" class="grow">
+    </div>
+  </div>
+  <table id="overview-docs">
+    <thead><tr><th>Datei</th><th>Folder</th><th style="text-align:right">Chunks</th><th>Hochgeladen</th><th>Aktionen</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<!-- ================== UPLOAD ================== -->
+<section id="panel-upload" class="panel">
+  <p class="small">Unterst&uuml;tzte Formate: PDF, TXT, MD, CSV, DOCX, XLSX, PPTX, ODT, ODS, ODP. Datei wird unter <code>data/documents/&lt;folder&gt;/&lt;name&gt;</code> abgelegt und (per Default) sofort indexiert.</p>
+  <form id="upload-form">
+    <div class="row">
+      <div class="field" style="flex:1; min-width:280px">
+        <label>Datei</label>
+        <input type="file" id="upload-file" required>
+      </div>
+      <div class="field" style="flex:1; min-width:200px">
+        <label>Zielordner (optional, z.B. judaica/notes oder leer = root)</label>
+        <input type="text" id="upload-folder" placeholder="leer = data/documents/" class="grow">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <label style="display:flex; gap:0.4rem; align-items:center; padding-top:0.55rem">
+          <input type="checkbox" id="upload-autoindex" checked>
+          <span>Auto-Indexierung</span>
+        </label>
+      </div>
+      <button class="primary" type="submit">Hochladen</button>
+    </div>
+  </form>
+  <div id="upload-result"></div>
+</section>
+
+<!-- ================== MANAGE ================== -->
+<section id="panel-manage" class="panel">
+  <p class="small">Re-Indexierung holt sich die Quelldatei vom Datentr&auml;ger und ersetzt alle Chunks (delete-before-upsert). Folder-Operationen wirken auf <strong>exakten</strong> Folder-Match (kein Prefix).</p>
+
+  <h3>Einzelne Datei</h3>
+  <div class="row">
+    <div class="field" style="flex:1">
+      <label>Datei (relativer Pfad unter data/documents/)</label>
+      <input type="text" id="manage-file" class="grow"
+             placeholder="z.B. judaica/talmud/berakhot.txt">
+    </div>
+    <button class="primary" id="manage-reindex">Re-Index</button>
+    <button class="danger" id="manage-delete">L&ouml;schen (Chunks)</button>
+    <button class="danger" id="manage-delete-file">+ Datei l&ouml;schen</button>
+  </div>
+
+  <h3 style="margin-top:2rem">Ganzer Folder</h3>
+  <div class="row">
+    <div class="field" style="flex:1">
+      <label>Folder (z.B. judaica/talmud)</label>
+      <input type="text" id="manage-folder" class="grow"
+             placeholder="z.B. judaica/talmud">
+    </div>
+    <button class="primary" id="manage-reindex-folder">Folder re-indexieren</button>
+    <button class="danger" id="manage-delete-folder">Chunks l&ouml;schen</button>
+  </div>
+
+  <div id="manage-result"></div>
+</section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = window.location.pathname.replace(/\/$/, '') + '/api';
+
+function $(id) { return document.getElementById(id); }
+function escape(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function highlight(text, needle) {
+  if (!needle) return escape(text);
+  const re = new RegExp('(' + needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  return escape(text).replace(re, '<mark>$1</mark>');
+}
+
+let toastTimer;
+function toast(msg, type='') {
+  const t = $('toast');
+  t.className = 'toast show ' + type;
+  t.textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = 'toast', 4000);
+}
+
+async function api(path, opts={}) {
+  const r = await fetch(API + path, opts);
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { detail = (await r.json()).detail || detail; } catch {}
+    throw new Error(`${r.status}: ${detail}`);
+  }
+  return r.json();
+}
+
+// ─── Tabs ──────────────────────────────────────
+$('tabs').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-tab]');
+  if (!btn) return;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b === btn));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + btn.dataset.tab));
+  if (btn.dataset.tab === 'overview') loadOverview();
+});
+
+// ─── Search ────────────────────────────────────
+let searchMode = 'semantic';
+$('search-mode').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-mode]');
+  if (!btn) return;
+  searchMode = btn.dataset.mode;
+  document.querySelectorAll('#search-mode button').forEach(b => b.classList.toggle('active', b === btn));
+});
+
+async function doSearch() {
+  const q = $('search-query').value.trim();
+  if (!q) return toast('Bitte Anfrage eingeben', 'error');
+  const folder = $('search-folder').value || null;
+  const n = parseInt($('search-n').value) || 10;
+  const neighbor = parseInt($('search-neighbor').value) || 0;
+
+  $('search-results').innerHTML = '<div class="empty">Suche l&auml;uft&hellip;</div>';
+  try {
+    const res = await api('/search', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ query: q, mode: searchMode, folder, n_results: n, neighbor }),
+    });
+    renderSearchResults(res, q);
+  } catch (e) {
+    $('search-results').innerHTML = '';
+    toast(e.message, 'error');
+  }
+}
+
+function renderSearchResults(res, query) {
+  const root = $('search-results');
+  if (!res.results.length) { root.innerHTML = '<div class="empty">Keine Treffer</div>'; return; }
+  const needle = res.mode === 'literal' ? query : null;
+  const html = res.results.map((h, i) => {
+    const meta = [];
+    meta.push(`<span class="file">${escape(h.filename)}</span>`);
+    meta.push(`<span>chunk ${h.chunk_index}/${h.total_chunks}</span>`);
+    if (h.distance !== null && h.distance !== undefined) meta.push(`<span>d=${h.distance.toFixed(3)}</span>`);
+    if (h._neighbor) meta.push(`<span class="neighbor">±neighbor</span>`);
+    return `<div class="hit">
+      <div class="meta">${meta.join(' &middot; ')}</div>
+      <div class="content">${highlight(h.content, needle)}</div>
+    </div>`;
+  }).join('');
+  root.innerHTML = `<p class="small">${res.total} Treffer (${res.mode})</p>` + html;
+}
+
+$('search-btn').addEventListener('click', doSearch);
+$('search-query').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// ─── Overview ──────────────────────────────────
+let allDocs = [];
+async function loadOverview() {
+  try {
+    const [foldersRes, docsRes] = await Promise.all([api('/folders'), api('/documents')]);
+    const total = foldersRes.total_chunks;
+    const fileCount = docsRes.count;
+    $('overview-stats').innerHTML = [
+      ['Chunks gesamt', total.toLocaleString('de-DE')],
+      ['Dokumente', fileCount],
+      ['Folder', foldersRes.folders.length],
+    ].map(([l, v]) => `<div class="stat-card"><div class="label">${l}</div><div class="value">${v}</div></div>`).join('');
+
+    $('overview-folders').querySelector('tbody').innerHTML = foldersRes.folders.map(f => `
+      <tr>
+        <td><code>${escape(f.folder || '(root)')}</code></td>
+        <td style="text-align:right">${f.chunks.toLocaleString('de-DE')}</td>
+        <td><button class="secondary" onclick="searchInFolder(${JSON.stringify(f.folder)})">in diesem Folder suchen</button></td>
+      </tr>
+    `).join('');
+
+    // Folder-Dropdown fuer Suche aktualisieren
+    const sel = $('search-folder');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— alle —</option>' +
+      foldersRes.folders.map(f => `<option value="${escape(f.folder)}">${escape(f.folder || '(root)')} (${f.chunks})</option>`).join('');
+    sel.value = current;
+
+    allDocs = docsRes.documents;
+    renderDocs();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function renderDocs() {
+  const filter = $('overview-filter').value.toLowerCase();
+  const docs = filter ? allDocs.filter(d => d.filename.toLowerCase().includes(filter)) : allDocs;
+  $('overview-docs').querySelector('tbody').innerHTML = docs.map(d => `
+    <tr>
+      <td><code>${escape(d.filename)}</code></td>
+      <td><code class="small">${escape(d.folder)}</code></td>
+      <td style="text-align:right">${d.chunks_indexed}</td>
+      <td class="small">${escape((d.upload_date || '').slice(0, 19))}</td>
+      <td class="actions">
+        <button class="secondary" onclick="showChunks(${JSON.stringify(d.filename)})">Chunks</button>
+        <button class="secondary" onclick="reindexFile(${JSON.stringify(d.filename)})">Re-Index</button>
+        <button class="danger" onclick="deleteFile(${JSON.stringify(d.filename)}, false)">L&ouml;schen</button>
+      </td>
+    </tr>
+  `).join('');
+}
+$('overview-filter').addEventListener('input', renderDocs);
+
+window.searchInFolder = function(folder) {
+  document.querySelector('button[data-tab=search]').click();
+  $('search-folder').value = folder;
+  $('search-query').focus();
+};
+
+window.showChunks = async function(filename) {
+  try {
+    const res = await api(`/documents/${encodeURIComponent(filename)}/chunks?limit=200`);
+    const html = `<details open><summary>${escape(filename)} &mdash; ${res.total} chunks</summary>` +
+      res.chunks.map(c => `<div class="chunk-block"><div class="idx">chunk ${c.chunk_index}/${c.total_chunks}</div>${escape(c.content)}</div>`).join('') +
+      `</details>`;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const target = $('panel-overview');
+    target.appendChild(wrap);
+    wrap.scrollIntoView({behavior:'smooth'});
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+window.reindexFile = async function(filename) {
+  if (!confirm(`Re-indexiere ${filename}?`)) return;
+  try {
+    const r = await api('/reindex', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ filename }),
+    });
+    toast(`${filename}: ${r.chunks_indexed} chunks`, 'success');
+    loadOverview();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+window.deleteFile = async function(filename, deleteFile) {
+  const msg = deleteFile
+    ? `${filename} aus Index UND von Disk löschen?`
+    : `${filename} aus Index löschen (Datei bleibt)?`;
+  if (!confirm(msg)) return;
+  try {
+    const r = await api(`/documents/${encodeURIComponent(filename)}?delete_file=${deleteFile}`, {method: 'DELETE'});
+    toast(`${r.chunks_removed} chunks entfernt`, 'success');
+    loadOverview();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+// ─── Upload ────────────────────────────────────
+$('upload-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const file = $('upload-file').files[0];
+  if (!file) return toast('Keine Datei gewählt', 'error');
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('folder', $('upload-folder').value.trim());
+  fd.append('auto_index', $('upload-autoindex').checked ? 'true' : 'false');
+  $('upload-result').innerHTML = '<div class="empty">Hochladen&hellip;</div>';
+  try {
+    const r = await fetch(API + '/upload', { method:'POST', body: fd });
+    if (!r.ok) {
+      let d = r.statusText; try { d = (await r.json()).detail; } catch {}
+      throw new Error(`${r.status}: ${d}`);
+    }
+    const res = await r.json();
+    $('upload-result').innerHTML = `<div class="hit">
+      <div class="meta"><span class="file">${escape(res.filename)}</span></div>
+      <div class="content">Hochgeladen: ${(res.size_bytes/1024).toFixed(1)} KB. ${res.indexed ? `Indexiert: ${res.chunks_indexed} chunks.` : 'Nicht indexiert.'}</div>
+    </div>`;
+    toast('Hochgeladen', 'success');
+  } catch (e) {
+    $('upload-result').innerHTML = '';
+    toast(e.message, 'error');
+  }
+});
+
+// ─── Manage ────────────────────────────────────
+$('manage-reindex').addEventListener('click', async () => {
+  const f = $('manage-file').value.trim();
+  if (!f) return toast('Datei eingeben', 'error');
+  try {
+    const r = await api('/reindex', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ filename: f }),
+    });
+    $('manage-result').innerHTML = `<div class="hit"><div class="content">Re-Index: ${r.chunks_indexed} chunks fuer <code>${escape(r.filename)}</code></div></div>`;
+    toast('Re-Index ok', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+$('manage-delete').addEventListener('click', () => deleteFromManage(false));
+$('manage-delete-file').addEventListener('click', () => deleteFromManage(true));
+async function deleteFromManage(deleteFile) {
+  const f = $('manage-file').value.trim();
+  if (!f) return toast('Datei eingeben', 'error');
+  if (!confirm(deleteFile ? `${f} aus Index UND Disk loeschen?` : `${f} aus Index loeschen?`)) return;
+  try {
+    const r = await api(`/documents/${encodeURIComponent(f)}?delete_file=${deleteFile}`, {method:'DELETE'});
+    $('manage-result').innerHTML = `<div class="hit"><div class="content">${r.chunks_removed} chunks entfernt${r.file_deleted ? ', Datei geloescht' : ''}</div></div>`;
+    toast('Geloescht', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+$('manage-reindex-folder').addEventListener('click', async () => {
+  const folder = $('manage-folder').value.trim();
+  if (!folder) return toast('Folder eingeben', 'error');
+  if (!confirm(`Alle Dateien unter ${folder}/ re-indexieren?`)) return;
+  const fd = new FormData();
+  fd.append('folder', folder);
+  try {
+    const r = await fetch(API + '/reindex-folder', { method:'POST', body: fd });
+    if (!r.ok) {
+      let d = r.statusText; try { d = (await r.json()).detail; } catch {}
+      throw new Error(`${r.status}: ${d}`);
+    }
+    const res = await r.json();
+    $('manage-result').innerHTML = `<div class="hit"><div class="content">
+      ${res.files_indexed} Dateien re-indexiert, ${res.chunks_total} Chunks gesamt.
+      ${res.failures.length ? `<br>Fehlschlaege: ${res.failures.length}` : ''}
+    </div></div>`;
+    toast(`${res.files_indexed} Dateien indexiert`, 'success');
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+$('manage-delete-folder').addEventListener('click', async () => {
+  const folder = $('manage-folder').value.trim();
+  if (!folder) return toast('Folder eingeben', 'error');
+  if (!confirm(`ALLE chunks im Folder "${folder}" loeschen? (Dateien bleiben)`)) return;
+  try {
+    const r = await api(`/folders/${encodeURIComponent(folder)}?delete_files=false`, {method:'DELETE'});
+    $('manage-result').innerHTML = `<div class="hit"><div class="content">${r.files_affected} Dateien betroffen, ${r.chunks_removed} chunks entfernt</div></div>`;
+    toast('Folder bereinigt', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+// ─── Boot ──────────────────────────────────────
+loadOverview();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,21 @@
+[Unit]
+Description=AIfred Corpus Search & Admin API (FastAPI)
+After=network-online.target
+Wants=network-online.target
+# ChromaDB sollte vorher laufen — falls als systemd-Service vorhanden,
+# hier eintragen (z.B. After=chromadb.service)
+
+[Service]
+Type=simple
+User=mp
+Group=mp
+WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence
+ExecStart=/home/mp/Projekte/AIfred-Intelligence/venv/bin/python scripts/corpus_search_server.py
+Restart=on-failure
+RestartSec=5
+# Logs in journal
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
