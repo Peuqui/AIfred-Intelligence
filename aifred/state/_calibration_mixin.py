@@ -864,9 +864,25 @@ class CalibrationMixin(rx.State, mixin=True):
                 get_llamacpp_calibration,
                 get_llamacpp_speed_split,
             )
-            calibrated = get_llamacpp_calibration(model_id)
-            if calibrated:
-                self.add_debug(f"   🎯 Calibrated: {format_number(calibrated)} tokens")  # type: ignore[attr-defined]
+            from ..lib.calibration import parse_llamaswap_config
+            from ..lib.config import LLAMASWAP_CONFIG_PATH
+            # YAML is the source of truth — that's the ctx the server
+            # actually starts with. Cache may be stale if YAML was edited
+            # manually or by a partial calibration run.
+            yaml_models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+            yaml_ctx = yaml_models.get(model_id, {}).get("current_context", 0)
+            cached = get_llamacpp_calibration(model_id)
+            if yaml_ctx > 0:
+                if cached and cached != yaml_ctx:
+                    # Cache and YAML disagree — show YAML (truth) and warn
+                    self.add_debug(  # type: ignore[attr-defined]
+                        f"   🎯 Configured: {format_number(yaml_ctx)} tokens "
+                        f"(cache shows {format_number(cached)} — re-calibrate to sync)"
+                    )
+                else:
+                    self.add_debug(f"   🎯 Calibrated: {format_number(yaml_ctx)} tokens")  # type: ignore[attr-defined]
+            elif cached:
+                self.add_debug(f"   🎯 Calibrated: {format_number(cached)} tokens")  # type: ignore[attr-defined]
             else:
                 self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")  # type: ignore[attr-defined]
 
