@@ -2,8 +2,8 @@
 """HTTP service for the AIfred corpus: search + admin (browse, delete, reindex).
 
 Serves a FastAPI app on 127.0.0.1:8005 by default. Designed to be
-reverse-proxied by the Narnia nginx under /korpus/api/. The static
-HTML UI lives separately under /korpus/ (handled by nginx).
+reverse-proxied by the Narnia nginx under /corpus/api/. The static
+HTML UI lives separately under /corpus/ (handled by nginx).
 
 Endpoints:
 - GET  /api/health                      health check
