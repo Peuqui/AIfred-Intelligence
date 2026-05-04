@@ -261,9 +261,9 @@
       "display_name": "Calibration",
       "aliases": [],
       "emoji": "📐",
-      "description": "System-Agent für die GPU-Calibration. Nicht direkt im Chat verwendbar — wird vom Calibration-Workflow aufgerufen.",
+      "description": "",
       "role": "system",
-      "model": "qwen-plus",
+      "model": "qwen-max",
       "prompts": {
         "system": "calibration/system.txt"
       },
