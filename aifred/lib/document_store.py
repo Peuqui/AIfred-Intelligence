@@ -5,6 +5,7 @@ Uses the same ChromaDB server and Ollama embedding function as vector_cache.py
 but with a separate collection for user documents.
 """
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -303,17 +304,25 @@ class DocumentStore:
         log_message(f"📄 DocumentStore connected: {self._collection.count()} chunks")
 
     async def index_document(self, file_path: Path, filename: str) -> int:
-        """Parse, chunk and embed a document. Returns number of chunks created."""
+        """Parse, chunk and embed a document. Returns number of chunks created.
+
+        All blocking calls (parser, embed, Chroma RPC) run on a thread so
+        the asyncio event loop stays free for WebSocket heartbeats — large
+        files can otherwise freeze the UI for many seconds and trigger
+        client-side timeouts at the proxy.
+        """
         suffix = file_path.suffix.lower()
         parser = PARSERS.get(suffix)
         if not parser:
             raise ValueError(f"Unsupported file type: {suffix}")
 
-        text = parser(file_path)
+        text = await asyncio.to_thread(parser, file_path)
         if not text.strip():
             raise ValueError(f"Document is empty: {filename}")
 
-        chunks = _chunk_text(text, DOCUMENT_CHUNK_SIZE, DOCUMENT_CHUNK_OVERLAP)
+        chunks = await asyncio.to_thread(
+            _chunk_text, text, DOCUMENT_CHUNK_SIZE, DOCUMENT_CHUNK_OVERLAP
+        )
         now = datetime.now().isoformat()
 
         # Folder is the parent path of the relative filename — empty string means root
@@ -336,17 +345,18 @@ class DocumentStore:
         # re-indexing a now-shorter file would leave zombie chunks in place
         # (old chunk_N where N > new total_chunks). With delete-before-upsert
         # the file always reflects the current source — no stale data.
-        self._collection.delete(where={"filename": filename})
+        await asyncio.to_thread(self._collection.delete, where={"filename": filename})
 
         # Embed via the index-mode function (GPU + warm cache). Passing
         # the embeddings explicitly bypasses the collection's default
         # embedding_function (which is the query/CPU one) for this write.
-        embeddings = self._embed_index(chunks)
-        self._collection.upsert(
+        embeddings = await asyncio.to_thread(self._embed_index, chunks)
+        await asyncio.to_thread(
+            self._collection.upsert,
             ids=ids,
             documents=chunks,
             embeddings=embeddings,
-            metadatas=metadatas,  # type: ignore[arg-type]
+            metadatas=metadatas,
         )
 
         log_message(f"📄 Indexed {filename}: {len(chunks)} chunks")
@@ -373,7 +383,8 @@ class DocumentStore:
                     None → use DOCUMENT_SEARCH_NEIGHBOR_WINDOW from config,
                     0 → off (similarity-only).
         """
-        if self._collection.count() == 0:
+        count = await asyncio.to_thread(self._collection.count)
+        if count == 0:
             return []
 
         if neighbor_window is None:
@@ -382,15 +393,15 @@ class DocumentStore:
 
         # Embed the query via the CPU/query-mode function so we don't
         # wake up the GPU embedding model for a single-shot search.
-        query_embeddings = self._embed_query([query])
+        query_embeddings = await asyncio.to_thread(self._embed_query, [query])
         query_kwargs: dict[str, Any] = {
             "query_embeddings": query_embeddings,
-            "n_results": min(n_results, self._collection.count()),
+            "n_results": min(n_results, count),
         }
         if folder is not None:
             query_kwargs["where"] = {"folder": folder}
 
-        results = self._collection.query(**query_kwargs)
+        results = await asyncio.to_thread(self._collection.query, **query_kwargs)
 
         hits: list[dict[str, Any]] = []
         if results and results["documents"] and results["documents"][0]:
@@ -430,7 +441,9 @@ class DocumentStore:
                         neighbor_ids.add(nid)
 
             if neighbor_ids:
-                neighbor_data = self._collection.get(ids=list(neighbor_ids))
+                neighbor_data = await asyncio.to_thread(
+                    self._collection.get, ids=list(neighbor_ids)
+                )
                 if neighbor_data and neighbor_data.get("documents"):
                     for i, doc in enumerate(neighbor_data["documents"]):
                         meta = (neighbor_data["metadatas"][i]
@@ -475,14 +488,14 @@ class DocumentStore:
 
     async def delete_document(self, filename: str, delete_file: bool = True) -> int:
         """Delete all chunks for a document. Returns number of deleted chunks."""
-        all_data = self._collection.get(
-            where={"filename": filename},
+        all_data = await asyncio.to_thread(
+            self._collection.get, where={"filename": filename}
         )
         if not all_data or not all_data["ids"]:
             return 0
 
         count = len(all_data["ids"])
-        self._collection.delete(ids=all_data["ids"])
+        await asyncio.to_thread(self._collection.delete, ids=all_data["ids"])
 
         # Delete file from disk if requested
         if delete_file:
