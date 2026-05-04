@@ -297,15 +297,17 @@ async def calibrate_llamacpp_model(
         speed_result = None
 
     # ── Phase D: write configs + persist cache ─────────────────────
+    # Only persist (YAML + cache) for real runs. TTS-variant calibration
+    # passes config_path=None (dry_run) and writes its own YAML entry via
+    # add_llamaswap_tts_variant — must NOT overwrite the base cache here,
+    # else base speed_split fields get lost.
     if config_path:
         async for msg in _write_base_config(config_path, model_id, final):
             yield msg
-
-    _persist_cache(model, final, gpus)
-
-    if speed_result and config_path:
-        async for msg in _write_speed_config(config_path, model_id, speed_result):
-            yield msg
+        _persist_cache(model, final, gpus, speed_result=speed_result)
+        if speed_result:
+            async for msg in _write_speed_config(config_path, model_id, speed_result):
+                yield msg
 
     # ── Emit sentinels ─────────────────────────────────────────────
     yield _result_sentinel(final, thinks=thinks)
@@ -727,43 +729,78 @@ async def _verify_and_refine(
         # 5 conservative 10%-shrinks (base usually fits via shifts; an
         # aggressive shrink would lose context unnecessarily).
         if lock_active_gpus:
-            # Binary search: hi = current_ctx (failed), lo = MIN_USEFUL.
-            # First probe is at midpoint, narrows from there. Returns the
-            # highest fitting ctx ≥ MIN_USEFUL, or fails if even MIN_USEFUL
-            # doesn't fit.
+            # Math-guided binary search down. Math (~ms, free) picks the
+            # smartest ctx to probe; bias tracking keeps math honest by
+            # adding the observed math-vs-real gap as an extra safety
+            # margin in subsequent math searches. Without this, a constant
+            # ~110 MB math-bias causes the search to crawl in 256-token
+            # steps (each step buys only ~4 MB of free VRAM); with bias,
+            # math jumps straight to a realistic ctx after the first
+            # failed probe.
             lo = MIN_USEFUL_CONTEXT_TOKENS
-            hi = current_ctx
+            hi = current_ctx  # initial probe at this ctx already failed
             best_r: VerifyResult | None = None
             best_ctx = 0
+            math_bias_mb = 0
             while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
-                mid = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
-                if mid <= lo or mid >= hi:
-                    break
+                math_max, predicted_min = _math_max_fitting_ctx(
+                    current_split,
+                    lo + LLAMACPP_CALIBRATION_PRECISION,
+                    hi - LLAMACPP_CALIBRATION_PRECISION,
+                    candidate, model, gpus, budget,
+                    extra_safety_margin=math_bias_mb,
+                )
+                if math_max > lo:
+                    cand_ctx = math_max
+                    bias_note = f", bias +{math_bias_mb} MB" if math_bias_mb else ""
+                    src = f"math max → {predicted_min} MB free{bias_note}"
+                else:
+                    cand_ctx = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
+                    if cand_ctx <= lo or cand_ctx >= hi:
+                        break
+                    src = "bisect (math saw no fit)"
                 iteration += 1
                 yield (
-                    f"{status_prefix} binary search: probe ctx "
-                    f"{format_number(mid)} (range {format_number(lo)}–{format_number(hi)})"
+                    f"{status_prefix} 🧮 ctx {format_number(cand_ctx)} "
+                    f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
+                    f"— probe..."
                 )
                 r = await verify(
                     full_cmd=proj.adjust_cmd_for_projection(
                         full_cmd, current_split, candidate.kv_quant,
                     ),
-                    context=mid, port=port, gpus=gpus,
+                    context=cand_ctx, port=port, gpus=gpus,
                     safety_margin_mb=budget.safety_margin,
                     ngl=candidate.ngl, env=env,
                     probe_thinking=probe_thinking and thinks_seen is None,
                 )
-                yield (_fmt_verify(
-                    status_prefix, iteration, current_split, mid, r,
-                ))
+                yield _fmt_verify(
+                    status_prefix, iteration, current_split, cand_ctx, r,
+                )
                 if r.thinks is not None:
                     thinks_seen = r.thinks
                 if r.fits:
                     best_r = r
-                    best_ctx = mid
-                    lo = mid  # try higher
+                    best_ctx = cand_ctx
+                    lo = cand_ctx
                 else:
-                    hi = mid  # need lower
+                    hi = cand_ctx
+                    # Update math-vs-real bias if probe gave measurements
+                    if r.measured_free_mb:
+                        active_free_real = [
+                            r.measured_free_mb[i] for i in range(len(current_split))
+                            if i < len(r.measured_free_mb) and current_split[i] > 0
+                        ]
+                        if active_free_real:
+                            real_min = min(active_free_real)
+                            new_bias = max(0, predicted_min - real_min)
+                            if new_bias > math_bias_mb:
+                                yield (
+                                    f"{status_prefix} 🧮 math bias detected: "
+                                    f"predicted {predicted_min} MB vs real {real_min} MB "
+                                    f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
+                                )
+                                math_bias_mb = new_bias
             if best_r is not None:
                 r = best_r
                 current_ctx = best_ctx
@@ -847,6 +884,88 @@ async def _verify_and_refine(
         current_split = refined
         r = r_new
         last_good = (r, current_split, current_ctx)
+
+    # ── Step 3: upward ctx push (binary search) ────────────────────
+    # If the verified ctx is below native and the tightest GPU still has
+    # plenty of headroom, try larger ctx values. Real measurement is more
+    # generous than the math projection — this recovers ctx the projector
+    # was too conservative about. Especially useful for the speed variant
+    # whose target_ctx came from the n=2 math estimate.
+    r, current_split, current_ctx = last_good
+    if (
+        current_ctx < model.native_context
+        and r.measured_free_mb
+    ):
+        active_free = [
+            f for i, f in enumerate(r.measured_free_mb)
+            if i < len(current_split) and current_split[i] > 0
+        ]
+        if active_free and min(active_free) > 2 * budget.safety_margin:
+            lo = current_ctx
+            hi = model.native_context
+            iteration += 1
+            yield (
+                f"{status_prefix} headroom on tightest GPU "
+                f"({min(active_free)} MB) — upward search to native ctx"
+            )
+            math_bias_mb = 0
+            while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
+                math_max, predicted_min = _math_max_fitting_ctx(
+                    current_split,
+                    lo + LLAMACPP_CALIBRATION_PRECISION,
+                    hi - LLAMACPP_CALIBRATION_PRECISION,
+                    candidate, model, gpus, budget,
+                    extra_safety_margin=math_bias_mb,
+                )
+                if math_max > lo:
+                    cand_ctx = math_max
+                    bias_note = f", bias +{math_bias_mb} MB" if math_bias_mb else ""
+                    src = f"math max → {predicted_min} MB free{bias_note}"
+                else:
+                    cand_ctx = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
+                    if cand_ctx <= lo or cand_ctx >= hi:
+                        break
+                    src = "bisect (math saw no fit)"
+                iteration += 1
+                yield (
+                    f"{status_prefix} 🧮 upward ctx {format_number(cand_ctx)} "
+                    f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
+                    f"— probe..."
+                )
+                r_up = await verify(
+                    full_cmd=proj.adjust_cmd_for_projection(
+                        full_cmd, current_split, candidate.kv_quant,
+                    ),
+                    context=cand_ctx, port=port, gpus=gpus,
+                    safety_margin_mb=budget.safety_margin,
+                    ngl=candidate.ngl, env=env, probe_thinking=False,
+                )
+                yield _fmt_verify(
+                    status_prefix, iteration, current_split, cand_ctx, r_up,
+                )
+                if r_up.thinks is not None:
+                    thinks_seen = r_up.thinks
+                if r_up.fits:
+                    lo = cand_ctx
+                    last_good = (r_up, current_split, cand_ctx)
+                else:
+                    hi = cand_ctx
+                    if r_up.measured_free_mb:
+                        active_free_real = [
+                            r_up.measured_free_mb[i] for i in range(len(current_split))
+                            if i < len(r_up.measured_free_mb) and current_split[i] > 0
+                        ]
+                        if active_free_real:
+                            real_min = min(active_free_real)
+                            new_bias = max(0, predicted_min - real_min)
+                            if new_bias > math_bias_mb:
+                                yield (
+                                    f"{status_prefix} 🧮 math bias detected: "
+                                    f"predicted {predicted_min} MB vs real {real_min} MB "
+                                    f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
+                                )
+                                math_bias_mb = new_bias
+            r, current_split, current_ctx = last_good
 
     # Build the final result from the last successful run
     r_final, split_final, ctx_final = last_good
@@ -964,6 +1083,106 @@ def _refine_split_from_measurement(
         f"CUDA{bottleneck} ({b_free} MB) → CUDA{best_dest}: "
         f"predicted new min {int(best_new_min_free)} MB",
     )
+
+
+def _math_predicts_fit(
+    split: tuple[float, ...],
+    ctx: int,
+    candidate: Candidate,
+    model: Model,
+    gpus: list[GPU],
+    budget: Budget,
+    extra_safety_margin: int = 0,
+) -> tuple[bool, int]:
+    """Math-only prediction whether ``(split, ctx)`` would fit.
+
+    Returns ``(fits, min_active_free_mb)``. Uses the same fit-params VRAM
+    model the optimizer used for the initial projection — cheap (no I/O),
+    saves real probes during binary search by filtering hopeless ctx
+    values before they cost 30-90 s each.
+
+    ``extra_safety_margin`` adds an empirical safety buffer on top of
+    ``budget.safety_margin`` — set this to the observed math-vs-real bias
+    (predicted_free − measured_free) from a previous failed probe so the
+    next math search picks a more conservative ctx.
+    """
+    from .optimizer import _per_gpu_coefficients, _predicted_free
+    base, slope = _per_gpu_coefficients(
+        candidate.vram_model, model.total_layers, model.size_mb,
+    )
+    mb_per_layer = model.size_mb / model.total_layers if model.total_layers else 0.0
+    extra_handicap = tuple(
+        budget.first_gpu_handicap if gpus[i].first_in_class else 0
+        for i in range(len(gpus))
+    )
+    layers = [int(x) for x in split]
+    free = _predicted_free(
+        layers, ctx, base, slope, mb_per_layer, extra_handicap, budget,
+    )
+    active_free = [
+        free[i] for i in range(len(layers))
+        if i < len(free) and layers[i] > 0
+    ]
+    if not active_free:
+        return False, 0
+    min_free = min(active_free)
+    threshold = budget.safety_margin + extra_safety_margin
+    return (min_free >= threshold, min_free)
+
+
+def _math_max_fitting_ctx(
+    split: tuple[float, ...],
+    lo: int,
+    hi: int,
+    candidate: Candidate,
+    model: Model,
+    gpus: list[GPU],
+    budget: Budget,
+    extra_safety_margin: int = 0,
+) -> tuple[int, int]:
+    """Math-only binary search for the highest ctx that fit-params predicts
+    fits with ``split``, in the range ``[lo, hi]``.
+
+    Returns ``(max_fitting_ctx, predicted_min_free_mb)``. ``max_fitting_ctx``
+    is 0 if even ``lo`` doesn't fit. Pure math, no probes — runs in <100 ms
+    for any range. Caller probes only the final result and shrinks ``hi``
+    if the probe fails (math is sometimes too optimistic on MoE runtime
+    activation memory).
+
+    ``extra_safety_margin`` is forwarded to :func:`_math_predicts_fit` —
+    pass the observed math-vs-real bias to make math conservative.
+    """
+    # Quick exits
+    lo_ok, _ = _math_predicts_fit(
+        split, lo, candidate, model, gpus, budget, extra_safety_margin,
+    )
+    if not lo_ok:
+        return 0, 0
+    hi_ok, hi_free = _math_predicts_fit(
+        split, hi, candidate, model, gpus, budget, extra_safety_margin,
+    )
+    if hi_ok:
+        return hi, hi_free
+
+    # Bisect down from hi
+    best_ctx = lo
+    _, best_free = _math_predicts_fit(
+        split, lo, candidate, model, gpus, budget, extra_safety_margin,
+    )
+    while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
+        mid = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
+        if mid <= lo or mid >= hi:
+            break
+        ok, free = _math_predicts_fit(
+            split, mid, candidate, model, gpus, budget, extra_safety_margin,
+        )
+        if ok:
+            best_ctx = mid
+            best_free = free
+            lo = mid
+        else:
+            hi = mid
+    return best_ctx, best_free
 
 
 def _shift_one_layer_blind(
@@ -1233,9 +1452,24 @@ async def _write_speed_config(
     yield f"Speed config written: ctx={format_number(result.context)}, split={split_colon}"
 
 
-def _persist_cache(model: Model, result: Result, gpus: list[GPU]) -> None:
-    """Write the base result to the persistent JSON cache."""
+def _persist_cache(
+    model: Model, result: Result, gpus: list[GPU],
+    speed_result: Result | None = None,
+) -> None:
+    """Write the base result (and optional speed variant) to the persistent
+    JSON cache.
+
+    The UI reads ``speed_split`` from the cache to decide whether to show
+    the Speed-Mode toggle. Writing it atomically here prevents the race
+    where a follow-up calibration run (e.g. TTS variant) overwrites the
+    cache before a separate ``update_llamacpp_speed_split`` call lands.
+    """
     vram_per_gpu = ",".join(str(g.total_mb) for g in gpus)
+    speed_split_cuda0 = 0
+    if speed_result is not None and speed_result.tensor_split:
+        layer_vals = [int(v) for v in speed_result.tensor_split]
+        if layer_vals and layer_vals[0] > 0:
+            speed_split_cuda0 = layer_vals[0]
     add_llamacpp_calibration(
         model_id=model.model_id,
         max_context=result.context,
@@ -1246,8 +1480,21 @@ def _persist_cache(model: Model, result: Result, gpus: list[GPU]) -> None:
         model_size_gb=model.size_mb / 1024,
         ngl=result.ngl,
         mode=result.mode,
+        speed_split=speed_split_cuda0,
         vram_per_gpu=vram_per_gpu,  # type: ignore[arg-type]
     )
+    # Patch in the rest of the speed details (rest_layers + ctx) — these
+    # power the UI's "speed available" indicator and CUDA_VISIBLE_DEVICES.
+    if speed_result is not None and speed_split_cuda0 > 0:
+        from ..model_vram_cache import update_llamacpp_speed_split
+        layer_vals = [int(v) for v in speed_result.tensor_split]
+        rest = sum(layer_vals[1:]) if len(layer_vals) > 1 else 0
+        update_llamacpp_speed_split(
+            model.model_id,
+            speed_split_cuda0,
+            rest,
+            speed_result.context,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
