@@ -144,20 +144,26 @@ async def calibrate_llamacpp_model(
         f"first-GPU handicap: {budget.first_gpu_handicap} MB"
     )
 
-    # ── Phase B+C: sequential search — F16 first, then Q8 ──────────
-    # Stop as soon as one (kv, n_gpus) configuration reaches the native
-    # context AND places all layers (reached_target).  Fewer GPUs are
-    # tried first so the fastest cards absorb the load.
+    # ── Phase 1: estimate-first + immediate probe per candidate ─────
+    # For each (kv-quality, n-gpus) cell — fewest GPUs first, fastest
+    # KV first — run the math projection. If that says ≥ native_ctx is
+    # reachable, immediately probe (real run + up to 15 layer shifts on
+    # OOM). First successfully-verified config wins → BASE. Rationale:
+    # the math is cheap (1-2 s) and filters out hopeless GPU counts
+    # without burning a 30-90 s probe; the probe is the truth and
+    # catches MoE/runtime overhead that fit-params miss.
     min_gpus = find_min_gpus_for_weights(model.size_mb, gpus)
     kv_levels = _kv_levels_from(min_kv)
 
     yield (
-        f"Phase B: searching (KV-quality first, then GPU count) for "
+        f"Phase 1: searching (KV-quality first, then GPU count) for "
         f"native ctx={format_number(model.native_context)}..."
     )
 
     base_pick: Candidate | None = None
+    base_result_obj: Result | None = None
     all_tried: list[Candidate] = []
+    known_thinks: bool | None = known_thinking
     for kv in kv_levels:
         if base_pick is not None:
             break
@@ -166,38 +172,55 @@ async def calibrate_llamacpp_model(
                 model, gpus, budget, full_cmd, kv, n,
             )
             if c is None:
-                yield f"  [{n} GPUs / KV={kv}] skipped — {reason}"
+                yield f"  [{n} GPUs / KV={kv}] estimate: {reason}"
                 continue
             all_tried.append(c)
             yield _format_candidate_line(c, gpus)
-            if c.max_context >= model.native_context:
+            if c.max_context < model.native_context:
+                yield (
+                    f"  [{n} GPUs / KV={kv}] math max_ctx="
+                    f"{format_number(c.max_context)} < native — try more GPUs"
+                )
+                continue
+
+            # Math says fit at native → real probe + shift loop
+            yield (
+                f"  [{n} GPUs / KV={kv}] math OK at native ctx → verifying"
+            )
+            v_result: Result | None = None
+            async for item in _verify_and_refine(
+                c, model, gpus, budget, full_cmd, port, env,
+                probe_thinking=(known_thinks is None),
+                status_prefix=f"[{n}GPU/{kv}]",
+            ):
+                if isinstance(item, _Done):
+                    v_result = item.result
+                else:
+                    yield item
+            if v_result is not None:
                 base_pick = c
+                base_result_obj = v_result
+                if base_result_obj.thinks is not None:
+                    known_thinks = base_result_obj.thinks
+                yield (
+                    f"  ✓ Phase 1 success: {n} GPUs, KV={kv}, "
+                    f"split={_split_str(base_result_obj.tensor_split)}, "
+                    f"ctx={format_number(base_result_obj.context)}"
+                )
                 break
 
-    # Fallback: nobody reached native — pick the configuration with the
-    # highest max_context, using KV quality only as tie-breaker.
-    # Rationale: once we're already below native we've lost the "full
-    # quality" anchor, so a Q8 candidate with 150 k context is plainly
-    # more useful than an F16 candidate with 60 k.  F16 only wins when
-    # both candidates reach the same context.
-    if base_pick is None and all_tried:
-        _kv_rank = {"f16": 0, "q8_0": 1, "q4_0": 2}
-        all_tried.sort(
-            key=lambda c: (-c.max_context, _kv_rank.get(c.kv_quant, 3), c.n_gpus),
-        )
-        base_pick = all_tried[0]
-
-    if base_pick is None:
+    # All candidates exhausted without a verified fit → no GPU-only path.
+    if base_result_obj is None:
         if not _hybrid_allowed_in_settings():
             yield (
-                "❌ No GPU-only candidate reaches minimum useful context. "
+                "❌ No GPU-only configuration verified at native context. "
                 "Hybrid mode is disabled in settings — model is too large "
                 "for the available GPU VRAM."
             )
             yield "💡 Enable the Hybrid toggle next to the Calibration mode dropdown to allow CPU offload."
             yield "__RESULT__:0:0:error"
             return
-        yield "No GPU-only candidate reaches minimum useful context — trying hybrid"
+        yield "No GPU-only configuration verified — trying hybrid"
         async for msg in _calibrate_hybrid(
             model, gpus, budget, full_cmd, port, env,
             known_thinking=known_thinking, config_path=config_path,
@@ -205,38 +228,7 @@ async def calibrate_llamacpp_model(
             yield msg
         return
 
-    yield (
-        f"Phase C: chosen base = {base_pick.n_gpus} GPUs, KV={base_pick.kv_quant}, "
-        f"split={_split_str(base_pick.tensor_split)}, "
-        f"target ctx={format_number(base_pick.max_context)}"
-    )
-
-    base_result = await _verify_and_refine(
-        base_pick, model, gpus, budget, full_cmd, port, env,
-        probe_thinking=known_thinking is None,
-        status_prefix="base",
-    )
-    async for msg in base_result.messages:
-        yield msg
-
-    final = base_result.result
-    if final is None:
-        if not _hybrid_allowed_in_settings():
-            yield (
-                "❌ Base calibration failed verification and hybrid mode "
-                "is disabled in settings."
-            )
-            yield "💡 Enable the Hybrid toggle to allow CPU offload as fallback."
-            yield "__RESULT__:0:0:error"
-            return
-        yield "Base calibration failed verification — trying hybrid"
-        async for msg in _calibrate_hybrid(
-            model, gpus, budget, full_cmd, port, env,
-            known_thinking=known_thinking, config_path=config_path,
-        ):
-            yield msg
-        return
-
+    final = base_result_obj
     thinks = final.thinks if known_thinking is None else known_thinking
 
     # ── Phase E: speed variant (fewer GPUs, fastest class only) ─────
@@ -255,16 +247,24 @@ async def calibrate_llamacpp_model(
                 f"target ctx={format_number(speed_pick.max_context)}"
             )
             yield _format_candidate_line(speed_pick, gpus)
-            speed_verify = await _verify_and_refine(
+            # lock_active_gpus=True: speed must use FEWER GPUs than base.
+            # If shifts can't fit at target ctx, ctx-shrink iteratively
+            # rather than activating an idle GPU (which would bring us
+            # back to the base config).
+            speed_result_holder: Result | None = None
+            async for item in _verify_and_refine(
                 speed_pick, model, gpus, budget, full_cmd, port, env,
                 probe_thinking=False,
                 status_prefix="speed",
-            )
-            async for msg in speed_verify.messages:
-                yield msg
-            speed_result = speed_verify.result
+                lock_active_gpus=True,
+            ):
+                if isinstance(item, _Done):
+                    speed_result_holder = item.result
+                else:
+                    yield item
+            speed_result = speed_result_holder
 
-    # ── Speed → Base promotion ─────────────────────────────────────
+    # ── Speed → Base promotion / drop ──────────────────────────────
     # If the speed variant reaches native context at the same KV
     # quality, it is strictly better than the base (fewer/faster GPUs,
     # same everything else).  Promote it and drop the speed variant —
@@ -281,6 +281,19 @@ async def calibrate_llamacpp_model(
             f"no separate speed variant kept"
         )
         final = speed_result
+        speed_result = None
+
+    # If speed ended up with the SAME split as base (e.g. activating an
+    # idle GPU during shift loop reached the base config), drop it —
+    # there's no speed gain and we'd just write a redundant config.
+    if (
+        speed_result is not None
+        and speed_result.tensor_split == final.tensor_split
+    ):
+        yield (
+            f"Speed split identical to base ({_split_str(final.tensor_split)}) — "
+            f"no speed gain possible, variant skipped"
+        )
         speed_result = None
 
     # ── Phase D: write configs + persist cache ─────────────────────
@@ -592,11 +605,13 @@ def _seed_tensor_split(
 # Phase C/E: verification with at most one refinement round
 # ═══════════════════════════════════════════════════════════════════
 
-class _VerifyAndRefine:
-    """Small container so Phase C/E can yield messages then a result."""
+class _Done:
+    """Sentinel yielded as the LAST item of ``_verify_and_refine`` so the
+    caller can distinguish progress messages (str) from the final result.
+    """
+    __slots__ = ("result",)
 
-    def __init__(self, messages, result: Result | None):
-        self.messages = messages
+    def __init__(self, result: Result | None):
         self.result = result
 
 
@@ -610,7 +625,8 @@ async def _verify_and_refine(
     env: Optional[dict[str, str]],
     probe_thinking: bool,
     status_prefix: str,
-) -> _VerifyAndRefine:
+    lock_active_gpus: bool = False,
+):
     """Verify ``candidate``; refine split from measured VRAM if needed.
 
     Returns a container with the streamed messages and final ``Result``.
@@ -623,7 +639,6 @@ async def _verify_and_refine(
          spread shrinks) and no two refinements produce the same split
          (oscillation guard).
     """
-    messages: list[str] = []
     current_split = candidate.tensor_split
     current_ctx = candidate.max_context
     iteration = 0
@@ -640,41 +655,150 @@ async def _verify_and_refine(
         safety_margin_mb=budget.safety_margin,
         ngl=candidate.ngl, env=env, probe_thinking=probe_thinking,
     )
-    messages.append(_fmt_verify(
+    yield (_fmt_verify(
         status_prefix, iteration, current_split, current_ctx, r,
     ))
     thinks_seen: bool | None = r.thinks
 
     if not r.fits:
-        # Context overshoot — shrink based on measurement
-        shrunk_ctx = _shrink_to_fit(
-            candidate, gpus, budget, r, fallback_reduction=0.1,
-        )
-        if shrunk_ctx <= 0 or shrunk_ctx >= current_ctx:
-            return _VerifyAndRefine(messages=_iter(messages), result=None)
+        # OOM at native ctx → try LAYER SHIFTS first (keeps native ctx).
+        # ctx-shrink is the LAST resort, used only after all 15 shift
+        # attempts at native_ctx have been exhausted. Rationale: we want
+        # max ctx with the fewest GPUs — redistributing layers preserves
+        # both, while shrinking ctx loses the primary goal.
+        max_shifts = 15
+        shift_attempt = 0
+        while not r.fits and shift_attempt < max_shifts:
+            # Smart shift if we have measurement data (server lived through
+            # probe but tightest GPU fell below safety margin). Falls back to
+            # blind shift when measurement is empty (server died at load —
+            # that's a real OOM with no per-GPU info).
+            shifted: tuple[float, ...] | None = None
+            if r.measured_free_mb:
+                refined, _reason = _refine_split_from_measurement(
+                    current_split, gpus, r, budget,
+                    vram_model=candidate.vram_model,
+                    total_layers=model.total_layers,
+                    model_size_mb=model.size_mb,
+                    current_context=current_ctx,
+                )
+                if refined is not None:
+                    shifted = refined
+            if shifted is None:
+                shifted = _shift_one_layer_blind(
+                    current_split, gpus, keep_active_set=lock_active_gpus,
+                )
+            if shifted is None:
+                if lock_active_gpus:
+                    yield (
+                        f"{status_prefix} active set locked — no further "
+                        f"layer shift possible without activating idle GPU"
+                    )
+                else:
+                    yield (
+                        f"{status_prefix} no further layer shift possible at native ctx"
+                    )
+                break
+            shift_attempt += 1
+            iteration += 1
+            yield (
+                f"{status_prefix} OOM at native — shift {shift_attempt}/{max_shifts}: "
+                f"{_split_str(current_split)} → {_split_str(shifted)}"
+            )
+            current_split = shifted
+            r = await verify(
+                full_cmd=proj.adjust_cmd_for_projection(
+                    full_cmd, current_split, candidate.kv_quant,
+                ),
+                context=current_ctx, port=port, gpus=gpus,
+                safety_margin_mb=budget.safety_margin,
+                ngl=candidate.ngl, env=env,
+                probe_thinking=probe_thinking and thinks_seen is None,
+            )
+            yield (_fmt_verify(
+                status_prefix, iteration, current_split, current_ctx, r,
+            ))
+            if r.thinks is not None:
+                thinks_seen = r.thinks
 
-        iteration += 1
-        messages.append(
-            f"{status_prefix} OOM — retrying at shrunk ctx "
-            f"{format_number(shrunk_ctx)}"
-        )
-        r = await verify(
-            full_cmd=proj.adjust_cmd_for_projection(
-                full_cmd, current_split, candidate.kv_quant,
-            ),
-            context=shrunk_ctx, port=port, gpus=gpus,
-            safety_margin_mb=budget.safety_margin,
-            ngl=candidate.ngl, env=env,
-            probe_thinking=probe_thinking and thinks_seen is None,
-        )
-        messages.append(_fmt_verify(
-            status_prefix, iteration, current_split, shrunk_ctx, r,
-        ))
-        if r.thinks is not None:
-            thinks_seen = r.thinks
+        # Shifts exhausted — fall back to ctx shrink. Speed mode (locked
+        # active set) goes all the way down to MIN_USEFUL via binary
+        # search to find the highest fitting ctx; base mode does at most
+        # 5 conservative 10%-shrinks (base usually fits via shifts; an
+        # aggressive shrink would lose context unnecessarily).
+        if lock_active_gpus:
+            # Binary search: hi = current_ctx (failed), lo = MIN_USEFUL.
+            # First probe is at midpoint, narrows from there. Returns the
+            # highest fitting ctx ≥ MIN_USEFUL, or fails if even MIN_USEFUL
+            # doesn't fit.
+            lo = MIN_USEFUL_CONTEXT_TOKENS
+            hi = current_ctx
+            best_r: VerifyResult | None = None
+            best_ctx = 0
+            while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
+                mid = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
+                if mid <= lo or mid >= hi:
+                    break
+                iteration += 1
+                yield (
+                    f"{status_prefix} binary search: probe ctx "
+                    f"{format_number(mid)} (range {format_number(lo)}–{format_number(hi)})"
+                )
+                r = await verify(
+                    full_cmd=proj.adjust_cmd_for_projection(
+                        full_cmd, current_split, candidate.kv_quant,
+                    ),
+                    context=mid, port=port, gpus=gpus,
+                    safety_margin_mb=budget.safety_margin,
+                    ngl=candidate.ngl, env=env,
+                    probe_thinking=probe_thinking and thinks_seen is None,
+                )
+                yield (_fmt_verify(
+                    status_prefix, iteration, current_split, mid, r,
+                ))
+                if r.thinks is not None:
+                    thinks_seen = r.thinks
+                if r.fits:
+                    best_r = r
+                    best_ctx = mid
+                    lo = mid  # try higher
+                else:
+                    hi = mid  # need lower
+            if best_r is not None:
+                r = best_r
+                current_ctx = best_ctx
+        else:
+            max_shrinks = 5
+            shrink_attempt = 0
+            while not r.fits and shrink_attempt < max_shrinks:
+                shrink_attempt += 1
+                new_ctx = int(current_ctx * 0.9 // 256) * 256
+                if new_ctx < MIN_USEFUL_CONTEXT_TOKENS or new_ctx >= current_ctx:
+                    break
+                iteration += 1
+                yield (
+                    f"{status_prefix} shrink {shrink_attempt}/{max_shrinks}: "
+                    f"ctx {format_number(current_ctx)} → {format_number(new_ctx)}"
+                )
+                r = await verify(
+                    full_cmd=proj.adjust_cmd_for_projection(
+                        full_cmd, current_split, candidate.kv_quant,
+                    ),
+                    context=new_ctx, port=port, gpus=gpus,
+                    safety_margin_mb=budget.safety_margin,
+                    ngl=candidate.ngl, env=env,
+                    probe_thinking=probe_thinking and thinks_seen is None,
+                )
+                yield (_fmt_verify(
+                    status_prefix, iteration, current_split, new_ctx, r,
+                ))
+                if r.thinks is not None:
+                    thinks_seen = r.thinks
+                current_ctx = new_ctx
+
         if not r.fits:
-            return _VerifyAndRefine(messages=_iter(messages), result=None)
-        current_ctx = shrunk_ctx
+            yield _Done(None)
+            return
 
     last_good = (r, current_split, current_ctx)
 
@@ -690,10 +814,10 @@ async def _verify_and_refine(
         if refined is None:
             # Always log why refinement stopped — makes it transparent
             # that the algorithm *did* consider rebalancing.
-            messages.append(f"{status_prefix} balance check: {reason}")
+            yield (f"{status_prefix} balance check: {reason}")
             break
         if refined in seen_splits:
-            messages.append(
+            yield (
                 f"{status_prefix} split oscillation detected — keeping "
                 f"{_split_str(current_split)}"
             )
@@ -701,7 +825,7 @@ async def _verify_and_refine(
         seen_splits.add(refined)
 
         iteration += 1
-        messages.append(
+        yield (
             f"{status_prefix} balance check: swap {reason} — "
             f"trying split {_split_str(refined)}"
         )
@@ -713,11 +837,11 @@ async def _verify_and_refine(
             safety_margin_mb=budget.safety_margin,
             ngl=candidate.ngl, env=env, probe_thinking=False,
         )
-        messages.append(_fmt_verify(
+        yield (_fmt_verify(
             status_prefix, iteration, refined, current_ctx, r_new,
         ))
         if not r_new.fits:
-            messages.append(f"{status_prefix} refinement OOM — keeping previous")
+            yield (f"{status_prefix} refinement OOM — keeping previous")
             break
 
         current_split = refined
@@ -748,7 +872,8 @@ async def _verify_and_refine(
         final_candidate, ctx=ctx_final, verify_r=r_final,
         num_active_gpus=_active_gpu_count(split_final),
     )
-    return _VerifyAndRefine(messages=_iter(messages), result=result)
+    yield _Done(result)
+    return
 
 
 def _refine_split_from_measurement(
@@ -839,6 +964,53 @@ def _refine_split_from_measurement(
         f"CUDA{bottleneck} ({b_free} MB) → CUDA{best_dest}: "
         f"predicted new min {int(best_new_min_free)} MB",
     )
+
+
+def _shift_one_layer_blind(
+    split: tuple[float, ...],
+    gpus: list[GPU],
+    keep_active_set: bool = False,
+) -> tuple[float, ...] | None:
+    """Move one layer from the heaviest active GPU to the next-best slot.
+
+    Used after a failed real-run when no measurement data is available
+    (server died during load → measured_free_mb is empty). Pure layer-count
+    heuristic: source = active GPU with the most layers, destination =
+    active GPU with the fewest layers. Falls through to activating an idle
+    slow GPU if all active GPUs are equally loaded — UNLESS
+    ``keep_active_set=True``, in which case the function returns ``None``
+    instead of activating a new GPU. Used for speed-variant calibration
+    where the GPU set is fixed and ctx should shrink instead.
+
+    Returns ``None`` when no further shift is possible.
+    """
+    layers = [int(x) for x in split]
+    active_idx = [i for i, layers_i in enumerate(layers) if layers_i > 0]
+    if not active_idx:
+        return None
+    src = max(active_idx, key=lambda i: layers[i])
+    if layers[src] <= 1:
+        return None  # can't shift further
+
+    other_active = [i for i in active_idx if i != src and layers[i] < layers[src]]
+    if other_active:
+        dest = min(other_active, key=lambda i: layers[i])
+    elif keep_active_set:
+        # Speed mode: don't activate idle GPUs — caller will fall back to
+        # ctx-shrink.
+        return None
+    else:
+        # All active GPUs equally loaded — activate next idle. Slowest
+        # speed-class first because we want to keep fast cards lean (they
+        # already have the most KV-cache pressure from full layer counts).
+        idle = [i for i in range(len(layers)) if layers[i] == 0]
+        if not idle:
+            return None
+        dest = max(idle, key=lambda i: gpus[i].speed_class)
+
+    layers[src] -= 1
+    layers[dest] += 1
+    return tuple(float(layers_i) for layers_i in layers)
 
 
 def _shrink_to_fit(
@@ -1253,7 +1425,3 @@ def _speed_sentinel(r: Result) -> str:
     return f"__SPEED__:{split_colon},{r.context},{r.num_gpus},{r.kv_quant}"
 
 
-async def _iter(msgs: list[str]):
-    """Yield each message in order (async generator helper)."""
-    for m in msgs:
-        yield m

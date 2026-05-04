@@ -99,22 +99,28 @@ async def _start_server(
 
 async def _wait_ready(
     port: int, timeout: float, process: subprocess.Popen,
-) -> bool:
-    """Block until ``/health`` returns 200 or the process dies."""
+) -> tuple[bool, str]:
+    """Block until ``/health`` returns 200 or the process dies.
+
+    Returns (ready, reason) so callers can distinguish a true polling
+    timeout from a process death (which is almost always real OOM).
+    """
     url = f"http://localhost:{port}/health"
     start = asyncio.get_event_loop().time()
     while (asyncio.get_event_loop().time() - start) < timeout:
-        if process.poll() is not None:
-            return False
+        rc = process.poll()
+        if rc is not None:
+            elapsed = int(asyncio.get_event_loop().time() - start)
+            return False, f"server died after {elapsed}s (exit {rc})"
         try:
             async with httpx.AsyncClient() as client:
                 r = await client.get(url, timeout=2.0)
                 if r.status_code == 200:
-                    return True
+                    return True, ""
         except (httpx.RequestError, httpx.TimeoutException):
             pass
         await asyncio.sleep(1.0)
-    return False
+    return False, f"polling timeout ({int(timeout)}s, server not ready)"
 
 
 async def _test_inference(port: int, timeout: float = 120.0) -> bool:
@@ -253,12 +259,12 @@ async def verify(
 
     process = await _start_server(full_cmd, context, port, ngl, env)
     if not process:
-        return VerifyResult(False, (), None, "OOM (spawn failed)")
+        return VerifyResult(False, (), None, "spawn failed")
 
     thinks: Optional[bool] = None
     try:
         effective_timeout = health_timeout if health_timeout is not None else LLAMACPP_HEALTH_TIMEOUT
-        ready = await _wait_ready(port, effective_timeout, process)
+        ready, reason = await _wait_ready(port, effective_timeout, process)
         if not ready:
             output = _read_log(process)
             _kill(process)
@@ -266,7 +272,11 @@ async def verify(
             await wait_for_vram_stable(max_wait_seconds=10.0)
             if output:
                 logger.error(f"llama-server not ready. Log tail:\n{output[-2000:]}")
-            return VerifyResult(False, (), None, "OOM (health timeout)")
+                # Distinguish OOM vs other crashes by scanning the log tail.
+                tail = output[-4000:].lower()
+                if "out of memory" in tail or "cudamalloc" in tail or "cuda error" in tail:
+                    reason = f"OOM during load ({reason})"
+            return VerifyResult(False, (), None, reason)
 
         if not await _test_inference(port):
             _kill(process)

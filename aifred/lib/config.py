@@ -215,8 +215,12 @@ DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:11435/v1
 LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
     "LLAMASWAP_CONFIG", str(Path.home() / ".config" / "llama-swap" / "config.yaml")
 ))
-LLAMACPP_HEALTH_TIMEOUT = 120     # Seconds until llama-server ready (large models need 60-90s)
-LLAMACPP_HYBRID_HEALTH_TIMEOUT = 600  # Hybrid mode: large models with CPU offload + mlock can take minutes to load
+# Health timeout: upper bound for llama-server to become ready after spawn.
+# Polling-based — small models get ready in seconds and don't burn the budget.
+# 360 s (6 min) fits a Q8 80B+ model loading from NVMe across multiple GPUs
+# over PCIe/OCuLink/USB4 (measured: 86.7 GB takes ~3 min).
+LLAMACPP_HEALTH_TIMEOUT = 360          # Seconds (6 minutes)
+LLAMACPP_HYBRID_HEALTH_TIMEOUT = 900   # Hybrid mode: CPU offload + mlock — extra slack
 LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
 
 BACKEND_URLS = {
