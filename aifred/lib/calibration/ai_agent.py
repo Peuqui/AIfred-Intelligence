@@ -507,11 +507,15 @@ async def calibrate_with_ai(
             seed_split = searched_split
             pre_search_block = (
                 f"\n\nMATH PROJECTION (via llama-fit-params, no model load): "
-                f"largest ctx that fits with split {_format_split(searched_split)} "
-                f"is approximately {searched_ctx}. Verify with one probe_config call, "
-                f"then iterate: rebalance layers across GPUs for even free-VRAM "
-                f"distribution, then push ctx higher if there's headroom. "
-                f"Use estimate_config liberally to explore without spending probes."
+                f"the seed split {_format_split(searched_split)} fits at "
+                f"ctx={searched_ctx}. This seed activates all GPUs equally — "
+                f"that's NOT what we want. First try greedy variants with 0-entries: "
+                f"deactivate the slow GPUs (P40s) by setting their tensor_split "
+                f"to 0, push more layers onto the fast cards (RTX 8000s). "
+                f"Use estimate_config to scout greedy splits cheaply, then "
+                f"probe_config the most promising one. Goal: fewest active GPUs "
+                f"that fit ctx={native_ctx} (the model's native max — DO NOT "
+                f"probe higher)."
             )
         elif not allow_hybrid:
             # Pre-search found nothing AND hybrid is disabled: there's no

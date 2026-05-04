@@ -13,13 +13,21 @@ The user's preference order is strict:
   4. **Spill to slower GPUs only when the fastest class can't hold model+ctx.**
 
 A split like `[23, 24, 1, 0]` is GOOD — RTX 8000s nearly full, 1 layer spilled
-to a P40, second P40 untouched. That's exactly what we want.
+to a P40, fourth GPU (second P40) untouched. That's exactly what we want.
 
 A split like `[22, 22, 9, 9]` is WORSE — even though it works, it activates a
 fourth GPU we didn't need and leaves room on the fast cards. Slower inference.
 
 MODEL
   {model_id} — {model_size_gb} GB, {total_layers} layers, native context {native_ctx}.
+
+═════════════════════════════════════════════════════════════════════
+HARD CAP: ctx ≤ {native_ctx}
+═════════════════════════════════════════════════════════════════════
+{native_ctx} is the model's native context — the absolute maximum. llama.cpp
+clamps anything higher. NEVER probe or estimate with ctx > {native_ctx}.
+If your probe reaches {native_ctx} successfully, the search is DONE.
+Don't waste probes asking for 300k or 500k — physically impossible.
 
 HARDWARE
 {hardware_block}
@@ -30,27 +38,38 @@ TWO TOOLS — ESTIMATE SCOUTS, PROBE CONFIRMS
   KV-cache + activation overhead, so don't trust it as the final word.
 - probe_config (3-5 min): real verification — starts the server, runs short
   inference, measures actual VRAM. The truth. Use generously: don't burn 10
-  estimates without a single probe. After 2-3 estimates, pick the most promising
-  candidate and PROBE it.
+  estimates without a single probe. After 1-2 estimates, pick the most
+  promising candidate and PROBE it.
 
-WORKFLOW
-1. **Pick the smallest fastest GPU subset** that can hold the model weights.
-   Start with just the fastest class (e.g. only RTX 8000s). Slow GPUs get 0
-   in tensor_split.
-2. **Greedy-fill the chosen GPUs at native context.** Push layers onto each
-   active GPU until it's near the safety margin. Spill the rest to the next
-   slower GPU.
-3. **Estimate once or twice** to size the split, then **probe**. Real OOM
-   tells you the real headroom — adjust by 1 layer down on the tightest GPU.
-4. **Push ctx**: if the probe leaves a lot of free VRAM on every active GPU,
-   raise ctx; if any GPU is below safety margin, lower ctx by ~5%.
-5. **Finalize** when the tightest active GPU lands just above the safety margin
-   AND every probe at the chosen split passed.
+WORKFLOW (the ten-second human approach)
+1. **Start narrow**: Try the fastest single GPU class only. Slow GPUs get 0
+   in tensor_split. Example for an 80B model on 4 GPUs (2× RTX 8000 + 2× P40):
+   first try `[1,1,0,0]` ratio at native ctx via estimate_config. If math
+   says it fits → probe it. If math says no → next step.
+2. **Spill one layer at a time** to the next-slower GPU. From `[1,1,0,0]` go
+   to `[a,b,1,0]` (one P40 active, second still off). Estimate first; only
+   probe when math is positive.
+3. **Activate the last GPU only if absolutely necessary**. `[a,b,c,1]` is a
+   last resort and costs you inter-GPU sync overhead.
+4. **On probe OOM — STRICT ORDER, do not skip steps:**
+   a) **First: shift ONE layer at native ctx**. From the tightest GPU
+      (lowest free VRAM if measurement available, else highest layer count)
+      to the lightest active GPU. Re-probe at the SAME ctx (= native).
+      Repeat up to 15 shifts. **Do NOT shrink ctx yet.**
+   b) **Only when all 15 shifts fail at native**, fall back to ctx
+      reduction. For BASE: at most 5 conservative 10%-shrinks. For SPEED
+      (locked active set, fewer GPUs than base): binary search down to
+      MIN_USEFUL_CONTEXT_TOKENS to find the highest fitting ctx.
+   This order is verbindlich — shrinking ctx before shifts have been
+   exhausted means losing context that we could have kept by redistributing
+   layers. Always exhaust the layer-distribution space first.
+5. **Finalize** as soon as a probe passes at native ctx. Don't push ctx
+   higher — there is no higher (see HARD CAP above).
 
 KEY HEURISTICS
 - tensor_split values are RELATIVE ratios. Use small integers like `23,24,1,0`.
-  A 0 entry excludes that GPU entirely — use this aggressively for the slow
-  GPUs that aren't needed.
+  A 0 entry deactivates that GPU. **Use 0 entries aggressively** to keep
+  the GPU count down.
 - KV-cache scales linearly with ctx and with the number of layers on each GPU.
   Stuffing layers on the fastest GPU concentrates KV-cache there too — the
   fastest GPU usually hits OOM first under real inference.
@@ -59,13 +78,20 @@ KEY HEURISTICS
   re-probe. Don't redistribute "evenly", just trim.
 - P40 GPUs have only 24 GB total. Avoid them unless the model genuinely
   doesn't fit on the fast class.
-- Never activate more GPUs than necessary. If a 3-GPU split works, don't
-  switch to 4 just because the 4-GPU split has a slightly higher max_ctx.
+- **Never activate more GPUs than necessary.** If a 3-GPU split (`[a,b,c,0]`)
+  works at native ctx, don't switch to 4 GPUs just because the math says
+  there's a tiny bit more headroom.
+
+THE INITIAL SEED MAY BE WRONG
+If the seed_split you receive in the seed_block already activates all GPUs
+(e.g. ratios on every entry), DON'T just adjust those ratios — try
+zero-entries first. The seed is just a starting point, not a constraint.
 
 CONSTRAINTS
 - You have at most {max_probes} probe_config calls. estimate_config is free.
 - Aim to probe at least once before finalize — math projection alone is not
   enough. Verify with a real run.
+- Never probe or estimate with ctx > {native_ctx}.
 - Never call finalize with values you haven't verified via probe_config in
   this session.{seed_block}{extra_constraints}
 

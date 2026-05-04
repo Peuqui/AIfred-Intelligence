@@ -626,6 +626,10 @@ class CalibrationMixin(rx.State, mixin=True):
                     tts_kv = calibration_kv
                     tts_tensor_split = ""
                     tts_num_gpus = 0
+                    tts_speed_ctx: int | None = None
+                    tts_speed_kv = calibration_kv
+                    tts_speed_split = ""
+                    tts_speed_num_gpus = 0
                     # Pass through the base-phase thinking result instead of
                     # just "skip" — previously the sub-calibration hard-coded
                     # thinking_result=True whenever skipped, causing Instruct
@@ -641,7 +645,18 @@ class CalibrationMixin(rx.State, mixin=True):
                             tts_kv = r["kv"]
                             tts_tensor_split = r["tensor_split"]
                             tts_num_gpus = r["num_gpus"]
-                        elif not progress_msg.startswith("__SPEED__:"):
+                        elif progress_msg.startswith("__SPEED__:"):
+                            # Format: __SPEED__:{split},{ctx},{num_gpus},{kv}
+                            payload = progress_msg.removeprefix("__SPEED__:")
+                            try:
+                                split_part, ctx_part, ngpu_part, kv_part = payload.split(",", 3)
+                                tts_speed_split = split_part
+                                tts_speed_ctx = int(ctx_part)
+                                tts_speed_num_gpus = int(ngpu_part)
+                                tts_speed_kv = kv_part
+                            except (ValueError, IndexError):
+                                self.add_debug(f"   ⚠️ Could not parse {tts_label} speed payload: {payload[:80]}")  # type: ignore[attr-defined]
+                        else:
                             self.add_debug(f"   📊 {progress_msg}")  # type: ignore[attr-defined]
                             yield
 
@@ -664,6 +679,30 @@ class CalibrationMixin(rx.State, mixin=True):
                             )
                         else:
                             self.add_debug(f"   ⚠️ Could not write {tts_label} variant to config")  # type: ignore[attr-defined]
+
+                        # Also persist the speed variant for this TTS backend if found.
+                        # Result key: <model>-tts-<backend>-speed (e.g. ...-tts-xtts-speed)
+                        if tts_speed_ctx and tts_speed_ctx > 0 and tts_speed_split != tts_tensor_split:
+                            speed_added = add_llamaswap_tts_variant(
+                                LLAMASWAP_CONFIG_PATH,
+                                calibration_model_id,
+                                tts_speed_ctx,
+                                f"{tts_backend}-speed",
+                                kv_quant=tts_speed_kv,
+                                tensor_split=tts_speed_split,
+                                num_gpus=tts_speed_num_gpus,
+                            )
+                            if speed_added:
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   ⚡ {tts_label} speed variant: "
+                                    f"{calibration_model_id}-tts-{tts_backend}-speed "
+                                    f"(split {tts_speed_split}, ctx {format_number(tts_speed_ctx)}, "
+                                    f"{tts_speed_num_gpus} GPUs)"
+                                )
+                            else:
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   ⚠️ Could not write {tts_label} speed variant to config"
+                                )
                     else:
                         self.add_debug(f"   ❌ {tts_label} variant calibration failed")  # type: ignore[attr-defined]
                     yield
