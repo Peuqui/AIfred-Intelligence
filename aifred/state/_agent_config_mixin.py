@@ -2122,6 +2122,10 @@ class AgentConfigMixin(rx.State, mixin=True):
             # Save current prompt tab content to file
             self._save_editor_prompt_to_disk()
 
+            # Bump revision so file-IO-backed @rx.var (e.g. calibration_ai_label
+            # in CalibrationMixin) re-evaluates and reflects the new value.
+            self._agents_json_revision = self._agents_json_revision + 1  # type: ignore[attr-defined]
+
             self.add_debug(  # type: ignore[attr-defined]
                 f"\u2705 Agent '{self.editor_display_name}' saved"
             )

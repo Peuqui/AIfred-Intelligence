@@ -51,6 +51,12 @@ class CalibrationMixin(rx.State, mixin=True):
     # inference. Toggle on for models that exceed total GPU VRAM.
     calibration_allow_hybrid: bool = False
 
+    # Revision counter — bumped whenever something writes to agents.json
+    # so that reactive computed vars (e.g. calibration_ai_label) re-read
+    # the file. Without this, @rx.var freezes on first render because
+    # Reflex can't auto-track file-IO as a dependency.
+    _agents_json_revision: int = 0
+
     def toggle_calibration_allow_hybrid(self) -> None:
         """Flip the hybrid-mode permission and persist to settings.json."""
         from ..lib.settings import load_settings, save_settings
@@ -84,12 +90,17 @@ class CalibrationMixin(rx.State, mixin=True):
         import os
         return bool(broker.get("cloud_qwen", "api_key")) or bool(os.environ.get("DASHSCOPE_API_KEY"))
 
-    @rx.var
+    @rx.var(cache=True, deps=["_agents_json_revision"])
     def calibration_ai_label(self) -> str:
         """Trigger label that includes the configured Qwen model — e.g.
         ``🤖 KI: qwen-plus`` — so the user sees at a glance which model
         the AI calibration would actually use (configured in the Agent
-        Editor under the Calibration system agent)."""
+        Editor under the Calibration system agent).
+
+        Re-reads agents.json whenever ``_agents_json_revision`` is bumped
+        (callers must increment it after every write)."""
+        # Touch the revision so Reflex tracks it as a dependency
+        _ = self._agents_json_revision
         from ..lib.agent_config import load_agents_raw
         try:
             cfg = load_agents_raw().get("calibration") or {}
