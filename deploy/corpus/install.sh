@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Installs the Korpus tool on Narnia.
+# Installs the Corpus tool on Narnia.
 #
 # Idempotent: re-running updates the UI / nginx / systemd unit instead
 # of duplicating. Backs up landing.html before replacing.
 #
 # Run from anywhere:
-#     sudo bash ~/Projekte/AIfred-Intelligence/deploy/korpus/install.sh
+#     sudo bash ~/Projekte/AIfred-Intelligence/deploy/corpus/install.sh
 #
 # What it does:
-# 1. Copies the UI to /var/www/html/korpus/
-# 2. Backs up + replaces /var/www/html/landing.html (Korpus tile + AI-ATC reorder)
-# 3. Patches /etc/nginx/sites-available/narnia with the /korpus/ + /korpus/api/
+# 1. Copies the UI to /var/www/html/corpus/
+# 2. Backs up + replaces /var/www/html/landing.html (Corpus tile + AI-ATC reorder)
+# 3. Patches /etc/nginx/sites-available/narnia with the /corpus/ + /corpus/api/
 #    location blocks, then reloads nginx
 # 4. Installs + enables the systemd unit aifred-corpus-server.service
 # 5. Smoke-tests /api/health
@@ -18,12 +18,12 @@ set -euo pipefail
 
 # ── paths ──────────────────────────────────────────────────────────
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-DEPLOY_DIR="$REPO_DIR/deploy/korpus"
+DEPLOY_DIR="$REPO_DIR/deploy/corpus"
 SYSTEMD_DIR="$REPO_DIR/systemd"
 
 NGINX_CONF="/etc/nginx/sites-available/narnia"
 LANDING="/var/www/html/landing.html"
-KORPUS_WWW="/var/www/html/korpus"
+CORPUS_WWW="/var/www/html/corpus"
 SYSTEMD_UNIT_DST="/etc/systemd/system/aifred-corpus-server.service"
 
 # ── pre-flight ─────────────────────────────────────────────────────
@@ -34,19 +34,46 @@ fi
 for f in \
     "$DEPLOY_DIR/index.html" \
     "$DEPLOY_DIR/landing.html" \
-    "$DEPLOY_DIR/nginx-korpus.conf" \
+    "$DEPLOY_DIR/nginx-corpus.conf" \
     "$SYSTEMD_DIR/aifred-corpus-server.service"; do
     [[ -f "$f" ]] || { echo "❌ fehlt: $f"; exit 1; }
 done
 
-echo "▶ Korpus-Deployment startet"
+echo "▶ Corpus-Deployment startet"
 echo "  Repo: $REPO_DIR"
 
+# ── Migration: alte "Korpus" (mit K) Reste entfernen ───────────────
+# Frueher hiess das Tool noch "Korpus" mit K. Aufraeumen falls noch da.
+LEGACY_WWW="/var/www/html/korpus"
+if [[ -d "$LEGACY_WWW" ]]; then
+    echo "▶ Migration: entferne alte $LEGACY_WWW"
+    rm -rf "$LEGACY_WWW"
+fi
+if grep -q "location /korpus/" "$NGINX_CONF" 2>/dev/null; then
+    echo "▶ Migration: entferne alte /korpus/ Bloecke aus $NGINX_CONF"
+    cp "$NGINX_CONF" "$NGINX_CONF.bak-migration-$(date +%Y%m%d-%H%M%S)"
+    python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path("/etc/nginx/sites-available/narnia")
+c = p.read_text()
+patterns = [
+    r"\n\s*# ─── Korpus.*?(?=\n\s*# ─── |\n\s*location |\n\}\Z)",
+    r"\n\s*location = /korpus[^\n]*\{[^{}]*\}",
+    r"\n\s*location /korpus/[^\n]*\{(?:[^{}]|\{[^{}]*\})*\}",
+]
+for pat in patterns:
+    c = re.sub(pat, "", c, flags=re.DOTALL)
+p.write_text(c)
+print("  alte /korpus/ Bloecke entfernt")
+PY
+fi
+
 # ── 1. UI ──────────────────────────────────────────────────────────
-echo "▶ 1/5 UI nach $KORPUS_WWW"
-mkdir -p "$KORPUS_WWW"
-cp "$DEPLOY_DIR/index.html" "$KORPUS_WWW/index.html"
-chown -R www-data:www-data "$KORPUS_WWW"
+echo "▶ 1/5 UI nach $CORPUS_WWW"
+mkdir -p "$CORPUS_WWW"
+cp "$DEPLOY_DIR/index.html" "$CORPUS_WWW/index.html"
+chown -R www-data:www-data "$CORPUS_WWW"
 
 # ── 2. landing.html ────────────────────────────────────────────────
 echo "▶ 2/5 landing.html (mit Backup)"
@@ -60,9 +87,9 @@ else
 fi
 
 # ── 3. nginx ───────────────────────────────────────────────────────
-echo "▶ 3/5 nginx /korpus/ + /korpus/api/"
-if grep -q "location /korpus/" "$NGINX_CONF"; then
-    echo "  Korpus-Bloecke schon in $NGINX_CONF — uebersprungen"
+echo "▶ 3/5 nginx /corpus/ + /corpus/api/"
+if grep -q "location /corpus/" "$NGINX_CONF"; then
+    echo "  Corpus-Bloecke schon in $NGINX_CONF — uebersprungen"
 else
     cp "$NGINX_CONF" "$NGINX_CONF.bak-$(date +%Y%m%d-%H%M%S)"
     # Finde die letzte schliessende } im File (Ende des HTTPS-Server-Blocks)
@@ -72,13 +99,13 @@ import re, sys
 from pathlib import Path
 
 conf_path = Path("$NGINX_CONF")
-snippet_path = Path("$DEPLOY_DIR/nginx-korpus.conf")
+snippet_path = Path("$DEPLOY_DIR/nginx-corpus.conf")
 
 conf = conf_path.read_text()
 snippet = snippet_path.read_text()
 # Snippet mit 4-Space-Indent versehen, Kommentar-Header dran
 indented = "\n".join("    " + l if l.strip() else l for l in snippet.splitlines())
-block = "\n    # ─── Korpus (Vector-DB Suche/Admin) — siehe deploy/korpus/install.sh ───\n" + indented + "\n"
+block = "\n    # ─── Corpus (Vector-DB Suche/Admin) — siehe deploy/corpus/install.sh ───\n" + indented + "\n"
 
 # Letztes "}" im File ist Ende des HTTPS-server-Blocks. Davor einfuegen.
 last = conf.rfind("\n}")
@@ -107,12 +134,12 @@ systemctl --no-pager --lines=3 status aifred-corpus-server.service || true
 # ── 5. Smoke-Test ──────────────────────────────────────────────────
 echo "▶ 5/5 Smoke-Test"
 sleep 1
-if curl -fs http://127.0.0.1:8005/api/health > /tmp/korpus-health.json; then
-    echo "  ✅ /api/health: $(cat /tmp/korpus-health.json)"
+if curl -fs http://127.0.0.1:8005/api/health > /tmp/corpus-health.json; then
+    echo "  ✅ /api/health: $(cat /tmp/corpus-health.json)"
 else
     echo "  ⚠ /api/health antwortet nicht — journalctl -u aifred-corpus-server -e"
 fi
 
 echo ""
-echo "✅ Fertig. UI: https://narnia.spdns.de:8443/korpus/"
+echo "✅ Fertig. UI: https://narnia.spdns.de:8443/corpus/"
 echo "   Logs: journalctl -u aifred-corpus-server -f"

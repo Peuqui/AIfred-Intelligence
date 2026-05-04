@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIfred Korpus</title>
+<title>AIfred Corpus</title>
 <style>
   :root {
     --bg: #0f172a;
@@ -312,7 +312,7 @@
 <body>
 
 <header>
-  <h1>AIfred Korpus</h1>
+  <h1>AIfred Corpus</h1>
   <div class="sub">Vector-DB Suche, Verwaltung, Upload &mdash; ChromaDB / bge-m3</div>
 </header>
 
@@ -726,13 +726,26 @@ function buildTree(docs, folders) {
     const leaf = parts[parts.length - 1];
     node._children[leaf] = { _doc: doc, _path: doc.filename, _isFile: true };
   }
-  // Folder-counts an Folder-Knoten haengen
+  // Rekursive Annotation: Folder-Knoten kriegen totalChunks (Summe aller
+  // Datei-Chunks im Subtree) und fileCount (Dateien rekursiv darunter).
+  // _chunks bleibt der "exact-folder"-Count aus der API — fuer die
+  // Folder-Aktionen wichtig (die wirken nur auf den exakten Folder, ohne
+  // Sub-Folder), wird aber nicht in der Tree-Spalte angezeigt.
   function annotate(node) {
-    if (node._isFolder) {
-      node._chunks = folderCounts[node._path] || 0;
-      node._fileCount = Object.values(node._children).filter(c => c._isFile).length;
+    if (node._isFile) {
+      node._totalChunks = node._doc.chunks_indexed || 0;
+      node._fileCount = 1;
+      return;
     }
-    for (const c of Object.values(node._children || {})) annotate(c);
+    let chunks = 0, files = 0;
+    for (const c of Object.values(node._children || {})) {
+      annotate(c);
+      chunks += c._totalChunks || 0;
+      files += c._fileCount || 0;
+    }
+    node._totalChunks = chunks;
+    node._fileCount = files;
+    if (node._isFolder) node._chunks = folderCounts[node._path] || 0;
   }
   annotate(root);
   return root;
@@ -746,16 +759,15 @@ function renderTreeNode(node, name, depth) {
         <span class="caret"></span>
         <span class="icon">&#128196;</span>
         <span class="name">${escape(name)}</span>
-        <span class="count">${d.chunks_indexed}</span>
+        <span class="count" title="Chunks">${d.chunks_indexed}</span>
       </div>
     </li>`;
   }
-  // Folder
-  const childCount = Object.keys(node._children).length;
+  // Folder: zeige rekursiven Chunk-Total + (Datei-Anzahl) — konsistent
+  // mit den Datei-Eintraegen, die ebenfalls Chunks zeigen.
   const inner = Object.entries(node._children)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([n, c]) => renderTreeNode(c, n, depth + 1)).join('');
-  // Erste Ebene per Default offen, tiefer geschlossen
   const open = depth <= 1 ? ' open' : '';
   return `<li>
     <details class="tree-folder"${open}>
@@ -763,7 +775,7 @@ function renderTreeNode(node, name, depth) {
         <span class="caret">&#9658;</span>
         <span class="icon">&#128193;</span>
         <span class="name">${escape(name)}</span>
-        <span class="count">${childCount}</span>
+        <span class="count" title="${node._fileCount} Dateien, ${node._totalChunks} Chunks gesamt">${node._totalChunks.toLocaleString('de-DE')}</span>
       </summary>
       <ul>${inner}</ul>
     </details>

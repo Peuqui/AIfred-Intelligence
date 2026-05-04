@@ -1,6 +1,6 @@
-# Korpus-Tool Deployment auf Narnia
+# Corpus-Tool Deployment auf Narnia
 
-UI fuer die Vector-DB unter `https://narnia.spdns.de:8443/korpus/` —
+UI fuer die Vector-DB unter `https://narnia.spdns.de:8443/corpus/` —
 Suche, Uebersicht, Upload, Verwaltung. Backend (FastAPI) auf
 127.0.0.1:8005, reverse-proxied von nginx.
 
@@ -11,16 +11,16 @@ schreiben.
 ## 1. UI ablegen
 
 ```bash
-sudo mkdir -p /var/www/html/korpus
-sudo cp ~/Projekte/AIfred-Intelligence/deploy/korpus/index.html /var/www/html/korpus/
-sudo chown -R www-data:www-data /var/www/html/korpus
+sudo mkdir -p /var/www/html/corpus
+sudo cp ~/Projekte/AIfred-Intelligence/deploy/corpus/index.html /var/www/html/corpus/
+sudo chown -R www-data:www-data /var/www/html/corpus
 ```
 
-## 2. landing.html aktualisieren (Korpus-Tile + AI-ATC umstellen)
+## 2. landing.html aktualisieren (Corpus-Tile + AI-ATC umstellen)
 
 Die Aenderungen:
 
-- Korpus-Tile (Folder-Symbol, lila-Akzent) zwischen AIfred und Code Editor
+- Corpus-Tile (Folder-Symbol, lila-Akzent) zwischen AIfred und Code Editor
 - AI-ATC verschoben von Position 2 nach zwischen System Monitoring und ComfyUI
 
 ```bash
@@ -32,17 +32,17 @@ sudo nano /var/www/html/landing.html
 AI-ATC-Block, einfuegen:
 
 ```html
-        <a class="card" href="/korpus/" style="--card-accent: linear-gradient(135deg, #2d1b69, #4338ca)">
+        <a class="card" href="/corpus/" style="--card-accent: linear-gradient(135deg, #2d1b69, #4338ca)">
             <div class="card-front">
                 <div class="icon">&#128218;</div>
                 <div class="info">
-                    <h2>Korpus</h2>
+                    <h2>Corpus</h2>
                     <p>Vector-DB Suche, Verwaltung &amp; Upload</p>
                 </div>
             </div>
             <div class="card-back" style="background: linear-gradient(135deg, #2d1b69, #4338ca)">
                 <div class="back-icon">&#128218;</div>
-                <div class="back-name">Korpus</div>
+                <div class="back-name">Corpus</div>
             </div>
         </a>
 ```
@@ -53,13 +53,13 @@ System-Monitoring-Block** einfuegen (vor dem ComfyUI-Block).
 
 ## 3. nginx Reverse-Proxy einrichten
 
-Inhalt von `deploy/korpus/nginx-korpus.conf` in den HTTPS-server-Block
+Inhalt von `deploy/corpus/nginx-corpus.conf` in den HTTPS-server-Block
 in `/etc/nginx/sites-available/narnia` einfuegen — nahe der
 bestehenden `/aifred/`- und `/ai-atc/`-Eintraege:
 
 ```bash
 sudo nano /etc/nginx/sites-available/narnia
-# Block aus deploy/korpus/nginx-korpus.conf einfuegen
+# Block aus deploy/corpus/nginx-corpus.conf einfuegen
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -81,10 +81,10 @@ Logs: `journalctl -u aifred-corpus-server -f`
 curl http://127.0.0.1:8005/api/health
 
 # Ueber nginx:
-curl -k https://narnia.spdns.de:8443/korpus/api/health
+curl -k https://narnia.spdns.de:8443/corpus/api/health
 
 # Im Browser:
-https://narnia.spdns.de:8443/korpus/
+https://narnia.spdns.de:8443/corpus/
 ```
 
 ## CLI-Tool (kein Deployment noetig)
@@ -97,7 +97,7 @@ venv/bin/python scripts/search_corpus.py --grep "ewigen Gericht verfallen"
 ## Rollback
 
 ```bash
-sudo rm -rf /var/www/html/korpus
+sudo rm -rf /var/www/html/corpus
 sudo cp /var/www/html/landing.html.bak-* /var/www/html/landing.html
 sudo systemctl disable --now aifred-corpus-server
 sudo rm /etc/systemd/system/aifred-corpus-server.service
