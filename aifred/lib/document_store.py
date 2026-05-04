@@ -309,11 +309,25 @@ class DocumentStore:
 
     def _get_known_folders(self) -> set[str]:
         if self._folder_cache is None:
-            data = self._collection.get(include=["metadatas"])
-            metas = data.get("metadatas") or []
-            self._folder_cache = {
-                str(m.get("folder", "")) for m in metas if isinstance(m, dict)
-            }
+            # Page through metadatas — Chroma's SQLite backend hits a
+            # "too many SQL variables" wall around 32k rows otherwise.
+            folders: set[str] = set()
+            page_size = 5000
+            offset = 0
+            while True:
+                data = self._collection.get(
+                    include=["metadatas"], limit=page_size, offset=offset
+                )
+                metas = data.get("metadatas") or []
+                if not metas:
+                    break
+                for m in metas:
+                    if isinstance(m, dict):
+                        folders.add(str(m.get("folder", "")))
+                if len(metas) < page_size:
+                    break
+                offset += page_size
+            self._folder_cache = folders
         return self._folder_cache
 
     def _invalidate_folder_cache(self) -> None:
