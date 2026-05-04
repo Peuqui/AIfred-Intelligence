@@ -677,6 +677,42 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"   ✅ {tts_label} variant: {calibration_model_id}-tts-{tts_backend} "
                                 f"(ctx {format_number(tts_ctx)})"
                             )
+                            # Write VRAM cache entry for the TTS variant so
+                            # the UI can find a speed_split for it (powers
+                            # the Speed toggle when TTS mode is active).
+                            from ..lib.model_vram_cache import (
+                                add_llamacpp_calibration,
+                                load_cache,
+                                update_llamacpp_speed_split,
+                            )
+                            tts_model_id = f"{calibration_model_id}-tts-{tts_backend}"
+                            # Inherit native_context + meta from base cache entry
+                            base_meta = load_cache().get(calibration_model_id, {})
+                            tts_speed_cuda0 = 0
+                            if tts_speed_split:
+                                try:
+                                    tts_speed_cuda0 = int(tts_speed_split.split(":")[0])
+                                except (ValueError, IndexError):
+                                    tts_speed_cuda0 = 0
+                            add_llamacpp_calibration(
+                                model_id=tts_model_id,
+                                max_context=tts_ctx,
+                                native_context=int(base_meta.get("native_context", tts_ctx)),
+                                gguf_path=str(base_meta.get("gguf_path", "")),
+                                quantization=str(base_meta.get("quantization", "")),
+                                gpu_model=str(base_meta.get("gpu_model", "")),
+                                model_size_gb=float(base_meta.get("model_size_gb", 0.0)),
+                                ngl=99,
+                                mode="gpu",
+                                speed_split=tts_speed_cuda0,
+                            )
+                            if tts_speed_ctx and tts_speed_ctx > 0 and tts_speed_cuda0 > 0:
+                                update_llamacpp_speed_split(
+                                    tts_model_id,
+                                    tts_speed_cuda0,
+                                    int(sum(int(v) for v in tts_speed_split.split(":")[1:])) if tts_speed_split else 0,
+                                    tts_speed_ctx,
+                                )
                         else:
                             self.add_debug(f"   ⚠️ Could not write {tts_label} variant to config")  # type: ignore[attr-defined]
 

@@ -89,6 +89,13 @@ für n in 1..len(gpus):                          // sortiert fastest-first
 Versuche), dann erst ctx-shrink als Notfall. NIE umgekehrt — Layer-
 Verteilung kann meist OOM beheben ohne ctx zu opfern.
 
+**Upward push (Step 3):** Nach erfolgreichem Verify+Refinement, wenn
+`current_ctx < native_context` UND tightest aktive GPU noch
+`> 2 × safety_margin` free hat → binary search ctx aufwärts. Math-
+Projektion ist konservativ; real-world Probe-Headroom kann mehr ctx
+tragen. Besonders relevant für Speed-Variante (target_ctx kommt aus
+2-GPU-Math-Estimate, oft kleiner als real machbar).
+
 ### Phase 2: Speed-Variante (n_speed < n_base)
 
 Speed-Variante = weniger GPUs als Base, ctx darf reduziert werden.
@@ -167,6 +174,32 @@ reduziert. Bei Speed via Binary Search bis MIN_USEFUL.
 "passt nicht bei native_ctx" → kein Probe. Wenn Math sagt "passt" → Probe.
 Beim Probe-OOM: Layer-Shift, dann erneut Estimate-Filter (sehr billig)
 gefolgt von Probe wenn Math grün.
+
+**Bei Binary-Searches** (sowohl downward in Phase 2 / Speed-Variante als
+auch upward in Step 3) wird der `_math_max_fitting_ctx`-Helper genutzt:
+Math durchsucht das ganze Range in <100 ms (binary search via `_math_predicts_fit`)
+und liefert den höchsten ctx den die fit-params-Modellierung als passend
+einschätzt. Genau dort wird real-probed:
+- Probe ✓ → das ist der neue known-fit (lo).
+- Probe ✗ → Math war zu optimistisch, hi auf den failed-ctx setzen, Math
+  searches erneut im engeren Range.
+
+**Fine-Tuning unterhalb der Math-Auflösung:** Wenn Math nichts mehr
+findet was höher als der aktuelle known-fit (lo) liegt, fällt der
+Algorithmus auf reine Mittelwert-Bisection ohne Math zurück. Das ist
+der Endspurt bis zur 256-Token-Genauigkeit (`LLAMACPP_CALIBRATION_PRECISION`
+in config.py) — Math wird auf dieser Skala uninformativ, real-probes
+sind hier die einzige verlässliche Quelle.
+
+**Bias-Tracking (Math-vs-Real-Korrektur):** fit-params ist bei MoE-
+Modellen oft konstant um z.B. ~110 MB zu optimistisch — wenn der
+Algorithmus nicht aufpasst, läuft er in 256-Token-Schritten an dieser
+Lücke entlang (jede Iteration → ~4 MB mehr free, also 25+ Probes für
+100 MB-Korrektur, langsamer als plain Binary Search). Lösung: nach
+jedem failed Probe wird `bias = predicted_min_free − measured_min_free`
+ermittelt und als `extra_safety_margin` für die nächste Math-Suche
+durchgereicht. Math wählt damit direkt einen realistischen ctx weiter
+unten (nur 3–5 Probes statt 25+).
 
 ## KI-Calibration (Alternative)
 
