@@ -312,26 +312,53 @@ def render_flat_text(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_index(results: list[tuple[TextSpec, str, float]]) -> None:
+def write_index(results: list[tuple[TextSpec, str, float, bool]]) -> None:
     """Write an INDEX.md inside OUTPUT_ROOT so an agent (or human) can
     see at a glance what is available, in which language, and where.
 
-    Grouped by category derived from the output sub-directory.
+    Grouped by category derived from the output sub-directory. Each row
+    shows whether the verse-by-verse Hebrew original is paired into the
+    file — this is what makes Hebrew citations searchable via bge-m3.
     """
-    by_dir: dict[str, list[tuple[TextSpec, str, float]]] = {}
-    for spec, lang, kb in results:
+    by_dir: dict[str, list[tuple[TextSpec, str, float, bool]]] = {}
+    for spec, lang, kb, has_he in results:
         rel = spec.output_path.relative_to(OUTPUT_ROOT)
         category = rel.parent.as_posix() if rel.parent.as_posix() != "." else ""
-        by_dir.setdefault(category, []).append((spec, lang, kb))
+        by_dir.setdefault(category, []).append((spec, lang, kb, has_he))
+
+    total = len(results)
+    de = sum(1 for _, lang, _, _ in results if lang == "de")
+    en = total - de
+    he = sum(1 for _, _, _, has_he in results if has_he)
+    de_he = sum(1 for _, lang, _, has_he in results if lang == "de" and has_he)
+    en_he = sum(1 for _, lang, _, has_he in results if lang == "en" and has_he)
+
+    def _pct(n: int) -> str:
+        return f"{(100 * n / total):.0f}%" if total else "—"
 
     lines: list[str] = []
     lines.append("# Judaica — Verfuegbare Quelltexte")
     lines.append("")
     lines.append(
         "Diese Sammlung wurde automatisch von sefaria.org heruntergeladen "
-        "(siehe scripts/download_judaica.py). Deutsche Versionen wurden "
-        "bevorzugt, wo verfuegbar; sonst Englisch als Fallback."
+        "(siehe scripts/download_judaica.py). Jeder Vers ist mit dem "
+        "hebraeischen Original gepaart, soweit Sefaria es liefert — "
+        "die Uebersetzung steht direkt darunter. Deutsche Versionen "
+        "(Goldschmidt-Talmud, Berliner Mischnajot, Rashi-DE) wurden "
+        "bevorzugt; sonst Englisch."
     )
+    lines.append("")
+    lines.append("**Sprach-Paarung (pro Vers):**")
+    lines.append("")
+    lines.append(f"- Hebraeisch + Deutsch: **{de_he}/{total}** ({_pct(de_he)})")
+    lines.append(f"- Hebraeisch + Englisch: **{en_he}/{total}** ({_pct(en_he)})")
+    lines.append(f"- Hebraeisch insgesamt: **{he}/{total}** ({_pct(he)})")
+    lines.append(f"- Deutsche Uebersetzung insgesamt: **{de}/{total}** ({_pct(de)})")
+    lines.append(f"- Englische Uebersetzung (Fallback): **{en}/{total}** ({_pct(en)})")
+    lines.append("")
+    lines.append("Suchstrategie: bge-m3 matcht sprachuebergreifend — "
+                 "Transliteration (z.B. `zerizin makdimin`) findet die hebraeische "
+                 "Originalstelle samt Uebersetzung im selben Chunk.")
     lines.append("")
     lines.append("Folder-Struktur fuer search_documents-Aufrufe:")
     lines.append("")
@@ -351,12 +378,13 @@ def write_index(results: list[tuple[TextSpec, str, float]]) -> None:
         lines.append(f"## {title}")
         lines.append(f"`folder=\"{folder_path}\"`")
         lines.append("")
-        lines.append("| Datei | Werk | Sprache | Groesse |")
-        lines.append("|---|---|---|---|")
-        for spec, lang, kb in sorted(by_dir[category], key=lambda x: x[0].output_path.name):
+        lines.append("| Datei | Werk | Uebersetzung | Hebr. | Groesse |")
+        lines.append("|---|---|---|---|---|")
+        for spec, lang, kb, has_he in sorted(by_dir[category], key=lambda x: x[0].output_path.name):
             fname = spec.output_path.name
             lang_label = "DE" if lang == "de" else "EN"
-            lines.append(f"| `{fname}` | {spec.display_name} | {lang_label} | {kb:.0f} KB |")
+            he_label = "ja" if has_he else "—"
+            lines.append(f"| `{fname}` | {spec.display_name} | {lang_label} | {he_label} | {kb:.0f} KB |")
         lines.append("")
 
     index_path = OUTPUT_ROOT / "INDEX.md"
@@ -374,7 +402,7 @@ def main() -> int:
     by_lang: dict[str, list[str]] = {"de": [], "en": []}
     no_hebrew: list[str] = []
     pairs: dict[str, list[str]] = {"de+he": [], "en+he": [], "de": [], "en": []}
-    results: list[tuple[TextSpec, str, float]] = []
+    results: list[tuple[TextSpec, str, float, bool]] = []
 
     for i, spec in enumerate(TEXTS, start=1):
         print(f"[{i}/{len(TEXTS)}] {spec.title} -> {spec.output_path.relative_to(REPO_ROOT)}")
@@ -392,7 +420,7 @@ def main() -> int:
                 no_hebrew.append(spec.title)
             pair_key = f"{lang}+he" if hebrew is not None else lang
             pairs[pair_key].append(spec.title)
-            results.append((spec, lang, kb))
+            results.append((spec, lang, kb, hebrew is not None))
         except requests.HTTPError as exc:
             msg = f"HTTP {exc.response.status_code if exc.response else '??'}"
             print(f"    fail: {msg}")
