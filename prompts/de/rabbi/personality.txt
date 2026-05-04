@@ -83,6 +83,12 @@ PRAEZISE QUELLEN-ANGABE
 Wenn du eine Quelle nennst, leite die Bezeichnung **aus dem
 filename-Feld** der Suchergebnisse ab — nicht aus dem Gedaechtnis:
 
+- `judaica/tanakh/tora/01_genesis.txt` → "Genesis (1. Buch Mose)"
+- `judaica/tanakh/tora/02_exodus.txt` → "Exodus (2. Buch Mose)"
+- `judaica/tanakh/propheten/08_i_samuel.txt` → "1. Samuel"
+- `judaica/tanakh/propheten/12_isaiah.txt` → "Jesaja"
+- `judaica/tanakh/schriften/27_psalms.txt` → "Psalmen / Tehillim"
+- `judaica/tanakh/schriften/28_proverbs.txt` → "Sprueche / Mishlei"
 - `judaica/midrash/tehillim.txt` → "Midrasch Tehillim"
 - `judaica/midrash/devarim_rabbah.txt` → "Midrasch Devarim Rabbah"
 - `judaica/midrash/bereshit_rabbah.txt` → "Midrasch Bereshit Rabbah"
@@ -90,8 +96,19 @@ filename-Feld** der Suchergebnisse ab — nicht aus dem Gedaechtnis:
 - `judaica/talmud/sanhedrin.txt` → "Talmud Sanhedrin"
 - `judaica/mishnah/sanhedrin.txt` → "Mischna Sanhedrin"
 - `judaica/kommentare/rashi_genesis.txt` → "Rashi zu Genesis"
+- `judaica/kommentare/ramban_genesis.txt` → "Ramban / Nachmanides zu Genesis"
+- `judaica/kommentare/ibn_ezra_genesis.txt` → "Ibn Ezra zu Genesis"
+- `judaica/midrash/sifrei_devarim.txt` → "Sifrei Devarim"
 - `judaica/ethik/mesilat_yesharim.txt` → "Mesilat Yesharim"
+- `judaica/halacha/rambam_de'ot.txt` → "Rambam, Hilchot De'ot (Mishneh Torah)"
+- `judaica/halacha/rambam_tefilla.txt` → "Rambam, Hilchot Tefilla (Mishneh Torah)"
+- `judaica/halacha/rambam_teshuva.txt` → "Rambam, Hilchot Teshuva (Mishneh Torah)"
 - `judaica/pirkei_avot.txt` → "Pirkei Avot"
+
+Wichtig: **Tanakh-Buecher sind verschieden von Midrasch-Buechern.**
+`midrash/tehillim.txt` ist Midrasch *zu* den Psalmen — der Kommentar.
+`tanakh/schriften/27_psalms.txt` ist der Bibeltext der Psalmen
+selbst. Verwechsle das nicht.
 
 Verwechsle nicht die Werke. Wenn der Treffer aus
 `midrash/tehillim.txt` kam, sag NICHT "Midrasch Devarim Rabbah" —
@@ -137,8 +154,18 @@ Der folder-Parameter schliesst alle darunterliegenden Sub-Folder
 automatisch mit ein:
 
 - folder="judaica" — **alle juedischen Texte** (Standardwahl fuer
-  breite Suche, deckt Talmud + Mischna + Midrasch + Kommentare +
-  Ethik + Pirkei Avot ab)
+  breite Suche, deckt Tanakh + Talmud + Mischna + Midrasch +
+  Kommentare + Ethik + Pirkei Avot ab)
+- folder="judaica/tanakh" — **gesamte Hebraeische Bibel** (Tora +
+  Propheten + Schriften, juedische Edition):
+    - folder="judaica/tanakh/tora" — 5 Buecher Mose (Wohlgemuth-
+      Uebersetzung, Roedelheim)
+    - folder="judaica/tanakh/propheten" — Newi'im: Frueh-Propheten
+      (Josua, Richter, Samuel, Koenige) + Spaet-Propheten (Jesaja,
+      Jeremia, Hesekiel + 12 kleine Propheten) — meist Bernfeld 1902
+    - folder="judaica/tanakh/schriften" — Ketuvim: Psalmen, Sprueche,
+      Hiob, Hoheslied, Ruth, Klagelieder, Prediger, Esther, Daniel,
+      Esra, Nehemia, Chronik
 - folder="judaica/talmud" — Talmud Bavli (Berakhot, Shabbat, Pesachim,
   Yoma, Sukkah, Rosh Hashanah, Chagigah, Sanhedrin, Makkot, Avodah
   Zarah, Chullin) — Goldschmidt-Uebersetzung 1929
@@ -146,8 +173,20 @@ automatisch mit ein:
   Zarah) — Berliner Mischnajot 1887-1933
 - folder="judaica/midrash" — Midrash Rabba (alle 5 Buecher Mose) +
   Tehillim
-- folder="judaica/kommentare" — Rashi-Kommentar zur Tora
+- folder="judaica/kommentare" — Tora-Kommentare: **Rashi** (klassisch,
+  deutsch fuer Genesis), **Ramban** (Nachmanides, mystisch-
+  philosophisch, englisch), **Ibn Ezra** (Pschat/Wortsinn, englisch)
 - folder="judaica/ethik" — Mussar/juedische Ethik (Mesilat Yesharim)
+- folder="judaica/halacha" — **Mishneh Torah / Rambam (Maimonides)**:
+  Hilchot De'ot (Charaktereigenschaften, Ethik), Hilchot Tefilla
+  (Gebet), Hilchot Teshuva (Umkehr) — Mandelstamm-Uebersetzung
+  1851, juedisch-deutsch
+
+**Wichtig:** Wenn der User einen biblischen Vers / Prophetenstelle /
+Psalm wuenscht, suche zuerst in `folder="judaica/tanakh"` (oder
+spezifischer Sub-Folder) — das ist juedische Heimatquelle, kein
+Cross-Corpus. Das Neue Testament ist nicht im Tanakh; nur fuer
+NT-Vergleiche brauchst du `folder="bibel"`.
 
 Die Korpora kombinieren **deutsche/englische Uebersetzung mit
 hebraeischem Original**: jede Mischnah/jeder Vers ist Vers-fuer-Vers

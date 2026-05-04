@@ -117,6 +117,153 @@ TEXTS: list[TextSpec] = [
     # Buch ist in 10 "Treatises" (Tore) gegliedert, Buch-Level-Ref nicht
     # unterstuetzt. Bei Bedarf einzeln referenzieren wie
     # "Duties_of_the_Heart,_First_Treatise" etc.
+
+    # === TANAKH — Hebraeische Bibel (juedische Edition) ===
+    # Quellen je nach Buch: Wohlgemuth (Tora, Roedelheim), Bernfeld
+    # (Berlin 1902 — Propheten/Schriften), Ehrlich (Psalmen). Wo keine
+    # juedische deutsche Uebersetzung verfuegbar ist (Hosea, Sprueche,
+    # Chronik, Hoheslied, Ruth, Klagelieder, Prediger): Fallback auf
+    # JPS Englisch. Hebraeisches Original (Miqra according to the
+    # Masorah) wird Vers-fuer-Vers gepaart.
+
+    # --- Tora (5 Buecher Mose) ---
+    TextSpec("Genesis", "Tora — Genesis (1. Buch Mose, Bereshit)",
+             OUTPUT_ROOT / "tanakh" / "tora" / "01_genesis.txt"),
+    TextSpec("Exodus", "Tora — Exodus (2. Buch Mose, Shemot)",
+             OUTPUT_ROOT / "tanakh" / "tora" / "02_exodus.txt"),
+    TextSpec("Leviticus", "Tora — Leviticus (3. Buch Mose, Vayikra)",
+             OUTPUT_ROOT / "tanakh" / "tora" / "03_leviticus.txt"),
+    TextSpec("Numbers", "Tora — Numeri (4. Buch Mose, Bamidbar)",
+             OUTPUT_ROOT / "tanakh" / "tora" / "04_numbers.txt"),
+    TextSpec("Deuteronomy", "Tora — Deuteronomium (5. Buch Mose, Devarim)",
+             OUTPUT_ROOT / "tanakh" / "tora" / "05_deuteronomy.txt"),
+
+    # --- Newi'im — Frueh-Propheten ---
+    TextSpec("Joshua", "Newi'im — Josua",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "06_joshua.txt"),
+    TextSpec("Judges", "Newi'im — Richter",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "07_judges.txt"),
+    TextSpec("I_Samuel", "Newi'im — 1. Samuel",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "08_i_samuel.txt"),
+    TextSpec("II_Samuel", "Newi'im — 2. Samuel",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "09_ii_samuel.txt"),
+    TextSpec("I_Kings", "Newi'im — 1. Koenige",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "10_i_kings.txt"),
+    TextSpec("II_Kings", "Newi'im — 2. Koenige",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "11_ii_kings.txt"),
+
+    # --- Newi'im — Spaet-Propheten (Grosse) ---
+    TextSpec("Isaiah", "Newi'im — Jesaja",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "12_isaiah.txt"),
+    TextSpec("Jeremiah", "Newi'im — Jeremia",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "13_jeremiah.txt"),
+    TextSpec("Ezekiel", "Newi'im — Hesekiel",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "14_ezekiel.txt"),
+
+    # --- Newi'im — Trei Asar (12 kleine Propheten) ---
+    TextSpec("Hosea", "Trei Asar — Hosea",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "15_hosea.txt"),
+    TextSpec("Joel", "Trei Asar — Joel",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "16_joel.txt"),
+    TextSpec("Amos", "Trei Asar — Amos",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "17_amos.txt"),
+    TextSpec("Obadiah", "Trei Asar — Obadja",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "18_obadiah.txt"),
+    TextSpec("Jonah", "Trei Asar — Jona",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "19_jonah.txt"),
+    TextSpec("Micah", "Trei Asar — Micha",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "20_micah.txt"),
+    TextSpec("Nahum", "Trei Asar — Nahum",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "21_nahum.txt"),
+    TextSpec("Habakkuk", "Trei Asar — Habakuk",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "22_habakkuk.txt"),
+    TextSpec("Zephaniah", "Trei Asar — Zephanja",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "23_zephaniah.txt"),
+    TextSpec("Haggai", "Trei Asar — Haggai",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "24_haggai.txt"),
+    TextSpec("Zechariah", "Trei Asar — Sacharja",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "25_zechariah.txt"),
+    TextSpec("Malachi", "Trei Asar — Maleachi",
+             OUTPUT_ROOT / "tanakh" / "propheten" / "26_malachi.txt"),
+
+    # --- Ketuvim (Schriften) ---
+    TextSpec("Psalms", "Ketuvim — Psalmen (Tehillim)",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "27_psalms.txt"),
+    TextSpec("Proverbs", "Ketuvim — Sprueche (Mishlei)",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "28_proverbs.txt"),
+    TextSpec("Job", "Ketuvim — Hiob (Iyov)",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "29_job.txt"),
+    TextSpec("Song_of_Songs", "Ketuvim — Hoheslied (Shir HaShirim)",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "30_song_of_songs.txt"),
+    TextSpec("Ruth", "Ketuvim — Ruth",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "31_ruth.txt"),
+    TextSpec("Lamentations", "Ketuvim — Klagelieder (Eichah)",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "32_lamentations.txt"),
+    TextSpec("Ecclesiastes", "Ketuvim — Prediger (Kohelet)",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "33_ecclesiastes.txt"),
+    TextSpec("Esther", "Ketuvim — Esther",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "34_esther.txt"),
+    TextSpec("Daniel", "Ketuvim — Daniel",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "35_daniel.txt"),
+    TextSpec("Ezra", "Ketuvim — Esra",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "36_ezra.txt"),
+    TextSpec("Nehemiah", "Ketuvim — Nehemia",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "37_nehemiah.txt"),
+    TextSpec("I_Chronicles", "Ketuvim — 1. Chronik",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "38_i_chronicles.txt"),
+    TextSpec("II_Chronicles", "Ketuvim — 2. Chronik",
+             OUTPUT_ROOT / "tanakh" / "schriften" / "39_ii_chronicles.txt"),
+
+    # === HALACHA (Mishneh Torah / Maimonides) ===
+    # 3 von 14 Buechern — pastoral besonders relevant. DE: Mandelstamm
+    # 1851 (Jad Haghasakkah, juedisch). Andere Buecher (Wissen,
+    # Liebe, Heiligkeit, Reinheit, Ackerbau, Tempeldienst, Opfer,
+    # Festtage, Ehe, Schaeden, Erwerb, Rechte, Richter) bei Bedarf.
+    TextSpec("Mishneh_Torah,_Human_Dispositions",
+             "Mishneh Torah — Hilchot De'ot (Charaktereigenschaften/Ethik)",
+             OUTPUT_ROOT / "halacha" / "rambam_de'ot.txt"),
+    TextSpec("Mishneh_Torah,_Prayer_and_the_Priestly_Blessing",
+             "Mishneh Torah — Hilchot Tefilla (Gebet)",
+             OUTPUT_ROOT / "halacha" / "rambam_tefilla.txt"),
+    TextSpec("Mishneh_Torah,_Repentance",
+             "Mishneh Torah — Hilchot Teshuva (Umkehr)",
+             OUTPUT_ROOT / "halacha" / "rambam_teshuva.txt"),
+
+    # === Tora-Kommentare (zusaetzlich zu Rashi) ===
+    # Ramban/Nachmanides — mystisch-philosophischer Kommentar.
+    # Ibn Ezra — Pschat (Wortsinn-Kommentar).
+    # Beide nur Englisch + Hebraeisch verfuegbar (Sefaria).
+    TextSpec("Ramban_on_Genesis", "Ramban (Nachmanides) zu Genesis",
+             OUTPUT_ROOT / "kommentare" / "ramban_genesis.txt"),
+    TextSpec("Ramban_on_Exodus", "Ramban (Nachmanides) zu Exodus",
+             OUTPUT_ROOT / "kommentare" / "ramban_exodus.txt"),
+    TextSpec("Ramban_on_Leviticus", "Ramban (Nachmanides) zu Levitikus",
+             OUTPUT_ROOT / "kommentare" / "ramban_leviticus.txt"),
+    TextSpec("Ramban_on_Numbers", "Ramban (Nachmanides) zu Numeri",
+             OUTPUT_ROOT / "kommentare" / "ramban_numeri.txt"),
+    TextSpec("Ramban_on_Deuteronomy", "Ramban (Nachmanides) zu Deuteronomium",
+             OUTPUT_ROOT / "kommentare" / "ramban_deuteronomium.txt"),
+
+    TextSpec("Ibn_Ezra_on_Genesis", "Ibn Ezra zu Genesis",
+             OUTPUT_ROOT / "kommentare" / "ibn_ezra_genesis.txt"),
+    TextSpec("Ibn_Ezra_on_Exodus", "Ibn Ezra zu Exodus",
+             OUTPUT_ROOT / "kommentare" / "ibn_ezra_exodus.txt"),
+    TextSpec("Ibn_Ezra_on_Leviticus", "Ibn Ezra zu Levitikus",
+             OUTPUT_ROOT / "kommentare" / "ibn_ezra_leviticus.txt"),
+    TextSpec("Ibn_Ezra_on_Numbers", "Ibn Ezra zu Numeri",
+             OUTPUT_ROOT / "kommentare" / "ibn_ezra_numeri.txt"),
+    TextSpec("Ibn_Ezra_on_Deuteronomy", "Ibn Ezra zu Deuteronomium",
+             OUTPUT_ROOT / "kommentare" / "ibn_ezra_deuteronomium.txt"),
+
+    # === Halachischer Midrasch ===
+    # Sifrei zu Numeri und Deuteronomium — nur Englisch + Hebraeisch.
+    # Tanchuma + Mekhilta + Sifra haben "complex"-Schema (Buch in
+    # Sektionen) — Buch-Level-API funktioniert nicht direkt; wuerde
+    # eigene Subsektion-Logik im Script brauchen. Bei Bedarf spaeter.
+    TextSpec("Sifrei_Bamidbar", "Sifrei Bamidbar (halachischer Midrasch zu Numeri)",
+             OUTPUT_ROOT / "midrash" / "sifrei_bamidbar.txt"),
+    TextSpec("Sifrei_Devarim", "Sifrei Devarim (halachischer Midrasch zu Deuteronomium)",
+             OUTPUT_ROOT / "midrash" / "sifrei_devarim.txt"),
 ]
 
 
@@ -368,8 +515,12 @@ def write_index(results: list[tuple[TextSpec, str, float, bool]]) -> None:
         "mishnah": "Mischna-Traktate",
         "talmud": "Talmud Bavli",
         "midrash": "Midrasch",
-        "kommentare": "Tora-Kommentare",
+        "kommentare": "Tora-Kommentare (Rashi, Ramban, Ibn Ezra)",
         "ethik": "Mussar (Ethik)",
+        "halacha": "Halacha (Mishneh Torah / Rambam)",
+        "tanakh/tora": "Tanakh — Tora (5 Buecher Mose)",
+        "tanakh/propheten": "Tanakh — Propheten (Newi'im)",
+        "tanakh/schriften": "Tanakh — Schriften (Ketuvim)",
     }
 
     for category in sorted(by_dir):
