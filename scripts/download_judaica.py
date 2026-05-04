@@ -143,22 +143,26 @@ def _count_sections(text_tree: Any) -> int:
     return 1 if text_tree else 0
 
 
-def fetch_text(slug: str, session: requests.Session) -> tuple[dict[str, Any], str]:
-    """Fetch a Sefaria text — German if available and substantial, else English.
+def fetch_text(
+    slug: str, session: requests.Session,
+) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
+    """Fetch a Sefaria text in translation + Hebrew original.
 
-    Sefaria's v3 API accepts ``version=german`` as a magic value that picks
-    the canonical German translation (Berliner Mischnajot, Goldschmidt
-    Talmud, etc.). For some texts the German version is digitised only
-    partially — Yoma for example returns a single Daf. We compare against
-    MIN_DE_SECTIONS to decide whether the German version is complete enough
-    to use; if not we silently fall through to the (always full) English
-    default version.
+    Returns ``(translation_payload, hebrew_payload_or_None, lang)`` where
+    ``lang`` is ``"de"`` or ``"en"`` for the translation. Hebrew is fetched
+    additionally so the rendered file can pair each verse with its original
+    — important for Rabbi-style quoting and cross-language search via the
+    multilingual bge-m3 embedder.
 
-    Returns (payload, language_used) where language_used is "de" or "en".
+    German is preferred when sufficiently complete; otherwise the English
+    default version. Hebrew failures are non-fatal — a translation-only
+    file is still useful.
     """
     quoted = urllib.parse.quote(slug, safe="_")
+    translation_payload: dict[str, Any] | None = None
+    lang = "en"
 
-    # Try German via v3 first
+    # Try German via v3
     try:
         v3 = session.get(
             SEFARIA_API_V3.format(ref=quoted),
@@ -171,14 +175,35 @@ def fetch_text(slug: str, session: requests.Session) -> tuple[dict[str, Any], st
             if versions and versions[0].get("text"):
                 payload = _normalize_v3(data, versions[0])
                 if _count_sections(payload.get("text")) >= MIN_DE_SECTIONS:
-                    return payload, "de"
+                    translation_payload = payload
+                    lang = "de"
     except (requests.RequestException, ValueError):
-        pass  # fall through to English
+        pass
 
-    # English fallback via v1
-    v1 = session.get(SEFARIA_API_V1.format(ref=quoted), timeout=120)
-    v1.raise_for_status()
-    return v1.json(), "en"
+    # English fallback
+    if translation_payload is None:
+        v1 = session.get(SEFARIA_API_V1.format(ref=quoted), timeout=120)
+        v1.raise_for_status()
+        translation_payload = v1.json()
+        lang = "en"
+
+    # Hebrew original (parallel)
+    hebrew_payload: dict[str, Any] | None = None
+    try:
+        v3h = session.get(
+            SEFARIA_API_V3.format(ref=quoted),
+            params={"version": "hebrew"},
+            timeout=120,
+        )
+        if v3h.status_code == 200:
+            data = v3h.json()
+            versions = data.get("versions", [])
+            if versions and versions[0].get("text"):
+                hebrew_payload = _normalize_v3(data, versions[0])
+    except (requests.RequestException, ValueError):
+        pass  # Hebrew is optional
+
+    return translation_payload, hebrew_payload, lang
 
 
 def _normalize_v3(data: dict[str, Any], version: dict[str, Any]) -> dict[str, Any]:
@@ -193,22 +218,51 @@ def _normalize_v3(data: dict[str, Any], version: dict[str, Any]) -> dict[str, An
     }
 
 
-def render_flat_text(payload: dict[str, Any], display_name: str, lang: str) -> str:
+def _normalize_2d(tree: Any) -> list:
+    """Lift 1D trees to 2D for uniform iteration."""
+    if isinstance(tree, list) and tree and not isinstance(tree[0], list):
+        return [tree]
+    return tree if isinstance(tree, list) else []
+
+
+def _verse_at(tree: list, chap_idx: int, verse_idx: int) -> str | None:
+    """Get verse_idx-th entry of chap_idx-th chapter (1-based), or None."""
+    if 0 <= chap_idx - 1 < len(tree):
+        chapter = tree[chap_idx - 1]
+        if isinstance(chapter, list) and 0 <= verse_idx - 1 < len(chapter):
+            entry = chapter[verse_idx - 1]
+            if isinstance(entry, list):
+                return " ".join(strip_html(v) for v in entry if v).strip() or None
+            elif isinstance(entry, str):
+                return strip_html(entry) or None
+    return None
+
+
+def render_flat_text(
+    payload: dict[str, Any],
+    display_name: str,
+    lang: str,
+    hebrew_payload: dict[str, Any] | None = None,
+) -> str:
     """Convert Sefaria's nested 'text' field to a flat readable document.
 
-    The text tree can be 1D (single chapter) or 2D (chapter -> verse).
-    Talmud structures may go deeper but the API at this endpoint mostly
-    returns 2D for the standard works in TEXTS.
+    Pairs each verse with its Hebrew original when ``hebrew_payload`` is
+    provided. The pairing assumes both versions share the same chapter/
+    verse layout — Sefaria normalizes this for canonical works.
     """
     text_tree = payload.get("text")
     section_names = payload.get("sectionNames") or ["Section", "Verse"]
     he_ref = payload.get("heRef") or ""
     en_ref = payload.get("ref") or ""
+    hebrew_tree: list = []
+    if hebrew_payload is not None:
+        hebrew_tree = _normalize_2d(hebrew_payload.get("text"))
 
     lines: list[str] = []
     lines.append(f"# {display_name}")
     lang_label = "Deutsch" if lang == "de" else "Englisch"
-    lines.append(f"_Sprache: {lang_label}_  ")
+    he_note = " + Hebraeisch (Original)" if hebrew_tree else ""
+    lines.append(f"_Sprache: {lang_label}{he_note}_  ")
     if en_ref:
         lines.append(f"_Source: {en_ref}_  ")
     if he_ref:
@@ -219,10 +273,7 @@ def render_flat_text(payload: dict[str, Any], display_name: str, lang: str) -> s
         lines.append("(empty — text not available via this endpoint)")
         return "\n".join(lines)
 
-    # Normalize: always treat as 2D
-    if isinstance(text_tree, list) and text_tree and not isinstance(text_tree[0], list):
-        text_tree = [text_tree]
-
+    text_tree = _normalize_2d(text_tree)
     chapter_label = section_names[0] if section_names else "Chapter"
     verse_label = section_names[1] if len(section_names) > 1 else "Verse"
 
@@ -232,33 +283,42 @@ def render_flat_text(payload: dict[str, Any], display_name: str, lang: str) -> s
         lines.append(f"## {chapter_label} {chap_idx}")
         lines.append("")
         if isinstance(chapter, str):
-            lines.append(strip_html(chapter))
+            cleaned = strip_html(chapter)
+            heb = _verse_at(hebrew_tree, chap_idx, 1) if hebrew_tree else None
+            if heb:
+                lines.append(heb)
+            lines.append(cleaned)
             lines.append("")
             continue
         for verse_idx, verse in enumerate(chapter, start=1):
             if isinstance(verse, list):
-                # rare: 3D tree, flatten its leaves
                 joined = " ".join(strip_html(v) for v in verse if v)
                 if joined:
                     lines.append(f"### {verse_label} {verse_idx}")
+                    heb = _verse_at(hebrew_tree, chap_idx, verse_idx) if hebrew_tree else None
+                    if heb:
+                        lines.append(heb)
                     lines.append(joined)
                     lines.append("")
             elif isinstance(verse, str):
                 cleaned = strip_html(verse)
                 if cleaned:
                     lines.append(f"### {verse_label} {verse_idx}")
+                    heb = _verse_at(hebrew_tree, chap_idx, verse_idx) if hebrew_tree else None
+                    if heb:
+                        lines.append(heb)
                     lines.append(cleaned)
                     lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_index(results: list[tuple[TextSpec, str, int]]) -> None:
+def write_index(results: list[tuple[TextSpec, str, float]]) -> None:
     """Write an INDEX.md inside OUTPUT_ROOT so an agent (or human) can
     see at a glance what is available, in which language, and where.
 
     Grouped by category derived from the output sub-directory.
     """
-    by_dir: dict[str, list[tuple[TextSpec, str, int]]] = {}
+    by_dir: dict[str, list[tuple[TextSpec, str, float]]] = {}
     for spec, lang, kb in results:
         rel = spec.output_path.relative_to(OUTPUT_ROOT)
         category = rel.parent.as_posix() if rel.parent.as_posix() != "." else ""
@@ -312,19 +372,26 @@ def main() -> int:
 
     failures: list[tuple[str, str]] = []
     by_lang: dict[str, list[str]] = {"de": [], "en": []}
-    results: list[tuple[TextSpec, str, int]] = []
+    no_hebrew: list[str] = []
+    pairs: dict[str, list[str]] = {"de+he": [], "en+he": [], "de": [], "en": []}
+    results: list[tuple[TextSpec, str, float]] = []
 
     for i, spec in enumerate(TEXTS, start=1):
         print(f"[{i}/{len(TEXTS)}] {spec.title} -> {spec.output_path.relative_to(REPO_ROOT)}")
         try:
-            payload, lang = fetch_text(spec.title, session)
-            text = render_flat_text(payload, spec.display_name, lang)
+            translation, hebrew, lang = fetch_text(spec.title, session)
+            text = render_flat_text(translation, spec.display_name, lang, hebrew)
             spec.output_path.parent.mkdir(parents=True, exist_ok=True)
             spec.output_path.write_text(text, encoding="utf-8")
             kb = spec.output_path.stat().st_size / 1024
             tag = "DE" if lang == "de" else "EN-fallback"
-            print(f"    ok ({kb:.1f} KB, {tag})")
+            heb_tag = "+HE" if hebrew is not None else "no-HE"
+            print(f"    ok ({kb:.1f} KB, {tag}, {heb_tag})")
             by_lang[lang].append(spec.title)
+            if hebrew is None:
+                no_hebrew.append(spec.title)
+            pair_key = f"{lang}+he" if hebrew is not None else lang
+            pairs[pair_key].append(spec.title)
             results.append((spec, lang, kb))
         except requests.HTTPError as exc:
             msg = f"HTTP {exc.response.status_code if exc.response else '??'}"
@@ -340,12 +407,28 @@ def main() -> int:
     if results:
         write_index(results)
         print()
+    def _pct(n: int, total: int) -> str:
+        return f"{(100 * n / total):.1f}%" if total else "—"
+
     print(f"Done: {successes}/{len(TEXTS)} succeeded")
-    print(f"  Deutsch: {len(by_lang['de'])}")
-    print(f"  Englisch (Fallback, kein Deutsch verfuegbar): {len(by_lang['en'])}")
+    print()
+    print("Sprach-Paarung (Vers fuer Vers, Embedding-faehig):")
+    print(f"  Hebraeisch + Deutsch:    {len(pairs['de+he']):3d} ({_pct(len(pairs['de+he']), successes)})")
+    print(f"  Hebraeisch + Englisch:   {len(pairs['en+he']):3d} ({_pct(len(pairs['en+he']), successes)})")
+    print(f"  Nur Deutsch (kein HE):   {len(pairs['de']):3d} ({_pct(len(pairs['de']), successes)})")
+    print(f"  Nur Englisch (kein HE):  {len(pairs['en']):3d} ({_pct(len(pairs['en']), successes)})")
+    print()
+    print(f"  → Hebraeisch-Anteil insgesamt: {successes - len(no_hebrew)}/{successes} ({_pct(successes - len(no_hebrew), successes)})")
+    print(f"  → Deutsch-Anteil insgesamt:   {len(by_lang['de'])}/{successes} ({_pct(len(by_lang['de']), successes)})")
     if by_lang["en"]:
+        print()
         print("  → Auf Sefaria nicht in Deutsch verfuegbar:")
         for t in by_lang["en"]:
+            print(f"    - {t}")
+    if no_hebrew:
+        print()
+        print("  → Ohne Hebraeisch-Original (Sefaria-API lieferte keins):")
+        for t in no_hebrew:
             print(f"    - {t}")
     if failures:
         print("Failures:")
