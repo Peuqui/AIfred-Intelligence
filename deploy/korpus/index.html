@@ -243,6 +243,70 @@
     margin: 0.75rem 0;
   }
   .small { font-size: 0.8rem; color: var(--text-dim); }
+
+  /* ── Manage: 2-pane tree + detail ── */
+  .manage-grid {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) 2fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 900px) {
+    .manage-grid { grid-template-columns: 1fr; }
+  }
+  .tree-pane {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    max-height: 70vh;
+    overflow-y: auto;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+  }
+  .manage-detail {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .manage-detail h3 { margin: 0 0 0.25rem 0; font-size: 1.05rem; word-break: break-word; }
+  .action-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0; }
+  .action-row button { padding: 0.4rem 0.85rem; font-size: 0.85rem; }
+  .tree ul { list-style: none; padding-left: 1rem; margin: 0; }
+  .tree > ul { padding-left: 0; }
+  .tree li { padding: 0.15rem 0; }
+  .tree-folder > summary,
+  .tree-file {
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    user-select: none;
+    list-style: none;
+  }
+  .tree-folder > summary::-webkit-details-marker { display: none; }
+  .tree-folder > summary { font-weight: 500; color: var(--text); }
+  .tree-folder[open] > summary .caret { transform: rotate(90deg); }
+  .tree-folder > summary:hover,
+  .tree-file:hover { background: rgba(99, 102, 241, 0.1); }
+  .tree-folder > summary.selected,
+  .tree-file.selected { background: rgba(99, 102, 241, 0.25); color: var(--text); }
+  .tree .caret {
+    display: inline-block;
+    width: 0.7rem;
+    transition: transform 0.15s ease;
+    color: var(--text-dim);
+    font-size: 0.7rem;
+  }
+  .tree .icon { width: 1rem; text-align: center; }
+  .tree .name { flex: 1; }
+  .tree .count { color: var(--text-dim); font-size: 0.75rem; }
+  .tree .hidden { display: none; }
 </style>
 </head>
 <body>
@@ -344,29 +408,44 @@
 
 <!-- ================== MANAGE ================== -->
 <section id="panel-manage" class="panel">
-  <p class="small">Re-Indexierung holt sich die Quelldatei vom Datentr&auml;ger und ersetzt alle Chunks (delete-before-upsert). Folder-Operationen wirken auf <strong>exakten</strong> Folder-Match (kein Prefix).</p>
+  <p class="small">Klicke links eine Datei oder einen Folder, rechts erscheinen Details und Aktionen. Bei Datei-Auswahl wird der Inhalt (erste 200 Chunks) gleich mit angezeigt. Re-Indexierung holt die Quelldatei von der Disk und ersetzt alle Chunks (delete-before-upsert). Folder-Aktionen wirken nur auf den exakten Folder, ohne Sub-Folder.</p>
 
-  <h3>Einzelne Datei</h3>
   <div class="row">
-    <div class="field" style="flex:1">
-      <label>Datei (relativer Pfad unter data/documents/)</label>
-      <input type="text" id="manage-file" class="grow"
-             placeholder="z.B. judaica/talmud/berakhot.txt">
+    <div class="field" style="flex:1; min-width:280px">
+      <label>Filter</label>
+      <input type="text" id="manage-tree-filter" placeholder="z.B. talmud, schlachter" class="grow">
     </div>
-    <button class="primary" id="manage-reindex">Re-Index</button>
-    <button class="danger" id="manage-delete">L&ouml;schen (Chunks)</button>
-    <button class="danger" id="manage-delete-file">+ Datei l&ouml;schen</button>
+    <button class="secondary" id="manage-expand">Alle aufklappen</button>
+    <button class="secondary" id="manage-collapse">Alle zuklappen</button>
+    <button class="secondary" id="manage-refresh">Neu laden</button>
   </div>
 
-  <h3 style="margin-top:2rem">Ganzer Folder</h3>
-  <div class="row">
-    <div class="field" style="flex:1">
-      <label>Folder (z.B. judaica/talmud)</label>
-      <input type="text" id="manage-folder" class="grow"
-             placeholder="z.B. judaica/talmud">
+  <div class="manage-grid">
+    <div class="tree-pane">
+      <div id="manage-tree"><div class="empty">L&auml;dt&hellip;</div></div>
     </div>
-    <button class="primary" id="manage-reindex-folder">Folder re-indexieren</button>
-    <button class="danger" id="manage-delete-folder">Chunks l&ouml;schen</button>
+
+    <div class="manage-detail">
+      <h3 id="manage-selected-title">Nichts ausgew&auml;hlt</h3>
+      <div id="manage-selected-info" class="small"></div>
+
+      <div id="manage-file-actions" style="display:none">
+        <div class="action-row">
+          <button class="primary" id="manage-reindex">Re-Index</button>
+          <button class="danger" id="manage-delete">L&ouml;schen (nur Chunks)</button>
+          <button class="danger" id="manage-delete-file">L&ouml;schen + von Disk</button>
+        </div>
+      </div>
+
+      <div id="manage-folder-actions" style="display:none">
+        <div class="action-row">
+          <button class="primary" id="manage-reindex-folder">Folder re-indexieren</button>
+          <button class="danger" id="manage-delete-folder">Chunks l&ouml;schen</button>
+        </div>
+      </div>
+
+      <div id="manage-chunks-preview"></div>
+    </div>
   </div>
 
   <div id="manage-result"></div>
@@ -483,7 +562,7 @@ async function loadOverview() {
       <tr>
         <td><code>${escape(f.folder || '(root)')}</code></td>
         <td style="text-align:right">${f.chunks.toLocaleString('de-DE')}</td>
-        <td><button class="secondary" onclick="searchInFolder(${JSON.stringify(f.folder)})">in diesem Folder suchen</button></td>
+        <td><button class="secondary" data-action="search-folder" data-folder="${escape(f.folder)}">in diesem Folder suchen</button></td>
       </tr>
     `).join('');
 
@@ -511,22 +590,25 @@ function renderDocs() {
       <td style="text-align:right">${d.chunks_indexed}</td>
       <td class="small">${escape((d.upload_date || '').slice(0, 19))}</td>
       <td class="actions">
-        <button class="secondary" onclick="showChunks(${JSON.stringify(d.filename)})">Chunks</button>
-        <button class="secondary" onclick="reindexFile(${JSON.stringify(d.filename)})">Re-Index</button>
-        <button class="danger" onclick="deleteFile(${JSON.stringify(d.filename)}, false)">L&ouml;schen</button>
+        <button class="secondary" data-action="show-chunks" data-filename="${escape(d.filename)}">Chunks</button>
+        <button class="secondary" data-action="reindex-file" data-filename="${escape(d.filename)}">Re-Index</button>
+        <button class="danger" data-action="delete-file" data-filename="${escape(d.filename)}">L&ouml;schen</button>
       </td>
     </tr>
   `).join('');
 }
 $('overview-filter').addEventListener('input', renderDocs);
 
-window.searchInFolder = function(folder) {
-  document.querySelector('button[data-tab=search]').click();
+// Event-Delegation fuer alle Aktions-Buttons in den Tabellen.
+// Inline onclick mit JSON.stringify ist kaputt: doppelte Quotes brechen das
+// onclick="..."-Attribut auseinander, der Handler feuert nie.
+function searchInFolder(folder) {
+  document.querySelector('button[data-tab="search"]').click();
   $('search-folder').value = folder;
   $('search-query').focus();
-};
+}
 
-window.showChunks = async function(filename) {
+async function showChunks(filename) {
   try {
     const res = await api(`/documents/${encodeURIComponent(filename)}/chunks?limit=200`);
     const html = `<details open><summary>${escape(filename)} &mdash; ${res.total} chunks</summary>` +
@@ -538,9 +620,9 @@ window.showChunks = async function(filename) {
     target.appendChild(wrap);
     wrap.scrollIntoView({behavior:'smooth'});
   } catch (e) { toast(e.message, 'error'); }
-};
+}
 
-window.reindexFile = async function(filename) {
+async function reindexFile(filename) {
   if (!confirm(`Re-indexiere ${filename}?`)) return;
   try {
     const r = await api('/reindex', {
@@ -551,19 +633,32 @@ window.reindexFile = async function(filename) {
     toast(`${filename}: ${r.chunks_indexed} chunks`, 'success');
     loadOverview();
   } catch (e) { toast(e.message, 'error'); }
-};
+}
 
-window.deleteFile = async function(filename, deleteFile) {
-  const msg = deleteFile
+async function deleteFile(filename, alsoFile) {
+  const msg = alsoFile
     ? `${filename} aus Index UND von Disk löschen?`
     : `${filename} aus Index löschen (Datei bleibt)?`;
   if (!confirm(msg)) return;
   try {
-    const r = await api(`/documents/${encodeURIComponent(filename)}?delete_file=${deleteFile}`, {method: 'DELETE'});
+    const r = await api(`/documents/${encodeURIComponent(filename)}?delete_file=${alsoFile}`, {method: 'DELETE'});
     toast(`${r.chunks_removed} chunks entfernt`, 'success');
     loadOverview();
   } catch (e) { toast(e.message, 'error'); }
-};
+}
+
+// Delegation: alle Aktions-Buttons in der Uebersicht
+$('panel-overview').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const folder = btn.dataset.folder;
+  const filename = btn.dataset.filename;
+  if (action === 'search-folder') searchInFolder(folder);
+  else if (action === 'show-chunks') showChunks(filename);
+  else if (action === 'reindex-file') reindexFile(filename);
+  else if (action === 'delete-file') deleteFile(filename, false);
+});
 
 // ─── Upload ────────────────────────────────────
 $('upload-form').addEventListener('submit', async e => {
@@ -593,37 +688,238 @@ $('upload-form').addEventListener('submit', async e => {
   }
 });
 
-// ─── Manage ────────────────────────────────────
+// ─── Manage: Tree + Selection-Detail ──────────────────────────────
+let manageDocs = [];  // alle indexierten Dateien
+let manageFolders = []; // alle Folder
+let manageSelected = null; // {kind: 'file'|'folder', path: string}
+
+async function loadManage() {
+  const tree = $('manage-tree');
+  tree.innerHTML = '<div class="empty">L&auml;dt&hellip;</div>';
+  try {
+    const [foldersRes, docsRes] = await Promise.all([api('/folders'), api('/documents')]);
+    manageFolders = foldersRes.folders;
+    manageDocs = docsRes.documents;
+    renderTree();
+  } catch (e) {
+    tree.innerHTML = '<div class="empty">Fehler: ' + escape(e.message) + '</div>';
+    toast(e.message, 'error');
+  }
+}
+
+function buildTree(docs, folders) {
+  // Wir bauen eine Hierarchie aus allen filename-Pfaden. Folder werden
+  // zusaetzlich mit ihren Chunk-Counts annotiert (aus folders-API).
+  const folderCounts = Object.fromEntries(folders.map(f => [f.folder, f.chunks]));
+  const root = { _children: {}, _path: '' };
+  for (const doc of docs) {
+    const parts = doc.filename.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const p = parts[i];
+      const path = node._path ? node._path + '/' + p : p;
+      if (!node._children[p]) {
+        node._children[p] = { _children: {}, _path: path, _isFolder: true };
+      }
+      node = node._children[p];
+    }
+    const leaf = parts[parts.length - 1];
+    node._children[leaf] = { _doc: doc, _path: doc.filename, _isFile: true };
+  }
+  // Folder-counts an Folder-Knoten haengen
+  function annotate(node) {
+    if (node._isFolder) {
+      node._chunks = folderCounts[node._path] || 0;
+      node._fileCount = Object.values(node._children).filter(c => c._isFile).length;
+    }
+    for (const c of Object.values(node._children || {})) annotate(c);
+  }
+  annotate(root);
+  return root;
+}
+
+function renderTreeNode(node, name, depth) {
+  if (node._isFile) {
+    const d = node._doc;
+    return `<li>
+      <div class="tree-file" data-path="${escape(node._path)}" data-kind="file">
+        <span class="caret"></span>
+        <span class="icon">&#128196;</span>
+        <span class="name">${escape(name)}</span>
+        <span class="count">${d.chunks_indexed}</span>
+      </div>
+    </li>`;
+  }
+  // Folder
+  const childCount = Object.keys(node._children).length;
+  const inner = Object.entries(node._children)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([n, c]) => renderTreeNode(c, n, depth + 1)).join('');
+  // Erste Ebene per Default offen, tiefer geschlossen
+  const open = depth <= 1 ? ' open' : '';
+  return `<li>
+    <details class="tree-folder"${open}>
+      <summary data-path="${escape(node._path)}" data-kind="folder">
+        <span class="caret">&#9658;</span>
+        <span class="icon">&#128193;</span>
+        <span class="name">${escape(name)}</span>
+        <span class="count">${childCount}</span>
+      </summary>
+      <ul>${inner}</ul>
+    </details>
+  </li>`;
+}
+
+function renderTree() {
+  const root = buildTree(manageDocs, manageFolders);
+  const filter = ($('manage-tree-filter').value || '').toLowerCase();
+  const html = '<ul class="tree">' +
+    Object.entries(root._children)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([n, c]) => renderTreeNode(c, n, 0)).join('') +
+    '</ul>';
+  $('manage-tree').innerHTML = html;
+  applyFilter();
+  // Bei aktueller Auswahl: visuell wieder selektieren
+  if (manageSelected) selectTreeItem(manageSelected.kind, manageSelected.path, /*navigate*/false);
+}
+
+function applyFilter() {
+  const filter = ($('manage-tree-filter').value || '').toLowerCase();
+  if (!filter) {
+    // alles sichtbar
+    $('manage-tree').querySelectorAll('li').forEach(li => li.classList.remove('hidden'));
+    return;
+  }
+  // Markiere matches; zeige sie + alle Eltern
+  const items = $('manage-tree').querySelectorAll('[data-path]');
+  const visible = new Set();
+  items.forEach(el => {
+    const path = el.dataset.path;
+    if (path.toLowerCase().includes(filter)) {
+      visible.add(path);
+      // alle Eltern-Pfade sichtbar machen
+      const parts = path.split('/');
+      for (let i = 1; i < parts.length; i++) visible.add(parts.slice(0, i).join('/'));
+    }
+  });
+  // li-Elemente verstecken, deren data-path weder in visible noch ein Praefix ist
+  $('manage-tree').querySelectorAll('li').forEach(li => {
+    const target = li.querySelector('[data-path]');
+    if (!target) return;
+    const path = target.dataset.path;
+    li.classList.toggle('hidden', !visible.has(path));
+  });
+  // Folder, die treffende Kinder enthalten, automatisch aufklappen
+  $('manage-tree').querySelectorAll('details.tree-folder').forEach(d => {
+    const sum = d.querySelector('summary[data-path]');
+    if (sum && visible.has(sum.dataset.path)) d.open = true;
+  });
+}
+
+$('manage-tree-filter').addEventListener('input', applyFilter);
+$('manage-expand').addEventListener('click', () => {
+  $('manage-tree').querySelectorAll('details.tree-folder').forEach(d => d.open = true);
+});
+$('manage-collapse').addEventListener('click', () => {
+  $('manage-tree').querySelectorAll('details.tree-folder').forEach(d => d.open = false);
+});
+$('manage-refresh').addEventListener('click', loadManage);
+
+$('manage-tree').addEventListener('click', e => {
+  const el = e.target.closest('[data-path][data-kind]');
+  if (!el) return;
+  // Bei Folder-Summary: nicht das default-Toggle des <details> blocken
+  const kind = el.dataset.kind;
+  const path = el.dataset.path;
+  selectTreeItem(kind, path, /*navigate*/true);
+});
+
+async function selectTreeItem(kind, path, navigate) {
+  manageSelected = { kind, path };
+  // visuelle Hervorhebung
+  $('manage-tree').querySelectorAll('.tree-file, summary').forEach(el => el.classList.remove('selected'));
+  const el = $('manage-tree').querySelector(`[data-path="${CSS.escape(path)}"][data-kind="${kind}"]`);
+  if (el) el.classList.add('selected');
+
+  $('manage-selected-title').textContent = path || '(root)';
+  if (kind === 'file') {
+    const doc = manageDocs.find(d => d.filename === path);
+    if (doc) {
+      $('manage-selected-info').innerHTML = `Folder: <code>${escape(doc.folder)}</code> &middot; ${doc.chunks_indexed} chunks &middot; ${escape((doc.upload_date || '').slice(0, 19))}`;
+    } else {
+      $('manage-selected-info').textContent = '';
+    }
+    $('manage-file-actions').style.display = '';
+    $('manage-folder-actions').style.display = 'none';
+    if (navigate) await loadChunksPreview(path);
+  } else {
+    const f = manageFolders.find(x => x.folder === path);
+    const fileCount = manageDocs.filter(d => d.folder === path).length;
+    $('manage-selected-info').innerHTML = f
+      ? `${f.chunks} Chunks in ${fileCount} Datei(en) <span class="small">(exakter Folder, ohne Sub-Folder)</span>`
+      : `${fileCount} Datei(en) in Sub-Foldern (kein direkter Inhalt)`;
+    $('manage-folder-actions').style.display = '';
+    $('manage-file-actions').style.display = 'none';
+    $('manage-chunks-preview').innerHTML = '';
+  }
+}
+
+async function loadChunksPreview(filename) {
+  const root = $('manage-chunks-preview');
+  root.innerHTML = '<div class="empty">Chunks werden geladen&hellip;</div>';
+  try {
+    const res = await api(`/documents/${encodeURIComponent(filename)}/chunks?limit=200`);
+    if (!res.chunks.length) { root.innerHTML = '<div class="empty">Keine Chunks</div>'; return; }
+    const more = res.total > res.chunks.length ? `<p class="small">Zeige ${res.chunks.length} von ${res.total} Chunks</p>` : `<p class="small">${res.total} Chunks</p>`;
+    root.innerHTML = more + res.chunks.map(c =>
+      `<div class="chunk-block"><div class="idx">chunk ${c.chunk_index}/${c.total_chunks}</div>${escape(c.content)}</div>`
+    ).join('');
+  } catch (e) {
+    root.innerHTML = '';
+    toast(e.message, 'error');
+  }
+}
+
+// Aktions-Buttons
 $('manage-reindex').addEventListener('click', async () => {
-  const f = $('manage-file').value.trim();
-  if (!f) return toast('Datei eingeben', 'error');
+  if (!manageSelected || manageSelected.kind !== 'file') return;
+  const f = manageSelected.path;
+  if (!confirm(`Re-indexiere ${f}?`)) return;
   try {
     const r = await api('/reindex', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ filename: f }),
     });
-    $('manage-result').innerHTML = `<div class="hit"><div class="content">Re-Index: ${r.chunks_indexed} chunks fuer <code>${escape(r.filename)}</code></div></div>`;
-    toast('Re-Index ok', 'success');
+    toast(`${r.filename}: ${r.chunks_indexed} chunks`, 'success');
+    await loadManage();
+    selectTreeItem('file', f, true);
   } catch (e) { toast(e.message, 'error'); }
 });
 
-$('manage-delete').addEventListener('click', () => deleteFromManage(false));
-$('manage-delete-file').addEventListener('click', () => deleteFromManage(true));
-async function deleteFromManage(deleteFile) {
-  const f = $('manage-file').value.trim();
-  if (!f) return toast('Datei eingeben', 'error');
-  if (!confirm(deleteFile ? `${f} aus Index UND Disk loeschen?` : `${f} aus Index loeschen?`)) return;
+async function manageDeleteFile(alsoFile) {
+  if (!manageSelected || manageSelected.kind !== 'file') return;
+  const f = manageSelected.path;
+  const msg = alsoFile ? `${f} aus Index UND von Disk loeschen?` : `${f} aus Index loeschen (Datei bleibt)?`;
+  if (!confirm(msg)) return;
   try {
-    const r = await api(`/documents/${encodeURIComponent(f)}?delete_file=${deleteFile}`, {method:'DELETE'});
-    $('manage-result').innerHTML = `<div class="hit"><div class="content">${r.chunks_removed} chunks entfernt${r.file_deleted ? ', Datei geloescht' : ''}</div></div>`;
-    toast('Geloescht', 'success');
+    const r = await api(`/documents/${encodeURIComponent(f)}?delete_file=${alsoFile}`, {method:'DELETE'});
+    toast(`${r.chunks_removed} chunks entfernt${r.file_deleted ? ' + Datei geloescht' : ''}`, 'success');
+    manageSelected = null;
+    $('manage-selected-title').textContent = 'Nichts ausgew&auml;hlt';
+    $('manage-selected-info').textContent = '';
+    $('manage-file-actions').style.display = 'none';
+    $('manage-chunks-preview').innerHTML = '';
+    await loadManage();
   } catch (e) { toast(e.message, 'error'); }
 }
+$('manage-delete').addEventListener('click', () => manageDeleteFile(false));
+$('manage-delete-file').addEventListener('click', () => manageDeleteFile(true));
 
 $('manage-reindex-folder').addEventListener('click', async () => {
-  const folder = $('manage-folder').value.trim();
-  if (!folder) return toast('Folder eingeben', 'error');
+  if (!manageSelected || manageSelected.kind !== 'folder') return;
+  const folder = manageSelected.path;
   if (!confirm(`Alle Dateien unter ${folder}/ re-indexieren?`)) return;
   const fd = new FormData();
   fd.append('folder', folder);
@@ -634,23 +930,26 @@ $('manage-reindex-folder').addEventListener('click', async () => {
       throw new Error(`${r.status}: ${d}`);
     }
     const res = await r.json();
-    $('manage-result').innerHTML = `<div class="hit"><div class="content">
-      ${res.files_indexed} Dateien re-indexiert, ${res.chunks_total} Chunks gesamt.
-      ${res.failures.length ? `<br>Fehlschlaege: ${res.failures.length}` : ''}
-    </div></div>`;
-    toast(`${res.files_indexed} Dateien indexiert`, 'success');
+    toast(`${res.files_indexed} Dateien indexiert (${res.chunks_total} chunks)`, 'success');
+    await loadManage();
+    selectTreeItem('folder', folder, true);
   } catch (e) { toast(e.message, 'error'); }
 });
 
 $('manage-delete-folder').addEventListener('click', async () => {
-  const folder = $('manage-folder').value.trim();
-  if (!folder) return toast('Folder eingeben', 'error');
-  if (!confirm(`ALLE chunks im Folder "${folder}" loeschen? (Dateien bleiben)`)) return;
+  if (!manageSelected || manageSelected.kind !== 'folder') return;
+  const folder = manageSelected.path;
+  if (!confirm(`ALLE Chunks im Folder "${folder}" loeschen? (Dateien bleiben)`)) return;
   try {
     const r = await api(`/folders/${encodeURIComponent(folder)}?delete_files=false`, {method:'DELETE'});
-    $('manage-result').innerHTML = `<div class="hit"><div class="content">${r.files_affected} Dateien betroffen, ${r.chunks_removed} chunks entfernt</div></div>`;
-    toast('Folder bereinigt', 'success');
+    toast(`${r.files_affected} Dateien betroffen, ${r.chunks_removed} chunks entfernt`, 'success');
+    await loadManage();
   } catch (e) { toast(e.message, 'error'); }
+});
+
+// Tree beim Tab-Wechsel zur Verwaltung laden
+document.querySelector('button[data-tab="manage"]').addEventListener('click', () => {
+  if (!manageDocs.length) loadManage();
 });
 
 // ─── Boot ──────────────────────────────────────
