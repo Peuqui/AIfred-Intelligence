@@ -302,6 +302,36 @@ class DocumentStore:
         )
         DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
         log_message(f"📄 DocumentStore connected: {self._collection.count()} chunks")
+        # Lazily-loaded set of distinct folder values for prefix-match search.
+        # Invalidated whenever index_document / delete_document mutate the
+        # collection — the cache stays correct without a per-search round-trip.
+        self._folder_cache: Optional[set[str]] = None
+
+    def _get_known_folders(self) -> set[str]:
+        if self._folder_cache is None:
+            data = self._collection.get(include=["metadatas"])
+            metas = data.get("metadatas") or []
+            self._folder_cache = {
+                str(m.get("folder", "")) for m in metas if isinstance(m, dict)
+            }
+        return self._folder_cache
+
+    def _invalidate_folder_cache(self) -> None:
+        self._folder_cache = None
+
+    def _expand_folder_prefix(self, folder: str) -> list[str]:
+        """Return all stored folder values that the requested folder covers.
+
+        Exact match counts, plus any folder that lives below it. So
+        ``"bibel"`` covers ``"bibel/Schlachter"`` and ``"bibel/GuteNachricht"``,
+        ``"judaica"`` covers ``"judaica"`` itself plus ``"judaica/talmud"``,
+        ``"judaica/midrash"`` etc.
+        """
+        prefix = folder + "/"
+        return [
+            f for f in self._get_known_folders()
+            if f == folder or f.startswith(prefix)
+        ]
 
     async def index_document(self, file_path: Path, filename: str) -> int:
         """Parse, chunk and embed a document. Returns number of chunks created.
@@ -358,6 +388,7 @@ class DocumentStore:
             embeddings=embeddings,
             metadatas=metadatas,
         )
+        self._invalidate_folder_cache()
 
         log_message(f"📄 Indexed {filename}: {len(chunks)} chunks")
         return len(chunks)
@@ -374,9 +405,11 @@ class DocumentStore:
         Args:
             query: Search query.
             n_results: Max number of chunks to return.
-            folder: If set, restrict search to this folder. Sub-folders are
-                    NOT included — pass the exact folder string as stored
-                    in metadata (e.g. "bibel/Schlachter").
+            folder: If set, restrict search to this folder *or any folder
+                    nested under it*. ``"bibel"`` covers ``"bibel/Schlachter"``
+                    and ``"bibel/GuteNachricht"``; ``"bibel/Schlachter"``
+                    stays narrow. Pass ``None`` to search the whole store
+                    (only sensible for cross-corpus tools).
             neighbor_window: Per hit, also include ±N adjacent chunks of the
                     same document so the model sees the full surrounding
                     context (mid-sentence chunk cuts are mitigated).
@@ -399,7 +432,18 @@ class DocumentStore:
             "n_results": min(n_results, count),
         }
         if folder is not None:
-            query_kwargs["where"] = {"folder": folder}
+            # Prefix-expand: "bibel" matches every "bibel/..." sub-folder so
+            # callers don't need to enumerate sub-corpora. Empty result list
+            # means the requested folder isn't represented at all — pass an
+            # impossible filter so Chroma cleanly returns no hits instead of
+            # the whole store.
+            matching = await asyncio.to_thread(self._expand_folder_prefix, folder)
+            if not matching:
+                query_kwargs["where"] = {"folder": folder}
+            elif len(matching) == 1:
+                query_kwargs["where"] = {"folder": matching[0]}
+            else:
+                query_kwargs["where"] = {"folder": {"$in": matching}}
 
         results = await asyncio.to_thread(self._collection.query, **query_kwargs)
 
@@ -496,6 +540,7 @@ class DocumentStore:
 
         count = len(all_data["ids"])
         await asyncio.to_thread(self._collection.delete, ids=all_data["ids"])
+        self._invalidate_folder_cache()
 
         # Delete file from disk if requested
         if delete_file:

@@ -496,8 +496,12 @@ class WorkspacePlugin:
                 "Search indexed documents semantically in the vector database. "
                 "Only finds documents that have been indexed (uploaded via UI or via index_document). "
                 "Use list_files to see all files on disk, search_documents to search indexed content. "
-                "Pass folder to restrict the search to one folder (e.g. 'bibel/Schlachter') — "
-                "use list_indexed first to see which folders have indexed content. "
+                "The folder parameter restricts the search and INCLUDES all nested sub-folders: "
+                "folder='bibel' covers 'bibel/Schlachter' AND 'bibel/GuteNachricht'; "
+                "folder='judaica' covers everything under judaica/. "
+                "Use list_indexed to see which folders have content. "
+                "Omitting folder searches the WHOLE store (cross-corpus) — only do this when you "
+                "genuinely don't know which corpus is relevant. "
                 "Each similarity hit also returns its immediate neighbor chunks "
                 "(marked context_neighbor=true) so you see the full surrounding "
                 "passage; if a chunk ends mid-sentence, the next chunk is included."
@@ -517,9 +521,12 @@ class WorkspacePlugin:
                     "folder": {
                         "type": "string",
                         "description": (
-                            "Optional folder to restrict the search to "
-                            "(exact match, e.g. 'bibel/Schlachter'). "
-                            "Sub-folders are NOT included automatically."
+                            "Folder to restrict the search to. Includes all "
+                            "nested sub-folders automatically — pass 'bibel' "
+                            "to search both Schlachter and GuteNachricht, "
+                            "'judaica' to search everything Jewish, "
+                            "'bibel/Schlachter' to narrow to one translation. "
+                            "Omit to search across all indexed content."
                         ),
                     },
                 },
