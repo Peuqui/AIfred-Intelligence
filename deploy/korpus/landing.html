@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Narnia - AI Services</title>
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="apple-touch-icon" sizes="192x192" href="/favicon-192.png">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+            overflow: hidden;
+        }
+        .logo-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            transition: opacity 0.3s;
+        }
+        .logo-container img {
+            height: 120px;
+            width: auto;
+            margin-bottom: 0.3rem;
+        }
+        .logo-services {
+            font-size: 1.1rem;
+            font-weight: 300;
+            color: #94a3b8;
+            letter-spacing: 0.35em;
+            text-transform: uppercase;
+        }
+        .subtitle {
+            color: #64748b;
+            font-size: 0.9rem;
+            margin-bottom: 2.5rem;
+            transition: opacity 0.3s;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-auto-rows: 1fr;
+            gap: 1.2rem;
+            max-width: 960px;
+            width: 100%;
+        }
+
+        /* === Card mit Vorder- und Rueckseite === */
+        a.card {
+            display: block;
+            position: relative;
+            border-radius: 12px;
+            text-decoration: none;
+            color: #e2e8f0;
+            transform-style: preserve-3d;
+            transition: transform 0.15s;
+        }
+        a.card:hover {
+            transform: translateY(-2px);
+        }
+
+        .card-front, .card-back {
+            backface-visibility: hidden;
+            border-radius: 12px;
+        }
+
+        .card-front {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.2rem 1.5rem;
+            height: 100%;
+            background: #1e293b;
+            border: 1px solid #334155;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        a.card:hover .card-front {
+            background: #293548;
+            border-color: #475569;
+        }
+
+        .card-back {
+            position: absolute;
+            inset: 0;
+            transform: rotateY(180deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 0.5rem;
+            background: var(--card-accent, #334155);
+            border: 2px solid rgba(255,255,255,0.15);
+        }
+        .card-back .back-icon {
+            font-size: 3rem;
+        }
+        .card-back .back-name {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+
+        /* === Flying Animation === */
+        a.card.flying {
+            animation: flyAndFlip 1.8s ease-in-out forwards;
+            will-change: transform;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        @keyframes flyAndFlip {
+            0% {
+                transform: translate(0, 0) scale(1) rotateY(0deg);
+            }
+            25% {
+                transform: translate(var(--fly-dx), var(--fly-dy)) scale(1.5) rotateY(45deg);
+            }
+            100% {
+                transform: translate(var(--fly-dx), var(--fly-dy)) scale(var(--fly-scale)) rotateY(180deg);
+            }
+        }
+
+        /* Andere Karten verschwinden */
+        a.card.receding {
+            animation: fadeOut 0.4s ease-out forwards;
+            pointer-events: none;
+        }
+        @keyframes fadeOut {
+            to { opacity: 0; transform: scale(0.85); }
+        }
+
+        body.launching .logo-container,
+        body.launching .subtitle,
+        body.launching footer {
+            opacity: 0;
+        }
+
+        .icon {
+            font-size: 2rem;
+            width: 3rem;
+            text-align: center;
+            flex-shrink: 0;
+        }
+        .info h2 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-bottom: 0.2rem;
+        }
+        .info p {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            line-height: 1.3;
+        }
+        footer {
+            margin-top: auto;
+            padding-top: 3rem;
+            color: #475569;
+            font-size: 0.75rem;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="logo-container">
+        <img src="/narnia-logo.png" alt="Narnia">
+        <span class="logo-services">AI Services</span>
+    </div>
+    <p class="subtitle">Willkommen. Bitte einen Dienst ausw&auml;hlen.</p>
+    <div class="grid">
+        <a class="card" href="/aifred/" style="--card-accent: linear-gradient(135deg, #1a1a2e, #2d1f00)">
+            <div class="card-front">
+                <div class="icon">&#127913;</div>
+                <div class="info">
+                    <h2>AIfred</h2>
+                    <p>KI-Assistent mit Multi-Agent System</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #1a1a2e, #2d1f00)">
+                <div class="back-icon">&#127913;</div>
+                <div class="back-name">AIfred</div>
+            </div>
+        </a>
+        <a class="card" href="/korpus/" style="--card-accent: linear-gradient(135deg, #2d1b69, #4338ca)">
+            <div class="card-front">
+                <div class="icon">&#128218;</div>
+                <div class="info">
+                    <h2>Korpus</h2>
+                    <p>Vector-DB Suche, Verwaltung &amp; Upload</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #2d1b69, #4338ca)">
+                <div class="back-icon">&#128218;</div>
+                <div class="back-name">Korpus</div>
+            </div>
+        </a>
+        <a class="card" href="/code/" style="--card-accent: linear-gradient(135deg, #1e293b, #475569)">
+            <div class="card-front">
+                <div class="icon">&#128187;</div>
+                <div class="info">
+                    <h2>Code Editor</h2>
+                    <p>VS Code im Browser</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #1e293b, #475569)">
+                <div class="back-icon">&#128187;</div>
+                <div class="back-name">Code Editor</div>
+            </div>
+        </a>
+        <a class="card" href="/ai-service-control.html">
+            <div class="card-front">
+                <div class="icon">&#9881;&#65039;</div>
+                <div class="info">
+                    <h2>Service Control</h2>
+                    <p>AI-Dienste starten, stoppen &amp; verwalten</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #1e293b, #334155)">
+                <div class="back-icon">&#9881;&#65039;</div>
+                <div class="back-name">Service Control</div>
+            </div>
+        </a>
+        <a class="card" href="/monitoring/d/node-exporter/system-monitoring?orgId=1&amp;from=now-15m&amp;to=now&amp;timezone=browser&amp;refresh=5s" style="--card-accent: linear-gradient(135deg, #1a3a2e, #0d4a3a)">
+            <div class="card-front">
+                <div class="icon">&#128202;</div>
+                <div class="info">
+                    <h2>System Monitoring</h2>
+                    <p>Grafana Dashboard &mdash; GPU, CPU, RAM, Netzwerk</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #1a3a2e, #0d4a3a)">
+                <div class="back-icon">&#128202;</div>
+                <div class="back-name">Monitoring</div>
+            </div>
+        </a>
+        <a class="card" href="/ai-atc/" style="--card-accent: linear-gradient(135deg, #0c4a6e, #0369a1)">
+            <div class="card-front">
+                <div class="icon">&#9992;&#65039;</div>
+                <div class="info">
+                    <h2>AI-ATC</h2>
+                    <p>Flugfunk-Training mit lokaler KI</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #0c4a6e, #0369a1)">
+                <div class="back-icon">&#9992;&#65039;</div>
+                <div class="back-name">AI-ATC</div>
+            </div>
+        </a>
+        <a class="card" href="/comfy/" style="--card-accent: linear-gradient(135deg, #064e3b, #065f46)">
+            <div class="card-front">
+                <div class="icon">&#127912;</div>
+                <div class="info">
+                    <h2>ComfyUI</h2>
+                    <p>Bildgenerierung mit Stable Diffusion &amp; Flux</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #064e3b, #065f46)">
+                <div class="back-icon">&#127912;</div>
+                <div class="back-name">ComfyUI</div>
+            </div>
+        </a>
+        <a class="card" href="/a1111/">
+            <div class="card-front">
+                <div class="icon">&#128444;&#65039;</div>
+                <div class="info">
+                    <h2>Automatic1111</h2>
+                    <p>Stable Diffusion Web UI</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #1e1b4b, #312e81)">
+                <div class="back-icon">&#128444;&#65039;</div>
+                <div class="back-name">Automatic1111</div>
+            </div>
+        </a>
+        <a class="card" href="/haemotrace/">
+            <div class="card-front">
+                <div class="icon">
+                    <svg viewBox="-26 -28 52 72" xmlns="http://www.w3.org/2000/svg" width="36" height="36">
+                        <defs><linearGradient id="dropGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#dc2626;stop-opacity:1"/>
+                            <stop offset="100%" style="stop-color:#991b1b;stop-opacity:1"/>
+                        </linearGradient></defs>
+                        <path d="M0,-25 C-15,-10 -20,5 -20,15 C-20,30 -10,40 0,40 C10,40 20,30 20,15 C20,5 15,-10 0,-25 Z" fill="url(#dropGradient)"/>
+                        <g opacity="0.8">
+                            <line x1="-25" y1="5" x2="25" y2="5" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="-25" y1="15" x2="25" y2="15" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="-25" y1="25" x2="25" y2="25" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                        </g>
+                        <circle cx="0" cy="15" r="5" fill="white" opacity="0">
+                            <animate attributeName="r" values="5;15;5" dur="3s" repeatCount="indefinite"/>
+                            <animate attributeName="opacity" values="0.6;0;0.6" dur="3s" repeatCount="indefinite"/>
+                        </circle>
+                    </svg>
+                </div>
+                <div class="info">
+                    <h2>HaemoTrace</h2>
+                    <p>Transfusions-Dokumentationssystem</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #450a0a, #7f1d1d)">
+                <div class="back-icon">&#129656;</div>
+                <div class="back-name">HaemoTrace</div>
+            </div>
+        </a>
+        <a class="card" href="/anythingllm/">
+            <div class="card-front">
+                <div class="icon">&#128172;</div>
+                <div class="info">
+                    <h2>AnythingLLM</h2>
+                    <p>Dokument-Chat &amp; RAG</p>
+                </div>
+            </div>
+            <div class="card-back" style="background: linear-gradient(135deg, #1e3a5f, #1e40af)">
+                <div class="back-icon">&#128172;</div>
+                <div class="back-name">AnythingLLM</div>
+            </div>
+        </a>
+    </div>
+    <footer>Narnia Mini-PC</footer>
+    <script>
+        document.querySelectorAll('a.card').forEach(card => {
+            card.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = this.href;
+
+                // Position im Viewport erfassen
+                const rect = this.getBoundingClientRect();
+                const cardCenterX = rect.left + rect.width / 2;
+                const cardCenterY = rect.top + rect.height / 2;
+                const vpCenterX = window.innerWidth / 2;
+                const vpCenterY = window.innerHeight / 2;
+
+                // Karte fixieren an aktueller Position
+                this.style.position = 'fixed';
+                this.style.left = rect.left + 'px';
+                this.style.top = rect.top + 'px';
+                this.style.width = rect.width + 'px';
+                this.style.height = rect.height + 'px';
+                this.style.margin = '0';
+
+                // Verschiebung zur Mitte
+                this.style.setProperty('--fly-dx', (vpCenterX - cardCenterX) + 'px');
+                this.style.setProperty('--fly-dy', (vpCenterY - cardCenterY) + 'px');
+
+                // Skalierung: Viewport fuellen ohne Ueberlauf
+                const padding = 60;
+                const scaleX = (window.innerWidth - padding) / rect.width;
+                const scaleY = (window.innerHeight - padding) / rect.height;
+                this.style.setProperty('--fly-scale', Math.min(scaleX, scaleY));
+
+                // Alles andere ausblenden
+                document.body.classList.add('launching');
+                document.querySelectorAll('a.card').forEach(other => {
+                    if (other !== this) other.classList.add('receding');
+                });
+
+                // Flip-Animation starten
+                requestAnimationFrame(() => {
+                    this.classList.add('flying');
+                });
+
+                // Dienst im neuen Tab oeffnen wenn Animation fertig
+                setTimeout(() => {
+                    window.open(target, '_blank');
+                    // Animation zuruecksetzen
+                    setTimeout(() => {
+                        document.body.classList.remove('launching');
+                        document.querySelectorAll('a.card').forEach(c => {
+                            c.style.cssText = '';
+                            c.classList.remove('flying', 'receding');
+                        });
+                    }, 300);
+                }, 1750);
+            });
+        });
+
+        // Back-Button: bfcache Reset
+        window.addEventListener('pageshow', function(e) {
+            if (e.persisted) {
+                document.body.classList.remove('launching');
+                document.querySelectorAll('a.card').forEach(c => {
+                    c.style.cssText = '';
+                    c.classList.remove('flying', 'receding');
+                });
+            }
+        });
+    </script>
+</body>
+</html>
