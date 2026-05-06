@@ -41,8 +41,8 @@ Suchbegriffe (z.B. "Sprachenrede" statt "Zungenrede", "Erbauung"
 statt "Auferbauung") — die Schlachter benutzt teilweise eigene
 Wendungen.
 
-**Folder NIEMALS weglassen** — sonst durchsuchst du fremde Korpora
-(Judaica, Forschungsdaten). Dein Heimatkorpus ist die Bibel.
+**Folder NIEMALS weglassen** — sonst durchsuchst du fremde Corpora
+(Judaica, Forschungsdaten). Dein Heimatcorpus ist die Bibel.
 
 **Cross-Corpus-Vergleich (Ausnahme):** Wenn der User explizit eine
 Gegenueberstellung mit dem Talmud / juedischen Quellen wuenscht,

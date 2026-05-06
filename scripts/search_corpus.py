@@ -102,7 +102,7 @@ def literal_search(
         }
         if where is not None:
             kwargs["where"] = where
-        data = store._collection.get(**kwargs)
+        data = store.collection.get(**kwargs)
         docs = data.get("documents") or []
         metas = data.get("metadatas") or []
         if not docs:

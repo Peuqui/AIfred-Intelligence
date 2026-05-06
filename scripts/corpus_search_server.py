@@ -65,7 +65,7 @@ def health() -> dict[str, Any]:
     s = get_document_store()
     if s is None:
         return {"ok": False, "reason": "DocumentStore not connected"}
-    return {"ok": True, "total_chunks": s._collection.count()}
+    return {"ok": True, "total_chunks": s.collection.count()}
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ def folders() -> dict[str, Any]:
     page = 5000
     offset = 0
     while True:
-        data = s._collection.get(include=["metadatas"], limit=page, offset=offset)
+        data = s.collection.get(include=["metadatas"], limit=page, offset=offset)
         metas = data.get("metadatas") or []
         if not metas:
             break
@@ -105,7 +105,7 @@ def documents() -> dict[str, Any]:
     page = 5000
     offset = 0
     while True:
-        data = s._collection.get(include=["metadatas"], limit=page, offset=offset)
+        data = s.collection.get(include=["metadatas"], limit=page, offset=offset)
         metas = data.get("metadatas") or []
         if not metas:
             break
@@ -139,7 +139,7 @@ def chunks(
     """Return chunks of a single document, ordered by chunk_index."""
     s = _store()
     fname = unquote(filename)
-    data = s._collection.get(
+    data = s.collection.get(
         where={"filename": fname},
         include=["documents", "metadatas"],
     )
@@ -285,7 +285,7 @@ def delete_folder(folder: str, delete_files: bool = False) -> dict[str, Any]:
     """
     s = _store()
     target_folder = unquote(folder).strip("/")
-    data = s._collection.get(
+    data = s.collection.get(
         where={"folder": target_folder},
         include=["metadatas"],
     )
@@ -399,7 +399,7 @@ def search(req: SearchRequest) -> dict[str, Any]:
         }
         if where is not None:
             kwargs["where"] = where
-        data = s._collection.get(**kwargs)
+        data = s.collection.get(**kwargs)
         docs = data.get("documents") or []
         metas = data.get("metadatas") or []
         if not docs:
