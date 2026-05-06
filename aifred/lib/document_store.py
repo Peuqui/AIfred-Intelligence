@@ -656,14 +656,26 @@ class DocumentStore:
         return hits
 
     def list_documents(self) -> list[dict[str, Any]]:
-        """List all unique documents with metadata."""
+        """List all unique documents with metadata.
+
+        Pages through metadatas (5k per call) — Chroma's SQLite backend
+        hits "too many SQL variables" around 32k rows otherwise. Same
+        pattern as ``_get_known_folders``.
+        """
         if self._collection.count() == 0:
             return []
 
-        all_data = self._collection.get()
         docs: dict[str, dict[str, Any]] = {}
-        if all_data and all_data["metadatas"]:
-            for meta in all_data["metadatas"]:
+        page_size = 5000
+        offset = 0
+        while True:
+            data = self._collection.get(
+                include=["metadatas"], limit=page_size, offset=offset
+            )
+            metas = data.get("metadatas") or []
+            if not metas:
+                break
+            for meta in metas:
                 if not isinstance(meta, dict):
                     continue
                 fname = str(meta.get("filename", ""))
@@ -673,6 +685,9 @@ class DocumentStore:
                         "total_chunks": meta.get("total_chunks", 0),
                         "upload_date": meta.get("upload_date", ""),
                     }
+            if len(metas) < page_size:
+                break
+            offset += page_size
 
         return list(docs.values())
 
