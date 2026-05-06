@@ -215,7 +215,19 @@ class AudioPlayerMixin(rx.State, mixin=True):
     audio_settings_help_open: bool = False
 
     @rx.event
-    def open_audio_settings(self) -> None:
+    def open_audio_settings(self):
+        """Navigate to audio-settings page (formerly: open modal).
+
+        State-Init passiert in ``on_load_audio_settings``, das Reflex
+        beim Page-Load der Route ``/audio-settings`` aufruft.
+        """
+        return rx.redirect("/audio-settings")
+
+    @rx.event
+    def on_load_audio_settings(self) -> None:
+        """Page-Load-Hook fuer ``/audio-settings`` — fuehrt das Settings-
+        State-Setup aus (frueher in open_audio_settings vor dem Multi-
+        Route-Split)."""
         self._refresh_audio_sources_view()
         self.audio_settings_status = ""
         self.audio_settings_busy = ""
@@ -270,8 +282,10 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.audio_settings_help_open = not self.audio_settings_help_open
 
     @rx.event
-    def close_audio_settings(self) -> None:
+    def close_audio_settings(self):
+        """Close audio settings — navigate back to chat."""
         self.audio_settings_open = False
+        return rx.redirect("/")
 
     @rx.event(background=True)
     async def audio_index_rebuild_source(self, source: str, force: bool = False):

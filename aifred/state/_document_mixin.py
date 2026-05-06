@@ -40,18 +40,27 @@ class DocumentMixin(rx.State, mixin=True):
     # MODAL OPEN / CLOSE
     # ================================================================
 
-    def open_document_manager(self) -> None:
-        """Open the document manager modal and refresh file list."""
+    def open_document_manager(self):
+        """Navigate to document-manager page (formerly: open modal).
+
+        State-Init passiert in ``on_load_document_manager``.
+        """
+        return rx.redirect("/documents")
+
+    def on_load_document_manager(self) -> None:
+        """Page-Load-Hook fuer ``/documents`` — Setup-Logic die frueher
+        in open_document_manager lag (vor dem Multi-Route-Split)."""
         self.doc_current_folder = ""
         self._refresh_file_list()
         self.document_manager_open = True
 
-    def close_document_manager(self) -> None:
-        """Close the document manager modal."""
+    def close_document_manager(self):
+        """Close document manager — reset state + navigate back to chat."""
         self.document_manager_open = False
         self.document_preview_filename = ""
         self.document_preview_content = ""
         self.doc_delete_target = ""
+        return rx.redirect("/")
 
     # ================================================================
     # FILE EXPLORER — BROWSE

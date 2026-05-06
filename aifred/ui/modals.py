@@ -968,11 +968,13 @@ def _doc_delete_dialog() -> rx.Component:
     )
 
 
-def document_manager_modal() -> rx.Component:
-    """File explorer modal for document management."""
-    return rx.cond(
-        AIState.document_manager_open,
-        rx.box(
+def document_manager_page() -> rx.Component:
+    """Document-Manager Vollbild-Page (vormals document_manager_modal).
+
+    Lebt seit dem Multi-Route-Split auf der Route ``/documents`` —
+    automatisches Code-Splitting durch Reflex+React-Router-7.
+    """
+    return rx.box(
             # Backdrop
             rx.box(
                 position="absolute", top="0", left="0",
@@ -1232,7 +1234,6 @@ def document_manager_modal() -> rx.Component:
             position="fixed", top="0", left="0",
             width="100vw", height="100vh", z_index="1000",
             display="flex", justify_content="center", align_items="center",
-        ),
     )
 
 

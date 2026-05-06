@@ -22,7 +22,7 @@ from .ui.helpers import t, left_column  # noqa: F401
 from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, research_help_modal, reasoning_thinking_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
-    document_manager_modal, channel_credentials_modal, audit_log_modal,
+    document_manager_page, channel_credentials_modal, audit_log_modal,
     bundle_export_modal, bundle_import_modal,
 )
 from .ui.chat_display import (  # noqa: F401
@@ -32,7 +32,7 @@ from .ui.input_sections import debug_console  # noqa: F401
 from .ui.settings_accordion import settings_accordion  # noqa: F401
 from .ui.agent_editor import agent_editor_page  # noqa: F401
 from .ui.file_picker import file_picker_modal  # noqa: F401
-from .ui.audio_settings import audio_settings_modal, audio_help_modal  # noqa: F401
+from .ui.audio_settings import audio_settings_page, audio_help_modal  # noqa: F401
 
 
 def _audio_player_element() -> rx.Component:
@@ -753,8 +753,9 @@ console.log('✂️ Crop handler loaded');
         # als eigene Page (Code-Splitting fuer ~258 KB JSX). Nicht mehr
         # hier eingebettet — Buttons im Chat triggern jetzt rx.redirect.
 
-        # Document Manager Modal
-        document_manager_modal(),
+        # Document-Manager: lebt seit dem Multi-Route-Split auf /documents
+        # als eigene Page (Code-Splitting fuer ~40 KB JSX). Buttons triggern
+        # rx.redirect("/documents") statt Modal-Open.
 
         # Email Credentials Modal (Message Hub)
         channel_credentials_modal(),
@@ -767,10 +768,10 @@ console.log('✂️ Crop handler loaded');
         # Generic file/folder picker (used by multiple callers)
         file_picker_modal(),
 
-        # Audio-Player plugin settings (sources + index)
-        audio_settings_modal(),
-        # Audio-Help (separate modal, lightbulb in settings header)
-        audio_help_modal(),
+        # Audio-Player plugin settings (sources + index) lebt seit dem
+        # Multi-Route-Split auf /audio-settings als eigene Page (Code-
+        # Splitting fuer ~46 KB JSX). Audio-Help-Modal mit ausgelagert.
+        # Buttons im Plugin-Tab triggern jetzt rx.redirect statt Modal-Open.
 
         # Hidden element to trigger camera detection on mount
         rx.box(
@@ -1062,6 +1063,26 @@ console.log('✂️ Crop handler loaded');
 )
 def agent_editor_route() -> rx.Component:
     return agent_editor_page()
+
+
+@rx.page(
+    route="/audio-settings",
+    on_load=AIState.on_load_audio_settings,
+    title="Audio Settings — AIfred",
+)
+def audio_settings_route() -> rx.Component:
+    # audio_help_modal bleibt ein Overlay-Modal innerhalb der Audio-Settings-
+    # Page (rx.cond auf audio_settings_help_open) — kommt mit auf die Route.
+    return rx.fragment(audio_settings_page(), audio_help_modal())
+
+
+@rx.page(
+    route="/documents",
+    on_load=AIState.on_load_document_manager,
+    title="Documents — AIfred",
+)
+def document_manager_route() -> rx.Component:
+    return document_manager_page()
 
 
 # Create app (API routes are mounted separately below)
