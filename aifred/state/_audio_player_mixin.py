@@ -283,14 +283,20 @@ class AudioPlayerMixin(rx.State, mixin=True):
 
     @rx.event
     def close_audio_settings(self):
-        """Close audio settings — back to agent editor.
+        """Close audio settings — back to Plugins-Tab im Agent-Editor.
 
         Audio-Settings sind aktuell nur via Plugin-Tab im Agent-Editor
         erreichbar (Zahnrad-Icon neben audio_player). Beim Schliessen
-        kehrt der User natuerlich dort hin zurueck — direkter Redirect
-        zu ``/`` waere unintuitiv (Editor verschwindet).
+        kehrt der User direkt in genau diesen Tab zurueck — nicht in
+        den Default-Config-Tab. Dafuer:
+
+        1. ``agent_editor_mode = "plugins"`` setzt den aktiven Tab.
+        2. Redirect zu ``/agent-editor``. Der ``on_load``-Hook dort
+           skippt seinen Setup wegen ``_agent_editor_needs_init=False``,
+           bewahrt also unseren Tab-Mode.
         """
         self.audio_settings_open = False
+        self.agent_editor_mode = "plugins"
         return rx.redirect("/agent-editor")
 
     @rx.event(background=True)
