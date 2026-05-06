@@ -457,11 +457,15 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
     )
 
 
-def audio_settings_modal() -> rx.Component:
-    """The audio plugin settings modal — opened via gear icon in plugin tab."""
-    return rx.cond(
-        AIState.audio_settings_open,
-        rx.box(
+def audio_settings_page() -> rx.Component:
+    """Audio-Plugin-Settings-Page (vormals audio_settings_modal).
+
+    Wird auf der Route ``/audio-settings`` als eigene Page gerendert —
+    automatisches Code-Splitting durch Reflex+React-Router-7 reduziert
+    die Initial-Bundle-Groesse weiter (analog zum Agent-Editor-Split).
+    Visuell sieht die Page wie das alte Modal aus (Vollbild-Overlay).
+    """
+    return rx.box(
             rx.box(
                 position="absolute",
                 top="0",
@@ -593,6 +597,4 @@ def audio_settings_modal() -> rx.Component:
             align_items="center",
             justify_content="center",
             z_index="1200",
-        ),
-        rx.fragment(),
     )
