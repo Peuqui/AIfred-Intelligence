@@ -1344,14 +1344,15 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
     )
 
 
-def channel_credentials_modal() -> rx.Component:
-    """Generic modal dialog for entering channel credentials.
+def channel_credentials_page() -> rx.Component:
+    """Channel-Credentials Vollbild-Page (vormals channel_credentials_modal).
 
-    Renders fields dynamically from AIState.channel_credential_fields.
+    Lebt seit dem Multi-Route-Split auf der Route ``/credentials`` —
+    automatisches Code-Splitting durch Reflex+React-Router-7. Felder
+    kommen dynamisch aus ``AIState.channel_credential_fields`` (vorher
+    in open_channel_credentials gefuellt).
     """
-    return rx.cond(
-        AIState.channel_credentials_modal_open,
-        rx.box(
+    return rx.box(
             # Backdrop
             rx.box(
                 on_click=rx.stop_propagation,
@@ -1550,7 +1551,6 @@ def channel_credentials_modal() -> rx.Component:
             display="flex",
             justify_content="center",
             align_items="center",
-        ),
     )
 
 
