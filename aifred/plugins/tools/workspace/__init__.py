@@ -470,11 +470,50 @@ class WorkspacePlugin:
                 return json.dumps({"error": result.detail})
             hits = result.metadata.get("results", [])
             if not hits:
-                msg = (
-                    f"No matching documents found in folder '{folder}'."
-                    if folder else "No matching documents found."
-                )
-                return json.dumps({"results": [], "message": msg})
+                # Erst checken ob die Collection überhaupt was enthält —
+                # bei leerer DB ist jeder Search-Call hoffnungslos und
+                # der LLM würde sonst in einer Suchbegriff-Schleife landen.
+                # Dem Aufrufer sofort signalisieren: hör auf zu suchen,
+                # ruf list_indexed() auf oder index erst.
+                from ....lib.file_manager import list_indexed
+                idx_result = list_indexed()
+                indexed_count = len(idx_result.metadata.get("documents", []))
+                if indexed_count == 0:
+                    return json.dumps({
+                        "results": [],
+                        "message": (
+                            "STOP — the document index is EMPTY (0 documents). "
+                            "Searching with different queries will NOT help. "
+                            "Either index documents first (index_document) or "
+                            "tell the user that no knowledge base is available."
+                        ),
+                        "indexed_count": 0,
+                    })
+                # Folder explizit nicht repräsentiert → klare Liste was es gibt
+                if folder:
+                    folders_in_index = sorted({
+                        d.get("folder", "") for d in idx_result.metadata.get("documents", [])
+                    })
+                    return json.dumps({
+                        "results": [],
+                        "message": (
+                            f"No matches in folder '{folder}'. The index has "
+                            f"{indexed_count} documents in these folders: "
+                            f"{folders_in_index}. Try a different folder or "
+                            f"omit the parameter to search the whole index."
+                        ),
+                        "indexed_count": indexed_count,
+                        "available_folders": folders_in_index,
+                    })
+                return json.dumps({
+                    "results": [],
+                    "message": (
+                        f"No matches for this query. The index has "
+                        f"{indexed_count} documents — try different keywords "
+                        f"or list_indexed() to see what's available."
+                    ),
+                    "indexed_count": indexed_count,
+                })
             results = [
                 {
                     "filename": hit["filename"],
