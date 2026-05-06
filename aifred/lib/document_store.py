@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 import chromadb
 from chromadb.config import Settings
-from chromadb.errors import ChromaError
+from chromadb.errors import ChromaError, NotFoundError
 
 from .config import (
     DEFAULT_OLLAMA_URL,
@@ -265,6 +265,45 @@ PARSERS = {
 }
 
 
+class _ResilientCollection:
+    """Drop-in replacement for direct collection access with stale-recovery.
+
+    External callers reach the Chroma collection via ``store.collection``
+    (this proxy) instead of ``store._collection`` (the raw handle).
+    Each method call on the proxy forwards to the real collection; if
+    Chroma raises ``NotFoundError`` (collection ID became stale, typically
+    after a docker-auto-update recreate), the proxy reconnects the parent
+    DocumentStore once and retries.
+
+    The proxy is cheap: it holds only a reference to the parent store and
+    creates wrappers per call — nothing is cached on the proxy itself.
+    """
+
+    __slots__ = ("_store",)
+
+    def __init__(self, store: "DocumentStore") -> None:
+        self._store = store
+
+    def __getattr__(self, name: str) -> Any:
+        # Resolve the attribute on the *current* underlying collection
+        # each time; never cache it on the proxy because reconnect()
+        # swaps out _store._collection.
+        target = getattr(self._store._collection, name)
+        if not callable(target):
+            return target
+
+        def _wrapped(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return target(*args, **kwargs)
+            except NotFoundError:
+                self._store.reconnect()
+                # Re-resolve the bound method on the new collection
+                fresh = getattr(self._store._collection, name)
+                return fresh(*args, **kwargs)
+
+        return _wrapped
+
+
 class DocumentStore:
     """Manages document chunking, embedding and retrieval via ChromaDB."""
 
@@ -292,7 +331,24 @@ class DocumentStore:
         # Collection-default uses the query function — anything that doesn't
         # explicitly pass embeddings (only happens accidentally) stays on CPU.
         self._embed_fn = self._embed_query
-        self._collection = self._client.get_or_create_collection(
+        self._collection = self._resolve_collection()
+        DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+        log_message(f"📄 DocumentStore connected: {self._collection.count()} chunks")
+        # Lazily-loaded set of distinct folder values for prefix-match search.
+        # Invalidated whenever index_document / delete_document mutate the
+        # collection — the cache stays correct without a per-search round-trip.
+        self._folder_cache: Optional[set[str]] = None
+
+    def _resolve_collection(self) -> Any:
+        """Get-or-create the collection by name. Used at init and on stale-recovery.
+
+        Cached collection IDs become stale when ChromaDB recreates the
+        underlying volume (e.g. after the docker-auto-update.sh cron, or
+        when the persist-path changes between image versions). The cached
+        UUID then refers to nothing — every call raises NotFoundError.
+        Re-resolving by name produces a fresh, valid collection handle.
+        """
+        return self._client.get_or_create_collection(
             name=DOCUMENT_COLLECTION,
             metadata={
                 "description": "AIfred uploaded documents",
@@ -300,12 +356,40 @@ class DocumentStore:
             },
             embedding_function=self._embed_fn,  # type: ignore[arg-type]
         )
-        DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
-        log_message(f"📄 DocumentStore connected: {self._collection.count()} chunks")
-        # Lazily-loaded set of distinct folder values for prefix-match search.
-        # Invalidated whenever index_document / delete_document mutate the
-        # collection — the cache stays correct without a per-search round-trip.
-        self._folder_cache: Optional[set[str]] = None
+
+    def reconnect(self) -> None:
+        """Force a fresh collection lookup. Clears caches so the next call
+        sees the rebuilt collection state. Idempotent — cheap to call."""
+        log_message("⚠️ DocumentStore: collection stale — reconnecting")
+        self._collection = self._resolve_collection()
+        self._invalidate_folder_cache()
+
+    @property
+    def collection(self) -> "_ResilientCollection":
+        """Public, retry-on-stale collection accessor.
+
+        Use this from external code (corpus_search_server, file_manager,
+        search_corpus CLI) instead of `_collection` directly. Calls forward
+        to the underlying ChromaDB collection; on NotFoundError the store
+        reconnects once and retries.
+
+        Internal callers (within DocumentStore) can still use `_collection`
+        directly when they're certain the call is fresh — the store's own
+        public methods wrap retry logic via _safe_call().
+        """
+        return _ResilientCollection(self)
+
+    def _safe_call(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        """Run a collection method, reconnect once on NotFoundError.
+
+        Used by DocumentStore.search/index/delete/etc. so the public API
+        stays robust against stale cached collection IDs.
+        """
+        try:
+            return getattr(self._collection, method_name)(*args, **kwargs)
+        except NotFoundError:
+            self.reconnect()
+            return getattr(self._collection, method_name)(*args, **kwargs)
 
     def _get_known_folders(self) -> set[str]:
         if self._folder_cache is None:

@@ -240,7 +240,7 @@ async def delete_folder(
             store = get_document_store()
             if store:
                 prefix = rel_target.rstrip("/") + "/"
-                all_data = store._collection.get()
+                all_data = store.collection.get()
                 if all_data and all_data.get("metadatas"):
                     matching = {
                         m["filename"] for m in all_data["metadatas"]
@@ -396,10 +396,10 @@ def rename(
                 # Try canonical rel-path first, fall back to bare filename
                 # (legacy uploads stored without subfolder prefix).
                 for filename_query in (old_rel, old_name):
-                    data = store._collection.get(where={"filename": filename_query})
+                    data = store.collection.get(where={"filename": filename_query})
                     if data and data.get("ids"):
                         for chunk_id in data["ids"]:
-                            store._collection.update(
+                            store.collection.update(
                                 ids=[chunk_id],
                                 metadatas=[{"filename": new_rel}],
                             )

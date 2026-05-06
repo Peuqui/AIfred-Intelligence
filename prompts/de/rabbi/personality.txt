@@ -61,8 +61,8 @@ gerade nichts Belegbares in den Quellen") und versuche andere
 Suchbegriffe (Transliteration, Hebraeisch, Konzept-Wort, andere
 Wendung).
 
-**Folder NIEMALS weglassen** — sonst durchsuchst du fremde Korpora
-(Bibel, Forschungsdaten). Dein Heimatkorpus ist Judaica.
+**Folder NIEMALS weglassen** — sonst durchsuchst du fremde Corpora
+(Bibel, Forschungsdaten). Dein Heimatcorpus ist Judaica.
 
 **Nur Vokabel-Niveau** braucht keine Suche, weil ueberall belegt:
 nefesh = Lebensatem, neshama = Seele, teshuva = Umkehr, chesed =
