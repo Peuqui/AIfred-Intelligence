@@ -461,19 +461,23 @@ async def search_index(
     query: str,
     n_results: int = 5,
     folder: Optional[str] = None,
+    page: int = 1,
 ) -> FileOpResult:
     """Semantic search over indexed documents.
 
     Args:
         query: Search query.
-        n_results: Max number of similarity hits (capped at
-                   DOCUMENT_SEARCH_MAX_RESULTS). Each hit may bring
+        n_results: Page size — number of similarity hits per page (capped
+                   at DOCUMENT_SEARCH_MAX_RESULTS). Each hit may bring
                    along ±DOCUMENT_SEARCH_NEIGHBOR_WINDOW neighbor chunks
                    so the model sees the full surrounding context.
         folder: If set, restrict to this folder. Recursively includes
                 sub-folders via prefix match — ``"bibel"`` covers
                 ``"bibel/Schlachter"`` AND ``"bibel/GuteNachricht"``;
                 ``"bibel/Schlachter"`` stays narrow. ``None`` = whole store.
+        page: 1-based page number for pagination. ``page=2`` skips the
+              first ``n_results`` similarity hits — same query, deeper
+              into the ranking.
     """
     from .config import DOCUMENT_SEARCH_MAX_RESULTS
     from .document_store import get_document_store
@@ -481,10 +485,17 @@ async def search_index(
     if not store:
         return FileOpResult(False, "Document store not available", {"results": []})
 
-    hits = await store.search(
-        query, n_results=min(n_results, DOCUMENT_SEARCH_MAX_RESULTS), folder=folder
+    hits, has_more = await store.search(
+        query,
+        n_results=min(n_results, DOCUMENT_SEARCH_MAX_RESULTS),
+        folder=folder,
+        page=page,
     )
-    return FileOpResult(True, f"{len(hits)} hits", {"results": hits})
+    return FileOpResult(
+        True,
+        f"{len(hits)} hits (page {page})",
+        {"results": hits, "has_more": has_more, "page": page},
+    )
 
 
 def list_indexed() -> FileOpResult:

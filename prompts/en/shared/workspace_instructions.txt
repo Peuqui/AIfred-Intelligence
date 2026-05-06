@@ -23,3 +23,12 @@ IMPORTANT:
 - Before editing a file: ALWAYS read_file first to see the content
 - For large text files (>100 KB): ALWAYS use line_start/line_end!
 - After editing: Ask if the file should be indexed
+
+SEMANTIC SEARCH — paginate, don't reformulate:
+When a broad topic needs more material than the first search_documents call
+returns, **paginate** with the SAME query and page=2, page=3, ... — do NOT
+reword the query. Semantic search is deterministic for the same query;
+synonyms or rearranged wording often land in the same vector region and
+return overlapping chunks. Pagination instead moves deeper into the ranking
+and surfaces new material. Watch has_more in the response — true means
+page=N+1 is worth fetching.

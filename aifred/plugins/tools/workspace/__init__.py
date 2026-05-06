@@ -463,13 +463,37 @@ class WorkspacePlugin:
             query: str,
             n_results: int = 5,
             folder: Optional[str] = None,
+            page: int = 1,
         ) -> str:
-            """Semantic search in ChromaDB, optionally restricted to a folder."""
-            result = await fm.search_index(query, n_results=n_results, folder=folder)
+            """Semantic search in ChromaDB, optionally restricted to a folder.
+
+            ``page`` enables pagination: page=2 returns hits ``n_results+1``
+            through ``2*n_results`` of the same similarity ranking. Use this
+            when the topic is broad (many relevant passages exist) and the
+            first page didn't surface enough material.
+            """
+            page = max(1, int(page or 1))
+            result = await fm.search_index(
+                query, n_results=n_results, folder=folder, page=page
+            )
             if not result.success:
                 return json.dumps({"error": result.detail})
             hits = result.metadata.get("results", [])
+            has_more = bool(result.metadata.get("has_more"))
             if not hits:
+                # Bei page > 1 ist das Ende der Pagination — kein Hinweis
+                # auf leeren Index, sondern nur "weiter gibt's nichts mehr".
+                if page > 1:
+                    return json.dumps({
+                        "results": [],
+                        "page": page,
+                        "has_more": False,
+                        "message": (
+                            f"No more results on page {page}. The previous "
+                            f"page(s) covered the available similarity hits "
+                            f"for this query — try refining the query."
+                        ),
+                    })
                 # Erst checken ob die Collection überhaupt was enthält —
                 # bei leerer DB ist jeder Search-Call hoffnungslos und
                 # der LLM würde sonst in einer Suchbegriff-Schleife landen.
@@ -526,7 +550,18 @@ class WorkspacePlugin:
                 }
                 for hit in hits
             ]
-            return json.dumps({"total_results": len(results), "results": results}, ensure_ascii=False)
+            payload: dict[str, Any] = {
+                "total_results": len(results),
+                "page": page,
+                "has_more": has_more,
+                "results": results,
+            }
+            if has_more:
+                payload["next_page_hint"] = (
+                    f"More similarity hits available — call with page={page + 1} "
+                    f"and the same query to get the next batch."
+                )
+            return json.dumps(payload, ensure_ascii=False)
 
         tools.append(Tool(
             name="search_documents",
@@ -543,7 +578,19 @@ class WorkspacePlugin:
                 "genuinely don't know which corpus is relevant. "
                 "Each similarity hit also returns its immediate neighbor chunks "
                 "(marked context_neighbor=true) so you see the full surrounding "
-                "passage; if a chunk ends mid-sentence, the next chunk is included."
+                "passage; if a chunk ends mid-sentence, the next chunk is included. "
+                "Results are MMR-diversified by default — instead of returning "
+                "many near-duplicate chunks from one dominant document, the result "
+                "spreads across files / vector regions automatically. "
+                "PAGINATION (IMPORTANT): if the topic is broad and the first "
+                "results don't cover everything, call again with the SAME query "
+                "and page=2, page=3, ... — do NOT reformulate the query into "
+                "synonyms or rearranged wording. Semantic search is deterministic "
+                "for the same query, but reformulations often land in nearly the "
+                "same vector region and return overlapping chunks; pagination "
+                "moves you deeper into the diversified ranking and surfaces new "
+                "material. Watch has_more in the response — true means another "
+                "page is worth fetching."
             ),
             parameters={
                 "type": "object",
@@ -554,7 +601,7 @@ class WorkspacePlugin:
                     },
                     "n_results": {
                         "type": "integer",
-                        "description": f"Number of results (default: 5, max: {DOCUMENT_SEARCH_MAX_RESULTS})",
+                        "description": f"Page size — number of similarity hits per page (default: 5, max: {DOCUMENT_SEARCH_MAX_RESULTS})",
                         "default": 5,
                     },
                     "folder": {
@@ -567,6 +614,17 @@ class WorkspacePlugin:
                             "'bibel/Schlachter' to narrow to one translation. "
                             "Omit to search across all indexed content."
                         ),
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": (
+                            "1-based page number for pagination. page=1 (default) "
+                            "returns the top similarity hits, page=2 the next batch "
+                            "deeper into the ranking, etc. Use the SAME query when "
+                            "paginating. Watch has_more in the response to decide "
+                            "whether another page is worth fetching."
+                        ),
+                        "default": 1,
                     },
                 },
                 "required": ["query"],
