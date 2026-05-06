@@ -6,15 +6,24 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Persistent storage on host filesystem
-      # Data survives container restarts and is portable
-      - ../aifred_vector_cache:/chroma/chroma
+      # Persistent storage on host filesystem.
+      # ACHTUNG: chromadb/chroma:latest hat den Default-Persist-Path im Mai
+      # 2026 von /chroma/chroma auf /data geändert. Mount muss zum aktuellen
+      # Default passen, sonst persistiert der Container nach /data IM Container
+      # und alles geht beim nächsten Image-Recreate (docker-auto-update.sh
+      # 03:00 Cron) verloren.
+      - ../aifred_vector_cache:/data
     environment:
       # Disable telemetry for privacy
       - ANONYMIZED_TELEMETRY=False
-      # Allow database reset (for development)
-      - ALLOW_RESET=True
-      # Enable persistence
+      # ALLOW_RESET=True erlaubt destruktive client.reset() — gefährlich für
+      # produktive User-Daten. False schaltet das Tool chromadb_clear() ab,
+      # falls man je versehentlich darauf klickt. Auf True nur stellen wenn
+      # man bewusst eine Test-Instanz möchte.
+      - ALLOW_RESET=False
+      # Persist-Path explizit setzen — defensiv gegen weitere Default-Drifts
+      # in zukünftigen Image-Versionen. Muss zum Volume-Mount-Ziel passen.
+      - PERSIST_DIRECTORY=/data
       - IS_PERSISTENT=True
     restart: unless-stopped
     healthcheck:
