@@ -7,10 +7,10 @@ console.log('🔧 custom.js loaded');
 // MEDIARECORDER IMPLEMENTATION FOR LIVE AUDIO RECORDING
 // ============================================================
 
-let mediaRecorder = null;
-let audioChunks = [];
-let isRecording = false;
-let audioStream = null;
+var mediaRecorder = null;
+var audioChunks = [];
+var isRecording = false;
+var audioStream = null;
 
 // Audio feedback function - plays beep sounds
 function playBeep(frequency = 800, duration = 100) {
@@ -194,8 +194,8 @@ function updateRecordingButton(recording) {
 // ============================================================
 
 // Track currently playing audio to allow stopping
-let currentTtsAudio = null;
-let lastPlayedTtsUrl = '';
+var currentTtsAudio = null;
+var lastPlayedTtsUrl = '';
 
 /**
  * Play TTS audio from URL - uses the VISIBLE HTML5 player for full user control
@@ -315,7 +315,7 @@ function playTtsAudio() {
 // ============================================================
 
 // Store current playback rate (persisted via backend)
-let ttsPlaybackRate = 1.0;  // Default (speed via Agent Settings)
+var ttsPlaybackRate = 1.0;  // Default (speed via Agent Settings) — var statt let: idempotent bei Re-Load
 
 /**
  * Set TTS playback rate - called from Python backend via rx.call_script()
@@ -395,11 +395,11 @@ function playBubbleAudioFromButton(button) {
 }
 
 // Bubble audio playback state
-let bubbleAudioUrls = [];
-let bubbleAudioIndex = 0;
-let bubbleAudioPlaying = false;
-let bubbleAudioActiveBtn = null;  // Button that triggered current playback
-let bubbleAudioElement = null;    // Current Audio element (for stop when player is hidden)
+var bubbleAudioUrls = [];
+var bubbleAudioIndex = 0;
+var bubbleAudioPlaying = false;
+var bubbleAudioActiveBtn = null;  // Button that triggered current playback
+var bubbleAudioElement = null;    // Current Audio element (for stop when player is hidden)
 
 /**
  * Play all audio URLs from a bubble sequentially
@@ -650,14 +650,14 @@ window.initBubbleRegenerateButtons = initBubbleRegenerateButtons;
 // ============================================================
 
 // Queue state
-let ttsQueue = [];  // Array of audio URLs to play
-let ttsQueuePlaying = false;  // Is queue currently playing?
-let ttsQueueCurrentIndex = 0;  // Current playback position
-let ttsQueueVersion = 0;  // Track version to detect updates from backend
+var ttsQueue = [];  // Array of audio URLs to play
+var ttsQueuePlaying = false;  // Is queue currently playing?
+var ttsQueueCurrentIndex = 0;  // Current playback position
+var ttsQueueVersion = 0;  // Track version to detect updates from backend
 
 // Blob prefetch: download upcoming chunks into memory for instant src switching
-let ttsBlobCache = {};  // originalURL → blobURL mapping
-let ttsPrefetchInFlight = new Set();  // URLs currently being fetched
+var ttsBlobCache = {};  // originalURL → blobURL mapping
+var ttsPrefetchInFlight = new Set();  // URLs currently being fetched
 
 /**
  * Update the TTS queue from backend state.
@@ -684,24 +684,12 @@ function updateTtsQueue(queue, version) {
     const prevLength = ttsQueue.length;
     ttsQueue = [...queue];
 
-    // Auto-start playback if there's anything queued that we haven't
-    // played yet AND we're not currently playing.
-    //
-    // The trigger condition is intentionally NOT "queue grew" — after a
-    // "Playback complete" the index sits at the previous queue length,
-    // and a new server-pushed chunk extends the queue beyond that. We
-    // need to resume regardless of whether `prevLength` is older state
-    // (typical) or whether we missed a chunk between socket reconnects.
-    //
-    // We also drop the `!document.hidden` check: the browser handles
-    // autoplay restrictions itself; gating playback in JS just hides
-    // the symptom and leaves the queue stuck when the tab returns.
+    // Auto-start playback if new items arrived and not already playing
     const queueElement = document.getElementById('tts-queue-data');
     const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
-    const hasUnplayed = ttsQueueCurrentIndex < ttsQueue.length;
 
-    if (hasUnplayed && !ttsQueuePlaying && autoplayEnabled) {
-        console.log(`🔊 TTS Queue: Resuming playback at chunk ${ttsQueueCurrentIndex + 1}/${ttsQueue.length}`);
+    if (queue.length > prevLength && !ttsQueuePlaying && autoplayEnabled && !document.hidden) {
+        console.log(`🔊 TTS Queue: New items, starting playback`);
         playNextChunk();
     } else if (queue.length > prevLength && ttsQueuePlaying) {
         // Already playing - prefetch upcoming chunks
@@ -722,19 +710,6 @@ function playNextChunk() {
             URL.revokeObjectURL(blobUrl);
         }
         ttsBlobCache = {};
-
-        // Clear the player's src so it doesn't dangle on a revoked blob.
-        // Without this, the next time something else (Reflex re-render,
-        // socket reconnect, MutationObserver) pokes the audio element,
-        // it tries to load the now-dead blob URL and the browser logs
-        // ERR_FILE_NOT_FOUND. Setting src to '' detaches the resource.
-        const completedPlayer = document.getElementById('tts-audio-player');
-        if (completedPlayer) {
-            try {
-                completedPlayer.removeAttribute('src');
-                completedPlayer.load();
-            } catch { /* ignore — player may not be in a state to load */ }
-        }
 
         // If media was queued behind TTS, kick it off now.
         // Resume only when media is *currently* paused-for-tts — the
@@ -888,12 +863,12 @@ window.skipTtsQueueItem = skipTtsQueueItem;
 // TTS SSE STREAM - Server-Sent Events for immediate audio playback
 // ============================================================
 
-let ttsStreamActive = false;
-let ttsEventSource = null;
-let ttsStreamSessionId = null;
-let ttsStreamRetryCount = 0;
-let ttsStreamGaveUp = false;
-const TTS_STREAM_MAX_RETRIES = 3;
+var ttsStreamActive = false;
+var ttsEventSource = null;
+var ttsStreamSessionId = null;
+var ttsStreamRetryCount = 0;
+var ttsStreamGaveUp = false;
+var TTS_STREAM_MAX_RETRIES = 3;
 
 /**
  * Get session ID from cookie
@@ -966,24 +941,8 @@ function startTtsStream(sessionIdParam) {
 
     ttsEventSource.onopen = () => {
         console.log('🔊 TTS SSE: Connection opened');
-        const wasReconnect = ttsStreamRetryCount > 0;
         ttsStreamRetryCount = 0;
         ttsStreamGaveUp = false;
-
-        // Reconnect can land between server-pushed chunks: the browser
-        // re-establishes EventSource, the server resends pending items,
-        // but the local queue was already extended past the index where
-        // we got stuck. Kick playback back to life if there's anything
-        // waiting and we're not playing.
-        if (wasReconnect) {
-            const hasUnplayed = ttsQueueCurrentIndex < ttsQueue.length;
-            const queueElement = document.getElementById('tts-queue-data');
-            const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
-            if (hasUnplayed && !ttsQueuePlaying && autoplayEnabled) {
-                console.log(`🔊 TTS SSE: Reconnect — resuming idle queue at chunk ${ttsQueueCurrentIndex + 1}/${ttsQueue.length}`);
-                playNextChunk();
-            }
-        }
     };
 
     ttsEventSource.onmessage = (event) => {
@@ -1068,8 +1027,8 @@ window.stopTtsPolling = stopTtsPolling;    // Legacy alias
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
 // ============================================================
 
-let lastObservedTtsSrc = '';
-let ttsDocumentObserver = null;
+var lastObservedTtsSrc = '';
+var ttsDocumentObserver = null;
 
 /**
  * Setup a document-level observer that watches for newly added audio elements.
@@ -1386,8 +1345,8 @@ if (document.readyState === 'loading') {
 // Renders LaTeX formulas in chat messages using KaTeX
 // Supports: $...$ (inline), $$...$$ (block), and \ce{} (chemistry via mhchem)
 
-let katexLoaded = false;
-let mhchemLoaded = false;
+var katexLoaded = false;
+var mhchemLoaded = false;
 
 function loadKatexScript() {
     if (katexLoaded || window.katex) {
@@ -1543,7 +1502,7 @@ function renderLatexInChat() {
 }
 
 // Setup KaTeX observer
-let katexObserver = null;
+var katexObserver = null;
 
 function setupKatexObserver() {
     if (katexObserver) return;
@@ -1604,15 +1563,15 @@ if (document.readyState === 'loading') {
 //   5. ended event → mark completed via /api/audio/position {completed:true}
 // ============================================================
 
-const AUDIO_PRE_ROLL_SEC = 3;            // resume offset after TTS interrupt
-const AUDIO_POSITION_SAVE_INTERVAL_MS = 30000;  // periodic save while playing
-let audioPositionSaveTimer = null;
-let audioCurrentMediaKey = '';           // track which media is loaded
-let audioCurrentMediaUrl = '';
+var AUDIO_PRE_ROLL_SEC = 3;            // resume offset after TTS interrupt
+var AUDIO_POSITION_SAVE_INTERVAL_MS = 30000;  // periodic save while playing
+var audioPositionSaveTimer = null;
+var audioCurrentMediaKey = '';           // track which media is loaded
+var audioCurrentMediaUrl = '';
 // Client-side snapshot of media position at the moment TTS interrupts.
 // Used to resume after TTS — the server-side data-media-pause-pos is
 // only set by the audio_play tool, not by JS, so we keep our own value.
-let audioTtsPauseSnapshotSec = 0;
+var audioTtsPauseSnapshotSec = 0;
 
 // Sequenzielles Playback (audio_play_folder).
 // audioMediaQueue: full list of {audio_url, state_key} items as set by the
@@ -1621,8 +1580,8 @@ let audioTtsPauseSnapshotSec = 0;
 // for the entire queue lifetime, and React doesn't re-render src as long
 // as that prop doesn't change. JS advances player.src locally when one
 // item ends.
-let audioMediaQueue = [];
-let audioMediaQueueIdx = 0;
+var audioMediaQueue = [];
+var audioMediaQueueIdx = 0;
 
 function audioPlayerEl() {
     return document.getElementById('tts-audio-player');
@@ -1887,10 +1846,10 @@ document.addEventListener('pause', (e) => {
 // Re-attach MutationObservers whenever the player element gets remounted.
 // Tracks the current player instance and re-binds observers when a new
 // one shows up (React replaces the node when `key=` changes).
-let audioCurrentPlayer = null;
-let audioPrevSrc = '';
-let audioSrcObserver = null;
-let audioDataObserver = null;
+var audioCurrentPlayer = null;
+var audioPrevSrc = '';
+var audioSrcObserver = null;
+var audioDataObserver = null;
 
 function audioBindObservers(player) {
     if (audioSrcObserver) audioSrcObserver.disconnect();
@@ -1985,8 +1944,8 @@ function setupAudioPlayer() {
 // data-tts-active auf false flippt, läuft audioOnEnded leer (queue empty
 // + tts active=true → halt) und feuert nicht nochmal. Dieser Observer
 // fängt den Wechsel true→false und triggert dann den resume-check.
-let ttsActivePrev = null;
-let ttsActiveObserverBound = null;
+var ttsActivePrev = null;
+var ttsActiveObserverBound = null;
 function bindTtsActiveObserver() {
     const node = document.getElementById('tts-queue-data');
     if (!node || node === ttsActiveObserverBound) return;
