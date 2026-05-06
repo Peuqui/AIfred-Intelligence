@@ -1,8 +1,11 @@
 [Unit]
 Description=AIfred Intelligence Voice Assistant (Reflex Version)
 After=network.target ollama.service aifred-chromadb.service
-Wants=ollama.service
-Requires=aifred-chromadb.service
+Wants=ollama.service aifred-chromadb.service
+# Wants statt Requires: ChromaDB-Recreate (z.B. docker-auto-update.sh
+# 03:00) loest sonst einen Cascade-Stop von AIfred aus, was laufende
+# Indexierungs-Jobs killt. AIfred starten ohne ChromaDB ist unschoen,
+# aber besser als der Cascade-Restart bei jedem ChromaDB-Image-Pull.
 
 [Service]
 Type=simple
@@ -16,6 +19,13 @@ Environment="PYTHONUNBUFFERED=1"
 # prompts/ are loaded on-demand, no need for hot reload
 # Multiple paths separated by colon (:) as per Reflex documentation
 Environment="REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data:prompts"
+# Heap-Size fuer Bun (Frontend-Runner) und Node (react-router dev) hochsetzen.
+# Default ist 512 MB — bei einem 793 KB grossen _index.jsx (alle Modals
+# eager im Bundle) crasht der Frontend-Prozess regelmaessig mit SIGTERM
+# und reisst das Backend mit. 4 GB Heap gibt deutlich mehr Headroom waehrend
+# laufender Indexierungs-Jobs (viele State-Updates).
+Environment="NODE_OPTIONS=--max-old-space-size=4096"
+Environment="BUN_MAX_OLD_SPACE_SIZE=4096"
 ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
 KillMode=control-group
