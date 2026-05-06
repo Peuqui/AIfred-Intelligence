@@ -157,7 +157,7 @@ function isAutoScrollEnabled() {
 // The MutationObserver fires AFTER DOM changes, so checking isNearBottom
 // inside the callback fails when a single mutation adds >150px of content
 // (scrollHeight grows, distance to bottom exceeds threshold → no scroll).
-const scrollState = new Map();  // element id → wasAtBottom
+var scrollState = new Map();  // element id → wasAtBottom (var statt const: idempotent bei Multi-Route-Re-Mount)
 
 function trackScrollState(element) {
     if (!element || !element.id) return;
@@ -190,16 +190,16 @@ function attachScrollTracker(element) {
 // Observer für Debug-Console und Chat-History Updates
 // characterData NOT set — rx.text() streaming uses text node updates (not childList).
 // A separate polling interval handles autoscroll during streaming.
-const observerConfig = { childList: true, subtree: true };
+var observerConfig = { childList: true, subtree: true };
 
 // Track if chat-history-box observer is already running
-let chatObserverAttached = false;
+var chatObserverAttached = false;
 
 // Streaming autoscroll: poll-based scroll during active streaming.
 // MutationObserver misses rx.text() updates (characterData only, not childList).
 // Behavior: scroll down while user is near bottom. If user scrolls up, pause.
 // If user scrolls back to bottom, resume. Same as Claude Code terminal behavior.
-let streamingScrollInterval = null;
+var streamingScrollInterval = null;
 function startStreamingScroll() {
     if (streamingScrollInterval) return;
     streamingScrollInterval = setInterval(() => {
@@ -222,7 +222,7 @@ function stopStreamingScroll() {
     }
 }
 
-const callback = function(mutationsList, observer) {
+var callback = function(mutationsList, observer) {
     const enabled = isAutoScrollEnabled();
 
     // Make all links open in new tab (always, regardless of auto-scroll)
@@ -348,7 +348,7 @@ function setupObservers() {
 // Prevent page-level scroll jumps during State updates.
 // When Reflex re-renders, the browser may scroll the page to the focused element.
 // This preserves the page scroll position across re-renders.
-let _pageScrollLock = false;
+var _pageScrollLock = false;
 function enablePageScrollLock() {
     if (_pageScrollLock) return;
     _pageScrollLock = true;
@@ -361,7 +361,7 @@ function enablePageScrollLock() {
     });
 }
 // Observe body for childList changes (Reflex re-renders) and restore scroll
-const _bodyObserver = new MutationObserver(() => enablePageScrollLock());
+var _bodyObserver = new MutationObserver(() => enablePageScrollLock());
 _bodyObserver.observe(document.body, { childList: true, subtree: false });
 
 // Initialize immediately or wait for DOMContentLoaded
