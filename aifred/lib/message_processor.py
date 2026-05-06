@@ -126,7 +126,7 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict]:
 
     client = LLMClient(backend_type)
 
-    intent, addressee, lang, mode_switch, _remaining, _raw = await detect_query_intent_and_addressee(
+    intent, addressee, lang, mode_switch, _is_pure_cmd, _raw = await detect_query_intent_and_addressee(
         user_query=text,
         automatik_model=automatik_model,
         llm_client=client,
