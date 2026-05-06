@@ -347,6 +347,7 @@ async def prepare_agent_toolkit(
     llm_history: Optional[list] = None,
     max_tier: int = 4,
     source: str = "browser",
+    metadata: Optional[dict] = None,
 ) -> tuple[str, Optional["ToolKit"]]:
     """Prepare combined toolkit (memory + research tools) for an agent.
 
@@ -393,6 +394,7 @@ async def prepare_agent_toolkit(
             max_tier=max_tier,
             source=source,
             llm_history=llm_history or [],
+            metadata=metadata or {},
         )
 
         for p in discover_tools():

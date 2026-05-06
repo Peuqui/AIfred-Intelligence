@@ -23,7 +23,7 @@ import io
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from ....lib.plugin_base import BaseChannel, CredentialField
 
@@ -228,6 +228,23 @@ class FreeEchoChannel(BaseChannel):
         if msg_type == "register":
             self.channel_log(f"[FreeEcho.2 {room}] Register: {msg}")
 
+        elif msg_type == "flow":
+            # Backpressure-Frame vom Puck. State = "pause" wenn der Ring-
+            # Buffer voll war (write-blocked) bzw. "resume" wenn fill_pct
+            # < 30 fällt. Wir leiten das an die PuckChannel-Stream-Map
+            # weiter, dort wird der pump-Task pausiert/fortgesetzt.
+            state = msg.get("state", "")
+            self.channel_log(f"[FreeEcho.2 {room}] flow={state}")
+            try:
+                from ....lib import audio_channels
+                ch = audio_channels.resolve(f"freeecho2:{room}")
+                if ch is not None and hasattr(ch, "notify_flow"):
+                    ch.notify_flow(room, state)
+            except Exception as exc:  # noqa: BLE001
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] flow handling error: {exc}", "warning",
+                )
+
         elif msg_type == "wake":
             wake_agent = msg.get("agent")
 
@@ -239,23 +256,7 @@ class FreeEchoChannel(BaseChannel):
                 self.channel_log(
                     f"[FreeEcho.2 {room}] Command wake-word received: {wake_agent}"
                 )
-                if wake_agent == "_stop":
-                    from ....lib.pipeline_registry import handle_stop_command
-                    from ....lib.routing_table import routing_table
-                    route = routing_table.get_route("freeecho2", room)
-                    if route:
-                        result = await handle_stop_command(route.session_id)
-                        self.channel_log(
-                            f"[FreeEcho.2 {room}] Stop command processed: "
-                            f"pipeline_cancelled={result['pipeline_cancelled']}, "
-                            f"audio_stopped={result['audio_stopped']}"
-                        )
-                    else:
-                        self.channel_log(
-                            f"[FreeEcho.2 {room}] Stop command — no session for room",
-                            "warning",
-                        )
-                # Other "_*" commands are reserved for future use; ignored for now.
+                await self._handle_command_token(wake_agent, room)
                 await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
                 return
 
@@ -268,6 +269,169 @@ class FreeEchoChannel(BaseChannel):
             # Pre-signal: could trigger model warmup here
             # For now just acknowledge
             await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
+
+    async def _handle_command_token(self, token: str, room: str) -> None:
+        """Verarbeite ein Command-Token (Wake-Word mit ``_``-Prefix) für diesen Raum.
+
+        Per-Target — nur das Audio dieses Pucks wird beeinflusst, andere
+        Streams (anderer Puck, Browser, lokal) laufen weiter.
+
+        Pause-Semantik (Variante B): ``_pause`` stoppt den Stream sauber
+        mit Position-Save (kein langes Halten von mpv-Subprocess + WS-
+        Bridge bei stundenlangen Pausen). ``_resume`` sucht das letzte
+        unfinished Item via audio_state und startet einen frischen Stream
+        mit Pre-Roll auf diesen Puck.
+
+        Tokens:
+        - ``_stop``     → LLM-Pipeline canceln + Stream auf diesem Puck stoppen
+        - ``_pause``    → Stream stoppen + Position speichern (für späteren _resume)
+        - ``_resume``   → Smart-Resume des letzten unfinished Items auf diesen Puck
+        - ``_standby``  → Stream stoppen + Soft-Mute aktiv (Puck lokal)
+        - ``_activate`` → no-op am Server (Soft-Mute aus, Puck lokal)
+        """
+        from ....lib import audio_channels
+        from ....lib.pipeline_registry import cancel_pipeline
+        from ....lib.routing_table import routing_table
+
+        target_id = f"freeecho2:{room}"
+        channel = audio_channels.resolve(target_id)
+        if channel is None:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] No channel resolves '{target_id}' — token {token} ignored",
+                "warning",
+            )
+            return
+
+        if token == "_stop":
+            # LLM-Inferenz dieser Session abbrechen (zeit-kritisch, User wartet)
+            route = routing_table.get_route("freeecho2", room)
+            if route:
+                cancelled = cancel_pipeline(route.session_id)
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] _stop: pipeline_cancelled={cancelled}"
+                )
+            ok = await channel.stop(target_id)
+            self.channel_log(f"[FreeEcho.2 {room}] _stop: stream_stopped={ok}")
+
+        elif token == "_pause":
+            # Variante B: Stream sauber stoppen, Position wird in
+            # _cleanup_unlocked() vor dem mpv-terminate gespeichert.
+            # Damit überlebt die Position auch lange Pausen ohne dass
+            # ein mpv-Prozess + IPC-Socket + FIFO + WS für Stunden offen
+            # bleiben muss.
+            ok = await channel.stop(target_id)
+            self.channel_log(f"[FreeEcho.2 {room}] _pause: stopped+saved={ok}")
+
+        elif token == "_resume":
+            # Smart-Resume: finde letztes unfinished Item, lade es mit
+            # Pre-Roll auf diesen Puck. Funktioniert in zwei Szenarien:
+            #   a) gerade per _pause gestoppt → letzter Stream lädt neu
+            #   b) Hörbuch lief vor Stunden, Server-Restart, etc. →
+            #      audio_state kennt den letzten Key, alles wird neu gebaut
+            await self._smart_resume_on_puck(room)
+
+        elif token == "_standby":
+            # Soft-Mute macht der Puck lokal (Vosk lauscht nur auf _activate).
+            # Server-seitig: laufenden Audio-Stream beenden, sonst hört
+            # niemand mehr was während des Standby.
+            ok = await channel.stop(target_id)
+            self.channel_log(f"[FreeEcho.2 {room}] _standby: stream_stopped={ok}")
+
+        elif token == "_activate":
+            # No-op am Server — Soft-Mute aus ist Puck-lokal. Kein Auto-
+            # Resume; wenn der User wieder Audio will, sagt er es.
+            self.channel_log(f"[FreeEcho.2 {room}] _activate: ack (puck-local soft-mute off)")
+
+        else:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] Unknown command token: {token}", "warning"
+            )
+
+    async def _smart_resume_on_puck(self, room: str) -> None:
+        """_resume-Handler: lade das letzte unfinished Audio auf diesen Puck.
+
+        Kein-State (Server-Restart) freundlich: greift auf audio_state.json
+        zurück, nicht auf Live-Channel-State. Wenn nichts unfinished ist,
+        wird das nur geloggt — der User hört nichts, aber das ist erwartet.
+        """
+        from ....lib import audio_channels
+        from ....lib.audio_sources import SourceResolver, build_source_map
+        from ....lib.audio_state import audio_state
+        from ....lib.config import MEDIA_AUDIO_DIR
+
+        target_id = f"freeecho2:{room}"
+        channel = audio_channels.resolve(target_id)
+        if channel is None:
+            return
+
+        key = audio_state.last_played_key()
+        if not key:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] _resume: no unfinished audio in state",
+            )
+            return
+
+        entry = audio_state.get(key)
+        if not entry:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] _resume: no entry for key={key}",
+                "warning",
+            )
+            return
+
+        saved_pos = float(entry.get("pos_sec", 0))
+        duration = entry.get("duration_sec")
+
+        # Source-Map aus den audio_player-Plugin-Settings nachbauen.
+        # Wir greifen direkt auf die Settings zu, weil hier kein Tool-
+        # Context vorhanden ist.
+        try:
+            from ...tools.audio_player import _load_settings
+            settings = _load_settings()
+            streams = {
+                lbl: src for lbl, src in settings.get("sources", {}).items()
+                if src.get("type") == "http_stream"
+            }
+            sources = build_source_map(MEDIA_AUDIO_DIR, streams)
+            resolver = SourceResolver(sources)
+            src = resolver.resolve(key)
+        except Exception as exc:  # noqa: BLE001
+            self.channel_log(
+                f"[FreeEcho.2 {room}] _resume: cannot resolve key={key}: {exc}",
+                "warning",
+            )
+            return
+
+        # Pre-Roll wie bei audio_resume — kürzer hier (3 s statt 7),
+        # weil der User aktiv ein Wake-Wort gesagt hat und nicht von
+        # einem Cold-Start kommt.
+        pre_roll = 3.0
+        apply_pre_roll = (
+            pre_roll > 0
+            and not src.is_stream
+            and (duration is None or duration >= 60)
+        )
+        start_pos = max(0.0, saved_pos - pre_roll) if apply_pre_roll else saved_pos
+
+        # Synthetischer PluginContext für den Channel — kein State,
+        # weil das nicht aus einem Reflex-Tab kommt.
+        from ....lib.plugin_base import PluginContext
+        ctx = PluginContext(
+            agent_id="aifred", lang="de",
+            session_id="", source="freeecho2",
+            metadata={"room": room},
+        )
+        result = await channel.play(src, target_id, start_pos, ctx)
+        if result.get("success"):
+            self.channel_log(
+                f"[FreeEcho.2 {room}] _resume: started key={key} "
+                f"@ {start_pos:.1f}s (pre-roll {saved_pos - start_pos:.1f}s)"
+            )
+        else:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] _resume failed: {result.get('error')}",
+                "warning",
+            )
 
     async def _handle_audio(self, ws: WebSocketResponse, audio_data: bytes, room: str) -> None:
         """Handle binary audio from FreeEcho.2 device.
@@ -501,56 +665,175 @@ class FreeEchoChannel(BaseChannel):
         # The device expects 48kHz mono int16 PCM
         pcm_data = await self._convert_to_pcm(tts_path, 48000)
         if pcm_data:
-            # Per-send timeout: if Puck stops ACKing the TCP stream (WiFi drop,
-            # crash, reboot), Linux TCP stack takes ~2 min to notice. With this
-            # timeout Alfred gives up cleanly after 10 s, logs it, and frees
-            # the WebSocket slot for the next reconnect.
-            CHUNK_SEND_TIMEOUT = 10.0
-
             chunk_size = 512 * 1024
             total = len(pcm_data)
             num_chunks = (total + chunk_size - 1) // chunk_size
-            self.channel_log(f"[FreeEcho.2 {room}] Sending TTS: {total} bytes ({total/96000:.1f}s) in {num_chunks} chunks")
-            offset = 0
-            chunk_num = 0
-            try:
-                await asyncio.wait_for(
-                    ws.send_str(json.dumps({"type": "audio_start", "total_size": total})),
-                    timeout=CHUNK_SEND_TIMEOUT,
-                )
+            self.channel_log(
+                f"[FreeEcho.2 {room}] Sending TTS: {total} bytes "
+                f"({total/96000:.1f}s) in {num_chunks} chunks"
+            )
+            ok = await self.send_audio_start(room, channels=1, rate=48000,
+                                             audio_type="speech", total_size=total)
+            if ok:
+                offset = 0
+                chunk_num = 0
                 while offset < total:
                     end = min(offset + chunk_size, total)
-                    await asyncio.wait_for(
-                        ws.send_bytes(pcm_data[offset:end]),
-                        timeout=CHUNK_SEND_TIMEOUT,
-                    )
+                    if not await self.send_audio_chunk(room, pcm_data[offset:end]):
+                        break
                     chunk_num += 1
-                    self.channel_log(f"[FreeEcho.2 {room}] Chunk {chunk_num}/{num_chunks}: {end-offset} bytes sent")
+                    self.channel_log(
+                        f"[FreeEcho.2 {room}] Chunk {chunk_num}/{num_chunks}: "
+                        f"{end-offset} bytes sent"
+                    )
                     offset = end
-                await asyncio.wait_for(
-                    ws.send_str(json.dumps({"type": "audio_end"})),
-                    timeout=CHUNK_SEND_TIMEOUT,
-                )
+                await self.send_audio_end(room)
                 self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
-            except asyncio.TimeoutError:
-                self.channel_log(
-                    f"[FreeEcho.2 {room}] Puck unreachable — giving up at chunk "
-                    f"{chunk_num}/{num_chunks} after {CHUNK_SEND_TIMEOUT:.0f}s timeout; "
-                    f"closing WebSocket for room '{room}'",
-                    "error",
-                )
-                # Close the WebSocket so the WS-handler task drops out of its
-                # receive loop and frees the room slot. Without this close
-                # Alfred would stay blocked on the dead TCP connection until
-                # the Puck eventually reconnects.
-                try:
-                    await ws.close(code=1001, message=b"puck send timeout")
-                except Exception:
-                    pass
         else:
             self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
 
         Path(tts_path).unlink(missing_ok=True)
+
+    # ── Public WS-Bridge — Audio-Streaming an den Puck ──────────────────
+    #
+    # Drei Methoden für jeden, der PCM an einen Puck schicken will:
+    #   1. send_audio_start(room, channels, rate, audio_type, total_size?)
+    #   2. send_audio_chunk(room, bytes)            — beliebig oft
+    #   3. send_audio_end(room)
+    #
+    # Wird sowohl von TTS (send_reply) als auch von der PuckChannel-mpv-
+    # Pipeline genutzt. Per-Send-Timeout: wenn der Puck nicht mehr ACKt
+    # (WiFi-Drop, Crash), würde Linux-TCP ~2 min brauchen um das zu
+    # bemerken — wir geben nach 10 s auf und schließen die Verbindung,
+    # damit die Room-Slot für den Reconnect frei wird.
+
+    _CHUNK_SEND_TIMEOUT_SEC = 10.0
+
+    async def send_audio_start(
+        self,
+        room: str,
+        channels: int = 1,
+        rate: int = 48000,
+        audio_type: str = "music",
+        total_size: int | None = None,
+    ) -> bool:
+        """Audio-Stream-Start an den Puck signalisieren.
+
+        ``audio_type`` ist ein Hint für VU-Pattern + LED-Verhalten am Puck:
+        - ``"music"``  — Stereo-VU, smooth (Songs, Musik-Radio)
+        - ``"speech"`` — Voice-VU, peak-orientiert (TTS, Hörbücher, Podcasts)
+        - ``"alarm"``  — eigenes Pattern (Wecker, kritische Notifications)
+        Unbekannte Werte fallen am Puck auf den Speech-Default zurück.
+
+        ``total_size`` ist optional und nur für TTS sinnvoll (fixe Länge).
+        Music-Streams (mpv-FIFO-Pump) lassen das Feld weg — der Puck nutzt
+        seinen 5-min Ring-Buffer und den Inactivity-Watchdog.
+        """
+        ws = _devices.get(room)
+        if ws is None:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_start: not connected", "warning",
+            )
+            return False
+        payload: dict[str, Any] = {
+            "type": "audio_start",
+            "channels": channels,
+            "rate": rate,
+            "audio_type": audio_type,
+        }
+        if total_size is not None:
+            payload["total_size"] = total_size
+        try:
+            await asyncio.wait_for(
+                ws.send_str(json.dumps(payload)),
+                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
+            )
+            return True
+        except asyncio.TimeoutError:
+            await self._abort_room(room, "audio_start timeout")
+            return False
+        except Exception as exc:  # noqa: BLE001
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_start error: {exc}", "warning",
+            )
+            return False
+
+    async def send_audio_chunk(self, room: str, data: bytes) -> bool:
+        ws = _devices.get(room)
+        if ws is None:
+            return False
+        try:
+            await asyncio.wait_for(
+                ws.send_bytes(data),
+                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
+            )
+            return True
+        except asyncio.TimeoutError:
+            await self._abort_room(room, f"audio_chunk timeout ({len(data)} bytes)")
+            return False
+        except Exception as exc:  # noqa: BLE001
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_chunk error: {exc}", "warning",
+            )
+            return False
+
+    async def send_heartbeat(self, room: str) -> bool:
+        """Heartbeat während aktivem Streaming an den Puck schicken.
+
+        Wird vom PuckStream alle 5 s aufgerufen, auch wenn die FIFO-Pump
+        gerade pausiert (flow.pause / User-_pause). Liefert False bei
+        Send-Timeout — dann ist der Puck nicht mehr erreichbar und der
+        Stream räumt sich selbst auf.
+        """
+        ws = _devices.get(room)
+        if ws is None:
+            return False
+        try:
+            await asyncio.wait_for(
+                ws.send_str(json.dumps({"type": "heartbeat"})),
+                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
+            )
+            return True
+        except asyncio.TimeoutError:
+            return False
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def send_audio_end(self, room: str) -> bool:
+        ws = _devices.get(room)
+        if ws is None:
+            return False
+        try:
+            await asyncio.wait_for(
+                ws.send_str(json.dumps({"type": "audio_end"})),
+                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
+            )
+            return True
+        except asyncio.TimeoutError:
+            await self._abort_room(room, "audio_end timeout")
+            return False
+        except Exception as exc:  # noqa: BLE001
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_end error: {exc}", "warning",
+            )
+            return False
+
+    async def _abort_room(self, room: str, reason: str) -> None:
+        """Schließe WebSocket und entferne Room aus _devices.
+
+        Aufgerufen wenn ein Send timeoutet — der Puck ist effektiv weg,
+        wir hängen sonst auf der toten TCP-Verbindung.
+        """
+        ws = _devices.get(room)
+        self.channel_log(
+            f"[FreeEcho.2 {room}] aborting: {reason} — closing WebSocket",
+            "error",
+        )
+        if ws is not None:
+            try:
+                await ws.close(code=1001, message=b"send timeout")
+            except Exception:
+                pass
 
     def _get_wanted_tts(self) -> str:
         """Get the TTS engine this plugin wants."""

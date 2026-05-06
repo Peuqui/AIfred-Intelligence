@@ -20,12 +20,122 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # Audio extensions mpv reliably plays
 ALLOWED_EXTENSIONS = {
     ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".opus", ".aac", ".mp4", ".webm",
 }
+
+# ── audio_type Hierarchie ───────────────────────────────────────────
+#
+# Reihenfolge (User-Wunsch): höchste Priorität zuerst
+#   1. Genre-Tag aus dem Audio-File (mutagen via audio_index)
+#   2. Filename (Wörter wie "audiobook"/"hörbuch"/"alarm")
+#   3. Source-Label (Folder-Name → Heuristik)
+#   4. Default: "music"
+#
+# settings.json kann pro Source ein explizites ``audio_type``-Feld
+# setzen — das überschreibt die ganze Hierarchie und wird in
+# build_source_map einfach mitgenommen.
+
+# Genre-Tags die auf Sprache hinweisen (case-insensitive substring match)
+_SPEECH_GENRE_HINTS = (
+    "audiobook", "audio book", "hörbuch", "hoerbuch",
+    "spoken", "speech", "podcast", "talk", "interview",
+    "lesung", "vortrag",
+)
+# Genre-Tags die auf Alarm/SFX hinweisen
+_ALARM_GENRE_HINTS = ("alarm", "wecker", "sfx", "sound effect", "notification")
+
+# Filename-Hints (substring, case-insensitive)
+_SPEECH_FILE_HINTS = ("audiobook", "hörbuch", "hoerbuch", "podcast", "lesung")
+_ALARM_FILE_HINTS = ("alarm", "wecker", "alert", "ding")
+
+# Folder-Label-Heuristik (exact match auf .lower())
+_FOLDER_AUDIO_TYPE: dict[str, str] = {
+    "alarms":     "alarm",
+    "wecker":     "alarm",
+    "hoerbuecher": "speech",
+    "audiobooks": "speech",
+    "podcasts":   "speech",
+    "speech":     "speech",
+    "sprache":    "speech",
+}
+
+
+def _audio_type_from_genre(genre: Optional[str]) -> Optional[str]:
+    if not genre:
+        return None
+    g = genre.lower()
+    for hint in _SPEECH_GENRE_HINTS:
+        if hint in g:
+            return "speech"
+    for hint in _ALARM_GENRE_HINTS:
+        if hint in g:
+            return "alarm"
+    return None  # bekannter Tag aber keine Audio-Type-Mapping → music via Default
+
+
+def _audio_type_from_filename(filename: str) -> Optional[str]:
+    if not filename:
+        return None
+    f = filename.lower()
+    for hint in _SPEECH_FILE_HINTS:
+        if hint in f:
+            return "speech"
+    for hint in _ALARM_FILE_HINTS:
+        if hint in f:
+            return "alarm"
+    return None
+
+
+def _guess_audio_type(label: str) -> str:
+    """Vermute den audio_type aus dem Source-Label. Default: music."""
+    return _FOLDER_AUDIO_TYPE.get(label.lower(), "music")
+
+
+def resolve_audio_type(
+    label: str,
+    sub_path: str,
+    *,
+    source_default: Optional[str] = None,
+) -> str:
+    """Bestimme audio_type via Hierarchie (Tag > Filename > Source > Default).
+
+    ``source_default`` ist der bereits per Heuristik oder settings.json
+    bestimmte Source-Wert. Wenn der explizit (nicht "music") gesetzt ist,
+    schlägt er die Filename-Heuristik nicht — er ist Tier 3 und greift
+    nur wenn Tag und Filename nichts ergeben.
+
+    Tag-Lookup geht über das audio_index (lazy-import um Module-Cycle zu
+    vermeiden). Wenn das Item nicht indiziert ist, wird Tier 1
+    übersprungen — kein Fehler.
+    """
+    # Tier 1: Genre-Tag aus audio_index
+    if sub_path:
+        try:
+            from .audio_index import audio_index
+            genre = audio_index.get_genre(label, sub_path)
+        except Exception:  # noqa: BLE001
+            genre = None
+        tag_type = _audio_type_from_genre(genre)
+        if tag_type:
+            return tag_type
+
+    # Tier 2: Filename- und Sub-Folder-Heuristik
+    if sub_path:
+        for part in Path(sub_path).parts:
+            file_type = _audio_type_from_filename(part)
+            if file_type:
+                return file_type
+
+    # Tier 3: Source-Default
+    if source_default:
+        return source_default
+
+    # Tier 4: hartes Default
+    return "music"
 
 
 @dataclass
@@ -35,6 +145,12 @@ class ResolvedSource:
     is_stream: bool     # True for HTTP streams (no resume sense)
     label: str          # Source label
     item: str           # Item path within source ("" for streams)
+    # Sink-Hint für Output-Channels: "music" (default), "speech" (Hörbücher,
+    # Podcasts, TTS), oder "alarm" (Wecker). Lebt in der Source-Config
+    # (`audio_type`-Feld in settings.json) und wird vom PuckChannel via
+    # send_audio_start an den Puck übermittelt — der nutzt das für
+    # VU-Pattern (Stereo-VU bei music, Voice-VU bei speech).
+    audio_type: str = "music"
 
 
 def _discover_local_sources(audio_root: Path) -> dict[str, dict[str, Any]]:
@@ -70,6 +186,7 @@ def _discover_local_sources(audio_root: Path) -> dict[str, dict[str, Any]]:
             "type": "local_folder",
             "path": str(real),
             "is_symlink": child.is_symlink(),
+            "audio_type": _guess_audio_type(child.name),
         }
     return sources
 
@@ -163,12 +280,14 @@ class SourceResolver:
             url = cfg.get("url", "")
             if not url:
                 raise ValueError(f"Source '{label}' has no URL configured")
+            # HTTP-Streams haben keine Tags / kein File-Path → Source-Wert.
             return ResolvedSource(
                 uri=url,
                 state_key=label,
                 is_stream=True,
                 label=label,
                 item="",
+                audio_type=str(cfg.get("audio_type", "music")),
             )
 
         if stype == "local_folder":
@@ -195,12 +314,18 @@ class SourceResolver:
                 raise ValueError(f"File not found in '{label}': {sub}")
             if target.suffix.lower() not in ALLOWED_EXTENSIONS:
                 raise ValueError(f"Unsupported audio extension: {target.suffix}")
+            # audio_type per Hierarchie: Tag > Filename > Source-Default
+            source_default = str(cfg.get("audio_type", _guess_audio_type(label)))
+            audio_type = resolve_audio_type(
+                label, sub, source_default=source_default,
+            )
             return ResolvedSource(
                 uri=str(target),
                 state_key=f"{label}/{sub}",
                 is_stream=False,
                 label=label,
                 item=sub,
+                audio_type=audio_type,
             )
 
         raise ValueError(f"Unknown source type: {stype!r} for label '{label}'")
