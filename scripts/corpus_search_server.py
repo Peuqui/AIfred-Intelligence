@@ -429,6 +429,231 @@ def search(req: SearchRequest) -> dict[str, Any]:
             "total": len(hits), "results": hits}
 
 
+# ═════════════════════════════════════════════════════════════════════
+# Generic Collection Explorer — funktioniert über alle ChromaDB-Collections
+# ═════════════════════════════════════════════════════════════════════
+#
+# Die Endpoints oben sind speziell auf ``aifred_documents`` zugeschnitten
+# (Folder-Tree, Reindex-from-Disk, etc.). Für ``research_cache`` und
+# ``agent_memory_*`` haben wir ein anderes Schema und brauchen einen
+# generischen Browser. Die Endpoints hier sind additiv — sie ersetzen
+# nichts oben, das alte UI funktioniert weiter.
+
+# Bekannte Schemas — bestimmt, wie die UI Felder rendert.
+_SCHEMA_AIFRED = "aifred_documents"
+_SCHEMA_RESEARCH = "research_cache"
+_SCHEMA_MEMORY = "agent_memory"
+_SCHEMA_GENERIC = "generic"
+
+
+def _detect_schema(collection_name: str, sample_meta: dict[str, Any] | None) -> str:
+    """Schema-Inferenz aus Collection-Name + Sample-Metadaten."""
+    if collection_name == "aifred_documents":
+        return _SCHEMA_AIFRED
+    if collection_name == "research_cache":
+        return _SCHEMA_RESEARCH
+    if collection_name.startswith("agent_memory_"):
+        return _SCHEMA_MEMORY
+    # Heuristik via Metadata-Keys, falls Custom-Collection
+    if sample_meta:
+        keys = set(sample_meta.keys())
+        if {"filename", "folder", "chunk_index"} <= keys:
+            return _SCHEMA_AIFRED
+        if {"query", "answer", "volatility"} <= keys or "sources_json" in keys:
+            return _SCHEMA_RESEARCH
+        if {"agent_id", "type", "summary"} <= keys:
+            return _SCHEMA_MEMORY
+    return _SCHEMA_GENERIC
+
+
+def _chroma_client():
+    """Direkter ChromaDB HttpClient — bypassed DocumentStore-Singleton."""
+    import chromadb
+    from chromadb.config import Settings
+    return chromadb.HttpClient(
+        host="localhost", port=8000,
+        settings=Settings(anonymized_telemetry=False),
+    )
+
+
+def _get_collection(name: str):
+    """Lookup einer Collection by name. 404 wenn nicht da."""
+    from chromadb.errors import NotFoundError
+    try:
+        # Embedding-Function = None bedeutet: keine Auto-Embeddings beim
+        # add/upsert. Search-Endpoints unten reichen Embeddings explizit
+        # via query_embeddings rein.
+        return _chroma_client().get_collection(name=name)
+    except NotFoundError:
+        raise HTTPException(404, f"Collection {name!r} not found")
+
+
+@app.get("/api/collections")
+def list_collections() -> dict[str, Any]:
+    """Liste aller ChromaDB-Collections mit Count + Schema-Hint."""
+    client = _chroma_client()
+    out: list[dict[str, Any]] = []
+    for col in client.list_collections():
+        try:
+            count = col.count()
+            sample = col.get(limit=1, include=["metadatas"])
+            metas = sample.get("metadatas") or []
+            sample_meta = metas[0] if metas and isinstance(metas[0], dict) else None
+            schema = _detect_schema(col.name, sample_meta)
+        except Exception:
+            count = -1
+            schema = _SCHEMA_GENERIC
+            sample_meta = None
+        out.append({
+            "name": col.name,
+            "count": count,
+            "schema": schema,
+            "metadata_keys": sorted(sample_meta.keys()) if sample_meta else [],
+        })
+    return {"collections": sorted(out, key=lambda c: c["name"])}
+
+
+@app.get("/api/collections/{name}/items")
+def collection_items(
+    name: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+) -> dict[str, Any]:
+    """Items einer Collection paginiert. Liefert Document + Metadata + ID."""
+    col = _get_collection(name)
+    total = col.count()
+    data = col.get(
+        include=["documents", "metadatas"],
+        limit=limit, offset=offset,
+    )
+    ids = data.get("ids") or []
+    docs = data.get("documents") or []
+    metas = data.get("metadatas") or []
+    sample_meta = metas[0] if metas and isinstance(metas[0], dict) else None
+    schema = _detect_schema(name, sample_meta)
+
+    items = []
+    for i, item_id in enumerate(ids):
+        items.append({
+            "id": item_id,
+            "document": docs[i] if i < len(docs) and isinstance(docs[i], str) else "",
+            "metadata": metas[i] if i < len(metas) and isinstance(metas[i], dict) else {},
+        })
+    return {
+        "collection": name,
+        "schema": schema,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": items,
+    }
+
+
+@app.get("/api/collections/{name}/items/{item_id}")
+def collection_item(name: str, item_id: str) -> dict[str, Any]:
+    """Einzel-Item by ID."""
+    col = _get_collection(name)
+    data = col.get(ids=[item_id], include=["documents", "metadatas"])
+    ids = data.get("ids") or []
+    if not ids:
+        raise HTTPException(404, f"Item {item_id!r} not found in {name}")
+    docs = data.get("documents") or []
+    metas = data.get("metadatas") or []
+    return {
+        "id": ids[0],
+        "document": docs[0] if docs and isinstance(docs[0], str) else "",
+        "metadata": metas[0] if metas and isinstance(metas[0], dict) else {},
+    }
+
+
+@app.delete("/api/collections/{name}/items/{item_id}")
+def delete_collection_item(name: str, item_id: str) -> dict[str, Any]:
+    """Einzel-Item by ID löschen — DB-only, kein File-System-Touch."""
+    col = _get_collection(name)
+    col.delete(ids=[item_id])
+    return {"collection": name, "id": item_id, "deleted": True}
+
+
+class GenericSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    mode: str = Field(default="semantic", pattern=r"^(semantic|literal)$")
+    n_results: int = Field(default=10, ge=1, le=200)
+
+
+@app.post("/api/collections/{name}/search")
+def collection_search(name: str, req: GenericSearchRequest) -> dict[str, Any]:
+    """Semantic/Literal-Search innerhalb einer Collection.
+
+    Semantic: bge-m3-Embedding (gleicher Embedder wie Index → kompatibel
+    über alle AIfred-Collections).
+    Literal: paginiertes substring-Match auf documents.
+    """
+    col = _get_collection(name)
+
+    if req.mode == "semantic":
+        # Embedding über die DocumentStore-eigene Query-Function holen
+        # (CPU-bge-m3, kein VRAM-Konflikt mit aktivem LLM).
+        s = _store()
+        embed = s._embed_query
+        emb = embed([req.query])  # type: ignore[operator]
+        hits_raw = col.query(
+            query_embeddings=emb,
+            n_results=req.n_results,
+            include=["documents", "metadatas", "distances"],
+        )
+        ids = (hits_raw.get("ids") or [[]])[0]
+        docs = (hits_raw.get("documents") or [[]])[0]
+        metas = (hits_raw.get("metadatas") or [[]])[0]
+        dists = (hits_raw.get("distances") or [[]])[0]
+        results = [
+            {
+                "id": ids[i],
+                "document": docs[i] if i < len(docs) and isinstance(docs[i], str) else "",
+                "metadata": metas[i] if i < len(metas) and isinstance(metas[i], dict) else {},
+                "distance": float(dists[i]) if i < len(dists) else None,
+            }
+            for i in range(len(ids))
+        ]
+        return {"mode": "semantic", "query": req.query, "collection": name,
+                "total": len(results), "results": results}
+
+    # literal
+    needle_norm = " ".join(req.query.lower().split())
+    hits: list[dict[str, Any]] = []
+    page = 5000
+    offset = 0
+    while True:
+        data = col.get(
+            include=["documents", "metadatas"],
+            limit=page, offset=offset,
+        )
+        ids = data.get("ids") or []
+        docs = data.get("documents") or []
+        metas = data.get("metadatas") or []
+        if not ids:
+            break
+        for i, doc_id in enumerate(ids):
+            d = docs[i] if i < len(docs) else ""
+            if not isinstance(d, str):
+                continue
+            if needle_norm not in " ".join(d.lower().split()):
+                continue
+            hits.append({
+                "id": doc_id,
+                "document": d,
+                "metadata": metas[i] if i < len(metas) and isinstance(metas[i], dict) else {},
+                "distance": None,
+            })
+            if len(hits) >= req.n_results:
+                return {"mode": "literal", "query": req.query, "collection": name,
+                        "total": len(hits), "results": hits}
+        if len(ids) < page:
+            break
+        offset += page
+    return {"mode": "literal", "query": req.query, "collection": name,
+            "total": len(hits), "results": hits}
+
+
 # ─────────────────────────────────────────────────────────────────
 # Entrypoint
 # ─────────────────────────────────────────────────────────────────
