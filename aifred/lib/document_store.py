@@ -18,6 +18,7 @@ from .config import (
     DEFAULT_OLLAMA_URL,
     DOCUMENT_CHUNK_OVERLAP,
     DOCUMENT_CHUNK_SIZE,
+    DOCUMENT_EMBED_BATCH_SIZE,
     DOCUMENT_COLLECTION,
     DOCUMENTS_DIR,
 )
@@ -475,21 +476,39 @@ class DocumentStore:
         # the file always reflects the current source — no stale data.
         await asyncio.to_thread(self._collection.delete, where={"filename": filename})
 
+        # Batched Embedding + Upsert.
+        # Bei grossen Dokumenten (z.B. Schlachter-Bibel mit ~2686 Chunks) wuerde
+        # ein einzelner Embedding-Call >90 s dauern. In der Zeit kommen keine
+        # WS-Heartbeats durch → granian killt den Reflex-Worker als unresponsive
+        # → Index-Loop tot. Mit Batches a 64 Chunks dauert jeder Call ~3-4 s und
+        # der asyncio-Loop kann zwischendurch Heartbeats an den Browser senden.
         # Embed via the index-mode function (GPU + warm cache). Passing
         # the embeddings explicitly bypasses the collection's default
         # embedding_function (which is the query/CPU one) for this write.
-        embeddings = await asyncio.to_thread(self._embed_index, chunks)
-        await asyncio.to_thread(
-            self._collection.upsert,
-            ids=ids,
-            documents=chunks,
-            embeddings=embeddings,
-            metadatas=metadatas,
-        )
+        total = len(chunks)
+        for i in range(0, total, DOCUMENT_EMBED_BATCH_SIZE):
+            batch_end = min(i + DOCUMENT_EMBED_BATCH_SIZE, total)
+            batch_chunks = chunks[i:batch_end]
+            batch_ids = ids[i:batch_end]
+            batch_metas = metadatas[i:batch_end]
+
+            batch_emb = await asyncio.to_thread(self._embed_index, batch_chunks)
+            await asyncio.to_thread(
+                self._collection.upsert,
+                ids=batch_ids,
+                documents=batch_chunks,
+                embeddings=batch_emb,
+                metadatas=batch_metas,
+            )
+            log_message(
+                f"📄 {filename}: embedded {batch_end}/{total} chunks "
+                f"(+{len(batch_chunks)} in this batch)"
+            )
+
         self._invalidate_folder_cache()
 
-        log_message(f"📄 Indexed {filename}: {len(chunks)} chunks")
-        return len(chunks)
+        log_message(f"📄 Indexed {filename}: {total} chunks (in batches of {DOCUMENT_EMBED_BATCH_SIZE})")
+        return total
 
     async def search(
         self,
