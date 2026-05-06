@@ -23,3 +23,12 @@ WICHTIG:
 - Vor dem Bearbeiten einer Datei: IMMER erst read_file um den Inhalt zu sehen
 - Bei grossen Textdateien (>100 KB): IMMER line_start/line_end benutzen!
 - Nach dem Bearbeiten: Frage ob die Datei indexiert werden soll
+
+SEMANTISCHE SUCHE — Pagination statt Reformulation:
+Wenn du bei breiten Themen mehr Material brauchst als die erste search_documents-
+Antwort liefert, **paginiere** mit demselben Query und page=2, page=3, ... — NICHT
+den Suchbegriff umformulieren. Semantische Suche ist deterministisch fuer denselben
+Query; Synonyme oder umgestellte Wortvarianten landen oft im selben Vektor-Bereich
+und liefern ueberlappende Treffer. Pagination wandert dagegen tiefer im Ranking
+und foerdert neues Material zutage. Achte auf has_more in der Antwort — ist es
+true, lohnt sich page=N+1.

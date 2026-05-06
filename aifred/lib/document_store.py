@@ -35,6 +35,67 @@ def _read_text_file(file_path: Path) -> str:
     return raw.decode(encoding)
 
 
+def _mmr_rerank(
+    query_emb: Any,
+    doc_embs: list[Any],
+    k: int,
+    lambda_: float = 0.5,
+) -> list[int]:
+    """Greedy Maximal Marginal Relevance re-ranking.
+
+    Spreads selected documents across the embedding space instead of
+    returning many near-duplicate chunks. At each step picks the candidate
+    with the highest score = ``λ·sim(query, doc) − (1-λ)·max_sim(doc, selected)``.
+
+    Args:
+        query_emb: Query embedding (D-dim sequence).
+        doc_embs: Document embeddings (N items, each D-dim).
+        k: How many documents to select (capped at len(doc_embs)).
+        lambda_: λ in [0,1]. 1.0 = pure relevance, 0.0 = pure diversity.
+                 0.5 = balanced default.
+
+    Returns:
+        List of indices into ``doc_embs`` in selection order.
+    """
+    import numpy as np
+
+    n = len(doc_embs)
+    if n == 0:
+        return []
+    embs = np.asarray(doc_embs, dtype=np.float32)
+    q = np.asarray(query_emb, dtype=np.float32)
+
+    # Normalize once for cosine similarity
+    q_norm = q / (np.linalg.norm(q) + 1e-9)
+    embs_norm = embs / (np.linalg.norm(embs, axis=1, keepdims=True) + 1e-9)
+
+    sim_to_query = embs_norm @ q_norm  # shape (N,)
+
+    selected: list[int] = []
+    remaining = set(range(n))
+    target = min(k, n)
+    while len(selected) < target and remaining:
+        if not selected:
+            best = max(remaining, key=lambda i: float(sim_to_query[i]))
+        else:
+            sel_norm = embs_norm[selected]  # (M, D)
+            best_score = -float("inf")
+            best = next(iter(remaining))
+            for i in remaining:
+                # Max similarity of candidate to any already-selected doc
+                redundancy = float(np.max(sel_norm @ embs_norm[i]))
+                score = (
+                    lambda_ * float(sim_to_query[i])
+                    - (1.0 - lambda_) * redundancy
+                )
+                if score > best_score:
+                    best_score = score
+                    best = i
+        selected.append(best)
+        remaining.discard(best)
+    return selected
+
+
 def _read_pdf(file_path: Path) -> str:
     """Extract text from a PDF using pdftotext (poppler-utils).
 
@@ -545,12 +606,15 @@ class DocumentStore:
         n_results: int = 5,
         folder: Optional[str] = None,
         neighbor_window: Optional[int] = None,
-    ) -> list[dict[str, Any]]:
-        """Semantic search across documents. Returns list of chunk results.
+        page: int = 1,
+        diversify: bool = True,
+        mmr_lambda: float = 0.5,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Semantic search across documents. Returns (hits, has_more).
 
         Args:
             query: Search query.
-            n_results: Max number of chunks to return.
+            n_results: Page size — number of similarity hits per page.
             folder: If set, restrict search to this folder *or any folder
                     nested under it*. ``"bibel"`` covers ``"bibel/Schlachter"``
                     and ``"bibel/GuteNachricht"``; ``"bibel/Schlachter"``
@@ -561,21 +625,50 @@ class DocumentStore:
                     context (mid-sentence chunk cuts are mitigated).
                     None → use DOCUMENT_SEARCH_NEIGHBOR_WINDOW from config,
                     0 → off (similarity-only).
+            page: 1-based page number. ``page=1`` returns hits 1..n_results,
+                  ``page=2`` returns hits n_results+1..2*n_results, etc.
+                  We fetch the full pool (capped at DOCUMENT_SEARCH_MAX_RESULTS),
+                  re-rank via MMR if ``diversify`` is on, then slice.
+            diversify: When True (default), apply MMR (Maximal Marginal Relevance)
+                  re-ranking to the pool. Picks the most relevant hit, then each
+                  subsequent hit by max ``λ·relevance − (1-λ)·max_redundancy``.
+                  Spreads results across files / vector regions instead of
+                  returning many near-duplicate chunks from one dominant document.
+            mmr_lambda: λ in [0, 1]. 1.0 = pure relevance (similarity ranking),
+                  0.0 = pure diversity. 0.5 (default) = balanced.
+
+        Returns:
+            (hits, has_more): hits is the page's chunks (similarity + neighbors).
+            has_more is True iff a further page still fits inside the pool.
         """
         count = await asyncio.to_thread(self._collection.count)
         if count == 0:
-            return []
+            return ([], False)
 
         if neighbor_window is None:
             from .config import DOCUMENT_SEARCH_NEIGHBOR_WINDOW
             neighbor_window = DOCUMENT_SEARCH_NEIGHBOR_WINDOW
+
+        from .config import DOCUMENT_SEARCH_MAX_RESULTS
+        page = max(1, page)
+        # Stable pool: always fetch the full MAX_RESULTS slice (or whole index
+        # if smaller). Same query → same pool → page-stable. MMR re-rank acts
+        # on this pool once; pagination just slices the re-ranked order.
+        pool_size = min(DOCUMENT_SEARCH_MAX_RESULTS, count)
+        skip = (page - 1) * n_results
+        if skip >= pool_size:
+            return ([], False)
 
         # Embed the query via the CPU/query-mode function so we don't
         # wake up the GPU embedding model for a single-shot search.
         query_embeddings = await asyncio.to_thread(self._embed_query, [query])
         query_kwargs: dict[str, Any] = {
             "query_embeddings": query_embeddings,
-            "n_results": min(n_results, count),
+            "n_results": pool_size,
+            # We need embeddings for MMR — include them in the response.
+            # ChromaDB always returns documents + metadatas + distances by
+            # default; `include` REPLACES that default, so list them all.
+            "include": ["documents", "metadatas", "distances", "embeddings"],
         }
         if folder is not None:
             # Prefix-expand: "bibel" matches every "bibel/..." sub-folder so
@@ -593,12 +686,13 @@ class DocumentStore:
 
         results = await asyncio.to_thread(self._collection.query, **query_kwargs)
 
-        hits: list[dict[str, Any]] = []
+        all_hits: list[dict[str, Any]] = []
+        all_embs: list[Any] = []
         if results and results["documents"] and results["documents"][0]:
             for i, doc in enumerate(results["documents"][0]):
                 meta = results["metadatas"][0][i] if results["metadatas"] else {}  # type: ignore[index]
                 distance = results["distances"][0][i] if results["distances"] else None  # type: ignore[index]
-                hits.append({
+                all_hits.append({
                     "content": doc,
                     "filename": meta.get("filename", ""),
                     "folder": meta.get("folder", ""),
@@ -607,6 +701,21 @@ class DocumentStore:
                     "distance": distance,
                     "_neighbor": False,  # mark original similarity hits
                 })
+                if results.get("embeddings") and results["embeddings"][0] is not None:
+                    all_embs.append(results["embeddings"][0][i])
+
+        # MMR re-rank: diversify the full pool once, page-slice afterwards.
+        # Skip when only one hit (nothing to diversify) or embeddings missing.
+        if diversify and len(all_hits) > 1 and len(all_embs) == len(all_hits):
+            mmr_order = _mmr_rerank(
+                query_embeddings[0], all_embs, k=len(all_hits), lambda_=mmr_lambda
+            )
+            all_hits = [all_hits[i] for i in mmr_order]
+
+        # Page slice from the (possibly MMR-reordered) pool.
+        hits: list[dict[str, Any]] = all_hits[skip:skip + n_results]
+        # has_more: another page worth of hits still sits in the pool.
+        has_more = (skip + n_results) < len(all_hits)
 
         # Fetch neighbor chunks for each similarity hit (deduped by ID).
         # Neighbors are added with _neighbor=True so callers can distinguish
@@ -653,7 +762,7 @@ class DocumentStore:
             # the original passage.
             hits.sort(key=lambda h: (h["filename"], h["chunk_index"]))
 
-        return hits
+        return (hits, has_more)
 
     def list_documents(self) -> list[dict[str, Any]]:
         """List all unique documents with metadata.
