@@ -22,7 +22,7 @@ from .ui.helpers import t, left_column  # noqa: F401
 from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, research_help_modal, reasoning_thinking_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
-    document_manager_page, channel_credentials_modal, audit_log_modal,
+    document_manager_page, channel_credentials_page, audit_log_modal,
     bundle_export_modal, bundle_import_modal,
 )
 from .ui.chat_display import (  # noqa: F401
@@ -757,8 +757,8 @@ console.log('✂️ Crop handler loaded');
         # als eigene Page (Code-Splitting fuer ~40 KB JSX). Buttons triggern
         # rx.redirect("/documents") statt Modal-Open.
 
-        # Email Credentials Modal (Message Hub)
-        channel_credentials_modal(),
+        # Channel-Credentials: lebt seit dem Multi-Route-Split auf
+        # /credentials als eigene Page (Code-Splitting fuer ~50 KB JSX).
         audit_log_modal(),
 
         # Agent Bundle Export / Import
@@ -1083,6 +1083,17 @@ def audio_settings_route() -> rx.Component:
 )
 def document_manager_route() -> rx.Component:
     return document_manager_page()
+
+
+@rx.page(
+    route="/credentials",
+    title="Channel Credentials — AIfred",
+)
+def channel_credentials_route() -> rx.Component:
+    # Kein on_load-Setup noetig: open_channel_credentials(channel_name) hat
+    # den ganzen State (Felder, OAuth-Status, Werte) bereits gesetzt
+    # bevor es per rx.redirect("/credentials") hierher navigiert.
+    return channel_credentials_page()
 
 
 # Create app (API routes are mounted separately below)

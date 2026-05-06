@@ -514,8 +514,9 @@ class SettingsMixin(rx.State, mixin=True):
         plugin = get_channel(channel_name)
 
         if value and plugin and not plugin.is_configured():
-            self.open_channel_credentials(channel_name)
-            return
+            # open_channel_credentials returnt rx.redirect — durchreichen
+            # damit Reflex die Navigation tatsaechlich ausloest
+            return self.open_channel_credentials(channel_name)
 
         self._set_channel_toggle(channel_name, "monitor", value)
         display = plugin.display_name if plugin else channel_name
@@ -572,8 +573,14 @@ class SettingsMixin(rx.State, mixin=True):
     # MESSAGE HUB — GENERIC CREDENTIALS MODAL
     # ================================================================
 
-    def open_channel_credentials(self, channel_name: str) -> None:
-        """Open credentials modal, pre-filled from .env (secrets) and settings.json (config)."""
+    # Pfad zu dem nach Schliessen/Save der Credentials-Page zurueck-
+    # navigiert wird. Beim Open setzen wir das aus self.router.page.path
+    # — der User landet wieder dort wo er das Modal aufgerufen hat
+    # (Settings-Accordion auf /, oder Plugin-Tab auf /agent-editor).
+    _credentials_return_to: str = "/"
+
+    def open_channel_credentials(self, channel_name: str):
+        """Open credentials page, pre-filled from .env (secrets) and settings.json (config)."""
         from ..lib.plugin_base import CredentialField
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
@@ -667,12 +674,23 @@ class SettingsMixin(rx.State, mixin=True):
             self.oauth_connect_status = "idle"
             self.oauth_auth_url = ""
 
-    def close_channel_credentials(self) -> None:
-        """Close credentials modal without saving."""
+        # Remember the page the user came from for the close/save redirect
+        # (Settings-Accordion auf /, oder Plugin-Tab auf /agent-editor).
+        try:
+            current_path = self.router.page.path or "/"
+        except Exception:  # noqa: BLE001
+            current_path = "/"
+        self._credentials_return_to = current_path
+        return rx.redirect("/credentials")
+
+    def close_channel_credentials(self):
+        """Close credentials page without saving — back to caller's page."""
         self.channel_credentials_modal_open = False
         # Clear password values from state
         self.channel_credential_values = {}
         self.channel_credentials_editing = ""
+        target = self._credentials_return_to or "/"
+        return rx.redirect(target)
 
     def update_channel_credential(self, data: list) -> None:
         """Update a single credential field. Called with [env_key, value]."""
@@ -779,7 +797,7 @@ class SettingsMixin(rx.State, mixin=True):
         plugin_name = self.channel_credentials_display_name or provider
         self.add_debug(f"🔌 {plugin_name}: OAuth-Verbindung getrennt.")  # type: ignore[attr-defined]
 
-    def save_channel_credentials(self) -> None:
+    def save_channel_credentials(self):
         """Write credentials to .env (secrets) and plugin settings.json (config).
 
         Works for both channel plugins and tool plugins.
@@ -893,6 +911,10 @@ class SettingsMixin(rx.State, mixin=True):
                 message_hub.register(plugin_name, channel.listener_loop)
                 import asyncio
                 asyncio.create_task(message_hub.start_all())
+
+        # Nach erfolgreichem Save: zurueck zur urspruenglichen Page
+        target = self._credentials_return_to or "/"
+        return rx.redirect(target)
 
     # ================================================================
     # PLUGIN MANAGER MODAL
