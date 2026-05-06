@@ -197,8 +197,17 @@
   }
   .hit .meta .file { color: var(--accent-hover); font-weight: 500; }
   .hit .meta .neighbor { color: var(--text-dim); font-style: italic; }
+  /* Schwacher Treffer (Cosine-Distance ≥ 1.0): semantisch kaum verwandt,
+     fast orthogonale Vektoren. Dimmen damit der User es auf einen Blick
+     erkennt — die Karte bleibt lesbar, aber sticht nicht hervor. */
+  .hit.weak { opacity: 0.55; }
+  .hit.weak:hover { opacity: 0.85; }
+  .hit .meta .weak-distance { color: #f59e0b; font-style: italic; }
   .hit .content { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.55; }
-  .hit .content mark { background: rgba(99, 102, 241, 0.35); color: var(--text); padding: 1px 2px; border-radius: 2px; }
+  /* Such-Highlight: tiefes Indigo, passt zum Dark-Theme.
+     Vereinheitlicht ueber alle Tabs (Suche + Sammlungen). */
+  mark { background: #39255a; color: inherit; padding: 1px 2px; border-radius: 2px; }
+  .hit .content mark { background: #39255a; color: var(--text); padding: 1px 2px; border-radius: 2px; }
   .empty {
     text-align: center;
     padding: 3rem;
@@ -268,7 +277,7 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-  .item-body mark { background: rgba(255, 200, 0, 0.3); color: inherit; padding: 0 2px; }
+  /* (overrides removed — all mark elements share the .item-body / global rule above) */
   button.small { padding: 0.2rem 0.6rem; font-size: 0.8rem; }
 
   /* ── Manage: 2-pane tree + detail ── */
@@ -541,7 +550,35 @@ function $(id) { return document.getElementById(id); }
 function escape(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function highlight(text, needle) {
   if (!needle) return escape(text);
-  const re = new RegExp('(' + needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  // Suchmaschinen-Konvention: "phrase mit spaces" wird als Entitaet gematcht
+  // (Wortreihenfolge fix), bare Woerter einzeln. Beides case-insensitive.
+  // Deutsch hat starke Flexion ("heiliger" → "heilige", "Heiligen", "Geistes"),
+  // daher reduzieren wir lange Woerter (≥6 Zeichen) auf einen Stem (letzte
+  // zwei chars weg) und matchen mit ``\w*`` weiter — so faengt "heilig" alle
+  // Heilig*-Formen, "Geist" bleibt "Geist" und matcht "Geist", "Geister",
+  // "Geistes", "geistlich".
+  const stem = w => w.length >= 6 ? w.slice(0, -2) : w;
+  const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const patterns = [];
+  // Quoted phrases: "heiliger geist" → Phrase-Pattern als ein Block (Wort-
+  // reihenfolge fix). Die Einzelwoerter werden NICHT separat gehighlightet —
+  // wenn der User die Phrase explizit mit "..." angefordert hat, gehoeren
+  // sie als Einheit zusammen.
+  const remaining = needle.replace(/"([^"]+)"/g, (_, m) => {
+    const words = m.trim().split(/\s+/).filter(w => w.length >= 2);
+    if (words.length) {
+      patterns.push(words.map(w => escapeRe(stem(w)) + '\\w*').join('\\s+'));
+    }
+    return ' ';
+  });
+  // Bare Woerter (ausserhalb von Anfuehrungszeichen) → einzeln highlighten,
+  // weil hier kein Phrase-Bezug erwartet wird.
+  for (const w of remaining.split(/\s+/)) {
+    if (w.length >= 2) patterns.push(escapeRe(stem(w)) + '\\w*');
+  }
+  if (!patterns.length) return escape(text);
+  const re = new RegExp('(' + patterns.join('|') + ')', 'gi');
   return escape(text).replace(re, '<mark>$1</mark>');
 }
 
@@ -589,36 +626,85 @@ async function doSearch() {
   const n = parseInt($('search-n').value) || 10;
   const neighbor = parseInt($('search-neighbor').value) || 0;
 
+  // "..." in der Query → Backend-Phrase-Mode: Server iteriert ALLE Chunks
+  // und liefert ALLE Phrase-Treffer (mit Stem-Toleranz, kein Embedding-Cap).
+  // Die Phrase wird ohne Anfuehrungszeichen ans Backend geschickt.
+  const phraseMatch = q.match(/"([^"]+)"/);
+  const isPhraseSearch = !!phraseMatch;
+  let mode = searchMode;
+  let queryForBackend = q;
+  let backendN = n;
+  if (isPhraseSearch) {
+    mode = 'phrase';
+    queryForBackend = phraseMatch[1].trim();
+    backendN = 2000;  // praktisch kein Limit — Backend stoppt wenn alle Chunks durch
+  }
+
   $('search-results').innerHTML = '<div class="empty">Suche l&auml;uft&hellip;</div>';
   try {
     const res = await api('/search', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ query: q, mode: searchMode, folder, n_results: n, neighbor }),
+      body: JSON.stringify({ query: queryForBackend, mode, folder, n_results: backendN, neighbor }),
     });
-    renderSearchResults(res, q);
+    renderSearchResults(res, q, n);
   } catch (e) {
     $('search-results').innerHTML = '';
     toast(e.message, 'error');
   }
 }
 
-function renderSearchResults(res, query) {
+
+function renderSearchResults(res, query, displayLimit) {
   const root = $('search-results');
   if (!res.results.length) { root.innerHTML = '<div class="empty">Keine Treffer</div>'; return; }
-  const needle = res.mode === 'literal' ? query : null;
-  const html = res.results.map((h, i) => {
+  const needle = query;
+  // Distance-Schwellwert: bei BGE-M3-Cosine ist 0=identisch, 1.0=orthogonal,
+  // >1.0 = semantisch praktisch "kein Bezug" — solche Hits dimmen.
+  const WEAK_DISTANCE = 1.0;
+
+  // Anzeige-Limit anwenden (Backend liefert bei mode=phrase ALLE Treffer,
+  // bei mode=semantic die top-N). UI zeigt nur die ersten displayLimit Treffer.
+  const totalBackend = res.total;
+  let filtered = res.results;
+  if (displayLimit && filtered.length > displayLimit) {
+    filtered = filtered.slice(0, displayLimit);
+  }
+
+  // Pre-pass auf der vollen Backend-Liste (NICHT auf der geslicten filtered),
+  // damit ein starker Anker auf Position 50 die Neighbors auf Position 1-10
+  // nicht faelschlich als weak markiert. Per Datei merken: gibt es ueberhaupt
+  // einen starken Anker? Neighbors erben den Status ihrer Datei.
+  const hasStrongAnchor = new Map();
+  for (const h of res.results) {
+    if (h.distance == null) continue;
+    if (!hasStrongAnchor.has(h.filename)) hasStrongAnchor.set(h.filename, false);
+    if (h.distance < WEAK_DISTANCE) hasStrongAnchor.set(h.filename, true);
+  }
+
+  const html = filtered.map((h) => {
     const meta = [];
     meta.push(`<span class="file">${escape(h.filename)}</span>`);
     meta.push(`<span>chunk ${h.chunk_index}/${h.total_chunks}</span>`);
-    if (h.distance !== null && h.distance !== undefined) meta.push(`<span>d=${h.distance.toFixed(3)}</span>`);
+    let isWeak;
+    if (h.distance != null) {
+      isWeak = h.distance >= WEAK_DISTANCE;
+      meta.push(`<span class="${isWeak ? 'weak-distance' : ''}">d=${h.distance.toFixed(3)}${isWeak ? ' (schwach)' : ''}</span>`);
+    } else {
+      isWeak = !hasStrongAnchor.get(h.filename);
+    }
     if (h._neighbor) meta.push(`<span class="neighbor">±neighbor</span>`);
-    return `<div class="hit">
+    // Highlight zuerst rendern — wenn die Suchwoerter wirklich im Text
+    // vorkommen, ueberstimmt das die Embedding-Distance: ein Treffer mit
+    // sichtbarem Match ist relevant fuer den User, egal was BGE-M3 sagt.
+    const highlighted = highlight(h.content, needle);
+    if (isWeak && highlighted.includes('<mark>')) isWeak = false;
+    return `<div class="hit${isWeak ? ' weak' : ''}">
       <div class="meta">${meta.join(' &middot; ')}</div>
-      <div class="content">${highlight(h.content, needle)}</div>
+      <div class="content">${highlighted}</div>
     </div>`;
   }).join('');
-  root.innerHTML = `<p class="small">${res.total} Treffer (${res.mode})</p>` + html;
+  root.innerHTML = `<p class="small">${filtered.length} von ${totalBackend} Treffer (${res.mode})</p>` + html;
 }
 
 $('search-btn').addEventListener('click', doSearch);
