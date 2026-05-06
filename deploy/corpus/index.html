@@ -244,6 +244,33 @@
   }
   .small { font-size: 0.8rem; color: var(--text-dim); }
 
+  /* ── Collections-Tab ── */
+  .item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .item-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.4rem;
+  }
+  .item-head strong { color: var(--text); }
+  .item-head .small { flex: 1; }
+  .item-body {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .item-body mark { background: rgba(255, 200, 0, 0.3); color: inherit; padding: 0 2px; }
+  button.small { padding: 0.2rem 0.6rem; font-size: 0.8rem; }
+
   /* ── Manage: 2-pane tree + detail ── */
   .manage-grid {
     display: grid;
@@ -321,6 +348,7 @@
   <button data-tab="overview">&Uuml;bersicht</button>
   <button data-tab="upload">Hochladen</button>
   <button data-tab="manage">Verwaltung</button>
+  <button data-tab="collections">Sammlungen</button>
 </nav>
 
 <main>
@@ -449,6 +477,35 @@
   </div>
 
   <div id="manage-result"></div>
+</section>
+
+<!-- ================== COLLECTIONS (alle ChromaDB-Collections) ================== -->
+<section id="panel-collections" class="panel">
+  <div class="row">
+    <div class="field" style="min-width:240px">
+      <label>Sammlung</label>
+      <select id="col-select"></select>
+    </div>
+    <div class="field" style="flex:1; min-width:300px">
+      <label>Suche / Filter</label>
+      <input type="text" id="col-query" placeholder="leer lassen = alles auflisten">
+    </div>
+    <div class="field" style="width:140px">
+      <label>Modus</label>
+      <select id="col-mode">
+        <option value="literal">Wortgenau</option>
+        <option value="semantic">Semantisch</option>
+      </select>
+    </div>
+    <div class="field" style="width:80px">
+      <label>Anzahl</label>
+      <input type="number" id="col-limit" value="50" min="1" max="500">
+    </div>
+    <button class="primary" id="col-go">Anzeigen</button>
+  </div>
+  <div id="col-info" class="stats" style="margin: 1rem 0;"></div>
+  <div id="col-items"></div>
+  <div id="col-pager" class="row" style="justify-content: center; margin-top: 1rem;"></div>
 </section>
 
 </main>
@@ -962,6 +1019,225 @@ $('manage-delete-folder').addEventListener('click', async () => {
 // Tree beim Tab-Wechsel zur Verwaltung laden
 document.querySelector('button[data-tab="manage"]').addEventListener('click', () => {
   if (!manageDocs.length) loadManage();
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Collections-Tab — generischer Browser über alle ChromaDB-Collections
+// ════════════════════════════════════════════════════════════════════
+
+var collectionsLoaded = false;
+var colCurrent = null;     // {name, schema, count}
+var colOffset = 0;
+var colMode = 'list';      // 'list' | 'search'
+
+async function loadCollectionsList() {
+  try {
+    const r = await api('/collections');
+    const sel = $('col-select');
+    sel.innerHTML = '';
+    r.collections.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.textContent = `${c.name} (${c.count} Eintraege, ${c.schema})`;
+      opt.dataset.schema = c.schema;
+      opt.dataset.count = c.count;
+      sel.appendChild(opt);
+    });
+    if (r.collections.length) {
+      colCurrent = {
+        name: r.collections[0].name,
+        schema: r.collections[0].schema,
+        count: r.collections[0].count,
+      };
+      colOffset = 0;
+      await renderCollectionPage();
+    } else {
+      $('col-info').textContent = 'Keine Collections vorhanden.';
+    }
+  } catch (e) { toast('Collections laden fehlgeschlagen: ' + e.message, 'error'); }
+}
+
+function colSnippet(text, max) {
+  text = String(text || '').trim();
+  if (text.length <= max) return text;
+  return text.slice(0, max) + '…';
+}
+
+function renderItemAifred(item, query) {
+  const m = item.metadata || {};
+  const title = `${m.filename || '?'}  (Chunk ${m.chunk_index ?? '?'}/${m.total_chunks ?? '?'})`;
+  const folder = m.folder ? ` · ${escape(m.folder)}` : '';
+  return `
+    <div class="item">
+      <div class="item-head">
+        <strong>${escape(title)}</strong>
+        <span class="small">${folder}</span>
+        <button class="danger small" data-id="${escape(item.id)}" data-action="del">Loeschen</button>
+      </div>
+      <div class="item-body">${highlight(colSnippet(item.document, 600), query || '')}</div>
+    </div>
+  `;
+}
+
+function renderItemResearch(item, query) {
+  const m = item.metadata || {};
+  const ts = m.timestamp ? new Date(m.timestamp).toLocaleString('de-DE') : '?';
+  const vol = m.volatility || '?';
+  const expires = m.expires_at && m.expires_at !== 'None' ? new Date(m.expires_at).toLocaleString('de-DE') : 'permanent';
+  const answer = colSnippet(m.answer || '', 800);
+  const numSources = m.num_sources ?? '?';
+  return `
+    <div class="item">
+      <div class="item-head">
+        <strong>Query:</strong> ${highlight(escape(item.document || ''), query || '')}
+        <span class="small">· ${ts} · ${vol} · ${numSources} Quellen · expires ${expires}</span>
+        <button class="danger small" data-id="${escape(item.id)}" data-action="del">Loeschen</button>
+      </div>
+      <div class="item-body"><strong>Antwort:</strong> ${highlight(escape(answer), query || '')}</div>
+    </div>
+  `;
+}
+
+function renderItemMemory(item, query) {
+  const m = item.metadata || {};
+  const date = m.date ? new Date(m.date).toLocaleString('de-DE') : '?';
+  const type = m.type || '?';
+  const agent = m.agent_id || '?';
+  const summary = m.summary || colSnippet(item.document, 200);
+  const content = colSnippet(m.content || '', 1000);
+  return `
+    <div class="item">
+      <div class="item-head">
+        <strong>${escape(agent)}</strong>
+        <span class="small">· ${escape(type)} · ${date}</span>
+        <button class="danger small" data-id="${escape(item.id)}" data-action="del">Loeschen</button>
+      </div>
+      <div class="item-body">
+        <div><strong>${highlight(escape(summary), query || '')}</strong></div>
+        ${content ? `<div class="small" style="margin-top:0.5rem">${highlight(escape(content), query || '')}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderItemGeneric(item, query) {
+  const m = item.metadata || {};
+  const metaList = Object.entries(m)
+    .map(([k, v]) => `<span class="small">${escape(k)}=${escape(String(v).slice(0, 80))}</span>`)
+    .join(' · ');
+  return `
+    <div class="item">
+      <div class="item-head">
+        <strong>${escape(item.id)}</strong>
+        <button class="danger small" data-id="${escape(item.id)}" data-action="del">Loeschen</button>
+      </div>
+      <div class="small" style="margin-top:0.3rem">${metaList}</div>
+      <div class="item-body">${highlight(colSnippet(item.document, 600), query || '')}</div>
+    </div>
+  `;
+}
+
+function renderItem(schema, item, query) {
+  if (schema === 'aifred_documents') return renderItemAifred(item, query);
+  if (schema === 'research_cache') return renderItemResearch(item, query);
+  if (schema === 'agent_memory')   return renderItemMemory(item, query);
+  return renderItemGeneric(item, query);
+}
+
+async function renderCollectionPage() {
+  if (!colCurrent) return;
+  const limit = parseInt($('col-limit').value, 10) || 50;
+  const queryRaw = $('col-query').value.trim();
+  const mode = $('col-mode').value;
+
+  let data;
+  let isSearch = false;
+  try {
+    if (queryRaw) {
+      isSearch = true;
+      data = await api(`/collections/${encodeURIComponent(colCurrent.name)}/search`, {
+        method: 'POST',
+        body: JSON.stringify({ query: queryRaw, mode, n_results: limit }),
+      });
+    } else {
+      data = await api(`/collections/${encodeURIComponent(colCurrent.name)}/items?offset=${colOffset}&limit=${limit}`);
+    }
+  } catch (e) { toast(e.message, 'error'); return; }
+
+  const items = isSearch ? data.results : data.items;
+  const total = isSearch ? data.total : data.total;
+  const schema = isSearch ? colCurrent.schema : (data.schema || colCurrent.schema);
+
+  // Info-Zeile
+  if (isSearch) {
+    $('col-info').innerHTML = `<div><strong>${total}</strong> Treffer für "${escape(queryRaw)}" (${mode}) in <strong>${escape(colCurrent.name)}</strong></div>`;
+  } else {
+    const from = colOffset + 1;
+    const to = Math.min(colOffset + items.length, total);
+    $('col-info').innerHTML = `<div>Anzeige <strong>${from}</strong>–<strong>${to}</strong> von <strong>${total}</strong> in <strong>${escape(colCurrent.name)}</strong> (Schema: ${schema})</div>`;
+  }
+
+  // Items
+  const html = items.map(it => renderItem(schema, it, queryRaw)).join('');
+  $('col-items').innerHTML = html || '<div class="empty">Keine Eintraege.</div>';
+
+  // Pager — nur bei list-Modus
+  const pager = $('col-pager');
+  if (isSearch) {
+    pager.innerHTML = '';
+  } else {
+    const prev = colOffset > 0 ? `<button data-pg="prev">← Zurueck</button>` : '';
+    const next = colOffset + items.length < total ? `<button data-pg="next">Weiter →</button>` : '';
+    pager.innerHTML = prev + ' ' + next;
+  }
+}
+
+// Event-Wiring
+$('col-select').addEventListener('change', async (e) => {
+  const opt = e.target.selectedOptions[0];
+  colCurrent = {
+    name: e.target.value,
+    schema: opt.dataset.schema,
+    count: parseInt(opt.dataset.count, 10),
+  };
+  colOffset = 0;
+  $('col-query').value = '';
+  await renderCollectionPage();
+});
+
+$('col-go').addEventListener('click', async () => {
+  colOffset = 0;
+  await renderCollectionPage();
+});
+
+$('col-query').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { colOffset = 0; renderCollectionPage(); }
+});
+
+$('col-pager').addEventListener('click', async (e) => {
+  if (!e.target.matches('button[data-pg]')) return;
+  const limit = parseInt($('col-limit').value, 10) || 50;
+  if (e.target.dataset.pg === 'prev') colOffset = Math.max(0, colOffset - limit);
+  else                                colOffset += limit;
+  await renderCollectionPage();
+});
+
+$('col-items').addEventListener('click', async (e) => {
+  if (!e.target.matches('button[data-action="del"]')) return;
+  const id = e.target.dataset.id;
+  if (!confirm(`Eintrag ${id} aus "${colCurrent.name}" loeschen?`)) return;
+  try {
+    await api(`/collections/${encodeURIComponent(colCurrent.name)}/items/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    toast('Eintrag geloescht', 'success');
+    await renderCollectionPage();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+document.querySelector('button[data-tab="collections"]').addEventListener('click', () => {
+  if (!collectionsLoaded) {
+    collectionsLoaded = true;
+    loadCollectionsList();
+  }
 });
 
 // ─── Boot ──────────────────────────────────────
