@@ -30,7 +30,7 @@ from .ui.chat_display import (  # noqa: F401
 )
 from .ui.input_sections import debug_console  # noqa: F401
 from .ui.settings_accordion import settings_accordion  # noqa: F401
-from .ui.agent_editor import agent_editor_modal  # noqa: F401
+from .ui.agent_editor import agent_editor_page  # noqa: F401
 from .ui.file_picker import file_picker_modal  # noqa: F401
 from .ui.audio_settings import audio_settings_modal, audio_help_modal  # noqa: F401
 
@@ -749,8 +749,9 @@ console.log('✂️ Crop handler loaded');
         # Reasoning/Thinking Help Modal
         reasoning_thinking_help_modal(),
 
-        # Agent Editor Modal
-        agent_editor_modal(),
+        # Agent Editor: lebt seit dem Multi-Route-Split auf /agent-editor
+        # als eigene Page (Code-Splitting fuer ~258 KB JSX). Nicht mehr
+        # hier eingebettet — Buttons im Chat triggern jetzt rx.redirect.
 
         # Document Manager Modal
         document_manager_modal(),
@@ -1043,6 +1044,24 @@ console.log('✂️ Crop handler loaded');
 # 1. Models are loaded from State settings (not hardcoded)
 # 2. Available models list is populated before preloading
 # 3. Everything happens in one place (cleaner architecture)
+
+
+# ============================================================
+# Agent Editor — eigene Route mit automatischem Code-Splitting
+# ============================================================
+# Reflex + React Router 7 (flatRoutes) splittet jede @rx.page in einen
+# eigenen Lazy-Chunk. Die ~258 KB JSX des Agent-Editors landen damit
+# in einem separaten Bundle — das Initial-`_index.jsx` wird dadurch
+# klein genug fuer den Babel-Limit von 500 KB, was die periodischen
+# Bun-Frontend-Crashes loest.
+
+@rx.page(
+    route="/agent-editor",
+    on_load=AIState.on_load_agent_editor,
+    title="Agent Editor — AIfred",
+)
+def agent_editor_route() -> rx.Component:
+    return agent_editor_page()
 
 
 # Create app (API routes are mounted separately below)
