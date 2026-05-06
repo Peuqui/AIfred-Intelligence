@@ -1161,7 +1161,19 @@ class AgentConfigMixin(rx.State, mixin=True):
         self._agent_id_by_label[self._AUTOMATIK_LABEL] = "automatik"
 
     def open_agent_editor(self):
-        """Open the agent editor modal, select first agent."""
+        """Navigate to the agent-editor page.
+
+        Trigger fuer „Agent bearbeiten"-Buttons im Chat. Die eigentliche
+        State-Initialisierung (Refresh-Dropdown, Load-First-Agent,
+        DOM-Push) passiert in ``on_load_agent_editor``, das Reflex beim
+        Page-Load der Route ``/agent-editor`` automatisch aufruft.
+        """
+        return rx.redirect("/agent-editor")
+
+    def on_load_agent_editor(self):
+        """Page-Load-Hook fuer ``/agent-editor`` — fuehrt das Editor-State-Setup
+        aus, das frueher in ``open_agent_editor`` lag (vor dem Multi-Route-Split).
+        """
         self._refresh_agent_dropdown()
         self.agent_editor_mode = "config"
         self.agent_editor_open = True
@@ -1177,10 +1189,10 @@ class AgentConfigMixin(rx.State, mixin=True):
             first_id = next(iter(raw))
             self._load_agent_into_state(first_id)
 
-        # Yield to render the modal DOM first
+        # Yield to render the page DOM first
         yield
 
-        # Now populate DOM fields (modal exists now)
+        # Now populate DOM fields (page exists now)
         yield self._push_editor_dom()
 
     # Dirty flag — set on any keystroke in editor fields
@@ -1193,19 +1205,25 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Mark editor as having unsaved changes (called on any keystroke)."""
         self.editor_dirty = True
 
-    def close_agent_editor(self) -> None:
-        """Close the agent editor modal (no dirty check)."""
+    def close_agent_editor(self):
+        """Close the agent editor — reset state + navigate back to chat."""
         self.agent_editor_open = False
         self.editor_agent_id = ""
         self.editor_delete_confirm = ""
         self.editor_dirty_confirm = False
         self.editor_dirty = False
+        return rx.redirect("/")
 
-    def close_editor_with_dirty_check(self) -> None:
-        """Close editor — warn if unsaved changes."""
+    def close_editor_with_dirty_check(self):
+        """Close editor — warn if unsaved changes.
+
+        Wenn nicht dirty (oder nicht im config-Tab): direkt close_agent_editor
+        durchreichen — dessen ``rx.redirect("/")`` muss zurueckgegeben werden,
+        damit Reflex die Navigation tatsaechlich ausloest. Sonst „klickt"
+        der User auf X und nichts passiert (Bug nach dem Multi-Route-Split).
+        """
         if not self.editor_dirty or self.agent_editor_mode != "config":
-            self.close_agent_editor()
-            return
+            return self.close_agent_editor()
         self._pending_close = True
         self._pending_agent_label = ""
         self.editor_dirty_confirm = True

@@ -2268,60 +2268,71 @@ def _audit_view() -> rx.Component:
 
 
 # ============================================================
-# MAIN MODAL
+# AGENT EDITOR PAGE (formerly modal — now own /agent-editor route)
 # ============================================================
 
-def agent_editor_modal() -> rx.Component:
-    """Settings modal fullscreen overlay."""
-    return rx.cond(
-        AIState.agent_editor_open,
+def agent_editor_page() -> rx.Component:
+    """Full-page agent editor (formerly agent_editor_modal overlay).
+
+    Wird auf der Route ``/agent-editor`` als eigene Page gerendert. Reflex
+    + React Router 7 macht damit automatisches Code-Splitting: dieser
+    Sub-Tree (~258 KB JSX) landet in einem eigenen Lazy-Chunk und wird
+    nur geladen wenn der User in den Editor navigiert. Initial-Bundle
+    der Chat-Page wird entsprechend kleiner — das Bun-Frontend bleibt
+    unter dem Babel-Limit von 500 KB.
+
+    Visuell sieht die Page weiterhin wie das alte Modal aus (Vollbild-
+    Overlay), nur dass die URL sich auf ``/agent-editor`` ändert.
+    Browser-Back schließt den Editor, F5 hält ihn offen, URL ist
+    bookmarkbar. Der Close-Button ruft ``AIState.close_agent_editor``
+    auf, was per ``rx.redirect("/")`` zurück zum Chat navigiert.
+    """
+    return rx.box(
+        # Backdrop
         rx.box(
-            # Backdrop
-            rx.box(
-                position="absolute",
-                top="0",
-                left="0",
-                width="100%",
-                height="100%",
-                background_color="rgba(0, 0, 0, 0.85)",
-                # Backdrop fängt den Klick aber schließt nicht (user nutzt X)
-                on_click=rx.stop_propagation,
-            ),
-            # Modal content — switches between tabs
-            rx.box(
-                rx.match(
-                    AIState.agent_editor_mode,
-                    ("memory", _memory_view()),
-                    ("database", _database_view()),
-                    ("plugins", _plugins_view()),
-                    ("scheduler", _scheduler_view()),
-                    ("audit", _audit_view()),
-                    _config_view(),  # default
-                ),
-                padding="25px",
-                background_color="#1a1a1a",
-                border_radius="12px",
-                max_width="95vw",
-                width="750px",
-                height="90vh",
-                max_height="95vh",
-                overflow_x="hidden",
-                overflow_y="hidden",
-                display="flex",
-                flex_direction="column",
-                position="relative",
-                z_index="1001",
-                color="white",
-            ),
-            # Fullscreen container
-            position="fixed",
+            position="absolute",
             top="0",
             left="0",
-            width="100vw",
-            height="100vh",
-            z_index="1000",
-            display="flex",
-            justify_content="center",
-            align_items="center",
+            width="100%",
+            height="100%",
+            background_color="rgba(0, 0, 0, 0.85)",
+            # Backdrop fängt den Klick aber schließt nicht (user nutzt X)
+            on_click=rx.stop_propagation,
         ),
+        # Editor content — switches between tabs
+        rx.box(
+            rx.match(
+                AIState.agent_editor_mode,
+                ("memory", _memory_view()),
+                ("database", _database_view()),
+                ("plugins", _plugins_view()),
+                ("scheduler", _scheduler_view()),
+                ("audit", _audit_view()),
+                _config_view(),  # default
+            ),
+            padding="25px",
+            background_color="#1a1a1a",
+            border_radius="12px",
+            max_width="95vw",
+            width="750px",
+            height="90vh",
+            max_height="95vh",
+            overflow_x="hidden",
+            overflow_y="hidden",
+            display="flex",
+            flex_direction="column",
+            position="relative",
+            z_index="1001",
+            color="white",
+        ),
+        # Fullscreen container
+        position="fixed",
+        top="0",
+        left="0",
+        width="100vw",
+        height="100vh",
+        z_index="1000",
+        display="flex",
+        justify_content="center",
+        align_items="center",
     )
