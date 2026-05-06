@@ -1131,6 +1131,15 @@ DOCUMENT_CHUNK_SIZE = 800           # Tokens per chunk. With bge-m3 (8192 token
                                      # for token-dense German+Hebrew content.
                                      # Larger chunks = richer semantic embeddings.
 DOCUMENT_CHUNK_OVERLAP = 80         # Overlap between chunks (tokens, ~10% of chunk)
+DOCUMENT_EMBED_BATCH_SIZE = 64      # Chunks pro Embed-API-Call beim Indexieren.
+                                     # Wenn die ganze Datei (z.B. 2686 Bibel-Chunks)
+                                     # in einem einzigen Ollama-Call landet, dauert
+                                     # der >90 s und granian killt den Reflex-Worker
+                                     # (kein WS-Heartbeat in der Zeit). Mit 64er-Batches
+                                     # dauert jeder Call ~3-4 s und der asyncio-Loop
+                                     # bleibt responsiv. 64 ist ein Kompromiss
+                                     # zwischen API-Overhead (kleinere Batches → mehr
+                                     # Calls) und Worker-Responsiveness.
 EMBEDDING_MAX_INPUT_TOKENS = 8192   # Hard input limit of the active embedding model
                                      # (bge-m3). Keep in sync when switching models.
 DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
