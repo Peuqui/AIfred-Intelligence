@@ -470,8 +470,10 @@ async def search_index(
                    DOCUMENT_SEARCH_MAX_RESULTS). Each hit may bring
                    along ±DOCUMENT_SEARCH_NEIGHBOR_WINDOW neighbor chunks
                    so the model sees the full surrounding context.
-        folder: If set, restrict search to this exact folder string
-                (e.g. "bibel/Schlachter"). Sub-folders are not auto-included.
+        folder: If set, restrict to this folder. Recursively includes
+                sub-folders via prefix match — ``"bibel"`` covers
+                ``"bibel/Schlachter"`` AND ``"bibel/GuteNachricht"``;
+                ``"bibel/Schlachter"`` stays narrow. ``None`` = whole store.
     """
     from .config import DOCUMENT_SEARCH_MAX_RESULTS
     from .document_store import get_document_store
