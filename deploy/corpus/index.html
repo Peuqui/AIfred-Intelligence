@@ -334,6 +334,24 @@
   .tree .name { flex: 1; }
   .tree .count { color: var(--text-dim); font-size: 0.75rem; }
   .tree .hidden { display: none; }
+  /* File-Status-Indikatoren im Tree:
+       ✓  indexed   → unauffaellig, schon verarbeitet
+       ⊘  disk_only → blau-akzent, "muss noch indexiert werden"
+       ⚠  orphan    → orange-warn, "Disk-Datei fehlt, Index hat noch Chunks"
+     Folder-Counts ergaenzt um disk_only/orphan-Indikator wenn dort welche
+     darunter haengen. */
+  .tree-file.status-disk_only,
+  .tree-folder > summary.status-disk_only { color: var(--accent, #6366f1); }
+  .tree-file.status-orphan,
+  .tree-folder > summary.status-orphan { color: #f59e0b; }
+  .tree .status-icon {
+    width: 0.85rem;
+    text-align: center;
+    font-size: 0.85rem;
+    color: inherit;
+  }
+  .tree-file.status-disk_only .name,
+  .tree-file.status-orphan .name { font-style: italic; }
 </style>
 </head>
 <body>
@@ -436,7 +454,7 @@
 
 <!-- ================== MANAGE ================== -->
 <section id="panel-manage" class="panel">
-  <p class="small">Klicke links eine Datei oder einen Folder, rechts erscheinen Details und Aktionen. Bei Datei-Auswahl wird der Inhalt (erste 200 Chunks) gleich mit angezeigt. Re-Indexierung holt die Quelldatei von der Disk und ersetzt alle Chunks (delete-before-upsert). Folder-Aktionen wirken nur auf den exakten Folder, ohne Sub-Folder.</p>
+  <p class="small">Klicke links eine Datei oder einen Folder, rechts erscheinen Details und Aktionen. Bei Datei-Auswahl wird der Inhalt (erste 200 Chunks) gleich mit angezeigt. Re-Indexierung holt die Quelldatei von der Disk und ersetzt alle Chunks (delete-before-upsert). Folder-Aktionen wirken nur auf den exakten Folder, ohne Sub-Folder. Status-Icons: <span style="color:var(--text-dim)">&#10003;</span> indexiert, <span style="color:var(--accent,#6366f1)">&#8856;</span> auf Disk aber nicht im Index, <span style="color:#f59e0b">&#9888;</span> Index-Eintrag ohne Disk-Datei (orphan).</p>
 
   <div class="row">
     <div class="field" style="flex:1; min-width:280px">
@@ -459,6 +477,7 @@
 
       <div id="manage-file-actions" style="display:none">
         <div class="action-row">
+          <button class="primary" id="manage-index-file" style="display:none">Indexieren</button>
           <button class="primary" id="manage-reindex">Re-Index</button>
           <button class="danger" id="manage-delete">L&ouml;schen (nur Chunks)</button>
           <button class="danger" id="manage-delete-file">L&ouml;schen + von Disk</button>
@@ -467,7 +486,9 @@
 
       <div id="manage-folder-actions" style="display:none">
         <div class="action-row">
+          <button class="primary" id="manage-index-new">Neue indexieren</button>
           <button class="primary" id="manage-reindex-folder">Folder re-indexieren</button>
+          <button class="danger" id="manage-cleanup-orphans">Orphans aufr&auml;umen</button>
           <button class="danger" id="manage-delete-folder">Chunks l&ouml;schen</button>
         </div>
       </div>
@@ -502,6 +523,7 @@
       <input type="number" id="col-limit" value="50" min="1" max="500">
     </div>
     <button class="primary" id="col-go">Anzeigen</button>
+    <button class="danger" id="col-clear" title="Alle Items dieser Sammlung loeschen">Sammlung leeren</button>
   </div>
   <div id="col-info" class="stats" style="margin: 1rem 0;"></div>
   <div id="col-items"></div>
@@ -746,17 +768,25 @@ $('upload-form').addEventListener('submit', async e => {
 });
 
 // ─── Manage: Tree + Selection-Detail ──────────────────────────────
-let manageDocs = [];  // alle indexierten Dateien
-let manageFolders = []; // alle Folder
-let manageSelected = null; // {kind: 'file'|'folder', path: string}
+// Datenmodell jetzt aus /api/inventory: jede Datei hat einen Status
+//   "indexed"   → auf Disk + im Index
+//   "disk_only" → auf Disk, nicht im Index
+//   "orphan"    → im Index, Disk-Datei fehlt
+// Folder-Counts sind ein Dict {indexed,disk_only,orphan} fuer die UI-Badges.
+let manageInventory = null; // {totals, folders: [{folder, indexed_chunks, files, counts}]}
+let manageSelected = null;  // {kind: 'file'|'folder', path: string}
+
+const STATUS_ICON = {
+  indexed:   '&#10003;',  // ✓
+  disk_only: '&#8856;',   // ⊘
+  orphan:    '&#9888;',   // ⚠
+};
 
 async function loadManage() {
   const tree = $('manage-tree');
   tree.innerHTML = '<div class="empty">L&auml;dt&hellip;</div>';
   try {
-    const [foldersRes, docsRes] = await Promise.all([api('/folders'), api('/documents')]);
-    manageFolders = foldersRes.folders;
-    manageDocs = docsRes.documents;
+    manageInventory = await api('/inventory');
     renderTree();
   } catch (e) {
     tree.innerHTML = '<div class="empty">Fehler: ' + escape(e.message) + '</div>';
@@ -764,75 +794,124 @@ async function loadManage() {
   }
 }
 
-function buildTree(docs, folders) {
-  // Wir bauen eine Hierarchie aus allen filename-Pfaden. Folder werden
-  // zusaetzlich mit ihren Chunk-Counts annotiert (aus folders-API).
-  const folderCounts = Object.fromEntries(folders.map(f => [f.folder, f.chunks]));
-  const root = { _children: {}, _path: '' };
-  for (const doc of docs) {
-    const parts = doc.filename.split('/');
-    let node = root;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const p = parts[i];
-      const path = node._path ? node._path + '/' + p : p;
-      if (!node._children[p]) {
-        node._children[p] = { _children: {}, _path: path, _isFolder: true };
-      }
-      node = node._children[p];
+function _findFile(filename) {
+  if (!manageInventory) return null;
+  for (const f of manageInventory.folders) {
+    for (const file of f.files) {
+      if (file.filename === filename) return file;
     }
-    const leaf = parts[parts.length - 1];
-    node._children[leaf] = { _doc: doc, _path: doc.filename, _isFile: true };
   }
-  // Rekursive Annotation: Folder-Knoten kriegen totalChunks (Summe aller
-  // Datei-Chunks im Subtree) und fileCount (Dateien rekursiv darunter).
-  // _chunks bleibt der "exact-folder"-Count aus der API — fuer die
-  // Folder-Aktionen wichtig (die wirken nur auf den exakten Folder, ohne
-  // Sub-Folder), wird aber nicht in der Tree-Spalte angezeigt.
+  return null;
+}
+
+function _findFolder(folder) {
+  if (!manageInventory) return null;
+  return manageInventory.folders.find(f => f.folder === folder) || null;
+}
+
+function buildTree(inventory) {
+  // Hierarchie aus allen Datei-Pfaden (Disk + Index union). Folder-Knoten
+  // sammeln Status-Counts rekursiv hoch, damit man auf einen Blick sieht
+  // "irgendwo darunter sind 12 nicht-indexierte Dateien".
+  const root = { _children: {}, _path: '' };
+  if (!inventory) return root;
+
+  for (const folderEntry of inventory.folders) {
+    for (const file of folderEntry.files) {
+      const parts = file.filename.split('/');
+      let node = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const p = parts[i];
+        const path = node._path ? node._path + '/' + p : p;
+        if (!node._children[p]) {
+          node._children[p] = { _children: {}, _path: path, _isFolder: true };
+        }
+        node = node._children[p];
+      }
+      const leaf = parts[parts.length - 1];
+      node._children[leaf] = { _file: file, _path: file.filename, _isFile: true };
+    }
+  }
+
+  // Per-Folder Index-Counts aus inventory.folders mappen
+  const exactFolderInfo = Object.fromEntries(
+    inventory.folders.map(f => [f.folder, f])
+  );
+
   function annotate(node) {
     if (node._isFile) {
-      node._totalChunks = node._doc.chunks_indexed || 0;
+      node._totalChunks = node._file.indexed_chunks || 0;
       node._fileCount = 1;
+      node._counts = {indexed: 0, disk_only: 0, orphan: 0};
+      node._counts[node._file.status] = 1;
       return;
     }
     let chunks = 0, files = 0;
+    const counts = {indexed: 0, disk_only: 0, orphan: 0};
     for (const c of Object.values(node._children || {})) {
       annotate(c);
       chunks += c._totalChunks || 0;
       files += c._fileCount || 0;
+      counts.indexed   += c._counts.indexed;
+      counts.disk_only += c._counts.disk_only;
+      counts.orphan    += c._counts.orphan;
     }
     node._totalChunks = chunks;
     node._fileCount = files;
-    if (node._isFolder) node._chunks = folderCounts[node._path] || 0;
+    node._counts = counts;
+    if (node._isFolder) {
+      const exact = exactFolderInfo[node._path];
+      node._exact = exact || null;
+    }
   }
   annotate(root);
   return root;
 }
 
+function _statusBadges(counts) {
+  const parts = [];
+  if (counts.disk_only) {
+    parts.push(`<span class="status-icon" style="color:var(--accent,#6366f1)" title="${counts.disk_only} nicht-indexiert">&#8856;${counts.disk_only}</span>`);
+  }
+  if (counts.orphan) {
+    parts.push(`<span class="status-icon" style="color:#f59e0b" title="${counts.orphan} Orphan(s)">&#9888;${counts.orphan}</span>`);
+  }
+  return parts.join(' ');
+}
+
 function renderTreeNode(node, name, depth) {
   if (node._isFile) {
-    const d = node._doc;
+    const f = node._file;
+    const statusCls = `status-${f.status}`;
+    const icon = STATUS_ICON[f.status] || '';
+    const chunkLabel = f.status === 'disk_only' ? '–' : f.indexed_chunks.toLocaleString('de-DE');
     return `<li>
-      <div class="tree-file" data-path="${escape(node._path)}" data-kind="file">
+      <div class="tree-file ${statusCls}" data-path="${escape(node._path)}" data-kind="file">
         <span class="caret"></span>
+        <span class="status-icon" title="${f.status}">${icon}</span>
         <span class="icon">&#128196;</span>
         <span class="name">${escape(name)}</span>
-        <span class="count" title="Chunks">${d.chunks_indexed}</span>
+        <span class="count" title="Chunks">${chunkLabel}</span>
       </div>
     </li>`;
   }
-  // Folder: zeige rekursiven Chunk-Total + (Datei-Anzahl) — konsistent
-  // mit den Datei-Eintraegen, die ebenfalls Chunks zeigen.
   const inner = Object.entries(node._children)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([n, c]) => renderTreeNode(c, n, depth + 1)).join('');
   const open = depth <= 1 ? ' open' : '';
+  // Folder-summary: Status-Klasse je nach was darunter haengt
+  const sumStatus = node._counts.disk_only ? 'status-disk_only'
+                  : node._counts.orphan ? 'status-orphan'
+                  : '';
+  const badges = _statusBadges(node._counts);
   return `<li>
     <details class="tree-folder"${open}>
-      <summary data-path="${escape(node._path)}" data-kind="folder">
+      <summary class="${sumStatus}" data-path="${escape(node._path)}" data-kind="folder">
         <span class="caret">&#9658;</span>
         <span class="icon">&#128193;</span>
         <span class="name">${escape(name)}</span>
-        <span class="count" title="${node._fileCount} Dateien, ${node._totalChunks} Chunks gesamt">${node._totalChunks.toLocaleString('de-DE')}</span>
+        ${badges}
+        <span class="count" title="${node._fileCount} Dateien, ${node._totalChunks} Chunks indexiert">${node._totalChunks.toLocaleString('de-DE')}</span>
       </summary>
       <ul>${inner}</ul>
     </details>
@@ -840,8 +919,7 @@ function renderTreeNode(node, name, depth) {
 }
 
 function renderTree() {
-  const root = buildTree(manageDocs, manageFolders);
-  const filter = ($('manage-tree-filter').value || '').toLowerCase();
+  const root = buildTree(manageInventory);
   const html = '<ul class="tree">' +
     Object.entries(root._children)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -849,7 +927,6 @@ function renderTree() {
     '</ul>';
   $('manage-tree').innerHTML = html;
   applyFilter();
-  // Bei aktueller Auswahl: visuell wieder selektieren
   if (manageSelected) selectTreeItem(manageSelected.kind, manageSelected.path, /*navigate*/false);
 }
 
@@ -913,21 +990,52 @@ async function selectTreeItem(kind, path, navigate) {
 
   $('manage-selected-title').textContent = path || '(root)';
   if (kind === 'file') {
-    const doc = manageDocs.find(d => d.filename === path);
-    if (doc) {
-      $('manage-selected-info').innerHTML = `Folder: <code>${escape(doc.folder)}</code> &middot; ${doc.chunks_indexed} chunks &middot; ${escape((doc.upload_date || '').slice(0, 19))}`;
+    const file = _findFile(path);
+    // Action-Buttons je nach Status zeigen/verstecken
+    const isDiskOnly = file && file.status === 'disk_only';
+    const isOrphan = file && file.status === 'orphan';
+    const isIndexed = file && file.status === 'indexed';
+    $('manage-index-file').style.display = isDiskOnly ? '' : 'none';
+    $('manage-reindex').style.display = (isIndexed || isOrphan) ? '' : 'none';
+    $('manage-delete').style.display = (isIndexed || isOrphan) ? '' : 'none';
+    $('manage-delete-file').style.display = (isIndexed || isDiskOnly) ? '' : 'none';
+
+    if (file) {
+      const sizeKb = (file.size_bytes / 1024).toFixed(1);
+      const statusLabel = {
+        indexed:   `<span style="color:var(--text-dim)">&#10003; indexiert</span>`,
+        disk_only: `<span style="color:var(--accent,#6366f1)">&#8856; auf Disk, nicht indexiert</span>`,
+        orphan:    `<span style="color:#f59e0b">&#9888; orphan (Disk-Datei fehlt)</span>`,
+      }[file.status] || file.status;
+      const sizePart = file.size_bytes ? `${sizeKb} KB` : 'keine Datei';
+      $('manage-selected-info').innerHTML = `${statusLabel} &middot; Folder: <code>${escape(file.folder)}</code> &middot; ${file.indexed_chunks} chunks &middot; ${sizePart}`;
     } else {
       $('manage-selected-info').textContent = '';
     }
     $('manage-file-actions').style.display = '';
     $('manage-folder-actions').style.display = 'none';
-    if (navigate) await loadChunksPreview(path);
+    if (navigate && (isIndexed || isOrphan)) {
+      await loadChunksPreview(path);
+    } else {
+      $('manage-chunks-preview').innerHTML = '';
+    }
   } else {
-    const f = manageFolders.find(x => x.folder === path);
-    const fileCount = manageDocs.filter(d => d.folder === path).length;
-    $('manage-selected-info').innerHTML = f
-      ? `${f.chunks} Chunks in ${fileCount} Datei(en) <span class="small">(exakter Folder, ohne Sub-Folder)</span>`
-      : `${fileCount} Datei(en) in Sub-Foldern (kein direkter Inhalt)`;
+    const f = _findFolder(path);
+    if (f) {
+      const c = f.counts;
+      const parts = [];
+      if (c.indexed) parts.push(`<span style="color:var(--text-dim)">&#10003; ${c.indexed}</span>`);
+      if (c.disk_only) parts.push(`<span style="color:var(--accent,#6366f1)">&#8856; ${c.disk_only}</span>`);
+      if (c.orphan) parts.push(`<span style="color:#f59e0b">&#9888; ${c.orphan}</span>`);
+      $('manage-selected-info').innerHTML = `${f.indexed_chunks.toLocaleString('de-DE')} Chunks in ${f.files.length} Datei(en) — ${parts.join(' &middot; ')} <span class="small">(exakter Folder, ohne Sub-Folder)</span>`;
+      // Bulk-Buttons: nur zeigen wenn was zu tun
+      $('manage-index-new').style.display = c.disk_only ? '' : 'none';
+      $('manage-cleanup-orphans').style.display = c.orphan ? '' : 'none';
+    } else {
+      $('manage-selected-info').textContent = 'Sub-Folder ohne direkten Inhalt';
+      $('manage-index-new').style.display = 'none';
+      $('manage-cleanup-orphans').style.display = 'none';
+    }
     $('manage-folder-actions').style.display = '';
     $('manage-file-actions').style.display = 'none';
     $('manage-chunks-preview').innerHTML = '';
@@ -955,6 +1063,25 @@ $('manage-reindex').addEventListener('click', async () => {
   if (!manageSelected || manageSelected.kind !== 'file') return;
   const f = manageSelected.path;
   if (!confirm(`Re-indexiere ${f}?`)) return;
+  try {
+    const r = await api('/reindex', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ filename: f }),
+    });
+    toast(`${r.filename}: ${r.chunks_indexed} chunks`, 'success');
+    await loadManage();
+    selectTreeItem('file', f, true);
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+// "Indexieren" — disk_only-Datei ins Index aufnehmen (selber Endpoint
+// wie Re-Index; bei nicht-existierendem Eintrag macht das DocumentStore
+// einfach einen Insert).
+$('manage-index-file').addEventListener('click', async () => {
+  if (!manageSelected || manageSelected.kind !== 'file') return;
+  const f = manageSelected.path;
+  if (!confirm(`Indexiere ${f}?`)) return;
   try {
     const r = await api('/reindex', {
       method: 'POST',
@@ -1016,9 +1143,52 @@ $('manage-delete-folder').addEventListener('click', async () => {
   } catch (e) { toast(e.message, 'error'); }
 });
 
+// "Neue indexieren" — alle disk_only-Dateien dieses Folders indexieren,
+// ohne die schon-indexierten anzufassen (kein delete-before-upsert).
+$('manage-index-new').addEventListener('click', async () => {
+  if (!manageSelected || manageSelected.kind !== 'folder') return;
+  const folder = manageSelected.path;
+  const f = _findFolder(folder);
+  const n = f ? f.counts.disk_only : 0;
+  if (!n) { toast('Keine nicht-indexierten Dateien in diesem Folder.', 'error'); return; }
+  if (!confirm(`${n} nicht-indexierte Datei(en) in "${folder}" indexieren?`)) return;
+  try {
+    const r = await fetch(API + `/folders/${encodeURIComponent(folder)}/index-new`, { method: 'POST' });
+    if (!r.ok) {
+      let d = r.statusText; try { d = (await r.json()).detail; } catch {}
+      throw new Error(`${r.status}: ${d}`);
+    }
+    const res = await r.json();
+    toast(`${res.files_indexed} Datei(en) indexiert (${res.chunks_total} chunks)${res.failures.length ? ', ' + res.failures.length + ' Fehler' : ''}`, 'success');
+    await loadManage();
+    selectTreeItem('folder', folder, true);
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+// "Orphans aufraeumen" — Index-Eintraege ohne Disk-Datei loeschen.
+$('manage-cleanup-orphans').addEventListener('click', async () => {
+  if (!manageSelected || manageSelected.kind !== 'folder') return;
+  const folder = manageSelected.path;
+  const f = _findFolder(folder);
+  const n = f ? f.counts.orphan : 0;
+  if (!n) { toast('Keine Orphans in diesem Folder.', 'error'); return; }
+  if (!confirm(`${n} Orphan-Eintraege in "${folder}" aus dem Index entfernen?`)) return;
+  try {
+    const r = await fetch(API + `/folders/${encodeURIComponent(folder)}/cleanup-orphans`, { method: 'POST' });
+    if (!r.ok) {
+      let d = r.statusText; try { d = (await r.json()).detail; } catch {}
+      throw new Error(`${r.status}: ${d}`);
+    }
+    const res = await r.json();
+    toast(`${res.orphans_removed} Orphan-Chunks entfernt`, 'success');
+    await loadManage();
+    selectTreeItem('folder', folder, true);
+  } catch (e) { toast(e.message, 'error'); }
+});
+
 // Tree beim Tab-Wechsel zur Verwaltung laden
 document.querySelector('button[data-tab="manage"]').addEventListener('click', () => {
-  if (!manageDocs.length) loadManage();
+  if (!manageInventory) loadManage();
 });
 
 // ════════════════════════════════════════════════════════════════════
@@ -1208,6 +1378,29 @@ $('col-select').addEventListener('change', async (e) => {
 $('col-go').addEventListener('click', async () => {
   colOffset = 0;
   await renderCollectionPage();
+});
+
+// "Sammlung leeren" — Bulk-Delete aller Items. Backend lehnt das fuer
+// aifred_documents ab (User-Korpus → File-/Folder-Aktionen verwenden).
+$('col-clear').addEventListener('click', async () => {
+  if (!colCurrent) return;
+  const name = colCurrent.name;
+  if (name === 'aifred_documents') {
+    toast('aifred_documents kann nicht so geleert werden — nutze Verwaltung-Tab fuer Folder/File-Aktionen.', 'error');
+    return;
+  }
+  if (!confirm(`ALLE Eintraege aus "${name}" loeschen? Das ist nicht umkehrbar.`)) return;
+  try {
+    const r = await fetch(API + `/collections/${encodeURIComponent(name)}/clear`, { method: 'POST' });
+    if (!r.ok) {
+      let d = r.statusText; try { d = (await r.json()).detail; } catch {}
+      throw new Error(`${r.status}: ${d}`);
+    }
+    const res = await r.json();
+    toast(`${res.items_removed} Eintraege entfernt`, 'success');
+    collectionsLoaded = false;  // Liste neu laden um Counts zu aktualisieren
+    await loadCollectionsList();
+  } catch (e) { toast(e.message, 'error'); }
 });
 
 $('col-query').addEventListener('keydown', (e) => {
