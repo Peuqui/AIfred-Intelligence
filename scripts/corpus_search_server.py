@@ -21,6 +21,7 @@ Run manually:
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -569,10 +570,34 @@ def folder_cleanup_orphans(folder: str) -> dict[str, Any]:
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
-    mode: str = Field(default="semantic", pattern=r"^(semantic|literal)$")
+    mode: str = Field(default="semantic", pattern=r"^(semantic|literal|phrase)$")
     folder: Optional[str] = None
-    n_results: int = Field(default=10, ge=1, le=200)
+    # n_results = Anzeige-Limit (semantic) bzw. Hard-Cap (literal/phrase). Bei
+    # phrase-mode iteriert der Server ueber alle Chunks und liefert alle
+    # Phrase-Treffer (bis zu n_results, default hoch genug fuer Volltextsuche).
+    n_results: int = Field(default=10, ge=1, le=2000)
     neighbor: int = Field(default=1, ge=0, le=5)
+
+
+def _build_phrase_regex(query: str) -> Optional[re.Pattern[str]]:
+    """Build a case-insensitive phrase regex with German-stem tolerance.
+
+    Mirror of the frontend stem heuristic so frontend Highlight and backend
+    filter agree on what "matches the phrase". Per word ≥6 chars: strip the
+    last two characters as a heuristic stem, append ``\\w*``. Words ≥2 chars
+    are joined by ``\\s+``. Returns None if the query is empty after filtering.
+
+    Example: "heiliger geist" → /heilig\\w*\\s+geist\\w*/i — matches
+    "Heiliger Geist", "heiligen Geistes", "heilige Geist", etc.
+    """
+    words = [w for w in query.strip().split() if len(w) >= 2]
+    if not words:
+        return None
+    parts = []
+    for w in words:
+        stem = w[:-2] if len(w) >= 6 else w
+        parts.append(re.escape(stem) + r"\w*")
+    return re.compile(r"\s+".join(parts), re.IGNORECASE)
 
 
 @app.post("/api/search")
@@ -587,6 +612,66 @@ def search(req: SearchRequest) -> dict[str, Any]:
             neighbor_window=req.neighbor,
         ))
         return {"mode": "semantic", "query": req.query, "folder": req.folder,
+                "total": len(hits), "results": hits}
+
+    if req.mode == "phrase":
+        # Volltext-Phrase-Suche mit Stem-Toleranz ueber das ganze (gefilterte)
+        # Korpus. Kein Embedding-Cap — wenn der User eine Phrase sucht, will
+        # er ALLE Vorkommen, nicht nur die top-N nach Distance.
+        regex = _build_phrase_regex(req.query)
+        if regex is None:
+            return {"mode": "phrase", "query": req.query, "folder": req.folder,
+                    "total": 0, "results": []}
+
+        phrase_where: dict[str, Any] | None = None
+        if req.folder is not None:
+            matching = s._expand_folder_prefix(req.folder)
+            if matching:
+                phrase_where = (
+                    {"folder": matching[0]} if len(matching) == 1
+                    else {"folder": {"$in": matching}}
+                )
+            else:
+                phrase_where = {"folder": req.folder}
+
+        hits = []
+        page_size = 5000
+        offset = 0
+        while True:
+            phrase_kwargs: dict[str, Any] = {
+                "include": ["documents", "metadatas"],
+                "limit": page_size, "offset": offset,
+            }
+            if phrase_where is not None:
+                phrase_kwargs["where"] = phrase_where
+            data = s.collection.get(**phrase_kwargs)
+            docs = data.get("documents") or []
+            metas = data.get("metadatas") or []
+            if not docs:
+                break
+            for d, m in zip(docs, metas):
+                if not isinstance(d, str):
+                    continue
+                if not regex.search(d):
+                    continue
+                meta = m or {}
+                hits.append({
+                    "filename": str(meta.get("filename", "")),
+                    "folder": str(meta.get("folder", "")),
+                    "chunk_index": int(meta.get("chunk_index", 0)),
+                    "total_chunks": int(meta.get("total_chunks", 0)),
+                    "content": d,
+                    "_neighbor": False,
+                    "distance": None,
+                })
+                if len(hits) >= req.n_results:
+                    return {"mode": "phrase", "query": req.query, "folder": req.folder,
+                            "total": len(hits), "results": hits}
+            if len(docs) < page_size:
+                break
+            offset += page_size
+        hits.sort(key=lambda h: (h["filename"], h["chunk_index"]))
+        return {"mode": "phrase", "query": req.query, "folder": req.folder,
                 "total": len(hits), "results": hits}
 
     # literal — paginated string match, whitespace-normalised

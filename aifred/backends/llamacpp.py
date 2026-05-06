@@ -35,7 +35,12 @@ class LlamaCppBackend(OpenAICompatibleBackend):
     """
 
     BACKEND_NAME = "llama.cpp"
-    DEFAULT_TIMEOUT = 300.0  # llama-swap may need to start+load oversized models
+    # 900s (15 min): genuegt fuer (a) llama-swap startup + Modell-Load bei
+    # grossen Modellen, (b) Multi-Tool-Round-Loops mit Thinking-Models (z.B.
+    # URL-Ranking ueber viele Suchergebnisse), (c) Long-Context-Inference auf
+    # 100k+ Token Prompts. Frueher 300s — fiel beim URL-Ranking um die 27
+    # Quellen reproduzierbar in den Timeout.
+    DEFAULT_TIMEOUT = 900.0
 
     def __init__(self, base_url: str = "http://localhost:8080/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)

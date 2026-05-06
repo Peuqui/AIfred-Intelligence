@@ -589,7 +589,11 @@ class OpenAICompatibleBackend(LLMBackend):
         import time
         import logging
 
-        retry_timeout = 300.0  # max seconds to keep retrying (model loading can take >120s)
+        # Gesamtfenster fuer Retries — muss >= DEFAULT_TIMEOUT sein, damit nach
+        # einem ersten Timeout-Fehler ueberhaupt noch ein Retry passieren kann.
+        # llama-swap kann bei oversized Models > 2 Min zum Laden brauchen, plus
+        # lange Tool-Loops und Thinking-Models — daher 900s (15 Min).
+        retry_timeout = 900.0
         retry_delay = 5.0
         from ..lib.config import MAX_TOOL_ROUNDS
         max_tool_rounds = MAX_TOOL_ROUNDS
