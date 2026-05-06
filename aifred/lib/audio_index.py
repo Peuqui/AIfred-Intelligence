@@ -451,6 +451,23 @@ class AudioIndex:
             rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
+    def get_genre(self, source: str, rel_path: str) -> Optional[str]:
+        """Quick lookup: read the indexed Genre tag for one item.
+
+        Used by audio_type-resolution to derive music/speech/alarm from
+        the original ID3/Vorbis/MP4 tag. Returns ``None`` if the item
+        isn't indexed or has no genre.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT genre FROM files WHERE source = ? AND rel_path = ? LIMIT 1",
+                (source, rel_path),
+            ).fetchone()
+        if row is None:
+            return None
+        genre = row["genre"]
+        return str(genre) if genre else None
+
     def stats(self) -> dict[str, Any]:
         """Per-source counts + total."""
         with self._connect() as conn:

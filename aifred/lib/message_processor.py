@@ -306,6 +306,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             agent=message.target_agent,
             max_tier=max_tier,
             source=message.channel,
+            metadata=dict(message.metadata or {}),
         )
 
         if not response_text:
@@ -364,6 +365,7 @@ async def _call_engine(
     agent: str = "aifred",
     max_tier: int = 4,
     source: str = "browser",
+    metadata: Optional[dict] = None,
 ) -> tuple[str, dict]:
     """Call the AIfred engine with full toolkit (memory + plugins).
 
@@ -435,6 +437,7 @@ async def _call_engine(
         session_id=session_id,
         max_tier=max_tier,
         source=source,
+        metadata=metadata,
     )
 
     if toolkit:

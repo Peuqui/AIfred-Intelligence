@@ -37,6 +37,10 @@ class PluginContext:
     max_tier: int = 4        # Max allowed tool tier in this context
     source: str = "browser"  # Origin: browser/email/discord/cron/webhook
     llm_history: list = field(default_factory=list)  # Conversation history for tools
+    # Channel-spezifische Metadaten (z.B. {"room": "wohnzimmer"} für freeecho2,
+    # {"chat_id": 123} für telegram). Wird vom Channel-Plugin beim Tool-Build
+    # befüllt und z.B. von audio_player für Auto-Target-Routing genutzt.
+    metadata: dict = field(default_factory=dict)
 
 
 @runtime_checkable
