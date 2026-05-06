@@ -1160,20 +1160,34 @@ class AgentConfigMixin(rx.State, mixin=True):
         }
         self._agent_id_by_label[self._AUTOMATIK_LABEL] = "automatik"
 
+    # Init-Flag fuer on_load_agent_editor: True bei Cold-Start oder wenn
+    # open_agent_editor explizit gerufen wurde. False sobald ein Setup
+    # gelaufen ist — verhindert, dass on_load bei jedem Page-Re-Entry
+    # (z.B. zurueck von /audio-settings) den Tab-Mode auf "config"
+    # zurueckschlaegt.
+    _agent_editor_needs_init: bool = True
+
     def open_agent_editor(self):
         """Navigate to the agent-editor page.
 
-        Trigger fuer „Agent bearbeiten"-Buttons im Chat. Die eigentliche
-        State-Initialisierung (Refresh-Dropdown, Load-First-Agent,
-        DOM-Push) passiert in ``on_load_agent_editor``, das Reflex beim
-        Page-Load der Route ``/agent-editor`` automatisch aufruft.
+        Trigger fuer „Agent bearbeiten"-Buttons im Chat. Setzt den
+        Init-Flag, damit ``on_load_agent_editor`` den vollen Setup macht
+        (Refresh-Dropdown, Load-First-Agent, DOM-Push, Tab=config).
         """
+        self._agent_editor_needs_init = True
         return rx.redirect("/agent-editor")
 
     def on_load_agent_editor(self):
-        """Page-Load-Hook fuer ``/agent-editor`` — fuehrt das Editor-State-Setup
-        aus, das frueher in ``open_agent_editor`` lag (vor dem Multi-Route-Split).
+        """Page-Load-Hook fuer ``/agent-editor``.
+
+        Vollstaendiger Setup nur beim ersten Open via Chat-Button (oder
+        Cold-Start). Bei Re-Entry (z.B. zurueck von /audio-settings)
+        bleibt der Editor-State unangetastet — der User landet wieder
+        in dem Tab den er vor dem Detour offen hatte.
         """
+        if not self._agent_editor_needs_init:
+            return
+        self._agent_editor_needs_init = False
         self._refresh_agent_dropdown()
         self.agent_editor_mode = "config"
         self.agent_editor_open = True
