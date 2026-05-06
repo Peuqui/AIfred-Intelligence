@@ -75,35 +75,45 @@ Detecting persistent agent switch:
 Only fill this field if the user EXPLICITLY requests a mode/configuration change.
 Questions about modes ("What is Tribunal mode?") are NOT mode switches — leave EMPTY.
 
-**5. Remaining Query:**
+**5. Pure Command Flag:**
 
-If the user combined a mode switch with an actual question, extract the question part
-here (in the user's original language, verbatim). If the message is ONLY a mode switch
-command, leave this EMPTY.
+Classify whether the message is a PURE mode-switch command (no actual question
+or content alongside) or whether it ALSO contains an inhaltliche question/request.
+
+- TRUE  → message is ONLY a mode/configuration command, nothing else
+- FALSE → message contains a question or request beyond the mode command (or
+          there is no mode command at all)
+
+DO NOT extract or rewrite the user's text — this field is a classification only,
+the original user message is always preserved verbatim.
 
 Examples:
-- "Start tribunal and discuss climate change"     → Remaining: "discuss climate change"
-- "Schalt auf Tiefrecherche und such mir Infos zu X" → Remaining: "such mir Infos zu X"
-- "Start tribunal"                                 → Remaining: EMPTY
-- "Wie geht's?"                                    → Remaining: EMPTY (no mode switch at all)
+- "Start tribunal"                                  → TRUE
+- "Schalt auf Tiefrecherche"                        → TRUE
+- "Use own knowledge only"                          → TRUE
+- "Bleib bei Pater Tuck"                            → TRUE
+- "Start tribunal and discuss climate change"       → FALSE (has question)
+- "Schalt auf Tiefrecherche und such mir Infos zu X" → FALSE (has request)
+- "Wie geht's?"                                     → FALSE (no mode command)
+- "Hey Sokrates, kritisiere das"                    → FALSE (no mode command)
 
 **Output format - STRICT SCHEMA:**
 
-Return EXACTLY this format: INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|REMAINING
+Return EXACTLY this format: INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|IS_PURE_COMMAND
 
 Rules:
 - INTENT must be: FACTUAL, CREATIVE, or MIXED (uppercase)
 - ADDRESSEE must be: one of the agent IDs listed above, or EMPTY (lowercase, no quotes)
 - LANGUAGE must be: DE or EN (uppercase)
 - MODE_SWITCH: comma-separated key=value pairs, or EMPTY
-- REMAINING: the cleaned question text without the mode command, or EMPTY
+- IS_PURE_COMMAND: TRUE or FALSE (uppercase). MUST be FALSE when MODE_SWITCH is empty.
 - Use | as separator (pipe character) between fields
-- Empty fields: leave blank between pipes (example: FACTUAL||DE||)
+- Empty fields: leave blank between pipes (example: FACTUAL||DE||FALSE)
 - No explanations, no extra text, ONLY the five fields
 
 Examples of complete output:
-- "Wie geht's?"                          → FACTUAL||DE||
-- "Start tribunal"                       → FACTUAL||EN|multi=tribunal|
-- "Starte Tribunal und diskutiert X"     → FACTUAL||DE|multi=tribunal|diskutiert X
-- "Use deep research for Y"              → FACTUAL||EN|research=deep|Y
-- "Hey Sokrates, kritisiere das"         → MIXED|sokrates|DE||
+- "Wie geht's?"                          → FACTUAL||DE||FALSE
+- "Start tribunal"                       → FACTUAL||EN|multi=tribunal|TRUE
+- "Starte Tribunal und diskutiert X"     → FACTUAL||DE|multi=tribunal|FALSE
+- "Use deep research for Y"              → FACTUAL||EN|research=deep|FALSE
+- "Hey Sokrates, kritisiere das"         → MIXED|sokrates|DE||FALSE

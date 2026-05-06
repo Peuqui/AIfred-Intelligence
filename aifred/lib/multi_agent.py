@@ -1428,10 +1428,42 @@ async def run_symposion(
         symposion_prompt = load_prompt("shared/symposion", lang=detected_lang)
         reflection_prompt = load_prompt("shared/symposion_reflection", lang=detected_lang)
 
-        # Shared conversation (all agents see prior responses)
-        conversation: list[dict[str, str]] = [
-            {"role": "user", "content": user_query}
-        ]
+        # Shared conversation (all agents see prior responses).
+        # WICHTIG: Wir laden die bestehende llm_history, damit Agenten in
+        # Folge-Turns den Kontext frueherer Roundtrips kennen. Ohne das
+        # startet jede User-Nachricht aus Sicht der Agents bei Null.
+        # Assistant-Eintraege haben das Format "[AGENT]: ..." in der
+        # llm_history — der Agent-Identifier wird daraus extrahiert, damit
+        # der Per-Agent-Mapping-Code unten die eigenen vs. fremden
+        # Beitraege auseinanderhalten kann.
+        import re as _re
+        conversation: list[dict[str, str]] = []
+        agent_id_by_label = {
+            cfg.display_name.upper(): aid for aid, cfg in agent_configs
+        }
+        for hist_msg in state._chat_sub().llm_history:
+            role = hist_msg.get("role")
+            content = hist_msg.get("content", "")
+            if role == "user":
+                conversation.append({"role": "user", "content": content})
+            elif role == "assistant":
+                m = _re.match(r"^\[([^\]]+)\]:\s*", content)
+                hist_agent = ""
+                if m:
+                    label_upper = m.group(1).strip().upper()
+                    hist_agent = agent_id_by_label.get(label_upper, "")
+                conversation.append({
+                    "role": "assistant",
+                    "agent": hist_agent,
+                    "content": content,
+                })
+        # aktuelle User-Frage (immer noch nicht in llm_history wenn wir
+        # vom aktuellen Turn aufgerufen werden — sie wird in
+        # send_message() vor dem Mode-Switch-Block angefuegt; bei
+        # Aufrufen ohne send_message-Pfad muessen wir sie ergaenzen).
+        if not conversation or conversation[-1].get("role") != "user" \
+           or conversation[-1].get("content") != user_query:
+            conversation.append({"role": "user", "content": user_query})
 
         llm_client = LLMClient(backend_type=state.backend_type)
 

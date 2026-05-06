@@ -1028,7 +1028,7 @@ class ChatMixin(rx.State, mixin=True):
                 detected_language = get_language()
                 intent_raw = ""
                 mode_switch_updates: dict = {}
-                remaining_query = ""
+                is_pure_command = False
                 _reason = "URL-only" if _is_url_only else "image-only"
                 self.add_debug(f"🎯 Intent: {detected_intent} ({_reason}), Lang: {detected_language.upper()} (UI)")
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
@@ -1038,7 +1038,7 @@ class ChatMixin(rx.State, mixin=True):
                     addressed_to,
                     detected_language,
                     mode_switch_updates,
-                    remaining_query,
+                    is_pure_command,
                     intent_raw,
                 ) = await detect_query_intent_and_addressee(
                     user_msg,
@@ -1050,24 +1050,24 @@ class ChatMixin(rx.State, mixin=True):
                 from ..lib.intent_detector import format_intent_result
                 from ..lib.intent_detector import format_mode_switch_summary
                 switch_str = format_mode_switch_summary(mode_switch_updates) if mode_switch_updates else "–"
-                remaining_str = remaining_query[:50] if remaining_query else "–"
+                pure_str = "yes" if is_pure_command else "no"
                 self.add_debug(
                     f"🎯 {format_intent_result(detected_intent, addressed_to, detected_language)}"
-                    f", Switch: {switch_str}, Remaining: {remaining_str}"
+                    f", Switch: {switch_str}, PureCmd: {pure_str}"
                 )
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
 
             # ============================================================
-            # MODE SWITCH HANDLER (Option C: pure + combined)
+            # MODE SWITCH HANDLER
             # ============================================================
             # If the user requested a mode/config change (voice or text),
             # apply it here BEFORE the rest of the pipeline. The detection
             # happens inside Intent Detection (same LLM call, no extra latency).
             #
             # Cases:
-            # - Pure switch ("Start tribunal"): apply + confirmation message
-            # - Combined ("Start tribunal and discuss X"): apply + continue
-            #   with remaining query in the new mode
+            # - Pure command (is_pure_command): apply + confirmation message
+            # - Combined: apply + continue mit der UNVERAENDERTEN user_msg.
+            #   Der Intent-Detektor darf den Frage-Text NIE umschreiben.
             if mode_switch_updates:
                 from ..lib.intent_detector import format_mode_switch_summary
                 from ..lib.session_storage import update_session_config
@@ -1095,7 +1095,7 @@ class ChatMixin(rx.State, mixin=True):
                 summary = format_mode_switch_summary(mode_switch_updates, lang=detected_language)
                 self.add_debug(f"🔧 Mode switch: {summary}")
 
-                if not remaining_query:
+                if is_pure_command:
                     # Pure command → confirmation message, skip normal agent pipeline
                     from datetime import datetime as _dt
                     # Always show who the active agent is after the switch
@@ -1129,12 +1129,9 @@ class ChatMixin(rx.State, mixin=True):
                     yield
                     return
 
-                # Combined → replace user_msg with remaining and continue normally.
-                # Important: also update llm_history so the LLM sees the cleaned question.
-                user_msg = remaining_query
-                if self._chat_sub().llm_history and self._chat_sub().llm_history[-1]["role"] == "user":
-                    self._chat_sub().llm_history[-1]["content"] = remaining_query
-                self.add_debug(f"➡️ Continuing with: {remaining_query[:60]}")
+                # Combined: Mode wurde umgeschaltet, Pipeline laeuft weiter mit
+                # der UNVERAENDERTEN user_msg. Der Intent-Detektor darf nur
+                # Metadaten extrahieren, NICHT den Frage-Text umschreiben.
                 yield
 
             # PRE-MESSAGE: History Compression Check

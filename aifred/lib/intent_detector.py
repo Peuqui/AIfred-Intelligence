@@ -138,27 +138,27 @@ def format_intent_result(intent: str, addressee: Optional[str], language: str) -
 def parse_intent_addressee_language(
     response_raw: str,
     context: str = "general"
-) -> Tuple[str, Optional[str], str, Dict[str, Any], str]:
+) -> Tuple[str, Optional[str], str, Dict[str, Any], bool]:
     """
-    Extract intent, addressee, language, mode-switch, and remaining query from LLM response.
+    Extract intent, addressee, language, mode-switch, and pure-command flag.
 
-    Expected format: "INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|REMAINING"
+    Expected format: "INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|IS_PURE_COMMAND"
     Examples:
-        "FACTUAL||DE||"                         → no mode switch, no remainder
-        "FACTUAL||EN|multi=tribunal|"           → tribunal switch, pure command
-        "FACTUAL||DE|research=deep|zu Thema X"  → deep research + question about X
-        "MIXED|sokrates|DE||"                   → direct addressing Sokrates
+        "FACTUAL||DE||FALSE"                     → no mode switch
+        "FACTUAL||EN|multi=tribunal|TRUE"        → pure tribunal command
+        "FACTUAL||DE|research=deep|FALSE"        → deep research + question
+        "MIXED|sokrates|DE||FALSE"               → direct addressing Sokrates
 
-    Legacy 3-field format is also supported for backward compatibility with
-    cache_followup and other callers (MODE_SWITCH + REMAINING default to empty).
+    The user message is NEVER rewritten by the detector — IS_PURE_COMMAND only
+    classifies whether the message is purely a mode/config command.
 
     Args:
         response_raw: Raw LLM response
         context: Context for logging ("general" or "cache_followup")
 
     Returns:
-        Tuple[str, Optional[str], str, Dict[str, Any], str]:
-            (intent, addressee, language, mode_switch_updates, remaining_query)
+        Tuple[str, Optional[str], str, Dict[str, Any], bool]:
+            (intent, addressee, language, mode_switch_updates, is_pure_command)
     """
     raw = response_raw.strip()
 
@@ -186,11 +186,10 @@ def parse_intent_addressee_language(
     if len(parts) > language_index + 1:
         mode_switch_part = parts[language_index + 1].strip()
 
-    # REMAINING is everything after position language_index + 2 (join back)
-    # in case the remaining query contains pipes
-    remaining_query = ""
+    # IS_PURE_COMMAND is at position language_index + 2
+    pure_cmd_part = ""
     if len(parts) > language_index + 2:
-        remaining_query = "|".join(parts[language_index + 2:]).strip()
+        pure_cmd_part = parts[language_index + 2].strip().upper()
 
     # Parse intent (with English/German support)
     if "FAKTISCH" in intent_part or "FACTUAL" in intent_part:
@@ -224,11 +223,13 @@ def parse_intent_addressee_language(
     # Parse mode switch field (defensive — unknown values are ignored)
     mode_switch_updates = _parse_mode_switch(mode_switch_part)
 
-    # Strip trailing/leading placeholders from remaining query
-    if remaining_query.lower() in ("(empty)", "empty", "none"):
-        remaining_query = ""
+    # Pure-command flag: TRUE only when explicitly set AND a mode switch exists.
+    # If no mode switch, the flag is meaningless → force FALSE.
+    is_pure_command = (
+        pure_cmd_part in ("TRUE", "T", "YES", "1") and bool(mode_switch_updates)
+    )
 
-    return (intent, addressee, language, mode_switch_updates, remaining_query)
+    return (intent, addressee, language, mode_switch_updates, is_pure_command)
 
 
 # Keep old function for backwards compatibility (used by cache_followup)
@@ -253,16 +254,16 @@ async def detect_query_intent_and_addressee(
     llm_client,
     llm_options: Optional[Dict] = None,
     automatik_num_ctx: Optional[int] = None
-) -> Tuple[str, Optional[str], str, Dict[str, Any], str, str]:
+) -> Tuple[str, Optional[str], str, Dict[str, Any], bool, str]:
     """
-    Detect intent, addressee, language, mode-switch, and remaining query.
+    Detect intent, addressee, language, mode-switch, and pure-command flag.
 
     Combines all five detection tasks into a single LLM call:
     - intent (for temperature selection)
     - addressee (for dialog routing)
     - language (for prompt selection)
     - mode-switch (voice/text-based config change requests)
-    - remaining query (for Option C: mode-switch + question in one message)
+    - pure-command flag (mode-switch only, no question alongside)
 
     Args:
         user_query: User question
@@ -274,15 +275,15 @@ async def detect_query_intent_and_addressee(
             int = explicit value (e.g. AUTOMATIK_LLM_NUM_CTX for different models).
 
     Returns:
-        Tuple[str, Optional[str], str, Dict[str, Any], str, str]:
+        Tuple[str, Optional[str], str, Dict[str, Any], bool, str]:
             (intent, addressee, detected_language, mode_switch_updates,
-             remaining_query, raw_response)
+             is_pure_command, raw_response)
 
             - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
             - addressee: "aifred", "sokrates", "salomo" or None
             - detected_language: "de" or "en" (LLM-detected from user query)
             - mode_switch_updates: dict with config changes ({} if none)
-            - remaining_query: user's question after stripping mode command
+            - is_pure_command: True iff message is ONLY a mode-switch command
             - raw_response: Raw LLM output for debugging
     """
     # Use English prompt for intent detection (universal, handles all languages)
@@ -308,15 +309,15 @@ async def detect_query_intent_and_addressee(
     # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
     response_clean = strip_thinking_blocks(response_raw).strip()
 
-    intent, addressee, detected_language, mode_switch, remaining = parse_intent_addressee_language(
+    intent, addressee, detected_language, mode_switch, is_pure_command = parse_intent_addressee_language(
         response_clean, context="general"
     )
     log_message(
         f"✅ {format_intent_result(intent, addressee, detected_language)}, "
-        f"ModeSwitch: {mode_switch or '-'}, Remaining: {remaining[:40] or '-'}, "
+        f"ModeSwitch: {mode_switch or '-'}, PureCmd: {is_pure_command}, "
         f"Raw: '{response_clean}'"
     )
-    return (intent, addressee, detected_language, mode_switch, remaining, response_raw)
+    return (intent, addressee, detected_language, mode_switch, is_pure_command, response_raw)
 
 
 async def detect_cache_followup_intent(
