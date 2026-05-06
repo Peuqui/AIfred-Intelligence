@@ -315,7 +315,7 @@ function playTtsAudio() {
 // ============================================================
 
 // Store current playback rate (persisted via backend)
-var ttsPlaybackRate = 1.0;  // Default (speed via Agent Settings) — var statt let: idempotent bei Re-Load
+var ttsPlaybackRate = 1.0;  // Default (speed via Agent Settings)
 
 /**
  * Set TTS playback rate - called from Python backend via rx.call_script()

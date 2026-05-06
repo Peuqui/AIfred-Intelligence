@@ -919,7 +919,7 @@ async function manageDeleteFile(alsoFile) {
     const r = await api(`/documents/${encodeURIComponent(f)}?delete_file=${alsoFile}`, {method:'DELETE'});
     toast(`${r.chunks_removed} chunks entfernt${r.file_deleted ? ' + Datei geloescht' : ''}`, 'success');
     manageSelected = null;
-    $('manage-selected-title').textContent = 'Nichts ausgew&auml;hlt';
+    $('manage-selected-title').textContent = 'Nichts ausgewählt';
     $('manage-selected-info').textContent = '';
     $('manage-file-actions').style.display = 'none';
     $('manage-chunks-preview').innerHTML = '';
