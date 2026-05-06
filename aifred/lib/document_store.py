@@ -204,7 +204,15 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
 
 
 def _chunk_by_tokens(text: str, chunk_size: int, overlap: int) -> list[str]:
-    """Token-accurate chunker using the Qwen3 tokenizer."""
+    """Token-accurate chunker using the Qwen3 tokenizer.
+
+    Uses ``encoding.offsets`` (char_start, char_end per token) to slice the
+    chunk text directly out of the original string. This avoids BPE
+    decode round-trips and the Unicode-replacement-char (``\\ufffd``)
+    artifacts that appear when a chunk boundary lands inside a multi-
+    byte rune — common with Hebrew + niqqud, where glyphs are encoded
+    as multi-byte fallback tokens that the BPE vocabulary doesn't cover.
+    """
     from .context_manager import _tokenizer_cache, count_tokens_with_tokenizer
 
     # Warm the cache via the public counter (handles download + caching)
@@ -215,6 +223,7 @@ def _chunk_by_tokens(text: str, chunk_size: int, overlap: int) -> list[str]:
 
     encoding = tokenizer.encode(text)
     token_ids = encoding.ids
+    offsets = encoding.offsets  # list[tuple[int, int]] — (char_start, char_end)
     if len(token_ids) <= chunk_size:
         stripped = text.strip()
         return [stripped] if stripped else []
@@ -223,7 +232,9 @@ def _chunk_by_tokens(text: str, chunk_size: int, overlap: int) -> list[str]:
     start = 0
     while start < len(token_ids):
         end = min(start + chunk_size, len(token_ids))
-        piece = tokenizer.decode(token_ids[start:end]).strip()
+        char_start = offsets[start][0]
+        char_end = offsets[end - 1][1]
+        piece = text[char_start:char_end].strip()
         if piece:
             chunks.append(piece)
         if end >= len(token_ids):
@@ -341,13 +352,14 @@ class DocumentStore:
         self._folder_cache: Optional[set[str]] = None
 
     def _resolve_collection(self) -> Any:
-        """Get-or-create the collection by name. Used at init and on stale-recovery.
+        """Bootstrap-time get-or-create. Called ONLY from ``__init__`` —
+        when the volume is fresh on first start the collection must exist
+        afterwards, so create-if-missing is acceptable here.
 
-        Cached collection IDs become stale when ChromaDB recreates the
-        underlying volume (e.g. after the docker-auto-update.sh cron, or
-        when the persist-path changes between image versions). The cached
-        UUID then refers to nothing — every call raises NotFoundError.
-        Re-resolving by name produces a fresh, valid collection handle.
+        Do NOT reuse this for runtime reconnects: silently re-creating a
+        collection during runtime hides real problems (e.g. an unexpected
+        wipe) and orphans whatever data still sits in the volume under
+        another collection-UUID.
         """
         return self._client.get_or_create_collection(
             name=DOCUMENT_COLLECTION,
@@ -359,10 +371,27 @@ class DocumentStore:
         )
 
     def reconnect(self) -> None:
-        """Force a fresh collection lookup. Clears caches so the next call
-        sees the rebuilt collection state. Idempotent — cheap to call."""
-        log_message("⚠️ DocumentStore: collection stale — reconnecting")
-        self._collection = self._resolve_collection()
+        """Refresh the cached collection handle WITHOUT creating one.
+
+        Called when a runtime call hits ``NotFoundError`` — the server-side
+        collection identity has changed (e.g. ChromaDB recreated the
+        volume). We re-fetch by *name only*; if the named collection
+        truly no longer exists, we raise loudly so the operator notices
+        the data loss instead of silently producing an empty new one.
+        """
+        log_message("⚠️ DocumentStore: collection stale — reconnecting (get-only)")
+        try:
+            self._collection = self._client.get_collection(
+                name=DOCUMENT_COLLECTION,
+                embedding_function=self._embed_fn,  # type: ignore[arg-type]
+            )
+        except NotFoundError:
+            log_message(
+                f"❌ DocumentStore: collection '{DOCUMENT_COLLECTION}' missing on the "
+                "server — refusing to silently re-create. The volume probably "
+                "lost the collection metadata. Inspect chroma manually."
+            )
+            raise
         self._invalidate_folder_cache()
 
     @property
