@@ -224,12 +224,26 @@
     border-radius: 6px;
     padding: 0.75rem 1.25rem;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    transform: translateY(150%);
-    transition: transform 0.3s ease;
+    box-sizing: border-box;
+    /* max-width auf den Viewport begrenzen, damit lange Meldungen nicht
+       am rechten Rand abgeschnitten werden (1.5rem links + 1.5rem rechts
+       Abstand). */
+    max-width: min(480px, calc(100vw - 3rem));
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    /* Default: ausserhalb des Viewports + unsichtbar (verhindert dass ein
+       Pixel-Streifen am Rand bleibt). transition: visibility erst nach
+       der Slide-Animation auf hidden, damit der Slide-out sichtbar bleibt. */
+    transform: translateY(calc(100% + 2rem));
+    visibility: hidden;
+    transition: transform 0.3s ease, visibility 0s linear 0.3s;
     z-index: 100;
-    max-width: 480px;
   }
-  .toast.show { transform: translateY(0); }
+  .toast.show {
+    transform: translateY(0);
+    visibility: visible;
+    transition: transform 0.3s ease, visibility 0s linear 0s;
+  }
   .toast.error { border-left-color: var(--danger); }
   .toast.success { border-left-color: var(--success); }
   details summary { cursor: pointer; padding: 0.4rem 0; color: var(--accent-hover); font-size: 0.9rem; }
@@ -408,6 +422,12 @@
     <div class="field" style="width:80px">
       <label>Nachbarn ±</label>
       <input type="number" id="search-neighbor" value="1" min="0" max="5">
+    </div>
+    <div class="field" style="width:auto; align-self:flex-end; padding-bottom:0.4rem">
+      <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; user-select:none">
+        <input type="checkbox" id="search-all" style="margin:0">
+        <span>Alle Treffer</span>
+      </label>
     </div>
     <button class="primary" id="search-btn">Suchen</button>
   </div>
@@ -625,20 +645,28 @@ async function doSearch() {
   const folder = $('search-folder').value || null;
   const n = parseInt($('search-n').value) || 10;
   const neighbor = parseInt($('search-neighbor').value) || 0;
+  const showAll = $('search-all').checked;
 
-  // "..." in der Query → Backend-Phrase-Mode: Server iteriert ALLE Chunks
-  // und liefert ALLE Phrase-Treffer (mit Stem-Toleranz, kein Embedding-Cap).
-  // Die Phrase wird ohne Anfuehrungszeichen ans Backend geschickt.
+  // "..." Konvention nur im Semantik-Modus: dort triggert sie den Phrase-
+  // Mode (Stem-tolerante Volltextsuche) im Backend. Im Wortgenau-Modus
+  // bleibt der User-Mode, die Anfuehrungszeichen werden gestrippt (sonst
+  // wuerden sie im substring-Match mitgesucht).
   const phraseMatch = q.match(/"([^"]+)"/);
-  const isPhraseSearch = !!phraseMatch;
   let mode = searchMode;
   let queryForBackend = q;
   let backendN = n;
-  if (isPhraseSearch) {
+  if (phraseMatch && searchMode === 'semantic') {
     mode = 'phrase';
     queryForBackend = phraseMatch[1].trim();
-    backendN = 2000;  // praktisch kein Limit — Backend stoppt wenn alle Chunks durch
+    backendN = 2000;  // Phrase-Mode: immer alle Treffer (kein Cap)
+  } else if (phraseMatch) {
+    // Wortgenau-Modus: Anfuehrungszeichen aus dem Substring-Match raushalten
+    queryForBackend = q.replace(/"/g, ' ').replace(/\s+/g, ' ').trim();
   }
+  // "Alle Treffer"-Toggle: Backend-Limit hochziehen. Im Semantic-Mode wird
+  // das durch DOCUMENT_SEARCH_MAX_RESULTS=100 effektiv gecapped, bei
+  // Wortgenau und Phrase greift's voll durch.
+  if (showAll) backendN = 2000;
 
   $('search-results').innerHTML = '<div class="empty">Suche l&auml;uft&hellip;</div>';
   try {
@@ -647,7 +675,7 @@ async function doSearch() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ query: queryForBackend, mode, folder, n_results: backendN, neighbor }),
     });
-    renderSearchResults(res, q, n);
+    renderSearchResults(res, q, showAll ? null : n);
   } catch (e) {
     $('search-results').innerHTML = '';
     toast(e.message, 'error');
