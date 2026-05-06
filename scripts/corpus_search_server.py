@@ -350,6 +350,219 @@ def reindex_folder(folder: str = Form(...)) -> dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────
+# Inventory — joined view of disk + index
+# ─────────────────────────────────────────────────────────────────
+
+
+def _scan_disk_files() -> dict[str, dict[str, Any]]:
+    """Walk DOCUMENTS_DIR and return {relpath: {filename, folder, size_bytes}}.
+
+    Skips unsupported suffixes and hidden files. Used to detect:
+      - disk-only files (on disk, not in index)
+      - orphans (in index, missing on disk)
+    """
+    out: dict[str, dict[str, Any]] = {}
+    base = DOCUMENTS_DIR.resolve()
+    if not base.exists():
+        return out
+    for path in base.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in SUPPORTED_SUFFIXES:
+            continue
+        if any(part.startswith(".") for part in path.relative_to(base).parts):
+            continue
+        rel = path.relative_to(base).as_posix()
+        folder = str(Path(rel).parent.as_posix()) if "/" in rel else ""
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        out[rel] = {
+            "filename": rel,
+            "folder": folder,
+            "size_bytes": size,
+        }
+    return out
+
+
+def _scan_index_files() -> dict[str, dict[str, Any]]:
+    """Aggregate index metadata per filename: folder, indexed_chunks."""
+    s = _store()
+    docs: dict[str, dict[str, Any]] = {}
+    page = 5000
+    offset = 0
+    while True:
+        data = s.collection.get(include=["metadatas"], limit=page, offset=offset)
+        metas = data.get("metadatas") or []
+        if not metas:
+            break
+        for m in metas:
+            if not isinstance(m, dict):
+                continue
+            fname = str(m.get("filename", ""))
+            if not fname:
+                continue
+            entry = docs.setdefault(fname, {
+                "filename": fname,
+                "folder": str(m.get("folder", "")),
+                "indexed_chunks": 0,
+                "upload_date": str(m.get("upload_date", "")),
+            })
+            entry["indexed_chunks"] += 1
+        if len(metas) < page:
+            break
+        offset += page
+    return docs
+
+
+@app.get("/api/inventory")
+def inventory() -> dict[str, Any]:
+    """Joined view: every file on disk + every file in index, with status.
+
+    Per file status:
+      - "indexed"   → on disk AND in index
+      - "disk_only" → on disk but NOT indexed
+      - "orphan"    → in index but the source file is gone
+
+    Result is grouped by folder for the UI tree. Each folder lists the
+    union of disk-files and index-only entries, plus aggregate counts.
+    """
+    disk = _scan_disk_files()
+    index = _scan_index_files()
+
+    all_filenames = set(disk.keys()) | set(index.keys())
+    files: list[dict[str, Any]] = []
+    for fname in sorted(all_filenames):
+        on_disk = fname in disk
+        in_index = fname in index
+        if on_disk and in_index:
+            status = "indexed"
+        elif on_disk:
+            status = "disk_only"
+        else:
+            status = "orphan"
+        # Folder: prefer index value (authoritative), fall back to disk path
+        folder = ""
+        if in_index:
+            folder = index[fname]["folder"]
+        elif on_disk:
+            folder = disk[fname]["folder"]
+        files.append({
+            "filename": fname,
+            "folder": folder,
+            "status": status,
+            "indexed_chunks": index[fname]["indexed_chunks"] if in_index else 0,
+            "size_bytes": disk[fname]["size_bytes"] if on_disk else 0,
+        })
+
+    # Group by folder for the tree view
+    by_folder: dict[str, dict[str, Any]] = {}
+    for f in files:
+        slot = by_folder.setdefault(f["folder"], {
+            "folder": f["folder"],
+            "indexed_chunks": 0,
+            "files": [],
+            "counts": {"indexed": 0, "disk_only": 0, "orphan": 0},
+        })
+        slot["indexed_chunks"] += f["indexed_chunks"]
+        slot["counts"][f["status"]] += 1
+        slot["files"].append(f)
+
+    folders = sorted(by_folder.values(), key=lambda x: x["folder"])
+    totals = {
+        "files": len(files),
+        "indexed": sum(1 for f in files if f["status"] == "indexed"),
+        "disk_only": sum(1 for f in files if f["status"] == "disk_only"),
+        "orphan": sum(1 for f in files if f["status"] == "orphan"),
+        "indexed_chunks": sum(f["indexed_chunks"] for f in files),
+    }
+    return {"totals": totals, "folders": folders}
+
+
+@app.post("/api/folders/{folder:path}/index-new")
+def folder_index_new(folder: str) -> dict[str, Any]:
+    """Index every disk_only file in this exact folder (no sub-folders).
+
+    Skips files that are already in the index. Use ``/api/reindex-folder``
+    instead when you want a delete-before-upsert refresh of all files.
+    """
+    s = _store()
+    target_folder = unquote(folder).strip("/")
+    target_path = (DOCUMENTS_DIR / target_folder).resolve()
+    base = DOCUMENTS_DIR.resolve()
+    if not str(target_path).startswith(str(base)):
+        raise HTTPException(400, "Path traversal not allowed")
+    if not target_path.exists() or not target_path.is_dir():
+        raise HTTPException(404, f"Folder not found: {target_folder}")
+
+    indexed_filenames = set(_scan_index_files().keys())
+    candidates = [
+        p for p in target_path.iterdir()
+        if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES
+    ]
+    indexed = 0
+    chunks_total = 0
+    failures: list[dict[str, str]] = []
+    for path in candidates:
+        rel = path.relative_to(DOCUMENTS_DIR).as_posix()
+        if rel in indexed_filenames:
+            continue
+        try:
+            chunks = asyncio.run(s.index_document(path, rel))
+            chunks_total += chunks
+            indexed += 1
+        except Exception as exc:
+            failures.append({"filename": rel, "error": str(exc)})
+    return {
+        "folder": target_folder,
+        "files_indexed": indexed,
+        "chunks_total": chunks_total,
+        "failures": failures,
+    }
+
+
+@app.post("/api/folders/{folder:path}/cleanup-orphans")
+def folder_cleanup_orphans(folder: str) -> dict[str, Any]:
+    """Remove index entries in this folder whose source file is gone.
+
+    Folder match is exact (no sub-folders), like delete_folder.
+    """
+    s = _store()
+    target_folder = unquote(folder).strip("/")
+    disk = _scan_disk_files()
+    on_disk_in_folder = {
+        fname for fname, info in disk.items() if info["folder"] == target_folder
+    }
+    data = s.collection.get(
+        where={"folder": target_folder},
+        include=["metadatas"],
+    )
+    if not data.get("ids"):
+        return {"folder": target_folder, "orphans_removed": 0, "files": []}
+
+    orphan_ids: list[str] = []
+    orphan_files: set[str] = set()
+    for cid, meta in zip(data["ids"], data.get("metadatas") or []):
+        if not isinstance(meta, dict):
+            continue
+        fname = str(meta.get("filename", ""))
+        if fname and fname not in on_disk_in_folder:
+            orphan_ids.append(cid)
+            orphan_files.add(fname)
+
+    if orphan_ids:
+        s.collection.delete(ids=orphan_ids)
+        s._invalidate_folder_cache()
+
+    return {
+        "folder": target_folder,
+        "orphans_removed": len(orphan_ids),
+        "files": sorted(orphan_files),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────
 # Search
 # ─────────────────────────────────────────────────────────────────
 
@@ -367,7 +580,7 @@ def search(req: SearchRequest) -> dict[str, Any]:
     s = _store()
 
     if req.mode == "semantic":
-        hits = asyncio.run(s.search(
+        hits, _has_more = asyncio.run(s.search(
             query=req.query,
             n_results=req.n_results,
             folder=req.folder,
@@ -389,7 +602,7 @@ def search(req: SearchRequest) -> dict[str, Any]:
         else:
             where = {"folder": req.folder}
 
-    hits: list[dict[str, Any]] = []
+    hits = []
     page = 5000
     offset = 0
     while True:
@@ -572,6 +785,28 @@ def delete_collection_item(name: str, item_id: str) -> dict[str, Any]:
     col = _get_collection(name)
     col.delete(ids=[item_id])
     return {"collection": name, "id": item_id, "deleted": True}
+
+
+@app.post("/api/collections/{name}/clear")
+def clear_collection(name: str) -> dict[str, Any]:
+    """Wipe all items from a collection. DB-only, no file-system touch.
+
+    Refused for ``aifred_documents`` — that's the user corpus and clearing
+    it would silently destroy the indexed bibel/judaica/kommentare data.
+    Use folder-/file-level deletes for the documents collection instead.
+    """
+    if name == "aifred_documents":
+        raise HTTPException(
+            400,
+            "Refusing to clear aifred_documents (user corpus). "
+            "Use folder/file deletion instead.",
+        )
+    col = _get_collection(name)
+    data = col.get(include=[])
+    ids = data.get("ids") or []
+    if ids:
+        col.delete(ids=ids)
+    return {"collection": name, "items_removed": len(ids)}
 
 
 class GenericSearchRequest(BaseModel):
