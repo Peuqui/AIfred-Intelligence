@@ -283,9 +283,15 @@ class AudioPlayerMixin(rx.State, mixin=True):
 
     @rx.event
     def close_audio_settings(self):
-        """Close audio settings — navigate back to chat."""
+        """Close audio settings — back to agent editor.
+
+        Audio-Settings sind aktuell nur via Plugin-Tab im Agent-Editor
+        erreichbar (Zahnrad-Icon neben audio_player). Beim Schliessen
+        kehrt der User natuerlich dort hin zurueck — direkter Redirect
+        zu ``/`` waere unintuitiv (Editor verschwindet).
+        """
         self.audio_settings_open = False
-        return rx.redirect("/")
+        return rx.redirect("/agent-editor")
 
     @rx.event(background=True)
     async def audio_index_rebuild_source(self, source: str, force: bool = False):
