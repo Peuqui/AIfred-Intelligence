@@ -17208,3 +17208,244 @@
   "stars": 29,
   "forks": 2
 }
+{
+  "date": "2026-05-07",
+  "views": {
+    "count": 64,
+    "uniques": 33,
+    "views": [
+      {
+        "timestamp": "2026-04-22T00:00:00Z",
+        "count": 3,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-04-23T00:00:00Z",
+        "count": 4,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-04-24T00:00:00Z",
+        "count": 12,
+        "uniques": 4
+      },
+      {
+        "timestamp": "2026-04-25T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-04-26T00:00:00Z",
+        "count": 10,
+        "uniques": 7
+      },
+      {
+        "timestamp": "2026-04-27T00:00:00Z",
+        "count": 4,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-04-28T00:00:00Z",
+        "count": 8,
+        "uniques": 6
+      },
+      {
+        "timestamp": "2026-04-29T00:00:00Z",
+        "count": 1,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-04-30T00:00:00Z",
+        "count": 4,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-05-01T00:00:00Z",
+        "count": 3,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-05-02T00:00:00Z",
+        "count": 2,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-05-03T00:00:00Z",
+        "count": 5,
+        "uniques": 4
+      },
+      {
+        "timestamp": "2026-05-04T00:00:00Z",
+        "count": 3,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-05-05T00:00:00Z",
+        "count": 5,
+        "uniques": 5
+      }
+    ]
+  },
+  "clones": {
+    "count": 5914,
+    "uniques": 883,
+    "clones": [
+      {
+        "timestamp": "2026-04-22T00:00:00Z",
+        "count": 311,
+        "uniques": 95
+      },
+      {
+        "timestamp": "2026-04-23T00:00:00Z",
+        "count": 271,
+        "uniques": 83
+      },
+      {
+        "timestamp": "2026-04-24T00:00:00Z",
+        "count": 234,
+        "uniques": 97
+      },
+      {
+        "timestamp": "2026-04-25T00:00:00Z",
+        "count": 539,
+        "uniques": 116
+      },
+      {
+        "timestamp": "2026-04-26T00:00:00Z",
+        "count": 100,
+        "uniques": 23
+      },
+      {
+        "timestamp": "2026-04-27T00:00:00Z",
+        "count": 289,
+        "uniques": 36
+      },
+      {
+        "timestamp": "2026-04-28T00:00:00Z",
+        "count": 284,
+        "uniques": 26
+      },
+      {
+        "timestamp": "2026-04-29T00:00:00Z",
+        "count": 374,
+        "uniques": 30
+      },
+      {
+        "timestamp": "2026-04-30T00:00:00Z",
+        "count": 235,
+        "uniques": 27
+      },
+      {
+        "timestamp": "2026-05-01T00:00:00Z",
+        "count": 448,
+        "uniques": 41
+      },
+      {
+        "timestamp": "2026-05-02T00:00:00Z",
+        "count": 734,
+        "uniques": 97
+      },
+      {
+        "timestamp": "2026-05-03T00:00:00Z",
+        "count": 1213,
+        "uniques": 177
+      },
+      {
+        "timestamp": "2026-05-04T00:00:00Z",
+        "count": 756,
+        "uniques": 97
+      },
+      {
+        "timestamp": "2026-05-05T00:00:00Z",
+        "count": 126,
+        "uniques": 37
+      }
+    ]
+  },
+  "referrers": [
+    {
+      "referrer": "reddit.com",
+      "count": 9,
+      "uniques": 1
+    },
+    {
+      "referrer": "github.com",
+      "count": 8,
+      "uniques": 6
+    },
+    {
+      "referrer": "Google",
+      "count": 7,
+      "uniques": 5
+    },
+    {
+      "referrer": "peuqui.github.io",
+      "count": 1,
+      "uniques": 1
+    }
+  ],
+  "paths": [
+    {
+      "path": "/Peuqui/AIfred-Intelligence",
+      "title": "Overview",
+      "count": 23,
+      "uniques": 20
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/blob/main/docker/xtts/README.md",
+      "title": "/blob/main/docker/xtts/README.md",
+      "count": 6,
+      "uniques": 5
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/issues",
+      "title": "/issues",
+      "count": 5,
+      "uniques": 4
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/pulls",
+      "title": "/pulls",
+      "count": 5,
+      "uniques": 3
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/releases",
+      "title": "/releases",
+      "count": 2,
+      "uniques": 2
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/blob/main/prompts/en/aifred/personality.txt",
+      "title": "/blob/main/prompts/en/aifred/personality.txt",
+      "count": 2,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/commit/b86a8985e85389593bd6ad8dae99bb3f54dc2501",
+      "title": "/commit/b86a8985e85389593bd6ad8dae99bb3f54dc2501",
+      "count": 2,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/commit/f5af6ff7f4b3a9af4fd088754a8722aa567dd495",
+      "title": "/commit/f5af6ff7f4b3a9af4fd088754a8722aa567dd495",
+      "count": 2,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/blob/996c6568d980fe4bed9107dd0956af5827939af0/QWEN.md",
+      "title": "/blob/996c6568d980fe4bed9107dd0956af5827939af0/QWEN.md",
+      "count": 1,
+      "uniques": 1
+    },
+    {
+      "path": "/Peuqui/AIfred-Intelligence/blob/edc4b0adfd6879f080749943b8889ce2830f4163/assets/custom.js",
+      "title": "/blob/edc4b0adfd6879f080749943b8889ce2830f4163/assets/custom.js",
+      "count": 1,
+      "uniques": 1
+    }
+  ],
+  "stars": 30,
+  "forks": 2
+}
