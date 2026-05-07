@@ -1574,7 +1574,12 @@ async def run_symposion(
         state.add_debug("────────────────────")
 
     except Exception as e:
-        state.add_debug(f"❌ Symposion Error: {e}")
+        # Vollstaendiger Trace ins Service-Log — der Debug-Stream zeigt nur
+        # die Kurzform (eine Zeile reicht der UI), aber fuer die Diagnose
+        # brauchen wir die Herkunft (z.B. ChromaDB down vs. LLM-Backend down).
+        import traceback
+        log_message(f"Symposion error:\n{traceback.format_exc()}")
+        state.add_debug(f"❌ Symposion Error: {type(e).__name__}: {e}")
 
     finally:
         state.debate_in_progress = False
