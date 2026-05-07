@@ -74,8 +74,7 @@ _device = None  # "cuda" or "cpu" - set on model load
 # Docker restart policy "unless-stopped" brings it back on next request
 # Set to 0 to disable auto-shutdown
 KEEP_ALIVE_MINUTES = int(os.environ.get("XTTS_KEEP_ALIVE", "5"))
-_last_request_time = None  # Timestamp of last TTS request
-_restart_timer = None  # Background timer for auto-shutdown
+_last_request_time = None  # Timestamp of last TTS request (watchdog reads this)
 _active_requests = 0  # Counter for in-flight requests
 
 # Modell-Lock: XTTS' GPT-Backbone teilt KV-Cache, Sampling-State und Attention-
@@ -1372,12 +1371,6 @@ def unload_model():
     freed_device = _device or "unknown"
     logger.info(f"🗑️ Unloading XTTS model from {freed_device}...")
 
-    # Cancel any pending auto-restart timer
-    global _restart_timer
-    if _restart_timer is not None:
-        _restart_timer.cancel()
-        _restart_timer = None
-
     # Clear model references
     _synthesizer = None
     _config = None
@@ -1424,62 +1417,68 @@ def _deep_cuda_cleanup():
         logger.warning(f"CUDA cleanup error: {e}")
 
 
-def _auto_restart_server():
-    """Background task: Shutdown container after KEEP_ALIVE_MINUTES of inactivity.
+def _shutdown_container():
+    """Shut the whole container down so the GPU can drop to P8.
 
-    Kills the Gunicorn master to fully exit the container, releasing all VRAM
-    including the ~167 MB CUDA context overhead (allows GPU P8 power state).
-    Docker restart policy ("unless-stopped") brings the container back up
-    with EAGER_LOAD=1, so the model lazy-loads on the next /tts request.
+    `os.kill(getppid(), SIGTERM)` signals the Gunicorn master (PID 1 in the
+    container). Gunicorn handles SIGTERM with a graceful worker shutdown.
+    If that gets stuck (e.g. CUDA context wedged), we escalate to SIGKILL on
+    ourselves after a short grace period so the kernel reaps everything.
+    Docker `restart: "no"` keeps the container down — AIfred re-creates it
+    on demand via `ensure_engine_ready`.
     """
-    global _active_requests
-
-    if _synthesizer is None:
-        logger.debug("Auto-shutdown: Model not loaded, skipping")
-        return
-
-    # Don't shutdown if requests are in-flight
-    if _active_requests > 0:
-        logger.info(f"⏰ Auto-shutdown delayed: {_active_requests} request(s) in progress")
-        import threading
-        retry_timer = threading.Timer(30, _auto_restart_server)
-        retry_timer.daemon = True
-        retry_timer.start()
-        return
-
-    logger.info(f"⏰ Auto-shutdown after {KEEP_ALIVE_MINUTES} min inactivity - freeing all VRAM...")
-
-    # Give logs time to flush
-    import time
-    time.sleep(0.5)
-
-    # Signal Gunicorn master (parent process) to terminate
-    # Docker "unless-stopped" will restart the container automatically
     import os
     import signal
-    os.kill(os.getppid(), signal.SIGTERM)
+    import time
+    logger.info(f"⏰ Auto-shutdown after {KEEP_ALIVE_MINUTES} min inactivity — terminating container")
+    time.sleep(0.5)  # Flush logs before SIGTERM
+    try:
+        os.kill(os.getppid(), signal.SIGTERM)
+    except OSError as e:
+        logger.error(f"SIGTERM to gunicorn master failed: {e}")
+    # Backup: graceful Gunicorn shutdown can hang on a wedged CUDA context.
+    # If we're still alive 15s later, hard-kill ourselves — that takes the
+    # worker process down and PID 1 follows.
+    time.sleep(15)
+    logger.warning("Graceful shutdown did not exit — escalating to SIGKILL")
+    os.kill(os.getpid(), signal.SIGKILL)
+
+
+def _idle_watchdog_loop():
+    """Polling watchdog that exits the container after KEEP_ALIVE_MINUTES idle.
+
+    Replaces the previous `threading.Timer` approach which silently failed
+    under `gunicorn --threads 2` (the daemon Timer-thread never fired despite
+    `_reset_restart_timer()` being called on each request). A plain while-loop
+    is observable in the logs, robust against thread-lifecycle quirks, and
+    decoupled from request handlers.
+    """
+    import time
+    poll_interval = max(30, min(120, KEEP_ALIVE_MINUTES * 60 // 10))
+    logger.info(f"⏰ Idle watchdog started: {KEEP_ALIVE_MINUTES} min, poll every {poll_interval}s")
+    while True:
+        time.sleep(poll_interval)
+        if _last_request_time is None:
+            continue
+        if _active_requests > 0:
+            continue
+        idle = time.time() - _last_request_time
+        if idle < KEEP_ALIVE_MINUTES * 60:
+            continue
+        if _synthesizer is None:
+            # Model already unloaded — no VRAM to free, skip shutdown
+            continue
+        _shutdown_container()
+        return  # _shutdown_container does not return; this is for clarity
 
 
 def _reset_restart_timer():
-    """Reset the auto-restart timer after a TTS request."""
-    global _restart_timer, _last_request_time
+    """Refresh `_last_request_time` so the watchdog re-starts its idle window."""
+    global _last_request_time
     import time
-    import threading
-
     if KEEP_ALIVE_MINUTES <= 0:
-        return  # Auto-restart disabled
-
+        return  # Auto-shutdown disabled
     _last_request_time = time.time()
-
-    # Cancel existing timer
-    if _restart_timer is not None:
-        _restart_timer.cancel()
-
-    # Start new timer
-    _restart_timer = threading.Timer(KEEP_ALIVE_MINUTES * 60, _auto_restart_server)
-    _restart_timer.daemon = True  # Don't block shutdown
-    _restart_timer.start()
-    logger.debug(f"Auto-restart timer reset: {KEEP_ALIVE_MINUTES} min")
 
 
 def _char_inventory(s: str) -> dict:
@@ -1946,11 +1945,17 @@ if EAGER_LOAD:
     get_synthesizer()
     logger.info("✅ Model loaded and ready")
 
-# Start auto-shutdown timer at container startup
-# Container exits after inactivity, Docker restarts it (lazy-load on next request)
+# Start the idle watchdog. Initialises `_last_request_time` so a fresh
+# container without traffic still exits after KEEP_ALIVE_MINUTES.
 if KEEP_ALIVE_MINUTES > 0:
-    logger.info(f"⏰ Auto-shutdown timer started: {KEEP_ALIVE_MINUTES} min")
-    _reset_restart_timer()
+    import threading as _wd_threading
+    import time as _wd_time
+    _last_request_time = _wd_time.time()
+    _wd_threading.Thread(
+        target=_idle_watchdog_loop,
+        name="idle-watchdog",
+        daemon=True,
+    ).start()
 else:
     logger.info("⏰ Auto-shutdown disabled (XTTS_KEEP_ALIVE=0)")
 
