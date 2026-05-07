@@ -8,9 +8,11 @@ Handles the complete flow for inbound messages:
 5. Update the session with the conversation
 """
 
+import contextvars
 import secrets
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage
@@ -37,7 +39,11 @@ def write_hub_notification(
 ) -> None:
     """Write a notification for the UI to pick up.
 
-    status: "received" (message incoming) or "done" (reply sent)
+    status: ``received`` | ``processing`` | ``done`` | ``error``.
+    All notifications carry the same toast id (``hub`` in the UI),
+    so a later status overwrites the previous toast — including the
+    long-lived ``received``/``processing`` toasts which would otherwise
+    linger for two minutes (their hard duration cap).
     """
     import json
     path = _get_notification_path()
@@ -63,6 +69,97 @@ def read_and_clear_hub_notification() -> dict | None:
         return data
     except (json.JSONDecodeError, OSError):
         return None
+
+
+# ============================================================
+# Hub Notification Scope — SSoT for received → done/error lifecycle
+# ============================================================
+
+# Inheritance flag for nested hub_notification_scope.
+# Set by HubNotifier.delegate() and consumed by the next scope's __enter__
+# in the same async task. Async-safe via contextvars (ContextVar copies on
+# task spawn, so concurrent pipelines never see each other's state).
+_pending_inherit: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_hub_scope_pending_inherit", default=False,
+)
+
+
+class HubNotifier:
+    """Mid-pipeline status updater + final-state override.
+
+    Yielded by :func:`hub_notification_scope`. Use:
+
+    * ``notifier.update("processing")`` — write any intermediate phase
+      (overwrites the prior toast via shared id).
+    * ``notifier.fail()`` — mark the final exit as ``error`` instead of
+      ``done``, without raising. For non-exception failures (e.g. engine
+      returned no response). If an exception bubbles out of the ``with``
+      block, the scope writes ``error`` automatically — calling
+      ``.fail()`` first is harmless but unnecessary.
+    * ``notifier.delegate()`` — hand off the closing notification to a
+      nested pipeline (e.g. ``process_inbound`` is called immediately
+      after this scope exits). The current scope writes no final toast,
+      and the next scope in the same task inherits the lifecycle: it
+      skips its own ``received`` write so the toast keeps the current
+      ``processing`` state. The inner scope still writes the final
+      ``done``/``error`` on its own exit.
+    """
+
+    def __init__(self, write_fn):  # type: ignore[no-untyped-def]
+        self._write = write_fn
+        self.failed = False
+        self.delegated = False
+
+    def update(self, status: str) -> None:
+        self._write(status)
+
+    def fail(self) -> None:
+        self.failed = True
+
+    def delegate(self) -> None:
+        self.delegated = True
+        # Tell the next scope in this task to inherit (skip its "received").
+        _pending_inherit.set(True)
+
+
+@contextmanager
+def hub_notification_scope(
+    session_id: str, session_title: str, channel: str, sender: str,
+) -> Iterator[HubNotifier]:
+    """Single source of truth for an inbound message's notification lifecycle.
+
+    On entry, writes ``received`` (unless inheriting from a delegated
+    parent scope — see ``HubNotifier.delegate``). On normal exit, writes
+    ``done`` (or ``error`` if the caller invoked ``notifier.fail()``).
+    On an exception, writes ``error`` and re-raises. If the caller
+    invoked ``notifier.delegate()``, the scope writes nothing on exit —
+    the next scope in the same task takes over.
+    """
+    def _write(status: str) -> None:
+        write_hub_notification(session_id, session_title, channel, sender, status=status)
+
+    inherited = _pending_inherit.get()
+    if inherited:
+        _pending_inherit.set(False)  # consume the inheritance flag
+    else:
+        _write("received")
+
+    notifier = HubNotifier(_write)
+    raised = False
+    try:
+        yield notifier
+    except BaseException:
+        # BaseException covers asyncio.CancelledError (pipeline cancellation
+        # via _stop wake-word, browser stop button), KeyboardInterrupt and
+        # the normal Exception tree. Without this catch the toast would stay
+        # on "processing" forever after a cancelled run.
+        raised = True
+        if not notifier.delegated:
+            _write("error")
+        raise
+    finally:
+        if not raised and not notifier.delegated:
+            _write("error" if notifier.failed else "done")
 
 
 def resolve_user_name(channel: str, channel_id: str, sender: str) -> str:
@@ -186,10 +283,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
     # Resolve plugin and channel label
     plugin = get_channel(message.channel)
     channel_label = plugin.display_name if plugin else message.channel.capitalize()
-
-    def _notify(status: str) -> None:
-        title = get_session_title(session_id) or subject
-        write_hub_notification(session_id, title, channel_label, message.sender, status=status)
+    notification_title = get_session_title(session_id) or subject
 
     # Register this coroutine so external stop commands (Puck _stop wake-word,
     # browser stop button, ...) can cancel it via cancel_pipeline().
@@ -201,13 +295,18 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
     # ── All phases run inside session_scope ────────────────────
     # Intent detection runs INSIDE scope so its debug messages reach the UI.
-    with pipeline_scope(session_id, _current_task), session_scope(session_id):
+    # hub_notification_scope writes "received" on entry and guarantees a final
+    # done/error on exit — covers every return path including exceptions in
+    # _call_engine, auto_reply, generate_session_title, etc.
+    with pipeline_scope(session_id, _current_task), session_scope(session_id), \
+            hub_notification_scope(
+                session_id, notification_title, channel_label, message.sender,
+            ) as hub:
 
         # ── Phase 0: Show incoming message immediately ────────
         debug(f"📨 {channel_label}: message from {message.sender}")
         if subject and subject != "?":
             debug(f"📧 Subject: {subject}")
-        _notify("received")
 
         # ── Phase 1: Detect target agent via LLM ─────────────
         try:
@@ -283,7 +382,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             save_user_to_session(session_id, message)
 
         # ── Phase 2: Call AIfred engine ───────────────────────
-        _notify("processing")
+        hub.update("processing")
 
         if plugin:
             llm_context = plugin.build_context(message)
@@ -312,7 +411,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         if not response_text:
             log_message("Message Processor: engine returned no response", "warning")
             debug("❌ Engine: no response")
-            _notify("error")
+            hub.fail()  # scope writes "error" on exit
             return None
 
         debug(f"✅ Response generated ({len(response_text)} chars)")
@@ -352,8 +451,9 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         if not title:
             await generate_session_title(message.text, response_text, session_id)
 
-        # ── Phase 6: Notify UI that processing is complete ────
-        _notify("done")
+        # ── Phase 6: Done ─────────────────────────────────────
+        # No explicit notification call — hub_notification_scope writes
+        # "done" on normal exit (and "error" on exception or hub.fail()).
 
     # session_scope exit
     return outbound

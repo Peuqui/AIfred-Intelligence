@@ -482,7 +482,7 @@ class FreeEchoChannel(BaseChannel):
         from ....lib.session_storage import create_empty_session
         from ....lib.config import MESSAGE_HUB_OWNER
         from ....lib.debug_bus import debug, session_scope
-        from ....lib.message_processor import write_hub_notification
+        from ....lib.message_processor import hub_notification_scope
         import secrets as _secrets
 
         route = routing_table.get_route("freeecho2", room)
@@ -514,10 +514,17 @@ class FreeEchoChannel(BaseChannel):
         tts_keepalive_task: Optional[asyncio.Task] = None
 
         try:
-            # Start session_scope so ALL debug messages go to the browser UI
-            with session_scope(session_id):
-                # Notify UI immediately — toast + ghosting BEFORE STT
-                write_hub_notification(session_id, f"FreeEcho.2 {room}", "FreeEcho.2", room, status="received")
+            # session_scope routes debug() messages to this session's UI.
+            # hub_notification_scope owns the toast lifecycle: writes "received"
+            # on entry, "error" on any exception leaving the block, and "done"
+            # on a clean return — covers the STT-empty path and any failure
+            # in the TTS-setup phase. We hand off to process_inbound's own
+            # scope via .delegate() before calling it (otherwise we'd write
+            # a brief "done" between our scope ending and process_inbound's
+            # scope opening).
+            with session_scope(session_id), hub_notification_scope(
+                session_id, f"FreeEcho.2 {room}", "FreeEcho.2", room,
+            ) as hub:
                 debug(f"📨 FreeEcho.2: Audio from {room} ({duration:.1f}s)")
                 debug("🎤 STT running...")
 
@@ -527,7 +534,7 @@ class FreeEchoChannel(BaseChannel):
                     self.channel_log(f"[FreeEcho.2 {room}] STT returned empty text", "warning")
                     debug("❌ STT: no text recognized")
                     await ws.send_str(json.dumps({"type": "done", "reason": "stt_empty"}))
-                    return
+                    return  # hub scope writes "done" on exit → toast closes after 5 s
 
                 self.channel_log(f"[FreeEcho.2 {room}] STT ({_puck_time.monotonic()-_puck_t0:.1f}s): {text}")
                 debug(f"🎤 STT: \"{text}\" ({_puck_time.monotonic()-_puck_t0:.1f}s)")
@@ -549,7 +556,7 @@ class FreeEchoChannel(BaseChannel):
 
                 # Ensure TTS state (MOSS/XTTS loading, VRAM management).
                 # Messages go to UI via debug() (session context propagated to executor).
-                write_hub_notification(session_id, f"FreeEcho.2 {room}", "FreeEcho.2", room, status="processing")
+                hub.update("processing")
                 tts_deferred = await self._ensure_tts_state()
 
                 # Acquire the active GPU TTS engine for the duration of this
@@ -573,6 +580,12 @@ class FreeEchoChannel(BaseChannel):
                     )
 
                 self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_puck_time.monotonic()-_puck_t0:.1f}s)")
+                # Hand off the notification lifecycle to process_inbound's own
+                # hub_notification_scope — its received → processing → done is
+                # the user-visible progress now. Without delegate() our scope
+                # would briefly write "done" between leaving this block and
+                # process_inbound's scope opening, causing a toast flicker.
+                hub.delegate()
 
             # Create inbound message and process through AIfred engine
             # (process_inbound creates its own session_scope)
