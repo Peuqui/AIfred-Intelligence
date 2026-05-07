@@ -597,43 +597,32 @@ function playBubbleAudioFromEvent(event) {
 }
 
 /**
- * Initialize bubble regenerate buttons - show/hide based on audio availability
- * Called after DOM updates to manage button visibility
- * Click handling is done by Reflex on_click, not JavaScript
+ * Initialize bubble regenerate buttons.
+ *
+ * Display-Sichtbarkeit kommt aus Reflex (style.display via enable_tts).
+ * Hier passen wir nur den Tooltip an: ist fuer diese Bubble bereits
+ * Audio vorhanden -> "Audio neu generieren" (regenerate),
+ * ist noch keines da -> "Audio generieren" (initial generate).
+ * Click-Handler bindet Reflex via on_click selbst.
  */
 function initBubbleRegenerateButtons() {
     const buttons = document.querySelectorAll('.bubble-regenerate-btn');
     console.log(`🔄 initBubbleRegenerateButtons: Found ${buttons.length} buttons`);
     buttons.forEach((button, idx) => {
-        // Find the corresponding audio button (sibling) to check if audio exists
-        const audioButton = button.previousElementSibling;
-        if (!audioButton || !audioButton.classList.contains('bubble-audio-btn')) {
-            console.log(`🔄 Button[${idx}] → HIDE (no audio button sibling)`);
-            button.style.display = 'none';
-            return;
-        }
-
-        // Check if audio button is visible (has audio URLs)
-        const audioUrlsJson = audioButton.dataset.audioUrls;
-        if (!audioUrlsJson) {
-            console.log(`🔄 Button[${idx}] → HIDE (no audio)`);
-            button.style.display = 'none';
-            return;
-        }
-
-        try {
-            const audioUrls = JSON.parse(audioUrlsJson);
-            if (!Array.isArray(audioUrls) || audioUrls.length === 0) {
-                console.log(`🔄 Button[${idx}] → HIDE (empty audio)`);
-                button.style.display = 'none';
-            } else {
-                console.log(`🔄 Button[${idx}] → SHOW`);
-                button.style.display = 'inline-flex';
+        const audioUrlsJson = button.dataset.audioUrls;
+        let hasAudio = false;
+        if (audioUrlsJson) {
+            try {
+                const audioUrls = JSON.parse(audioUrlsJson);
+                hasAudio = Array.isArray(audioUrls) && audioUrls.length > 0;
+            } catch (e) {
+                console.log(`🔄 Button[${idx}] tooltip parse error`, e);
             }
-        } catch (e) {
-            console.log(`🔄 Button[${idx}] → HIDE (parse error)`, e);
-            button.style.display = 'none';
         }
+        const tipRegenerate = button.dataset.tooltipRegenerate;
+        const tipGenerate = button.dataset.tooltipGenerate;
+        button.title = hasAudio ? (tipRegenerate || button.title) : (tipGenerate || button.title);
+        console.log(`🔄 Button[${idx}] → tooltip=${button.title} (hasAudio=${hasAudio})`);
     });
 }
 

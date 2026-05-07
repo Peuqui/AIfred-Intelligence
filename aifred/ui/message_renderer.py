@@ -146,7 +146,10 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
                 "align_items": "center",
             },
         ),
-        # Regenerate button - shows spinner during TTS regeneration
+        # (Re)Generate button — sichtbar sobald TTS global aktiv ist.
+        # JS (initBubbleRegenerateButtons) wechselt den Tooltip je nachdem,
+        # ob fuer diese Bubble bereits Audio existiert (regenerate) oder
+        # noch nicht (initial generate).
         rx.button(
             rx.cond(
                 AIState.tts_regenerating,
@@ -154,14 +157,19 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
                 rx.icon("refresh-cw", size=16),  # type: ignore[operator]
             ),
             on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),  # type: ignore[call-arg]
-            title=t("audio_regenerate_tooltip"),
+            title=t("audio_generate_tooltip"),
             size="1",
             variant="ghost",
             color_scheme="gray",
             disabled=AIState.tts_regenerating,
             class_name="bubble-regenerate-btn",
+            **{
+                "data-audio-urls": msg["audio_urls_json"],
+                "data-tooltip-generate": t("audio_generate_tooltip"),
+                "data-tooltip-regenerate": t("audio_regenerate_tooltip"),
+            },
             style={
-                "display": "none",  # JS zeigt Button wenn Audio vorhanden
+                "display": rx.cond(AIState.enable_tts, "inline-flex", "none"),
                 "opacity": rx.cond(AIState.tts_regenerating, "0.3", "0.5"),
                 "cursor": rx.cond(AIState.tts_regenerating, "not-allowed", "pointer"),
                 "padding": "6px 8px",
