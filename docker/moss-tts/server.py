@@ -75,7 +75,6 @@ _sample_rate = None
 
 # Auto-restart state
 _last_request_time = None
-_restart_timer = None
 _active_requests = 0
 
 logger.info(f"MOSS-TTS Config: model={MODEL_NAME}, temperature={TEMPERATURE}, "
@@ -204,7 +203,7 @@ def load_model():
     """Load MOSS-TTS model and processor."""
     global _processor, _model, _generation_config, _device, _sample_rate
     import torch
-    from transformers import AutoModel, AutoProcessor, GenerationConfig
+    from transformers import AutoModel, AutoProcessor
 
     # SDPA backend configuration (from MOSS-TTS docs)
     torch.backends.cuda.enable_cudnn_sdp(False)
@@ -418,43 +417,55 @@ def generate_tts(text: str, speaker: str | None = None, language: str | None = N
 
 
 # ============================================================
-# Auto-Shutdown (same pattern as XTTS)
+# Auto-Shutdown (Polling-Watchdog — see XTTS server for rationale)
 # ============================================================
 
-def _auto_restart_server():
-    """Exit server after KEEP_ALIVE_MINUTES of inactivity."""
-    global _active_requests
+def _shutdown_container():
+    """Terminate the container so the GPU can drop to P8.
 
-    if _model is None:
-        return
-
-    if _active_requests > 0:
-        logger.info(f"Auto-restart delayed: {_active_requests} request(s) in progress")
-        retry_timer = threading.Timer(30, _auto_restart_server)
-        retry_timer.daemon = True
-        retry_timer.start()
-        return
-
-    logger.info(f"Auto-restart after {KEEP_ALIVE_MINUTES} min inactivity - freeing VRAM...")
+    SIGTERM goes to the Gunicorn master (PID 1 in container, our parent).
+    If gunicorn's graceful shutdown wedges (e.g. CUDA context stuck), we
+    SIGKILL ourselves after 15 s; the kernel reaps the rest.
+    """
+    logger.info(f"Auto-shutdown after {KEEP_ALIVE_MINUTES} min inactivity — terminating container")
     time.sleep(0.5)
-    os.kill(os.getppid(), signal.SIGTERM)
+    try:
+        os.kill(os.getppid(), signal.SIGTERM)
+    except OSError as e:
+        logger.error(f"SIGTERM to gunicorn master failed: {e}")
+    time.sleep(15)
+    logger.warning("Graceful shutdown did not exit — escalating to SIGKILL")
+    os.kill(os.getpid(), signal.SIGKILL)
+
+
+def _idle_watchdog_loop():
+    """Polling watchdog (replaces threading.Timer which silently failed
+    under gunicorn --threads 2). Same logic as XTTS — see that server's
+    docstring for the full rationale.
+    """
+    poll_interval = max(30, min(120, KEEP_ALIVE_MINUTES * 60 // 10))
+    logger.info(f"Idle watchdog started: {KEEP_ALIVE_MINUTES} min, poll every {poll_interval}s")
+    while True:
+        time.sleep(poll_interval)
+        if _last_request_time is None:
+            continue
+        if _active_requests > 0:
+            continue
+        idle = time.time() - _last_request_time
+        if idle < KEEP_ALIVE_MINUTES * 60:
+            continue
+        if _model is None:
+            continue
+        _shutdown_container()
+        return
 
 
 def _reset_restart_timer():
-    """Reset the auto-restart timer after a request."""
-    global _restart_timer, _last_request_time
-
+    """Refresh `_last_request_time` so the watchdog re-starts its idle window."""
+    global _last_request_time
     if KEEP_ALIVE_MINUTES <= 0:
         return
-
     _last_request_time = time.time()
-
-    if _restart_timer is not None:
-        _restart_timer.cancel()
-
-    _restart_timer = threading.Timer(KEEP_ALIVE_MINUTES * 60, _auto_restart_server)
-    _restart_timer.daemon = True
-    _restart_timer.start()
 
 
 def _deep_cuda_cleanup():
@@ -607,17 +618,13 @@ def list_voices():
 @app.route("/unload", methods=["POST"])
 def unload_model():
     """Unload model to free VRAM."""
-    global _processor, _model, _generation_config, _device, _sample_rate, _restart_timer
+    global _processor, _model, _generation_config, _device, _sample_rate
 
     if _model is None:
         return jsonify({"success": True, "freed_device": "not_loaded"})
 
     freed_device = _device or "unknown"
     logger.info(f"Unloading MOSS-TTS model from {freed_device}...")
-
-    if _restart_timer is not None:
-        _restart_timer.cancel()
-        _restart_timer = None
 
     _processor = None
     _model = None
@@ -847,8 +854,12 @@ if EAGER_LOAD:
     logger.info("Model loaded and ready")
 
 if KEEP_ALIVE_MINUTES > 0:
-    logger.info(f"Auto-shutdown timer: {KEEP_ALIVE_MINUTES} min")
-    _reset_restart_timer()
+    _last_request_time = time.time()
+    threading.Thread(
+        target=_idle_watchdog_loop,
+        name="idle-watchdog",
+        daemon=True,
+    ).start()
 else:
     logger.info("Auto-shutdown disabled (MOSS_KEEP_ALIVE=0)")
 
