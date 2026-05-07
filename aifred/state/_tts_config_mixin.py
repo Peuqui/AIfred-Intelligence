@@ -535,22 +535,31 @@ class TTSConfigMixin(rx.State, mixin=True):
         Removes entries for agents that no longer exist.
         Called after settings load and after agent create/delete.
         """
-        from ..lib.agent_config import get_agent_ids
+        from ..lib.agent_config import get_agent_ids, load_agents_raw
         from ..lib.config import TTS_AGENT_VOICE_DEFAULTS
 
-        registered = set(get_agent_ids())
+        # System-Agents (role="system", e.g. calibration) and the vision
+        # agent never appear in chat → keep them out of TTS settings so
+        # they don't show up in restore/save logs and the agent-editor
+        # voice list.
+        agents_raw = load_agents_raw()
+        excluded = {
+            agent_id for agent_id, cfg in agents_raw.items()
+            if cfg.get("role") == "system"
+        }
+        excluded.add("vision")
+
+        registered = set(get_agent_ids()) - excluded
         current = set(self.tts_agent_voices.keys())
 
         # Add missing agents
         defaults = TTS_AGENT_VOICE_DEFAULTS.get(self.tts_engine, {})
         generic_default = {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True}
         for agent_id in registered - current:
-            if agent_id == "vision":
-                continue  # Vision agent doesn't use TTS
             self.tts_agent_voices[agent_id] = dict(defaults.get(agent_id, generic_default))
 
-        # Remove agents that no longer exist
-        for agent_id in current - registered:
+        # Remove agents that no longer exist OR are now excluded
+        for agent_id in (current - registered):
             del self.tts_agent_voices[agent_id]
 
     def _refresh_xtts_voices(self):

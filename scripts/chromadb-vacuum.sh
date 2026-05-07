@@ -37,11 +37,17 @@ mkdir -p "$(dirname "$LOGFILE")"
     echo "Stopping $CONTAINER…"
     docker stop "$CONTAINER" >/dev/null
 
+    # set -e wuerde uns abbrechen lassen, BEVOR der Container wieder
+    # hochgefahren wird — dann bleibt ChromaDB down. Vacuum-Fehler darf
+    # den Restart NICHT verhindern.
     echo "Running vacuum…"
-    docker run --rm \
+    # Image-ENTRYPOINT ist bereits 'chroma' → CMD nur das Subkommando.
+    if ! docker run --rm \
         -v "$VOLUME_HOST:/data" \
         chromadb/chroma:latest \
-        chroma vacuum --path /data --force --timeout 300
+        vacuum --path /data --force --timeout 300; then
+        echo "WARN: vacuum failed — restarting container without vacuum"
+    fi
 
     echo "Starting $CONTAINER…"
     docker start "$CONTAINER" >/dev/null

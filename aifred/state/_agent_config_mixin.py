@@ -808,7 +808,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         if agent_id in self.symposion_agents:
             # Don't allow deselecting the last agent
             if len(self.symposion_agents) <= 1:
-                self.add_debug(f"🏛️ Symposion: {label} ist der letzte Agent, kann nicht entfernt werden")  # type: ignore[attr-defined]
+                self.add_debug(f"🏛️ Symposion: {label} is the last agent, cannot be removed")  # type: ignore[attr-defined]
                 return
             self.symposion_agents = [a for a in self.symposion_agents if a != agent_id]
             self.add_debug(f"🏛️ Symposion: {label} removed")  # type: ignore[attr-defined]
