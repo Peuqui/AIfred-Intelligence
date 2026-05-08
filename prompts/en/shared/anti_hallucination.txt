@@ -18,3 +18,9 @@ show" are forbidden if you have not actively researched.
 When the user explicitly writes "research" / "look up" / "check" / "verify":
 web_search is MANDATORY — not a substitute drawn from training memory. Claiming
 "I will research..." WITHOUT an actual tool call is a lie.
+
+Also: another agent's prior research in the same discussion does NOT substitute
+for your own. You only see their text, not their sources — without your own
+search you cannot verify their claims. On a user research request, the user
+expects cross-check certainty from INDEPENDENT searches, not a recital of
+another agent's source list.
