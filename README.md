@@ -1778,6 +1778,29 @@ systemctl status aifred-intelligence.service
 
 See [systemd/README.md](systemd/README.md) for details, troubleshooting, and monitoring.
 
+#### llama-swap restart helper
+
+[`scripts/llama-swap-restart.sh`](scripts/llama-swap-restart.sh) is the standard
+maintenance script you'll use after downloading a new model or editing the
+llama-swap YAML config. It performs a clean restart that goes beyond a plain
+`systemctl restart`:
+
+1. Stops `llama-swap.service` and waits for inactive state
+2. Kills any leftover `llama-server` processes (SIGTERM, then SIGKILL)
+3. Waits for VRAM to be actually released by the GPU driver
+4. **Cleans up orphan lookup-cache files** in `~/.cache/llama_lookup_*.bin` whose
+   model entry no longer exists in `config.yaml`
+5. Starts `llama-swap.service` and waits for the `listening` log line
+
+`scripts/install-services.sh` automatically creates a symlink at
+`~/bin/llama-swap-restart` so you can call it from anywhere. After downloading
+a new GGUF model:
+
+```bash
+hf download <repo> --local-dir ~/models/<name>
+llama-swap-restart  # Autoscan picks up the new model, adds YAML entry
+```
+
 #### Discord Channel Setup
 
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications) → "New Application"
