@@ -357,6 +357,19 @@ class EmailChannel(BaseChannel):
 
     # ── Reply ─────────────────────────────────────────────────
 
+    def format_outbound(self, text: str) -> dict[str, str]:
+        """Render agent Markdown into a multipart/alternative payload.
+
+        Email clients cannot render Markdown, so we send both an HTML
+        rendering (preferred by most modern clients) and a plain-text
+        fallback (legible in monospace clients and as text/plain). This
+        replaces the old behaviour of dumping raw Markdown into the
+        ``text/plain`` body where ``**bold**`` and table pipes were
+        visible to the recipient.
+        """
+        from ....lib.markdown_render import md_to_html, md_to_plain
+        return {"text": md_to_plain(text), "html": md_to_html(text)}
+
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send an email reply via SMTP."""
         from .client import send_email
@@ -369,10 +382,12 @@ class EmailChannel(BaseChannel):
         route = routing_table.get_route("email", original.channel_id)
         sid = route.session_id if route else None
 
+        rendered = self.format_outbound(outbound.text)
         send_email(
             to=outbound.recipient,
             subject=subject,
-            body=outbound.text,
+            body=rendered["text"],
+            html=rendered.get("html"),
             reply_to_id=reply_to_id,
             session_id=sid,
         )

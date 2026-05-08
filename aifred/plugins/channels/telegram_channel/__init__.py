@@ -150,6 +150,15 @@ class TelegramChannel(BaseChannel):
 
     # ── Reply ─────────────────────────────────────────────────
 
+    def format_outbound(self, text: str) -> dict[str, str]:
+        """Strip Markdown markers — Telegram's legacy Markdown is brittle
+        (escaping minefield), MarkdownV2 even more so. Sending plain text
+        without ``parse_mode`` is robust: bold/italic markers are removed,
+        but tables/lists/links remain readable as plain text.
+        """
+        from ....lib.markdown_render import md_to_plain
+        return {"text": md_to_plain(text)}
+
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send a text reply via Telegram Bot API."""
         from telegram import Bot
@@ -158,7 +167,7 @@ class TelegramChannel(BaseChannel):
         bot = Bot(token)
 
         chat_id = outbound.channel_id or original.channel_id
-        text = outbound.text
+        text = self.format_outbound(outbound.text)["text"]
 
         # Split long messages
         chunks = _split_message(text, _MAX_MESSAGE_LENGTH)
@@ -167,7 +176,6 @@ class TelegramChannel(BaseChannel):
                 await bot.send_message(
                     chat_id=int(chat_id),
                     text=chunk,
-                    parse_mode="Markdown",
                 )
 
         from ....lib.debug_bus import debug

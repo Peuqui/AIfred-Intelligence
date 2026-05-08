@@ -214,6 +214,8 @@ Text translation via DeepL API with automatic source language detection. 30+ lan
 
 Channel Plugins connect AIfred to external communication channels. Incoming messages are processed automatically with optional auto-reply.
 
+**Outbound Markdown:** Agents reply in Markdown. Each channel converts that to a format its recipient can render via `BaseChannel.format_outbound()`. Email gets HTML + plain-text fallback (multipart/alternative), Telegram gets stripped plain text, Discord stays Markdown (rendered natively). Shared converters live in `aifred/lib/markdown_render.py` (`md_to_html`, `md_to_plain`). See [Plugin Development → Outbound Markdown Conversion](plugin-development.md#outbound-markdown-conversion) for the full pattern when writing a new channel.
+
 ### Email
 
 **File:** `plugins/channels/email_channel/`

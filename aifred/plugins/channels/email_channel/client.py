@@ -233,11 +233,24 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
     return results
 
 
-def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = None, session_id: Optional[str] = None) -> str:
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    reply_to_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    html: Optional[str] = None,
+) -> str:
     """Send an email via SMTP. Returns confirmation string.
 
     If session_id is provided, registers the outgoing Message-ID in the
     routing table so replies land in the same session.
+
+    When ``html`` is given, a multipart/alternative message is built
+    with both the plain-text body (``body``) and the HTML version, so
+    rich-text mail clients render the HTML and lite clients fall back
+    to the plain version. Without ``html``, a plain-text-only message
+    is sent (no multipart wrapping).
     """
     email_user = broker.get("email", "user")
     email_from = broker.get("email", "from") or email_user
@@ -248,7 +261,16 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
     else:
         sender = email_from
 
-    msg = MIMEMultipart()
+    msg: email.message.Message
+    if html:
+        # multipart/alternative: text first, then html — RFC 2046 says
+        # the most-faithful representation comes last, so the mail client
+        # picks html when it can render it, falls back to text otherwise.
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        msg.attach(MIMEText(html, "html", "utf-8"))
+    else:
+        msg = MIMEText(body, "plain", "utf-8")
     msg["From"] = sender
     msg["To"] = to
     msg["Subject"] = subject
@@ -259,7 +281,6 @@ def send_email(to: str, subject: str, body: str, reply_to_id: Optional[str] = No
     if reply_to_id:
         msg["In-Reply-To"] = reply_to_id
         msg["References"] = reply_to_id
-    msg.attach(MIMEText(body, "plain", "utf-8"))
 
     smtp_host = broker.get("email", "smtp_host")
     smtp_port = int(broker.get("email", "smtp_port") or "587")
