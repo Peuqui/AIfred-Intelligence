@@ -12,6 +12,8 @@ AIfred Intelligence ist ein vollwertiger KI-Assistent der lokal auf eigener Hard
 
 **📺 [Beispiel-Showcases ansehen](https://peuqui.github.io/AIfred-Intelligence/)** - Exportierte Chats: Multi-Agent-Debatten, Chemie, Mathe, Coding und Web-Recherche.
 
+> ⭐ **Wenn AIfred dir nützlich ist, gib dem Repo bitte einen Stern.** Self-Hoster vergessen das gerne — aber Sterne sind das wichtigste Signal, das bei mir ankommt, dass dieses Projekt tatsächlich genutzt wird. Davon hängt ab, ob ich weiter daran arbeite.
+
 ---
 
 ## ✨ Features

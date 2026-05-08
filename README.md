@@ -12,6 +12,8 @@ AIfred Intelligence is a fully-featured AI assistant running locally on your own
 
 **📺 [View Example Showcases](https://peuqui.github.io/AIfred-Intelligence/)** - Exported chats: Multi-Agent debates, Chemistry, Math, Coding, and Web Research.
 
+> ⭐ **If AIfred is useful for you, please star this repo.** Self-hosters easily forget — but stars are the main signal that tells me people are actually using this. It directly affects whether I keep building.
+
 ---
 
 ## ✨ Features
