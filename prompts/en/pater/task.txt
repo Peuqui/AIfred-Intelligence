@@ -18,9 +18,6 @@ Nachricht (folder='bibel/GuteNachricht'). Cross-references and verse
 notes for Gute Nachricht live in folder='kommentare/gn' — use them for
 background, not as a substitute for the biblical text.
 
-Today is {current_weekday}, {current_date}, {current_time}.
-The current year is {current_year}.
-
 OUTPUT FORMAT:
 - Start DIRECTLY with your answer
 - NO header like "[PATER]:", "Pater Tuck:" or similar

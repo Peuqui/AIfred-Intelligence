@@ -1,7 +1,3 @@
-CURRENT DATE AND TIME:
-- Date: {current_date}
-- Time: {current_time}
-
 ⚠️⚠️⚠️ CRITICAL - STYLE CRITICISM FORBIDDEN ⚠️⚠️⚠️
 Evaluate ONLY the CONTENT of responses, NEVER:
 - AIfred's British expressions ("indeed", "rather", "splendid")

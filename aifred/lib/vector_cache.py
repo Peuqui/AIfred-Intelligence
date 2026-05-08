@@ -866,28 +866,30 @@ def format_ttl_hours(hours: float) -> str:
 
 async def cleanup_expired_cache_task():
     """
-    Background task: Runs every CACHE_CLEANUP_INTERVAL_HOURS to delete expired cache entries.
+    Background task: Runs daily at GARBAGE_COLLECTION_HOUR to delete expired cache entries.
     Uses AsyncIO (not threading) for Reflex compatibility.
     """
-    from .config import CACHE_CLEANUP_INTERVAL_HOURS
+    from .config import GARBAGE_COLLECTION_HOUR
+    from .cleanup_utils import seconds_until_next_run
     from datetime import datetime as dt
 
-    log_message(f"🗑️ Cache cleanup task started (interval: {CACHE_CLEANUP_INTERVAL_HOURS}h)")
+    log_message(
+        f"🗑️ Vector-Cache cleanup task started "
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal)"
+    )
 
     while True:
         try:
-            # Wait for interval
-            await asyncio.sleep(CACHE_CLEANUP_INTERVAL_HOURS * 3600)
+            await asyncio.sleep(seconds_until_next_run(GARBAGE_COLLECTION_HOUR))
 
-            # Run cleanup
             cache = get_cache()
             deleted_count = await cache.delete_expired_entries()
 
             if deleted_count > 0:
-                log_message(f"🗑️ Cache cleanup: {deleted_count} expired entries deleted at {dt.now().strftime('%H:%M:%S')}")
+                log_message(f"🗑️ Vector-Cache cleanup: {deleted_count} expired entries deleted at {dt.now().strftime('%H:%M:%S')}")
 
         except Exception as e:
-            log_message(f"⚠️ Cache cleanup task error: {e}")
+            log_message(f"⚠️ Vector-Cache cleanup task error: {e}")
             # Continue running despite errors
 
 
@@ -906,7 +908,7 @@ def initialize_vector_cache():
         VectorCache instance or None on failure
     """
     import os
-    from .config import CACHE_STARTUP_CLEANUP, CACHE_CLEANUP_INTERVAL_HOURS
+    from .config import CACHE_STARTUP_CLEANUP, GARBAGE_COLLECTION_HOUR
 
     try:
         log_message(f"🚀 Vector Cache: Connecting to ChromaDB server (PID: {os.getpid()})")
@@ -924,7 +926,7 @@ def initialize_vector_cache():
 
         # Start background cleanup task
         asyncio.create_task(cleanup_expired_cache_task())
-        log_message(f"🗑️ Background cleanup task started (every {CACHE_CLEANUP_INTERVAL_HOURS}h)")
+        log_message(f"🗑️ Background cleanup task started (slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal)")
 
         return cache
     except (ChromaError, ConnectionError, OSError, ValueError) as e:

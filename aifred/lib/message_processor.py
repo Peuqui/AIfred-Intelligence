@@ -214,8 +214,11 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict]:
     settings = load_settings() or {}
     backend_type = settings.get("backend_type", "llamacpp")
 
-    # Resolve effective model (respects TTS/speed variants — same as _call_engine)
-    automatik_model = get_effective_model_from_settings("aifred")
+    # Intent-Detection ist eine Automatik-Hilfsaufgabe — Settings lesen,
+    # nicht hartcodiert auf AIfred. Bei "Automatik = (wie Alfred-LLM)" ist
+    # automatik_model leer und get_effective_model_from_settings() faellt
+    # intern auf aifred_model zurueck (siehe config.py).
+    automatik_model = get_effective_model_from_settings("automatik")
 
     if not automatik_model:
         log_message("Message Processor: no model for intent detection, defaulting to aifred")

@@ -391,6 +391,10 @@ class BackendMixin(rx.State, mixin=True):
             from ..lib.audio_state import cleanup_audio_state_task
             _asyncio.create_task(cleanup_audio_state_task())
 
+            # Lookup-Cache cleanup task (Speculative-Decoding-Caches einsammeln)
+            from ..lib.lookup_cache_cleanup import cleanup_lookup_cache_task
+            _asyncio.create_task(cleanup_lookup_cache_task())
+
             # Audio index incremental sync (only for sources already populated)
             from ..lib.audio_index import sync_audio_index_task
             _asyncio.create_task(sync_audio_index_task())

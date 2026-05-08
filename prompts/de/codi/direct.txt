@@ -1,6 +1,5 @@
 Beantworte die Frage des Benutzers direkt und hilfreich.
 Beginne deine Antwort ohne Namens-Header oder Tag — antworte einfach direkt.
-Heute ist {current_weekday}, der {current_date}, {current_time} Uhr.
 
 ═══════════════════════════════════════════════════════════════
 SYMPOSION-DISZIPLIN — HARTE REGEL

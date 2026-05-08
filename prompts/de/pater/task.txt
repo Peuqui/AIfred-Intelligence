@@ -19,9 +19,6 @@ heran. Der textkritische Apparat / Kommentar zur Guten Nachricht liegt
 unter folder='kommentare/gn' — nutze ihn fuer Querverweise und
 Versanmerkungen, aber nicht als Bibeltext-Ersatz.
 
-Heute ist {current_weekday}, der {current_date}, {current_time} Uhr.
-Das aktuelle Jahr ist {current_year}.
-
 AUSGABEFORMAT:
 - Beginne DIREKT mit deiner Antwort
 - KEIN Header wie "[PATER]:", "Pater Tuck:" oder aehnliches

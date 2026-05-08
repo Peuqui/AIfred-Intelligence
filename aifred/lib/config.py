@@ -718,6 +718,35 @@ TOKENS_PER_HISTORY_TURN = 500  # Rough estimate: 500 tok/turn
 # Note: num_ctx only affects max context size, NOT processing speed!
 AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 
+# Maximum tokens for the session title generation call. Hoch genug, damit auch
+# Thinking-Modelle (z.B. Step-3.5-Flash) genug Budget haben um nach langem
+# Reasoning den eigentlichen Titel auszugeben. Bei Instruct-Modellen schadet
+# das Limit nicht — der EOS-Token greift bei der erwarteten 5-10-Wort-Antwort
+# laengst vor diesem Cap.
+SESSION_TITLE_NUM_PREDICT = 2000
+
+# Hard timeout fuer den Session-Title-Call. Muss zur SESSION_TITLE_NUM_PREDICT
+# passen: bei 30 tok/s und 2000 Tokens braucht das ~70 s, bei 100 tok/s nur 20 s.
+# 120 s ist grosszuegig dimensioniert fuer langsame Thinking-Modelle.
+SESSION_TITLE_TIMEOUT_SECONDS = 120.0
+
+# ============================================================
+# LOOKUP-CACHE GARBAGE COLLECTION
+# ============================================================
+# llama.cpp's Speculative-Decoding-Lookup-Cache (--lookup-cache-dynamic) waechst
+# monoton mit jedem indexierten n-gram. Ohne Eviction-Logik wuerde die Datei
+# pro Modell nach Wochen-Monaten in den Multi-GB-Bereich kommen. Da aktuelle
+# Patterns wertvoller sind als historische und der Cache nach Loeschung in
+# 1-2 Tagen Normal-Use wieder voll aufgebaut ist, ist Loeschen bei Schwellwert-
+# Ueberschreitung pragmatischer als Truncation des Binaerformats.
+LOOKUP_CACHE_MAX_BYTES = 300 * 1024 * 1024  # 300 MB pro Lookup-Cache-Datei
+LOOKUP_CACHE_GLOB = "/home/mp/.cache/llama_lookup_*.bin"
+
+# Gemeinsamer Wartungsslot fuer alle Background-GC-Tasks (Lookup-Cache,
+# Vector-Cache, Audio-State). 03:00 lokale Zeit — vorhersagbar, ausserhalb
+# der typischen Arbeitszeit, kein Cleanup waehrend der Nutzung.
+GARBAGE_COLLECTION_HOUR = 3
+
 # Fallback context for Main LLM (AIfred, Sokrates, Salomo) when not VRAM-calibrated
 # Used when a model has no calibration data in the VRAM cache.
 # 32K is a safe default that works on most GPUs without triggering CPU offload.
@@ -1046,12 +1075,11 @@ TTL_HOURS = {
 }
 
 # Cache cleanup configuration
-CACHE_CLEANUP_INTERVAL_HOURS = 12  # Background task runs every 12 hours
+# Hinweis: Cleanup-Slot ist jetzt zentral via GARBAGE_COLLECTION_HOUR (s.o.).
 CACHE_STARTUP_CLEANUP = True        # Delete expired entries on server startup
 
 # Audio state cleanup configuration
 AUDIO_STATE_CLEANUP_AGE_DAYS = 7        # Completed entries older than this are removed
-AUDIO_STATE_CLEANUP_INTERVAL_HOURS = 12  # Background task runs every 12 hours
 
 # Debug logging — full toolkit JSON schemas (off by default; 70+ tools = log spam)
 DEBUG_LOG_TOOLKIT_DEFINITIONS = False
