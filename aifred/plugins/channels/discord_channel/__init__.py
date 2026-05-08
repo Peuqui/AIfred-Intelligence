@@ -220,8 +220,10 @@ class DiscordChannel(BaseChannel):
                 self.channel_log(f"Discord Plugin: channel {channel_id} not found — {exc}", "error")
                 return
 
+        # Discord renders Markdown natively (bold/italic/code/links) —
+        # the default format_outbound() passthrough is exactly right.
+        text = self.format_outbound(outbound.text)["text"]
         # Discord has a 2000 char limit per message
-        text = outbound.text
         if len(text) > 2000:
             # Split into chunks
             chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)]

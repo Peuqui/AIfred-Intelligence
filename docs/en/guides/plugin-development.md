@@ -127,14 +127,46 @@ class MyChannel(BaseChannel):
 
     # ── Reply (required) ─────────────────────────────
     async def send_reply(self, outbound, original) -> None:
-        """Send a reply to an incoming message."""
-        ...
+        """Send a reply to an incoming message.
+
+        Important: agents produce Markdown. Run the text through
+        `self.format_outbound(outbound.text)` before sending so the
+        recipient sees a format their client can render — see below.
+        """
+        rendered = self.format_outbound(outbound.text)
+        # ... use rendered["text"] (and rendered["html"] for email) ...
 
     # ── Context (required) ───────────────────────────
     def build_context(self, message) -> str:
         """Build LLM prompt context. Use prompts/ files, not hardcoded text."""
         from ....lib.prompt_loader import load_prompt
         return load_prompt("shared/channel_my_channel", sender=message.sender, text=message.text)
+
+    # ── Outbound formatting (optional override) ──────
+    def format_outbound(self, text: str) -> dict[str, str]:
+        """Convert agent Markdown into channel-specific format(s).
+
+        Default behaviour (passthrough): return ``{"text": text}``.
+        Override for channels whose recipients cannot render Markdown.
+        Use the shared converters in ``aifred/lib/markdown_render.py``:
+            * ``md_to_html(text)`` — full HTML (e.g. for email's text/html part)
+            * ``md_to_plain(text)`` — Markdown markers stripped
+
+        Conventions for the returned dict:
+            * ``{"text": ...}``               — plain/rendered representation
+            * ``{"text": ..., "html": ...}``  — email-style multipart
+            * ``{"text": ..., "parse_mode": ...}`` — Telegram-style hint
+        """
+        # Discord example (markdown is native — no conversion):
+        return {"text": text}
+
+        # Email example (multipart/alternative):
+        # from ....lib.markdown_render import md_to_html, md_to_plain
+        # return {"text": md_to_plain(text), "html": md_to_html(text)}
+
+        # Telegram/EPIM example (plain text, robust):
+        # from ....lib.markdown_render import md_to_plain
+        # return {"text": md_to_plain(text)}
 
     # ── Optional ─────────────────────────────────────
     def build_reply_metadata(self, message) -> dict:
@@ -156,6 +188,42 @@ MyChannel_instance = MyChannel()
 - **Credentials via `broker.get()`**, never via `os.environ` or `config.py` globals
 - Add credential mapping to `credential_broker.py: _CREDENTIAL_MAP`
 - Channel tools MUST use named tier constants (typically `TIER_COMMUNICATE`)
+- **Outbound formatting**: pipe `outbound.text` through `self.format_outbound()` in `send_reply()`. Agents produce Markdown — only Discord renders it natively. Email/Telegram/EPIM/etc. need conversion via `md_to_html` / `md_to_plain` from `aifred/lib/markdown_render.py`.
+
+## Outbound Markdown Conversion
+
+Agents in AIfred produce Markdown by default — fine for the browser UI and Discord (renders Markdown natively), but unreadable in email clients (`**bold**` shows as raw text), Telegram, EPIM and similar destinations.
+
+The `BaseChannel.format_outbound(text) -> dict[str, str]` hook is the single seam where each channel decides how to render the agent's Markdown for its recipient. Defaults to passthrough (`{"text": text}`). Override when your channel needs conversion.
+
+**Shared converters** (`aifred/lib/markdown_render.py`):
+
+| Function | Purpose |
+|----------|---------|
+| `md_to_html(text)` | Full HTML rendering. Used by email for the `text/html` MIME part. Powered by mistune (CommonMark + GFM tables/strikethrough/task-lists). HTML embedded inside Markdown is auto-escaped (XSS-safe). |
+| `md_to_plain(text)` | Strip Markdown markers, preserve content + structure (lists become `•`, links become `text (url)`, headings keep their text without `#`, fenced code keeps body without backticks). Tables are kept as-is — they remain legible in monospace. |
+
+**Recipes by channel type:**
+
+```python
+# Channel that renders Markdown natively (Discord):
+def format_outbound(self, text: str) -> dict[str, str]:
+    return {"text": text}  # passthrough — default works too
+
+# Channel that supports HTML alongside plain text (Email):
+def format_outbound(self, text: str) -> dict[str, str]:
+    from ....lib.markdown_render import md_to_html, md_to_plain
+    return {"text": md_to_plain(text), "html": md_to_html(text)}
+
+# Channel that wants robust plain text (Telegram, EPIM):
+def format_outbound(self, text: str) -> dict[str, str]:
+    from ....lib.markdown_render import md_to_plain
+    return {"text": md_to_plain(text)}
+```
+
+In `send_reply()`, call `self.format_outbound(outbound.text)` and pass the appropriate field(s) to your transport (SMTP, REST API, etc.). Concrete examples: see `email_channel/__init__.py`, `telegram_channel/__init__.py`, `discord_channel/__init__.py`.
+
+**Why the dict return type?** Different channels need different sidecars: email needs both `text` and `html` for `multipart/alternative`, Telegram historically supported a `parse_mode` flag, future channels may need other hints. A dict keeps the interface flexible without a parameter explosion.
 
 ## Credential Storage: Secrets vs Settings
 

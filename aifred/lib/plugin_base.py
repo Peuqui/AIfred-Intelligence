@@ -242,6 +242,21 @@ class BaseChannel(ABC):
     def build_reply_metadata(self, message: "InboundMessage") -> dict:
         return {}
 
+    def format_outbound(self, text: str) -> dict[str, str]:
+        """Convert agent Markdown output into channel-specific format(s).
+
+        Default: passthrough — channels that natively render Markdown
+        (e.g. Discord) need no conversion. Override for channels whose
+        recipients cannot render Markdown (Email, Telegram, EPIM …).
+        See :mod:`aifred.lib.markdown_render` for shared converters.
+
+        Returns a dict — keys are channel-defined. Convention:
+            ``{"text": "..."}``           plain/rendered representation
+            ``{"text": "...", "html": ...}``  email-style multipart
+            ``{"text": "...", "parse_mode": "..."}``  Telegram-style hint
+        """
+        return {"text": text}
+
     def channel_log(self, msg: str, level: str = "info") -> None:
         """Log to log file, stderr (→ journalctl), and the live browser
         debug console when a ``session_scope`` is active.

@@ -223,6 +223,8 @@ Textuebersetzung via DeepL API mit automatischer Quellsprach-Erkennung. 30+ Spra
 
 Channel Plugins verbinden AIfred mit externen Kommunikationskanälen. Eingehende Nachrichten werden automatisch verarbeitet und optional beantwortet.
 
+**Outbound Markdown:** Agenten antworten in Markdown. Jeder Channel wandelt das via `BaseChannel.format_outbound()` in ein Format, das der Empfänger darstellen kann: Email bekommt HTML mit Plaintext-Fallback (multipart/alternative), Telegram bekommt gestripptes Plain, Discord bleibt Markdown (rendert es nativ). Gemeinsame Konverter liegen in `aifred/lib/markdown_render.py` (`md_to_html`, `md_to_plain`). Vollständiges Pattern für neue Channels siehe [Plugin Development → Outbound Markdown Conversion](../../en/guides/plugin-development.md#outbound-markdown-conversion) (englisch).
+
 ### Email
 
 **Datei:** `plugins/channels/email_channel/`
