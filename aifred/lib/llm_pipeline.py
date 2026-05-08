@@ -182,6 +182,12 @@ async def run_llm_stream(
 
             yield chunk
 
+        elif chunk_type == "tool_progress":
+            # Streaming tools (web_search, search_documents, …) emit progress
+            # lines while they run. Forward them so consumers can update the
+            # UI immediately instead of seeing a debug-block at tool end.
+            yield chunk
+
         elif chunk_type == "tool_result":
             result_text = chunk.get("result", "")
             log_message(f"🔧 Tool result: {result_text}")

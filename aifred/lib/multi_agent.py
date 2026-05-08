@@ -302,6 +302,16 @@ async def _stream_agent_to_history(
             yield  # type: ignore[misc]
             yield  # type: ignore[misc]
 
+        elif event_type == "tool_progress":
+            # Streaming tool progress (e.g. web_search emitting per-API
+            # search-line debugs while the search runs). Mirror to the UI
+            # debug stream and yield so Reflex pushes the update instead of
+            # batching everything until the tool finishes.
+            progress_msg = event.get("message", "") or ""
+            if progress_msg:
+                state.add_debug(progress_msg)
+            yield  # type: ignore[misc]
+
         elif event_type == "tool_result":
             from .debug_format import format_tool_result
             result_str = event.get("result", "") or ""

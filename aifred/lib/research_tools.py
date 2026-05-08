@@ -425,27 +425,43 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", llm_
     """
     _llm_history: list = llm_history or []
 
-    async def _execute_web_search(queries: list[str]) -> str:
-        """Tool executor: runs research pipeline with model-provided queries."""
+    async def _execute_web_search(queries: list[str]) -> AsyncGenerator[dict[str, Any], None]:
+        """Tool executor: runs research pipeline with model-provided queries.
+
+        Async-generator-shaped tool executor (see ToolKit.execute_streaming).
+        Yields ``{"progress": ""}`` on each upstream yield from
+        ``execute_research`` so the LLM-stream can push UI updates while the
+        pipeline runs (the state is mutated via ``state.add_debug``/
+        ``state.set_progress`` directly inside execute_research; the empty
+        progress marker just nudges the outer generator to yield).
+        Terminates with exactly one ``{"result": "..."}`` event.
+        """
         if not queries:
-            return json.dumps({"error": "No search queries provided"})
+            yield {"result": json.dumps({"error": "No search queries provided"})}
+            return
 
         queries = queries[:3]
 
         if state:
-            # Full pipeline with browser State (cache, progress bar, sources HTML)
+            # Full pipeline with browser State (cache, progress bar, sources HTML).
+            # execute_research mutates state and yields between phases — we forward
+            # each yield as a progress marker so the UI updates incrementally
+            # instead of seeing one big block at the end.
             async for _ in execute_research(
                 state=state,
                 user_query=queries[0],
                 lang=lang,
                 pre_generated_queries=queries,
             ):
-                pass
+                yield {"progress": ""}
             result = getattr(state, "_research_context", "")
-            return result if result else json.dumps({"error": "No results found"})
+            yield {"result": result if result else json.dumps({"error": "No results found"})}
+            return
 
-        # Hub path (Discord, Email) — history passed from PluginContext
-        return await _hub_web_search(queries, _llm_history)
+        # Hub path (Discord, Email) — history passed from PluginContext.
+        # No state-mutation pipeline; we just await and emit the final result.
+        result = await _hub_web_search(queries, _llm_history)
+        yield {"result": result}
 
     async def _execute_web_fetch(url: str) -> str:
         """Tool executor: fetch and extract content from a specific URL."""

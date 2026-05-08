@@ -701,7 +701,20 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     for tc in tool_calls:
                         yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"][:200]}
-                        result = await toolkit.execute(tc["name"], tc["arguments"])
+                        # Use execute_streaming so streaming tools (web_search,
+                        # search_documents, …) can emit tool_progress events
+                        # while they run. Non-streaming tools just yield a
+                        # single tool_result — same end behaviour as before.
+                        result = ""
+                        async for item in toolkit.execute_streaming(tc["name"], tc["arguments"]):
+                            if item.get("type") == "tool_progress":
+                                yield {
+                                    "type": "tool_progress",
+                                    "name": tc["name"],
+                                    "message": item.get("message", ""),
+                                }
+                            elif item.get("type") == "tool_result":
+                                result = item.get("result", "") or ""
                         # Cap the tool result against the active model's
                         # context budget — large results would otherwise
                         # crowd out the model's answer space.

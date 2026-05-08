@@ -13,12 +13,13 @@ Usage:
 """
 
 import asyncio
+import inspect
 import json
 import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, AsyncGenerator, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -69,17 +70,49 @@ class ToolKit:
         return [t.definition for t in self.tools]
 
     async def execute(self, name: str, arguments: str | dict[str, Any]) -> str:
-        """Execute a tool by name. Arguments can be JSON string or dict."""
+        """Execute a tool by name and return the final result string.
+
+        Wrapper around :meth:`execute_streaming` that drops progress events.
+        Use ``execute_streaming`` directly when the caller can forward
+        progress messages to the UI (LLM-streaming pipeline does this).
+        """
+        result_str = ""
+        async for item in self.execute_streaming(name, arguments):
+            if item.get("type") == "tool_result":
+                result_str = item.get("result", "") or ""
+        return result_str
+
+    async def execute_streaming(
+        self, name: str, arguments: str | dict[str, Any],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a tool, yielding progress events and a final result event.
+
+        Yielded events:
+            ``{"type": "tool_progress", "message": "..."}`` — interim debug
+                lines from a streaming tool executor (one per yield from the
+                tool's async generator).
+            ``{"type": "tool_result",   "result":  "..."}`` — final result
+                string (sanitised). Always exactly one is emitted.
+
+        Tool executors can be sync, async, or async generators:
+        - sync / async coroutine → result string only.
+        - async generator → must yield ``{"progress": "..."}`` for interim
+          updates and exactly one ``{"result": "..."}`` for the final
+          payload (string). Anything else yielded is treated as a fallback
+          plain-string result.
+        """
         tool = self._by_name.get(name)
         if not tool:
-            return json.dumps({"error": f"Unknown tool: {name}"})
+            yield {"type": "tool_result", "result": json.dumps({"error": f"Unknown tool: {name}"})}
+            return
 
         args: dict[str, Any]
         if isinstance(arguments, str):
             try:
                 args = json.loads(arguments)
             except json.JSONDecodeError:
-                return json.dumps({"error": f"Invalid JSON arguments: {arguments}"})
+                yield {"type": "tool_result", "result": json.dumps({"error": f"Invalid JSON arguments: {arguments}"})}
+                return
         else:
             args = arguments
 
@@ -91,17 +124,20 @@ class ToolKit:
         if SECURITY_MAX_TOOL_CHAIN_DEPTH > 0 and self._call_count > SECURITY_MAX_TOOL_CHAIN_DEPTH:
             msg = f"Tool chain depth limit ({SECURITY_MAX_TOOL_CHAIN_DEPTH}) exceeded"
             logger.warning(msg)
-            return json.dumps({"error": msg})
+            yield {"type": "tool_result", "result": json.dumps({"error": msg})}
+            return
 
         # Rate limit check
         try:
             check_rate_limit(self._source)
         except CircuitBreakerTripped as exc:
             logger.error(str(exc))
-            return json.dumps({"error": str(exc)})
+            yield {"type": "tool_result", "result": json.dumps({"error": str(exc)})}
+            return
         except RateLimitReached as exc:
             logger.warning(str(exc))
-            return json.dumps({"error": str(exc)})
+            yield {"type": "tool_result", "result": json.dumps({"error": str(exc)})}
+            return
 
         # Rule of Two: block write-tier tools from external sources
         from .security import needs_confirmation
@@ -112,27 +148,46 @@ class ToolKit:
                 f"require confirmation. Use the web UI for this action."
             )
             logger.warning(msg)
-            return json.dumps({"error": msg})
+            yield {"type": "tool_result", "result": json.dumps({"error": msg})}
+            return
 
         t0 = time.perf_counter()
         result_str = ""
         success = True
         try:
-            result = tool.executor(**args)
-            if asyncio.iscoroutine(result):
-                result = await result
-            result_str = json.dumps(result) if not isinstance(result, str) else result
-            # Sanitize tool output before it enters the LLM context window
+            raw = tool.executor(**args)
+            if inspect.isasyncgen(raw):
+                # Streaming tool: forward every {"progress": ...} as
+                # tool_progress; the {"result": ...} terminates the stream.
+                async for item in raw:
+                    if isinstance(item, dict) and "progress" in item:
+                        yield {"type": "tool_progress", "message": str(item["progress"])}
+                    elif isinstance(item, dict) and "result" in item:
+                        result_str = (
+                            json.dumps(item["result"])
+                            if not isinstance(item["result"], str)
+                            else item["result"]
+                        )
+                    else:
+                        # Tolerant fallback: treat unknown yields as the result.
+                        result_str = json.dumps(item) if not isinstance(item, str) else item
+            elif asyncio.iscoroutine(raw):
+                value = await raw
+                result_str = json.dumps(value) if not isinstance(value, str) else value
+            else:
+                result_str = json.dumps(raw) if not isinstance(raw, str) else raw
+
+            # Sanitize before it enters LLM context.
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)
-            return result_str
+            yield {"type": "tool_result", "result": result_str}
         except Exception as e:
             success = False
             logger.error(f"Tool '{name}' failed: {e}")
             result_str = json.dumps({"error": str(e)})
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)
-            return result_str
+            yield {"type": "tool_result", "result": result_str}
         finally:
             try:
                 from .security import audit_log
