@@ -67,7 +67,29 @@ systemctl start aifred-intelligence.service
 echo "   ✅ AIfred Intelligence gestartet"
 echo
 
-echo "5️⃣  Prüfe Service-Status..."
+echo "5️⃣  Verlinke llama-swap-restart in ~/bin..."
+# llama-swap-restart ist das Wartungs-Skript fuer Modell-Wechsel und
+# Config-Updates. Es verschwindet sonst gerne im scripts/-Ordner.
+# Symlink macht es global ausfuehrbar wenn ~/bin im PATH liegt.
+USER_HOME=$(getent passwd "$ACTUAL_USER" | cut -d: -f6)
+USER_BIN="$USER_HOME/bin"
+RESTART_SCRIPT="$PROJECT_DIR/scripts/llama-swap-restart.sh"
+if [ -f "$RESTART_SCRIPT" ]; then
+    sudo -u "$ACTUAL_USER" mkdir -p "$USER_BIN"
+    chmod +x "$RESTART_SCRIPT"
+    sudo -u "$ACTUAL_USER" ln -sf "$RESTART_SCRIPT" "$USER_BIN/llama-swap-restart"
+    echo "   ✅ Symlink: $USER_BIN/llama-swap-restart -> $RESTART_SCRIPT"
+    # PATH-Hinweis falls ~/bin nicht in PATH
+    if ! sudo -u "$ACTUAL_USER" bash -c 'echo "$PATH"' | tr ':' '\n' | grep -qx "$USER_BIN"; then
+        echo "   ⚠️  $USER_BIN ist nicht im PATH — fuege in ~/.bashrc hinzu:"
+        echo "       export PATH=\"\$HOME/bin:\$PATH\""
+    fi
+else
+    echo "   ⚠️  $RESTART_SCRIPT nicht gefunden — Symlink uebersprungen"
+fi
+echo
+
+echo "6️⃣  Prüfe Service-Status..."
 echo
 echo "--- ChromaDB Status ---"
 systemctl status aifred-chromadb.service --no-pager -l
