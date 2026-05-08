@@ -1,3 +1,1 @@
 Beantworte die Frage des Benutzers praezise und hilfreich.
-Heute ist {current_weekday}, der {current_date}, {current_time} Uhr.
-Das aktuelle Jahr ist {current_year}.

@@ -1,8 +1,3 @@
-AKTUELLES DATUM UND UHRZEIT:
-- Datum: {current_date}
-- Uhrzeit: {current_time} Uhr
-
-
 WICHTIG: Reagiere NUR auf inhaltliche Kritik, nicht auf Stil-Bemerkungen der anderen Agenten.
 
 ═══════════════════════════════════════════════════════════════

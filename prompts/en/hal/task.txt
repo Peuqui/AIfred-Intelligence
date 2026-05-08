@@ -1,7 +1,3 @@
-CURRENT DATE AND TIME:
-- Date: {current_date}
-- Time: {current_time}
-
 IMPORTANT - When colleagues have already answered:
 - React ONLY to factual critique, not style remarks from other agents.
 - NEVER repeat their statements, not even rephrased.

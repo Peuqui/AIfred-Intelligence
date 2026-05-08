@@ -292,12 +292,21 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
     debug(f"🔍 Web search: {', '.join(queries)}")
 
     # Resolve backend config from settings
+    from .config import get_effective_model_from_settings
     settings = load_settings() or {}
     backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
     backend_url = BACKEND_URLS.get(backend_type, "")
-    backend_models = settings.get("backend_models", {}).get(backend_type, {})
-    defaults = BACKEND_DEFAULT_MODELS.get(backend_type, {})
-    model_id = backend_models.get("aifred_model", defaults.get("aifred_model", ""))
+    # Trennung wie im Browser-Pfad: Automatik fuer Query-Generation und
+    # URL-Ranking (Helper-Tasks), aifred nur fuer den Modell-Preload zum
+    # Haupt-Inferenz-Call. Bei "Automatik = (wie Alfred-LLM)" faellt
+    # automatik intern auf aifred zurueck — gleiches Verhalten, aber
+    # die Setting wird respektiert wenn der User sie aendert.
+    automatik_model_id = get_effective_model_from_settings("automatik")
+    aifred_model_id = get_effective_model_from_settings("aifred")
+    if not aifred_model_id:
+        backend_models = settings.get("backend_models", {}).get(backend_type, {})
+        defaults = BACKEND_DEFAULT_MODELS.get(backend_type, {})
+        aifred_model_id = backend_models.get("aifred_model", defaults.get("aifred_model", ""))
 
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
 
@@ -332,7 +341,7 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
         async for item in process_query_and_search(
             user_text=queries[0],
             llm_history=None,
-            automatik_model=model_id,
+            automatik_model=automatik_model_id,
             automatik_llm_client=llm_client,
             llm_options={},
             vision_json_context=None,
@@ -349,7 +358,7 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
 
         # ── Phase 2: URL ranking ──────────────────────────────
         from .research.context_utils import get_model_native_context
-        num_ctx = get_model_native_context(model_id, backend_type)
+        num_ctx = get_model_native_context(automatik_model_id, backend_type)
 
         if related_urls and titles and snippets:
             debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
@@ -359,7 +368,7 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
                 titles=titles,
                 snippets=snippets,
                 automatik_llm_client=llm_client,
-                automatik_model=model_id,
+                automatik_model=automatik_model_id,
                 llm_history=llm_history,
                 top_n=7,
                 llm_options={},
@@ -373,11 +382,14 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
             related_urls = related_urls[:7]
 
         # ── Phase 3: Parallel scraping ────────────────────────
+        # model_choice = aifred (Haupt-LLM wird vorgeladen, da nach dem
+        # Scraping sein Inferenz-Call kommt). Kein LLM-Call zur
+        # Verarbeitung der Scrape-Daten — die werden direkt durchgereicht.
         async for item in orchestrate_scraping(
             related_urls=related_urls,
             mode="deep",
             llm_client=llm_client,
-            model_choice=model_id,
+            model_choice=aifred_model_id,
         ):
             if item["type"] == "scraping_result":
                 _, scraping_tool_results = item["data"]

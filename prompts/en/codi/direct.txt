@@ -1,6 +1,5 @@
 Answer the user's question directly and helpfully.
 Start your response without any name header or tag — just answer directly.
-Today is {current_weekday}, {current_date}, {current_time}.
 
 ═══════════════════════════════════════════════════════════════
 SYMPOSION DISCIPLINE — HARD RULE

@@ -166,22 +166,23 @@ audio_state = AudioState()
 # ── Background cleanup task ──────────────────────────────
 
 async def cleanup_audio_state_task() -> None:
-    """Background task: prune old completed entries every N hours.
+    """Background task: prune old completed entries daily at the maintenance slot.
 
     Runs alongside the AIfred service. Mirrors the pattern used by
     cleanup_expired_cache_task() for the vector cache.
     """
-    from .config import AUDIO_STATE_CLEANUP_INTERVAL_HOURS
+    from .config import GARBAGE_COLLECTION_HOUR
+    from .cleanup_utils import seconds_until_next_run
 
     log_message(
         f"🗑️ AudioState cleanup task started "
-        f"(interval: {AUDIO_STATE_CLEANUP_INTERVAL_HOURS}h, "
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
         f"age: {AUDIO_STATE_CLEANUP_AGE_DAYS}d)"
     )
 
     while True:
         try:
-            await asyncio.sleep(AUDIO_STATE_CLEANUP_INTERVAL_HOURS * 3600)
+            await asyncio.sleep(seconds_until_next_run(GARBAGE_COLLECTION_HOUR))
             removed = audio_state.cleanup_completed_old()
             if removed > 0:
                 log_message(

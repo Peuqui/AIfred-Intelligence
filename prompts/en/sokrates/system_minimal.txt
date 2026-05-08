@@ -1,7 +1,3 @@
-CURRENT DATE AND TIME:
-- Date: {current_date}
-- Time: {current_time}
-
 You stand in dialectical dialogue with AIfred.
 
 ⚠️⚠️⚠️ CRITICAL - STYLE CRITICISM FORBIDDEN ⚠️⚠️⚠️

@@ -358,7 +358,7 @@ async def generate_session_title(
     from .prompt_loader import load_prompt, get_language
     from .session_storage import update_session_title
     from .settings import load_settings
-    from .config import DEFAULT_SETTINGS, BACKEND_URLS, AUTOMATIK_LLM_NUM_CTX
+    from .config import DEFAULT_SETTINGS, BACKEND_URLS, AUTOMATIK_LLM_NUM_CTX, SESSION_TITLE_NUM_PREDICT, SESSION_TITLE_TIMEOUT_SECONDS
     from .context_manager import strip_thinking_blocks
     from .logging_utils import log_message
 
@@ -366,12 +366,16 @@ async def generate_session_title(
     backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
     backend_url = BACKEND_URLS.get(backend_type, "")
 
-    # Model: override > effective model from settings (respects TTS/speed variants)
+    # Model: override > Automatik-Modell aus Settings. Title-Generation ist
+    # eine Hilfsaufgabe und gehoert zum Automatik-LLM. Wenn der User in den
+    # Einstellungen "Automatik-LLM = (wie Alfred-LLM)" gewaehlt hat, ist
+    # automatik_model leer und get_effective_model_from_settings() faellt
+    # intern auf aifred_model zurueck (siehe config.py).
     if model_override:
         model = model_override
     else:
         from .config import get_effective_model_from_settings
-        model = get_effective_model_from_settings("aifred")
+        model = get_effective_model_from_settings("automatik")
 
     if not model:
         return ""
@@ -400,12 +404,12 @@ async def generate_session_title(
                 messages=[{"role": "user", "content": prompt}],
                 options={
                     "temperature": 0.3,
-                    "num_predict": 300,
+                    "num_predict": SESSION_TITLE_NUM_PREDICT,
                     "enable_thinking": False,
                     "num_ctx": num_ctx,
                 },
             ),
-            timeout=30.0,
+            timeout=SESSION_TITLE_TIMEOUT_SECONDS,
         )
 
         title = strip_thinking_blocks(response.text.strip()).strip().strip('"\'').rstrip('.!?:')
@@ -422,7 +426,7 @@ async def generate_session_title(
 
     except asyncio.TimeoutError:
         from .debug_bus import debug
-        debug("⚠️ Title generation timed out (>30s)")
+        debug(f"⚠️ Title generation timed out (>{SESSION_TITLE_TIMEOUT_SECONDS:.0f}s)")
         return ""
     except Exception as exc:
         log_message(f"Title generation failed: {exc}", "warning")
