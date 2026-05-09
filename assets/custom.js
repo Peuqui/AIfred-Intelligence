@@ -1106,33 +1106,61 @@ function stopAudioStream() {
  * Audio-Element Auto-Play-Unlock.
  *
  * Browsers gate ``audio.play()`` behind a "user has interacted with the
- * element" flag. The flag is set permanently for the tab once any
- * play() succeeds inside a user-gesture stack. This helper performs a
- * silent play()+pause() to set that flag — call it from EVERY
- * user-click handler that may eventually trigger autoplayed audio
- * (Send-button, Login, Session-switch). Idempotent: if the flag is
- * already set, the play() Promise just resolves harmlessly.
+ * element" flag — set permanently for the tab once any play() succeeds
+ * inside a user-gesture stack. This helper plays a 0.1 s silent data-URI
+ * to flip that flag. Call it from EVERY user-click handler that may
+ * eventually trigger autoplayed audio (Send-button, Login, Session-
+ * switch). Idempotent and very cheap (no network).
  *
  * Why this matters: audio_player tool-calls fire long AFTER inference
  * (often 20+ seconds), well outside any browser autoplay-grace-window.
  * Without prior unlock, the SSE-pushed media event would land in a
  * blocked-autoplay state and the player stays at 0:00.
+ *
+ * NOTE: just calling play() on an empty src does NOT unlock — the
+ * browser sees "no media" and the gesture-flag stays unset. We need an
+ * actual playable source. The data-URI below is a 1-frame silent WAV
+ * (44 Hz, 8-bit mono).
  */
+var _audioUnlockDone = false;
+var _AUDIO_UNLOCK_SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
 function audioUnlock() {
+    if (_audioUnlockDone) return;  // once per tab is enough
     const player = audioPlayerEl();
     if (!player) return;
-    // Save & restore volume so the silent play() doesn't ruin a
-    // pre-set user volume. Set volume=0 to ensure inaudibility even
-    // if the player happens to have a src set.
+
+    const savedSrc = player.src;
     const savedVolume = player.volume;
+
     player.volume = 0;
+    player.src = _AUDIO_UNLOCK_SILENT_WAV;
+
     const promise = player.play();
     if (promise && typeof promise.then === 'function') {
         promise
-            .then(() => { player.pause(); })
-            .catch(() => { /* no src yet, that's fine — flag still gets set */ })
-            .finally(() => { player.volume = savedVolume; });
+            .then(() => {
+                player.pause();
+                _audioUnlockDone = true;
+                console.log('🔊 Audio: unlocked for autoplay');
+            })
+            .catch((err) => {
+                console.warn('🔊 Audio: unlock failed:', err.message);
+            })
+            .finally(() => {
+                // Restore previous src (or empty if none was set).
+                if (savedSrc) {
+                    player.src = savedSrc;
+                } else {
+                    player.removeAttribute('src');
+                    player.load();
+                }
+                player.volume = savedVolume;
+            });
     } else {
+        // Older browsers without play()-Promise — best-effort restore.
+        if (savedSrc) player.src = savedSrc;
+        else player.removeAttribute('src');
         player.volume = savedVolume;
     }
 }
