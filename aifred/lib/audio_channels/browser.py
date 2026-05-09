@@ -250,6 +250,10 @@ class BrowserChannel:
         die volle Queue im Reflex-State (data-media-queue) — JS-Cursor in
         custom.js advanced auf 'ended' zum nächsten Item, kein Server-
         Roundtrip pro Track.
+
+        ``items``-uri ist ein lokaler Filesystem-Pfad (channel-agnostic);
+        Browser braucht aber den REST-Endpoint — wir transformieren hier
+        ``state_key`` zur API-URL.
         """
         import random
         from ..api import audio_queue_push
@@ -263,8 +267,9 @@ class BrowserChannel:
 
         state = getattr(ctx, "state", None)
         first = ordered[0]
-        first_url = first["uri"]
         first_key = first["state_key"]
+        # Browser-spezifische URL-Form: REST-Endpoint, nicht lokaler Pfad
+        first_url = f"/api/audio/file?key={quote(first_key)}"
 
         tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
 
@@ -274,10 +279,14 @@ class BrowserChannel:
             state.media_is_stream = False
             state.media_paused_for_tts = tts_active
             state.media_pause_pos_sec = 0.0
+            state.media_paused_by_user = False
             # Browser-side queue: list of {audio_url, state_key} — JS reads
             # this from data-media-queue and uses it as a cursor on 'ended'.
             state.media_queue = [
-                {"audio_url": it["uri"], "state_key": it["state_key"]}
+                {
+                    "audio_url": f"/api/audio/file?key={quote(it['state_key'])}",
+                    "state_key": it["state_key"],
+                }
                 for it in ordered
             ]
             if hasattr(state, "_persist_audio_state"):
