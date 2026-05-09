@@ -946,7 +946,8 @@ function startAudioStream(sessionIdParam) {
             const url = data.url || data.audio_url;  // accept either field
             console.log(`🔊 Audio SSE: Received ${kind} v${data.version}`);
 
-            if (!url) return;
+            // url is required for tts/media; stop carries no url by design.
+            if (!url && kind !== 'stop') return;
 
             if (data.playback_rate) {
                 const rate = parseFloat(String(data.playback_rate).replace('x', ''));
