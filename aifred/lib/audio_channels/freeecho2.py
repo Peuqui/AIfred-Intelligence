@@ -191,6 +191,33 @@ class FreeEcho2Channel:
             return False
         return await stream.stop()
 
+    # ── TTS-Takeover-Helpers ─────────────────────────────────────
+    #
+    # Damit eine TTS-Antwort nicht parallel zum mpv-Music-Stream am
+    # FreeEcho.2-Speaker landet (zwei PCM-Quellen → Audio-Chaos), kann
+    # der freeecho2-Channel-Plugin den Music-Stream pausieren bevor
+    # er TTS-Chunks pumpt, und danach wieder resumen. Per-Track-Position
+    # bleibt erhalten — pause/resume laufen ueber mpv-IPC.
+
+    async def pause_for_tts(self, room: str) -> bool:
+        """Pause an active music stream so TTS can take the speaker.
+
+        Returns True if a running stream was paused — caller should call
+        ``resume_after_tts(room)`` when TTS is done. Returns False if no
+        stream is running (nothing to pause).
+        """
+        stream = self._streams.get(room)
+        if stream is None or not stream.is_running:
+            return False
+        return await stream.pause()
+
+    async def resume_after_tts(self, room: str) -> bool:
+        """Resume a stream that ``pause_for_tts`` paused. Idempotent."""
+        stream = self._streams.get(room)
+        if stream is None or not stream.is_running:
+            return False
+        return await stream.resume()
+
     async def play_queue(
         self,
         items: list[dict[str, str]],
