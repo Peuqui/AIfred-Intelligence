@@ -163,7 +163,7 @@ class AudioOutputChannel(Protocol):
     async def resume(self, target_id: str) -> None: ...
     async def stop(self, target_id: str) -> None: ...
     async def seek(self, target_id: str, position_sec: float) -> None: ...
-    async def set_volume(self, target_id: str, percent: float) -> None: ...
+    async def set_speed(self, target_id: str, factor: float) -> None: ...
 ```
 
 **Registry** (`aifred/lib/audio_channels/__init__.py`):
@@ -256,8 +256,7 @@ Channel-Registry.
 | `audio_seek(position_sec)` | READONLY | Absolute Position springen. |
 | `audio_skip(delta_sec)` | READONLY | Relativ vor/zurück. |
 | `audio_speed(factor)` | READONLY | 0.25–4.0× Playback-Speed (mpv resampled korrekt). |
-| `audio_volume(percent)` | READONLY | 0–100% Lautstärke. |
-| `audio_status()` | READONLY | Aktueller Zustand: running/playing/paused, Item, Position, Duration, Speed, Volume. |
+| `audio_status()` | READONLY | Aktueller Zustand: running/playing/paused, Item, Position, Duration, Speed. |
 | `audio_list(source=None, subdir=None, limit=None)` | READONLY | Sources auflisten oder Items in einer Source. Bevorzugt SQLite-Index, fällt zurück auf Filesystem-Walk. |
 | `audio_list_unfinished()` | READONLY | Items mit gespeicherter Position (≠ completed), nach Datum sortiert. |
 | `audio_targets()` | READONLY | Verfügbare Output-Targets mit Status (live aus Channel-Registry). |

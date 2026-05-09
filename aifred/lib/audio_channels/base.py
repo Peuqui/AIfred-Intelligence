@@ -125,17 +125,11 @@ class AudioOutputChannel(Protocol):
         """Springe zur Position. ``relative=True`` heißt skip ±N Sekunden."""
         ...
 
-    async def set_volume(
-        self, target_id: str, percent: float, ctx: "PluginContext | None" = None
-    ) -> bool:
-        """Setze Lautstärke 0–100 %. Channel kann das ignorieren wenn er
-        keine Server-seitige Lautstärke-Kontrolle hat (z.B. Browser)."""
-        ...
-
     async def set_speed(
         self, target_id: str, factor: float, ctx: "PluginContext | None" = None
     ) -> bool:
-        """Playback-Speed 0.25–4.0×. Wie set_volume optional."""
+        """Playback-Speed 0.25–4.0×. Channel kann das ignorieren wenn er
+        keine Server-seitige Speed-Kontrolle hat."""
         ...
 
     async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:

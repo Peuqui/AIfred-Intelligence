@@ -330,13 +330,6 @@ class AudioManager:
         await self._send({"command": ["set_property", "speed", factor]})
         return True
 
-    async def set_volume(self, percent: float) -> bool:
-        if not 0.0 <= percent <= 100.0:
-            raise ValueError(f"volume must be 0–100, got {percent}")
-        await self._ensure_started()
-        await self._send({"command": ["set_property", "volume", percent]})
-        return True
-
     async def status(self) -> dict[str, Any]:
         if not self.is_running or self._writer is None:
             return {
@@ -348,13 +341,11 @@ class AudioManager:
                 "position_sec": 0.0,
                 "duration_sec": None,
                 "speed": 1.0,
-                "volume": 100.0,
             }
         pause = await self._get_property("pause", default=False)
         pos = await self._get_property("time-pos", default=0.0)
         dur = await self._get_property("duration", default=None)
         spd = await self._get_property("speed", default=1.0)
-        vol = await self._get_property("volume", default=100.0)
         path = await self._get_property("path", default=None)
         return {
             "running": True,
@@ -365,7 +356,6 @@ class AudioManager:
             "position_sec": float(pos) if pos is not None else 0.0,
             "duration_sec": float(dur) if dur is not None else None,
             "speed": float(spd),
-            "volume": float(vol),
         }
 
     async def _save_now(self) -> None:

@@ -221,14 +221,6 @@ class PuckChannel:
             return False
         return await stream.seek(float(position_sec), relative=relative)
 
-    async def set_volume(
-        self, target_id: str, percent: float, ctx: "PluginContext | None" = None
-    ) -> bool:
-        # Lautstärke wird am Puck selbst geregelt (Hardware-Knopf / Web-UI).
-        # Server-seitige Volume-Anpassung würde mpv-Lautstärke ändern,
-        # was aber den PCM-Stream am Reader trifft — fragil. Skip.
-        return False
-
     async def set_speed(
         self, target_id: str, factor: float, ctx: "PluginContext | None" = None
     ) -> bool:
