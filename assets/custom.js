@@ -947,8 +947,11 @@ function startAudioStream(sessionIdParam) {
             console.log(`🔊 Audio SSE: Received ${kind} v${data.version}`);
 
             // url is required for tts/media; control events (stop, pause,
-            // resume) carry no url by design.
-            const isControl = (kind === 'stop' || kind === 'pause' || kind === 'resume');
+            // resume, seek, speed) carry no url by design.
+            const isControl = (
+                kind === 'stop' || kind === 'pause' || kind === 'resume'
+                || kind === 'seek' || kind === 'speed'
+            );
             if (!url && !isControl) return;
 
             if (data.playback_rate) {
@@ -1022,6 +1025,31 @@ function startAudioStream(sessionIdParam) {
                     }).catch((err) => {
                         console.warn('🔊 Audio Bus: resume blocked:', err.message);
                     });
+                }
+            } else if (kind === 'seek') {
+                // Server-triggered seek (audio_seek / audio_skip tool).
+                // ``relative=true`` → ±N seconds from current position.
+                ttsQueueVersion = data.version;
+                const player = audioPlayerEl();
+                if (player && player.duration) {
+                    const target = data.relative
+                        ? player.currentTime + Number(data.position_sec || 0)
+                        : Number(data.position_sec || 0);
+                    const clamped = Math.max(0, Math.min(player.duration, target));
+                    player.currentTime = clamped;
+                    audioSaveCurrentPosition();
+                    console.log(`🔊 Audio Bus: seek → ${clamped.toFixed(1)}s`);
+                }
+            } else if (kind === 'speed') {
+                // Server-triggered speed change (audio_speed tool).
+                // HTML5 audio.playbackRate accepts 0.25–4.0 in spec; clamp
+                // here as a safety net.
+                ttsQueueVersion = data.version;
+                const factor = Math.max(0.25, Math.min(4.0, Number(data.factor || 1.0)));
+                const player = audioPlayerEl();
+                if (player) {
+                    player.playbackRate = factor;
+                    console.log(`🔊 Audio Bus: speed → ${factor}×`);
                 }
             } else {
                 // TTS — gapless queue append for streaming inference output.

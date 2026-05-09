@@ -925,12 +925,21 @@ def audio_queue_push(
     start_pos_sec: float = 0.0,
     is_stream: bool = False,
     audio_type: str = "music",
+    position_sec: float = 0.0,
+    relative: bool = False,
+    factor: float = 1.0,
 ) -> None:
-    """Push an audio item to the unified browser audio bus.
+    """Push an audio event to the unified browser audio bus.
 
-    ``kind`` is "tts" (chunk-stream, gapless) or "media" (single-track,
-    position-saved). Kind-specific metadata is included in the SSE event;
-    the JS client routes by kind.
+    Kinds and their metadata:
+      - ``"tts"``    : chunk-stream, gapless. {url, playback_rate}
+      - ``"media"``  : single-track, position-saved. {url, state_key,
+                       start_pos_sec, is_stream, audio_type, playback_rate}
+      - ``"stop"``   : halt + clear src + final-position-save. (no metadata)
+      - ``"pause"``  : halt, keep src + position. (no metadata)
+      - ``"resume"`` : continue from current position. (no metadata)
+      - ``"seek"``   : jump to ``position_sec`` (or ±N sec when ``relative=True``).
+      - ``"speed"``  : set ``audio.playbackRate`` to ``factor`` (0.25–4.0).
 
     Versions are monotonic per session — they NEVER decrease, even after
     a clear at the start of a new message. The client dedupes by version
@@ -959,6 +968,11 @@ def audio_queue_push(
         item["start_pos_sec"] = float(start_pos_sec)
         item["is_stream"] = bool(is_stream)
         item["audio_type"] = audio_type
+    elif kind == "seek":
+        item["position_sec"] = float(position_sec)
+        item["relative"] = bool(relative)
+    elif kind == "speed":
+        item["factor"] = float(factor)
 
     storage["queue"].append(item)
     storage["playback_rate"] = playback_rate

@@ -195,20 +195,46 @@ class BrowserChannel:
         relative: bool = False,
         ctx: "PluginContext | None" = None,
     ) -> bool:
-        # Browser-Seek geht heute nur über pause+resume mit gesetzter
-        # Position. Der Re-Seek-Trigger lebt in JS — wir müssten dafür
-        # eine eigene State-Variable einführen ("media_seek_request_sec")
-        # die JS pollt. Für 3.0a deferred — Tools rufen das aktuell auch
-        # nur für Local auf.
-        logger.debug("BrowserChannel.seek not implemented yet (target=%s)", target_id)
-        return False
+        from ..api import audio_queue_push
+
+        state = getattr(ctx, "state", None) if ctx else None
+        if state is None or not getattr(state, "media_audio_url", ""):
+            return False
+
+        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
+        if not session_id:
+            return False
+
+        # Bus-Seek: JS setzt audio.currentTime. Bei relative=true addiert
+        # JS auf currentTime, sonst absolute Position. JS clampt auf
+        # [0, duration].
+        audio_queue_push(
+            session_id, "seek", "",
+            position_sec=float(position_sec),
+            relative=bool(relative),
+        )
+        return True
 
     async def set_speed(
         self, target_id: str, factor: float, ctx: "PluginContext | None" = None
     ) -> bool:
-        # Speed bräuchte eine State-Var ("media_speed") die JS auf
-        # audio.playbackRate mappt. 3.0a: deferred.
-        return False
+        from ..api import audio_queue_push
+
+        if not 0.25 <= factor <= 4.0:
+            return False
+
+        state = getattr(ctx, "state", None) if ctx else None
+        if state is None or not getattr(state, "media_audio_url", ""):
+            return False
+
+        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
+        if not session_id:
+            return False
+
+        # Bus-Speed: JS setzt audio.playbackRate. HTML5-Audio macht das
+        # nativ ohne Pitch-Verzerrung (preservesPitch default true).
+        audio_queue_push(session_id, "speed", "", factor=float(factor))
+        return True
 
     async def play_queue(
         self,
