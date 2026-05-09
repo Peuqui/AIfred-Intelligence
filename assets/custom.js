@@ -852,12 +852,18 @@ window.skipTtsQueueItem = skipTtsQueueItem;
 // TTS SSE STREAM - Server-Sent Events for immediate audio playback
 // ============================================================
 
-var ttsStreamActive = false;
-var ttsEventSource = null;
-var ttsStreamSessionId = null;
-var ttsStreamRetryCount = 0;
-var ttsStreamGaveUp = false;
-var TTS_STREAM_MAX_RETRIES = 3;
+// Audio Bus — single SSE stream for both TTS and media playback.
+// Server pushes events with kind="tts" (gapless queue) or kind="media"
+// (single-track replace + position-save). Sharing one EventSource means
+// the user-gesture chain (Send-button click → startAudioStream) is the
+// origin for ALL browser audio.play() calls — no autoplay blocks for
+// audio_player tool calls anymore.
+var audioStreamActive = false;
+var audioEventSource = null;
+var audioStreamSessionId = null;
+var audioStreamRetryCount = 0;
+var audioStreamGaveUp = false;
+var AUDIO_STREAM_MAX_RETRIES = 3;
 
 /**
  * Get session ID from cookie
@@ -876,141 +882,171 @@ function getSessionIdFromCookie() {
 }
 
 /**
- * Start SSE stream for TTS audio
- * Called when user starts a message (is_generating becomes true)
- * Server pushes audio URLs immediately as they're generated
- * @param {string} sessionIdParam - Optional session ID (if not provided, read from cookie)
+ * Start the unified Audio Bus SSE stream.
+ *
+ * Called from the user-gesture stack (login, send-button, session switch)
+ * — the EventSource opens IN that gesture chain, so every audio.play()
+ * triggered by a server-pushed event later is treated as user-initiated
+ * by the browser. This is what makes audio_player tool-calls auto-play
+ * just like TTS.
+ *
+ * Server pushes events of kind "tts" (gapless queue) or "media" (single-
+ * track replace + position-save); the onmessage handler routes by kind.
+ *
+ * @param {string} sessionIdParam - Optional session ID (else read from cookie)
  */
-function startTtsStream(sessionIdParam) {
+function startAudioStream(sessionIdParam) {
     const sessionId = sessionIdParam || getSessionIdFromCookie();
     if (!sessionId) {
-        console.warn('🔊 TTS SSE: No session ID found');
+        console.warn('🔊 Audio SSE: No session ID found');
         return;
     }
 
-    // Don't retry if we already gave up (endpoint unavailable)
-    if (ttsStreamGaveUp && ttsStreamSessionId === sessionId) {
+    if (audioStreamGaveUp && audioStreamSessionId === sessionId) {
         return;
     }
 
-    // Check if already connected AND connection is still open
-    if (ttsStreamActive && ttsStreamSessionId === sessionId && ttsEventSource) {
-        // EventSource.OPEN = 1, CONNECTING = 0, CLOSED = 2
-        if (ttsEventSource.readyState === EventSource.OPEN || ttsEventSource.readyState === EventSource.CONNECTING) {
-            console.log('🔊 TTS SSE: Already connected for this session');
+    if (audioStreamActive && audioStreamSessionId === sessionId && audioEventSource) {
+        if (audioEventSource.readyState === EventSource.OPEN || audioEventSource.readyState === EventSource.CONNECTING) {
+            console.log('🔊 Audio SSE: Already connected for this session');
             return;
         } else {
-            // Connection was closed, need to reconnect
-            console.log('🔊 TTS SSE: Previous connection closed, reconnecting...');
+            console.log('🔊 Audio SSE: Previous connection closed, reconnecting...');
         }
     }
 
-    // Close existing connection if any
-    if (ttsEventSource) {
-        ttsEventSource.close();
-        ttsEventSource = null;
+    if (audioEventSource) {
+        audioEventSource.close();
+        audioEventSource = null;
     }
 
-    // New session = reset retry state
-    if (ttsStreamSessionId !== sessionId) {
-        ttsStreamRetryCount = 0;
-        ttsStreamGaveUp = false;
+    if (audioStreamSessionId !== sessionId) {
+        audioStreamRetryCount = 0;
+        audioStreamGaveUp = false;
     }
-    ttsStreamSessionId = sessionId;
-    ttsStreamActive = true;
-    console.log(`🔊 TTS SSE: Connecting for session ${sessionId.substring(0, 8)}...`);
+    audioStreamSessionId = sessionId;
+    audioStreamActive = true;
+    console.log(`🔊 Audio SSE: Connecting for session ${sessionId.substring(0, 8)}...`);
 
-    // Build SSE URL - fully relative path, works through Nginx proxy
-    // No hardcoded ports or hosts - Nginx handles forwarding to backend:8002
-    const sseUrl = `/api/tts/stream/${sessionId}`;
-    console.log(`🔊 TTS SSE: URL = ${sseUrl}`);
+    const sseUrl = `/api/audio/stream/${sessionId}`;
+    console.log(`🔊 Audio SSE: URL = ${sseUrl}`);
 
-    // Create EventSource connection to SSE endpoint
-    ttsEventSource = new EventSource(sseUrl);
+    audioEventSource = new EventSource(sseUrl);
 
-    ttsEventSource.onopen = () => {
-        console.log('🔊 TTS SSE: Connection opened');
-        ttsStreamRetryCount = 0;
-        ttsStreamGaveUp = false;
+    audioEventSource.onopen = () => {
+        console.log('🔊 Audio SSE: Connection opened');
+        audioStreamRetryCount = 0;
+        audioStreamGaveUp = false;
     };
 
-    ttsEventSource.onmessage = (event) => {
+    audioEventSource.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            console.log(`🔊 TTS SSE: Received audio URL, version ${data.version}`);
+            const kind = data.kind || 'tts';  // legacy items default to TTS
+            const url = data.url || data.audio_url;  // accept either field
+            console.log(`🔊 Audio SSE: Received ${kind} v${data.version}`);
 
-            if (data.audio_url) {
-                // Update playback rate from SSE data (before scheduling)
-                if (data.playback_rate) {
-                    const rate = parseFloat(data.playback_rate.replace('x', ''));
-                    if (!isNaN(rate) && rate > 0) {
-                        ttsPlaybackRate = rate;
-                    }
+            if (!url) return;
+
+            if (data.playback_rate) {
+                const rate = parseFloat(String(data.playback_rate).replace('x', ''));
+                if (!isNaN(rate) && rate > 0) {
+                    ttsPlaybackRate = rate;
                 }
-
-                // Dedupe by version: on reconnect the server may resend items
-                // with version <= ttsQueueVersion. Skip them silently.
-                if (data.version <= ttsQueueVersion && ttsQueueVersion > 0) {
-                    console.log(`🔊 TTS SSE: Skipping already-known v${data.version} (current v${ttsQueueVersion})`);
-                    return;
-                }
-
-                // Build queue incrementally and schedule for gapless playback
-                const newQueue = [...ttsQueue, data.audio_url];
-                updateTtsQueue(newQueue, data.version);
             }
-        } catch (e) {
-            console.warn('🔊 TTS SSE: Failed to parse event data:', e);
-        }
-    };
 
-    ttsEventSource.onerror = (event) => {
-        if (ttsEventSource.readyState === EventSource.CLOSED) {
-            ttsStreamActive = false;
-            ttsEventSource = null;
-            ttsStreamRetryCount++;
-
-            if (ttsStreamRetryCount > TTS_STREAM_MAX_RETRIES) {
-                console.warn(`🔊 TTS SSE: Giving up after ${TTS_STREAM_MAX_RETRIES} retries (endpoint unavailable)`);
-                ttsStreamGaveUp = true;
+            // Dedupe by version on reconnect (server may resend items with
+            // version <= ttsQueueVersion). Same dedup applies for media —
+            // we share the version counter across kinds.
+            if (data.version <= ttsQueueVersion && ttsQueueVersion > 0) {
+                console.log(`🔊 Audio SSE: Skipping already-known v${data.version} (current v${ttsQueueVersion})`);
                 return;
             }
 
-            const delay = ttsStreamRetryCount * 2000;
-            console.log(`🔊 TTS SSE: Connection closed, retry ${ttsStreamRetryCount}/${TTS_STREAM_MAX_RETRIES} in ${delay}ms...`);
+            if (kind === 'media') {
+                // Single-track replace via the existing media-load path.
+                // Same audio element as TTS — user gesture from SSE-open
+                // applies, so player.play() is allowed.
+                ttsQueueVersion = data.version;
+                audioCurrentMediaKey = data.state_key || '';
+                if (data.start_pos_sec && data.start_pos_sec > 0) {
+                    // audioLoadAndPlayMedia consumes audioTtsPauseSnapshotSec
+                    // for resume offset — set BEFORE load so the
+                    // loadedmetadata handler picks it up.
+                    audioTtsPauseSnapshotSec = Number(data.start_pos_sec);
+                }
+                audioLoadAndPlayMedia(url);
+            } else if (kind === 'stop') {
+                // Server-triggered stop (audio_stop tool, _stop wake-word,
+                // browser stop button). Pause player + clear src so it
+                // doesn't keep buffering, save final position.
+                ttsQueueVersion = data.version;
+                const player = audioPlayerEl();
+                if (player) {
+                    if (audioCurrentMediaKey) {
+                        audioSaveCurrentPosition();
+                    }
+                    player.pause();
+                    player.removeAttribute('src');
+                    player.load();
+                }
+                audioCurrentMediaKey = '';
+                audioCurrentMediaUrl = '';
+                audioMediaQueue = [];
+                audioMediaQueueIdx = 0;
+                audioStopPositionSaver();
+                console.log('🔊 Audio Bus: media stopped');
+            } else {
+                // TTS — gapless queue append for streaming inference output.
+                const newQueue = [...ttsQueue, url];
+                updateTtsQueue(newQueue, data.version);
+            }
+        } catch (e) {
+            console.warn('🔊 Audio SSE: Failed to parse event data:', e);
+        }
+    };
+
+    audioEventSource.onerror = (event) => {
+        if (audioEventSource.readyState === EventSource.CLOSED) {
+            audioStreamActive = false;
+            audioEventSource = null;
+            audioStreamRetryCount++;
+
+            if (audioStreamRetryCount > AUDIO_STREAM_MAX_RETRIES) {
+                console.warn(`🔊 Audio SSE: Giving up after ${AUDIO_STREAM_MAX_RETRIES} retries (endpoint unavailable)`);
+                audioStreamGaveUp = true;
+                return;
+            }
+
+            const delay = audioStreamRetryCount * 2000;
+            console.log(`🔊 Audio SSE: Connection closed, retry ${audioStreamRetryCount}/${AUDIO_STREAM_MAX_RETRIES} in ${delay}ms...`);
             setTimeout(() => {
-                if (!ttsStreamActive && ttsStreamSessionId) {
-                    startTtsStream(ttsStreamSessionId);
+                if (!audioStreamActive && audioStreamSessionId) {
+                    startAudioStream(audioStreamSessionId);
                 }
             }, delay);
         } else {
-            console.warn('🔊 TTS SSE: Connection error, EventSource will auto-retry...');
+            console.warn('🔊 Audio SSE: Connection error, EventSource will auto-retry...');
         }
     };
 }
 
 /**
- * Stop TTS SSE stream
- * Called when generation completes (is_generating becomes false)
+ * Stop the Audio Bus SSE stream.
+ * Called when generation completes (is_generating becomes false).
  */
-function stopTtsStream() {
-    if (ttsEventSource) {
-        ttsEventSource.close();
-        ttsEventSource = null;
+function stopAudioStream() {
+    if (audioEventSource) {
+        audioEventSource.close();
+        audioEventSource = null;
     }
-    ttsStreamActive = false;
-    console.log('🔊 TTS SSE: Stopped');
+    audioStreamActive = false;
+    console.log('🔊 Audio SSE: Stopped');
 }
 
-// Legacy aliases for compatibility with existing MutationObserver code
-function startTtsPolling() { startTtsStream(); }
-function stopTtsPolling() { stopTtsStream(); }
-
 // Make SSE functions available globally
-window.startTtsStream = startTtsStream;
-window.stopTtsStream = stopTtsStream;
-window.startTtsPolling = startTtsPolling;  // Legacy alias
-window.stopTtsPolling = stopTtsPolling;    // Legacy alias
+window.startAudioStream = startAudioStream;
+window.stopAudioStream = stopAudioStream;
 
 // ============================================================
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
@@ -1170,12 +1206,10 @@ function setupTtsAudioObserver() {
                     console.log('🔊 TTS Observer: Queue data attribute changed');
                     handleQueueDataUpdate(target);
                 }
-                // NOTE: SSE stream is started once on login via rx.call_script("startTtsStream('...')")
-                // and stays open for the entire session. We no longer stop it based on data-polling.
-                // The stream handles idle periods automatically (SSE keeps connection open).
-                //
-                // Old behavior (removed): stopTtsStream() when data-polling becomes false
-                // This caused the stream to close after each inference, requiring restart.
+                // NOTE: Audio Bus SSE stream is started once on login via
+                // rx.call_script("startAudioStream('...')") and stays open
+                // for the entire session. The stream handles idle periods
+                // automatically (SSE keeps connection open).
             }
         }
     });
@@ -1204,9 +1238,9 @@ function setupTtsAudioObserver() {
         // Also check if SSE should be started (data-polling might already be true)
         const shouldStream = existingQueueData.dataset.polling === 'true';
         console.log(`🔊 TTS Observer: Initial polling state = ${shouldStream}`);
-        if (shouldStream && !ttsStreamActive) {
-            console.log('🔊 TTS Observer: Starting SSE stream on init');
-            startTtsStream();
+        if (shouldStream && !audioStreamActive) {
+            console.log('🔊 Audio Bus: Starting SSE stream on init');
+            startAudioStream();
         }
     }
 
@@ -1227,41 +1261,41 @@ function initializeAllObservers() {
     initBubbleAudioButtons();
     initBubbleRegenerateButtons();
 
-    // AUTO-START TTS SSE stream on page load if session exists
-    // This ensures the stream is always open and ready BEFORE any TTS generation starts
+    // AUTO-START Audio Bus SSE stream on page load if session exists.
+    // Stream is open BEFORE any inference triggers TTS or audio_play —
+    // and runs in the user-gesture chain via Reflex on_load events, so
+    // every server-pushed audio item plays without autoplay block.
     const sessionId = getSessionIdFromCookie();
-    if (sessionId && !ttsStreamActive) {
-        console.log('🔊 TTS SSE: Auto-starting stream on page load');
-        startTtsStream(sessionId);
+    if (sessionId && !audioStreamActive) {
+        console.log('🔊 Audio Bus: Auto-starting stream on page load');
+        startAudioStream(sessionId);
     } else if (!sessionId) {
-        // Cookie not yet set (Reflex hasn't initialized session yet)
-        // Poll quickly until we have a session, then start SSE immediately
-        console.log('🔊 TTS SSE: No session cookie yet, starting fast poll...');
+        // Cookie not yet set (Reflex hasn't initialized session yet) —
+        // poll quickly until we have a session, then start SSE.
+        console.log('🔊 Audio Bus: No session cookie yet, starting fast poll...');
         let fastPollCount = 0;
         const fastPollInterval = setInterval(() => {
             fastPollCount++;
             const newSessionId = getSessionIdFromCookie();
-            if (newSessionId && !ttsStreamActive) {
-                console.log(`🔊 TTS SSE: Session cookie found after ${fastPollCount * 100}ms, starting stream`);
-                startTtsStream(newSessionId);
+            if (newSessionId && !audioStreamActive) {
+                console.log(`🔊 Audio Bus: Session cookie found after ${fastPollCount * 100}ms, starting stream`);
+                startAudioStream(newSessionId);
                 clearInterval(fastPollInterval);
             } else if (fastPollCount >= 50) {
-                // Stop fast polling after 5 seconds, fall back to slow poll
-                console.log('🔊 TTS SSE: Fast poll timeout, falling back to slow poll');
+                console.log('🔊 Audio Bus: Fast poll timeout, falling back to slow poll');
                 clearInterval(fastPollInterval);
             }
-        }, 100);  // Check every 100ms for up to 5 seconds
+        }, 100);
     }
 
-    // Also setup a periodic check to ensure stream stays connected
-    // (handles tab sleep, network interruptions, etc.)
+    // Periodic reconnect check (tab sleep, network interruptions).
     setInterval(() => {
         const currentSessionId = getSessionIdFromCookie();
-        if (currentSessionId && !ttsStreamActive) {
-            console.log('🔊 TTS SSE: Reconnecting (periodic check)');
-            startTtsStream(currentSessionId);
+        if (currentSessionId && !audioStreamActive) {
+            console.log('🔊 Audio Bus: Reconnecting (periodic check)');
+            startAudioStream(currentSessionId);
         }
-    }, 5000);  // Check every 5 seconds
+    }, 5000);
 
     // Retry after 500ms in case elements render later
     setTimeout(() => {
@@ -1855,29 +1889,27 @@ function audioBindObservers(player) {
     });
     audioSrcObserver.observe(player, { attributes: true, attributeFilter: ['src'] });
 
+    // Folder-Queue sync (audio_play_folder pushes a list of items via
+    // data-media-queue). Server-side it's still the trigger for sequential
+    // playback advance — the Audio Bus delivers the FIRST item via
+    // kind="media", and the queue attribute lets JS pre-stage the rest.
     audioDataObserver = new MutationObserver((mutations) => {
         for (const m of mutations) {
-            if (m.attributeName === 'data-media-url') {
-                const newUrl = player.dataset.mediaUrl || '';
-                if (newUrl !== audioCurrentMediaUrl) {
-                    audioHandleMediaUrlChange(player, newUrl);
-                }
-            } else if (m.attributeName === 'data-media-queue') {
+            if (m.attributeName === 'data-media-queue') {
                 audioSyncMediaQueue(player);
             }
         }
     });
     audioDataObserver.observe(player, {
         attributes: true,
-        attributeFilter: ['data-media-url', 'data-media-queue'],
+        attributeFilter: ['data-media-queue'],
     });
 
-    // Sync queue + initial URL on bind
+    // Initial queue sync. NOTE: data-media-url is NOT used as a trigger
+    // anymore — that path is the Audio Bus (kind="media"). Re-mount of
+    // the player element no longer auto-replays the URL, so a user pause
+    // sticks even when React swaps the audio node.
     audioSyncMediaQueue(player);
-    const initialUrl = player.dataset.mediaUrl || '';
-    if (initialUrl && initialUrl !== audioCurrentMediaUrl) {
-        audioHandleMediaUrlChange(player, initialUrl);
-    }
 }
 
 /**

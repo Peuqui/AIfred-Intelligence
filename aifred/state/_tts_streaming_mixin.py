@@ -854,7 +854,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Drains all consecutive entries starting from _tts_push_seq.
         Skips entries marked as None (empty/failed sentences).
         """
-        from ..lib.api import tts_queue_push
+        from ..lib.api import audio_queue_push
 
         # Auto-pause media playback before the first TTS chunk goes to the
         # browser. Position is saved by the browser via /api/audio/position
@@ -872,7 +872,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             if entry is not None:
                 audio_url, playback_rate, request_id = entry
-                tts_queue_push(session_id, audio_url, playback_rate)
+                audio_queue_push(session_id, "tts", audio_url, playback_rate=playback_rate)
                 log_message(f"🔊 TTS Order: ✅ Pushed seq={self._tts_push_seq} to queue")
                 # Track completion
                 self._completed_tts_urls = {**self._completed_tts_urls, request_id: audio_url}

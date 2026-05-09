@@ -97,12 +97,12 @@ class AuthMixin(rx.State, mixin=True):
             self.new_session()  # type: ignore[attr-defined]
             self.add_debug(f"✅ Logged in as: {self.logged_in_user} (new)")  # type: ignore[attr-defined]
 
-        # Save username AND session cookies + start TTS SSE stream
+        # Save username AND session cookies + start Audio Bus SSE stream
         combined_script = (
             set_username_script(self.logged_in_user)
             + "; "
             + set_session_id_script(self.session_id)  # type: ignore[attr-defined]
-            + "; if(window.startTtsStream) startTtsStream('"
+            + "; if(window.startAudioStream) startAudioStream('"
             + self.session_id  # type: ignore[attr-defined]
             + "');"
         )
@@ -137,12 +137,12 @@ class AuthMixin(rx.State, mixin=True):
         self.new_session()  # type: ignore[attr-defined]
         self.add_debug(f"✅ Account created: {self.logged_in_user}")  # type: ignore[attr-defined]
 
-        # Save username AND session cookies + start TTS SSE stream
+        # Save username AND session cookies + start Audio Bus SSE stream
         combined_script = (
             set_username_script(self.logged_in_user)
             + "; "
             + set_session_id_script(self.session_id)  # type: ignore[attr-defined]
-            + "; if(window.startTtsStream) startTtsStream('"
+            + "; if(window.startAudioStream) startAudioStream('"
             + self.session_id  # type: ignore[attr-defined]
             + "');"
         )
@@ -203,11 +203,11 @@ class AuthMixin(rx.State, mixin=True):
             console_separator()  # File log
             self.debug_messages.append("────────────────────")  # type: ignore[attr-defined]
 
-            # Set session cookie AND start TTS SSE stream
+            # Set session cookie AND start Audio Bus SSE stream
             from ..lib.browser_storage import set_session_id_script
             combined_script = (
                 set_session_id_script(self.session_id)  # type: ignore[attr-defined]
-                + "\nif(window.startTtsStream) startTtsStream('"
+                + "\nif(window.startAudioStream) startAudioStream('"
                 + self.session_id  # type: ignore[attr-defined]
                 + "');"
             )

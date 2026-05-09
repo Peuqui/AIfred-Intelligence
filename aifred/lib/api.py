@@ -882,133 +882,169 @@ async def run_calibration():
 
 
 # ============================================================
-# TTS Queue for Streaming Audio (SSE + Polling Endpoints)
+# Audio Bus — Unified Streaming for TTS + Media (SSE + Polling)
 # ============================================================
+#
+# One pipeline for all browser-bound audio: TTS chunks (gapless playback,
+# inference-streamed) and media items (single-track, position-saved). Each
+# event carries a ``kind`` field plus kind-specific metadata; the JS client
+# routes by kind to the right playback path. Server-side both share queue,
+# version-counter and SSE replay logic — same User-Geste-Vererbung in the
+# browser, single source of truth.
+#
+# Kinds:
+#   - "tts"   : ``{kind, url, version, playback_rate}``
+#   - "media" : ``{kind, url, version, state_key, start_pos_sec, is_stream,
+#                  audio_type}``
 
-# Global TTS queue storage: {session_id: {"queue": [...], "version": int}}
-_tts_queue_storage: Dict[str, Dict[str, Any]] = {}
+# Per-session storage: {session_id: {"queue": [...items...], "version": int,
+#                                    "playback_rate": str}}
+_audio_queue_storage: Dict[str, Dict[str, Any]] = {}
 
-# Global asyncio.Queue per session for SSE streaming
-# When audio is pushed, it goes to both storage (for polling) and queue (for SSE)
-_tts_sse_queues: Dict[str, asyncio.Queue] = {}
+# Per-session asyncio.Queue for SSE listeners. Pushed alongside _audio_queue_storage.
+_audio_sse_queues: Dict[str, asyncio.Queue] = {}
 
 
-class TTSQueueResponse(BaseModel):
-    """Response for TTS queue polling"""
-    queue: List[str] = Field(default_factory=list, description="Audio URLs to play")
+class AudioQueueResponse(BaseModel):
+    """Response for audio queue polling (legacy fallback when SSE unavailable)."""
+    queue: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Audio items {kind, url, ...metadata} to play",
+    )
     version: int = Field(default=0, description="Queue version for change detection")
     playback_rate: str = Field(default="1.0x", description="Playback speed")
 
 
-def tts_queue_push(session_id: str, audio_url: str, playback_rate: str = "1.0x") -> None:
-    """
-    Push audio URL to TTS queue (called from state.py create_task).
+def audio_queue_push(
+    session_id: str,
+    kind: str,
+    url: str,
+    *,
+    playback_rate: str = "1.0x",
+    state_key: str = "",
+    start_pos_sec: float = 0.0,
+    is_stream: bool = False,
+    audio_type: str = "music",
+) -> None:
+    """Push an audio item to the unified browser audio bus.
 
-    This is the bridge between asyncio.create_task (which can't update Reflex state)
-    and the frontend (via SSE stream or polling).
+    ``kind`` is "tts" (chunk-stream, gapless) or "media" (single-track,
+    position-saved). Kind-specific metadata is included in the SSE event;
+    the JS client routes by kind.
 
-    Versions are monotonic per session — they NEVER decrease, even after a
-    queue clear at the start of a new message. The client dedupes by version
-    on SSE events; if the counter wrapped back to 0 the new response would
-    be silently skipped (v1 <= ttsQueueVersion=3 -> "already-known").
+    Versions are monotonic per session — they NEVER decrease, even after
+    a clear at the start of a new message. The client dedupes by version
+    on SSE events; if the counter wrapped back to 0 the new response
+    would be silently skipped (v1 <= queueVersion=3 → "already-known").
     """
-    if session_id not in _tts_queue_storage:
-        _tts_queue_storage[session_id] = {
-            "queue": [],          # list of {"url": str, "version": int}
-            "version": 0,         # last assigned version, monotonic
+    if session_id not in _audio_queue_storage:
+        _audio_queue_storage[session_id] = {
+            "queue": [],
+            "version": 0,
             "playback_rate": "1.0x",
         }
 
-    storage = _tts_queue_storage[session_id]
+    storage = _audio_queue_storage[session_id]
     storage["version"] += 1
     new_version = storage["version"]
-    storage["queue"].append({"url": audio_url, "version": new_version})
+
+    item: Dict[str, Any] = {
+        "kind": kind,
+        "url": url,
+        "version": new_version,
+        "playback_rate": playback_rate,
+    }
+    if kind == "media":
+        item["state_key"] = state_key
+        item["start_pos_sec"] = float(start_pos_sec)
+        item["is_stream"] = bool(is_stream)
+        item["audio_type"] = audio_type
+
+    storage["queue"].append(item)
     storage["playback_rate"] = playback_rate
-    log_message(f"🔊 TTS API: Pushed {audio_url.split('/')[-1]} to session {session_id[:8]}... (v{new_version})")
+    log_message(
+        f"🔊 Audio Bus: Pushed {kind} v{new_version} "
+        f"{url.split('/')[-1] if url else '(no url)'} for session {session_id[:8]}..."
+    )
 
     # Also push to SSE queue if listener is connected
-    if session_id in _tts_sse_queues:
+    if session_id in _audio_sse_queues:
         try:
-            _tts_sse_queues[session_id].put_nowait({
-                "audio_url": audio_url,
-                "version": new_version,
-                "playback_rate": playback_rate
-            })
-            log_message(f"🔊 TTS SSE: Queued for stream (session {session_id[:8]}...)")
+            _audio_sse_queues[session_id].put_nowait(item)
+            log_message(f"🔊 Audio SSE: Queued {kind} v{new_version} (session {session_id[:8]}...)")
         except asyncio.QueueFull:
-            log_message("⚠️ TTS SSE: Queue full, skipping")
+            log_message("⚠️ Audio SSE: Queue full, skipping")
     else:
-        # Diagnostic: Show why SSE push failed
-        active_sessions = list(_tts_sse_queues.keys())
+        active_sessions = list(_audio_sse_queues.keys())
         if active_sessions:
             active_short = [s[:8] for s in active_sessions]
-            log_message(f"⚠️ TTS SSE: No queue for session {session_id[:8]}... (active SSE sessions: {active_short})")
+            log_message(
+                f"⚠️ Audio SSE: No queue for session {session_id[:8]}... "
+                f"(active SSE sessions: {active_short})"
+            )
         else:
-            log_message(f"⚠️ TTS SSE: No queue for session {session_id[:8]}... (no SSE connections at all)")
+            log_message(
+                f"⚠️ Audio SSE: No queue for session {session_id[:8]}... "
+                f"(no SSE connections at all)"
+            )
 
 
-def tts_queue_clear(session_id: str) -> None:
-    """Clear TTS items for session (called at start of new message).
+def audio_queue_clear(session_id: str) -> None:
+    """Clear queued items for session (called at start of new message).
 
     The monotonic version counter is INTENTIONALLY preserved — clients
     dedupe SSE events by version, and a counter reset would make the next
     message's v1, v2, ... look like already-seen items to the client.
     """
-    if session_id in _tts_queue_storage:
-        _tts_queue_storage[session_id]["queue"] = []
+    if session_id in _audio_queue_storage:
+        _audio_queue_storage[session_id]["queue"] = []
         log_message(
-            f"🔊 TTS API: Cleared queue for session {session_id[:8]}... "
-            f"(version stays at {_tts_queue_storage[session_id]['version']})"
+            f"🔊 Audio Bus: Cleared queue for session {session_id[:8]}... "
+            f"(version stays at {_audio_queue_storage[session_id]['version']})"
         )
 
 
-@api_app.get("/tts/queue/{session_id}", response_model=TTSQueueResponse, tags=["TTS"])
-async def get_tts_queue(session_id: str, since_version: int = 0):
-    """
-    Get TTS audio queue for streaming playback.
+@api_app.get("/audio/queue/{session_id}", response_model=AudioQueueResponse, tags=["Audio"])
+async def get_audio_queue(session_id: str, since_version: int = 0):
+    """Polling fallback for the audio queue (use SSE for real-time)."""
+    if session_id not in _audio_queue_storage:
+        return AudioQueueResponse(queue=[], version=0, playback_rate="1.0x")
 
-    The frontend polls this endpoint to get new audio URLs.
-    Use since_version to only get updates since last poll.
-    """
-    if session_id not in _tts_queue_storage:
-        return TTSQueueResponse(queue=[], version=0, playback_rate="1.0x")
+    storage = _audio_queue_storage[session_id]
 
-    storage = _tts_queue_storage[session_id]
-
-    # Only return if there are new items
     if storage["version"] <= since_version:
-        return TTSQueueResponse(queue=[], version=storage["version"], playback_rate=storage["playback_rate"])
+        return AudioQueueResponse(
+            queue=[], version=storage["version"], playback_rate=storage["playback_rate"]
+        )
 
-    return TTSQueueResponse(
-        queue=[it["url"] for it in storage["queue"]],
+    return AudioQueueResponse(
+        queue=list(storage["queue"]),
         version=storage["version"],
-        playback_rate=storage["playback_rate"]
+        playback_rate=storage["playback_rate"],
     )
 
 
-@api_app.delete("/tts/queue/{session_id}", tags=["TTS"])
-async def clear_tts_queue(session_id: str):
-    """Clear TTS queue for session."""
-    tts_queue_clear(session_id)
+@api_app.delete("/audio/queue/{session_id}", tags=["Audio"])
+async def clear_audio_queue(session_id: str):
+    """Clear audio queue for session."""
+    audio_queue_clear(session_id)
     return {"status": "ok", "message": "Queue cleared"}
 
 
-@api_app.get("/tts/stream/{session_id}", tags=["TTS"])
-async def tts_stream(session_id: str, request: Request):
-    """
-    Server-Sent Events (SSE) endpoint for real-time TTS audio streaming.
+@api_app.get("/audio/stream/{session_id}", tags=["Audio"])
+async def audio_stream(session_id: str, request: Request):
+    """Server-Sent Events for real-time browser audio streaming (TTS + media).
 
-    Browser opens this connection once. Server pushes audio URLs immediately
-    when they become available - no polling needed.
+    Browser opens this connection once. Server pushes audio items
+    immediately when they become available — no polling needed.
 
-    Reconnect-safe: each event carries `id: <version>`. On reconnect the
-    browser auto-sends `Last-Event-ID`, so we only replay items with a higher
-    version — no duplicates, no client-side reset.
+    Reconnect-safe: each event carries ``id: <version>``. On reconnect
+    the browser auto-sends ``Last-Event-ID``, so we only replay items
+    with a higher version — no duplicates, no client-side reset.
     """
     from fastapi.responses import StreamingResponse
     import json
 
-    # Browser sets this header automatically on reconnect (SSE spec).
     last_event_id_raw = request.headers.get("last-event-id", "0")
     try:
         last_event_id = int(last_event_id_raw)
@@ -1016,72 +1052,69 @@ async def tts_stream(session_id: str, request: Request):
         last_event_id = 0
 
     async def event_generator():
-        # Create queue for this session
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-        old_queue = _tts_sse_queues.get(session_id)
+        old_queue = _audio_sse_queues.get(session_id)
         if old_queue is not None:
-            log_message(f"🔊 TTS SSE: Replacing existing queue for session {session_id[:8]}... (reconnect, last_id={last_event_id})")
-        _tts_sse_queues[session_id] = queue
-        log_message(f"🔊 TTS SSE: Stream opened for session {session_id[:8]}... (last_id={last_event_id})")
+            log_message(
+                f"🔊 Audio SSE: Replacing existing queue for session "
+                f"{session_id[:8]}... (reconnect, last_id={last_event_id})"
+            )
+        _audio_sse_queues[session_id] = queue
+        log_message(
+            f"🔊 Audio SSE: Stream opened for session {session_id[:8]}... "
+            f"(last_id={last_event_id})"
+        )
 
         # Flush HTTP headers immediately by yielding an SSE comment.
-        # Without this, the proxy buffers until the first data (up to 15s keepalive),
-        # keeping EventSource stuck in CONNECTING state.
+        # Without this, the proxy buffers until the first data (up to 15s
+        # keepalive), keeping EventSource stuck in CONNECTING state.
         yield ": connected\n\n"
 
-        # Replay items the client missed (version > last_event_id). On a fresh
-        # connect last_event_id is 0 so all items are sent; on reconnect only
-        # the gap is filled.
-        if session_id in _tts_queue_storage:
-            storage = _tts_queue_storage[session_id]
+        # Replay items the client missed (version > last_event_id).
+        if session_id in _audio_queue_storage:
+            storage = _audio_queue_storage[session_id]
             if storage["queue"]:
                 missed = [it for it in storage["queue"] if it["version"] > last_event_id]
                 if missed:
                     log_message(
-                        f"🔊 TTS SSE: Replaying {len(missed)} missed item(s) "
-                        f"(v{missed[0]['version']}..v{missed[-1]['version']}, "
-                        f"total stored {len(storage['queue'])})"
+                        f"🔊 Audio SSE: Replaying {len(missed)} missed item(s) "
+                        f"(v{missed[0]['version']}..v{missed[-1]['version']})"
                     )
                     for it in missed:
-                        item = {
-                            "audio_url": it["url"],
-                            "version": it["version"],
-                            "playback_rate": storage["playback_rate"],
-                        }
-                        data = json.dumps(item)
+                        data = json.dumps(it)
                         yield f"id: {it['version']}\ndata: {data}\n\n"
 
         try:
             while True:
                 try:
-                    # Wait for next audio item (with timeout for keepalive)
                     item = await asyncio.wait_for(queue.get(), timeout=15.0)
-
-                    # Send audio URL as SSE event with id: for reconnect resume
                     data = json.dumps(item)
                     yield f"id: {item['version']}\ndata: {data}\n\n"
-                    log_message(f"🔊 TTS SSE: Sent v{item['version']} {item['audio_url'].split('/')[-1]}")
+                    log_message(
+                        f"🔊 Audio SSE: Sent {item.get('kind', '?')} "
+                        f"v{item['version']} {item.get('url', '').split('/')[-1]}"
+                    )
 
                 except asyncio.TimeoutError:
-                    # Send keepalive comment (SSE spec: lines starting with : are comments)
                     yield ": keepalive\n\n"
 
                 except asyncio.CancelledError:
-                    # Client disconnected
-                    log_message(f"🔊 TTS SSE: Stream cancelled for session {session_id[:8]}...")
+                    log_message(f"🔊 Audio SSE: Stream cancelled for session {session_id[:8]}...")
                     break
 
         finally:
-            # Only delete OUR queue - a reconnection may have already replaced it.
-            # Without this identity check, a reconnecting SSE client would:
-            # 1. New generator creates queue2, overwrites _tts_sse_queues[id]
-            # 2. Old generator's finally deletes _tts_sse_queues[id] (queue2!)
-            # 3. tts_queue_push() can never find the queue again
-            if _tts_sse_queues.get(session_id) is queue:
-                del _tts_sse_queues[session_id]
-                log_message(f"🔊 TTS SSE: Stream closed for session {session_id[:8]}... (queue cleaned up)")
+            # Only delete OUR queue — a reconnection may have already replaced it.
+            if _audio_sse_queues.get(session_id) is queue:
+                del _audio_sse_queues[session_id]
+                log_message(
+                    f"🔊 Audio SSE: Stream closed for session {session_id[:8]}... "
+                    f"(queue cleaned up)"
+                )
             else:
-                log_message(f"🔊 TTS SSE: Stream closed for session {session_id[:8]}... (queue already replaced by reconnect)")
+                log_message(
+                    f"🔊 Audio SSE: Stream closed for session {session_id[:8]}... "
+                    f"(queue already replaced by reconnect)"
+                )
 
     return StreamingResponse(
         event_generator(),
@@ -1089,7 +1122,7 @@ async def tts_stream(session_id: str, request: Request):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Accel-Buffering": "no",
         }
     )
 

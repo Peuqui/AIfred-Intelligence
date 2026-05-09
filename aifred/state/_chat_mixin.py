@@ -724,9 +724,9 @@ class ChatMixin(rx.State, mixin=True):
         agent_tts_on = self.tts_agent_voices.get("aifred", {}).get("enabled", True)  # type: ignore[attr-defined]
         if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled and agent_tts_on:  # type: ignore[attr-defined]
             self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
-            from ..lib.api import tts_queue_clear
-            tts_queue_clear(self.session_id)  # type: ignore[attr-defined]
-            yield rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")  # type: ignore[attr-defined]
+            from ..lib.api import audio_queue_clear
+            audio_queue_clear(self.session_id)  # type: ignore[attr-defined]
+            yield rx.call_script(f"if(window.startAudioStream) startAudioStream('{self.session_id}');")  # type: ignore[attr-defined]
         else:
             yield  # Push user message bubble to browser
 
