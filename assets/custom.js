@@ -984,7 +984,12 @@ function startAudioStream(sessionIdParam) {
                 audioLoadAndPlayMedia(url);
             } else if (kind === 'stop') {
                 // Server-triggered stop (audio_stop tool, _stop wake-word).
-                // Final state: src clear, queue empty, position-final-saved.
+                // Final state: paused, position-final-saved, queue cleared.
+                // We do NOT removeAttribute('src') anymore — browsers can
+                // get stuck in a "no media" state after that, where the
+                // next src= assignment doesn't fire loadedmetadata reliably.
+                // pause() alone halts playback + buffering; the next
+                // kind="media" event replaces src naturally.
                 ttsQueueVersion = data.version;
                 const player = audioPlayerEl();
                 if (player) {
@@ -992,8 +997,6 @@ function startAudioStream(sessionIdParam) {
                         audioSaveCurrentPosition();
                     }
                     player.pause();
-                    player.removeAttribute('src');
-                    player.load();
                 }
                 audioCurrentMediaKey = '';
                 audioCurrentMediaUrl = '';
@@ -1775,9 +1778,10 @@ function audioLoadAndPlayMedia(url) {
     audioTtsPauseSnapshotSec = 0;
 
     console.log(`🔊 Audio: loading media ${url} (start=${startPos}s)`);
-    player.src = url;
-    player.load();
 
+    // Listener MUST be attached before assigning src — some browsers fire
+    // loadedmetadata synchronously when src is already cached (HTTP-Range),
+    // which would otherwise miss the listener and leave the player paused.
     const onLoaded = () => {
         if (startPos > 0) {
             try { player.currentTime = startPos; } catch (e) { /* ignore */ }
@@ -1791,6 +1795,9 @@ function audioLoadAndPlayMedia(url) {
         });
     };
     player.addEventListener('loadedmetadata', onLoaded);
+
+    player.src = url;
+    player.load();
 }
 
 /**
