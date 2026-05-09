@@ -1170,6 +1170,19 @@ window.startAudioStream = startAudioStream;
 window.stopAudioStream = stopAudioStream;
 window.audioUnlock = audioUnlock;
 
+// One-shot tab-wide unlock on FIRST user click. Reflex's rx.call_script
+// arrives over WebSocket — even when triggered by a click handler, the
+// async boundary means the browser doesn't see it as a user gesture.
+// A direct DOM click listener captures the gesture in its actual stack.
+// Removed automatically once unlocked. Capture-phase + once means we
+// catch the very first click before any other handler can swallow it.
+document.addEventListener('click', function unlockAudioOnFirstClick() {
+    audioUnlock();
+    if (_audioUnlockDone) {
+        document.removeEventListener('click', unlockAudioOnFirstClick, true);
+    }
+}, true);
+
 // ============================================================
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
 // ============================================================

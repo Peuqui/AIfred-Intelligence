@@ -719,26 +719,22 @@ class ChatMixin(rx.State, mixin=True):
         self.add_debug("📨 User request received")
 
         # ============================================================
-        # PHASE 3: Audio-Bus init (TTS streaming + Auto-Play-Unlock)
+        # PHASE 3: Audio-Bus init (TTS streaming + SSE stream)
         # ============================================================
-        # ``audioUnlock()`` MUST run on every send-click — independent of
-        # the TTS toggle. Browsers hold an autoplay-permission window of
-        # only a few seconds after a user gesture; tool-calls (audio_play
-        # via LLM) can fire 25+ s later, well outside that window. A
-        # silent play()+pause() on the audio element inside the click-
-        # handler stack registers it as "user-interacted" → all future
-        # ``audio.play()`` calls on the same element are allowed for the
-        # rest of the tab's lifetime.
+        # NOTE: Audio-Unlock laeuft NICHT hier — rx.call_script kommt
+        # ueber WebSocket asynchron im Browser an, ist also keine
+        # User-Geste mehr. Der Unlock passiert ueber einen
+        # ``document.addEventListener('click', ...)``-Hook in custom.js,
+        # der beim ALLERERSTEN User-Click im Tab feuert (im echten
+        # Click-Stack) und dann sich selbst entfernt.
         agent_tts_on = self.tts_agent_voices.get("aifred", {}).get("enabled", True)  # type: ignore[attr-defined]
         tts_streaming = self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled and agent_tts_on  # type: ignore[attr-defined]
         if tts_streaming:
             self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
             from ..lib.api import audio_queue_clear
             audio_queue_clear(self.session_id)  # type: ignore[attr-defined]
-        # Always: unlock audio + (re)start the SSE stream from the click
-        # context. startAudioStream is idempotent if already connected.
+        # SSE stream (re)start — idempotent if already connected.
         yield rx.call_script(  # type: ignore[attr-defined]
-            f"if(window.audioUnlock) audioUnlock(); "
             f"if(window.startAudioStream) startAudioStream('{self.session_id}');"
         )
 
