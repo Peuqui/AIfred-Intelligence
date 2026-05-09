@@ -1170,18 +1170,36 @@ window.startAudioStream = startAudioStream;
 window.stopAudioStream = stopAudioStream;
 window.audioUnlock = audioUnlock;
 
-// One-shot tab-wide unlock on FIRST user click. Reflex's rx.call_script
+// One-shot tab-wide unlock on FIRST user gesture. Reflex's rx.call_script
 // arrives over WebSocket — even when triggered by a click handler, the
 // async boundary means the browser doesn't see it as a user gesture.
-// A direct DOM click listener captures the gesture in its actual stack.
-// Removed automatically once unlocked. Capture-phase + once means we
-// catch the very first click before any other handler can swallow it.
-document.addEventListener('click', function unlockAudioOnFirstClick() {
+// A direct DOM listener captures the gesture in its actual stack.
+//
+// We listen on multiple gesture types because users send messages by
+// pressing Enter just as often as by clicking — keydown alone wouldn't
+// catch click-to-focus, click alone wouldn't catch Enter-after-typing.
+// Capture phase ensures we run BEFORE any other handler can call
+// preventDefault/stopPropagation. Listeners self-remove once unlocked.
+var _AUDIO_UNLOCK_GESTURES = ['click', 'pointerdown', 'keydown', 'touchstart'];
+
+function _unlockAudioFromUserGesture(ev) {
     audioUnlock();
-    if (_audioUnlockDone) {
-        document.removeEventListener('click', unlockAudioOnFirstClick, true);
-    }
-}, true);
+    // _audioUnlockDone is set asynchronously inside audioUnlock's
+    // play().then() — so on the SAME tick it's still false. We schedule
+    // the cleanup for after the unlock attempt resolves.
+    setTimeout(() => {
+        if (_audioUnlockDone) {
+            _AUDIO_UNLOCK_GESTURES.forEach(t =>
+                document.removeEventListener(t, _unlockAudioFromUserGesture, true)
+            );
+            console.log('🔊 Audio: unlock-listeners removed');
+        }
+    }, 200);
+}
+
+_AUDIO_UNLOCK_GESTURES.forEach(t =>
+    document.addEventListener(t, _unlockAudioFromUserGesture, true)
+);
 
 // ============================================================
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
