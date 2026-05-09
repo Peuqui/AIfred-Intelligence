@@ -276,51 +276,26 @@ class FreeEchoChannel(BaseChannel):
         Per-Target — nur das Audio dieses Pucks wird beeinflusst, andere
         Streams (anderer Puck, Browser, lokal) laufen weiter.
 
-        Pause-Semantik (Variante B): ``_pause`` stoppt den Stream sauber
-        mit Position-Save (kein langes Halten von mpv-Subprocess + WS-
-        Bridge bei stundenlangen Pausen). ``_resume`` sucht das letzte
-        unfinished Item via audio_state und startet einen frischen Stream
-        mit Pre-Roll auf diesen Puck.
+        Server-Reaktion ist für ``_stop``, ``_pause``, ``_standby`` identisch:
+        laufende Pipeline canceln + aktiven Stream stoppen. Der Unterschied
+        liegt puck-lokal (Soft-Mute, LED, Quittungston). Position-Save
+        passiert immer in ``_cleanup_unlocked`` vor dem mpv-Terminate, somit
+        wirkt ``_pause`` automatisch via Smart-Resume.
+
+        ``_resume`` cancelt zuerst eine eventuell hängende Pipeline (no-op
+        wenn nichts läuft) bevor der neue Stream gestartet wird — sonst
+        könnte eine alte LLM-Antwort den frisch gestarteten Resume-Stream
+        überschreiben.
 
         Tokens:
-        - ``_stop``     → LLM-Pipeline canceln + Stream auf diesem Puck stoppen
-        - ``_pause``    → Stream stoppen + Position speichern (für späteren _resume)
-        - ``_resume``   → Smart-Resume des letzten unfinished Items auf diesen Puck
-        - ``_standby``  → Stream stoppen + Soft-Mute aktiv (Puck lokal)
-        - ``_activate`` → no-op am Server (Soft-Mute aus, Puck lokal)
+        - ``_stop``     → Pipeline canceln + Stream stoppen
+        - ``_pause``    → Pipeline canceln + Stream stoppen (Position wird gespeichert)
+        - ``_standby``  → Pipeline canceln + Stream stoppen (Puck-lokal Soft-Mute)
+        - ``_resume``   → Pipeline canceln + Smart-Resume des letzten unfinished Items
+        - ``_activate`` → no-op am Server (Soft-Mute aus, Puck-lokal)
         """
-        from ....lib import audio_channels
-        from ....lib.pipeline_registry import cancel_pipeline
-        from ....lib.routing_table import routing_table
-
-        target_id = f"freeecho2:{room}"
-        channel = audio_channels.resolve(target_id)
-        if channel is None:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] No channel resolves '{target_id}' — token {token} ignored",
-                "warning",
-            )
-            return
-
-        if token == "_stop":
-            # LLM-Inferenz dieser Session abbrechen (zeit-kritisch, User wartet)
-            route = routing_table.get_route("freeecho2", room)
-            if route:
-                cancelled = cancel_pipeline(route.session_id)
-                self.channel_log(
-                    f"[FreeEcho.2 {room}] _stop: pipeline_cancelled={cancelled}"
-                )
-            ok = await channel.stop(target_id)
-            self.channel_log(f"[FreeEcho.2 {room}] _stop: stream_stopped={ok}")
-
-        elif token == "_pause":
-            # Variante B: Stream sauber stoppen, Position wird in
-            # _cleanup_unlocked() vor dem mpv-terminate gespeichert.
-            # Damit überlebt die Position auch lange Pausen ohne dass
-            # ein mpv-Prozess + IPC-Socket + FIFO + WS für Stunden offen
-            # bleiben muss.
-            ok = await channel.stop(target_id)
-            self.channel_log(f"[FreeEcho.2 {room}] _pause: stopped+saved={ok}")
+        if token in ("_stop", "_pause", "_standby"):
+            await self._cancel_pipeline_and_stop_stream(token, room)
 
         elif token == "_resume":
             # Smart-Resume: finde letztes unfinished Item, lade es mit
@@ -328,14 +303,11 @@ class FreeEchoChannel(BaseChannel):
             #   a) gerade per _pause gestoppt → letzter Stream lädt neu
             #   b) Hörbuch lief vor Stunden, Server-Restart, etc. →
             #      audio_state kennt den letzten Key, alles wird neu gebaut
+            cancelled = self._cancel_pipeline_for_room(room)
+            self.channel_log(
+                f"[FreeEcho.2 {room}] _resume: pipeline_cancelled={cancelled}"
+            )
             await self._smart_resume_on_puck(room)
-
-        elif token == "_standby":
-            # Soft-Mute macht der Puck lokal (Vosk lauscht nur auf _activate).
-            # Server-seitig: laufenden Audio-Stream beenden, sonst hört
-            # niemand mehr was während des Standby.
-            ok = await channel.stop(target_id)
-            self.channel_log(f"[FreeEcho.2 {room}] _standby: stream_stopped={ok}")
 
         elif token == "_activate":
             # No-op am Server — Soft-Mute aus ist Puck-lokal. Kein Auto-
@@ -346,6 +318,47 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(
                 f"[FreeEcho.2 {room}] Unknown command token: {token}", "warning"
             )
+
+    def _cancel_pipeline_for_room(self, room: str) -> bool:
+        """SSOT: cancele eine laufende LLM/TTS-Pipeline für die Session
+        dieses Pucks. Idempotent — gibt False zurück wenn keine Route
+        registriert ist oder keine Pipeline läuft.
+        """
+        from ....lib.pipeline_registry import cancel_pipeline
+        from ....lib.routing_table import routing_table
+
+        route = routing_table.get_route("freeecho2", room)
+        if route is None:
+            return False
+        return cancel_pipeline(route.session_id)
+
+    async def _cancel_pipeline_and_stop_stream(self, token: str, room: str) -> None:
+        """SSOT für ``_stop`` / ``_pause`` / ``_standby``: laufende Pipeline
+        canceln (LLM-Stream, Tool-Calls, TTS-Generation, Chunk-Loop) und
+        aktiven mpv-Stream auf diesem Puck stoppen.
+
+        ``token`` dient nur dem Logging — die Reaktion ist identisch.
+        """
+        from ....lib import audio_channels
+
+        target_id = f"freeecho2:{room}"
+        cancelled = self._cancel_pipeline_for_room(room)
+
+        stopped = False
+        channel = audio_channels.resolve(target_id)
+        if channel is not None:
+            stopped = await channel.stop(target_id)
+        else:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] No channel resolves '{target_id}' — "
+                f"{token} stream-stop skipped",
+                "warning",
+            )
+
+        self.channel_log(
+            f"[FreeEcho.2 {room}] {token}: pipeline_cancelled={cancelled}, "
+            f"stream_stopped={stopped}"
+        )
 
     async def _smart_resume_on_puck(self, room: str) -> None:
         """_resume-Handler: lade das letzte unfinished Audio auf diesen Puck.
