@@ -666,7 +666,14 @@ class FreeEchoChannel(BaseChannel):
     # ── Reply ─────────────────────────────────────────────────
 
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
-        """Send TTS audio back to the FreeEcho.2 device."""
+        """Send TTS audio back to the FreeEcho.2 device.
+
+        Wenn am Speaker gerade Music laeuft (mpv-Stream ueber den
+        Audio-Output-Channel), wird sie fuer die Dauer der TTS-Antwort
+        pausiert (mpv-IPC pause) und danach wieder resumed. So kollidieren
+        die zwei PCM-Quellen nicht am Speaker-Buffer, und der User hoert
+        die Antwort der KI bevor die Music weiterlaeuft.
+        """
         room = outbound.channel_id
         ws = _devices.get(room)
         if not ws:
@@ -687,38 +694,66 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] TTS failed", "error")
             return
 
-        # Read TTS audio and send in chunks (512 KB each)
-        # The device expects 48kHz mono int16 PCM
-        pcm_data = await self._convert_to_pcm(tts_path, 48000)
-        if pcm_data:
-            chunk_size = 512 * 1024
-            total = len(pcm_data)
-            num_chunks = (total + chunk_size - 1) // chunk_size
-            self.channel_log(
-                f"[FreeEcho.2 {room}] Sending TTS: {total} bytes "
-                f"({total/96000:.1f}s) in {num_chunks} chunks"
-            )
-            ok = await self.send_audio_start(room, channels=1, rate=48000,
-                                             audio_type="speech", total_size=total)
-            if ok:
-                offset = 0
-                chunk_num = 0
-                while offset < total:
-                    end = min(offset + chunk_size, total)
-                    if not await self.send_audio_chunk(room, pcm_data[offset:end]):
-                        break
-                    chunk_num += 1
+        # TTS-Takeover: laufende Music am gleichen Speaker pausieren.
+        # Resume in finally — auch bei Fehler im Send-Pfad.
+        from ....lib import audio_channels
+        ch = audio_channels.resolve(f"freeecho2:{room}")
+        was_paused_for_tts = False
+        if ch is not None and hasattr(ch, "pause_for_tts"):
+            try:
+                was_paused_for_tts = await ch.pause_for_tts(room)
+                if was_paused_for_tts:
                     self.channel_log(
-                        f"[FreeEcho.2 {room}] Chunk {chunk_num}/{num_chunks}: "
-                        f"{end-offset} bytes sent"
+                        f"[FreeEcho.2 {room}] TTS-Takeover: music paused"
                     )
-                    offset = end
-                await self.send_audio_end(room)
-                self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
-        else:
-            self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
+            except Exception as exc:  # noqa: BLE001
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] pause_for_tts error: {exc}", "warning"
+                )
 
-        Path(tts_path).unlink(missing_ok=True)
+        try:
+            # Read TTS audio and send in chunks (512 KB each)
+            # The device expects 48kHz mono int16 PCM
+            pcm_data = await self._convert_to_pcm(tts_path, 48000)
+            if pcm_data:
+                chunk_size = 512 * 1024
+                total = len(pcm_data)
+                num_chunks = (total + chunk_size - 1) // chunk_size
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] Sending TTS: {total} bytes "
+                    f"({total/96000:.1f}s) in {num_chunks} chunks"
+                )
+                ok = await self.send_audio_start(room, channels=1, rate=48000,
+                                                 audio_type="speech", total_size=total)
+                if ok:
+                    offset = 0
+                    chunk_num = 0
+                    while offset < total:
+                        end = min(offset + chunk_size, total)
+                        if not await self.send_audio_chunk(room, pcm_data[offset:end]):
+                            break
+                        chunk_num += 1
+                        self.channel_log(
+                            f"[FreeEcho.2 {room}] Chunk {chunk_num}/{num_chunks}: "
+                            f"{end-offset} bytes sent"
+                        )
+                        offset = end
+                    await self.send_audio_end(room)
+                    self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
+            else:
+                self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
+        finally:
+            Path(tts_path).unlink(missing_ok=True)
+            if was_paused_for_tts and ch is not None and hasattr(ch, "resume_after_tts"):
+                try:
+                    await ch.resume_after_tts(room)
+                    self.channel_log(
+                        f"[FreeEcho.2 {room}] TTS-Takeover: music resumed"
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self.channel_log(
+                        f"[FreeEcho.2 {room}] resume_after_tts error: {exc}", "warning"
+                    )
 
     # ── Public WS-Bridge — Audio-Streaming an den FreeEcho.2 ──────────────────
     #
