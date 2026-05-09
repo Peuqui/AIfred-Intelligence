@@ -978,9 +978,8 @@ function startAudioStream(sessionIdParam) {
                 }
                 audioLoadAndPlayMedia(url);
             } else if (kind === 'stop') {
-                // Server-triggered stop (audio_stop tool, _stop wake-word,
-                // browser stop button). Pause player + clear src so it
-                // doesn't keep buffering, save final position.
+                // Server-triggered stop (audio_stop tool, _stop wake-word).
+                // Final state: src clear, queue empty, position-final-saved.
                 ttsQueueVersion = data.version;
                 const player = audioPlayerEl();
                 if (player) {
@@ -997,6 +996,31 @@ function startAudioStream(sessionIdParam) {
                 audioMediaQueueIdx = 0;
                 audioStopPositionSaver();
                 console.log('🔊 Audio Bus: media stopped');
+            } else if (kind === 'pause') {
+                // Server-triggered pause (audio_pause tool, _pause wake-word).
+                // Player halts, src + position stay intact for resume.
+                ttsQueueVersion = data.version;
+                const player = audioPlayerEl();
+                if (player && !player.paused) {
+                    audioSaveCurrentPosition();
+                    player.pause();
+                }
+                console.log('🔊 Audio Bus: media paused');
+            } else if (kind === 'resume') {
+                // Server-triggered resume (audio_resume tool, _resume wake-
+                // word). Same audio element + same src — player.play() runs
+                // inside the SSE-onmessage handler, which inherits the
+                // user-gesture chain from startAudioStream → no autoplay block.
+                ttsQueueVersion = data.version;
+                const player = audioPlayerEl();
+                if (player && player.paused && player.src) {
+                    player.play().then(() => {
+                        audioStartPositionSaver();
+                        console.log('🔊 Audio Bus: media resumed');
+                    }).catch((err) => {
+                        console.warn('🔊 Audio Bus: resume blocked:', err.message);
+                    });
+                }
             } else {
                 // TTS — gapless queue append for streaming inference output.
                 const newQueue = [...ttsQueue, url];
