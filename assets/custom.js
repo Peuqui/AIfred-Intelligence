@@ -1102,9 +1102,45 @@ function stopAudioStream() {
     console.log('🔊 Audio SSE: Stopped');
 }
 
+/**
+ * Audio-Element Auto-Play-Unlock.
+ *
+ * Browsers gate ``audio.play()`` behind a "user has interacted with the
+ * element" flag. The flag is set permanently for the tab once any
+ * play() succeeds inside a user-gesture stack. This helper performs a
+ * silent play()+pause() to set that flag — call it from EVERY
+ * user-click handler that may eventually trigger autoplayed audio
+ * (Send-button, Login, Session-switch). Idempotent: if the flag is
+ * already set, the play() Promise just resolves harmlessly.
+ *
+ * Why this matters: audio_player tool-calls fire long AFTER inference
+ * (often 20+ seconds), well outside any browser autoplay-grace-window.
+ * Without prior unlock, the SSE-pushed media event would land in a
+ * blocked-autoplay state and the player stays at 0:00.
+ */
+function audioUnlock() {
+    const player = audioPlayerEl();
+    if (!player) return;
+    // Save & restore volume so the silent play() doesn't ruin a
+    // pre-set user volume. Set volume=0 to ensure inaudibility even
+    // if the player happens to have a src set.
+    const savedVolume = player.volume;
+    player.volume = 0;
+    const promise = player.play();
+    if (promise && typeof promise.then === 'function') {
+        promise
+            .then(() => { player.pause(); })
+            .catch(() => { /* no src yet, that's fine — flag still gets set */ })
+            .finally(() => { player.volume = savedVolume; });
+    } else {
+        player.volume = savedVolume;
+    }
+}
+
 // Make SSE functions available globally
 window.startAudioStream = startAudioStream;
 window.stopAudioStream = stopAudioStream;
+window.audioUnlock = audioUnlock;
 
 // ============================================================
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
