@@ -981,7 +981,15 @@ function startAudioStream(sessionIdParam) {
                     // loadedmetadata handler picks it up.
                     audioTtsPauseSnapshotSec = Number(data.start_pos_sec);
                 }
-                audioLoadAndPlayMedia(url);
+                // Race-defense: if the audio element isn't in the DOM yet
+                // (Reflex renders it after media_audio_url state-update),
+                // remember the URL and replay from audioBindObservers.
+                if (!audioPlayerEl()) {
+                    _audioPendingMediaUrl = url;
+                    console.log('🔊 Audio Bus: media event arrived before element — deferred');
+                } else {
+                    audioLoadAndPlayMedia(url);
+                }
             } else if (kind === 'stop') {
                 // Server-triggered stop (audio_stop tool, _stop wake-word).
                 // Final state: paused, position-final-saved, queue cleared.
@@ -2030,6 +2038,9 @@ var audioCurrentPlayer = null;
 var audioPrevSrc = '';
 var audioSrcObserver = null;
 var audioDataObserver = null;
+// Bus-Event arrived before the <audio> element was in the DOM. Replayed
+// from audioBindObservers once the element appears.
+var _audioPendingMediaUrl = '';
 
 function audioBindObservers(player) {
     if (audioSrcObserver) audioSrcObserver.disconnect();
@@ -2061,6 +2072,16 @@ function audioBindObservers(player) {
         attributes: true,
         attributeFilter: ['data-media-queue'],
     });
+
+    // Replay any media URL that was pushed via the Audio Bus BEFORE
+    // this element existed in the DOM (race between SSE event arrival
+    // and Reflex rendering the <audio> after media_audio_url state-set).
+    if (_audioPendingMediaUrl) {
+        const pending = _audioPendingMediaUrl;
+        _audioPendingMediaUrl = '';
+        console.log(`🔊 Audio Bus: replaying deferred media URL ${pending}`);
+        audioLoadAndPlayMedia(pending);
+    }
 
     // Initial queue sync. NOTE: data-media-url is NOT used as a trigger
     // anymore — that path is the Audio Bus (kind="media"). Re-mount of
