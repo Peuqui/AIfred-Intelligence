@@ -50,16 +50,16 @@ def _audio_player_element() -> rx.Component:
     common_kwargs: dict = dict(
         id="tts-audio-player",
         controls=True,
-        # autoPlay only for TTS — media is started via JS
-        # (custom.js audioHandleMediaUrlChange) so the
-        # paused-for-tts hold-off can take effect cleanly.
+        # autoPlay only for non-streaming TTS (single-shot tts_audio_path).
+        # Media is delivered via the Audio Bus and started by JS — the
+        # SSE-event-handler runs in the user-gesture chain from
+        # startAudioStream, so player.play() is allowed without React
+        # autoPlay. Letting React control autoPlay for media would
+        # double-trigger (React load + JS load).
         autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),
-        # Force remount only on TTS counter changes — never
-        # on media_state_key. If the audio_play tool fires
-        # while TTS is still streaming, we MUST NOT remount
-        # the element (would kill the current TTS chunk
-        # mid-playback). Media-source switches happen via
-        # JS-side data-media-url observer in custom.js.
+        # Force remount only on TTS counter changes — never on
+        # media_state_key. If audio_play fires while TTS is still
+        # streaming we MUST NOT remount (would kill the current chunk).
         key="audio-" + AIState.tts_trigger_counter.to(str),
         style={
             "width": "100%",
@@ -74,6 +74,9 @@ def _audio_player_element() -> rx.Component:
     )
     data_attrs = {
         "data-playback-rate": AIState.tts_playback_rate,
+        # data-media-url is NOT a trigger anymore (Audio Bus owns that).
+        # Kept as a read-only snapshot so JS can recover the current URL
+        # after a re-render or re-mount without losing context.
         "data-media-url": AIState.media_audio_url,
         "data-media-state-key": AIState.media_state_key,
         "data-media-is-stream": rx.cond(AIState.media_is_stream, "true", "false"),
@@ -86,14 +89,15 @@ def _audio_player_element() -> rx.Component:
         # media-ended. Empty for single-track playback.
         "data-media-queue": AIState.media_queue_json,
     }
+    # ``src`` is bound to React ONLY for non-streaming TTS (single-shot
+    # tts_audio_path). For media-URLs, JS owns the src — React-binding
+    # would race with the Audio-Bus-triggered player.src=… and cause
+    # double-load (audible doubled playback) plus stop/pause control loss
+    # because React would re-set src on every re-render.
     return rx.cond(
-        (AIState.tts_audio_path != "") | (AIState.media_audio_url != ""),
+        AIState.tts_audio_path != "",
         rx.el.audio(
-            src=rx.cond(
-                AIState.tts_audio_path != "",
-                AIState.tts_audio_path,
-                AIState.media_audio_url,
-            ),
+            src=AIState.tts_audio_path,
             **common_kwargs,
             **data_attrs,  # type: ignore[arg-type]
         ),
