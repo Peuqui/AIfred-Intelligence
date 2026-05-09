@@ -14,20 +14,20 @@ weiter ausgebaut.
 | `audio_index.py` (SQLite/FTS5 für 100k+ Files) | ✅ | [aifred/lib/audio_index.py](../../../aifred/lib/audio_index.py) |
 | Output: lokal (mpv default → ALSA/Pulse) | ✅ | siehe `_route_play()` |
 | Output: Browser (HTML5 `<audio>` + REST) | ✅ | [audio_player/__init__.py](../../../aifred/plugins/tools/audio_player/__init__.py), [api.py](../../../aifred/lib/api.py) |
-| Output: Puck (FreeEcho.2-Bridge) | ✅ Phase 3.0b | mpv→FIFO→WS-Pipeline pro Raum, eine PuckStream-Instanz pro Target |
-| `AudioOutputChannel`-Protokoll (Refactor) | ✅ Phase 3.0a | Registry mit Local/Browser/Puck, alle Tools kanalbasiert |
-| Wake-Tokens `_pause`/`_resume`/`_standby`/`_activate` | ⚠️ Phase 3.0c (Server done) | Server fertig; Puck-Code muss `_pause`/`_resume` noch als WA_PAUSE/WA_RESUME aufnehmen |
+| Output: FreeEcho.2-Bridge | ✅ Phase 3.0b | mpv→FIFO→WS-Pipeline pro Raum, eine FreeEcho2Stream-Instanz pro Target |
+| `AudioOutputChannel`-Protokoll (Refactor) | ✅ Phase 3.0a | Registry mit Local/Browser/FreeEcho.2, alle Tools kanalbasiert |
+| Wake-Tokens `_pause`/`_resume`/`_standby`/`_activate` | ⚠️ Phase 3.0c (Server done) | Server fertig; FreeEcho.2-Firmware muss `_pause`/`_resume` noch als WA_PAUSE/WA_RESUME aufnehmen |
 | Browser-Text-Parser (`_pause`, `_resume`, …) | ❌ Phase 3.0d | aktuell nur via LLM-Tool-Call |
 | Browser-Keyboard-Shortcuts | ❌ Phase 3.0d | UI-Buttons im Player gibt es schon |
 | Room-Following | ❌ Phase 3.0e | hängt an Channel-Refactor |
 | YouTube-Plugin | ❌ Phase 2.0 (nach 3.0) | nicht implementiert |
 | Internet-Radio (HTTP-Streams) | ⚠️ | Infrastruktur ja, Streams in `settings.json` aktuell leer |
-| Hörbuch-Auto-Pause (Wake-Word → Pause) | ⚠️ | Browser via `media_paused_for_tts` ja, Puck nein (Phase 4.0) |
+| Hörbuch-Auto-Pause (Wake-Word → Pause) | ⚠️ | Browser via `media_paused_for_tts` ja, FreeEcho.2 nein (Phase 4.0) |
 
 ## Motivation
 
 Der Mini ist headless — der primäre Use-Case ist ein User der per
-Browser, VS-Code-Server oder per Puck im Wohnzimmer arbeitet. Lokaler
+Browser, VS-Code-Server oder per FreeEcho.2 im Wohnzimmer arbeitet. Lokaler
 ALSA-Output am Mini hilft dann nicht (es ist gar kein Lautsprecher
 direkt angeschlossen). Audio muss dort ankommen, wo die Anfrage
 herkam — und vom User per Sprache umgelenkt werden können
@@ -37,9 +37,9 @@ Weiteres Pflichtenheft:
 - **Pause / Resume** mit Position-Save für lange Hörbücher (11 h+).
 - **Mehrere Audio-Quellen parallel:** Hörbuch A pausieren, Musik B
   spielen, später Hörbuch A genau dort fortsetzen.
-- **Mehrere Outputs parallel:** Puck Wohnzimmer spielt Hörbuch, Puck
+- **Mehrere Outputs parallel:** FreeEcho.2 Wohnzimmer spielt Hörbuch, FreeEcho.2
   Schlafzimmer spielt Radio, Browser-Tab spielt YouTube — `Stopp` am
-  Wohnzimmer-Puck stoppt **nur** den Wohnzimmer-Stream, nicht die
+  Wohnzimmer-FreeEcho.2 stoppt **nur** den Wohnzimmer-Stream, nicht die
   anderen.
 - **YouTube / Internet-Streaming** als Sources mit gemeinsamem
   Position-Save.
@@ -61,11 +61,11 @@ Weiteres Pflichtenheft:
 4. **mpv als Engine.** Statt aplay/ffplay nutzen wir mpv mit JSON-IPC
    über einen Unix-Socket. Das gibt uns Pause/Resume/Seek/Position/
    Volume nativ, plus HTTP-Streaming, plus PCM-Output für Streaming-
-   Adapter (Puck).
+   Adapter (FreeEcho.2).
 5. **Auto-Target aus PluginContext.** Default-Output ist der Channel
    woher die Anfrage kam. User-Override per Sprache erkennt die LLM
    selbständig und gibt es als `target=`-Parameter weiter.
-6. **Per-Channel-Stop.** `Stopp`-Wake an einem Puck stoppt nur dessen
+6. **Per-Channel-Stop.** `Stopp`-Wake an einem FreeEcho.2 stoppt nur dessen
    Stream. Mehrere Output-Streams können gleichzeitig laufen und
    unabhängig gesteuert werden.
 
@@ -92,7 +92,7 @@ Weiteres Pflichtenheft:
                 ┌──────────────────────┼──────────────────────┐
                 ▼                      ▼                      ▼
        ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-       │ LocalChannel    │   │ BrowserChannel  │   │ PuckChannel     │
+       │ LocalChannel    │   │ BrowserChannel  │   │ FreeEcho2Channel     │
        │                 │   │                 │   │                 │
        │ mpv → Pulse/    │   │ HTML5 <audio>   │   │ ffmpeg → 48kHz  │
        │ ALSA            │   │ + /api/audio/   │   │ mono int16 PCM  │
@@ -102,7 +102,7 @@ Weiteres Pflichtenheft:
        └─────────────────┘   └─────────────────┘   └─────────────────┘
               │                      │                      │
               ▼                      ▼                      ▼
-        Mini-Lautsprecher     Browser-Tab des         Puck im
+        Mini-Lautsprecher     Browser-Tab des         FreeEcho.2 im
         (3.5mm Kopfhörer,     Users (Office,           Wohnzimmer/
          falls vorhanden)     Wohnzimmer, etc.)        Schlafzimmer
 ```
@@ -132,20 +132,20 @@ class AudioFormat:
 
     None für die Felder die der Channel egal sind (z.B. mpv-default
     akzeptiert alles, also leeres AudioFormat)."""
-    sample_rate: int | None = None      # 48000 für Puck
-    channels: int | None = None         # 1 für Puck
-    sample_format: str | None = None    # "s16le" für Puck
+    sample_rate: int | None = None      # 48000 für FreeEcho.2
+    channels: int | None = None         # 1 für FreeEcho.2
+    sample_format: str | None = None    # "s16le" für FreeEcho.2
 
 @dataclass
 class TargetInfo:
     id: str               # "local", "browser:abc123", "freeecho2:wohnzimmer"
-    label: str            # "Lokale Lautsprecher", "Puck Wohnzimmer"
+    label: str            # "Lokale Lautsprecher", "FreeEcho.2 Wohnzimmer"
     ready: bool           # True = Hardware/Connection verfügbar
 
 
 @runtime_checkable
 class AudioOutputChannel(Protocol):
-    name: str                          # "local", "browser", "puck"
+    name: str                          # "local", "browser", "freeecho2"
     required_format: AudioFormat       # was muss reingegeben werden
 
     def can_handle(self, target_id: str) -> bool: ...
@@ -187,15 +187,15 @@ def all_targets(ctx: PluginContext) -> list[TargetInfo]: ...
 |---|---|---|
 | `LocalChannel` | leer (mpv frisst alles) | mpv intern |
 | `BrowserChannel` | leer (HTML5 lädt Datei direkt) | Browser intern |
-| `PuckChannel` | `(48000, 1, "s16le")` | ffmpeg-Subprozess |
+| `FreeEcho2Channel` | `(48000, 1, "s16le")` | ffmpeg-Subprozess |
 
 **Discovery der konkreten Targets** ist immer live — `list_targets()`
 fragt zur Aufrufzeit:
 - `LocalChannel` → immer `[{"id":"local","ready":True}]`
 - `BrowserChannel` → liest die aktive Reflex-Session aus `ctx`
-- `PuckChannel` → iteriert `freeecho2_channel._devices.keys()`
+- `FreeEcho2Channel` → iteriert `freeecho2_channel._devices.keys()`
 
-Damit erscheinen Pucks automatisch in `audio_targets()`, sobald sie
+Damit erscheinen FreeEcho.2-Speaker automatisch in `audio_targets()`, sobald sie
 sich per WebSocket verbinden — keine User-Konfiguration nötig.
 
 ## Plugin-Konfiguration
@@ -238,7 +238,7 @@ UI-pflegbar (Plugin-Settings → Audio Player). Beispiel-`settings.json`:
 }
 ```
 
-Live-Discovery (Browser-Sessions, aktive Pucks) wird **nicht** in
+Live-Discovery (Browser-Sessions, aktive FreeEcho.2-Speaker) wird **nicht** in
 `settings.json` gespiegelt — das ergibt sich zur Laufzeit aus dem
 Channel-Registry.
 
@@ -339,10 +339,10 @@ Konversations-Hinweisen, welchen `target`-Parameter sie übergeben muss
 („spiel das im Schlafzimmer" → `target="freeecho2:schlafzimmer"`). Kein
 zusätzlicher Code nötig.
 
-## Wake-Word-Steuerung am Puck
+## Wake-Word-Steuerung am FreeEcho.2
 
-Der Puck (FreeEcho.2-Firmware) erkennt onboard mehrere Wake-Words. Die
-Wake-Phrasen sind **dynamisch konfigurierbar** über das Puck-Web-UI
+Der FreeEcho.2 (Firmware) erkennt onboard mehrere Wake-Words. Die
+Wake-Phrasen sind **dynamisch konfigurierbar** über das FreeEcho.2-Web-UI
 (`vosk_mapping`-Feld) — der User trägt frei „Phrase = Token" Paare ein,
 ohne Modell-Retraining (Vosk-Engine).
 
@@ -362,28 +362,28 @@ Zwei Klassen:
 | `_pause` *(Phase 3.0c)* | `channel.pause(target)` | `Bitte Pause`, `Halt` |
 | `_resume` *(Phase 3.0c)* | `channel.resume(target)` (Smart: unpause oder last-unfinished) | `Weiter`, `Fortsetzen` |
 
-**2. Puck-Lifecycle-Tokens** — Mikrofon/Hardware des Pucks selbst, **kein**
+**2. FreeEcho.2-Lifecycle-Tokens** — Mikrofon/Hardware des FreeEcho.2 selbst, **kein**
 Audio-Output. Bleiben in `freeecho2_channel` intern, sind nicht im
 `AudioOutputChannel`-Protocol:
 
 | Token | Action | Wake-Phrase (Default) |
 |---|---|---|
-| `_standby` *(Phase 3.0c)* | Puck-Mikrofon Soft-Mute, Vosk lauscht nur auf `_activate` | `Entry passiv` |
+| `_standby` *(Phase 3.0c)* | FreeEcho.2-Mikrofon Soft-Mute, Vosk lauscht nur auf `_activate` | `Entry passiv` |
 | `_activate` *(Phase 3.0c)* | Soft-Mute aus | `Entry aktiv` |
 
 `_standby` ruft zusätzlich `channel.stop(target)` für das eigene Target
-auf — wenn der Puck schläft, soll auch sein laufender Audio-Stream
+auf — wenn der FreeEcho.2 schläft, soll auch sein laufender Audio-Stream
 beendet sein. Aber das ist eine implementierte Konsequenz, nicht
 semantischer Teil des Tokens.
 
 ### Per-Channel-Target — kein globaler Stop
 
-`_stop`/`_pause`/`_resume` an einem Puck steuern **nur** den Stream
-**dieses einen Pucks**. Andere Output-Streams laufen weiter. Der Server
+`_stop`/`_pause`/`_resume` an einem FreeEcho.2 steuern **nur** den Stream
+**dieses einen FreeEcho.2-Speakers**. Andere Output-Streams laufen weiter. Der Server
 kennt das Quell-Target (`freeecho2:wohnzimmer`) und ruft gezielt
 `channel.stop("freeecho2:wohnzimmer")` auf, nicht `stop_all()`.
 
-Beispiel: Wohnzimmer-Puck spielt Hörbuch, Schlafzimmer-Puck spielt
+Beispiel: Wohnzimmer-FreeEcho.2 spielt Hörbuch, Schlafzimmer-FreeEcho.2 spielt
 Radio, Browser-Tab läuft Musik. Wer im Wohnzimmer „Bitte Stopp" sagt,
 stoppt nur das Hörbuch — die anderen zwei Streams laufen weiter.
 
@@ -433,7 +433,7 @@ Statt mpv→FIFO→SSE wurde direkter REST-Download umgesetzt:
 
 `_resolve_target(ctx, requested)` in [audio_player/__init__.py:55-82](../../../aifred/plugins/tools/audio_player/__init__.py#L55).
 `audio_targets()`-Tool listet aktuell nur `local` + Browser-Session.
-Puck-Auto-Routing ist als TODO markiert (fällt auf `local` zurück).
+FreeEcho.2-Auto-Routing ist als TODO markiert (fällt auf `local` zurück).
 
 ### ✅ Phase 1.3 — Hörbuch-Workflow (done)
 
@@ -472,20 +472,20 @@ Default-Liste anbietet), funktioniert es out-of-the-box.
 **TODO:** Beispiel-Streams in der Plugin-Settings-UI als „Quick-Add"-
 Buttons anbieten (SWR3, DLF, BBC, …).
 
-### Phase 3.0 — Puck-Output + Channel-Refactor (vor Phase 2)
+### Phase 3.0 — FreeEcho.2-Output + Channel-Refactor (vor Phase 2)
 
 Fünfstufig — eng zusammenhängend, ~6 h total. Status: **a, b, c done; d, e offen**.
 
 **✅ 3.0a — Channel-Protocol-Refactor** (done):
 - Neuer Ordner `aifred/lib/audio_channels/` mit `base.py` (Protocol +
   AudioFormat + TargetInfo + Registry), `local.py`, `browser.py`,
-  `puck.py` (Stub).
+  `freeecho2.py` (Stub).
 - Bestehende If-Else-Kaskade in `_route_play()` durch Registry-Lookup
   ersetzen.
 - `audio_targets()` iteriert das Registry, nicht mehr hardcoded.
 
-**✅ 3.0b — PuckChannel-Implementierung** (done):
-- `aifred/lib/audio_channels/_puck_stream.py` neu — `PuckStream`-
+**✅ 3.0b — FreeEcho2Channel-Implementierung** (done):
+- `aifred/lib/audio_channels/_freeecho2_stream.py` neu — `FreeEcho2Stream`-
   Klasse pro Target (mpv + FIFO + IPC + Reader-Pump + Save-Loop).
 - mpv allein als Decoder + Resampler:
   ```
@@ -496,23 +496,23 @@ Fünfstufig — eng zusammenhängend, ~6 h total. Status: **a, b, c done; d, e o
 - Bridge: drei neue Public-Methoden im FreeEcho2-Channel —
   `send_audio_start(room, channels, rate, audio_type, total_size?)`,
   `send_audio_chunk(room, bytes)`, `send_audio_end(room)`. Werden von
-  TTS (`send_reply`) und PuckChannel gemeinsam genutzt.
-- Eine mpv-Instanz pro aktivem Puck-Target — sauber isoliert,
+  TTS (`send_reply`) und FreeEcho2Channel gemeinsam genutzt.
+- Eine mpv-Instanz pro aktivem FreeEcho.2-Target — sauber isoliert,
   Multi-Room parallel möglich.
-- `audio_targets()` zeigt aktive Pucks live aus
+- `audio_targets()` zeigt aktive FreeEcho.2-Speaker live aus
   `freeecho2_channel._devices`.
 - Cleanup-Order: mpv terminate vor Pump-Cancel (sonst hängt der Read
   blockend in `os.read(fifo)`).
 
 **✅ 3.0c — Wake-Token-Server-Integration** (Server done):
 - `_handle_command_token(token, room)` neu in `freeecho2_channel`.
-- Per-Target: `_stop` ruft `puck_channel.stop(f"freeecho2:{room}")` plus
+- Per-Target: `_stop` ruft `freeecho2_channel.stop(f"freeecho2:{room}")` plus
   `cancel_pipeline(session_id)` (LLM-Inferenz brechen, andere Streams
   bleiben).
 - `_pause`/`_resume` voll verdrahtet. `_standby`/`_activate` ebenfalls
-  (Soft-Mute beim Standby = lokal am Puck; Server stoppt nur Stream).
-- **Offen am Puck-Repo:** `_pause`/`_resume` müssen in `freeecho2_client.c`
-  als `WA_PAUSE`/`WA_RESUME` aufgenommen werden, sonst filtert der Puck
+  (Soft-Mute beim Standby = lokal am FreeEcho.2; Server stoppt nur Stream).
+- **Offen am FreeEcho.2-Repo:** `_pause`/`_resume` müssen in `freeecho2_client.c`
+  als `WA_PAUSE`/`WA_RESUME` aufgenommen werden, sonst filtert der FreeEcho.2
   sie als `WA_UNKNOWN` und sendet sie nicht an den Server. Der Server
   ist bereit, sobald die Tokens ankommen.
 
@@ -521,7 +521,7 @@ Fünfstufig — eng zusammenhängend, ~6 h total. Status: **a, b, c done; d, e o
   `aifred/lib/audio_commands.py`. Wird vor LLM-Übergabe aufgerufen.
   Funktioniert für **alle** Channels (Browser, Telegram, Discord,
   E-Mail) gleich.
-- Steuerzeichen-Konvention: `_` (konsistent mit Puck-Tokens).
+- Steuerzeichen-Konvention: `_` (konsistent mit FreeEcho.2-Tokens).
   Erkannte Eingaben:
   ```
   _pause, _resume, _stop
@@ -537,7 +537,7 @@ Fünfstufig — eng zusammenhängend, ~6 h total. Status: **a, b, c done; d, e o
   Chat-Input.
 
 **❌ 3.0e — Room-Following** (~1 h, offen):
-- `_resume` an Puck Y holt das letzte aktive Item nach Y, stoppt es
+- `_resume` an FreeEcho.2 Y holt das letzte aktive Item nach Y, stoppt es
   am bisherigen Target (Position wird sofort gespeichert), startet
   am neuen Target mit kurzem Pre-Roll (3 s, weil User aktiv handelt).
 - Voraussetzung: Per-Target-Tracking welches Item wo läuft —
@@ -545,18 +545,18 @@ Fünfstufig — eng zusammenhängend, ~6 h total. Status: **a, b, c done; d, e o
   hält seinen eigenen aktiven Stream-State pro Target).
 
 **Tests:**
-- Item am Wohnzimmer-Puck abspielen
-- Auto-Target funktioniert (Puck-Anfrage → Puck-Output)
-- Mehrere Pucks parallel mit unterschiedlichen Items
+- Item am Wohnzimmer-FreeEcho.2 abspielen
+- Auto-Target funktioniert (FreeEcho.2-Anfrage → FreeEcho.2-Output)
+- Mehrere FreeEcho.2-Speaker parallel mit unterschiedlichen Items
 - „Bitte Stopp" am Wohnzimmer stoppt nur Wohnzimmer
-- „Bitte Pause" / „Weiter" funktionieren am Puck und im Browser
+- „Bitte Pause" / „Weiter" funktionieren am FreeEcho.2 und im Browser
 - Browser-Tippeingabe `_pause` pausiert ohne LLM-Call
 - Hörbuch in Wohnzimmer → ins Schlafzimmer gehen → „Weiter" → Audio
   wandert nach Schlafzimmer mit Pre-Roll
 
 ### ❌ Phase 4.0 — Hörbuch-Modus mit Auto-Pause (offen, optional)
 
-Beim Wake-Word des Pucks oder beim Eingehen einer User-Anfrage:
+Beim Wake-Word des FreeEcho.2 oder beim Eingehen einer User-Anfrage:
 Audio wird automatisch pausiert. Nach der TTS-Antwort: automatisch
 fortgesetzt. State läuft über bestehenden Position-Save.
 
@@ -579,25 +579,25 @@ synchronisiertem Position-Save. Im Backlog.
 
 ## Offene Fragen
 
-1. **Auto-Discovery aktiver Pucks für `audio_targets()`.** ✅ Lösung
-   klar: `PuckChannel.list_targets()` greift live auf
+1. **Auto-Discovery aktiver FreeEcho.2-Speaker für `audio_targets()`.** ✅ Lösung
+   klar: `FreeEcho2Channel.list_targets()` greift live auf
    `freeecho2_channel._devices.keys()` zu.
 
 2. **Hörbuch-Modus während TTS.** Auto-Pause + Resume klingt simpel,
    aber während TTS spricht muss der Music-Stream auch pausiert sein —
-   sonst Audio-Konflikt am Puck. mpv macht das nicht automatisch — wir
+   sonst Audio-Konflikt am FreeEcho.2. mpv macht das nicht automatisch — wir
    müssen explizit `pause` rufen vor TTS-Stream.
 
 3. **Browser-Tab geschlossen / inactive.** Wenn der User den Browser
    schließt während Hörbuch läuft, soll AIfred:
    a) Pausieren und Position speichern? (User kommt später wieder)
    b) Weiterlaufen lassen? (Kein Hörer, sinnlos)
-   c) Auf den Puck migrieren? (smart, aber komplex)
+   c) Auf den FreeEcho.2 migrieren? (smart, aber komplex)
    Vorerst: pausieren auf „browser disconnected"-Event.
 
 4. **Multi-Stream-State pro Target.** Der heutige `audio_manager.py`
    ist Singleton — eine mpv-Instanz, ein State. Sobald mehrere
-   PuckChannel-Targets parallel laufen, brauchen wir entweder
+   FreeEcho2Channel-Targets parallel laufen, brauchen wir entweder
    - eine mpv-Instanz pro Target (mehr Speicher, aber sauber isoliert)
    oder
    - einen einzigen mpv mit mehreren Output-Pipelines (komplexer, aber

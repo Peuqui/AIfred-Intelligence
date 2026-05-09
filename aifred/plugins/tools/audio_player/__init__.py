@@ -8,7 +8,7 @@ The LLM never sees raw paths or URLs — only labels from settings.json.
 This is by design: see docs/de/architecture/audio-pipeline.md for the
 SSRF/path-traversal threat model.
 
-Phase 1.0: local playback only. Browser/Puck output adapters land in
+Phase 1.0: local playback only. Browser/FreeEcho.2 output adapters land in
 later phases.
 """
 
@@ -378,7 +378,7 @@ class AudioPlayerPlugin:
                     },
                     "target": {
                         "type": "string",
-                        "description": "Output destination. Omit to auto-route to where the request came from (FreeEcho.2 wake → that puck; browser input → that tab).",
+                        "description": "Output destination. Omit to auto-route to where the request came from (FreeEcho.2 wake → that FreeEcho.2; browser input → that tab).",
                     },
                     "restart": {
                         "type": "boolean",
@@ -412,7 +412,7 @@ class AudioPlayerPlugin:
 
         * ``None`` / ``""`` / ``"default"`` / ``"auto"`` → Auto-Target via
           ``_resolve_target(ctx, None)``. Das ist das gleiche Target dem
-          die Anfrage gilt (Puck-Wake → freeecho2:<room>; Browser-Tippeingabe
+          die Anfrage gilt (FreeEcho.2-Wake → freeecho2:<room>; Browser-Tippeingabe
           → browser:<session>; CLI/Cron → local).
         * ``"all"`` → iteriert **alle** Channels' aktive Targets. Für
           „Stoppe alles" / „Mute everything".
@@ -473,9 +473,9 @@ class AudioPlayerPlugin:
             tier=TIER_READONLY,
             description=(
                 "Pause audio. Default (no 'target' given): pause the "
-                "auto-target (= the source the request came from — puck "
+                "auto-target (= the source the request came from — FreeEcho.2 "
                 "room, browser tab, etc.). Use 'all' to pause every active "
-                "stream across local/browser/pucks. Use a specific id "
+                "stream across local/browser/freeecho2. Use a specific id "
                 "like 'freeecho2:wohnzimmer' for that one only. Position is saved."
             ),
             parameters={
@@ -540,7 +540,7 @@ class AudioPlayerPlugin:
                                 })
 
             # Case 1 + 3: load from saved position with pre-roll, routed
-            # to the appropriate output (browser/local/puck).
+            # to the appropriate output (browser/local/freeecho2).
             settings = _load_settings()
             resume_cfg = settings.get("resume", {})
             pre_roll = float(resume_cfg.get("pre_roll_sec", 7))
@@ -1070,7 +1070,7 @@ class AudioPlayerPlugin:
         return Tool(
             name="audio_targets",
             tier=TIER_READONLY,
-            description="List available audio output targets (local speakers, browser tab, puck rooms, etc.).",
+            description="List available audio output targets (local speakers, browser tab, FreeEcho.2 speakers, etc.).",
             parameters={"type": "object", "properties": {}},
             executor=_targets,
         )
@@ -1171,7 +1171,7 @@ class AudioPlayerPlugin:
                 "Alle Audio-Tools (audio_play, audio_pause, audio_stop, etc.) "
                 "haben einen optionalen `target`-Parameter:\n"
                 "  - **Lass ihn weg** wenn das Audio dorthin soll wo die "
-                "Anfrage herkam (Puck-Wake → der eigene Puck; Browser-Tippeingabe "
+                "Anfrage herkam (FreeEcho.2-Wake → der eigene FreeEcho.2; Browser-Tippeingabe "
                 "→ Browser-Tab). Das ist 99% der Fälle.\n"
                 "  - Setze ihn auf eine konkrete ID aus `audio_targets()`, "
                 "z.B. `target='freeecho2:wohnzimmer'` für ein anderes Gerät.\n"

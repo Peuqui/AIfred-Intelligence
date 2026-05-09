@@ -4,7 +4,7 @@ Public API:
 
     from aifred.lib.audio_channels import resolve, all_targets, register
 
-Eingebaute Channels (LocalChannel, BrowserChannel, PuckChannel) werden
+Eingebaute Channels (LocalChannel, BrowserChannel, FreeEcho2Channel) werden
 beim Import dieses Moduls automatisch registriert. Externe Channels
 können via ``register(channel)`` hinzugefügt werden — nützlich für
 Tests oder zukünftige Plugin-Erweiterungen.
@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from .base import AudioFormat, AudioOutputChannel, TargetInfo
 from .browser import BrowserChannel
 from .local import LocalChannel
-from .puck import PuckChannel
+from .freeecho2 import FreeEcho2Channel
 
 if TYPE_CHECKING:
     from ..plugin_base import PluginContext
@@ -75,4 +75,4 @@ def all_channels() -> list[AudioOutputChannel]:
 # ── Auto-Registrierung der eingebauten Channels ──────────────────────
 register(LocalChannel())
 register(BrowserChannel())
-register(PuckChannel())
+register(FreeEcho2Channel())

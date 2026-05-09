@@ -10,10 +10,10 @@ State-Pushes und steuert das ``<audio>``-Element.
 (letzteres = aktuelle Browser-Session aus ``ctx``).
 
 Voraussetzung für Steuerung: ``ctx.state`` muss gesetzt sein. Bei
-Aufrufen aus anderen Channels (z.B. ``_stop`` am Puck) ist ``ctx`` =
+Aufrufen aus anderen Channels (z.B. ``_stop`` am FreeEcho.2) ist ``ctx`` =
 None oder ``ctx.state`` = None — dann wird die Steuerung übersprungen
 mit Warn-Log. Im Multi-Stream-Modell ist das auch das gewünschte
-Verhalten (Puck-Stop soll Browser nicht beeinflussen).
+Verhalten (FreeEcho.2-Stop soll Browser nicht beeinflussen).
 """
 
 from __future__ import annotations

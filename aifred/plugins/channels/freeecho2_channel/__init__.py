@@ -37,7 +37,7 @@ _devices: dict[str, WebSocketResponse] = {}
 _pending_responses: dict[str, asyncio.Future] = {}
 # Wake-Word → Agent-Hint: room_name → agent_id
 # Populated by wake events, consumed by the next audio event from the same room.
-# A stale entry (wake without audio) is harmless: the Puck only sends audio
+# A stale entry (wake without audio) is harmless: the FreeEcho.2 only sends audio
 # directly after wake detection, and a new wake overwrites or clears this.
 _pending_wake_agent: dict[str, str] = {}
 
@@ -61,7 +61,7 @@ class FreeEchoChannel(BaseChannel):
 
     @property
     def description(self) -> str:
-        return "WebSocket-Server für FreeEcho.2-Pucks: Sprachsteuerung mit Wake-Word, STT (Whisper) und TTS-Rückkanal."
+        return "WebSocket-Server für FreeEcho.2-Speakern: Sprachsteuerung mit Wake-Word, STT (Whisper) und TTS-Rückkanal."
 
     @property
     def icon(self) -> str:
@@ -110,7 +110,7 @@ class FreeEchoChannel(BaseChannel):
         if ssl_key:
             broker.set_runtime("freeecho2", "ssl_key", ssl_key)
 
-        # Engine setting is saved here, actual start happens on first Puck request
+        # Engine setting is saved here, actual start happens on first FreeEcho.2 request
         # via ensure_engine_ready() in _run_tts()
         new_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
         broker.set_runtime("freeecho2", "tts_engine", new_engine)
@@ -161,7 +161,7 @@ class FreeEchoChannel(BaseChannel):
         except asyncio.CancelledError:
             self.channel_log("Shutting down WebSocket server")
             # Close every active client connection with a proper Close
-            # frame.  Without this the Puck keeps the TCP socket half-
+            # frame.  Without this the FreeEcho.2 keeps the TCP socket half-
             # open (aiohttp's cleanup() does not notify websocket peers
             # by itself) and only notices the disconnect on its next
             # send attempt — which can be minutes later.
@@ -229,9 +229,9 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] Register: {msg}")
 
         elif msg_type == "flow":
-            # Backpressure-Frame vom Puck. State = "pause" wenn der Ring-
+            # Backpressure-Frame vom FreeEcho.2. State = "pause" wenn der Ring-
             # Buffer voll war (write-blocked) bzw. "resume" wenn fill_pct
-            # < 30 fällt. Wir leiten das an die PuckChannel-Stream-Map
+            # < 30 fällt. Wir leiten das an die FreeEcho2Channel-Stream-Map
             # weiter, dort wird der pump-Task pausiert/fortgesetzt.
             state = msg.get("state", "")
             self.channel_log(f"[FreeEcho.2 {room}] flow={state}")
@@ -250,7 +250,7 @@ class FreeEchoChannel(BaseChannel):
 
             # Command tokens (leading underscore, e.g. "_stop") are processed
             # immediately on the WAKE event — no audio is expected to follow.
-            # The Puck just sent us a control signal, not the start of a query.
+            # The FreeEcho.2 just sent us a control signal, not the start of a query.
             if wake_agent and wake_agent.startswith("_"):
                 _pending_wake_agent.pop(room, None)
                 self.channel_log(
@@ -273,12 +273,12 @@ class FreeEchoChannel(BaseChannel):
     async def _handle_command_token(self, token: str, room: str) -> None:
         """Verarbeite ein Command-Token (Wake-Word mit ``_``-Prefix) für diesen Raum.
 
-        Per-Target — nur das Audio dieses Pucks wird beeinflusst, andere
-        Streams (anderer Puck, Browser, lokal) laufen weiter.
+        Per-Target — nur das Audio dieses FreeEcho.2 wird beeinflusst, andere
+        Streams (anderer FreeEcho.2, Browser, lokal) laufen weiter.
 
         Server-Reaktion ist für ``_stop``, ``_pause``, ``_standby`` identisch:
         laufende Pipeline canceln + aktiven Stream stoppen. Der Unterschied
-        liegt puck-lokal (Soft-Mute, LED, Quittungston). Position-Save
+        liegt FreeEcho.2-lokal (Soft-Mute, LED, Quittungston). Position-Save
         passiert immer in ``_cleanup_unlocked`` vor dem mpv-Terminate, somit
         wirkt ``_pause`` automatisch via Smart-Resume.
 
@@ -290,16 +290,16 @@ class FreeEchoChannel(BaseChannel):
         Tokens:
         - ``_stop``     → Pipeline canceln + Stream stoppen
         - ``_pause``    → Pipeline canceln + Stream stoppen (Position wird gespeichert)
-        - ``_standby``  → Pipeline canceln + Stream stoppen (Puck-lokal Soft-Mute)
+        - ``_standby``  → Pipeline canceln + Stream stoppen (FreeEcho.2-lokal Soft-Mute)
         - ``_resume``   → Pipeline canceln + Smart-Resume des letzten unfinished Items
-        - ``_activate`` → no-op am Server (Soft-Mute aus, Puck-lokal)
+        - ``_activate`` → no-op am Server (Soft-Mute aus, FreeEcho.2-lokal)
         """
         if token in ("_stop", "_pause", "_standby"):
             await self._cancel_pipeline_and_stop_stream(token, room)
 
         elif token == "_resume":
             # Smart-Resume: finde letztes unfinished Item, lade es mit
-            # Pre-Roll auf diesen Puck. Funktioniert in zwei Szenarien:
+            # Pre-Roll auf diesen FreeEcho.2. Funktioniert in zwei Szenarien:
             #   a) gerade per _pause gestoppt → letzter Stream lädt neu
             #   b) Hörbuch lief vor Stunden, Server-Restart, etc. →
             #      audio_state kennt den letzten Key, alles wird neu gebaut
@@ -307,12 +307,12 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(
                 f"[FreeEcho.2 {room}] _resume: pipeline_cancelled={cancelled}"
             )
-            await self._smart_resume_on_puck(room)
+            await self._smart_resume_on_freeecho2(room)
 
         elif token == "_activate":
-            # No-op am Server — Soft-Mute aus ist Puck-lokal. Kein Auto-
+            # No-op am Server — Soft-Mute aus ist FreeEcho.2-lokal. Kein Auto-
             # Resume; wenn der User wieder Audio will, sagt er es.
-            self.channel_log(f"[FreeEcho.2 {room}] _activate: ack (puck-local soft-mute off)")
+            self.channel_log(f"[FreeEcho.2 {room}] _activate: ack (freeecho2-local soft-mute off)")
 
         else:
             self.channel_log(
@@ -321,7 +321,7 @@ class FreeEchoChannel(BaseChannel):
 
     def _cancel_pipeline_for_room(self, room: str) -> bool:
         """SSOT: cancele eine laufende LLM/TTS-Pipeline für die Session
-        dieses Pucks. Idempotent — gibt False zurück wenn keine Route
+        dieses FreeEcho.2. Idempotent — gibt False zurück wenn keine Route
         registriert ist oder keine Pipeline läuft.
         """
         from ....lib.pipeline_registry import cancel_pipeline
@@ -335,7 +335,7 @@ class FreeEchoChannel(BaseChannel):
     async def _cancel_pipeline_and_stop_stream(self, token: str, room: str) -> None:
         """SSOT für ``_stop`` / ``_pause`` / ``_standby``: laufende Pipeline
         canceln (LLM-Stream, Tool-Calls, TTS-Generation, Chunk-Loop) und
-        aktiven mpv-Stream auf diesem Puck stoppen.
+        aktiven mpv-Stream auf diesem FreeEcho.2 stoppen.
 
         ``token`` dient nur dem Logging — die Reaktion ist identisch.
         """
@@ -360,8 +360,8 @@ class FreeEchoChannel(BaseChannel):
             f"stream_stopped={stopped}"
         )
 
-    async def _smart_resume_on_puck(self, room: str) -> None:
-        """_resume-Handler: lade das letzte unfinished Audio auf diesen Puck.
+    async def _smart_resume_on_freeecho2(self, room: str) -> None:
+        """_resume-Handler: lade das letzte unfinished Audio auf diesen FreeEcho.2.
 
         Kein-State (Server-Restart) freundlich: greift auf audio_state.json
         zurück, nicht auf Live-Channel-State. Wenn nichts unfinished ist,
@@ -454,8 +454,8 @@ class FreeEchoChannel(BaseChannel):
         from ....lib.envelope import InboundMessage
         from ....lib.message_processor import process_inbound
 
-        import time as _puck_time
-        _puck_t0 = _puck_time.monotonic()
+        import time as _fe2_time
+        _fe2_t0 = _fe2_time.monotonic()
 
         num_samples = len(audio_data) // 2
         duration = num_samples / 16000.0
@@ -464,7 +464,7 @@ class FreeEchoChannel(BaseChannel):
 
         # Resolve wake-word hint from the preceding "wake" event. Agent IDs with
         # a leading underscore are command tokens (e.g. "_stop") — handle those
-        # here and skip the full STT/LLM/TTS pipeline. The Puck stops its own
+        # here and skip the full STT/LLM/TTS pipeline. The FreeEcho.2 stops its own
         # playback locally on wake detection (like Action-Button), so no reply
         # is sent back. Concrete server-side command handlers (abort running
         # inference, cancel injected music/TTS, …) are TODO.
@@ -487,7 +487,7 @@ class FreeEchoChannel(BaseChannel):
             f.write(wav_bytes)
             wav_path = f.name
 
-        self.channel_log(f"[FreeEcho.2 {room}] WAV prepared ({_puck_time.monotonic()-_puck_t0:.2f}s)")
+        self.channel_log(f"[FreeEcho.2 {room}] WAV prepared ({_fe2_time.monotonic()-_fe2_t0:.2f}s)")
 
         # Resolve session IMMEDIATELY so all debug messages (STT, TTS loading,
         # model switching) reach the browser UI via session_scope.
@@ -549,8 +549,8 @@ class FreeEchoChannel(BaseChannel):
                     await ws.send_str(json.dumps({"type": "done", "reason": "stt_empty"}))
                     return  # hub scope writes "done" on exit → toast closes after 5 s
 
-                self.channel_log(f"[FreeEcho.2 {room}] STT ({_puck_time.monotonic()-_puck_t0:.1f}s): {text}")
-                debug(f"🎤 STT: \"{text}\" ({_puck_time.monotonic()-_puck_t0:.1f}s)")
+                self.channel_log(f"[FreeEcho.2 {room}] STT ({_fe2_time.monotonic()-_fe2_t0:.1f}s): {text}")
+                debug(f"🎤 STT: \"{text}\" ({_fe2_time.monotonic()-_fe2_t0:.1f}s)")
 
                 # Flush user question to session immediately so browser shows it
                 # BEFORE TTS setup (which can take 25s+) and LLM inference.
@@ -592,7 +592,7 @@ class FreeEchoChannel(BaseChannel):
                         )
                     )
 
-                self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_puck_time.monotonic()-_puck_t0:.1f}s)")
+                self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_fe2_time.monotonic()-_fe2_t0:.1f}s)")
                 # Hand off the notification lifecycle to process_inbound's own
                 # hub_notification_scope — its received → processing → done is
                 # the user-visible progress now. Without delegate() our scope
@@ -627,7 +627,7 @@ class FreeEchoChannel(BaseChannel):
             heartbeat_running = False
             heartbeat_task.cancel()
 
-            total_time = _puck_time.monotonic() - _puck_t0
+            total_time = _fe2_time.monotonic() - _fe2_t0
             self.channel_log(f"[FreeEcho.2 {room}] ← Pipeline complete ({total_time:.1f}s)")
 
             # Signal client: all done, go back to IDLE
@@ -720,15 +720,15 @@ class FreeEchoChannel(BaseChannel):
 
         Path(tts_path).unlink(missing_ok=True)
 
-    # ── Public WS-Bridge — Audio-Streaming an den Puck ──────────────────
+    # ── Public WS-Bridge — Audio-Streaming an den FreeEcho.2 ──────────────────
     #
-    # Drei Methoden für jeden, der PCM an einen Puck schicken will:
+    # Drei Methoden für jeden, der PCM an einen FreeEcho.2 schicken will:
     #   1. send_audio_start(room, channels, rate, audio_type, total_size?)
     #   2. send_audio_chunk(room, bytes)            — beliebig oft
     #   3. send_audio_end(room)
     #
-    # Wird sowohl von TTS (send_reply) als auch von der PuckChannel-mpv-
-    # Pipeline genutzt. Per-Send-Timeout: wenn der Puck nicht mehr ACKt
+    # Wird sowohl von TTS (send_reply) als auch von der FreeEcho2Channel-mpv-
+    # Pipeline genutzt. Per-Send-Timeout: wenn der FreeEcho.2 nicht mehr ACKt
     # (WiFi-Drop, Crash), würde Linux-TCP ~2 min brauchen um das zu
     # bemerken — wir geben nach 10 s auf und schließen die Verbindung,
     # damit die Room-Slot für den Reconnect frei wird.
@@ -743,16 +743,16 @@ class FreeEchoChannel(BaseChannel):
         audio_type: str = "music",
         total_size: int | None = None,
     ) -> bool:
-        """Audio-Stream-Start an den Puck signalisieren.
+        """Audio-Stream-Start an den FreeEcho.2 signalisieren.
 
-        ``audio_type`` ist ein Hint für VU-Pattern + LED-Verhalten am Puck:
+        ``audio_type`` ist ein Hint für VU-Pattern + LED-Verhalten am FreeEcho.2:
         - ``"music"``  — Stereo-VU, smooth (Songs, Musik-Radio)
         - ``"speech"`` — Voice-VU, peak-orientiert (TTS, Hörbücher, Podcasts)
         - ``"alarm"``  — eigenes Pattern (Wecker, kritische Notifications)
-        Unbekannte Werte fallen am Puck auf den Speech-Default zurück.
+        Unbekannte Werte fallen am FreeEcho.2 auf den Speech-Default zurück.
 
         ``total_size`` ist optional und nur für TTS sinnvoll (fixe Länge).
-        Music-Streams (mpv-FIFO-Pump) lassen das Feld weg — der Puck nutzt
+        Music-Streams (mpv-FIFO-Pump) lassen das Feld weg — der FreeEcho.2 nutzt
         seinen 5-min Ring-Buffer und den Inactivity-Watchdog.
         """
         ws = _devices.get(room)
@@ -804,11 +804,11 @@ class FreeEchoChannel(BaseChannel):
             return False
 
     async def send_heartbeat(self, room: str) -> bool:
-        """Heartbeat während aktivem Streaming an den Puck schicken.
+        """Heartbeat während aktivem Streaming an den FreeEcho.2 schicken.
 
-        Wird vom PuckStream alle 5 s aufgerufen, auch wenn die FIFO-Pump
+        Wird vom FreeEcho2Stream alle 5 s aufgerufen, auch wenn die FIFO-Pump
         gerade pausiert (flow.pause / User-_pause). Liefert False bei
-        Send-Timeout — dann ist der Puck nicht mehr erreichbar und der
+        Send-Timeout — dann ist der FreeEcho.2 nicht mehr erreichbar und der
         Stream räumt sich selbst auf.
         """
         ws = _devices.get(room)
@@ -847,7 +847,7 @@ class FreeEchoChannel(BaseChannel):
     async def _abort_room(self, room: str, reason: str) -> None:
         """Schließe WebSocket und entferne Room aus _devices.
 
-        Aufgerufen wenn ein Send timeoutet — der Puck ist effektiv weg,
+        Aufgerufen wenn ein Send timeoutet — der FreeEcho.2 ist effektiv weg,
         wir hängen sonst auf der toten TCP-Verbindung.
         """
         ws = _devices.get(room)
@@ -917,7 +917,7 @@ class FreeEchoChannel(BaseChannel):
         return await asyncio.get_event_loop().run_in_executor(None, _run)
 
     async def _force_tts_switch(self) -> None:
-        """Force TTS switch after deferred inference (Puck optimization).
+        """Force TTS switch after deferred inference (FreeEcho.2 optimization).
 
         Called after LLM used existing model. Now: switch TTS, then
         restart LLM with TTS-calibrated profile. All blocking, sequential.

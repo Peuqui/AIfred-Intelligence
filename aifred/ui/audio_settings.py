@@ -179,7 +179,7 @@ def _help_content() -> rx.Component:
                 "Threshold = ab wie vielen Einträgen das passiert. Default: 5. "
                 "Im Browser ist die Liste vollständig sichtbar; nur die TTS-"
                 "Ausgabe wird gekürzt. So wird die Sprachausgabe (z.B. am "
-                "Puck) nicht durch hundert Hörbuch-Treffer geflutet.",
+                "FreeEcho.2) nicht durch hundert Hörbuch-Treffer geflutet.",
             ),
             _help_bullet(
                 "Im Picker: Neuer Ordner / Symlink",

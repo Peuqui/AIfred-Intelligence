@@ -791,7 +791,7 @@ def debug_console() -> rx.Component:
     # Periodic refresh timer for background task state propagation
     # Without this, messages from background tasks (InactivityMonitor) won't appear in UI
     refresh_timer = rx.moment(
-        interval=500,  # 500ms — fast enough for Hub/Puck debug messages + ghosting
+        interval=500,  # 500ms — fast enough for Hub/FreeEcho.2 debug messages + ghosting
         on_change=AIState.refresh_debug_console,
         display="none",
     )

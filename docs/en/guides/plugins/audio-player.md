@@ -15,4 +15,4 @@ Server-side audio playback of audio files.
 ## Features
 
 - Plays WAV, MP3, OGG, FLAC directly on the server
-- Planned for Puck hardware integration
+- Planned for FreeEcho.2 hardware integration

@@ -1,13 +1,13 @@
-"""PuckChannel — Audio-Output an FreeEcho.2-Pucks via WebSocket-Bridge.
+"""FreeEcho2Channel — Audio-Output an FreeEcho.2-Speaker via WebSocket-Bridge.
 
-Eine ``PuckChannel``-Instanz verwaltet **alle** verbundenen Pucks. Pro
-aktivem Target läuft genau eine ``PuckStream``-Instanz (mpv-Subprocess,
-FIFO, IPC-Socket, FIFO-Reader).
+Eine ``FreeEcho2Channel``-Instanz verwaltet **alle** verbundenen Speaker.
+Pro aktivem Target läuft genau eine ``FreeEcho2Stream``-Instanz (mpv-
+Subprocess, FIFO, IPC-Socket, FIFO-Reader).
 
-``target_id``-Format: ``"freeecho2:<room>"``. Discovery der verbundenen Räume
-läuft live über ``freeecho2_channel._devices``.
+``target_id``-Format: ``"freeecho2:<room>"``. Discovery der verbundenen
+Räume läuft live über ``freeecho2_channel._devices``.
 
-Format-Anforderung des Pucks (Hardware-fix): 48 kHz mono int16 LE PCM.
+Format-Anforderung des Speakers (Hardware-fix): 48 kHz mono int16 LE PCM.
 mpv resampled selbst, keine separate ffmpeg-Stage nötig.
 """
 
@@ -17,7 +17,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ._puck_stream import PuckStream
+from ._freeecho2_stream import FreeEcho2Stream
 from ..logging_utils import log_message
 from .base import AudioFormat, TargetInfo
 
@@ -62,8 +62,8 @@ def _bridge() -> Any:
         return None
 
 
-class PuckChannel:
-    """FreeEcho.2-Puck-Bridge mit eigener mpv-Pipeline pro Raum."""
+class FreeEcho2Channel:
+    """FreeEcho.2-Bridge mit eigener mpv-Pipeline pro Raum."""
 
     name = "freeecho2"
     required_format = AudioFormat(
@@ -73,11 +73,11 @@ class PuckChannel:
     )
 
     def __init__(self) -> None:
-        self._streams: dict[str, PuckStream] = {}
+        self._streams: dict[str, FreeEcho2Stream] = {}
         self._streams_lock = asyncio.Lock()
         # Per-room queue state for sequential playback (audio_play_folder).
         # ``items``: list of {state_key, uri}. ``idx``: cursor into items.
-        # ``audio_type``: VU/LED hint passed to each PuckStream.start().
+        # ``audio_type``: VU/LED hint passed to each FreeEcho2Stream.start().
         self._queues: dict[str, dict[str, Any]] = {}
 
     def can_handle(self, target_id: str) -> bool:
@@ -93,15 +93,15 @@ class PuckChannel:
             for room in _connected_devices()
         ]
 
-    async def _get_or_create_stream(self, room: str) -> PuckStream | None:
+    async def _get_or_create_stream(self, room: str) -> FreeEcho2Stream | None:
         bridge = _bridge()
         if bridge is None:
-            logger.warning("PuckChannel: freeecho2 bridge not loaded — cannot stream")
+            logger.warning("FreeEcho2Channel: freeecho2 bridge not loaded — cannot stream")
             return None
         async with self._streams_lock:
             stream = self._streams.get(room)
             if stream is None:
-                stream = PuckStream(
+                stream = FreeEcho2Stream(
                     room,
                     send_start=bridge.send_audio_start,
                     send_chunk=bridge.send_audio_chunk,
@@ -120,12 +120,12 @@ class PuckChannel:
     ) -> dict[str, Any]:
         room = _parse_room(target_id)
         if not room:
-            return {"success": False, "error": f"invalid puck target: {target_id}"}
+            return {"success": False, "error": f"invalid FreeEcho.2 target: {target_id}"}
         if room not in _connected_devices():
             return {
                 "success": False,
                 "target": target_id,
-                "error": f"puck '{room}' is not connected",
+                "error": f"FreeEcho.2 '{room}' is not connected",
             }
         stream = await self._get_or_create_stream(room)
         if stream is None:
@@ -147,7 +147,7 @@ class PuckChannel:
             return {
                 "success": False,
                 "target": target_id,
-                "error": f"puck stream start failed: {exc}",
+                "error": f"FreeEcho.2 stream start failed: {exc}",
             }
         return {
             "success": True,
@@ -199,17 +199,17 @@ class PuckChannel:
         audio_type: str = "music",
         shuffle: bool = False,
     ) -> dict[str, Any]:
-        """Sequentielles Playback einer Item-Liste auf einem Puck-Target.
+        """Sequentielles Playback einer Item-Liste auf einem FreeEcho.2-Target.
 
         ``items`` ist ``[{"state_key": ..., "uri": ...}, ...]`` in der
         gewuenschten Abspiel-Reihenfolge (sortiert oder geshuffled vom
         Caller). Mit ``shuffle=True`` wird die Liste hier zusaetzlich
         gemischt — der Caller entscheidet ueber den Default.
 
-        Mechanismus: erstes Item wird via ``PuckStream.start()`` gestartet,
+        Mechanismus: erstes Item wird via ``FreeEcho2Stream.start()`` gestartet,
         plus ein on-EOF-Callback installiert. mpv signalisiert das natuerliche
         Ende des Tracks via ``eof-reached``-IPC-Event → Callback feuert →
-        naechster Track wird mit eigenem PuckStream.start() gestartet (neuer
+        naechster Track wird mit eigenem FreeEcho2Stream.start() gestartet (neuer
         mpv-Subprocess pro Track, ~100 ms Pause dazwischen — kein gapless,
         aber sauber pro Track Position-Save und kein Playlist-State-Krampf).
         """
@@ -217,12 +217,12 @@ class PuckChannel:
 
         room = _parse_room(target_id)
         if not room:
-            return {"success": False, "error": f"invalid puck target: {target_id}"}
+            return {"success": False, "error": f"invalid FreeEcho.2 target: {target_id}"}
         if room not in _connected_devices():
             return {
                 "success": False,
                 "target": target_id,
-                "error": f"puck '{room}' is not connected",
+                "error": f"FreeEcho.2 '{room}' is not connected",
             }
         if not items:
             return {"success": False, "error": "empty queue"}
@@ -265,7 +265,7 @@ class PuckChannel:
         audio_type = queue_state.get("audio_type", "music")
 
         # Install advance callback BEFORE start so it's set when mpv fires
-        # eof-reached. The callback is one-shot (PuckStream snapshots and
+        # eof-reached. The callback is one-shot (FreeEcho2Stream snapshots and
         # clears it before invoking) — every track gets its own.
         async def _advance() -> None:
             await self._advance_queue(room)
@@ -276,22 +276,22 @@ class PuckChannel:
             await stream.start(uri, state_key, None, audio_type=audio_type)
         except Exception as exc:  # noqa: BLE001
             stream._on_eof_cb = None
-            return {"success": False, "error": f"puck stream start failed: {exc}"}
+            return {"success": False, "error": f"FreeEcho.2 stream start failed: {exc}"}
         return {"success": True}
 
     async def _advance_queue(self, room: str) -> None:
-        """Called from PuckStream EOF callback — start next item or end."""
+        """Called from FreeEcho2Stream EOF callback — start next item or end."""
         queue_state = self._queues.get(room)
         if queue_state is None:
             return  # queue was stopped externally
         queue_state["idx"] += 1
         if queue_state["idx"] >= len(queue_state["items"]):
-            log_message(f"PuckChannel[{room}]: queue finished ({len(queue_state['items'])} tracks)")
+            log_message(f"FreeEcho2Channel[{room}]: queue finished ({len(queue_state['items'])} tracks)")
             self._queues.pop(room, None)
             return
         next_item = queue_state["items"][queue_state["idx"]]
         log_message(
-            f"PuckChannel[{room}]: queue advance "
+            f"FreeEcho2Channel[{room}]: queue advance "
             f"{queue_state['idx'] + 1}/{len(queue_state['items'])} → {next_item['state_key']}"
         )
         await self._start_queue_item(room, next_item["uri"], next_item["state_key"])
@@ -300,10 +300,10 @@ class PuckChannel:
         return True
 
     def notify_flow(self, target_id: str, state: str) -> None:  # type: ignore[override]
-        """Bridge ruft das auf wenn der Puck einen flow-Frame schickt.
+        """Bridge ruft das auf wenn der FreeEcho.2 einen flow-Frame schickt.
 
         ``state`` = "pause" → Pump des Streams blockt → mpv blockt am
-        FIFO-write → kein OOM am Puck-Buffer. "resume" → weiterlaufen.
+        FIFO-write → kein OOM am FreeEcho.2-Buffer. "resume" → weiterlaufen.
 
         ``target_id`` darf entweder die volle Form ``"freeecho2:<room>"``
         sein oder nur ``<room>`` (für den freeecho2_channel-WS-Receive-
@@ -313,7 +313,7 @@ class PuckChannel:
         stream = self._streams.get(room)
         if stream is None:
             logger.debug(
-                "PuckChannel.notify_flow: no active stream for room=%s (state=%s)",
+                "FreeEcho2Channel.notify_flow: no active stream for room=%s (state=%s)",
                 room, state,
             )
             return
