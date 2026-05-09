@@ -205,6 +205,71 @@ class BrowserChannel:
         # audio.playbackRate mappt. 3.0a: deferred.
         return False
 
+    async def play_queue(
+        self,
+        items: list[dict[str, str]],
+        target_id: str,
+        ctx: "PluginContext",
+        audio_type: str = "music",
+        shuffle: bool = False,
+    ) -> dict[str, Any]:
+        """Browser-seitige Folder-Playback-Implementierung.
+
+        Schickt das erste Item via Audio-Bus in den Browser, persistiert
+        die volle Queue im Reflex-State (data-media-queue) — JS-Cursor in
+        custom.js advanced auf 'ended' zum nächsten Item, kein Server-
+        Roundtrip pro Track.
+        """
+        import random
+        from ..api import audio_queue_push
+
+        if not items:
+            return {"success": False, "error": "empty queue"}
+
+        ordered = list(items)
+        if shuffle:
+            random.shuffle(ordered)
+
+        state = getattr(ctx, "state", None)
+        first = ordered[0]
+        first_url = first["uri"]
+        first_key = first["state_key"]
+
+        tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
+
+        if state is not None:
+            state.media_audio_url = first_url
+            state.media_state_key = first_key
+            state.media_is_stream = False
+            state.media_paused_for_tts = tts_active
+            state.media_pause_pos_sec = 0.0
+            # Browser-side queue: list of {audio_url, state_key} — JS reads
+            # this from data-media-queue and uses it as a cursor on 'ended'.
+            state.media_queue = [
+                {"audio_url": it["uri"], "state_key": it["state_key"]}
+                for it in ordered
+            ]
+            if hasattr(state, "_persist_audio_state"):
+                state._persist_audio_state()
+
+        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
+        if session_id:
+            audio_queue_push(
+                session_id, "media", first_url,
+                state_key=first_key,
+                start_pos_sec=0.0,
+                is_stream=False,
+                audio_type=audio_type,
+            )
+
+        return {
+            "success": True,
+            "target": target_id,
+            "queued_count": len(ordered),
+            "shuffle": shuffle,
+            "first": {"state_key": first_key, "uri": first_url},
+        }
+
     async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:
         state = getattr(ctx, "state", None) if ctx else None
         if state is None:

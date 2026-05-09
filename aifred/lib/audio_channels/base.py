@@ -132,6 +132,25 @@ class AudioOutputChannel(Protocol):
         keine Server-seitige Speed-Kontrolle hat."""
         ...
 
+    async def play_queue(
+        self,
+        items: list[dict[str, str]],
+        target_id: str,
+        ctx: "PluginContext",
+        audio_type: str = "music",
+        shuffle: bool = False,
+    ) -> dict[str, Any]:
+        """Sequentielles Playback einer Item-Liste.
+
+        ``items``: ``[{"state_key": ..., "uri": ...}, ...]`` in gewünschter
+        Reihenfolge. Mit ``shuffle=True`` wird die Liste channel-seitig
+        durchgemischt. Returns ``{"success": bool, ...}``-Dict.
+
+        Channel kann das mit "not implemented" returnen wenn Sequential-
+        Playback nicht unterstützt wird (Local-Channel z.B.).
+        """
+        ...
+
     async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:
         """Aktueller Wiedergabe-Status am Target.
 

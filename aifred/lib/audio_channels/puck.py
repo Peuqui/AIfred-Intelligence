@@ -18,6 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ._puck_stream import PuckStream
+from ..logging_utils import log_message
 from .base import AudioFormat, TargetInfo
 
 if TYPE_CHECKING:
@@ -74,6 +75,10 @@ class PuckChannel:
     def __init__(self) -> None:
         self._streams: dict[str, PuckStream] = {}
         self._streams_lock = asyncio.Lock()
+        # Per-room queue state for sequential playback (audio_play_folder).
+        # ``items``: list of {state_key, uri}. ``idx``: cursor into items.
+        # ``audio_type``: VU/LED hint passed to each PuckStream.start().
+        self._queues: dict[str, dict[str, Any]] = {}
 
     def can_handle(self, target_id: str) -> bool:
         return target_id.startswith(TARGET_PREFIX)
@@ -177,11 +182,119 @@ class PuckChannel:
         room = _parse_room(target_id)
         if not room:
             return False
+        # Stop also clears any queued items — wake-word _stop / audio_stop
+        # both end the entire playback session, not just the current track.
+        self._queues.pop(room, None)
         async with self._streams_lock:
             stream = self._streams.pop(room, None)
         if stream is None:
             return False
         return await stream.stop()
+
+    async def play_queue(
+        self,
+        items: list[dict[str, str]],
+        target_id: str,
+        ctx: "PluginContext",
+        audio_type: str = "music",
+        shuffle: bool = False,
+    ) -> dict[str, Any]:
+        """Sequentielles Playback einer Item-Liste auf einem Puck-Target.
+
+        ``items`` ist ``[{"state_key": ..., "uri": ...}, ...]`` in der
+        gewuenschten Abspiel-Reihenfolge (sortiert oder geshuffled vom
+        Caller). Mit ``shuffle=True`` wird die Liste hier zusaetzlich
+        gemischt — der Caller entscheidet ueber den Default.
+
+        Mechanismus: erstes Item wird via ``PuckStream.start()`` gestartet,
+        plus ein on-EOF-Callback installiert. mpv signalisiert das natuerliche
+        Ende des Tracks via ``eof-reached``-IPC-Event → Callback feuert →
+        naechster Track wird mit eigenem PuckStream.start() gestartet (neuer
+        mpv-Subprocess pro Track, ~100 ms Pause dazwischen — kein gapless,
+        aber sauber pro Track Position-Save und kein Playlist-State-Krampf).
+        """
+        import random
+
+        room = _parse_room(target_id)
+        if not room:
+            return {"success": False, "error": f"invalid puck target: {target_id}"}
+        if room not in _connected_devices():
+            return {
+                "success": False,
+                "target": target_id,
+                "error": f"puck '{room}' is not connected",
+            }
+        if not items:
+            return {"success": False, "error": "empty queue"}
+
+        ordered = list(items)
+        if shuffle:
+            random.shuffle(ordered)
+
+        self._queues[room] = {
+            "items": ordered,
+            "idx": 0,
+            "audio_type": audio_type,
+            "ctx": ctx,
+        }
+
+        first_uri = ordered[0]["uri"]
+        first_key = ordered[0]["state_key"]
+        result = await self._start_queue_item(room, first_uri, first_key)
+        if not result.get("success"):
+            self._queues.pop(room, None)
+            return result
+
+        return {
+            "success": True,
+            "target": target_id,
+            "queued_count": len(ordered),
+            "shuffle": shuffle,
+            "first": {"state_key": first_key, "uri": first_uri},
+        }
+
+    async def _start_queue_item(
+        self, room: str, uri: str, state_key: str,
+    ) -> dict[str, Any]:
+        """Start a single queue item and wire up the EOF-advance callback."""
+        stream = await self._get_or_create_stream(room)
+        if stream is None:
+            return {"success": False, "error": "freeecho2 bridge unavailable"}
+
+        queue_state = self._queues.get(room, {})
+        audio_type = queue_state.get("audio_type", "music")
+
+        # Install advance callback BEFORE start so it's set when mpv fires
+        # eof-reached. The callback is one-shot (PuckStream snapshots and
+        # clears it before invoking) — every track gets its own.
+        async def _advance() -> None:
+            await self._advance_queue(room)
+
+        stream._on_eof_cb = _advance
+
+        try:
+            await stream.start(uri, state_key, None, audio_type=audio_type)
+        except Exception as exc:  # noqa: BLE001
+            stream._on_eof_cb = None
+            return {"success": False, "error": f"puck stream start failed: {exc}"}
+        return {"success": True}
+
+    async def _advance_queue(self, room: str) -> None:
+        """Called from PuckStream EOF callback — start next item or end."""
+        queue_state = self._queues.get(room)
+        if queue_state is None:
+            return  # queue was stopped externally
+        queue_state["idx"] += 1
+        if queue_state["idx"] >= len(queue_state["items"]):
+            log_message(f"PuckChannel[{room}]: queue finished ({len(queue_state['items'])} tracks)")
+            self._queues.pop(room, None)
+            return
+        next_item = queue_state["items"][queue_state["idx"]]
+        log_message(
+            f"PuckChannel[{room}]: queue advance "
+            f"{queue_state['idx'] + 1}/{len(queue_state['items'])} → {next_item['state_key']}"
+        )
+        await self._start_queue_item(room, next_item["uri"], next_item["state_key"])
 
     def supports_flow_control(self) -> bool:
         return True

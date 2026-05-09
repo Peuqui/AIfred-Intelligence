@@ -98,6 +98,22 @@ class LocalChannel:
         except ValueError:
             return False
 
+    async def play_queue(
+        self,
+        items: list[dict[str, str]],
+        target_id: str,
+        ctx: "PluginContext",
+        audio_type: str = "music",
+        shuffle: bool = False,
+    ) -> dict[str, Any]:
+        # mpv hat keine builtin Playlist-API in unserem Wrapper — Local-
+        # Channel ist primaer fuer Single-Track / Cron / Background-Tasks.
+        return {
+            "success": False,
+            "target": target_id,
+            "error": "Sequential playback not implemented for local channel",
+        }
+
     async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:
         from ..audio_manager import audio_manager
         return await audio_manager.status()
