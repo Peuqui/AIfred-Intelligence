@@ -227,7 +227,6 @@ class AudioPlayerPlugin:
             restart: bool = False,
             shuffle: bool = False,
         ) -> str:
-            from urllib.parse import quote
             from ....lib.audio_sources import ALLOWED_EXTENSIONS, build_source_map
             from ....lib.config import MEDIA_AUDIO_DIR
 
@@ -314,15 +313,19 @@ class AudioPlayerPlugin:
 
             target_id = _resolve_target(ctx, target)
 
-            # Build channel-agnostic queue items (state_key + uri) and let
-            # the resolved channel handle sequential playback its own way:
-            # FreeEcho.2 spawns one mpv-subprocess per track with EOF-advance,
-            # browser pushes first item via Audio-Bus + JS-cursor for advance.
+            # Build channel-agnostic queue items. ``uri`` is the LOCAL
+            # filesystem path — what mpv-based channels (FreeEcho.2, local)
+            # need directly. The browser channel transforms ``state_key``
+            # to its REST endpoint internally (``/api/audio/file?key=…``).
+            # Centralising the URL-form choice in each channel avoids the
+            # earlier bug where the tool baked the browser-form URL for
+            # every target (mpv saw "/api/..." as malformed URL → Connection
+            # refused).
             queue_items: list[dict[str, str]] = []
             for rel_path in files:
                 state_key = f"{label}/{rel_path}"
-                audio_url = f"/api/audio/file?key={quote(state_key)}"
-                queue_items.append({"state_key": state_key, "uri": audio_url})
+                local_uri = str(root / rel_path)
+                queue_items.append({"state_key": state_key, "uri": local_uri})
 
             from ....lib import audio_channels
             channel = audio_channels.resolve(target_id)
