@@ -719,16 +719,28 @@ class ChatMixin(rx.State, mixin=True):
         self.add_debug("📨 User request received")
 
         # ============================================================
-        # PHASE 3: TTS streaming init
+        # PHASE 3: Audio-Bus init (TTS streaming + Auto-Play-Unlock)
         # ============================================================
+        # ``audioUnlock()`` MUST run on every send-click — independent of
+        # the TTS toggle. Browsers hold an autoplay-permission window of
+        # only a few seconds after a user gesture; tool-calls (audio_play
+        # via LLM) can fire 25+ s later, well outside that window. A
+        # silent play()+pause() on the audio element inside the click-
+        # handler stack registers it as "user-interacted" → all future
+        # ``audio.play()`` calls on the same element are allowed for the
+        # rest of the tab's lifetime.
         agent_tts_on = self.tts_agent_voices.get("aifred", {}).get("enabled", True)  # type: ignore[attr-defined]
-        if self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled and agent_tts_on:  # type: ignore[attr-defined]
+        tts_streaming = self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled and agent_tts_on  # type: ignore[attr-defined]
+        if tts_streaming:
             self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
             from ..lib.api import audio_queue_clear
             audio_queue_clear(self.session_id)  # type: ignore[attr-defined]
-            yield rx.call_script(f"if(window.startAudioStream) startAudioStream('{self.session_id}');")  # type: ignore[attr-defined]
-        else:
-            yield  # Push user message bubble to browser
+        # Always: unlock audio + (re)start the SSE stream from the click
+        # context. startAudioStream is idempotent if already connected.
+        yield rx.call_script(  # type: ignore[attr-defined]
+            f"if(window.audioUnlock) audioUnlock(); "
+            f"if(window.startAudioStream) startAudioStream('{self.session_id}');"
+        )
 
         # ============================================================
         # PHASE 4: vLLM model loading (AFTER user message is visible)
