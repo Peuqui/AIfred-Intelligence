@@ -133,6 +133,63 @@ class AudioIndex:
                 END;
             """)
 
+            self._migrate_fts_add_genre(conn)
+
+    def _migrate_fts_add_genre(self, conn: sqlite3.Connection) -> None:
+        """Migration: alte FTS5-Tabellen ohne ``genre``-Spalte neu aufbauen.
+
+        ``CREATE VIRTUAL TABLE IF NOT EXISTS`` greift nicht wenn die Tabelle
+        schon existiert — alte DBs (vor Genre-Schema) wären sonst dauerhaft
+        ohne Genre-Suche, obwohl die Spalte in der Quelltabelle ``files``
+        längst gefüllt ist. Diese Migration:
+          1. Prüft ob ``genre`` in den FTS-Spalten fehlt
+          2. Wenn ja: dropt FTS + Triggers, baut neu auf, repopuliert aus
+             ``files`` (kein erneutes Tag-Reading nötig — Daten sind da)
+
+        Idempotent: nach erfolgreicher Migration ist genre drin und die
+        Funktion ist beim nächsten Start ein No-op.
+        """
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(files_fts)").fetchall()]
+        if "genre" in cols:
+            return
+
+        from .logging_utils import log_message
+        log_message("🔧 audio_index: Migrating FTS5 schema — adding 'genre' column")
+
+        conn.executescript("""
+            DROP TRIGGER IF EXISTS files_ai;
+            DROP TRIGGER IF EXISTS files_ad;
+            DROP TRIGGER IF EXISTS files_au;
+            DROP TABLE  IF EXISTS files_fts;
+
+            CREATE VIRTUAL TABLE files_fts USING fts5(
+                artist, album, title, genre, filename, rel_path,
+                content='files', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+
+            CREATE TRIGGER files_ai AFTER INSERT ON files BEGIN
+                INSERT INTO files_fts(rowid, artist, album, title, genre, filename, rel_path)
+                VALUES (new.id, new.artist, new.album, new.title, new.genre, new.filename, new.rel_path);
+            END;
+            CREATE TRIGGER files_ad AFTER DELETE ON files BEGIN
+                INSERT INTO files_fts(files_fts, rowid, artist, album, title, genre, filename, rel_path)
+                VALUES ('delete', old.id, old.artist, old.album, old.title, old.genre, old.filename, old.rel_path);
+            END;
+            CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
+                INSERT INTO files_fts(files_fts, rowid, artist, album, title, genre, filename, rel_path)
+                VALUES ('delete', old.id, old.artist, old.album, old.title, old.genre, old.filename, old.rel_path);
+                INSERT INTO files_fts(rowid, artist, album, title, genre, filename, rel_path)
+                VALUES (new.id, new.artist, new.album, new.title, new.genre, new.filename, new.rel_path);
+            END;
+
+            INSERT INTO files_fts(rowid, artist, album, title, genre, filename, rel_path)
+            SELECT id, artist, album, title, genre, filename, rel_path FROM files;
+        """)
+
+        count = conn.execute("SELECT COUNT(*) FROM files_fts").fetchone()[0]
+        log_message(f"✅ audio_index: FTS5 schema migrated — {count} files re-indexed (genre searchable)")
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._path), timeout=30.0)
         conn.execute("PRAGMA journal_mode=WAL")

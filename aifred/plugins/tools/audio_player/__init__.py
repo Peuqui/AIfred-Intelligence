@@ -114,7 +114,6 @@ class AudioPlayerPlugin:
             self._tool_seek(ctx),
             self._tool_skip(ctx),
             self._tool_speed(ctx),
-            self._tool_volume(ctx),
             self._tool_status(ctx),
             self._tool_list(),
             self._tool_list_unfinished(),
@@ -399,7 +398,7 @@ class AudioPlayerPlugin:
         """Apply a Channel-method to one or many targets.
 
         ``action`` ist der Methoden-Name auf ``AudioOutputChannel`` (z.B.
-        ``"pause"``, ``"stop"``, ``"set_volume"``).
+        ``"pause"``, ``"stop"``, ``"set_speed"``).
 
         Target-Resolution (konsistent mit ``audio_play``):
 
@@ -735,35 +734,6 @@ class AudioPlayerPlugin:
             executor=_speed,
         )
 
-    def _tool_volume(self, ctx: PluginContext) -> Tool:
-        async def _volume(percent: float, target: str | None = None) -> str:
-            result = await self._dispatch_action(
-                ctx, "set_volume", target, percent=float(percent),
-            )
-            result["volume"] = float(percent)
-            return json.dumps(result)
-
-        return Tool(
-            name="audio_volume",
-            tier=TIER_READONLY,
-            description="Set playback volume as percent (0–100).",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "percent": {
-                        "type": "number",
-                        "description": "Volume in percent, 0 (mute) to 100 (max).",
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Optional target id. Omit to apply on the auto-resolved target.",
-                    },
-                },
-                "required": ["percent"],
-            },
-            executor=_volume,
-        )
-
     def _tool_status(self, ctx: PluginContext) -> Tool:
         async def _status(target: str | None = None) -> str:
             from ....lib import audio_channels
@@ -851,7 +821,13 @@ class AudioPlayerPlugin:
                     "source": source, "items": [], "count": 0,
                     "error": (
                         f"Unknown source: '{source}'. "
-                        f"Available: {available} (case-sensitive!)"
+                        f"Available top-level sources: {available} "
+                        f"(case-sensitive!). For a free-text search across "
+                        f"ID3-tags (artist/album/title), filenames and "
+                        f"sub-folders use audio_search(query='{source}') — "
+                        f"that's case-insensitive and matches what the user "
+                        f"actually meant. '{source}' may live as a sub-folder "
+                        f"or genre tag inside one of the available sources."
                     ),
                 })
             src_info = next(
@@ -1118,8 +1094,38 @@ class AudioPlayerPlugin:
                 "             dann erst Text.\n\n"
                 "Workflow-Stufen:\n"
                 "1. Datei bekannt → direkt `audio_play(item='label/datei.mp3')`.\n"
-                "2. Datei unklar → `audio_list(source='X')` → `audio_play(...)`.\n"
-                "3. Hörbuch fortsetzen → `audio_list_unfinished()` → `audio_resume(item='<key>')`.\n\n"
+                "2. Genre/Künstler/Stichwort vage ('was Klassisches', "
+                "'Mozart', 'Jazz') → `audio_search(query='X')` ZUERST. "
+                "FTS5-Volltext über Artist/Album/Title/Genre/Filename/Pfad "
+                "— case-insensitive, findet auch Sub-Ordner und ID3-Tags. "
+                "Nutze den `state_key` aus dem Result für `audio_play`.\n"
+                "3. Source bekannt, Datei unklar → `audio_list(source='X')` → "
+                "`audio_play(...)`.\n"
+                "4. Hörbuch fortsetzen → `audio_list_unfinished()` → "
+                "`audio_resume(item='<key>')`.\n\n"
+                "════════════════════════════════════════\n"
+                "AUDIO_SEARCH — RICHTIG ABFRAGEN\n"
+                "════════════════════════════════════════\n"
+                "FTS5 macht **Prefix-Match**: der Suchbegriff muss vom "
+                "Anfang eines Tag-Tokens passen. 'klassisch' findet 'klassik' "
+                "NICHT (DB-Token kürzer als Query). Lieber 'klass' — matcht "
+                "Klassik, Klassisch, Klassiker.\n\n"
+                "Strategie bei Genre-Anfragen ('was Klassisches', 'Jazz', "
+                "'Pop'):\n"
+                "  a) Erst `audio_search(query='<deutscher Genre-Stamm>')` — "
+                "z.B. 'Klassik', 'Jazz', 'Pop', 'Hörbuch'.\n"
+                "  b) Wenn 0 Treffer: `audio_search(query='<englischer "
+                "Genre-Stamm>')` — z.B. 'Classic' (matcht Classical), "
+                "'Audiobook'.\n"
+                "  c) Wenn immer noch 0: probiere bekannte Künstler/"
+                "Komponisten als Query — 'Mozart', 'Bach', 'Beethoven' für "
+                "Klassik; 'Coltrane', 'Davis' für Jazz.\n"
+                "  d) Erst NACH a+b+c dem User sagen 'habe ich nicht'.\n\n"
+                "Bei `audio_list(source='...')` mit 'Unknown source' → "
+                "NICHT aufgeben, sondern direkt `audio_search(query='...')` "
+                "mit demselben Stichwort — der Begriff lebt vermutlich als "
+                "Sub-Ordner, ID3-Tag oder Genre in einer der vorhandenen "
+                "Sources.\n\n"
                 "════════════════════════════════════════\n"
                 "KEINE HALLUZINATIONEN BEI 0 TREFFERN\n"
                 "════════════════════════════════════════\n"
@@ -1137,11 +1143,17 @@ class AudioPlayerPlugin:
                 "════════════════════════════════════════\n"
                 "GROSS-/KLEINSCHREIBUNG IST RELEVANT\n"
                 "════════════════════════════════════════\n"
-                "Source-Labels und Pfade sind case-sensitive. 'Lustiges' ≠ "
-                "'lustiges'. Übernimm Labels und Dateinamen IMMER 1:1 aus dem "
-                "`audio_list(...)`-Output, nie aus dem User-Wording umsetzen. "
-                "Bei doppeltem Try mit unterschiedlicher Schreibweise: STOPP, "
-                "die Datei existiert nicht.\n\n"
+                "Source-Labels und Pfade sind case-sensitive bei "
+                "`audio_list(source=...)` und `audio_play(item=...)`. "
+                "'Lustiges' ≠ 'lustiges'. Übernimm Labels und Dateinamen "
+                "IMMER 1:1 aus dem `audio_list(...)` / `audio_search(...)` "
+                "Output, nie aus dem User-Wording umsetzen. Bei doppeltem "
+                "Try von `audio_play` mit unterschiedlicher Schreibweise: "
+                "STOPP, die Datei existiert nicht.\n\n"
+                "AUSNAHME: `audio_search(query=...)` ist case-insensitive "
+                "und matcht auf ID3-Tags. Bei Unsicherheit über Schreibung "
+                "('Klassik' vs. 'Classic', 'Beatles' vs. 'beatles') IMMER "
+                "zuerst `audio_search` benutzen statt zu raten.\n\n"
                 "Item-Format: `label/relativer-pfad.mp3` für Ordner-Quellen, nur "
                 "`label` für Streams. Routing-Override per `target`-Parameter "
                 "(siehe `audio_targets()`).\n\n"
@@ -1184,8 +1196,19 @@ class AudioPlayerPlugin:
             "             then text.\n\n"
             "Workflow stages:\n"
             "1. File known → directly `audio_play(item='label/file.mp3')`.\n"
-            "2. File unclear → `audio_list(source='X')` → `audio_play(...)`.\n"
-            "3. Resume audiobook → `audio_list_unfinished()` → `audio_resume(item='<key>')`.\n\n"
+            "2. Vague genre/artist/keyword ('something classical', 'Mozart', "
+            "'jazz') → `audio_search(query='X')` FIRST. FTS5 full-text over "
+            "ID3 tags (artist/album/title), filename and path — "
+            "case-insensitive, also finds sub-folders. Use the returned "
+            "`state_key` for `audio_play`.\n"
+            "3. Source known, file unclear → `audio_list(source='X')` → "
+            "`audio_play(...)`.\n"
+            "4. Resume audiobook → `audio_list_unfinished()` → "
+            "`audio_resume(item='<key>')`.\n\n"
+            "On `audio_list(source='...')` with 'Unknown source' → don't "
+            "give up, run `audio_search(query='...')` with the same keyword "
+            "— it likely lives as a sub-folder, ID3 tag or genre inside one "
+            "of the existing sources.\n\n"
             "Item format: `label/relative-path.mp3` for folder sources, just "
             "`label` for streams. Routing override via `target` param "
             "(see `audio_targets()`)."
@@ -1208,8 +1231,6 @@ class AudioPlayerPlugin:
             return f"Skip {'+' if float(d) >= 0 else ''}{d}s"
         if tool_name == "audio_speed":
             return f"Geschwindigkeit: {tool_args.get('factor', '?')}×"
-        if tool_name == "audio_volume":
-            return f"Lautstärke: {tool_args.get('percent', '?')}%"
         return ""
 
 
