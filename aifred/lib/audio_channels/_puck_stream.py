@@ -102,6 +102,9 @@ class PuckStream:
         self._current_uri: Optional[str] = None
         self._current_state_key: Optional[str] = None
         self._save_interval: int = DEFAULT_SAVE_INTERVAL_SEC
+        # Optional callback fired when mpv signals natural EOF (track ended).
+        # Used by PuckChannel.play_queue() to advance to the next item.
+        self._on_eof_cb: Optional[Callable[[], Awaitable[None]]] = None
         self._stopping = False
 
         # Backpressure: Pump-Task wartet vor jedem Read auf dieses Event.
@@ -446,6 +449,20 @@ class PuckStream:
         # Cleanup nicht hier — der fifo_pump merkt das natürliche Ende
         # (FIFO returns 0 bytes nach mpv-Exit) und stop() wird vom
         # PuckChannel gerufen wenn der Pump-Task fertig ist.
+
+        # Fire optional EOF callback (PuckChannel.play_queue → advance).
+        # Snapshotted to None first so a re-entrant start() (next track)
+        # can install a fresh callback without race.
+        cb = self._on_eof_cb
+        self._on_eof_cb = None
+        if cb is not None:
+            try:
+                await cb()
+            except Exception as exc:  # noqa: BLE001
+                log_message(
+                    f"PuckStream[{self.room}]: on_eof callback error: {exc}",
+                    "warning",
+                )
 
     # ── FIFO-Pumpe: PCM von mpv → freeecho2 WS-Bridge ───────
 

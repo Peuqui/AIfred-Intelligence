@@ -221,10 +221,14 @@ class AudioPlayerPlugin:
     def _tool_play_folder(self, ctx: PluginContext) -> Tool:  # noqa: PLR0915
         """Sequential playback of all audio files in a folder, alphabetically."""
 
-        async def _play_folder(folder: str, target: str | None = None, restart: bool = False) -> str:
+        async def _play_folder(
+            folder: str,
+            target: str | None = None,
+            restart: bool = False,
+            shuffle: bool = False,
+        ) -> str:
             from urllib.parse import quote
             from ....lib.audio_sources import ALLOWED_EXTENSIONS, build_source_map
-            from ....lib.audio_state import audio_state
             from ....lib.config import MEDIA_AUDIO_DIR
 
             # Parse "label" or "label/sub/path"
@@ -298,6 +302,10 @@ class AudioPlayerPlugin:
 
             files.sort(key=_natural_key)
 
+            if shuffle:
+                import random as _random
+                _random.shuffle(files)
+
             if not files:
                 return json.dumps({
                     "success": False,
@@ -305,74 +313,47 @@ class AudioPlayerPlugin:
                 })
 
             target_id = _resolve_target(ctx, target)
-            state = getattr(ctx, "state", None)
 
-            # Browser target: build queue + push first to player ────────────
-            if target_id.startswith("browser") or target_id == "browser":
-                queue_items: list[dict[str, str]] = []
-                for rel_path in files:
-                    state_key = f"{label}/{rel_path}"
-                    audio_url = f"/api/audio/file?key={quote(state_key)}"
-                    queue_items.append({"audio_url": audio_url, "state_key": state_key})
+            # Build channel-agnostic queue items (state_key + uri) and let
+            # the resolved channel handle sequential playback its own way:
+            # FreeEcho.2 spawns one mpv-subprocess per track with EOF-advance,
+            # browser pushes first item via Audio-Bus + JS-cursor for advance.
+            queue_items: list[dict[str, str]] = []
+            for rel_path in files:
+                state_key = f"{label}/{rel_path}"
+                audio_url = f"/api/audio/file?key={quote(state_key)}"
+                queue_items.append({"state_key": state_key, "uri": audio_url})
 
-                first = queue_items[0]
-                first_key = first["state_key"]
-                first_url = first["audio_url"]
-
-                resumed_at = 0.0
-                if not restart:
-                    existing = audio_state.get(first_key)
-                    if existing and not existing.get("completed"):
-                        resumed_at = float(existing.get("pos_sec", 0))
-
-                tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
-
-                if state is not None:
-                    state.media_audio_url = first_url
-                    state.media_state_key = first_key
-                    state.media_is_stream = False
-                    state.media_paused_for_tts = tts_active or resumed_at > 0
-                    state.media_pause_pos_sec = resumed_at
-                    state.media_queue = queue_items
-                    if hasattr(state, "_persist_audio_state"):
-                        state._persist_audio_state()
-
-                # Audio-Bus: erstes Item via SSE pushen — JS startet den
-                # Player im User-Geste-Stack (kein autoplay-Block). Die
-                # vollstaendige Queue lebt im Reflex-State (data-media-queue
-                # auf dem <audio>-Element); der JS-Cursor in custom.js
-                # advanced auf 'ended' zum naechsten Item, ohne Server-
-                # Roundtrip.
-                session_id = (
-                    getattr(state, "session_id", "")
-                    if state is not None
-                    else ""
-                ) or getattr(ctx, "session_id", "")
-                if session_id:
-                    from ....lib.api import audio_queue_push
-                    audio_queue_push(
-                        session_id, "media", first_url,
-                        state_key=first_key,
-                        start_pos_sec=resumed_at,
-                        is_stream=False,
-                        audio_type="music",
-                    )
-
+            from ....lib import audio_channels
+            channel = audio_channels.resolve(target_id)
+            if channel is None:
                 return json.dumps({
-                    "success": True,
-                    "label": label,
-                    "folder": sub or "(root)",
+                    "success": False,
                     "target": target_id,
-                    "queued_count": len(queue_items),
-                    "first": {"state_key": first_key, "audio_url": first_url, "resumed_at_sec": resumed_at},
-                    "files": files[:10] + (["..."] if len(files) > 10 else []),
+                    "error": f"No output channel can handle target '{target_id}'",
                 })
 
-            # Local target: mpv has no built-in playlist API in our wrapper —
-            # for now, only browser is supported. Easy follow-up in audio_manager.
+            try:
+                result = await channel.play_queue(
+                    queue_items, target_id, ctx,
+                    audio_type="music",
+                    shuffle=shuffle,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return json.dumps({
+                    "success": False,
+                    "target": target_id,
+                    "error": f"play_queue failed: {exc}",
+                })
+
+            if not result.get("success"):
+                return json.dumps({**result, "label": label, "folder": sub or "(root)"})
+
             return json.dumps({
-                "success": False,
-                "error": f"Sequential playback for target '{target_id}' is not implemented yet. Use target='browser' for now.",
+                **result,
+                "label": label,
+                "folder": sub or "(root)",
+                "files": files[:10] + (["..."] if len(files) > 10 else []),
             })
 
         return Tool(
@@ -380,12 +361,13 @@ class AudioPlayerPlugin:
             tier=TIER_READONLY,
             description=(
                 "Play ALL audio files in a folder sequentially in natural alphabetical "
-                "order (e.g. 'CD 1' < 'CD 2' < 'CD 10'). Use this for audiobooks "
-                "with multiple parts or albums. The 'folder' parameter is a "
+                "order (e.g. 'CD 1' < 'CD 2' < 'CD 10'). Use for audiobooks with "
+                "multiple parts or albums. The 'folder' parameter is a "
                 "label-prefixed path: 'hoerbuecher' for the entire source, or "
                 "'hoerbuecher/Tolkien_HdR' for a sub-folder. Resolution is "
-                "recursive — all audio files below the folder are queued. "
-                "Currently supports target='browser' only; local/puck not yet."
+                "recursive — all audio files below the folder (including "
+                "sub-folders) are queued. Set 'shuffle=True' for random order. "
+                "Works on browser and FreeEcho.2 targets; local channel not yet."
             ),
             parameters={
                 "type": "object",
@@ -396,11 +378,16 @@ class AudioPlayerPlugin:
                     },
                     "target": {
                         "type": "string",
-                        "description": "Output destination ('browser:<id>'). Omit to auto-route.",
+                        "description": "Output destination. Omit to auto-route to where the request came from (FreeEcho.2 wake → that puck; browser input → that tab).",
                     },
                     "restart": {
                         "type": "boolean",
                         "description": "Ignore saved position on the first item. Default: false.",
+                        "default": False,
+                    },
+                    "shuffle": {
+                        "type": "boolean",
+                        "description": "Play tracks in random order. Default: false (natural alphabetical).",
                         "default": False,
                     },
                 },
