@@ -112,26 +112,43 @@ class BrowserChannel:
         }
 
     async def pause(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+        from ..api import audio_queue_push
+
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
             return False
-        # Wir haben hier keine Live-Position aus dem Browser — die kommt
-        # asynchron via API (set_audio_position). Wir markieren nur als
-        # "pausiert für externes Event"; JS pausiert das <audio>-Element.
+
         state.media_paused_for_tts = True
         if hasattr(state, "_persist_audio_state"):
             state._persist_audio_state()
+
+        # Bus-Pause: JS ruft player.pause(); Position bleibt im Element
+        # erhalten und wird per pause-Event automatisch via /api/audio/position
+        # persistiert.
+        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
+        if session_id:
+            audio_queue_push(session_id, "pause", "")
         return True
 
     async def resume(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+        from ..api import audio_queue_push
+
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
             return False
         if not getattr(state, "media_paused_for_tts", False):
             return False
+
         state.media_paused_for_tts = False
         if hasattr(state, "_persist_audio_state"):
             state._persist_audio_state()
+
+        # Bus-Resume: JS ruft player.play() im SSE-Event-Handler — User-
+        # Geste-Erbe vom startAudioStream gilt, autoplay-Block greift
+        # nicht.
+        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
+        if session_id:
+            audio_queue_push(session_id, "resume", "")
         return True
 
     async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
