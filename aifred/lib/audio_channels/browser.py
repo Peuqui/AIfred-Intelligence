@@ -150,13 +150,6 @@ class BrowserChannel:
         logger.debug("BrowserChannel.seek not implemented yet (target=%s)", target_id)
         return False
 
-    async def set_volume(
-        self, target_id: str, percent: float, ctx: "PluginContext | None" = None
-    ) -> bool:
-        # HTML5 hat eigene Lautstärke (User-Slider im Browser). Server
-        # mischt sich nicht ein.
-        return False
-
     async def set_speed(
         self, target_id: str, factor: float, ctx: "PluginContext | None" = None
     ) -> bool:

@@ -89,15 +89,6 @@ class LocalChannel:
         from ..audio_manager import audio_manager
         return await audio_manager.seek(float(position_sec), relative=relative)
 
-    async def set_volume(
-        self, target_id: str, percent: float, ctx: "PluginContext | None" = None
-    ) -> bool:
-        from ..audio_manager import audio_manager
-        try:
-            return await audio_manager.set_volume(float(percent))
-        except ValueError:
-            return False
-
     async def set_speed(
         self, target_id: str, factor: float, ctx: "PluginContext | None" = None
     ) -> bool:
