@@ -43,6 +43,10 @@ class AudioPlayerMixin(rx.State, mixin=True):
     media_is_stream: bool = False    # True for http_stream sources (no resume)
     media_paused_for_tts: bool = False  # set when TTS interrupts media
     media_pause_pos_sec: float = 0.0    # saved position when TTS interrupts
+    # set when the USER explicitly paused via audio_pause / wake-word _pause.
+    # If true, resume_media_after_tts() does NOT auto-resume — user said pause,
+    # user has to say resume.
+    media_paused_by_user: bool = False
 
     # ── Sequenzielles Playback (audio_play_folder) ──────────────────
     # Liste der NACH dem aktuellen Item folgenden Tracks. Beim Ende des
@@ -85,6 +89,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
             "media_is_stream": self.media_is_stream,
             "media_paused_for_tts": self.media_paused_for_tts,
             "media_pause_pos_sec": self.media_pause_pos_sec,
+            "media_paused_by_user": self.media_paused_by_user,
             "media_queue": list(self.media_queue),
         }
 
@@ -101,6 +106,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.media_is_stream = bool(snap.get("media_is_stream", False))
         self.media_paused_for_tts = bool(snap.get("media_paused_for_tts", False))
         self.media_pause_pos_sec = float(snap.get("media_pause_pos_sec", 0.0))
+        self.media_paused_by_user = bool(snap.get("media_paused_by_user", False))
         queue = snap.get("media_queue", [])
         self.media_queue = list(queue) if isinstance(queue, list) else []
 
@@ -164,7 +170,14 @@ class AudioPlayerMixin(rx.State, mixin=True):
         The actual resume (setting <audio src> + currentTime) happens in
         custom.js via a State-pushed re-trigger of media_audio_url. Here
         we just clear the pause flag so JS resumes from media_pause_pos_sec.
+
+        WICHTIG: respektiert ``media_paused_by_user`` — wenn der User
+        explizit pausiert hat (audio_pause / Wake-Wort _pause), darf
+        TTS-Ende NICHT automatisch resumen. User said pause, user has
+        to say resume.
         """
+        if self.media_paused_by_user:
+            return
         if self.media_paused_for_tts:
             self.media_paused_for_tts = False
             # media_pause_pos_sec stays so JS can use it

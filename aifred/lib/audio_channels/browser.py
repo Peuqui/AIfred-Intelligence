@@ -81,6 +81,7 @@ class BrowserChannel:
             state.media_is_stream = src.is_stream
             state.media_paused_for_tts = tts_active or seek_to > 0
             state.media_pause_pos_sec = seek_to
+            state.media_paused_by_user = False  # frischer Start
             state.media_queue = []
             if hasattr(state, "_persist_audio_state"):
                 state._persist_audio_state()
@@ -118,6 +119,11 @@ class BrowserChannel:
         if state is None or not getattr(state, "media_audio_url", ""):
             return False
 
+        # ``media_paused_by_user`` blockt das Auto-Resume nach TTS-Ende
+        # (resume_media_after_tts) — User said pause, User has to resume.
+        # ``media_paused_for_tts`` bleibt fuer State-Konsistenz, ist hier
+        # aber nicht funktional ausschlaggebend.
+        state.media_paused_by_user = True
         state.media_paused_for_tts = True
         if hasattr(state, "_persist_audio_state"):
             state._persist_audio_state()
@@ -136,9 +142,8 @@ class BrowserChannel:
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
             return False
-        if not getattr(state, "media_paused_for_tts", False):
-            return False
 
+        state.media_paused_by_user = False
         state.media_paused_for_tts = False
         if hasattr(state, "_persist_audio_state"):
             state._persist_audio_state()
