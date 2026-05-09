@@ -337,6 +337,27 @@ class AudioPlayerPlugin:
                     if hasattr(state, "_persist_audio_state"):
                         state._persist_audio_state()
 
+                # Audio-Bus: erstes Item via SSE pushen — JS startet den
+                # Player im User-Geste-Stack (kein autoplay-Block). Die
+                # vollstaendige Queue lebt im Reflex-State (data-media-queue
+                # auf dem <audio>-Element); der JS-Cursor in custom.js
+                # advanced auf 'ended' zum naechsten Item, ohne Server-
+                # Roundtrip.
+                session_id = (
+                    getattr(state, "session_id", "")
+                    if state is not None
+                    else ""
+                ) or getattr(ctx, "session_id", "")
+                if session_id:
+                    from ....lib.api import audio_queue_push
+                    audio_queue_push(
+                        session_id, "media", first_url,
+                        state_key=first_key,
+                        start_pos_sec=resumed_at,
+                        is_stream=False,
+                        audio_type="music",
+                    )
+
                 return json.dumps({
                     "success": True,
                     "label": label,
