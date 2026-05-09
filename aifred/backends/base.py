@@ -608,6 +608,7 @@ class OpenAICompatibleBackend(LLMBackend):
                 total_tokens = 0
                 prompt_tokens = 0
                 server_timings: Dict[str, Any] = {}
+                last_round_had_tool_calls = False
 
                 for _tool_round in range(max_tool_rounds):
                     stream = await self.client.chat.completions.create(**kwargs)
@@ -682,7 +683,10 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     # No tool calls → done
                     if not tool_calls or not toolkit:
+                        last_round_had_tool_calls = False
                         break
+
+                    last_round_had_tool_calls = True
 
                     # Execute tool calls and append results to messages
                     assistant_msg: Dict[str, Any] = {
@@ -731,12 +735,29 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     # Next round: LLM sees tool results and generates final response
 
-                # If max_tool_rounds exhausted and model produced no content,
-                # force one final round WITHOUT tools so it must answer
+                # If the for-loop ended with tool_calls in the last round
+                # OR with no content at all, force one final round WITHOUT
+                # tools so the model has to verbalize an answer. Without
+                # this, two failure modes leak through:
+                #   1. Round N had tool_calls → results were appended to
+                #      messages but the model never sees them (loop exit).
+                #   2. Round N had no tool_calls but also no content
+                #      (model emitted only thinking) → no final answer.
                 content_so_far = stream_state.get("_content_acc", "").strip()
-                if not content_so_far and toolkit:
+                needs_force_final = toolkit and (
+                    last_round_had_tool_calls or not content_so_far
+                )
+                if needs_force_final:
                     from ..lib.logging_utils import log_message
-                    log_message("⚠️ Tool rounds exhausted, no content — forcing final response (no tools)")
+                    reason = (
+                        "tool_calls in last round (results unprocessed)"
+                        if last_round_had_tool_calls
+                        else "no content produced"
+                    )
+                    log_message(
+                        f"⚠️ Tool rounds exhausted, {reason} — "
+                        f"forcing final response (no tools)"
+                    )
                     kwargs_final = {**kwargs, "tools": None, "tool_choice": None}
                     stream = await self.client.chat.completions.create(**kwargs_final)
                     stream_state = {}
