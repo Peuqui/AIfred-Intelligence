@@ -1,7 +1,7 @@
 """Pipeline registry — single source of truth for active inference pipelines.
 
 Tracks the currently running ``asyncio.Task`` per session so that an external
-stop command (Puck wake-word ``_stop``, browser stop button, future Discord
+stop command (FreeEcho.2 wake-word ``_stop``, browser stop button, future Discord
 ``/stop``-slash, …) can cancel the pipeline cleanly.
 
 Design notes
@@ -13,13 +13,13 @@ Design notes
   propagates naturally through ``await`` points to LLM streaming, tool calls,
   TTS generation, web-research, etc.
 * ``handle_stop_command(session_id)`` is the public entry point and is
-  channel-agnostic: Puck channel, Browser-UI button, future channels all
+  channel-agnostic: FreeEcho.2 channel, Browser-UI button, future channels all
   call it. Single mechanism, single side-effects (cancel + audio stop).
 
 Limitations
 -----------
-* Audio buffers already streamed to the Puck/Browser cannot be revoked from
-  here — that's the device's job. The Puck code instance handles its local
+* Audio buffers already streamed to the FreeEcho.2/Browser cannot be revoked from
+  here — that's the device's job. The FreeEcho.2 plugin instance handles its local
   buffer drain on its side; this server-side function only stops generating
   *new* output.
 """
@@ -146,7 +146,7 @@ async def handle_stop_command(session_id: str) -> dict:
             "audio_stopped": bool,
         }
 
-    Note: Notifying the device (Puck buffer drain, Browser audio element
+    Note: Notifying the device (FreeEcho.2 buffer drain, Browser audio element
     pause) is **NOT** done here — that handshake is channel-specific and
     handled by the channel plugin.
     """

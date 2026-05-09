@@ -15,4 +15,4 @@ Server-seitige Audio-Wiedergabe von Audiodateien.
 ## Features
 
 - Spielt WAV, MP3, OGG, FLAC direkt auf dem Server ab
-- Geplant für Puck-Hardware-Integration
+- Geplant für FreeEcho.2-Hardware-Integration

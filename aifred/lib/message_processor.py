@@ -288,7 +288,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
     channel_label = plugin.display_name if plugin else message.channel.capitalize()
     notification_title = get_session_title(session_id) or subject
 
-    # Register this coroutine so external stop commands (Puck _stop wake-word,
+    # Register this coroutine so external stop commands (FreeEcho.2 _stop wake-word,
     # browser stop button, ...) can cancel it via cancel_pipeline().
     # The pipeline_scope context manager handles register + unregister even on
     # exceptions/cancellation.
@@ -336,7 +336,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
                 agent = mode_switch_updates["active_agent"]
 
         # Routing priority (highest wins):
-        #   1. Wake-Override (channel hint, e.g. Puck wake-word)
+        #   1. Wake-Override (channel hint, e.g. FreeEcho.2 wake-word)
         #   2. LLM-detected addressee from current query
         #   3. Session active_agent (sticky from previous turn)
         #   4. Default "aifred"

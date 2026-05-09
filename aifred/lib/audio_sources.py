@@ -147,8 +147,8 @@ class ResolvedSource:
     item: str           # Item path within source ("" for streams)
     # Sink-Hint für Output-Channels: "music" (default), "speech" (Hörbücher,
     # Podcasts, TTS), oder "alarm" (Wecker). Lebt in der Source-Config
-    # (`audio_type`-Feld in settings.json) und wird vom PuckChannel via
-    # send_audio_start an den Puck übermittelt — der nutzt das für
+    # (`audio_type`-Feld in settings.json) und wird vom FreeEcho2Channel via
+    # send_audio_start an den FreeEcho.2 übermittelt — der nutzt das für
     # VU-Pattern (Stereo-VU bei music, Voice-VU bei speech).
     audio_type: str = "music"
 

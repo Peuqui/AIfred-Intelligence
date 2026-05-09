@@ -280,7 +280,7 @@ PIPER_VOICES = {
     "Deutsch (MLS)": ("de_DE-mls-medium.onnx", "de"),  # Multi-speaker
 }
 
-# Puck TTS fallback voice (last resort if no agent/AIfred voice configured)
+# FreeEcho.2 TTS fallback voice (last resort if no agent/AIfred voice configured)
 PUCK_TTS_FALLBACK_VOICE = "Deutsch (Karlsson)"
 
 # ============================================================
@@ -313,7 +313,7 @@ MOSS_TTS_SERVICE_URL = "http://localhost:5055"
 # ============================================================
 # TTS Container Keep-Alive (heartbeat ping interval)
 # ============================================================
-# While a long-running pipeline (Puck inference, browser web research)
+# While a long-running pipeline (FreeEcho.2 inference, browser web research)
 # holds a GPU TTS engine, AIfred pings ``/keep_alive`` on the container
 # every TTS_KEEPALIVE_INTERVAL_SECONDS to reset its idle timer.
 # Container-side timeout is set via XTTS_KEEP_ALIVE / MOSS_KEEP_ALIVE
@@ -980,7 +980,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
             return speed_id
 
     # TTS variant — check if a GPU TTS container is actually running
-    # This works for both browser (enable_tts toggle) and Puck (TTS always on).
+    # This works for both browser (enable_tts toggle) and FreeEcho.2 (TTS always on).
     # Instead of relying on settings.json flags, check the real container state.
     if backend_type == "llamacpp":
         from .tts_engine_manager import _detect_running_tts_engine

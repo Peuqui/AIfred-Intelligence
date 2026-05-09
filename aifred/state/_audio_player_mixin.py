@@ -14,7 +14,7 @@ Browser-side (custom.js) is responsible for:
 - Calling resume_media_after_tts() after the last TTS chunk ends
 
 This mixin only holds the state and event handlers; it does not call
-mpv (audio_manager is for target=local/puck only).
+mpv (audio_manager is for target=local/freeecho2 only).
 """
 
 from __future__ import annotations

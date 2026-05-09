@@ -1,10 +1,10 @@
-"""PuckStream — eine mpv-Decoder-Pipeline pro Puck-Target.
+"""FreeEcho2Stream — eine mpv-Decoder-Pipeline pro FreeEcho.2-Target.
 
-Pro aktivem ``puck:<room>``-Target läuft ein eigener mpv-Subprozess, der die
-Audio-Quelle (lokale Datei oder HTTP-Stream) auf 48 kHz mono int16 PCM
-resampled und in eine named FIFO schreibt. Eine Reader-Coroutine liest die
-FIFO chunkweise und gibt die PCM-Bytes an die FreeEcho2-Channel-Bridge,
-die sie als Binary-Frames an den Puck-WebSocket sendet.
+Pro aktivem ``freeecho2:<room>``-Target läuft ein eigener mpv-Subprozess,
+der die Audio-Quelle (lokale Datei oder HTTP-Stream) auf 48 kHz mono int16
+PCM resampled und in eine named FIFO schreibt. Eine Reader-Coroutine liest
+die FIFO chunkweise und gibt die PCM-Bytes an die FreeEcho.2-Channel-Bridge,
+die sie als Binary-Frames an den FreeEcho.2-WebSocket sendet.
 
 Steuerung (pause/resume/seek/stop) läuft über einen mpv-IPC-Socket
 (Unix-Domain) — ein Socket pro Stream. Position-Save geht (wie beim
@@ -12,13 +12,13 @@ LocalChannel) in ``audio_state.json`` über das gemeinsame ``audio_state``-
 Modul, getriggert von einem Save-Loop pro Stream.
 
 Lifecycle:
-    PuckStream(room).start(uri, state_key, start_pos_sec)
-        → mpv läuft, Reader-Task pumpt Audio an den Puck.
+    FreeEcho2Stream(room).start(uri, state_key, start_pos_sec)
+        → mpv läuft, Reader-Task pumpt Audio an den FreeEcho.2-Speaker.
     .pause() / .resume() / .seek(...)
         → IPC-Commands.
     .stop()
         → mpv terminate, Reader cancellen, FIFO/Socket aufräumen,
-          audio_end-Frame an den Puck.
+          audio_end-Frame an den FreeEcho.2-Speaker.
 """
 
 from __future__ import annotations
@@ -38,9 +38,9 @@ COMMAND_TIMEOUT_SEC = 5.0
 READ_CHUNK_SIZE = 64 * 1024   # ~666ms @ 48kHz mono int16 — gut für Latenz
 DEFAULT_SAVE_INTERVAL_SEC = 60
 
-PUCK_SAMPLE_RATE = 48000
-PUCK_CHANNELS = 1
-PUCK_SAMPLE_FORMAT = "s16"   # mpv-Notation; ergibt int16 little-endian
+FE2_SAMPLE_RATE = 48000
+FE2_CHANNELS = 1
+FE2_SAMPLE_FORMAT = "s16"   # mpv-Notation; ergibt int16 little-endian
 
 
 # Type alias: WS-Bridge in freeecho2_channel hat diese Form.
@@ -52,12 +52,12 @@ SendHeartbeat = Callable[[str], Awaitable[bool]]
 HEARTBEAT_INTERVAL_SEC = 5.0
 
 
-class PuckStreamError(RuntimeError):
+class FreeEcho2StreamError(RuntimeError):
     """mpv konnte nicht starten oder die IPC-Verbindung schlug fehl."""
 
 
-class PuckStream:
-    """Eine mpv-Pipeline für genau einen Puck-Target.
+class FreeEcho2Stream:
+    """Eine mpv-Pipeline für genau ein FreeEcho.2-Target.
 
     Nicht thread-safe — alle Methoden müssen vom asyncio-Loop aufgerufen
     werden. Concurrent calls auf derselben Instanz sind durch ``_lock``
@@ -73,8 +73,8 @@ class PuckStream:
         send_heartbeat: Optional[SendHeartbeat] = None,
     ) -> None:
         self.room = room
-        # Target-ID-Prefix muss zum PuckChannel passen — Single-Source-of-Truth
-        from .puck import TARGET_PREFIX
+        # Target-ID-Prefix muss zum FreeEcho2Channel passen — Single-Source-of-Truth
+        from .freeecho2 import TARGET_PREFIX
         self.target_id = f"{TARGET_PREFIX}{room}"
         self._send_start = send_start
         self._send_chunk = send_chunk
@@ -83,8 +83,8 @@ class PuckStream:
 
         # Lebenszyklus-Pfade — eindeutig pro Raum
         safe_room = "".join(c if c.isalnum() else "_" for c in room) or "default"
-        self._fifo_path = str(DATA_DIR / f"puck_{safe_room}.fifo")
-        self._socket_path = str(DATA_DIR / f"puck_{safe_room}.sock")
+        self._fifo_path = str(DATA_DIR / f"freeecho2_{safe_room}.fifo")
+        self._socket_path = str(DATA_DIR / f"freeecho2_{safe_room}.sock")
 
         # Subprocess + Tasks + IPC
         self._proc: Optional[asyncio.subprocess.Process] = None
@@ -103,12 +103,12 @@ class PuckStream:
         self._current_state_key: Optional[str] = None
         self._save_interval: int = DEFAULT_SAVE_INTERVAL_SEC
         # Optional callback fired when mpv signals natural EOF (track ended).
-        # Used by PuckChannel.play_queue() to advance to the next item.
+        # Used by FreeEcho2Channel.play_queue() to advance to the next item.
         self._on_eof_cb: Optional[Callable[[], Awaitable[None]]] = None
         self._stopping = False
 
         # Backpressure: Pump-Task wartet vor jedem Read auf dieses Event.
-        # Initial gesetzt → kein Block. Bei flow=pause vom Puck: clear() →
+        # Initial gesetzt → kein Block. Bei flow=pause vom FreeEcho.2: clear() →
         # pump hängt → mpv blockiert beim FIFO-write (OS-Pipe-Backpressure).
         # Bei flow=resume: set() → pump läuft weiter. Orthogonal zum
         # User-_pause (das geht via mpv-IPC).
@@ -132,9 +132,9 @@ class PuckStream:
         start_pos_sec: Optional[float],
         audio_type: str = "music",
     ) -> dict[str, Any]:
-        """Starte mpv für ``uri`` und beginne PCM-Pump zum Puck.
+        """Starte mpv für ``uri`` und beginne PCM-Pump zum FreeEcho.2.
 
-        ``audio_type`` ist der Hint an den Puck (music/speech/alarm).
+        ``audio_type`` ist der Hint an den FreeEcho.2 (music/speech/alarm).
         Beeinflusst dort VU-Pattern und LED-Verhalten.
         """
         async with self._lock:
@@ -153,9 +153,9 @@ class PuckStream:
                 "--keep-open=no",
                 "--demuxer-max-bytes=512MiB",
                 "--network-timeout=30",
-                f"--audio-samplerate={PUCK_SAMPLE_RATE}",
-                f"--audio-channels={PUCK_CHANNELS}",
-                f"--audio-format={PUCK_SAMPLE_FORMAT}",
+                f"--audio-samplerate={FE2_SAMPLE_RATE}",
+                f"--audio-channels={FE2_CHANNELS}",
+                f"--audio-format={FE2_SAMPLE_FORMAT}",
                 "--ao=pcm",
                 f"--ao-pcm-file={self._fifo_path}",
                 "--ao-pcm-waveheader=no",   # raw PCM, kein WAV-Header
@@ -184,12 +184,12 @@ class PuckStream:
                     break
                 # mpv may exit early (bad URI etc.) — abort if so
                 if self._proc.returncode is not None:
-                    raise PuckStreamError(
+                    raise FreeEcho2StreamError(
                         f"mpv exited rc={self._proc.returncode} before IPC socket"
                     )
                 await asyncio.sleep(0.05)
             if not socket_ready:
-                raise PuckStreamError(
+                raise FreeEcho2StreamError(
                     f"mpv did not create IPC socket at {self._socket_path}"
                 )
 
@@ -198,7 +198,7 @@ class PuckStream:
             )
             self._reader_task = asyncio.create_task(
                 self._ipc_read_loop(),
-                name=f"puck-{self.room}-ipc-reader",
+                name=f"freeecho2-{self.room}-ipc-reader",
             )
             await self._send({"command": ["observe_property", 1, "eof-reached"]})
 
@@ -206,26 +206,26 @@ class PuckStream:
             self._current_state_key = state_key
             self._stopping = False
 
-            # Tell the puck what's coming + start pumping FIFO → WS
+            # Tell the FreeEcho.2 what's coming + start pumping FIFO → WS
             await self._send_start(
-                self.room, PUCK_CHANNELS, PUCK_SAMPLE_RATE, audio_type,
+                self.room, FE2_CHANNELS, FE2_SAMPLE_RATE, audio_type,
             )
             self._fifo_pump_task = asyncio.create_task(
                 self._fifo_pump(),
-                name=f"puck-{self.room}-fifo-pump",
+                name=f"freeecho2-{self.room}-fifo-pump",
             )
             self._save_task = asyncio.create_task(
                 self._position_save_loop(),
-                name=f"puck-{self.room}-position-save",
+                name=f"freeecho2-{self.room}-position-save",
             )
             if self._send_heartbeat is not None:
                 self._heartbeat_task = asyncio.create_task(
                     self._heartbeat_loop(),
-                    name=f"puck-{self.room}-heartbeat",
+                    name=f"freeecho2-{self.room}-heartbeat",
                 )
 
             log_message(
-                f"PuckStream[{self.room}]: mpv started ({uri}, key={state_key})"
+                f"FreeEcho2Stream[{self.room}]: mpv started ({uri}, key={state_key})"
             )
             return {
                 "uri": uri,
@@ -254,7 +254,7 @@ class PuckStream:
         """
         self._stopping = True
         # Flow-Event freigeben, sonst hängt der pump-Task ewig im wait()
-        # falls der Puck zuletzt flow=pause geschickt hat.
+        # falls der FreeEcho.2 zuletzt flow=pause geschickt hat.
         self._flow_resumed.set()
 
         # 1. Position eines letzten Mal speichern (IPC noch da)
@@ -319,12 +319,12 @@ class PuckStream:
             except OSError:
                 pass
 
-        # Puck signalisieren dass der Stream aus ist
+        # FreeEcho.2 signalisieren dass der Stream aus ist
         try:
             await self._send_end(self.room)
         except Exception as exc:  # noqa: BLE001
             log_message(
-                f"PuckStream[{self.room}]: send_end failed: {exc}", "warning"
+                f"FreeEcho2Stream[{self.room}]: send_end failed: {exc}", "warning"
             )
 
         self._current_uri = None
@@ -388,7 +388,7 @@ class PuckStream:
 
     async def _send(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._ipc_writer is None:
-            raise PuckStreamError(f"PuckStream[{self.room}]: IPC not connected")
+            raise FreeEcho2StreamError(f"FreeEcho2Stream[{self.room}]: IPC not connected")
         self._request_id += 1
         rid = self._request_id
         wrapped = {**payload, "request_id": rid}
@@ -430,7 +430,7 @@ class PuckStream:
         except asyncio.CancelledError:
             return
         except Exception as exc:  # noqa: BLE001
-            log_message(f"PuckStream[{self.room}]: IPC read loop error: {exc}", "warning")
+            log_message(f"FreeEcho2Stream[{self.room}]: IPC read loop error: {exc}", "warning")
 
     async def _get_property(self, name: str, default: Any = None) -> Any:
         try:
@@ -445,12 +445,12 @@ class PuckStream:
         if self._current_state_key:
             from ..audio_state import audio_state
             audio_state.mark_completed(self._current_state_key)
-            log_message(f"PuckStream[{self.room}]: completed {self._current_state_key}")
+            log_message(f"FreeEcho2Stream[{self.room}]: completed {self._current_state_key}")
         # Cleanup nicht hier — der fifo_pump merkt das natürliche Ende
         # (FIFO returns 0 bytes nach mpv-Exit) und stop() wird vom
-        # PuckChannel gerufen wenn der Pump-Task fertig ist.
+        # FreeEcho2Channel gerufen wenn der Pump-Task fertig ist.
 
-        # Fire optional EOF callback (PuckChannel.play_queue → advance).
+        # Fire optional EOF callback (FreeEcho2Channel.play_queue → advance).
         # Snapshotted to None first so a re-entrant start() (next track)
         # can install a fresh callback without race.
         cb = self._on_eof_cb
@@ -460,7 +460,7 @@ class PuckStream:
                 await cb()
             except Exception as exc:  # noqa: BLE001
                 log_message(
-                    f"PuckStream[{self.room}]: on_eof callback error: {exc}",
+                    f"FreeEcho2Stream[{self.room}]: on_eof callback error: {exc}",
                     "warning",
                 )
 
@@ -477,13 +477,13 @@ class PuckStream:
             pass
 
     async def _fifo_pump(self) -> None:
-        """Lese PCM aus der FIFO und schicke jeden Chunk an den Puck.
+        """Lese PCM aus der FIFO und schicke jeden Chunk an den FreeEcho.2.
 
         Read auf einer FIFO blockiert bis ein Writer Daten reinschreibt
         (= mpv lebt). Wenn mpv exited, gibt's EOF → 0 bytes → Loop endet.
 
         Backpressure: vor jedem Read wartet der Pump auf
-        ``_flow_resumed`` (Event). Wenn der Puck flow=pause schickt,
+        ``_flow_resumed`` (Event). Wenn der FreeEcho.2 flow=pause schickt,
         clear()-t der Channel das Event → Pump hängt → mpv blockiert
         am FIFO-write (OS-Pipe-Backpressure, Pipe-Buffer ~64 KB). Bei
         flow=resume wird das Event wieder gesetzt → Pump pumpt weiter.
@@ -495,7 +495,7 @@ class PuckStream:
             )
         except OSError as exc:
             log_message(
-                f"PuckStream[{self.room}]: FIFO open failed: {exc}", "error"
+                f"FreeEcho2Stream[{self.room}]: FIFO open failed: {exc}", "error"
             )
             return
 
@@ -509,11 +509,11 @@ class PuckStream:
                 # mpv beim FIFO-write blockiert → keine PCM-Generation.
                 if not self._flow_resumed.is_set():
                     log_message(
-                        f"PuckStream[{self.room}]: flow=pause — pump waiting",
+                        f"FreeEcho2Stream[{self.room}]: flow=pause — pump waiting",
                     )
                     await self._flow_resumed.wait()
                     log_message(
-                        f"PuckStream[{self.room}]: flow=resume — pump continuing",
+                        f"FreeEcho2Stream[{self.room}]: flow=resume — pump continuing",
                     )
                     if self._stopping:
                         break
@@ -524,7 +524,7 @@ class PuckStream:
                     )
                 except OSError as exc:
                     log_message(
-                        f"PuckStream[{self.room}]: FIFO read error: {exc}", "warning"
+                        f"FreeEcho2Stream[{self.room}]: FIFO read error: {exc}", "warning"
                     )
                     break
                 if not chunk:
@@ -534,12 +534,12 @@ class PuckStream:
                     ok = await self._send_chunk(self.room, chunk)
                 except Exception as exc:  # noqa: BLE001
                     log_message(
-                        f"PuckStream[{self.room}]: send_chunk error: {exc}", "warning"
+                        f"FreeEcho2Stream[{self.room}]: send_chunk error: {exc}", "warning"
                     )
                     break
                 if not ok:
                     log_message(
-                        f"PuckStream[{self.room}]: WS send returned False — aborting",
+                        f"FreeEcho2Stream[{self.room}]: WS send returned False — aborting",
                         "warning",
                     )
                     break
@@ -554,7 +554,7 @@ class PuckStream:
     # ── Backpressure-Steuerung (vom Channel aufgerufen) ──────
 
     def notify_flow(self, state: str) -> None:
-        """Vom PuckChannel aufgerufen wenn ein flow-Frame vom Puck kommt.
+        """Vom FreeEcho2Channel aufgerufen wenn ein flow-Frame vom FreeEcho.2 kommt.
 
         ``state`` = "pause" → Pump hält an. "resume" → Pump läuft weiter.
         Andere States werden geloggt und ignoriert.
@@ -565,7 +565,7 @@ class PuckStream:
             self._flow_resumed.set()
         else:
             log_message(
-                f"PuckStream[{self.room}]: unknown flow state '{state}'", "warning"
+                f"FreeEcho2Stream[{self.room}]: unknown flow state '{state}'", "warning"
             )
 
     # ── Heartbeat während aktivem Stream ────────────────────
@@ -573,7 +573,7 @@ class PuckStream:
     # Auch bei flow.pause (User-Pause via _pause-Wake oder Backpressure
     # durch vollen Ring) bleibt der Stream "aktiv" — User kann legitim
     # stundenlang pausieren wollen. Der Heartbeat erkennt nur ob der
-    # Puck noch erreichbar ist (nicht ob er pausiert hat).
+    # FreeEcho.2 noch erreichbar ist (nicht ob er pausiert hat).
     #
     # Wenn ein send_heartbeat zwei Mal hintereinander fehlschlägt,
     # signalisiert der Stream sich selbst als verloren und räumt auf —
@@ -594,7 +594,7 @@ class PuckStream:
                     ok = await self._send_heartbeat(self.room)
                 except Exception as exc:  # noqa: BLE001
                     log_message(
-                        f"PuckStream[{self.room}]: heartbeat error: {exc}",
+                        f"FreeEcho2Stream[{self.room}]: heartbeat error: {exc}",
                         "warning",
                     )
                     ok = False
@@ -603,13 +603,13 @@ class PuckStream:
                     continue
                 consecutive_failures += 1
                 log_message(
-                    f"PuckStream[{self.room}]: heartbeat failed "
+                    f"FreeEcho2Stream[{self.room}]: heartbeat failed "
                     f"({consecutive_failures}/2)",
                     "warning",
                 )
                 if consecutive_failures >= 2:
                     log_message(
-                        f"PuckStream[{self.room}]: puck unreachable — "
+                        f"FreeEcho2Stream[{self.room}]: FreeEcho.2 unreachable — "
                         f"triggering stream cleanup",
                         "error",
                     )
@@ -645,5 +645,5 @@ class PuckStream:
             return
         except Exception as exc:  # noqa: BLE001
             log_message(
-                f"PuckStream[{self.room}]: position-save loop error: {exc}", "warning"
+                f"FreeEcho2Stream[{self.room}]: position-save loop error: {exc}", "warning"
             )

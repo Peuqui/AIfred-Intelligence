@@ -1,16 +1,17 @@
 """AudioOutputChannel protocol — abstrakte Schnittstelle für Audio-Senken.
 
-Jede konkrete Senke (lokales mpv, Browser-Tab, FreeEcho.2-Puck, …) erfüllt
+Jede konkrete Senke (lokales mpv, Browser-Tab, FreeEcho.2, …) erfüllt
 dieses Protocol. Der Audio-Player wählt zur Aufrufzeit per Registry-Lookup
 den passenden Channel anhand der ``target_id``-Präfix-Konvention:
 
   ``local``                → LocalChannel
   ``browser:<session_id>`` → BrowserChannel
-  ``freeecho2:<room>``     → PuckChannel (FreeEcho.2-Pucks)
+  ``freeecho2:<room>``     → FreeEcho2Channel (FreeEcho.2-Speaker)
 
-Das Protocol dehnt sich bewusst nicht auf Puck-Lifecycle (``_standby`` /
-``_activate``) aus — das ist Mikrofon-Mute am Puck und gehört in den
-FreeEcho.2-Channel-Plugin selbst, nicht in die Audio-Senken-Abstraktion.
+Das Protocol dehnt sich bewusst nicht auf FreeEcho.2-Lifecycle
+(``_standby`` / ``_activate``) aus — das ist Mikrofon-Mute am Speaker und
+gehört in den FreeEcho.2-Channel-Plugin selbst, nicht in die Audio-Senken-
+Abstraktion.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ class AudioFormat:
     """Format-Anforderung eines Output-Channels.
 
     ``None`` für Felder die der Channel egal sind. mpv default akzeptiert
-    z.B. alles → leeres ``AudioFormat()``. Der Puck verlangt ein konkretes
+    z.B. alles → leeres ``AudioFormat()``. Der FreeEcho.2 verlangt ein konkretes
     Format → ``AudioFormat(48000, 1, "s16le")``.
     """
 
@@ -55,7 +56,7 @@ class AudioOutputChannel(Protocol):
     angemeldet (siehe ``audio_channels/__init__.py``).
     """
 
-    name: str                       # "local", "browser", "puck"
+    name: str                       # "local", "browser", "freeecho2"
     required_format: AudioFormat    # was die Senke an Eingabe erwartet
 
     def can_handle(self, target_id: str) -> bool:
@@ -71,7 +72,7 @@ class AudioOutputChannel(Protocol):
 
         Wird von ``audio_targets()``-Tool aufgerufen — Result fließt in die
         UI/LLM-Antwort. Darf I/O machen (Browser-Sessions auflisten,
-        Puck-WebSocket-Connections checken etc.) sollte aber schnell sein.
+        FreeEcho.2-WebSocket-Connections checken etc.) sollte aber schnell sein.
         """
         ...
 
@@ -99,7 +100,7 @@ class AudioOutputChannel(Protocol):
 
         ``ctx`` wird vom BrowserChannel benötigt um den Reflex-State zu
         manipulieren (HTML5-Player wird über State-Push gesteuert).
-        Channels die ctx nicht brauchen (Local, Puck) ignorieren ihn.
+        Channels die ctx nicht brauchen (Local, FreeEcho.2) ignorieren ihn.
         """
         ...
 
@@ -165,7 +166,7 @@ class AudioOutputChannel(Protocol):
     # Pull-basierte Sinks (Browser-HTML5) und Direkt-OS-Sinks (Local/mpv→
     # ALSA) brauchen keine App-Level-Flow-Control — der Receiver pullt
     # selbst bzw. das Betriebssystem hält die Sound-Karte synchron. Push-
-    # basierte Sinks (Puck via WS, ggf. zukünftige BT-Speaker) müssen
+    # basierte Sinks (FreeEcho.2 via WS, ggf. zukünftige BT-Speaker) müssen
     # signalisieren wenn ihr Buffer voll ist, sonst läuft der Server
     # ihnen davon.
     #

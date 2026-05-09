@@ -1,4 +1,4 @@
-# TTS + VRAM Workflow — Puck & Browser
+# TTS + VRAM Workflow — FreeEcho.2 & Browser
 
 ## Grundprinzip
 
@@ -10,9 +10,9 @@ Alles bleibt geladen bis die nächste Anforderung etwas anderes braucht.
 Nur **XTTS** und **MOSS-TTS** belegen VRAM (Docker-Container mit GPU).
 Piper, Edge, eSpeak, DashScope brauchen kein VRAM.
 
-## Puck (FreeEcho.2) — Fälle
+## FreeEcho.2 — Fälle
 
-Der Puck hat eine **eigene TTS-Engine** (konfiguriert im Plugin, unabhängig vom Browser).
+Der FreeEcho.2 hat eine **eigene TTS-Engine** (konfiguriert im Plugin, unabhängig vom Browser).
 
 ### Fall 1: VRAM leer (nichts geladen)
 1. TTS starten (z.B. XTTS)
@@ -69,11 +69,11 @@ Der Puck hat eine **eigene TTS-Engine** (konfiguriert im Plugin, unabhängig vom
 - Voice leer → Fallback auf AIfred's Voice des aktuellen Backends
 - Änderungen werden nur als **Settings** gespeichert, kein sofortiger VRAM-Wechsel
 
-### Puck-Plugin (FreeEcho.2)
+### FreeEcho.2-Plugin
 - Eigene Engine-Einstellung im Plugin (Credential-Broker)
 - Unabhängig vom Browser-Backend
 - Änderung → nur Setting, kein sofortiger Wechsel
-- Nächste Puck-Anfrage nutzt die neuen Settings
+- Nächste FreeEcho.2-Anfrage nutzt die neuen Settings
 
 ## Autoplay + Streaming
 
@@ -90,7 +90,7 @@ Der Puck hat eine **eigene TTS-Engine** (konfiguriert im Plugin, unabhängig vom
 2. Agent hat keine Voice → AIfred's Voice des aktuellen Backends
 3. AIfred hat keine Voice → `self.tts_voice` (State-Default)
 
-### Puck
+### FreeEcho.2
 1. User-Setting für Agent+Engine (aus `settings.json`)
 2. User-Setting für AIfred (Fallback)
 3. `TTS_AGENT_VOICE_DEFAULTS[engine][agent]`
@@ -117,5 +117,5 @@ Bei der Intent-Detection:
 | `force_tts_switch()` | `tts_engine_manager.py` | Nach Deferred-Inferenz: TTS laden + Profil wechseln |
 | `_do_switch()` | `tts_engine_manager.py` | Voller Engine-Wechsel (entladen → laden) |
 | `set_tts_engine_or_off()` | `_tts_config_mixin.py` | Browser-Dropdown Handler |
-| `_run_tts()` | `freeecho2/__init__.py` | Puck Audio-Generierung |
+| `_run_tts()` | `freeecho2/__init__.py` | FreeEcho.2 Audio-Generierung |
 | `_queue_tts_for_agent()` | `_tts_streaming_mixin.py` | Browser TTS-Generierung |

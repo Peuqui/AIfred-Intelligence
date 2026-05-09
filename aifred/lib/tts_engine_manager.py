@@ -5,7 +5,7 @@ restart when switching between TTS engines. Used by both the browser UI
 (Reflex state) and headless channels (FreeEcho.2, future voice control).
 
 Central function: ensure_tts_state(wanted_tts, backend_type)
-- Both browser and Puck call this with what they want.
+- Both browser and FreeEcho.2 call this with what they want.
 - It checks what's running, and adjusts if needed.
 """
 
@@ -33,14 +33,14 @@ TTS_HEALTH_CHECK_TIMEOUT = 5
 # TTS engine refcount — protects active pipelines from stop_engine() races.
 # =============================================================================
 #
-# Use case: a Puck request acquires "xtts" at the start of its pipeline and
+# Use case: a FreeEcho.2 request acquires "xtts" at the start of its pipeline and
 # releases it after the audio is sent. If the browser (or another channel)
-# calls ensure_tts_state() with `wanted_tts != "xtts"` while the Puck is mid-
+# calls ensure_tts_state() with `wanted_tts != "xtts"` while the FreeEcho.2 is mid-
 # pipeline, the stop_engine() call would tear down the container under the
-# Puck's feet. The refcount makes ensure_tts_state() skip the stop while any
+# FreeEcho.2's feet. The refcount makes ensure_tts_state() skip the stop while any
 # active holder still needs the engine.
 #
-# Counter — NOT a binary lock — so multiple concurrent Pucks coexist cleanly.
+# Counter — NOT a binary lock — so multiple concurrent FreeEcho.2 speakers coexist cleanly.
 # Idle behaviour is unchanged: when nothing holds the engine, ensure_tts_state
 # may stop it, and the container's KEEP_ALIVE will eventually shut it down on
 # its own.
@@ -67,7 +67,7 @@ def release_tts(engine: str) -> None:
 
     Safe to call even if the engine was not acquired (no-op below 0).
     Pipelines must put this in a ``finally`` block to survive crashes
-    and external cancellations (e.g. Puck Action-Button stop event).
+    and external cancellations (e.g. FreeEcho.2 Action-Button stop event).
     """
     if engine not in _engine_refs:
         return
@@ -99,7 +99,7 @@ async def tts_keepalive_loop(
     """Ping ``/keep_alive`` on each given GPU TTS engine while a pipeline runs.
 
     Each ping resets the container-internal idle timer (XTTS_KEEP_ALIVE /
-    MOSS_KEEP_ALIVE) to its full window. Used by the Puck channel and the
+    MOSS_KEEP_ALIVE) to its full window. Used by the FreeEcho.2 channel and the
     browser pipeline to prevent the engine from shutting down mid-flight
     during long-running inference (multi-step web research, large models).
 
@@ -256,7 +256,7 @@ def ensure_tts_state(
     """Ensure VRAM state matches TTS requirements. Yields status after each step.
 
     This is the SINGLE SOURCE OF TRUTH for TTS state management.
-    Both browser and Puck call this with what they want.
+    Both browser and FreeEcho.2 call this with what they want.
 
     Args:
         wanted_tts: Desired TTS engine ("xtts", "moss", or "" for none)
@@ -264,7 +264,7 @@ def ensure_tts_state(
         xtts_force_cpu: Force XTTS to CPU mode (no VRAM needed)
         check_defer: If True and LLM is loaded, return deferred=True
                      so caller can inferize first before switching.
-                     (Puck optimization: use existing LLM, switch after)
+                     (FreeEcho.2 optimization: use existing LLM, switch after)
 
     Yields:
         Status messages after each blocking step.
@@ -288,13 +288,13 @@ def ensure_tts_state(
             yield f"{running.upper()} already running"
         return TTSState(success=True)
 
-    # Case 2a: Puck optimization — LLM loaded, want different GPU TTS
+    # Case 2a: FreeEcho.2 optimization — LLM loaded, want different GPU TTS
     # Caller can inferize with current LLM first, then switch
     if check_defer and wanted_tts and _is_llm_loaded(backend_type):
         yield "LLM loaded, deferring TTS switch to after inference"
         return TTSState(success=True, deferred=True)
 
-    # Case 2b: Puck optimization — LLM loaded, GPU TTS running but not needed
+    # Case 2b: FreeEcho.2 optimization — LLM loaded, GPU TTS running but not needed
     # (User switched to lightweight engine like Edge/Piper/eSpeak)
     # Start container stop NOW (background thread) — docker compose down is
     # CPU/IO and doesn't interfere with GPU inference running in parallel.
@@ -323,7 +323,7 @@ def ensure_tts_state(
         )
 
     # Case 4: Don't want TTS but one is running → stop it … unless an active
-    # pipeline still needs it (refcount > 0). Skipping the stop keeps Puck
+    # pipeline still needs it (refcount > 0). Skipping the stop keeps FreeEcho.2
     # responses safe from cross-channel teardown; the container's KEEP_ALIVE
     # will eventually idle it out anyway.
     if running:
@@ -416,7 +416,7 @@ def force_tts_switch(
 ) -> Generator[str, None, TTSState]:
     """Ensure TTS + LLM with TTS-profile are loaded after deferred inference.
 
-    Called after Puck used the existing LLM (without TTS) for inference.
+    Called after FreeEcho.2 used the existing LLM (without TTS) for inference.
     Now load TTS and switch LLM to TTS-calibrated profile.
 
     Cases:
@@ -467,7 +467,7 @@ def get_effective_model_info(backend_type: str = "llamacpp") -> str:
     """Get effective model + context info string after TTS/VRAM change.
 
     Single source of truth for the "model reloaded with X context" debug line.
-    Used by both browser (TTS toggle) and Puck (ensure_tts_state) paths.
+    Used by both browser (TTS toggle) and FreeEcho.2 (ensure_tts_state) paths.
     """
     from .config import get_effective_model_from_settings
     from .formatting import format_number

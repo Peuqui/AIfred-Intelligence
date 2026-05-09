@@ -32,7 +32,7 @@ class ChatMixin(rx.State, mixin=True):
     current_agent_emoji: str = ""  # Emoji for streaming UI
     is_generating: bool = False
     # True when the current is_generating was triggered by an external
-    # channel (Message Hub: Puck, email, Telegram, …) rather than the
+    # channel (Message Hub: FreeEcho.2, email, Telegram, …) rather than the
     # local browser.  The tick handler keeps running its mtime-watch
     # while a hub-side pipeline is in progress so the user sees the
     # chat bubble the moment STT / intent / etc. writes to the session
@@ -518,7 +518,7 @@ class ChatMixin(rx.State, mixin=True):
     async def _phase_tts_container_checks(self) -> AsyncGenerator[None, None]:
         """Ensure VRAM state matches TTS requirements before LLM loads.
 
-        Uses ensure_tts_state (SSOT) — same function as FreeEcho.2 Puck.
+        Uses ensure_tts_state (SSOT) — same function as FreeEcho.2.
         Browser passes what it wants, function handles the rest.
         """
         from ..lib.tts_engine_manager import ensure_tts_state, GPU_ENGINES
@@ -754,7 +754,7 @@ class ChatMixin(rx.State, mixin=True):
 
         # Acquire active GPU TTS engine + start keep-alive ping for the
         # duration of the pipeline. Prevents the container from idle-out
-        # during long inference or web research (analogous to Puck channel).
+        # during long inference or web research (analogous to FreeEcho.2 channel).
         from ..lib.tts_engine_manager import (
             GPU_ENGINES,
             _detect_running_tts_engine,
