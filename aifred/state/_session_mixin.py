@@ -374,11 +374,11 @@ class SessionMixin(rx.State, mixin=True):
                         self._restore_session(session)
                         self.session_restored = True
 
-        # Reconnect TTS SSE stream for this device (multi-device support)
+        # Reconnect Audio Bus SSE stream for this device (multi-device support)
         # When user clicks reload button, they signal "I want to work here now"
-        # This ensures TTS audio plays on this device (Last Writer Wins)
+        # — ensures TTS + media audio plays on this device (Last Writer Wins).
         if self.session_id:
-            return rx.call_script(f"if(window.startTtsStream) startTtsStream('{self.session_id}');")
+            return rx.call_script(f"if(window.startAudioStream) startAudioStream('{self.session_id}');")
 
     # ── Clear Chat (Internal) ────────────────────────────────────────
 

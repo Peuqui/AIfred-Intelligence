@@ -60,6 +60,8 @@ class BrowserChannel:
         start_pos_sec: float | None,
         ctx: "PluginContext",
     ) -> dict[str, Any]:
+        from ..api import audio_queue_push
+
         audio_url = f"/api/audio/file?key={quote(src.state_key)}"
         state = getattr(ctx, "state", None)
 
@@ -70,17 +72,33 @@ class BrowserChannel:
 
         tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
 
+        # Persist-Snapshot im Reflex-State (fuer Reload nach Server-Restart,
+        # Pause/Resume bei TTS-Takeover). State ist NICHT mehr der Trigger
+        # zum Abspielen — das laeuft jetzt ueber den Audio-Bus (SSE).
         if state is not None:
             state.media_audio_url = audio_url
             state.media_state_key = src.state_key
             state.media_is_stream = src.is_stream
-            # Entweder soll nach TTS geseekt werden, oder Auto-Resume muss
-            # auf TTS-Ende warten — beides nutzt das paused-for-tts-Flag.
             state.media_paused_for_tts = tts_active or seek_to > 0
             state.media_pause_pos_sec = seek_to
             state.media_queue = []
             if hasattr(state, "_persist_audio_state"):
                 state._persist_audio_state()
+
+        # Audio-Bus: SSE-Event triggert <audio>-Element direkt im Browser
+        # (analog zum TTS-Pfad). Ohne diesen Push wuerden React-State-Updates
+        # asynchron angekommen und der MutationObserver-Trigger ausserhalb der
+        # User-Geste-Kette landen → audio.play() blockiert.
+        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
+        audio_type = getattr(src, "audio_type", "music")
+        if session_id:
+            audio_queue_push(
+                session_id, "media", audio_url,
+                state_key=src.state_key,
+                start_pos_sec=seek_to,
+                is_stream=bool(src.is_stream),
+                audio_type=audio_type,
+            )
 
         return {
             "success": True,
@@ -117,14 +135,16 @@ class BrowserChannel:
         return True
 
     async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+        from ..api import audio_queue_push
+
         state = getattr(ctx, "state", None) if ctx else None
         if state is None:
             logger.debug("BrowserChannel.stop: no ctx.state — skipping (target=%s)", target_id)
             return False
         if not (getattr(state, "media_audio_url", "") or getattr(state, "media_queue", [])):
             return False
-        # Position ist im Browser; JS hat sie via API bereits persistiert
-        # bei pause/end events. Wir leeren nur den Slot.
+
+        # State-Snapshot leeren (Persistenz)
         state.media_audio_url = ""
         state.media_state_key = ""
         state.media_is_stream = False
@@ -133,6 +153,17 @@ class BrowserChannel:
         state.media_queue = []
         if hasattr(state, "_persist_audio_state"):
             state._persist_audio_state()
+
+        # Bus-Stop-Event triggert player.pause() + src-clear im Browser
+        # (analog zu kind="media" beim Start). Ohne diesen Push wuerde der
+        # Reflex-State-Clear allein nicht reichen — das <audio>-Element
+        # spielt sonst weiter, weil React-Renders das `src`-Property nicht
+        # mehr automatisch zuruecksetzen, wenn der Trigger-Pfad ueber den
+        # Bus laeuft.
+        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
+        if session_id:
+            audio_queue_push(session_id, "stop", "")
+
         return True
 
     async def seek(
