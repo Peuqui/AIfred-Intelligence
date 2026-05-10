@@ -21,6 +21,7 @@ Run manually:
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import sys
 from pathlib import Path
@@ -54,6 +55,55 @@ def _store():
     if s is None:
         raise HTTPException(503, "DocumentStore unavailable — is ChromaDB running?")
     return s
+
+
+# ─── Source-Label-Mapping ────────────────────────────────────────────
+# Per-Hit human-readable source label for the search UI. Loaded once at
+# startup from deploy/corpus/source_labels.json — first prefix-match
+# wins. Specific entries (e.g. "judaica/tanakh/tora/01_genesis") must
+# come before generic ones ("judaica/tanakh/tora/") in the JSON.
+
+_SOURCE_LABELS_PATH = REPO_ROOT / "deploy" / "corpus" / "source_labels.json"
+
+
+def _load_source_labels() -> list[tuple[str, str]]:
+    if not _SOURCE_LABELS_PATH.exists():
+        return []
+    try:
+        data = json.loads(_SOURCE_LABELS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    patterns = data.get("patterns", [])
+    return [
+        (str(p[0]), str(p[1]))
+        for p in patterns
+        if isinstance(p, list) and len(p) == 2
+    ]
+
+
+_SOURCE_LABELS: list[tuple[str, str]] = _load_source_labels()
+
+
+def _display_source(filename: str) -> str:
+    """Return a human-readable source label for ``filename``.
+
+    First prefix-match in the JSON wins. Falls back to the raw filename
+    when nothing matches — better than empty.
+    """
+    if not filename:
+        return ""
+    for prefix, label in _SOURCE_LABELS:
+        if filename.startswith(prefix):
+            return label
+    return filename
+
+
+def _enrich_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add ``display_source`` to each hit in-place. Returns the same list
+    for chaining."""
+    for h in hits:
+        h["display_source"] = _display_source(str(h.get("filename", "")))
+    return hits
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -612,7 +662,7 @@ def search(req: SearchRequest) -> dict[str, Any]:
             neighbor_window=req.neighbor,
         ))
         return {"mode": "semantic", "query": req.query, "folder": req.folder,
-                "total": len(hits), "results": hits}
+                "total": len(hits), "results": _enrich_hits(hits)}
 
     if req.mode == "phrase":
         # Volltext-Phrase-Suche mit Stem-Toleranz ueber das ganze (gefilterte)
@@ -666,13 +716,13 @@ def search(req: SearchRequest) -> dict[str, Any]:
                 })
                 if len(hits) >= req.n_results:
                     return {"mode": "phrase", "query": req.query, "folder": req.folder,
-                            "total": len(hits), "results": hits}
+                            "total": len(hits), "results": _enrich_hits(hits)}
             if len(docs) < page_size:
                 break
             offset += page_size
         hits.sort(key=lambda h: (h["filename"], h["chunk_index"]))
         return {"mode": "phrase", "query": req.query, "folder": req.folder,
-                "total": len(hits), "results": hits}
+                "total": len(hits), "results": _enrich_hits(hits)}
 
     # literal — paginated string match, whitespace-normalised
     needle_norm = " ".join(req.query.lower().split())
@@ -719,12 +769,12 @@ def search(req: SearchRequest) -> dict[str, Any]:
             })
             if len(hits) >= req.n_results:
                 return {"mode": "literal", "query": req.query, "folder": req.folder,
-                        "total": len(hits), "results": hits}
+                        "total": len(hits), "results": _enrich_hits(hits)}
         if len(docs) < page:
             break
         offset += page
     return {"mode": "literal", "query": req.query, "folder": req.folder,
-            "total": len(hits), "results": hits}
+            "total": len(hits), "results": _enrich_hits(hits)}
 
 
 # ═════════════════════════════════════════════════════════════════════
