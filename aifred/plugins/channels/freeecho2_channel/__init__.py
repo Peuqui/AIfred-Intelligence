@@ -261,38 +261,102 @@ class FreeEchoChannel(BaseChannel):
             # basiert. Pflichtfeld in Wake-Frames vom Puck.
             consumed_ms = msg.get("consumed_ms")
 
-            # Command tokens (leading underscore, e.g. "_stop") are processed
-            # immediately on the WAKE event — no audio is expected to follow.
-            # The FreeEcho.2 just sent us a control signal, not the start of a query.
-            if wake_agent and wake_agent.startswith("_"):
-                _pending_wake_agent.pop(room, None)
-                self.channel_log(
-                    f"[FreeEcho.2 {room}] Command wake-word received: "
-                    f"{wake_agent}, consumed_ms={consumed_ms}"
+            # Wake-Pfad in einen session_scope einhuellen — channel_log
+            # mirror-t dann live in die UI-Debug-Konsole. Session-ID
+            # kommt aus der Routing-Tabelle (vom letzten Inbound dieses
+            # Pucks angelegt). Kein Scope wenn keine Route existiert
+            # (z.B. allererster Puck-Wake nach Server-Start) — Logs
+            # landen dann nur im File, kein Drama.
+            from ....lib.debug_bus import session_scope
+            from ....lib.routing_table import routing_table
+            route = routing_table.get_route("freeecho2", room)
+            sid = route.session_id if route else None
+
+            with session_scope(sid):
+                # Stream-Start-Offset snapshotten BEVOR der Stream
+                # gestoppt wird. Der Puck zaehlt consumed_ms seit dem
+                # letzten audio_start (= seit current stream-start),
+                # also: track_pos = offset + consumed_ms/1000. Ohne den
+                # Snapshot waere der offset nach _handle_command_token
+                # nicht mehr verfuegbar (Stream-Slot leer).
+                from ....lib import audio_channels
+                ch = audio_channels.resolve(f"freeecho2:{room}")
+                stream_offset = (
+                    ch.get_stream_start_offset(room) if ch is not None else None
                 )
-                # 1. Stream stoppen (cleanup schreibt mpv-time-pos in
-                #    audio_state als Backup-Position)
-                # 2. consumed_ms ueberschreibt das mit der echten
-                #    Hoehrposition — Reihenfolge zaehlt
-                await self._handle_command_token(wake_agent, room)
-                self._override_position_with_consumed_ms(room, consumed_ms)
+
+                # Command tokens (leading underscore, e.g. "_stop") are
+                # processed immediately on the WAKE event — no audio is
+                # expected to follow. The FreeEcho.2 just sent us a
+                # control signal, not the start of a query.
+                if wake_agent and wake_agent.startswith("_"):
+                    _pending_wake_agent.pop(room, None)
+                    self._log_command_wake(room, wake_agent, consumed_ms)
+                    # 1. Stream stoppen (cleanup schreibt mpv-time-pos in
+                    #    audio_state als Backup-Position)
+                    # 2. consumed_ms+offset ueberschreibt das mit der
+                    #    echten Track-Position — Reihenfolge zaehlt
+                    await self._handle_command_token(wake_agent, room)
+                    self._override_position_with_consumed_ms(
+                        room, consumed_ms, stream_offset_sec=stream_offset,
+                    )
+                    await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
+                    return
+
+                # Normal wake (Audio-Query folgt): Music-Source wird vom Puck
+                # vermutlich preempted. consumed_ms in audio_state schreiben
+                # damit User später via audio_resume nahtlos zurueckkommt.
+                self._override_position_with_consumed_ms(
+                    room, consumed_ms, stream_offset_sec=stream_offset,
+                )
+
+                pos_str = self._fmt_consumed(consumed_ms)
+                if wake_agent:
+                    _pending_wake_agent[room] = str(wake_agent)
+                    self.channel_log(
+                        f"🎤 [FreeEcho.2 {room}] wake (agent={wake_agent}) "
+                        f"@ {pos_str} — recording started"
+                    )
+                else:
+                    _pending_wake_agent.pop(room, None)
+                    self.channel_log(
+                        f"🎤 [FreeEcho.2 {room}] wake @ {pos_str} "
+                        f"— recording started"
+                    )
+                # Pre-signal: could trigger model warmup here
+                # For now just acknowledge
                 await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
-                return
 
-            # Normal wake (Audio-Query folgt): Music-Source wird vom Puck
-            # vermutlich preempted. consumed_ms in audio_state schreiben
-            # damit User später via audio_resume nahtlos zurueckkommt.
-            self._override_position_with_consumed_ms(room, consumed_ms)
+    @staticmethod
+    def _fmt_consumed(consumed_ms: Any) -> str:
+        """Format consumed_ms as ``m:ss (XXX,X s)`` — locale-aware via format_number."""
+        if consumed_ms is None:
+            return "?"
+        try:
+            ms = int(consumed_ms)
+        except (TypeError, ValueError):
+            return "?"
+        secs = ms / 1000.0
+        total = int(secs)
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        ts = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+        return f"{ts} ({format_number(secs, 1)} s)"
 
-            if wake_agent:
-                _pending_wake_agent[room] = str(wake_agent)
-                self.channel_log(f"[FreeEcho.2 {room}] Wake word detected (agent={wake_agent})")
-            else:
-                _pending_wake_agent.pop(room, None)
-                self.channel_log(f"[FreeEcho.2 {room}] Wake word detected")
-            # Pre-signal: could trigger model warmup here
-            # For now just acknowledge
-            await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
+    def _log_command_wake(self, room: str, token: str, consumed_ms: Any) -> None:
+        """Schoenes pre-action log fuer Command-Wake-Words."""
+        emoji = {
+            "_stop":     "⏹️",
+            "_pause":    "⏸️",
+            "_resume":   "▶️",
+            "_standby":  "🌙",
+            "_activate": "💡",
+        }.get(token, "🔘")
+        pos_str = self._fmt_consumed(consumed_ms)
+        self.channel_log(
+            f"🎤 [FreeEcho.2 {room}] {emoji} command wake: "
+            f"{token} @ {pos_str}"
+        )
 
     async def _handle_command_token(self, token: str, room: str) -> None:
         """Verarbeite ein Command-Token (Wake-Word mit ``_``-Prefix) für diesen Raum.
@@ -328,49 +392,77 @@ class FreeEchoChannel(BaseChannel):
             #   b) Hörbuch lief vor Stunden, Server-Restart, etc. →
             #      audio_state kennt den letzten Key, alles wird neu gebaut
             cancelled = self._cancel_pipeline_for_room(room)
+            cancel_info = "pipeline cancelled" if cancelled else "no pipeline running"
             self.channel_log(
-                f"[FreeEcho.2 {room}] _resume: pipeline_cancelled={cancelled}"
+                f"▶️ [FreeEcho.2 {room}] _resume: {cancel_info} — "
+                f"loading last unfinished audio"
             )
             await self._smart_resume_on_freeecho2(room)
 
         elif token == "_activate":
             # No-op am Server — Soft-Mute aus ist FreeEcho.2-lokal. Kein Auto-
             # Resume; wenn der User wieder Audio will, sagt er es.
-            self.channel_log(f"[FreeEcho.2 {room}] _activate: ack (freeecho2-local soft-mute off)")
+            self.channel_log(
+                f"💡 [FreeEcho.2 {room}] _activate: ack "
+                f"(freeecho2-local soft-mute off)"
+            )
 
         else:
             self.channel_log(
-                f"[FreeEcho.2 {room}] Unknown command token: {token}", "warning"
+                f"⚠️ [FreeEcho.2 {room}] unknown command token: {token}",
+                "warning",
             )
 
-    def _override_position_with_consumed_ms(self, room: str, consumed_ms: Any) -> None:
+    def _override_position_with_consumed_ms(
+        self,
+        room: str,
+        consumed_ms: Any,
+        stream_offset_sec: float | None = None,
+    ) -> None:
         """Hoehrposition vom Puck in audio_state schreiben.
 
-        Der Puck trackt ``consumed_frames_since_stream_start`` und schickt
-        das im Wake-Frame mit. Im Gegensatz zur mpv-time-pos (Decode-
-        Position, kann bei großem Puck-Ring weit vorne liegen) ist
-        consumed_ms die echte User-Hoehrposition.
+        Der Puck trackt ``consumed_frames_since_current_stream_start`` —
+        nicht absolut. Bei einem Resume (Stream wurde mit start_pos>0
+        gestartet) muss der Server-seitig bekannte Offset addiert werden:
+        ``track_pos = stream_offset_sec + consumed_ms/1000``.
+
+        ``stream_offset_sec`` kommt aus dem aktiven FreeEcho2Stream
+        (Snapshot vor Stream-Stop). None bei Wake nach Standby/idle —
+        dann fallback auf reines consumed_ms (was bei nicht-laufenden
+        Streams typisch 0 ist und keine sinnvolle Update-Quelle).
 
         Schreibt den jüngsten unfinished audio_state-Eintrag —
-        ``last_played_key()`` ist der zuletzt aktive Stream. Bei Pre-
-        Roll-resume greift dann der echte User-Punkt statt der Decode-
-        Position.
+        ``last_played_key()`` ist der zuletzt aktive Stream.
         """
         if consumed_ms is None:
             self.channel_log(
-                f"[FreeEcho.2 {room}] wake without consumed_ms — firmware bug",
-                "warning",
+                f"💤 [FreeEcho.2 {room}] wake without consumed_ms "
+                f"(no active stream — likely from standby), "
+                f"position not updated",
             )
             return
         try:
             ms = int(consumed_ms)
         except (TypeError, ValueError):
             self.channel_log(
-                f"[FreeEcho.2 {room}] consumed_ms invalid: {consumed_ms!r}",
+                f"⚠️ [FreeEcho.2 {room}] consumed_ms invalid: {consumed_ms!r}",
                 "warning",
             )
             return
         if ms < 0:
+            return
+
+        # Ohne aktiven Stream beim Snapshot ist consumed_ms (= seit
+        # letztem audio_start) NICHT in eine absolute Track-Position
+        # konvertierbar. Beispiel: Wake-Resume nach Pause — Puck schickt
+        # noch den letzten consumed_ms vom alten Stream mit, aber wir
+        # haben keinen Offset mehr. Saved Position aus audio_state ist
+        # in diesem Fall authoritative — nicht ueberschreiben.
+        if stream_offset_sec is None:
+            self.channel_log(
+                f"💤 [FreeEcho.2 {room}] consumed_ms={ms} ignored "
+                f"(no active stream — saved position remains authoritative)"
+            )
             return
 
         from ....lib.audio_state import audio_state
@@ -381,17 +473,26 @@ class FreeEchoChannel(BaseChannel):
         entry = audio_state.get(key)
         if not entry:
             return
-        pos_sec = ms / 1000.0
+        offset = float(stream_offset_sec)
+        pos_sec = offset + ms / 1000.0
         audio_state.update(
             key=key,
             uri=str(entry.get("uri", "")),
             pos_sec=pos_sec,
             duration_sec=entry.get("duration_sec"),
         )
-        self.channel_log(
-            f"[FreeEcho.2 {room}] consumed_ms={ms} → "
-            f"audio_state[{key}].pos_sec={pos_sec:.1f}s"
+        offset_info = (
+            f" (offset {format_number(offset, 1)} s + "
+            f"consumed {format_number(ms / 1000.0, 1)} s)"
+            if offset > 0 else ""
         )
+        self.channel_log(
+            f"💾 [FreeEcho.2 {room}] saved position "
+            f"{self._fmt_consumed(int(pos_sec * 1000))}{offset_info} "
+            f"→ audio_state[{key}]"
+        )
+
+
 
     def _cancel_pipeline_for_room(self, room: str) -> bool:
         """SSOT: cancele eine laufende LLM/TTS-Pipeline für die Session
@@ -424,14 +525,21 @@ class FreeEchoChannel(BaseChannel):
             stopped = await channel.stop(target_id)
         else:
             self.channel_log(
-                f"[FreeEcho.2 {room}] No channel resolves '{target_id}' — "
+                f"⚠️ [FreeEcho.2 {room}] no channel resolves '{target_id}' — "
                 f"{token} stream-stop skipped",
                 "warning",
             )
 
+        # Aufbereitete Status-Zusammenfassung — was wurde tatsaechlich
+        # ausgeloest. Beide false = nothing was running (idempotent stop).
+        parts = []
+        if cancelled:
+            parts.append("pipeline cancelled")
+        if stopped:
+            parts.append("stream stopped")
+        status = ", ".join(parts) if parts else "nothing to do (idle)"
         self.channel_log(
-            f"[FreeEcho.2 {room}] {token}: pipeline_cancelled={cancelled}, "
-            f"stream_stopped={stopped}"
+            f"✓ [FreeEcho.2 {room}] {token} done: {status}"
         )
 
     async def _smart_resume_on_freeecho2(self, room: str) -> None:
@@ -454,14 +562,14 @@ class FreeEchoChannel(BaseChannel):
         key = audio_state.last_played_key()
         if not key:
             self.channel_log(
-                f"[FreeEcho.2 {room}] _resume: no unfinished audio in state",
+                f"💤 [FreeEcho.2 {room}] _resume: no unfinished audio in state",
             )
             return
 
         entry = audio_state.get(key)
         if not entry:
             self.channel_log(
-                f"[FreeEcho.2 {room}] _resume: no entry for key={key}",
+                f"⚠️ [FreeEcho.2 {room}] _resume: no entry for key={key}",
                 "warning",
             )
             return
@@ -484,7 +592,7 @@ class FreeEchoChannel(BaseChannel):
             src = resolver.resolve(key)
         except Exception as exc:  # noqa: BLE001
             self.channel_log(
-                f"[FreeEcho.2 {room}] _resume: cannot resolve key={key}: {exc}",
+                f"⚠️ [FreeEcho.2 {room}] _resume: cannot resolve key={key}: {exc}",
                 "warning",
             )
             return
@@ -510,13 +618,15 @@ class FreeEchoChannel(BaseChannel):
         )
         result = await channel.play(src, target_id, start_pos, ctx)
         if result.get("success"):
+            pre_roll_used = saved_pos - start_pos
             self.channel_log(
-                f"[FreeEcho.2 {room}] _resume: started key={key} "
-                f"@ {start_pos:.1f}s (pre-roll {saved_pos - start_pos:.1f}s)"
+                f"▶️ [FreeEcho.2 {room}] _resume: started {key} "
+                f"@ {format_number(start_pos, 1)} s "
+                f"(pre-roll {format_number(pre_roll_used, 1)} s)"
             )
         else:
             self.channel_log(
-                f"[FreeEcho.2 {room}] _resume failed: {result.get('error')}",
+                f"⚠️ [FreeEcho.2 {room}] _resume failed: {result.get('error')}",
                 "warning",
             )
 
@@ -534,7 +644,11 @@ class FreeEchoChannel(BaseChannel):
         num_samples = len(audio_data) // 2
         duration = num_samples / 16000.0
         audio_kb = len(audio_data) / 1024
-        self.channel_log(f"[FreeEcho.2 {room}] Audio received: {num_samples} samples ({duration:.1f}s, {audio_kb:.0f} KB)")
+        self.channel_log(
+            f"📨 [FreeEcho.2 {room}] audio received: "
+            f"{format_number(duration, 1)} s, "
+            f"{format_number(audio_kb, 0)} KB ({num_samples} samples)"
+        )
 
         # Resolve wake-word hint from the preceding "wake" event. Agent IDs with
         # a leading underscore are command tokens (e.g. "_stop") — handle those
