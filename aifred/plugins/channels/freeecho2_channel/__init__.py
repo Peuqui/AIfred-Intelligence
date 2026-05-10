@@ -896,6 +896,13 @@ class FreeEchoChannel(BaseChannel):
                 f"[FreeEcho.2 {room}] send_audio_flag: not connected", "warning",
             )
             return False
+        if ws.closed:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_flag: WS closed (id={id(ws)}) "
+                f"— stale handle in _devices",
+                "warning",
+            )
+            return False
         payload: dict[str, Any] = {
             "type": "audio_flag",
             "audio_type": audio_type,
@@ -905,6 +912,10 @@ class FreeEchoChannel(BaseChannel):
             await asyncio.wait_for(
                 ws.send_str(json.dumps(payload)),
                 timeout=self._CHUNK_SEND_TIMEOUT_SEC,
+            )
+            self.channel_log(
+                f"[FreeEcho.2 {room}] → audio_flag({audio_type}) sent "
+                f"(ws id={id(ws)})"
             )
             return True
         except asyncio.TimeoutError:
@@ -945,6 +956,13 @@ class FreeEchoChannel(BaseChannel):
                 f"[FreeEcho.2 {room}] send_audio_start: not connected", "warning",
             )
             return False
+        if ws.closed:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_start: WS closed (id={id(ws)}) "
+                f"— stale handle in _devices",
+                "warning",
+            )
+            return False
         payload: dict[str, Any] = {"type": "audio_start"}
         if total_size is not None:
             payload["total_size"] = int(total_size)
@@ -952,6 +970,10 @@ class FreeEchoChannel(BaseChannel):
             await asyncio.wait_for(
                 ws.send_str(json.dumps(payload)),
                 timeout=self._CHUNK_SEND_TIMEOUT_SEC,
+            )
+            self.channel_log(
+                f"[FreeEcho.2 {room}] → audio_start sent "
+                f"(total_size={total_size}, ws id={id(ws)})"
             )
             return True
         except asyncio.TimeoutError:

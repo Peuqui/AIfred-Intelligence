@@ -230,8 +230,24 @@ class FreeEcho2Stream:
                 raise ValueError(
                     f"FreeEcho2Stream.start: audio_type must be music|tts, got {audio_type!r}"
                 )
-            await self._send_flag(self.room, audio_type)
-            await self._send_start(self.room)
+            flag_ok = await self._send_flag(self.room, audio_type)
+            log_message(
+                f"FreeEcho2Stream[{self.room}]: → audio_flag({audio_type}) "
+                f"sent ok={flag_ok}"
+            )
+            if not flag_ok:
+                # Wire ist down — kein Sinn weiter aufzubauen
+                raise FreeEcho2StreamError(
+                    f"audio_flag({audio_type}) send failed — abort start"
+                )
+            start_ok = await self._send_start(self.room)
+            log_message(
+                f"FreeEcho2Stream[{self.room}]: → audio_start sent ok={start_ok}"
+            )
+            if not start_ok:
+                raise FreeEcho2StreamError(
+                    "audio_start send failed — abort start"
+                )
             self._fifo_pump_task = asyncio.create_task(
                 self._fifo_pump(),
                 name=f"freeecho2-{self.room}-fifo-pump",
