@@ -82,6 +82,7 @@ def room():
     """Mock-WebSocket im _devices-Dict registriert + cleanup."""
     rid = "test-room"
     ws = MagicMock()
+    ws.closed = False  # WS lebendig (sonst skipt der Send-Pfad)
     ws.send_str = AsyncMock(return_value=None)
     ws.send_bytes = AsyncMock(return_value=None)
     _devices[rid] = ws
