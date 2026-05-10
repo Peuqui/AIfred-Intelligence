@@ -137,14 +137,12 @@ class TestPlayTTS:
 class TestPlayAlarm:
     def test_no_tail_only_flag(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_alarm(repeats=3, max_duration=60, with_tts=False))
+        run(orc.play_alarm(with_tts=False))
 
         assert orc.active_type == "alarm"
         flags = _flag_calls(bridge)
-        # Genau 1 audio_flag mit alarm-Tupel
-        assert flags == [
-            ("alarm", {"repeats": 3, "max_duration": 60, "with_tts": False}),
-        ]
+        # Genau 1 audio_flag mit alarm-Tupel (vereinfachte Spec: nur with_tts)
+        assert flags == [("alarm", {"with_tts": False})]
         # Kein audio_start, kein chunk, kein audio_end
         bridge.send_audio_start.assert_not_awaited()
         bridge.send_audio_chunk.assert_not_awaited()
@@ -153,9 +151,7 @@ class TestPlayAlarm:
     def test_with_tail_sends_alarm_then_tts(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
         tts_pcm = b"\x00" * 500
-        run(orc.play_alarm(
-            repeats=3, max_duration=60, with_tts=True, tts_pcm=tts_pcm,
-        ))
+        run(orc.play_alarm(with_tts=True, tts_pcm=tts_pcm))
 
         async def _wait_for_pump():
             for _ in range(50):
@@ -164,11 +160,11 @@ class TestPlayAlarm:
                 await asyncio.sleep(0.01)
         run(_wait_for_pump())
 
-        # Spec-Sequenz: audio_flag(alarm,...) → audio_flag(tts) →
+        # Spec-Sequenz: audio_flag(alarm,with_tts=true) → audio_flag(tts) →
         #               audio_start → chunks → audio_end
         flags = _flag_calls(bridge)
         assert flags == [
-            ("alarm", {"repeats": 3, "max_duration": 60, "with_tts": True}),
+            ("alarm", {"with_tts": True}),
             ("tts", {}),
         ]
         bridge.send_audio_start.assert_awaited_once()
@@ -209,7 +205,7 @@ class TestPauseSemantics:
     def test_pause_alarm_is_stop(self, bridge):
         # alarm/notification = transient → pause = stop
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_alarm(repeats=1, max_duration=10, with_tts=False))
+        run(orc.play_alarm(with_tts=False))
         assert orc.active_type == "alarm"
 
         run(orc.pause())
@@ -223,9 +219,10 @@ class TestPauseSemantics:
         assert orc.is_idle is True
 
     def test_pause_tts_is_real_pause(self, bridge):
-        # Damit pause mid-pump greifen kann, mache send_audio_chunk
-        # async-langsam (10 ms pro Chunk). Sonst pumpt asyncio.run alle
-        # chunks synchron durch bevor wir pause aufrufen können.
+        # play_tts ist synchron (wartet auf pump-Ende) — pause muss
+        # daher aus einem parallelen Task kommen, genau wie im echten
+        # Code: send_reply blockt in play_tts, der WS-receive-Loop
+        # ruft pause() in einem anderen Task.
         async def slow_chunk(*args, **kwargs):
             await asyncio.sleep(0.01)
             return True
@@ -235,10 +232,10 @@ class TestPauseSemantics:
         pcm = b"\x00" * (TTSBuffer.CHUNK_SIZE * 5)
 
         async def scenario():
-            await orc.play_tts(pcm)
-            # mini sleep damit pump-Task den ersten chunk anfängt
-            await asyncio.sleep(0.005)
+            play_task = asyncio.create_task(orc.play_tts(pcm))
+            await asyncio.sleep(0.005)  # erster Chunk on the way
             await orc.pause()
+            await play_task  # play_tts kehrt durch CancelledError zurueck
             return orc.active_type, orc.is_paused
 
         active_type, is_paused = run(scenario())
@@ -246,7 +243,6 @@ class TestPauseSemantics:
         assert is_paused is True
 
     def test_resume_pumps_remaining_bytes(self, bridge):
-        # Slow chunks damit pause mid-pump greift
         async def slow_chunk(*args, **kwargs):
             await asyncio.sleep(0.01)
             return True
@@ -257,31 +253,30 @@ class TestPauseSemantics:
         pcm = b"\x42" * pcm_size
 
         async def scenario():
-            await orc.play_tts(pcm)
-            await asyncio.sleep(0.005)  # erster Chunk on the way
+            play_task = asyncio.create_task(orc.play_tts(pcm))
+            await asyncio.sleep(0.005)
             await orc.pause()
+            await play_task  # erster play_tts-Aufruf endet via Cancel
             chunks_at_pause = bridge.send_audio_chunk.await_count
+            # resume startet pump-Task neu — wir warten auf den
             await orc.resume()
-            # Auf Pump-Ende warten
-            for _ in range(100):
+            for _ in range(200):
                 if bridge.send_audio_end.await_count > 0:
                     break
                 await asyncio.sleep(0.01)
             return chunks_at_pause
 
         chunks_at_pause = run(scenario())
-        # Insgesamt sollten alle Bytes durch sein, audio_end gesendet
         sent = b"".join(c.args[1] for c in bridge.send_audio_chunk.await_args_list)
         assert sent == pcm
         assert bridge.send_audio_end.await_count == 1
-        # Pause hat irgendwo unterbrochen, resume hat den Rest gepumpt
         assert bridge.send_audio_chunk.await_count > chunks_at_pause
 
 
 class TestStop:
     def test_stop_alarm(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_alarm(repeats=1, max_duration=10, with_tts=False))
+        run(orc.play_alarm(with_tts=False))
         run(orc.stop())
         assert orc.is_idle is True
 
@@ -303,21 +298,91 @@ class TestStop:
 class TestTypeSwitch:
     def test_alarm_then_tts_resets_alarm(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_alarm(repeats=1, max_duration=10, with_tts=False))
+        run(orc.play_alarm(with_tts=False))
         run(orc.play_tts(b"\x00" * 100))
-
-        async def _wait_for_pump():
-            for _ in range(50):
-                if bridge.send_audio_end.await_count > 0:
-                    return
-                await asyncio.sleep(0.01)
-        run(_wait_for_pump())
 
         # Erst war alarm aktiv, jetzt tts
         flags = _flag_calls(bridge)
-        # Reihenfolge: alarm, dann tts (mit reset dazwischen — kein
-        # explizites Audio-Frame für Reset, das passiert intern)
         flag_types = [t for t, _ in flags]
         assert "alarm" in flag_types
         assert "tts" in flag_types
         assert flag_types.index("alarm") < flag_types.index("tts")
+
+
+# ── TTS-Takeover ueber laufende Music ────────────────────────────────
+
+class TestTTSTakeover:
+    """TTS waehrend Music laeuft: Music pausieren, TTS, Music weiter."""
+
+    def test_takeover_keeps_music_active_type(self, bridge):
+        # mpv-Stream-Mock — pause/resume returnen True
+        stream = MagicMock()
+        stream.pause = AsyncMock(return_value=True)
+        stream.resume = AsyncMock(return_value=True)
+        stream.stop = AsyncMock(return_value=True)
+
+        orc = AudioOrchestrator("room1", bridge)
+        run(orc.play_music(stream))
+        assert orc.active_type == "music"
+
+        run(orc.play_tts(b"\x00" * 200))
+
+        # mpv wurde pausiert, audio_flag(tts) gesendet, NICHT audio_start
+        stream.pause.assert_awaited_once()
+        flag_types = [t for t, _ in _flag_calls(bridge)]
+        assert "tts" in flag_types
+        # Wichtig: bei Takeover KEIN audio_start (Type-Switch mid-stream)
+        bridge.send_audio_start.assert_not_awaited()
+        # Nach komplettem Pump: audio_flag(music) zurueck + mpv resume
+        assert flag_types.count("music") >= 1
+        stream.resume.assert_awaited()
+        # active_type bleibt music (Takeover war transient)
+        assert orc.active_type == "music"
+
+    def test_takeover_chunks_match_input(self, bridge):
+        stream = MagicMock()
+        stream.pause = AsyncMock(return_value=True)
+        stream.resume = AsyncMock(return_value=True)
+        stream.stop = AsyncMock(return_value=True)
+
+        orc = AudioOrchestrator("room1", bridge)
+        run(orc.play_music(stream))
+
+        pcm = b"".join(bytes([i % 256]) for i in range(2500))
+        run(orc.play_tts(pcm))
+
+        sent = b"".join(c.args[1] for c in bridge.send_audio_chunk.await_args_list)
+        assert sent == pcm
+
+    def test_pause_during_takeover_drops_takeover_keeps_music_paused(self, bridge):
+        # Slow-chunk damit pause mid-takeover greifen kann
+        async def slow_chunk(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            return True
+        bridge.send_audio_chunk.side_effect = slow_chunk
+
+        stream = MagicMock()
+        stream.pause = AsyncMock(return_value=True)
+        stream.resume = AsyncMock(return_value=True)
+        stream.stop = AsyncMock(return_value=True)
+
+        orc = AudioOrchestrator("room1", bridge)
+
+        async def scenario():
+            await orc.play_music(stream)
+            # play_tts ist synchron — pause kommt aus parallelem Task
+            play_task = asyncio.create_task(
+                orc.play_tts(b"\x00" * (TTSBuffer.CHUNK_SIZE * 5))
+            )
+            await asyncio.sleep(0.005)  # erster takeover-chunk on the way
+            paused = await orc.pause()
+            await play_task  # play_tts kehrt durch CancelledError zurueck
+            return paused
+
+        result = run(scenario())
+        assert result is True
+        # active_type bleibt music, paused=True, takeover gedroppt
+        assert orc.active_type == "music"
+        assert orc.is_paused is True
+        # mpv.resume wurde NICHT aufgerufen (Takeover war nicht fertig)
+        stream.resume.assert_not_awaited()

@@ -25,7 +25,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+from ....lib.formatting import format_number
 from ....lib.plugin_base import BaseChannel, CredentialField
+
+
+def _fmt_mib(num_bytes: int) -> str:
+    """Bytes als MiB mit 1 Nachkomma (locale-aware Tausender/Dezimal)."""
+    return f"{format_number(num_bytes / (1024 * 1024), 1)} MiB"
 
 if TYPE_CHECKING:
     from aiohttp.web import Request, WebSocketResponse
@@ -330,7 +336,7 @@ class FreeEchoChannel(BaseChannel):
         route = routing_table.get_route("freeecho2", room)
         if route is None:
             return False
-        return cancel_pipeline(route.session_id)
+        return bool(cancel_pipeline(route.session_id))
 
     async def _cancel_pipeline_and_stop_stream(self, token: str, room: str) -> None:
         """SSOT für ``_stop`` / ``_pause`` / ``_standby``: laufende Pipeline
@@ -668,11 +674,12 @@ class FreeEchoChannel(BaseChannel):
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send TTS audio back to the FreeEcho.2 device.
 
-        Wenn am Speaker gerade Music laeuft (mpv-Stream ueber den
-        Audio-Output-Channel), wird sie fuer die Dauer der TTS-Antwort
-        pausiert (mpv-IPC pause) und danach wieder resumed. So kollidieren
-        die zwei PCM-Quellen nicht am Speaker-Buffer, und der User hoert
-        die Antwort der KI bevor die Music weiterlaeuft.
+        Geht ueber den AudioOrchestrator des FreeEcho2Channels. Der
+        macht alles in einem Aufruf: TTS-Takeover bei laufender Music
+        (mpv-pause + audio_flag(tts) + pump + audio_flag(music) +
+        mpv-resume) oder TTS-standalone. Kein eigenes Pause/Resume-
+        Handling mehr — der Orchestrator ist Single-Source-of-Truth
+        fuer Audio-State pro Room.
         """
         room = outbound.channel_id
         ws = _devices.get(room)
@@ -694,69 +701,36 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] TTS failed", "error")
             return
 
-        # TTS-Takeover: laufende Music am gleichen Speaker pausieren.
-        # Resume in finally — auch bei Fehler im Send-Pfad.
-        from ....lib import audio_channels
-        ch = audio_channels.resolve(f"freeecho2:{room}")
-        was_paused_for_tts = False
-        if ch is not None and hasattr(ch, "pause_for_tts"):
-            try:
-                was_paused_for_tts = await ch.pause_for_tts(room)
-                if was_paused_for_tts:
-                    self.channel_log(
-                        f"[FreeEcho.2 {room}] TTS-Takeover: music paused"
-                    )
-            except Exception as exc:  # noqa: BLE001
-                self.channel_log(
-                    f"[FreeEcho.2 {room}] pause_for_tts error: {exc}", "warning"
-                )
-
         try:
-            # Read TTS audio and send in chunks (512 KB each)
-            # The device expects 48kHz mono int16 PCM
             pcm_data = await self._convert_to_pcm(tts_path, 48000)
-            if pcm_data:
-                chunk_size = 512 * 1024
-                total = len(pcm_data)
-                num_chunks = (total + chunk_size - 1) // chunk_size
-                self.channel_log(
-                    f"[FreeEcho.2 {room}] Sending TTS: {total} bytes "
-                    f"({total/96000:.1f}s) in {num_chunks} chunks"
-                )
-                # Audio-Bus-Protokoll: erst audio_flag (LED+VU auf TTS),
-                # dann audio_start (PCM-Header) mit total_size.
-                ok = await self.send_audio_flag(room, "tts")
-                if ok:
-                    ok = await self.send_audio_start(room, total_size=total)
-                if ok:
-                    offset = 0
-                    chunk_num = 0
-                    while offset < total:
-                        end = min(offset + chunk_size, total)
-                        if not await self.send_audio_chunk(room, pcm_data[offset:end]):
-                            break
-                        chunk_num += 1
-                        self.channel_log(
-                            f"[FreeEcho.2 {room}] Chunk {chunk_num}/{num_chunks}: "
-                            f"{end-offset} bytes sent"
-                        )
-                        offset = end
-                    await self.send_audio_end(room)
-                    self.channel_log(f"[FreeEcho.2 {room}] Audio transfer complete")
-            else:
+            if not pcm_data:
                 self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
+                return
+
+            from ....lib import audio_channels
+            ch = audio_channels.resolve(f"freeecho2:{room}")
+            if ch is None or not hasattr(ch, "get_orchestrator"):
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] FreeEcho2Channel unavailable — cannot send TTS",
+                    "error",
+                )
+                return
+            orc = ch.get_orchestrator(room)
+            if orc is None:
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] orchestrator unavailable", "error",
+                )
+                return
+
+            secs = format_number(len(pcm_data) / 96000, 1)
+            self.channel_log(
+                f"[FreeEcho.2 {room}] Sending TTS: {_fmt_mib(len(pcm_data))} "
+                f"({secs}s) via orchestrator"
+            )
+            await orc.play_tts(pcm_data)
+            self.channel_log(f"[FreeEcho.2 {room}] TTS playback complete")
         finally:
             Path(tts_path).unlink(missing_ok=True)
-            if was_paused_for_tts and ch is not None and hasattr(ch, "resume_after_tts"):
-                try:
-                    await ch.resume_after_tts(room)
-                    self.channel_log(
-                        f"[FreeEcho.2 {room}] TTS-Takeover: music resumed"
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    self.channel_log(
-                        f"[FreeEcho.2 {room}] resume_after_tts error: {exc}", "warning"
-                    )
 
     # ── Public WS-Bridge — Audio-Bus-Frame-API ──────────────────────────
     #
@@ -786,10 +760,10 @@ class FreeEchoChannel(BaseChannel):
     # Network-Korruption, nicht bei Server-Logik-Bugs. Strikt:
     # unbekannte Felder, falsche Typen, fehlende Pflicht-Felder → raise.
     _AUDIO_TYPE_SCHEMA: dict[str, set[str]] = {
-        "music":        set(),                                   # keine Felder
-        "tts":          set(),                                   # keine Felder
-        "alarm":        {"repeats", "max_duration", "with_tts"}, # alle Pflicht
-        "notification": {"with_tts"},                            # Pflicht
+        "music":        set(),          # keine Felder
+        "tts":          set(),          # keine Felder
+        "alarm":        {"with_tts"},   # einmal abspielen; Server loopt
+        "notification": {"with_tts"},   # einmal abspielen
     }
 
     @classmethod
@@ -811,14 +785,6 @@ class FreeEchoChannel(BaseChannel):
                 f"audio_flag({audio_type!r}): missing required fields {sorted(missing)}"
             )
         # Type-Checks pro Feld
-        if "repeats" in params:
-            v = params["repeats"]
-            if not isinstance(v, int) or v < 0:
-                raise ValueError(f"audio_flag(alarm): repeats must be int>=0, got {v!r}")
-        if "max_duration" in params:
-            v = params["max_duration"]
-            if not isinstance(v, int) or v < 0:
-                raise ValueError(f"audio_flag(alarm): max_duration must be int>=0, got {v!r}")
         if "with_tts" in params:
             v = params["with_tts"]
             if not isinstance(v, bool):
@@ -927,7 +893,7 @@ class FreeEchoChannel(BaseChannel):
             )
             return True
         except asyncio.TimeoutError:
-            await self._abort_room(room, f"audio_chunk timeout ({len(data)} bytes)")
+            await self._abort_room(room, f"audio_chunk timeout ({_fmt_mib(len(data))})")
             return False
         except Exception as exc:  # noqa: BLE001
             self.channel_log(
