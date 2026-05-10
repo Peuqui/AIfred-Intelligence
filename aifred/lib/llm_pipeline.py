@@ -47,6 +47,7 @@ class PipelineResult:
     fetched_urls: list[dict[str, Any]] = field(default_factory=list)
     sandbox_html_urls: list[str] = field(default_factory=list)
     sandbox_image_urls: list[str] = field(default_factory=list)
+    silent_reply: bool = False                          # any tool requested TTS-skip
 
 
 def strip_tool_json(text: str) -> str:
@@ -139,6 +140,7 @@ async def run_llm_stream(
     fetched_urls: list[dict[str, Any]] = []
     sandbox_html_urls: list[str] = []
     sandbox_image_urls: list[str] = []
+    silent_reply = False  # set True if any tool_result has silent_reply
 
     # Select stream source: with or without retry
     if retry:
@@ -203,6 +205,18 @@ async def run_llm_stream(
                 elif line.startswith("SANDBOX_IMAGE_URL: "):
                     sandbox_image_urls.append(line.split("SANDBOX_IMAGE_URL: ", 1)[1].strip())
 
+            # silent_reply: Audio-Tools (audio_play, audio_play_folder,
+            # audio_resume) markieren erfolgreichen Audio-Start damit der
+            # Channel die TTS-Bestaetigung skippt — Music laeuft sofort,
+            # kein "DJ labert in den Song". JSON-Result wird hier geparst.
+            if not silent_reply and result_text and "silent_reply" in result_text:
+                try:
+                    parsed = json.loads(result_text)
+                    if isinstance(parsed, dict) and parsed.get("silent_reply") is True:
+                        silent_reply = True
+                except (ValueError, json.JSONDecodeError):
+                    pass
+
             yield chunk
 
         elif chunk_type == "thinking":
@@ -261,5 +275,6 @@ async def run_llm_stream(
             fetched_urls=fetched_urls,
             sandbox_html_urls=sandbox_html_urls,
             sandbox_image_urls=sandbox_image_urls,
+            silent_reply=silent_reply,
         ),
     }

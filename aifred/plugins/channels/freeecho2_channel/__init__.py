@@ -253,6 +253,13 @@ class FreeEchoChannel(BaseChannel):
 
         elif msg_type == "wake":
             wake_agent = msg.get("agent")
+            # consumed_ms: echte User-Hoehrposition vom Puck (=
+            # consumed frames since stream-start, in ms). Bei großem
+            # Puck-Ring ist mpv-time-pos die Decode-Position und liegt
+            # vor der Höhrposition. consumed_ms ueberschreibt den
+            # Position-Save damit Pre-Roll auf die echte User-Position
+            # basiert. Pflichtfeld in Wake-Frames vom Puck.
+            consumed_ms = msg.get("consumed_ms")
 
             # Command tokens (leading underscore, e.g. "_stop") are processed
             # immediately on the WAKE event — no audio is expected to follow.
@@ -260,11 +267,22 @@ class FreeEchoChannel(BaseChannel):
             if wake_agent and wake_agent.startswith("_"):
                 _pending_wake_agent.pop(room, None)
                 self.channel_log(
-                    f"[FreeEcho.2 {room}] Command wake-word received: {wake_agent}"
+                    f"[FreeEcho.2 {room}] Command wake-word received: "
+                    f"{wake_agent}, consumed_ms={consumed_ms}"
                 )
+                # 1. Stream stoppen (cleanup schreibt mpv-time-pos in
+                #    audio_state als Backup-Position)
+                # 2. consumed_ms ueberschreibt das mit der echten
+                #    Hoehrposition — Reihenfolge zaehlt
                 await self._handle_command_token(wake_agent, room)
+                self._override_position_with_consumed_ms(room, consumed_ms)
                 await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
                 return
+
+            # Normal wake (Audio-Query folgt): Music-Source wird vom Puck
+            # vermutlich preempted. consumed_ms in audio_state schreiben
+            # damit User später via audio_resume nahtlos zurueckkommt.
+            self._override_position_with_consumed_ms(room, consumed_ms)
 
             if wake_agent:
                 _pending_wake_agent[room] = str(wake_agent)
@@ -324,6 +342,56 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(
                 f"[FreeEcho.2 {room}] Unknown command token: {token}", "warning"
             )
+
+    def _override_position_with_consumed_ms(self, room: str, consumed_ms: Any) -> None:
+        """Hoehrposition vom Puck in audio_state schreiben.
+
+        Der Puck trackt ``consumed_frames_since_stream_start`` und schickt
+        das im Wake-Frame mit. Im Gegensatz zur mpv-time-pos (Decode-
+        Position, kann bei großem Puck-Ring weit vorne liegen) ist
+        consumed_ms die echte User-Hoehrposition.
+
+        Schreibt den jüngsten unfinished audio_state-Eintrag —
+        ``last_played_key()`` ist der zuletzt aktive Stream. Bei Pre-
+        Roll-resume greift dann der echte User-Punkt statt der Decode-
+        Position.
+        """
+        if consumed_ms is None:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] wake without consumed_ms — firmware bug",
+                "warning",
+            )
+            return
+        try:
+            ms = int(consumed_ms)
+        except (TypeError, ValueError):
+            self.channel_log(
+                f"[FreeEcho.2 {room}] consumed_ms invalid: {consumed_ms!r}",
+                "warning",
+            )
+            return
+        if ms < 0:
+            return
+
+        from ....lib.audio_state import audio_state
+        key = audio_state.last_played_key()
+        if not key:
+            return  # nichts zu überschreiben — kein unfinished item
+
+        entry = audio_state.get(key)
+        if not entry:
+            return
+        pos_sec = ms / 1000.0
+        audio_state.update(
+            key=key,
+            uri=str(entry.get("uri", "")),
+            pos_sec=pos_sec,
+            duration_sec=entry.get("duration_sec"),
+        )
+        self.channel_log(
+            f"[FreeEcho.2 {room}] consumed_ms={ms} → "
+            f"audio_state[{key}].pos_sec={pos_sec:.1f}s"
+        )
 
     def _cancel_pipeline_for_room(self, room: str) -> bool:
         """SSOT: cancele eine laufende LLM/TTS-Pipeline für die Session
@@ -687,6 +755,16 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] No connected device for reply", "warning")
             return
 
+        # silent_reply: bei erfolgreichem Audio-Tool (audio_play/folder/
+        # resume) skippt der Channel die TTS-Bestaetigung. Music laeuft
+        # direkt los, kein "DJ labert in den Song". Reply-Text ist
+        # bereits in der Session gespeichert (Browser-UI sichtbar).
+        if outbound.metadata.get("silent_reply"):
+            self.channel_log(
+                f"[FreeEcho.2 {room}] silent_reply — TTS-Bestaetigung skipped"
+            )
+            return
+
         # If TTS was deferred (LLM was loaded without TTS, used for fast inference),
         # now switch: unload LLM → load TTS engine → restart LLM with TTS profile.
         # Must happen BEFORE _run_tts() which needs the TTS engine running.
@@ -830,7 +908,10 @@ class FreeEchoChannel(BaseChannel):
             )
             return True
         except asyncio.TimeoutError:
-            await self._abort_room(room, "audio_flag timeout")
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_flag timeout — stream abort, "
+                f"WS bleibt offen", "warning",
+            )
             return False
         except Exception as exc:  # noqa: BLE001
             self.channel_log(
@@ -874,7 +955,10 @@ class FreeEchoChannel(BaseChannel):
             )
             return True
         except asyncio.TimeoutError:
-            await self._abort_room(room, "audio_start timeout")
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_start timeout — stream abort, "
+                f"WS bleibt offen", "warning",
+            )
             return False
         except Exception as exc:  # noqa: BLE001
             self.channel_log(
@@ -893,7 +977,17 @@ class FreeEchoChannel(BaseChannel):
             )
             return True
         except asyncio.TimeoutError:
-            await self._abort_room(room, f"audio_chunk timeout ({_fmt_mib(len(data))})")
+            # KEIN WS-close mehr! Beim _resume kann der Puck kurz nicht
+            # receive-ready sein (Source-Replace ~1-2s), TCP-Buffer voll,
+            # send hängt 10s. Ein chunk-timeout heißt nur "dieser Stream
+            # ist nicht mehr durchgekommen" — fifo_pump bricht via
+            # ok=False ab, WS bleibt offen für Recovery (User-Wake,
+            # neuer audio_play, etc.).
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_chunk timeout "
+                f"({_fmt_mib(len(data))}) — stream abort, WS bleibt offen",
+                "warning",
+            )
             return False
         except Exception as exc:  # noqa: BLE001
             self.channel_log(
@@ -934,30 +1028,16 @@ class FreeEchoChannel(BaseChannel):
             )
             return True
         except asyncio.TimeoutError:
-            await self._abort_room(room, "audio_end timeout")
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_end timeout — stream abort, "
+                f"WS bleibt offen", "warning",
+            )
             return False
         except Exception as exc:  # noqa: BLE001
             self.channel_log(
                 f"[FreeEcho.2 {room}] send_audio_end error: {exc}", "warning",
             )
             return False
-
-    async def _abort_room(self, room: str, reason: str) -> None:
-        """Schließe WebSocket und entferne Room aus _devices.
-
-        Aufgerufen wenn ein Send timeoutet — der FreeEcho.2 ist effektiv weg,
-        wir hängen sonst auf der toten TCP-Verbindung.
-        """
-        ws = _devices.get(room)
-        self.channel_log(
-            f"[FreeEcho.2 {room}] aborting: {reason} — closing WebSocket",
-            "error",
-        )
-        if ws is not None:
-            try:
-                await ws.close(code=1001, message=b"send timeout")
-            except Exception:
-                pass
 
     def _get_wanted_tts(self) -> str:
         """Get the TTS engine this plugin wants."""

@@ -297,6 +297,10 @@ async def call_llm(
             backend_type=backend_type,
             agent_label=agent_label,
         )
+        # Channel-Hint fuer send_reply: bei erfolgreichem Audio-Tool soll
+        # die TTS-Bestaetigung geskippt werden — Smart-Speaker-UX.
+        if pipeline_result.silent_reply:
+            metadata_dict["silent_reply"] = True
         yield {"type": "debug", "message": debug_msg}
 
         # Update chat_history (UI display with thinking + metadata)

@@ -642,10 +642,16 @@ Puck bleibt dumm.
 |---|---|
 | Music | `audio_flag(music)` → `audio_start` → chunks → `audio_end` |
 | TTS standalone | `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
-| Type-Switch mid-stream (z.B. music→tts) | nur `audio_flag(neuer_type)`, gleiche Source bleibt, 30 ms Linear-Fade |
 | alarm ohne Tail | nur `audio_flag(alarm, with_tts=false)` — kein PCM, kein audio_end |
 | alarm mit Tail | `audio_flag(alarm, with_tts=true)` → `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
 | notification ohne/mit Tail | analog |
+
+**Kein TTS-Takeover mehr** (Konsens-Spec 2026-05-10): TTS während Music läuft
+ersetzt die Music-Source komplett. Music wird sauber gestoppt (mpv terminate,
+audio_end, Position via consumed_ms in audio_state.json), TTS startet als
+neue Standalone-Source. User holt Music via `audio_resume` zurück (Pre-Roll
+greift auf der echten Hörposition). Vereinfacht den Server-Code massiv und
+eliminiert Race-Conditions zwischen mpv-pause/resume und TTS-Pump.
 
 **Wichtig**: `audio_flag` und `audio_start` sind **getrennte** Frames
 mit unterschiedlicher Semantik:
@@ -659,7 +665,7 @@ mit unterschiedlicher Semantik:
 
 | Operation | music | tts (standalone) | alarm (auch +Tail) | notification (auch +Tail) |
 |---|---|---|---|---|
-| **Play** | mpv start, audio_flag, audio_start, pump | TTS render, audio_flag, audio_start, pump | audio_flag mit Params (kein PCM) | audio_flag mit Params (kein PCM) |
+| **Play** | mpv start, audio_flag, audio_start, pump | TTS render, audio_flag, audio_start, pump (ersetzt evtl. laufende Music) | audio_flag mit Params (kein PCM) | audio_flag mit Params (kein PCM) |
 | **Pause** | echtes Pause (mpv-IPC, Position bleibt) | echtes Pause (TTS-Cursor merken) | = Stop (alles weg) | = Stop (alles weg) |
 | **Resume** | mpv-IPC unpause, weiter pumpen | ab Cursor weiter pumpen, **kein** Re-Render | (n/a, da Stop) | (n/a, da Stop) |
 | **Stop** | alles weg, mpv terminate | alles weg, TTS-Buffer drop | alles weg, audio_end an Puck | alles weg, audio_end an Puck |
@@ -679,15 +685,46 @@ Restart noch klingelt wäre Bug, nicht Feature).
 ### Server-Side SSOT-API
 
 ```python
-async def play_audio(room, audio_type, **params)   # neue Source starten
-async def pause_audio(room)                         # mit Type-Awareness
-async def resume_audio(room)
-async def stop_audio(room)                          # alles verwerfen
+async def play_music(stream)                        # Music-Stream registrieren
+async def play_tts(pcm_data)                        # TTS-Standalone (ersetzt Music)
+async def play_alarm(with_tts, tts_pcm=None)        # Puck-lokal + opt. TTS-Tail
+async def play_notification(with_tts, tts_pcm=None) # analog
+async def pause()                                   # type-aware
+async def resume()
+async def stop()                                    # alles verwerfen
 ```
 
 Wirken auf die "aktuell aktive Audio-Source" pro Room. AudioOrchestrator
-hält `media`-vs-`tts`-Pump-Pipeline und switched zwischen ihnen via
-`audio_flag`-Frame.
+hat genau eine aktive Source (kein Source-Stack). Type-Wechsel (z.B.
+Music → TTS) bedeutet: alte Source sauber beenden, neue starten.
+
+### silent_reply — Smart-Speaker-UX
+
+Audio-Tools (`audio_play`, `audio_play_folder`, `audio_resume`) setzen
+`silent_reply: true` in ihrem Tool-Result. Der Channel `send_reply`
+liest das aus `outbound.metadata` und skippt TTS-Render+Send komplett.
+Music läuft sofort, ohne dass der Butler erklärt was er tut. Reply-Text
+bleibt im Chat-Log fürs Browser-UI sichtbar.
+
+Pfad: Tool-Result-JSON → `llm_pipeline.run_llm_stream` parst silent_reply →
+`PipelineResult.silent_reply` → `llm_engine` setzt `metadata_dict["silent_reply"]` →
+`message_processor` setzt `outbound.metadata["silent_reply"]` →
+`freeecho2_channel.send_reply` → early return.
+
+### consumed_ms-Position-Sync
+
+Bei großem Puck-Ring liegt `mpv-time-pos` (Decode-Position) deutlich vor
+der echten User-Hörposition. Der Puck trackt
+`consumed_frames_since_stream_start` und schickt im Wake-Frame:
+
+```json
+{"type":"wake","room":"...","agent":"...","consumed_ms":12345}
+```
+
+Server überschreibt damit `audio_state.json[key].pos_sec` **nach** dem
+Stream-Stop (mpv-time-pos-Save kommt zuerst aus `_cleanup_unlocked`,
+consumed_ms überschreibt dann). Der bestehende Pre-Roll im
+`audio_resume` (default 7s) greift damit auf der echten Hörposition.
 
 ### Firmware-Side SSOT-API (FreeEcho.2)
 
