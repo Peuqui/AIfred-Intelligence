@@ -952,8 +952,9 @@ class FreeEchoChannel(BaseChannel):
     # Network-Korruption, nicht bei Server-Logik-Bugs. Strikt:
     # unbekannte Felder, falsche Typen, fehlende Pflicht-Felder → raise.
     _AUDIO_TYPE_SCHEMA: dict[str, set[str]] = {
-        "music":        set(),          # keine Felder
-        "tts":          set(),          # keine Felder
+        "music":        set(),          # Stereo-VU am Puck
+        "speech":       set(),          # Voice-VU (Hoerbuch / Podcast / Lesung)
+        "tts":          set(),          # Voice-VU (XTTS-Generator-Output)
         "alarm":        {"with_tts"},   # einmal abspielen; Server loopt
         "notification": {"with_tts"},   # einmal abspielen
     }

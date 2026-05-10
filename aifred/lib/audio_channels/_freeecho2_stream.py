@@ -281,16 +281,33 @@ class FreeEcho2Stream:
             )
             self._stopping = False
 
+            # audio_state SOFORT updaten damit ``last_played_key()``
+            # korrekt das aktuelle Item zeigt — nicht erst nach 60s
+            # Save-Loop oder beim Stop. Wichtig fuer Wake-Word-Pfade
+            # (consumed_ms-Override, Smart-Resume) die in der Zeit
+            # zwischen Stream-Start und erstem Save anrollen.
+            if state_key:
+                from ..audio_state import audio_state
+                audio_state.update(
+                    key=state_key,
+                    uri=uri,
+                    pos_sec=self._stream_start_offset_sec,
+                    duration_sec=None,  # wird beim ersten save-loop nachgezogen
+                )
+
             # Audio-Bus-Protokoll: erst audio_flag (Type-Setting für LED+VU),
             # dann audio_start (PCM-Stream-Setup-Header). channels/rate werden
             # nicht gesendet — Puck-Hardware ist fest auf 48 kHz mono int16.
             # Music-Streams haben keine bekannte Total-Size (Music läuft bis
             # mpv-EOF oder User-Stop) — total_size weglassen.
-            if audio_type not in ("music", "tts"):
-                # Stream-Sources sind aktuell nur music (mpv) und tts. alarm/
-                # notification kommen ueber andere Pfade (kein FreeEcho2Stream).
+            if audio_type not in ("music", "tts", "speech"):
+                # Stream-Sources via mpv: music (Stereo-VU), speech
+                # (Voice-VU fuer Hoerbuecher/Podcasts), tts (Voice-VU
+                # fuer XTTS-Generator-Output). alarm/notification kommen
+                # ueber andere Pfade (kein FreeEcho2Stream).
                 raise ValueError(
-                    f"FreeEcho2Stream.start: audio_type must be music|tts, got {audio_type!r}"
+                    f"FreeEcho2Stream.start: audio_type must be "
+                    f"music|tts|speech, got {audio_type!r}"
                 )
             flag_ok = await self._send_flag(self.room, audio_type)
             log_message(

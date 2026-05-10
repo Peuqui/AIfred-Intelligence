@@ -343,6 +343,18 @@ class AudioPlayerPlugin:
                 local_uri = str(root / rel_path)
                 queue_items.append({"state_key": state_key, "uri": local_uri})
 
+            # audio_type fuer die ganze Queue aus dem Source ableiten
+            # statt hartkodiert "music". Hoerbuecher-Folder soll als
+            # "speech" laufen (richtige VU-Anzeige am Puck), Wecker-
+            # Folder als "alarm" usw. Erste Datei bestimmt die Klasse —
+            # ein Folder ist typisch homogen.
+            from ....lib.audio_sources import resolve_audio_type
+            source_default = str(cfg.get("audio_type", "music"))
+            queue_audio_type = resolve_audio_type(
+                label, files[0] if files else "",
+                source_default=source_default,
+            )
+
             from ....lib import audio_channels
             channel = audio_channels.resolve(target_id)
             if channel is None:
@@ -355,7 +367,7 @@ class AudioPlayerPlugin:
             try:
                 result = await channel.play_queue(
                     queue_items, target_id, ctx,
-                    audio_type="music",
+                    audio_type=queue_audio_type,
                     shuffle=shuffle,
                 )
             except Exception as exc:  # noqa: BLE001

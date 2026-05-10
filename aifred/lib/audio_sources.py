@@ -52,15 +52,24 @@ _ALARM_GENRE_HINTS = ("alarm", "wecker", "sfx", "sound effect", "notification")
 _SPEECH_FILE_HINTS = ("audiobook", "hörbuch", "hoerbuch", "podcast", "lesung")
 _ALARM_FILE_HINTS = ("alarm", "wecker", "alert", "ding")
 
-# Folder-Label-Heuristik (exact match auf .lower())
+# Folder-Label-Heuristik (exact match auf .lower()).
+# Achtung: ``label.lower()`` lowercased Umlaute (Ö→ö), aber konvertiert sie
+# NICHT zu ASCII (ö→oe). Daher hier beide Schreibweisen aufnehmen.
 _FOLDER_AUDIO_TYPE: dict[str, str] = {
-    "alarms":     "alarm",
-    "wecker":     "alarm",
+    "alarms":      "alarm",
+    "wecker":      "alarm",
+    "hörbücher":   "speech",
+    "hörbuch":     "speech",
     "hoerbuecher": "speech",
-    "audiobooks": "speech",
-    "podcasts":   "speech",
-    "speech":     "speech",
-    "sprache":    "speech",
+    "hoerbuch":    "speech",
+    "audiobooks":  "speech",
+    "audiobook":   "speech",
+    "podcasts":    "speech",
+    "podcast":     "speech",
+    "speech":      "speech",
+    "sprache":     "speech",
+    "lesungen":    "speech",
+    "lesung":      "speech",
 }
 
 
