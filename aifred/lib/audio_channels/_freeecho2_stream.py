@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from ..config import DATA_DIR
+from ..debug_bus import debug as debug_event
+from ..formatting import format_number
 from ..logging_utils import log_message
 
 MPV_BINARY = "/usr/bin/mpv"
@@ -59,6 +61,36 @@ HEARTBEAT_INTERVAL_SEC = 5.0
 
 class FreeEcho2StreamError(RuntimeError):
     """mpv konnte nicht starten oder die IPC-Verbindung schlug fehl."""
+
+
+def _fmt_pos(sec: Optional[float]) -> str:
+    """Format playback position as ``m:ss`` (or ``h:mm:ss`` für Hörbücher)."""
+    if sec is None:
+        return "?"
+    total = int(sec)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _fmt_state(pos: Optional[float], dur: Optional[float]) -> str:
+    """Format ``pos / dur (XX,X%)`` — locale-aware via format_number.
+
+    Beispiele (DE):
+      pos=165.3, dur=260.1     →  "2:45 / 4:20 (63,6%)"
+      pos=165.3, dur=None      →  "2:45 (165,3 s)"
+      pos=None,  dur=anything  →  "?"
+    """
+    if pos is None:
+        return "?"
+    pos_str = _fmt_pos(pos)
+    if dur is None or dur <= 0:
+        return f"{pos_str} ({format_number(pos, 1)} s)"
+    dur_str = _fmt_pos(dur)
+    pct = format_number(100.0 * pos / dur, 1)
+    return f"{pos_str} / {dur_str} ({pct}%)"
 
 
 class FreeEcho2Stream:
@@ -108,6 +140,11 @@ class FreeEcho2Stream:
         # State
         self._current_uri: Optional[str] = None
         self._current_state_key: Optional[str] = None
+        # Track-Position bei der dieser Stream startete (= start_pos_sec
+        # an mpv). Wird gebraucht um die Puck-``consumed_ms`` (zaehlt seit
+        # current-stream-start) auf eine absolute Track-Position
+        # umzurechnen: track_pos = start_offset + consumed_ms/1000.
+        self._stream_start_offset_sec: float = 0.0
         self._save_interval: int = DEFAULT_SAVE_INTERVAL_SEC
         # Optional callback fired when mpv signals natural EOF (track ended).
         # Used by FreeEcho2Channel.play_queue() to advance to the next item.
@@ -132,6 +169,17 @@ class FreeEcho2Stream:
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
 
+    @property
+    def stream_start_offset_sec(self) -> float:
+        """Track-Position bei der dieser Stream gestartet wurde.
+
+        Der Puck zaehlt ``consumed_ms`` seit dem letzten ``audio_start``
+        (= seit diesem Stream-Start), nicht absolut. Um die echte
+        Track-Position zu rekonstruieren:
+        ``track_pos_sec = stream_start_offset_sec + consumed_ms/1000``.
+        """
+        return self._stream_start_offset_sec
+
     def configure_save_interval(self, seconds: int) -> None:
         if seconds > 0:
             self._save_interval = seconds
@@ -144,11 +192,19 @@ class FreeEcho2Stream:
         state_key: Optional[str],
         start_pos_sec: Optional[float],
         audio_type: str = "music",
+        audio_filters: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """Starte mpv für ``uri`` und beginne PCM-Pump zum FreeEcho.2.
 
         ``audio_type`` ist der Hint an den FreeEcho.2 (music/speech/alarm).
         Beeinflusst dort VU-Pattern und LED-Verhalten.
+
+        ``audio_filters`` ist eine optionale Liste von ffmpeg/mpv-Filter-
+        Strings (z.B. ``["volume=-6.2dB", "afade=t=in:d=0.4"]``), die als
+        ``--af=`` an mpv weitergegeben werden. Wird typisch vom Caller via
+        ``loudness.build_music_filter_chain(...)`` gebaut. Channel-agnostisch:
+        FreeEcho2Stream weiß nicht *was* gefiltert wird, nur dass mpv die
+        Chain anwenden soll.
         """
         async with self._lock:
             if self.is_running:
@@ -176,6 +232,8 @@ class FreeEcho2Stream:
             ]
             if start_pos_sec and start_pos_sec > 0:
                 args.append(f"--start={float(start_pos_sec)}")
+            if audio_filters:
+                args.append(f"--af={','.join(audio_filters)}")
             args.append(uri)
 
             try:
@@ -217,6 +275,10 @@ class FreeEcho2Stream:
 
             self._current_uri = uri
             self._current_state_key = state_key
+            self._stream_start_offset_sec = (
+                float(start_pos_sec) if start_pos_sec and start_pos_sec > 0
+                else 0.0
+            )
             self._stopping = False
 
             # Audio-Bus-Protokoll: erst audio_flag (Type-Setting für LED+VU),
@@ -262,6 +324,13 @@ class FreeEcho2Stream:
                     name=f"freeecho2-{self.room}-heartbeat",
                 )
 
+            if start_pos_sec and start_pos_sec > 0:
+                start_info = f"from {_fmt_pos(start_pos_sec)} ({format_number(start_pos_sec, 1)} s)"
+            else:
+                start_info = "from start"
+            debug_event(
+                f"🎵 [{self.room}] ▶️ play: {state_key} — {start_info}"
+            )
             log_message(
                 f"FreeEcho2Stream[{self.room}]: mpv started ({uri}, key={state_key})"
             )
@@ -296,20 +365,30 @@ class FreeEcho2Stream:
         self._flow_resumed.set()
 
         # 1. Position eines letzten Mal speichern (IPC noch da)
+        stop_pos: Optional[float] = None
+        stop_dur: Optional[float] = None
         if self._current_state_key and self._ipc_writer is not None:
             try:
                 pos = await self._get_property("time-pos", default=None)
                 dur = await self._get_property("duration", default=None)
+                if pos is not None:
+                    stop_pos = float(pos)
+                if dur is not None:
+                    stop_dur = float(dur)
                 if pos is not None:
                     from ..audio_state import audio_state
                     audio_state.update(
                         key=self._current_state_key,
                         uri=self._current_uri or "",
                         pos_sec=float(pos),
-                        duration_sec=float(dur) if dur is not None else None,
+                        duration_sec=stop_dur,
                     )
             except Exception:  # noqa: BLE001
                 pass
+        debug_event(
+            f"🎵 [{self.room}] ⏹️ stop: {self._current_state_key} "
+            f"@ {_fmt_state(stop_pos, stop_dur)}"
+        )
 
         # 2. mpv beenden — der pump-Task wartet sonst ewig auf neue PCM-Bytes
         if self._proc is not None and self._proc.returncode is None:
@@ -375,7 +454,13 @@ class FreeEcho2Stream:
         if not self.is_running:
             return False
         try:
+            pos = await self._get_property("time-pos", default=None)
+            dur = await self._get_property("duration", default=None)
             await self._send({"command": ["set_property", "pause", True]})
+            debug_event(
+                f"🎵 [{self.room}] ⏸️ pause: {self._current_state_key} "
+                f"@ {_fmt_state(pos, dur)}"
+            )
             return True
         except Exception:  # noqa: BLE001
             return False
@@ -391,8 +476,13 @@ class FreeEcho2Stream:
             # nicht-paused. Vorab-Prüfung von _get_property("pause") raus
             # weil ein IPC-Race/Glitch dort silent False liefern und Resume
             # ueberspringen koennte (Live-Test-Bug 2026-05-10).
+            pos = await self._get_property("time-pos", default=None)
+            dur = await self._get_property("duration", default=None)
             await self._send({"command": ["set_property", "pause", False]})
-            log_message(f"FreeEcho2Stream[{self.room}]: mpv unpaused")
+            debug_event(
+                f"🎵 [{self.room}] ▶️ resume: {self._current_state_key} "
+                f"@ {_fmt_state(pos, dur)}"
+            )
             return True
         except Exception as exc:  # noqa: BLE001
             log_message(

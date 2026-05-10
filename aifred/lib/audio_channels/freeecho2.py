@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from ._audio_orchestrator import AudioOrchestrator
 from ._freeecho2_stream import FreeEcho2Stream
 from ..logging_utils import log_message
+from ..loudness import build_music_filter_chain
 from .base import AudioFormat, TargetInfo
 
 if TYPE_CHECKING:
@@ -186,10 +187,18 @@ class FreeEcho2Channel:
         local_start = (
             start_pos_sec if (start_pos_sec and start_pos_sec > 0 and not src.is_stream) else None
         )
+        # Loudness-Normalisierung + Fade nur fuer lokale Music-Files —
+        # HTTP-Streams haben kein File und keine bekannte Dauer, Speech/
+        # Alarm sind kalibriert und sollen nicht angefasst werden.
+        audio_type = getattr(src, "audio_type", "music")
+        audio_filters: list[str] | None = None
+        if audio_type == "music" and not src.is_stream:
+            audio_filters = build_music_filter_chain(src.uri)
         try:
             result = await stream.start(
                 src.uri, src.state_key, local_start,
-                audio_type=getattr(src, "audio_type", "music"),
+                audio_type=audio_type,
+                audio_filters=audio_filters,
             )
         except Exception as exc:  # noqa: BLE001
             return {
@@ -342,8 +351,19 @@ class FreeEcho2Channel:
 
         stream._on_eof_cb = _advance
 
+        # Queue-Items koennen prinzipiell Streams sein (uri startet mit
+        # http://). In der Praxis sind's lokale Files (audio_play_folder),
+        # aber sicher ist sicher: nur lokale Music-Files normalisieren.
+        is_local = not uri.startswith(("http://", "https://"))
+        audio_filters: list[str] | None = None
+        if audio_type == "music" and is_local:
+            audio_filters = build_music_filter_chain(uri)
         try:
-            await stream.start(uri, state_key, None, audio_type=audio_type)
+            await stream.start(
+                uri, state_key, None,
+                audio_type=audio_type,
+                audio_filters=audio_filters,
+            )
         except Exception as exc:  # noqa: BLE001
             stream._on_eof_cb = None
             return {"success": False, "error": f"FreeEcho.2 stream start failed: {exc}"}
@@ -368,6 +388,22 @@ class FreeEcho2Channel:
 
     def supports_flow_control(self) -> bool:
         return True
+
+    def get_stream_start_offset(self, target_id: str) -> float | None:
+        """Return die Track-Position bei der der aktuelle Stream startete.
+
+        Wird vom WS-Plugin gebraucht um Puck-``consumed_ms`` (= seit
+        current-stream-start) auf eine absolute Track-Position
+        umzurechnen. None wenn kein Stream aktiv ist.
+
+        ``target_id`` darf voll (``freeecho2:<room>``) oder nur
+        ``<room>`` sein.
+        """
+        room = _parse_room(target_id) or target_id
+        stream = self._streams.get(room)
+        if stream is None:
+            return None
+        return stream.stream_start_offset_sec
 
     def notify_flow(self, target_id: str, state: str) -> None:  # type: ignore[override]
         """Bridge ruft das auf wenn der FreeEcho.2 einen flow-Frame schickt.

@@ -899,7 +899,35 @@ DEBUG_LOG_MAX_ENTRIES = 250
 # Log RAW messages sent to LLMs (debug.log only)
 # Useful for debugging prompt injection issues
 # Shows full message list with role and content preview for each LLM call
-DEBUG_LOG_RAW_MESSAGES = True
+DEBUG_LOG_RAW_MESSAGES = False
+
+# ============================================================
+# LOUDNESS NORMALIZATION (Music-Wiedergabe via FreeEcho.2)
+# ============================================================
+# Pro File einmal gemessen + in data/loudness.sqlite gecacht. Bei
+# Wiedergabe wird (Target − gemessener LUFS) als volume-dB-Filter an
+# mpv uebergeben, plus Fade-In/Out. Aenderungen hier wirken beim
+# naechsten Play — kein Re-Scan noetig.
+#
+# Target-Lautheit fuer normalisierte Music. Streaming-Konvention:
+# Spotify/YouTube ~-14 LUFS, Apple Music -16 LUFS. Wohnzimmer-tauglich
+# meist -16 bis -18. Negativ = leiser.
+LOUDNESS_TARGET_LUFS = -16.0
+
+# True-Peak-Ceiling (Brick-Wall) — der Gain wird so geclamped, dass
+# der True-Peak nach Anwendung nicht ueber diesem Wert liegt.
+# -1 dBFS = Streaming-Standard (Headroom fuer DA-Conversion).
+LOUDNESS_CEILING_DBFS = -1.0
+
+# Fade-In am Track-Start (Sekunden). Verhindert harten Anschlag —
+# 300-500 ms ist unauffaellig, darueber wirkt es zoegerlich.
+LOUDNESS_FADE_IN_SEC = 1.0
+
+# Fade-Out am natuerlichen Track-Ende (Sekunden). Bei 0 deaktiviert
+# (Track endet abrupt — fuer manche Mastering-Endings korrekt). Wird
+# bei sehr kurzen Tracks (< 2x Fade-Out-Laenge) automatisch
+# uebersprungen, damit Fade-In und Fade-Out nicht ueberlappen.
+LOUDNESS_FADE_OUT_SEC = 1.0
 
 # ============================================================
 # VRAM MANAGEMENT (Dynamic Context Calculation)
