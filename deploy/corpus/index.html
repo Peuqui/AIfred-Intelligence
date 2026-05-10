@@ -197,13 +197,78 @@
   }
   .hit .meta .file { color: var(--accent-hover); font-weight: 500; }
   .hit .meta .neighbor { color: var(--text-dim); font-style: italic; }
-  /* Schwacher Treffer (Cosine-Distance ≥ 1.0): semantisch kaum verwandt,
-     fast orthogonale Vektoren. Dimmen damit der User es auf einen Blick
-     erkennt — die Karte bleibt lesbar, aber sticht nicht hervor. */
+  /* Distance-Stufen (BGE-M3 Cosine):
+        d < 0.5   sehr stark  → grün
+        d < 0.8   stark        → keine Markierung
+        d < 1.0   mittel       → keine Markierung (Standard)
+        d < 1.3   schwach      → orange + opacity dim
+        d ≥ 1.3   sehr schwach → rot + opacity stark dim
+     Idee: starke Treffer leicht hervorheben, schwache dimmen — aber
+     immer lesbar. */
+  .hit.strong { /* normal display */ }
   .hit.weak { opacity: 0.55; }
   .hit.weak:hover { opacity: 0.85; }
-  .hit .meta .weak-distance { color: #f59e0b; font-style: italic; }
+  .hit.very-weak { opacity: 0.4; }
+  .hit.very-weak:hover { opacity: 0.8; }
+  /* Distance-Pillen — farblich hinterlegt damit der Wert auf einen
+     Blick einzuordnen ist. Drei abgestufte Gruentoene fuer
+     sehr-stark/stark/mittel, dann orange/rot fuer schwach/sehr schwach. */
+  .hit .meta .dist-strong,
+  .hit .meta .dist-good,
+  .hit .meta .dist-mid,
+  .hit .meta .dist-weak,
+  .hit .meta .dist-very-weak {
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    color: #fff;
+    font-weight: 500;
+  }
+  .hit .meta .dist-strong    { background: #10b981; }   /* helles Gruen */
+  .hit .meta .dist-good      { background: #15803d; }   /* mittleres Gruen */
+  .hit .meta .dist-mid       { background: #14532d; }   /* dunkles Gruen */
+  .hit .meta .dist-weak      { background: #f59e0b; color: #1c1917; }
+  .hit .meta .dist-very-weak { background: #ef4444; }
+
+  /* Distance-Legende ueber den Suchergebnissen */
+  .dist-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 1rem;
+    align-items: center;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.7rem;
+    margin: 0.4rem 0 0.6rem;
+  }
+  .dist-legend .label { font-weight: 500; color: var(--text); }
+  .dist-legend .swatch {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+  }
+  .dist-legend .dot {
+    width: 0.55rem; height: 0.55rem; border-radius: 50%;
+    display: inline-block;
+  }
+  .dist-legend .dot.s { background: #10ff43; }   /* sehr stark */
+  .dist-legend .dot.g { background: #15803d; }   /* stark */
+  .dist-legend .dot.m { background: #14532d; }   /* mittel */
+  .dist-legend .dot.w { background: #f59e0b; }   /* schwach */
+  .dist-legend .dot.v { background: #ef4444; }   /* sehr schwach */
   .hit .content { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.55; }
+  /* Quellen-Etikett unten rechts im Chunk-Block — kursiv, dezent, aber
+     genug Kontrast um lesbar zu sein. Nutzt display_source vom Server
+     (gemappt aus filename via deploy/corpus/source_labels.json). */
+  .hit .source-tag {
+    display: block;
+    text-align: right;
+    margin-top: 0.4rem;
+    font-style: italic;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
   /* Such-Highlight: tiefes Indigo, passt zum Dark-Theme.
      Vereinheitlicht ueber alle Tabs (Suche + Sammlungen). */
   mark { background: #39255a; color: inherit; padding: 1px 2px; border-radius: 2px; }
@@ -683,13 +748,38 @@ async function doSearch() {
 }
 
 
+// Distance-Stufen (BGE-M3 Cosine: 0=identisch, ~1.0=orthogonal, >1.0=kaum Bezug)
+const DIST_STRONG    = 0.5;   // unter 0.5 → sehr stark
+const DIST_GOOD      = 0.8;   // 0.5–0.8  → stark
+const DIST_MID       = 1.0;   // 0.8–1.0  → mittel
+const DIST_WEAK      = 1.3;   // 1.0–1.3  → schwach
+                              // ≥1.3      → sehr schwach
+// Legacy-Konstante fuer den weak-Anker-Pre-Pass
+const WEAK_DISTANCE  = DIST_MID;
+
+function classifyDistance(d) {
+  if (d == null) return { label: '',    cls: '',           hitCls: '' };
+  if (d < DIST_STRONG) return { label: 'sehr stark',  cls: 'dist-strong',    hitCls: 'strong' };
+  if (d < DIST_GOOD)   return { label: 'stark',       cls: 'dist-good',      hitCls: '' };
+  if (d < DIST_MID)    return { label: 'mittel',      cls: 'dist-mid',       hitCls: '' };
+  if (d < DIST_WEAK)   return { label: 'schwach',     cls: 'dist-weak',      hitCls: 'weak' };
+  return                       { label: 'sehr schwach', cls: 'dist-very-weak', hitCls: 'very-weak' };
+}
+
+const DIST_LEGEND_HTML = `
+  <div class="dist-legend">
+    <span class="label">Trefferabstand (d, kleiner = besser):</span>
+    <span class="swatch"><span class="dot s"></span>&lt; 0.5 sehr stark</span>
+    <span class="swatch"><span class="dot g"></span>0.5–0.8 stark</span>
+    <span class="swatch"><span class="dot m"></span>0.8–1.0 mittel</span>
+    <span class="swatch"><span class="dot w"></span>1.0–1.3 schwach</span>
+    <span class="swatch"><span class="dot v"></span>&ge; 1.3 sehr schwach</span>
+  </div>`;
+
 function renderSearchResults(res, query, displayLimit) {
   const root = $('search-results');
   if (!res.results.length) { root.innerHTML = '<div class="empty">Keine Treffer</div>'; return; }
   const needle = query;
-  // Distance-Schwellwert: bei BGE-M3-Cosine ist 0=identisch, 1.0=orthogonal,
-  // >1.0 = semantisch praktisch "kein Bezug" — solche Hits dimmen.
-  const WEAK_DISTANCE = 1.0;
 
   // Anzeige-Limit anwenden (Backend liefert bei mode=phrase ALLE Treffer,
   // bei mode=semantic die top-N). UI zeigt nur die ersten displayLimit Treffer.
@@ -714,25 +804,33 @@ function renderSearchResults(res, query, displayLimit) {
     const meta = [];
     meta.push(`<span class="file">${escape(h.filename)}</span>`);
     meta.push(`<span>chunk ${h.chunk_index}/${h.total_chunks}</span>`);
-    let isWeak;
+    const dInfo = classifyDistance(h.distance);
+    let hitCls = dInfo.hitCls;
     if (h.distance != null) {
-      isWeak = h.distance >= WEAK_DISTANCE;
-      meta.push(`<span class="${isWeak ? 'weak-distance' : ''}">d=${h.distance.toFixed(3)}${isWeak ? ' (schwach)' : ''}</span>`);
+      meta.push(`<span class="${dInfo.cls}">d=${h.distance.toFixed(3)}${dInfo.label ? ' (' + dInfo.label + ')' : ''}</span>`);
     } else {
-      isWeak = !hasStrongAnchor.get(h.filename);
+      // Neighbor ohne eigene Distance erbt den Status seines Files
+      hitCls = hasStrongAnchor.get(h.filename) ? '' : 'weak';
     }
     if (h._neighbor) meta.push(`<span class="neighbor">±neighbor</span>`);
     // Highlight zuerst rendern — wenn die Suchwoerter wirklich im Text
     // vorkommen, ueberstimmt das die Embedding-Distance: ein Treffer mit
     // sichtbarem Match ist relevant fuer den User, egal was BGE-M3 sagt.
     const highlighted = highlight(h.content, needle);
-    if (isWeak && highlighted.includes('<mark>')) isWeak = false;
-    return `<div class="hit${isWeak ? ' weak' : ''}">
+    if ((hitCls === 'weak' || hitCls === 'very-weak') && highlighted.includes('<mark>')) hitCls = '';
+    const sourceTag = h.display_source && h.display_source !== h.filename
+      ? `<div class="source-tag">${escape(h.display_source)}</div>`
+      : '';
+    return `<div class="hit${hitCls ? ' ' + hitCls : ''}">
       <div class="meta">${meta.join(' &middot; ')}</div>
       <div class="content">${highlighted}</div>
+      ${sourceTag}
     </div>`;
   }).join('');
-  root.innerHTML = `<p class="small">${filtered.length} von ${totalBackend} Treffer (${res.mode})</p>` + html;
+  root.innerHTML =
+    `<p class="small">${filtered.length} von ${totalBackend} Treffer (${res.mode})</p>` +
+    (res.mode === 'semantic' ? DIST_LEGEND_HTML : '') +
+    html;
 }
 
 $('search-btn').addEventListener('click', doSearch);
