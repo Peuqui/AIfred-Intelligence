@@ -432,6 +432,11 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
         # ── Phase 4: Auto-reply if enabled ────────────────────
         reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
+        # silent_reply: vom audio_player gesetzt wenn Audio-Wiedergabe
+        # gestartet wurde — der Channel skippt dann die TTS-Bestaetigung,
+        # damit Music sofort spielt ohne dass der Butler dazwischenredet.
+        if result_metadata.get("silent_reply"):
+            reply_metadata["silent_reply"] = True
         outbound = OutboundMessage(
             channel=message.channel,
             channel_id=message.channel_id,

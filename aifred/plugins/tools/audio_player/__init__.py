@@ -177,6 +177,12 @@ class AudioPlayerPlugin:
                     start_pos = float(existing.get("pos_sec", 0)) or None
 
             result = await self._route_play(ctx, src, target, start_pos)
+            # Audio startet — keine Sprach-Bestaetigung noetig (Smart-Speaker-
+            # UX: User sagt "Spiele X" → X laeuft direkt, ohne dass der
+            # Butler erklaert was er tut). send_reply respektiert das Flag
+            # via outbound.metadata und skippt TTS-Render+Send.
+            if isinstance(result, dict) and result.get("success"):
+                result["silent_reply"] = True
             return json.dumps(result)
 
         return Tool(
@@ -357,6 +363,7 @@ class AudioPlayerPlugin:
                 "label": label,
                 "folder": sub or "(root)",
                 "files": files[:10] + (["..."] if len(files) > 10 else []),
+                "silent_reply": True,
             })
 
         return Tool(
@@ -527,6 +534,7 @@ class AudioPlayerPlugin:
                             return json.dumps({
                                 "success": True, "resumed": True,
                                 "method": "unpause", "target": target,
+                                "silent_reply": True,
                             })
                 else:
                     # Iterate all channels, unpause the first that has a paused stream
@@ -540,6 +548,7 @@ class AudioPlayerPlugin:
                                 return json.dumps({
                                     "success": True, "resumed": True,
                                     "method": "unpause", "target": tinfo.id,
+                                    "silent_reply": True,
                                 })
 
             # Case 1 + 3: load from saved position with pre-roll, routed
@@ -589,6 +598,7 @@ class AudioPlayerPlugin:
                 "saved_pos_sec": saved_pos,
                 "started_pos_sec": started_pos,
                 "pre_roll_applied_sec": max(0.0, saved_pos - started_pos),
+                "silent_reply": True,
             })
             return json.dumps(result)
 

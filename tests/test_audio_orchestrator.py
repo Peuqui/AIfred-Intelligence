@@ -311,11 +311,13 @@ class TestTypeSwitch:
 
 # ── TTS-Takeover ueber laufende Music ────────────────────────────────
 
-class TestTTSTakeover:
-    """TTS waehrend Music laeuft: Music pausieren, TTS, Music weiter."""
+class TestTTSReplacesMusic:
+    """TTS waehrend Music laeuft: Music wird sauber beendet, TTS uebernimmt
+    als alleinige Source. Konsens-Spec "Variante (ii)": kein Takeover-Mechanismus
+    mehr — Music wird durch TTS ersetzt, User holt sie via audio_resume zurueck.
+    """
 
-    def test_takeover_keeps_music_active_type(self, bridge):
-        # mpv-Stream-Mock — pause/resume returnen True
+    def test_play_tts_replaces_music(self, bridge):
         stream = MagicMock()
         stream.pause = AsyncMock(return_value=True)
         stream.resume = AsyncMock(return_value=True)
@@ -327,19 +329,18 @@ class TestTTSTakeover:
 
         run(orc.play_tts(b"\x00" * 200))
 
-        # mpv wurde pausiert, audio_flag(tts) gesendet, NICHT audio_start
-        stream.pause.assert_awaited_once()
+        # Music-Stream wurde sauber gestoppt (nicht nur pausiert)
+        stream.stop.assert_awaited_once()
+        # mpv-IPC pause/resume wurde NICHT mehr aufgerufen — kein Takeover
+        stream.pause.assert_not_awaited()
+        stream.resume.assert_not_awaited()
+        # audio_flag(tts) und audio_start wurden gesendet (TTS-Standalone)
         flag_types = [t for t, _ in _flag_calls(bridge)]
         assert "tts" in flag_types
-        # Wichtig: bei Takeover KEIN audio_start (Type-Switch mid-stream)
-        bridge.send_audio_start.assert_not_awaited()
-        # Nach komplettem Pump: audio_flag(music) zurueck + mpv resume
-        assert flag_types.count("music") >= 1
-        stream.resume.assert_awaited()
-        # active_type bleibt music (Takeover war transient)
-        assert orc.active_type == "music"
+        bridge.send_audio_start.assert_awaited()
+        # active_type ist nach komplettem Pump None (Buffer durch)
 
-    def test_takeover_chunks_match_input(self, bridge):
+    def test_chunks_match_input_after_music_replace(self, bridge):
         stream = MagicMock()
         stream.pause = AsyncMock(return_value=True)
         stream.resume = AsyncMock(return_value=True)
@@ -353,36 +354,4 @@ class TestTTSTakeover:
 
         sent = b"".join(c.args[1] for c in bridge.send_audio_chunk.await_args_list)
         assert sent == pcm
-
-    def test_pause_during_takeover_drops_takeover_keeps_music_paused(self, bridge):
-        # Slow-chunk damit pause mid-takeover greifen kann
-        async def slow_chunk(*args, **kwargs):
-            await asyncio.sleep(0.01)
-            return True
-        bridge.send_audio_chunk.side_effect = slow_chunk
-
-        stream = MagicMock()
-        stream.pause = AsyncMock(return_value=True)
-        stream.resume = AsyncMock(return_value=True)
-        stream.stop = AsyncMock(return_value=True)
-
-        orc = AudioOrchestrator("room1", bridge)
-
-        async def scenario():
-            await orc.play_music(stream)
-            # play_tts ist synchron — pause kommt aus parallelem Task
-            play_task = asyncio.create_task(
-                orc.play_tts(b"\x00" * (TTSBuffer.CHUNK_SIZE * 5))
-            )
-            await asyncio.sleep(0.005)  # erster takeover-chunk on the way
-            paused = await orc.pause()
-            await play_task  # play_tts kehrt durch CancelledError zurueck
-            return paused
-
-        result = run(scenario())
-        assert result is True
-        # active_type bleibt music, paused=True, takeover gedroppt
-        assert orc.active_type == "music"
-        assert orc.is_paused is True
-        # mpv.resume wurde NICHT aufgerufen (Takeover war nicht fertig)
         stream.resume.assert_not_awaited()
