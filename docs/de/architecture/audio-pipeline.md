@@ -1,6 +1,6 @@
 # Audio-Pipeline-Architektur
 
-Stand: 2026-05-05. Lebendes Dokument — wird mit der Implementierung
+Stand: 2026-05-10. Lebendes Dokument — wird mit der Implementierung
 weiter ausgebaut.
 
 ## Aktueller Implementierungs-Stand
@@ -23,6 +23,7 @@ weiter ausgebaut.
 | YouTube-Plugin | ❌ Phase 2.0 (nach 3.0) | nicht implementiert |
 | Internet-Radio (HTTP-Streams) | ⚠️ | Infrastruktur ja, Streams in `settings.json` aktuell leer |
 | Hörbuch-Auto-Pause (Wake-Word → Pause) | ⚠️ | Browser via `media_paused_for_tts` ja, FreeEcho.2 nein (Phase 4.0) |
+| Audio-Bus-Refactor (FreeEcho.2 = dumb sink) | 🚧 in Arbeit | Konsens AIfred ↔ FreeEcho.2-Firmware steht, parallele Implementierung läuft |
 
 ## Motivation
 
@@ -576,6 +577,142 @@ Flag im State pausiert den HTML5-Player während TTS spricht.
 Beispiel: „Spiel das in Wohnzimmer und Schlafzimmer parallel."
 Erfordert mpv-Multi-Output oder zwei mpv-Instanzen mit
 synchronisiertem Position-Save. Im Backlog.
+
+## Audio-Bus-Refactor (FreeEcho.2 = dumb sink) — Phase 5.0
+
+**Status: 🚧 in Arbeit (2026-05-10).** Konsens zwischen AIfred-Server-
+Instanz und FreeEcho.2-Firmware-Instanz steht (via AI-Connect
+ausverhandelt mit Salomo-Prinzip). Beide Sides werden parallel
+umgebaut, kein Capability-Gate, kein Legacy-Fallback — User flasht
+Firmware in einem Rutsch.
+
+### Motivation
+
+Aktuell laufen TTS und Music am FreeEcho.2 über zwei separate Pfade:
+- TTS: `send_reply` → `audio_start(speech)` + chunks + `audio_end`
+- Music: mpv → FIFO → fifo_pump → kontinuierliche `audio_chunk`-Frames
+
+Bei TTS während Music kollidieren die zwei PCM-Quellen am Speaker —
+TTS-`audio_start`-Frame wird im SPEAKING-Loop der Firmware verworfen
+(matcht nur auf `"audio_end"`), TTS-Bytes landen in der Music-Source.
+Plus: Source-Pre-emption via neuem `audio_start` würde am Speaker DAC-
+Reinit triggern → knackt. Kein sauberer Mechanismus für Mid-Stream-
+Type-Switch.
+
+### Architektur
+
+**FreeEcho.2 = dumb sink.** Eine Audio-Pipeline pro Session, Server
+orchestriert was reinfließt. Neuer Frame-Typ `audio_flag` für
+Type-Wechsel ohne Stream-Reset.
+
+### Tupel-Whitelist (strikt, FATAL bei Verletzung)
+
+```
+(music                                                     )
+(tts                                                       )
+(alarm,        repeats=N≥0, max_duration=N≥0, with_tts=B  )
+(notification, with_tts=B                                  )
+```
+
+Alles außerhalb der Whitelist → Protocol Error, Connection close,
+FATAL log. Strikt: keine Defaults, keine versteckten Annahmen.
+
+### Verhalten pro Type
+
+| Type | PCM-Quelle | Wo gespeichert |
+|---|---|---|
+| `music` | Server-mpv-FIFO → WS-Stream | Server pumpt |
+| `tts` | Server-TTS-Render → WS-Stream | Server pumpt |
+| `alarm` | FreeEcho.2-lokale WAV (UI-konfigurierbar) | Puck-lokal — kein Server-PCM |
+| `alarm` + `with_tts=true` | Lokale WAV + TTS-Tail-Stream | Puck-Loop, dann Server-TTS |
+| `notification` | FreeEcho.2-lokale WAV (UI-konfigurierbar) | Puck-lokal — kein Server-PCM |
+| `notification` + `with_tts=true` | Lokale WAV + TTS-Tail-Stream | Puck spielt 1×, dann Server-TTS |
+
+### Frame-Sequenzen (final fixiert)
+
+| Use-Case | Frame-Sequenz |
+|---|---|
+| Music | `audio_flag(music)` → `audio_start` → chunks → `audio_end` |
+| TTS standalone | `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
+| Type-Switch mid-stream (z.B. music→tts) | nur `audio_flag(neuer_type)`, gleiche Source bleibt, 30 ms Linear-Fade |
+| alarm ohne Tail | nur `audio_flag(alarm, repeats, max_duration, with_tts=false)` — kein PCM, kein audio_end |
+| alarm mit Tail | `audio_flag(alarm, …, with_tts=true)` → `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
+| notification ohne/mit Tail | analog |
+
+**Wichtig**: `audio_flag` und `audio_start` sind **getrennte** Frames
+mit unterschiedlicher Semantik:
+- `audio_flag` = Type-Setting (LED + VU + Source-Verhalten)
+- `audio_start` = PCM-Stream-Setup-Header (optional `total_size`)
+
+`channels`/`rate` werden nicht gesendet — Puck-Hardware ist fest auf
+48 kHz mono int16, alles andere wäre redundant oder FATAL.
+
+### Vier Operationen — semantisch klar pro Type
+
+| Operation | music | tts (standalone) | alarm (auch +Tail) | notification (auch +Tail) |
+|---|---|---|---|---|
+| **Play** | mpv start, audio_flag, audio_start, pump | TTS render, audio_flag, audio_start, pump | audio_flag mit Params (kein PCM) | audio_flag mit Params (kein PCM) |
+| **Pause** | echtes Pause (mpv-IPC, Position bleibt) | echtes Pause (TTS-Cursor merken) | = Stop (alles weg) | = Stop (alles weg) |
+| **Resume** | mpv-IPC unpause, weiter pumpen | ab Cursor weiter pumpen, **kein** Re-Render | (n/a, da Stop) | (n/a, da Stop) |
+| **Stop** | alles weg, mpv terminate | alles weg, TTS-Buffer drop | alles weg, audio_end an Puck | alles weg, audio_end an Puck |
+
+**Logik**: music und standalone-tts sind klassische Audio-Inhalte
+(Hörbuch / längere Antwort) — Pause/Resume sinnvoll. alarm und
+notification sind ereignisgetriebene transiente Audios — Pause auf
+einem Wecker macht keinen Sinn, → Stop.
+
+### Persistenz
+
+Nur `music` persistiert in `audio_state.json` (für long-form Resume
+nach Server-Restart, Hörbücher 11 h+). TTS, alarm, notification leben
+nur in-memory — bei Server-Restart abgebrochen (ein Wecker der nach
+Restart noch klingelt wäre Bug, nicht Feature).
+
+### Server-Side SSOT-API
+
+```python
+async def play_audio(room, audio_type, **params)   # neue Source starten
+async def pause_audio(room)                         # mit Type-Awareness
+async def resume_audio(room)
+async def stop_audio(room)                          # alles verwerfen
+```
+
+Wirken auf die "aktuell aktive Audio-Source" pro Room. AudioOrchestrator
+hält `media`-vs-`tts`-Pump-Pipeline und switched zwischen ihnen via
+`audio_flag`-Frame.
+
+### Firmware-Side SSOT-API (FreeEcho.2)
+
+- `apply_audio_type(t)` — atomisch VU-Mode, LED-Pattern, AEC-Reset,
+  Vosk-permissive, BT-Tap (alle 5 Sub-Punkte)
+- `audio_source_stream_flush_with_fade(src, 30 ms)` — sauberer
+  Type-Switch ohne DAC-Knack
+- `audio_pause_current()` / `audio_resume_current()` — type-aware
+  (alarm/notification → stop statt pause)
+- `audio_stop_all()` — totaler Abbruch inkl. TTS-Tail-Drain
+- audio_flag-Frame-Handler mit strikter Whitelist-Validation
+- alarm-Loop-Logik (Puck-lokal, repeats/max_duration honorieren)
+- notification-Sequenzer (lokaler Sound → optional TTS-Stream)
+
+### LED-Pattern-Erweiterung (Firmware)
+
+Neue Audio-Layer-Patterns in `freeecho2_ledd.c`:
+- `audio:alarm` → orange, schnell pulsierend (Default `solid:FF8000+pulse:300`)
+- `audio:notification` → sanftes Cyan, langsam (Default `solid:00C8FF+pulse:1500`)
+
+Per UI konfigurierbar: lokale WAV-Dateien für alarm/notification
+plus LED-Patterns.
+
+### Implementierungs-Phasen (Server-Side)
+
+1. **Phase 1**: Frame-Sender (`send_audio_flag`, schlankes
+   `send_audio_start`) im Plugin-Layer
+2. **Phase 2**: Stateful AudioOrchestrator pro Room mit Music-Stream
+   und TTS-Buffer als zwei Pump-Quellen
+3. **Phase 3**: `send_reply` umstellen — entfernt das alte
+   `pause_for_tts`/`resume_after_tts`-Pattern
+4. **Phase 4**: Audio-Tools-Layer — neue Tools `audio_alarm` /
+   `audio_notification` oder Erweiterung bestehender Tools
 
 ## Offene Fragen
 
