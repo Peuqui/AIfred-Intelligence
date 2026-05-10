@@ -86,7 +86,10 @@ class CalibrationMixin(rx.State, mixin=True):
     @rx.var
     def has_dashscope_key(self) -> bool:
         """True when a DashScope API key is configured — gates the AI options."""
-        from ..lib.credential_broker import broker
+        # Absoluter Import statt ``..lib.credential_broker`` — Reflex'
+        # deps-Introspection scheitert sonst mit
+        # ``No module named 'lib.credential_broker'``.
+        from aifred.lib.credential_broker import broker
         import os
         return bool(broker.get("cloud_qwen", "api_key")) or bool(os.environ.get("DASHSCOPE_API_KEY"))
 
@@ -101,7 +104,8 @@ class CalibrationMixin(rx.State, mixin=True):
         (callers must increment it after every write)."""
         # Touch the revision so Reflex tracks it as a dependency
         _ = self._agents_json_revision
-        from ..lib.agent_config import load_agents_raw
+        # Absoluter Import — siehe has_dashscope_key.
+        from aifred.lib.agent_config import load_agents_raw
         try:
             cfg = load_agents_raw().get("calibration") or {}
             model = cfg.get("model") or "qwen-plus"
