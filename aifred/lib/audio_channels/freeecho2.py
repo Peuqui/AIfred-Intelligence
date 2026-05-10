@@ -103,6 +103,7 @@ class FreeEcho2Channel:
             if stream is None:
                 stream = FreeEcho2Stream(
                     room,
+                    send_flag=bridge.send_audio_flag,
                     send_start=bridge.send_audio_start,
                     send_chunk=bridge.send_audio_chunk,
                     send_end=bridge.send_audio_end,
