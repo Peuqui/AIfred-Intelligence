@@ -145,18 +145,42 @@ class AudioOrchestrator:
     # ── Public API: play / pause / resume / stop ────────────────────
 
     async def play_music(self, stream: "FreeEcho2Stream") -> None:
-        """Starte einen mpv-Music-Stream.
+        """Music-Stream am Orchestrator anmelden.
 
-        ``stream`` ist eine bereits konfigurierte FreeEcho2Stream-Instanz
-        (mpv-Subprocess plus IPC). Der Caller hat ``stream.start(...)``
-        bereits aufgerufen — das macht intern audio_flag(music) +
-        audio_start + fifo_pump-Task.
+        Der Caller (FreeEcho2Channel.play) hat ``stream.start(...)``
+        bereits aufgerufen — start() managed seinen eigenen Replace-
+        Lifecycle (alte mpv terminate + audio_end + neue mpv +
+        audio_flag(music) + audio_start). Der ``stream``-Pointer ist
+        in ``_streams`` pro Room gecacht, deshalb identisch zu einem
+        evtl. vorher hier registrierten ``self._stream``.
 
-        Wir uebernehmen nur das State-Tracking, damit pause/resume/stop
-        weiss was zu tun ist.
+        Hier also nur State-Tracking + Cleanup VON ANDEREN Sources
+        (laufende TTS-Pumps): cancel any active pump-task. KEIN
+        ``self._stream.stop()`` weil das die gerade gestartete mpv
+        toeten + nochmal audio_end senden wuerde — Puck sieht dann
+        audio_start direkt gefolgt von audio_end und wertet die Source
+        als sofort-fertig (eos=1, ring leer).
+
+        Auch KEIN audio_end fuer einen evtl. vorher aktiven TTS — das
+        audio_start des neuen Music-Streams ist auf Puck-Seite der
+        implicit Source-Reset. Wenn der TTS-pump sauber durch war, hat
+        er audio_end ohnehin selbst gesendet; bei cancel droppen wir
+        den Tail-Stream still und der neue Stream startet sauber.
         """
         async with self._lock:
-            await self._reset_active_unlocked()
+            # Pending TTS-pump-Task abbrechen (Standalone oder Takeover).
+            # Der Cancel raised CancelledError, beide Pump-Funktionen
+            # leiten den durch ohne audio_end zu senden.
+            if self._tts_pump_task is not None and not self._tts_pump_task.done():
+                self._tts_pump_task.cancel()
+                try:
+                    await self._tts_pump_task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
+            self._tts_pump_task = None
+            self._tts_buffer = None
+            self._takeover_active = False
+
             self._stream = stream
             self._active_type = "music"
             self._paused = False
@@ -506,10 +530,23 @@ class AudioOrchestrator:
                     )
                     return
             # TTS done — switch zurueck zu music, mpv resumen
+            log_message(
+                f"AudioOrchestrator[{self.room}]: TTS-Takeover pump finished, "
+                f"switching back to music"
+            )
             async with self._lock:
                 await self.bridge.send_audio_flag(self.room, "music")
                 if self._stream is not None:
-                    await self._stream.resume()
+                    resumed = await self._stream.resume()
+                    log_message(
+                        f"AudioOrchestrator[{self.room}]: mpv resume returned {resumed}"
+                    )
+                else:
+                    log_message(
+                        f"AudioOrchestrator[{self.room}]: mpv resume SKIPPED — "
+                        f"_stream is None",
+                        "warning",
+                    )
                 self._tts_buffer = None
                 self._tts_pump_task = None
                 self._takeover_active = False
@@ -519,4 +556,8 @@ class AudioOrchestrator:
             )
         except asyncio.CancelledError:
             # Pause/stop hat den Takeover gecancelt — caller raeumt auf
+            log_message(
+                f"AudioOrchestrator[{self.room}]: TTS-Takeover cancelled — "
+                f"music stays paused"
+            )
             raise

@@ -360,14 +360,22 @@ class FreeEcho2Stream:
 
     async def resume(self) -> bool:
         if not self.is_running:
+            log_message(
+                f"FreeEcho2Stream[{self.room}]: resume skipped — mpv not running"
+            )
             return False
         try:
-            paused = await self._get_property("pause", default=None)
-            if paused is False:
-                return False  # nichts zu unpausen
+            # Idempotent — set_property pause=False schadet auch wenn schon
+            # nicht-paused. Vorab-Prüfung von _get_property("pause") raus
+            # weil ein IPC-Race/Glitch dort silent False liefern und Resume
+            # ueberspringen koennte (Live-Test-Bug 2026-05-10).
             await self._send({"command": ["set_property", "pause", False]})
+            log_message(f"FreeEcho2Stream[{self.room}]: mpv unpaused")
             return True
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log_message(
+                f"FreeEcho2Stream[{self.room}]: resume failed: {exc}", "warning"
+            )
             return False
 
     async def seek(self, position_sec: float, relative: bool = False) -> bool:
