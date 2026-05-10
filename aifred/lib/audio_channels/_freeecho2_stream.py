@@ -364,30 +364,29 @@ class FreeEcho2Stream:
         # falls der FreeEcho.2 zuletzt flow=pause geschickt hat.
         self._flow_resumed.set()
 
-        # 1. Position eines letzten Mal speichern (IPC noch da)
-        stop_pos: Optional[float] = None
-        stop_dur: Optional[float] = None
+        # 1. Position eines letzten Mal speichern (IPC noch da). Wir
+        # nehmen mpv's time-pos hier nur als Backup-Save fuer den Fall
+        # dass kein consumed_ms vom Puck nachkommt — die echte
+        # Hoer-Position kommt vom Channel via consumed_ms+offset.
+        # Wichtig: time-pos ist die Decode-Position (kann bei grossem
+        # Demuxer-Buffer von 512 MiB weit vor der Hoer-Position liegen),
+        # daher NICHT als Stop-Position loggen — das waere irrefuehrend.
         if self._current_state_key and self._ipc_writer is not None:
             try:
                 pos = await self._get_property("time-pos", default=None)
                 dur = await self._get_property("duration", default=None)
-                if pos is not None:
-                    stop_pos = float(pos)
-                if dur is not None:
-                    stop_dur = float(dur)
                 if pos is not None:
                     from ..audio_state import audio_state
                     audio_state.update(
                         key=self._current_state_key,
                         uri=self._current_uri or "",
                         pos_sec=float(pos),
-                        duration_sec=stop_dur,
+                        duration_sec=float(dur) if dur is not None else None,
                     )
             except Exception:  # noqa: BLE001
                 pass
         debug_event(
-            f"🎵 [{self.room}] ⏹️ stop: {self._current_state_key} "
-            f"@ {_fmt_state(stop_pos, stop_dur)}"
+            f"🎵 [{self.room}] ⏹️ stream stopped: {self._current_state_key}"
         )
 
         # 2. mpv beenden — der pump-Task wartet sonst ewig auf neue PCM-Bytes
