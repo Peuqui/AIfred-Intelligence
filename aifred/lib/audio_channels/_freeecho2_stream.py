@@ -112,6 +112,12 @@ class FreeEcho2Stream:
         # Optional callback fired when mpv signals natural EOF (track ended).
         # Used by FreeEcho2Channel.play_queue() to advance to the next item.
         self._on_eof_cb: Optional[Callable[[], Awaitable[None]]] = None
+        # Optional callback fired when the WS-send-side fails (chunk timeout
+        # oder error). Caller raeumt Stream sauber ab (mpv terminate +
+        # send_audio_end), damit Server-State und Puck-State nicht
+        # auseinanderlaufen. Anders als _on_eof_cb (natuerliches Ende):
+        # hier ist die Source noch nicht durch, aber das Pumpen ist tot.
+        self._on_send_failed_cb: Optional[Callable[[], Awaitable[None]]] = None
         self._stopping = False
 
         # Backpressure: Pump-Task wartet vor jedem Read auf dieses Event.
@@ -488,6 +494,35 @@ class FreeEcho2Stream:
                     "warning",
                 )
 
+    def _fire_send_failed_cb(self) -> None:
+        """Schedule den send-failed-Callback als unabhaengigen Task.
+
+        Aus dem fifo_pump-Loop heraus aufgerufen wenn ein WS-send timeout
+        oder error hatte. Wir starten ihn als separaten Task statt direkt
+        zu await-en, weil:
+
+        1. der fifo_pump-Task selbst gleich beendet wird (break)
+        2. der Callback typischerweise ``orc.stop()`` ruft, was den
+           Stream-pump cancelt — Selbst-Cancel waere ein Deadlock-
+           Pattern. Mit create_task laeuft der Cleanup nebenan.
+        """
+        cb = self._on_send_failed_cb
+        self._on_send_failed_cb = None
+        if cb is None:
+            return
+
+        async def _run() -> None:
+            try:
+                await cb()
+            except Exception as exc:  # noqa: BLE001
+                log_message(
+                    f"FreeEcho2Stream[{self.room}]: send-failed cb error: {exc}",
+                    "warning",
+                )
+        asyncio.create_task(
+            _run(), name=f"freeecho2-{self.room}-send-failed-cb",
+        )
+
     # ── FIFO-Pumpe: PCM von mpv → freeecho2 WS-Bridge ───────
 
     async def _make_fifo(self) -> None:
@@ -560,12 +595,14 @@ class FreeEcho2Stream:
                     log_message(
                         f"FreeEcho2Stream[{self.room}]: send_chunk error: {exc}", "warning"
                     )
+                    self._fire_send_failed_cb()
                     break
                 if not ok:
                     log_message(
                         f"FreeEcho2Stream[{self.room}]: WS send returned False — aborting",
                         "warning",
                     )
+                    self._fire_send_failed_cb()
                     break
         except asyncio.CancelledError:
             return
