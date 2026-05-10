@@ -43,9 +43,14 @@ FE2_CHANNELS = 1
 FE2_SAMPLE_FORMAT = "s16"   # mpv-Notation; ergibt int16 little-endian
 
 
-# Type alias: WS-Bridge in freeecho2_channel hat diese Form.
+# Type aliases — WS-Bridge in freeecho2_channel hat diese Form.
+# Audio-Bus-Protokoll (Phase 5.0): siehe docs/de/architecture/
+# audio-pipeline.md "Audio-Bus-Refactor".
 SendChunk = Callable[[str, bytes], Awaitable[bool]]
-SendStart = Callable[[str, int, int, str], Awaitable[bool]]
+# send_audio_flag(room, audio_type, **params) — Type-Setting (LED+VU)
+SendFlag = Callable[..., Awaitable[bool]]
+# send_audio_start(room, total_size?) — PCM-Stream-Setup-Header
+SendStart = Callable[..., Awaitable[bool]]
 SendEnd = Callable[[str], Awaitable[bool]]
 SendHeartbeat = Callable[[str], Awaitable[bool]]
 
@@ -67,6 +72,7 @@ class FreeEcho2Stream:
     def __init__(
         self,
         room: str,
+        send_flag: SendFlag,
         send_start: SendStart,
         send_chunk: SendChunk,
         send_end: SendEnd,
@@ -76,6 +82,7 @@ class FreeEcho2Stream:
         # Target-ID-Prefix muss zum FreeEcho2Channel passen — Single-Source-of-Truth
         from .freeecho2 import TARGET_PREFIX
         self.target_id = f"{TARGET_PREFIX}{room}"
+        self._send_flag = send_flag
         self._send_start = send_start
         self._send_chunk = send_chunk
         self._send_end = send_end
@@ -206,10 +213,19 @@ class FreeEcho2Stream:
             self._current_state_key = state_key
             self._stopping = False
 
-            # Tell the FreeEcho.2 what's coming + start pumping FIFO → WS
-            await self._send_start(
-                self.room, FE2_CHANNELS, FE2_SAMPLE_RATE, audio_type,
-            )
+            # Audio-Bus-Protokoll: erst audio_flag (Type-Setting für LED+VU),
+            # dann audio_start (PCM-Stream-Setup-Header). channels/rate werden
+            # nicht gesendet — Puck-Hardware ist fest auf 48 kHz mono int16.
+            # Music-Streams haben keine bekannte Total-Size (Music läuft bis
+            # mpv-EOF oder User-Stop) — total_size weglassen.
+            if audio_type not in ("music", "tts"):
+                # Stream-Sources sind aktuell nur music (mpv) und tts. alarm/
+                # notification kommen ueber andere Pfade (kein FreeEcho2Stream).
+                raise ValueError(
+                    f"FreeEcho2Stream.start: audio_type must be music|tts, got {audio_type!r}"
+                )
+            await self._send_flag(self.room, audio_type)
+            await self._send_start(self.room)
             self._fifo_pump_task = asyncio.create_task(
                 self._fifo_pump(),
                 name=f"freeecho2-{self.room}-fifo-pump",

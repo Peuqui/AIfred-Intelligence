@@ -723,8 +723,11 @@ class FreeEchoChannel(BaseChannel):
                     f"[FreeEcho.2 {room}] Sending TTS: {total} bytes "
                     f"({total/96000:.1f}s) in {num_chunks} chunks"
                 )
-                ok = await self.send_audio_start(room, channels=1, rate=48000,
-                                                 audio_type="speech", total_size=total)
+                # Audio-Bus-Protokoll: erst audio_flag (LED+VU auf TTS),
+                # dann audio_start (PCM-Header) mit total_size.
+                ok = await self.send_audio_flag(room, "tts")
+                if ok:
+                    ok = await self.send_audio_start(room, total_size=total)
                 if ok:
                     offset = 0
                     chunk_num = 0
@@ -755,40 +758,139 @@ class FreeEchoChannel(BaseChannel):
                         f"[FreeEcho.2 {room}] resume_after_tts error: {exc}", "warning"
                     )
 
-    # ── Public WS-Bridge — Audio-Streaming an den FreeEcho.2 ──────────────────
+    # ── Public WS-Bridge — Audio-Bus-Frame-API ──────────────────────────
     #
-    # Drei Methoden für jeden, der PCM an einen FreeEcho.2 schicken will:
-    #   1. send_audio_start(room, channels, rate, audio_type, total_size?)
-    #   2. send_audio_chunk(room, bytes)            — beliebig oft
-    #   3. send_audio_end(room)
+    # Audio-Bus-Protokoll (Phase 5.0): siehe docs/de/architecture/
+    # audio-pipeline.md "Audio-Bus-Refactor" für Frame-Sequenzen und
+    # Tupel-Whitelist. Vier Methoden:
     #
-    # Wird sowohl von TTS (send_reply) als auch von der FreeEcho2Channel-mpv-
-    # Pipeline genutzt. Per-Send-Timeout: wenn der FreeEcho.2 nicht mehr ACKt
-    # (WiFi-Drop, Crash), würde Linux-TCP ~2 min brauchen um das zu
-    # bemerken — wir geben nach 10 s auf und schließen die Verbindung,
-    # damit die Room-Slot für den Reconnect frei wird.
+    #   1. send_audio_flag(room, audio_type, **params)  — Type-Setting (LED+VU)
+    #   2. send_audio_start(room, total_size?)          — PCM-Stream-Setup
+    #   3. send_audio_chunk(room, bytes)                — beliebig oft
+    #   4. send_audio_end(room)                         — End-Marker
+    #
+    # audio_flag und audio_start sind GETRENNT mit unterschiedlicher
+    # Semantik (audio_flag = Type-Wechsel ohne Stream-Reset). Frame-
+    # Sequenzen pro Use-Case sind in der Doku tabellarisch festgehalten.
+    #
+    # Per-Send-Timeout: wenn der FreeEcho.2 nicht mehr ACKt (WiFi-Drop,
+    # Crash), würde Linux-TCP ~2 min brauchen um das zu bemerken — wir
+    # geben nach 10 s auf und schließen die Verbindung, damit der Room-
+    # Slot für den Reconnect frei wird.
 
     _CHUNK_SEND_TIMEOUT_SEC = 10.0
+
+    # Whitelist-Validation für audio_flag/audio_start. Schema-Verletzung
+    # wird server-seitig per ValueError geblockt BEVOR sie ans Wire geht
+    # — die Firmware-FATAL-Pfade sehen wir damit nur bei echter
+    # Network-Korruption, nicht bei Server-Logik-Bugs. Strikt:
+    # unbekannte Felder, falsche Typen, fehlende Pflicht-Felder → raise.
+    _AUDIO_TYPE_SCHEMA: dict[str, set[str]] = {
+        "music":        set(),                                   # keine Felder
+        "tts":          set(),                                   # keine Felder
+        "alarm":        {"repeats", "max_duration", "with_tts"}, # alle Pflicht
+        "notification": {"with_tts"},                            # Pflicht
+    }
+
+    @classmethod
+    def _validate_audio_flag(cls, audio_type: str, params: dict[str, Any]) -> None:
+        """Strikt: validate audio_flag-Tupel gegen Whitelist. Raise ValueError."""
+        if audio_type not in cls._AUDIO_TYPE_SCHEMA:
+            raise ValueError(
+                f"audio_flag: unknown audio_type {audio_type!r} "
+                f"(allowed: {sorted(cls._AUDIO_TYPE_SCHEMA.keys())})"
+            )
+        expected = cls._AUDIO_TYPE_SCHEMA[audio_type]
+        provided = set(params.keys())
+        if extra := provided - expected:
+            raise ValueError(
+                f"audio_flag({audio_type!r}): unexpected fields {sorted(extra)}"
+            )
+        if missing := expected - provided:
+            raise ValueError(
+                f"audio_flag({audio_type!r}): missing required fields {sorted(missing)}"
+            )
+        # Type-Checks pro Feld
+        if "repeats" in params:
+            v = params["repeats"]
+            if not isinstance(v, int) or v < 0:
+                raise ValueError(f"audio_flag(alarm): repeats must be int>=0, got {v!r}")
+        if "max_duration" in params:
+            v = params["max_duration"]
+            if not isinstance(v, int) or v < 0:
+                raise ValueError(f"audio_flag(alarm): max_duration must be int>=0, got {v!r}")
+        if "with_tts" in params:
+            v = params["with_tts"]
+            if not isinstance(v, bool):
+                raise ValueError(
+                    f"audio_flag({audio_type!r}): with_tts must be bool, got {v!r}"
+                )
+
+    async def send_audio_flag(
+        self, room: str, audio_type: str, **params: Any
+    ) -> bool:
+        """Schickt ein audio_flag-Frame: Type-Setting (LED + VU + Source-Verhalten).
+
+        Wird verwendet für (siehe Doku audio-pipeline.md):
+        - vor audio_start bei music/tts (initial setting)
+        - alleine für alarm/notification (kein PCM danach, falls with_tts=false)
+        - mid-stream für Type-Switch (z.B. music → tts während Music läuft;
+          gleiche Source bleibt, 30 ms Linear-Fade auf Puck-Seite)
+
+        ``audio_type`` muss in der Whitelist sein. ``params`` sind type-
+        spezifisch (siehe ``_AUDIO_TYPE_SCHEMA``). Server-side strikt
+        validiert — ungültige Tupel raisen ValueError BEVOR sie ans Wire
+        gehen, damit die Firmware-FATAL-Pfade nur Network-Korruption
+        fangen.
+        """
+        # Validate strikt — raise wenn nicht konform
+        self._validate_audio_flag(audio_type, params)
+
+        ws = _devices.get(room)
+        if ws is None:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_flag: not connected", "warning",
+            )
+            return False
+        payload: dict[str, Any] = {
+            "type": "audio_flag",
+            "audio_type": audio_type,
+            **params,
+        }
+        try:
+            await asyncio.wait_for(
+                ws.send_str(json.dumps(payload)),
+                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
+            )
+            return True
+        except asyncio.TimeoutError:
+            await self._abort_room(room, "audio_flag timeout")
+            return False
+        except Exception as exc:  # noqa: BLE001
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_audio_flag error: {exc}", "warning",
+            )
+            return False
 
     async def send_audio_start(
         self,
         room: str,
-        channels: int = 1,
-        rate: int = 48000,
-        audio_type: str = "music",
         total_size: int | None = None,
     ) -> bool:
-        """Audio-Stream-Start an den FreeEcho.2 signalisieren.
+        """Signalisiert PCM-Stream-Setup an den FreeEcho.2.
 
-        ``audio_type`` ist ein Hint für VU-Pattern + LED-Verhalten am FreeEcho.2:
-        - ``"music"``  — Stereo-VU, smooth (Songs, Musik-Radio)
-        - ``"speech"`` — Voice-VU, peak-orientiert (TTS, Hörbücher, Podcasts)
-        - ``"alarm"``  — eigenes Pattern (Wecker, kritische Notifications)
-        Unbekannte Werte fallen am FreeEcho.2 auf den Speech-Default zurück.
+        Wird IMMER nach einem ``audio_flag(music)`` oder ``audio_flag(tts)``
+        gesendet, BEVOR die binary chunks fließen. Bei alarm/notification
+        ohne TTS-Tail gibt's kein audio_start (Puck spielt lokale WAV).
 
-        ``total_size`` ist optional und nur für TTS sinnvoll (fixe Länge).
-        Music-Streams (mpv-FIFO-Pump) lassen das Feld weg — der FreeEcho.2 nutzt
-        seinen 5-min Ring-Buffer und den Inactivity-Watchdog.
+        Format ist hardcoded auf 48 kHz mono int16 (FreeEcho.2-Hardware-
+        Constraint, kann nichts anderes). channels/rate werden NICHT mehr
+        mitgesendet — würden bei der Firmware-Whitelist-Validation FATAL
+        triggern, wenn der Wert nicht exakt 1/48000 ist.
+
+        ``total_size`` ist optional (typischerweise für TTS verfügbar,
+        nicht für endlose Music-Streams). Puck nutzt es bisher nicht für
+        Logik, kann aber für künftige Progress-LED genutzt werden.
         """
         ws = _devices.get(room)
         if ws is None:
@@ -796,14 +898,9 @@ class FreeEchoChannel(BaseChannel):
                 f"[FreeEcho.2 {room}] send_audio_start: not connected", "warning",
             )
             return False
-        payload: dict[str, Any] = {
-            "type": "audio_start",
-            "channels": channels,
-            "rate": rate,
-            "audio_type": audio_type,
-        }
+        payload: dict[str, Any] = {"type": "audio_start"}
         if total_size is not None:
-            payload["total_size"] = total_size
+            payload["total_size"] = int(total_size)
         try:
             await asyncio.wait_for(
                 ws.send_str(json.dumps(payload)),
