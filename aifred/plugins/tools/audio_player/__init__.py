@@ -161,7 +161,7 @@ class AudioPlayerPlugin:
         return await channel.play(src, target_id, start_pos_sec, ctx)
 
     def _tool_play(self, ctx: PluginContext) -> Tool:
-        async def _play(item: str, target: str | None = None, restart: bool = False) -> str:
+        async def _play(item: str, target: str | None = None, restart: bool = True) -> str:
             from ....lib.audio_state import audio_state
             try:
                 resolver = _make_resolver()
@@ -169,7 +169,11 @@ class AudioPlayerPlugin:
             except ValueError as exc:
                 return json.dumps({"success": False, "error": str(exc)})
 
-            # Determine start position from saved state (unless restart)
+            # Determine start position from saved state (unless restart).
+            # Default for ``restart`` is True — Smart-Speaker convention:
+            # "play X" starts from the beginning. For continue-from-saved-
+            # position, the LLM either calls audio_resume() or sets
+            # restart=False explicitly.
             start_pos: float | None = None
             if not restart and not src.is_stream:
                 existing = audio_state.get(src.state_key)
@@ -193,14 +197,20 @@ class AudioPlayerPlugin:
             # das Tool nicht aufrufen → Voice-Steuerung wäre kaputt.
             tier=TIER_READONLY,
             description=(
-                "Play an audio item. The 'item' parameter is a label-prefixed "
-                "identifier (e.g. 'hoerbuecher/Tolkien_HdR.mp3' for a file in "
-                "the 'hoerbuecher' source, or just 'swr3' for an HTTP stream). "
-                "Use audio_list() to see available labels and items. If a saved "
-                "position exists for the item, playback resumes there unless "
-                "restart=true. The 'target' parameter selects the output sink "
-                "('local', 'browser:<id>', 'freeecho2:<room>'); when omitted, audio "
-                "is routed to the channel where the request came from."
+                "Play an audio item from the BEGINNING (default). The 'item' "
+                "parameter is a label-prefixed identifier (e.g. "
+                "'hoerbuecher/Tolkien_HdR.mp3' for a file in the 'hoerbuecher' "
+                "source, or just 'swr3' for an HTTP stream). Use audio_list() "
+                "to see available labels and items. "
+                "Resume from saved position: set restart=false (or use the "
+                "audio_resume tool which is dedicated for that). "
+                "Use audio_play when the user says 'play X', 'spiele X', "
+                "'starte X' (start fresh). Use audio_resume / restart=false "
+                "when the user says 'continue X', 'spiele X weiter', "
+                "'mach X weiter', 'setze X fort'. "
+                "The 'target' parameter selects the output sink ('local', "
+                "'browser:<id>', 'freeecho2:<room>'); when omitted, audio is "
+                "routed to the channel where the request came from."
             ),
             parameters={
                 "type": "object",
@@ -215,8 +225,8 @@ class AudioPlayerPlugin:
                     },
                     "restart": {
                         "type": "boolean",
-                        "description": "Ignore saved position and start from the beginning. Default: false.",
-                        "default": False,
+                        "description": "Default: true (start from beginning). Set false to resume from saved position — equivalent to calling audio_resume.",
+                        "default": True,
                     },
                 },
                 "required": ["item"],
