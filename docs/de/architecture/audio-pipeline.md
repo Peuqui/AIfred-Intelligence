@@ -608,14 +608,22 @@ Type-Wechsel ohne Stream-Reset.
 ### Tupel-Whitelist (strikt, FATAL bei Verletzung)
 
 ```
-(music                                                     )
-(tts                                                       )
-(alarm,        repeats=N≥0, max_duration=N≥0, with_tts=B  )
-(notification, with_tts=B                                  )
+(music                    )
+(tts                      )
+(alarm,        with_tts=B )
+(notification, with_tts=B )
 ```
 
 Alles außerhalb der Whitelist → Protocol Error, Connection close,
 FATAL log. Strikt: keine Defaults, keine versteckten Annahmen.
+
+`alarm` und `notification` sind strukturell identisch — einziger
+Unterschied ist welche WAV der Puck lokal abspielt und welches LED-
+Layer aktiv wird. Beide spielen **einmal** ab. Längere oder
+aufdringliche Use-Cases (z.B. nerviger Wecker) sind Server-orchestriert:
+der Caller loopt `play_alarm()` mehrmals, bei `_stop`-Quittierung der
+Firmware bricht der Server-Loop ab. Volle Kontrolle bleibt beim Server,
+Puck bleibt dumm.
 
 ### Verhalten pro Type
 
@@ -623,9 +631,9 @@ FATAL log. Strikt: keine Defaults, keine versteckten Annahmen.
 |---|---|---|
 | `music` | Server-mpv-FIFO → WS-Stream | Server pumpt |
 | `tts` | Server-TTS-Render → WS-Stream | Server pumpt |
-| `alarm` | FreeEcho.2-lokale WAV (UI-konfigurierbar) | Puck-lokal — kein Server-PCM |
-| `alarm` + `with_tts=true` | Lokale WAV + TTS-Tail-Stream | Puck-Loop, dann Server-TTS |
-| `notification` | FreeEcho.2-lokale WAV (UI-konfigurierbar) | Puck-lokal — kein Server-PCM |
+| `alarm` | FreeEcho.2-lokale WAV (UI-konfigurierbar) | Puck-lokal — kein Server-PCM, einmal abspielen |
+| `alarm` + `with_tts=true` | Lokale WAV + TTS-Tail-Stream | Puck spielt 1×, dann Server-TTS |
+| `notification` | FreeEcho.2-lokale WAV (UI-konfigurierbar) | Puck-lokal — kein Server-PCM, einmal abspielen |
 | `notification` + `with_tts=true` | Lokale WAV + TTS-Tail-Stream | Puck spielt 1×, dann Server-TTS |
 
 ### Frame-Sequenzen (final fixiert)
@@ -635,8 +643,8 @@ FATAL log. Strikt: keine Defaults, keine versteckten Annahmen.
 | Music | `audio_flag(music)` → `audio_start` → chunks → `audio_end` |
 | TTS standalone | `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
 | Type-Switch mid-stream (z.B. music→tts) | nur `audio_flag(neuer_type)`, gleiche Source bleibt, 30 ms Linear-Fade |
-| alarm ohne Tail | nur `audio_flag(alarm, repeats, max_duration, with_tts=false)` — kein PCM, kein audio_end |
-| alarm mit Tail | `audio_flag(alarm, …, with_tts=true)` → `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
+| alarm ohne Tail | nur `audio_flag(alarm, with_tts=false)` — kein PCM, kein audio_end |
+| alarm mit Tail | `audio_flag(alarm, with_tts=true)` → `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
 | notification ohne/mit Tail | analog |
 
 **Wichtig**: `audio_flag` und `audio_start` sind **getrennte** Frames
@@ -691,8 +699,9 @@ hält `media`-vs-`tts`-Pump-Pipeline und switched zwischen ihnen via
   (alarm/notification → stop statt pause)
 - `audio_stop_all()` — totaler Abbruch inkl. TTS-Tail-Drain
 - audio_flag-Frame-Handler mit strikter Whitelist-Validation
-- alarm-Loop-Logik (Puck-lokal, repeats/max_duration honorieren)
-- notification-Sequenzer (lokaler Sound → optional TTS-Stream)
+- alarm/notification-Sequenzer: lokale WAV einmal abspielen, optional
+  TTS-Tail. Loop bei "aufdringlicher Wecker"-Use-Case übernimmt der
+  Server (mehrfach play_alarm()), nicht die Firmware.
 
 ### LED-Pattern-Erweiterung (Firmware)
 

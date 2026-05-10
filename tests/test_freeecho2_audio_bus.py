@@ -30,17 +30,13 @@ class TestValidateAudioFlag:
         FreeEchoChannel._validate_audio_flag("tts", {})
 
     def test_alarm_complete_ok(self):
-        FreeEchoChannel._validate_audio_flag(
-            "alarm", {"repeats": 3, "max_duration": 60, "with_tts": False}
-        )
+        FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": False})
 
     def test_notification_complete_ok(self):
         FreeEchoChannel._validate_audio_flag("notification", {"with_tts": True})
 
-    def test_alarm_repeats_zero_means_unlimited(self):
-        FreeEchoChannel._validate_audio_flag(
-            "alarm", {"repeats": 0, "max_duration": 0, "with_tts": False}
-        )
+    def test_alarm_with_tts_true_ok(self):
+        FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": True})
 
     def test_unknown_audio_type_raises(self):
         with pytest.raises(ValueError, match="unknown audio_type"):
@@ -50,40 +46,25 @@ class TestValidateAudioFlag:
         with pytest.raises(ValueError, match="unexpected fields"):
             FreeEchoChannel._validate_audio_flag("music", {"with_tts": True})
 
-    def test_alarm_missing_field_raises(self):
-        with pytest.raises(ValueError, match="missing required fields"):
+    def test_alarm_extra_repeats_raises(self):
+        # Vereinfachte Spec: repeats ist KEIN Feld mehr, Server loopt
+        # play_alarm() falls aufdringlicher Wecker gewünscht.
+        with pytest.raises(ValueError, match="unexpected fields"):
             FreeEchoChannel._validate_audio_flag(
-                "alarm", {"max_duration": 60, "with_tts": False}
+                "alarm", {"with_tts": False, "repeats": 3}
             )
+
+    def test_alarm_missing_with_tts_raises(self):
+        with pytest.raises(ValueError, match="missing required fields"):
+            FreeEchoChannel._validate_audio_flag("alarm", {})
 
     def test_notification_missing_with_tts_raises(self):
         with pytest.raises(ValueError, match="missing required fields"):
             FreeEchoChannel._validate_audio_flag("notification", {})
 
-    def test_alarm_repeats_negative_raises(self):
-        with pytest.raises(ValueError, match="repeats must be int>=0"):
-            FreeEchoChannel._validate_audio_flag(
-                "alarm", {"repeats": -1, "max_duration": 0, "with_tts": False}
-            )
-
-    def test_alarm_repeats_string_raises(self):
-        with pytest.raises(ValueError, match="repeats must be int>=0"):
-            FreeEchoChannel._validate_audio_flag(
-                "alarm", {"repeats": "3", "max_duration": 0, "with_tts": False}
-            )
-
-    def test_alarm_max_duration_negative_raises(self):
-        with pytest.raises(ValueError, match="max_duration must be int>=0"):
-            FreeEchoChannel._validate_audio_flag(
-                "alarm", {"repeats": 3, "max_duration": -10, "with_tts": False}
-            )
-
-    def test_with_tts_string_raises(self):
+    def test_alarm_with_tts_string_raises(self):
         with pytest.raises(ValueError, match="with_tts must be bool"):
-            FreeEchoChannel._validate_audio_flag(
-                "alarm",
-                {"repeats": 3, "max_duration": 60, "with_tts": "yes"},
-            )
+            FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": "yes"})
 
     def test_with_tts_int_raises(self):
         # bool ist subclass von int in Python — wir wollen aber strikt
@@ -134,14 +115,10 @@ class TestSendAudioFlag:
     def test_alarm(self, room):
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(
-            rid, "alarm", repeats=3, max_duration=60, with_tts=False,
-        ))
+        run(ch.send_audio_flag(rid, "alarm", with_tts=False))
         assert _last_json(ws) == {
             "type": "audio_flag",
             "audio_type": "alarm",
-            "repeats": 3,
-            "max_duration": 60,
             "with_tts": False,
         }
 
@@ -223,12 +200,10 @@ class TestFrameSequences:
         assert frames[1]["total_size"] == 500
 
     def test_alarm_no_tail(self, room):
-        # Spec: nur audio_flag(alarm,...), kein PCM, kein audio_end
+        # Spec: nur audio_flag(alarm,with_tts=false), kein PCM, kein audio_end
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(
-            rid, "alarm", repeats=3, max_duration=60, with_tts=False,
-        ))
+        run(ch.send_audio_flag(rid, "alarm", with_tts=False))
         assert ws.send_str.await_count == 1
         assert ws.send_bytes.await_count == 0
 
@@ -238,9 +213,7 @@ class TestFrameSequences:
         # Wichtig: GENAU EIN audio_end am Ende, nicht zwischen Phasen.
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(
-            rid, "alarm", repeats=3, max_duration=60, with_tts=True,
-        ))
+        run(ch.send_audio_flag(rid, "alarm", with_tts=True))
         run(ch.send_audio_flag(rid, "tts"))
         run(ch.send_audio_start(rid, total_size=500))
         run(ch.send_audio_chunk(rid, b"\x00" * 500))

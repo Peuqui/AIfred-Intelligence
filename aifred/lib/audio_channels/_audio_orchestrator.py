@@ -39,7 +39,13 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Optional
 
+from ..formatting import format_number
 from ..logging_utils import log_message
+
+
+def _fmt_mib(num_bytes: int) -> str:
+    """Bytes als MiB mit 1 Nachkomma (locale-aware Tausender/Dezimal)."""
+    return f"{format_number(num_bytes / (1024 * 1024), 1)} MiB"
 
 if TYPE_CHECKING:
     from ._freeecho2_stream import FreeEcho2Stream
@@ -115,6 +121,11 @@ class AudioOrchestrator:
         self._stream: Optional["FreeEcho2Stream"] = None  # nur fuer music
         self._tts_buffer: Optional[TTSBuffer] = None  # nur fuer tts
         self._tts_pump_task: Optional[asyncio.Task[None]] = None
+        # ``_takeover_active``: True solange ein TTS-Takeover laeuft (mpv
+        # ist via IPC pausiert, TTS-PCM pumpt durch). active_type bleibt
+        # waehrenddessen "music" — pause/stop wirken auf den
+        # Gesamt-Stack, nicht nur den Takeover-Anteil.
+        self._takeover_active: bool = False
         self._paused: bool = False
         self._lock = asyncio.Lock()
 
@@ -152,43 +163,93 @@ class AudioOrchestrator:
             log_message(f"AudioOrchestrator[{self.room}]: → music active")
 
     async def play_tts(self, pcm_data: bytes) -> None:
-        """Starte einen TTS-PCM-Stream.
+        """Starte einen TTS-PCM-Stream und warte bis er durch ist.
 
-        Sendet audio_flag(tts) + audio_start + chunks + audio_end.
+        Zwei Modi je nach aktuellem State (siehe Spec-Tabelle in
+        ``audio-pipeline.md``):
+
+        **Standalone-TTS** (Orchestrator IDLE oder transient-state):
+            audio_flag(tts) + audio_start + chunks + audio_end
+            Komplette Frame-Sequenz, neue Source am Puck.
+
+        **Takeover-TTS** (Music laeuft):
+            mpv-pause + audio_flag(tts) + chunks
+            Kein audio_start — gleiche Source bleibt, 30 ms Linear-Fade
+            am Puck. Nach TTS-Ende: audio_flag(music) + mpv-unpause,
+            Music laeuft weiter ohne Re-Start.
+
         PCM wird im TTSBuffer gehalten — bei pause/resume bleibt der
-        Cursor erhalten, kein Re-Render.
-
-        Returnt sofort (pumpt im Hintergrund-Task), damit der Caller
-        nicht auf den ganzen Stream warten muss.
+        Cursor erhalten, kein Re-Render. Wartet **synchron** bis der
+        Pump-Task durch ist (oder via pause/stop gecancelt). Returnt
+        damit erst wenn alle Frames am Wire sind — sonst rast der
+        Caller (z.B. send_reply → Speaking-Phase-Ende) los und
+        triggert STATE→IDLE bevor die PCM-Bytes raus sind.
         """
         async with self._lock:
-            await self._reset_active_unlocked()
-            self._tts_buffer = TTSBuffer(pcm_data)
-            self._active_type = "tts"
-            self._paused = False
+            # Takeover-Mode: Music war aktiv und nicht-paused
+            if (
+                self._active_type == "music"
+                and self._stream is not None
+                and not self._paused
+            ):
+                await self._stream.pause()  # mpv-IPC pause
+                self._tts_buffer = TTSBuffer(pcm_data)
+                self._takeover_active = True
+                # KEIN audio_start (Type-Switch mid-stream)
+                await self.bridge.send_audio_flag(self.room, "tts")
+                self._tts_pump_task = asyncio.create_task(
+                    self._pump_tts_takeover(),
+                    name=f"freeecho2-{self.room}-tts-takeover",
+                )
+                log_message(
+                    f"AudioOrchestrator[{self.room}]: TTS-Takeover "
+                    f"({_fmt_mib(self._tts_buffer.total_bytes)})"
+                )
+                # active_type bleibt "music" — der Takeover ist transient
+            else:
+                # Standalone-TTS: reset + neue Source
+                await self._reset_active_unlocked()
+                self._tts_buffer = TTSBuffer(pcm_data)
+                self._active_type = "tts"
+                self._paused = False
 
-            await self.bridge.send_audio_flag(self.room, "tts")
-            await self.bridge.send_audio_start(
-                self.room, total_size=self._tts_buffer.total_bytes,
-            )
-            self._tts_pump_task = asyncio.create_task(
-                self._pump_tts_buffer(),
-                name=f"freeecho2-{self.room}-tts-pump",
-            )
-            log_message(
-                f"AudioOrchestrator[{self.room}]: → tts active "
-                f"({self._tts_buffer.total_bytes} bytes)"
-            )
+                await self.bridge.send_audio_flag(self.room, "tts")
+                await self.bridge.send_audio_start(
+                    self.room, total_size=self._tts_buffer.total_bytes,
+                )
+                self._tts_pump_task = asyncio.create_task(
+                    self._pump_tts_buffer(),
+                    name=f"freeecho2-{self.room}-tts-pump",
+                )
+                log_message(
+                    f"AudioOrchestrator[{self.room}]: → tts active "
+                    f"({_fmt_mib(self._tts_buffer.total_bytes)})"
+                )
+
+            task = self._tts_pump_task
+
+        # AUSSERHALB des Locks warten — sonst koennten pause/stop nicht
+        # eingreifen (sie wuerden auf den Lock blockieren). CancelledError
+        # ist normal: pause/stop hat den Pump-Task waehrend des Streams
+        # abgebrochen, Cursor bleibt fuer spaeteres resume erhalten.
+        if task is not None:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     async def play_alarm(
-        self, repeats: int, max_duration: int, with_tts: bool,
-        tts_pcm: Optional[bytes] = None,
+        self, with_tts: bool, tts_pcm: Optional[bytes] = None,
     ) -> None:
-        """Trigger einen Puck-lokalen Alarm-Loop.
+        """Trigger einen Puck-lokalen Alarm-Sound (einmal abspielen).
 
         Server schickt nur das audio_flag-Tupel — KEIN PCM (Puck spielt
         seine UI-konfigurierte lokale WAV). Bei ``with_tts=True`` folgt
         SOFORT (gleicher Funktionsaufruf) der TTS-Tail-Stream.
+
+        Wenn der Use-Case einen längeren/aufdringlichen Wecker verlangt,
+        loopt der **Caller** play_alarm() mehrfach (kein Loop-Counter im
+        Frame). _stop bricht dann den Caller-Loop ab.
         """
         async with self._lock:
             await self._reset_active_unlocked()
@@ -196,14 +257,11 @@ class AudioOrchestrator:
             self._paused = False
 
             await self.bridge.send_audio_flag(
-                self.room, "alarm",
-                repeats=repeats,
-                max_duration=max_duration,
-                with_tts=with_tts,
+                self.room, "alarm", with_tts=with_tts,
             )
             log_message(
                 f"AudioOrchestrator[{self.room}]: → alarm "
-                f"(repeats={repeats}, max_dur={max_duration}, with_tts={with_tts})"
+                f"(with_tts={with_tts})"
             )
 
             # TTS-Tail: schick es direkt nach dem alarm-Tupel raus,
@@ -255,6 +313,8 @@ class AudioOrchestrator:
 
         - music/tts → echtes Pause (mpv-IPC pause oder TTS-pump-Stop)
         - alarm/notification → = stop (transient, kein Resume sinnvoll)
+        - music + active TTS-Takeover → Takeover abbrechen, music
+          bleibt pausiert (mpv ist eh schon paused vom Takeover-Start)
 
         Returns ``True`` wenn etwas gepausen/gestoppt wurde, ``False``
         wenn IDLE.
@@ -275,11 +335,28 @@ class AudioOrchestrator:
             if self._paused:
                 return False  # schon paused, idempotent
 
+            # TTS-Takeover ueber Music: cancel takeover-pump, music war
+            # bereits via Takeover-Start mpv-paused. State auf paused.
+            if self._takeover_active and self._tts_pump_task is not None:
+                if not self._tts_pump_task.done():
+                    self._tts_pump_task.cancel()
+                    try:
+                        await self._tts_pump_task
+                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                        pass
+                self._tts_pump_task = None
+                self._tts_buffer = None
+                self._takeover_active = False
+                self._paused = True
+                log_message(
+                    f"AudioOrchestrator[{self.room}]: paused during TTS-takeover "
+                    f"(takeover dropped, music stays paused)"
+                )
+                return True
+
             if self._active_type == "music" and self._stream is not None:
                 await self._stream.pause()
             elif self._active_type == "tts" and self._tts_pump_task is not None:
-                # TTS-pump-Task pausieren: cancel den Task, der Cursor im
-                # TTSBuffer bleibt erhalten. Resume erstellt neuen Task.
                 if not self._tts_pump_task.done():
                     self._tts_pump_task.cancel()
                     try:
@@ -375,9 +452,10 @@ class AudioOrchestrator:
 
         self._active_type = None
         self._paused = False
+        self._takeover_active = False
 
     async def _pump_tts_buffer(self) -> None:
-        """Background-Task: pumpt TTSBuffer in WS.
+        """Background-Task: pumpt TTSBuffer als standalone-TTS in WS.
 
         Endet wenn Buffer leer ODER Task gecancelt wird (pause/stop).
         Bei normalem Ende: schickt audio_end. Bei cancel: KEIN audio_end
@@ -398,7 +476,6 @@ class AudioOrchestrator:
                     return
             # Normal beendet — TTS-Stream voll durchgelaufen
             await self.bridge.send_audio_end(self.room)
-            # State auf idle setzen (mit Lock, wir sind im Hintergrund-Task)
             async with self._lock:
                 if self._active_type == "tts":
                     self._active_type = None
@@ -406,4 +483,40 @@ class AudioOrchestrator:
                     self._tts_pump_task = None
         except asyncio.CancelledError:
             # Pause oder stop — KEIN audio_end, Buffer-Cursor bleibt
+            raise
+
+    async def _pump_tts_takeover(self) -> None:
+        """Background-Task: pumpt TTS-PCM ueber laufende Music.
+
+        Spec: Type-Switch mid-stream — kein audio_start, kein
+        audio_end zwischen den Phasen. Nach TTS-Ende: audio_flag(music)
+        zurueck + mpv-unpause, Music laeuft am gleichen Stream weiter.
+        """
+        try:
+            while self._tts_buffer is not None and not self._tts_buffer.done:
+                chunk = self._tts_buffer.next_chunk()
+                if not chunk:
+                    break
+                ok = await self.bridge.send_audio_chunk(self.room, chunk)
+                if not ok:
+                    log_message(
+                        f"AudioOrchestrator[{self.room}]: TTS-Takeover chunk "
+                        f"send failed — abort takeover",
+                        "warning",
+                    )
+                    return
+            # TTS done — switch zurueck zu music, mpv resumen
+            async with self._lock:
+                await self.bridge.send_audio_flag(self.room, "music")
+                if self._stream is not None:
+                    await self._stream.resume()
+                self._tts_buffer = None
+                self._tts_pump_task = None
+                self._takeover_active = False
+                # active_type bleibt "music"
+            log_message(
+                f"AudioOrchestrator[{self.room}]: TTS-Takeover done, music resumed"
+            )
+        except asyncio.CancelledError:
+            # Pause/stop hat den Takeover gecancelt — caller raeumt auf
             raise

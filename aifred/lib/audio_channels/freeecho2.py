@@ -17,6 +17,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ._audio_orchestrator import AudioOrchestrator
 from ._freeecho2_stream import FreeEcho2Stream
 from ..logging_utils import log_message
 from .base import AudioFormat, TargetInfo
@@ -44,7 +45,7 @@ def _connected_devices() -> dict[str, Any]:
     """Lazy-import um zirkuläre Imports beim Modul-Load zu vermeiden."""
     try:
         from ...plugins.channels.freeecho2_channel import _devices
-        return _devices
+        return dict(_devices)
     except ImportError:
         return {}
 
@@ -79,6 +80,10 @@ class FreeEcho2Channel:
         # ``items``: list of {state_key, uri}. ``idx``: cursor into items.
         # ``audio_type``: VU/LED hint passed to each FreeEcho2Stream.start().
         self._queues: dict[str, dict[str, Any]] = {}
+        # Per-room AudioOrchestrator: managed den single-pump-pfad und
+        # type-aware pause/resume/stop. Wird lazy beim ersten Zugriff
+        # angelegt damit Rooms ohne Audio-Aktivitaet keinen State haben.
+        self._orchestrators: dict[str, AudioOrchestrator] = {}
 
     def can_handle(self, target_id: str) -> bool:
         return target_id.startswith(TARGET_PREFIX)
@@ -111,6 +116,26 @@ class FreeEcho2Channel:
                 )
                 self._streams[room] = stream
             return stream
+
+    def _get_or_create_orchestrator(self, room: str) -> AudioOrchestrator | None:
+        """Lazy-Init des AudioOrchestrator pro Room. Returnt None wenn
+        die Bridge nicht geladen ist."""
+        if room in self._orchestrators:
+            return self._orchestrators[room]
+        bridge = _bridge()
+        if bridge is None:
+            logger.warning(
+                "FreeEcho2Channel: freeecho2 bridge not loaded — cannot orchestrate"
+            )
+            return None
+        orc = AudioOrchestrator(room, bridge)
+        self._orchestrators[room] = orc
+        return orc
+
+    def get_orchestrator(self, room: str) -> AudioOrchestrator | None:
+        """Public Accessor — vom freeecho2-Plugin (send_reply) genutzt
+        um TTS via Orchestrator zu pumpen statt direkt am Wire."""
+        return self._get_or_create_orchestrator(room)
 
     async def play(
         self,
@@ -150,6 +175,10 @@ class FreeEcho2Channel:
                 "target": target_id,
                 "error": f"FreeEcho.2 stream start failed: {exc}",
             }
+        # AudioOrchestrator informieren: aktive Source ist jetzt music
+        orc = self._get_or_create_orchestrator(room)
+        if orc is not None:
+            await orc.play_music(stream)
         return {
             "success": True,
             "label": src.label,
@@ -162,62 +191,53 @@ class FreeEcho2Channel:
         }
 
     async def pause(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+        """Type-aware pause via AudioOrchestrator.
+
+        Music/TTS → echtes Pause (Position bleibt). Alarm/Notification →
+        wird zum Stop (transient, kein sinnvolles Resume).
+        """
         room = _parse_room(target_id)
         if not room:
             return False
-        stream = self._streams.get(room)
-        if stream is None:
+        orc = self._orchestrators.get(room)
+        if orc is None:
             return False
-        return await stream.pause()
+        return await orc.pause()
 
     async def resume(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+        """Resume via AudioOrchestrator. No-op wenn nichts pausiert ist."""
         room = _parse_room(target_id)
         if not room:
             return False
-        stream = self._streams.get(room)
-        if stream is None:
+        orc = self._orchestrators.get(room)
+        if orc is None:
             return False
-        return await stream.resume()
+        return await orc.resume()
 
     async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+        """Stop alles via AudioOrchestrator + cleanup queue + stream-state.
+
+        Wake-word _stop / audio_stop beenden die ganze Session, nicht
+        nur den aktuellen Track der play_queue.
+        """
         room = _parse_room(target_id)
         if not room:
             return False
-        # Stop also clears any queued items — wake-word _stop / audio_stop
-        # both end the entire playback session, not just the current track.
+        # Folder-Queue (audio_play_folder) auch leeren
         self._queues.pop(room, None)
+        # Orchestrator → stop (cancelled TTS-pump, raeumt mpv-stream auf
+        # via _reset_active_unlocked, sendet audio_end)
+        orc = self._orchestrators.get(room)
+        stopped = False
+        if orc is not None:
+            stopped = await orc.stop()
+        # Stream-Slot freigeben (Orchestrator hat ihn schon gestoppt
+        # via _reset_active_unlocked, aber wir muessen den Pointer
+        # auch aus _streams entfernen damit beim naechsten play() ein
+        # frischer Stream entsteht)
         async with self._streams_lock:
-            stream = self._streams.pop(room, None)
-        if stream is None:
-            return False
-        return await stream.stop()
-
-    # ── TTS-Takeover-Helpers ─────────────────────────────────────
-    #
-    # Damit eine TTS-Antwort nicht parallel zum mpv-Music-Stream am
-    # FreeEcho.2-Speaker landet (zwei PCM-Quellen → Audio-Chaos), kann
-    # der freeecho2-Channel-Plugin den Music-Stream pausieren bevor
-    # er TTS-Chunks pumpt, und danach wieder resumen. Per-Track-Position
-    # bleibt erhalten — pause/resume laufen ueber mpv-IPC.
-
-    async def pause_for_tts(self, room: str) -> bool:
-        """Pause an active music stream so TTS can take the speaker.
-
-        Returns True if a running stream was paused — caller should call
-        ``resume_after_tts(room)`` when TTS is done. Returns False if no
-        stream is running (nothing to pause).
-        """
-        stream = self._streams.get(room)
-        if stream is None or not stream.is_running:
-            return False
-        return await stream.pause()
-
-    async def resume_after_tts(self, room: str) -> bool:
-        """Resume a stream that ``pause_for_tts`` paused. Idempotent."""
-        stream = self._streams.get(room)
-        if stream is None or not stream.is_running:
-            return False
-        return await stream.resume()
+            self._streams.pop(room, None)
+        return stopped
 
     async def play_queue(
         self,
@@ -360,7 +380,7 @@ class FreeEcho2Channel:
         stream = self._streams.get(room)
         if stream is None:
             return False
-        return await stream.seek(float(position_sec), relative=relative)
+        return bool(await stream.seek(float(position_sec), relative=relative))
 
     async def set_speed(
         self, target_id: str, factor: float, ctx: "PluginContext | None" = None
@@ -390,4 +410,5 @@ class FreeEcho2Channel:
                 "target": target_id,
                 "ready": room in _connected_devices(),
             }
-        return await stream.status()
+        status: dict[str, Any] = await stream.status()
+        return status

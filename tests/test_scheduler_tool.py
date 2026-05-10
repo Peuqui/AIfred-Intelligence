@@ -40,7 +40,7 @@ def temp_job_store(tmp_path):
 
 def _run(coro):
     """Helper to run async tool executors."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.new_event_loop().run_until_complete(coro)
 
 
 class TestSchedulerPlugin:
