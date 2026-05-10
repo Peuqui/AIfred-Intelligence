@@ -2,6 +2,7 @@
 
 import reflex as rx
 import os
+from reflex.plugins.sitemap import SitemapPlugin
 
 # Load .env file for environment variables
 try:
@@ -63,8 +64,9 @@ config = rx.Config(
     # Frontend Sub-Path: nur wenn ENV gesetzt (MiniPC mit Nginx: "aifred", Dev: leer)
     frontend_path=os.getenv("AIFRED_FRONTEND_PATH", ""),
     env=rx.Env.PROD if is_prod else rx.Env.DEV,
-    # Disable sitemap plugin (not needed)
-    disable_plugins=["reflex.plugins.sitemap.SitemapPlugin"],
+    # Disable sitemap plugin (not needed) — Reflex 0.8.28+ wants the
+    # plugin class, not the dotted-string path.
+    disable_plugins=[SitemapPlugin],
     # Performance optimizations
     compile_timeout=90,  # Increase compilation timeout (default: 60s)
     # Hide "Built with Reflex" badge
