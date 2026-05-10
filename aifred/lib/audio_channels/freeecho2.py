@@ -114,8 +114,30 @@ class FreeEcho2Channel:
                     send_end=bridge.send_audio_end,
                     send_heartbeat=bridge.send_heartbeat,
                 )
+                # Beim Send-Fail (chunk timeout/error) sauber abbrechen:
+                # Server-State und Puck-State synchron halten via orc.stop()
+                # → mpv terminate + audio_end an Puck. Sonst koennte mpv
+                # weiterlaufen waehrend der Puck nichts mehr empfaengt.
+                stream._on_send_failed_cb = self._make_send_failed_cb(room)
                 self._streams[room] = stream
             return stream
+
+    def _make_send_failed_cb(self, room: str) -> Any:
+        """Bind room-specific cleanup callback for stream-send-failures."""
+        async def _cb() -> None:
+            target_id = f"{TARGET_PREFIX}{room}"
+            log_message(
+                f"FreeEcho2Channel[{room}]: send failed → orc.stop() "
+                f"(state-sync mit Puck)"
+            )
+            try:
+                await self.stop(target_id)
+            except Exception as exc:  # noqa: BLE001
+                log_message(
+                    f"FreeEcho2Channel[{room}]: stop() in send-failed-cb "
+                    f"failed: {exc}", "warning",
+                )
+        return _cb
 
     def _get_or_create_orchestrator(self, room: str) -> AudioOrchestrator | None:
         """Lazy-Init des AudioOrchestrator pro Room. Returnt None wenn
