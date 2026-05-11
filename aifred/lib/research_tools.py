@@ -29,6 +29,7 @@ async def execute_research(
     user_query: str,
     lang: str = "de",
     pre_generated_queries: Optional[list[str]] = None,
+    mode: str = "deep",
 ) -> AsyncGenerator[None, None]:
     """Execute the full research pipeline.
 
@@ -151,7 +152,8 @@ async def execute_research(
         # PHASE 3: LLM-based URL Ranking (with conversation history)
         # ==============================================================
         if related_urls and titles and snippets:
-            top_n = 7
+            from .config import RESEARCH_QUICK_URLS, RESEARCH_DEEP_URLS
+            top_n = RESEARCH_DEEP_URLS if mode == "deep" else RESEARCH_QUICK_URLS
             state.add_debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
             yield
 
@@ -180,7 +182,7 @@ async def execute_research(
 
         async for item in orchestrate_scraping(
             related_urls=related_urls,
-            mode="deep",
+            mode=mode,
             llm_client=llm_client,
             model_choice=model_id,
         ):
@@ -267,7 +269,7 @@ async def execute_research(
 # Hub search (Message Hub — no Reflex State, no async generators)
 # ============================================================
 
-async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
+async def _hub_web_search(queries: list[str], llm_history: list[dict], mode: str = "deep") -> str:
     """Web search for Message Hub (Discord, Email).
 
     Uses the same building blocks as the full pipeline:
@@ -360,6 +362,9 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
         from .research.context_utils import get_model_native_context
         num_ctx = get_model_native_context(automatik_model_id, backend_type)
 
+        from .config import RESEARCH_QUICK_URLS, RESEARCH_DEEP_URLS
+        top_n = RESEARCH_DEEP_URLS if mode == "deep" else RESEARCH_QUICK_URLS
+
         if related_urls and titles and snippets:
             debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
             ranked_urls, _, debug_summary = await rank_urls_by_relevance(
@@ -370,7 +375,7 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
                 automatik_llm_client=llm_client,
                 automatik_model=automatik_model_id,
                 llm_history=llm_history,
-                top_n=7,
+                top_n=top_n,
                 llm_options={},
                 automatik_num_ctx=num_ctx if num_ctx > 0 else 32768,
             )
@@ -378,8 +383,8 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
                 debug(f"📋 {debug_summary}")
             related_urls = ranked_urls
         else:
-            debug(f"⏭️ URL ranking skipped, using top {min(7, len(related_urls))} URLs")
-            related_urls = related_urls[:7]
+            debug(f"⏭️ URL ranking skipped, using top {min(top_n, len(related_urls))} URLs")
+            related_urls = related_urls[:top_n]
 
         # ── Phase 3: Parallel scraping ────────────────────────
         # model_choice = aifred (Haupt-LLM wird vorgeladen, da nach dem
@@ -387,7 +392,7 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict]) -> str:
         # Verarbeitung der Scrape-Daten — die werden direkt durchgereicht.
         async for item in orchestrate_scraping(
             related_urls=related_urls,
-            mode="deep",
+            mode=mode,
             llm_client=llm_client,
             model_choice=aifred_model_id,
         ):

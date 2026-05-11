@@ -47,19 +47,15 @@ async def orchestrate_scraping(
     log_message(f"📋 {len(related_urls)} URLs found from search engine")
 
     # Determine scraping strategy
-    if mode == "quick":
-        target_sources = 3
-        initial_scrape_count = 3
-        log_message("⚡ Quick mode: Scrape top 3 URLs")
-    elif mode == "deep":
-        target_sources = 5
-        initial_scrape_count = 7
-        log_message(f"🔍 Deep mode: Scrape top {initial_scrape_count} URLs (target: {target_sources} successful)")
-    else:
-        target_sources = 3
-        initial_scrape_count = 3
+    from ..config import RESEARCH_QUICK_URLS, RESEARCH_DEEP_URLS
 
-    scrape_limit = initial_scrape_count if mode == "deep" else target_sources
+    if mode == "deep":
+        scrape_limit = RESEARCH_DEEP_URLS
+        log_message(f"🔍 Deep mode: Scrape top {scrape_limit} URLs")
+    else:
+        scrape_limit = RESEARCH_QUICK_URLS
+        log_message(f"⚡ Quick mode: Scrape top {scrape_limit} URLs")
+
     urls_to_scrape = related_urls[:scrape_limit]
 
     yield {"type": "debug", "message": "🌐 Web scraping starting (parallel)"}

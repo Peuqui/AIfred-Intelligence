@@ -954,6 +954,11 @@ LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary searc
 # After this limit, a final response without tools is forced.
 MAX_TOOL_ROUNDS = 10
 
+# Forced-Research pipeline URL counts (quick vs deep).
+# Es wird einmal gescraped, alles was klappt wird genommen — keine Re-Try-Logik.
+RESEARCH_QUICK_URLS = 3
+RESEARCH_DEEP_URLS = 7
+
 # Extra VRAM reserve for vision-language models (MB)
 # VL models (--mmproj) need a CLIP compute buffer that scales with image token count.
 # Measured: Qwen3-VL with 4096 max image tokens needs ~682 MiB compute buffer on the
