@@ -15,14 +15,14 @@ class TranslationManager:
     _research_mode_maps: Dict[str, Dict[str, str]] = {
         "de": {
             "💡 Eigenes Wissen (schnell)": "none",
-            "⚡ Web-Suche Schnell (3 beste)": "quick",
-            "🌍 Web-Suche Ausführlich (7 beste)": "deep",
+            "⚡ Web Quick": "quick",
+            "🌍 Web Deep": "deep",
             "✨ Automatik (KI entscheidet)": "automatik"
         },
         "en": {
             "💡 Own Knowledge (fast)": "none",
-            "⚡ Web Search Quick (3 best)": "quick",
-            "🌍 Web Search Detailed (7 best)": "deep",
+            "⚡ Web Quick": "quick",
+            "🌍 Web Deep": "deep",
             "✨ Automatic (AI decides)": "automatik"
         }
     }
@@ -30,14 +30,14 @@ class TranslationManager:
     _reverse_research_mode_maps: Dict[str, Dict[str, str]] = {
         "de": {
             "none": "💡 Eigenes Wissen (schnell)",
-            "quick": "⚡ Web-Suche Schnell (3 beste)",
-            "deep": "🌍 Web-Suche Ausführlich (7 beste)",
+            "quick": "⚡ Web Quick",
+            "deep": "🌍 Web Deep",
             "automatik": "✨ Automatik (KI entscheidet)"
         },
         "en": {
             "none": "💡 Own Knowledge (fast)",
-            "quick": "⚡ Web Search Quick (3 best)",
-            "deep": "🌍 Web Search Detailed (7 best)",
+            "quick": "⚡ Web Quick",
+            "deep": "🌍 Web Deep",
             "automatik": "✨ Automatic (AI decides)"
         }
     }
@@ -55,16 +55,16 @@ class TranslationManager:
             "research_mode": "🔎 Recherche-Modus",
             "research_mode_auto": "✨ Automatik (KI entscheidet)",
             "research_mode_none": "💡 Eigenes Wissen (schnell)",
-            "research_mode_quick": "⚡ Web-Suche Schnell (3 beste)",
-            "research_mode_deep": "🌍 Web-Suche Ausführlich (7 beste)",
+            "research_mode_quick": "⚡ Web Quick",
+            "research_mode_deep": "🌍 Web Deep",
             "choose_research_mode": "💡 Recherchemodus — Klicke für Details",
             "research_help_title": "Recherchemodi",
             "research_help_mode": "Modus",
             "research_help_desc": "Beschreibung",
             "research_help_auto_desc": "AIfred entscheidet selbst, ob eine Web-Recherche nötig ist. Bei Wissensfragen antwortet er direkt, bei aktuellen Themen recherchiert er automatisch.",
             "research_help_knowledge_desc": "Nur eigenes Wissen — keine Web-Recherche. Schnellste Antwort, ideal für Gespräche, Programmierung oder wenn keine aktuellen Informationen nötig sind.",
-            "research_help_web3_desc": "Schnelle Web-Recherche mit bis zu 3 Quellen. Gut für einfache Faktenprüfungen und aktuelle Informationen.",
-            "research_help_web7_desc": "Tiefgehende Web-Recherche mit bis zu 7 Quellen. Für komplexe Themen, die mehrere Perspektiven und gründliche Analyse erfordern.",
+            "research_help_quick_desc": "Schnelle Web-Recherche mit wenigen Quellen. Gut für einfache Faktenprüfungen und aktuelle Informationen.",
+            "research_help_deep_desc": "Tiefgehende Web-Recherche mit mehr Quellen. Für komplexe Themen, die mehrere Perspektiven und gründliche Analyse erfordern.",
             "research_help_close": "OK",
             "active_agent_label": "🤖 Aktiver Agent",
             "send_text": "Text senden",
@@ -552,16 +552,16 @@ class TranslationManager:
             "research_mode": "🔎 Research Mode",
             "research_mode_auto": "✨ Automatic (AI decides)",
             "research_mode_none": "💡 Own Knowledge (fast)",
-            "research_mode_quick": "⚡ Web Search Quick (3 best)",
-            "research_mode_deep": "🌍 Web Search Detailed (7 best)",
+            "research_mode_quick": "⚡ Web Quick",
+            "research_mode_deep": "🌍 Web Deep",
             "choose_research_mode": "💡 Research mode — Click for details",
             "research_help_title": "Research Modes",
             "research_help_mode": "Mode",
             "research_help_desc": "Description",
             "research_help_auto_desc": "AIfred decides whether web research is needed. For knowledge questions he answers directly, for current topics he researches automatically.",
             "research_help_knowledge_desc": "Own knowledge only — no web research. Fastest response, ideal for conversations, coding, or when no current information is needed.",
-            "research_help_web3_desc": "Quick web research with up to 3 sources. Good for simple fact-checking and current information.",
-            "research_help_web7_desc": "Deep web research with up to 7 sources. For complex topics requiring multiple perspectives and thorough analysis.",
+            "research_help_quick_desc": "Quick web research with few sources. Good for simple fact-checking and current information.",
+            "research_help_deep_desc": "Deep web research with more sources. For complex topics requiring multiple perspectives and thorough analysis.",
             "research_help_close": "OK",
             "active_agent_label": "🤖 Active Agent",
             "send_text": "Send Text",

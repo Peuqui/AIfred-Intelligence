@@ -468,6 +468,7 @@ async def _execute_forced_research(
         state=state,
         user_query=user_query,
         lang=lang,
+        mode=mode,
         # No pre_generated_queries → Automatik-LLM generates them
     ):
         yield  # Forward yields for progress bar updates
@@ -725,9 +726,10 @@ async def _run_agent_direct_response(
         memory_enabled = state.agent_memory_enabled  # type: ignore[attr-defined]
 
         # System prompt (memory layer depends on incognito toggle)
-        # tools=True only in automatik mode (all tools available, agent decides)
-        # own-knowledge mode: no tools, fast direct response
-        research_tools_enabled = research_mode == "automatik"
+        # Tools sind in allen Modi außer "none" verfügbar — auch in quick/deep,
+        # damit das Modell ergänzend suchen oder andere Tools (epim, audio,
+        # calculate, …) nutzen kann. "none" = bewusst keine Tools.
+        research_tools_enabled = research_mode != "none"
         system_prompt = get_prompt_func(lang=detected_lang, memory=memory_enabled, tools=research_tools_enabled)
 
         memory_ctx, toolkit = await prepare_agent_toolkit(

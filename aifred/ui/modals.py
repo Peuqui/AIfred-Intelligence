@@ -291,7 +291,7 @@ def reasoning_thinking_help_modal() -> rx.Component:
 
 
 def research_help_modal() -> rx.Component:
-    """Fullscreen Overlay explaining the research modes (Auto, Knowledge, Web 3, Web 7)."""
+    """Fullscreen Overlay explaining the research modes (Auto, Knowledge, Web Quick, Web Deep)."""
     return rx.cond(
         AIState.research_help_open,
         rx.box(
@@ -333,12 +333,12 @@ def research_help_modal() -> rx.Component:
                                 rx.table.cell(t("research_help_knowledge_desc")),
                             ),
                             rx.table.row(
-                                rx.table.cell("\u26a1 Web 3", style={"white_space": "nowrap", "font_weight": "bold"}),
-                                rx.table.cell(t("research_help_web3_desc")),
+                                rx.table.cell("\u26a1 Web Quick", style={"white_space": "nowrap", "font_weight": "bold"}),
+                                rx.table.cell(t("research_help_quick_desc")),
                             ),
                             rx.table.row(
-                                rx.table.cell("\U0001f30d Web 7", style={"white_space": "nowrap", "font_weight": "bold"}),
-                                rx.table.cell(t("research_help_web7_desc")),
+                                rx.table.cell("\U0001f30d Web Deep", style={"white_space": "nowrap", "font_weight": "bold"}),
+                                rx.table.cell(t("research_help_deep_desc")),
                             ),
                         ),
                         style={

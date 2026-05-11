@@ -462,8 +462,8 @@ def text_input_section() -> rx.Component:
         rx.hstack(
             _research_pill("automatik", "✨ Automatik", "✨ Auto"),
             _research_pill("none", "💡 Wissen", "💡 Knowledge"),
-            _research_pill("quick", "⚡ Web 3", "⚡ Web 3"),
-            _research_pill("deep", "🌍 Web 7", "🌍 Web 7"),
+            _research_pill("quick", "⚡ Web Quick", "⚡ Web Quick"),
+            _research_pill("deep", "🌍 Web Deep", "🌍 Web Deep"),
             # Research mode help lightbulb (opens modal on click)
             rx.tooltip(
                 rx.icon(
