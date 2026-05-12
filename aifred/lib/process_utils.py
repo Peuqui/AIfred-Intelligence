@@ -15,11 +15,11 @@ import asyncio
 from .logging_utils import log_message
 
 
-#: Cached TTS GPU id. Computed once per process by :func:`get_tts_gpu_id`
-#: from :func:`_detect_tts_gpu_id` so that the same value is reported
-#: throughout an AIfred run — consistency matters because calibration
-#: profiles encode this assumption in their tensor-split.
-_cached_tts_gpu_id: int | None = None
+#: Cached TTS GPU UUID. Computed once per process by
+#: :func:`get_tts_gpu_uuid` from :func:`_detect_tts_gpu_uuid` so that
+#: the same hardware-bound identifier is reported throughout an AIfred
+#: run — calibration's collision detection depends on this stability.
+_cached_tts_gpu_uuid: str | None = None
 
 
 async def stop_process(
@@ -163,10 +163,11 @@ def restart_docker_container(
     compose_dir = compose_path.parent
 
     # Pass env vars via process environment (NOT .env file — avoids Reflex hot-reload).
-    # TTS compose files reference TTS_GPU_ID; the value is detected dynamically
-    # via _detect_tts_gpu_id (cached per process for stability).
+    # TTS compose files reference TTS_GPU_UUID; the value is the
+    # bandwidth-fastest GPU's NVIDIA UUID, detected once per process
+    # via _detect_tts_gpu_uuid().
     proc_env = os.environ.copy()
-    proc_env["TTS_GPU_ID"] = str(get_tts_gpu_id())
+    proc_env["TTS_GPU_UUID"] = get_tts_gpu_uuid()
     if env_vars:
         proc_env.update(env_vars)
 
@@ -229,123 +230,71 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
     return False, message
 
 
-def _gpu_ranking() -> list[tuple[int, float, int]]:
-    """Rank all visible GPUs by compute_cap DESC, then VRAM DESC.
+def _detect_tts_gpu_uuid() -> str:
+    """Pick the UUID of the GPU that TTS containers should pin to.
 
-    Returns list of ``(smi_index, compute_capability, memory_total_mb)``
-    in nvidia-smi index space. This ranking is **independent** of
-    NVIDIA's CUDA_DEVICE_ORDER=FASTEST_FIRST heuristic on purpose:
-    callers like ``_detect_tts_gpu_id`` need the "largest VRAM card of
-    the highest compute class" (= the RTX 8000 sibling), not "the
-    bandwidth-fastest card overall" (which would be V100 / HBM2).
+    Rule: **the GPU with the highest memory bandwidth** — TTS is
+    autoregressive FP16 inference on small (~1–2 GB) transformer
+    models that bottleneck on memory bandwidth, not on compute.
 
-    For the LLM's actual placement we trust llama.cpp's own enumeration
-    (``calibration.gpu.enumerate_gpus``); this helper only serves the
-    TTS-container pinning logic.
+    HBM detection: HBM-equipped GPUs (V100, A100, H100 …) have *low*
+    memory clocks (~700–1200 MHz) but very wide buses (4096 bit), so
+    they outperform GDDR cards (~6000–10000 MHz, 256–384 bit) on
+    bandwidth despite the lower clock. We detect HBM via
+    ``clocks.max.memory < 1500 MHz`` combined with ``memory.total >=
+    16 GB`` — a robust signature that doesn't need a hardcoded model
+    list.
+
+    Falls back to the highest-clocked GDDR card if no HBM is present.
+    Returns ``""`` if nvidia-smi is unavailable.
     """
     try:
         result = subprocess.run(
             ["nvidia-smi",
-             "--query-gpu=index,compute_cap,memory.total",
+             "--query-gpu=uuid,clocks.max.memory,memory.total",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode != 0:
-            return []
+            return ""
     except (OSError, subprocess.TimeoutExpired):
-        return []
+        return ""
 
-    entries: list[tuple[int, float, int]] = []
+    entries: list[tuple[str, int, int]] = []  # (uuid, mem_clock_mhz, total_mb)
     for line in result.stdout.strip().split("\n"):
         parts = [p.strip() for p in line.split(",")]
         if len(parts) != 3:
             continue
         try:
-            entries.append((int(parts[0]), float(parts[1]), int(parts[2])))
+            entries.append((parts[0], int(parts[1]), int(parts[2])))
         except ValueError:
             continue
+    if not entries:
+        return ""
 
-    # Sort: higher compute_cap first, higher VRAM as tiebreaker
-    entries.sort(key=lambda e: (e[1], e[2]), reverse=True)
-    return entries
+    # HBM signature: low memory clock + reasonably large VRAM
+    hbm = [e for e in entries if e[1] < 1500 and e[2] >= 16000]
+    if hbm:
+        # Multiple HBM cards: prefer larger VRAM, lower UUID for tiebreak
+        hbm.sort(key=lambda e: (-e[2], e[0]))
+        return hbm[0][0]
+
+    # No HBM: highest GDDR clock (best bandwidth in GDDR-only setup)
+    entries.sort(key=lambda e: (-e[1], -e[2], e[0]))
+    return entries[0][0]
 
 
-def _detect_fastest_gpu() -> str:
-    """Return the fastest GPU's index as string.
+def get_tts_gpu_uuid() -> str:
+    """UUID of the GPU TTS containers run on (cached per process).
 
-    Falls back to "0" if nvidia-smi is unavailable. Does NOT write any
-    files (avoid triggering Reflex hot-reload).
+    See :func:`_detect_tts_gpu_uuid` for the selection rule. Cached
+    so it stays stable for the lifetime of the AIfred process —
+    calibration's collision detection depends on a stable answer.
     """
-    ranking = _gpu_ranking()
-    return str(ranking[0][0]) if ranking else "0"
-
-
-def _detect_tts_gpu_id() -> int:
-    """Pick the GPU that TTS containers should pin to.
-
-    Rule: **The fastest GPU available** (per llama.cpp's
-    CUDA_DEVICE_ORDER=FASTEST_FIRST enumeration — typically the one with
-    the highest memory bandwidth, e.g. HBM2 V100 over GDDR6 RTX 8000).
-    TTS is autoregressive FP16 inference on small (~1–2 GB) transformer
-    models — memory-bandwidth-bound, so HBM2 wins ~15–34 % TG-speed over
-    GDDR6/GDDR5 even when raw compute (FP16 TFLOPs) is similar.
-
-    Returned value is the **nvidia-smi index** (PCI_BUS_ID space), which
-    is what the TTS Docker container needs (CUDA_VISIBLE_DEVICES in the
-    container is interpreted via the default PCI_BUS_ID order, not
-    FASTEST_FIRST).
-
-    If LLM calibration also picks the fastest GPU, the calibration_mixin
-    handles the collision (falls back to shared-mode TTS).
-
-    Falls back to nvidia-smi index 1 when llama.cpp enumeration fails.
-    """
-    try:
-        # Local import — calibration imports get_all_gpus_memory_info
-        # from this module, so importing it at module load would create
-        # a cycle.
-        from .calibration.gpu import enumerate_gpus
-        gpus = enumerate_gpus()
-    except Exception:
-        return 1
-    if not gpus:
-        return 1
-    # gpus[0] is FASTEST_FIRST CUDA0 — the bandwidth-fastest card per
-    # llama.cpp's view. Return its physical nvidia-smi index.
-    return gpus[0].smi_index if gpus[0].smi_index >= 0 else 1
-
-
-def get_tts_gpu_id() -> int:
-    """Return the GPU index that TTS containers run on (cached per process).
-
-    See :func:`_detect_tts_gpu_id` for the selection rule. The value is
-    computed once and cached so it stays stable for the lifetime of this
-    AIfred process — calibration profiles depend on the assumption.
-    """
-    global _cached_tts_gpu_id
-    if _cached_tts_gpu_id is None:
-        _cached_tts_gpu_id = _detect_tts_gpu_id()
-    return _cached_tts_gpu_id
-
-
-def get_llm_speed_gpu_id(tts_gpu_id: int | None = None) -> int:
-    """Pick the GPU for a single-GPU LLM variant that should NOT collide with TTS.
-
-    Returns the fastest GPU that isn't ``tts_gpu_id``. If only one GPU is
-    visible (or all GPUs are the TTS GPU), falls back to the TTS GPU — caller
-    has to accept the shared-mode collision in that case.
-
-    If ``tts_gpu_id`` is None, the current TTS GPU is auto-detected.
-    """
-    if tts_gpu_id is None:
-        tts_gpu_id = get_tts_gpu_id()
-
-    ranking = _gpu_ranking()
-    for gpu_id, _cap, _vram in ranking:
-        if gpu_id != tts_gpu_id:
-            return gpu_id
-    # Only one GPU or detection failed → caller handles shared mode
-    return tts_gpu_id
+    global _cached_tts_gpu_uuid
+    if _cached_tts_gpu_uuid is None:
+        _cached_tts_gpu_uuid = _detect_tts_gpu_uuid()
+    return _cached_tts_gpu_uuid
 
 
 def _docker_compose_action(
@@ -377,11 +326,11 @@ def _docker_compose_action(
         cmd.append("down")
 
     try:
-        # Pass TTS_GPU_ID as env variable (no file writes to avoid Reflex hot-reload).
-        # Detection is cached per process — see get_tts_gpu_id().
+        # Pass TTS_GPU_UUID as env variable (no file writes to avoid Reflex hot-reload).
+        # Detection is cached per process — see get_tts_gpu_uuid().
         proc_env = os.environ.copy()
         if action == "up":
-            proc_env["TTS_GPU_ID"] = str(get_tts_gpu_id())
+            proc_env["TTS_GPU_UUID"] = get_tts_gpu_uuid()
         result = subprocess.run(
             cmd,
             capture_output=True,

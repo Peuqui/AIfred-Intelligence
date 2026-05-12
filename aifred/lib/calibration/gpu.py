@@ -1,70 +1,52 @@
 """GPU enumeration, speed-class grouping and baseline-budget estimation.
 
-The GPU order is taken **directly from llama.cpp's own view** (via
-``llama-fit-params --version`` parsing). This is the order llama-server
-will see at inference time when ``CUDA_DEVICE_ORDER=FASTEST_FIRST`` is
-set — and we set it both in the calibration subprocess and in every
-llama-swap config entry, so calibration index N == inference index N.
+GPUs are identified by their permanent NVIDIA UUID, not by a transient
+CUDA index. Sort order is **compute_cap DESC** (highest compute first),
+with name + UUID as deterministic tiebreaks.
 
-Why not enumerate via nvidia-smi and sort ourselves?  Because NVIDIA's
-FASTEST_FIRST heuristic isn't documented and changes between driver
-versions (e.g. it weighs HBM2 memory-bandwidth higher than compute
-capability, putting V100 before RTX 8000 even though cc 7.0 < 7.5).
-Mirroring that heuristic in Python would be guesswork.  llama.cpp's
-``ggml_cuda_init`` enumeration is the source of truth.
+Why UUID, not indices: ``CUDA_VISIBLE_DEVICES`` accepts UUIDs, and
+llama-server then enumerates the GPUs in exactly the order calibration
+intended — independent of NVIDIA's FASTEST_FIRST heuristic, the PCI bus
+layout or any subsequent slot moves. The whole CUDA-vs-nvidia-smi index
+mapping that haunted earlier versions disappears.
 
-Speed classes still group GPUs by compute capability for tensor-split
-heuristics (same-class siblings get equal-ish layer counts).
+speed_class groups GPUs of identical compute capability for the
+optimizer's homogeneous-fill strategy (e.g. "two RTX 8000 first, then
+spill to V100").
 
-The "first-GPU handicap" captures that CUDA0 inside a speed class holds
-less free VRAM than identically-specced siblings (display / system
-output usually lands on device 0).  Instead of hand-tuning a constant
-we *measure* it: the handicap is the free-VRAM delta to the greediest
-sibling in the same class, clamped to a reasonable range.
+The "first-GPU handicap": within a class, one GPU typically holds less
+free VRAM than its identical sibling because it carries the
+display/compositor overhead. We mark that one ``first_in_class=True``
+empirically by picking the minimum-free GPU per class — no driver-order
+heuristic involved.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import re
 import subprocess
-from pathlib import Path
+from collections import defaultdict
 from typing import Any
 
-from ..gpu_utils import get_all_gpus_memory_info
 from .types import GPU, Budget
-
-# Path to llama-fit-params binary (companion of llama-server, used here
-# only for its CUDA-device enumeration in --version output — cheap, no
-# model load).
-_LLAMA_FIT_PARAMS = Path("/home/mp/llama.cpp/build/bin/llama-fit-params")
-
-# Regex for ggml_cuda_init device lines like:
-#   Device 0: Tesla V100-PCIE-32GB, compute capability 7.0, VMM: yes, VRAM: 32494 MiB
-_DEVICE_LINE_RE = re.compile(
-    r"Device\s+(\d+):\s+(.+?),\s+compute capability\s+([\d.]+),"
-    r".*?VRAM:\s+(\d+)\s+MiB"
-)
 
 logger = logging.getLogger(__name__)
 
 
-# Minimum handicap applied to the physically-first GPU in its speed class,
-# even when baseline nvidia-smi shows no asymmetry.  Prevents the optimizer
-# from packing CUDA0 completely full and leaving no headroom for the
-# CUDA/driver overhead that only shows up once llama-server actually loads.
+# Minimum handicap applied to the display-carrying GPU in its class,
+# even when the baseline free-VRAM delta to its sibling is smaller.
+# Prevents the optimizer from packing that GPU completely full and
+# leaving no headroom for the CUDA/driver overhead that only shows up
+# once llama-server actually loads.
 _MIN_FIRST_GPU_HANDICAP_MB = 256
 
-# If the measured free-VRAM delta between CUDA0 and its sibling exceeds
-# this threshold, it's almost certainly an *external* occupant (TTS
-# container, orphaned server) on one of the two GPUs — not the modest
-# display/compositor overhead we're trying to model.  External
-# occupation is already reflected in per_gpu_free, so treating it as
-# CUDA0 system overhead would double-subtract the same VRAM.  In that
-# case fall back to the floor so the optimizer doesn't leave a GB of
-# headroom unused.  (Display/compositor on an idle system is typically
-# 200–500 MiB; real hardware asymmetry well below that.)
+# If the measured free-VRAM delta between the tightest and the most-free
+# sibling exceeds this threshold, it's almost certainly an *external*
+# occupant (TTS container, orphaned server) on one of the two GPUs —
+# not the modest display/compositor overhead. External occupation is
+# already reflected in per_gpu_free, so treating it as system overhead
+# would double-subtract. Fall back to the floor in that case.
+# (Display/compositor on an idle system is typically 200–500 MiB.)
 _HARDWARE_HANDICAP_THRESHOLD_MB = 500
 
 
@@ -90,141 +72,96 @@ def _short_name(name: str) -> str:
     return name
 
 
-def _query_llamacpp_device_order() -> list[dict[str, Any]]:
-    """Run ``llama-fit-params --version`` and parse its CUDA device list.
-
-    Returns a list of dicts in llama.cpp's own enumeration order
-    (CUDA_DEVICE_ORDER=FASTEST_FIRST applied):
-        [{"cuda_id": int, "name": str, "compute_cap": float, "total_mb": int}, ...]
-
-    Raises RuntimeError on any failure — there is no fallback. If
-    llama-fit-params is broken, calibration cannot trust any subsequent
-    tensor-split allocation, so failing loudly is the right behaviour.
-    """
-    if not _LLAMA_FIT_PARAMS.exists():
-        raise RuntimeError(
-            f"llama-fit-params binary not found at {_LLAMA_FIT_PARAMS}"
-        )
-    env = {**os.environ, "CUDA_DEVICE_ORDER": "FASTEST_FIRST"}
+def _query_nvidia_smi() -> list[dict[str, Any]]:
+    """Single nvidia-smi query for all GPU fields needed by calibration."""
     try:
-        proc = subprocess.run(
-            [str(_LLAMA_FIT_PARAMS), "--version"],
-            env=env, capture_output=True, text=True, timeout=15,
+        result = subprocess.run(
+            ["nvidia-smi",
+             "--query-gpu=uuid,gpu_name,compute_cap,memory.total,memory.free",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("llama-fit-params --version timed out") from exc
-    # ggml_cuda_init writes to stderr
-    output = (proc.stderr or "") + (proc.stdout or "")
-    devices: list[dict[str, Any]] = []
-    for match in _DEVICE_LINE_RE.finditer(output):
-        devices.append({
-            "cuda_id": int(match.group(1)),
-            "name": match.group(2).strip(),
-            "compute_cap": float(match.group(3)),
-            "total_mb": int(match.group(4)),
-        })
-    if not devices:
-        head = output[:500].replace("\n", " | ")
-        raise RuntimeError(
-            f"llama-fit-params output contained no ggml_cuda_init device "
-            f"lines. First 500 chars: {head!r}"
-        )
-    return devices
+        if result.returncode != 0:
+            logger.warning(f"nvidia-smi exited {result.returncode}: {result.stderr[:200]}")
+            return []
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning(f"nvidia-smi unavailable: {e}")
+        return []
 
-
-def _match_smi_to_llamacpp(
-    llamacpp_devs: list[dict[str, Any]],
-    smi_devs: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Match nvidia-smi entries onto llama.cpp's enumeration order.
-
-    Returns a list parallel to ``llamacpp_devs`` where each entry's
-    ``total_mb`` is replaced with nvidia-smi's authoritative total (the
-    value llama.cpp prints in ``ggml_cuda_init`` is *free* at init time,
-    not capacity), and ``free_mb`` + ``smi_index`` are added.
-
-    Matching is by GPU short name only; within a group of identical
-    cards, both nvidia-smi (PCI_BUS_ID) and llama.cpp (FASTEST_FIRST,
-    tie-broken by PCI bus) produce the same ordering, so encounter-order
-    pairing within each name group is correct.
-    """
-    # Pool nvidia-smi entries by short_name, preserving smi index order.
-    pool: dict[str, list[dict[str, Any]]] = {}
-    for g in smi_devs:
-        key = _short_name(str(g.get("gpu_model", "")))
-        pool.setdefault(key, []).append(g)
-
-    matched: list[dict[str, Any]] = []
-    for dev in llamacpp_devs:
-        key = _short_name(dev["name"])
-        candidates = pool.get(key)
-        if not candidates:
-            raise RuntimeError(
-                f"No nvidia-smi entry matches llama.cpp Device "
-                f"{dev['cuda_id']}: {dev['name']!r}"
-            )
-        smi_entry = candidates.pop(0)
-        matched.append({
-            **dev,
-            "total_mb": int(smi_entry["total_mb"]),  # authoritative
-            "free_mb": int(smi_entry["free_mb"]),
-            "smi_index": int(smi_entry.get("index", -1)),
-        })
-    return matched
+    rows: list[dict[str, Any]] = []
+    for line in result.stdout.strip().split("\n"):
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 5:
+            continue
+        try:
+            rows.append({
+                "uuid": parts[0],
+                "name": _short_name(parts[1]),
+                "compute_cap": float(parts[2]),
+                "total_mb": int(parts[3]),
+                "free_mb": int(parts[4]),
+            })
+        except ValueError:
+            continue
+    return rows
 
 
 def enumerate_gpus() -> list[GPU]:
-    """Return GPUs in llama.cpp's own (FASTEST_FIRST) enumeration order.
+    """Return all visible GPUs, sorted by compute_cap DESC, name, UUID.
 
-    Source of truth: ``llama-fit-params --version`` output. This matches
-    what llama-server will see at inference time when the calibration
-    subprocess and the llama-swap config both set
-    ``CUDA_DEVICE_ORDER=FASTEST_FIRST`` (they do).
-
-    Free-VRAM comes from nvidia-smi and is mapped onto llama.cpp's order
-    by (gpu_model, total_mb) — unambiguous for heterogeneous setups,
-    stable within groups of identical cards.
-
-    ``speed_class`` is still based on compute capability (used by the
-    optimizer to group same-class siblings for layer-balancing), but
-    plays no role in the GPU index order itself.
+    Position 0 = highest compute capability. Within the same compute
+    class, ties are broken by GPU name then UUID, both ascending — fully
+    deterministic, no driver heuristics involved.
     """
-    info = get_all_gpus_memory_info()
-    if not info or not info.get("per_gpu"):
+    rows = _query_nvidia_smi()
+    if not rows:
         return []
 
-    llamacpp_devs = _query_llamacpp_device_order()
-    merged = _match_smi_to_llamacpp(llamacpp_devs, list(info["per_gpu"]))
+    # Deterministic sort: compute_cap DESC, name ASC, uuid ASC
+    rows.sort(key=lambda g: (-float(g["compute_cap"]), g["name"], g["uuid"]))
 
-    # Assign speed_class: same compute_cap → same class, in llama.cpp encounter order
+    # speed_class: same compute_cap → same class, in encounter order.
+    # encounter order == compute_cap DESC after the sort above, so class 0
+    # is the highest compute class.
     class_of_compute: dict[float, int] = {}
-    for d in merged:
-        cc = float(d["compute_cap"])
+    for g in rows:
+        cc = float(g["compute_cap"])
         if cc not in class_of_compute:
             class_of_compute[cc] = len(class_of_compute)
 
-    seen_first_in_class: set[int] = set()
-    result: list[GPU] = []
-    for cuda_id, d in enumerate(merged):
-        cc = float(d["compute_cap"])
-        cls = class_of_compute[cc]
-        first = cls not in seen_first_in_class
-        if first:
-            seen_first_in_class.add(cls)
-        result.append(GPU(
-            cuda_id=cuda_id,
-            name=_short_name(d["name"]),
-            total_mb=int(d["total_mb"]),
-            free_mb=int(d["free_mb"]),
-            speed_class=cls,
-            first_in_class=first,
-            smi_index=int(d.get("smi_index", -1)),
-        ))
-    return result
+    # first_in_class: the GPU per compute-class with the lowest free_mb.
+    # Empirical detection of the display-carrying card — works for any
+    # GPU layout without name heuristics.
+    by_class: dict[float, list[dict[str, Any]]] = defaultdict(list)
+    for g in rows:
+        by_class[float(g["compute_cap"])].append(g)
+    first_uuids: set[str] = set()
+    for group in by_class.values():
+        if len(group) == 1:
+            first_uuids.add(group[0]["uuid"])
+            continue
+        # Tightest free GPU is treated as display-carrying. If two are
+        # tied, pick the one with the lexicographically smaller UUID —
+        # deterministic and we don't have a better signal.
+        tightest = min(group, key=lambda g: (g["free_mb"], g["uuid"]))
+        first_uuids.add(tightest["uuid"])
+
+    return [
+        GPU(
+            uuid=str(r["uuid"]),
+            name=str(r["name"]),
+            compute_cap=float(r["compute_cap"]),
+            total_mb=int(r["total_mb"]),
+            free_mb=int(r["free_mb"]),
+            speed_class=class_of_compute[float(r["compute_cap"])],
+            first_in_class=r["uuid"] in first_uuids,
+        )
+        for r in rows
+    ]
 
 
 def group_by_speed_class(gpus: list[GPU]) -> list[list[GPU]]:
-    """Group GPUs by speed_class — result[0] is the fastest class."""
+    """Group GPUs by speed_class — result[0] is the highest class."""
     classes: dict[int, list[GPU]] = {}
     for g in gpus:
         classes.setdefault(g.speed_class, []).append(g)
@@ -232,30 +169,33 @@ def group_by_speed_class(gpus: list[GPU]) -> list[list[GPU]]:
 
 
 def measure_first_gpu_handicap(gpus: list[GPU]) -> int:
-    """Empirical handicap for CUDA0 relative to its class siblings.
+    """Empirical handicap for the display-carrying GPU vs its sibling.
 
-    Small deltas (< threshold) are treated as real hardware/driver
-    asymmetry and fed to the optimizer.  Large deltas indicate an
-    external VRAM occupant on one of the GPUs — those are already
-    reflected in ``per_gpu_free``, so we fall back to the floor to
-    avoid double-subtracting.
+    Within the highest compute class, compute the free-VRAM delta
+    between the tightest GPU (= display-carrying, ``first_in_class``)
+    and the most-free sibling. Small deltas are real driver overhead.
+    Large deltas (> threshold) indicate external occupants and we fall
+    back to the floor to avoid double-subtracting (the external
+    occupation is already reflected in per_gpu_free).
     """
     if not gpus:
         return _MIN_FIRST_GPU_HANDICAP_MB
-    cuda0 = gpus[0]
-    siblings = [g for g in gpus[1:] if g.speed_class == cuda0.speed_class]
+    fastest_class = [g for g in gpus if g.speed_class == 0]
+    if len(fastest_class) < 2:
+        return _MIN_FIRST_GPU_HANDICAP_MB
+    first = next((g for g in fastest_class if g.first_in_class), fastest_class[0])
+    siblings = [g for g in fastest_class if g.uuid != first.uuid]
     if not siblings:
         return _MIN_FIRST_GPU_HANDICAP_MB
     max_sibling_free = max(g.free_mb for g in siblings)
-    measured = max(0, max_sibling_free - cuda0.free_mb)
+    measured = max(0, max_sibling_free - first.free_mb)
     if measured > _HARDWARE_HANDICAP_THRESHOLD_MB:
-        # External occupant — already baked into per_gpu_free
         return _MIN_FIRST_GPU_HANDICAP_MB
     return max(measured, _MIN_FIRST_GPU_HANDICAP_MB)
 
 
 def build_budget(gpus: list[GPU], safety_margin: int) -> Budget:
-    """Construct the calibration budget from a GPU list."""
+    """Assemble the per-GPU VRAM budget used by the optimizer."""
     return Budget(
         per_gpu_free=tuple(g.free_mb for g in gpus),
         first_gpu_handicap=measure_first_gpu_handicap(gpus),
@@ -267,37 +207,28 @@ def total_free_mb(gpus: list[GPU]) -> int:
     return sum(g.free_mb for g in gpus)
 
 
-def total_vram_mb(gpus: list[GPU]) -> int:
-    return sum(g.total_mb for g in gpus)
+def find_min_gpus_for_weights(model_size_mb: float, gpus: list[GPU]) -> int:
+    """Smallest n such that the n largest GPUs (by free_mb) hold the model.
 
-
-def find_min_gpus_for_weights(
-    model_size_mb: float,
-    gpus: list[GPU],
-    per_gpu_overhead_mb: int = 1024,
-) -> int:
-    """Fewest fastest-first GPUs whose combined free VRAM holds the weights.
-
-    Uses ``total_mb`` (not ``free_mb``) minus per-GPU overhead, so the
-    answer doesn't shrink just because other processes are temporarily
-    using VRAM — calibration cleans those up before loading.
+    Independent of compute order — purely a VRAM-fit check. The actual
+    GPU selection for that count is decided later by the optimizer.
     """
-    for n in range(1, len(gpus) + 1):
-        capacity = sum(g.total_mb for g in gpus[:n])
-        if model_size_mb + per_gpu_overhead_mb * n < capacity:
-            return n
+    if not gpus:
+        return 1
+    by_size = sorted(gpus, key=lambda g: -g.free_mb)
+    cumulative = 0
+    for i, g in enumerate(by_size, start=1):
+        cumulative += g.free_mb
+        if cumulative >= model_size_mb:
+            return i
     return len(gpus)
 
 
-def format_gpu_detail(
-    gpus: list[GPU], free_override_mb: tuple[int, ...] | None = None,
-) -> str:
-    """One-line per-GPU summary for log output.
+def cuda_visible_devices(gpus: list[GPU]) -> str:
+    """Build a ``CUDA_VISIBLE_DEVICES`` value from a list of GPUs (UUIDs).
 
-    ``free_override_mb`` lets callers report measured (not baseline) VRAM.
+    UUIDs are passed in the order they appear in ``gpus`` — that order
+    becomes the CUDA enumeration order seen by the launched process,
+    so ``gpus[0]`` is CUDA0, ``gpus[1]`` is CUDA1, etc.
     """
-    parts: list[str] = []
-    for i, g in enumerate(gpus):
-        free = free_override_mb[i] if free_override_mb else g.free_mb
-        parts.append(f"{g.name} (CUDA{g.cuda_id}): {free} MB free")
-    return ", ".join(parts)
+    return ",".join(g.uuid for g in gpus)

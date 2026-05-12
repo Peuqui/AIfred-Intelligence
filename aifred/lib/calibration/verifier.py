@@ -70,7 +70,6 @@ async def _start_server(
     log_message(f"llama-server cmd: {cmd_str}", category="stats")
 
     proc_env = os.environ.copy()
-    proc_env["CUDA_DEVICE_ORDER"] = "FASTEST_FIRST"
     if env:
         proc_env.update(env)
 
@@ -226,15 +225,24 @@ def _kill(process: subprocess.Popen) -> None:
 
 
 def _measured_free(gpus: list[GPU]) -> tuple[int, ...]:
+    """Return per-GPU free MiB in the order ``gpus`` was passed in.
+
+    Matches nvidia-smi entries to ``gpus`` by UUID — robust against
+    PCI-bus reorderings, identical-card pairs and any nvidia-smi
+    enumeration quirks.
+    """
     info = get_all_gpus_memory_info()
     if not info or not info.get("per_gpu"):
         return ()
-    # nvidia-smi returns PCI order; we need CUDA (FASTEST_FIRST) order.
-    # gpus list is already CUDA-ordered — find each by total_mb match.
-    raw = sorted(info["per_gpu"], key=lambda g: g["total_mb"], reverse=True)
-    if len(raw) != len(gpus):
-        return tuple(int(g["free_mb"]) for g in raw)
-    return tuple(int(g["free_mb"]) for g in raw)
+    free_by_uuid: dict[str, int] = {}
+    for g in info["per_gpu"]:
+        uuid = str(g.get("uuid", "")).strip()
+        if uuid:
+            try:
+                free_by_uuid[uuid] = int(g["free_mb"])
+            except (KeyError, ValueError):
+                continue
+    return tuple(free_by_uuid.get(g.uuid, g.free_mb) for g in gpus)
 
 
 async def verify(
