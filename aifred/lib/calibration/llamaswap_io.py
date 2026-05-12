@@ -285,9 +285,22 @@ def update_llamaswap_reasoning_format(
 
 def update_llamaswap_cuda_visible(
     config_path: Path, model_id: str,
-    num_active_gpus: int, total_gpus: int,
+    active_indices: list[int], total_gpus: int,
 ) -> bool:
-    """Set (or remove) CUDA_VISIBLE_DEVICES; trims matching tensor-split."""
+    """Update env (CUDA_DEVICE_ORDER + CUDA_VISIBLE_DEVICES) and trim
+    tensor-split to match the active GPU set.
+
+    ``active_indices`` is the list of CUDA device indices that actually
+    receive layers (e.g. ``[1]`` for "calibration picked CUDA1 single-GPU"
+    or ``[0, 1]`` for "CUDA0+CUDA1"). ``total_gpus`` is the total GPU
+    count of the system, i.e. the original tensor-split width.
+
+    Always writes ``CUDA_DEVICE_ORDER=FASTEST_FIRST`` so calibration and
+    runtime use the identical enumeration. ``CUDA_VISIBLE_DEVICES`` is
+    only added when fewer GPUs are active than the total. tensor-split
+    is rewritten to contain exactly one value per active GPU, in the
+    order the GPUs appear after CUDA_VISIBLE_DEVICES is applied.
+    """
     if not config_path.exists():
         return False
     config = _read_yaml(config_path)
@@ -298,23 +311,38 @@ def update_llamaswap_cuda_visible(
         return False
 
     cmd = entry.get("cmd", "")
-    if num_active_gpus < total_gpus:
-        ts_match = re.search(r"(--tensor-split|-ts)\s+([\d.,]+)", cmd)
-        if ts_match:
-            ts_vals = [v for v in ts_match.group(2).split(",") if v]
-            while len(ts_vals) > 1 and ts_vals[-1] in ("0", "0.0"):
-                ts_vals.pop()
-            trimmed = ",".join(ts_vals)
-            cmd = cmd[: ts_match.start(2)] + trimmed + cmd[ts_match.end(2):]
-            entry["cmd"] = cmd
 
-    if num_active_gpus >= total_gpus:
-        entry.pop("env", None)
-        logger.info(f"Removed CUDA_VISIBLE_DEVICES for {model_id}")
+    # Rewrite tensor-split: keep only values for active GPUs, in
+    # active_indices order (which matches the post-CUDA_VISIBLE_DEVICES
+    # ordering llama-server will see).
+    ts_match = re.search(r"(--tensor-split|-ts)\s+([\d.,]+)", cmd)
+    if ts_match:
+        raw_vals = [v for v in ts_match.group(2).split(",") if v]
+        # Pad to total_gpus so out-of-range indices are safe
+        padded = raw_vals + ["0"] * max(0, total_gpus - len(raw_vals))
+        new_vals = [padded[i] for i in active_indices]
+        # If somehow nothing active, keep the first raw value as fallback
+        # (caller bug: should never call with empty active_indices)
+        trimmed = ",".join(new_vals) if new_vals else (raw_vals[0] if raw_vals else "0")
+        cmd = cmd[: ts_match.start(2)] + trimmed + cmd[ts_match.end(2):]
+        entry["cmd"] = cmd
+
+    # Build env list. CUDA_DEVICE_ORDER=FASTEST_FIRST is mandatory for
+    # consistency with the calibration subprocess.
+    env_vars: list[str] = ["CUDA_DEVICE_ORDER=FASTEST_FIRST"]
+    if len(active_indices) < total_gpus:
+        cuda_vis = ",".join(str(i) for i in active_indices)
+        env_vars.append(f"CUDA_VISIBLE_DEVICES={cuda_vis}")
+        logger.info(
+            f"Set CUDA_VISIBLE_DEVICES={cuda_vis} for {model_id} "
+            f"(active GPUs: {active_indices})"
+        )
     else:
-        cuda_vis = ",".join(str(i) for i in range(num_active_gpus))
-        entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_vis}"]
-        logger.info(f"Set CUDA_VISIBLE_DEVICES={cuda_vis} for {model_id}")
+        logger.info(
+            f"All {total_gpus} GPUs active for {model_id} — "
+            f"CUDA_DEVICE_ORDER set, CUDA_VISIBLE_DEVICES omitted"
+        )
+    entry["env"] = env_vars
 
     _write_yaml(config_path, config)
     return True
@@ -390,9 +418,15 @@ def add_llamaswap_speed_variant(
     cmd = set_kv_quant(cmd, kv_quant)
     entry["cmd"] = cmd
 
+    # Always set CUDA_DEVICE_ORDER for consistency with calibration.
+    # Speed variants run with the first ``num_gpus`` (fastest-first)
+    # cards from the base config — the assumption holds because a speed
+    # variant is only emitted when base used multiple GPUs.
+    speed_env: list[str] = ["CUDA_DEVICE_ORDER=FASTEST_FIRST"]
     if num_gpus > 0 and num_gpus < len(original_ratios):
         cuda_vis = ",".join(str(i) for i in range(num_gpus))
-        entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_vis}"]
+        speed_env.append(f"CUDA_VISIBLE_DEVICES={cuda_vis}")
+    entry["env"] = speed_env
 
     existed = speed_id in config["models"]
     _insert_variant(config, model_id, speed_id, entry)
@@ -438,11 +472,16 @@ def add_llamaswap_tts_variant(
         )
     entry["cmd"] = cmd
 
+    # Always include CUDA_DEVICE_ORDER=FASTEST_FIRST for index consistency
+    # with the calibration subprocess. Add CUDA_VISIBLE_DEVICES only when
+    # the variant restricts to a subset of GPUs.
+    tts_env: list[str] = ["CUDA_DEVICE_ORDER=FASTEST_FIRST"]
     if cuda_visible_devices:
-        entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_visible_devices}"]
+        tts_env.append(f"CUDA_VISIBLE_DEVICES={cuda_visible_devices}")
     elif num_gpus > 0:
         cuda_vis = ",".join(str(i) for i in range(num_gpus))
-        entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_vis}"]
+        tts_env.append(f"CUDA_VISIBLE_DEVICES={cuda_vis}")
+    entry["env"] = tts_env
 
     existed = tts_id in config["models"]
     _insert_variant(config, model_id, tts_id, entry)

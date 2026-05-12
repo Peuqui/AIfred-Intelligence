@@ -21,8 +21,16 @@ from typing import Literal
 class GPU:
     """A single CUDA device as seen by calibration.
 
-    cuda_id is the CUDA_DEVICE_ORDER=FASTEST_FIRST index (CUDA0 = fastest).
-    speed_class groups GPUs by model name: 0 = fastest group, 1 = next, ...
+    cuda_id is the CUDA_DEVICE_ORDER=FASTEST_FIRST index (CUDA0 = fastest)
+    — what llama-server sees and what tensor-split / CUDA_VISIBLE_DEVICES
+    address.
+
+    smi_index is the same physical GPU's nvidia-smi index (PCI_BUS_ID
+    order) — what TTS Docker containers, monitoring dashboards and the
+    legacy ``process_utils`` helpers address. Needed to detect collisions
+    between the LLM's CUDA-space pin and the TTS container's smi-space pin.
+
+    speed_class groups GPUs by compute capability: 0 = fastest group.
     first_in_class is True for the physical CUDA0 within its group — that
     GPU typically carries display/system overhead and should be given a
     small VRAM handicap in the optimizer.
@@ -33,6 +41,7 @@ class GPU:
     free_mb: int
     speed_class: int
     first_in_class: bool
+    smi_index: int = -1
 
 
 @dataclass(frozen=True)
