@@ -164,34 +164,41 @@ async def calibrate_llamacpp_model(
     base_result_obj: Result | None = None
     all_tried: list[Candidate] = []
     known_thinks: bool | None = known_thinking
+    configs = _enumerate_gpu_configs(len(gpus), min_gpus)
     for kv in kv_levels:
         if base_pick is not None:
             break
-        for n in range(min_gpus, len(gpus) + 1):
+        for active in configs:
+            n = len(active)
+            label = (
+                f"GPU{active[0]} ({gpus[active[0]].name})"
+                if n == 1 else f"{n} GPUs {active}"
+            )
             c, reason = await _project_cell(
-                model, gpus, budget, full_cmd, kv, n,
+                model, gpus, budget, full_cmd, kv, active,
             )
             if c is None:
-                yield f"  [{n} GPUs / KV={kv}] estimate: {reason}"
+                yield f"  [{label} / KV={kv}] estimate: {reason}"
                 continue
             all_tried.append(c)
             yield _format_candidate_line(c, gpus)
             if c.max_context < model.native_context:
                 yield (
-                    f"  [{n} GPUs / KV={kv}] math max_ctx="
-                    f"{format_number(c.max_context)} < native — try more GPUs"
+                    f"  [{label} / KV={kv}] math max_ctx="
+                    f"{format_number(c.max_context)} < native — "
+                    f"try next config"
                 )
                 continue
 
             # Math says fit at native → real probe + shift loop
             yield (
-                f"  [{n} GPUs / KV={kv}] math OK at native ctx → verifying"
+                f"  [{label} / KV={kv}] math OK at native ctx → verifying"
             )
             v_result: Result | None = None
             async for item in _verify_and_refine(
                 c, model, gpus, budget, full_cmd, port, env,
                 probe_thinking=(known_thinks is None),
-                status_prefix=f"[{n}GPU/{kv}]",
+                status_prefix=f"[{label}/{kv}]",
             ):
                 if isinstance(item, _Done):
                     v_result = item.result
@@ -203,7 +210,7 @@ async def calibrate_llamacpp_model(
                 if base_result_obj.thinks is not None:
                     known_thinks = base_result_obj.thinks
                 yield (
-                    f"  ✓ Phase 1 success: {n} GPUs, KV={kv}, "
+                    f"  ✓ Phase 1 success: {label}, KV={kv}, "
                     f"split={_split_str(base_result_obj.tensor_split)}, "
                     f"ctx={format_number(base_result_obj.context)}"
                 )
@@ -318,6 +325,30 @@ async def calibrate_llamacpp_model(
 # ═══════════════════════════════════════════════════════════════════
 # Phase helpers
 # ═══════════════════════════════════════════════════════════════════
+
+def _enumerate_gpu_configs(
+    n_gpus_total: int, min_gpus: int,
+) -> list[list[int]]:
+    """Generate the candidate GPU configurations to try, in priority order.
+
+    1. Each single GPU individually, fastest-first ([0], [1], ...) —
+       single-GPU beats multi-GPU at comparable speed (no inter-GPU
+       transfer, KV stays on one card). So probe every GPU before
+       scaling up.
+    2. Multi-GPU stacks, fastest-first fill: [0, 1], [0, 1, 2], ...
+
+    ``min_gpus`` is the floor from ``find_min_gpus_for_weights`` (some
+    huge models can't possibly fit on one card). When min_gpus > 1, the
+    single-GPU probes are skipped.
+    """
+    configs: list[list[int]] = []
+    if min_gpus <= 1 and n_gpus_total >= 1:
+        for i in range(n_gpus_total):
+            configs.append([i])
+    for n in range(max(2, min_gpus), n_gpus_total + 1):
+        configs.append(list(range(n)))
+    return configs
+
 
 def _is_vision_model(cmd: str) -> bool:
     return "--mmproj" in cmd
@@ -442,24 +473,35 @@ async def _project_cell(
     budget: Budget,
     full_cmd: str,
     kv: str,
-    n_gpus: int,
+    active: list[int] | int,
 ) -> tuple[Candidate | None, str]:
-    """Project one (n_gpus, kv) cell.
+    """Project one (active, kv) cell.
+
+    ``active`` is the explicit list of CUDA ids participating, e.g.
+    ``[1]`` for "use only CUDA1" or ``[0, 1]`` for "use CUDA0+CUDA1".
+    For backward-compat with callers that just want "fastest N GPUs",
+    pass an int ``n_gpus`` and it is interpreted as ``range(n_gpus)``.
 
     Returns ``(candidate, reason)``.  ``candidate`` is ``None`` on any
     failure; ``reason`` is a short label for the log so the caller can
     show exactly why a cell got skipped (fit-params error, model too big
     for this GPU count, …).
     """
+    if isinstance(active, int):
+        active = list(range(active))
+    n_gpus = len(active)
     total_gpus = len(gpus)
     ctx_low = min(CALIBRATION_MIN_CONTEXT, model.native_context // 2) or 2048
     ctx_high = model.native_context
-    active = list(range(n_gpus))
 
     seed = _seed_tensor_split(model.total_layers, active, gpus, budget)
-    padded_seed = tuple(
-        float(seed[i]) if i < len(seed) else 0.0 for i in range(total_gpus)
-    )
+    # Map seed back to GPU index space: seed is parallel to ``active``
+    # (slot order), so seed[i] belongs on GPU ``active[i]``.
+    _padded = [0.0] * total_gpus
+    for _slot, _gpu_idx in enumerate(active):
+        if _slot < len(seed):
+            _padded[_gpu_idx] = float(seed[_slot])
+    padded_seed = tuple(_padded)
     cmd = proj.adjust_cmd_for_projection(full_cmd, padded_seed, kv)
 
     try:
@@ -742,6 +784,13 @@ async def _verify_and_refine(
             best_r: VerifyResult | None = None
             best_ctx = 0
             math_bias_mb = 0
+            # Math becomes unreliable after a probe crashed without leaving
+            # measurement data (e.g. llama.cpp segfault on OOM — exit -11):
+            # we can't update math_bias_mb, so the next math_max prediction
+            # would land within one PRECISION of the failed value, causing
+            # the search to crawl in 256-token decrements. Force one true
+            # bisection step to escape that trap.
+            math_unreliable = False
             while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
                 math_max, predicted_min = _math_max_fitting_ctx(
                     current_split,
@@ -750,7 +799,7 @@ async def _verify_and_refine(
                     candidate, model, gpus, budget,
                     extra_safety_margin=math_bias_mb,
                 )
-                if math_max > lo:
+                if math_max > lo and not math_unreliable:
                     cand_ctx = math_max
                     bias_note = f", bias +{math_bias_mb} MB" if math_bias_mb else ""
                     src = f"math max → {predicted_min} MB free{bias_note}"
@@ -758,7 +807,10 @@ async def _verify_and_refine(
                     cand_ctx = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
                     if cand_ctx <= lo or cand_ctx >= hi:
                         break
-                    src = "bisect (math saw no fit)"
+                    src = (
+                        "bisect (math unreliable after silent crash)"
+                        if math_unreliable else "bisect (math saw no fit)"
+                    )
                 iteration += 1
                 yield (
                     f"{status_prefix} 🧮 ctx {format_number(cand_ctx)} "
@@ -783,10 +835,12 @@ async def _verify_and_refine(
                     best_r = r
                     best_ctx = cand_ctx
                     lo = cand_ctx
+                    math_unreliable = False
                 else:
                     hi = cand_ctx
                     # Update math-vs-real bias if probe gave measurements
                     if r.measured_free_mb:
+                        math_unreliable = False
                         active_free_real = [
                             r.measured_free_mb[i] for i in range(len(current_split))
                             if i < len(r.measured_free_mb) and current_split[i] > 0
@@ -801,6 +855,11 @@ async def _verify_and_refine(
                                     f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
                                 )
                                 math_bias_mb = new_bias
+                    else:
+                        # Probe crashed silently (no measurement, likely
+                        # SegFault on OOM). Math has nothing to learn from
+                        # this — force bisection next iteration.
+                        math_unreliable = True
             if best_r is not None:
                 r = best_r
                 current_ctx = best_ctx
@@ -1219,13 +1278,16 @@ def _shift_one_layer_blind(
         # ctx-shrink.
         return None
     else:
-        # All active GPUs equally loaded — activate next idle. Slowest
-        # speed-class first because we want to keep fast cards lean (they
-        # already have the most KV-cache pressure from full layer counts).
+        # All active GPUs equally loaded — activate next idle.
+        # Fastest speed-class first (FAST_FIRST design philosophy):
+        # spill into the next-fastest available GPU, not the slowest.
+        # Layer-balancing within a class (e.g. main RTX 8000 takes N-1
+        # layers vs the next of same class) is handled separately by
+        # the initial seed_tensor_split.
         idle = [i for i in range(len(layers)) if layers[i] == 0]
         if not idle:
             return None
-        dest = max(idle, key=lambda i: gpus[i].speed_class)
+        dest = min(idle, key=lambda i: gpus[i].speed_class)
 
     layers[src] -= 1
     layers[dest] += 1
@@ -1423,8 +1485,9 @@ async def _write_base_config(
     io.update_llamaswap_tensor_split(
         config_path, model_id, list(result.tensor_split),
     )
+    active_indices = [i for i, v in enumerate(result.tensor_split) if v > 0]
     io.update_llamaswap_cuda_visible(
-        config_path, model_id, result.num_gpus, len(result.tensor_split),
+        config_path, model_id, active_indices, len(result.tensor_split),
     )
     if result.kv_quant != "f16":
         io.update_llamaswap_kv_cache_quant(
@@ -1612,7 +1675,8 @@ async def _calibrate_hybrid(
                     config_path, model.model_id, list(ts_ngl),
                 )
                 io.update_llamaswap_cuda_visible(
-                    config_path, model.model_id, len(gpus), len(gpus),
+                    config_path, model.model_id,
+                    list(range(len(gpus))), len(gpus),
                 )
                 io.remove_llamaswap_kv_cache_quant(config_path, model.model_id)
             vram_per_gpu = ",".join(str(g.total_mb) for g in gpus)

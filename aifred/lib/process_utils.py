@@ -230,18 +230,18 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
 
 
 def _gpu_ranking() -> list[tuple[int, float, int]]:
-    """Rank all visible GPUs fastest-first.
+    """Rank all visible GPUs by compute_cap DESC, then VRAM DESC.
 
-    Returns list of ``(gpu_id, compute_capability, memory_total_mb)`` tuples,
-    sorted descending by ``(compute_capability, memory_total_mb)``.
+    Returns list of ``(smi_index, compute_capability, memory_total_mb)``
+    in nvidia-smi index space. This ranking is **independent** of
+    NVIDIA's CUDA_DEVICE_ORDER=FASTEST_FIRST heuristic on purpose:
+    callers like ``_detect_tts_gpu_id`` need the "largest VRAM card of
+    the highest compute class" (= the RTX 8000 sibling), not "the
+    bandwidth-fastest card overall" (which would be V100 / HBM2).
 
-    Rationale: memory.total alone is misleading across GPU generations —
-    a 24 GB RTX 3090 (compute 8.6, ~936 GB/s) outperforms a 48 GB RTX 8000
-    (compute 7.5, ~672 GB/s) on inference workloads. Compute capability
-    is a reliable proxy for architectural speed; VRAM breaks ties within
-    the same architecture.
-
-    Returns empty list on any nvidia-smi failure.
+    For the LLM's actual placement we trust llama.cpp's own enumeration
+    (``calibration.gpu.enumerate_gpus``); this helper only serves the
+    TTS-container pinning logic.
     """
     try:
         result = subprocess.run(
@@ -283,30 +283,36 @@ def _detect_fastest_gpu() -> str:
 def _detect_tts_gpu_id() -> int:
     """Pick the GPU that TTS containers should pin to.
 
-    Rule: Within the fastest GPU class (matching ``compute_cap`` AND
-    ``memory_total``), prefer the **second** GPU. This leaves the first
-    GPU of that class to the LLM, so a single-GPU LLM variant can run
-    isolated from TTS.
+    Rule: **The fastest GPU available** (per llama.cpp's
+    CUDA_DEVICE_ORDER=FASTEST_FIRST enumeration — typically the one with
+    the highest memory bandwidth, e.g. HBM2 V100 over GDDR6 RTX 8000).
+    TTS is autoregressive FP16 inference on small (~1–2 GB) transformer
+    models — memory-bandwidth-bound, so HBM2 wins ~15–34 % TG-speed over
+    GDDR6/GDDR5 even when raw compute (FP16 TFLOPs) is similar.
 
-    If only one GPU of the fastest class exists, fall back to that one —
-    TTS and LLM then share it (caller / calibration handles the budget).
+    Returned value is the **nvidia-smi index** (PCI_BUS_ID space), which
+    is what the TTS Docker container needs (CUDA_VISIBLE_DEVICES in the
+    container is interpreted via the default PCI_BUS_ID order, not
+    FASTEST_FIRST).
 
-    Examples:
-    - 2× RTX 8000 + 2× P40 → pick the 2nd RTX 8000
-    - 1× RTX 4090           → pick the RTX 4090 (shared)
-    - 3× RTX 5090           → pick the 2nd RTX 5090
+    If LLM calibration also picks the fastest GPU, the calibration_mixin
+    handles the collision (falls back to shared-mode TTS).
 
-    Falls back to 1 when nvidia-smi is unavailable.
+    Falls back to nvidia-smi index 1 when llama.cpp enumeration fails.
     """
-    ranking = _gpu_ranking()
-    if not ranking:
+    try:
+        # Local import — calibration imports get_all_gpus_memory_info
+        # from this module, so importing it at module load would create
+        # a cycle.
+        from .calibration.gpu import enumerate_gpus
+        gpus = enumerate_gpus()
+    except Exception:
         return 1
-
-    fastest_cap, fastest_vram = ranking[0][1], ranking[0][2]
-    fastest_class = [g for g in ranking if g[1] == fastest_cap and g[2] == fastest_vram]
-    if len(fastest_class) >= 2:
-        return fastest_class[1][0]
-    return fastest_class[0][0]
+    if not gpus:
+        return 1
+    # gpus[0] is FASTEST_FIRST CUDA0 — the bandwidth-fastest card per
+    # llama.cpp's view. Return its physical nvidia-smi index.
+    return gpus[0].smi_index if gpus[0].smi_index >= 0 else 1
 
 
 def get_tts_gpu_id() -> int:
