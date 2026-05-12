@@ -19,29 +19,32 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class GPU:
-    """A single CUDA device as seen by calibration.
+    """A single physical GPU, identified by its permanent NVIDIA UUID.
 
-    cuda_id is the CUDA_DEVICE_ORDER=FASTEST_FIRST index (CUDA0 = fastest)
-    — what llama-server sees and what tensor-split / CUDA_VISIBLE_DEVICES
-    address.
+    The UUID is hardware-bound: surviving slot moves, driver updates and
+    enumeration-order changes. Calibration writes ``CUDA_VISIBLE_DEVICES``
+    with UUIDs (not indices), so llama-server sees the GPUs in the exact
+    order calibration intended — no FASTEST_FIRST/PCI_BUS_ID lottery.
 
-    smi_index is the same physical GPU's nvidia-smi index (PCI_BUS_ID
-    order) — what TTS Docker containers, monitoring dashboards and the
-    legacy ``process_utils`` helpers address. Needed to detect collisions
-    between the LLM's CUDA-space pin and the TTS container's smi-space pin.
-
-    speed_class groups GPUs by compute capability: 0 = fastest group.
-    first_in_class is True for the physical CUDA0 within its group — that
-    GPU typically carries display/system overhead and should be given a
-    small VRAM handicap in the optimizer.
+    GPUs are produced by :func:`enumerate_gpus` already sorted by
+    ``compute_cap DESC`` (highest compute first). The position in that
+    list is calibration's local index, used directly as a tensor-split
+    slot — no separate cuda_id / smi_index mapping needed.
     """
-    cuda_id: int
-    name: str
+    uuid: str           # GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    name: str           # short label e.g. "RTX 8000", "V100"
+    compute_cap: float  # 7.5 (Turing), 7.0 (Volta), 6.1 (Pascal), ...
     total_mb: int
     free_mb: int
+    # Derived helpers, populated by enumerate_gpus():
+    # speed_class: rank of this GPU's compute_cap among visible classes;
+    #              0 = highest. Used by the optimizer for homogeneous-fill
+    #              ("two RTX 8000 first, then spill to V100").
+    # first_in_class: True for the GPU per class with the smallest
+    #                 free_mb at enumeration time — empirically the
+    #                 display-carrying card; gets the first-GPU handicap.
     speed_class: int
     first_in_class: bool
-    smi_index: int = -1
 
 
 @dataclass(frozen=True)

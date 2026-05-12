@@ -168,10 +168,16 @@ def _format_split(split: list[float] | tuple[float, ...]) -> str:
 
 
 def _hardware_block(gpus: list[GPU]) -> str:
+    """Format the GPU list for the AI calibration prompt.
+
+    Position index = AIfred's compute-DESC enumeration index, identical
+    to the CUDA index llama-server will see (UUIDs in CUDA_VISIBLE_DEVICES
+    enforce that order).
+    """
     lines = []
-    for g in gpus:
+    for i, g in enumerate(gpus):
         lines.append(
-            f"  CUDA{g.cuda_id}: {g.name} — {g.total_mb} MB total, {g.free_mb} MB free"
+            f"  CUDA{i}: {g.name} — {g.total_mb} MB total, {g.free_mb} MB free"
         )
     return "\n".join(lines)
 

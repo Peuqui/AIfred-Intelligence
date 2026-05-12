@@ -117,10 +117,17 @@ def _parse_fit_output(text: str) -> dict[int, tuple[int, int]]:
 
 async def _run_fit(
     argv: list[str], timeout: float = 15.0,
+    env_override: dict[str, str] | None = None,
 ) -> dict[int, tuple[int, int]]:
-    """Spawn llama-fit-params and parse its output."""
+    """Spawn llama-fit-params and parse its output.
+
+    ``env_override`` lets the caller pin the GPU set via
+    ``CUDA_VISIBLE_DEVICES=<uuid-list>``. When omitted, fit-params sees
+    whatever GPUs the parent process has visible.
+    """
     env = os.environ.copy()
-    env["CUDA_DEVICE_ORDER"] = "FASTEST_FIRST"
+    if env_override:
+        env.update(env_override)
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdout=asyncio.subprocess.PIPE,
@@ -147,18 +154,23 @@ async def _run_fit(
 async def project(
     full_cmd: str, gguf_path: Path, context: int, ngl: int = 99,
     n_gpus: int | None = None,
+    env_override: dict[str, str] | None = None,
 ) -> VRamPoint:
     """Single fit-params projection at a specific context.
 
     ``n_gpus`` caps the result tuple length (pads missing CUDAs with 0);
     when ``None`` the tuple length matches what fit-params reported.
+
+    ``env_override`` is forwarded to fit-params — typically used to set
+    ``CUDA_VISIBLE_DEVICES=<uuid-list>`` so the projection sees the same
+    GPU subset (in the same order) that the LLM will actually use.
     """
     argv = _build_fit_cmd(full_cmd, gguf_path, context, ngl=ngl)
     log_message(
         f"fit-params: ctx={context} ngl={ngl} cmd={' '.join(argv[:6])}...",
         category="stats",
     )
-    per_gpu = await _run_fit(argv)
+    per_gpu = await _run_fit(argv, env_override=env_override)
 
     max_id = max(per_gpu) if per_gpu else -1
     length = n_gpus if n_gpus is not None else max_id + 1

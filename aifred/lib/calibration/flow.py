@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import defaultdict
 from pathlib import Path
 from typing import AsyncIterator, Optional
 
@@ -35,6 +36,7 @@ from . import projection as proj
 from .llamaswap_io import parse_tensor_split
 from .gpu import (
     build_budget,
+    cuda_visible_devices,
     enumerate_gpus,
     find_min_gpus_for_weights,
     total_free_mb,
@@ -130,6 +132,7 @@ async def calibrate_llamacpp_model(
             native_ctx=model.native_context,
             total_layers=model.total_layers,
             config_path=config_path,
+            gpus=gpus,
         ):
             if line == "__AI_FALLBACK__":
                 yield "🔄 Falling back to the classic algorithm..."
@@ -164,7 +167,7 @@ async def calibrate_llamacpp_model(
     base_result_obj: Result | None = None
     all_tried: list[Candidate] = []
     known_thinks: bool | None = known_thinking
-    configs = _enumerate_gpu_configs(len(gpus), min_gpus)
+    configs = _enumerate_gpu_configs(gpus, min_gpus)
     for kv in kv_levels:
         if base_pick is not None:
             break
@@ -309,7 +312,7 @@ async def calibrate_llamacpp_model(
     # add_llamaswap_tts_variant — must NOT overwrite the base cache here,
     # else base speed_split fields get lost.
     if config_path:
-        async for msg in _write_base_config(config_path, model_id, final):
+        async for msg in _write_base_config(config_path, model_id, final, gpus):
             yield msg
         _persist_cache(model, final, gpus, speed_result=speed_result)
         if speed_result:
@@ -327,26 +330,54 @@ async def calibrate_llamacpp_model(
 # ═══════════════════════════════════════════════════════════════════
 
 def _enumerate_gpu_configs(
-    n_gpus_total: int, min_gpus: int,
+    gpus: list[GPU], min_gpus: int,
 ) -> list[list[int]]:
-    """Generate the candidate GPU configurations to try, in priority order.
+    """Generate the candidate GPU index lists to try, in priority order.
 
-    1. Each single GPU individually, fastest-first ([0], [1], ...) —
-       single-GPU beats multi-GPU at comparable speed (no inter-GPU
-       transfer, KV stays on one card). So probe every GPU before
-       scaling up.
-    2. Multi-GPU stacks, fastest-first fill: [0, 1], [0, 1, 2], ...
+    The returned indices reference ``gpus`` (which is already sorted by
+    compute_cap DESC). The order in which configs are emitted reflects
+    AIfred's preference for fewer + faster + more-homogeneous GPU sets.
 
-    ``min_gpus`` is the floor from ``find_min_gpus_for_weights`` (some
-    huge models can't possibly fit on one card). When min_gpus > 1, the
-    single-GPU probes are skipped.
+    Phases:
+
+    1. **Single GPU** (when ``min_gpus <= 1``), each one tried in
+       compute-DESC order: [0], [1], ... — single-GPU beats multi-GPU
+       at comparable speed (no inter-GPU transfer, KV stays on one card).
+    2. **Multi-GPU**, ascending in count. For each ``n``:
+       a. **Homogeneous**: all ``n`` GPUs from the same speed_class, if
+          available. Probed first because mixed compute classes mean the
+          slowest card paces the whole inference (sequential layer
+          dispatch). Tried in class order (highest compute first).
+       b. **Mixed (compute-first fill)**: take the first ``n`` GPUs from
+          ``gpus`` (highest compute first, mixing classes if necessary).
+          Skipped when identical to the homogeneous case.
     """
+    n_total = len(gpus)
+    by_class: dict[int, list[int]] = defaultdict(list)
+    for i, g in enumerate(gpus):
+        by_class[g.speed_class].append(i)
+
     configs: list[list[int]] = []
-    if min_gpus <= 1 and n_gpus_total >= 1:
-        for i in range(n_gpus_total):
+
+    # 1. Single-GPU enumeration (compute-DESC)
+    if min_gpus <= 1 and n_total >= 1:
+        for i in range(n_total):
             configs.append([i])
-    for n in range(max(2, min_gpus), n_gpus_total + 1):
-        configs.append(list(range(n)))
+
+    # 2. Multi-GPU
+    for n in range(max(2, min_gpus), n_total + 1):
+        # 2a. Homogeneous: try each speed class that has >= n members.
+        for cls in sorted(by_class):
+            members = by_class[cls]
+            if len(members) >= n:
+                combo = sorted(members[:n])
+                if combo not in configs:
+                    configs.append(combo)
+        # 2b. Compute-first fill (the existing fastest-first stack).
+        mixed = list(range(n))
+        if mixed not in configs:
+            configs.append(mixed)
+
     return configs
 
 
@@ -377,21 +408,26 @@ def _split_str(ratios: tuple[float, ...]) -> str:
 def _format_candidate_line(c: Candidate, gpus: list[GPU]) -> str:
     """One log line per projection cell, showing every GPU's predicted free.
 
+    Position index = AIfred's compute-DESC enumeration index, identical
+    to llama-server's CUDA index after the UUID-based VISIBLE_DEVICES
+    pin (so reading "GPU0" in calibration logs matches "CUDA0" in
+    llama-server logs).
+
     Example::
 
         [3 GPUs / KV=f16] max_ctx=262.144 split=22:22:4:0
-          RTX 8000 (CUDA0): 2.500 MB, RTX 8000 (CUDA1): 3.100 MB,
-          P40 (CUDA2): 1.800 MB, P40 (CUDA3): idle
+          GPU0 RTX 8000: 2.500 MB, GPU1 RTX 8000: 3.100 MB,
+          GPU2 V100: 1.800 MB, GPU3 P40: idle
     """
     parts: list[str] = []
     for i, g in enumerate(gpus):
         layers_i = int(c.tensor_split[i]) if i < len(c.tensor_split) else 0
         if layers_i == 0:
-            parts.append(f"{g.name} (CUDA{g.cuda_id}): idle")
+            parts.append(f"GPU{i} {g.name}: idle")
             continue
         free = c.predicted_free_mb[i] if i < len(c.predicted_free_mb) else 0
         parts.append(
-            f"{g.name} (CUDA{g.cuda_id}): {format_number(max(0, free))} MB"
+            f"GPU{i} {g.name}: {format_number(max(0, free))} MB"
         )
     return (
         f"  [{c.n_gpus} GPUs / KV={c.kv_quant}] "
@@ -504,11 +540,14 @@ async def _project_cell(
     padded_seed = tuple(_padded)
     cmd = proj.adjust_cmd_for_projection(full_cmd, padded_seed, kv)
 
+    # Pin fit-params to the same UUID order calibration uses, so the
+    # CUDA indices it reports line up with our tensor-split positions.
+    fit_env = {"CUDA_VISIBLE_DEVICES": cuda_visible_devices(gpus)}
     try:
         low = await proj.project(cmd, model.gguf_path, ctx_low, ngl=99,
-                                 n_gpus=total_gpus)
+                                 n_gpus=total_gpus, env_override=fit_env)
         high = await proj.project(cmd, model.gguf_path, ctx_high, ngl=99,
-                                  n_gpus=total_gpus)
+                                  n_gpus=total_gpus, env_override=fit_env)
     except proj.FitParamsError as e:
         logger.warning(f"fit-params failed (n_gpus={n_gpus}, kv={kv}): {e}")
         return None, f"fit-params error: {e}"
@@ -1394,6 +1433,7 @@ async def _try_ai_calibration(
     native_ctx: int,
     total_layers: int,
     config_path: Optional[Path],
+    gpus: list[GPU],
 ) -> AsyncIterator[str]:
     """Run the AI-agent calibration and translate its result protocol to
     the legacy ``__RESULT__:`` sentinel + on-disk config write.
@@ -1467,7 +1507,7 @@ async def _try_ai_calibration(
             num_gpus=num_gpus,
             thinks=True,  # not re-probed; reasoning is a runtime toggle
         )
-        async for line in _write_base_config(config_path, model_id, result):
+        async for line in _write_base_config(config_path, model_id, result, gpus):
             yield line
 
     yield f"__RESULT__:{ai_ctx}:{ngl}:gpu:thinks:{kv}:{ts_colon}:{num_gpus}"
@@ -1478,16 +1518,22 @@ async def _try_ai_calibration(
 # ═══════════════════════════════════════════════════════════════════
 
 async def _write_base_config(
-    config_path: Path, model_id: str, result: Result,
+    config_path: Path, model_id: str, result: Result, gpus: list[GPU],
 ) -> AsyncIterator[str]:
     io.update_llamaswap_context(config_path, model_id, result.context)
     io.update_llamaswap_ngl(config_path, model_id, result.ngl)
     io.update_llamaswap_tensor_split(
         config_path, model_id, list(result.tensor_split),
     )
-    active_indices = [i for i, v in enumerate(result.tensor_split) if v > 0]
+    # Result.tensor_split is parallel to the GPU list at calibration
+    # time. Map back to UUIDs so the config pin is hardware-stable.
+    all_uuids = [g.uuid for g in gpus]
+    active_uuids = [
+        gpus[i].uuid for i, v in enumerate(result.tensor_split)
+        if i < len(gpus) and v > 0
+    ]
     io.update_llamaswap_cuda_visible(
-        config_path, model_id, active_indices, len(result.tensor_split),
+        config_path, model_id, active_uuids, all_uuids,
     )
     if result.kv_quant != "f16":
         io.update_llamaswap_kv_cache_quant(
@@ -1539,12 +1585,13 @@ def _persist_cache(
         native_context=model.native_context,
         gguf_path=str(model.gguf_path),
         quantization=model.quantization,
-        gpu_model=", ".join({g.name for g in gpus}),
+        gpu_model=", ".join(g.name for g in gpus),
         model_size_gb=model.size_mb / 1024,
         ngl=result.ngl,
         mode=result.mode,
         speed_split=speed_split_cuda0,
         vram_per_gpu=vram_per_gpu,  # type: ignore[arg-type]
+        gpu_uuids=[g.uuid for g in gpus],
     )
     # Patch in the rest of the speed details (rest_layers + ctx) — these
     # power the UI's "speed available" indicator and CUDA_VISIBLE_DEVICES.
@@ -1610,12 +1657,16 @@ async def _calibrate_hybrid(
     # Equal split used only for overrun measurement (ngl=99, all-GPU projection).
     # The split doesn't affect the summed overrun so 1:1:...:1 is fine here.
     ts_equal = tuple(float(1) for _ in range(len(gpus)))
+    fit_env = {"CUDA_VISIBLE_DEVICES": cuda_visible_devices(gpus)}
 
     for target in targets:
         # Project oversize at ngl=99
         cmd_f16 = proj.adjust_cmd_for_projection(full_cmd, ts_equal, "f16")
         try:
-            point = await proj.project(cmd_f16, model.gguf_path, target, ngl=99)
+            point = await proj.project(
+                cmd_f16, model.gguf_path, target, ngl=99,
+                env_override=fit_env,
+            )
         except proj.FitParamsError:
             continue
 
@@ -1674,9 +1725,9 @@ async def _calibrate_hybrid(
                 io.update_llamaswap_tensor_split(
                     config_path, model.model_id, list(ts_ngl),
                 )
+                all_uuids = [g.uuid for g in gpus]
                 io.update_llamaswap_cuda_visible(
-                    config_path, model.model_id,
-                    list(range(len(gpus))), len(gpus),
+                    config_path, model.model_id, all_uuids, all_uuids,
                 )
                 io.remove_llamaswap_kv_cache_quant(config_path, model.model_id)
             vram_per_gpu = ",".join(str(g.total_mb) for g in gpus)
@@ -1686,11 +1737,12 @@ async def _calibrate_hybrid(
                 native_context=model.native_context,
                 gguf_path=str(model.gguf_path),
                 quantization=model.quantization,
-                gpu_model=", ".join({g.name for g in gpus}),
+                gpu_model=", ".join(g.name for g in gpus),
                 model_size_gb=model.size_mb / 1024,
                 ngl=ngl,
                 mode="hybrid",
                 vram_per_gpu=vram_per_gpu,  # type: ignore[arg-type]
+                gpu_uuids=[g.uuid for g in gpus],
             )
             ts_csv = ",".join(f"{x:g}" for x in ts_ngl if x > 0)
             yield (

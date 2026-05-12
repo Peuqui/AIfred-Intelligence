@@ -180,7 +180,9 @@ def get_all_gpus_memory_info() -> Optional[Dict]:
         - per_gpu: List of dicts with per-GPU info
         Or None if unavailable
     """
-    rows = nvidia_smi.query()
+    rows = nvidia_smi.query(
+        fields="uuid,index,name,memory.total,memory.used,memory.free",
+    )
     if not rows:
         return None
 
@@ -199,6 +201,7 @@ def get_all_gpus_memory_info() -> Optional[Dict]:
         used_mb += gu
         gpu_models.append(row["name"])
         per_gpu.append({
+            "uuid": row.get("uuid", ""),
             "index": i,
             "gpu_model": row["name"],
             "total_mb": gt,

@@ -375,45 +375,44 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             yield "__RESULT__:0:0:error"
             return
 
-        # Calibration starts from scratch — strip CUDA_VISIBLE_DEVICES
-        # (calibration determines GPU assignment itself, must see all GPUs)
-        env: dict[str, str] | None = model_info.get("env") or None
-        if env:
-            env = {k: v for k, v in env.items() if k != "CUDA_VISIBLE_DEVICES"}
-            env = env or None
+        # Calibration starts from scratch — strip whatever env the
+        # existing config had. We rebuild it from the current GPU
+        # enumeration so the subprocess sees GPUs in AIfred's
+        # compute-DESC order (UUID-pinned, no FASTEST_FIRST/PCI lottery).
+        from ..lib.calibration.gpu import (
+            cuda_visible_devices as _cuda_visible_devices,
+            enumerate_gpus as _enumerate_gpus,
+        )
+        cal_gpus = _enumerate_gpus()
+        env: dict[str, str] | None = None
+        if cal_gpus:
+            env = {"CUDA_VISIBLE_DEVICES": _cuda_visible_devices(cal_gpus)}
 
-        # Replace tensor-split with proportional default based on GPU VRAM.
-        # CUDA_DEVICE_ORDER=FASTEST_FIRST is set during calibration, so
-        # CUDA0 = largest GPU. Proportional split ensures correct distribution
-        # for llama-fit-params projections. Phase 1b optimizes from here.
+        # Replace tensor-split with proportional default based on per-GPU
+        # *free* VRAM, in AIfred's compute-DESC order (matches the UUID
+        # order pinned in env). Free instead of total so TTS-variant
+        # calibrations account for the TTS model already in VRAM.
         import re
         cal_cmd = model_info["full_cmd"]
-        from ..lib.gpu_utils import get_all_gpus_memory_info
-        cal_gpu_info = get_all_gpus_memory_info()
-        if cal_gpu_info and cal_gpu_info["gpu_count"] > 1:
-            # Sort by FREE VRAM descending = FASTEST_FIRST CUDA order.
-            # Uses free (not total) VRAM so TTS-variant calibrations get
-            # correct distribution when TTS model occupies GPU memory.
-            # TTS reserve: subtracted from the GPU with most VRAM usage (= TTS GPU)
-            # to account for TTS inference spikes.
+        if cal_gpus and len(cal_gpus) > 1:
             from ..lib.config import LLAMACPP_TTS_VRAM_RESERVE
-            per_gpu = sorted(cal_gpu_info["per_gpu"], key=lambda g: g["free_mb"], reverse=True)
-            per_gpu_free = [g["free_mb"] for g in per_gpu]
+            per_gpu_free = [g.free_mb for g in cal_gpus]
 
-            # Find TTS GPU: largest gap between total and free (most VRAM consumed by TTS)
-            if dry_run:  # TTS variant calibration — apply reserve
+            # TTS variant: subtract reserve from the GPU with the most
+            # used VRAM (= the TTS-container GPU) so it doesn't get
+            # over-allocated when TTS spikes.
+            if dry_run:
                 max_usage = 0
                 tts_gpu_idx = -1
-                for i, g in enumerate(per_gpu):
-                    usage = g["total_mb"] - g["free_mb"]
+                for i, g in enumerate(cal_gpus):
+                    usage = g.total_mb - g.free_mb
                     if usage > max_usage:
                         max_usage = usage
                         tts_gpu_idx = i
                 if tts_gpu_idx >= 0 and max_usage > LLAMACPP_TTS_VRAM_RESERVE:
                     per_gpu_free[tts_gpu_idx] -= LLAMACPP_TTS_VRAM_RESERVE
 
-            default_ratios = per_gpu_free
-            default_ts = ",".join(str(r) for r in default_ratios)
+            default_ts = ",".join(str(r) for r in per_gpu_free)
             if re.search(r'(-ts|--tensor-split)\s+[\d.,]+', cal_cmd):
                 cal_cmd = re.sub(r'(-ts|--tensor-split)\s+[\d.,]+', f'-ts {default_ts}', cal_cmd)
             else:

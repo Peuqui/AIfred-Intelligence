@@ -49,6 +49,27 @@ def _set_cmd(config: dict, model_id: str, cmd: str) -> None:
     config["models"][model_id]["cmd"] = cmd
 
 
+def _extract_uuids_from_env(env_lines: list) -> list[str]:
+    """Pull the CUDA_VISIBLE_DEVICES UUID list out of an env list.
+
+    Returns ``[]`` when the env entry is missing, or when its value
+    looks like numeric indices instead of GPU UUIDs (legacy state).
+    """
+    for line in env_lines or []:
+        if not isinstance(line, str) or not line.startswith("CUDA_VISIBLE_DEVICES="):
+            continue
+        val = line.split("=", 1)[1].strip()
+        if not val:
+            return []
+        parts = [p.strip() for p in val.split(",") if p.strip()]
+        # Only accept actual UUIDs (start with "GPU-"); reject legacy
+        # numeric indices to force a re-calibration if the config is stale.
+        if all(p.startswith("GPU-") for p in parts):
+            return parts
+        return []
+    return []
+
+
 def _ensure_in_group(config: dict, model_id: str, group_name: str = "main") -> None:
     """Add a model to a llama-swap group (creates it if missing)."""
     groups = config.setdefault("groups", {})
@@ -285,21 +306,26 @@ def update_llamaswap_reasoning_format(
 
 def update_llamaswap_cuda_visible(
     config_path: Path, model_id: str,
-    active_indices: list[int], total_gpus: int,
+    active_uuids: list[str], all_uuids: list[str],
 ) -> bool:
-    """Update env (CUDA_DEVICE_ORDER + CUDA_VISIBLE_DEVICES) and trim
-    tensor-split to match the active GPU set.
+    """Pin env + tensor-split to a specific subset of GPUs by UUID.
 
-    ``active_indices`` is the list of CUDA device indices that actually
-    receive layers (e.g. ``[1]`` for "calibration picked CUDA1 single-GPU"
-    or ``[0, 1]`` for "CUDA0+CUDA1"). ``total_gpus`` is the total GPU
-    count of the system, i.e. the original tensor-split width.
+    ``active_uuids`` is the ordered list of NVIDIA GPU UUIDs that should
+    receive layers. The order matters: it becomes the CUDA enumeration
+    order seen by llama-server (CUDA0 = active_uuids[0], etc.), so
+    tensor-split positions map 1:1.
 
-    Always writes ``CUDA_DEVICE_ORDER=FASTEST_FIRST`` so calibration and
-    runtime use the identical enumeration. ``CUDA_VISIBLE_DEVICES`` is
-    only added when fewer GPUs are active than the total. tensor-split
-    is rewritten to contain exactly one value per active GPU, in the
-    order the GPUs appear after CUDA_VISIBLE_DEVICES is applied.
+    ``all_uuids`` is the full system inventory at calibration time,
+    only used to detect "all GPUs active" — in which case
+    CUDA_VISIBLE_DEVICES is still written explicitly with the UUIDs in
+    AIfred's preferred order, so llama-server's enumeration matches
+    calibration's regardless of NVIDIA's CUDA_DEVICE_ORDER default.
+
+    UUIDs are hardware-bound, so this mapping survives slot moves,
+    driver updates and enumeration-heuristic changes.
+
+    Tensor-split is rewritten to one value per active GPU, in
+    active_uuids order.
     """
     if not config_path.exists():
         return False
@@ -309,40 +335,48 @@ def update_llamaswap_cuda_visible(
     if not entry:
         logger.error(f"Model {model_id} not found in llama-swap config")
         return False
+    if not active_uuids:
+        logger.error(f"update_llamaswap_cuda_visible called with empty active_uuids for {model_id}")
+        return False
 
     cmd = entry.get("cmd", "")
 
-    # Rewrite tensor-split: keep only values for active GPUs, in
-    # active_indices order (which matches the post-CUDA_VISIBLE_DEVICES
-    # ordering llama-server will see).
+    # Rewrite tensor-split. If the cmd already has a tensor-split, take
+    # its values aligned to all_uuids and re-emit only the slots that
+    # correspond to active_uuids (in active_uuids order). This handles
+    # the case where the tensor-split was originally written for the
+    # full GPU set.
     ts_match = re.search(r"(--tensor-split|-ts)\s+([\d.,]+)", cmd)
     if ts_match:
         raw_vals = [v for v in ts_match.group(2).split(",") if v]
-        # Pad to total_gpus so out-of-range indices are safe
-        padded = raw_vals + ["0"] * max(0, total_gpus - len(raw_vals))
-        new_vals = [padded[i] for i in active_indices]
-        # If somehow nothing active, keep the first raw value as fallback
-        # (caller bug: should never call with empty active_indices)
-        trimmed = ",".join(new_vals) if new_vals else (raw_vals[0] if raw_vals else "0")
+        padded = raw_vals + ["0"] * max(0, len(all_uuids) - len(raw_vals))
+        # Index lookup: for each active uuid, find its position in
+        # all_uuids and grab the corresponding split value.
+        uuid_to_pos = {u: i for i, u in enumerate(all_uuids)}
+        new_vals: list[str] = []
+        for u in active_uuids:
+            pos = uuid_to_pos.get(u, -1)
+            new_vals.append(padded[pos] if 0 <= pos < len(padded) else "0")
+        trimmed = ",".join(new_vals)
         cmd = cmd[: ts_match.start(2)] + trimmed + cmd[ts_match.end(2):]
         entry["cmd"] = cmd
 
-    # Build env list. CUDA_DEVICE_ORDER=FASTEST_FIRST is mandatory for
-    # consistency with the calibration subprocess.
-    env_vars: list[str] = ["CUDA_DEVICE_ORDER=FASTEST_FIRST"]
-    if len(active_indices) < total_gpus:
-        cuda_vis = ",".join(str(i) for i in active_indices)
-        env_vars.append(f"CUDA_VISIBLE_DEVICES={cuda_vis}")
+    # Always write CUDA_VISIBLE_DEVICES with UUIDs in AIfred's order.
+    # Even when all GPUs are active, this enforces deterministic
+    # enumeration regardless of NVIDIA's default CUDA_DEVICE_ORDER
+    # heuristic — no FASTEST_FIRST/PCI_BUS_ID lottery.
+    cuda_vis = ",".join(active_uuids)
+    entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_vis}"]
+    if len(active_uuids) < len(all_uuids):
         logger.info(
-            f"Set CUDA_VISIBLE_DEVICES={cuda_vis} for {model_id} "
-            f"(active GPUs: {active_indices})"
+            f"Pinned {model_id} to {len(active_uuids)} GPU(s) by UUID "
+            f"(subset of {len(all_uuids)})"
         )
     else:
         logger.info(
-            f"All {total_gpus} GPUs active for {model_id} — "
-            f"CUDA_DEVICE_ORDER set, CUDA_VISIBLE_DEVICES omitted"
+            f"Pinned {model_id} to all {len(all_uuids)} GPUs in "
+            f"AIfred's compute-DESC order"
         )
-    entry["env"] = env_vars
 
     _write_yaml(config_path, config)
     return True
@@ -418,15 +452,20 @@ def add_llamaswap_speed_variant(
     cmd = set_kv_quant(cmd, kv_quant)
     entry["cmd"] = cmd
 
-    # Always set CUDA_DEVICE_ORDER for consistency with calibration.
-    # Speed variants run with the first ``num_gpus`` (fastest-first)
-    # cards from the base config — the assumption holds because a speed
-    # variant is only emitted when base used multiple GPUs.
-    speed_env: list[str] = ["CUDA_DEVICE_ORDER=FASTEST_FIRST"]
-    if num_gpus > 0 and num_gpus < len(original_ratios):
-        cuda_vis = ",".join(str(i) for i in range(num_gpus))
-        speed_env.append(f"CUDA_VISIBLE_DEVICES={cuda_vis}")
-    entry["env"] = speed_env
+    # Inherit env from base (already contains CUDA_VISIBLE_DEVICES with
+    # UUIDs in AIfred's compute-DESC order). The speed variant uses the
+    # same physical GPUs — just fewer of them — so we trim the UUID list
+    # to the first ``num_gpus`` entries (compute-fastest first within
+    # the base set).
+    base_entry = (config.get("models") or {}).get(model_id) or {}
+    base_env = base_entry.get("env") or []
+    base_uuids = _extract_uuids_from_env(base_env)
+    if num_gpus > 0 and base_uuids and num_gpus < len(base_uuids):
+        speed_uuids = base_uuids[:num_gpus]
+        entry["env"] = [f"CUDA_VISIBLE_DEVICES={','.join(speed_uuids)}"]
+    else:
+        # Same GPU count as base (or no base UUIDs) — keep base env.
+        entry["env"] = list(base_env)
 
     existed = speed_id in config["models"]
     _insert_variant(config, model_id, speed_id, entry)
@@ -472,16 +511,22 @@ def add_llamaswap_tts_variant(
         )
     entry["cmd"] = cmd
 
-    # Always include CUDA_DEVICE_ORDER=FASTEST_FIRST for index consistency
-    # with the calibration subprocess. Add CUDA_VISIBLE_DEVICES only when
-    # the variant restricts to a subset of GPUs.
-    tts_env: list[str] = ["CUDA_DEVICE_ORDER=FASTEST_FIRST"]
+    # Always pin via UUID list. Caller passes ``cuda_visible_devices``
+    # as a comma-separated UUID string (the same value that base used,
+    # if isolated-mode reuses base; otherwise a tightened subset).
     if cuda_visible_devices:
-        tts_env.append(f"CUDA_VISIBLE_DEVICES={cuda_visible_devices}")
-    elif num_gpus > 0:
-        cuda_vis = ",".join(str(i) for i in range(num_gpus))
-        tts_env.append(f"CUDA_VISIBLE_DEVICES={cuda_vis}")
-    entry["env"] = tts_env
+        entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_visible_devices}"]
+    else:
+        # Inherit env from source (already UUID-pinned).
+        src_entry = (config.get("models") or {}).get(src_id) or {}
+        src_env = src_entry.get("env") or []
+        src_uuids = _extract_uuids_from_env(src_env)
+        if num_gpus > 0 and src_uuids and num_gpus < len(src_uuids):
+            entry["env"] = [
+                f"CUDA_VISIBLE_DEVICES={','.join(src_uuids[:num_gpus])}",
+            ]
+        else:
+            entry["env"] = list(src_env)
 
     existed = tts_id in config["models"]
     _insert_variant(config, model_id, tts_id, entry)

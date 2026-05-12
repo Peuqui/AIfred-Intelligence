@@ -514,16 +514,21 @@ class CalibrationMixin(rx.State, mixin=True):
                         f"(split {split_display}, "
                         f"ctx {format_number(speed_split_context)}{gpu_info_str}{kv_info_str})"
                     )
-                    # Set CUDA_VISIBLE_DEVICES for speed variant
+                    # Pin speed variant to the first ``speed_num_gpus`` UUIDs
+                    # from the base config (highest compute first within
+                    # the base set).
                     if speed_num_gpus > 0:
-                        from ..lib.gpu_utils import get_all_gpus_memory_info
-                        gpu_info = get_all_gpus_memory_info()
-                        total_gpus_env = gpu_info["gpu_count"] if gpu_info else 4
+                        from ..lib.calibration import llamaswap_io as _io
                         speed_model_id = f"{calibration_model_id}-speed"
-                        update_llamaswap_cuda_visible(
-                            LLAMASWAP_CONFIG_PATH, speed_model_id,
-                            list(range(speed_num_gpus)), total_gpus_env,
-                        )
+                        _cfg = _io._read_yaml(LLAMASWAP_CONFIG_PATH)
+                        _base_entry = (_cfg.get("models") or {}).get(calibration_model_id) or {}
+                        _base_uuids = _io._extract_uuids_from_env(_base_entry.get("env") or [])
+                        if _base_uuids and speed_num_gpus < len(_base_uuids):
+                            _speed_uuids = _base_uuids[:speed_num_gpus]
+                            update_llamaswap_cuda_visible(
+                                LLAMASWAP_CONFIG_PATH, speed_model_id,
+                                _speed_uuids, _base_uuids,
+                            )
                     # Patch speed_split into the latest calibration entry (already saved)
                     from ..lib.model_vram_cache import update_llamacpp_speed_split
                     update_llamacpp_speed_split(
@@ -575,13 +580,12 @@ class CalibrationMixin(rx.State, mixin=True):
                     if use_speed or use_base:
                         from ..lib.calibration.gpu import enumerate_gpus
                         from ..lib.calibration import llamaswap_io as _io
-                        from ..lib.process_utils import get_tts_gpu_id
+                        from ..lib.process_utils import get_tts_gpu_uuid
 
-                        # Read base/speed config to find which GPUs LLM
-                        # actually uses (CUDA indices, FASTEST_FIRST space).
-                        # Don't ask process_utils — its ranking is naive
-                        # (compute-cap only) and out-of-sync with the
-                        # calibration's actual choice.
+                        # Read base/speed config to find which UUIDs the
+                        # LLM is pinned to. Calibration writes UUIDs in
+                        # CUDA_VISIBLE_DEVICES (no more index-space
+                        # confusion).
                         iso_source = (
                             f"{calibration_model_id}-speed" if use_speed
                             else calibration_model_id
@@ -590,39 +594,32 @@ class CalibrationMixin(rx.State, mixin=True):
                         cfg = _io._read_yaml(LLAMASWAP_CONFIG_PATH)
                         src_entry = (cfg.get("models") or {}).get(iso_source) or {}
                         src_env = src_entry.get("env") or []
-                        llm_cuda_vis = ""
-                        for env_line in src_env:
-                            if isinstance(env_line, str) and env_line.startswith("CUDA_VISIBLE_DEVICES="):
-                                llm_cuda_vis = env_line.split("=", 1)[1]
-                                break
+                        llm_uuids = _io._extract_uuids_from_env(src_env)
 
-                        # Resolve which physical (nvidia-smi) GPUs the LLM
-                        # occupies, so we can compare against the TTS
-                        # container's GPU (also nvidia-smi space).
+                        # If base wasn't UUID-pinned (legacy stale entry),
+                        # we have nothing reliable to compare against — fall
+                        # through to shared-mode TTS calibration.
                         gpus = enumerate_gpus()
-                        cuda_to_smi = {g.cuda_id: g.smi_index for g in gpus}
-                        if llm_cuda_vis:
-                            llm_cuda_ids = [int(x) for x in llm_cuda_vis.split(",") if x]
-                        else:
-                            # No restriction = all CUDA devices visible
-                            llm_cuda_ids = sorted(cuda_to_smi)
-                        llm_smi_ids = {cuda_to_smi.get(c, -1) for c in llm_cuda_ids}
-                        tts_smi_id = get_tts_gpu_id()
+                        tts_uuid = get_tts_gpu_uuid()
                         disjoint = (
                             len(gpus) >= 2
-                            and tts_smi_id not in llm_smi_ids
+                            and bool(llm_uuids)
+                            and bool(tts_uuid)
+                            and tts_uuid not in llm_uuids
                         )
 
                         if disjoint:
                             iso_ctx = speed_split_context if use_speed else calibrated_ctx
                             iso_kv = speed_kv_quant if use_speed else calibration_kv
-                            llm_label = ",".join(
-                                f"CUDA{c}/smi{cuda_to_smi.get(c, '?')}"
-                                for c in llm_cuda_ids
+                            uuid_to_name = {g.uuid: g.name for g in gpus}
+                            llm_label = ", ".join(
+                                f"{uuid_to_name.get(u, '?')}({u[:12]}…)"
+                                for u in llm_uuids
                             ) or "all"
+                            tts_name = uuid_to_name.get(tts_uuid, "?")
                             self.add_debug(  # type: ignore[attr-defined]
                                 f"   🎯 Isolated mode: LLM on {llm_label}, "
-                                f"{tts_label} on smi{tts_smi_id} — "
+                                f"{tts_label} on {tts_name}({tts_uuid[:12]}…) — "
                                 f"reusing {source_label} result "
                                 f"(ctx {format_number(iso_ctx)})"
                             )
@@ -633,7 +630,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 iso_ctx,
                                 tts_backend,
                                 kv_quant=iso_kv,
-                                cuda_visible_devices=llm_cuda_vis,
+                                cuda_visible_devices=",".join(llm_uuids),
                                 source_model_id=iso_source,
                             )
                             if added:

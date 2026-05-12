@@ -827,9 +827,9 @@ def add_llamacpp_calibration(
     speed_split: int = 0,
     vram_per_gpu: Optional[Dict[str, int]] = None,
     ram_cpu_mb: Optional[int] = None,
+    gpu_uuids: Optional[list] = None,
 ) -> bool:
-    """
-    Add a calibration point for a llama.cpp model (via llama-swap).
+    """Add a calibration point for a llama.cpp model (via llama-swap).
 
     Stores the experimentally measured maximum context that fits in GPU VRAM,
     determined via binary search by starting llama-server with different -c values.
@@ -840,11 +840,19 @@ def add_llamacpp_calibration(
         native_context: Model's architectural context limit (from GGUF metadata)
         gguf_path: Path to GGUF file
         quantization: Quantization level (e.g., "Q4_K_M")
-        gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
+        gpu_model: Comma-separated short names of the GPUs in the active
+            set, in calibration order (compute_cap DESC). Human-readable
+            label only — not used for cache validation.
         model_size_gb: GGUF file size in GB
         ngl: GPU layers used (99 = all on GPU, lower = hybrid mode)
         mode: Calibration mode ("gpu" or "hybrid")
         speed_split: Tensor-split N for the speed variant (N:1 ratio). 0 = no speed variant.
+        vram_per_gpu: Per-GPU total-VRAM snapshot at calibration time.
+        ram_cpu_mb: CPU-side memory consumed in hybrid mode.
+        gpu_uuids: Permanent NVIDIA GPU UUIDs of the active set, in
+            calibration order. Used to invalidate the cache when the
+            hardware actually changes (slot moves are tolerated, GPU
+            replacements are detected).
 
     Returns:
         True if successfully added, False otherwise
@@ -870,6 +878,8 @@ def add_llamacpp_calibration(
     cache[model_id]["model_size_gb"] = model_size_gb
     cache[model_id]["gpu_model"] = gpu_model
     cache[model_id]["gguf_path"] = gguf_path
+    if gpu_uuids:
+        cache[model_id]["gpu_uuids"] = list(gpu_uuids)
 
     calibration: Dict[str, Any] = {
         "max_context": max_context,
@@ -883,6 +893,8 @@ def add_llamacpp_calibration(
         calibration["vram_per_gpu"] = vram_per_gpu
     if ram_cpu_mb and ram_cpu_mb > 0:
         calibration["ram_cpu_mb"] = ram_cpu_mb
+    if gpu_uuids:
+        calibration["gpu_uuids"] = list(gpu_uuids)
 
     # Replace all previous calibrations — only the latest matters
     cache[model_id]["llamacpp_calibrations"] = [calibration]
