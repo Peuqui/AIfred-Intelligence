@@ -1310,6 +1310,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             # Reuse logic from open_audit_log (without opening separate modal)
             import sqlite3
             from ..lib.config import SECURITY_AUDIT_DB
+            from ..lib.formatting import format_duration_ms
             entries: list[dict] = []
             if SECURITY_AUDIT_DB.exists():
                 conn = sqlite3.connect(str(SECURITY_AUDIT_DB), timeout=5)
@@ -1325,7 +1326,7 @@ class AgentConfigMixin(rx.State, mixin=True):
                         "tool_name": r["tool_name"] or "",
                         "tool_tier": str(r["tool_tier"]),
                         "success": "OK" if r["success"] else "FAIL",
-                        "duration": f"{r['duration_ms']:.0f}ms" if r["duration_ms"] else "",
+                        "duration": format_duration_ms(r["duration_ms"]) if r["duration_ms"] else "",
                     })
             self.audit_log_entries = entries
         elif tab == "scheduler":

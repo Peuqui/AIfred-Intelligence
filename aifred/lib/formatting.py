@@ -85,6 +85,52 @@ def format_number(n: int | float, decimals: int = 0, locale: str | None = None) 
             return formatted
 
 
+def format_duration_ms(ms: float | int) -> str:
+    """
+    Format a duration given in milliseconds as a compact human-readable string.
+
+    Scale-aware so the audit log doesn't show "222158ms" — it shows "3:42":
+
+        < 1s   → "750ms"   (sub-second precision matters for fast tools)
+        < 1min → "3.3s"    (one decimal)
+        < 1h   → "3:42"    (M:SS)
+        ≥ 1h   → "1:23:45" (H:MM:SS)
+
+    Examples:
+        >>> format_duration_ms(0)
+        '0ms'
+        >>> format_duration_ms(750)
+        '750ms'
+        >>> format_duration_ms(3337)
+        '3.3s'
+        >>> format_duration_ms(147568)
+        '2:27'
+        >>> format_duration_ms(222158)
+        '3:42'
+        >>> format_duration_ms(7384000)
+        '2:03:04'
+    """
+    if ms is None or ms < 0:
+        return ""
+    if ms < 1000:
+        return f"{int(ms)}ms"
+
+    total_seconds = ms / 1000.0
+    # Use rounded seconds to pick the bucket — otherwise 59.999s would
+    # render as "60.0s" instead of rolling over to "1:00".
+    total_secs_int = round(total_seconds)
+    if total_secs_int < 60:
+        return f"{total_seconds:.1f}s"
+
+    hours = total_secs_int // 3600
+    minutes = (total_secs_int % 3600) // 60
+    secs = total_secs_int % 60
+
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
 def format_age(seconds: float) -> str:
     """
     Format age in seconds to human-readable format.
