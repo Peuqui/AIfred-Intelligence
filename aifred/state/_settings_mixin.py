@@ -1007,6 +1007,7 @@ class SettingsMixin(rx.State, mixin=True):
         """Load recent audit log entries and open modal."""
         import sqlite3
         from ..lib.config import SECURITY_AUDIT_DB
+        from ..lib.formatting import format_duration_ms
 
         entries: list[dict[str, str]] = []
         db_path = SECURITY_AUDIT_DB
@@ -1024,7 +1025,7 @@ class SettingsMixin(rx.State, mixin=True):
                     "tool_name": r["tool_name"] or "",
                     "tool_tier": str(r["tool_tier"]),
                     "success": "OK" if r["success"] else "FAIL",
-                    "duration": f"{r['duration_ms']:.0f}ms" if r["duration_ms"] else "",
+                    "duration": format_duration_ms(r["duration_ms"]) if r["duration_ms"] else "",
                     "args": (r["tool_args_preview"] or "")[:100],
                 })
 
