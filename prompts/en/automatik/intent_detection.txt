@@ -40,10 +40,6 @@ Examples: "Wie geht es dir?" → DE | "How are you?" → EN | "Was kostet das?" 
 The user may request a configuration change. Detect these and encode them as
 comma-separated key=value pairs:
 
-- `research=none`    → use own knowledge only, no web
-- `research=quick`   → quick web search (3 results)
-- `research=deep`    → deep web research (7 results)
-- `research=automatik` → let AI decide automatically
 - `multi=standard`   → single agent responds (default)
 - `multi=tribunal`   → all three agents debate (AIfred + Sokrates + Salomo)
 - `multi=symposion`  → multiple selected agents discuss
@@ -57,8 +53,6 @@ Examples of mode switch detection (works in ALL languages):
 - "Start tribunal"                          → multi=tribunal
 - "Démarre le tribunal"                     → multi=tribunal
 - "Inicia el tribunal"                      → multi=tribunal
-- "Schalt auf Tiefrecherche"                → research=deep
-- "Use own knowledge only"                  → research=none
 - "Solo Sokrates debería responder"         → multi=standard,agent=sokrates
 - "Ich will mit Sokrates weiter reden"      → agent=sokrates
 - "I want to keep talking to HAL"           → agent=hal      (lowercase id, NOT "HAL 9000")
@@ -89,11 +83,8 @@ the original user message is always preserved verbatim.
 
 Examples:
 - "Start tribunal"                                  → TRUE
-- "Schalt auf Tiefrecherche"                        → TRUE
-- "Use own knowledge only"                          → TRUE
 - "Bleib bei Pater Tuck"                            → TRUE
 - "Start tribunal and discuss climate change"       → FALSE (has question)
-- "Schalt auf Tiefrecherche und such mir Infos zu X" → FALSE (has request)
 - "Wie geht's?"                                     → FALSE (no mode command)
 - "Hey Sokrates, kritisiere das"                    → FALSE (no mode command)
 
@@ -115,5 +106,4 @@ Examples of complete output:
 - "Wie geht's?"                          → FACTUAL||DE||FALSE
 - "Start tribunal"                       → FACTUAL||EN|multi=tribunal|TRUE
 - "Starte Tribunal und diskutiert X"     → FACTUAL||DE|multi=tribunal|FALSE
-- "Use deep research for Y"              → FACTUAL||EN|research=deep|FALSE
 - "Hey Sokrates, kritisiere das"         → MIXED|sokrates|DE||FALSE

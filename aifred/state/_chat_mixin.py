@@ -1080,17 +1080,16 @@ class ChatMixin(rx.State, mixin=True):
                 from ..lib.intent_detector import format_mode_switch_summary
                 from ..lib.session_storage import update_session_config
 
-                # Apply to state (so the rest of the pipeline uses the new mode)
+                # Apply to state (so the rest of the pipeline uses the new mode).
+                # NOTE: research_mode is intentionally NOT switchable here —
+                # the user controls it via the UI toggle, and the answering
+                # agent decides per query whether to invoke its web tools.
+                # ``_parse_mode_switch`` already drops any ``research=…`` from
+                # the LLM, so this dict only ever contains agent / multi keys.
                 if "active_agent" in mode_switch_updates:
                     self.active_agent = mode_switch_updates["active_agent"]  # type: ignore[attr-defined]
                 if "multi_agent_mode" in mode_switch_updates:
                     self.multi_agent_mode = mode_switch_updates["multi_agent_mode"]  # type: ignore[attr-defined]
-                if "research_mode" in mode_switch_updates:
-                    from ..lib import TranslationManager
-                    self.research_mode = mode_switch_updates["research_mode"]  # type: ignore[attr-defined]
-                    self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined]
-                        self.research_mode, self.ui_language  # type: ignore[attr-defined]
-                    )
 
                 # Persist to session file (SSOT) — no _last_session_mtime update
                 # yet because _save_current_session below will do it
