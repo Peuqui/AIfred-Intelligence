@@ -117,8 +117,17 @@ def enumerate_gpus() -> list[GPU]:
     if not rows:
         return []
 
-    # Deterministic sort: compute_cap DESC, name ASC, uuid ASC
-    rows.sort(key=lambda g: (-float(g["compute_cap"]), g["name"], g["uuid"]))
+    # Deterministic sort: compute_cap DESC, total_mb DESC, name, uuid.
+    # compute_cap first because newer architectures (Tensor Cores etc.)
+    # outweigh raw VRAM for inference speed; within the same compute
+    # class, larger VRAM cards come first because they hold more of a
+    # given model on a single GPU (less inter-GPU transfer overhead).
+    rows.sort(key=lambda g: (
+        -float(g["compute_cap"]),
+        -int(g["total_mb"]),
+        g["name"],
+        g["uuid"],
+    ))
 
     # speed_class: same compute_cap → same class, in encounter order.
     # encounter order == compute_cap DESC after the sort above, so class 0
