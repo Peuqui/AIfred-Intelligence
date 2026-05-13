@@ -243,6 +243,49 @@ def get_agent_config(agent_id: str) -> Optional[AgentConfig]:
     return agents.get(agent_id)
 
 
+# Generic fallback used when an agent has no per-engine voice default.
+# Empty voice means "let the TTS engine pick its own default" — same
+# behavior the old TTS_AGENT_VOICE_DEFAULTS dict had for unknown agents.
+_GENERIC_TTS_VOICE_DEFAULT: dict[str, str | bool] = {
+    "voice": "",
+    "speed": "1.0x",
+    "pitch": "1.0",
+    "enabled": True,
+}
+
+
+def get_tts_voice_default(agent_id: str, engine: str) -> dict[str, str | bool]:
+    """Return the default TTS voice config for ``(agent_id, engine)``.
+
+    Reads from the ``tts_voices.<engine>`` block on the agent's entry in
+    ``data/agents.json``. Agents without a ``tts_voices`` block, or with
+    no entry for the requested engine, get the generic fallback (empty
+    voice → engine decides). Caller may further override via user
+    settings.
+    """
+    agents = load_agents_raw()
+    cfg = agents.get(agent_id) or {}
+    voice = cfg.get("tts_voices", {}).get(engine)
+    if isinstance(voice, dict):
+        return dict(voice)
+    return dict(_GENERIC_TTS_VOICE_DEFAULT)
+
+
+def get_tts_voice_defaults_for_engine(engine: str) -> dict[str, dict[str, str | bool]]:
+    """Return all per-agent voice defaults for a TTS engine.
+
+    Skips agents that have no entry for this engine. Mirrors the
+    per-engine sub-dict shape of the old ``TTS_AGENT_VOICE_DEFAULTS``,
+    so callers iterating ``defaults.get(agent_id)`` keep working.
+    """
+    result: dict[str, dict[str, str | bool]] = {}
+    for aid, cfg in load_agents_raw().items():
+        voice = cfg.get("tts_voices", {}).get(engine) if isinstance(cfg, dict) else None
+        if isinstance(voice, dict):
+            result[aid] = dict(voice)
+    return result
+
+
 def resolve_agent_id(name_or_alias: str) -> Optional[str]:
     """Map a user-supplied name to a canonical agent id.
 
@@ -359,7 +402,7 @@ def delete_agent(agent_id: str) -> None:
     config = agents[agent_id]
     prompt_dirs: set[str] = set()
     for prompt_path in config.get("prompts", {}).values():
-        # prompt_path is like "codi/identity.txt" → directory is "codi"
+        # prompt_path is like "<agent_id>/identity.txt" → first segment is the dir
         parts = prompt_path.split("/")
         if len(parts) >= 2:
             prompt_dirs.add(parts[0])

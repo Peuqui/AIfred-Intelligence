@@ -319,10 +319,14 @@ def build_history_entry(
 def build_llm_history_entry(agent: str, response_clean: str) -> Dict[str, str]:
     """Build an llm_history entry with agent speaker tag.
 
-    Single Source of Truth for the [AGENT]: prefix format.
-
-    Args:
-        agent: Agent identifier
-        response_clean: Clean response text (no HTML, no thinking blocks)
+    Single Source of Truth for the [Agent]: prefix format. Uses the
+    agent's display_name (e.g. "Codine") rather than its raw ID
+    uppercased ("CODI") — the model parrots back whatever it sees in
+    its history, so showing "Codine" gives it the correct self-name
+    instead of teaching it to sign as the lookup key. Falls back to
+    a capitalized ID when no agent config is available.
     """
-    return {"role": "assistant", "content": f"[{agent.upper()}]: {response_clean}"}
+    from .agent_config import get_agent_config
+    cfg = get_agent_config(agent)
+    label = cfg.display_name if cfg else agent.capitalize()
+    return {"role": "assistant", "content": f"[{label}]: {response_clean}"}

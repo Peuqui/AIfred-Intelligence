@@ -1266,25 +1266,30 @@ class FreeEchoChannel(BaseChannel):
         """Generate TTS audio file from text. Returns absolute file path.
 
         Uses the FreeEcho.2 plugin's TTS engine setting combined with
-        per-agent voice configuration from TTS_AGENT_VOICE_DEFAULTS.
-        Independent of the browser UI TTS toggle.
+        per-agent voice configuration from agents.json (``tts_voices``
+        block). Independent of the browser UI TTS toggle.
 
         TTS container readiness is ensured by _ensure_tts_state() / _force_tts_switch()
         BEFORE this method is called. No VRAM management here.
         """
         from ....lib.credential_broker import broker
-        from ....lib.config import PROJECT_ROOT, TTS_AGENT_VOICE_DEFAULTS
+        from ....lib.config import PROJECT_ROOT
+        from ....lib.agent_config import get_tts_voice_default
         from ....lib.settings import load_settings
 
         # Engine from plugin settings
         engine = broker.get("freeecho2", "tts_engine") or "piper"
 
-        # Voice priority: 1. User settings (per engine+agent), 2. Defaults, 3. Fallback
+        # Voice priority: 1. User settings (per engine+agent), 2. Defaults, 3. Fallback.
+        # Fall back to "aifred" (the system's default agent) when the
+        # requested agent has neither user setting nor default — keeps the
+        # historical behaviour where custom agents inherited aifred's voice.
         settings = load_settings() or {}
         user_voices = settings.get("tts_agent_voices_per_engine", {}).get(engine, {})
         user_cfg = user_voices.get(agent) or user_voices.get("aifred", {})
-        default_voices = TTS_AGENT_VOICE_DEFAULTS.get(engine, {})
-        default_cfg = default_voices.get(agent) or default_voices.get("aifred", {})
+        default_cfg = get_tts_voice_default(agent, engine)
+        if not default_cfg.get("voice"):
+            default_cfg = get_tts_voice_default("aifred", engine)
 
         # User setting wins, then default, then hardcoded fallback
         voice = ""
