@@ -1288,16 +1288,23 @@ def _shift_one_layer_blind(
     gpus: list[GPU],
     keep_active_set: bool = False,
 ) -> tuple[float, ...] | None:
-    """Move one layer from the heaviest active GPU to the next-best slot.
+    """Strict-greedy spill: move one layer from the OOM source GPU to the
+    next-best GPU in compute-DESC order.
 
-    Used after a failed real-run when no measurement data is available
-    (server died during load → measured_free_mb is empty). Pure layer-count
-    heuristic: source = active GPU with the most layers, destination =
-    active GPU with the fewest layers. Falls through to activating an idle
-    slow GPU if all active GPUs are equally loaded — UNLESS
-    ``keep_active_set=True``, in which case the function returns ``None``
-    instead of activating a new GPU. Used for speed-variant calibration
-    where the GPU set is fixed and ctx should shrink instead.
+    "Greedy" cascade strategy — the user's "fill the glass" model:
+    pack the fastest+largest GPU as full as possible; only spill to the
+    next GPU when this one literally won't take another layer; never
+    re-balance away from a fuller upstream GPU.
+
+    Source: the active GPU with the most layers (= the one most likely
+    OOM at this point in the refine loop).
+
+    Destination: the **next active GPU after src in the GPU list order**
+    (which is compute_cap DESC, total_mb DESC). Only when no later
+    active GPU exists do we activate an idle one — and again the
+    *next* idle in list order, not the slowest. ``keep_active_set=True``
+    (speed-variant calibration) suppresses idle activation; the caller
+    falls back to ctx-shrink instead.
 
     Returns ``None`` when no further shift is possible.
     """
@@ -1309,24 +1316,25 @@ def _shift_one_layer_blind(
     if layers[src] <= 1:
         return None  # can't shift further
 
-    other_active = [i for i in active_idx if i != src and layers[i] < layers[src]]
-    if other_active:
-        dest = min(other_active, key=lambda i: layers[i])
+    # Greedy: prefer destinations that come AFTER src in the GPU list
+    # (= slower / smaller in compute-DESC order). Never spill back to a
+    # GPU upstream of src — that would defeat the cascade.
+    later_active = [i for i in active_idx if i > src]
+    if later_active:
+        # Pick the immediate next active GPU (closest to src in cascade),
+        # so we keep the load concentrated rather than smearing it across
+        # the slowest cards.
+        dest = min(later_active)
     elif keep_active_set:
-        # Speed mode: don't activate idle GPUs — caller will fall back to
-        # ctx-shrink.
+        # Speed mode: GPU set is fixed; caller switches to ctx-shrink.
         return None
     else:
-        # All active GPUs equally loaded — activate next idle.
-        # Fastest speed-class first (FAST_FIRST design philosophy):
-        # spill into the next-fastest available GPU, not the slowest.
-        # Layer-balancing within a class (e.g. main RTX 8000 takes N-1
-        # layers vs the next of same class) is handled separately by
-        # the initial seed_tensor_split.
-        idle = [i for i in range(len(layers)) if layers[i] == 0]
-        if not idle:
+        # No active GPU after src → activate the next idle in list order
+        # (next-fastest available, since the list is compute-DESC sorted).
+        later_idle = [i for i in range(src + 1, len(layers)) if layers[i] == 0]
+        if not later_idle:
             return None
-        dest = min(idle, key=lambda i: gpus[i].speed_class)
+        dest = later_idle[0]
 
     layers[src] -= 1
     layers[dest] += 1
