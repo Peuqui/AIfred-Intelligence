@@ -13,7 +13,7 @@ so callers (backends, state mixins) keep a single import path:
     )
 """
 
-from .flow import calibrate_llamacpp_model
+from .flow import calibrate_llamacpp_model, calibrate_tts_variant_from_base
 from .llamaswap_io import (
     add_llamaswap_speed_variant,
     add_llamaswap_tts_variant,
@@ -32,6 +32,7 @@ from .llamaswap_io import (
 __all__ = [
     # Core
     "calibrate_llamacpp_model",
+    "calibrate_tts_variant_from_base",
     # YAML helpers (consumed across the codebase)
     "parse_llamaswap_config",
     "parse_sampling_from_cmd",

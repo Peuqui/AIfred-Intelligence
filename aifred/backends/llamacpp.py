@@ -424,10 +424,17 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             else:
                 cal_cmd = cal_cmd.replace(' --port', ' -ts 1 -sm layer --port')
 
-        # Log the tensor-split being used for this calibration run
+        # Log the tensor-split + the GPU pin order (names, not UUIDs).
+        # UUIDs in the env dict are correct but unreadable in logs — the
+        # short name list ("RTX 8000, RTX 8000, V100, P40") tells the user
+        # exactly which physical GPUs the calibration will see, in order.
         from ..lib.calibration import parse_tensor_split
         _cal_ts = parse_tensor_split(cal_cmd)
-        yield f"Calibration tensor-split: {_cal_ts}, env: {env}"
+        if cal_gpus:
+            _gpu_pin = ", ".join(f"GPU{i} {g.name}" for i, g in enumerate(cal_gpus))
+            yield f"Calibration tensor-split: {_cal_ts} | GPU pin order: {_gpu_pin}"
+        else:
+            yield f"Calibration tensor-split: {_cal_ts}"
 
         async for msg in calibrate_llamacpp_model(
             model_id=model,
