@@ -19,8 +19,12 @@ from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prom
 from .context_manager import strip_thinking_blocks
 
 
-# Valid values for mode-switch field validation (defensive parsing)
-_VALID_RESEARCH_MODES = {"none", "quick", "deep", "automatik"}
+# Valid values for mode-switch field validation (defensive parsing).
+# research_mode is intentionally NOT switchable from here — the user
+# controls it via the UI toggle, and the answering agent decides per
+# query whether to invoke its web tools. The Automatik LLM is told the
+# same in its prompt; any stray ``research=…`` it still emits is silently
+# dropped by ``_parse_mode_switch`` below.
 _VALID_MULTI_AGENT_MODES = {
     "standard", "sokrates", "tribunal", "symposion",
     "critical_review", "auto_consensus",
@@ -31,17 +35,18 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
     """
     Parse the MODE_SWITCH field of the intent detection output.
 
-    Format: comma-separated key=value pairs, e.g. "multi=tribunal,research=deep"
-    or "agent=sokrates,multi=standard".
+    Format: comma-separated key=value pairs, e.g. "multi=tribunal" or
+    "agent=sokrates,multi=standard".
 
     Defensive parsing: unknown keys/values are ignored, never raises.
+    ``research=*`` keys are explicitly ignored — see module-level note.
 
     Args:
         mode_field: Raw mode switch string from LLM
 
     Returns:
-        Dict with validated config updates (keys: research_mode,
-        multi_agent_mode, active_agent). Empty dict if nothing valid.
+        Dict with validated config updates (keys: multi_agent_mode,
+        active_agent). Empty dict if nothing valid.
     """
     updates: Dict[str, Any] = {}
     if not mode_field or not mode_field.strip():
@@ -56,10 +61,7 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
         if not key or not value:
             continue
 
-        if key == "research":
-            if value in _VALID_RESEARCH_MODES:
-                updates["research_mode"] = value
-        elif key == "multi":
+        if key == "multi":
             if value in _VALID_MULTI_AGENT_MODES:
                 updates["multi_agent_mode"] = value
         elif key == "agent":
@@ -70,6 +72,9 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
             resolved = resolve_agent_id(value)
             if resolved is not None:
                 updates["active_agent"] = resolved
+        # ``research=*`` is intentionally not handled — user controls
+        # research mode via UI, and the answering agent decides per
+        # query whether it needs web tools.
     return updates
 
 
@@ -79,12 +84,6 @@ def format_mode_switch_summary(updates: Dict[str, Any], lang: str = "de") -> str
         return ""
     parts: List[str] = []
     if lang == "de":
-        research_labels = {
-            "none": "eigenes Wissen",
-            "quick": "schnelle Recherche",
-            "deep": "Tiefrecherche",
-            "automatik": "Automatik",
-        }
         multi_labels = {
             "standard": "Standard",
             "sokrates": "Sokrates",
@@ -94,12 +93,6 @@ def format_mode_switch_summary(updates: Dict[str, Any], lang: str = "de") -> str
             "auto_consensus": "Auto-Konsens",
         }
     else:
-        research_labels = {
-            "none": "own knowledge",
-            "quick": "quick research",
-            "deep": "deep research",
-            "automatik": "automatic",
-        }
         multi_labels = {
             "standard": "standard",
             "sokrates": "Sokrates",
@@ -108,8 +101,6 @@ def format_mode_switch_summary(updates: Dict[str, Any], lang: str = "de") -> str
             "critical_review": "critical review",
             "auto_consensus": "auto consensus",
         }
-    if "research_mode" in updates:
-        parts.append(f"Research: {research_labels.get(updates['research_mode'], updates['research_mode'])}")
     if "multi_agent_mode" in updates:
         parts.append(f"Mode: {multi_labels.get(updates['multi_agent_mode'], updates['multi_agent_mode'])}")
     if "active_agent" in updates:
