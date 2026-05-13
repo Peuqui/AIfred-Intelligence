@@ -616,46 +616,10 @@ TTS_DEFAULT_VOICES = {
     },
 }
 
-# ============================================================
-# DEFAULT AGENT VOICES PER ENGINE
-# ============================================================
-# When switching TTS engines, these are the default per-agent voice settings.
-# User preferences are saved per engine in assistant_settings.json.
-TTS_AGENT_VOICE_DEFAULTS = {
-    "xtts": {
-        "aifred": {"voice": "★ AIfred", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "★ Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "salomo": {"voice": "Baldur Sanjin", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "hal": {"voice": "★ HAL9000", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-    },
-    "moss": {
-        "aifred": {"voice": "AIfred", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "salomo": {"voice": "Salomo", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "hal": {"voice": "HAL9000", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-    },
-    "piper": {
-        "aifred": {"voice": "Deutsch (Karlsson)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Deutsch (Karlsson)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "salomo": {"voice": "Deutsch (MLS)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-    },
-    "espeak": {
-        "aifred": {"voice": "Deutsch Standard", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Deutsch Standard", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "salomo": {"voice": "Deutsch Standard", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-    },
-    "edge": {
-        "aifred": {"voice": "Deutsch (Katja)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "Deutsch (Conrad)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "salomo": {"voice": "Deutsch (Florian)", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-    },
-    "dashscope": {
-        "aifred": {"voice": "★ AIfred", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "★ Sokrates", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "salomo": {"voice": "★ Salomo", "speed": "1.25x", "pitch": "1.0", "enabled": True},
-        "hal": {"voice": "★ HAL9000", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-    },
-}
+# Per-agent TTS voice defaults moved to data/agents.json under each
+# agent's ``tts_voices`` block. Access them via
+# ``aifred.lib.agent_config.get_tts_voice_default(agent_id, engine)`` or
+# ``get_tts_voice_defaults_for_engine(engine)``.
 
 # Per-engine TTS toggle defaults (autoplay, streaming)
 # MOSS-TTS: streaming=False because ~20s per sentence (not suitable for real-time)

@@ -27,6 +27,44 @@
         "reasoning": false,
         "thinking": true
       },
+      "tts_voices": {
+        "xtts": {
+          "voice": "★ AIfred",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "moss": {
+          "voice": "AIfred",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "piper": {
+          "voice": "Deutsch (Karlsson)",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "espeak": {
+          "voice": "Deutsch Standard",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "edge": {
+          "voice": "Deutsch (Katja)",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "dashscope": {
+          "voice": "★ AIfred",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        }
+      },
       "tools": null
     },
     "sokrates": {
@@ -51,6 +89,44 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
+      },
+      "tts_voices": {
+        "xtts": {
+          "voice": "★ Sokrates",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "moss": {
+          "voice": "Sokrates",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "piper": {
+          "voice": "Deutsch (Karlsson)",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "espeak": {
+          "voice": "Deutsch Standard",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "edge": {
+          "voice": "Deutsch (Conrad)",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "dashscope": {
+          "voice": "★ Sokrates",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        }
       },
       "tools": null
     },
@@ -77,6 +153,44 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
+      },
+      "tts_voices": {
+        "xtts": {
+          "voice": "Baldur Sanjin",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "moss": {
+          "voice": "Salomo",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "piper": {
+          "voice": "Deutsch (MLS)",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "espeak": {
+          "voice": "Deutsch Standard",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "edge": {
+          "voice": "Deutsch (Florian)",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "dashscope": {
+          "voice": "★ Salomo",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        }
       },
       "tools": null
     },
@@ -151,7 +265,7 @@
         "telegram_send"
       ]
     },
-    "codi": {
+    "codine": {
       "display_name": "Codine",
       "aliases": [
         "kodi",
@@ -162,11 +276,11 @@
       "description": "Mathematikerin und Programmiererin",
       "role": "custom",
       "prompts": {
-        "identity": "codi/identity.txt",
-        "personality": "codi/personality.txt",
-        "task": "codi/task.txt",
-        "direct": "codi/task.txt",
-        "memory_context": "codi/memory_context.txt"
+        "identity": "codine/identity.txt",
+        "personality": "codine/personality.txt",
+        "task": "codine/task.txt",
+        "direct": "codine/task.txt",
+        "memory_context": "codine/memory_context.txt"
       },
       "toggles": {
         "personality": true,
@@ -200,6 +314,26 @@
         "personality": true,
         "reasoning": false,
         "thinking": true
+      },
+      "tts_voices": {
+        "xtts": {
+          "voice": "★ HAL9000",
+          "speed": "1.0x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "moss": {
+          "voice": "HAL9000",
+          "speed": "1.0x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "dashscope": {
+          "voice": "★ HAL9000",
+          "speed": "1.0x",
+          "pitch": "1.0",
+          "enabled": true
+        }
       },
       "tools": null
     },

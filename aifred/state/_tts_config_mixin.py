@@ -427,7 +427,7 @@ class TTSConfigMixin(rx.State, mixin=True):
     def _load_editor_tts_settings(self) -> None:
         """Load TTS settings for the current editor agent + editor engine."""
         from ..lib.settings import load_settings
-        from ..lib.config import TTS_AGENT_VOICE_DEFAULTS
+        from ..lib.agent_config import get_tts_voice_default
 
         agent_id = self.editor_agent_id  # type: ignore[attr-defined]
         engine = self.editor_tts_engine
@@ -448,11 +448,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         if saved:
             self._editor_tts_settings = dict(saved)
         else:
-            # Fall back to engine defaults
-            defaults = TTS_AGENT_VOICE_DEFAULTS.get(engine, {}).get(
-                agent_id, {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True}
-            )
-            self._editor_tts_settings = dict(defaults)
+            # Fall back to engine defaults from agents.json
+            self._editor_tts_settings = get_tts_voice_default(agent_id, engine)
 
     def _save_editor_tts_settings(self) -> None:
         """Save current editor TTS settings to the correct storage."""
@@ -535,8 +532,11 @@ class TTSConfigMixin(rx.State, mixin=True):
         Removes entries for agents that no longer exist.
         Called after settings load and after agent create/delete.
         """
-        from ..lib.agent_config import get_agent_ids, load_agents_raw
-        from ..lib.config import TTS_AGENT_VOICE_DEFAULTS
+        from ..lib.agent_config import (
+            get_agent_ids,
+            get_tts_voice_default,
+            load_agents_raw,
+        )
 
         # System-Agents (role="system", e.g. calibration) and the vision
         # agent never appear in chat → keep them out of TTS settings so
@@ -552,11 +552,9 @@ class TTSConfigMixin(rx.State, mixin=True):
         registered = set(get_agent_ids()) - excluded
         current = set(self.tts_agent_voices.keys())
 
-        # Add missing agents
-        defaults = TTS_AGENT_VOICE_DEFAULTS.get(self.tts_engine, {})
-        generic_default = {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True}
+        # Add missing agents (defaults sourced from agents.json tts_voices)
         for agent_id in registered - current:
-            self.tts_agent_voices[agent_id] = dict(defaults.get(agent_id, generic_default))
+            self.tts_agent_voices[agent_id] = get_tts_voice_default(agent_id, self.tts_engine)
 
         # Remove agents that no longer exist OR are now excluded
         for agent_id in (current - registered):
@@ -568,7 +566,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         Also validates that agent voices are in the available list.
         If a saved voice is not found, it resets to the default.
         """
-        from ..lib.config import get_xtts_voices, TTS_AGENT_VOICE_DEFAULTS
+        from ..lib.config import get_xtts_voices
+        from ..lib.agent_config import get_tts_voice_default
         voices = get_xtts_voices()
         if voices:
             from ..lib.config import sort_voices_custom_first
@@ -576,11 +575,10 @@ class TTSConfigMixin(rx.State, mixin=True):
             self.add_debug(f"🎤 XTTS: {len(voices)} voices loaded")  # type: ignore[attr-defined]
 
             # Validate all agent voices — reset if not in available list
-            xtts_defaults = TTS_AGENT_VOICE_DEFAULTS.get("xtts", {})
             for agent in list(self.tts_agent_voices.keys()):
                 current_voice = self.tts_agent_voices[agent].get("voice", "")
                 if current_voice and current_voice not in self.xtts_voices_cache:
-                    default_voice = xtts_defaults.get(agent, {}).get("voice", "")
+                    default_voice = str(get_tts_voice_default(agent, "xtts").get("voice", ""))
                     if default_voice:
                         self.tts_agent_voices[agent]["voice"] = default_voice
                         self.add_debug(f"⚠️ XTTS: Reset {agent} voice to {default_voice}")  # type: ignore[attr-defined]
@@ -618,7 +616,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         Falls back to engine-specific defaults if no saved preferences exist.
         """
         from ..lib.settings import load_settings
-        from ..lib.config import TTS_AGENT_VOICE_DEFAULTS
+        from ..lib.agent_config import get_tts_voice_defaults_for_engine
 
         settings = load_settings() or {}
         saved_agent_voices = settings.get("tts_agent_voices_per_engine", {}).get(engine_key)
@@ -630,9 +628,9 @@ class TTSConfigMixin(rx.State, mixin=True):
                     self.tts_agent_voices[agent].update(saved_agent_voices[agent])
             source = "Restored"
         else:
-            # Use engine-specific defaults (known agents get specific defaults,
-            # custom agents keep their current voice or get generic default)
-            defaults = TTS_AGENT_VOICE_DEFAULTS.get(engine_key, {})
+            # Use engine-specific defaults from agents.json (known agents
+            # get specific defaults, others keep their current voice)
+            defaults = get_tts_voice_defaults_for_engine(engine_key)
             for agent in self.tts_agent_voices:
                 if agent in defaults:
                     self.tts_agent_voices[agent].update(defaults[agent])

@@ -1313,7 +1313,7 @@ async def oauth_disconnect(provider: str) -> dict:
 async def export_agents_endpoint(ids: str) -> Response:
     """Download a ZIP bundle containing one or more agents.
 
-    ``ids`` is a comma-separated list of agent IDs (e.g. ``?ids=codi,hal``).
+    ``ids`` is a comma-separated list of agent IDs (e.g. ``?ids=<id1>,<id2>``).
     A GET endpoint is used so the UI can trigger a plain browser download
     via ``<a href>`` without orchestrating a fetch+blob roundtrip.
     """

@@ -47,7 +47,7 @@ comma-separated key=value pairs:
 - `multi=auto_consensus`  → agents debate until consensus
 - `agent=<id>`       → set a specific agent as responder. **MUST be the
   lowercase agent ID** from the list in section 2 above (e.g. `hal`,
-  `pater`, `codi`) — NEVER the display name (NOT `HAL 9000`, NOT `Pater Tuck`).
+  `pater`, `codine`) — NEVER the display name (NOT `HAL 9000`, NOT `Pater Tuck`).
 
 Examples of mode switch detection (works in ALL languages):
 - "Start tribunal"                          → multi=tribunal
