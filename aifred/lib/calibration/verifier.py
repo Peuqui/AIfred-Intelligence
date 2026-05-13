@@ -39,6 +39,37 @@ class VerifyResult:
     measured_free_mb: tuple[int, ...]  # per GPU, in CUDA-order; () when fits=False
     thinks: Optional[bool]             # None if no thinking probe run
     detail: str                        # one-line log-friendly summary
+    # CUDA index of the GPU that hit OOM during model load (parsed from
+    # llama-server stderr). ``None`` means we have no information — fits
+    # might be True, or the server died for a non-OOM reason, or the
+    # log tail didn't contain a parseable CUDA-OOM line.
+    oom_cuda_id: Optional[int] = None
+
+
+_OOM_DEVICE_PATTERNS = (
+    # "allocating 36864.00 MiB on device 2: cudaMalloc failed: out of memory"
+    re.compile(r"on device (\d+):[^\n]*cudaMalloc\s+failed", re.IGNORECASE),
+    # "failed to allocate CUDA2 buffer of size ..."
+    re.compile(r"failed to allocate\s+CUDA(\d+)\s+buffer", re.IGNORECASE),
+    # "CUDA error: out of memory ... device 2"
+    re.compile(r"CUDA error:[^\n]*device\s+(\d+)", re.IGNORECASE),
+)
+
+
+def _parse_oom_cuda_id(log_text: str) -> Optional[int]:
+    """Find the CUDA device index that hit OOM in llama-server output.
+
+    Scans the log tail for one of the known OOM patterns. Returns the
+    first match's device index, or ``None`` if no pattern matches.
+    """
+    for pattern in _OOM_DEVICE_PATTERNS:
+        m = pattern.search(log_text)
+        if m:
+            try:
+                return int(m.group(1))
+            except (ValueError, IndexError):
+                continue
+    return None
 
 
 def _adjust_cmd(
@@ -278,13 +309,18 @@ async def verify(
             _kill(process)
             _cleanup_log(process)
             await wait_for_vram_stable(max_wait_seconds=10.0)
+            oom_cuda_id: Optional[int] = None
             if output:
                 logger.error(f"llama-server not ready. Log tail:\n{output[-2000:]}")
                 # Distinguish OOM vs other crashes by scanning the log tail.
-                tail = output[-4000:].lower()
-                if "out of memory" in tail or "cudamalloc" in tail or "cuda error" in tail:
+                tail = output[-4000:]
+                tail_lower = tail.lower()
+                if "out of memory" in tail_lower or "cudamalloc" in tail_lower or "cuda error" in tail_lower:
                     reason = f"OOM during load ({reason})"
-            return VerifyResult(False, (), None, reason)
+                    oom_cuda_id = _parse_oom_cuda_id(tail)
+                    if oom_cuda_id is not None:
+                        reason += f" — CUDA{oom_cuda_id}"
+            return VerifyResult(False, (), None, reason, oom_cuda_id=oom_cuda_id)
 
         if not await _test_inference(port):
             _kill(process)

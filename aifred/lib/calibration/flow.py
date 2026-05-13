@@ -173,10 +173,14 @@ async def calibrate_llamacpp_model(
             break
         for active in configs:
             n = len(active)
-            label = (
-                f"GPU{active[0]} ({gpus[active[0]].name})"
-                if n == 1 else f"{n} GPUs {active}"
-            )
+            if n == 1:
+                label = f"GPU{active[0]} ({gpus[active[0]].name})"
+            else:
+                # Show position+name, not raw indices — matches the
+                # GPU0/GPU1/... convention used elsewhere in the log
+                # so it's clear which physical cards the config picks.
+                _names = ", ".join(f"GPU{i} {gpus[i].name}" for i in active)
+                label = f"{n} GPUs ({_names})"
             c, reason = await _project_cell(
                 model, gpus, budget, full_cmd, kv, active,
             )
@@ -219,7 +223,43 @@ async def calibrate_llamacpp_model(
                 )
                 break
 
-    # All candidates exhausted without a verified fit → no GPU-only path.
+    # No candidate reached native context. Before giving up to hybrid,
+    # try a **best-effort GPU-only fit**: take the candidate with the
+    # highest projected max_context (across all (kv, gpu-set) cells we
+    # tried), and verify with that reduced context. The refine loop
+    # then applies layer shifts / ctx shrinks as needed. Native ctx is
+    # nice but not mandatory — a 152K-ctx Q8_0 config is still useful.
+    if base_result_obj is None and all_tried:
+        best = max(all_tried, key=lambda c: c.max_context)
+        if best.max_context >= MIN_USEFUL_CONTEXT_TOKENS:
+            best_label = (
+                f"{best.n_gpus} GPUs / KV={best.kv_quant}"
+            )
+            yield (
+                f"  💡 No native-ctx fit — falling back to best candidate: "
+                f"{best_label}, ctx={format_number(best.max_context)}"
+            )
+            v_result_fb: Result | None = None
+            async for item in _verify_and_refine(
+                best, model, gpus, budget, full_cmd, port, env,
+                probe_thinking=(known_thinks is None),
+                status_prefix=f"[best-effort/{best.kv_quant}]",
+            ):
+                if isinstance(item, _Done):
+                    v_result_fb = item.result
+                else:
+                    yield item
+            if v_result_fb is not None:
+                base_result_obj = v_result_fb
+                if base_result_obj.thinks is not None:
+                    known_thinks = base_result_obj.thinks
+                yield (
+                    f"  ✓ Phase 1 best-effort success: "
+                    f"split={_split_str(base_result_obj.tensor_split)}, "
+                    f"ctx={format_number(base_result_obj.context)}"
+                )
+
+    # Still no fit → no GPU-only path. Try hybrid (or fail).
     if base_result_obj is None:
         if not _hybrid_allowed_in_settings():
             yield (
@@ -709,6 +749,7 @@ async def _verify_and_refine(
     probe_thinking: bool,
     status_prefix: str,
     lock_active_gpus: bool = False,
+    ctx_ceiling: Optional[int] = None,
 ):
     """Verify ``candidate``; refine split from measured VRAM if needed.
 
@@ -769,7 +810,9 @@ async def _verify_and_refine(
                     shifted = refined
             if shifted is None:
                 shifted = _shift_one_layer_blind(
-                    current_split, gpus, keep_active_set=lock_active_gpus,
+                    current_split, gpus,
+                    oom_cuda_id=r.oom_cuda_id,
+                    keep_active_set=lock_active_gpus,
                 )
             if shifted is None:
                 if lock_active_gpus:
@@ -990,8 +1033,15 @@ async def _verify_and_refine(
     # was too conservative about. Especially useful for the speed variant
     # whose target_ctx came from the n=2 math estimate.
     r, current_split, current_ctx = last_good
+    # Upper cap for the upward push: by default native, but TTS variants
+    # pass ``ctx_ceiling=base_ctx`` because going past base makes no sense
+    # (TTS occupies VRAM → less free → can never hold more ctx than base).
+    upward_ceiling = (
+        min(ctx_ceiling, model.native_context) if ctx_ceiling
+        else model.native_context
+    )
     if (
-        current_ctx < model.native_context
+        current_ctx < upward_ceiling
         and r.measured_free_mb
     ):
         active_free = [
@@ -1000,7 +1050,7 @@ async def _verify_and_refine(
         ]
         if active_free and min(active_free) > 2 * budget.safety_margin:
             lo = current_ctx
-            hi = model.native_context
+            hi = upward_ceiling
             iteration += 1
             yield (
                 f"{status_prefix} headroom on tightest GPU "
@@ -1047,6 +1097,50 @@ async def _verify_and_refine(
                     lo = cand_ctx
                     last_good = (r_up, current_split, cand_ctx)
                 else:
+                    # OOM at this ctx — before giving up on it, try a one-shot
+                    # split refinement from the measurement: another active GPU
+                    # may still have headroom that we can move layers onto.
+                    # This is what saved the Qwen3-235B case where V100 had
+                    # ~6 GB free while the RTX cards were tight.
+                    refined_up: tuple[float, ...] | None = None
+                    if r_up.measured_free_mb:
+                        refined_up_split, refine_reason = _refine_split_from_measurement(
+                            current_split, gpus, r_up, budget,
+                            vram_model=candidate.vram_model,
+                            total_layers=model.total_layers,
+                            model_size_mb=model.size_mb,
+                            current_context=cand_ctx,
+                        )
+                        if (
+                            refined_up_split is not None
+                            and refined_up_split not in seen_splits
+                        ):
+                            refined_up = refined_up_split
+                            seen_splits.add(refined_up)
+                            iteration += 1
+                            yield (
+                                f"{status_prefix} upward ctx {format_number(cand_ctx)} "
+                                f"OOM — try refined split ({refine_reason}): "
+                                f"{_split_str(current_split)} → {_split_str(refined_up)}"
+                            )
+                            r_re = await verify(
+                                full_cmd=proj.adjust_cmd_for_projection(
+                                    full_cmd, refined_up, candidate.kv_quant,
+                                ),
+                                context=cand_ctx, port=port, gpus=gpus,
+                                safety_margin_mb=budget.safety_margin,
+                                ngl=candidate.ngl, env=env, probe_thinking=False,
+                            )
+                            yield _fmt_verify(
+                                status_prefix, iteration, refined_up, cand_ctx, r_re,
+                            )
+                            if r_re.fits:
+                                current_split = refined_up
+                                lo = cand_ctx
+                                last_good = (r_re, current_split, cand_ctx)
+                                continue
+                            # Refined split also failed — fall through to
+                            # math-bias update + hi shrink with r_up's data.
                     hi = cand_ctx
                     if r_up.measured_free_mb:
                         active_free_real = [
@@ -1286,25 +1380,25 @@ def _math_max_fitting_ctx(
 def _shift_one_layer_blind(
     split: tuple[float, ...],
     gpus: list[GPU],
+    oom_cuda_id: int | None = None,
     keep_active_set: bool = False,
 ) -> tuple[float, ...] | None:
-    """Strict-greedy spill: move one layer from the OOM source GPU to the
-    next-best GPU in compute-DESC order.
+    """Strict-greedy spill: take one layer off the OOM GPU, give it to
+    the next GPU downstream in the cascade.
 
-    "Greedy" cascade strategy — the user's "fill the glass" model:
-    pack the fastest+largest GPU as full as possible; only spill to the
-    next GPU when this one literally won't take another layer; never
-    re-balance away from a fuller upstream GPU.
-
-    Source: the active GPU with the most layers (= the one most likely
-    OOM at this point in the refine loop).
+    Source selection:
+    - If ``oom_cuda_id`` is provided (parsed from llama-server's stderr)
+      AND that GPU is active: use it. This is the truthful answer — we
+      know exactly which GPU ran out of VRAM.
+    - Otherwise: fall back to ``argmax(layers)`` as a best guess. Not
+      always correct (a smaller-VRAM GPU can OOM with fewer layers than
+      a larger one) but better than nothing when stderr parsing failed.
 
     Destination: the **next active GPU after src in the GPU list order**
-    (which is compute_cap DESC, total_mb DESC). Only when no later
-    active GPU exists do we activate an idle one — and again the
-    *next* idle in list order, not the slowest. ``keep_active_set=True``
-    (speed-variant calibration) suppresses idle activation; the caller
-    falls back to ctx-shrink instead.
+    (which is compute_cap DESC, total_mb DESC). No later active GPU →
+    activate the next idle in list order. ``keep_active_set=True``
+    (speed-variant calibration) suppresses idle activation so the
+    caller falls back to ctx-shrink instead.
 
     Returns ``None`` when no further shift is possible.
     """
@@ -1312,25 +1406,33 @@ def _shift_one_layer_blind(
     active_idx = [i for i, layers_i in enumerate(layers) if layers_i > 0]
     if not active_idx:
         return None
-    src = max(active_idx, key=lambda i: layers[i])
+
+    # Take from the actually-OOM GPU (parsed from llama-server stderr).
+    # Without that info we don't guess — return None so the caller falls
+    # back to ctx-shrink instead of moving a layer off the wrong card.
+    if (
+        oom_cuda_id is not None
+        and 0 <= oom_cuda_id < len(layers)
+        and layers[oom_cuda_id] > 0
+    ):
+        src = oom_cuda_id
+    else:
+        return None
+
     if layers[src] <= 1:
         return None  # can't shift further
 
-    # Greedy: prefer destinations that come AFTER src in the GPU list
-    # (= slower / smaller in compute-DESC order). Never spill back to a
-    # GPU upstream of src — that would defeat the cascade.
+    # Greedy: prefer destinations AFTER src in the GPU list order
+    # (= slower / smaller in compute-DESC, total_mb-DESC order). Never
+    # spill back to a GPU upstream of src — that would defeat the cascade.
     later_active = [i for i in active_idx if i > src]
     if later_active:
-        # Pick the immediate next active GPU (closest to src in cascade),
-        # so we keep the load concentrated rather than smearing it across
-        # the slowest cards.
+        # Closest active downstream GPU — keeps load concentrated.
         dest = min(later_active)
     elif keep_active_set:
-        # Speed mode: GPU set is fixed; caller switches to ctx-shrink.
         return None
     else:
-        # No active GPU after src → activate the next idle in list order
-        # (next-fastest available, since the list is compute-DESC sorted).
+        # No active GPU after src → activate the next idle in list order.
         later_idle = [i for i in range(src + 1, len(layers)) if layers[i] == 0]
         if not later_idle:
             return None
@@ -1761,6 +1863,155 @@ async def _calibrate_hybrid(
 
     yield "Hybrid: no configuration found"
     yield "__RESULT__:0:0:error"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TTS variant: derive from base + verify/refine (TTS-agnostic)
+# ═══════════════════════════════════════════════════════════════════
+
+async def calibrate_tts_variant_from_base(
+    *,
+    model_id: str,
+    gguf_path: Path,
+    full_cmd: str,
+    base_split: tuple[float, ...],
+    base_ctx: int,
+    base_kv: str,
+    tts_gpu_uuid: str,
+    port: int,
+    env: Optional[dict[str, str]] = None,
+    known_thinking: Optional[bool] = None,
+) -> AsyncIterator[str]:
+    """Derive a TTS variant from an already-calibrated base config.
+
+    Faster than a full re-calibration: assumes the base GPU set is the
+    right one and only re-projects the same active set under the new
+    free-VRAM picture (TTS already loaded → less free on the TTS GPU),
+    then runs the standard verify/refine loop. Skips Phase 1's GPU-set
+    enumeration entirely.
+
+    The approach is TTS-agnostic — the function does not need to know
+    which TTS backend is loaded or how much VRAM it takes. The caller
+    starts the TTS service, ``enumerate_gpus()`` then sees the reduced
+    free VRAM, and the projection adjusts the split accordingly.
+
+    Yields:
+      - human-readable progress messages
+      - ``__RESULT__:`` sentinel on success
+      - ``__RESULT__:0:0:error`` on failure (caller should fall back to
+        a full re-calibration)
+
+    Caller MUST start the TTS service before calling and stop it after.
+    """
+    # Re-enumerate GPUs *now*, with TTS already loaded. The TTS GPU's
+    # free_mb will reflect whatever the running TTS container occupies.
+    gpus = enumerate_gpus()
+    if not gpus:
+        yield "TTS variant: no GPUs detected"
+        yield "__RESULT__:0:0:error"
+        return
+
+    model = _load_model_meta(model_id, gguf_path)
+    if not model:
+        yield f"TTS variant: could not load model meta for {model_id}"
+        yield "__RESULT__:0:0:error"
+        return
+
+    safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN
+    if _is_vision_model(full_cmd):
+        safety_margin += LLAMACPP_VISION_VRAM_RESERVE
+    budget = build_budget(gpus, safety_margin=safety_margin)
+
+    # Map TTS UUID to position in our compute-DESC enumeration.
+    tts_position = next(
+        (i for i, g in enumerate(gpus) if g.uuid == tts_gpu_uuid), -1,
+    )
+    if tts_position < 0:
+        yield (
+            f"TTS variant: TTS GPU UUID {tts_gpu_uuid[:12]}… not visible — "
+            f"falling back to full re-calibration"
+        )
+        yield "__RESULT__:0:0:error"
+        return
+
+    # Active set = same GPUs as the base config. base_split is the full
+    # tuple (length == total GPUs) with 0s on idle slots.
+    active = [i for i, layers in enumerate(base_split) if layers > 0]
+    if not active:
+        yield "TTS variant: base split has no active GPUs"
+        yield "__RESULT__:0:0:error"
+        return
+    if len(base_split) != len(gpus):
+        yield (
+            f"TTS variant: base split length {len(base_split)} ≠ visible "
+            f"GPU count {len(gpus)} — falling back to full re-calibration"
+        )
+        yield "__RESULT__:0:0:error"
+        return
+
+    yield (
+        f"TTS variant from base: active GPUs {active}, target ctx "
+        f"{format_number(base_ctx)}, KV={base_kv}, free now "
+        f"{format_number(total_free_mb(gpus))} MB "
+        f"(TTS on GPU{tts_position} {gpus[tts_position].name}: "
+        f"{format_number(gpus[tts_position].free_mb)} MB free)"
+    )
+
+    # Re-project the same active set with current (TTS-aware) free VRAM.
+    # This produces a fresh Candidate (with vram_model) that the verify/
+    # refine loop can use for refine measurements.
+    candidate, reason = await _project_cell(
+        model, gpus, budget, full_cmd, base_kv, active,
+    )
+    if candidate is None:
+        yield f"TTS variant: projection failed ({reason})"
+        yield "__RESULT__:0:0:error"
+        return
+    yield _format_candidate_line(candidate, gpus)
+
+    # Cap target ctx at base_ctx — there's no point chasing more context
+    # than the base config achieved (TTS only takes VRAM away, never adds).
+    target_ctx = min(candidate.max_context, base_ctx)
+    if target_ctx < MIN_USEFUL_CONTEXT_TOKENS:
+        yield (
+            f"TTS variant: projected max_ctx {format_number(candidate.max_context)} "
+            f"too small to be useful"
+        )
+        yield "__RESULT__:0:0:error"
+        return
+
+    # Build a target-ctx candidate so verify+refine uses base_ctx as the
+    # ceiling, not the (possibly larger) projected max_context.
+    candidate_at_target = Candidate(
+        mode=candidate.mode,
+        n_gpus=candidate.n_gpus,
+        kv_quant=candidate.kv_quant,
+        ngl=candidate.ngl,
+        tensor_split=candidate.tensor_split,
+        max_context=target_ctx,
+        predicted_free_mb=candidate.predicted_free_mb,
+        vram_model=candidate.vram_model,
+    )
+
+    result: Result | None = None
+    async for item in _verify_and_refine(
+        candidate_at_target, model, gpus, budget, full_cmd, port, env,
+        probe_thinking=(known_thinking is None),
+        status_prefix=f"[tts/{base_kv}]",
+        ctx_ceiling=base_ctx,
+    ):
+        if isinstance(item, _Done):
+            result = item.result
+        else:
+            yield item
+
+    if result is None:
+        yield "TTS variant: verify/refine did not find a fitting config"
+        yield "__RESULT__:0:0:error"
+        return
+
+    thinks = known_thinking if known_thinking is not None else result.thinks
+    yield _result_sentinel(result, bool(thinks))
 
 
 # ═══════════════════════════════════════════════════════════════════
