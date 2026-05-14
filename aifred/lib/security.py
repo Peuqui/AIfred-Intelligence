@@ -14,6 +14,7 @@ import logging
 import re
 import socket
 import sqlite3
+import threading
 import unicodedata
 from html.parser import HTMLParser
 from io import StringIO
@@ -313,7 +314,6 @@ class _RateTracker:
         self._calls: list[tuple[float, str]] = []  # (timestamp, source)
         self._violations: dict[str, list[float]] = {}  # source → [violation_timestamps]
         self._tripped: dict[str, float] = {}  # source → tripped_until timestamp
-        import threading
         self._lock = threading.Lock()
 
     def record_and_check(self, source: str, now: float) -> bool:
@@ -401,6 +401,7 @@ def check_rate_limit(source: str) -> None:
 
 _audit_db_path: Path | None = None
 _audit_db_initialized = False
+_audit_db_init_lock = threading.Lock()
 
 
 def _get_audit_db_path() -> Path:
@@ -412,33 +413,42 @@ def _get_audit_db_path() -> Path:
 
 
 def _ensure_audit_db(conn: sqlite3.Connection) -> None:
+    """Create the audit table + indexes once per process.
+
+    The lock + inner re-check serialises two threads that find the flag
+    False simultaneously, and the flag is set only after commit() so a
+    partial init won't mark the DB as ready.
+    """
     global _audit_db_initialized
     if _audit_db_initialized:
         return
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS tool_audit (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
-            session_id TEXT NOT NULL,
-            source TEXT NOT NULL,
-            tool_name TEXT NOT NULL,
-            tool_tier INTEGER NOT NULL,
-            tool_args_preview TEXT,
-            result_preview TEXT,
-            success INTEGER NOT NULL,
-            duration_ms REAL
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_audit_session
-        ON tool_audit(session_id)
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_audit_timestamp
-        ON tool_audit(timestamp)
-    """)
-    conn.commit()
-    _audit_db_initialized = True
+    with _audit_db_init_lock:
+        if _audit_db_initialized:
+            return
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tool_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+                session_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                tool_tier INTEGER NOT NULL,
+                tool_args_preview TEXT,
+                result_preview TEXT,
+                success INTEGER NOT NULL,
+                duration_ms REAL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_audit_session
+            ON tool_audit(session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_audit_timestamp
+            ON tool_audit(timestamp)
+        """)
+        conn.commit()
+        _audit_db_initialized = True
 
 
 # ============================================================

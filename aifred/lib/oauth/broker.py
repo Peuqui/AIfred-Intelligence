@@ -99,11 +99,18 @@ class OAuthBroker:
         self._purge_expired_states()
         return self._providers[provider_name].get_auth_url(scopes, redirect_uri, state)
 
-    async def handle_callback(self, state: str, code: str) -> str:
+    async def handle_callback(
+        self, state: str, code: str, expected_provider: Optional[str] = None
+    ) -> str:
         """Exchange authorization code for tokens.  Returns provider name.
 
         The redirect_uri used in the token exchange is the one we recorded
         when the auth URL was created — Google requires byte-for-byte match.
+
+        If ``expected_provider`` is given (typically the URL-path segment of
+        the callback), it must equal the provider stored with the state —
+        otherwise the success page would display a provider name that
+        doesn't match the one the token was actually saved for.
         """
         entry = self._pending.pop(state, None)
         if entry is None:
@@ -111,6 +118,11 @@ class OAuthBroker:
         provider_name, expiry, redirect_uri = entry
         if time.time() > expiry:
             raise ValueError("OAuth state expired — restart the login flow")
+        if expected_provider is not None and expected_provider != provider_name:
+            raise ValueError(
+                f"OAuth provider mismatch: callback path '{expected_provider}' "
+                f"vs. state provider '{provider_name}'"
+            )
         provider = self._providers[provider_name]
         token_set = await provider.exchange_code(code, redirect_uri)
         async with self._token_lock:

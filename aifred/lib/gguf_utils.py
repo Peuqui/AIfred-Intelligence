@@ -12,6 +12,21 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 
+# GGUF value-type IDs that are numeric scalars (UINT/INT/BOOL only).
+# Excludes STRING (8) and ARRAY (9) so int(value_array[0]) doesn't
+# silently interpret the first byte of a string as the value, and
+# excludes FLOAT (6, 12) where integer fields shouldn't show up.
+_GGUF_NUMERIC_INT_TYPES = frozenset({0, 1, 2, 3, 4, 5, 7, 10, 11})
+
+
+def _is_numeric_scalar(field) -> bool:  # type: ignore[no-untyped-def]
+    """True if ``field`` is a GGUF scalar with an integer/bool value type."""
+    types = getattr(field, "types", None)
+    if not types:
+        return False
+    return types[-1] in _GGUF_NUMERIC_INT_TYPES
+
+
 class GGUFModelInfo:
     """GGUF model metadata"""
     def __init__(
@@ -119,6 +134,12 @@ def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
                 for field in reader.fields.values():
                     field_name = field.name.lower()
                     if field_name.endswith('.block_count') or field_name == 'block_count':
+                        # Only parse numeric scalar fields. STRING (vtype 8) /
+                        # ARRAY (9) would let int(value_array[0]) silently read
+                        # the first byte (e.g. 'H'=72) as a "layer count".
+                        if not _is_numeric_scalar(field):
+                            logger.debug(f"Skipping non-numeric field {field.name}")
+                            continue
                         try:
                             value_array = field.parts[-1]
                             layer_count = int(value_array[0]) if len(value_array) > 0 else None
@@ -139,7 +160,7 @@ def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
     except ImportError:
         logger.warning("gguf-py library not installed")
         return None
-    except (ImportError, OSError) as e:
+    except OSError as e:
         logger.error(f"Error reading GGUF file {gguf_path}: {e}")
         return None
 
@@ -184,6 +205,9 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
                     # Match patterns: *.context_length or *max_position_embeddings
                     if field_name.endswith('.context_length') or field_name == 'context_length' or \
                        'max_position_embeddings' in field_name:
+                        if not _is_numeric_scalar(field):
+                            logger.debug(f"Skipping non-numeric field {field.name}")
+                            continue
                         try:
                             # Extract value from memmap array
                             # field.parts is a list where parts[-1] is a memmap with the actual value
@@ -213,7 +237,7 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
         logger.warning("gguf-py library not installed - cannot read native context")
         logger.info("Install with: pip install gguf")
         return None
-    except (ValueError, IndexError) as e:
+    except (OSError, ValueError, IndexError) as e:
         logger.error(f"Error reading GGUF file {gguf_path}: {e}")
         return None
 

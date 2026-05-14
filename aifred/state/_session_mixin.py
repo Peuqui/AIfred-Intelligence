@@ -139,6 +139,12 @@ class SessionMixin(rx.State, mixin=True):
             return
 
         if storage_delete_session(session_id, expected_owner=owner):
+            # Free in-memory runtime state tied to that session so it doesn't
+            # accumulate over the process lifetime.
+            from ._audio_player_mixin import discard_audio_runtime_state
+            from ._tts_streaming_mixin import discard_dashscope_runtime
+            discard_audio_runtime_state(session_id)
+            discard_dashscope_runtime(session_id)
             log_message(f"Deleted session: {session_id[:8]}...")
             self.add_debug("Session deleted")  # type: ignore[attr-defined]
             self.refresh_session_list()
@@ -521,6 +527,12 @@ class SessionMixin(rx.State, mixin=True):
         if len(_llm_hist) < 2:
             return
 
+        import re as _re
+        # Strip any agent label prefix ("[AIFRED]:", "[SOKRATES]:", "[SALOMO]:",
+        # plus any custom agent uppercased label). Without this the title
+        # generator sees the label as part of the content and either echoes it
+        # or produces a confused title.
+        _label_re = _re.compile(r"^\[[A-Z0-9_]+\]:\s*")
         first_user_msg = None
         first_ai_response = None
         for msg in _llm_hist:
@@ -528,9 +540,7 @@ class SessionMixin(rx.State, mixin=True):
             if msg.get("role") == "user" and first_user_msg is None:
                 first_user_msg = content
             elif msg.get("role") == "assistant" and first_ai_response is None:
-                if content.startswith("[AIFRED]: "):
-                    content = content[10:]
-                first_ai_response = content
+                first_ai_response = _label_re.sub("", content, count=1)
             if first_user_msg and first_ai_response:
                 break
 

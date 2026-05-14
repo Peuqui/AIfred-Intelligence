@@ -1260,7 +1260,7 @@ async def oauth_callback(provider: str, request: Request, code: str = "", state:
         )
 
     try:
-        await oauth_broker.handle_callback(state, code)
+        await oauth_broker.handle_callback(state, code, expected_provider=provider)
         return HTMLResponse(
             f"<html><body style='font-family:sans-serif;padding:2rem'>"
             f"<h2>✅ {_html.escape(provider.capitalize())} verbunden!</h2>"

@@ -23,6 +23,29 @@ from ..lib.logging_utils import log_message
 _dashscope_rt_instances: dict[str, Any] = {}
 
 
+def discard_dashscope_runtime(session_id: str) -> None:
+    """Close and drop the per-session DashScope WebSocket instance.
+
+    Called on logout / delete_session so dangling sockets don't pile up
+    across the process lifetime.
+    """
+    if not session_id:
+        return
+    inst = _dashscope_rt_instances.pop(session_id, None)
+    if inst is None:
+        return
+    for attr in ("close", "stop", "disconnect"):
+        fn = getattr(inst, attr, None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception:
+                # Best-effort cleanup; never let logout fail because of a
+                # half-dead socket.
+                pass
+            return
+
+
 # Concurrency-Throttle fuer TTS-HTTP-Calls. Verhindert dass AIfred bei langen
 # Antworten 80+ parallele Requests auf den XTTS-Container kippt — der hat
 # einen einzigen GPU-Worker, alle weiteren stapeln sich in der Gunicorn-Queue
