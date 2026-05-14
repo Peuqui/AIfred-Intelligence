@@ -34,8 +34,8 @@ class SandboxResult:
     stdout: str = ""
     stderr: str = ""
     exit_code: int = -1
-    images: list[str] = field(default_factory=list)  # URLs to plot images
-    html_url: str = ""  # URL to interactive HTML output
+    images: list[str] = field(default_factory=list)   # URLs to plot images
+    html_urls: list[str] = field(default_factory=list)  # URLs to interactive HTMLs
     timed_out: bool = False
 
 
@@ -94,35 +94,90 @@ def _collect_images(work_dir: Path, session_id: str) -> list[str]:
     return urls
 
 
-def _collect_html(work_dir: Path, session_id: str) -> str:
-    """Find HTML output file and persist it in sandbox_output/{session_id}/.
+def _collect_html(work_dir: Path, session_id: str) -> list[str]:
+    """Persist every HTML produced in ``work_dir`` and return their URLs.
 
-    Returns URL to the served file, or empty string if no HTML found.
+    Reads ``output.html`` first (legacy single-file convention) followed by
+    every other ``*.html`` in alphabetical order. Empty files are skipped.
+    Each kept file is copied to ``sandbox_output/{session_id}/`` under a
+    fresh hex name so different runs don't collide.
     """
     all_files = list(work_dir.iterdir())
     log_message(f"Sandbox _collect_html: files={[f.name for f in all_files]}")
 
-    html_file = work_dir / "output.html"
-    if not html_file.exists():
-        html_files = [f for f in work_dir.glob("*.html") if f.name != "__main.py"]
-        if html_files:
-            html_file = html_files[0]
-        else:
-            log_message("Sandbox _collect_html: no HTML file found")
-            return ""
+    candidates: list[Path] = []
+    primary = work_dir / "output.html"
+    if primary.exists():
+        candidates.append(primary)
+    for extra in sorted(work_dir.glob("*.html")):
+        if extra.name == "__main.py" or extra in candidates:
+            continue
+        candidates.append(extra)
 
-    html_content = html_file.read_text(encoding="utf-8")
-    if not html_content.strip():
-        log_message("Sandbox _collect_html: HTML file is empty")
-        return ""
-
+    urls: list[str] = []
     output_dir = _session_output_dir(session_id)
-    filename = f"{uuid.uuid4().hex[:8]}.html"
-    (output_dir / filename).write_text(html_content, encoding="utf-8")
+    for html_file in candidates:
+        try:
+            html_content = html_file.read_text(encoding="utf-8")
+        except OSError as e:
+            log_message(f"Sandbox _collect_html: cannot read {html_file.name}: {e}")
+            continue
+        if not html_content.strip():
+            continue
+        filename = f"{uuid.uuid4().hex[:8]}.html"
+        (output_dir / filename).write_text(html_content, encoding="utf-8")
+        urls.append(_sandbox_url(session_id, filename))
 
-    url = _sandbox_url(session_id, filename)
-    log_message(f"Sandbox: HTML output saved → {url}")
-    return url
+    if not urls:
+        log_message("Sandbox _collect_html: no HTML file found")
+    else:
+        log_message(f"Sandbox: {len(urls)} HTML output(s) saved")
+    return urls
+
+
+# Extensions that we'll inline-embed when written into the documents mount.
+_DOCS_HTML_EXTS = {".html", ".htm"}
+_DOCS_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+
+
+def _collect_documents_changes(start_time: float) -> tuple[list[str], list[str]]:
+    """Return URLs for HTML/image files written to ``DOCUMENTS_DIR`` after
+    ``start_time``.
+
+    ``execute_code_write`` mounts ``data/documents/`` read-write, so the
+    model can produce named artifacts (``mandelbrot_3d_interactive.html``
+    etc.). Those don't land in the sandbox temp dir — collecting them
+    here closes the gap so they get embedded in the chat just like
+    ``output.html``.
+
+    Files served via the existing ``/_upload/documents/<name>`` mount;
+    no copy needed.
+    """
+    if not DOCUMENTS_DIR.exists():
+        return [], []
+    html_urls: list[str] = []
+    image_urls: list[str] = []
+    for path in sorted(DOCUMENTS_DIR.iterdir()):
+        if not path.is_file():
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if mtime < start_time:
+            continue
+        ext = path.suffix.lower()
+        url = f"/_upload/documents/{path.name}"
+        if ext in _DOCS_HTML_EXTS:
+            html_urls.append(url)
+        elif ext in _DOCS_IMAGE_EXTS:
+            image_urls.append(url)
+    if html_urls or image_urls:
+        log_message(
+            f"Sandbox: documents/ produced {len(html_urls)} HTML, "
+            f"{len(image_urls)} image(s)"
+        )
+    return html_urls, image_urls
 
 
 async def execute_sandboxed_code(
@@ -212,6 +267,10 @@ async def execute_sandboxed_code(
 
     result = SandboxResult()
     sid = session_id or "unknown"
+    # Snapshot before exec so we can pick up only files the model wrote
+    # during THIS call (older artifacts in documents/ stay invisible).
+    import time as _time
+    docs_snapshot_time = _time.time()
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -239,12 +298,19 @@ async def execute_sandboxed_code(
         result.stderr = stderr_bytes.decode("utf-8", errors="replace")[:SANDBOX_MAX_OUTPUT_BYTES]
         result.exit_code = proc.returncode or 0
         result.images = _collect_images(work_dir, sid)
-        result.html_url = _collect_html(work_dir, sid)
+        result.html_urls = _collect_html(work_dir, sid)
+        # When documents/ is mounted read-write, also surface any HTML/
+        # image artifacts the model wrote there during this run. Only
+        # files newer than docs_snapshot_time are picked up.
+        if allow_write:
+            doc_html, doc_images = _collect_documents_changes(docs_snapshot_time)
+            result.html_urls.extend(doc_html)
+            result.images.extend(doc_images)
 
         log_message(
             f"Sandbox({exec_id}): exit={result.exit_code}, "
             f"stdout={len(result.stdout)}b, stderr={len(result.stderr)}b, "
-            f"images={len(result.images)}, html_url={result.html_url!r}"
+            f"images={len(result.images)}, html_urls={len(result.html_urls)}"
         )
 
     except Exception as e:

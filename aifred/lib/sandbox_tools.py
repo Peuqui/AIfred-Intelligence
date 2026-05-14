@@ -50,8 +50,9 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         if result.stderr:
             parts.append(f"STDERR:\n{result.stderr}")
 
-        if result.html_url:
-            parts.append(f"SANDBOX_HTML_URL: {result.html_url}")
+        if result.html_urls:
+            for html_url in result.html_urls:
+                parts.append(f"SANDBOX_HTML_URL: {html_url}")
             parts.append("The interactive visualization is automatically embedded in the chat. Do NOT try to display it again. Just describe what was created.")
 
         if result.images:
