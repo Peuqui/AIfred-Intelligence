@@ -164,12 +164,22 @@ class _HTMLTextExtractor(HTMLParser):
 
 
 def _strip_html(text: str) -> str:
-    """Remove HTML tags, keep only visible text content."""
+    """Remove HTML tags, keep only visible text content.
+
+    HTMLParser.feed() can raise on malformed input (AssertionError on
+    pathological tags, HTMLParseError on legacy modes). Falling back
+    to a regex strip keeps the inbound pipeline alive instead of
+    crashing the channel worker.
+    """
     if "<" not in text:
         return text
     extractor = _HTMLTextExtractor()
-    extractor.feed(text)
-    return extractor.get_text()
+    try:
+        extractor.feed(text)
+        return extractor.get_text()
+    except Exception as exc:
+        logger.warning("HTMLParser failed on inbound text (%s) — falling back to regex strip", exc)
+        return re.sub(r"<[^>]*>", "", text)
 
 
 def sanitize_inbound(text: str) -> str:
@@ -288,6 +298,10 @@ class _RateTracker:
 
     Also implements circuit breaker: if rate limit is exceeded N times
     within a window, the channel is temporarily blocked.
+
+    Thread-safe: a single threading.Lock guards every mutation because
+    plugin channels (Discord/Telegram) run on their own threads and
+    racing prune+append on _calls would let calls slip past the limit.
     """
 
     # After this many rate limit violations, the circuit breaker trips
@@ -299,6 +313,8 @@ class _RateTracker:
         self._calls: list[tuple[float, str]] = []  # (timestamp, source)
         self._violations: dict[str, list[float]] = {}  # source → [violation_timestamps]
         self._tripped: dict[str, float] = {}  # source → tripped_until timestamp
+        import threading
+        self._lock = threading.Lock()
 
     def record_and_check(self, source: str, now: float) -> bool:
         """Record a call and return True if within limit, False if exceeded."""
@@ -308,33 +324,38 @@ class _RateTracker:
         if limit <= 0:
             return True  # Unlimited
 
-        # Prune old entries
-        cutoff = now - SECURITY_RATE_LIMIT_WINDOW_SEC
-        self._calls = [(t, s) for t, s in self._calls if t > cutoff]
+        with self._lock:
+            # Prune old entries
+            cutoff = now - SECURITY_RATE_LIMIT_WINDOW_SEC
+            self._calls = [(t, s) for t, s in self._calls if t > cutoff]
 
-        # Count calls from this source
-        count = sum(1 for _, s in self._calls if s == source)
-        self._calls.append((now, source))
+            # Count calls from this source
+            count = sum(1 for _, s in self._calls if s == source)
+            self._calls.append((now, source))
 
-        if count >= limit:
-            self._record_violation(source, now)
-            return False
-        return True
+            if count >= limit:
+                self._record_violation_locked(source, now)
+                return False
+            return True
 
     def is_tripped(self, source: str, now: float) -> bool:
         """Check if the circuit breaker is currently open for a source."""
-        tripped_until = self._tripped.get(source, 0)
-        if now < tripped_until:
-            return True
-        # Auto-reset after cooldown
-        if source in self._tripped:
-            del self._tripped[source]
-            from .logging_utils import log_message
-            log_message(f"Security: circuit breaker reset for '{source}'")
-        return False
+        with self._lock:
+            tripped_until = self._tripped.get(source, 0)
+            if now < tripped_until:
+                return True
+            # Auto-reset after cooldown
+            if source in self._tripped:
+                del self._tripped[source]
+                from .logging_utils import log_message
+                log_message(f"Security: circuit breaker reset for '{source}'")
+            return False
 
-    def _record_violation(self, source: str, now: float) -> None:
-        """Track rate limit violations and trip breaker if threshold exceeded."""
+    def _record_violation_locked(self, source: str, now: float) -> None:
+        """Track rate limit violations and trip breaker if threshold exceeded.
+
+        Caller must hold self._lock.
+        """
         if source not in self._violations:
             self._violations[source] = []
         # Prune old violations

@@ -221,8 +221,13 @@ def stop_engine(engine: str) -> tuple[bool, str]:
     return True, ""
 
 
-# Background TTS stop — runs parallel to LLM inference (Case 2b)
-_tts_stop_thread: threading.Thread | None = None
+# Background TTS stop — runs parallel to LLM inference (Case 2b).
+# Keyed by engine name so concurrent stops on different engines (xtts vs
+# moss) don't overwrite each other's Thread reference. The previous
+# single-slot version dropped one stop into a black hole whenever two
+# different engines were stopped close together.
+_tts_stop_threads: dict[str, threading.Thread] = {}
+_tts_stop_lock = threading.Lock()
 
 
 def _start_async_tts_stop(engine: str) -> None:
@@ -230,28 +235,33 @@ def _start_async_tts_stop(engine: str) -> None:
 
     Docker compose down is CPU/IO, LLM inference is GPU — no interference.
 
-    If a previous stop is still in flight, wait for it before starting a new
-    one — otherwise the old thread reference is lost (ghost docker calls,
-    parallel `docker compose down` on the same target).
+    If a previous stop for the *same engine* is still in flight, wait for
+    it before starting a new one — otherwise `docker compose down` racing
+    against itself.
     """
-    global _tts_stop_thread
-    if _tts_stop_thread is not None and _tts_stop_thread.is_alive():
-        log_message(f"Awaiting previous TTS stop before starting new one ({engine})")
-        _tts_stop_thread.join(timeout=30)
-    _tts_stop_thread = threading.Thread(
-        target=stop_engine, args=(engine,), daemon=True, name=f"tts-stop-{engine}",
-    )
-    _tts_stop_thread.start()
-    log_message(f"Background TTS stop started: {engine}")
+    with _tts_stop_lock:
+        prev = _tts_stop_threads.get(engine)
+        if prev is not None and prev.is_alive():
+            log_message(f"Awaiting previous TTS stop before starting new one ({engine})")
+            prev.join(timeout=30)
+        thread = threading.Thread(
+            target=stop_engine, args=(engine,), daemon=True, name=f"tts-stop-{engine}",
+        )
+        _tts_stop_threads[engine] = thread
+        thread.start()
+        log_message(f"Background TTS stop started: {engine}")
 
 
 def _await_tts_stop(timeout: float = 30) -> None:
-    """Wait for background TTS stop to complete (if one is in progress)."""
-    global _tts_stop_thread
-    if _tts_stop_thread is not None and _tts_stop_thread.is_alive():
-        log_message("Waiting for background TTS stop to complete...")
-        _tts_stop_thread.join(timeout=timeout)
-    _tts_stop_thread = None
+    """Wait for ALL background TTS stops to complete."""
+    with _tts_stop_lock:
+        threads = [t for t in _tts_stop_threads.values() if t.is_alive()]
+        if threads:
+            log_message(f"Waiting for {len(threads)} background TTS stop(s) to complete...")
+        _tts_stop_threads.clear()
+    # Join outside the lock so new stops aren't blocked while we wait.
+    for t in threads:
+        t.join(timeout=timeout)
 
 
 def ensure_tts_state(

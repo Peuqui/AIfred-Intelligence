@@ -112,7 +112,7 @@ class BraveSearchTool(BaseTool):
         except RateLimitError:
             raise  # Re-raise for fallback
 
-        except httpx.HTTPError as e:
+        except (requests.exceptions.RequestException, httpx.HTTPError) as e:
             logger.error(f"❌ Brave Search error: {e}")
             return {
                 'success': False,
@@ -209,7 +209,7 @@ class TavilySearchTool(BaseTool):
         except RateLimitError:
             raise
 
-        except httpx.HTTPError as e:
+        except (requests.exceptions.RequestException, httpx.HTTPError) as e:
             logger.error(f"❌ Tavily AI error: {e}")
             return {
                 'success': False,
@@ -291,7 +291,7 @@ class SearXNGSearchTool(BaseTool):
 
             return result
 
-        except httpx.HTTPError as e:
+        except (requests.exceptions.RequestException, httpx.HTTPError) as e:
             logger.error(f"❌ SearXNG error: {e}")
             return {
                 'success': False,

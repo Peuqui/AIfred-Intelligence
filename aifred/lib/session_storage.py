@@ -181,7 +181,10 @@ def _load_accounts() -> Dict[str, str]:
 
 def _save_accounts(accounts: Dict[str, str]) -> bool:
     """
-    Save accounts file.
+    Save accounts file atomically (tmp + os.replace).
+
+    A crash mid-write would otherwise leave accounts.json truncated, which
+    locks every user out on the next start.
 
     Args:
         accounts: Dict mapping username → password_hash
@@ -191,10 +194,16 @@ def _save_accounts(accounts: Dict[str, str]) -> bool:
     """
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
+        tmp_path = ACCOUNTS_FILE.with_suffix(".json.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(accounts, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, ACCOUNTS_FILE)
         return True
     except IOError:
+        try:
+            ACCOUNTS_FILE.with_suffix(".json.tmp").unlink(missing_ok=True)
+        except OSError:
+            pass
         return False
 
 

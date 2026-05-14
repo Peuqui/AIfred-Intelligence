@@ -253,23 +253,16 @@ class VectorCache:
         This method runs in asyncio's thread pool, not in event loop.
         Safe to make blocking HTTP calls here.
         """
-        # Check if cache is empty
-        if self.collection.count() == 0:
-            log_message("💾 Vector Cache empty → Web search required")
-            return {
-                'source': 'CACHE_MISS',
-                'confidence': 'low',
-                'distance': 1.0
-            }
-
-        # Perform semantic similarity search
+        # Perform semantic similarity search. Skip the upfront count()
+        # roundtrip: Chroma returns an empty result for an empty collection,
+        # which we handle identically below.
         results = self.collection.query(
             query_texts=[user_query],
             n_results=n_results,
             include=['distances', 'documents', 'metadatas']
         )
 
-        # No results found
+        # No results found (empty collection or no semantic match)
         if not results['ids'][0]:
             log_message("❌ Vector Cache miss: No similar queries found")
             return {
@@ -400,23 +393,16 @@ class VectorCache:
 
         Retrieves multiple similar results and returns the newest one (by timestamp).
         """
-        # Check if cache is empty
-        if self.collection.count() == 0:
-            log_message("💾 Vector Cache empty → Web search required")
-            return {
-                'source': 'CACHE_MISS',
-                'confidence': 'low',
-                'distance': 1.0
-            }
-
-        # Perform semantic similarity search (get multiple results)
+        # Skip the count() preflight roundtrip — Chroma already returns
+        # fewer results than n_results if the collection has less, and an
+        # empty collection yields an empty result we handle below.
         results = self.collection.query(
             query_texts=[user_query],
-            n_results=min(n_results, self.collection.count()),
+            n_results=n_results,
             include=['distances', 'documents', 'metadatas']
         )
 
-        # No results found
+        # No results found (empty collection or no semantic match)
         if not results['ids'][0]:
             log_message("❌ Vector Cache miss: No similar queries found")
             return {
@@ -678,15 +664,28 @@ class VectorCache:
         metadata: Optional[Dict] = None
     ) -> Dict:
         """
-        Update existing cache entry (delete old, add new with same query)
+        Update existing cache entry by adding the new entry first, then
+        deleting the old one. If the add fails (Chroma restart, embedding
+        timeout) the old entry remains intact — no data loss.
         """
         try:
-            # Delete old entry
-            self.collection.delete(ids=[old_id])
-            log_message(f"🗑️ Deleted old cache entry (id={old_id})")
+            add_result = self._add_sync(query, answer, sources, failed_sources, metadata)
+            if not add_result.get('success'):
+                log_message(
+                    f"⚠️ Vector Cache update: add failed, keeping old entry "
+                    f"(id={old_id})"
+                )
+                return add_result
 
-            # Add new entry with updated data
-            return self._add_sync(query, answer, sources, failed_sources, metadata)
+            try:
+                self.collection.delete(ids=[old_id])
+                log_message(f"🗑️ Replaced cache entry (old id={old_id})")
+            except (ChromaError, ConnectionError, OSError) as e:
+                # Add succeeded but delete failed — log and leave the
+                # stale entry; semantic search will prefer the newer one.
+                log_message(f"⚠️ Cache update: old entry not removed: {e}")
+
+            return add_result
 
         except (ChromaError, ConnectionError, OSError) as e:
             log_message(f"⚠️ Vector Cache update failed: {e}")

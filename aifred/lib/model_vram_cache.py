@@ -41,6 +41,7 @@ Structure:
 import json
 import logging
 import os
+import threading
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -55,6 +56,9 @@ CACHE_FILE = CACHE_DIR / "model_vram_cache.json"
 # In-memory cache with mtime-based invalidation
 _cache: Dict[str, Any] | None = None
 _cache_mtime: float = 0.0
+# Guards read-modify-write sequences (add_vram_measurement, add_vllm_calibration)
+# so two concurrent measurements don't overwrite each other's update.
+_cache_lock = threading.Lock()
 
 
 def ensure_cache_dir() -> None:
@@ -116,16 +120,25 @@ def save_cache(cache: Dict[str, Any]) -> bool:
     global _cache, _cache_mtime
     ensure_cache_dir()
 
+    tmp_path = CACHE_FILE.with_suffix(".json.tmp")
     try:
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+        # Atomic write via tmp + os.replace so a crash mid-write doesn't
+        # leave the cache file truncated/corrupt (which would wipe every
+        # earlier calibration on the next load).
+        with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(cache, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, CACHE_FILE)
         logger.info(f"Saved unified model cache: {len(cache)} models")
         # Invalidate in-memory cache so next load picks up fresh data
         _cache = None
         _cache_mtime = 0.0
         return True
-    except IOError as e:
+    except (IOError, OSError) as e:
         logger.error(f"Failed to save cache file {CACHE_FILE}: {e}")
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         return False
 
 
@@ -161,53 +174,55 @@ def add_vram_measurement(
 
     mb_per_token = vram_used_by_context / context_tokens
 
-    # Load cache
-    cache = load_cache()
+    # Serialise read-modify-write so concurrent measurements don't
+    # overwrite each other.
+    with _cache_lock:
+        cache = load_cache()
 
-    # Initialize model entry if not exists
-    if model_name not in cache:
-        cache[model_name] = {
-            "backend": backend,
-            "architecture": architecture,
-            "native_context": 0,  # Will be updated later
-            "gpu_model": "Unknown",  # Will be updated later
-            "vram_ratio": {
+        # Initialize model entry if not exists
+        if model_name not in cache:
+            cache[model_name] = {
+                "backend": backend,
+                "architecture": architecture,
+                "native_context": 0,  # Will be updated later
+                "gpu_model": "Unknown",  # Will be updated later
+                "vram_ratio": {
+                    "measurements": [],
+                    "avg_mb_per_token": 0.0
+                }
+            }
+
+        # Ensure vram_ratio exists (for migrated entries)
+        if "vram_ratio" not in cache[model_name]:
+            cache[model_name]["vram_ratio"] = {
                 "measurements": [],
                 "avg_mb_per_token": 0.0
             }
+
+        # Update architecture if different
+        cache[model_name]["architecture"] = architecture
+        cache[model_name]["backend"] = backend
+
+        # Add measurement
+        measurement = {
+            "context_tokens": context_tokens,
+            "measured_mb_per_token": round(mb_per_token, 4),
+            "measured_at": datetime.now().isoformat()
         }
+        cache[model_name]["vram_ratio"]["measurements"].append(measurement)
 
-    # Ensure vram_ratio exists (for migrated entries)
-    if "vram_ratio" not in cache[model_name]:
-        cache[model_name]["vram_ratio"] = {
-            "measurements": [],
-            "avg_mb_per_token": 0.0
-        }
+        # Keep only last 10 measurements per model
+        if len(cache[model_name]["vram_ratio"]["measurements"]) > 10:
+            cache[model_name]["vram_ratio"]["measurements"] = \
+                cache[model_name]["vram_ratio"]["measurements"][-10:]
 
-    # Update architecture if different
-    cache[model_name]["architecture"] = architecture
-    cache[model_name]["backend"] = backend
+        # Calculate average MB/token from all measurements
+        measurements = cache[model_name]["vram_ratio"]["measurements"]
+        avg = sum(m["measured_mb_per_token"] for m in measurements) / len(measurements)
+        cache[model_name]["vram_ratio"]["avg_mb_per_token"] = round(avg, 4)
 
-    # Add measurement
-    measurement = {
-        "context_tokens": context_tokens,
-        "measured_mb_per_token": round(mb_per_token, 4),
-        "measured_at": datetime.now().isoformat()
-    }
-    cache[model_name]["vram_ratio"]["measurements"].append(measurement)
-
-    # Keep only last 10 measurements per model
-    if len(cache[model_name]["vram_ratio"]["measurements"]) > 10:
-        cache[model_name]["vram_ratio"]["measurements"] = \
-            cache[model_name]["vram_ratio"]["measurements"][-10:]
-
-    # Calculate average MB/token from all measurements
-    measurements = cache[model_name]["vram_ratio"]["measurements"]
-    avg = sum(m["measured_mb_per_token"] for m in measurements) / len(measurements)
-    cache[model_name]["vram_ratio"]["avg_mb_per_token"] = round(avg, 4)
-
-    # Save cache
-    save_cache(cache)
+        # Save cache
+        save_cache(cache)
 
 
 def get_calibrated_ratio(model_name: str, architecture: str, default_ratio: float) -> float:
@@ -323,61 +338,62 @@ def add_ollama_calibration(
     Returns:
         True if successfully added, False otherwise
     """
-    cache = load_cache()
+    with _cache_lock:
+        cache = load_cache()
 
-    # Initialize model entry if not exists
-    if model_name not in cache:
-        cache[model_name] = {
-            "backend": "ollama",
-            "native_context": native_context,
-            "gpu_model": gpu_model,
-            "ollama_calibrations": []
+        # Initialize model entry if not exists
+        if model_name not in cache:
+            cache[model_name] = {
+                "backend": "ollama",
+                "native_context": native_context,
+                "gpu_model": gpu_model,
+                "ollama_calibrations": []
+            }
+
+        # Ensure ollama_calibrations exists
+        if "ollama_calibrations" not in cache[model_name]:
+            cache[model_name]["ollama_calibrations"] = []
+
+        # Update metadata
+        cache[model_name]["native_context"] = native_context
+        cache[model_name]["gpu_model"] = gpu_model
+
+        # Determine field name based on RoPE factor
+        if rope_factor == 1.0:
+            field_name = "max_context_1.0x"
+            mode_label = "1.0x (native)"
+        elif rope_factor == 1.5:
+            field_name = "max_context_1.5x"
+            mode_label = "1.5x (RoPE)"
+        elif rope_factor == 2.0:
+            field_name = "max_context_2.0x"
+            mode_label = "2.0x (RoPE)"
+        else:
+            field_name = "max_context_1.0x"
+            mode_label = "1.0x (native, fallback)"
+
+        # Add or replace calibration point for this rope_factor
+        calibration = {
+            field_name: max_context_gpu_only,
+            "is_hybrid": is_hybrid,
+            "measured_at": datetime.now().isoformat()
         }
 
-    # Ensure ollama_calibrations exists
-    if "ollama_calibrations" not in cache[model_name]:
-        cache[model_name]["ollama_calibrations"] = []
+        calibrations = cache[model_name]["ollama_calibrations"]
+        for i, cal in enumerate(calibrations):
+            if field_name in cal:
+                calibrations[i] = calibration
+                break
+        else:
+            calibrations.append(calibration)
 
-    # Update metadata
-    cache[model_name]["native_context"] = native_context
-    cache[model_name]["gpu_model"] = gpu_model
+        hybrid_label = " [HYBRID]" if is_hybrid else ""
+        logger.info(
+            f"📊 Ollama calibration saved ({mode_label}{hybrid_label}): {model_name} → "
+            f"{max_context_gpu_only:,} tokens (native: {native_context:,})"
+        )
 
-    # Determine field name based on RoPE factor
-    if rope_factor == 1.0:
-        field_name = "max_context_1.0x"
-        mode_label = "1.0x (native)"
-    elif rope_factor == 1.5:
-        field_name = "max_context_1.5x"
-        mode_label = "1.5x (RoPE)"
-    elif rope_factor == 2.0:
-        field_name = "max_context_2.0x"
-        mode_label = "2.0x (RoPE)"
-    else:
-        field_name = "max_context_1.0x"
-        mode_label = "1.0x (native, fallback)"
-
-    # Add or replace calibration point for this rope_factor
-    calibration = {
-        field_name: max_context_gpu_only,
-        "is_hybrid": is_hybrid,
-        "measured_at": datetime.now().isoformat()
-    }
-
-    calibrations = cache[model_name]["ollama_calibrations"]
-    for i, cal in enumerate(calibrations):
-        if field_name in cal:
-            calibrations[i] = calibration
-            break
-    else:
-        calibrations.append(calibration)
-
-    hybrid_label = " [HYBRID]" if is_hybrid else ""
-    logger.info(
-        f"📊 Ollama calibration saved ({mode_label}{hybrid_label}): {model_name} → "
-        f"{max_context_gpu_only:,} tokens (native: {native_context:,})"
-    )
-
-    return save_cache(cache)
+        return save_cache(cache)
 
 
 def get_ollama_calibration(model_name: str, rope_factor: float = 1.0) -> Optional[int]:
@@ -552,21 +568,22 @@ def set_rope_factor_for_model(model_name: str, rope_factor: float) -> bool:
     Returns:
         True if successfully saved, False otherwise
     """
-    cache = load_cache()
+    with _cache_lock:
+        cache = load_cache()
 
-    # Initialize model entry if not exists
-    if model_name not in cache:
-        cache[model_name] = {
-            "backend": "ollama",
-            "native_context": 0,
-            "gpu_model": "Unknown",
-            "rope_factor": rope_factor
-        }
-    else:
-        cache[model_name]["rope_factor"] = rope_factor
+        # Initialize model entry if not exists
+        if model_name not in cache:
+            cache[model_name] = {
+                "backend": "ollama",
+                "native_context": 0,
+                "gpu_model": "Unknown",
+                "rope_factor": rope_factor
+            }
+        else:
+            cache[model_name]["rope_factor"] = rope_factor
 
-    logger.info(f"📊 Set rope_factor={rope_factor}x for {model_name}")
-    return save_cache(cache)
+        logger.info(f"📊 Set rope_factor={rope_factor}x for {model_name}")
+        return save_cache(cache)
 
 
 def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> bool:
@@ -582,22 +599,23 @@ def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> 
     Returns:
         True if successfully saved, False otherwise
     """
-    cache = load_cache()
+    with _cache_lock:
+        cache = load_cache()
 
-    # Initialize model entry if not exists
-    if model_name not in cache:
-        cache[model_name] = {
-            "backend": "ollama",
-            "native_context": 0,
-            "gpu_model": "Unknown",
-            "supports_thinking": supports_thinking
-        }
-    else:
-        cache[model_name]["supports_thinking"] = supports_thinking
+        # Initialize model entry if not exists
+        if model_name not in cache:
+            cache[model_name] = {
+                "backend": "ollama",
+                "native_context": 0,
+                "gpu_model": "Unknown",
+                "supports_thinking": supports_thinking
+            }
+        else:
+            cache[model_name]["supports_thinking"] = supports_thinking
 
-    status = "✅" if supports_thinking else "⚠️"
-    logger.info(f"{status} Set thinking support={supports_thinking} for {model_name}")
-    return save_cache(cache)
+        status = "✅" if supports_thinking else "⚠️"
+        logger.info(f"{status} Set thinking support={supports_thinking} for {model_name}")
+        return save_cache(cache)
 
 
 def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
@@ -650,21 +668,22 @@ def set_expert_counts(model_name: str, expert_count: int, expert_used_count: int
     Returns:
         True if successfully saved
     """
-    cache = load_cache()
+    with _cache_lock:
+        cache = load_cache()
 
-    if model_name not in cache:
-        cache[model_name] = {
-            "backend": "llamacpp",
-            "native_context": 0,
-            "gpu_model": "",
-        }
+        if model_name not in cache:
+            cache[model_name] = {
+                "backend": "llamacpp",
+                "native_context": 0,
+                "gpu_model": "",
+            }
 
-    cache[model_name]["expert_count"] = expert_count
-    cache[model_name]["expert_used_count"] = expert_used_count
+        cache[model_name]["expert_count"] = expert_count
+        cache[model_name]["expert_used_count"] = expert_used_count
 
-    label = f"MoE ({expert_count}x, {expert_used_count} active)" if expert_count > 1 else "Dense"
-    logger.info(f"📊 Set expert counts for {model_name}: {label}")
-    return save_cache(cache)
+        label = f"MoE ({expert_count}x, {expert_used_count} active)" if expert_count > 1 else "Dense"
+        logger.info(f"📊 Set expert counts for {model_name}: {label}")
+        return save_cache(cache)
 
 
 # ============================================================================
@@ -775,39 +794,40 @@ def add_vllm_calibration(
     Returns:
         True if successfully added, False otherwise
     """
-    cache = load_cache()
+    with _cache_lock:
+        cache = load_cache()
 
-    # Initialize model entry if not exists
-    if model_id not in cache:
-        cache[model_id] = {
-            "backend": "vllm",
-            "architecture": architecture,
-            "native_context": native_context,
-            "gpu_model": gpu_model,
-            "vllm_calibrations": []
+        # Initialize model entry if not exists
+        if model_id not in cache:
+            cache[model_id] = {
+                "backend": "vllm",
+                "architecture": architecture,
+                "native_context": native_context,
+                "gpu_model": gpu_model,
+                "vllm_calibrations": []
+            }
+
+        # Ensure vllm_calibrations exists (for Ollama models)
+        if "vllm_calibrations" not in cache[model_id]:
+            cache[model_id]["vllm_calibrations"] = []
+
+        # Update metadata
+        cache[model_id]["native_context"] = native_context
+        cache[model_id]["gpu_model"] = gpu_model
+        if architecture != "unknown":
+            cache[model_id]["architecture"] = architecture
+
+        # Add calibration point
+        calibration = {
+            "free_vram_mb": free_vram_mb,
+            "max_context": max_context,
+            "measured_at": datetime.now().isoformat()
         }
 
-    # Ensure vllm_calibrations exists (for Ollama models)
-    if "vllm_calibrations" not in cache[model_id]:
-        cache[model_id]["vllm_calibrations"] = []
+        cache[model_id]["vllm_calibrations"].append(calibration)
 
-    # Update metadata
-    cache[model_id]["native_context"] = native_context
-    cache[model_id]["gpu_model"] = gpu_model
-    if architecture != "unknown":
-        cache[model_id]["architecture"] = architecture
-
-    # Add calibration point
-    calibration = {
-        "free_vram_mb": free_vram_mb,
-        "max_context": max_context,
-        "measured_at": datetime.now().isoformat()
-    }
-
-    cache[model_id]["vllm_calibrations"].append(calibration)
-
-    # Save and return result
-    return save_cache(cache)
+        # Save and return result
+        return save_cache(cache)
 
 
 # ============================================================
@@ -857,55 +877,56 @@ def add_llamacpp_calibration(
     Returns:
         True if successfully added, False otherwise
     """
-    cache = load_cache()
+    with _cache_lock:
+        cache = load_cache()
 
-    if model_id not in cache:
-        cache[model_id] = {
-            "backend": "llamacpp",
-            "native_context": native_context,
-            "quantization": quantization,
-            "model_size_gb": model_size_gb,
-            "gpu_model": gpu_model,
-            "gguf_path": gguf_path,
-            "llamacpp_calibrations": []
+        if model_id not in cache:
+            cache[model_id] = {
+                "backend": "llamacpp",
+                "native_context": native_context,
+                "quantization": quantization,
+                "model_size_gb": model_size_gb,
+                "gpu_model": gpu_model,
+                "gguf_path": gguf_path,
+                "llamacpp_calibrations": []
+            }
+
+        if "llamacpp_calibrations" not in cache[model_id]:
+            cache[model_id]["llamacpp_calibrations"] = []
+
+        cache[model_id]["native_context"] = native_context
+        cache[model_id]["quantization"] = quantization
+        cache[model_id]["model_size_gb"] = model_size_gb
+        cache[model_id]["gpu_model"] = gpu_model
+        cache[model_id]["gguf_path"] = gguf_path
+        if gpu_uuids:
+            cache[model_id]["gpu_uuids"] = list(gpu_uuids)
+
+        calibration: Dict[str, Any] = {
+            "max_context": max_context,
+            "ngl": ngl,
+            "mode": mode,
+            "measured_at": datetime.now().isoformat()
         }
+        if speed_split > 0:
+            calibration["speed_split"] = speed_split
+        if vram_per_gpu:
+            calibration["vram_per_gpu"] = vram_per_gpu
+        if ram_cpu_mb and ram_cpu_mb > 0:
+            calibration["ram_cpu_mb"] = ram_cpu_mb
+        if gpu_uuids:
+            calibration["gpu_uuids"] = list(gpu_uuids)
 
-    if "llamacpp_calibrations" not in cache[model_id]:
-        cache[model_id]["llamacpp_calibrations"] = []
+        # Replace all previous calibrations — only the latest matters
+        cache[model_id]["llamacpp_calibrations"] = [calibration]
 
-    cache[model_id]["native_context"] = native_context
-    cache[model_id]["quantization"] = quantization
-    cache[model_id]["model_size_gb"] = model_size_gb
-    cache[model_id]["gpu_model"] = gpu_model
-    cache[model_id]["gguf_path"] = gguf_path
-    if gpu_uuids:
-        cache[model_id]["gpu_uuids"] = list(gpu_uuids)
+        speed_info = f", speed_split={speed_split}:1" if speed_split > 0 else ""
+        logger.info(
+            f"Added llama.cpp calibration for {model_id}: "
+            f"{max_context:,} tokens (native: {native_context:,}, ngl={ngl}, mode={mode}{speed_info})"
+        )
 
-    calibration: Dict[str, Any] = {
-        "max_context": max_context,
-        "ngl": ngl,
-        "mode": mode,
-        "measured_at": datetime.now().isoformat()
-    }
-    if speed_split > 0:
-        calibration["speed_split"] = speed_split
-    if vram_per_gpu:
-        calibration["vram_per_gpu"] = vram_per_gpu
-    if ram_cpu_mb and ram_cpu_mb > 0:
-        calibration["ram_cpu_mb"] = ram_cpu_mb
-    if gpu_uuids:
-        calibration["gpu_uuids"] = list(gpu_uuids)
-
-    # Replace all previous calibrations — only the latest matters
-    cache[model_id]["llamacpp_calibrations"] = [calibration]
-
-    speed_info = f", speed_split={speed_split}:1" if speed_split > 0 else ""
-    logger.info(
-        f"Added llama.cpp calibration for {model_id}: "
-        f"{max_context:,} tokens (native: {native_context:,}, ngl={ngl}, mode={mode}{speed_info})"
-    )
-
-    return save_cache(cache)
+        return save_cache(cache)
 
 
 def get_llamacpp_calibration(model_id: str) -> Optional[int]:
@@ -966,18 +987,19 @@ def update_llamacpp_speed_split(
     Called after speed variant calibration completes (separate from main calibration
     because the speed result arrives after the context result is already saved).
     """
-    cache = load_cache()
-    if model_id not in cache:
-        return False
-    calibrations = cache[model_id].get("llamacpp_calibrations", [])
-    if not calibrations:
-        return False
-    calibrations[-1]["speed_split"] = speed_split
-    calibrations[-1]["speed_split_rest"] = speed_split_rest
-    if speed_split_context > 0:
-        calibrations[-1]["speed_split_context"] = speed_split_context
-    logger.info(f"Updated speed_split={speed_split}:{speed_split_rest} for {model_id}")
-    return save_cache(cache)
+    with _cache_lock:
+        cache = load_cache()
+        if model_id not in cache:
+            return False
+        calibrations = cache[model_id].get("llamacpp_calibrations", [])
+        if not calibrations:
+            return False
+        calibrations[-1]["speed_split"] = speed_split
+        calibrations[-1]["speed_split_rest"] = speed_split_rest
+        if speed_split_context > 0:
+            calibrations[-1]["speed_split_context"] = speed_split_context
+        logger.info(f"Updated speed_split={speed_split}:{speed_split_rest} for {model_id}")
+        return save_cache(cache)
 
 
 def get_llamacpp_speed_split(model_id: str) -> tuple[int, int, int]:

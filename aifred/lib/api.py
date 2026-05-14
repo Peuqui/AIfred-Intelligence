@@ -1301,7 +1301,7 @@ async def oauth_auth_url(provider: str, redirect_uri: str, scopes: str = "") -> 
 async def oauth_disconnect(provider: str) -> dict:
     """Remove stored tokens for a provider."""
     from .oauth import oauth_broker
-    oauth_broker.disconnect(provider)
+    await oauth_broker.disconnect(provider)
     return {"provider": provider, "disconnected": True}
 
 
