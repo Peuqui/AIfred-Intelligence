@@ -6,6 +6,8 @@ Supports Ollama, llama.cpp (via llama-swap), vLLM, and TabbyAPI backends.
 """
 
 import logging
+import re
+import uuid
 from pathlib import Path
 from typing import Tuple, Optional
 
@@ -18,6 +20,22 @@ from .logging_utils import log_message
 IMAGES_BASE_DIR = DATA_DIR / "images"
 
 logger = logging.getLogger(__name__)
+
+_SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+
+def _safe_session_images_dir(session_id: str) -> Optional[Path]:
+    """Return the per-session images dir if session_id is well-formed and
+    the resolved path stays under IMAGES_BASE_DIR, else None."""
+    if not isinstance(session_id, str) or not _SESSION_ID_RE.match(session_id):
+        return None
+    root = IMAGES_BASE_DIR.resolve()
+    candidate = (IMAGES_BASE_DIR / session_id).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
 
 
 def is_vision_model_sync(model_name: str) -> bool:
@@ -603,14 +621,21 @@ def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Pa
     Returns:
         Absolute path to saved file
     """
-    # Ensure session images directory exists
-    images_dir = IMAGES_BASE_DIR / session_id
+    # Ensure session images directory exists (path-traversal-safe)
+    images_dir = _safe_session_images_dir(session_id)
+    if images_dir is None:
+        raise ValueError(f"Unsafe session_id for image storage: {session_id!r}")
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Session-wide sequential number prefix for uniqueness
-    existing = [f for f in images_dir.iterdir() if f.is_file()]
-    next_num = len(existing) + 1
-    file_path = images_dir / f"{next_num:03d}_{filename}"
+    # Strip any path components the caller may have sent and add a short
+    # uuid prefix instead of a `len(existing)+1` counter, which would
+    # race when two uploads arrive concurrently for the same session.
+    safe_filename = Path(filename).name or "image.jpg"
+    file_path = (images_dir / f"{uuid.uuid4().hex[:8]}_{safe_filename}").resolve()
+    try:
+        file_path.relative_to(images_dir.resolve())
+    except ValueError:
+        raise ValueError(f"Unsafe filename for image storage: {filename!r}")
 
     # Write image bytes
     with open(file_path, 'wb') as f:
@@ -871,8 +896,8 @@ def cleanup_session_images(session_id: str) -> int:
     """
     import shutil
 
-    images_dir = IMAGES_BASE_DIR / session_id
-    if not images_dir.exists():
+    images_dir = _safe_session_images_dir(session_id)
+    if images_dir is None or not images_dir.exists():
         return 0
 
     # Count files before deletion

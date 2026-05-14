@@ -201,7 +201,7 @@ class AuthMixin(rx.State, mixin=True):
 
             from ..lib.logging_utils import console_separator
             console_separator()  # File log
-            self.debug_messages.append("────────────────────")  # type: ignore[attr-defined]
+            self.debug_messages = [*self.debug_messages, "────────────────────"]  # type: ignore[attr-defined]
 
             # Set session cookie AND start Audio Bus SSE stream
             from ..lib.browser_storage import set_session_id_script

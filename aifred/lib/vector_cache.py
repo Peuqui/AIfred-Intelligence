@@ -733,9 +733,16 @@ class VectorCache:
         """Synchronous clear implementation"""
         try:
             self.client.delete_collection("research_cache")
+            # Rebuild with the configured embedding function. Without this,
+            # Chroma falls back to its default MiniLM (384-dim) which then
+            # mismatches all subsequent add() calls expecting 1024-dim bge-m3.
             self.collection = self.client.get_or_create_collection(
                 name="research_cache",
-                metadata={"description": "AIfred web research results with semantic search"}
+                metadata={
+                    "description": "AIfred web research results with semantic search",
+                    "embedding_model": OLLAMA_EMBEDDING_MODEL,
+                },
+                embedding_function=self.embedding_function,  # type: ignore[arg-type]
             )
             log_message("🗑️  Vector Cache cleared")
             return {'success': True}

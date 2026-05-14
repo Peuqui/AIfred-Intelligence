@@ -189,9 +189,17 @@ class DocumentMixin(rx.State, mixin=True):
         try:
             target_dir = DOCUMENTS_DIR / self.doc_current_folder
             target_dir.mkdir(parents=True, exist_ok=True)
+            target_root = DOCUMENTS_DIR.resolve()
 
             for file in files:
-                filename = file.filename or "unknown.txt"
+                raw_filename = file.filename or "unknown.txt"
+                # Strip any directory components the client may have sent
+                # (Path.name discards "../" and absolute prefixes).
+                filename = Path(raw_filename).name
+                if not filename or filename in (".", ".."):
+                    self.add_debug(f"⚠️ Document rejected (bad filename): {raw_filename!r}")  # type: ignore[attr-defined]
+                    yield  # type: ignore[misc]
+                    continue
                 suffix = Path(filename).suffix.lower()
 
                 # Validate extension
@@ -217,8 +225,15 @@ class DocumentMixin(rx.State, mixin=True):
                     yield  # type: ignore[misc]
                     continue
 
-                # Save to disk (in current folder)
-                file_path = target_dir / filename
+                # Save to disk (in current folder). Defense-in-depth: resolve
+                # and reject if the final path escapes DOCUMENTS_DIR.
+                file_path = (target_dir / filename).resolve()
+                try:
+                    file_path.relative_to(target_root)
+                except ValueError:
+                    self.add_debug(f"⚠️ Document rejected (path escape): {raw_filename!r}")  # type: ignore[attr-defined]
+                    yield  # type: ignore[misc]
+                    continue
                 file_path.write_bytes(content)
 
                 self.document_upload_status = t(

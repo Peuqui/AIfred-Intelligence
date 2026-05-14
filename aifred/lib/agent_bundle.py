@@ -45,6 +45,9 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 ConflictStrategy = Literal["abort", "overwrite", "rename"]
 
 _AGENT_ID_RE = re.compile(r"^[a-z0-9_]+$")
+# Whitelist for files inside agents/<id>/prompts/<lang>/ and voices/<engine>/.
+# Strict to keep ZIP-import from writing weird filenames into prompts/voices.
+_BUNDLE_FILE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -305,6 +308,7 @@ def import_bundle(
 
             agents[effective_id] = config
 
+            prompts_root = PROMPTS_DIR.resolve()
             for member in zf.namelist():
                 prefix = f"{base}/prompts/"
                 if not member.startswith(prefix):
@@ -313,9 +317,18 @@ def import_bundle(
                 parts = rest.split("/")
                 if len(parts) != 2 or parts[0] not in ("de", "en"):
                     continue
+                if not _BUNDLE_FILE_RE.match(parts[1]):
+                    warnings.append(f"Skipped unsafe prompt filename: {member}")
+                    continue
                 target_dir = PROMPTS_DIR / parts[0] / effective_id
                 target_dir.mkdir(parents=True, exist_ok=True)
-                (target_dir / parts[1]).write_bytes(zf.read(member))
+                target_path = (target_dir / parts[1]).resolve()
+                try:
+                    target_path.relative_to(prompts_root)
+                except ValueError:
+                    warnings.append(f"Skipped prompt outside prompts/: {member}")
+                    continue
+                target_path.write_bytes(zf.read(member))
 
             if effective_id != bundle_id:
                 renamed: dict = {}
@@ -348,12 +361,21 @@ def import_bundle(
             if len(parts) != 3:
                 continue
             bundle_dir, filename = parts[1], parts[2]
+            if not _BUNDLE_FILE_RE.match(filename):
+                warnings.append(f"Skipped unsafe voice filename: {member}")
+                continue
             target_dir = _engine_voice_dir(bundle_dir)
             if target_dir is None:
                 warnings.append(f"Unbekannter Voice-Engine-Pfad: {member}")
                 continue
             target_dir.mkdir(parents=True, exist_ok=True)
-            target = target_dir / filename
+            voice_root = target_dir.resolve()
+            target = (target_dir / filename).resolve()
+            try:
+                target.relative_to(voice_root)
+            except ValueError:
+                warnings.append(f"Skipped voice outside engine dir: {member}")
+                continue
             if target.exists():
                 warnings.append(
                     f"Voice '{bundle_dir}/{filename}' existierte schon — übersprungen."

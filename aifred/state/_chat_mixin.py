@@ -72,10 +72,10 @@ class ChatMixin(rx.State, mixin=True):
         timestamp = _dt.datetime.now().strftime("%H:%M:%S")
         formatted_msg = f"{timestamp} | {message}"
 
-        # Reflex State list (live browser UI via WebSocket)
-        self.debug_messages.append(formatted_msg)
-        if len(self.debug_messages) > DEBUG_MESSAGES_MAX:
-            self.debug_messages = self.debug_messages[-DEBUG_MESSAGES_MAX:]
+        # Reflex State list (live browser UI via WebSocket).
+        # Reassign instead of .append() — Reflex only fires the reactive
+        # update path on identity change, not on in-place mutation.
+        self.debug_messages = [*self.debug_messages, formatted_msg][-DEBUG_MESSAGES_MAX:]
 
         # Debug Bus (logfile + optional session persistence)
         _debug(message)
@@ -225,10 +225,11 @@ class ChatMixin(rx.State, mixin=True):
         clean_content = strip_thinking_blocks(content)
 
         if clean_content:
-            self._chat_sub().llm_history.append({
-                "role": "assistant",
-                "content": f"[{label}]: {clean_content}"
-            })
+            ch = self._chat_sub()
+            ch.llm_history = [
+                *ch.llm_history,
+                {"role": "assistant", "content": f"[{label}]: {clean_content}"},
+            ]
 
     # ── Central Agent Panel ──────────────────────────────────────────
 
@@ -321,8 +322,10 @@ class ChatMixin(rx.State, mixin=True):
         new_message["has_audio"] = bool(audio_urls)
         new_message["audio_urls_json"] = json.dumps(audio_urls) if audio_urls else "[]"
 
-        # 5. Append to chat_history (no more replace_last!)
-        self._chat_sub().chat_history.append(new_message)
+        # 5. Append to chat_history (no more replace_last!).
+        # Reassign instead of .append() so Reflex picks up the change.
+        ch = self._chat_sub()
+        ch.chat_history = [*ch.chat_history, new_message]
 
         # 6. Sync to llm_history (with speaker label)
         # Note: Some callers (streaming functions) already sync to llm_history,
@@ -699,23 +702,27 @@ class ChatMixin(rx.State, mixin=True):
                 # Text + images
                 display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
 
-        self._chat_sub().chat_history.append({
-            "role": "user",
-            "content": display_user_msg,
-            "agent": "",
-            "mode": "",
-            "round_num": 0,
-            "metadata": {
-                "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []  # type: ignore[attr-defined]
+        ch = self._chat_sub()
+        ch.chat_history = [
+            *ch.chat_history,
+            {
+                "role": "user",
+                "content": display_user_msg,
+                "agent": "",
+                "mode": "",
+                "round_num": 0,
+                "metadata": {
+                    "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []  # type: ignore[attr-defined]
+                },
+                "timestamp": datetime.now().isoformat(),
+                "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
+                "used_sources": [],
+                "failed_sources": [],
+                "has_audio": False,
+                "audio_urls_json": "[]",
             },
-            "timestamp": datetime.now().isoformat(),
-            "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
-            "used_sources": [],
-            "failed_sources": [],
-            "has_audio": False,
-            "audio_urls_json": "[]",
-        })
-        self._chat_sub().llm_history.append({"role": "user", "content": user_msg})
+        ]
+        ch.llm_history = [*ch.llm_history, {"role": "user", "content": user_msg}]
         self.add_debug("📨 User request received")
 
         # ============================================================
@@ -1114,24 +1121,28 @@ class ChatMixin(rx.State, mixin=True):
                         _name = _cfg.display_name if _cfg else _active.capitalize()
                         confirm_parts.append(f"Agent: {_name}")
                     confirm_text = f"✅ **{' · '.join(confirm_parts)}**"
-                    self._chat_sub().chat_history.append({
-                        "role": "assistant",
-                        "content": confirm_text,
-                        "agent": "system",
-                        "mode": "mode_switch",
-                        "round_num": 0,
-                        "metadata": {},
-                        "timestamp": _dt.now().isoformat(),
-                        "time_display": _dt.now().strftime("%d.%m. \u2014 %H:%M"),
-                        "used_sources": [],
-                        "failed_sources": [],
-                        "has_audio": False,
-                        "audio_urls_json": "[]",
-                    })
-                    self._chat_sub().llm_history.append({
-                        "role": "assistant",
-                        "content": confirm_text,
-                    })
+                    ch = self._chat_sub()
+                    ch.chat_history = [
+                        *ch.chat_history,
+                        {
+                            "role": "assistant",
+                            "content": confirm_text,
+                            "agent": "system",
+                            "mode": "mode_switch",
+                            "round_num": 0,
+                            "metadata": {},
+                            "timestamp": _dt.now().isoformat(),
+                            "time_display": _dt.now().strftime("%d.%m. \u2014 %H:%M"),
+                            "used_sources": [],
+                            "failed_sources": [],
+                            "has_audio": False,
+                            "audio_urls_json": "[]",
+                        },
+                    ]
+                    ch.llm_history = [
+                        *ch.llm_history,
+                        {"role": "assistant", "content": confirm_text},
+                    ]
                     self._save_current_session()
                     yield
                     return
