@@ -834,6 +834,25 @@ genannten Optimierungen besser ausgenutzt werden könnte.
 - [ ] Inbound-Sanitization Strictness pro Channel konfigurierbar
 - [ ] Session Memory Sanitization nach Job-Ende
 - [ ] Audit-Log UI Filter (Channel, Tool, Zeitraum)
+- [ ] **prompt_loader: Cross-Pipeline Sprach-Race aufloesen.** Heute setzt
+  `aifred/lib/research/context_builder.py:157` mit `set_language(detected_user_language)`
+  ein Modul-Global (`_current_language` in `prompt_loader.py`), das von
+  nachgelagerten Pipeline-Stufen ueber `get_language()` wieder gelesen wird
+  (multi_agent.py:702/974/1232, llm_engine.py:395, i18n.py:1057/1092/1118,
+  _chat_mixin.py:807/917). Wenn waehrend einer laufenden Inferenz ein zweiter
+  Pipeline-Lauf in einer anderen Sprache startet (Browser-Tab DE + Mail EN
+  parallel), ueberschreibt der zweite den Modul-Global → der erste liest
+  beim Sokrates/Salomo-Prompt-Aufbau die falsche Sprache und antwortet
+  inkonsistent. Auch user_name/user_gender/personality/reasoning sind als
+  Modul-Globals dort gleich riskant, heute aber praktisch egal, weil
+  settings.json prozess-weit ist (alle Tabs sehen dieselben Werte).
+  **Loesung:** `set_language()` aus context_builder rausziehen und
+  `detected_language` als expliziten Parameter durch ALLE nachgelagerten
+  Pipeline-Stufen reichen. Multi-Agent-API, generate_session_title,
+  Hub-Notification-Builder und die i18n-Calls brauchen den Parameter.
+  Aufwand ~1h sauber, Risiko: eine vergessene Stelle laesst den
+  Sprach-Default greifen. Schaden heute: Symptom-Bug (gelegentliche
+  Sprach-Mismatch im Multi-Channel-Setup), kein Datenverlust.
 
 ---
 
