@@ -484,9 +484,13 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", llm_
         """Tool executor: fetch and extract content from a specific URL."""
         from .tools.registry import scrape_webpage
         from .logging_utils import log_message
+        from .security import UnsafeURLError, validate_external_url
 
-        if not url or not url.startswith(("http://", "https://")):
-            return json.dumps({"error": f"Invalid URL: {url}"})
+        try:
+            validate_external_url(url)
+        except UnsafeURLError as e:
+            log_message(f"🛑 web_fetch blocked: {e}", "warning")
+            return json.dumps({"error": f"URL rejected: {e}"})
 
         log_message(f"🌐 web_fetch: {url}")
         result = scrape_webpage(url)

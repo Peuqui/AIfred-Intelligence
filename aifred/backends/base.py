@@ -586,6 +586,12 @@ class OpenAICompatibleBackend(LLMBackend):
         start_time = time.monotonic()
         last_error: Optional[Exception] = None
 
+        # Once we have yielded anything to the caller, retries are no longer
+        # safe: the caller has already received partial output (content chunks,
+        # tool_call/tool_result with side effects). Restarting the stream
+        # would duplicate content and re-execute non-idempotent tools.
+        yielded_any = False
+
         while time.monotonic() - start_time < retry_timeout:
             try:
                 from ..lib.timer import Timer
@@ -625,12 +631,14 @@ class OpenAICompatibleBackend(LLMBackend):
                                             tool_calls[idx]["name"] = tc_delta.function.name
                                             # Notify UI immediately when tool name is known
                                             yield {"type": "tool_call_start", "name": tc_delta.function.name}
+                                            yielded_any = True
                                         if tc_delta.function.arguments:
                                             tool_calls[idx]["arguments"] += tc_delta.function.arguments
 
                             # Normal content/thinking chunks
                             for item in self._process_stream_delta(delta, delta_dict, stream_state):
                                 yield item
+                                yielded_any = True
                                 if item.get("type") == "content":
                                     total_tokens += 1
                                     stream_state.setdefault("_content_acc", "")
@@ -643,6 +651,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     for item in self._finalize_stream(stream_state):
                         yield item
+                        yielded_any = True
 
                     # Fallback: extract tool calls from text content for models
                     # that emit them as text instead of using the structured
@@ -691,6 +700,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     for tc in tool_calls:
                         yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"][:200]}
+                        yielded_any = True
                         # Use execute_streaming so streaming tools (web_search,
                         # search_documents, …) can emit tool_progress events
                         # while they run. Non-streaming tools just yield a
@@ -756,6 +766,7 @@ class OpenAICompatibleBackend(LLMBackend):
                                     delta_dict["reasoning_content"] = delta.model_extra["reasoning_content"]
                             for item in self._process_stream_delta(delta, delta_dict, stream_state):
                                 yield item
+                                yielded_any = True
                                 if item.get("type") == "content":
                                     total_tokens += 1
                         if hasattr(chunk, "usage") and chunk.usage:
@@ -764,6 +775,7 @@ class OpenAICompatibleBackend(LLMBackend):
                             server_timings = self._extract_server_timings(chunk)
                     for item in self._finalize_stream(stream_state):
                         yield item
+                        yielded_any = True
 
                 inference_time = timer.elapsed()
 
@@ -778,6 +790,10 @@ class OpenAICompatibleBackend(LLMBackend):
 
             except Exception as e:
                 last_error = e
+                # Stream already emitted output → retrying would duplicate it
+                # (and re-execute tool side effects). Surface immediately.
+                if yielded_any:
+                    raise self._classify_error(e, model)
                 elapsed = time.monotonic() - start_time
                 remaining = retry_timeout - elapsed
                 if remaining > retry_delay:

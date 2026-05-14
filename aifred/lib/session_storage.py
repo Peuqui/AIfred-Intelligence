@@ -15,10 +15,13 @@ Users can access their sessions from any device via username + password.
 import os
 import json
 import hashlib
+import hmac
 import secrets
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+
+import bcrypt
 
 from .config import DATA_DIR
 
@@ -243,6 +246,9 @@ def verify_account(username: str, password: str) -> bool:
     """
     Verify username + password combination.
 
+    On success, transparently upgrades legacy SHA-256 hashes to bcrypt
+    so old accounts migrate without the user having to reset.
+
     Args:
         username: Username (case-insensitive)
         password: Password to verify
@@ -259,7 +265,18 @@ def verify_account(username: str, password: str) -> bool:
     if not password_hash:
         return False
 
-    return verify_password(password, password_hash)
+    if not verify_password(password, password_hash):
+        return False
+
+    if _is_legacy_hash(password_hash):
+        try:
+            accounts[username.lower()] = hash_password(password)
+            _save_accounts(accounts)
+        except (OSError, ValueError):
+            # Upgrade is best-effort; authentication has already succeeded.
+            pass
+
+    return True
 
 
 def change_account_password(username: str, old_password: str, new_password: str) -> bool:
@@ -678,15 +695,17 @@ def set_session_active_agent(session_id: str, agent_id: str) -> bool:
     return update_session_config(session_id, active_agent=agent_id)
 
 
-def delete_session(session_id: str) -> bool:
+def delete_session(session_id: str, expected_owner: Optional[str] = None) -> bool:
     """
     Delete session completely, including associated images and audio.
 
     Args:
         session_id: Session identifier
+        expected_owner: If set, only delete when the session's owner field
+            matches this username (case-insensitive). Returns False on mismatch.
 
     Returns:
-        True on success
+        True on success, False on owner mismatch / not found / error.
     """
     try:
         session_path = get_session_path(session_id)
@@ -695,10 +714,17 @@ def delete_session(session_id: str) -> bool:
         if session_path.exists():
             try:
                 session_data = json.loads(session_path.read_text(encoding="utf-8"))
+                if expected_owner is not None:
+                    actual_owner = str(session_data.get("owner", "")).lower()
+                    if actual_owner != expected_owner.lower():
+                        return False
                 from .formatting import cleanup_session_html
                 cleanup_session_html(session_data)
             except (json.JSONDecodeError, OSError):
-                pass
+                # If we cannot read the file but an owner check was requested,
+                # refuse to delete — fail safe.
+                if expected_owner is not None:
+                    return False
             session_path.unlink()
 
         # Clean up orphan .pending flag (if any) — prevents stale message injection
@@ -730,33 +756,56 @@ def delete_session(session_id: str) -> bool:
 # Password Hashing Functions
 # ============================================================
 
+_BCRYPT_PREFIX = "bcrypt:"
+_LEGACY_SHA256_PREFIX = "sha256:"
+_BCRYPT_ROUNDS = 12
+
+
 def hash_password(password: str) -> str:
     """
-    Hash password with SHA-256.
+    Hash password with bcrypt (cost=12, per-password salt).
 
     Args:
         password: Plaintext password
 
     Returns:
-        Hash string in format "sha256:..."
+        Hash string in format "bcrypt:..." (legacy "sha256:..." hashes
+        from previous versions are still verifiable via verify_password
+        and are transparently upgraded by verify_account on next login).
     """
-    return f"sha256:{hashlib.sha256(password.encode()).hexdigest()}"
+    digest = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(_BCRYPT_ROUNDS))
+    return f"{_BCRYPT_PREFIX}{digest.decode('ascii')}"
+
+
+def _is_legacy_hash(password_hash: str) -> bool:
+    """True if the stored hash uses the legacy unsalted SHA-256 scheme."""
+    return bool(password_hash) and password_hash.startswith(_LEGACY_SHA256_PREFIX)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     """
     Verify password against stored hash.
 
-    Args:
-        password: Plaintext password to check
-        password_hash: Stored hash
-
-    Returns:
-        True if password is correct
+    Supports the current bcrypt scheme and the legacy unsalted SHA-256
+    scheme. Constant-time compare in both branches.
     """
-    if not password_hash or not password_hash.startswith("sha256:"):
+    if not password or not password_hash:
         return False
-    return hash_password(password) == password_hash
+
+    if password_hash.startswith(_BCRYPT_PREFIX):
+        try:
+            return bcrypt.checkpw(
+                password.encode("utf-8"),
+                password_hash[len(_BCRYPT_PREFIX):].encode("ascii"),
+            )
+        except (ValueError, TypeError):
+            return False
+
+    if password_hash.startswith(_LEGACY_SHA256_PREFIX):
+        legacy = f"{_LEGACY_SHA256_PREFIX}{hashlib.sha256(password.encode()).hexdigest()}"
+        return hmac.compare_digest(legacy, password_hash)
+
+    return False
 
 
 # ============================================================
