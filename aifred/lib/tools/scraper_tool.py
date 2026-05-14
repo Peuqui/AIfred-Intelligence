@@ -18,6 +18,7 @@ import requests
 from .base import BaseTool
 from ..logging_utils import log_message
 from ..config import PLAYWRIGHT_FALLBACK_THRESHOLD
+from ..security import UnsafeURLError, validate_external_url
 
 # Optional: PyMuPDF for PDF extraction (best quality)
 try:
@@ -79,6 +80,21 @@ class WebScraperTool(BaseTool):
 
         # Internally we use 'url' for clarity
         url = query
+
+        # SSRF protection: reject URLs that resolve to private/loopback/reserved
+        # addresses. Note: this validates the initial URL only. Redirect targets
+        # are followed by trafilatura/Playwright without re-validation — that
+        # residual risk is accepted for now (no DNS-rebinding hardening here).
+        try:
+            validate_external_url(url)
+        except UnsafeURLError as e:
+            log_message(f"🛑 Scraper blocked unsafe URL: {e}", "warning")
+            return {
+                'success': False,
+                'method': 'blocked',
+                'source': url,
+                'error': f"URL rejected: {e}",
+            }
 
         # ============================================================
         # STEP 0: PDF detection (Content-Type header check)

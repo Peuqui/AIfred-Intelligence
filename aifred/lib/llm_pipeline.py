@@ -76,17 +76,21 @@ async def chat_stream_with_retry(
     """
     attempt = 0
     last_error = None
+    # Once a chunk has been forwarded to the caller, retrying would duplicate
+    # content downstream (chat history, TTS, browser). Bail out instead.
+    yielded_any = False
 
     while attempt <= max_retries:
         try:
             async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit):
                 yield chunk
+                yielded_any = True
             return
         except Exception as e:
             error_str = str(e)
             is_500_error = "500" in error_str and ("Internal Server Error" in error_str or "Server error" in error_str)
 
-            if is_500_error and attempt < max_retries:
+            if is_500_error and attempt < max_retries and not yielded_any:
                 log_message(f"⚠️ {agent_label}: 500 Error - retrying in {retry_delay}s...")
                 if on_debug:
                     on_debug(f"⚠️ {agent_label}: 500 Error (attempt {attempt + 1}/{max_retries + 1}) - {error_str}")

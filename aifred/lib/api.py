@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 import asyncio
+import html as _html
 import subprocess
 import time
 
@@ -1247,7 +1248,7 @@ async def oauth_callback(provider: str, request: Request, code: str = "", state:
 
     if error:
         return HTMLResponse(
-            f"<html><body><h2>❌ OAuth abgebrochen</h2><p>{error}</p>"
+            f"<html><body><h2>❌ OAuth abgebrochen</h2><p>{_html.escape(error)}</p>"
             "<p>Du kannst dieses Fenster schließen.</p></body></html>",
             status_code=400,
         )
@@ -1262,13 +1263,13 @@ async def oauth_callback(provider: str, request: Request, code: str = "", state:
         await oauth_broker.handle_callback(state, code)
         return HTMLResponse(
             f"<html><body style='font-family:sans-serif;padding:2rem'>"
-            f"<h2>✅ {provider.capitalize()} verbunden!</h2>"
+            f"<h2>✅ {_html.escape(provider.capitalize())} verbunden!</h2>"
             "<p>Tokens gespeichert. Du kannst dieses Fenster schließen.</p>"
             "</body></html>"
         )
     except Exception as exc:
         return HTMLResponse(
-            f"<html><body><h2>❌ Fehler</h2><p>{exc}</p></body></html>",
+            f"<html><body><h2>❌ Fehler</h2><p>{_html.escape(str(exc))}</p></body></html>",
             status_code=400,
         )
 

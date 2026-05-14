@@ -332,9 +332,16 @@ async def _execute_job(job: Job) -> None:
     from .session_storage import create_empty_session
     from .config import MESSAGE_HUB_OWNER
 
-    # Create isolated session
-    session_id = f"sched_{job.job_id}_{secrets.token_hex(8)}"
-    create_empty_session(session_id, owner=MESSAGE_HUB_OWNER)
+    # Isolated session per run. ID must match the sanitizer regex
+    # ^[a-f0-9]{32}$ in session_storage; job linkage stays in the Job record.
+    session_id = secrets.token_hex(16)
+    if not create_empty_session(session_id, owner=MESSAGE_HUB_OWNER):
+        log_message(
+            f"Scheduler: could not create session for job '{job.name}' "
+            f"(session_id={session_id[:8]})",
+            "error",
+        )
+        return
 
     message = job.payload.get("message", "")
     agent = job.payload.get("agent", "aifred")
@@ -535,17 +542,18 @@ def _deliver_review(job: Job, response_text: str, session_id: str) -> None:
 async def _deliver_webhook(job: Job, response_text: str) -> None:
     """POST result to an external URL."""
     import aiohttp
-    from urllib.parse import urlparse
+    from .security import UnsafeURLError, validate_external_url
 
     url = job.payload.get("webhook_url", "")
     if not url:
         log_message(f"Scheduler: job '{job.name}' webhook has no URL configured", "warning")
         return
 
-    # Schema-Whitelist: only http/https — refuse file://, ftp://, gopher://, etc.
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        log_message(f"Scheduler: webhook URL rejected (invalid scheme): {url}", "error")
+    # SSRF protection: schema + private/loopback/reserved-IP rejection.
+    try:
+        validate_external_url(url)
+    except UnsafeURLError as e:
+        log_message(f"Scheduler: webhook URL rejected: {e}", "error")
         return
 
     payload = {

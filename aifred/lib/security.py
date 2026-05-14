@@ -9,14 +9,17 @@ Provides:
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
+import socket
 import sqlite3
 import unicodedata
 from html.parser import HTMLParser
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from .function_calling import Tool
@@ -415,6 +418,87 @@ def _ensure_audit_db(conn: sqlite3.Connection) -> None:
     """)
     conn.commit()
     _audit_db_initialized = True
+
+
+# ============================================================
+# SSRF PROTECTION
+# ============================================================
+
+class UnsafeURLError(ValueError):
+    """Raised when an outbound URL targets a non-public address."""
+
+
+def validate_external_url(url: str) -> str:
+    """Validate that *url* points to a public Internet host.
+
+    Resolves the hostname via DNS (A + AAAA) and rejects the URL if any
+    resolved address is private, loopback, link-local, reserved,
+    multicast or unspecified. Returns the first resolved IP (caller may
+    use it to pin the connection against DNS-rebinding by re-validating
+    after each redirect).
+
+    Raises :class:`UnsafeURLError` on any failure. Callers MUST use this
+    before issuing requests against user/LLM-supplied URLs and MUST
+    re-validate every redirect target.
+    """
+    if not isinstance(url, str) or not url:
+        raise UnsafeURLError("URL must be a non-empty string")
+
+    try:
+        parsed = urlparse(url)
+    except ValueError as e:
+        raise UnsafeURLError(f"Malformed URL: {e}") from e
+
+    if parsed.scheme not in ("http", "https"):
+        raise UnsafeURLError(
+            f"Only http/https allowed, got scheme {parsed.scheme!r}"
+        )
+
+    if not parsed.hostname:
+        raise UnsafeURLError("URL has no hostname")
+
+    if parsed.username or parsed.password:
+        raise UnsafeURLError("URLs with embedded credentials are not allowed")
+
+    host = parsed.hostname
+
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except (socket.gaierror, OSError) as e:
+        raise UnsafeURLError(f"DNS resolution failed for {host!r}: {e}") from e
+
+    if not infos:
+        raise UnsafeURLError(f"No address records for {host!r}")
+
+    first_ip: str | None = None
+    for _family, _stype, _proto, _canon, sockaddr in infos:
+        ip_str = str(sockaddr[0])
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError as e:
+            raise UnsafeURLError(f"DNS returned invalid address {ip_str!r}") from e
+
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise UnsafeURLError(
+                f"URL {host!r} resolves to non-public address {ip_str}"
+            )
+        if first_ip is None:
+            first_ip = ip_str
+
+    assert first_ip is not None
+    return first_ip
+
+
+# ============================================================
+# AUDIT LOG (continued)
+# ============================================================
 
 
 def audit_log(

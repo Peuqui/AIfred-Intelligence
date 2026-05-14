@@ -375,9 +375,12 @@ class OllamaBackend(LLMBackend):
             # Unknown or known to support - use user preference
             payload["think"] = options.enable_thinking if options.enable_thinking is not None else False
 
-        # Retry loop: try once, retry with think=false if needed
+        # Retry loop: try once, retry with think=false if needed.
+        # IMPORTANT: only retry while nothing has been yielded yet. Once the
+        # caller has seen a chunk, a retry would duplicate content.
         retry_message_shown = False
         first_content_sent = False
+        yielded_any = False
         for attempt in range(2):
 
             try:
@@ -387,13 +390,13 @@ class OllamaBackend(LLMBackend):
 
                 async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
                     # Check for 400 error with thinking mode BEFORE raise_for_status
-                    if response.status_code == 400 and options.enable_thinking and attempt == 0:
+                    if response.status_code == 400 and options.enable_thinking and attempt == 0 and not yielded_any:
                         # Read error body while stream is still open
                         import json
                         error_body = await response.aread()
                         error_data = json.loads(error_body.decode('utf-8'))
                         error_msg = error_data.get("error", "")
-                        
+
                         if "does not support thinking" in error_msg:
                             log_message(f"⚠️ Model '{model}' does not support thinking mode, retrying with think=false")
                             # Set payload for retry
@@ -406,7 +409,7 @@ class OllamaBackend(LLMBackend):
                         raise BackendModelNotFoundError(f"Model '{model}' not found")
                     elif response.status_code >= 400:
                         response.raise_for_status()
-                    
+
                     # Process stream
                     async for line in response.aiter_lines():
                         if line.strip():
@@ -416,21 +419,24 @@ class OllamaBackend(LLMBackend):
                                 message = data.get("message", {})
                                 content = message.get("content", "")
                                 thinking = message.get("thinking", "")
-                                
+
                                 # Handle thinking chunks
                                 if thinking:
                                     if not thinking_started:
                                         yield {"type": "content", "text": "<think>"}
+                                        yielded_any = True
                                         thinking_started = True
                                     thinking_buffer += thinking
                                     yield {"type": "content", "text": thinking}
-                                
+                                    yielded_any = True
+
                                 # Handle content chunks
                                 if content:
                                     # Show retry message and warning before first content (only on attempt 1)
                                     if not first_content_sent and attempt == 1 and not retry_message_shown:
                                         yield {"type": "thinking_warning", "model": model}
                                         yield {"type": "debug", "message": f"⚠️ Model '{model}' doesn't support reasoning - running without think mode"}
+                                        yielded_any = True
                                         retry_message_shown = True
                                         first_content_sent = True
 
@@ -439,7 +445,8 @@ class OllamaBackend(LLMBackend):
                                         thinking_started = False
                                         thinking_buffer = ""
                                     yield {"type": "content", "text": content}
-                                
+                                    yielded_any = True
+
                                 # Check if done - extract metrics
                                 if data.get("done", False):
                                     inference_time = timer.elapsed()
@@ -465,8 +472,14 @@ class OllamaBackend(LLMBackend):
                             except json.JSONDecodeError as e:
                                 logger.warning(f"Invalid JSON in Ollama stream: {line[:100]}... Error: {e}")
                                 continue
-            
+
             except httpx.HTTPStatusError as e:
+                # Surface immediately once anything has been yielded, regardless
+                # of status code — a retry would re-emit the same chunks.
+                if yielded_any:
+                    if e.response.status_code == 404:
+                        raise BackendModelNotFoundError(f"Model '{model}' not found")
+                    raise BackendInferenceError(f"Ollama streaming error: {e}")
                 # If this is attempt 0 and might be thinking-related, loop will retry
                 # If this is attempt 1 or not thinking-related, raise the error
                 if attempt == 1 or not (e.response.status_code == 400 and options.enable_thinking):

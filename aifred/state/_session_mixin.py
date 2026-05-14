@@ -90,28 +90,21 @@ class SessionMixin(rx.State, mixin=True):
                 self.new_session()
             return
 
-        # Update session_id and load session data
+        # Update session_id, then restore full session state through the
+        # central path so active_agent, multi_agent_mode, symposion_agents,
+        # research_mode and audio state are picked up correctly.
         self.session_id = session_id
-        data = session.get("data", {})
 
-        # Load debug messages first (so subsequent add_debug calls are preserved)
-        saved_debug = data.get("debug_messages", [])
+        # Clear stale debug messages from the previous session before
+        # _restore_session merges saved ones with whatever is currently
+        # in self.debug_messages.
+        self.debug_messages = []  # type: ignore[attr-defined]
 
-        # Load chat history
-        chat_history = data.get("chat_history", [])
-        ch = self._chat_sub()
-        ch.chat_history = chat_history
-        ch.llm_history = data.get("llm_history", [])
+        self._restore_session(session)
+        self.session_restored = True
 
-        # Normalize URLs to relative paths (fixes port-dependent image loading)
-        self._normalize_upload_urls()  # type: ignore[attr-defined]
-
-        # Restore debug messages and add load info
-        self.debug_messages = saved_debug  # type: ignore[attr-defined]
+        chat_history = self._chat_sub().chat_history
         self.add_debug(f"Loaded {len(chat_history)} messages")  # type: ignore[attr-defined]
-
-        # Update session title
-        self.current_session_title = data.get("title", "")
 
         # Clear streaming state
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
@@ -130,7 +123,7 @@ class SessionMixin(rx.State, mixin=True):
         return rx.call_script(set_session_id_script(session_id))
 
     def delete_session(self, session_id: str):
-        """Delete a session (cannot delete current session)."""
+        """Delete a session (cannot delete current session, owner-only)."""
         from ..lib.session_storage import delete_session as storage_delete_session
         from ..lib.logging_utils import log_message
 
@@ -139,13 +132,22 @@ class SessionMixin(rx.State, mixin=True):
             self.add_debug("Cannot delete current session")  # type: ignore[attr-defined]
             return
 
-        # Delete session
-        if storage_delete_session(session_id):
+        # Must be logged in to delete a session, and only the owner may.
+        owner = self.logged_in_user  # type: ignore[attr-defined]
+        if not owner:
+            self.add_debug("Not logged in")  # type: ignore[attr-defined]
+            return
+
+        if storage_delete_session(session_id, expected_owner=owner):
             log_message(f"Deleted session: {session_id[:8]}...")
             self.add_debug("Session deleted")  # type: ignore[attr-defined]
-            # Refresh list
             self.refresh_session_list()
         else:
+            log_message(
+                f"Refused to delete session {session_id[:8]}...: "
+                f"not owned by '{owner}' or not found",
+                "warning",
+            )
             self.add_debug("Failed to delete session")  # type: ignore[attr-defined]
 
     # ── Session Load / Restore ───────────────────────────────────────

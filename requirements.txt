@@ -26,6 +26,7 @@ numpy>=1.24.0           # Required by chromadb embeddings
 # Backend Calibration & OAuth (direct imports — pin even if transitively present)
 PyYAML>=6.0             # llama-swap config read/write (aifred/lib/calibration/llamaswap_io.py)
 cryptography>=42.0      # Fernet token encryption for OAuth (aifred/lib/oauth/broker.py)
+bcrypt>=4.0             # Account password hashing (aifred/lib/session_storage.py)
 
 # Channel & Tool Plugins (eager-loaded at startup — missing pkg disables plugin)
 discord.py>=2.3         # Discord channel plugin (plugins/channels/discord_channel/)

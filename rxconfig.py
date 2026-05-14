@@ -55,7 +55,10 @@ os.environ.setdefault(
 
 config = rx.Config(
     app_name="aifred",
-    backend_host="0.0.0.0",  # Listen on all interfaces
+    # Backend listens only on localhost; all external access (LAN/WAN)
+    # goes through the nginx reverse proxy on the same host. This keeps
+    # the unauthenticated /api/* routes off the LAN.
+    backend_host="127.0.0.1",
     backend_port=8002,
     frontend_port=3002,
     frontend_host="0.0.0.0",  # Frontend on all interfaces
