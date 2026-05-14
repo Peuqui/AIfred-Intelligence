@@ -142,10 +142,28 @@ def discover_tools() -> list[ToolPlugin]:
 # ============================================================
 
 def reload_all() -> None:
-    """Clear all caches and re-discover. Called after moving plugin files."""
+    """Clear all caches and re-discover. Called after moving plugin files.
+
+    Stops any currently registered channel listeners BEFORE swapping out
+    the module objects from ``sys.modules`` — otherwise the old listener
+    task keeps running against stale credentials/state while a fresh one
+    gets registered on the next call to register_channel_workers, leading
+    to duplicate IMAP polls / Discord reconnects.
+    """
     global _tools, _channels, _channels_discovered
 
-    # Clear tool cache + stale modules
+    # 1. Stop channel listeners. Iterate over the channels we currently
+    #    know about (not every hub worker — the scheduler must keep going).
+    from .logging_utils import log_message as _log
+    try:
+        from .message_hub import message_hub
+        for channel_name in list(_channels.keys()):
+            if message_hub.is_running(channel_name):
+                message_hub.unregister(channel_name)
+    except Exception as exc:  # noqa: BLE001
+        _log(f"Plugin Registry: channel teardown warning: {exc}", "warning")
+
+    # 2. Clear tool cache + stale modules
     stale = [k for k in sys.modules if k.startswith("aifred.plugins.tools.") or k.startswith("aifred.plugins.channels.")]
     for k in stale:
         del sys.modules[k]
@@ -154,7 +172,7 @@ def reload_all() -> None:
     _channels.clear()
     _channels_discovered = False
 
-    # Re-discover
+    # 3. Re-discover
     discover_tools()
     _discover_channels()
 
