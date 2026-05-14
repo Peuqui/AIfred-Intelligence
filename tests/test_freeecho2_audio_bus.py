@@ -40,7 +40,7 @@ class TestValidateAudioFlag:
 
     def test_unknown_audio_type_raises(self):
         with pytest.raises(ValueError, match="unknown audio_type"):
-            FreeEchoChannel._validate_audio_flag("speech", {})
+            FreeEchoChannel._validate_audio_flag("nonsense", {})
 
     def test_music_with_extra_field_raises(self):
         with pytest.raises(ValueError, match="unexpected fields"):
@@ -137,7 +137,7 @@ class TestSendAudioFlag:
         rid, ws = room
         ch = FreeEchoChannel()
         with pytest.raises(ValueError):
-            run(ch.send_audio_flag(rid, "speech"))
+            run(ch.send_audio_flag(rid, "nonsense"))
         ws.send_str.assert_not_awaited()
 
     def test_no_room_returns_false(self):

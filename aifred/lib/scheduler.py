@@ -535,10 +535,17 @@ def _deliver_review(job: Job, response_text: str, session_id: str) -> None:
 async def _deliver_webhook(job: Job, response_text: str) -> None:
     """POST result to an external URL."""
     import aiohttp
+    from urllib.parse import urlparse
 
     url = job.payload.get("webhook_url", "")
     if not url:
         log_message(f"Scheduler: job '{job.name}' webhook has no URL configured", "warning")
+        return
+
+    # Schema-Whitelist: only http/https — refuse file://, ftp://, gopher://, etc.
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        log_message(f"Scheduler: webhook URL rejected (invalid scheme): {url}", "error")
         return
 
     payload = {

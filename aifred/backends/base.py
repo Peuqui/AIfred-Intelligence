@@ -568,20 +568,6 @@ class OpenAICompatibleBackend(LLMBackend):
             kwargs["tools"] = toolkit.definitions
 
         extra_body = self._build_extra_body(options)
-        # PARKED — disabled until we have a global toggle for it.
-        # Some models (Qwen3-Instruct, Qwen3 A3B MoE) put tool_calls inside
-        # reasoning_content when thinking is enabled, so the OpenAI parser
-        # never sees them and tools silently get dropped. Other models
-        # (Qwen3-14B, Qwen3.5-122B, Nemotron, GPT-OSS) handle thinking +
-        # tools correctly, so we don't want to blanket-disable thinking.
-        # When we add a settings toggle, re-enable this with the right
-        # condition; until then the user controls model selection.
-        # if toolkit and toolkit.definitions:
-        #     model_lower = self._current_model.lower() if hasattr(self, '_current_model') else ""
-        #     if "instruct" in model_lower or "a3b" in model_lower:
-        #         if "chat_template_kwargs" not in extra_body:
-        #             extra_body["chat_template_kwargs"] = {}
-        #         extra_body["chat_template_kwargs"]["enable_thinking"] = False
         if extra_body:
             kwargs["extra_body"] = extra_body
 

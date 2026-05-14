@@ -330,45 +330,6 @@ def find_gguf_in_custom_directory(directory: Path) -> List[GGUFModelInfo]:
     return models
 
 
-def find_ollama_gguf_blobs() -> List[GGUFModelInfo]:
-    """
-    Find GGUF models in Ollama blob storage
-
-    WARNING: Ollama blobs are NOT directly usable as standalone GGUF files!
-    This function is for reference only - users should download dedicated GGUFs.
-
-    Ollama uses its own format and requires conversion.
-
-    Returns:
-        List of GGUFModelInfo objects (for informational purposes)
-    """
-    models: List[GGUFModelInfo] = []
-    ollama_blobs = Path.home() / ".ollama" / "models" / "blobs"
-
-    if not ollama_blobs.exists():
-        return models
-
-    # Scan blob directory for GGUF files
-    for blob_file in ollama_blobs.glob("sha256-*"):
-        # Check if file is GGUF format
-        if is_gguf_file(blob_file):
-            # Get file size
-            size_bytes = blob_file.stat().st_size
-            size_gb = size_bytes / (1024**3)
-
-            # Use SHA256 hash as identifier (no friendly name available)
-            blob_hash = blob_file.name[:12]  # First 12 chars of SHA256
-
-            models.append(GGUFModelInfo(
-                path=blob_file,
-                name=f"ollama-blob-{blob_hash}",
-                size_gb=size_gb,
-                quantization="unknown"
-            ))
-
-    return models
-
-
 def find_all_gguf_models() -> List[GGUFModelInfo]:
     """
     Find all GGUF models on the system
@@ -376,7 +337,6 @@ def find_all_gguf_models() -> List[GGUFModelInfo]:
     Searches:
     1. HuggingFace cache (~/.cache/huggingface/)
     2. Custom directory (~/models/)
-    3. Ollama blobs (for reference only)
 
     Returns:
         List of GGUFModelInfo objects sorted by size
@@ -389,10 +349,6 @@ def find_all_gguf_models() -> List[GGUFModelInfo]:
     # 2. Custom directory (user downloads)
     custom_dir = Path.home() / "models"
     all_models.extend(find_gguf_in_custom_directory(custom_dir))
-
-    # 3. Ollama blobs (informational only - NOT recommended)
-    # Commented out because Ollama blobs require conversion
-    # all_models.extend(find_ollama_gguf_blobs())
 
     # Remove duplicates (same path)
     seen_paths = set()

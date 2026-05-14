@@ -701,6 +701,7 @@ async def _run_agent_direct_response(
         from .prompt_loader import get_language
         detected_lang = get_language()
 
+    llm_client: LLMClient | None = None
     try:
         llm_client = LLMClient(
             backend_type=state.backend_type,
@@ -832,7 +833,6 @@ async def _run_agent_direct_response(
                 yield  # type: ignore[misc]
 
         if not result:
-            await llm_client.close()
             yield
             return
 
@@ -864,7 +864,6 @@ async def _run_agent_direct_response(
         console_separator()
         state.add_debug("────────────────────")
 
-        await llm_client.close()
         yield
 
     except Exception as e:
@@ -875,6 +874,9 @@ async def _run_agent_direct_response(
             mode="error"
         )
         yield
+    finally:
+        if llm_client is not None:
+            await llm_client.close()
 
 
 async def run_sokrates_direct_response(
@@ -981,6 +983,8 @@ async def run_sokrates_analysis(
 
     # detected_lang comes from LLM-based intent detection (passed from state.py)
 
+    llm_client: LLMClient | None = None
+    votes: dict = {}
     try:
         llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
 
@@ -1181,16 +1185,17 @@ async def run_sokrates_analysis(
                 state.add_debug(f"🎯 Debate finished: consensus after {format_number(state.debate_round)} rounds")
             else:
                 state.add_debug(f"⚠️ No consensus after {format_number(max_rounds)} rounds")
-                if 'votes' in locals():
+                if votes:
                     state.add_debug(format_votes_debug(votes, state.debate_round))
 
-        await llm_client.close()
         _finalize_debate(state)
 
     except Exception as e:
         state.add_debug(f"❌ Sokrates Error: {e}")
 
     finally:
+        if llm_client is not None:
+            await llm_client.close()
         state.debate_in_progress = False
 
     yield  # Final UI update
@@ -1234,6 +1239,7 @@ async def run_tribunal(
 
     # detected_lang comes from LLM-based intent detection (passed from state.py)
 
+    llm_client: LLMClient | None = None
     try:
         llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
 
@@ -1378,13 +1384,14 @@ async def run_tribunal(
 
         state.add_debug(f"⚖️ Tribunal completed after {max_rounds} rounds + verdict")
 
-        await llm_client.close()
         _finalize_debate(state)
 
     except Exception as e:
         state.add_debug(f"❌ Tribunal Error: {e}")
 
     finally:
+        if llm_client is not None:
+            await llm_client.close()
         state.debate_in_progress = False
 
     yield
@@ -1431,6 +1438,7 @@ async def run_symposion(
     state.debate_in_progress = True
     yield
 
+    llm_client: LLMClient | None = None
     try:
         # Load symposion discussion rules + reflection augmentation
         # (Reflection is appended from round 2 onwards so the discussion
@@ -1451,7 +1459,7 @@ async def run_symposion(
         import re as _re
         conversation: list[dict[str, str]] = []
         agent_id_by_label = {
-            cfg.display_name.upper(): aid for aid, cfg in agent_configs
+            cfg.display_name.strip().upper(): aid for aid, cfg in agent_configs
         }
         for hist_msg in state._chat_sub().llm_history:
             role = hist_msg.get("role")
@@ -1579,8 +1587,6 @@ async def run_symposion(
                 state._set_current_agent("")
                 yield
 
-        await llm_client.close()
-
         state.add_debug(f"🏛️ Symposion done ({max_rounds} rounds, {len(agent_configs)} agents)")
         console_separator()
         state.add_debug("────────────────────")
@@ -1594,6 +1600,8 @@ async def run_symposion(
         state.add_debug(f"❌ Symposion Error: {type(e).__name__}: {e}")
 
     finally:
+        if llm_client is not None:
+            await llm_client.close()
         state.debate_in_progress = False
         state._save_current_session()
 

@@ -712,20 +712,10 @@ async def calculate_vram_based_context(
         # Model NOT loaded - must subtract its size from available VRAM
         vram_for_context_calc = int(usable_vram - model_size_mb)
 
-        # DISABLED: Ollama manages VRAM automatically with LRU strategy
-        # Manual unloading is redundant - when we load a new model, Ollama
-        # automatically unloads the old one. This avoids unnecessary delays.
-        #
-        # Special case: Negative value indicates another model is still loaded
-        # if vram_for_context_calc < 0:
-        #     msg = "⚠️ Another model still loaded → Unloading all models..."
-        #     debug_msgs.append(msg)
-        #     if backend and hasattr(backend, 'unload_all_models'):
-        #         success, unloaded = await backend.unload_all_models()
-        #         ... (removed for brevity)
-
-        # Simply use the calculated value (may be negative if another model loaded)
-        # Ollama will handle the swap automatically when we make a request
+        # Ollama manages VRAM automatically via LRU — manual unloading
+        # is redundant. Ollama swaps when we load a new model.
+        # A negative value means another model is still loaded; that's OK,
+        # Ollama auto-swaps on the next request.
         vram_for_context = max(0, vram_for_context_calc)
         if vram_for_context_calc < 0:
             msg = f"💾 Another model loaded → Ollama will auto-swap (calculated: {format_number(vram_for_context_calc, 0)} MB)"

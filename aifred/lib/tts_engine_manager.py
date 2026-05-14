@@ -229,8 +229,15 @@ def _start_async_tts_stop(engine: str) -> None:
     """Start TTS container stop in background (parallel to LLM inference).
 
     Docker compose down is CPU/IO, LLM inference is GPU — no interference.
+
+    If a previous stop is still in flight, wait for it before starting a new
+    one — otherwise the old thread reference is lost (ghost docker calls,
+    parallel `docker compose down` on the same target).
     """
     global _tts_stop_thread
+    if _tts_stop_thread is not None and _tts_stop_thread.is_alive():
+        log_message(f"Awaiting previous TTS stop before starting new one ({engine})")
+        _tts_stop_thread.join(timeout=30)
     _tts_stop_thread = threading.Thread(
         target=stop_engine, args=(engine,), daemon=True, name=f"tts-stop-{engine}",
     )
