@@ -358,103 +358,109 @@ class BackendMixin(rx.State, mixin=True):
 
         log_message(f"🔥 on_load() CALLED - Global init: {_global_backend_initialized}, Session init: {self._backend_initialized}")
 
-        # FIRST-TIME GLOBAL INITIALIZATION (once per server start)
-        if not _global_backend_initialized:
-            _base_module._global_backend_initialized = True  # Set FIRST to prevent ASGI race
-            print("=" * 60)
-            print("🚀 FIRST-TIME SERVER INITIALIZATION...")
-            print("=" * 60)
+        # FIRST-TIME GLOBAL INITIALIZATION (once per server start).
+        # The whole init body runs INSIDE _backend_init_lock so concurrent
+        # on_load callbacks (two tabs opening at once, ASGI worker race)
+        # serialize: the first one runs init, the others block on the
+        # lock until it's done and then re-check the flag and skip.
+        if not _base_module._global_backend_initialized:
+            async with _base_module._backend_init_lock:
+                if not _base_module._global_backend_initialized:
+                    _base_module._global_backend_initialized = True
+                    print("=" * 60)
+                    print("🚀 FIRST-TIME SERVER INITIALIZATION...")
+                    print("=" * 60)
 
-            initialize_debug_log(force_reset=False)
+                    initialize_debug_log(force_reset=False)
 
-            import platform
-            kernel = platform.release()
-            is_wsl = "microsoft" in kernel.lower()
-            is_windows = os.name == "nt"
-            if is_wsl:
-                env_label = "WSL2 (WDDM — VRAM swapping possible)"
-            elif is_windows:
-                env_label = "Windows (WDDM — VRAM swapping possible)"
-            else:
-                env_label = "Native Linux (no VRAM swapping)"
-            log_message(f"🖥️ Platform: {platform.system()} {kernel} — {env_label}")
-
-            from ..lib.config import DEFAULT_LANGUAGE
-            set_language(DEFAULT_LANGUAGE)
-            log_message(f"🌍 Language mode: {DEFAULT_LANGUAGE}")
-
-            initialize_vector_cache()
-            log_message("💾 Vector Cache: Connected")
-
-            # Audio state cleanup task (parallel to vector cache cleanup)
-            import asyncio as _asyncio
-            from ..lib.audio_state import cleanup_audio_state_task
-            _asyncio.create_task(cleanup_audio_state_task())
-
-            # Lookup-Cache cleanup task (Speculative-Decoding-Caches einsammeln)
-            from ..lib.lookup_cache_cleanup import cleanup_lookup_cache_task
-            _asyncio.create_task(cleanup_lookup_cache_task())
-
-            # Audio index incremental sync (only for sources already populated)
-            from ..lib.audio_index import sync_audio_index_task
-            _asyncio.create_task(sync_audio_index_task())
-
-            # Whisper STT: Docker container (started on demand or always-on)
-            if is_whisper_ready():
-                log_message("✅ Whisper: Docker service ready")
-            else:
-                log_message("⚠️ Whisper: Docker service not running (will start on first STT request)")
-
-            # GPU Detection (once per server)
-            log_message("🔍 Detecting GPU capabilities...")
-            try:
-                from ..lib.gpu_detection import detect_gpu
-                gpu_info = detect_gpu()
-                if gpu_info:
-                    _global_backend_state["gpu_info"] = gpu_info
-
-                    total_vram_gb = total_actual_vram_gb(gpu_info)
-
-                    unique_names = list(dict.fromkeys(gpu_info.all_gpu_names))
-                    if gpu_info.gpu_count == 1:
-                        log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB)")
-                    elif len(unique_names) == 1:
-                        log_message(f"✅ GPU: {gpu_info.gpu_count}x {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB total)")
+                    import platform
+                    kernel = platform.release()
+                    is_wsl = "microsoft" in kernel.lower()
+                    is_windows = os.name == "nt"
+                    if is_wsl:
+                        env_label = "WSL2 (WDDM — VRAM swapping possible)"
+                    elif is_windows:
+                        env_label = "Windows (WDDM — VRAM swapping possible)"
                     else:
-                        log_message(f"✅ GPU: {' + '.join(unique_names)} ({total_vram_gb} GB total)")
+                        env_label = "Native Linux (no VRAM swapping)"
+                    log_message(f"🖥️ Platform: {platform.system()} {kernel} — {env_label}")
 
-                    if gpu_info.unsupported_backends:
-                        log_message(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
-                    if gpu_info.warnings:
-                        for warning in gpu_info.warnings[:2]:
-                            log_message(f"⚠️ {warning}")
-                else:
-                    log_message("ℹ️ No GPU detected or nvidia-smi not available")
-            except (subprocess.CalledProcessError, ImportError, RuntimeError) as e:
-                log_message(f"⚠️ GPU detection failed: {e}")
+                    from ..lib.config import DEFAULT_LANGUAGE
+                    set_language(DEFAULT_LANGUAGE)
+                    log_message(f"🌍 Language mode: {DEFAULT_LANGUAGE}")
 
-            # Unload all Ollama models to ensure clean VRAM slate
-            try:
-                from ..backends.ollama import OllamaBackend
-                ollama = OllamaBackend()
-                success, unloaded = await ollama.unload_all_models(wait_for_stability=False)
-                if unloaded:
-                    log_message(f"🧹 Startup: Unloaded {len(unloaded)} model(s) from VRAM: {', '.join(unloaded)}")
-                else:
-                    log_message("🧹 Startup: No models to unload (VRAM clean)")
-                await ollama.client.aclose()
-            except (RuntimeError, OSError) as e:
-                log_message(f"ℹ️ Ollama not available for startup cleanup: {e}")
+                    initialize_vector_cache()
+                    log_message("💾 Vector Cache: Connected")
 
-            # Start Message Hub (channel listeners, scheduler)
-            from ..lib.message_hub import message_hub, register_channel_workers
-            register_channel_workers(message_hub)
-            from ..lib.scheduler import scheduler_loop
-            if not message_hub.is_running("scheduler"):
-                message_hub.register("scheduler", scheduler_loop)
-            await message_hub.start_all()
+                    # Audio state cleanup task (parallel to vector cache cleanup)
+                    import asyncio as _asyncio
+                    from ..lib.audio_state import cleanup_audio_state_task
+                    _asyncio.create_task(cleanup_audio_state_task())
 
-            print("✅ Global initialization complete")
+                    # Lookup-Cache cleanup task (Speculative-Decoding-Caches einsammeln)
+                    from ..lib.lookup_cache_cleanup import cleanup_lookup_cache_task
+                    _asyncio.create_task(cleanup_lookup_cache_task())
+
+                    # Audio index incremental sync (only for sources already populated)
+                    from ..lib.audio_index import sync_audio_index_task
+                    _asyncio.create_task(sync_audio_index_task())
+
+                    # Whisper STT: Docker container (started on demand or always-on)
+                    if is_whisper_ready():
+                        log_message("✅ Whisper: Docker service ready")
+                    else:
+                        log_message("⚠️ Whisper: Docker service not running (will start on first STT request)")
+
+                    # GPU Detection (once per server)
+                    log_message("🔍 Detecting GPU capabilities...")
+                    try:
+                        from ..lib.gpu_detection import detect_gpu
+                        gpu_info = detect_gpu()
+                        if gpu_info:
+                            _global_backend_state["gpu_info"] = gpu_info
+
+                            total_vram_gb = total_actual_vram_gb(gpu_info)
+
+                            unique_names = list(dict.fromkeys(gpu_info.all_gpu_names))
+                            if gpu_info.gpu_count == 1:
+                                log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB)")
+                            elif len(unique_names) == 1:
+                                log_message(f"✅ GPU: {gpu_info.gpu_count}x {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB total)")
+                            else:
+                                log_message(f"✅ GPU: {' + '.join(unique_names)} ({total_vram_gb} GB total)")
+
+                            if gpu_info.unsupported_backends:
+                                log_message(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
+                            if gpu_info.warnings:
+                                for warning in gpu_info.warnings[:2]:
+                                    log_message(f"⚠️ {warning}")
+                        else:
+                            log_message("ℹ️ No GPU detected or nvidia-smi not available")
+                    except (subprocess.CalledProcessError, ImportError, RuntimeError) as e:
+                        log_message(f"⚠️ GPU detection failed: {e}")
+
+                    # Unload all Ollama models to ensure clean VRAM slate
+                    try:
+                        from ..backends.ollama import OllamaBackend
+                        ollama = OllamaBackend()
+                        success, unloaded = await ollama.unload_all_models(wait_for_stability=False)
+                        if unloaded:
+                            log_message(f"🧹 Startup: Unloaded {len(unloaded)} model(s) from VRAM: {', '.join(unloaded)}")
+                        else:
+                            log_message("🧹 Startup: No models to unload (VRAM clean)")
+                        await ollama.client.aclose()
+                    except (RuntimeError, OSError) as e:
+                        log_message(f"ℹ️ Ollama not available for startup cleanup: {e}")
+
+                    # Start Message Hub (channel listeners, scheduler)
+                    from ..lib.message_hub import message_hub, register_channel_workers
+                    register_channel_workers(message_hub)
+                    from ..lib.scheduler import scheduler_loop
+                    if not message_hub.is_running("scheduler"):
+                        message_hub.register("scheduler", scheduler_loop)
+                    await message_hub.start_all()
+
+                    print("✅ Global initialization complete")
 
         # PER-SESSION INITIALIZATION (every user/tab/reload)
         if self._on_load_running:
@@ -754,7 +760,7 @@ class BackendMixin(rx.State, mixin=True):
             if backend_init_success:
                 from aifred.lib.logging_utils import console_separator
                 console_separator()
-                self.debug_messages.append("────────────────────")  # type: ignore[attr-defined, has-type]
+                self.debug_messages = [*self.debug_messages, "────────────────────"]  # type: ignore[attr-defined, has-type]
 
             self._backend_initialized = True
             log_message("✅ Session initialization complete")
@@ -1459,7 +1465,7 @@ class BackendMixin(rx.State, mixin=True):
 
             from aifred.lib.logging_utils import console_separator
             console_separator()
-            self.debug_messages.append("────────────────────")  # type: ignore[attr-defined, has-type]
+            self.debug_messages = [*self.debug_messages, "────────────────────"]  # type: ignore[attr-defined, has-type]
 
             yield
 

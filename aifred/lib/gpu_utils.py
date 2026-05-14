@@ -557,14 +557,25 @@ def get_model_size_from_cache(model_name: str) -> int:
 
     try:
         for model_dir in cache_dir.glob(cache_folder_name):
-            # Find all model files (safetensors, bin, gguf, etc.)
-            total_size = 0
+            # HF cache layout: snapshots/<commit>/<name>  →  ../../blobs/<sha>
+            # The same blob can be linked from multiple snapshots (different
+            # revisions of the same model), so dedupe by resolved blob path
+            # before summing to avoid counting each weight file 2×–N×.
+            snapshots_dir = model_dir / "snapshots"
+            if not snapshots_dir.is_dir():
+                continue
 
-            # Search for model weight files
+            seen_blobs: set[Path] = set()
+            total_size = 0
             for pattern in ["**/*.safetensors", "**/*.bin", "**/*.gguf", "**/*.pth"]:
-                for file_path in model_dir.glob(pattern):
-                    if file_path.is_file():
-                        total_size += file_path.stat().st_size
+                for file_path in snapshots_dir.glob(pattern):
+                    if not file_path.is_file():
+                        continue
+                    resolved = file_path.resolve()
+                    if resolved in seen_blobs:
+                        continue
+                    seen_blobs.add(resolved)
+                    total_size += resolved.stat().st_size
 
             if total_size > 0:
                 logger.debug(f"Model size for {model_name}: {total_size / (1024**3):.2f} GB")

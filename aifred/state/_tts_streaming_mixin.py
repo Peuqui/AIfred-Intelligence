@@ -204,20 +204,25 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     if session_audio_url:
                         log_message(f"🔊 TTS: Saved to session → {session_audio_url}")
 
-                        # Update last assistant message with session audio URL (for replay button)
+                        # Update last assistant message with session audio URL (for replay button).
+                        # Rebuild the entry deep so Reflex registers the nested change.
                         _ch = self._chat_sub()
                         if _ch.chat_history:
-                            for i in range(len(_ch.chat_history) - 1, -1, -1):
-                                if _ch.chat_history[i].get("role") == "assistant":
-                                    if "metadata" not in _ch.chat_history[i]:
-                                        _ch.chat_history[i]["metadata"] = {}
-                                    _ch.chat_history[i]["metadata"]["audio_urls"] = [session_audio_url]
-                                    _ch.chat_history[i]["has_audio"] = True
-                                    _ch.chat_history[i]["audio_urls_json"] = json.dumps([session_audio_url])
+                            new_history = list(_ch.chat_history)
+                            for i in range(len(new_history) - 1, -1, -1):
+                                if new_history[i].get("role") == "assistant":
+                                    prev = new_history[i]
+                                    new_metadata = dict(prev.get("metadata") or {})
+                                    new_metadata["audio_urls"] = [session_audio_url]
+                                    new_history[i] = {
+                                        **prev,
+                                        "metadata": new_metadata,
+                                        "has_audio": True,
+                                        "audio_urls_json": json.dumps([session_audio_url]),
+                                    }
                                     log_message("🔊 TTS: Added audio URL to message metadata")
                                     break
-                            # Force Reflex to recognize the change
-                            _ch.chat_history = list(_ch.chat_history)
+                            _ch.chat_history = new_history
                             self._save_current_session()  # type: ignore[attr-defined]
                     else:
                         log_message("⚠️ TTS: Failed to save audio to session")
@@ -341,24 +346,28 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     if session_audio_url:
                         log_message(f"🔊 TTS Queue: Saved to session → {session_audio_url}")
 
-                        # Update THIS agent's message with session audio URL (for replay button)
+                        # Update THIS agent's message with session audio URL (for replay button).
                         # IMPORTANT: Find message by agent name, not "last assistant-message"!
                         # Multi-Agent runs TTS async, so other agents may have added messages already.
+                        # Rebuild the matched entry deep so Reflex registers the change.
                         _ch = self._chat_sub()
                         if _ch.chat_history:
-                            for i in range(len(_ch.chat_history) - 1, -1, -1):
-                                msg = _ch.chat_history[i]
+                            new_history = list(_ch.chat_history)
+                            for i in range(len(new_history) - 1, -1, -1):
+                                msg = new_history[i]
                                 if msg.get("role") == "assistant" and msg.get("agent") == agent:
-                                    if "metadata" not in msg:
-                                        msg["metadata"] = {}
-                                    msg["metadata"]["audio_urls"] = [session_audio_url]
-                                    msg["metadata"]["playback_rate"] = f"{speed_value}x"
-                                    msg["has_audio"] = True
-                                    msg["audio_urls_json"] = json.dumps([session_audio_url])
+                                    new_metadata = dict(msg.get("metadata") or {})
+                                    new_metadata["audio_urls"] = [session_audio_url]
+                                    new_metadata["playback_rate"] = f"{speed_value}x"
+                                    new_history[i] = {
+                                        **msg,
+                                        "metadata": new_metadata,
+                                        "has_audio": True,
+                                        "audio_urls_json": json.dumps([session_audio_url]),
+                                    }
                                     log_message(f"🔊 TTS Queue: Added audio URL + playback_rate to {agent}'s message")
                                     break
-                            # Force Reflex to recognize the change
-                            _ch.chat_history = list(_ch.chat_history)
+                            _ch.chat_history = new_history
                             self._save_current_session()  # type: ignore[attr-defined]
                     else:
                         log_message(f"⚠️ TTS Queue: Failed to save audio to session for {agent}")
@@ -984,15 +993,21 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         log_message(f"🔊 TTS: Bubble {bubble_index} saved → {session_audio_url}")
 
-        # Update message with new audio URL
-        if "metadata" not in _ch.chat_history[bubble_index]:
-            _ch.chat_history[bubble_index]["metadata"] = {}
-        _ch.chat_history[bubble_index]["metadata"]["audio_urls"] = [session_audio_url]
-        _ch.chat_history[bubble_index]["has_audio"] = True
-        _ch.chat_history[bubble_index]["audio_urls_json"] = json.dumps([session_audio_url])
+        # Update message with new audio URL — rebuild the bubble entry deep
+        # so Reflex registers the change at the list level.
+        new_history = list(_ch.chat_history)
+        prev = new_history[bubble_index]
+        new_metadata = dict(prev.get("metadata") or {})
+        new_metadata["audio_urls"] = [session_audio_url]
+        new_history[bubble_index] = {
+            **prev,
+            "metadata": new_metadata,
+            "has_audio": True,
+            "audio_urls_json": json.dumps([session_audio_url]),
+        }
+        _ch.chat_history = new_history
 
         if save_session:
-            _ch.chat_history = list(_ch.chat_history)
             self._save_current_session()  # type: ignore[attr-defined]
 
         return True
@@ -1115,8 +1130,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     failed_bubbles.append(i + 1)
                     self.add_debug(f"⚠️ Bubble {i+1}/{len(assistant_indices)} failed (chat index {bubble_idx})")  # type: ignore[attr-defined]
 
-            # Save session once after all regenerations
-            _ch.chat_history = list(_ch.chat_history)
+            # Save session once after all regenerations.
+            # Each _regenerate_bubble_tts_core() already reassigned chat_history,
+            # so no extra trigger needed here.
             self._save_current_session()  # type: ignore[attr-defined]
 
             if failed_bubbles:

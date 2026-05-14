@@ -11,10 +11,12 @@ session-scoped cleanup (like images in data/images/{session_id}/).
 """
 
 import asyncio
+import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from .config import (
     DOCUMENTS_DIR,
@@ -67,10 +69,34 @@ def _build_wrapper_script(code: str, work_dir: Path) -> str:
     return "\n".join(parts)
 
 
+_SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+
+def _safe_session_subdir(session_id: str) -> Optional[Path]:
+    """Return the per-session SANDBOX_OUTPUT_DIR subpath if the id is safe.
+
+    Returns None when ``session_id`` is not a 32-hex string or, after
+    resolve(), would escape SANDBOX_OUTPUT_DIR. The id format matches
+    ``session_storage._sanitize_session_id`` so cookie-supplied values
+    that fail elsewhere also fail here.
+    """
+    from .config import SANDBOX_OUTPUT_DIR
+    if not isinstance(session_id, str) or not _SESSION_ID_RE.match(session_id):
+        return None
+    root = SANDBOX_OUTPUT_DIR.resolve()
+    candidate = (SANDBOX_OUTPUT_DIR / session_id).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
 def _session_output_dir(session_id: str) -> Path:
     """Get or create session-specific sandbox output directory."""
-    from .config import SANDBOX_OUTPUT_DIR
-    session_dir = SANDBOX_OUTPUT_DIR / session_id
+    session_dir = _safe_session_subdir(session_id)
+    if session_dir is None:
+        raise ValueError(f"Unsafe session_id for sandbox output: {session_id!r}")
     session_dir.mkdir(parents=True, exist_ok=True)
     return session_dir
 
@@ -326,9 +352,8 @@ async def execute_sandboxed_code(
 
 def cleanup_session_sandbox(session_id: str) -> int:
     """Delete all sandbox output files for a session. Returns count of deleted files."""
-    from .config import SANDBOX_OUTPUT_DIR
-    session_dir = SANDBOX_OUTPUT_DIR / session_id
-    if not session_dir.exists():
+    session_dir = _safe_session_subdir(session_id)
+    if session_dir is None or not session_dir.exists():
         return 0
     count = sum(1 for _ in session_dir.iterdir())
     shutil.rmtree(session_dir, ignore_errors=True)

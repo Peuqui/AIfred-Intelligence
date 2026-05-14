@@ -406,14 +406,18 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
         except Exception:
             pass
     elif backend_type == "vllm":
-        # vLLM: stop via process manager
+        # vLLM: stop via process manager. vllm_manager.stop() is declared
+        # async but does only synchronous work (terminate + wait on the
+        # subprocess), so call the sync core directly. The previous
+        # asyncio.get_event_loop().run_until_complete() raised RuntimeError
+        # when called from an already running event loop and the error was
+        # swallowed by the bare except → vLLM never stopped, VRAM leaked.
         try:
             from .vllm_manager import vllm_manager
-            import asyncio
-            asyncio.get_event_loop().run_until_complete(vllm_manager.stop())
+            vllm_manager._stop_sync()
             actions.append("vLLM stopped")
-        except Exception:
-            pass
+        except Exception as e:
+            log_message(f"⚠️ vLLM stop failed: {e}", "warning")
     elif backend_type == "tabbyapi":
         # TabbyAPI: stop service
         try:

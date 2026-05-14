@@ -169,7 +169,7 @@ class ImageMixin(rx.State, mixin=True):
                 # Resize if needed (save bandwidth/VRAM)
                 resized_content = resize_image_if_needed(content)
 
-                # Camera photos: Short generic name (sequential number added by save_image_to_file)
+                # Camera photos: Short generic name (uuid prefix added by save_image_to_file)
                 # File uploads: Keep original filename
                 if from_camera:
                     ext = filename.rsplit(".", 1)[1] if "." in filename else "jpg"
@@ -182,16 +182,21 @@ class ImageMixin(rx.State, mixin=True):
                 image_path = save_image_to_file(resized_content, self.session_id, display_name)  # type: ignore[attr-defined]
                 image_url = get_image_url(image_path)
 
-                # Use actual filename (includes sequential number from save_image_to_file)
+                # Use actual filename (includes uuid prefix from save_image_to_file)
                 saved_name = image_path.name
 
-                # Store with file path (for LLM) and URL (for UI)
-                self.pending_images.append({
-                    "name": saved_name,
-                    "path": str(image_path),
-                    "url": image_url,
-                    "size_kb": str(len(resized_content) // 1024),
-                })
+                # Store with file path (for LLM) and URL (for UI).
+                # Reassign instead of .append() — Reflex only reacts to
+                # identity changes on State containers.
+                self.pending_images = [
+                    *self.pending_images,
+                    {
+                        "name": saved_name,
+                        "path": str(image_path),
+                        "url": image_url,
+                        "size_kb": str(len(resized_content) // 1024),
+                    },
+                ]
 
                 self.add_debug(f"\U0001f4f7 Image uploaded: {saved_name} ({len(resized_content) // 1024} KB)")  # type: ignore[attr-defined]
                 yield  # Update UI after each image
@@ -333,16 +338,23 @@ class ImageMixin(rx.State, mixin=True):
             img_rotated.save(image_path, format=format_to_use, quality=90)
 
             new_size_kb = image_path.stat().st_size // 1024
-            self.pending_images[self.crop_image_index]["size_kb"] = str(new_size_kb)
 
-            # Update URLs with cache-busting timestamp
+            # Cache-busting timestamp so the browser refetches the rotated file
             import time
             cache_buster = f"?t={int(time.time() * 1000)}"
             base_url = image_data["url"].split("?")[0]
             new_url = f"{base_url}{cache_buster}"
 
             self.crop_preview_url = new_url
-            self.pending_images[self.crop_image_index]["url"] = new_url
+
+            # Reassign the whole list with a fresh dict at the updated index
+            # so Reflex's reactivity picks up the nested-dict change.
+            idx = self.crop_image_index
+            self.pending_images = [
+                *self.pending_images[:idx],
+                {**self.pending_images[idx], "size_kb": str(new_size_kb), "url": new_url},
+                *self.pending_images[idx + 1:],
+            ]
 
             # Track cumulative rotation
             self.crop_rotation = (self.crop_rotation + rotation_delta) % 360
@@ -433,13 +445,19 @@ class ImageMixin(rx.State, mixin=True):
             except OSError:
                 pass
 
-            # Update pending_images with new file
-            self.pending_images[self.crop_image_index] = {
-                "name": image_data["name"],
-                "path": str(new_path),
-                "url": new_url,
-                "size_kb": str(len(cropped_bytes) // 1024),
-            }
+            # Update pending_images with the new file (full reassign so
+            # Reflex notices the change at the nested-list level).
+            idx = self.crop_image_index
+            self.pending_images = [
+                *self.pending_images[:idx],
+                {
+                    "name": image_data["name"],
+                    "path": str(new_path),
+                    "url": new_url,
+                    "size_kb": str(len(cropped_bytes) // 1024),
+                },
+                *self.pending_images[idx + 1:],
+            ]
 
             self.add_debug(f"\u2702\ufe0f Image cropped: {width:.0f}% x {height:.0f}% \u2192 {px_width} x {px_height} px")  # type: ignore[attr-defined]
         else:
@@ -479,4 +497,4 @@ class ImageMixin(rx.State, mixin=True):
         # Add separator after browser/device detection (marks end of startup)
         from ..lib.logging_utils import console_separator
         console_separator()  # File log
-        self.debug_messages.append("\u2500" * 20)  # type: ignore[attr-defined]  # UI
+        self.debug_messages = [*self.debug_messages, "\u2500" * 20]  # type: ignore[attr-defined]  # UI
