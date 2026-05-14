@@ -4,7 +4,7 @@
 
 <img src="assets/AIfred-Zylinder.png" alt="AIfred" width="80" align="left" style="margin-right: 16px;">
 
-# AIfred Intelligence v3.1
+# AIfred Intelligence
 
 **Autonomer KI-Assistent mit Tool Use, Message Hub, Multi-Agent-Debatten & lokaler LLM-Inferenz**
 
