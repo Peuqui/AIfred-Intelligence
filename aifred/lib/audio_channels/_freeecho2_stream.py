@@ -660,8 +660,14 @@ class FreeEcho2Stream:
     async def _fifo_pump(self) -> None:
         """Lese PCM aus der FIFO und schicke jeden Chunk an den FreeEcho.2.
 
-        Read auf einer FIFO blockiert bis ein Writer Daten reinschreibt
-        (= mpv lebt). Wenn mpv exited, gibt's EOF → 0 bytes → Loop endet.
+        Die FIFO wird non-blocking geöffnet (O_NONBLOCK), damit der
+        Default-Executor-Slot nicht permanent durch einen hängenden
+        ``os.open(O_RDONLY)``-Aufruf belegt wird (mpv hängt → Slot
+        weg → andere ``loop.run_in_executor``-Aufrufe stauen sich).
+
+        Reads liefern bei leerer Pipe ``BlockingIOError`` → kurzer
+        ``asyncio.sleep`` und neuer Versuch. EOF (Writer geschlossen)
+        liefert b"" → Loop endet.
 
         Backpressure: vor jedem Read wartet der Pump auf
         ``_flow_resumed`` (Event). Wenn der FreeEcho.2 flow=pause schickt,
@@ -669,16 +675,18 @@ class FreeEcho2Stream:
         am FIFO-write (OS-Pipe-Backpressure, Pipe-Buffer ~64 KB). Bei
         flow=resume wird das Event wieder gesetzt → Pump pumpt weiter.
         """
-        loop = asyncio.get_event_loop()
         try:
-            fd = await loop.run_in_executor(
-                None, lambda: os.open(self._fifo_path, os.O_RDONLY)
-            )
+            fd = os.open(self._fifo_path, os.O_RDONLY | os.O_NONBLOCK)
         except OSError as exc:
             log_message(
                 f"FreeEcho2Stream[{self.room}]: FIFO open failed: {exc}", "error"
             )
             return
+
+        # Idle-poll: ~5 ms zwischen Read-Versuchen bevor ein Writer da ist
+        # oder zwischen leeren Reads während des Streams. Bei aktiver
+        # Wiedergabe füllt mpv die Pipe immer wieder, der Loop liest sofort.
+        idle_sleep = 0.005
 
         try:
             while True:
@@ -700,9 +708,11 @@ class FreeEcho2Stream:
                         break
 
                 try:
-                    chunk = await loop.run_in_executor(
-                        None, lambda: os.read(fd, READ_CHUNK_SIZE)
-                    )
+                    chunk = os.read(fd, READ_CHUNK_SIZE)
+                except BlockingIOError:
+                    # Kein Writer / Pipe leer — kurz warten und nochmal.
+                    await asyncio.sleep(idle_sleep)
+                    continue
                 except OSError as exc:
                     log_message(
                         f"FreeEcho2Stream[{self.room}]: FIFO read error: {exc}", "warning"
