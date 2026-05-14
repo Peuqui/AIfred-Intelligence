@@ -23,6 +23,16 @@ chromadb>=0.4.24        # Vector database for semantic caching
 ollama>=0.4.0           # Ollama Python client for embeddings
 numpy>=1.24.0           # Required by chromadb embeddings
 
+# Backend Calibration & OAuth (direct imports — pin even if transitively present)
+PyYAML>=6.0             # llama-swap config read/write (aifred/lib/calibration/llamaswap_io.py)
+cryptography>=42.0      # Fernet token encryption for OAuth (aifred/lib/oauth/broker.py)
+
+# Channel & Tool Plugins (eager-loaded at startup — missing pkg disables plugin)
+discord.py>=2.3         # Discord channel plugin (plugins/channels/discord_channel/)
+fdb>=2.0                # EPIM Firebird DB plugin (plugins/tools/epim/) — requires
+                        # additionally a Firebird 2.5 embedded lib under lib/firebird25/
+                        # and EPIM_DB_PATH configured in plugin settings (UI)
+
 # Audio Processing (TTS only — STT runs in Docker container: docker/whisper/)
 edge-tts==7.2.1         # Text-to-Speech (7.2.3 has NoAudioReceived bug)
 dashscope>=1.24.6       # DashScope Qwen3-TTS Cloud API

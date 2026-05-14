@@ -1075,6 +1075,30 @@ curl http://localhost:8002/api/sessions
 
 ### Setup
 
+**Empfohlen: 1-Script-Installer** — übernimmt System-Dependencies, das
+Python-venv, alle Requirements, den Playwright-Browser, den
+Reflex-Routing-Patch, optional die Systemd-Services, die `.env`-Datei,
+den `bge-m3`-Embedding-Pull und das Anlegen eines ersten
+Whitelist-Users in einem Rutsch:
+
+```bash
+git clone https://github.com/yourusername/AIfred-Intelligence.git
+cd AIfred-Intelligence
+./scripts/install-all.sh
+```
+
+Das Script ist interaktiv (fragt nach Systemd-Service-Installation und
+nach einem Whitelist-User). Es erkennt `apt`, `dnf`, `pacman` und
+`brew` und installiert: `python3-venv`, `python3-pip`,
+`poppler-utils`, `ffmpeg`, `bubblewrap`, `docker`, `docker-compose-plugin`.
+Ollama selbst wird **nicht** automatisch installiert (der offizielle
+Installer ist `curl | sh` — bitte manuell installieren).
+
+---
+
+Die folgenden Schritte beschreiben denselben Ablauf **manuell**, falls
+du es selbst Schritt für Schritt machen oder debuggen willst:
+
 1. **Repository klonen**:
 ```bash
 git clone https://github.com/yourusername/AIfred-Intelligence.git
@@ -1094,6 +1118,8 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 # Playwright Browser installieren (für JS-heavy Seiten)
 playwright install chromium
+# Reflex frontend_path Routing-Patch anwenden
+python scripts/patch-reflex.py
 ```
 
 **Haupt-Dependencies** (siehe `requirements.txt`):
@@ -1117,30 +1143,36 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 5. **LLM Models installieren**:
 
-**Option A: Alle Models (Empfohlen)**
+**Option A: Ollama (GGUF) — Einfachste, empfohlene Variante**
+
 ```bash
-# Master-Script für beide Backends
-./scripts/download_all_models.sh
+# Embedding-Modell (Pflicht für Vector Cache / Documents / Memory)
+ollama pull bge-m3
+
+# Empfohlene Core-Modelle — je nach verfügbarem VRAM auswählen:
+ollama pull qwen3:30b-instruct   # 18 GB, Haupt-LLM, 256K context
+ollama pull qwen3:8b             # 5.2 GB, Automatik, optional thinking
+ollama pull qwen2.5:3b           # 1.9 GB, Ultra-schnelle Automatik
 ```
 
-**Option B: Nur Ollama (GGUF) - Einfachste Installation**
-```bash
-# Ollama Models (GGUF Q4/Q8)
-./scripts/download_ollama_models.sh
+Die Modelle werden beim Start von AIfred automatisch erkannt — kein
+manuelles YAML-Editieren nötig.
 
-# Empfohlene Core-Modelle:
-# - qwen3:30b-instruct (18GB) - Haupt-LLM, 256K context
-# - qwen3:8b (5.2GB) - Automatik, optional thinking
-# - qwen2.5:3b (1.9GB) - Ultra-schnelle Automatik
+**Option B: llama.cpp (GGUF) via llama-swap — Maximale GPU-Kontrolle**
+
+GGUFs nach `~/models/<name>/` ziehen, dann llama-swap neu starten — die
+Autoscan-Logik trägt YAML-Einträge automatisch nach. Details:
+[docs/de/guides/llamacpp-setup.md](docs/de/guides/llamacpp-setup.md).
+
+```bash
+hf download <repo> --local-dir ~/models/<name>
+llama-swap-restart    # wird von install-services.sh als Symlink angelegt
 ```
 
-**Option C: Nur vLLM (AWQ) - Beste Performance**
+**Option C: vLLM (AWQ) — Beste Performance**
+
 ```bash
-# vLLM installieren (falls noch nicht geschehen)
 pip install vllm
-
-# vLLM Models (AWQ Quantization)
-./scripts/download_vllm_models.sh
 
 # Empfohlene Modelle:
 # - Qwen3-8B-AWQ (~5GB, 40K→128K mit YaRN)
@@ -1154,11 +1186,9 @@ pip install vllm
   --rope-scaling '{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}' \
   --max-model-len 65536 \
   --gpu-memory-utilization 0.85
-
-# Systemd Service einrichten: siehe docs/infrastructure/
 ```
 
-**Option D: TabbyAPI (EXL2) - Experimentell**
+**Option D: TabbyAPI (EXL2) — Experimentell**
 ```bash
 # Noch nicht vollständig implementiert
 # Siehe: https://github.com/theroyallab/tabbyAPI

@@ -7,10 +7,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=mp
-Group=mp
-WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence
-ExecStart=/home/mp/Projekte/AIfred-Intelligence/venv/bin/python scripts/corpus_search_server.py
+User=__USER__
+Group=__USER__
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__PROJECT_DIR__/venv/bin/python scripts/corpus_search_server.py
 Restart=on-failure
 RestartSec=5
 # Logs in journal

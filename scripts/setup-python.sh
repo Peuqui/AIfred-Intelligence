@@ -38,8 +38,23 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-PYTHON_VERSION=$(python3 --version)
-echo -e "${GREEN}✅ $PYTHON_VERSION gefunden${NC}"
+PYTHON_VERSION_FULL=$(python3 --version)
+echo -e "${GREEN}✅ $PYTHON_VERSION_FULL gefunden${NC}"
+
+# Verify version >= 3.10 (Reflex requirement)
+PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
+PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
+    echo -e "${RED}❌ Python ${PY_MAJOR}.${PY_MINOR} ist zu alt — mindestens 3.10 wird benötigt.${NC}"
+    exit 1
+fi
+
+# Verify venv module is available — Debian/Ubuntu split this out (python3-venv).
+if ! python3 -c 'import venv' &>/dev/null; then
+    echo -e "${RED}❌ Python venv-Modul fehlt.${NC}"
+    echo "   Installiere mit: sudo apt install python3-venv"
+    exit 1
+fi
 echo ""
 
 # Create venv if it doesn't exist
@@ -55,12 +70,22 @@ echo ""
 
 # Activate venv
 echo "🔧 Aktiviere Virtual Environment..."
+# shellcheck disable=SC1090
 source "$VENV_DIR/bin/activate"
+
+# Sanity-Check: pip muss in der venv vorhanden sein. Auf Debian-Minimal
+# kann python3-venv ohne ensurepip geliefert werden — dann ist das venv
+# zwar erstellt aber ohne pip nutzlos.
+if ! python -m pip --version &>/dev/null; then
+    echo -e "${RED}❌ pip ist im venv nicht verfügbar (ensurepip fehlt?).${NC}"
+    echo "   Installiere: sudo apt install python3-venv python3-pip"
+    exit 1
+fi
 echo ""
 
 # Upgrade pip
 echo "⬆️  Upgrade pip..."
-pip install --upgrade pip
+python -m pip install --upgrade pip
 echo ""
 
 # Install requirements
@@ -79,10 +104,24 @@ fi
 
 echo ""
 
-# Install Playwright browser for JS-heavy web scraping
-echo "🌐 Installiere Playwright Browser..."
-playwright install chromium
-echo -e "${GREEN}✅ Playwright Chromium installiert${NC}"
+# Install Playwright browser for JS-heavy web scraping.
+# Soft-fail: ohne System-Libs (libnss3, libxkbcommon0, …) schlägt der
+# Chromium-Download fehl. Web-Research funktioniert trotzdem über
+# SearXNG/Brave/Tavily — Playwright ist nur für JS-Pages.
+echo "🌐 Installiere Playwright Browser (Chromium)..."
+if playwright install chromium; then
+    echo -e "${GREEN}✅ Playwright Chromium installiert${NC}"
+else
+    echo -e "${YELLOW}⚠️  Playwright-Installation fehlgeschlagen — Web-Research mit JS-Seiten nicht möglich.${NC}"
+    echo "   Nachholen mit: source venv/bin/activate && playwright install --with-deps chromium"
+fi
+echo ""
+
+# Reflex hat einen Routing-Bug bei frontend_path (siehe CLAUDE.md →
+# "Reflex Patch"). Wir patchen route.py idempotent — bei zukünftigem
+# Upstream-Fix wird das automatisch übersprungen.
+echo "🔧 Wende Reflex-Patch (frontend_path Route-Matching) an..."
+python "$SCRIPT_DIR/patch-reflex.py" || true
 
 echo ""
 echo "=================================================="

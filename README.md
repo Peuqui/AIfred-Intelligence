@@ -1165,6 +1165,29 @@ curl http://localhost:8002/api/sessions
 
 ### Setup
 
+**Recommended: one-shot installer** — handles system dependencies, the
+Python venv, all requirements, the Playwright browser, the Reflex
+routing patch, optional systemd services, the `.env` file, the
+`bge-m3` embedding pull and a first whitelist user in one go:
+
+```bash
+git clone https://github.com/yourusername/AIfred-Intelligence.git
+cd AIfred-Intelligence
+./scripts/install-all.sh
+```
+
+The installer is interactive (asks whether to install systemd services
+and whether to create a whitelist user). It detects `apt`, `dnf`,
+`pacman` and `brew` and installs: `python3-venv`, `python3-pip`,
+`poppler-utils`, `ffmpeg`, `bubblewrap`, `docker`, `docker-compose-plugin`.
+Ollama itself is **not** auto-installed (the official installer is
+`curl | sh` — install it manually for safety).
+
+---
+
+The steps below describe the same process **manually**, in case you
+prefer to do it yourself or need to debug:
+
 1. **Clone repository**:
 ```bash
 git clone https://github.com/yourusername/AIfred-Intelligence.git
@@ -1184,6 +1207,8 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 # Install Playwright browser (for JS-heavy pages)
 playwright install chromium
+# Apply the Reflex frontend_path routing patch
+python scripts/patch-reflex.py
 ```
 
 **Main Dependencies** (see `requirements.txt`):
@@ -1213,30 +1238,35 @@ MOONSHOT_API_KEY=your_key_here       # Kimi (Moonshot) - https://platform.moonsh
 
 5. **Install LLM Models**:
 
-**Option A: All Models (Recommended)**
+**Option A: Ollama (GGUF) — Easiest, Recommended**
+
 ```bash
-# Master script for both backends
-./scripts/download_all_models.sh
+# Embedding model (required for Vector Cache / Documents / Memory)
+ollama pull bge-m3
+
+# Recommended core models — pick what fits your VRAM:
+ollama pull qwen3:30b-instruct   # 18 GB, Main-LLM, 256K context
+ollama pull qwen3:8b             # 5.2 GB, Automatik, optional thinking
+ollama pull qwen2.5:3b           # 1.9 GB, Ultra-fast Automatik
 ```
 
-**Option B: Ollama Only (GGUF) - Easiest Installation**
-```bash
-# Ollama Models (GGUF Q4/Q8)
-./scripts/download_ollama_models.sh
+The recommended models above are picked up automatically by AIfred's
+model discovery on startup — no YAML editing needed.
 
-# Recommended core models:
-# - qwen3:30b-instruct (18GB) - Main-LLM, 256K context
-# - qwen3:8b (5.2GB) - Automatik, optional thinking
-# - qwen2.5:3b (1.9GB) - Ultra-fast Automatik
+**Option B: llama.cpp (GGUF) via llama-swap — Best GPU Control**
+
+Download GGUFs into `~/models/<name>/` and restart llama-swap; the
+autoscan adds YAML entries automatically. See [docs/en/guides/llamacpp-setup.md](docs/en/guides/llamacpp-setup.md).
+
+```bash
+hf download <repo> --local-dir ~/models/<name>
+llama-swap-restart    # symlinked by install-services.sh
 ```
 
-**Option C: vLLM Only (AWQ) - Best Performance**
+**Option C: vLLM (AWQ) — Best Throughput**
+
 ```bash
-# Install vLLM (if not already done)
 pip install vllm
-
-# vLLM Models (AWQ Quantization)
-./scripts/download_vllm_models.sh
 
 # Recommended models:
 # - Qwen3-8B-AWQ (~5GB, 40K→128K with YaRN)
@@ -1250,11 +1280,9 @@ pip install vllm
   --rope-scaling '{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}' \
   --max-model-len 65536 \
   --gpu-memory-utilization 0.85
-
-# Systemd service setup: see docs/infrastructure/
 ```
 
-**Option D: TabbyAPI (EXL2) - Experimental**
+**Option D: TabbyAPI (EXL2) — Experimental**
 ```bash
 # Not yet fully implemented
 # See: https://github.com/theroyallab/tabbyAPI
