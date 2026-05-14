@@ -607,6 +607,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     stream_state: Dict[str, Any] = {}
                     tool_calls: List[Dict[str, Any]] = []
+                    last_finish_reason: Optional[str] = None
 
                     async for chunk in stream:
                         if chunk.choices:
@@ -644,6 +645,13 @@ class OpenAICompatibleBackend(LLMBackend):
                                     stream_state.setdefault("_content_acc", "")
                                     stream_state["_content_acc"] += item.get("text", "")
 
+                            # Track finish_reason — set on the chunk that
+                            # closes the stream. Used below to detect a
+                            # truncated tool-call (finish_reason="length"
+                            # = hit max_tokens before the args were complete).
+                            if chunk.choices[0].finish_reason:
+                                last_finish_reason = chunk.choices[0].finish_reason
+
                         if hasattr(chunk, "usage") and chunk.usage:
                             prompt_tokens = chunk.usage.prompt_tokens
                             total_tokens = chunk.usage.completion_tokens
@@ -652,6 +660,18 @@ class OpenAICompatibleBackend(LLMBackend):
                     for item in self._finalize_stream(stream_state):
                         yield item
                         yielded_any = True
+
+                    # Discard tool calls if generation was truncated mid-args.
+                    # Executing partial JSON would just emit a noisy error to
+                    # the model and likely trigger the same broken call again.
+                    if tool_calls and last_finish_reason == "length":
+                        from ..lib.logging_utils import log_message
+                        log_message(
+                            "⚠️ Tool calls truncated (finish_reason=length) — "
+                            "skipping execution, model will produce a normal answer"
+                        )
+                        yield {"type": "debug", "message": "Tool calls truncated — skipped"}
+                        tool_calls = []
 
                     # Fallback: extract tool calls from text content for models
                     # that emit them as text instead of using the structured

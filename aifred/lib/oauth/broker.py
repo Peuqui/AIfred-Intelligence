@@ -15,9 +15,12 @@ State parameter: in-memory dict with 10-minute TTL per pending flow.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import secrets
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
@@ -74,6 +77,10 @@ class OAuthBroker:
         # otherwise Google rejects with 400. Storing it here removes the need to
         # reconstruct it in the callback (which is unreliable behind a reverse proxy).
         self._pending: dict[str, tuple[str, float, str]] = {}
+        # Serialises token read-modify-write across concurrent refreshes
+        # (e.g. Calendar + Drive in the same request). Without this, two
+        # parallel refreshes can clobber each other's refresh_token.
+        self._token_lock = asyncio.Lock()
 
     def register(self, provider: OAuthProvider) -> None:
         self._providers[provider.name] = provider
@@ -106,7 +113,8 @@ class OAuthBroker:
             raise ValueError("OAuth state expired — restart the login flow")
         provider = self._providers[provider_name]
         token_set = await provider.exchange_code(code, redirect_uri)
-        _save_token(provider_name, token_set)
+        async with self._token_lock:
+            _save_token(provider_name, token_set)
         logger.info("OAuth tokens stored for provider: %s", provider_name)
         return provider_name
 
@@ -116,30 +124,32 @@ class OAuthBroker:
 
     async def get_token(self, provider_name: str) -> str:
         """Return a valid access token, refreshing transparently if expired."""
-        token_set = _load_token(provider_name)
-        if token_set is None:
-            raise RuntimeError(
-                f"Not connected to {provider_name} — "
-                "complete the OAuth flow in AIfred settings first"
-            )
-        # Refresh 60 s before actual expiry to avoid mid-request failures
-        if time.time() >= token_set.expiry - 60:
-            if provider_name not in self._providers:
-                raise RuntimeError(f"Provider {provider_name} not registered")
-            token_set = await self._providers[provider_name].refresh(token_set)
-            _save_token(provider_name, token_set)
-            logger.debug("OAuth token refreshed for provider: %s", provider_name)
-        return token_set.access_token
+        async with self._token_lock:
+            token_set = _load_token(provider_name)
+            if token_set is None:
+                raise RuntimeError(
+                    f"Not connected to {provider_name} — "
+                    "complete the OAuth flow in AIfred settings first"
+                )
+            # Refresh 60 s before actual expiry to avoid mid-request failures
+            if time.time() >= token_set.expiry - 60:
+                if provider_name not in self._providers:
+                    raise RuntimeError(f"Provider {provider_name} not registered")
+                token_set = await self._providers[provider_name].refresh(token_set)
+                _save_token(provider_name, token_set)
+                logger.debug("OAuth token refreshed for provider: %s", provider_name)
+            return token_set.access_token
 
     def is_connected(self, provider_name: str) -> bool:
         return _load_token(provider_name) is not None
 
-    def disconnect(self, provider_name: str) -> None:
-        tokens = _load_all_tokens()
-        if provider_name in tokens:
-            tokens.pop(provider_name)
-            _save_all_tokens(tokens)
-            logger.info("OAuth tokens removed for provider: %s", provider_name)
+    async def disconnect(self, provider_name: str) -> None:
+        async with self._token_lock:
+            tokens = _load_all_tokens()
+            if provider_name in tokens:
+                tokens.pop(provider_name)
+                _save_all_tokens(tokens)
+                logger.info("OAuth tokens removed for provider: %s", provider_name)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -180,14 +190,35 @@ def _load_all_tokens() -> dict[str, TokenSet]:
         return {}
 
 
+_save_lock = threading.Lock()
+
+
 def _save_all_tokens(tokens: dict[str, TokenSet]) -> None:
+    """Encrypt-and-write all tokens atomically.
+
+    The _save_lock guards against concurrent threads (e.g. one OAuth flow
+    on the asyncio loop, another on a hub-channel worker thread) reading
+    the same snapshot and racing on write. Within asyncio itself, the
+    OAuthBroker._token_lock already serialises read-modify-write.
+    """
     fernet = _get_fernet()
     raw = {
         name: fernet.encrypt(json.dumps(asdict(ts)).encode()).decode()
         for name, ts in tokens.items()
     }
-    _TOKENS_FILE.write_text(json.dumps(raw, indent=2))
-    _TOKENS_FILE.chmod(0o600)
+    payload = json.dumps(raw, indent=2)
+    with _save_lock:
+        tmp_path = _TOKENS_FILE.with_suffix(".json.tmp")
+        tmp_path.write_text(payload)
+        try:
+            tmp_path.chmod(0o600)
+        except OSError:
+            pass
+        os.replace(tmp_path, _TOKENS_FILE)
+        try:
+            _TOKENS_FILE.chmod(0o600)
+        except OSError:
+            pass
 
 
 def _load_token(provider_name: str) -> Optional[TokenSet]:

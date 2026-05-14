@@ -785,7 +785,7 @@ class SettingsMixin(rx.State, mixin=True):
         provider = self.oauth_connect_provider
         if not provider:
             return
-        oauth_broker.disconnect(provider)
+        await oauth_broker.disconnect(provider)
         self.oauth_connect_status = "idle"
 
         # Auth-URL neu generieren — Credentials sind noch da, also kann der

@@ -275,6 +275,11 @@ class vLLMProcessManager:
         self._last_activity: float = 0.0
         self._ttl_timer: Optional[threading.Timer] = None
 
+        # Guards lifecycle transitions (start ↔ stop ↔ TTL-expiry) so the
+        # TTL timer thread can't kill a freshly started process between
+        # is_running() and _stop_sync().
+        self._lifecycle_lock = threading.Lock()
+
         # Paths
         project_root = Path(__file__).parent.parent.parent
         self.vllm_bin = project_root / "venv" / "bin" / "vllm"
@@ -307,19 +312,29 @@ class vLLMProcessManager:
 
     def _ttl_expired(self) -> None:
         """Called by timer thread when TTL expires — stop server if still idle."""
-        if not self.is_running():
-            return
-        idle_seconds = time.time() - self._last_activity
-        if idle_seconds < self._ttl_seconds:
-            # Activity happened since timer was set — reschedule
-            self._reset_ttl_timer()
-            return
-        logger.info(f"⏰ vLLM idle for {idle_seconds / 60:.0f}min — auto-shutdown (TTL {self._ttl_seconds}s)")
-        # stop() is async but only does sync work — call sync parts directly
-        self._stop_sync()
+        with self._lifecycle_lock:
+            if not self.is_running():
+                return
+            idle_seconds = time.time() - self._last_activity
+            if idle_seconds < self._ttl_seconds:
+                # Activity happened since timer was set — reschedule
+                self._reset_ttl_timer()
+                return
+            logger.info(
+                f"⏰ vLLM idle for {idle_seconds / 60:.0f}min — "
+                f"auto-shutdown (TTL {self._ttl_seconds}s)"
+            )
+            # stop() is async but only does sync work — call sync parts directly.
+            # Already holding _lifecycle_lock, use the locked variant.
+            self._stop_sync_locked()
 
     def _stop_sync(self) -> None:
         """Synchronous shutdown (usable from TTL timer thread)."""
+        with self._lifecycle_lock:
+            self._stop_sync_locked()
+
+    def _stop_sync_locked(self) -> None:
+        """Synchronous shutdown — caller must hold ``self._lifecycle_lock``."""
         if not self.process:
             return
         logger.info(f"🛑 Stopping vLLM server (model: {self.current_model})")
@@ -337,6 +352,10 @@ class vLLMProcessManager:
         finally:
             self.process = None
             self.current_model = None
+            # Cancel any pending TTL timer — process is gone.
+            if self._ttl_timer is not None:
+                self._ttl_timer.cancel()
+                self._ttl_timer = None
 
     def _read_stderr(self):
         """Read stderr in background thread"""
@@ -364,10 +383,15 @@ class vLLMProcessManager:
         Raises:
             RuntimeError: If vLLM fails to start
         """
-        # Stop existing process if running
-        if self.is_running():
-            logger.info(f"Stopping existing vLLM process (model: {self.current_model})")
-            await self.stop()
+        # Stop existing process if running, taking the lifecycle lock so a
+        # TTL expiry can't kill the new process we're about to spawn.
+        with self._lifecycle_lock:
+            if self._ttl_timer is not None:
+                self._ttl_timer.cancel()
+                self._ttl_timer = None
+            if self.process is not None:
+                logger.info(f"Stopping existing vLLM process (model: {self.current_model})")
+                self._stop_sync_locked()
 
         logger.info(f"🚀 Starting vLLM server with model: {model}")
 
@@ -416,22 +440,22 @@ class vLLMProcessManager:
             env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in self.gpu_indices)
             logger.info(f"🎯 CUDA_VISIBLE_DEVICES={env['CUDA_VISIBLE_DEVICES']}")
 
-        # Start process
+        # Start process. Hold the lifecycle lock while assigning self.process
+        # so a parallel start() or TTL expiry sees a consistent state.
         try:
-            # Clear stderr buffer
-            self.stderr_buffer = []
+            with self._lifecycle_lock:
+                self.stderr_buffer = []
+                self.process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                    text=True,  # Text mode for easier reading
+                    bufsize=1  # Line buffering
+                )
+                self.current_model = model
 
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                text=True,  # Text mode for easier reading
-                bufsize=1  # Line buffering
-            )
-            self.current_model = model
-
-            # Start stderr reading thread
+            # Start stderr reading thread (outside the lock — no shared mutation)
             stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
             stderr_thread.start()
 
@@ -493,8 +517,11 @@ class vLLMProcessManager:
 
     async def stop(self) -> None:
         """Stop vLLM server gracefully"""
-        self._cancel_ttl_timer()
-        self._stop_sync()
+        with self._lifecycle_lock:
+            if self._ttl_timer is not None:
+                self._ttl_timer.cancel()
+                self._ttl_timer = None
+            self._stop_sync_locked()
 
     async def start_with_auto_detection(
         self,

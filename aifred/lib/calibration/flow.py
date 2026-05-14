@@ -1459,16 +1459,26 @@ def _shrink_to_fit(
     precision = LLAMACPP_CALIBRATION_PRECISION
     if verify_r.measured_free_mb:
         overshoot_mb = 0
+        bottleneck_idx = -1
         for i, free in enumerate(verify_r.measured_free_mb):
             if i >= len(candidate.tensor_split) or candidate.tensor_split[i] == 0:
                 continue
             short = budget.safety_margin - free
             if short > overshoot_mb:
                 overshoot_mb = short
-        if overshoot_mb > 0:
-            total_slope = sum(candidate.vram_model.slope_mb_per_tok)
-            if total_slope > 0:
-                tokens_to_shed = int(overshoot_mb / total_slope * 1.1)
+                bottleneck_idx = i
+        if overshoot_mb > 0 and bottleneck_idx >= 0:
+            # Divide by the bottleneck GPU's slope, not the sum of all
+            # slopes — the previous formula underestimated tokens_to_shed
+            # by ~n_gpus×, so the next probe OOMed for the same reason.
+            slopes = candidate.vram_model.slope_mb_per_tok
+            bottleneck_slope = (
+                slopes[bottleneck_idx]
+                if bottleneck_idx < len(slopes)
+                else sum(slopes)
+            )
+            if bottleneck_slope > 0:
+                tokens_to_shed = int(overshoot_mb / bottleneck_slope * 1.1)
                 new_ctx = candidate.max_context - tokens_to_shed
                 new_ctx = max(0, int(new_ctx // precision) * precision)
                 return new_ctx

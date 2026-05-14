@@ -94,13 +94,17 @@ def _parse_fit_output(text: str) -> dict[int, tuple[int, int]]:
     """
     result: dict[int, tuple[int, int]] = {}
 
+    # GPU label in parentheses is optional — newer fit-params builds may
+    # omit it. Without the (...)? group, multi-GPU output without labels
+    # silently collapsed all readings onto GPU 0 and the optimizer thought
+    # CUDA1..N had 0 free MB, leading to OOM during verify.
     for match in re.finditer(
-        r"(CUDA(\d+))\s+\([^)]+\)\s*:\s*\d+\s+total\s*,\s*"
+        r"CUDA(\d+)(?:\s+\([^)]+\))?\s*:\s*\d+\s+total\s*,\s*"
         r"(\d+)\s+used\s*,\s*(-?\d+)\s+free",
         text,
     ):
-        cuda_id = int(match.group(2))
-        result[cuda_id] = (int(match.group(3)), int(match.group(4)))
+        cuda_id = int(match.group(1))
+        result[cuda_id] = (int(match.group(2)), int(match.group(3)))
 
     if not result:
         proj = re.search(
