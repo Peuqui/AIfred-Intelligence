@@ -89,6 +89,12 @@ python -m pip install --upgrade pip
 echo ""
 
 # Install requirements
+# pip install -r ist idempotent: bereits installierte Pakete, die die
+# requirements.txt-Constraints (z.B. reflex>=0.8.17) erfüllen, bleiben auf
+# ihrer aktuellen Version stehen. Das ist gewollt — ein blindes --upgrade
+# könnte eine funktionierende Installation auf eine neuere Version heben,
+# die Breaking-Changes hat (typischer Fall: Reflex-Major-Bump bricht den
+# patch-reflex.py-Anchor oder ändert die Config-API).
 REQUIREMENTS_FILE="$PROJECT_DIR/requirements.txt"
 if [ -f "$REQUIREMENTS_FILE" ]; then
     echo "📥 Installiere Python-Dependencies..."
@@ -97,6 +103,14 @@ if [ -f "$REQUIREMENTS_FILE" ]; then
     pip install -r "$REQUIREMENTS_FILE"
     echo ""
     echo -e "${GREEN}✅ Alle Dependencies installiert${NC}"
+    echo ""
+    echo -e "${YELLOW}ℹ️  Hinweis zu Updates:${NC}"
+    echo "   Bereits installierte Pakete wurden NICHT automatisch hochgezogen."
+    echo "   Wenn du bewusst auf die neuesten Versionen upgraden willst:"
+    echo "       source venv/bin/activate"
+    echo "       pip install --upgrade -r requirements.txt"
+    echo "   ACHTUNG: Major-Bumps (z.B. Reflex 0.8 → 0.9) können Breaking-Changes"
+    echo "   bringen. Vorher Changelog checken + ggf. patch-reflex.py neu prüfen."
 else
     echo -e "${RED}❌ requirements.txt nicht gefunden: $REQUIREMENTS_FILE${NC}"
     exit 1

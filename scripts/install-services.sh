@@ -46,32 +46,101 @@ if [ ! -f "$SYSTEMD_DIR/aifred-chromadb.service" ] || [ ! -f "$SYSTEMD_DIR/aifre
     exit 1
 fi
 
+# Docker-Binary auflösen — das aifred-chromadb.service Template enthält den
+# Placeholder __DOCKER_BIN__, weil docker nicht überall unter /usr/bin liegt
+# (Snap-Docker → /snap/bin/docker, manueller Install → /usr/local/bin/docker).
+# Fallback /usr/bin/docker, falls docker noch gar nicht im PATH ist (Service
+# läuft sowieso erst, wenn Docker installiert ist — der Fix kommt dann via
+# 'sudo systemctl edit aifred-chromadb.service' oder Re-Run dieses Scripts).
+DOCKER_BIN="$(command -v docker || true)"
+if [ -z "$DOCKER_BIN" ]; then
+    DOCKER_BIN="/usr/bin/docker"
+    echo "ℹ️  docker noch nicht im PATH — Fallback auf $DOCKER_BIN."
+    echo "   Falls Docker später unter anderem Pfad landet (z.B. /snap/bin/docker),"
+    echo "   installiere danach nochmal: sudo $SCRIPT_DIR/install-services.sh"
+fi
+
 # Helper: Service-Datei templaten und installieren
 install_service() {
     local src="$1"
     local dst="/etc/systemd/system/$(basename "$src")"
     sed -e "s|__USER__|$ACTUAL_USER|g" \
         -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+        -e "s|__DOCKER_BIN__|$DOCKER_BIN|g" \
         "$src" > "$dst"
     echo "   ✅ Installiert: $(basename "$src")"
+}
+
+# Helper: Drop-in-Konfig (override.conf, hardening.conf, …) unter
+# /etc/systemd/system/<service>.d/ installieren. Drop-ins überschreiben/ergänzen
+# Direktiven der Haupt-Service-Datei nach daemon-reload. Auch hier templaten
+# (gleiche Placeholder), falls jemand __USER__/__PROJECT_DIR__ in einem
+# Drop-in benutzt — aktuell ist hardening.conf rein statisch, aber sed ist
+# idempotent wenn keine Placeholder drin sind.
+install_dropin() {
+    local svc_name="$1"      # z.B. aifred-intelligence.service
+    local src="$2"           # Pfad zu Source-Drop-in
+    local dst_dir="/etc/systemd/system/${svc_name}.d"
+    local dst="$dst_dir/$(basename "$src")"
+    mkdir -p "$dst_dir"
+    sed -e "s|__USER__|$ACTUAL_USER|g" \
+        -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+        -e "s|__DOCKER_BIN__|$DOCKER_BIN|g" \
+        "$src" > "$dst"
+    echo "   ✅ Drop-in installiert: ${svc_name}.d/$(basename "$src")"
 }
 
 echo "1️⃣  Installiere Haupt-Services (chromadb + aifred-intelligence)..."
 install_service "$SYSTEMD_DIR/aifred-chromadb.service"
 install_service "$SYSTEMD_DIR/aifred-intelligence.service"
+
+# Drop-in für aifred-intelligence.service installieren, sofern vorhanden.
+# Der Drop-in (hardening.conf) erweitert REFLEX_HOT_RELOAD_EXCLUDE_PATHS um
+# aifred_vector_cache/scripts/deploy/docs/docker/tests/systemd. Ohne diesen
+# Drop-in killt Granian den Reflex-Worker bei jeder ChromaDB-Embed-Batch
+# (chroma.sqlite3-Schreibvorgang triggert Hot-Reload), wodurch Indexing-Jobs
+# nach der ersten Batch sterben. Außerdem: leert Requires= und setzt Wants=
+# damit ChromaDB-Recreate (Docker-Auto-Update) keinen Cascade-Stop von
+# AIfred auslöst.
+DROPIN_DIR="$SYSTEMD_DIR/aifred-intelligence.service.d"
+if [ -d "$DROPIN_DIR" ]; then
+    for dropin in "$DROPIN_DIR"/*.conf; do
+        [ -f "$dropin" ] || continue
+        install_dropin "aifred-intelligence.service" "$dropin"
+    done
+fi
+
 echo
 echo "   Konfiguriert mit:"
 echo "      User:        $ACTUAL_USER"
 echo "      Projekt-Dir: $PROJECT_DIR"
+echo "      Docker-Bin:  $DOCKER_BIN"
 echo
 
-# Corpus-Search-Server (Korpus-Such-API, z.B. Bibel/Lexika)
+# Corpus-Search-Server (FastAPI Korpus-Such-API).
+# Default-Ja: dient als Backend für die Korpus-/Judaica-Such-UI hinter nginx.
+# Standalone-AIfred funktioniert auch ohne, aber das Repo enthält die Service-
+# Datei und das passende Python-Script (scripts/corpus_search_server.py) —
+# wenn der User opt-out will, kann er N sagen.
+INSTALL_CORPUS=0
 if [ -f "$SYSTEMD_DIR/aifred-corpus-server.service" ]; then
-    echo "2️⃣  Installiere aifred-corpus-server.service (Korpus-Such-API)..."
-    install_service "$SYSTEMD_DIR/aifred-corpus-server.service"
-    INSTALL_CORPUS=1
-else
-    INSTALL_CORPUS=0
+    echo "2️⃣  Corpus-Search-Server (FastAPI Korpus-Such-API)"
+    echo "   Default-installation — Backend für Korpus-/Judaica-Such-UI."
+    if [ -t 0 ]; then
+        read -p "   Installieren? (J/n): " -n 1 -r CORPUS_REPLY
+        echo
+        if [[ ! $CORPUS_REPLY =~ ^[Nn]$ ]]; then
+            install_service "$SYSTEMD_DIR/aifred-corpus-server.service"
+            INSTALL_CORPUS=1
+        else
+            echo "   ⏭️  übersprungen"
+        fi
+    else
+        # Nicht-interaktiv: default-installieren (passt zum Default-Ja).
+        install_service "$SYSTEMD_DIR/aifred-corpus-server.service"
+        INSTALL_CORPUS=1
+        echo "   ✅ Nicht-interaktiver Aufruf — default-installiert"
+    fi
 fi
 echo
 
@@ -142,7 +211,94 @@ if [ "$INSTALL_CORPUS" = "1" ]; then
 fi
 echo
 
-echo "✅ Installation abgeschlossen!"
+# ────────────────────────────────────────────────────────────────
+# Lauffähigkeits-Verifikation aller gestarteten Services
+# 'systemctl status' allein reicht NICHT — der Befehl gibt auch Exit 0
+# zurück wenn der Service "loaded but failed" ist. Wir prüfen explizit
+# is-active + die offenen TCP-Ports.
+# ────────────────────────────────────────────────────────────────
+echo "8️⃣  Verifiziere Lauffähigkeit der Services..."
+echo
+SERVICE_FAILURES=()
+
+check_service_active() {
+    local svc="$1"
+    if systemctl is-active --quiet "$svc"; then
+        echo "   ✅ $svc aktiv"
+    else
+        echo "   ❌ $svc NICHT aktiv (is-active = $(systemctl is-active "$svc" 2>&1 || true))"
+        echo "      → journalctl -u $svc -e --no-pager"
+        SERVICE_FAILURES+=("$svc nicht aktiv")
+    fi
+}
+
+# ChromaDB nur prüfen, wenn wir ihn gestartet haben.
+if command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    check_service_active aifred-chromadb.service
+    # Port-Probe (Container hört intern auf 8000). Beim Frischstart kann
+    # zusätzlich der Image-Pull (chromadb/chroma:latest ~200 MB) Zeit
+    # kosten — daher großzügige 120s Toleranz statt 30s.
+    chroma_port_ok=0
+    for _ in $(seq 1 60); do
+        (echo > /dev/tcp/localhost/8000) &>/dev/null && { chroma_port_ok=1; break; }
+        sleep 2
+    done
+    if [ "$chroma_port_ok" = "1" ]; then
+        echo "   ✅ Port 8000 (ChromaDB HTTP) offen"
+    else
+        echo "   ❌ Port 8000 (ChromaDB) nicht erreichbar nach 120s"
+        echo "      → docker logs aifred-chromadb"
+        SERVICE_FAILURES+=("ChromaDB Port 8000 nicht erreichbar")
+    fi
+fi
+
+check_service_active aifred-intelligence.service
+
+# AIfred-Backend braucht beim Erststart ~30-90s (Bun-Setup, Reflex compiliert
+# das Frontend, lädt Modelle aus config.py etc.). Großzügige 120s pollen.
+aifred_port_ok=0
+for _ in $(seq 1 60); do
+    (echo > /dev/tcp/localhost/8002) &>/dev/null && { aifred_port_ok=1; break; }
+    sleep 2
+done
+if [ "$aifred_port_ok" = "1" ]; then
+    echo "   ✅ Port 8002 (AIfred-Backend) offen"
+else
+    echo "   ❌ Port 8002 (AIfred-Backend) nicht erreichbar nach 120s"
+    echo "      → journalctl -u aifred-intelligence.service -e --no-pager"
+    SERVICE_FAILURES+=("AIfred-Backend Port 8002 nicht erreichbar")
+fi
+
+# Frontend-Port 3002: beim Erststart 2-5 Min realistisch (Bun-Setup, Vite-Build).
+# Hier 60s pollen — Warnung statt Failure, Backend reicht für CLI/API.
+frontend_port_ok=0
+for _ in $(seq 1 30); do
+    (echo > /dev/tcp/localhost/3002) &>/dev/null && { frontend_port_ok=1; break; }
+    sleep 2
+done
+if [ "$frontend_port_ok" = "1" ]; then
+    echo "   ✅ Port 3002 (AIfred-Frontend) offen"
+else
+    echo "   ⚠️  Port 3002 (AIfred-Frontend) noch nicht offen — Erststart-Build kann 2-5 Min dauern"
+    echo "      → journalctl -u aifred-intelligence.service -f"
+fi
+
+if [ "$INSTALL_CORPUS" = "1" ]; then
+    check_service_active aifred-corpus-server.service
+fi
+echo
+
+if [ ${#SERVICE_FAILURES[@]} -gt 0 ]; then
+    echo "❌ Installation abgeschlossen, aber Services laufen nicht sauber:"
+    for f in "${SERVICE_FAILURES[@]}"; do
+        echo "   • $f"
+    done
+    echo
+    SERVICE_EXIT=1
+else
+    echo "✅ Installation abgeschlossen — alle Services laufen!"
+    SERVICE_EXIT=0
+fi
 echo
 echo "📊 Nützliche Befehle:"
 echo "   Logs ansehen:    journalctl -u aifred-intelligence.service -f"
@@ -151,3 +307,6 @@ echo "   Service stoppen:     sudo systemctl stop aifred-intelligence.service"
 echo "   Status prüfen:       systemctl status aifred-intelligence.service"
 echo
 echo "📚 Siehe systemd/README.md für weitere Informationen"
+
+# Exit-Code propagieren — install-all.sh kann darauf reagieren.
+exit "${SERVICE_EXIT:-0}"

@@ -8,9 +8,13 @@ PartOf=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=__PROJECT_DIR__/docker
-ExecStart=/usr/bin/docker compose up -d chromadb
-ExecStop=/usr/bin/docker compose stop chromadb
-ExecReload=/usr/bin/docker compose restart chromadb
+# Der Docker-Binary-Pfad wird vom Installer (scripts/install-services.sh)
+# per sed aus `command -v docker` aufgelöst — typisch /usr/bin/docker auf
+# apt-Hosts, /snap/bin/docker bei Snap-Docker, /usr/local/bin/docker bei
+# manuellem Install. systemd akzeptiert keinen Lookup über PATH bei ExecStart.
+ExecStart=__DOCKER_BIN__ compose up -d chromadb
+ExecStop=__DOCKER_BIN__ compose stop chromadb
+ExecReload=__DOCKER_BIN__ compose restart chromadb
 Restart=on-failure
 
 [Install]
