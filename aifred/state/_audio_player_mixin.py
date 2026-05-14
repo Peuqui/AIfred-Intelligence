@@ -34,6 +34,16 @@ import reflex as rx
 _audio_runtime_state: dict[str, dict[str, Any]] = {}
 
 
+def discard_audio_runtime_state(session_id: str) -> None:
+    """Drop the per-session audio runtime snapshot.
+
+    Called on logout / delete_session so the in-memory dict doesn't grow
+    unbounded with snapshots for sessions that no longer exist.
+    """
+    if session_id:
+        _audio_runtime_state.pop(session_id, None)
+
+
 class AudioPlayerMixin(rx.State, mixin=True):
     """Mixin: browser media playback state."""
 

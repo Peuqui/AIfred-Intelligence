@@ -400,13 +400,24 @@ class LoudnessIndex:
             )
             return False
 
-        if self._sem is None:
-            self._sem = asyncio.Semaphore(ANALYSIS_CONCURRENCY)
-
-        loop.create_task(
-            self._run_lazy_analysis(resolved),
-            name=f"loudness-analyze-{resolved.name}",
-        )
+        # Semaphore-Setup + create_task in einem try, damit ein Loop-Shutdown
+        # zwischen den Schritten den inflight-Marker nicht permanent stehen
+        # lässt (die betroffene Datei würde sonst nie wieder analysiert).
+        try:
+            if self._sem is None:
+                self._sem = asyncio.Semaphore(ANALYSIS_CONCURRENCY)
+            loop.create_task(
+                self._run_lazy_analysis(resolved),
+                name=f"loudness-analyze-{resolved.name}",
+            )
+        except RuntimeError as exc:
+            with self._inflight_lock:
+                self._inflight.discard(path_str)
+            log_message(
+                f"loudness.request_lazy_analysis: scheduling failed ({exc})",
+                "warning",
+            )
+            return False
         return True
 
     async def _run_lazy_analysis(self, file_path: Path) -> None:

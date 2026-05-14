@@ -86,6 +86,19 @@ _global_backend_state: dict[str, Any] = {
 # (e.g., two browser tabs starting simultaneously)
 _backend_init_lock = asyncio.Lock()
 
+# Strong references for fire-and-forget asyncio tasks that the rest of
+# the app doesn't await (e.g. queue_tts_for_agent in add_agent_panel).
+# Without this, asyncio.create_task()'s task object can be GC'd while
+# the coroutine is still running. A done-callback removes the entry
+# again so the set doesn't grow unbounded.
+_orphan_tasks: "set[asyncio.Task[Any]]" = set()
+
+
+def track_orphan_task(task: "asyncio.Task[Any]") -> None:
+    """Keep a strong reference to ``task`` until it finishes."""
+    _orphan_tasks.add(task)
+    task.add_done_callback(_orphan_tasks.discard)
+
 # ============================================================
 # Whisper STT — Docker service (aifred/lib/audio_processing.py)
 # ============================================================

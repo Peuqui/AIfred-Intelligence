@@ -151,8 +151,17 @@ class AuthMixin(rx.State, mixin=True):
     def do_logout(self):  # type: ignore[return]
         """Log out current user."""
         from ..lib.browser_storage import clear_username_script
+        from ._audio_player_mixin import discard_audio_runtime_state
+        from ._tts_streaming_mixin import discard_dashscope_runtime
 
         self.add_debug(f"👋 Logged out: {self.logged_in_user}")  # type: ignore[attr-defined]
+        # Drop per-session runtime state (audio snapshot + DashScope socket)
+        # for the session we're leaving — otherwise it accumulates for the
+        # lifetime of the server process.
+        prev_session = self.session_id  # type: ignore[attr-defined]
+        discard_audio_runtime_state(prev_session)
+        discard_dashscope_runtime(prev_session)
+
         self.logged_in_user = ""
         self.available_sessions = []  # type: ignore[attr-defined]
         self.session_id = ""  # type: ignore[attr-defined]

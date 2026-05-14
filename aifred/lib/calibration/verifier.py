@@ -113,8 +113,14 @@ async def _start_server(
             env=proc_env,
             preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
         )
-    except OSError as e:
-        os.close(fd)
+    except Exception as e:
+        # Catch broader than OSError: PermissionError on /tmp quota,
+        # NotADirectoryError on unusual mounts, etc. — all of these would
+        # have leaked the tmpfile previously.
+        try:
+            os.close(fd)
+        except OSError:
+            pass
         try:
             os.unlink(log_path)
         except OSError:
@@ -273,7 +279,13 @@ def _measured_free(gpus: list[GPU]) -> tuple[int, ...]:
                 free_by_uuid[uuid] = int(g["free_mb"])
             except (KeyError, ValueError):
                 continue
-    return tuple(free_by_uuid.get(g.uuid, g.free_mb) for g in gpus)
+    # If any GPU we asked about is missing from this nvidia-smi snapshot,
+    # treat the whole measurement as invalid. Falling back to g.free_mb
+    # would mix post-load readings with the pre-load baseline captured
+    # at calibration start and could yield a false-positive fit.
+    if not all(g.uuid in free_by_uuid for g in gpus):
+        return ()
+    return tuple(free_by_uuid[g.uuid] for g in gpus)
 
 
 async def verify(

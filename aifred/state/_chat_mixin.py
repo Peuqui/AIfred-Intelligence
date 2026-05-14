@@ -353,10 +353,18 @@ class ChatMixin(rx.State, mixin=True):
             agent_tts_enabled = self.tts_agent_voices.get(agent, {}).get("enabled", True)  # type: ignore[attr-defined]
             if agent_tts_enabled:
                 # Schedule TTS generation as background task
-                # This runs async without blocking add_agent_panel()
+                # This runs async without blocking add_agent_panel().
+                # Track the task in _orphan_tasks so the asyncio runtime
+                # keeps a strong reference until completion — otherwise
+                # the loop may GC the task object mid-run.
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.create_task(self._queue_tts_for_agent(content, agent))  # type: ignore[attr-defined]
+                    from ._base import track_orphan_task
+                    task = loop.create_task(
+                        self._queue_tts_for_agent(content, agent),  # type: ignore[attr-defined]
+                        name=f"tts-{agent}",
+                    )
+                    track_orphan_task(task)
                 except RuntimeError:
                     # No running loop - this shouldn't happen in normal operation
                     # but we handle it gracefully

@@ -233,7 +233,7 @@ def get_free_ram_mb() -> Optional[int]:
     except ImportError:
         logger.warning("psutil not installed - install via: pip install psutil")
         return None
-    except ImportError as e:
+    except (OSError, AttributeError) as e:
         logger.debug(f"Could not query RAM via psutil: {e}")
         return None
 
@@ -251,7 +251,7 @@ def get_swap_used_mb() -> Optional[int]:
         return int(swap.used / (1024 * 1024))
     except ImportError:
         return None
-    except ImportError as e:
+    except (OSError, AttributeError) as e:
         logger.debug(f"Could not query swap via psutil: {e}")
         return None
 
