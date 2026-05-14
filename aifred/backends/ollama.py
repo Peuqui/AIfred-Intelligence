@@ -937,16 +937,8 @@ class OllamaBackend(LLMBackend):
         if model_size_bytes == 0:
             model_size_bytes = get_model_size_from_cache(model)
 
-        # DISABLED: Ollama manages VRAM automatically with LRU strategy
-        # Manual unloading is redundant and adds ~2s latency per request.
-        # If we load a new model, Ollama unloads the old one automatically.
-        #
-        # success, unloaded = await self.unload_all_models()
-        # if success and unloaded:
-        #     debug_msgs.append(f"🔄 Models unloaded: {', '.join(unloaded)}")
-        #     # Wait for VRAM to be fully released by GPU driver
-        #     await asyncio.sleep(2.0)
-        #     debug_msgs.append("✅ VRAM released")
+        # Ollama manages VRAM automatically via LRU — manual unloading
+        # is redundant and adds ~2s latency per request.
 
         # Since we don't unload anymore, check if the target model is currently loaded
         # (it might be, or Ollama might have unloaded it for another model via LRU)

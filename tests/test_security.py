@@ -1,13 +1,11 @@
 """Tests for aifred.lib.security — tier filtering, sanitization, audit, rate limiting."""
 
-import json
 import os
 import sqlite3
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from aifred.lib.security import (
     TIER_ADMIN,
@@ -17,10 +15,8 @@ from aifred.lib.security import (
     TIER_WRITE_SYSTEM,
     OWNER_TIER,
     DEFAULT_TIER_BY_SOURCE,
-    RateLimitReached,
     _RateTracker,
     audit_log,
-    check_rate_limit,
     filter_tools_by_tier,
     needs_confirmation,
     resolve_tier_for_sender,

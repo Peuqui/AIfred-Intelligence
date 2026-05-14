@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-import dashscope
+import dashscope  # noqa: E402 — must be after load_dotenv() to pick up API key
 
 # International endpoint (Singapore)
 dashscope.base_http_api_url = "https://dashscope-intl.aliyuncs.com/api/v1"

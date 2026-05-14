@@ -1,8 +1,6 @@
 """Tests for aifred.lib.scheduler — job store, scheduling, next_run calculation."""
 
-import tempfile
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import pytest
 
@@ -42,7 +40,7 @@ class TestJobStoreCRUD:
         assert len(store.list_all()) == 3
 
     def test_list_enabled_only(self, store):
-        j1 = store.add("active", "interval", "60", {})
+        store.add("active", "interval", "60", {})
         j2 = store.add("disabled", "interval", "60", {})
         store.enable(j2.job_id, enabled=False)
         enabled = store.list_all(enabled_only=True)

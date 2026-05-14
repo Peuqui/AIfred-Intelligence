@@ -3,7 +3,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
 
 from aifred.plugins.channels.telegram_channel import (
     TelegramChannel,

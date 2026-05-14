@@ -19,11 +19,11 @@ import wave
 # Load .env from project root
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402 — after sys.path setup
 load_dotenv()
 
-import requests
-import dashscope
+import requests  # noqa: E402 — must be after load_dotenv()
+import dashscope  # noqa: E402 — must be after load_dotenv() to pick up API key
 
 # International endpoint
 DASHSCOPE_API_URL = "https://dashscope-intl.aliyuncs.com/api/v1"
@@ -209,10 +209,10 @@ def test_realtime_streaming(text: str, voice_id: str, name: str) -> bool:
                 if audio_b64:
                     chunks.append(base64.b64decode(audio_b64))
             elif event_type == "response.done":
-                print(f"  Response done")
+                print("  Response done")
                 done_event.set()
             elif event_type == "session.created":
-                print(f"  Session created")
+                print("  Session created")
 
     callback = TestCallback()
 

@@ -98,9 +98,6 @@ def restart_service(service_name: str, check: bool = False) -> bool:
     except subprocess.CalledProcessError as e:
         log_message(f"Failed to restart service '{service_name}': {e}")
         return False
-    except subprocess.CalledProcessError as e:
-        log_message(f"Error restarting service '{service_name}': {e}")
-        return False
 
 
 # Process patterns for AIfred backends (centralized constants)

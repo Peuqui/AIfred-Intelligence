@@ -3,7 +3,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
 
 from aifred.lib.credential_broker import CredentialBroker, broker, _CREDENTIAL_MAP
 

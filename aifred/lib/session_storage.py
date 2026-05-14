@@ -12,6 +12,7 @@ Each session belongs to a user (owner field).
 Users can access their sessions from any device via username + password.
 """
 
+import os
 import json
 import hashlib
 import secrets
@@ -435,6 +436,9 @@ def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
     """
     Write session dict to file (internal helper).
 
+    Atomic write via tempfile + os.replace — crashing mid-write leaves the
+    original file intact instead of truncating it.
+
     Args:
         path: Path to session file
         session: Session dict
@@ -442,11 +446,17 @@ def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
     Returns:
         True on success
     """
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(session, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
         return True
     except IOError:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         return False
 
 
@@ -690,6 +700,14 @@ def delete_session(session_id: str) -> bool:
             except (json.JSONDecodeError, OSError):
                 pass
             session_path.unlink()
+
+        # Clean up orphan .pending flag (if any) — prevents stale message injection
+        # after the session is gone.
+        try:
+            safe_id = _sanitize_session_id(session_id)
+            (SESSION_DIR / f"{safe_id}.pending").unlink(missing_ok=True)
+        except ValueError:
+            pass
 
         # Also cleanup associated images
         from .vision_utils import cleanup_session_images
@@ -935,9 +953,9 @@ def set_pending_message(session_id: str, message: str) -> bool:
             session["data"] = {}
         session["data"]["pending_message"] = message
 
-        # Save session
-        with open(session_path, 'w', encoding='utf-8') as f:
-            json.dump(session, f, ensure_ascii=False, indent=2)
+        # Save session (atomic write — crash mid-write leaves prior content intact)
+        if not _write_session_file(session_path, session):
+            return False
 
         # Set .pending flag file
         flag_path = SESSION_DIR / f"{safe_id}.pending"
@@ -971,8 +989,8 @@ def get_and_clear_pending_message(session_id: str) -> Optional[str]:
         if not flag_path.exists():
             return None
 
-        # Flag exists - clear it
-        flag_path.unlink()
+        # Flag exists - clear it (missing_ok: another caller may race-clear it)
+        flag_path.unlink(missing_ok=True)
 
         # Load session and extract message
         session_path = get_session_path(session_id)
@@ -986,10 +1004,9 @@ def get_and_clear_pending_message(session_id: str) -> Optional[str]:
         if not pending_msg:
             return None
 
-        # Clear pending_message from session
+        # Clear pending_message from session (atomic write)
         session["data"]["pending_message"] = None
-        with open(session_path, 'w', encoding='utf-8') as f:
-            json.dump(session, f, ensure_ascii=False, indent=2)
+        _write_session_file(session_path, session)
 
         result: str | None = pending_msg
         return result
