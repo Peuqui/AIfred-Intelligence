@@ -1205,8 +1205,12 @@ venv\Scripts\activate     # Windows
 3. **Install dependencies**:
 ```bash
 pip install -r requirements.txt
-# Install Playwright browser (for JS-heavy pages)
-playwright install chromium
+# Install Playwright browser (for JS-heavy pages).
+# Use --with-deps to also install system libraries (libnss3 etc.) — requires sudo.
+# Plain `playwright install chromium` works too but the headless browser may
+# fail to start later if libnss3/libxkbcommon0/etc. are missing.
+sudo $(which playwright) install --with-deps chromium     # recommended on fresh servers
+# playwright install chromium                              # binary-only (no system libs)
 # Apply the Reflex frontend_path routing patch
 python scripts/patch-reflex.py
 ```
