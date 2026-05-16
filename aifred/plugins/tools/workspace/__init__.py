@@ -236,12 +236,27 @@ class WorkspacePlugin:
 
             size_kb = round(file_path.stat().st_size / 1024, 1)
             log_message(f"  write_file: {file_path.name} ({size_kb} KB, verified)")
-            return json.dumps({
+            result_json = json.dumps({
                 "written": filename,
                 "size_kb": size_kb,
                 "chars": len(content),
                 "verified": True,
             })
+            # HTML-Artefakte in derselben Chat-Bubble einbetten wie
+            # execute_code_write das tut — die Pipeline parst
+            # `SANDBOX_HTML_URL:` Zeilen aus dem Tool-Result und baut daraus
+            # ein iframe. URL geht über den vorhandenen /_upload/documents/
+            # static mount, kein Kopiervorgang nötig.
+            if file_path.suffix.lower() in {".html", ".htm"}:
+                rel = file_path.relative_to(_DOCUMENTS_DIR).as_posix()
+                return (
+                    f"{result_json}\n\n"
+                    f"SANDBOX_HTML_URL: /_upload/documents/{rel}\n\n"
+                    "The HTML file is automatically embedded in the chat. "
+                    "Do NOT paste the code as a markdown block. "
+                    "Just describe what was built."
+                )
+            return result_json
 
         tools.append(Tool(
             name="write_file",
