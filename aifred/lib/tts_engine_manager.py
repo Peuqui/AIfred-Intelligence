@@ -19,7 +19,7 @@ from .logging_utils import log_message
 
 
 # Engines that require a Docker container with GPU VRAM
-GPU_ENGINES = {"xtts", "moss"}
+GPU_ENGINES = {"xtts", "moss", "qwen3local"}
 
 # Engines that run without Docker / without VRAM
 LIGHTWEIGHT_ENGINES = {"piper", "edge", "espeak", "dashscope"}
@@ -158,18 +158,24 @@ class TTSState:
 def _detect_running_tts_engine(timeout: float = TTS_HEALTH_CHECK_TIMEOUT) -> str:
     """Detect which GPU TTS engine is currently running via health check.
 
-    Returns engine key ("xtts" or "moss") if running, empty string if none.
-    Normal response time: <100ms. Timeout is only a safety net for hung connections.
+    Returns engine key ("xtts", "moss" or "qwen3local") if running, empty
+    string if none. Normal response time: <100ms. Timeout is only a safety
+    net for hung connections.
     """
     import requests
 
-    from .config import XTTS_SERVICE_URL, MOSS_TTS_SERVICE_URL
+    from .config import (
+        MOSS_TTS_SERVICE_URL,
+        QWEN3_TTS_SERVICE_URL,
+        XTTS_SERVICE_URL,
+    )
 
     # Identify services by fields unique to each TTS engine. A shared port
     # (e.g. misconfigured Whisper on 5055) would also answer model_loaded=true
     # but lacks the engine-specific field.
-    #   XTTS  : "custom_voices"
-    #   MOSS  : "voices" + "sample_rate"
+    #   XTTS     : "custom_voices"
+    #   MOSS     : "voices" + "sample_rate"
+    #   Qwen3    : "model" string starts with "Qwen/Qwen3-TTS"
     try:
         r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=timeout)
         if r.ok:
@@ -185,6 +191,15 @@ def _detect_running_tts_engine(timeout: float = TTS_HEALTH_CHECK_TIMEOUT) -> str
             data = r.json()
             if data.get("model_loaded") and "sample_rate" in data:
                 return "moss"
+    except Exception:
+        pass
+
+    try:
+        r = requests.get(f"{QWEN3_TTS_SERVICE_URL}/health", timeout=timeout)
+        if r.ok:
+            data = r.json()
+            if data.get("model_loaded") and str(data.get("model", "")).startswith("Qwen/Qwen3-TTS"):
+                return "qwen3local"
     except Exception:
         pass
 
@@ -212,12 +227,18 @@ def _is_llm_loaded(backend_type: str) -> bool:
 
 def stop_engine(engine: str) -> tuple[bool, str]:
     """Stop a running TTS engine container."""
-    from .process_utils import stop_xtts_container, stop_moss_container
+    from .process_utils import (
+        stop_moss_container,
+        stop_qwen3local_container,
+        stop_xtts_container,
+    )
 
     if engine == "xtts":
         return stop_xtts_container()
     elif engine == "moss":
         return stop_moss_container()
+    elif engine == "qwen3local":
+        return stop_qwen3local_container()
     return True, ""
 
 
@@ -415,6 +436,13 @@ def _do_switch(
 
         yield "MOSS-TTS: Loading model..."
         success, msg, device = ensure_moss_ready(timeout=120)
+        yield msg
+
+    elif new_engine == "qwen3local":
+        from .process_utils import ensure_qwen3local_ready
+
+        yield "Qwen3-TTS: Loading model + warmup..."
+        success, msg, device = ensure_qwen3local_ready(timeout=240)
         yield msg
 
     # Step 4: Restart LLM with TTS-calibrated profile

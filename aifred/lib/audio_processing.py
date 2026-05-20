@@ -1096,6 +1096,62 @@ def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIf
         return None
 
 
+# Map between AIfred's short language codes (de/en/...) and Qwen3-TTS' full
+# language names ("German"/"English"/...). Qwen3-TTS-1.7B-Base supports
+# 10 languages — anything else gets routed to English as a safe default.
+_QWEN3_LANG_MAP = {
+    "de": "German",   "en": "English", "zh": "Chinese", "ja": "Japanese",
+    "ko": "Korean",   "fr": "French",  "ru": "Russian", "pt": "Portuguese",
+    "es": "Spanish",  "it": "Italian",
+}
+
+
+def generate_speech_qwen3local(text: str, speed: float = 1.0, voice_choice: str = "AIfred", language: str = "de") -> str | None:
+    """
+    Qwen3-TTS local (Docker) — voice-cloning TTS, 10 languages, ~97 ms streaming latency.
+
+    Uses the same /tts POST shape as XTTS / MOSS-TTS, just with the full
+    language name instead of a short code. Reference voices are warmed at
+    container startup from /app/voices/*.wav.
+    """
+    import requests
+    from .config import QWEN3_TTS_SERVICE_URL
+
+    # Qwen3-TTS returns WAV — keep that format end-to-end (cleaner for
+    # downstream pitch/speed ffmpeg processing, and the Puck channel
+    # already prefers WAV).
+    filename = _generate_tts_filename("wav")
+    output_file = str(TTS_AUDIO_DIR / filename)
+
+    qwen3_lang = _QWEN3_LANG_MAP.get(language.lower(), "English")
+
+    try:
+        log_message(f"🎤 Qwen3-TTS: speaker={voice_choice}, language={qwen3_lang}, text_length={len(text)}")
+        response = requests.post(
+            f"{QWEN3_TTS_SERVICE_URL}/tts",
+            json={"text": text, "speaker": voice_choice, "language": qwen3_lang},
+            timeout=None,
+        )
+        if response.status_code == 200:
+            with open(output_file, "wb") as f:
+                f.write(response.content)
+            if _validate_audio_output(output_file):
+                file_size = os.path.getsize(output_file)
+                log_message(f"✅ Qwen3-TTS: Audio saved → {output_file} ({file_size} bytes)")
+                return f"/_upload/tts_audio/{filename}"
+            log_message(f"⚠️ Qwen3-TTS: File missing or too small at {output_file}")
+            return None
+        error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
+        log_message(f"❌ Qwen3-TTS Error: {error_msg}")
+        return None
+    except requests.exceptions.ConnectionError:
+        log_message("❌ Qwen3-TTS: Service not running. Start with: cd docker/qwen3-tts && docker-compose up -d")
+        return None
+    except Exception as e:
+        log_message(f"❌ Qwen3-TTS Exception: {e}")
+        return None
+
+
 def generate_speech_dashscope(text: str, speed: float = 1.0, voice_choice: str = "Cherry", language: str = "de") -> str | None:
     """
     DashScope Qwen3-TTS - Cloud-based streaming TTS via DashScope API.
@@ -1912,6 +1968,11 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             audio_url = await loop.run_in_executor(
                 None, generate_speech_xtts, text, 1.0, voice_choice, language
             )
+        elif tts_engine == "qwen3local":
+            # Qwen3-TTS-1.7B-Base (local via Docker) - voice cloning, 10 languages
+            audio_url = await loop.run_in_executor(
+                None, generate_speech_qwen3local, text, 1.0, voice_choice, language
+            )
         elif tts_engine == "moss":
             # MOSS-TTS Local (Docker) - zero-shot voice cloning, 20 languages
             audio_url = await loop.run_in_executor(
@@ -1951,7 +2012,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
 
         # Apply pitch and/or speed adjustment via ffmpeg if needed
         # Speed: Piper/eSpeak/Edge handle it natively, XTTS/MOSS/DashScope don't
-        needs_speed = tts_engine in ("xtts", "moss", "dashscope") and abs(speed_choice - 1.0) >= 0.01
+        needs_speed = tts_engine in ("xtts", "moss", "qwen3local", "dashscope") and abs(speed_choice - 1.0) >= 0.01
         needs_pitch = abs(pitch - 1.0) >= 0.01
         if audio_url and (needs_pitch or needs_speed):
             filename = audio_url.split("/")[-1]

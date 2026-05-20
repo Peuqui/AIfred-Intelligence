@@ -33,6 +33,9 @@ QWEN3_DTYPE              torch dtype, default bfloat16
 QWEN3_ATTN               attn impl, default flash_attention_2 (set
                          "sdpa" to disable flash-attn)
 QWEN3_EAGER_LOAD         load model at startup (1/0, default 0)
+QWEN3_WARMUP             run a long dummy inference after load so the KV-cache
+                         working-set is fully allocated before /health flips
+                         to model_loaded=true (1/0, default 1 when EAGER_LOAD)
 QWEN3_FORCE_CPU          force CPU (1/0, default 0)
 QWEN3_VRAM_THRESHOLD     minimum free VRAM in GB to use GPU (default 4.0)
 QWEN3_KEEP_ALIVE         minutes of idle before auto-shutdown (default 30,
@@ -64,6 +67,7 @@ MODEL_NAME = os.environ.get("QWEN3_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
 DTYPE_NAME = os.environ.get("QWEN3_DTYPE", "bfloat16").lower()
 ATTN_IMPL  = os.environ.get("QWEN3_ATTN", "sdpa")
 EAGER_LOAD = os.environ.get("QWEN3_EAGER_LOAD", "0").lower() in ("1", "true", "yes")
+WARMUP = os.environ.get("QWEN3_WARMUP", "1" if EAGER_LOAD else "0").lower() in ("1", "true", "yes")
 FORCE_CPU  = os.environ.get("QWEN3_FORCE_CPU", "0").lower() in ("1", "true", "yes")
 VRAM_THRESHOLD_GB = float(os.environ.get("QWEN3_VRAM_THRESHOLD", "4.0"))
 KEEP_ALIVE_MINUTES = int(os.environ.get("QWEN3_KEEP_ALIVE", "30"))
@@ -86,6 +90,26 @@ _clone_prompts: dict[str, object] = {}     # speaker -> prebuilt prompt
 _last_request_time = time.time()
 _active_requests = 0
 _load_lock = threading.Lock()
+# True once the model is loaded AND (if WARMUP) a dummy inference has
+# materialised the full KV-cache working-set. /health reports this as
+# "model_loaded" so the AIfred-side ensure_qwen3local_ready() only
+# returns after VRAM is at the steady-state high-water mark and the
+# subsequent LLM calibration sees the correct free-VRAM budget.
+_ready_for_calibration = False
+# Dummy text used by the warmup pass. Long enough (~800 chars) to drive
+# the KV-cache near its real-world ceiling — the user observed up to
+# 7.5 GB on long inputs vs. ~5 GB on short ones.
+_WARMUP_TEXT = (
+    "Sehr geehrte Damen und Herren, dies ist ein interner Aufwärmlauf für das "
+    "Sprachsynthese-Modell. Die Generierung dieses Textes dient ausschließlich "
+    "dazu, den vollen Speicherbedarf des Modells zu reservieren, bevor das "
+    "Sprachmodell im Hauptsystem seine Kalibrierung durchführt. Auf diese "
+    "Weise wird verhindert, dass die Kalibrierung mit einem zu großzügigen "
+    "Speicherbudget rechnet und das Sprachmodell anschließend zu viel "
+    "Grafikspeicher belegt. Sobald dieser Aufwärmlauf abgeschlossen ist, "
+    "meldet der Container über den Health-Endpunkt seine Bereitschaft, und "
+    "der reguläre Inferenzbetrieb kann beginnen."
+)
 
 
 def _choose_dtype():
@@ -133,6 +157,34 @@ def _load_model():
         _sample_rate = getattr(_model, "sample_rate", None) or 24000
 
         _warm_clone_prompts()
+
+
+def _warmup_inference() -> None:
+    """Run one long dummy generation so the KV-cache + decoder buffers
+    are fully allocated. Without this the container reports ready at ~5 GB
+    VRAM and only grows to ~7.5 GB during the first real request — by
+    which point the LLM calibration has already over-budgeted.
+    """
+    if _model is None or not _clone_prompts:
+        logger.warning("Skipping warmup: model or clone prompts not loaded")
+        return
+    speaker = DEFAULT_SPEAKER if DEFAULT_SPEAKER in _clone_prompts else next(iter(_clone_prompts))
+    prompt = _clone_prompts[speaker]
+    t0 = time.time()
+    try:
+        _model.generate_voice_clone(
+            text=_WARMUP_TEXT,
+            language=DEFAULT_LANGUAGE,
+            voice_clone_prompt=prompt,
+        )
+    except Exception as e:
+        logger.exception(f"Warmup inference failed: {e}")
+        return
+    if torch.cuda.is_available() and _device and _device.startswith("cuda"):
+        peak = torch.cuda.max_memory_allocated() / (1024 ** 3)
+        logger.info(f"Warmup done in {time.time() - t0:.1f}s · peak VRAM {peak:.2f} GB")
+    else:
+        logger.info(f"Warmup done in {time.time() - t0:.1f}s")
 
 
 def _warm_clone_prompts() -> None:
@@ -192,8 +244,12 @@ def health():
     return jsonify({
         "status": "ok",
         "model": MODEL_NAME,
-        "loaded": _model is not None,
-        "device": _device,
+        # When warmup is enabled, "model_loaded" only flips true after the
+        # warmup inference completes — that's what AIfred polls on before
+        # running the LLM calibration with the correct free-VRAM budget.
+        "model_loaded": _ready_for_calibration if WARMUP else (_model is not None),
+        "device": _device or "not loaded",
+        "warmup_done": _ready_for_calibration,
     })
 
 
@@ -299,13 +355,27 @@ def tts():
         _touch()
 
 
-# Eager load if requested (after the Flask app is constructed so gunicorn
-# can spawn workers cleanly).
-if EAGER_LOAD:
+def _eager_init():
+    """Load model and, if WARMUP, run a long dummy inference so the
+    KV-cache working-set is fully allocated. Flips _ready_for_calibration
+    only after both steps complete — /health uses that flag.
+    """
+    global _ready_for_calibration
     try:
         _load_model()
     except Exception as e:
         logger.exception(f"Eager load failed: {e}")
+        return
+    if WARMUP:
+        _warmup_inference()
+    _ready_for_calibration = True
+
+
+# Eager load if requested (after the Flask app is constructed so gunicorn
+# can spawn workers cleanly). Runs in a background thread so the Flask
+# app is up immediately for /health polling.
+if EAGER_LOAD:
+    threading.Thread(target=_eager_init, daemon=True, name="qwen3-eager-init").start()
 
 
 # ── Web-UI ───────────────────────────────────────────────────────────────────
