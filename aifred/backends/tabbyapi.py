@@ -24,7 +24,7 @@ class TabbyAPIBackend(OpenAICompatibleBackend):
     """
 
     BACKEND_NAME = "TabbyAPI"
-    DEFAULT_TIMEOUT = 120.0
+    DEFAULT_TIMEOUT = 300.0
 
     def __init__(self, base_url: str = "http://localhost:5000/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
