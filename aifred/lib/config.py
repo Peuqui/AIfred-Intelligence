@@ -458,6 +458,31 @@ QWEN3_TTS_VOICES_FALLBACK = {
     "Sokrates": "Sokrates",
 }
 
+# VRAM the qwen3local container occupies once it has run a long inference.
+# The calibration kicks off a test TTS call before measuring free VRAM, so
+# this constant is normally not needed at all — but it serves as the
+# "we couldn't reach the container" floor so the LLM doesn't accidentally
+# get planned with all 7-8 GB worth of TTS budget on top.
+# Empirically: idle ~5.3 GB, long-bubble peak ~6.7 GB. 7.5 GB sits a
+# bit above the observed peak so even an unusually long bubble can't
+# tip the LLM over its budget. Tunable via env QWEN3_TTS_VRAM_RESERVE_MB.
+QWEN3_TTS_VRAM_RESERVE_MB = int(os.environ.get("QWEN3_TTS_VRAM_RESERVE_MB", "7680"))
+
+# Long text used for the calibration-time test inference that drives the
+# Qwen3-TTS KV-cache up to its real-world high-water mark. About ~800
+# chars — same body the container's removed warmup pass used to use.
+QWEN3_TTS_CALIBRATION_TEXT = (
+    "Sehr geehrte Damen und Herren, dies ist ein interner Aufwärmlauf für "
+    "das Sprachsynthese-Modell. Die Generierung dieses Textes dient "
+    "ausschließlich dazu, den vollen Speicherbedarf des Modells zu "
+    "reservieren, bevor das Sprachmodell im Hauptsystem seine Kalibrierung "
+    "durchführt. Auf diese Weise wird verhindert, dass die Kalibrierung "
+    "mit einem zu großzügigen Speicherbudget rechnet und das Sprachmodell "
+    "anschließend zu viel Grafikspeicher belegt. Sobald dieser Aufwärmlauf "
+    "abgeschlossen ist, meldet der Container über den Health-Endpunkt "
+    "seine Bereitschaft, und der reguläre Inferenzbetrieb kann beginnen."
+)
+
 # ============================================================
 # DASHSCOPE QWEN3-TTS CONFIGURATION (Cloud API)
 # ============================================================

@@ -147,7 +147,7 @@ class Candidate:
 @dataclass(frozen=True)
 class Result:
     """Final calibration result — one per variant (base, speed, tts-*)."""
-    variant: Literal["base", "speed", "tts-xtts", "tts-moss"]
+    variant: Literal["base", "speed", "tts-xtts", "tts-moss", "tts-qwen3local"]
     mode: Literal["gpu", "hybrid"]
     context: int
     ngl: int
