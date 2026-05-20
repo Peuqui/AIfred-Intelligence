@@ -449,6 +449,15 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
         except Exception:
             pass
 
+    if keep_tts != "qwen3local":
+        try:
+            from .config import QWEN3_TTS_DOCKER_COMPOSE_PATH
+            _docker_compose_action(QWEN3_TTS_DOCKER_COMPOSE_PATH, "down", "Qwen3-TTS")
+            if running_tts == "qwen3local":
+                actions.append("Qwen3-TTS stopped")
+        except Exception:
+            pass
+
     log_message(f"GPU cleanup: {', '.join(actions) if actions else 'nothing to unload'}")
     return actions
 
@@ -463,6 +472,66 @@ def stop_xtts_container() -> tuple[bool, str]:
     """Stop the XTTS Docker container to free VRAM."""
     from .config import XTTS_DOCKER_COMPOSE_PATH
     return _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "down", "XTTS")
+
+
+def stop_qwen3local_container() -> tuple[bool, str]:
+    """Stop the Qwen3-TTS Docker container to free VRAM."""
+    from .config import QWEN3_TTS_DOCKER_COMPOSE_PATH
+    return _docker_compose_action(QWEN3_TTS_DOCKER_COMPOSE_PATH, "down", "Qwen3-TTS")
+
+
+def start_qwen3local_container() -> tuple[bool, str]:
+    """Start the Qwen3-TTS Docker container."""
+    from .config import QWEN3_TTS_DOCKER_COMPOSE_PATH
+    return _docker_compose_action(QWEN3_TTS_DOCKER_COMPOSE_PATH, "up", "Qwen3-TTS")
+
+
+def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
+    """
+    Ensure Qwen3-TTS container is running and model is loaded AND warmed up.
+
+    Starts container if needed and waits for the warmup pass to finish:
+    the server holds /health.model_loaded=false until a long dummy
+    inference has materialised the full KV-cache working-set (~7.5 GB
+    on V100). This way the subsequent LLM calibration sees the correct
+    free-VRAM budget. Load+warmup together take ~60-90 s on V100, so
+    240 s gives generous headroom.
+
+    Returns:
+        Tuple of (success, message, device) where device is "cuda:0", "cpu", or "".
+    """
+    import time
+    import requests
+    from .config import QWEN3_TTS_SERVICE_URL
+
+    # Step 1: Check if already running and model loaded
+    try:
+        r = requests.get(f"{QWEN3_TTS_SERVICE_URL}/health", timeout=2)
+        if r.ok and r.json().get("model_loaded"):
+            device = r.json().get("device", "unknown")
+            return True, f"Qwen3-TTS already ready ({device})", device
+    except OSError:
+        pass
+
+    # Step 2: Start container
+    success, msg = start_qwen3local_container()
+    if not success:
+        return False, msg, ""
+
+    # Step 3: Wait for model to load
+    log_message("Qwen3-TTS: Waiting for model to load...")
+    for _i in range(timeout):
+        try:
+            r = requests.get(f"{QWEN3_TTS_SERVICE_URL}/health", timeout=2)
+            if r.ok and r.json().get("model_loaded"):
+                device = r.json().get("device", "unknown")
+                log_message(f"Qwen3-TTS: Model loaded on {device}")
+                return True, f"Qwen3-TTS ready ({device})", device
+        except OSError:
+            pass
+        time.sleep(1)
+
+    return False, f"Qwen3-TTS: Timeout after {timeout}s waiting for model", ""
 
 
 def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:

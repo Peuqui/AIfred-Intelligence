@@ -587,9 +587,13 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 final_text, agent, request_id, self.session_id, seq  # type: ignore[attr-defined]
             ))
 
-        # Wait for all pending TTS tasks to complete
+        # Wait for all pending TTS tasks to complete.
+        # 60 s war zu knapp: bei ~RTF-1 (Qwen3-TTS auf V100, XTTS auf P40 etc.)
+        # produziert ein 2k-Zeichen-Bubble ~120 s Audio — wenn der letzte
+        # Chunk gerade erst startet, brauchen wir ggü. der Reaktionszeit
+        # Puffer. 300 s deckt Bubbles bis ~5 Min Audio bei RTF~1 ab.
         log_message(f"🔊 TTS Finalize: Waiting for {len(self._pending_tts_requests)} pending tasks...")
-        max_wait = 60.0  # Max 60 seconds - TTS can be slow for long sentences
+        max_wait = 300.0
         wait_interval = 0.2  # Check every 200ms
         waited = 0.0
         while self._pending_tts_requests and waited < max_wait:
