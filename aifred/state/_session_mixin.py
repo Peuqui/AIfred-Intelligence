@@ -142,9 +142,10 @@ class SessionMixin(rx.State, mixin=True):
             # Free in-memory runtime state tied to that session so it doesn't
             # accumulate over the process lifetime.
             from ._audio_player_mixin import discard_audio_runtime_state
-            from ._tts_streaming_mixin import discard_dashscope_runtime
+            from ._tts_streaming_mixin import discard_dashscope_runtime, discard_tts_backend_state
             discard_audio_runtime_state(session_id)
             discard_dashscope_runtime(session_id)
+            discard_tts_backend_state(session_id)
             log_message(f"Deleted session: {session_id[:8]}...")
             self.add_debug("Session deleted")  # type: ignore[attr-defined]
             self.refresh_session_list()
