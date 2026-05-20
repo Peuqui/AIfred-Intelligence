@@ -11,6 +11,7 @@ This module contains the core Multi-Agent logic extracted from state.py.
 The functions work with async generators for streaming UI updates.
 """
 
+import asyncio
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 # Imports for the functions (same as original state.py methods)
@@ -333,12 +334,19 @@ async def _stream_agent_to_history(
 
     state.add_debug(pipeline_result.debug_msg)
 
-    # Finalize streaming TTS
+    # Finalize streaming TTS — fire-and-forget. The TTS tasks have already
+    # been pushing their audio chunks to the browser queue via
+    # audio_queue_push() during synthesis, so live playback is unaffected.
+    # The combined "audio_urls" for replay/export are patched onto the
+    # bubble by the background task once all sentences are done; until
+    # then the bubble (text + sources + sandbox) renders immediately and
+    # AIfred stays responsive for the next prompt.
     audio_urls: list[str] = []
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        audio_urls = await state._finalize_streaming_tts()
-    if audio_urls:
-        log_message(f"🔊 {agent_label}: {len(audio_urls)} audio URLs collected for message")
+        text_snippet = (pipeline_result.text or "")[:120]
+        asyncio.create_task(
+            state._finalize_streaming_tts_in_background(agent, text_snippet)
+        )
 
     # Build web sources collapsible from tracked URLs
     sources_html = ""

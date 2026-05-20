@@ -11,7 +11,8 @@ import json
 import os
 import re
 import uuid
-from typing import Any, Dict, List
+from dataclasses import dataclass, field
+from typing import Any, List
 
 import reflex as rx
 
@@ -21,6 +22,49 @@ from ..lib.logging_utils import log_message
 # Module-level storage for DashScope WebSocket TTS instances (keyed by session_id).
 # Cannot be stored in Reflex state because WebSocket/SSLSocket objects are not serializable.
 _dashscope_rt_instances: dict[str, Any] = {}
+
+
+@dataclass
+class TTSBackendState:
+    """Per-session backend coordination state for parallel TTS task tracking.
+
+    Held outside the Reflex state because none of these fields drive UI:
+    they only coordinate the async TTS generation tasks between the
+    create_task call sites and the finalize wait. When these lived inside
+    the Reflex state, every mutation (and there are many per response —
+    one per sentence start, completion, and order-buffer drain) bumped
+    the state version and forced the chat bubble to re-render. Plain
+    Python attrs keyed by session_id give us the same per-session
+    semantics without the UI churn.
+    """
+    pending_requests: list[str] = field(default_factory=list)        # Request-IDs of TTS tasks in flight
+    completed_urls: dict[str, str] = field(default_factory=dict)     # {request_id: audio_url}
+    order_buffer: dict[int, tuple | None] = field(default_factory=dict)  # {seq: (url, rate, req_id) | None}
+    next_seq: int = 0   # Next sequence number to assign to a sentence
+    push_seq: int = 0   # Next sequence number expected for queue push
+
+
+_tts_backend_states: dict[str, TTSBackendState] = {}
+
+
+def get_tts_backend_state(session_id: str) -> TTSBackendState:
+    """Get (creating on first access) the per-session TTS backend state."""
+    state = _tts_backend_states.get(session_id)
+    if state is None:
+        state = TTSBackendState()
+        _tts_backend_states[session_id] = state
+    return state
+
+
+def discard_tts_backend_state(session_id: str) -> None:
+    """Drop the per-session TTS backend state on logout / session delete.
+
+    Best-effort cleanup; mirrors discard_dashscope_runtime() so the two
+    per-session module-level stores share a single lifecycle.
+    """
+    if not session_id:
+        return
+    _tts_backend_states.pop(session_id, None)
 
 
 def discard_dashscope_runtime(session_id: str) -> None:
@@ -84,14 +128,12 @@ class TTSStreamingMixin(rx.State, mixin=True):
     # TTS Regeneration
     tts_regenerating: bool = False  # True while TTS regeneration is in progress (for spinner)
 
-    # TTS Task Tracking - ensures finalize waits for all TTS tasks to complete
-    _pending_tts_requests: List[str] = []  # Request-IDs of TTS tasks in flight (via create_task)
-    _completed_tts_urls: Dict[str, str] = {}  # {request_id: audio_url} - completed TTS results
-
-    # TTS Ordering - ensures sentences are pushed to queue in order (critical for cloud APIs)
-    _tts_next_seq: int = 0  # Next sequence number to assign to a sentence
-    _tts_push_seq: int = 0  # Next sequence number expected for queue push
-    _tts_order_buffer: Dict[int, tuple | None] = {}  # {seq: (audio_url, playback_rate, request_id) or None} - completed but not yet pushed
+    # NOTE: TTS task tracking + sentence-order buffer used to live here as
+    # Reflex state attributes (_pending_tts_requests, _completed_tts_urls,
+    # _tts_order_buffer, _tts_next_seq, _tts_push_seq). They have been moved
+    # to a module-level TTSBackendState (see get_tts_backend_state) so the
+    # per-sentence churn during streaming no longer re-renders the chat
+    # bubble. Access via get_tts_backend_state(self.session_id).
 
     # ── Computed Properties ───────────────────────────────────────────
 
@@ -489,9 +531,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
         self._tts_in_think_block = False
         self._tts_streaming_active = True
         self._tts_streaming_agent = agent
-        self._tts_next_seq = 0
-        self._tts_push_seq = 0
-        self._tts_order_buffer = {}
+
+        # Reset backend tracking (module-level, not in Reflex state).
+        tts_state = get_tts_backend_state(self.session_id)  # type: ignore[attr-defined]
+        tts_state.pending_requests = []
+        tts_state.completed_urls = {}
+        tts_state.order_buffer = {}
+        tts_state.next_seq = 0
+        tts_state.push_seq = 0
 
         # DashScope: Use sentence-level streaming (same as XTTS/Edge/Piper).
         # Better intonation per sentence, no chunk gaps.
@@ -575,13 +622,15 @@ class TTSStreamingMixin(rx.State, mixin=True):
             final_text = (final_text + " " + self._tts_sentence_buffer).strip() if final_text else self._tts_sentence_buffer
         self._tts_sentence_buffer = ""
 
+        tts_state = get_tts_backend_state(self.session_id)  # type: ignore[attr-defined]
+
         # Send remaining text to TTS (even if short - finalize sends everything)
         if final_text and final_text.strip():
             agent = getattr(self, '_tts_streaming_agent', 'aifred')
-            seq = self._tts_next_seq
-            self._tts_next_seq = seq + 1
+            seq = tts_state.next_seq
+            tts_state.next_seq = seq + 1
             request_id = f"tts_{uuid.uuid4().hex[:8]}"
-            self._pending_tts_requests = self._pending_tts_requests + [request_id]
+            tts_state.pending_requests.append(request_id)
             log_message(f"🔊 TTS Finalize: Adding remaining text seq={seq} ({len(final_text)} chars): {repr(final_text[:50])}")
             asyncio.create_task(self._tts_generate_sentence_async(
                 final_text, agent, request_id, self.session_id, seq  # type: ignore[attr-defined]
@@ -592,23 +641,23 @@ class TTSStreamingMixin(rx.State, mixin=True):
         # produziert ein 2k-Zeichen-Bubble ~120 s Audio — wenn der letzte
         # Chunk gerade erst startet, brauchen wir ggü. der Reaktionszeit
         # Puffer. 300 s deckt Bubbles bis ~5 Min Audio bei RTF~1 ab.
-        log_message(f"🔊 TTS Finalize: Waiting for {len(self._pending_tts_requests)} pending tasks...")
+        log_message(f"🔊 TTS Finalize: Waiting for {len(tts_state.pending_requests)} pending tasks...")
         max_wait = 300.0
         wait_interval = 0.2  # Check every 200ms
         waited = 0.0
-        while self._pending_tts_requests and waited < max_wait:
+        while tts_state.pending_requests and waited < max_wait:
             await asyncio.sleep(wait_interval)
             waited += wait_interval
             if waited % 2.0 < wait_interval:  # Log every 2 seconds
-                log_message(f"🔊 TTS Finalize: Still waiting... pending={len(self._pending_tts_requests)}, completed={len(self._completed_tts_urls)}, waited={waited:.1f}s")
+                log_message(f"🔊 TTS Finalize: Still waiting... pending={len(tts_state.pending_requests)}, completed={len(tts_state.completed_urls)}, waited={waited:.1f}s")
 
-        if self._pending_tts_requests:
-            log_message(f"🔊 TTS Finalize: ⚠️ Timeout! {len(self._pending_tts_requests)} tasks still pending after {max_wait}s")
+        if tts_state.pending_requests:
+            log_message(f"🔊 TTS Finalize: ⚠️ Timeout! {len(tts_state.pending_requests)} tasks still pending after {max_wait}s")
         else:
-            log_message(f"🔊 TTS Finalize: ✅ All {len(self._completed_tts_urls)} tasks completed in {waited:.1f}s")
+            log_message(f"🔊 TTS Finalize: ✅ All {len(tts_state.completed_urls)} tasks completed in {waited:.1f}s")
 
         # Collect completed URLs
-        completed_urls = list(self._completed_tts_urls.values())
+        completed_urls = list(tts_state.completed_urls.values())
         log_message(f"🔊 TTS Finalize: {len(completed_urls)} audio chunks collected")
 
         # Save audio to session directory (permanent storage)
@@ -625,12 +674,81 @@ class TTSStreamingMixin(rx.State, mixin=True):
         self._tts_sentence_buffer = ""
         self._tts_in_think_block = False
         self._tts_streaming_active = False
-        self._pending_tts_requests = []
-        self._completed_tts_urls = {}
+        tts_state.pending_requests = []
+        tts_state.completed_urls = {}
         self._pending_audio_urls = []
         log_message("🔊 TTS Finalize: State reset complete")
 
         return [combined_url] if combined_url else []
+
+    async def _finalize_streaming_tts_in_background(self, agent: str, text_snippet: str) -> None:
+        """Fire-and-forget finalize: wait for all pending TTS tasks in the
+        background, then patch the resulting combined-URL onto the bubble
+        that has just been added to chat_history.
+
+        The streaming TTS chunks are already on the way to the browser via
+        audio_queue_push() in _drain_tts_order_buffer — this method only
+        handles the "after-the-fact" combined-WAV save for replay/export.
+        Running it as a create_task means the multi_agent stream generator
+        can yield immediately, the bubble renders complete (text + sources
+        + sandbox), and AIfred is ready for the next prompt right away.
+
+        We identify the right bubble by scanning chat_history for the most
+        recent assistant message with a matching agent + text-prefix; the
+        chat is single-user/single-conversation so the most recent match
+        is always the one we just emitted.
+        """
+        try:
+            audio_urls = await self._finalize_streaming_tts()
+        except Exception as e:
+            log_message(f"🔊 TTS Background: ❌ Finalize raised: {e}")
+            return
+
+        if not audio_urls:
+            return
+
+        try:
+            ch = self._chat_sub()  # type: ignore[attr-defined]
+            history = list(ch.chat_history)
+            target = -1
+            for i in range(len(history) - 1, -1, -1):
+                msg = history[i]
+                if msg.get("role") != "assistant":
+                    continue
+                if msg.get("agent") != agent:
+                    continue
+                # Light sanity check on content prefix so we don't accidentally
+                # patch an older bubble that happens to share the agent name.
+                content = msg.get("content", "") or ""
+                if text_snippet and text_snippet[:40] not in content:
+                    continue
+                target = i
+                break
+
+            if target < 0:
+                log_message(f"🔊 TTS Background: ⚠️ No bubble found to patch (agent={agent})")
+                return
+
+            msg = history[target]
+            metadata = dict(msg.get("metadata", {}))
+            metadata["audio_urls"] = audio_urls
+            metadata.setdefault("playback_rate", "1.0x")
+            history[target] = {
+                **msg,
+                "metadata": metadata,
+                "has_audio": True,
+                "audio_urls_json": json.dumps(audio_urls),
+            }
+            ch.chat_history = history
+            log_message(f"🔊 TTS Background: ✅ Patched bubble #{target} with {len(audio_urls)} audio URL(s)")
+
+            # Persist so a session reload still has the audio URL.
+            try:
+                self._save_current_session()  # type: ignore[attr-defined]
+            except Exception as e:
+                log_message(f"🔊 TTS Background: session save failed: {e}")
+        except Exception as e:
+            log_message(f"🔊 TTS Background: ❌ Bubble patch failed: {e}")
 
     async def _finalize_dashscope_realtime(self) -> list[str]:
         """Finalize DashScope WebSocket streaming and return combined WAV URL.
@@ -669,8 +787,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
         self._tts_sentence_buffer = ""
         self._tts_in_think_block = False
         self._tts_streaming_active = False
-        self._pending_tts_requests = []
-        self._completed_tts_urls = {}
+        tts_state = get_tts_backend_state(self.session_id)  # type: ignore[attr-defined]
+        tts_state.pending_requests = []
+        tts_state.completed_urls = {}
         self._pending_audio_urls = []
         log_message("🔊 DashScope RT Finalize: State reset complete")
 
@@ -753,17 +872,18 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 log_message(f"🔊 TTS Chunk: Carrying short sentence ({len(sentence.split())} words): {repr(sentence)}")
                 continue
 
-            # Assign sequence number for ordered queue push
-            seq = self._tts_next_seq
-            self._tts_next_seq = seq + 1
+            # Assign sequence number for ordered queue push (module-level state).
+            session_id = self.session_id  # type: ignore[attr-defined]
+            tts_state = get_tts_backend_state(session_id)
+            seq = tts_state.next_seq
+            tts_state.next_seq = seq + 1
             log_message(f"🔊 TTS Chunk: Starting TTS task seq={seq} (agent={agent}): {repr(sentence)}")
             # Track pending request
             request_id = f"tts_{uuid.uuid4().hex[:8]}"
-            self._pending_tts_requests = self._pending_tts_requests + [request_id]
-            log_message(f"🔊 TTS Chunk: Created request {request_id}, pending={len(self._pending_tts_requests)}")
+            tts_state.pending_requests.append(request_id)
+            log_message(f"🔊 TTS Chunk: Created request {request_id}, pending={len(tts_state.pending_requests)}")
             # Start TTS generation IMMEDIATELY in parallel - no waiting!
             # Pass session_id for API-based queue push (create_task can't use Reflex state)
-            session_id = self.session_id  # type: ignore[attr-defined]
             asyncio.create_task(self._tts_generate_sentence_async(sentence, agent, request_id, session_id, seq))
 
     async def _tts_generate_sentence_async(self, sentence: str, agent: str, request_id: str, session_id: str, seq: int) -> None:
@@ -791,14 +911,16 @@ class TTSStreamingMixin(rx.State, mixin=True):
         from ..lib.audio_processing import clean_text_for_tts, generate_tts
         from ..lib.config import DATA_DIR
 
+        tts_state = get_tts_backend_state(session_id)
+
         try:
             # Light cleanup - remove markdown, emojis, but keep the text mostly intact
             clean_text = clean_text_for_tts(sentence)
 
             if not clean_text or not clean_text.strip():
                 # Empty sentence: mark as done and drain buffer
-                self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
-                self._tts_order_buffer = {**self._tts_order_buffer, seq: None}
+                tts_state.pending_requests = [r for r in tts_state.pending_requests if r != request_id]
+                tts_state.order_buffer[seq] = None
                 self._drain_tts_order_buffer(session_id)
                 return
 
@@ -858,20 +980,20 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
                     playback_rate = "1.0x"  # Speed is baked into audio via engine or ffmpeg
 
-                    # Buffer result for ordered push
-                    self._tts_order_buffer = {**self._tts_order_buffer, seq: (audio_url, playback_rate, request_id)}
+                    # Buffer result for ordered push (module-level state).
+                    tts_state.order_buffer[seq] = (audio_url, playback_rate, request_id)
                     self._drain_tts_order_buffer(session_id)
 
-                    log_message(f"🔊 TTS Generate: pending_requests={len(self._pending_tts_requests)}")
+                    log_message(f"🔊 TTS Generate: pending_requests={len(tts_state.pending_requests)}")
                 else:
                     log_message(f"🔊 TTS Generate: ⚠️ File does not exist: {file_path}")
-                    self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
-                    self._tts_order_buffer = {**self._tts_order_buffer, seq: None}
+                    tts_state.pending_requests = [r for r in tts_state.pending_requests if r != request_id]
+                    tts_state.order_buffer[seq] = None
                     self._drain_tts_order_buffer(session_id)
             else:
                 log_message("🔊 TTS Generate: ⚠️ No audio_url returned from generate_tts()")
-                self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
-                self._tts_order_buffer = {**self._tts_order_buffer, seq: None}
+                tts_state.pending_requests = [r for r in tts_state.pending_requests if r != request_id]
+                tts_state.order_buffer[seq] = None
                 self._drain_tts_order_buffer(session_id)
 
         except Exception as e:
@@ -879,18 +1001,20 @@ class TTSStreamingMixin(rx.State, mixin=True):
             import traceback
             log_message(f"❌ TTS Stream Traceback: {traceback.format_exc()}")
             # Remove request from pending on error and mark seq as done
-            self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
-            self._tts_order_buffer = {**self._tts_order_buffer, seq: None}
+            tts_state.pending_requests = [r for r in tts_state.pending_requests if r != request_id]
+            tts_state.order_buffer[seq] = None
             self._drain_tts_order_buffer(session_id)
 
     def _drain_tts_order_buffer(self, session_id: str) -> None:
         """Push completed TTS results to the queue in sequence order.
 
         Called after each sentence completes (success, error, or empty).
-        Drains all consecutive entries starting from _tts_push_seq.
+        Drains all consecutive entries starting from push_seq.
         Skips entries marked as None (empty/failed sentences).
         """
         from ..lib.api import audio_queue_push
+
+        tts_state = get_tts_backend_state(session_id)
 
         # Auto-pause media playback before the first TTS chunk goes to the
         # browser. Position is saved by the browser via /api/audio/position
@@ -899,28 +1023,26 @@ class TTSStreamingMixin(rx.State, mixin=True):
         if (
             getattr(self, "media_audio_url", "") != ""
             and not getattr(self, "media_paused_for_tts", False)
-            and self._tts_push_seq in self._tts_order_buffer
+            and tts_state.push_seq in tts_state.order_buffer
         ):
             self.media_paused_for_tts = True  # type: ignore[attr-defined]
 
-        while self._tts_push_seq in self._tts_order_buffer:
-            entry = self._tts_order_buffer[self._tts_push_seq]
+        while tts_state.push_seq in tts_state.order_buffer:
+            entry = tts_state.order_buffer[tts_state.push_seq]
 
             if entry is not None:
                 audio_url, playback_rate, request_id = entry
                 audio_queue_push(session_id, "tts", audio_url, playback_rate=playback_rate)
-                log_message(f"🔊 TTS Order: ✅ Pushed seq={self._tts_push_seq} to queue")
+                log_message(f"🔊 TTS Order: ✅ Pushed seq={tts_state.push_seq} to queue")
                 # Track completion
-                self._completed_tts_urls = {**self._completed_tts_urls, request_id: audio_url}
-                self._pending_tts_requests = [r for r in self._pending_tts_requests if r != request_id]
+                tts_state.completed_urls[request_id] = audio_url
+                tts_state.pending_requests = [r for r in tts_state.pending_requests if r != request_id]
             else:
-                log_message(f"🔊 TTS Order: Skipping seq={self._tts_push_seq} (empty/failed)")
+                log_message(f"🔊 TTS Order: Skipping seq={tts_state.push_seq} (empty/failed)")
 
             # Remove from buffer and advance
-            new_buffer = dict(self._tts_order_buffer)
-            del new_buffer[self._tts_push_seq]
-            self._tts_order_buffer = new_buffer
-            self._tts_push_seq = self._tts_push_seq + 1
+            del tts_state.order_buffer[tts_state.push_seq]
+            tts_state.push_seq += 1
 
     # ============================================================
     # TTS Regeneration
