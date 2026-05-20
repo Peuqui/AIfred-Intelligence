@@ -1,0 +1,59 @@
+services:
+  qwen3-tts:
+    image: qwen3-tts-1.7b-base
+    build: .
+    container_name: qwen3-tts
+    restart: "no"  # AIfred controls container lifecycle (like XTTS / MOSS-TTS)
+    ports:
+      - "5052:5052"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['${TTS_GPU_UUID}']
+              capabilities: [gpu]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=${TTS_GPU_UUID}
+      - CUDA_VISIBLE_DEVICES=0
+      - HF_HUB_OFFLINE=0   # allow first-run download; flip to 1 after model is cached
+
+      # ── Model selection ──────────────────────────────────────────
+      # Base variant supports voice cloning from reference audio in /app/voices/
+      - QWEN3_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-Base
+      - QWEN3_DTYPE=bfloat16
+      - QWEN3_ATTN=sdpa
+
+      # ── Smart device selection ───────────────────────────────────
+      - QWEN3_VRAM_THRESHOLD=4.0
+      - QWEN3_FORCE_CPU=${QWEN3_FORCE_CPU:-0}
+      - QWEN3_EAGER_LOAD=${QWEN3_EAGER_LOAD:-1}
+
+      # ── Defaults when request omits fields ───────────────────────
+      - QWEN3_DEFAULT_SPEAKER=${QWEN3_DEFAULT_SPEAKER:-AIfred}
+      - QWEN3_DEFAULT_LANGUAGE=${QWEN3_DEFAULT_LANGUAGE:-German}
+
+      # ── Auto-shutdown (matches XTTS / MOSS keep-alive pattern) ───
+      # After X minutes of inactivity, container exits to free VRAM.
+      # 0 disables auto-shutdown.
+      - QWEN3_KEEP_ALIVE=30
+
+    volumes:
+      # HuggingFace cache: persists the model + tokenizer between container restarts
+      - qwen3_models:/root/.cache/huggingface
+      # Reference voices for cloning — each <name>.wav (plus optional <name>.txt
+      # for the transcript) becomes a /voices/<name> entry the API can address.
+      - ./voices:/app/voices:ro
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5052/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Model is ~3.4 GB in bfloat16 — first start downloads + loads it.
+      start_period: 300s
+
+volumes:
+  qwen3_models:
+    name: qwen3_models

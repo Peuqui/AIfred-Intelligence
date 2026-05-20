@@ -100,6 +100,7 @@ class TranslationManager:
             "tts_not_ported": "⚠️ TTS noch nicht portiert - Coming Soon!",
             # TTS Engine dropdown labels
             "tts_engine_off": "Aus",
+            "tts_engine_qwen3local": "Qwen3-TTS (Lokal, Voice Cloning, Streaming)",
             "tts_engine_xtts": "XTTS v2 (Lokal, Voice Cloning)",
             "tts_engine_moss": "MOSS-TTS (Batch, nach Bubble)",
             "tts_engine_dashscope": "DashScope Qwen3-TTS (Cloud, Streaming)",
@@ -597,6 +598,7 @@ class TranslationManager:
             "tts_not_ported": "⚠️ TTS not yet ported - Coming Soon!",
             # TTS Engine dropdown labels
             "tts_engine_off": "Off",
+            "tts_engine_qwen3local": "Qwen3-TTS (Local, Voice Cloning, Streaming)",
             "tts_engine_xtts": "XTTS v2 (Local, voice cloning)",
             "tts_engine_moss": "MOSS-TTS (Batch, after bubble)",
             "tts_engine_dashscope": "DashScope Qwen3-TTS (Cloud, streaming)",

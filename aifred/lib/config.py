@@ -288,9 +288,10 @@ PUCK_TTS_FALLBACK_VOICE = "Deutsch (Karlsson)"
 # ============================================================
 TTS_ENGINE_KEYS = [
     "off",
+    "qwen3local",   # lokaler Qwen3-TTS-Container, Voice-Cloning + Streaming
     "xtts",
     "moss",
-    "dashscope",
+    "dashscope",    # Cloud-Variante von Qwen3-TTS
     "piper",
     "espeak",
     "edge",
@@ -309,6 +310,13 @@ XTTS_SERVICE_URL = "http://localhost:5051"
 # MOSS-TTS Local Transformer (1.7B) - zero-shot voice cloning, 20 languages
 # Start with: cd docker/moss-tts && docker-compose up -d
 MOSS_TTS_SERVICE_URL = "http://localhost:5055"
+
+# ============================================================
+# Qwen3-TTS LOCAL CONFIGURATION (Docker Service)
+# ============================================================
+# Qwen3-TTS-12Hz-1.7B-Base (Voice Cloning, Streaming, 10 Sprachen)
+# Start with: cd docker/qwen3-tts && docker-compose up -d
+QWEN3_TTS_SERVICE_URL = "http://localhost:5052"
 
 # ============================================================
 # TTS Container Keep-Alive (heartbeat ping interval)
