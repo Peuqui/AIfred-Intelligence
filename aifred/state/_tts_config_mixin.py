@@ -204,6 +204,28 @@ class TTSConfigMixin(rx.State, mixin=True):
     def editor_agent_tts_enabled(self) -> bool:
         return bool(self._editor_tts_settings.get("enabled", True))
 
+    @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
+    def editor_agent_tts_language(self) -> str:
+        """Dropdown value: human-readable label for the stored ISO code.
+        Empty / unset / "auto" → "Auto" (= follow detected/UI language).
+        """
+        from ..lib.config import TTS_LANGUAGE_CODE_TO_LABEL
+        code = str(self._editor_tts_settings.get("language", "") or "auto")
+        return TTS_LANGUAGE_CODE_TO_LABEL.get(code, "Auto")
+
+    @rx.var(auto_deps=False)
+    def tts_language_labels(self) -> List[str]:
+        """Static list of labels for the agent-editor language dropdown."""
+        from ..lib.config import TTS_LANGUAGE_LABELS
+        return TTS_LANGUAGE_LABELS
+
+    def set_editor_agent_tts_language(self, label: str) -> None:
+        """Persist a per-agent TTS-language override (or clear back to 'auto')."""
+        from ..lib.config import TTS_LANGUAGE_LABEL_TO_CODE
+        code = TTS_LANGUAGE_LABEL_TO_CODE.get(label, "auto")
+        self._editor_tts_settings["language"] = code
+        self._save_editor_tts_settings()
+
     # ── TTS Toggle / Engine Selection ─────────────────────────────
 
     def set_tts_engine_or_off(self, selection: str):
@@ -624,6 +646,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         Called after switching to a different TTS engine to restore
         the user's previously saved agent voice preferences for that engine.
         Falls back to engine-specific defaults if no saved preferences exist.
+        After restoring, runs _strip_stale_voices_for_engine to clear
+        any leftovers the engine doesn't know about (Variant B cleanup).
         """
         from ..lib.settings import load_settings
         from ..lib.agent_config import get_tts_voice_defaults_for_engine
@@ -652,6 +676,75 @@ class TTSConfigMixin(rx.State, mixin=True):
             for a in self.tts_agent_voices
         )
         self.add_debug(f"🔊 {source} agent voices for {engine_key}: {voice_list}")  # type: ignore[attr-defined]
+
+        # Variant B cleanup: clear voices the engine doesn't know.
+        # Stale "★ AIfred" / "Baldur Sanjin" entries (left over from a
+        # previous XTTS configuration) get zeroed out here so the
+        # dropdown only ever shows real, working voices.
+        self._strip_stale_voices_for_engine(engine_key)
+
+    def _live_voices_for_engine(self, engine_key: str) -> set[str]:
+        """Set of voice names the given engine can actually produce.
+
+        Mirrors the same precedence as available_tts_voices (live HTTP
+        query → fallback constant) but returns a set for fast membership
+        tests in the stale-voice cleanup.
+        """
+        from ..lib.config import (
+            DASHSCOPE_VOICES,
+            EDGE_TTS_VOICES,
+            ESPEAK_VOICES,
+            MOSS_TTS_VOICES_FALLBACK,
+            PIPER_VOICES,
+            QWEN3_TTS_VOICES_FALLBACK,
+            XTTS_VOICES_FALLBACK,
+            get_moss_voices,
+            get_qwen3local_voices,
+        )
+        if engine_key == "xtts":
+            if self.xtts_voices_cache:
+                return set(self.xtts_voices_cache)
+            return set(XTTS_VOICES_FALLBACK.keys())
+        if engine_key == "moss":
+            voices = get_moss_voices()
+            return set(voices.keys()) if voices else set(MOSS_TTS_VOICES_FALLBACK.keys())
+        if engine_key == "qwen3local":
+            voices = get_qwen3local_voices()
+            return set(voices.keys()) if voices else set(QWEN3_TTS_VOICES_FALLBACK.keys())
+        if engine_key == "dashscope":
+            return set(DASHSCOPE_VOICES.keys())
+        if engine_key == "piper":
+            return set(PIPER_VOICES.keys())
+        if engine_key == "espeak":
+            return set(ESPEAK_VOICES.keys())
+        return set(EDGE_TTS_VOICES.keys())
+
+    def _strip_stale_voices_for_engine(self, engine_key: str) -> None:
+        """Variant B: clear any per-agent voice the engine doesn't know.
+
+        Triggered by the engine-switch restore path. Stale entries from
+        previous engine configs (a "★ AIfred" left over after switching
+        from XTTS to Qwen3, say) are reset to empty string so the agent
+        falls back to the default voice on the next request and the
+        dropdown stops showing fake options.
+
+        The cleanup is persisted via _save_agent_voices_for_engine so it
+        survives a reload — no need to re-clean on every restore.
+        """
+        live = self._live_voices_for_engine(engine_key)
+        if not live:
+            return
+        cleared: list[str] = []
+        for agent, cfg in self.tts_agent_voices.items():
+            current = str(cfg.get("voice", "") or "")
+            if current and current not in live:
+                cfg["voice"] = ""
+                cleared.append(f"{agent}={current!r}")
+        if cleared:
+            self.add_debug(  # type: ignore[attr-defined]
+                f"🧹 {engine_key}: Cleared {len(cleared)} stale voice(s): {', '.join(cleared)}"
+            )
+            self._save_agent_voices_for_engine(engine_key)
 
     def _save_tts_toggles_for_engine(self, engine_key: str):
         """Save current TTS toggles (autoplay, streaming) for the specified engine."""

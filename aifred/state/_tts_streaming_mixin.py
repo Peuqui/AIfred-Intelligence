@@ -159,6 +159,26 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         return bool(self._tts_streaming_active)
 
+    # ── TTS Helpers ──────────────────────────────────────────────────
+
+    def _resolve_tts_language(self, agent: str) -> str:
+        """Pick the synthesis language for an agent.
+
+        Order of precedence:
+          1. Per-agent override (tts_agent_voices[agent]["language"]),
+             skipped when empty or "auto".
+          2. Language the LLM detected from the user prompt.
+          3. UI language.
+
+        Returns a two-letter ISO code ("de", "en", "zh", …) — the same
+        shape the engine adapters in audio_processing expect.
+        """
+        agent_settings = self.tts_agent_voices.get(agent, {})  # type: ignore[attr-defined]
+        override = str(agent_settings.get("language", "") or "").lower()
+        if override and override != "auto":
+            return override
+        return self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
+
     # ── TTS Callback ──────────────────────────────────────────────────
 
     def handle_tts_callback(self, result: str):
@@ -234,7 +254,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
             # Per-agent speed is applied at generation time (different from browser playback rate)
             # Pitch adjustment is applied via ffmpeg post-processing
-            tts_language = self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
+            tts_language = self._resolve_tts_language(agent)
             audio_url = await generate_tts(
                 text=clean_text,
                 voice_choice=voice_choice,
@@ -375,7 +395,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             set_tts_agent(agent)
 
             # Generate TTS audio
-            tts_language = self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
+            tts_language = self._resolve_tts_language(agent)
             audio_url = await generate_tts(
                 text=clean_text,
                 voice_choice=voice_choice,
@@ -951,7 +971,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                         pass
 
             # Generate TTS audio (this is the slow part - runs in parallel)
-            tts_language = self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
+            tts_language = self._resolve_tts_language(agent)
             log_message(f"🔊 TTS Generate: Calling generate_tts() seq={seq} for agent={agent}: {repr(clean_text)}")
             log_message(f"🔊 TTS Generate: voice={voice_choice}, speed={speed_value}, pitch={pitch_value}, engine={tts_engine}, lang={tts_language}")
 

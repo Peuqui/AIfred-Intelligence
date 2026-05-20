@@ -723,6 +723,24 @@ def _config_view() -> rx.Component:
                             align="center",
                             width="100%",
                         ),
+                        # Language override (Auto = detected language / UI fallback)
+                        rx.hstack(
+                            rx.text("Sprache", font_size="11px", color="#aaa", width="55px"),
+                            rx.box(
+                                rx.select(
+                                    AIState.tts_language_labels,
+                                    value=AIState.editor_agent_tts_language,
+                                    on_change=AIState.set_editor_agent_tts_language,
+                                    size="1",
+                                    width="100%",
+                                ),
+                                flex="1",
+                                min_width="0",
+                            ),
+                            spacing="2",
+                            align="center",
+                            width="100%",
+                        ),
                         spacing="2",
                         width="100%",
                         padding="10px",
