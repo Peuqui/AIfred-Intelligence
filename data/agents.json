@@ -40,6 +40,12 @@
           "pitch": "1.0",
           "enabled": true
         },
+        "qwen3local": {
+          "voice": "AIfred",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
         "piper": {
           "voice": "Deutsch (Karlsson)",
           "speed": "1.25x",
@@ -98,6 +104,12 @@
           "enabled": true
         },
         "moss": {
+          "voice": "Sokrates",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "qwen3local": {
           "voice": "Sokrates",
           "speed": "1.25x",
           "pitch": "1.0",
@@ -162,6 +174,12 @@
           "enabled": true
         },
         "moss": {
+          "voice": "Salomo",
+          "speed": "1.25x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "qwen3local": {
           "voice": "Salomo",
           "speed": "1.25x",
           "pitch": "1.0",
@@ -323,6 +341,12 @@
           "enabled": true
         },
         "moss": {
+          "voice": "HAL9000",
+          "speed": "1.0x",
+          "pitch": "1.0",
+          "enabled": true
+        },
+        "qwen3local": {
           "voice": "HAL9000",
           "speed": "1.0x",
           "pitch": "1.0",

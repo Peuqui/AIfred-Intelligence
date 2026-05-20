@@ -242,6 +242,51 @@ def stop_engine(engine: str) -> tuple[bool, str]:
     return True, ""
 
 
+# Engine-specific default timeouts for ensure_engine_ready. XTTS loads
+# fastest (~30 s on V100), MOSS needs a bigger model (~120 s), Qwen3
+# needs the model + voice-prompt warming (~120 s, occasionally longer
+# with cold disk caches).
+_ENGINE_READY_TIMEOUTS = {"xtts": 60, "moss": 180, "qwen3local": 240}
+
+
+def ensure_engine_ready(
+    engine: str,
+    timeout: int | None = None,
+    xtts_force_cpu: bool = False,
+) -> tuple[bool, str, str]:
+    """Single SSOT for "start container + wait until model is loaded".
+
+    Replaces the four near-identical ``if engine == "xtts"`` / ``elif
+    "moss"`` / ``elif "qwen3local"`` cascades that used to live in
+    ``_do_switch`` and the two re-synthesis paths in the streaming mixin.
+    A future engine only needs to be added here, the call sites stay put.
+
+    Returns ``(success, status_message, device)``. ``device`` is the
+    string the engine container reports for its compute target ("cuda:0",
+    "cpu", …) — XTTS doesn't expose one, so it returns "".
+    """
+    if engine == "xtts":
+        from .process_utils import ensure_xtts_ready, set_xtts_cpu_mode
+        cpu_ok, cpu_msg = set_xtts_cpu_mode(xtts_force_cpu)
+        if not cpu_ok:
+            return False, cpu_msg, ""
+        ready_ok, ready_msg = ensure_xtts_ready(
+            timeout=timeout or _ENGINE_READY_TIMEOUTS["xtts"],
+        )
+        return ready_ok, ready_msg, ""
+
+    if engine == "moss":
+        from .process_utils import ensure_moss_ready
+        return ensure_moss_ready(timeout=timeout or _ENGINE_READY_TIMEOUTS["moss"])
+
+    if engine == "qwen3local":
+        from .process_utils import ensure_qwen3local_ready
+        return ensure_qwen3local_ready(timeout=timeout or _ENGINE_READY_TIMEOUTS["qwen3local"])
+
+    # Unknown / lightweight engine — nothing to start, treat as ready.
+    return True, "", ""
+
+
 # Background TTS stop — runs parallel to LLM inference (Case 2b).
 # Keyed by engine name so concurrent stops on different engines (xtts vs
 # moss) don't overwrite each other's Thread reference. The previous
@@ -421,29 +466,16 @@ def _do_switch(
             yield f"VRAM freed: {', '.join(actions)}"
 
     # Step 3: Start new engine + wait for model load
-    if new_engine == "xtts":
-        from .process_utils import set_xtts_cpu_mode, ensure_xtts_ready
-
-        success, msg = set_xtts_cpu_mode(xtts_force_cpu)
-        yield msg
-
-        if success:
-            success, ready_msg = ensure_xtts_ready(timeout=60)
+    if new_engine in GPU_ENGINES:
+        # Yield a per-engine "loading…" line so the UI shows progress
+        # before the (possibly minute-long) container start blocks.
+        if new_engine != "xtts":
+            yield f"{new_engine.upper()}: Loading model..."
+        success, ready_msg, _device = ensure_engine_ready(
+            new_engine, xtts_force_cpu=xtts_force_cpu,
+        )
+        if ready_msg:
             yield ready_msg
-
-    elif new_engine == "moss":
-        from .process_utils import ensure_moss_ready
-
-        yield "MOSS-TTS: Loading model..."
-        success, msg, device = ensure_moss_ready(timeout=120)
-        yield msg
-
-    elif new_engine == "qwen3local":
-        from .process_utils import ensure_qwen3local_ready
-
-        yield "Qwen3-TTS: Loading model + warmup..."
-        success, msg, device = ensure_qwen3local_ready(timeout=240)
-        yield msg
 
     # Step 4: Restart LLM with TTS-calibrated profile
     restart_llm_backend(backend_type)

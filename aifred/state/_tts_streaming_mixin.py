@@ -1209,22 +1209,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
         self.tts_regenerating = True
         yield rx.call_script("stopTts()")  # type: ignore[misc]
 
-        # Auto-start TTS backend if not running
-        if self.tts_engine == "xtts":  # type: ignore[attr-defined]
-            self.add_debug("🔄 TTS Re-Synth: Starte XTTS Backend...")  # type: ignore[attr-defined]
+        # Auto-start TTS backend if not running — single dispatch via SSOT.
+        from ..lib.tts_engine_manager import GPU_ENGINES, ensure_engine_ready
+        if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
+            self.add_debug(  # type: ignore[attr-defined]
+                f"🔄 TTS Re-Synth: Starte {self.tts_engine.upper()} Backend..."  # type: ignore[attr-defined]
+            )
             yield  # type: ignore[misc]
-            from ..lib.process_utils import ensure_xtts_ready
-            ok, tts_msg = ensure_xtts_ready()
-        elif self.tts_engine == "moss":  # type: ignore[attr-defined]
-            self.add_debug("🔄 TTS Re-Synth: Starte MOSS-TTS Backend...")  # type: ignore[attr-defined]
-            yield  # type: ignore[misc]
-            from ..lib.process_utils import ensure_moss_ready
-            ok, tts_msg, _device = ensure_moss_ready()
-        elif self.tts_engine == "qwen3local":  # type: ignore[attr-defined]
-            self.add_debug("🔄 TTS Re-Synth: Starte Qwen3-TTS Backend...")  # type: ignore[attr-defined]
-            yield  # type: ignore[misc]
-            from ..lib.process_utils import ensure_qwen3local_ready
-            ok, tts_msg, _device = ensure_qwen3local_ready()
+            ok, tts_msg, _device = ensure_engine_ready(self.tts_engine)  # type: ignore[attr-defined]
         else:
             ok, tts_msg = True, "OK"
 
@@ -1267,22 +1259,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
         self.tts_regenerating = True
         yield rx.call_script("stopTts()")  # type: ignore[misc]
 
-        # Auto-start TTS backend if not running
-        if self.tts_engine == "xtts":  # type: ignore[attr-defined]
-            self.add_debug("🔄 TTS Re-Synth (alle): Starte XTTS Backend...")  # type: ignore[attr-defined]
+        # Auto-start TTS backend if not running — single dispatch via SSOT.
+        from ..lib.tts_engine_manager import GPU_ENGINES, ensure_engine_ready
+        if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
+            self.add_debug(  # type: ignore[attr-defined]
+                f"🔄 TTS Re-Synth (alle): Starte {self.tts_engine.upper()} Backend..."  # type: ignore[attr-defined]
+            )
             yield  # type: ignore[misc]
-            from ..lib.process_utils import ensure_xtts_ready
-            ok, msg = ensure_xtts_ready()
-        elif self.tts_engine == "moss":  # type: ignore[attr-defined]
-            self.add_debug("🔄 TTS Re-Synth (alle): Starte MOSS-TTS Backend...")  # type: ignore[attr-defined]
-            yield  # type: ignore[misc]
-            from ..lib.process_utils import ensure_moss_ready
-            ok, msg, _device = ensure_moss_ready()
-        elif self.tts_engine == "qwen3local":  # type: ignore[attr-defined]
-            self.add_debug("🔄 TTS Re-Synth (alle): Starte Qwen3-TTS Backend...")  # type: ignore[attr-defined]
-            yield  # type: ignore[misc]
-            from ..lib.process_utils import ensure_qwen3local_ready
-            ok, msg, _device = ensure_qwen3local_ready()
+            ok, msg, _device = ensure_engine_ready(self.tts_engine)  # type: ignore[attr-defined]
         else:
             ok, msg = True, "OK"
 

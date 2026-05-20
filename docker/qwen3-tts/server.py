@@ -398,6 +398,24 @@ def tts():
             "available_modes": sorted(voice_modes.keys()),
         }), 400
 
+    # Optional generation parameters — only forwarded when the request
+    # actually specifies a value, otherwise qwen-tts uses its own defaults.
+    # Exposed via the Web-UI so the user can experiment with prosody /
+    # determinism without rebuilding the container.
+    gen_kwargs: dict = {}
+    for key, caster in (
+        ("temperature", float),
+        ("top_p", float),
+        ("top_k", int),
+        ("repetition_penalty", float),
+        ("do_sample", bool),
+    ):
+        if key in data and data[key] not in (None, ""):
+            try:
+                gen_kwargs[key] = caster(data[key])
+            except (TypeError, ValueError):
+                return jsonify({"error": f"Invalid '{key}': {data[key]!r}"}), 400
+
     _active_requests += 1
     try:
         t0 = time.time()
@@ -405,12 +423,15 @@ def tts():
             text=text,
             language=language,
             voice_clone_prompt=prompt,
+            **gen_kwargs,
         )
         gen_s = time.time() - t0
         wav = wavs[0]
+        kw_log = " ".join(f"{k}={v}" for k, v in gen_kwargs.items())
         logger.info(
             f"tts: lang={language} speaker={speaker} mode={mode} chars={len(text)} "
             f"audio_s={len(wav) / sr:.2f} gen_s={gen_s:.2f}"
+            + (f" {kw_log}" if kw_log else "")
         )
 
         buf = io.BytesIO()
@@ -540,6 +561,35 @@ WEB_UI_HTML = """
             <small id="modeHint" style="color:#888; display:block; margin-top:-10px; margin-bottom:15px;"></small>
         </div>
 
+        <details style="margin-bottom:15px;">
+            <summary style="cursor:pointer; color:#7af; padding:8px 0;">Generation-Parameter (advanced)</summary>
+            <div class="row" style="margin-top:10px;">
+                <div>
+                    <label for="temperature">Temperature <small style="color:#888">(0.5–1.5, leer = Default)</small></label>
+                    <input type="number" id="temperature" step="0.05" min="0.1" max="2.0" placeholder="z.B. 1.0">
+                </div>
+                <div>
+                    <label for="top_p">top_p <small style="color:#888">(0–1, leer = Default)</small></label>
+                    <input type="number" id="top_p" step="0.05" min="0" max="1" placeholder="z.B. 0.9">
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <label for="top_k">top_k <small style="color:#888">(1–200, leer = Default)</small></label>
+                    <input type="number" id="top_k" step="1" min="1" max="200" placeholder="z.B. 50">
+                </div>
+                <div>
+                    <label for="repetition_penalty">repetition_penalty <small style="color:#888">(1.0–1.5, leer = Default)</small></label>
+                    <input type="number" id="repetition_penalty" step="0.05" min="1.0" max="2.0" placeholder="z.B. 1.1">
+                </div>
+            </div>
+            <small style="color:#888; display:block; margin-bottom:10px;">
+                Leere Felder lassen qwen-tts seine eigenen Defaults wählen.
+                Temperature ↑ = mehr Prosodie-Variation, aber unstabiler.
+                repetition_penalty ↑ = weniger Stotterer.
+            </small>
+        </details>
+
         <button onclick="generateTTS()" id="generateBtn">Audio generieren</button>
 
         <div id="status" class="status"></div>
@@ -636,6 +686,15 @@ WEB_UI_HTML = """
                 if (voice) body.speaker = voice;
                 if (lang)  body.language = lang;
                 if (mode)  body.cloning_mode = mode;
+
+                // Optional generation parameters — only sent when set
+                // so qwen-tts can use its own defaults otherwise.
+                for (const key of ['temperature', 'top_p', 'top_k', 'repetition_penalty']) {
+                    const el = document.getElementById(key);
+                    if (el && el.value !== '') {
+                        body[key] = parseFloat(el.value);
+                    }
+                }
 
                 const res = await fetch('tts', {
                     method: 'POST',
