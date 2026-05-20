@@ -883,6 +883,127 @@ echo ""
 sleep 1
 
 # ============================================================
+# SCHRITT 2g: Lokale TTS-Container (Optional, On-Demand)
+# ============================================================
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Schritt 2g: Lokale TTS-Container (Optional)${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo "AIfred unterstützt mehrere lokale TTS-Engines, die als Docker-Container"
+echo "auf GPU laufen und on-demand von AIfred selbst gestartet werden — beim"
+echo "Wechsel im Engine-Dropdown der UI, NICHT beim Boot. Wir bauen hier nur"
+echo "das Image; das Container-Lifecycle macht AIfred später selbst."
+echo ""
+echo "Verfügbar sind:"
+echo ""
+echo -e "  ${GREEN}• Qwen3-TTS${NC} (empfohlen) — Streaming, 10 Sprachen, Voice-Cloning"
+echo "    Image ~11.8 GB · Modell-Cache ~3.4 GB · braucht GPU (V100 ideal)"
+echo "    Schnellstes Streaming-TTS, beste UX für FreeEcho.2 + Chat-Bubbles."
+echo ""
+echo -e "  ${GREEN}• XTTS v2 (Coqui)${NC} — bestes Voice-Cloning, viele Built-in-Sprecher"
+echo "    Image ~7.7 GB · Modell-Cache ~2 GB · braucht GPU oder CPU (langsam)"
+echo "    Klangtreueres Cloning als Qwen3, dafür höhere Latenz."
+echo ""
+echo -e "  ${GREEN}• MOSS-TTS${NC} — Zero-Shot Voice-Cloning, 20 Sprachen"
+echo "    Image ~6.9 GB · Modell-Cache ~3 GB · braucht GPU"
+echo "    Batch-Rendering nach Bubble-Ende (kein Streaming)."
+echo ""
+echo "Ohne lokalen TTS-Container nutzt AIfred Edge-TTS (Cloud) oder Piper (offline,"
+echo "siehe Schritt 2d). Mit jeder zusätzlichen Engine: mehr Disk + einmaliger"
+echo "Build-Aufwand (5-15 min pro Container)."
+echo ""
+
+# Image-Name aus dem ersten `image:` der compose-Datei lesen.
+# Compose-Files in docker/<engine>/ verwenden eine fixe image:-Zeile
+# (z.B. "image: qwen3-tts-1.7b-base"), die wir hier als Source-of-Truth
+# nutzen — kein Raten via Heuristik mehr.
+tts_compose_image() {
+    local compose_file="$1"
+    awk '/^[[:space:]]*image:[[:space:]]*/ {gsub(/^[[:space:]]*image:[[:space:]]*/, ""); gsub(/[[:space:]]+$/, ""); print; exit}' "$compose_file"
+}
+
+tts_build() {
+    local engine="$1"
+    local label="$2"
+    local dir="$PROJECT_DIR/docker/$engine"
+    local compose="$dir/docker-compose.yml"
+    if [ ! -f "$compose" ]; then
+        echo -e "${YELLOW}⚠️  $compose fehlt — überspringe $label.${NC}"
+        STEP_WARNINGS+=("$label übersprungen — docker/$engine fehlt")
+        return 1
+    fi
+    # Idempotent: image-Tag aus compose lesen, exakter Existenz-Check via
+    # `docker image inspect` (gibt Exit 0 wenn vorhanden, sonst 1).
+    local image_tag
+    image_tag="$(tts_compose_image "$compose")"
+    if [ -n "$image_tag" ] && docker_run "docker image inspect '$image_tag'" &>/dev/null; then
+        echo -e "${GREEN}✅ $label Image '$image_tag' bereits vorhanden — Skip Build${NC}"
+        return 0
+    fi
+    echo "   Baue $label Image (kann beim ersten Mal 5-15 min dauern)..."
+    if docker_run "cd '$dir' && docker compose build"; then
+        echo -e "${GREEN}✅ $label Image gebaut${NC}"
+        return 0
+    fi
+    echo -e "${YELLOW}⚠️  $label Build fehlgeschlagen.${NC}"
+    echo "   Manuell nachholen: cd docker/$engine && docker compose build"
+    STEP_WARNINGS+=("$label Build fehlgeschlagen — siehe docker logs / docker compose build Output")
+    return 1
+}
+
+# Default: NEIN — jeder Container ist ein paar GB, User soll bewusst wählen.
+QWEN3_CHOSEN=0; XTTS_CHOSEN=0; MOSS_CHOSEN=0
+read -p "Qwen3-TTS bauen (empfohlen)? (j/N): " -n 1 -r REPLY; echo
+if [[ $REPLY =~ ^[JjYy]$ ]]; then
+    QWEN3_CHOSEN=1
+    tts_build "qwen3-tts" "Qwen3-TTS" || true
+fi
+read -p "XTTS v2 bauen? (j/N): " -n 1 -r REPLY; echo
+if [[ $REPLY =~ ^[JjYy]$ ]]; then
+    XTTS_CHOSEN=1
+    tts_build "xtts" "XTTS v2" || true
+fi
+read -p "MOSS-TTS bauen? (j/N): " -n 1 -r REPLY; echo
+if [[ $REPLY =~ ^[JjYy]$ ]]; then
+    MOSS_CHOSEN=1
+    tts_build "moss-tts" "MOSS-TTS" || true
+fi
+
+if [ "$QWEN3_CHOSEN" = "0" ] && [ "$XTTS_CHOSEN" = "0" ] && [ "$MOSS_CHOSEN" = "0" ]; then
+    echo -e "${YELLOW}⏭️  Keine lokalen TTS-Container gewählt — AIfred nutzt Edge-TTS / Piper / eSpeak.${NC}"
+fi
+
+# ─── Verifikation Schritt 2g: gewählte Images sind tatsächlich da ───
+# Image-Existenz via exaktem Tag aus der jeweiligen compose-Datei prüfen,
+# damit fremde Images mit ähnlichem Namen (z.B. xtts-fork) hier nicht
+# als false positive durchgehen.
+if [ "$QWEN3_CHOSEN" = "1" ] || [ "$XTTS_CHOSEN" = "1" ] || [ "$MOSS_CHOSEN" = "1" ]; then
+    echo ""
+    echo -e "${BLUE}🔎 Verifiziere TTS-Container-Images...${NC}"
+    if [ "$QWEN3_CHOSEN" = "1" ]; then
+        q_img="$(tts_compose_image "$PROJECT_DIR/docker/qwen3-tts/docker-compose.yml" 2>/dev/null)"
+        verify_step "Qwen3-TTS Image '$q_img' vorhanden" \
+            "docker image inspect '$q_img'" \
+            "cd docker/qwen3-tts && docker compose build"
+    fi
+    if [ "$XTTS_CHOSEN" = "1" ]; then
+        x_img="$(tts_compose_image "$PROJECT_DIR/docker/xtts/docker-compose.yml" 2>/dev/null)"
+        verify_step "XTTS v2 Image '$x_img' vorhanden" \
+            "docker image inspect '$x_img'" \
+            "cd docker/xtts && docker compose build"
+    fi
+    if [ "$MOSS_CHOSEN" = "1" ]; then
+        m_img="$(tts_compose_image "$PROJECT_DIR/docker/moss-tts/docker-compose.yml" 2>/dev/null)"
+        verify_step "MOSS-TTS Image '$m_img' vorhanden" \
+            "docker image inspect '$m_img'" \
+            "cd docker/moss-tts && docker compose build"
+    fi
+    step_summary "2g — Lokale TTS-Container"
+fi
+echo ""
+sleep 1
+
+# ============================================================
 # SCHRITT 3: Systemd Services Installation (Optional, MIT sudo)
 # ============================================================
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1115,9 +1236,10 @@ echo "       https://github.com/mostlygeek/llama-swap"
 echo "       Binary nach ~/bin, Config in ~/.config/llama-swap/config.yaml,"
 echo "       systemd-Unit nach /etc/systemd/system/llama-swap.service (eigene Recherche)."
 echo ""
-echo "   • XTTS Docker-Image (Coqui XTTS v2 — High-Quality TTS auf NVIDIA-GPU):"
-echo "       cd $PROJECT_DIR/docker/xtts && docker compose build"
-echo "       (Image ist ~8 GB, wird von AIfred on-demand gestartet/gestoppt.)"
+echo "   • Lokale TTS-Container (von AIfred on-demand gestartet — Image-Build hier nachholbar):"
+echo "       cd $PROJECT_DIR/docker/qwen3-tts && docker compose build   # Qwen3-TTS (Streaming)"
+echo "       cd $PROJECT_DIR/docker/xtts      && docker compose build   # XTTS v2 (Voice-Cloning)"
+echo "       cd $PROJECT_DIR/docker/moss-tts  && docker compose build   # MOSS-TTS (Zero-Shot)"
 echo ""
 echo "   • Reverse-Proxy-Setup (eigene Domain via nginx/caddy):"
 echo "       cp scripts/patch-vite-config.sh.example scripts/patch-vite-config.sh"
