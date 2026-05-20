@@ -27,14 +27,18 @@ RUN pip install --no-cache-dir --force-reinstall \
     --extra-index-url https://download.pytorch.org/whl/cu128 \
     "torch<2.6" "torchaudio<2.6"
 
-# Flash-Attention 2: explizit AUSGELASSEN.
-# Der von qwen-tts mitgezogene PyTorch (2.12+cu130) ist zu neu fuer die
-# aktuellen flash-attn-Wheels; der Source-Build scheitert in der
-# metadata-generation. Stattdessen verwenden wir SDPA (eingebaut in PyTorch)
-# via QWEN3_ATTN=sdpa. Qwen3-TTS-1.7B laeuft damit problemlos auf der V100
-# (HBM2-Bandbreite ist hier eh der dominante Faktor, nicht Flash-Attn).
-# Falls spaeter doch noetig: prebuilt-wheel von github.com/Dao-AILab/flash-attention/releases
-# matching torch/cuda holen und per ADD/COPY installieren.
+# Flash-Attention 2: explicitly NOT installed.
+# We held the prebuilt wheel for cu12torch2.5cxx11abiFALSE/cp312 in our
+# hand, the install was clean, the model loaded with attn_implementation=
+# flash_attention_2 — but flash-attn 2 hard-requires Ampere or newer
+# (SM8.0+). Our TTS GPU is a V100 (Volta, SM7.0), so the first kernel
+# call raises:
+#   RuntimeError: FlashAttention only supports Ampere GPUs or newer.
+# Same limit applies to flash-attn 1 (Turing+ only). For a Volta target
+# the only fast attention path is PyTorch's built-in SDPA (set via
+# QWEN3_ATTN=sdpa in docker-compose.yml).
+# If the TTS GPU is later migrated to Ampere/Ada/Hopper, drop the
+# matching prebuilt wheel back in here and flip QWEN3_ATTN.
 
 # Flask + Gunicorn for the HTTP API (matches XTTS / MOSS-TTS pattern)
 RUN pip install --no-cache-dir flask gunicorn
