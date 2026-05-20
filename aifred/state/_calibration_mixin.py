@@ -736,9 +736,9 @@ class CalibrationMixin(rx.State, mixin=True):
 
                     if approx_ok:
                         # Use approximation result directly — no full re-calibration.
-                        # Convert __RESULT__ tensor-split CSV back to colon form
-                        # (the persistence helpers below expect colon-separated).
-                        _split_colon = ":".join(approx_split.split(","))
+                        # Keep CSV throughout — the YAML writer (`add_llamaswap_tts_variant`)
+                        # normalizes any separator anyway, but CSV is what llama.cpp needs.
+                        _split_colon = approx_split
                         added = add_llamaswap_tts_variant(
                             LLAMASWAP_CONFIG_PATH,
                             calibration_model_id,

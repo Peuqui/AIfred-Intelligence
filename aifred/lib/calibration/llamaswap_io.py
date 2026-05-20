@@ -506,8 +506,12 @@ def add_llamaswap_tts_variant(
     cmd = set_context(cmd, tts_context)
     cmd = set_kv_quant(cmd, kv_quant)
     if tensor_split:
+        # llama.cpp's `-ts` wants COMMA-separated values. Some callers pass
+        # the colon-form used internally for log/sentinel formatting — normalize
+        # here so the YAML always lands with the format llama.cpp can parse.
+        ts_normalized = tensor_split.replace(":", ",")
         cmd = re.sub(
-            r"(--tensor-split|-ts)\s+[\d.,]+", f"-ts {tensor_split}", cmd,
+            r"(--tensor-split|-ts)\s+[\d.,:]+", f"-ts {ts_normalized}", cmd,
         )
     entry["cmd"] = cmd
 
