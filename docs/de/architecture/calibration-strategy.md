@@ -54,6 +54,42 @@ Beispiel-Splits für 80B-Modell, 4 GPUs (2× RTX 8000, 2× P40):
 | `[23, 24, 1, 0]` | ❌ OOM — eine RTX 8000 mit 24 Layern hat keinen Platz mehr für KV-Cache |
 | `[22, 22, 9, 9]` | ❌ schlecht — aktiviert unnötig 4. GPU, lässt Headroom auf RTX 8000s liegen |
 
+## First-GPU-Handicap
+
+Innerhalb der schnellsten Compute-Klasse wird eine GPU als `first_in_class`
+markiert — die mit dem geringsten Free-VRAM (üblicherweise die
+display-tragende GPU bei Desktop-Systemen). Dieser GPU rechnet der Optimizer
+einen **Handicap** vom nutzbaren VRAM ab, damit sie am Ende nicht knapper
+wird als ihre Geschwister.
+
+**Zwei Effekte, die durch das Handicap ausgeglichen werden:**
+
+1. **Display/Compositor-Overhead** — die display-tragende GPU hat im Idle
+   schon einige hundert MB belegt (X-Server, Compositor, Browser-GPU-
+   Beschleunigung).
+2. **KV-Cache-/Output-Tensor-Asymmetrie** — llama.cpp pinnt mit
+   `-sm layer` den Output-Tensor und Teile des KV-Cache-Setups auf die
+   erste CUDA-Device. Dadurch wird GPU0 auch ohne Display stärker
+   belastet als die Geschwister mit derselben Layer-Anzahl.
+
+**Bemessung:**
+
+- Empirisch gemessen als `max_sibling_free − first.free_mb` innerhalb der
+  schnellsten Klasse.
+- **Floor:** `_MIN_FIRST_GPU_HANDICAP_MB` = **256 MB** (immer mindestens).
+- **Ceiling:** Wenn die gemessene Differenz > `_HARDWARE_HANDICAP_THRESHOLD_MB`
+  (500 MB), fällt das Handicap auf den Floor zurück. Sonst würde ein bereits
+  geladenes Fremd-Modell auf GPU0 doppelt abgezogen.
+- Nur eine GPU in der schnellsten Klasse → Floor (kein Geschwister-Vergleich
+  möglich).
+
+Implementiert in [`measure_first_gpu_handicap()`](../../aifred/lib/calibration/gpu.py).
+Im Log sichtbar als Zeile `📊 first-GPU handicap: <N> MB`.
+
+**Praktischer Effekt:** Im Split `[27, 29, 19, 14, 5]` für ein 5-GPU-235B-
+Modell hat GPU1 zwei Layer mehr als GPU0 — genau weil GPU0 den Handicap
+bekam und sich beide am Ende **gleich knapp** an der Safety-Margin treffen.
+
 ## Algorithmus
 
 ### Phase 1: Min-GPUs für native ctx
