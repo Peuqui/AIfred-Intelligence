@@ -543,12 +543,16 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug("⚠️ Could not write speed variant to llama-swap config")  # type: ignore[attr-defined]
             yield
 
-            # Step 5: TTS variant calibration (XTTS + MOSS)
-            # Same calibration but with TTS model pre-loaded in VRAM
+            # Step 5: TTS variant calibration (Qwen3 + XTTS + MOSS).
+            # Same calibration but with TTS model pre-loaded in VRAM.
+            # Qwen3-TTS goes first because it is the new default streaming
+            # engine; XTTS and MOSS-TTS follow for users who want to
+            # stay on those backends.
             if True:
                 from ..lib.calibration import add_llamaswap_tts_variant
 
                 for tts_backend, tts_label, tts_start_fn, tts_stop_fn in [
+                    ("qwen3local", "Qwen3-TTS", "_start_qwen3local_for_calibration", "_stop_qwen3local_for_calibration"),
                     ("xtts", "XTTS", "_start_xtts_for_calibration", "_stop_xtts_for_calibration"),
                     ("moss", "MOSS-TTS", "_start_moss_for_calibration", "_stop_moss_for_calibration"),
                 ]:
@@ -1004,6 +1008,49 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib.process_utils import stop_moss_container
         stop_moss_container()
         self.add_debug("   🔊 MOSS-TTS container stopped")  # type: ignore[attr-defined]
+
+    def _start_qwen3local_for_calibration(self) -> bool:
+        """Start Qwen3-TTS container, then drive its KV-cache up to the real
+        high-water mark via a long test inference so enumerate_gpus() sees
+        the realistic free-VRAM number (not the idle ~5.3 GB).
+        """
+        from ..lib.process_utils import ensure_qwen3local_ready
+        success, msg, device = ensure_qwen3local_ready(timeout=240)
+        if not success:
+            return False
+        self.add_debug(f"   🔊 {msg}")  # type: ignore[attr-defined]
+
+        # Long test inference — without it the container sits at ~5.3 GB
+        # idle, but a real bubble pushes it to ~6.7 GB. The TTS variant
+        # calibration must measure the post-inference state.
+        import httpx
+        from ..lib.config import QWEN3_TTS_SERVICE_URL, QWEN3_TTS_CALIBRATION_TEXT
+        try:
+            self.add_debug("   🔊 Running long test TTS for peak VRAM measurement...")  # type: ignore[attr-defined]
+            r = httpx.post(
+                f"{QWEN3_TTS_SERVICE_URL}/tts",
+                json={
+                    "text": QWEN3_TTS_CALIBRATION_TEXT,
+                    "language": "German",
+                    "cloning_mode": "with_transcript",
+                },
+                timeout=180.0,
+            )
+            if r.is_success:
+                self.add_debug("   🔊 Peak VRAM reached after test inference")  # type: ignore[attr-defined]
+            else:
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"   ⚠️ Test TTS returned HTTP {r.status_code} — VRAM may be underestimated"
+                )
+        except httpx.HTTPError as e:
+            self.add_debug(f"   ⚠️ Test TTS failed ({e}) — VRAM may be underestimated")  # type: ignore[attr-defined]
+        return True
+
+    def _stop_qwen3local_for_calibration(self) -> None:
+        """Stop Qwen3-TTS container to free VRAM."""
+        from ..lib.process_utils import stop_qwen3local_container
+        stop_qwen3local_container()
+        self.add_debug("   🔊 Qwen3-TTS container stopped")  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Calibration info display

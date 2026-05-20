@@ -22,7 +22,13 @@ services:
       # ── Model selection ──────────────────────────────────────────
       # Base variant supports voice cloning from reference audio in /app/voices/
       - QWEN3_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-Base
-      - QWEN3_DTYPE=bfloat16
+      # bfloat16 ran fine but bf16 has no Tensor Core support on V100/Volta —
+      # only fp16 does. float16 unlocks the 125 TFLOPS fp16 Tensor Cores.
+      # Risk: fp16 has smaller dynamic range (~±65504), so a rare decoder
+      # activation could blow up to NaN/Inf and the audio sample would
+      # come out silent or distorted. Flip back to bfloat16 immediately
+      # if that happens in practice.
+      - QWEN3_DTYPE=float16
       - QWEN3_ATTN=sdpa
 
       # ── Smart device selection ───────────────────────────────────
@@ -43,8 +49,8 @@ services:
 
       # ── Auto-shutdown (matches XTTS / MOSS keep-alive pattern) ───
       # After X minutes of inactivity, container exits to free VRAM.
-      # 0 disables auto-shutdown.
-      - QWEN3_KEEP_ALIVE=30
+      # 0 disables auto-shutdown. Override per-host via env if needed.
+      - QWEN3_KEEP_ALIVE=${QWEN3_KEEP_ALIVE:-30}
 
     volumes:
       # HuggingFace cache: persists the model + tokenizer between container restarts
