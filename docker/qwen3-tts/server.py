@@ -1,0 +1,515 @@
+"""
+Qwen3-TTS HTTP Server for AIfred.
+
+Provides a REST API for text-to-speech generation using the
+Qwen3-TTS-12Hz-1.7B-Base model with voice cloning.
+
+Reference voices are read from /app/voices/<name>.wav and (optionally)
+/app/voices/<name>.txt for the transcript. The reference is processed
+into a clone-prompt exactly once per voice and cached in-memory for
+all subsequent requests (the docs call this the "fast path").
+
+API
+---
+POST /tts
+    {
+        "text":     "Hallo, ich bin AIfred.",
+        "language": "German",      # see /languages for the supported list
+        "speaker":  "AIfred"        # filename stem in /app/voices/
+    }
+    -> audio/wav (24 kHz by default)
+
+GET /voices    -> list of available speakers (filename stems in /voices/)
+GET /languages -> list of supported language strings
+GET /health    -> server / model status
+GET /status    -> detailed runtime info
+POST /unload   -> drop model from VRAM
+GET /keep_alive | POST /keep_alive -> reset auto-shutdown idle timer
+
+Environment
+-----------
+QWEN3_MODEL              HF id, default Qwen/Qwen3-TTS-12Hz-1.7B-Base
+QWEN3_DTYPE              torch dtype, default bfloat16
+QWEN3_ATTN               attn impl, default flash_attention_2 (set
+                         "sdpa" to disable flash-attn)
+QWEN3_EAGER_LOAD         load model at startup (1/0, default 0)
+QWEN3_FORCE_CPU          force CPU (1/0, default 0)
+QWEN3_VRAM_THRESHOLD     minimum free VRAM in GB to use GPU (default 4.0)
+QWEN3_KEEP_ALIVE         minutes of idle before auto-shutdown (default 30,
+                         0 disables)
+QWEN3_DEFAULT_SPEAKER    fallback speaker name if request omits one
+                         (default "AIfred")
+QWEN3_DEFAULT_LANGUAGE   fallback language (default "German")
+"""
+
+import io
+import logging
+import os
+import signal
+import threading
+import time
+from pathlib import Path
+
+import soundfile as sf
+import torch
+from flask import Flask, jsonify, render_template_string, request, send_file
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("qwen3-tts")
+
+app = Flask(__name__)
+
+# ── Configuration ────────────────────────────────────────────────────────────
+MODEL_NAME = os.environ.get("QWEN3_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+DTYPE_NAME = os.environ.get("QWEN3_DTYPE", "bfloat16").lower()
+ATTN_IMPL  = os.environ.get("QWEN3_ATTN", "sdpa")
+EAGER_LOAD = os.environ.get("QWEN3_EAGER_LOAD", "0").lower() in ("1", "true", "yes")
+FORCE_CPU  = os.environ.get("QWEN3_FORCE_CPU", "0").lower() in ("1", "true", "yes")
+VRAM_THRESHOLD_GB = float(os.environ.get("QWEN3_VRAM_THRESHOLD", "4.0"))
+KEEP_ALIVE_MINUTES = int(os.environ.get("QWEN3_KEEP_ALIVE", "30"))
+DEFAULT_SPEAKER = os.environ.get("QWEN3_DEFAULT_SPEAKER", "AIfred")
+DEFAULT_LANGUAGE = os.environ.get("QWEN3_DEFAULT_LANGUAGE", "German")
+
+VOICES_DIR = Path("/app/voices")
+
+# Languages Qwen3-TTS officially supports (see model card).
+SUPPORTED_LANGUAGES = [
+    "Chinese", "English", "Japanese", "Korean",
+    "German", "French", "Russian", "Portuguese", "Spanish", "Italian",
+]
+
+# ── Runtime state ────────────────────────────────────────────────────────────
+_model = None
+_sample_rate = None
+_device = None
+_clone_prompts: dict[str, object] = {}     # speaker -> prebuilt prompt
+_last_request_time = time.time()
+_active_requests = 0
+_load_lock = threading.Lock()
+
+
+def _choose_dtype():
+    return {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}.get(
+        DTYPE_NAME, torch.bfloat16,
+    )
+
+
+def _choose_device() -> str:
+    if FORCE_CPU or not torch.cuda.is_available():
+        return "cpu"
+    free, _ = torch.cuda.mem_get_info(0)
+    free_gb = free / (1024 ** 3)
+    if free_gb < VRAM_THRESHOLD_GB:
+        logger.warning(f"Free VRAM {free_gb:.1f} GB < threshold {VRAM_THRESHOLD_GB} GB — falling back to CPU")
+        return "cpu"
+    return "cuda:0"
+
+
+def _load_model():
+    """Lazy-load the model + warm clone-prompts for every voice in /app/voices/."""
+    global _model, _sample_rate, _device
+
+    with _load_lock:
+        if _model is not None:
+            return
+
+        from qwen_tts import Qwen3TTSModel
+
+        _device = _choose_device()
+        dtype = _choose_dtype()
+        attn = ATTN_IMPL if _device.startswith("cuda") else "sdpa"
+
+        logger.info(f"Loading {MODEL_NAME} → device={_device} dtype={dtype} attn={attn}")
+        t0 = time.time()
+        _model = Qwen3TTSModel.from_pretrained(
+            MODEL_NAME,
+            device_map=_device if _device != "cpu" else None,
+            dtype=dtype,
+            attn_implementation=attn,
+        )
+        logger.info(f"Model loaded in {time.time() - t0:.1f}s")
+
+        # Try to extract sample rate from the model bundle; fall back to 24 kHz
+        _sample_rate = getattr(_model, "sample_rate", None) or 24000
+
+        _warm_clone_prompts()
+
+
+def _warm_clone_prompts() -> None:
+    """Build a reusable clone-prompt for every <speaker>.wav in /app/voices/."""
+    if not VOICES_DIR.exists():
+        logger.warning(f"{VOICES_DIR} does not exist — no voices available")
+        return
+    for wav in sorted(VOICES_DIR.glob("*.wav")):
+        name = wav.stem
+        txt_path = wav.with_suffix(".txt")
+        ref_text = txt_path.read_text(encoding="utf-8").strip() if txt_path.exists() else None
+        try:
+            prompt = _model.create_voice_clone_prompt(
+                ref_audio=str(wav),
+                ref_text=ref_text,
+                x_vector_only_mode=ref_text is None,
+            )
+            _clone_prompts[name] = prompt
+            mode = "with transcript" if ref_text else "x-vector only (no transcript)"
+            logger.info(f"Warmed clone-prompt for '{name}' ({mode})")
+        except Exception as e:
+            logger.error(f"Failed to warm clone-prompt for '{name}': {e}")
+
+
+def _touch():
+    global _last_request_time
+    _last_request_time = time.time()
+
+
+# ── Auto-shutdown thread ─────────────────────────────────────────────────────
+def _idle_watcher():
+    if KEEP_ALIVE_MINUTES <= 0:
+        return
+    timeout_s = KEEP_ALIVE_MINUTES * 60
+    while True:
+        time.sleep(60)
+        if _active_requests > 0:
+            continue
+        idle = time.time() - _last_request_time
+        if idle > timeout_s:
+            logger.info(f"Idle for {idle / 60:.1f} min — shutting down")
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
+
+
+threading.Thread(target=_idle_watcher, daemon=True).start()
+
+
+# ── API ──────────────────────────────────────────────────────────────────────
+@app.route("/", methods=["GET"])
+def index():
+    return render_template_string(WEB_UI_HTML)
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "ok",
+        "model": MODEL_NAME,
+        "loaded": _model is not None,
+        "device": _device,
+    })
+
+
+@app.route("/status", methods=["GET"])
+def status():
+    return jsonify({
+        "model": MODEL_NAME,
+        "loaded": _model is not None,
+        "device": _device,
+        "sample_rate": _sample_rate,
+        "voices": sorted(_clone_prompts.keys()),
+        "supported_languages": SUPPORTED_LANGUAGES,
+        "last_request_age_s": time.time() - _last_request_time,
+        "active_requests": _active_requests,
+    })
+
+
+@app.route("/voices", methods=["GET"])
+def voices():
+    return jsonify({
+        "voices": sorted(_clone_prompts.keys()) if _model else [
+            p.stem for p in sorted(VOICES_DIR.glob("*.wav"))
+        ],
+        "default": DEFAULT_SPEAKER,
+    })
+
+
+@app.route("/languages", methods=["GET"])
+def languages():
+    return jsonify({"languages": SUPPORTED_LANGUAGES, "default": DEFAULT_LANGUAGE})
+
+
+@app.route("/keep_alive", methods=["GET", "POST"])
+def keep_alive():
+    _touch()
+    return jsonify({"ok": True})
+
+
+@app.route("/unload", methods=["POST"])
+def unload():
+    global _model, _clone_prompts, _device
+    if _model is None:
+        return jsonify({"success": True, "freed_device": "not_loaded"})
+    freed = _device
+    _model = None
+    _clone_prompts = {}
+    _device = None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    logger.info(f"Unloaded model from {freed}")
+    return jsonify({"success": True, "freed_device": freed})
+
+
+@app.route("/tts", methods=["POST"])
+def tts():
+    global _active_requests
+    _touch()
+
+    if not request.is_json:
+        return jsonify({"error": "JSON body required"}), 400
+    data = request.get_json()
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Missing or empty 'text'"}), 400
+
+    language = data.get("language") or DEFAULT_LANGUAGE
+    speaker = data.get("speaker") or DEFAULT_SPEAKER
+
+    if _model is None:
+        _load_model()
+
+    prompt = _clone_prompts.get(speaker)
+    if prompt is None:
+        return jsonify({
+            "error": f"Unknown speaker '{speaker}'",
+            "available": sorted(_clone_prompts.keys()),
+        }), 400
+
+    _active_requests += 1
+    try:
+        t0 = time.time()
+        wavs, sr = _model.generate_voice_clone(
+            text=text,
+            language=language,
+            voice_clone_prompt=prompt,
+        )
+        gen_s = time.time() - t0
+        wav = wavs[0]
+        logger.info(
+            f"tts: lang={language} speaker={speaker} chars={len(text)} "
+            f"audio_s={len(wav) / sr:.2f} gen_s={gen_s:.2f}"
+        )
+
+        buf = io.BytesIO()
+        sf.write(buf, wav, sr, format="WAV", subtype="PCM_16")
+        buf.seek(0)
+        return send_file(buf, mimetype="audio/wav", as_attachment=False, download_name="tts.wav")
+    except Exception as e:
+        logger.exception("Generation failed")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        _active_requests -= 1
+        _touch()
+
+
+# Eager load if requested (after the Flask app is constructed so gunicorn
+# can spawn workers cleanly).
+if EAGER_LOAD:
+    try:
+        _load_model()
+    except Exception as e:
+        logger.exception(f"Eager load failed: {e}")
+
+
+# ── Web-UI ───────────────────────────────────────────────────────────────────
+WEB_UI_HTML = """
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qwen3-TTS — Voice Cloning + Streaming</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px; margin: 0 auto; padding: 20px;
+            background: #1a1a2e; color: #eee;
+        }
+        h1 { color: #7af; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 30px; }
+        .section {
+            background: #16213e; border-radius: 10px;
+            padding: 20px; margin-bottom: 20px;
+        }
+        .section h2 { color: #7af; margin-top: 0; font-size: 1.2em; }
+        label { display: block; margin-bottom: 5px; color: #aaa; }
+        textarea, select, input[type="text"] {
+            width: 100%; padding: 12px; border: 1px solid #333;
+            border-radius: 5px; background: #0f0f23; color: #fff;
+            font-size: 14px; margin-bottom: 15px;
+        }
+        textarea { min-height: 220px; resize: vertical; }
+        .row { display: flex; gap: 15px; }
+        .row > div { flex: 1; }
+        button {
+            background: linear-gradient(135deg, #7af, #4a7dc4);
+            color: #fff; border: none; padding: 12px 30px;
+            border-radius: 5px; font-size: 16px; font-weight: bold;
+            cursor: pointer; transition: transform 0.1s;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(122,170,255,0.3); }
+        button:disabled { background: #444; color: #888; cursor: not-allowed; transform: none; }
+        .status { margin-top: 15px; padding: 10px; border-radius: 5px; display: none; }
+        .status.loading { display: block; background: #1e3a5f; color: #7af; }
+        .status.success { display: block; background: #1e3f2e; color: #4caf50; }
+        .status.error   { display: block; background: #3f1e1e; color: #f44336; }
+        audio { width: 100%; margin-top: 15px; border-radius: 5px; }
+        .info {
+            background: #0f0f23; padding: 15px; border-radius: 5px;
+            font-size: 13px; color: #888;
+        }
+        .info code { color: #7af; background: #1a1a2e; padding: 2px 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>Qwen3-TTS</h1>
+    <p class="subtitle">Qwen3-TTS-12Hz-1.7B-Base · Voice Cloning · 10 Sprachen · ~97 ms Streaming-Latenz</p>
+
+    <div class="section">
+        <h2>Text-to-Speech</h2>
+        <label for="text">Text</label>
+        <textarea id="text" placeholder="Sehr wohl, Sir. Wie kann ich heute behilflich sein?"></textarea>
+
+        <div class="row">
+            <div>
+                <label for="voice">Stimme (Reference Audio)</label>
+                <select id="voice"></select>
+            </div>
+            <div>
+                <label for="language">Sprache</label>
+                <select id="language">
+                    <option value="German" selected>Deutsch</option>
+                    <option value="English">English</option>
+                    <option value="Chinese">Chinese</option>
+                    <option value="Japanese">Japanese</option>
+                    <option value="Korean">Korean</option>
+                    <option value="French">Français</option>
+                    <option value="Russian">Русский</option>
+                    <option value="Portuguese">Português</option>
+                    <option value="Spanish">Español</option>
+                    <option value="Italian">Italiano</option>
+                </select>
+            </div>
+        </div>
+
+        <button onclick="generateTTS()" id="generateBtn">Audio generieren</button>
+
+        <div id="status" class="status"></div>
+        <audio id="audioPlayer" controls style="display:none;"></audio>
+    </div>
+
+    <div class="section">
+        <h2>Modell-Verwaltung</h2>
+        <p style="color:#888; margin-bottom:15px;">Modell aus dem VRAM entladen (gibt GPU-Speicher frei).</p>
+        <button onclick="unloadModel()" id="unloadBtn">Modell entladen</button>
+        <div id="unloadStatus" class="status"></div>
+    </div>
+
+    <div class="info">
+        <strong>API-Endpoints:</strong><br>
+        <code>GET /voices</code> – Liste der vorhandenen Stimmen<br>
+        <code>GET /languages</code> – Liste der unterstützten Sprachen<br>
+        <code>GET /health</code> – Health-Check<br>
+        <code>GET /status</code> – Detail-Status<br>
+        <code>POST /tts</code> – Audio erzeugen (JSON: text, language, speaker)<br>
+        <code>POST /unload</code> – Modell aus VRAM entladen
+    </div>
+
+    <script>
+        async function loadVoices() {
+            const select = document.getElementById('voice');
+            select.innerHTML = '<option disabled>Lade...</option>';
+            try {
+                const res = await fetch('voices?t=' + Date.now());
+                const data = await res.json();
+                select.innerHTML = '';
+                (data.voices || []).forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v;
+                    opt.textContent = v;
+                    if (v === data.default) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                select.innerHTML = '<option disabled>Fehler beim Laden</option>';
+            }
+        }
+
+        async function generateTTS() {
+            const text  = document.getElementById('text').value.trim();
+            const voice = document.getElementById('voice').value;
+            const lang  = document.getElementById('language').value;
+            const status = document.getElementById('status');
+            const audio  = document.getElementById('audioPlayer');
+            const btn    = document.getElementById('generateBtn');
+
+            if (!text) {
+                status.className = 'status error';
+                status.textContent = 'Bitte Text eingeben.';
+                return;
+            }
+
+            btn.disabled = true;
+            status.className = 'status loading';
+            status.textContent = 'Generiere Audio … (erstes Request lädt das Modell, kann dauern)';
+            audio.style.display = 'none';
+
+            try {
+                const startTime = Date.now();
+                const body = { text };
+                if (voice) body.speaker = voice;
+                if (lang)  body.language = lang;
+
+                const res = await fetch('tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Fehler');
+                }
+                const blob = await res.blob();
+                const url  = URL.createObjectURL(blob);
+                const dur  = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                audio.src = url;
+                audio.style.display = 'block';
+                audio.play();
+
+                status.className = 'status success';
+                status.textContent = 'Fertig in ' + dur + ' s';
+            } catch (e) {
+                status.className = 'status error';
+                status.textContent = 'Fehler: ' + e.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        document.getElementById('text').addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') generateTTS();
+        });
+
+        async function unloadModel() {
+            const status = document.getElementById('unloadStatus');
+            const btn    = document.getElementById('unloadBtn');
+            btn.disabled = true;
+            status.className = 'status loading';
+            status.textContent = 'Entlade …';
+            try {
+                const res  = await fetch('unload', { method: 'POST' });
+                const data = await res.json();
+                status.className = 'status success';
+                status.textContent = 'Entladen von ' + (data.freed_device || 'GPU');
+            } catch (e) {
+                status.className = 'status error';
+                status.textContent = 'Fehler: ' + e.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        loadVoices();
+    </script>
+</body>
+</html>
+"""
