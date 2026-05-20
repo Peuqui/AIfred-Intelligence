@@ -29,6 +29,13 @@ services:
       - QWEN3_VRAM_THRESHOLD=4.0
       - QWEN3_FORCE_CPU=${QWEN3_FORCE_CPU:-0}
       - QWEN3_EAGER_LOAD=${QWEN3_EAGER_LOAD:-1}
+      # WARMUP off by default: on the V100 the warmup pass only ever
+      # produced ~5 GB allocated because flash-attn 2 isn't usable on
+      # Volta, and even with sdpa the KV-cache high-water mark we wanted
+      # to pre-allocate doesn't materialise predictably. Instead, the
+      # AIfred-side LLM calibration will reserve a fixed 7.5 GB for
+      # qwen3local when that engine is the active TTS.
+      - QWEN3_WARMUP=${QWEN3_WARMUP:-0}
 
       # ── Defaults when request omits fields ───────────────────────
       - QWEN3_DEFAULT_SPEAKER=${QWEN3_DEFAULT_SPEAKER:-AIfred}
