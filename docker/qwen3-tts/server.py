@@ -339,17 +339,75 @@ def keep_alive():
 
 @app.route("/unload", methods=["POST"])
 def unload():
-    global _model, _clone_prompts, _device
-    if _model is None:
-        return jsonify({"success": True, "freed_device": "not_loaded"})
-    freed = _device
-    _model = None
-    _clone_prompts = {}
-    _device = None
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    logger.info(f"Unloaded model from {freed}")
-    return jsonify({"success": True, "freed_device": freed})
+    global _model, _clone_prompts, _device, _ready_for_calibration, _sample_rate
+    # Serialize against concurrent /tts requests: if one is mid-generation
+    # we'd otherwise rip the model out from under it.
+    with _load_lock:
+        if _model is None:
+            return jsonify({
+                "success": True,
+                "freed_device": "not_loaded",
+                "freed_device_name": "",
+                "freed_mb": 0,
+            })
+        # Resolve the GPU's friendly name (e.g. "Tesla V100-PCIE-32GB")
+        # before we drop _model — the device-id we expose ("cuda:0") is
+        # from inside the container's CUDA_VISIBLE_DEVICES remapping and
+        # confuses humans who are used to nvidia-smi's host-side ordering.
+        freed = _device
+        freed_name = ""
+        before_mb = 0
+        on_cuda = bool(_device and _device.startswith("cuda") and torch.cuda.is_available())
+        if on_cuda:
+            try:
+                freed_name = torch.cuda.get_device_name(0)
+                _, total = torch.cuda.mem_get_info(0)
+                free, _t = torch.cuda.mem_get_info(0)
+                before_mb = (total - free) // (1024 * 1024)
+            except Exception:
+                pass
+
+        # Drop the voice-clone prompts first — they hold ref_code +
+        # speaker_embedding tensors on GPU (one set per voice × cloning
+        # mode), so leaving them alone after _model=None still pins
+        # several hundred MB of VRAM.
+        _clone_prompts.clear()
+
+        # Drop the model wrapper. `del` makes the intent obvious to a
+        # human reader; `= None` would work too but reads less clearly.
+        del _model
+        _model = None
+        _device = None
+        _sample_rate = None
+        _ready_for_calibration = False
+
+        # Force a GC pass before empty_cache so PyTorch sees the python
+        # references really are gone (the qwen-tts wrapper carries a
+        # tokenizer, processor, speech_tokenizer etc. that all need to
+        # be collected before their CUDA buffers can be reused).
+        import gc
+        gc.collect()
+        if on_cuda:
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+
+        freed_mb = before_mb
+        if on_cuda:
+            try:
+                free, total = torch.cuda.mem_get_info(0)
+                after_mb = (total - free) // (1024 * 1024)
+                freed_mb = max(0, before_mb - after_mb)
+            except Exception:
+                pass
+
+        label = f"{freed_name} ({freed})" if freed_name else freed
+        logger.info(f"Unloaded model from {label}, freed ~{freed_mb} MiB")
+        return jsonify({
+            "success": True,
+            "freed_device": freed,
+            "freed_device_name": freed_name,
+            "freed_mb": freed_mb,
+        })
 
 
 @app.route("/tts", methods=["POST"])
@@ -596,21 +654,14 @@ WEB_UI_HTML = """
         <audio id="audioPlayer" controls style="display:none;"></audio>
     </div>
 
-    <div class="section">
-        <h2>Modell-Verwaltung</h2>
-        <p style="color:#888; margin-bottom:15px;">Modell aus dem VRAM entladen (gibt GPU-Speicher frei).</p>
-        <button onclick="unloadModel()" id="unloadBtn">Modell entladen</button>
-        <div id="unloadStatus" class="status"></div>
-    </div>
-
     <div class="info">
         <strong>API-Endpoints:</strong><br>
         <code>GET /voices</code> – Liste der vorhandenen Stimmen<br>
         <code>GET /languages</code> – Liste der unterstützten Sprachen<br>
         <code>GET /health</code> – Health-Check<br>
         <code>GET /status</code> – Detail-Status<br>
-        <code>POST /tts</code> – Audio erzeugen (JSON: text, language, speaker)<br>
-        <code>POST /unload</code> – Modell aus VRAM entladen
+        <code>POST /tts</code> – Audio erzeugen (JSON: text, language, speaker, cloning_mode, temperature, top_p, top_k, repetition_penalty)<br>
+        <code>POST /unload</code> – Modell aus VRAM entladen (PyTorch-Pool bleibt reserviert; voller VRAM-Reset über Container-Stop)
     </div>
 
     <script>
@@ -727,25 +778,6 @@ WEB_UI_HTML = """
             if (e.ctrlKey && e.key === 'Enter') generateTTS();
         });
         document.getElementById('voice').addEventListener('change', updateModeHint);
-
-        async function unloadModel() {
-            const status = document.getElementById('unloadStatus');
-            const btn    = document.getElementById('unloadBtn');
-            btn.disabled = true;
-            status.className = 'status loading';
-            status.textContent = 'Entlade …';
-            try {
-                const res  = await fetch('unload', { method: 'POST' });
-                const data = await res.json();
-                status.className = 'status success';
-                status.textContent = 'Entladen von ' + (data.freed_device || 'GPU');
-            } catch (e) {
-                status.className = 'status error';
-                status.textContent = 'Fehler: ' + e.message;
-            } finally {
-                btn.disabled = false;
-            }
-        }
 
         loadVoices();
     </script>
