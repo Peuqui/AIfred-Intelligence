@@ -32,7 +32,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
     """
 
     BACKEND_NAME = "Cloud API"
-    DEFAULT_TIMEOUT = 120.0
+    DEFAULT_TIMEOUT = 300.0
 
     def __init__(self, base_url: str, api_key: str, provider: str = "qwen"):
         """

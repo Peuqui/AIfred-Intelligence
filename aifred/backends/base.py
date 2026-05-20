@@ -334,7 +334,10 @@ class OpenAICompatibleBackend(LLMBackend):
     """
 
     BACKEND_NAME: str = "OpenAI-Compatible"
-    DEFAULT_TIMEOUT: float = 60.0
+    # 300s deckt einen Cold-Modell-Load auf langsamer SSD/USB 3 ab
+    # (235B ~165s reines Read + Pre-Init); zu knappe Timeouts brechen
+    # den ersten Request nach Modell-Eviction unnötig ab.
+    DEFAULT_TIMEOUT: float = 300.0
 
     def __init__(self, base_url: str, api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)

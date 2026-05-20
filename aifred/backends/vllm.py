@@ -23,7 +23,7 @@ class vLLMBackend(OpenAICompatibleBackend):
     """
 
     BACKEND_NAME = "vLLM"
-    DEFAULT_TIMEOUT = 60.0
+    DEFAULT_TIMEOUT = 300.0
 
     def __init__(self, base_url: str = "http://localhost:8000/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
