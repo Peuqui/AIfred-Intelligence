@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+from ....lib.config import get_tts_engine_channel_options
 from ....lib.formatting import format_number
 from ....lib.plugin_base import BaseChannel, CredentialField
 
@@ -32,6 +33,12 @@ from ....lib.plugin_base import BaseChannel, CredentialField
 def _fmt_mib(num_bytes: int) -> str:
     """Bytes als MiB mit 1 Nachkomma (locale-aware Tausender/Dezimal)."""
     return f"{format_number(num_bytes / (1024 * 1024), 1)} MiB"
+
+
+def _channel_tts_options() -> list[tuple[str, str]]:
+    """Thin wrapper around the central SSOT so the CredentialField stays
+    readable and the SSOT call is documented at the call site."""
+    return get_tts_engine_channel_options()
 
 if TYPE_CHECKING:
     from aiohttp.web import Request, WebSocketResponse
@@ -95,7 +102,9 @@ class FreeEchoChannel(BaseChannel):
                 env_key="FREEECHO2_TTS_ENGINE",
                 label_key="freeecho2_cred_tts_engine",
                 placeholder="piper",
-                options=[("piper", "Piper"), ("edge", "Edge"), ("xtts", "XTTS"), ("moss", "MOSS-TTS"), ("espeak", "eSpeak")],
+                # Pulled from the central TTS-engine SSOT so newly added
+                # engines (Qwen3-TTS local etc.) show up here automatically.
+                options=_channel_tts_options(),
             ),
         ]
 

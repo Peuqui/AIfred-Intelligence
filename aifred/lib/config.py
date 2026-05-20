@@ -297,6 +297,39 @@ TTS_ENGINE_KEYS = [
     "edge",
 ]
 
+# Short labels for the TTS engines, used by audio-channel plugins
+# (FreeEcho.2 etc.) where the dropdown has tighter space than the main
+# settings UI. Long descriptive labels stay in i18n.py under
+# tts_engine_<key>.
+TTS_ENGINE_SHORT_LABELS: dict[str, str] = {
+    "qwen3local": "Qwen3-TTS",
+    "xtts":       "XTTS",
+    "moss":       "MOSS-TTS",
+    "dashscope":  "DashScope",
+    "piper":      "Piper",
+    "espeak":     "eSpeak",
+    "edge":       "Edge",
+}
+
+# TTS engines a channel plugin (FreeEcho.2 etc.) may offer in its
+# settings. Order matches TTS_ENGINE_KEYS minus "off" (a channel must
+# pick *some* engine) and minus "dashscope" (cloud engine that needs
+# extra credentials wired in on the channel device). Adding a new
+# engine to the dropdown is a one-line change here — TTS_ENGINE_KEYS
+# stays the single source of truth for "all engines that exist", this
+# list is the curated subset "engines we expose to channels".
+TTS_ENGINE_KEYS_FOR_CHANNELS: list[str] = [
+    "qwen3local", "xtts", "moss", "piper", "espeak", "edge",
+]
+
+
+def get_tts_engine_channel_options() -> list[tuple[str, str]]:
+    """SSOT for the channel-plugin TTS-engine dropdown options.
+
+    Returns a list of (key, short_label) pairs in the canonical order.
+    """
+    return [(k, TTS_ENGINE_SHORT_LABELS[k]) for k in TTS_ENGINE_KEYS_FOR_CHANNELS]
+
 # ============================================================
 # XTTS v2 CONFIGURATION (Docker Service)
 # ============================================================
@@ -391,6 +424,36 @@ def get_moss_voices() -> dict:
 
 MOSS_TTS_VOICES_FALLBACK = {
     "AIfred": "AIfred",
+    "Salomo": "Salomo",
+    "Sokrates": "Sokrates",
+}
+
+
+def get_qwen3local_voices() -> dict:
+    """
+    Fetch available Qwen3-TTS voices from the local Docker service.
+
+    Returns one entry per <name>.wav in /app/voices/ inside the container —
+    the Qwen3 container exposes them via /voices, identical shape to MOSS.
+
+    Returns:
+        dict: voice name -> voice id (same string), empty dict if unavailable.
+    """
+    import requests
+
+    try:
+        response = requests.get(f"{QWEN3_TTS_SERVICE_URL}/voices", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return {name: name for name in data.get("voices", [])}
+    except (requests.RequestException, ValueError) as e:
+        print(f"⚠️ Failed to fetch Qwen3-TTS voices: {e}")
+    return {}
+
+
+QWEN3_TTS_VOICES_FALLBACK = {
+    "AIfred": "AIfred",
+    "HAL9000": "HAL9000",
     "Salomo": "Salomo",
     "Sokrates": "Sokrates",
 }

@@ -86,7 +86,15 @@ SUPPORTED_LANGUAGES = [
 _model = None
 _sample_rate = None
 _device = None
-_clone_prompts: dict[str, object] = {}     # speaker -> prebuilt prompt
+# Cache layout: speaker -> {mode: prebuilt prompt}
+# mode is one of:
+#   "x_vector"     — speaker-embedding only (timbre, no prosody transfer)
+#   "with_transcript" — full clone with ref_text (timbre + prosody/style)
+# A given voice has both entries whenever a <name>.txt sits next to its
+# <name>.wav; voices without a transcript only get the "x_vector" entry.
+CLONE_MODE_XVECTOR = "x_vector"
+CLONE_MODE_TRANSCRIPT = "with_transcript"
+_clone_prompts: dict[str, dict[str, object]] = {}
 _last_request_time = time.time()
 _active_requests = 0
 _load_lock = threading.Lock()
@@ -169,7 +177,10 @@ def _warmup_inference() -> None:
         logger.warning("Skipping warmup: model or clone prompts not loaded")
         return
     speaker = DEFAULT_SPEAKER if DEFAULT_SPEAKER in _clone_prompts else next(iter(_clone_prompts))
-    prompt = _clone_prompts[speaker]
+    # Prefer the with-transcript variant since it loads the larger code path,
+    # giving us the most realistic VRAM high-water mark; fall back to x-vector.
+    voice_modes = _clone_prompts[speaker]
+    prompt = voice_modes.get(CLONE_MODE_TRANSCRIPT) or voice_modes[CLONE_MODE_XVECTOR]
     t0 = time.time()
     try:
         _model.generate_voice_clone(
@@ -188,7 +199,13 @@ def _warmup_inference() -> None:
 
 
 def _warm_clone_prompts() -> None:
-    """Build a reusable clone-prompt for every <speaker>.wav in /app/voices/."""
+    """Build reusable clone-prompts for every <speaker>.wav in /app/voices/.
+
+    Each voice gets the x-vector prompt unconditionally; whenever there is
+    a matching <speaker>.txt next to the WAV, the "with_transcript" variant
+    is built in addition so callers can A/B the two cloning modes via the
+    /tts cloning_mode parameter.
+    """
     if not VOICES_DIR.exists():
         logger.warning(f"{VOICES_DIR} does not exist — no voices available")
         return
@@ -196,17 +213,33 @@ def _warm_clone_prompts() -> None:
         name = wav.stem
         txt_path = wav.with_suffix(".txt")
         ref_text = txt_path.read_text(encoding="utf-8").strip() if txt_path.exists() else None
+        per_voice: dict[str, object] = {}
+
+        # x-vector mode is always available (no transcript needed).
         try:
-            prompt = _model.create_voice_clone_prompt(
+            per_voice[CLONE_MODE_XVECTOR] = _model.create_voice_clone_prompt(
                 ref_audio=str(wav),
-                ref_text=ref_text,
-                x_vector_only_mode=ref_text is None,
+                ref_text=None,
+                x_vector_only_mode=True,
             )
-            _clone_prompts[name] = prompt
-            mode = "with transcript" if ref_text else "x-vector only (no transcript)"
-            logger.info(f"Warmed clone-prompt for '{name}' ({mode})")
         except Exception as e:
-            logger.error(f"Failed to warm clone-prompt for '{name}': {e}")
+            logger.error(f"Failed to warm x-vector prompt for '{name}': {e}")
+
+        # with-transcript mode only when a .txt exists next to the WAV.
+        if ref_text:
+            try:
+                per_voice[CLONE_MODE_TRANSCRIPT] = _model.create_voice_clone_prompt(
+                    ref_audio=str(wav),
+                    ref_text=ref_text,
+                    x_vector_only_mode=False,
+                )
+            except Exception as e:
+                logger.error(f"Failed to warm with-transcript prompt for '{name}': {e}")
+
+        if per_voice:
+            _clone_prompts[name] = per_voice
+            modes = ", ".join(sorted(per_voice.keys()))
+            logger.info(f"Warmed clone-prompts for '{name}' (modes: {modes})")
 
 
 def _touch():
@@ -269,11 +302,27 @@ def status():
 
 @app.route("/voices", methods=["GET"])
 def voices():
+    # Expose which cloning modes are available per voice so the Web-UI
+    # can disable the "with transcript" option when no .txt is present.
+    if _model and _clone_prompts:
+        voice_modes = {name: sorted(per_voice.keys()) for name, per_voice in _clone_prompts.items()}
+        voice_list = sorted(_clone_prompts.keys())
+    else:
+        # Container started but model not loaded yet (lazy path) — fall back
+        # to inspecting the on-disk voice directory so the UI dropdown still
+        # populates before the first /tts triggers the load.
+        voice_list = [p.stem for p in sorted(VOICES_DIR.glob("*.wav"))]
+        voice_modes = {}
+        for p in sorted(VOICES_DIR.glob("*.wav")):
+            modes = [CLONE_MODE_XVECTOR]
+            if p.with_suffix(".txt").exists():
+                modes.append(CLONE_MODE_TRANSCRIPT)
+            voice_modes[p.stem] = sorted(modes)
     return jsonify({
-        "voices": sorted(_clone_prompts.keys()) if _model else [
-            p.stem for p in sorted(VOICES_DIR.glob("*.wav"))
-        ],
+        "voices": voice_list,
         "default": DEFAULT_SPEAKER,
+        "voice_modes": voice_modes,
+        "cloning_modes": [CLONE_MODE_XVECTOR, CLONE_MODE_TRANSCRIPT],
     })
 
 
@@ -317,15 +366,36 @@ def tts():
 
     language = data.get("language") or DEFAULT_LANGUAGE
     speaker = data.get("speaker") or DEFAULT_SPEAKER
+    # Cloning mode: "auto" prefers with_transcript when available, else
+    # x_vector. Explicit values let the Web-UI A/B the two modes.
+    requested_mode = (data.get("cloning_mode") or "auto").lower()
 
     if _model is None:
         _load_model()
 
-    prompt = _clone_prompts.get(speaker)
-    if prompt is None:
+    voice_modes = _clone_prompts.get(speaker)
+    if not voice_modes:
         return jsonify({
             "error": f"Unknown speaker '{speaker}'",
             "available": sorted(_clone_prompts.keys()),
+        }), 400
+
+    if requested_mode == "auto":
+        mode = CLONE_MODE_TRANSCRIPT if CLONE_MODE_TRANSCRIPT in voice_modes else CLONE_MODE_XVECTOR
+    elif requested_mode in (CLONE_MODE_XVECTOR, CLONE_MODE_TRANSCRIPT):
+        mode = requested_mode
+    else:
+        return jsonify({
+            "error": f"Unknown cloning_mode '{requested_mode}'",
+            "available": [CLONE_MODE_XVECTOR, CLONE_MODE_TRANSCRIPT, "auto"],
+        }), 400
+
+    prompt = voice_modes.get(mode)
+    if prompt is None:
+        return jsonify({
+            "error": f"Speaker '{speaker}' has no '{mode}' prompt — "
+                     f"add /app/voices/{speaker}.txt for the with-transcript mode.",
+            "available_modes": sorted(voice_modes.keys()),
         }), 400
 
     _active_requests += 1
@@ -339,7 +409,7 @@ def tts():
         gen_s = time.time() - t0
         wav = wavs[0]
         logger.info(
-            f"tts: lang={language} speaker={speaker} chars={len(text)} "
+            f"tts: lang={language} speaker={speaker} mode={mode} chars={len(text)} "
             f"audio_s={len(wav) / sr:.2f} gen_s={gen_s:.2f}"
         )
 
@@ -460,6 +530,16 @@ WEB_UI_HTML = """
             </div>
         </div>
 
+        <div>
+            <label for="cloning_mode">Cloning-Modus</label>
+            <select id="cloning_mode">
+                <option value="auto" selected>Auto (with-transcript wenn vorhanden)</option>
+                <option value="x_vector">x_vector — nur Klangfarbe (Speaker-Embedding)</option>
+                <option value="with_transcript">with_transcript — Klangfarbe + Prosodie (.txt nötig)</option>
+            </select>
+            <small id="modeHint" style="color:#888; display:block; margin-top:-10px; margin-bottom:15px;"></small>
+        </div>
+
         <button onclick="generateTTS()" id="generateBtn">Audio generieren</button>
 
         <div id="status" class="status"></div>
@@ -484,12 +564,38 @@ WEB_UI_HTML = """
     </div>
 
     <script>
+        // {speaker: ["x_vector", "with_transcript"]} — refreshed by loadVoices()
+        let voiceModes = {};
+
+        function updateModeHint() {
+            const voice = document.getElementById('voice').value;
+            const modeSelect = document.getElementById('cloning_mode');
+            const hint = document.getElementById('modeHint');
+            const modes = voiceModes[voice] || ['x_vector'];
+            const hasTranscript = modes.includes('with_transcript');
+
+            // Disable "with_transcript" when no .txt exists for this voice.
+            Array.from(modeSelect.options).forEach(opt => {
+                if (opt.value === 'with_transcript') {
+                    opt.disabled = !hasTranscript;
+                }
+            });
+            if (!hasTranscript && modeSelect.value === 'with_transcript') {
+                modeSelect.value = 'auto';
+            }
+
+            hint.textContent = hasTranscript
+                ? "Verfügbar für diese Stimme: x_vector, with_transcript"
+                : "Nur x_vector verfügbar — eine .txt mit dem Wortlaut der WAV neben die Voice legen, um with_transcript zu aktivieren.";
+        }
+
         async function loadVoices() {
             const select = document.getElementById('voice');
             select.innerHTML = '<option disabled>Lade...</option>';
             try {
                 const res = await fetch('voices?t=' + Date.now());
                 const data = await res.json();
+                voiceModes = data.voice_modes || {};
                 select.innerHTML = '';
                 (data.voices || []).forEach(v => {
                     const opt = document.createElement('option');
@@ -498,6 +604,7 @@ WEB_UI_HTML = """
                     if (v === data.default) opt.selected = true;
                     select.appendChild(opt);
                 });
+                updateModeHint();
             } catch (e) {
                 select.innerHTML = '<option disabled>Fehler beim Laden</option>';
             }
@@ -507,6 +614,7 @@ WEB_UI_HTML = """
             const text  = document.getElementById('text').value.trim();
             const voice = document.getElementById('voice').value;
             const lang  = document.getElementById('language').value;
+            const mode  = document.getElementById('cloning_mode').value;
             const status = document.getElementById('status');
             const audio  = document.getElementById('audioPlayer');
             const btn    = document.getElementById('generateBtn');
@@ -527,6 +635,7 @@ WEB_UI_HTML = """
                 const body = { text };
                 if (voice) body.speaker = voice;
                 if (lang)  body.language = lang;
+                if (mode)  body.cloning_mode = mode;
 
                 const res = await fetch('tts', {
                     method: 'POST',
@@ -558,6 +667,7 @@ WEB_UI_HTML = """
         document.getElementById('text').addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'Enter') generateTTS();
         });
+        document.getElementById('voice').addEventListener('change', updateModeHint);
 
         async function unloadModel() {
             const status = document.getElementById('unloadStatus');
