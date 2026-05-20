@@ -120,10 +120,25 @@ _WARMUP_TEXT = (
 )
 
 
-def _choose_dtype():
-    return {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}.get(
-        DTYPE_NAME, torch.bfloat16,
-    )
+def _choose_dtype(device: str = "cuda:0"):
+    """Resolve QWEN3_DTYPE to a torch dtype.
+
+    fp16 is the V100 sweet spot (has fp16 Tensor Cores, no bf16 hardware
+    path), but the CPU backend has several ops missing for Half tensors
+    (e.g. `replication_pad1d` blows up during the speech-tokenizer's
+    reference-audio preprocessing). So whenever we'd fall back to CPU
+    we promote fp16 → bf16 silently. bf16 and fp32 always work
+    everywhere.
+    """
+    cfg = {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}
+    dtype = cfg.get(DTYPE_NAME, torch.bfloat16)
+    if device == "cpu" and dtype is torch.float16:
+        logger.warning(
+            "float16 has missing ops on CPU (e.g. replication_pad1d); "
+            "promoting to bfloat16 for the CPU fallback."
+        )
+        dtype = torch.bfloat16
+    return dtype
 
 
 def _choose_device() -> str:
@@ -148,7 +163,7 @@ def _load_model():
         from qwen_tts import Qwen3TTSModel
 
         _device = _choose_device()
-        dtype = _choose_dtype()
+        dtype = _choose_dtype(_device)
         attn = ATTN_IMPL if _device.startswith("cuda") else "sdpa"
 
         logger.info(f"Loading {MODEL_NAME} → device={_device} dtype={dtype} attn={attn}")
