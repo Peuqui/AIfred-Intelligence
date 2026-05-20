@@ -81,6 +81,12 @@ class TTSConfigMixin(rx.State, mixin=True):
             if voices:
                 return sorted(list(voices.keys()))
             return sorted(list(MOSS_TTS_VOICES_FALLBACK.keys()))
+        elif self.tts_engine == "qwen3local":  # Qwen3-TTS local container
+            from ..lib.config import get_qwen3local_voices, QWEN3_TTS_VOICES_FALLBACK
+            voices = get_qwen3local_voices()
+            if voices:
+                return sorted(list(voices.keys()))
+            return sorted(list(QWEN3_TTS_VOICES_FALLBACK.keys()))
         elif self.tts_engine == "dashscope":
             from ..lib.config import DASHSCOPE_VOICES, sort_voices_custom_first
             return sort_voices_custom_first(list(DASHSCOPE_VOICES.keys()))
@@ -158,6 +164,10 @@ class TTSConfigMixin(rx.State, mixin=True):
             voices = get_moss_voices()  # Returns None if not running
             if voices:
                 live_voices = set(voices.keys())
+        elif engine == "qwen3local":
+            from ..lib.config import get_qwen3local_voices, QWEN3_TTS_VOICES_FALLBACK
+            voices = get_qwen3local_voices()
+            live_voices = set(voices.keys()) if voices else set(QWEN3_TTS_VOICES_FALLBACK.keys())
         elif engine == "dashscope":
             from ..lib.config import DASHSCOPE_VOICES
             live_voices = set(DASHSCOPE_VOICES.keys())

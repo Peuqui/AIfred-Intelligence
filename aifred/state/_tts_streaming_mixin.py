@@ -1200,6 +1200,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
             yield  # type: ignore[misc]
             from ..lib.process_utils import ensure_moss_ready
             ok, tts_msg, _device = ensure_moss_ready()
+        elif self.tts_engine == "qwen3local":  # type: ignore[attr-defined]
+            self.add_debug("🔄 TTS Re-Synth: Starte Qwen3-TTS Backend...")  # type: ignore[attr-defined]
+            yield  # type: ignore[misc]
+            from ..lib.process_utils import ensure_qwen3local_ready
+            ok, tts_msg, _device = ensure_qwen3local_ready()
         else:
             ok, tts_msg = True, "OK"
 
@@ -1253,6 +1258,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
             yield  # type: ignore[misc]
             from ..lib.process_utils import ensure_moss_ready
             ok, msg, _device = ensure_moss_ready()
+        elif self.tts_engine == "qwen3local":  # type: ignore[attr-defined]
+            self.add_debug("🔄 TTS Re-Synth (alle): Starte Qwen3-TTS Backend...")  # type: ignore[attr-defined]
+            yield  # type: ignore[misc]
+            from ..lib.process_utils import ensure_qwen3local_ready
+            ok, msg, _device = ensure_qwen3local_ready()
         else:
             ok, msg = True, "OK"
 
