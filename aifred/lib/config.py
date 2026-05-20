@@ -471,6 +471,31 @@ QWEN3_TTS_VRAM_RESERVE_MB = int(os.environ.get("QWEN3_TTS_VRAM_RESERVE_MB", "768
 # Long text used for the calibration-time test inference that drives the
 # Qwen3-TTS KV-cache up to its real-world high-water mark. About ~800
 # chars — same body the container's removed warmup pass used to use.
+# Per-agent TTS language override — the user can pin an agent to a
+# specific synthesis language (so e.g. "Sokrates always speaks English
+# with a German accent" works as a stylistic choice). "auto" preserves
+# the previous behaviour: detected LLM language → UI language fallback.
+# The 10 listed languages are exactly the ones Qwen3-TTS supports;
+# XTTS / MOSS / Edge accept their own language tags and ignore unknown
+# values, so the option set is safe to expose for every engine.
+TTS_LANGUAGE_OPTIONS: list[tuple[str, str]] = [
+    ("auto", "Auto"),
+    ("de", "Deutsch"),
+    ("en", "English"),
+    ("zh", "Chinese"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("fr", "Français"),
+    ("ru", "Русский"),
+    ("pt", "Português"),
+    ("es", "Español"),
+    ("it", "Italiano"),
+]
+TTS_LANGUAGE_LABELS = [label for _, label in TTS_LANGUAGE_OPTIONS]
+TTS_LANGUAGE_LABEL_TO_CODE = {label: code for code, label in TTS_LANGUAGE_OPTIONS}
+TTS_LANGUAGE_CODE_TO_LABEL = {code: label for code, label in TTS_LANGUAGE_OPTIONS}
+
+
 QWEN3_TTS_CALIBRATION_TEXT = (
     "Sehr geehrte Damen und Herren, dies ist ein interner Aufwärmlauf für "
     "das Sprachsynthese-Modell. Die Generierung dieses Textes dient "
