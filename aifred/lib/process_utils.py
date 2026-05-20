@@ -497,6 +497,11 @@ def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
     free-VRAM budget. Load+warmup together take ~60-90 s on V100, so
     240 s gives generous headroom.
 
+    If the container is already running but on CPU (someone started it
+    earlier without TTS_GPU_UUID), force a restart so the model lands on
+    the GPU — otherwise the TTS-variant calibration sees ~5 GB on the
+    wrong card and the LLM gets the wrong context budget.
+
     Returns:
         Tuple of (success, message, device) where device is "cuda:0", "cpu", or "".
     """
@@ -509,7 +514,15 @@ def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
         r = requests.get(f"{QWEN3_TTS_SERVICE_URL}/health", timeout=2)
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
-            return True, f"Qwen3-TTS already ready ({device})", device
+            # If we have a GPU available but the container landed on CPU
+            # (started without TTS_GPU_UUID somehow), restart it so the
+            # model lands where it should.
+            if device == "cpu" and get_tts_gpu_uuid():
+                log_message("Qwen3-TTS is on CPU but a GPU is available — restarting on GPU")
+                stop_qwen3local_container()
+                # fall through to the normal start path below
+            else:
+                return True, f"Qwen3-TTS already ready ({device})", device
     except OSError:
         pass
 
@@ -556,7 +569,14 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
         r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=2)
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
-            return True, f"XTTS already ready ({device})"
+            # If container is on CPU but a GPU is available, force a
+            # restart so the model lands on the GPU (the user is not
+            # in XTTS-on-CPU mode unless XTTS_FORCE_CPU was set).
+            if device == "cpu" and get_tts_gpu_uuid() and os.environ.get("XTTS_FORCE_CPU", "0").lower() not in ("1", "true", "yes"):
+                log_message("XTTS is on CPU but a GPU is available — restarting on GPU")
+                stop_xtts_container()
+            else:
+                return True, f"XTTS already ready ({device})"
     except OSError:
         pass  # Container not running or not responding
 
@@ -612,7 +632,12 @@ def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
         r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=2)
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
-            return True, f"MOSS-TTS already ready ({device})", device
+            # If MOSS landed on CPU but a GPU is available, restart it.
+            if device == "cpu" and get_tts_gpu_uuid():
+                log_message("MOSS-TTS is on CPU but a GPU is available — restarting on GPU")
+                stop_moss_container()
+            else:
+                return True, f"MOSS-TTS already ready ({device})", device
     except OSError:
         pass
 
