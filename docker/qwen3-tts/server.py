@@ -153,8 +153,19 @@ def _choose_device() -> str:
 
 
 def _load_model():
-    """Lazy-load the model + warm clone-prompts for every voice in /app/voices/."""
-    global _model, _sample_rate, _device
+    """Lazy-load the model + warm clone-prompts for every voice in /app/voices/.
+
+    Sets ``_ready_for_calibration = True`` at the very end, after both
+    the model weights are loaded AND every voice's clone-prompts are
+    cached. Earlier, /health.model_loaded used ``_model is not None`` as
+    the readiness probe when WARMUP=0 — but ``_model`` becomes non-None
+    inside ``from_pretrained`` before ``_warm_clone_prompts`` even runs,
+    so the AIfred-side calibration test-TTS could fire while
+    ``_clone_prompts`` was still empty and got back HTTP 400 ("Unknown
+    speaker"). That made the calibration measure idle VRAM instead of
+    the real working-set and dial the LLM context too small.
+    """
+    global _model, _sample_rate, _device, _ready_for_calibration
 
     with _load_lock:
         if _model is not None:
@@ -180,6 +191,10 @@ def _load_model():
         _sample_rate = getattr(_model, "sample_rate", None) or 24000
 
         _warm_clone_prompts()
+        # /health may now safely answer model_loaded=true: from_pretrained
+        # is done AND every voice has its clone-prompt cached, so a /tts
+        # request can resolve "speaker=AIfred" without a 400.
+        _ready_for_calibration = True
 
 
 def _warmup_inference() -> None:
@@ -292,11 +307,17 @@ def health():
     return jsonify({
         "status": "ok",
         "model": MODEL_NAME,
-        # When warmup is enabled, "model_loaded" only flips true after the
-        # warmup inference completes — that's what AIfred polls on before
-        # running the LLM calibration with the correct free-VRAM budget.
-        "model_loaded": _ready_for_calibration if WARMUP else (_model is not None),
+        # `model_loaded` flips true only after `_load_model()` finishes
+        # both `from_pretrained` AND `_warm_clone_prompts`. Previously
+        # this was `_model is not None` for the WARMUP=0 path — which
+        # races with prompt warming and let AIfred hit a still-empty
+        # /tts during calibration. Single source of truth now.
+        "model_loaded": _ready_for_calibration,
         "device": _device or "not loaded",
+        # `warmup_done` retained for symmetry: with WARMUP=0 both flags
+        # flip together; with WARMUP=1 they used to be the same flag
+        # anyway. The split-flag distinction was never wired up to a
+        # second event, so collapsing them is intentional.
         "warmup_done": _ready_for_calibration,
     })
 
@@ -520,11 +541,13 @@ def tts():
 
 
 def _eager_init():
-    """Load model and, if WARMUP, run a long dummy inference so the
-    KV-cache working-set is fully allocated. Flips _ready_for_calibration
-    only after both steps complete — /health uses that flag.
+    """Load model (which flips _ready_for_calibration as soon as the
+    voice-clone prompts are cached) and, if WARMUP, run a long dummy
+    inference so the KV-cache + decoder buffers are pre-allocated.
+    /health.model_loaded is bound to _ready_for_calibration directly,
+    so AIfred can already kick off the calibration TTS as soon as the
+    prompts are warm — no need to block on WARMUP first.
     """
-    global _ready_for_calibration
     try:
         _load_model()
     except Exception as e:
@@ -532,7 +555,6 @@ def _eager_init():
         return
     if WARMUP:
         _warmup_inference()
-    _ready_for_calibration = True
 
 
 # Eager load if requested (after the Flask app is constructed so gunicorn

@@ -706,6 +706,16 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"from base (skip Phase-1 search)..."
                             )
                             yield
+                            # Qwen3-TTS allocates VRAM dynamically during
+                            # generate() (idle ~5 GB → long-bubble peak
+                            # ~7 GB), so the LLM has to be planned with a
+                            # permanent safety cushion or a long TTS-call
+                            # OOMs the V100. XTTS/MOSS allocate once at
+                            # load time, no extra reserve needed.
+                            _tts_extra_reserve_mb = 0
+                            if tts_backend == "qwen3local":
+                                from ..lib.config import QWEN3_TTS_VRAM_RESERVE_MB
+                                _tts_extra_reserve_mb = QWEN3_TTS_VRAM_RESERVE_MB
                             async for _msg in calibrate_tts_variant_from_base(
                                 model_id=calibration_model_id,
                                 gguf_path=_gguf_path,
@@ -719,6 +729,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 known_thinking=(
                                     supports_thinking if thinking_tested else None
                                 ),
+                                tts_gpu_extra_reserve_mb=_tts_extra_reserve_mb,
                             ):
                                 if _msg.startswith("__RESULT__:"):
                                     _r = _parse_calibration_result(_msg)
@@ -1010,40 +1021,22 @@ class CalibrationMixin(rx.State, mixin=True):
         self.add_debug("   🔊 MOSS-TTS container stopped")  # type: ignore[attr-defined]
 
     def _start_qwen3local_for_calibration(self) -> bool:
-        """Start Qwen3-TTS container, then drive its KV-cache up to the real
-        high-water mark via a long test inference so enumerate_gpus() sees
-        the realistic free-VRAM number (not the idle ~5.3 GB).
+        """Start the Qwen3-TTS container for the TTS-variant calibration.
+
+        We do NOT try to drive the KV-cache up via a test inference any
+        more. The qwen-tts library's CUDA allocator grows dynamically
+        during generate() and there is no graceful fallback if the V100
+        is full — a long bubble would simply OOM. Instead the calibration
+        pinch-allocates a fixed QWEN3_TTS_VRAM_RESERVE_MB block on the
+        TTS GPU before measuring, so the LLM gets planned with that
+        amount permanently reserved no matter what idle vs. peak VRAM
+        the container happens to be using right now.
         """
         from ..lib.process_utils import ensure_qwen3local_ready
         success, msg, device = ensure_qwen3local_ready(timeout=240)
         if not success:
             return False
         self.add_debug(f"   🔊 {msg}")  # type: ignore[attr-defined]
-
-        # Long test inference — without it the container sits at ~5.3 GB
-        # idle, but a real bubble pushes it to ~6.7 GB. The TTS variant
-        # calibration must measure the post-inference state.
-        import httpx
-        from ..lib.config import QWEN3_TTS_SERVICE_URL, QWEN3_TTS_CALIBRATION_TEXT
-        try:
-            self.add_debug("   🔊 Running long test TTS for peak VRAM measurement...")  # type: ignore[attr-defined]
-            r = httpx.post(
-                f"{QWEN3_TTS_SERVICE_URL}/tts",
-                json={
-                    "text": QWEN3_TTS_CALIBRATION_TEXT,
-                    "language": "German",
-                    "cloning_mode": "with_transcript",
-                },
-                timeout=180.0,
-            )
-            if r.is_success:
-                self.add_debug("   🔊 Peak VRAM reached after test inference")  # type: ignore[attr-defined]
-            else:
-                self.add_debug(  # type: ignore[attr-defined]
-                    f"   ⚠️ Test TTS returned HTTP {r.status_code} — VRAM may be underestimated"
-                )
-        except httpx.HTTPError as e:
-            self.add_debug(f"   ⚠️ Test TTS failed ({e}) — VRAM may be underestimated")  # type: ignore[attr-defined]
         return True
 
     def _stop_qwen3local_for_calibration(self) -> None:

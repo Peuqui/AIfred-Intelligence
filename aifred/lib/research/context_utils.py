@@ -133,16 +133,33 @@ def get_agent_num_ctx(
     backend_type = getattr(state, 'backend_type', 'ollama')
 
     if backend_type == "llamacpp":
-        # llama.cpp: YAML -c value = ground truth (actual server config)
+        # llama.cpp: YAML -c value = ground truth (actual server config).
+        # When a GPU TTS engine is running, llama-swap will actually load
+        # the smaller `<model>-tts-<engine>` profile — so the context we
+        # report has to be read from THAT entry, not the base. Without
+        # this, the bubble's compression trigger uses the base context
+        # (e.g. 194k) while llama-server is actually configured at the
+        # TTS-variant context (e.g. 117k), and a long tool loop runs
+        # past the real limit without ever triggering history compression.
         from ..calibration import parse_llamaswap_config
         from ..config import LLAMASWAP_CONFIG_PATH
+        from ..tts_engine_manager import _detect_running_tts_engine
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 
-        if model_id in config and config[model_id]["current_context"] > 0:
-            num_ctx = config[model_id]["current_context"]
+        effective_id = model_id
+        tts_engine = _detect_running_tts_engine()
+        if tts_engine:
+            candidate = f"{model_id}-tts-{tts_engine}"
+            if candidate in config:
+                effective_id = candidate
+
+        if effective_id in config and config[effective_id]["current_context"] > 0:
+            num_ctx = config[effective_id]["current_context"]
             source = "llama-swap YAML"
+            if effective_id != model_id:
+                source += f" (tts={tts_engine})"
         else:
-            log_message(f"⚠️ Model {model_id} not found in llama-swap YAML → fallback {fallback}")
+            log_message(f"⚠️ Model {effective_id} not found in llama-swap YAML → fallback {fallback}")
             num_ctx = fallback
             source = "fallback"
     elif backend_type in ("vllm", "tabbyapi"):

@@ -1891,6 +1891,7 @@ async def calibrate_tts_variant_from_base(
     port: int,
     env: Optional[dict[str, str]] = None,
     known_thinking: Optional[bool] = None,
+    tts_gpu_extra_reserve_mb: int = 0,
 ) -> AsyncIterator[str]:
     """Derive a TTS variant from an already-calibrated base config.
 
@@ -1920,6 +1921,27 @@ async def calibrate_tts_variant_from_base(
         yield "TTS variant: no GPUs detected"
         yield "__RESULT__:0:0:error"
         return
+
+    # Optional: reserve extra VRAM on the TTS GPU on top of whatever the
+    # container is currently consuming. Used for engines that allocate
+    # dynamically during generate() (Qwen3-TTS grows from ~5 GB idle to
+    # ~7 GB on a long bubble), so the LLM gets planned with a permanent
+    # safety cushion instead of just the idle-measurement.
+    if tts_gpu_extra_reserve_mb > 0:
+        from dataclasses import replace
+        adjusted = []
+        for g in gpus:
+            if g.uuid == tts_gpu_uuid:
+                old = g.free_mb
+                new_free = max(0, g.free_mb - tts_gpu_extra_reserve_mb)
+                yield (
+                    f"TTS variant: reserving extra {tts_gpu_extra_reserve_mb} MB "
+                    f"on {g.name} ({old} → {new_free} MB free) for TTS dynamic growth"
+                )
+                adjusted.append(replace(g, free_mb=new_free))
+            else:
+                adjusted.append(g)
+        gpus = adjusted
 
     model = _load_model_meta(model_id, gguf_path)
     if not model:
