@@ -5,7 +5,7 @@ License: Fish Audio Research License — research/non-commercial only.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .base import TTSEngine
 
@@ -23,14 +23,15 @@ class FishSpeechEngine(TTSEngine):
     # Engine nicht versehentlich anbieten.
     suitable_for_channels = False
 
-    # No calibration_vram_reserve_mb override — we treat Fish like
-    # XTTS/MOSS for now: load the container during calibration and let
-    # the measured free_mb on the TTS GPU speak for itself. If real-world
-    # usage shows dynamic growth above the idle footprint (~19 GB on
-    # V100), switch to the Qwen3 pattern (no container load + fixed
-    # reserve) once we know the actual peak. The constant
-    # FISH_SPEECH_VRAM_RESERVE_MB stays in config.py for that future
-    # switch-back.
+    # Fish grows dynamically during generate() — measured ~19.6 GB idle
+    # → ~23.5 GB peak on the V100, then stable. Same pattern as Qwen3:
+    # do NOT load the container during calibration, just subtract the
+    # fixed 24 GB reserve from the TTS GPU. The reserve covers the peak
+    # with a small headroom.
+    @property
+    def calibration_vram_reserve_mb(self) -> int:
+        from ..config import FISH_SPEECH_VRAM_RESERVE_MB
+        return FISH_SPEECH_VRAM_RESERVE_MB
 
     @property
     def service_url(self) -> str:
@@ -89,3 +90,22 @@ class FishSpeechEngine(TTSEngine):
     ) -> Optional[str]:
         from ..audio_processing import generate_speech_fishspeech
         return generate_speech_fishspeech(text, speed, voice, language)
+
+    def calibration_setup(self, debug: Any) -> bool:
+        # Same pattern as Qwen3: do NOT load the container during
+        # calibration. The fixed 24 GB reserve covers idle (19.6 GB) +
+        # peak growth (23.5 GB) with headroom. Loading would double-count
+        # the idle footprint against the reserve and squeeze the V100
+        # out of the LLM plan entirely.
+        debug(
+            f"   🔊 {self.label_short}: reserving "
+            f"{self.calibration_vram_reserve_mb} MB on TTS GPU "
+            f"(container not loaded)"
+        )
+        return True
+
+    def calibration_teardown(self, debug: Any) -> None:
+        # Container was not started in calibration_setup — nothing to
+        # stop. The pre-calibration cleanup (Step 0 in
+        # _calibrate_llamacpp) already cleared any leftovers.
+        pass
