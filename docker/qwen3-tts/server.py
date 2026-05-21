@@ -622,7 +622,7 @@ WEB_UI_HTML = """
     <div class="section">
         <h2>Text-to-Speech</h2>
         <label for="text">Text</label>
-        <textarea id="text" placeholder="Sehr wohl, Sir. Wie kann ich heute behilflich sein?"></textarea>
+        <textarea id="text" placeholder="Text eingeben, der gesprochen werden soll …">Sehr wohl, Sir, wie kann ich Ihnen heute behilflich sein? Es ist ein rather wunderschöner Tag am Teich im Herrengarten, indeed.</textarea>
 
         <div class="row">
             <div>
@@ -796,13 +796,14 @@ WEB_UI_HTML = """
                 const blob = await res.blob();
                 const url  = URL.createObjectURL(blob);
                 const dur  = ((Date.now() - startTime) / 1000).toFixed(2);
+                const kb   = Math.round(blob.size / 1024);
 
                 audio.src = url;
                 audio.style.display = 'block';
                 audio.play();
 
                 status.className = 'status success';
-                status.textContent = 'Fertig in ' + dur + ' s';
+                status.textContent = 'Fertig in ' + dur + ' s — ' + kb + ' KB';
             } catch (e) {
                 status.className = 'status error';
                 status.textContent = 'Fehler: ' + e.message;

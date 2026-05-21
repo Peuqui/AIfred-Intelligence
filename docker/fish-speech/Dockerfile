@@ -68,4 +68,13 @@ EXPOSE 8080
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# AIfred-internal WebUI for Fish-Speech. The upstream tools/server/views.py
+# already exposes a /ui route that serves /app/awesome_webui/dist/index.html
+# if present (otherwise returns 404). Upstream ships the source for an
+# npm-built UI but no dist build — so we drop our own self-contained HTML
+# at exactly that path. No wrapper, no code patching, no extra model load:
+# the "Öffnen" button in ai-service-control.html goes to /fishspeech/ui
+# and lands here.
+COPY webui/index.html /app/awesome_webui/dist/index.html
+
 ENTRYPOINT ["/entrypoint.sh"]

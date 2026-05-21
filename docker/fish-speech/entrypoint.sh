@@ -30,8 +30,13 @@ fi
 #   --decoder-checkpoint-path → the codec.pth file inside that directory
 #   --listen                 → bind on the container's 0.0.0.0:8080
 #   --compile                → torch.compile, ~10× faster after warmup
+# --half switches the model precision from bfloat16 (default) to fp16.
+# Bfloat16 needs sm_80+ (Ampere/H100/etc.) for native tensor-core support;
+# on Volta/Turing (V100, RTX 8000) it falls back to fp32 and crawls.
+# fp16 has hardware tensor-core paths on every modern GPU we own.
 exec /app/venv/bin/python tools/api_server.py \
     --llama-checkpoint-path "${CHECKPOINT_DIR}" \
     --decoder-checkpoint-path "${CHECKPOINT_DIR}/codec.pth" \
     --listen "0.0.0.0:8080" \
+    --half \
     ${COMPILE:+--compile}

@@ -230,17 +230,24 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
 def _detect_tts_gpu_uuid() -> str:
     """Pick the UUID of the GPU that TTS containers should pin to.
 
-    Rule: **the GPU with the highest memory bandwidth** — TTS is
-    autoregressive FP16 inference on small (~1–2 GB) transformer
-    models that bottleneck on memory bandwidth, not on compute.
+    Rule: **the GPU with the highest memory bandwidth** — TTS inference
+    is memory-bandwidth-bound, not compute-bound.
 
-    HBM detection: HBM-equipped GPUs (V100, A100, H100 …) have *low*
-    memory clocks (~700–1200 MHz) but very wide buses (4096 bit), so
-    they outperform GDDR cards (~6000–10000 MHz, 256–384 bit) on
-    bandwidth despite the lower clock. We detect HBM via
-    ``clocks.max.memory < 1500 MHz`` combined with ``memory.total >=
-    16 GB`` — a robust signature that doesn't need a hardcoded model
-    list.
+    Benchmark basis (2026-05-21, all four engines, fp16, identical
+    8-sentence prompt, V100 vs. RTX 8000):
+      - Fish-Speech S2 Pro: V100 20.6 tok/s vs. RTX 8000 15.9 → V100 +30%
+      - Qwen3-TTS / MOSS-TTS / XTTS: within ±5% (noise)
+    No GPU here has native bfloat16 (needs sm_80+), so both cards use
+    the same fp16 tensor-core path — and then the V100's HBM2 bandwidth
+    (~900 GB/s vs. RTX 8000 GDDR6 ~672 GB/s) wins. compute_cap is NOT a
+    useful primary key on Volta/Turing-only setups. Revisit if an
+    sm_80+ card (A100/H100/Ada) is ever added — those *do* have native
+    BF16 and would flip the trade-off.
+
+    HBM detection: HBM cards (V100, A100, H100 …) have *low* memory
+    clocks (~700-1200 MHz) but very wide buses, so they beat GDDR cards
+    (~6000-10000 MHz, narrow bus) on bandwidth. Detected via
+    ``clocks.max.memory < 1500 MHz`` + ``memory.total >= 16 GB``.
 
     Falls back to the highest-clocked GDDR card if no HBM is present.
     Returns ``""`` if nvidia-smi is unavailable.
@@ -269,14 +276,14 @@ def _detect_tts_gpu_uuid() -> str:
     if not entries:
         return ""
 
-    # HBM signature: low memory clock + reasonably large VRAM
+    # HBM signature: low memory clock + reasonably large VRAM.
     hbm = [e for e in entries if e[1] < 1500 and e[2] >= 16000]
     if hbm:
-        # Multiple HBM cards: prefer larger VRAM, lower UUID for tiebreak
+        # Multiple HBM cards: prefer larger VRAM, lower UUID for tiebreak.
         hbm.sort(key=lambda e: (-e[2], e[0]))
         return hbm[0][0]
 
-    # No HBM: highest GDDR clock (best bandwidth in GDDR-only setup)
+    # No HBM: highest GDDR clock (best bandwidth in a GDDR-only setup).
     entries.sort(key=lambda e: (-e[1], -e[2], e[0]))
     return entries[0][0]
 
