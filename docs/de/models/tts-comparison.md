@@ -93,6 +93,14 @@ MiniPC. Bedingungen: alle fp16, GPU V100 (HBM2), HAL9000-Referenzstimme
 > „Sehr wohl, Sir, wie kann ich Ihnen heute behilflich sein? Es ist ein
 > rather wunderschöner Tag am Teich im Herrengarten, indeed."
 
+**Wichtig zur Qualitätsbewertung:** AIfreds Originalstimme stammt von
+einem englischen Sprecher — der Charakter ist ein britischer Butler.
+Klingt beim Deutschsprechen ein englischer Akzent durch, ist das
+**erwünscht** und Teil des Butler-Charmes, kein Mangel. Eine Engine, die
+diesen englischen Butler-Akzent sauber transportiert, wird hier positiv
+bewertet; eine, die ihn verliert oder die Aussprache englischer Wörter
+verpatzt, negativ.
+
 | Engine | Zeit | Qualität |
 |--------|------|----------|
 | **XTTS v2** | 2,8 s | Schnellste — aber schwächste: englische Wörter im deutschen Text werden schlecht ausgesprochen. |
