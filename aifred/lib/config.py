@@ -297,38 +297,22 @@ TTS_ENGINE_KEYS = [
     "edge",
 ]
 
-# Short labels for the TTS engines, used by audio-channel plugins
-# (FreeEcho.2 etc.) where the dropdown has tighter space than the main
-# settings UI. Long descriptive labels stay in i18n.py under
-# tts_engine_<key>.
-TTS_ENGINE_SHORT_LABELS: dict[str, str] = {
-    "qwen3local": "Qwen3-TTS",
-    "xtts":       "XTTS",
-    "moss":       "MOSS-TTS",
-    "dashscope":  "DashScope",
-    "piper":      "Piper",
-    "espeak":     "eSpeak",
-    "edge":       "Edge",
-}
-
-# TTS engines a channel plugin (FreeEcho.2 etc.) may offer in its
-# settings. Order matches TTS_ENGINE_KEYS minus "off" (a channel must
-# pick *some* engine) and minus "dashscope" (cloud engine that needs
-# extra credentials wired in on the channel device). Adding a new
-# engine to the dropdown is a one-line change here — TTS_ENGINE_KEYS
-# stays the single source of truth for "all engines that exist", this
-# list is the curated subset "engines we expose to channels".
-TTS_ENGINE_KEYS_FOR_CHANNELS: list[str] = [
-    "qwen3local", "xtts", "moss", "piper", "espeak", "edge",
-]
-
+# Channel-plugin TTS-engine dropdown options — derived from the
+# TTSEngine registry (aifred.lib.tts_engines). Each engine declares
+# ``suitable_for_channels`` itself, so adding a new engine to the
+# FreeEcho-style dropdowns is a one-line change in its TTSEngine class.
+# The previous TTS_ENGINE_SHORT_LABELS and TTS_ENGINE_KEYS_FOR_CHANNELS
+# constants are gone — they were duplicates of metadata that now lives
+# on the engine classes directly.
 
 def get_tts_engine_channel_options() -> list[tuple[str, str]]:
     """SSOT for the channel-plugin TTS-engine dropdown options.
 
-    Returns a list of (key, short_label) pairs in the canonical order.
+    Returns a list of (key, short_label) pairs in registry order,
+    filtered to engines that ``suitable_for_channels``.
     """
-    return [(k, TTS_ENGINE_SHORT_LABELS[k]) for k in TTS_ENGINE_KEYS_FOR_CHANNELS]
+    from .tts_engines import channel_engine_options
+    return channel_engine_options()
 
 # ============================================================
 # XTTS v2 CONFIGURATION (Docker Service)

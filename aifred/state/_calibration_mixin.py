@@ -544,22 +544,26 @@ class CalibrationMixin(rx.State, mixin=True):
             yield
 
             # Step 5: TTS variant calibration (Qwen3 + XTTS + MOSS).
-            # Same calibration but with TTS model pre-loaded in VRAM.
-            # Qwen3-TTS goes first because it is the new default streaming
-            # engine; XTTS and MOSS-TTS follow for users who want to
-            # stay on those backends.
+            # Iterate the engine registry — each GPU engine's
+            # ``calibration_setup`` / ``calibration_teardown`` does the
+            # right thing for that engine (Qwen3 stays at idle, XTTS runs
+            # a short test inference). Order = registry order, which the
+            # SSOT keeps with Qwen3 first (recommended streaming engine).
             if True:
                 from ..lib.calibration import add_llamaswap_tts_variant
+                from ..lib.tts_engines import gpu_engines
 
-                for tts_backend, tts_label, tts_start_fn, tts_stop_fn in [
-                    ("qwen3local", "Qwen3-TTS", "_start_qwen3local_for_calibration", "_stop_qwen3local_for_calibration"),
-                    ("xtts", "XTTS", "_start_xtts_for_calibration", "_stop_xtts_for_calibration"),
-                    ("moss", "MOSS-TTS", "_start_moss_for_calibration", "_stop_moss_for_calibration"),
-                ]:
-                    start_fn = getattr(self, tts_start_fn, None)
-                    stop_fn = getattr(self, tts_stop_fn, None)
-                    if not start_fn or not stop_fn:
-                        continue
+                for tts_engine in gpu_engines():
+                    tts_backend = tts_engine.key
+                    tts_label = tts_engine.label_short
+                    # Thin lambdas so the surrounding loop body keeps
+                    # using the same start_fn / stop_fn naming it always
+                    # did — minimises diff.
+                    def start_fn(_e=tts_engine) -> bool:
+                        return _e.calibration_setup(self.add_debug)  # type: ignore[attr-defined]
+
+                    def stop_fn(_e=tts_engine) -> None:
+                        _e.calibration_teardown(self.add_debug)  # type: ignore[attr-defined]
 
                     self.add_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
                     yield
@@ -972,78 +976,10 @@ class CalibrationMixin(rx.State, mixin=True):
             self.is_calibrating = False
             yield
 
-    # ------------------------------------------------------------------
-    # TTS Start/Stop Helpers (for calibration with TTS VRAM loaded)
-    # ------------------------------------------------------------------
-
-    def _start_xtts_for_calibration(self) -> bool:
-        """Start XTTS container, load model, and run a test inference to hit peak VRAM."""
-        from ..lib.process_utils import ensure_xtts_ready
-        success, msg = ensure_xtts_ready(timeout=120)
-        if not success:
-            return False
-        self.add_debug(f"   🔊 {msg}")  # type: ignore[attr-defined]
-
-        # Run a test TTS to provoke peak VRAM usage (idle ~2 GB, peak ~4-5 GB)
-        import httpx
-        from ..lib.config import XTTS_SERVICE_URL
-        try:
-            self.add_debug("   🔊 Running test TTS for peak VRAM measurement...")  # type: ignore[attr-defined]
-            r = httpx.post(
-                f"{XTTS_SERVICE_URL}/tts",
-                json={"text": "Dies ist ein Kalibrierungstest für den Sprachspeicher.", "language": "de"},
-                timeout=60.0,
-            )
-            if r.is_success:
-                self.add_debug("   🔊 Peak VRAM reached after test inference")  # type: ignore[attr-defined]
-        except httpx.HTTPError:
-            self.add_debug("   ⚠️ Test TTS failed, using idle VRAM (may underestimate)")  # type: ignore[attr-defined]
-        return True
-
-    def _stop_xtts_for_calibration(self) -> None:
-        """Stop XTTS container completely to free all VRAM (including CUDA context)."""
-        from ..lib.process_utils import stop_xtts_container
-        stop_xtts_container()
-        self.add_debug("   🔊 XTTS container stopped")  # type: ignore[attr-defined]
-
-    def _start_moss_for_calibration(self) -> bool:
-        """Start MOSS-TTS container and wait for model to load."""
-        from ..lib.process_utils import ensure_moss_ready
-        success, msg, device = ensure_moss_ready(timeout=180)
-        if success:
-            self.add_debug(f"   🔊 {msg}")  # type: ignore[attr-defined]
-        return success
-
-    def _stop_moss_for_calibration(self) -> None:
-        """Stop MOSS-TTS container to free VRAM."""
-        from ..lib.process_utils import stop_moss_container
-        stop_moss_container()
-        self.add_debug("   🔊 MOSS-TTS container stopped")  # type: ignore[attr-defined]
-
-    def _start_qwen3local_for_calibration(self) -> bool:
-        """Start the Qwen3-TTS container for the TTS-variant calibration.
-
-        We do NOT try to drive the KV-cache up via a test inference any
-        more. The qwen-tts library's CUDA allocator grows dynamically
-        during generate() and there is no graceful fallback if the V100
-        is full — a long bubble would simply OOM. Instead the calibration
-        pinch-allocates a fixed QWEN3_TTS_VRAM_RESERVE_MB block on the
-        TTS GPU before measuring, so the LLM gets planned with that
-        amount permanently reserved no matter what idle vs. peak VRAM
-        the container happens to be using right now.
-        """
-        from ..lib.process_utils import ensure_qwen3local_ready
-        success, msg, device = ensure_qwen3local_ready(timeout=240)
-        if not success:
-            return False
-        self.add_debug(f"   🔊 {msg}")  # type: ignore[attr-defined]
-        return True
-
-    def _stop_qwen3local_for_calibration(self) -> None:
-        """Stop Qwen3-TTS container to free VRAM."""
-        from ..lib.process_utils import stop_qwen3local_container
-        stop_qwen3local_container()
-        self.add_debug("   🔊 Qwen3-TTS container stopped")  # type: ignore[attr-defined]
+    # TTS calibration start/stop helpers — moved to TTSEngine subclasses
+    # (see aifred/lib/tts_engines/*.py). The Step-5 loop in run_calibration
+    # iterates the registry and calls each engine's calibration_setup /
+    # calibration_teardown directly.
 
     # ------------------------------------------------------------------
     # Calibration info display

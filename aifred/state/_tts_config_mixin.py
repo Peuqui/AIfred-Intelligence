@@ -686,38 +686,24 @@ class TTSConfigMixin(rx.State, mixin=True):
     def _live_voices_for_engine(self, engine_key: str) -> set[str]:
         """Set of voice names the given engine can actually produce.
 
-        Mirrors the same precedence as available_tts_voices (live HTTP
-        query → fallback constant) but returns a set for fast membership
-        tests in the stale-voice cleanup.
+        Goes through the engine registry: prefer the engine's live
+        ``get_voices()`` (HTTP discovery for container engines, static
+        catalogue otherwise), fall back to its ``voices_fallback``.
+        For XTTS we honour the in-state cache to avoid a hot-path
+        HTTP call when the engine is up.
         """
-        from ..lib.config import (
-            DASHSCOPE_VOICES,
-            EDGE_TTS_VOICES,
-            ESPEAK_VOICES,
-            MOSS_TTS_VOICES_FALLBACK,
-            PIPER_VOICES,
-            QWEN3_TTS_VOICES_FALLBACK,
-            XTTS_VOICES_FALLBACK,
-            get_moss_voices,
-            get_qwen3local_voices,
-        )
-        if engine_key == "xtts":
-            if self.xtts_voices_cache:
-                return set(self.xtts_voices_cache)
-            return set(XTTS_VOICES_FALLBACK.keys())
-        if engine_key == "moss":
-            voices = get_moss_voices()
-            return set(voices.keys()) if voices else set(MOSS_TTS_VOICES_FALLBACK.keys())
-        if engine_key == "qwen3local":
-            voices = get_qwen3local_voices()
-            return set(voices.keys()) if voices else set(QWEN3_TTS_VOICES_FALLBACK.keys())
-        if engine_key == "dashscope":
-            return set(DASHSCOPE_VOICES.keys())
-        if engine_key == "piper":
-            return set(PIPER_VOICES.keys())
-        if engine_key == "espeak":
-            return set(ESPEAK_VOICES.keys())
-        return set(EDGE_TTS_VOICES.keys())
+        from ..lib.tts_engines import get_engine
+        eng = get_engine(engine_key)
+        if eng is None:
+            return set()
+        # XTTS: state-side cache wins (loaded once when the engine
+        # came up, refreshed by _refresh_xtts_voices).
+        if engine_key == "xtts" and self.xtts_voices_cache:
+            return set(self.xtts_voices_cache)
+        live = eng.get_voices()
+        if live:
+            return set(live.keys())
+        return set(eng.voices_fallback.keys())
 
     def _strip_stale_voices_for_engine(self, engine_key: str) -> None:
         """Variant B: clear any per-agent voice the engine doesn't know.
