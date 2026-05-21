@@ -49,6 +49,9 @@ class FishSpeechEngine(TTSEngine):
         from ..config import get_fishspeech_voices
         return get_fishspeech_voices()
 
+    def is_installed(self) -> bool:
+        return self.docker_compose_path.exists()
+
     def is_running(self) -> bool:
         import requests
         try:

@@ -53,6 +53,9 @@ class Qwen3LocalEngine(TTSEngine):
         from ..config import get_qwen3local_voices
         return get_qwen3local_voices()
 
+    def is_installed(self) -> bool:
+        return self.docker_compose_path.exists()
+
     def is_running(self) -> bool:
         import requests
         try:

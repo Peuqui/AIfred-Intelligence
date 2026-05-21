@@ -38,6 +38,9 @@ class XTTSEngine(TTSEngine):
         from ..config import get_xtts_voices
         return get_xtts_voices()
 
+    def is_installed(self) -> bool:
+        return self.docker_compose_path.exists()
+
     def is_running(self) -> bool:
         import requests
         try:

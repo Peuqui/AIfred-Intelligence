@@ -22,6 +22,117 @@ from .helpers import (
 
 
 # ============================================================
+# CALIBRATION TTS PICKER
+# ============================================================
+
+def _calibration_picker_button() -> rx.Component:
+    """Calibrate button for llama.cpp — opens a popover that lets the
+    user pick which installed TTS engines should get a variant. The
+    popover only lists engines whose docker-compose.yml is present,
+    so big models don't burn an hour on engines the user never set up.
+    """
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.button(
+                rx.cond(
+                    AIState.is_calibrating,
+                    rx.hstack(
+                        rx.spinner(size="1"),
+                        rx.text(t("calibrating"), font_size="11px"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.hstack(
+                        rx.icon("gauge", size=14),
+                        rx.text(t("calibrate_context"), font_size="11px"),
+                        spacing="2",
+                        align="center",
+                    ),
+                ),
+                on_click=AIState.open_calibration_picker,
+                disabled=AIState.is_calibrating | AIState.backend_switching,
+                size="1",
+                variant="outline",
+                color_scheme="orange",
+            ),
+        ),
+        rx.popover.content(
+            rx.vstack(
+                rx.text(
+                    t("calibration_pick_engines"),
+                    font_size="12px",
+                    font_weight="bold",
+                ),
+                rx.foreach(
+                    AIState.calibration_picker_items,
+                    lambda item: rx.fragment(
+                        rx.hstack(
+                            # Inner toggle — markup pixel-identical to
+                            # _agent_toggle. Without the surrounding
+                            # width="100%" the surface checkbox stays at
+                            # its native ~16px size instead of being
+                            # stretched by the popover's flex context.
+                            rx.hstack(
+                                rx.checkbox(
+                                    checked=item["checked"].to(bool),
+                                    on_change=lambda val, k=item["key"]: AIState.set_calibration_tts_engine([k, val]),
+                                    size="1",
+                                    color_scheme="orange",
+                                    variant="soft",
+                                ),
+                                rx.cond(
+                                    item["is_base"].to(bool),
+                                    rx.text(t("calibration_base_label"), font_size="11px"),
+                                    rx.text(item["label"], font_size="11px"),
+                                ),
+                                spacing="1",
+                                align="center",
+                            ),
+                            rx.spacer(),
+                            rx.cond(
+                                item["already_calibrated"].to(bool),
+                                rx.tooltip(
+                                    rx.box(
+                                        width="8px",
+                                        height="8px",
+                                        border_radius="50%",
+                                        background="#22c55e",
+                                    ),
+                                    content=t("calibration_already_done"),
+                                ),
+                            ),
+                            spacing="2",
+                            align="center",
+                            width="100%",
+                        ),
+                        rx.cond(
+                            item["is_base"].to(bool),
+                            rx.divider(margin_y="2px"),
+                        ),
+                    ),
+                ),
+                # Start button — closes popover and kicks off calibration.
+                rx.popover.close(
+                    rx.button(
+                        rx.icon("play", size=12),
+                        rx.text(t("calibration_start"), font_size="11px"),
+                        on_click=AIState.calibrate_context,
+                        size="1",
+                        variant="solid",
+                        color_scheme="orange",
+                        width="100%",
+                    ),
+                ),
+                spacing="2",
+                align="stretch",
+            ),
+            max_width="280px",
+            padding="12px",
+        ),
+    )
+
+
+# ============================================================
 # SAMPLING PARAMETER HELPERS
 # ============================================================
 
@@ -663,27 +774,34 @@ def settings_accordion() -> rx.Component:
                 rx.cond(
                     (AIState.backend_id == "ollama") | (AIState.backend_id == "llamacpp"),
                     rx.hstack(
-                        rx.button(
-                            rx.cond(
-                                AIState.is_calibrating,
-                                rx.hstack(
-                                    rx.spinner(size="1"),
-                                    rx.text(t("calibrating"), font_size="11px"),
-                                    spacing="2",
-                                    align="center",
+                        rx.cond(
+                            AIState.backend_id == "llamacpp",
+                            # llama.cpp: button opens a picker so the user
+                            # can deselect TTS variants for big models.
+                            _calibration_picker_button(),
+                            # Ollama: no TTS-variant phase → direct click.
+                            rx.button(
+                                rx.cond(
+                                    AIState.is_calibrating,
+                                    rx.hstack(
+                                        rx.spinner(size="1"),
+                                        rx.text(t("calibrating"), font_size="11px"),
+                                        spacing="2",
+                                        align="center",
+                                    ),
+                                    rx.hstack(
+                                        rx.icon("gauge", size=14),
+                                        rx.text(t("calibrate_context"), font_size="11px"),
+                                        spacing="2",
+                                        align="center",
+                                    ),
                                 ),
-                                rx.hstack(
-                                    rx.icon("gauge", size=14),
-                                    rx.text(t("calibrate_context"), font_size="11px"),
-                                    spacing="2",
-                                    align="center",
-                                ),
+                                on_click=AIState.calibrate_context,
+                                disabled=AIState.is_calibrating | AIState.backend_switching,
+                                size="1",
+                                variant="outline",
+                                color_scheme="orange",
                             ),
-                            on_click=AIState.calibrate_context,
-                            disabled=AIState.is_calibrating | AIState.backend_switching,
-                            size="1",
-                            variant="outline",
-                            color_scheme="orange",
                         ),
                         # Calibration-Mode dropdown — only for llama.cpp.
                         # The specific Cloud model used for AI mode is

@@ -52,6 +52,14 @@ def gpu_engines() -> Iterator[TTSEngine]:
     return (e for e in TTS_ENGINES.values() if e.needs_gpu)
 
 
+def installed_gpu_engines() -> list[TTSEngine]:
+    """GPU engines whose docker-compose.yml is present on this host —
+    i.e. engines the user can actually calibrate against. Used by the
+    calibration picker so we never show or wait on engines that aren't
+    provisioned."""
+    return [e for e in gpu_engines() if e.is_installed()]
+
+
 def channel_engine_options() -> list[tuple[str, str]]:
     """``(key, short_label)`` pairs for channel-plugin dropdowns (FreeEcho.2).
     Replaces ``config.get_tts_engine_channel_options``."""

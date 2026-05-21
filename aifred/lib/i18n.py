@@ -341,6 +341,10 @@ class TranslationManager:
             "calibration_mode_ai": "🤖 KI",
             "calibration_hybrid_label": "Hybrid",
             "calibration_hybrid_tooltip": "Hybrid-Modus erlauben (Layer auf CPU auslagern, wenn das Modell nicht in den GPU-VRAM passt). Standardmäßig aus — Hybrid-Inferenz ist deutlich langsamer und die Calibration selbst dauert sehr lang. Anschalten nur für Modelle, die größer als der gesamte GPU-VRAM sind.",
+            "calibration_pick_engines": "GPU-TTS-Engines",
+            "calibration_base_label": "Basis-Kalibrierung",
+            "calibration_already_done": "bereits kalibriert",
+            "calibration_start": "Kalibrierung starten",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Denkprozess",
             "collapsible_data": "Strukturierte Daten",
@@ -840,6 +844,10 @@ class TranslationManager:
             "calibration_mode_ai": "🤖 AI",
             "calibration_hybrid_label": "Hybrid",
             "calibration_hybrid_tooltip": "Allow hybrid mode (offload layers to CPU when the model doesn't fit on GPUs alone). Off by default — hybrid inference is significantly slower and calibration itself takes much longer. Enable only for models larger than the total GPU VRAM.",
+            "calibration_pick_engines": "GPU TTS engines",
+            "calibration_base_label": "Base calibration",
+            "calibration_already_done": "already calibrated",
+            "calibration_start": "Start calibration",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Thinking Process",
             "collapsible_data": "Structured Data",
