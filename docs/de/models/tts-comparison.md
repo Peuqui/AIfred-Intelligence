@@ -84,6 +84,33 @@ Latenz akzeptabel, da der LLM ohnehin satzweise streamt.
 | **Chatterbox** | Unklar | EN | Nein | Ja | Hoch | Ja (Sub-200ms) | Unklar | Unklar | Unklar | Unklar | Unklar |
 | **Voxtral TTS** | 4B | 9 (EN,FR,DE,ES,NL,PT,IT,HI,AR) | Ja (nativ) | Ja (2-3s Audio) | Sehr hoch | Ja | ~10x (H200) | 24 kHz | ~16 GB | Transformer + Flow-Matching + Neural Codec | CC BY-NC 4.0 |
 
+## Praxis-Test der integrierten Engines (2026-05-22)
+
+Head-to-Head-Test der vier aktuell in AIfred integrierten Engines auf dem
+MiniPC. Bedingungen: alle fp16, GPU V100 (HBM2), HAL9000-Referenzstimme
+(mono, nach Stereo→Mono-Anhebung). Testsatz:
+
+> „Sehr wohl, Sir, wie kann ich Ihnen heute behilflich sein? Es ist ein
+> rather wunderschöner Tag am Teich im Herrengarten, indeed."
+
+| Engine | Zeit | Qualität |
+|--------|------|----------|
+| **XTTS v2** | 2,8 s | Schnellste — aber schwächste: englische Wörter im deutschen Text werden schlecht ausgesprochen. |
+| **Qwen3-TTS** | 8,52 s | Sehr angenehmer Akzent für AIfred (Originalstimme ist englisch), klingt richtig gut. Etwas heller als das Original — dürfte dunkler/rauer sein, ist es aber nicht. Akzeptabel schnell. |
+| **Fish-Speech S2 Pro** | 11,01 s | Gute Qualität. |
+| **MOSS-TTS** | 14,8 s | Langsamste — aber beste Qualität: Sprach-Eigenheiten sehr gut übernommen. |
+
+**Fazit:** Geschwindigkeit und Qualität sind invers. XTTS ist mit Abstand
+am schnellsten, aber bei gemischtsprachigem Text (englische Wörter im
+Deutschen) am schwächsten. MOSS liefert die beste Qualität, ist aber am
+langsamsten. Qwen3-TTS ist der beste Kompromiss: gute Qualität, passender
+Akzent für die englische AIfred-Originalstimme, mit 8,5 s akzeptabel
+schnell.
+
+Hinweis: Reine Geschwindigkeits-Benchmarks (8-Satz-Text, V100 vs.
+RTX 8000) und die Begründung der GPU-Wahl stehen im Docstring von
+`aifred/lib/process_utils.py::_detect_tts_gpu_uuid`.
+
 ## Community-Bewertungen (Audiobook Use-Case)
 
 ### Prompt Audio Similarity (wie gut wird die Stimme geklont)
