@@ -18,11 +18,24 @@ from typing import Generator
 from .logging_utils import log_message
 
 
-# Engines that require a Docker container with GPU VRAM
-GPU_ENGINES = {"xtts", "moss", "qwen3local"}
+# Engines that require a Docker container with GPU VRAM.
+# Derived from the SSOT registry (aifred.lib.tts_engines) so adding a new
+# GPU engine = one new TTSEngine subclass + one registry entry; this set
+# updates automatically.
+def _gpu_engine_keys() -> set[str]:
+    from .tts_engines import gpu_engines
+    return {e.key for e in gpu_engines()}
 
-# Engines that run without Docker / without VRAM
-LIGHTWEIGHT_ENGINES = {"piper", "edge", "espeak", "dashscope"}
+
+GPU_ENGINES = _gpu_engine_keys()
+
+# Engines that run without Docker / without VRAM — complement of GPU_ENGINES.
+def _lightweight_engine_keys() -> set[str]:
+    from .tts_engines import TTS_ENGINES
+    return {k for k, e in TTS_ENGINES.items() if not e.needs_gpu}
+
+
+LIGHTWEIGHT_ENGINES = _lightweight_engine_keys()
 
 # HTTP timeout for TTS health checks (seconds).
 # Normal response: <100ms. This is only a safety net for hung connections.
@@ -158,51 +171,23 @@ class TTSState:
 def _detect_running_tts_engine(timeout: float = TTS_HEALTH_CHECK_TIMEOUT) -> str:
     """Detect which GPU TTS engine is currently running via health check.
 
-    Returns engine key ("xtts", "moss" or "qwen3local") if running, empty
-    string if none. Normal response time: <100ms. Timeout is only a safety
-    net for hung connections.
+    Each engine's :meth:`TTSEngine.is_running` knows the unique signature
+    of its own /health endpoint (XTTS has ``custom_voices``, MOSS has
+    ``sample_rate``, Qwen3 prefixes ``"model"`` with ``"Qwen/Qwen3-TTS"``).
+    We just iterate the registry and ask each in turn — no central if/elif
+    cascade that has to learn the new engine.
+
+    Returns engine key if running, empty string if none.
     """
-    import requests
-
-    from .config import (
-        MOSS_TTS_SERVICE_URL,
-        QWEN3_TTS_SERVICE_URL,
-        XTTS_SERVICE_URL,
-    )
-
-    # Identify services by fields unique to each TTS engine. A shared port
-    # (e.g. misconfigured Whisper on 5055) would also answer model_loaded=true
-    # but lacks the engine-specific field.
-    #   XTTS     : "custom_voices"
-    #   MOSS     : "voices" + "sample_rate"
-    #   Qwen3    : "model" string starts with "Qwen/Qwen3-TTS"
-    try:
-        r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=timeout)
-        if r.ok:
-            data = r.json()
-            if data.get("model_loaded") and "custom_voices" in data:
-                return "xtts"
-    except Exception:
-        pass
-
-    try:
-        r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=timeout)
-        if r.ok:
-            data = r.json()
-            if data.get("model_loaded") and "sample_rate" in data:
-                return "moss"
-    except Exception:
-        pass
-
-    try:
-        r = requests.get(f"{QWEN3_TTS_SERVICE_URL}/health", timeout=timeout)
-        if r.ok:
-            data = r.json()
-            if data.get("model_loaded") and str(data.get("model", "")).startswith("Qwen/Qwen3-TTS"):
-                return "qwen3local"
-    except Exception:
-        pass
-
+    from .tts_engines import gpu_engines
+    for engine in gpu_engines():
+        try:
+            if engine.is_running():
+                return engine.key
+        except Exception:
+            # Any single engine's health-probe blowing up shouldn't stop
+            # the loop — try the next.
+            continue
     return ""
 
 
@@ -226,27 +211,20 @@ def _is_llm_loaded(backend_type: str) -> bool:
 
 
 def stop_engine(engine: str) -> tuple[bool, str]:
-    """Stop a running TTS engine container."""
-    from .process_utils import (
-        stop_moss_container,
-        stop_qwen3local_container,
-        stop_xtts_container,
-    )
+    """Stop a running TTS engine container.
 
-    if engine == "xtts":
-        return stop_xtts_container()
-    elif engine == "moss":
-        return stop_moss_container()
-    elif engine == "qwen3local":
-        return stop_qwen3local_container()
-    return True, ""
+    Dispatches through the registry; lightweight engines are a no-op.
+    """
+    from .tts_engines import get_engine
+    eng = get_engine(engine)
+    if eng is None:
+        return True, ""  # unknown engine key — historical no-op behaviour
+    return eng.stop()
 
 
-# Engine-specific default timeouts for ensure_engine_ready. XTTS loads
-# fastest (~30 s on V100), MOSS needs a bigger model (~120 s), Qwen3
-# needs the model + voice-prompt warming (~120 s, occasionally longer
-# with cold disk caches).
-_ENGINE_READY_TIMEOUTS = {"xtts": 60, "moss": 180, "qwen3local": 240}
+# Engine-specific timeouts live on each TTSEngine subclass now (see
+# ensure_ready overrides in aifred/lib/tts_engines/*.py). XTTS=60s,
+# MOSS=180s, Qwen3=240s as defaults.
 
 
 def ensure_engine_ready(
@@ -256,35 +234,31 @@ def ensure_engine_ready(
 ) -> tuple[bool, str, str]:
     """Single SSOT for "start container + wait until model is loaded".
 
-    Replaces the four near-identical ``if engine == "xtts"`` / ``elif
-    "moss"`` / ``elif "qwen3local"`` cascades that used to live in
-    ``_do_switch`` and the two re-synthesis paths in the streaming mixin.
-    A future engine only needs to be added here, the call sites stay put.
+    Routes through the engine registry — adding a future GPU engine
+    means adding a TTSEngine subclass with its own ``ensure_ready``,
+    no edits here.
 
     Returns ``(success, status_message, device)``. ``device`` is the
     string the engine container reports for its compute target ("cuda:0",
-    "cpu", …) — XTTS doesn't expose one, so it returns "".
+    "cpu", …) — engines that don't expose one return "".
+
+    ``xtts_force_cpu`` is XTTS-specific (the CPU-mode toggle lives on
+    that engine alone); other engines ignore it.
     """
+    from .tts_engines import get_engine
+    eng = get_engine(engine)
+    if eng is None:
+        # Unknown / lightweight engine — nothing to start, treat as ready.
+        return True, "", ""
+
+    # XTTS' CPU-mode toggle has to fire BEFORE the readiness probe.
     if engine == "xtts":
-        from .process_utils import ensure_xtts_ready, set_xtts_cpu_mode
+        from .process_utils import set_xtts_cpu_mode
         cpu_ok, cpu_msg = set_xtts_cpu_mode(xtts_force_cpu)
         if not cpu_ok:
             return False, cpu_msg, ""
-        ready_ok, ready_msg = ensure_xtts_ready(
-            timeout=timeout or _ENGINE_READY_TIMEOUTS["xtts"],
-        )
-        return ready_ok, ready_msg, ""
 
-    if engine == "moss":
-        from .process_utils import ensure_moss_ready
-        return ensure_moss_ready(timeout=timeout or _ENGINE_READY_TIMEOUTS["moss"])
-
-    if engine == "qwen3local":
-        from .process_utils import ensure_qwen3local_ready
-        return ensure_qwen3local_ready(timeout=timeout or _ENGINE_READY_TIMEOUTS["qwen3local"])
-
-    # Unknown / lightweight engine — nothing to start, treat as ready.
-    return True, "", ""
+    return eng.ensure_ready(timeout=timeout)
 
 
 # Background TTS stop — runs parallel to LLM inference (Case 2b).
