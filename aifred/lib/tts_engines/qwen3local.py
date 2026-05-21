@@ -88,15 +88,26 @@ class Qwen3LocalEngine(TTSEngine):
         return generate_speech_qwen3local(text, speed, voice, language)
 
     def calibration_setup(self, debug: Any) -> bool:
-        # No test-inference any more — the calibration_vram_reserve_mb
-        # is the safer source of truth (qwen-tts has no graceful
-        # degradation if VRAM gets tight mid-generate, so we reserve
-        # the peak unconditionally instead of trying to measure it).
-        ok, msg, _device = self.ensure_ready()
-        if ok:
-            debug(f"   🔊 {msg}")
-        return ok
+        # Do NOT load the container during calibration. The fixed
+        # ``calibration_vram_reserve_mb`` (7.5 GB, covers idle + peak
+        # growth) IS the source of truth — loading the container would
+        # double-count: the container's idle footprint (~5 GB) plus the
+        # full reserve (7.5 GB) would subtract ~12.5 GB from the V100,
+        # crowding LLM layers off the card. With the container left
+        # cold, the V100 is free and we subtract exactly the reserve.
+        #
+        # At runtime, the container's idle + growth must stay below the
+        # reserve, otherwise the LLM context fill (which can creep into
+        # the reserved area) will collide with TTS allocations and OOM.
+        debug(
+            f"   🔊 {self.label_short}: reserving "
+            f"{self.calibration_vram_reserve_mb} MB on TTS GPU "
+            f"(container not loaded)"
+        )
+        return True
 
     def calibration_teardown(self, debug: Any) -> None:
-        self.stop()
-        debug(f"   🔊 {self.label_short} container stopped")
+        # Container was not started in calibration_setup, so nothing
+        # to stop here. The pre-calibration cleanup (Step 0 in
+        # _calibrate_llamacpp) has already stopped any leftover.
+        pass

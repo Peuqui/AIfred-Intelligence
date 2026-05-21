@@ -23,12 +23,14 @@ class FishSpeechEngine(TTSEngine):
     # Engine nicht versehentlich anbieten.
     suitable_for_channels = False
 
-    @property
-    def calibration_vram_reserve_mb(self) -> int:
-        # Upstream calls for "at least 24 GB" — we reserve the upper end
-        # permanently so a long generation can't OOM the V100.
-        from ..config import FISH_SPEECH_VRAM_RESERVE_MB
-        return FISH_SPEECH_VRAM_RESERVE_MB
+    # No calibration_vram_reserve_mb override — we treat Fish like
+    # XTTS/MOSS for now: load the container during calibration and let
+    # the measured free_mb on the TTS GPU speak for itself. If real-world
+    # usage shows dynamic growth above the idle footprint (~19 GB on
+    # V100), switch to the Qwen3 pattern (no container load + fixed
+    # reserve) once we know the actual peak. The constant
+    # FISH_SPEECH_VRAM_RESERVE_MB stays in config.py for that future
+    # switch-back.
 
     @property
     def service_url(self) -> str:
