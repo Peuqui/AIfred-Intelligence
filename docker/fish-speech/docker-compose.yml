@@ -21,9 +21,17 @@ services:
       - CUDA_VISIBLE_DEVICES=0
       - HF_HUB_OFFLINE=0  # allow first-run download; once cached, the entrypoint short-circuits
 
-      # torch.compile gives ~10× speed-up but adds ~30-60 s compile time
+      # torch.compile gives ~10× speed-up but adds ~2-3 min compile time
       # to the first request. Turn off (COMPILE=0) for debugging.
       - COMPILE=${FISH_SPEECH_COMPILE:-1}
+
+      # Persist the torch.compile (Inductor) + Triton kernel caches in a
+      # named volume so the ~2-3 min compile only happens ONCE, not on
+      # every container start. Cache is GPU-arch + torch-version
+      # specific — a GPU change or image rebuild simply triggers a
+      # one-time recompile, no error.
+      - TORCHINDUCTOR_CACHE_DIR=/app/compile-cache/inductor
+      - TRITON_CACHE_DIR=/app/compile-cache/triton
 
       # ── Auto-shutdown — placeholder, no built-in idle watcher yet.
       # AIfred stops the container externally via stop_fishspeech_container
@@ -38,6 +46,9 @@ services:
       # Reference voices for cloning — same AIfred / HAL9000 / Salomo /
       # Sokrates set we use elsewhere. Read-only mount.
       - ./voices:/app/references:ro
+      # torch.compile / Triton kernel cache — persists across container
+      # restarts so the compile cost is paid once, not every boot.
+      - fish_speech_compile_cache:/app/compile-cache
 
     healthcheck:
       # Upstream exposes /v1/health (returns 200 once the model has
@@ -52,3 +63,5 @@ services:
 volumes:
   fish_speech_checkpoints:
     name: fish_speech_checkpoints
+  fish_speech_compile_cache:
+    name: fish_speech_compile_cache
