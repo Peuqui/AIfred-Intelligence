@@ -288,10 +288,11 @@ PUCK_TTS_FALLBACK_VOICE = "Deutsch (Karlsson)"
 # ============================================================
 TTS_ENGINE_KEYS = [
     "off",
-    "qwen3local",   # lokaler Qwen3-TTS-Container, Voice-Cloning + Streaming
+    "qwen3local",    # lokaler Qwen3-TTS-Container, Voice-Cloning + Streaming
     "xtts",
+    "fishspeech",    # Fish Audio S2 Pro (5B Dual-AR, voice cloning, streaming)
     "moss",
-    "dashscope",    # Cloud-Variante von Qwen3-TTS
+    "dashscope",     # Cloud-Variante von Qwen3-TTS
     "piper",
     "espeak",
     "edge",
@@ -334,6 +335,30 @@ MOSS_TTS_SERVICE_URL = "http://localhost:5055"
 # Qwen3-TTS-12Hz-1.7B-Base (Voice Cloning, Streaming, 10 Sprachen)
 # Start with: cd docker/qwen3-tts && docker-compose up -d
 QWEN3_TTS_SERVICE_URL = "http://localhost:5052"
+
+# ============================================================
+# FISH-SPEECH S2 PRO CONFIGURATION (Docker Service)
+# ============================================================
+# Fish Audio S2 Pro (5B Dual-AR). Runs in its own container, exposes the
+# upstream FastAPI on port 5053 of the host (mapped to 8080 inside).
+# License: Fish Audio Research License — research/non-commercial only.
+FISH_SPEECH_SERVICE_URL = "http://localhost:5053"
+
+# Voices ship with the container in docker/fish-speech/voices/. The
+# wav+txt pair convention is the same as MOSS / Qwen3.
+FISH_SPEECH_VOICES_FALLBACK = {
+    "AIfred":   "AIfred",
+    "HAL9000":  "HAL9000",
+    "Salomo":   "Salomo",
+    "Sokrates": "Sokrates",
+}
+
+# Working-set VRAM the LLM calibration should permanently reserve on
+# the TTS GPU. S2 Pro is officially "requires at least 24 GB" — we go
+# with the upper end as a permanent floor so a long generation can't
+# OOM the V100. Tunable via env var.
+FISH_SPEECH_VRAM_RESERVE_MB = int(os.environ.get("FISH_SPEECH_VRAM_RESERVE_MB", "24576"))
+
 
 # ============================================================
 # TTS Container Keep-Alive (heartbeat ping interval)
@@ -442,6 +467,15 @@ QWEN3_TTS_VOICES_FALLBACK = {
     "Sokrates": "Sokrates",
 }
 
+
+def get_fishspeech_voices() -> dict:
+    """Fish-Speech uses static reference files from /app/references — no
+    live HTTP discovery endpoint AIfred currently wants to use. The
+    docker/fish-speech/voices/ directory is the source of truth; we
+    expose the same names as the other GPU engines (AIfred, HAL9000,
+    Salomo, Sokrates) so per-agent voice settings stay portable."""
+    return dict(FISH_SPEECH_VOICES_FALLBACK)
+
 # VRAM the qwen3local container occupies once it has run a long inference.
 # The calibration kicks off a test TTS call before measuring free VRAM, so
 # this constant is normally not needed at all — but it serves as the
@@ -464,16 +498,18 @@ QWEN3_TTS_VRAM_RESERVE_MB = int(os.environ.get("QWEN3_TTS_VRAM_RESERVE_MB", "768
 # values, so the option set is safe to expose for every engine.
 TTS_LANGUAGE_OPTIONS: list[tuple[str, str]] = [
     ("auto", "Auto"),
+    # Europäische Sprachen zuerst (Auswahl-Komfort)
     ("de", "Deutsch"),
     ("en", "English"),
+    ("fr", "Français"),
+    ("it", "Italiano"),
+    ("es", "Español"),
+    ("pt", "Português"),
+    ("ru", "Русский"),
+    # Asiatische Sprachen am Schluss
     ("zh", "Chinese"),
     ("ja", "Japanese"),
     ("ko", "Korean"),
-    ("fr", "Français"),
-    ("ru", "Русский"),
-    ("pt", "Português"),
-    ("es", "Español"),
-    ("it", "Italiano"),
 ]
 TTS_LANGUAGE_LABELS = [label for _, label in TTS_LANGUAGE_OPTIONS]
 TTS_LANGUAGE_LABEL_TO_CODE = {label: code for code, label in TTS_LANGUAGE_OPTIONS}
@@ -715,6 +751,10 @@ TTS_DEFAULT_VOICES = {
         "de": "AIfred",  # Custom voice
         "en": "AIfred",  # Custom voice (multilingual)
     },
+    "fishspeech": {
+        "de": "AIfred",  # Custom cloned voice
+        "en": "AIfred",  # Custom cloned voice (multilingual)
+    },
     "dashscope": {
         "de": "★ AIfred",
         "en": "★ AIfred",
@@ -733,6 +773,7 @@ TTS_DEFAULT_VOICES = {
 TTS_TOGGLE_DEFAULTS: dict[str, dict[str, bool]] = {
     "xtts": {"autoplay": True, "streaming": True},
     "moss": {"autoplay": True, "streaming": False},
+    "fishspeech": {"autoplay": True, "streaming": True},
     "edge": {"autoplay": True, "streaming": True},
     "piper": {"autoplay": True, "streaming": False},
     "espeak": {"autoplay": True, "streaming": False},
@@ -1102,6 +1143,7 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 XTTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "xtts", "docker-compose.yml")
 MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "moss-tts", "docker-compose.yml")
 QWEN3_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "qwen3-tts", "docker-compose.yml")
+FISH_SPEECH_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "fish-speech", "docker-compose.yml")
 WHISPER_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "whisper", "docker-compose.yml")
 
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)

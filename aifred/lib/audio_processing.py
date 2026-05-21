@@ -1152,6 +1152,79 @@ def generate_speech_qwen3local(text: str, speed: float = 1.0, voice_choice: str 
         return None
 
 
+def generate_speech_fishspeech(text: str, speed: float = 1.0, voice_choice: str = "AIfred", language: str = "de") -> str | None:
+    """Fish Audio S2 Pro (Docker) — voice cloning via inline reference WAV.
+
+    Fish-Speech's /v1/tts accepts a ``references: [{audio, text}]``
+    list of in-context examples. We read the user-selected voice's
+    ``.wav`` + matching ``.txt`` transcript straight from
+    ``docker/fish-speech/voices/`` and ship them as one reference per
+    request. No pre-uploading of references needed — the engine
+    re-extracts the speaker on every call (slightly slower than Qwen3's
+    pre-warmed prompts, but no statefulness on the AIfred side).
+    """
+    import base64
+    import requests
+    from pathlib import Path
+    from .config import FISH_SPEECH_SERVICE_URL, PROJECT_ROOT
+
+    voices_dir = Path(PROJECT_ROOT) / "docker" / "fish-speech" / "voices"
+    wav_path = voices_dir / f"{voice_choice}.wav"
+    txt_path = voices_dir / f"{voice_choice}.txt"
+
+    if not wav_path.exists():
+        log_message(f"❌ Fish-Speech: voice WAV missing at {wav_path}")
+        return None
+    audio_bytes = wav_path.read_bytes()
+    transcript = txt_path.read_text(encoding="utf-8").strip() if txt_path.exists() else ""
+    if not transcript:
+        log_message(
+            f"⚠️ Fish-Speech: {voice_choice}.txt missing — voice cloning works "
+            f"without a transcript but quality is noticeably better with one"
+        )
+
+    filename = _generate_tts_filename("wav")
+    output_file = str(TTS_AUDIO_DIR / filename)
+
+    try:
+        log_message(f"🎤 Fish-Speech: speaker={voice_choice}, language={language}, text_length={len(text)}")
+        # Pydantic decode_audio on the server side accepts base64-encoded
+        # strings >255 chars and turns them into bytes — JSON body with
+        # base64-encoded audio is the simplest interop path.
+        response = requests.post(
+            f"{FISH_SPEECH_SERVICE_URL}/v1/tts",
+            json={
+                "text": text,
+                "format": "wav",
+                "references": [{
+                    "audio": base64.b64encode(audio_bytes).decode("ascii"),
+                    "text": transcript,
+                }],
+                "normalize": True,
+                "streaming": False,
+            },
+            timeout=None,
+        )
+        if response.status_code == 200:
+            with open(output_file, "wb") as f:
+                f.write(response.content)
+            if _validate_audio_output(output_file):
+                file_size = os.path.getsize(output_file)
+                log_message(f"✅ Fish-Speech: Audio saved → {output_file} ({file_size} bytes)")
+                return f"/_upload/tts_audio/{filename}"
+            log_message(f"⚠️ Fish-Speech: File missing or too small at {output_file}")
+            return None
+        error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
+        log_message(f"❌ Fish-Speech Error: {error_msg}")
+        return None
+    except requests.exceptions.ConnectionError:
+        log_message("❌ Fish-Speech: Service not running. Start with: cd docker/fish-speech && docker-compose up -d")
+        return None
+    except Exception as e:
+        log_message(f"❌ Fish-Speech Exception: {e}")
+        return None
+
+
 def generate_speech_dashscope(text: str, speed: float = 1.0, voice_choice: str = "Cherry", language: str = "de") -> str | None:
     """
     DashScope Qwen3-TTS - Cloud-based streaming TTS via DashScope API.
@@ -1978,6 +2051,11 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             audio_url = await loop.run_in_executor(
                 None, generate_speech_moss, text, 1.0, voice_choice, language
             )
+        elif tts_engine == "fishspeech":
+            # Fish Audio S2 Pro (Docker) - 5B Dual-AR, 80+ languages
+            audio_url = await loop.run_in_executor(
+                None, generate_speech_fishspeech, text, 1.0, voice_choice, language
+            )
         elif tts_engine == "dashscope":
             # DashScope Qwen3-TTS (Cloud) - streaming TTS, 0 GPU VRAM
             audio_url = await loop.run_in_executor(
@@ -2012,7 +2090,7 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
 
         # Apply pitch and/or speed adjustment via ffmpeg if needed
         # Speed: Piper/eSpeak/Edge handle it natively, XTTS/MOSS/DashScope don't
-        needs_speed = tts_engine in ("xtts", "moss", "qwen3local", "dashscope") and abs(speed_choice - 1.0) >= 0.01
+        needs_speed = tts_engine in ("xtts", "moss", "qwen3local", "fishspeech", "dashscope") and abs(speed_choice - 1.0) >= 0.01
         needs_pitch = abs(pitch - 1.0) >= 0.01
         if audio_url and (needs_pitch or needs_speed):
             filename = audio_url.split("/")[-1]

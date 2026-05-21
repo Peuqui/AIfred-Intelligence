@@ -1,0 +1,54 @@
+services:
+  fish-speech:
+    image: fish-speech-s2-pro
+    build: .
+    container_name: fish-speech
+    restart: "no"  # AIfred controls container lifecycle (like XTTS / MOSS / Qwen3)
+    ports:
+      # Port convention: XTTS=5051, Qwen3=5052, FishSpeech=5053, MOSS=5055
+      # (5054 still reserved for a future engine — keeps the block tidy).
+      - "5053:8080"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['${TTS_GPU_UUID}']
+              capabilities: [gpu]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=${TTS_GPU_UUID}
+      - CUDA_VISIBLE_DEVICES=0
+      - HF_HUB_OFFLINE=0  # allow first-run download; once cached, the entrypoint short-circuits
+
+      # torch.compile gives ~10× speed-up but adds ~30-60 s compile time
+      # to the first request. Turn off (COMPILE=0) for debugging.
+      - COMPILE=${FISH_SPEECH_COMPILE:-1}
+
+      # ── Auto-shutdown — placeholder, no built-in idle watcher yet.
+      # AIfred stops the container externally via stop_fishspeech_container
+      # when the user picks a different engine. KEEP_ALIVE-style self-stop
+      # can be retrofitted as a sidecar thread later if needed.
+      - FISH_SPEECH_KEEP_ALIVE=${FISH_SPEECH_KEEP_ALIVE:-30}
+
+    volumes:
+      # Model weights — persistent named volume so the ~8 GB download
+      # survives image rebuilds.
+      - fish_speech_checkpoints:/app/checkpoints
+      # Reference voices for cloning — same AIfred / HAL9000 / Salomo /
+      # Sokrates set we use elsewhere. Read-only mount.
+      - ./voices:/app/references:ro
+
+    healthcheck:
+      # Upstream exposes /v1/health (returns 200 once the model has
+      # finished loading). First start does the ~8 GB weight pull, so
+      # we give it a long start_period.
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 600s
+
+volumes:
+  fish_speech_checkpoints:
+    name: fish_speech_checkpoints
