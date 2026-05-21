@@ -750,7 +750,7 @@ WEB_UI_HTML = """
             const select = document.getElementById('voice');
             select.innerHTML = '<option disabled>Loading...</option>';
             try {
-                const res = await fetch('/voices?t=' + Date.now());
+                const res = await fetch('voices?t=' + Date.now());
                 const data = await res.json();
                 select.innerHTML = '<option value="">No voice (default)</option>';
                 (data.voices || []).forEach(v => {
@@ -788,7 +788,7 @@ WEB_UI_HTML = """
                 if (voice) body.speaker = voice;
                 if (lang) body.language = lang;
 
-                const res = await fetch('/tts', {
+                const res = await fetch('tts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
@@ -826,7 +826,7 @@ WEB_UI_HTML = """
             status.className = 'status loading';
             status.textContent = 'Unloading...';
             try {
-                const res = await fetch('/unload', { method: 'POST' });
+                const res = await fetch('unload', { method: 'POST' });
                 const data = await res.json();
                 status.className = 'status success';
                 status.textContent = 'Model unloaded from ' + data.freed_device;
