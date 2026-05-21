@@ -356,9 +356,12 @@ class CalibrationMixin(rx.State, mixin=True):
                 base_url=self.backend_url  # type: ignore[attr-defined]
             )
 
-            # Step 0: Kill orphaned calibration servers + stop ALL TTS containers
+            # Step 0: Kill orphaned calibration servers + stop ALL GPU TTS containers
             # Containers/servers may be left over from a previous interrupted calibration.
-            from ..lib.process_utils import stop_xtts_container, stop_moss_container
+            # SSOT: iterate the TTS-engine registry instead of hardcoding container
+            # names — every engine with ``needs_gpu=True`` gets stopped, no matter
+            # which backend was running.
+            from ..lib.tts_engines import gpu_engines
             from ..lib.config import LLAMACPP_CALIBRATION_PORT
             self.add_debug("🧹 Cleaning up VRAM (TTS containers, orphaned servers)...")  # type: ignore[attr-defined]
             yield
@@ -372,8 +375,10 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")  # type: ignore[attr-defined]
             except (subprocess.SubprocessError, FileNotFoundError):
                 pass
-            stop_xtts_container()
-            stop_moss_container()
+            for _eng in gpu_engines():
+                if _eng.is_running():
+                    ok, msg = _eng.stop()
+                    self.add_debug(f"   {'✅' if ok else '⚠️'} {_eng.label_short}: {msg}")  # type: ignore[attr-defined]
             self.add_debug("   VRAM cleanup done")  # type: ignore[attr-defined]
             yield
 
@@ -710,16 +715,16 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"from base (skip Phase-1 search)..."
                             )
                             yield
-                            # Qwen3-TTS allocates VRAM dynamically during
-                            # generate() (idle ~5 GB → long-bubble peak
-                            # ~7 GB), so the LLM has to be planned with a
-                            # permanent safety cushion or a long TTS-call
-                            # OOMs the V100. XTTS/MOSS allocate once at
-                            # load time, no extra reserve needed.
-                            _tts_extra_reserve_mb = 0
-                            if tts_backend == "qwen3local":
-                                from ..lib.config import QWEN3_TTS_VRAM_RESERVE_MB
-                                _tts_extra_reserve_mb = QWEN3_TTS_VRAM_RESERVE_MB
+                            # Engines that grow VRAM dynamically during
+                            # generate() (Qwen3-TTS: ~5 → ~7 GB) or that
+                            # the upstream docs flag with a hard floor
+                            # (Fish-Speech S2 Pro: "at least 24 GB")
+                            # declare a permanent ``calibration_vram_reserve_mb``
+                            # so the LLM gets planned with a permanent
+                            # cushion instead of just the idle-measurement.
+                            # Engines that allocate once at load time
+                            # (XTTS, MOSS) report 0 → no extra reserve.
+                            _tts_extra_reserve_mb = tts_engine.calibration_vram_reserve_mb
                             async for _msg in calibrate_tts_variant_from_base(
                                 model_id=calibration_model_id,
                                 gguf_path=_gguf_path,

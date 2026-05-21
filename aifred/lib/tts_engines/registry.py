@@ -14,6 +14,7 @@ from .base import TTSEngine
 from .qwen3local import Qwen3LocalEngine
 from .xtts import XTTSEngine
 from .moss import MOSSEngine
+from .fishspeech import FishSpeechEngine
 from .dashscope import DashScopeEngine
 from .edge import EdgeEngine
 from .piper import PiperEngine
@@ -27,6 +28,7 @@ from .espeak import EspeakEngine
 TTS_ENGINES: dict[str, TTSEngine] = {
     "qwen3local": Qwen3LocalEngine(),
     "xtts":       XTTSEngine(),
+    "fishspeech": FishSpeechEngine(),
     "moss":       MOSSEngine(),
     "dashscope":  DashScopeEngine(),
     "piper":      PiperEngine(),

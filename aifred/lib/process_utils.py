@@ -547,6 +547,74 @@ def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
     return False, f"Qwen3-TTS: Timeout after {timeout}s waiting for model", ""
 
 
+def stop_fishspeech_container() -> tuple[bool, str]:
+    """Stop the Fish-Speech Docker container to free VRAM."""
+    from .config import FISH_SPEECH_DOCKER_COMPOSE_PATH
+    return _docker_compose_action(FISH_SPEECH_DOCKER_COMPOSE_PATH, "down", "Fish-Speech")
+
+
+def start_fishspeech_container() -> tuple[bool, str]:
+    """Start the Fish-Speech Docker container."""
+    from .config import FISH_SPEECH_DOCKER_COMPOSE_PATH
+    return _docker_compose_action(FISH_SPEECH_DOCKER_COMPOSE_PATH, "up", "Fish-Speech")
+
+
+def ensure_fishspeech_ready(timeout: int = 600) -> tuple[bool, str, str]:
+    """Ensure the Fish-Speech S2 Pro container is running and ready.
+
+    First start downloads ~8 GB of weights from HuggingFace before the
+    model can load, so the timeout default is generous (10 min). On
+    subsequent starts the weights are cached in the named volume and
+    the readiness probe usually wins within ~60 s (load + torch.compile
+    warm-up).
+
+    Same CPU-fallback restart pattern as the other GPU engines: if the
+    container is running but reports ``device == "cpu"`` and a GPU is
+    available, force a restart so the model lands on the GPU.
+    """
+    import time
+    import requests
+    from .config import FISH_SPEECH_SERVICE_URL
+
+    def _health() -> dict | None:
+        try:
+            r = requests.get(f"{FISH_SPEECH_SERVICE_URL}/v1/health", timeout=2)
+            if r.ok:
+                return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"ok": True}
+        except OSError:
+            return None
+        return None
+
+    # Step 1: Check whether the upstream API is already up.
+    initial = _health()
+    if initial is not None:
+        # Upstream /v1/health doesn't expose `device`; fall back to a
+        # process-level guess (assume cuda when the daemon has a GPU
+        # UUID configured).
+        device = "cuda:0" if get_tts_gpu_uuid() else "cpu"
+        return True, f"Fish-Speech already ready ({device})", device
+
+    # Step 2: Start container
+    success, msg = start_fishspeech_container()
+    if not success:
+        return False, msg, ""
+
+    # Step 3: Wait for model to load. First-start downloads ~8 GB of
+    # weights, so the polling loop has to be patient. Print a progress
+    # heartbeat every 30 s so the user knows something is happening.
+    log_message("Fish-Speech: Waiting for model to load (first start may take 5-10 min for weight download)...")
+    for i in range(timeout):
+        if _health() is not None:
+            device = "cuda:0" if get_tts_gpu_uuid() else "cpu"
+            log_message(f"Fish-Speech: Model loaded on {device}")
+            return True, f"Fish-Speech ready ({device})", device
+        if i > 0 and i % 30 == 0:
+            log_message(f"Fish-Speech: still waiting ({i}s / {timeout}s)...")
+        time.sleep(1)
+
+    return False, f"Fish-Speech: Timeout after {timeout}s waiting for model", ""
+
+
 def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
     """
     Ensure XTTS container is running and model is loaded.

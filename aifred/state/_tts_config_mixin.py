@@ -87,6 +87,12 @@ class TTSConfigMixin(rx.State, mixin=True):
             if voices:
                 return sorted(list(voices.keys()))
             return sorted(list(QWEN3_TTS_VOICES_FALLBACK.keys()))
+        elif self.tts_engine == "fishspeech":  # Fish-Speech S2 Pro local container
+            from ..lib.config import get_fishspeech_voices, FISH_SPEECH_VOICES_FALLBACK
+            voices = get_fishspeech_voices()
+            if voices:
+                return sorted(list(voices.keys()))
+            return sorted(list(FISH_SPEECH_VOICES_FALLBACK.keys()))
         elif self.tts_engine == "dashscope":
             from ..lib.config import DASHSCOPE_VOICES, sort_voices_custom_first
             return sort_voices_custom_first(list(DASHSCOPE_VOICES.keys()))
@@ -168,6 +174,10 @@ class TTSConfigMixin(rx.State, mixin=True):
             from ..lib.config import get_qwen3local_voices, QWEN3_TTS_VOICES_FALLBACK
             voices = get_qwen3local_voices()
             live_voices = set(voices.keys()) if voices else set(QWEN3_TTS_VOICES_FALLBACK.keys())
+        elif engine == "fishspeech":
+            from ..lib.config import get_fishspeech_voices, FISH_SPEECH_VOICES_FALLBACK
+            voices = get_fishspeech_voices()
+            live_voices = set(voices.keys()) if voices else set(FISH_SPEECH_VOICES_FALLBACK.keys())
         elif engine == "dashscope":
             from ..lib.config import DASHSCOPE_VOICES
             live_voices = set(DASHSCOPE_VOICES.keys())
@@ -806,6 +816,10 @@ class TTSConfigMixin(rx.State, mixin=True):
             from ..lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
             moss_voices = get_moss_voices()
             voice_dict = moss_voices if moss_voices else MOSS_TTS_VOICES_FALLBACK
+        elif engine_key == "fishspeech":
+            from ..lib.config import get_fishspeech_voices, FISH_SPEECH_VOICES_FALLBACK
+            fish_voices = get_fishspeech_voices()
+            voice_dict = fish_voices if fish_voices else FISH_SPEECH_VOICES_FALLBACK
         elif engine_key == "dashscope":
             from ..lib.config import DASHSCOPE_VOICES
             voice_dict = DASHSCOPE_VOICES
