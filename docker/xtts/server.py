@@ -1089,7 +1089,7 @@ WEB_UI_HTML = """
 
             try {
                 // Add timestamp to prevent browser caching
-                const res = await fetch('/voices?t=' + Date.now());
+                const res = await fetch('voices?t=' + Date.now());
                 const data = await res.json();
                 select.innerHTML = '';
 
@@ -1158,7 +1158,7 @@ WEB_UI_HTML = """
 
             try {
                 const startTime = Date.now();
-                const res = await fetch('/tts', {
+                const res = await fetch('tts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text, speaker: voice, language })
@@ -1215,7 +1215,7 @@ WEB_UI_HTML = """
                 formData.append('name', name);
                 formData.append('audio', fileInput.files[0]);
 
-                const res = await fetch('/voices/clone', {
+                const res = await fetch('voices/clone', {
                     method: 'POST',
                     body: formData
                 });
@@ -1254,7 +1254,7 @@ WEB_UI_HTML = """
             status.textContent = 'Unloading model...';
 
             try {
-                const res = await fetch('/unload', { method: 'POST' });
+                const res = await fetch('unload', { method: 'POST' });
                 const data = await res.json();
 
                 if (data.success) {
