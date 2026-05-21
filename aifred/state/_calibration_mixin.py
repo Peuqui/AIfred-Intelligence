@@ -456,10 +456,16 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")  # type: ignore[attr-defined]
             except (subprocess.SubprocessError, FileNotFoundError):
                 pass
+            # Stop every GPU-TTS container unconditionally. ``is_running()``
+            # is an HTTP health check with a 2 s timeout — a busy container
+            # can miss the window and look idle, leaving its VRAM allocated
+            # during the LLM calibration. ``docker compose down`` is
+            # idempotent and finishes in ~1 s when nothing is running, so
+            # we just always call stop() and trust the engine to no-op
+            # when there's nothing to stop.
             for _eng in gpu_engines():
-                if _eng.is_running():
-                    ok, msg = _eng.stop()
-                    self.add_debug(f"   {'✅' if ok else '⚠️'} {_eng.label_short}: {msg}")  # type: ignore[attr-defined]
+                ok, msg = _eng.stop()
+                self.add_debug(f"   {'✅' if ok else '⚠️'} {_eng.label_short}: {msg}")  # type: ignore[attr-defined]
             self.add_debug("   VRAM cleanup done")  # type: ignore[attr-defined]
             yield
 
