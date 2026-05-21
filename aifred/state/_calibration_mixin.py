@@ -51,6 +51,14 @@ class CalibrationMixin(rx.State, mixin=True):
     # inference. Toggle on for models that exceed total GPU VRAM.
     calibration_allow_hybrid: bool = False
 
+    # Per-engine selection for the next calibration run. Filled by
+    # ``open_calibration_picker`` with one entry per *installed* GPU TTS
+    # engine (key → checked). Step-5 of the calibration filters against
+    # this map so a 235B base + only-Qwen3 takes minutes instead of hours.
+    # Reset every time the user opens the picker — this is a per-click
+    # decision, not a persisted preference.
+    tts_calibration_selection: dict[str, bool] = {}
+
     # Revision counter — bumped whenever something writes to agents.json
     # so that reactive computed vars (e.g. calibration_ai_label) re-read
     # the file. Without this, @rx.var freezes on first render because
@@ -92,6 +100,79 @@ class CalibrationMixin(rx.State, mixin=True):
         from aifred.lib.credential_broker import broker
         import os
         return bool(broker.get("cloud_qwen", "api_key")) or bool(os.environ.get("DASHSCOPE_API_KEY"))
+
+    # ------------------------------------------------------------------
+    # TTS engine picker (per-click selection, not persisted)
+    # ------------------------------------------------------------------
+
+    @rx.var
+    def calibration_picker_items(self) -> list[dict]:
+        """Picker items: base row first, then one row per installed GPU
+        TTS engine. Each item carries ``{key, label, checked,
+        already_calibrated, is_base}``. ``key="__base__"`` flags the
+        base-calibration row so the UI and the handlers can treat it
+        specially without parsing the label."""
+        from aifred.lib.tts_engines import installed_gpu_engines
+        from aifred.lib.calibration import (
+            has_llamaswap_base,
+            has_llamaswap_tts_variant,
+        )
+        from aifred.lib.config import LLAMASWAP_CONFIG_PATH
+        from aifred.lib.model_vram_cache import get_llamacpp_calibration_info
+
+        model_id = getattr(self, "aifred_model_id", "") or ""
+        base_in_yaml = bool(model_id) and has_llamaswap_base(
+            LLAMASWAP_CONFIG_PATH, model_id,
+        )
+        base_in_cache = bool(model_id) and (
+            get_llamacpp_calibration_info(model_id) is not None
+        )
+        base_done = base_in_yaml and base_in_cache
+
+        items: list[dict] = [{
+            "key": "__base__",
+            "label": "Basis-Kalibrierung",
+            "checked": self.tts_calibration_selection.get("__base__", False),
+            "already_calibrated": base_done,
+            "is_base": True,
+        }]
+        for e in installed_gpu_engines():
+            done = bool(model_id) and has_llamaswap_tts_variant(
+                LLAMASWAP_CONFIG_PATH, model_id, e.key,
+            )
+            items.append({
+                "key": e.key,
+                "label": e.label_short,
+                "checked": self.tts_calibration_selection.get(e.key, False),
+                "already_calibrated": done,
+                "is_base": False,
+            })
+        return items
+
+    def open_calibration_picker(self) -> None:
+        """Reset the selection — every item starts unchecked. The user
+        explicitly ticks what they want calibrated, so a single click on
+        "Kalibrierung starten" with nothing ticked is a deliberate no-op
+        (or, if the base is missing, a clean abort with an explanatory
+        message). Avoids accidentally re-running a 1h base calibration."""
+        from aifred.lib.tts_engines import installed_gpu_engines
+        sel: dict[str, bool] = {"__base__": False}
+        for e in installed_gpu_engines():
+            sel[e.key] = False
+        self.tts_calibration_selection = sel
+
+    def set_calibration_tts_engine(self, payload: list) -> None:
+        """Set one item's checkbox to ``checked``. ``payload`` is the
+        Reflex-friendly ``[key, checked]`` list so the foreach lambda
+        can substitute ``item["key"]`` cleanly. ``key`` may be
+        ``"__base__"`` (base-calibration row) or a TTS engine key."""
+        if not payload or len(payload) < 2:
+            return
+        key = str(payload[0])
+        checked = bool(payload[1])
+        cur = dict(self.tts_calibration_selection)
+        cur[key] = checked
+        self.tts_calibration_selection = cur
 
     @rx.var(cache=True, deps=["_agents_json_revision"])
     def calibration_ai_label(self) -> str:
@@ -416,39 +497,92 @@ class CalibrationMixin(rx.State, mixin=True):
             # Calibrate the base model — speed variant is created as Phase 2
             # (model_id is always base ID — SSOT, no suffix stripping needed)
             calibration_model_id = self.aifred_model_id  # type: ignore[attr-defined]
-            async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                calibration_model_id
-            ):
-                if progress_msg.startswith("__RESULT__:"):
-                    r = _parse_calibration_result(progress_msg)
-                    calibrated_ctx = r["ctx"]
-                    calibrated_ngl = r["ngl"]
-                    calibrated_mode = r["mode"]
-                    calibration_kv = r["kv"]
-                    calibrated_num_gpus = r["num_gpus"]
-                    if r["thinks_tested"]:
-                        thinking_tested = True
-                        supports_thinking = r["thinks"]
-                elif progress_msg.startswith("__SPEED__:"):
-                    speed_payload = progress_msg.removeprefix("__SPEED__:")
-                    if "," in speed_payload:
-                        speed_parts = speed_payload.split(",")
-                        speed_layer_split = speed_parts[0]  # e.g. "26:11:11:0"
-                        # Extract cuda0 and rest from layer split
-                        layer_vals = [int(x) for x in speed_layer_split.split(":")]
-                        speed_split_cuda0 = layer_vals[0]
-                        speed_split_rest = sum(layer_vals[1:])
-                        if len(speed_parts) > 1:
-                            speed_split_context = int(speed_parts[1])
-                        if len(speed_parts) > 2:
-                            speed_num_gpus = int(speed_parts[2])
-                        if len(speed_parts) > 3:
-                            speed_kv_quant = speed_parts[3]
-                    else:
-                        speed_split_cuda0 = int(speed_payload)
-                else:
-                    self.add_debug(f"📊 {progress_msg}")  # type: ignore[attr-defined]
+
+            # Picker option "Basis-Kalibrierung" deselected → reuse the
+            # existing base+speed values from llama-swap.yaml + vram cache
+            # instead of re-running the expensive measurement. Lets the
+            # user add a freshly-installed TTS variant to a 235B model
+            # without paying the base-calibration cost again.
+            skip_base = not self.tts_calibration_selection.get("__base__", False)
+            if skip_base:
+                from ..lib.calibration import parse_llamaswap_config
+                from ..lib.model_vram_cache import (
+                    get_llamacpp_calibration_info,
+                    get_llamacpp_speed_split,
+                    get_thinking_support_for_model,
+                )
+                cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                base_entry = cfg.get(calibration_model_id, {})
+                cache_info = get_llamacpp_calibration_info(calibration_model_id)
+                if not base_entry or not cache_info:
+                    self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+                    self.add_debug(  # type: ignore[attr-defined]
+                        "❌ Base-calibration skip requested, but no existing "
+                        "calibration found in llama-swap.yaml + cache. "
+                        "Enable 'Basis-Kalibrierung' in the picker and retry."
+                    )
                     yield
+                    return
+                calibrated_ctx = int(base_entry.get("current_context", 0))
+                calibrated_ngl = int(base_entry.get("ngl", 99))
+                calibration_kv = str(base_entry.get("kv_cache_quant") or "f16")
+                calibrated_mode = str(cache_info.get("mode", "gpu"))
+                cvd = base_entry.get("env", {}).get("CUDA_VISIBLE_DEVICES", "")
+                calibrated_num_gpus = len([x for x in cvd.split(",") if x]) if cvd else 0
+                supports_thinking = bool(get_thinking_support_for_model(calibration_model_id))
+                thinking_tested = True
+                # Pull speed variant if previously calibrated.
+                s_cuda0, s_rest, s_ctx = get_llamacpp_speed_split(calibration_model_id)
+                if s_cuda0 > 0:
+                    speed_split_cuda0 = s_cuda0
+                    speed_split_rest = s_rest
+                    if s_ctx > 0:
+                        speed_split_context = s_ctx
+                    speed_layer_split = f"{s_cuda0}:{s_rest}"
+                    speed_entry = cfg.get(f"{calibration_model_id}-speed", {})
+                    s_cvd = (speed_entry.get("env") or {}).get("CUDA_VISIBLE_DEVICES", "")
+                    speed_num_gpus = len([x for x in s_cvd.split(",") if x]) if s_cvd else 0
+                    speed_kv_quant = str(speed_entry.get("kv_cache_quant") or calibration_kv)
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"⏭️ Skipping base — reusing ctx={format_number(calibrated_ctx)}, "
+                    f"ngl={calibrated_ngl}, mode={calibrated_mode}, kv={calibration_kv}"
+                )
+                yield
+
+            if not skip_base:
+                async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
+                    calibration_model_id
+                ):
+                    if progress_msg.startswith("__RESULT__:"):
+                        r = _parse_calibration_result(progress_msg)
+                        calibrated_ctx = r["ctx"]
+                        calibrated_ngl = r["ngl"]
+                        calibrated_mode = r["mode"]
+                        calibration_kv = r["kv"]
+                        calibrated_num_gpus = r["num_gpus"]
+                        if r["thinks_tested"]:
+                            thinking_tested = True
+                            supports_thinking = r["thinks"]
+                    elif progress_msg.startswith("__SPEED__:"):
+                        speed_payload = progress_msg.removeprefix("__SPEED__:")
+                        if "," in speed_payload:
+                            speed_parts = speed_payload.split(",")
+                            speed_layer_split = speed_parts[0]  # e.g. "26:11:11:0"
+                            # Extract cuda0 and rest from layer split
+                            layer_vals = [int(x) for x in speed_layer_split.split(":")]
+                            speed_split_cuda0 = layer_vals[0]
+                            speed_split_rest = sum(layer_vals[1:])
+                            if len(speed_parts) > 1:
+                                speed_split_context = int(speed_parts[1])
+                            if len(speed_parts) > 2:
+                                speed_num_gpus = int(speed_parts[2])
+                            if len(speed_parts) > 3:
+                                speed_kv_quant = speed_parts[3]
+                        else:
+                            speed_split_cuda0 = int(speed_payload)
+                    else:
+                        self.add_debug(f"📊 {progress_msg}")  # type: ignore[attr-defined]
+                        yield
 
             # Step 3: Process result
             if not calibrated_ctx or calibrated_ctx == 0:
@@ -461,106 +595,124 @@ class CalibrationMixin(rx.State, mixin=True):
             mode_str = f" (hybrid, ngl={calibrated_ngl})" if calibrated_mode == "hybrid" else ""
             self.add_debug(f"✅ Calibrated: {format_number(calibrated_ctx)} tokens{mode_str}")  # type: ignore[attr-defined]
 
-            # Step 4: Update llama-swap YAML (-c and optionally -ngl)
-            self.add_debug("📝 Updating llama-swap config...")  # type: ignore[attr-defined]
-            updated_ctx = update_llamaswap_context(
-                LLAMASWAP_CONFIG_PATH,
-                calibration_model_id,
-                calibrated_ctx
-            )
-            if updated_ctx:
-                self.add_debug(  # type: ignore[attr-defined]
-                    f"   -c {format_number(calibrated_ctx)} written to "
-                    f"{LLAMASWAP_CONFIG_PATH.name}"
-                )
-            else:
-                self.add_debug("⚠️ Could not update -c in llama-swap config")  # type: ignore[attr-defined]
-
-            # Write the calibrated ngl to YAML.
-            # Previous logic downgraded ngl to hybrid for "swap safety", but that
-            # created a mismatch: hybrid ngl (few layers on GPU) with GPU-only context
-            # (calibrated for all layers on GPU) → massive VRAM waste.
-            # Now we write the actual calibration result. Swap OOM is llama-swap's
-            # responsibility (exclusive groups ensure old model is unloaded first).
-            yaml_ngl = calibrated_ngl
-
-            updated_ngl = update_llamaswap_ngl(
-                LLAMASWAP_CONFIG_PATH,
-                calibration_model_id,
-                yaml_ngl
-            )
-            if updated_ngl:
-                mode_label = "hybrid mode" if yaml_ngl < 99 else "gpu mode"
-                self.add_debug(f"   -ngl {yaml_ngl} written ({mode_label})")  # type: ignore[attr-defined]
-            else:
-                self.add_debug("⚠️ Could not update -ngl in llama-swap config")  # type: ignore[attr-defined]
-
-            # Write speed variant YAML entry (only for multi-GPU models with valid split)
-            if speed_split_cuda0 <= 0:
-                self.aifred_has_speed_variant = False  # type: ignore[attr-defined]
-                self.aifred_speed_mode = False  # type: ignore[attr-defined]
-            if speed_split_cuda0 > 0:
-                added_speed = add_llamaswap_speed_variant(
+            # Step 4: Update llama-swap YAML (-c and optionally -ngl).
+            # Skipped when ``skip_base`` is set — the YAML entries were the
+            # source of those values in the first place, so re-writing them
+            # would be a no-op.
+            if not skip_base:
+                self.add_debug("📝 Updating llama-swap config...")  # type: ignore[attr-defined]
+                updated_ctx = update_llamaswap_context(
                     LLAMASWAP_CONFIG_PATH,
                     calibration_model_id,
-                    speed_split_cuda0,
-                    speed_split_rest,
-                    speed_split_context,
-                    num_gpus=speed_num_gpus,
-                    kv_quant=speed_kv_quant,
-                    speed_layer_split=speed_layer_split,
+                    calibrated_ctx
                 )
-                if added_speed:
-                    gpu_info_str = f", {speed_num_gpus} GPUs" if speed_num_gpus else ""
-                    kv_info_str = f", KV={speed_kv_quant}" if speed_kv_quant != "f16" else ""
-                    split_display = speed_layer_split or f"{speed_split_cuda0}:{speed_split_rest}"
+                if updated_ctx:
                     self.add_debug(  # type: ignore[attr-defined]
-                        f"   ⚡ Speed variant: {calibration_model_id}-speed "
-                        f"(split {split_display}, "
-                        f"ctx {format_number(speed_split_context)}{gpu_info_str}{kv_info_str})"
+                        f"   -c {format_number(calibrated_ctx)} written to "
+                        f"{LLAMASWAP_CONFIG_PATH.name}"
                     )
-                    # Pin speed variant to the first ``speed_num_gpus`` UUIDs
-                    # from the base config (highest compute first within
-                    # the base set).
-                    if speed_num_gpus > 0:
-                        from ..lib.calibration import llamaswap_io as _io
-                        speed_model_id = f"{calibration_model_id}-speed"
-                        _cfg = _io._read_yaml(LLAMASWAP_CONFIG_PATH)
-                        _base_entry = (_cfg.get("models") or {}).get(calibration_model_id) or {}
-                        _base_uuids = _io._extract_uuids_from_env(_base_entry.get("env") or [])
-                        if _base_uuids and speed_num_gpus < len(_base_uuids):
-                            _speed_uuids = _base_uuids[:speed_num_gpus]
-                            update_llamaswap_cuda_visible(
-                                LLAMASWAP_CONFIG_PATH, speed_model_id,
-                                _speed_uuids, _base_uuids,
-                            )
-                    # Patch speed_split into the latest calibration entry (already saved)
-                    from ..lib.model_vram_cache import update_llamacpp_speed_split
-                    update_llamacpp_speed_split(
+                else:
+                    self.add_debug("⚠️ Could not update -c in llama-swap config")  # type: ignore[attr-defined]
+
+                # Write the calibrated ngl to YAML.
+                # Previous logic downgraded ngl to hybrid for "swap safety", but that
+                # created a mismatch: hybrid ngl (few layers on GPU) with GPU-only context
+                # (calibrated for all layers on GPU) → massive VRAM waste.
+                # Now we write the actual calibration result. Swap OOM is llama-swap's
+                # responsibility (exclusive groups ensure old model is unloaded first).
+                yaml_ngl = calibrated_ngl
+
+                updated_ngl = update_llamaswap_ngl(
+                    LLAMASWAP_CONFIG_PATH,
+                    calibration_model_id,
+                    yaml_ngl
+                )
+                if updated_ngl:
+                    mode_label = "hybrid mode" if yaml_ngl < 99 else "gpu mode"
+                    self.add_debug(f"   -ngl {yaml_ngl} written ({mode_label})")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug("⚠️ Could not update -ngl in llama-swap config")  # type: ignore[attr-defined]
+
+                # Write speed variant YAML entry (only for multi-GPU models with valid split)
+                if speed_split_cuda0 <= 0:
+                    self.aifred_has_speed_variant = False  # type: ignore[attr-defined]
+                    self.aifred_speed_mode = False  # type: ignore[attr-defined]
+                if speed_split_cuda0 > 0:
+                    added_speed = add_llamaswap_speed_variant(
+                        LLAMASWAP_CONFIG_PATH,
                         calibration_model_id,
                         speed_split_cuda0,
                         speed_split_rest,
                         speed_split_context,
+                        num_gpus=speed_num_gpus,
+                        kv_quant=speed_kv_quant,
+                        speed_layer_split=speed_layer_split,
                     )
-                    # Toggle immediately visible without restart
-                    self.aifred_has_speed_variant = True  # type: ignore[attr-defined]
-                else:
-                    self.add_debug("⚠️ Could not write speed variant to llama-swap config")  # type: ignore[attr-defined]
-            yield
+                    if added_speed:
+                        gpu_info_str = f", {speed_num_gpus} GPUs" if speed_num_gpus else ""
+                        kv_info_str = f", KV={speed_kv_quant}" if speed_kv_quant != "f16" else ""
+                        split_display = speed_layer_split or f"{speed_split_cuda0}:{speed_split_rest}"
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"   ⚡ Speed variant: {calibration_model_id}-speed "
+                            f"(split {split_display}, "
+                            f"ctx {format_number(speed_split_context)}{gpu_info_str}{kv_info_str})"
+                        )
+                        # Pin speed variant to the first ``speed_num_gpus`` UUIDs
+                        # from the base config (highest compute first within
+                        # the base set).
+                        if speed_num_gpus > 0:
+                            from ..lib.calibration import llamaswap_io as _io
+                            speed_model_id = f"{calibration_model_id}-speed"
+                            _cfg = _io._read_yaml(LLAMASWAP_CONFIG_PATH)
+                            _base_entry = (_cfg.get("models") or {}).get(calibration_model_id) or {}
+                            _base_uuids = _io._extract_uuids_from_env(_base_entry.get("env") or [])
+                            if _base_uuids and speed_num_gpus < len(_base_uuids):
+                                _speed_uuids = _base_uuids[:speed_num_gpus]
+                                update_llamaswap_cuda_visible(
+                                    LLAMASWAP_CONFIG_PATH, speed_model_id,
+                                    _speed_uuids, _base_uuids,
+                                )
+                        # Patch speed_split into the latest calibration entry (already saved)
+                        from ..lib.model_vram_cache import update_llamacpp_speed_split
+                        update_llamacpp_speed_split(
+                            calibration_model_id,
+                            speed_split_cuda0,
+                            speed_split_rest,
+                            speed_split_context,
+                        )
+                        # Toggle immediately visible without restart
+                        self.aifred_has_speed_variant = True  # type: ignore[attr-defined]
+                    else:
+                        self.add_debug("⚠️ Could not write speed variant to llama-swap config")  # type: ignore[attr-defined]
+                yield
 
-            # Step 5: TTS variant calibration (Qwen3 + XTTS + MOSS).
+            # Step 5: TTS variant calibration (Qwen3 + XTTS + MOSS + Fish).
             # Iterate the engine registry — each GPU engine's
             # ``calibration_setup`` / ``calibration_teardown`` does the
             # right thing for that engine (Qwen3 stays at idle, XTTS runs
             # a short test inference). Order = registry order, which the
             # SSOT keeps with Qwen3 first (recommended streaming engine).
+            #
+            # Two filters apply:
+            #  • ``installed_gpu_engines`` — engines without a rolled-out
+            #    docker-compose.yml are skipped without the 600s timeout
+            #    that ``ensure_ready`` would otherwise eat.
+            #  • ``tts_calibration_selection`` — the user's per-click
+            #    picker; deselected engines are skipped. Empty dict means
+            #    "user never opened the picker" → default = all on.
             if True:
                 from ..lib.calibration import add_llamaswap_tts_variant
-                from ..lib.tts_engines import gpu_engines
+                from ..lib.tts_engines import installed_gpu_engines
 
-                for tts_engine in gpu_engines():
+                for tts_engine in installed_gpu_engines():
                     tts_backend = tts_engine.key
                     tts_label = tts_engine.label_short
+                    if not self.tts_calibration_selection.get(tts_backend, False):
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"⏭️ Skipping {tts_label} (deselected in picker)"
+                        )
+                        yield
+                        continue
                     # Thin lambdas so the surrounding loop body keeps
                     # using the same start_fn / stop_fn naming it always
                     # did — minimises diff.

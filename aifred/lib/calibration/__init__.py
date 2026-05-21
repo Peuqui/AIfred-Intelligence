@@ -17,6 +17,8 @@ from .flow import calibrate_llamacpp_model, calibrate_tts_variant_from_base
 from .llamaswap_io import (
     add_llamaswap_speed_variant,
     add_llamaswap_tts_variant,
+    has_llamaswap_base,
+    has_llamaswap_tts_variant,
     parse_llamaswap_config,
     parse_sampling_from_cmd,
     parse_tensor_split,
@@ -46,4 +48,6 @@ __all__ = [
     "remove_llamaswap_kv_cache_quant",
     "add_llamaswap_speed_variant",
     "add_llamaswap_tts_variant",
+    "has_llamaswap_base",
+    "has_llamaswap_tts_variant",
 ]

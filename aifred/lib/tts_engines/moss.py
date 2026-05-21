@@ -35,6 +35,9 @@ class MOSSEngine(TTSEngine):
         from ..config import get_moss_voices
         return get_moss_voices() or {}
 
+    def is_installed(self) -> bool:
+        return self.docker_compose_path.exists()
+
     def is_running(self) -> bool:
         import requests
         try:

@@ -475,6 +475,39 @@ def add_llamaswap_speed_variant(
     return True
 
 
+def has_llamaswap_base(config_path: Path, model_id: str) -> bool:
+    """True if a base entry for ``model_id`` exists in llama-swap.yaml with
+    a usable context (``-c`` > 0). Used by the calibration picker to show
+    a "already calibrated" indicator without re-running the measurement.
+    """
+    if not config_path.exists():
+        return False
+    config = _read_yaml(config_path)
+    entry = (config.get("models") or {}).get(model_id) or {}
+    cmd = entry.get("cmd", "") or ""
+    if not cmd:
+        return False
+    for i, p in enumerate(cmd.split()):
+        if p == "-c" and i + 1 < len(cmd.split()):
+            try:
+                return int(cmd.split()[i + 1]) > 0
+            except ValueError:
+                return False
+    return False
+
+
+def has_llamaswap_tts_variant(
+    config_path: Path, model_id: str, tts_backend: str,
+) -> bool:
+    """True if a TTS variant entry ``<model_id>-tts-<backend>`` exists in
+    llama-swap.yaml. Used by the calibration picker to flag engines that
+    have already been calibrated for this model."""
+    if not config_path.exists():
+        return False
+    config = _read_yaml(config_path)
+    return f"{model_id}-tts-{tts_backend}" in (config.get("models") or {})
+
+
 def add_llamaswap_tts_variant(
     config_path: Path,
     model_id: str,

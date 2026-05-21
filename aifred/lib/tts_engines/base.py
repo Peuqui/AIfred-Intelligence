@@ -93,6 +93,17 @@ class TTSEngine(ABC):
         return {}
 
     # ── Lifecycle ──────────────────────────────────────────────────
+    def is_installed(self) -> bool:
+        """True if the engine is *provisioned* on this host — i.e. ready
+        to be started. Default ``True`` for lightweight engines (they
+        ship with AIfred); container engines override to check whether
+        their docker-compose.yml has been rolled out.
+
+        Used by the calibration UI to hide engines the user hasn't set
+        up, so the picker only shows what's actually usable.
+        """
+        return True
+
     def is_running(self) -> bool:
         """True if the engine can accept requests *right now*. Default
         ``True`` for lightweight engines (always-on); container engines

@@ -28,12 +28,19 @@ migrated one at a time, with a small commit per migration, so a bug
 in the refactor stays bounded.
 """
 from .base import TTSEngine
-from .registry import TTS_ENGINES, get_engine, gpu_engines, channel_engine_options
+from .registry import (
+    TTS_ENGINES,
+    get_engine,
+    gpu_engines,
+    installed_gpu_engines,
+    channel_engine_options,
+)
 
 __all__ = [
     "TTSEngine",
     "TTS_ENGINES",
     "get_engine",
     "gpu_engines",
+    "installed_gpu_engines",
     "channel_engine_options",
 ]
