@@ -272,6 +272,7 @@
         "thinking": true
       },
       "tools": [
+        "search_bible",
         "epim_search",
         "epim_create",
         "epim_update",
@@ -292,6 +293,7 @@
         "index_document",
         "search_documents",
         "list_indexed",
+        "list_orphaned",
         "delete_document",
         "chromadb_stats",
         "chromadb_clear",
@@ -411,6 +413,7 @@
         "audio_play",
         "audio_stop",
         "audio_status",
+        "search_bible",
         "epim_search",
         "epim_create",
         "epim_update",
@@ -430,6 +433,7 @@
         "index_document",
         "search_documents",
         "list_indexed",
+        "list_orphaned",
         "delete_document",
         "chromadb_stats",
         "chromadb_clear",
