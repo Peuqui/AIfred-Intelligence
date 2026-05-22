@@ -689,6 +689,16 @@ class TTSStreamingMixin(rx.State, mixin=True):
             combined_url = save_audio_to_session(completed_urls, self.session_id)  # type: ignore[attr-defined]
             if combined_url:
                 log_message(f"🔊 TTS Finalize: Saved to session → {combined_url}")
+                if len(completed_urls) > 1:
+                    from ..lib.logging_utils import console_separator, CONSOLE_SEPARATOR
+                    self.add_debug(f"🔗 TTS: Combined {len(completed_urls)} chunks → replay ready")  # type: ignore[attr-defined]
+                    console_separator()
+                    self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+            else:
+                from ..lib.logging_utils import console_separator, CONSOLE_SEPARATOR
+                self.add_debug(f"⚠️ TTS: Combining {len(completed_urls)} chunks failed")  # type: ignore[attr-defined]
+                console_separator()
+                self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
 
         # Reset streaming state
         self._tts_sentence_buffer = ""
@@ -707,7 +717,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         that has just been added to chat_history.
 
         The streaming TTS chunks are already on the way to the browser via
-        audio_queue_push() in _drain_tts_order_buffer — this method only
+        browser_push() in _drain_tts_order_buffer — this method only
         handles the "after-the-fact" combined-WAV save for replay/export.
         Running it as a create_task means the multi_agent stream generator
         can yield immediately, the bubble renders complete (text + sources
@@ -762,6 +772,22 @@ class TTSStreamingMixin(rx.State, mixin=True):
             }
             ch.chat_history = history
             log_message(f"🔊 TTS Background: ✅ Patched bubble #{target} with {len(audio_urls)} audio URL(s)")
+
+            # Reflex-independent live push: this bare create_task mutates
+            # the server state above, but Reflex never pushes that delta to
+            # the browser. So announce the combined URL over the existing
+            # SSE audio bus — custom.js attaches it to the bubble's audio
+            # button itself, no Reflex round-trip needed.
+            if audio_urls:
+                try:
+                    from ..lib.api import browser_push
+                    browser_push(
+                        self.session_id,  # type: ignore[attr-defined]
+                        kind="bubble_audio",
+                        url=audio_urls[0],
+                    )
+                except Exception as e:
+                    log_message(f"🔊 TTS Background: bubble_audio push failed: {e}")
 
             # Persist so a session reload still has the audio URL.
             try:
@@ -1033,7 +1059,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Drains all consecutive entries starting from push_seq.
         Skips entries marked as None (empty/failed sentences).
         """
-        from ..lib.api import audio_queue_push
+        from ..lib.api import browser_push
 
         tts_state = get_tts_backend_state(session_id)
 
@@ -1053,7 +1079,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             if entry is not None:
                 audio_url, playback_rate, request_id = entry
-                audio_queue_push(session_id, "tts", audio_url, playback_rate=playback_rate)
+                browser_push(session_id, "tts", audio_url, playback_rate=playback_rate)
                 log_message(f"🔊 TTS Order: ✅ Pushed seq={tts_state.push_seq} to queue")
                 # Track completion
                 tts_state.completed_urls[request_id] = audio_url

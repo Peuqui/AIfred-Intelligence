@@ -383,11 +383,12 @@ class SessionMixin(rx.State, mixin=True):
                         self._restore_session(session)
                         self.session_restored = True
 
-        # Reconnect Audio Bus SSE stream for this device (multi-device support)
-        # When user clicks reload button, they signal "I want to work here now"
-        # — ensures TTS + media audio plays on this device (Last Writer Wins).
+        # Reconnect Browser Push Bus SSE stream for this device (multi-device
+        # support). When user clicks reload button, they signal "I want to
+        # work here now" — ensures TTS + media audio plays on this device
+        # (Last Writer Wins).
         if self.session_id:
-            return rx.call_script(f"if(window.startAudioStream) startAudioStream('{self.session_id}');")
+            return rx.call_script(f"if(window.startBrowserStream) startBrowserStream('{self.session_id}');")
 
     # ── Clear Chat (Internal) ────────────────────────────────────────
 
@@ -496,29 +497,37 @@ class SessionMixin(rx.State, mixin=True):
 
     # ── Title Generation ─────────────────────────────────────────────
 
-    async def _generate_session_title(self, title_model_override: str = ""):
-        """Generate a chat title using the central LLM title function.
+    async def _generate_session_title(self, title_model_override: str = "") -> None:
+        """Generate a chat title in the background (fire-and-forget coroutine).
 
-        Thin wrapper around llm_engine.generate_session_title() that adds
-        UI updates (debug messages, yield) and extracts the first Q&A pair
-        from llm_history.
+        Started as a create_task off the chat event handler's finally block.
+        Title generation with a reasoning model can take >100 s; run inline it
+        used to block the handler — and with it the 500 ms debug-refresh timer
+        — for that whole time. As a background task it holds no Reflex state
+        lock: the handler returns at once, and the finished title reaches the
+        browser over the Browser Push Bus (kind="session_title"), debug lines
+        via the periodic refresh_debug_console timer.
 
         Args:
             title_model_override: If set, use this model instead of AIfred model.
                 Useful after Vision-Only inference where the vision model is still loaded.
-
-        Yields:
-            None - yields are for UI updates only
         """
         from ..lib.session_storage import get_session_title
         from ..lib.llm_engine import generate_session_title
         from ..lib.logging_utils import console_separator
+        from ..lib.api import browser_push
+
+        # Bind the session id up front. As a background task we may outlive
+        # a session switch — every disk write and bus push must target the
+        # session this title was generated for, not whatever self.session_id
+        # points at after an await.
+        title_sid = self.session_id
 
         # Skip if already has title
         if self.current_session_title:
             return
 
-        existing_title = get_session_title(self.session_id)
+        existing_title = get_session_title(title_sid)
         if existing_title:
             self.current_session_title = existing_title
             return
@@ -561,22 +570,65 @@ class SessionMixin(rx.State, mixin=True):
             num_ctx_override = self.aifred_max_context  # type: ignore[attr-defined]
 
         self.add_debug("Generating session title...")  # type: ignore[attr-defined]
-        yield
 
         title = await generate_session_title(
             user_text=first_user_msg,
             ai_response=first_ai_response,
-            session_id=self.session_id,
+            session_id=title_sid,
             lang=self._last_detected_language or "",  # type: ignore[attr-defined]
             model_override=title_model_override,
             num_ctx_override=num_ctx_override,
         )
 
+        # generate_session_title already persisted the title to title_sid's
+        # session file. If the user switched sessions while we were busy,
+        # stop here — touching self.* would write into the wrong session.
+        if self.session_id != title_sid:
+            return
+
+        # update_session_title() inside generate_session_title() wrote the
+        # session file but did NOT touch _last_session_mtime — without this
+        # re-anchor, refresh_debug_console's mtime-watch would treat the
+        # write as external on its next 500ms tick, reload the session, and
+        # overwrite our in-memory debug_messages with the disk version
+        # (which still lacks the "Session title:" / "────" lines below,
+        # because the Chat-handler's _save_current_session ran before this
+        # background task got the title). Same SSOT pattern as
+        # _save_current_session / _persist_session_config.
+        try:
+            from ..lib.session_storage import get_session_path
+            import os as _os
+            self._last_session_mtime = _os.path.getmtime(  # type: ignore[attr-defined]
+                get_session_path(title_sid)
+            )
+        except (OSError, ValueError):
+            pass
+
         if title:
             self.current_session_title = title
+            # Mirror the disk-side title into the in-memory session list. The
+            # Browser Push Bus patches the DOM live, but the bus is only a
+            # bridge until the next Reflex re-render — see browser-push-bus.md
+            # ("Wer nur pusht, aber den State nicht mutiert, verliert den
+            # DOM-Patch beim nächsten Re-Render"). Without this update the
+            # sidebar still renders "Unbenannter Chat" from `available_sessions`
+            # on the next state push, overwriting the patched title.
+            patched = []
+            for session in self.available_sessions:  # type: ignore[attr-defined]
+                if session.get("session_id") == title_sid:
+                    patched.append({**session, "title": title})
+                else:
+                    patched.append(session)
+            self.available_sessions = patched  # type: ignore[attr-defined]
             self.add_debug(f"Session title: {title}")  # type: ignore[attr-defined]
+            # Reflex-independent live push: a background task pushes no state
+            # delta — announce the title over the Browser Push Bus so
+            # custom.js patches it into the session-list entry at once.
+            try:
+                browser_push(title_sid, kind="session_title", url=title)
+            except Exception as e:
+                self.add_debug(f"⚠️ session_title push failed: {e}")  # type: ignore[attr-defined]
         else:
             self.add_debug("Session title: empty response")  # type: ignore[attr-defined]
         console_separator()
         self.add_debug("────────────────────")  # type: ignore[attr-defined]
-        yield
