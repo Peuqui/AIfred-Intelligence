@@ -19,6 +19,7 @@ from .llamaswap_io import (
     add_llamaswap_tts_variant,
     has_llamaswap_base,
     has_llamaswap_tts_variant,
+    remove_llamaswap_tts_variant,
     parse_llamaswap_config,
     parse_sampling_from_cmd,
     parse_tensor_split,
@@ -50,4 +51,5 @@ __all__ = [
     "add_llamaswap_tts_variant",
     "has_llamaswap_base",
     "has_llamaswap_tts_variant",
+    "remove_llamaswap_tts_variant",
 ]

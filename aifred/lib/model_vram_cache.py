@@ -1045,6 +1045,22 @@ def get_llamacpp_calibrations(model_id: str) -> List[Dict[str, Any]]:
     return list(reversed(calibrations))
 
 
+def remove_model_from_cache(model_id: str) -> bool:
+    """Delete a model's entire entry from the VRAM cache.
+
+    Used when a TTS-variant calibration fails: the stale
+    ``<model>-tts-<backend>`` cache entry must go, otherwise the
+    calibration picker keeps showing it as "already calibrated".
+    Returns True if an entry was actually removed."""
+    with _cache_lock:
+        cache = load_cache()
+        if model_id not in cache:
+            return False
+        del cache[model_id]
+        logger.info(f"Removed stale cache entry: {model_id}")
+        return save_cache(cache)
+
+
 def get_model_native_context_from_cache(model_id: str) -> Optional[int]:
     """
     Get native (architectural) context limit from VRAM cache.
