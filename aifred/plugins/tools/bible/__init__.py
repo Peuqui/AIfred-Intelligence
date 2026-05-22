@@ -136,7 +136,11 @@ class BiblePlugin:
         ]
 
     def get_prompt_instructions(self, lang: str) -> str:
-        return ""
+        # Central Bible-research strategy — shipped inside the plugin
+        # (prompts/<lang>.txt), the one place this instruction lives.
+        # Inserted into the system prompt of every agent with search_bible.
+        path = Path(__file__).parent / "prompts" / f"{lang}.txt"
+        return path.read_text(encoding="utf-8").strip() if path.is_file() else ""
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         if tool_name == "search_bible":
