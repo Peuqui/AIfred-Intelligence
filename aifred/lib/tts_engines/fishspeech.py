@@ -26,8 +26,8 @@ class FishSpeechEngine(TTSEngine):
     # Fish grows dynamically during generate() — measured ~19.6 GB idle
     # → ~23.5 GB peak on the V100, then stable. Same pattern as Qwen3:
     # do NOT load the container during calibration, just subtract the
-    # fixed 24 GB reserve from the TTS GPU. The reserve covers the peak
-    # with a small headroom.
+    # fixed 26 GB reserve from the TTS GPU. The reserve covers the peak
+    # with a ~2.5 GB headroom.
     @property
     def calibration_vram_reserve_mb(self) -> int:
         from ..config import FISH_SPEECH_VRAM_RESERVE_MB
@@ -93,7 +93,7 @@ class FishSpeechEngine(TTSEngine):
 
     def calibration_setup(self, debug: Any) -> bool:
         # Same pattern as Qwen3: do NOT load the container during
-        # calibration. The fixed 24 GB reserve covers idle (19.6 GB) +
+        # calibration. The fixed 26 GB reserve covers idle (19.6 GB) +
         # peak growth (23.5 GB) with headroom. Loading would double-count
         # the idle footprint against the reserve and squeeze the V100
         # out of the LLM plan entirely.
