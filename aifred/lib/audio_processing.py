@@ -1153,53 +1153,30 @@ def generate_speech_qwen3local(text: str, speed: float = 1.0, voice_choice: str 
 
 
 def generate_speech_fishspeech(text: str, speed: float = 1.0, voice_choice: str = "AIfred", language: str = "de") -> str | None:
-    """Fish Audio S2 Pro (Docker) — voice cloning via inline reference WAV.
+    """Fish Audio S2 Pro (Docker) — voice cloning via server-side reference_id.
 
-    Fish-Speech's /v1/tts accepts a ``references: [{audio, text}]``
-    list of in-context examples. We read the user-selected voice's
-    ``.wav`` + matching ``.txt`` transcript straight from
-    ``docker/fish-speech/voices/`` and ship them as one reference per
-    request. No pre-uploading of references needed — the engine
-    re-extracts the speaker on every call (slightly slower than Qwen3's
-    pre-warmed prompts, but no statefulness on the AIfred side).
+    Fish-Speech's native API serves reference voices out of
+    ``/app/references/<id>/<id>.wav`` + matching ``<id>.lab`` transcript.
+    We mount ``docker/fish-speech/voices/`` read-only at that path
+    (docker-compose.yml) and just pass the voice id — the container reads
+    the files itself, no per-request base64 round-trip of a 1 MB WAV.
+    Same shape as XTTS / MOSS / Qwen3-TTS (only the speaker name on the
+    wire); consistent with what the upstream Fish-Speech WebUI does.
     """
-    import base64
     import requests
-    from pathlib import Path
-    from .config import FISH_SPEECH_SERVICE_URL, PROJECT_ROOT
-
-    voices_dir = Path(PROJECT_ROOT) / "docker" / "fish-speech" / "voices"
-    wav_path = voices_dir / f"{voice_choice}.wav"
-    txt_path = voices_dir / f"{voice_choice}.txt"
-
-    if not wav_path.exists():
-        log_message(f"❌ Fish-Speech: voice WAV missing at {wav_path}")
-        return None
-    audio_bytes = wav_path.read_bytes()
-    transcript = txt_path.read_text(encoding="utf-8").strip() if txt_path.exists() else ""
-    if not transcript:
-        log_message(
-            f"⚠️ Fish-Speech: {voice_choice}.txt missing — voice cloning works "
-            f"without a transcript but quality is noticeably better with one"
-        )
+    from .config import FISH_SPEECH_SERVICE_URL
 
     filename = _generate_tts_filename("wav")
     output_file = str(TTS_AUDIO_DIR / filename)
 
     try:
         log_message(f"🎤 Fish-Speech: speaker={voice_choice}, language={language}, text_length={len(text)}")
-        # Pydantic decode_audio on the server side accepts base64-encoded
-        # strings >255 chars and turns them into bytes — JSON body with
-        # base64-encoded audio is the simplest interop path.
         response = requests.post(
             f"{FISH_SPEECH_SERVICE_URL}/v1/tts",
             json={
                 "text": text,
                 "format": "wav",
-                "references": [{
-                    "audio": base64.b64encode(audio_bytes).decode("ascii"),
-                    "text": transcript,
-                }],
+                "reference_id": voice_choice,
                 "normalize": True,
                 "streaming": False,
             },
