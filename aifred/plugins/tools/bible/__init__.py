@@ -8,19 +8,30 @@ Bundles two access paths into one self-contained tool, ``search_bible``:
   folder, reusing the shared document_store search via file_manager — no
   duplicated vector logic, no plugin-to-plugin call.
 
-All Bible specifics (translation, JSON path, book names, the reference
-parser) are encapsulated here; the generic search_documents tool stays
-free of any Bible knowledge.
+Which translation the reference lookup uses is a plugin setting
+(``BIBLE_TRANSLATION`` — a sub-folder of data/documents/bibel/), shown
+as a dropdown in the plugin's settings. All Bible specifics (the
+reference parser, the translation, the book-alias tables) stay
+encapsulated here; the generic search_documents tool stays free of any
+Bible knowledge.
 """
 import json
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import CredentialField, PluginContext
 from ....lib.security import TIER_READONLY
-from .reference import data_available, resolve
+from .reference import (
+    TRANSLATION_ENV_KEY,
+    available_translations,
+    data_available,
+    reload,
+    resolve,
+)
 
 
 @dataclass
@@ -31,6 +42,39 @@ class BiblePlugin:
         "Bibel-Zugriff: exakter Stellen-Lookup (z. B. Psalm 5) und "
         "thematische Suche in der Bibel."
     )
+
+    # ── Plugin settings (settings.json next to this module) ──────────
+    @property
+    def credential_fields(self) -> list[CredentialField]:
+        """One dropdown: which translation the reference lookup uses.
+        Options are the translation sub-folders of data/documents/bibel/."""
+        translations = available_translations()
+        return [
+            CredentialField(
+                env_key=TRANSLATION_ENV_KEY,
+                label_key="bible_cred_translation",
+                options=[(t, t) for t in translations],
+                default=translations[0] if translations else "",
+            ),
+        ]
+
+    def _settings_path(self) -> Path:
+        return Path(__file__).parent / "settings.json"
+
+    def _load_settings(self) -> dict:
+        """Load the plugin's settings.json (empty dict if none)."""
+        path = self._settings_path()
+        if not path.is_file():
+            return {}
+        with open(path, encoding="utf-8") as f:
+            return dict(json.load(f))
+
+    def _save_settings(self, settings: dict) -> None:
+        """Persist the plugin's settings.json. The active translation
+        may have changed, so the reference lookup's cache is dropped."""
+        with open(self._settings_path(), "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+        reload()
 
     def is_available(self) -> bool:
         return data_available()
@@ -101,3 +145,10 @@ class BiblePlugin:
 
 
 plugin = BiblePlugin()
+
+# Load the saved translation choice into os.environ at import time, so
+# the reference lookup and the settings modal both see it after a
+# restart (tool plugins have no automatic settings-to-env step).
+for _key, _val in plugin._load_settings().items():
+    if _val:
+        os.environ[_key] = _val
