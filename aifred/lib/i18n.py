@@ -195,6 +195,7 @@ class TranslationManager:
             "temp_info_auto": "Intent-Detection wählt optimale Temperature",
             # TTS/STT Settings (Phase 3)
             "tts_heading": "🔊 Sprachausgabe (TTS):",
+            "tts_engine_disabled_tooltip": "GPU-gestützte TTS-Engines (Qwen3-TTS, XTTS, Fish-Speech, MOSS) teilen sich den VRAM mit dem Sprachmodell und brauchen deshalb für das aktuell gewählte Modell eine eigene Kalibrierung. Engines ohne kalibriertes Profil sind ausgegraut — kalibriere sie zuerst über den „Context kalibrieren“-Button. CPU- und Cloud-Engines (Edge, Piper, eSpeak, DashScope) sind immer verfügbar.",
             "tts_engine_label": "Engine:",
             "tts_voice_label": "Stimme:",
             "tts_speed_label": "Tempo:",
@@ -698,6 +699,7 @@ class TranslationManager:
             "temp_info_auto": "Intent-Detection chooses optimal temperature",
             # TTS/STT Settings (Phase 3)
             "tts_heading": "🔊 Text-to-Speech (TTS):",
+            "tts_engine_disabled_tooltip": "GPU-based TTS engines (Qwen3-TTS, XTTS, Fish-Speech, MOSS) share VRAM with the language model and therefore need their own calibration for the currently selected model. Engines without a calibrated profile are greyed out — calibrate them first via the \"Calibrate context\" button. CPU and cloud engines (Edge, Piper, eSpeak, DashScope) are always available.",
             "tts_engine_label": "Engine:",
             "tts_voice_label": "Voice:",
             "tts_speed_label": "Speed:",
