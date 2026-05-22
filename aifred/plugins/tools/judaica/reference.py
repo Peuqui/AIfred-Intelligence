@@ -1,0 +1,170 @@
+"""Reference lookup against the structured Judaica JSON.
+
+Resolves textual references like ``Berakhot 3``, ``Pirkei Avot 1,1`` or
+``Rashi zu Genesis 1,1`` to the exact source text — the precise
+counterpart to the thematic vector search when a concrete passage is
+named instead of a topic.
+
+The data source is built by scripts/build_judaica_json.py: one JSON per
+work plus an ``_index.json`` listing every work with the names the
+lookup recognises it by. Works have heterogeneous citation systems
+(Daf/Line for the Talmud, Chapter/Verse for the Tanakh, …) — the lookup
+treats them uniformly as section + optional entry:
+
+- one number  -> the whole section ("Berakhot 3" -> all of Daf 3);
+- two numbers -> section + entry ("Pirkei Avot 1,1" -> Chapter 1,
+  Mishnah 1), optionally an entry range ("Pirkei Avot 1,1-3").
+
+Nothing work-specific is hard-coded here — the recognition names and
+the section/entry labels all come from ``_index.json``.
+"""
+from __future__ import annotations
+
+import functools
+import json
+import re
+from dataclasses import dataclass
+from typing import Optional
+
+from ....lib.config import DATA_DIR
+
+_JUDAICA_DIR = DATA_DIR / "documents" / "judaica"
+_INDEX_PATH = _JUDAICA_DIR / "_index.json"
+
+
+def _norm(name: str) -> str:
+    """Normalize a work name for lookup: lowercase, no dots/spaces/commas."""
+    return re.sub(r"[.\s,]", "", name).lower()
+
+
+def _flex(alias: str) -> str:
+    """Regex fragment matching an alias tolerant of its dots/spaces.
+
+    ``re.escape`` escapes the space to ``\\ ``, so the escaped form is
+    what gets replaced — not a bare space.
+    """
+    return re.escape(alias).replace(r"\.", r"\.?").replace(r"\ ", r"\s*")
+
+
+@functools.lru_cache(maxsize=1)
+def _index() -> dict:
+    """Load _index.json: ``{work_key: {json, work, source, names,
+    section_type, entry_type}}``."""
+    with open(_INDEX_PATH, encoding="utf-8") as f:
+        return dict(json.load(f))
+
+
+@functools.lru_cache(maxsize=16)
+def _work_json(rel_path: str) -> dict:
+    """Load one work's JSON (book/section/entry). Cached per work so
+    repeated lookups into the same work don't re-read the file."""
+    with open(_JUDAICA_DIR / rel_path, encoding="utf-8") as f:
+        return dict(json.load(f))
+
+
+@functools.lru_cache(maxsize=1)
+def _name_to_key() -> dict[str, str]:
+    """Normalized recognition name -> work key."""
+    return {
+        _norm(name): key
+        for key, entry in _index().items()
+        for name in entry["names"]
+    }
+
+
+@functools.lru_cache(maxsize=1)
+def _pattern() -> re.Pattern:
+    """Compiled reference regex: <work> <section>[,<entry>[-<entry>]]."""
+    names = [n for e in _index().values() for n in e["names"]]
+    names.sort(key=len, reverse=True)  # "Mishnah Sanhedrin" beats "Sanhedrin"
+    work_alt = "|".join(_flex(n) for n in names)
+    return re.compile(
+        rf"\b(?P<work>{work_alt})\.?\s+(?P<sec>\d+)"
+        rf"(?:\s*[,:]\s*(?P<e1>\d+)(?:\s*[-–]\s*(?P<e2>\d+))?)?",
+        re.IGNORECASE,
+    )
+
+
+def data_available() -> bool:
+    """True if the structured Judaica index is present (the reference
+    lookup's data source — built by scripts/build_judaica_json.py)."""
+    return _INDEX_PATH.is_file()
+
+
+@dataclass
+class JudaicaReference:
+    """A parsed Judaica reference."""
+
+    work_key: str
+    work_name: str             # display name
+    section: str               # section number (JSON keys are strings)
+    entry_from: Optional[str]  # None = whole section
+    entry_to: Optional[str]    # None = single entry (or whole section)
+    display: str               # human form, e.g. "Berakhot 3"
+
+
+def parse_reference(text: str) -> Optional[JudaicaReference]:
+    """Extract the first Judaica reference from ``text``; None if none."""
+    if not data_available():
+        return None
+    m = _pattern().search(text)
+    if not m:
+        return None
+    key = _name_to_key().get(_norm(m.group("work")))
+    if key is None:
+        return None
+    work_name = _index()[key]["names"][0]
+    section = m.group("sec")
+    e1 = m.group("e1")
+    e2 = m.group("e2")
+    display = f"{work_name} {section}"
+    if e1:
+        display += f",{e1}" + (f"-{e2}" if e2 else "")
+    return JudaicaReference(key, work_name, section, e1, e2, display)
+
+
+def lookup(ref: JudaicaReference) -> dict:
+    """Resolve a reference to source text. Returns a result dict.
+
+    On success: ``{reference, work, section, section_type, entry_type,
+    entries:[…]}``. On a missing section/entry: ``{reference, error}``.
+    """
+    meta = _index()[ref.work_key]
+    data = _work_json(meta["json"])
+    section = data["sections"].get(ref.section)
+    if not section:
+        return {"reference": ref.display,
+                "error": f"{ref.work_name} has no "
+                         f"{data['section_type']} {ref.section}"}
+
+    if ref.entry_from is None:
+        wanted = sorted(section, key=int)
+    elif ref.entry_to is None:
+        wanted = [ref.entry_from]
+    else:
+        wanted = [str(n) for n in range(int(ref.entry_from),
+                                        int(ref.entry_to) + 1)]
+
+    entries = [{"nr": n, "text": section[n]} for n in wanted if n in section]
+    if not entries:
+        return {"reference": ref.display,
+                "error": f"{ref.work_name} {ref.section} has no such "
+                         f"{data['entry_type'].lower()}(s)"}
+    return {
+        "reference": ref.display,
+        "work": data["work"],
+        "section": ref.section,
+        "section_type": data["section_type"],
+        "entry_type": data["entry_type"],
+        "entries": entries,
+    }
+
+
+def resolve(text: str) -> Optional[dict]:
+    """Parse a reference from ``text`` and look it up in one step.
+
+    Returns the lookup result dict, or None if ``text`` contains no
+    recognizable Judaica reference.
+    """
+    ref = parse_reference(text)
+    return lookup(ref) if ref else None

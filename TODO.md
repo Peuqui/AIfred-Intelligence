@@ -774,17 +774,6 @@ genannten Optimierungen besser ausgenutzt werden könnte.
       Meeting-Recordings). Whisper ist schon installiert → neu hereingelegte
       Files automatisch transkribieren und als Text ablegen / in RAG indexieren.
 - [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhaengig von EPIM)
-- [ ] **Judaica-Stellen-Lookup (Stufe B des `judaica`-Plugins)** — exakter
-      Referenz-Lookup analog zum Bibel-Plugin (`resolve()`): "Berakhot 3",
-      "Pirkei Avot 1,1", "Rashi zu Genesis 1,1" → exakter Text statt
-      Vektorsuche. Die Sefaria-Texte unter `data/documents/judaica/` sind
-      durchgängig als Markdown strukturiert (`#` Werk / `##` Chapter|Daf|
-      Psalm|Paragraph / `###` Verse|Line|Mishnah|Comment|Halakhah) — ein
-      generischer Parser kann daraus eine strukturierte JSON bauen.
-      Offen: Talmud-Referenzsystem — die Sefaria-Daten haben nur `Daf N`
-      ohne a/b-Seitenteilung und fortlaufende `Line N`; der traditionelle
-      Zitierstandard "Berakhot 3a/3b" lässt sich daraus nicht 1:1 abbilden.
-      Stufe A (thematische Suche, `folder="judaica"`) ist bereits gebaut.
 
 ### Google Suite (OAuth-basierte Plugins)
 
