@@ -327,8 +327,12 @@ class AIState(  # type: ignore[misc]
             yield toast_event
             return
 
-        # Just yield to propagate any state changes to UI
-        # No need to modify anything - self.debug_messages already has the data
+        # Background create_tasks (TTS finalize, title generation) append to
+        # debug_messages but never trigger a Reflex delta themselves. A bare
+        # yield only pushes vars Reflex flagged dirty in THIS event — so
+        # re-assign the list to force it dirty. This 500ms timer is what
+        # carries background-task lines to the rx.foreach debug console.
+        self.debug_messages = list(self.debug_messages)
         yield
 
     def _get_backend_url(self) -> str:
