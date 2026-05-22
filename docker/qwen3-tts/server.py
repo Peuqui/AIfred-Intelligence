@@ -289,7 +289,17 @@ def _idle_watcher():
         idle = time.time() - _last_request_time
         if idle > timeout_s:
             logger.info(f"Idle for {idle / 60:.1f} min — shutting down")
-            os.kill(os.getpid(), signal.SIGTERM)
+            # SIGTERM the gunicorn master (our parent), not ourselves:
+            # killing our own worker just makes gunicorn respawn it and
+            # the container never exits. Escalate to SIGKILL on ourselves
+            # if the graceful shutdown wedges (e.g. stuck CUDA context).
+            try:
+                os.kill(os.getppid(), signal.SIGTERM)
+            except OSError as exc:
+                logger.error(f"SIGTERM to gunicorn master failed: {exc}")
+            time.sleep(15)
+            logger.warning("Graceful shutdown did not exit — escalating to SIGKILL")
+            os.kill(os.getpid(), signal.SIGKILL)
             return
 
 
