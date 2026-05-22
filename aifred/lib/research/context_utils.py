@@ -134,21 +134,23 @@ def get_agent_num_ctx(
 
     if backend_type == "llamacpp":
         # llama.cpp: YAML -c value = ground truth (actual server config).
-        # When a GPU TTS engine is running, llama-swap will actually load
+        # When a GPU TTS engine is selected, llama-swap will actually load
         # the smaller `<model>-tts-<engine>` profile — so the context we
         # report has to be read from THAT entry, not the base. Without
         # this, the bubble's compression trigger uses the base context
         # (e.g. 194k) while llama-server is actually configured at the
         # TTS-variant context (e.g. 117k), and a long tool loop runs
         # past the real limit without ever triggering history compression.
+        # SSOT is the State toggle (enable_tts + tts_engine), not a live
+        # container probe — same rationale as _effective_model_id.
         from ..calibration import parse_llamaswap_config
         from ..config import LLAMASWAP_CONFIG_PATH
-        from ..tts_engine_manager import _detect_running_tts_engine
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 
         effective_id = model_id
-        tts_engine = _detect_running_tts_engine()
-        if tts_engine:
+        enable_tts = getattr(state, 'enable_tts', False)
+        tts_engine = getattr(state, 'tts_engine', '')
+        if enable_tts and tts_engine:
             candidate = f"{model_id}-tts-{tts_engine}"
             if candidate in config:
                 effective_id = candidate

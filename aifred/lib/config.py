@@ -1129,18 +1129,25 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         if speed_id in swap_cfg:
             return speed_id
 
-    # TTS variant — check if a GPU TTS container is actually running
-    # This works for both browser (enable_tts toggle) and FreeEcho.2 (TTS always on).
-    # Instead of relying on settings.json flags, check the real container state.
+    # TTS variant — SSOT is the user's settings, NOT a live HTTP probe of the
+    # container. The container can be down (cold start pending), idle
+    # (KEEP_ALIVE between sentences) or busy (mid-batch); none of those mean
+    # the profile should switch. If the user has TTS enabled, the model
+    # profile must stay on the TTS variant for the whole session, otherwise
+    # follow-up calls (Title-Gen, Automatik) would reload the same .gguf with
+    # a different tensor-split. Used in headless contexts (API, Message Hub)
+    # that have no Reflex state — settings.json is the authority there.
     if backend_type == "llamacpp":
-        from .tts_engine_manager import _detect_running_tts_engine
-        tts_engine = _detect_running_tts_engine()
-        if tts_engine:
-            tts_id = f"{base_id}-tts-{tts_engine}"
-            from .calibration import parse_llamaswap_config
-            swap_cfg = parse_llamaswap_config(Path(LLAMASWAP_CONFIG_PATH))
-            if tts_id in swap_cfg:
-                return tts_id
+        enable_tts = settings.get("enable_tts", False)
+        tts_engine = settings.get("tts_engine", "")
+        if enable_tts and tts_engine:
+            from .tts_engine_manager import GPU_ENGINES
+            if tts_engine in GPU_ENGINES:
+                tts_id = f"{base_id}-tts-{tts_engine}"
+                from .calibration import parse_llamaswap_config
+                swap_cfg = parse_llamaswap_config(Path(LLAMASWAP_CONFIG_PATH))
+                if tts_id in swap_cfg:
+                    return tts_id
 
     return str(base_id)
 

@@ -403,23 +403,27 @@ class AgentConfigMixin(rx.State, mixin=True):
         if speed_on and has_speed:
             return f"{base_id}-speed"
 
-        # TTS on GPU: use TTS-calibrated variant (reduced -c for VRAM sharing)
-        # Only when TTS is explicitly enabled in the UI. A leftover running
-        # TTS container from a previous session must NOT silently switch the
-        # model profile — the user's toggle is authoritative.
+        # TTS on GPU: use TTS-calibrated variant (reduced -c for VRAM sharing).
+        # SSOT for the active profile is the user's UI toggle (enable_tts +
+        # tts_engine), NOT the live container state. Probing the container via
+        # HTTP every call leaks transient states (idle KEEP_ALIVE, busy with a
+        # batch of sentences, restart in progress) into model resolution and
+        # makes Title-Gen / Automatik calls swap to the base profile mid-flow
+        # — full reload of the same .gguf with a different tensor-split.
+        # ensure_tts_state() at pipeline start guarantees the container is up
+        # before inference; from there the user's toggle stays authoritative
+        # for the rest of the request, including all follow-up calls.
         if self.backend_type == "llamacpp" and self.enable_tts:  # type: ignore[attr-defined]
-            from ..lib.tts_engine_manager import _detect_running_tts_engine, GPU_ENGINES
+            from ..lib.tts_engine_manager import GPU_ENGINES
             if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-                running_tts = _detect_running_tts_engine()
-                if running_tts:
-                    from ..lib.calibration import parse_llamaswap_config
-                    from ..lib.config import LLAMASWAP_CONFIG_PATH
-                    tts_variant = f"{base_id}-tts-{running_tts}"
-                    swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-                    if tts_variant in swap_cfg:
-                        return tts_variant
-                    from ..lib.logging_utils import log_message
-                    log_message(f"⚠️ _effective_model_id: TTS variant {tts_variant} NOT in config")
+                from ..lib.calibration import parse_llamaswap_config
+                from ..lib.config import LLAMASWAP_CONFIG_PATH
+                tts_variant = f"{base_id}-tts-{self.tts_engine}"  # type: ignore[attr-defined]
+                swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                if tts_variant in swap_cfg:
+                    return tts_variant
+                from ..lib.logging_utils import log_message
+                log_message(f"⚠️ _effective_model_id: TTS variant {tts_variant} NOT in config")
 
         return base_id
 
