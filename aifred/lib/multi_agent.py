@@ -343,9 +343,8 @@ async def _stream_agent_to_history(
     # AIfred stays responsive for the next prompt.
     audio_urls: list[str] = []
     if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        text_snippet = (pipeline_result.text or "")[:120]
         asyncio.create_task(
-            state._finalize_streaming_tts_in_background(agent, text_snippet)
+            state._finalize_streaming_tts_in_background(agent)
         )
 
     # Build web sources collapsible from tracked URLs
