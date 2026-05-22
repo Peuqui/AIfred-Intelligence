@@ -211,10 +211,12 @@ async def delete_folder(
     target = parent / name
     disk_exists = target.exists() and target.is_dir()
 
-    if from_disk and not disk_exists:
-        if target.exists():
-            return FileOpResult(False, f"Not a folder: {name}. Use delete_file.")
-        return FileOpResult(False, f"Folder not found: {name}")
+    if target.exists() and not disk_exists:
+        # path exists but is a file, not a folder
+        return FileOpResult(False, f"Not a folder: {name}. Use delete_file.")
+    # A missing disk folder must NOT abort here: the index cleanup below
+    # still has to run. The actions check at the end reports the case
+    # where neither a disk folder nor index entries were found.
 
     rel_target = str((target if disk_exists else target).resolve().relative_to(DOCUMENTS_DIR.resolve())) \
         if disk_exists else str(Path(parent_rel) / name) if parent_rel else name
@@ -323,10 +325,11 @@ async def delete_file(
         return FileOpResult(False, err)
     assert parent is not None
     target = parent / name
-    if from_disk and not target.exists():
-        return FileOpResult(False, f"File not found: {name}")
     if target.exists() and target.is_dir():
         return FileOpResult(False, f"Is a folder: {name}. Use delete_folder.")
+    # A missing file on disk must NOT abort here: disk and index are
+    # independent, so the index cleanup below still has to run. The
+    # actions check at the end reports the "nothing to delete" case.
 
     rel_target = str(target.relative_to(DOCUMENTS_DIR))
     actions: list[str] = []
@@ -350,7 +353,12 @@ async def delete_file(
         target.unlink()
         actions.append("disk")
 
-    detail = f"Deleted {name}: {', '.join(actions) if actions else 'nothing'}"
+    if not actions:
+        return FileOpResult(
+            False, f"Nothing to delete for {name}: no file on disk, no index chunks"
+        )
+
+    detail = f"Deleted {name}: {', '.join(actions)}"
     logger.info(f"delete_file: {rel_target} ({', '.join(actions)})")
     return FileOpResult(True, detail, {"chunks_removed": chunks_removed, "actions": actions})
 
