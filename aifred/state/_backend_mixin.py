@@ -243,19 +243,19 @@ class BackendMixin(rx.State, mixin=True):
         if self.automatik_model_id == self.aifred_model_id:
             return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
         # Different Automatik model — still needs TTS variant if GPU TTS is
-        # actively enabled in the UI. A leftover running container must not
-        # override the user's toggle.
+        # actively enabled in the UI. Same SSOT as _effective_model_id:
+        # State toggle, not a live HTTP probe of the TTS container (which
+        # would flip to the base profile during idle/busy windows and cause
+        # the same .gguf to reload with a different tensor-split).
         if self.backend_type == "llamacpp" and self.enable_tts:  # type: ignore[attr-defined]
-            from ..lib.tts_engine_manager import _detect_running_tts_engine, GPU_ENGINES
+            from ..lib.tts_engine_manager import GPU_ENGINES
             if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-                running_tts = _detect_running_tts_engine()
-                if running_tts:
-                    from ..lib.calibration import parse_llamaswap_config
-                    from ..lib.config import LLAMASWAP_CONFIG_PATH
-                    tts_variant = f"{self.automatik_model_id}-tts-{running_tts}"
-                    swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-                    if tts_variant in swap_cfg:
-                        return tts_variant
+                from ..lib.calibration import parse_llamaswap_config
+                from ..lib.config import LLAMASWAP_CONFIG_PATH
+                tts_variant = f"{self.automatik_model_id}-tts-{self.tts_engine}"  # type: ignore[attr-defined]
+                swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                if tts_variant in swap_cfg:
+                    return tts_variant
         return self.automatik_model_id
 
     @rx.var
