@@ -1547,7 +1547,7 @@ class DashScopeRealtimeTTS:
         if not self._push_buffer:
             return
 
-        from .api import audio_queue_push
+        from .api import browser_push
 
         set_tts_agent(self._agent)
         filename = _generate_tts_filename("wav")
@@ -1562,7 +1562,7 @@ class DashScopeRealtimeTTS:
         duration = len(pcm_data) / (24000 * 2)
         chunk_url = f"/_upload/tts_audio/{filename}"
         playback_rate = f"{self._speed}x"
-        audio_queue_push(self._session_id, "tts", chunk_url, playback_rate=playback_rate)
+        browser_push(self._session_id, "tts", chunk_url, playback_rate=playback_rate)
         log_message(f"🎤 DashScope RT: Pushed batch #{self._push_count} ({duration:.1f}s) to browser")
 
     def _apply_gain(self, pcm_data: bytes) -> bytes:

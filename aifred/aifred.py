@@ -51,9 +51,9 @@ def _audio_player_element() -> rx.Component:
         id="tts-audio-player",
         controls=True,
         # autoPlay only for non-streaming TTS (single-shot tts_audio_path).
-        # Media is delivered via the Audio Bus and started by JS — the
+        # Media is delivered via the Browser Push Bus and started by JS — the
         # SSE-event-handler runs in the user-gesture chain from
-        # startAudioStream, so player.play() is allowed without React
+        # startBrowserStream, so player.play() is allowed without React
         # autoPlay. Letting React control autoPlay for media would
         # double-trigger (React load + JS load).
         autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),

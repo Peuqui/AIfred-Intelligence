@@ -60,7 +60,7 @@ class BrowserChannel:
         start_pos_sec: float | None,
         ctx: "PluginContext",
     ) -> dict[str, Any]:
-        from ..api import audio_queue_push
+        from ..api import browser_push
 
         audio_url = f"/api/audio/file?key={quote(src.state_key)}"
         state = getattr(ctx, "state", None)
@@ -93,7 +93,7 @@ class BrowserChannel:
         session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
         audio_type = getattr(src, "audio_type", "music")
         if session_id:
-            audio_queue_push(
+            browser_push(
                 session_id, "media", audio_url,
                 state_key=src.state_key,
                 start_pos_sec=seek_to,
@@ -113,7 +113,7 @@ class BrowserChannel:
         }
 
     async def pause(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
-        from ..api import audio_queue_push
+        from ..api import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
@@ -133,11 +133,11 @@ class BrowserChannel:
         # persistiert.
         session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
         if session_id:
-            audio_queue_push(session_id, "pause", "")
+            browser_push(session_id, "pause", "")
         return True
 
     async def resume(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
-        from ..api import audio_queue_push
+        from ..api import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
@@ -149,15 +149,15 @@ class BrowserChannel:
             state._persist_audio_state()
 
         # Bus-Resume: JS ruft player.play() im SSE-Event-Handler — User-
-        # Geste-Erbe vom startAudioStream gilt, autoplay-Block greift
+        # Geste-Erbe vom startBrowserStream gilt, autoplay-Block greift
         # nicht.
         session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
         if session_id:
-            audio_queue_push(session_id, "resume", "")
+            browser_push(session_id, "resume", "")
         return True
 
     async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
-        from ..api import audio_queue_push
+        from ..api import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
         if state is None:
@@ -184,7 +184,7 @@ class BrowserChannel:
         # Bus laeuft.
         session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
         if session_id:
-            audio_queue_push(session_id, "stop", "")
+            browser_push(session_id, "stop", "")
 
         return True
 
@@ -195,7 +195,7 @@ class BrowserChannel:
         relative: bool = False,
         ctx: "PluginContext | None" = None,
     ) -> bool:
-        from ..api import audio_queue_push
+        from ..api import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
@@ -208,7 +208,7 @@ class BrowserChannel:
         # Bus-Seek: JS setzt audio.currentTime. Bei relative=true addiert
         # JS auf currentTime, sonst absolute Position. JS clampt auf
         # [0, duration].
-        audio_queue_push(
+        browser_push(
             session_id, "seek", "",
             position_sec=float(position_sec),
             relative=bool(relative),
@@ -218,7 +218,7 @@ class BrowserChannel:
     async def set_speed(
         self, target_id: str, factor: float, ctx: "PluginContext | None" = None
     ) -> bool:
-        from ..api import audio_queue_push
+        from ..api import browser_push
 
         if not 0.25 <= factor <= 4.0:
             return False
@@ -233,7 +233,7 @@ class BrowserChannel:
 
         # Bus-Speed: JS setzt audio.playbackRate. HTML5-Audio macht das
         # nativ ohne Pitch-Verzerrung (preservesPitch default true).
-        audio_queue_push(session_id, "speed", "", factor=float(factor))
+        browser_push(session_id, "speed", "", factor=float(factor))
         return True
 
     async def play_queue(
@@ -256,7 +256,7 @@ class BrowserChannel:
         ``state_key`` zur API-URL.
         """
         import random
-        from ..api import audio_queue_push
+        from ..api import browser_push
 
         if not items:
             return {"success": False, "error": "empty queue"}
@@ -294,7 +294,7 @@ class BrowserChannel:
 
         session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
         if session_id:
-            audio_queue_push(
+            browser_push(
                 session_id, "media", first_url,
                 state_key=first_key,
                 start_pos_sec=0.0,
