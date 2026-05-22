@@ -336,7 +336,7 @@ async def _stream_agent_to_history(
 
     # Finalize streaming TTS — fire-and-forget. The TTS tasks have already
     # been pushing their audio chunks to the browser queue via
-    # audio_queue_push() during synthesis, so live playback is unaffected.
+    # browser_push() during synthesis, so live playback is unaffected.
     # The combined "audio_urls" for replay/export are patched onto the
     # bubble by the background task once all sentences are done; until
     # then the bubble (text + sources + sandbox) renders immediately and
