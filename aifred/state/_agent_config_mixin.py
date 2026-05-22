@@ -16,6 +16,7 @@ from ..lib.config import (
     DEFAULT_REPEAT_PENALTY,
     DEFAULT_TOP_K,
     DEFAULT_TOP_P,
+    TTS_DEFAULT_ENGINE,
     LLAMASERVER_DEFAULT_MIN_P,
     LLAMASERVER_DEFAULT_REPEAT_PENALTY,
     LLAMASERVER_DEFAULT_TEMPERATURE,
@@ -1943,8 +1944,9 @@ class AgentConfigMixin(rx.State, mixin=True):
             allowed = set(config.tools)
             self.editor_tools = {name: name in allowed for name in all_tool_names}
 
-        # Load TTS settings for this agent — always start with XTTS
-        self.editor_tts_engine = "xtts"  # type: ignore[attr-defined]
+        # Load TTS settings for this agent — always start with the
+        # default engine (config.TTS_DEFAULT_ENGINE).
+        self.editor_tts_engine = TTS_DEFAULT_ENGINE  # type: ignore[attr-defined]
         self._load_editor_tts_settings()  # type: ignore[attr-defined]
 
         self._load_editor_prompt(self.editor_prompt_tab)

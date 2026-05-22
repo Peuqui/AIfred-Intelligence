@@ -12,6 +12,7 @@ class DashScopeEngine(TTSEngine):
     runs_in_container = False
     needs_gpu = False
     needs_speed_postprocess = True
+    supports_language = True
     # Cloud engine needs an API key — channel devices don't always have
     # that wired up, so we keep it out of the FreeEcho-style dropdowns.
     suitable_for_channels = False

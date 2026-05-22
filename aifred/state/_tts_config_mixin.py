@@ -12,6 +12,8 @@ from typing import Any, Dict, List
 
 import reflex as rx
 
+from ..lib.config import TTS_DEFAULT_ENGINE
+
 
 class TTSConfigMixin(rx.State, mixin=True):
     """Mixin for TTS configuration, voice settings, and engine management."""
@@ -19,7 +21,7 @@ class TTSConfigMixin(rx.State, mixin=True):
     # ── TTS Settings ──────────────────────────────────────────────
     enable_tts: bool = False
     tts_voice: str = "AIfred"  # Default voice - XTTS custom voice
-    tts_engine: str = "xtts"  # TTS engine key (default: XTTS)
+    tts_engine: str = TTS_DEFAULT_ENGINE  # TTS engine key
     tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
     tts_playback_rate: str = "1.0x"  # Browser playback rate (1.0 = neutral, speed via Agent Settings)
     tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
@@ -147,7 +149,7 @@ class TTSConfigMixin(rx.State, mixin=True):
     # The editor lets you configure voices per backend per agent.
     # editor_tts_engine selects which backend you're configuring.
     # _editor_tts_settings holds the loaded settings for that agent+engine.
-    editor_tts_engine: str = "xtts"  # Default, overridden by active engine on agent load
+    editor_tts_engine: str = TTS_DEFAULT_ENGINE  # Default, overridden by active engine on agent load
     _editor_tts_settings: Dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ..., "enabled": ...}
 
     @rx.var(deps=["ui_language", "editor_tts_engine", "_editor_tts_settings"], auto_deps=False)
@@ -253,6 +255,17 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Static list of labels for the agent-editor language dropdown."""
         from ..lib.config import TTS_LANGUAGE_LABELS
         return TTS_LANGUAGE_LABELS
+
+    @rx.var(deps=["editor_tts_engine"], auto_deps=False)
+    def editor_tts_supports_language(self) -> bool:
+        """True if the editor's selected TTS engine honours the language
+        setting. Drives the disabled state of the language dropdown —
+        engines that auto-detect the language (Fish-Speech) or encode it
+        in the voice id (Edge / Piper / eSpeak) leave it greyed out so
+        the user can't set a value that has no effect."""
+        from ..lib.tts_engines import get_engine
+        eng = get_engine(self.editor_tts_engine)
+        return bool(eng and eng.supports_language)
 
     def set_editor_agent_tts_language(self, label: str) -> None:
         """Persist a per-agent TTS-language override (or clear back to 'auto')."""

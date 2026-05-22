@@ -723,7 +723,10 @@ def _config_view() -> rx.Component:
                             align="center",
                             width="100%",
                         ),
-                        # Language override (Auto = detected language / UI fallback)
+                        # Language override (Auto = detected language / UI fallback).
+                        # Greyed out for engines that ignore the language
+                        # setting — Fish-Speech auto-detects, Edge/Piper/eSpeak
+                        # encode the language in the voice itself.
                         rx.hstack(
                             rx.text("Sprache", font_size="11px", color="#aaa", width="55px"),
                             rx.box(
@@ -731,6 +734,7 @@ def _config_view() -> rx.Component:
                                     AIState.tts_language_labels,
                                     value=AIState.editor_agent_tts_language,
                                     on_change=AIState.set_editor_agent_tts_language,
+                                    disabled=~AIState.editor_tts_supports_language,
                                     size="1",
                                     width="100%",
                                 ),

@@ -44,6 +44,15 @@ class TTSEngine(ABC):
     #: requires ffmpeg post-processing to rate-shift the audio.
     needs_speed_postprocess: bool = False
 
+    #: True if the engine actually honours the ``language`` argument of
+    #: :meth:`generate_speech`. Engines that auto-detect the language
+    #: from the text (Fish-Speech) or encode it in the voice id itself
+    #: (Edge / Piper / eSpeak) leave this False — the agent editor then
+    #: greys out the language dropdown so the user can't set a value
+    #: that has no effect. Speed and pitch always apply (ffmpeg
+    #: post-processing), so no equivalent flag exists for those.
+    supports_language: bool = False
+
     #: Permanent extra VRAM (MB) to subtract from the TTS GPU's free_mb
     #: during TTS-variant LLM calibration. Used for engines that
     #: allocate dynamically during generate() (Qwen3-TTS grows from

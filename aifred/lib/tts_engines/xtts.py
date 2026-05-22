@@ -13,6 +13,7 @@ class XTTSEngine(TTSEngine):
     runs_in_container = True
     needs_gpu = True
     needs_speed_postprocess = True
+    supports_language = True
     suitable_for_channels = True
 
     # XTTS allocates statically at model load — no dynamic peak above

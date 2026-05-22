@@ -13,6 +13,7 @@ class MOSSEngine(TTSEngine):
     runs_in_container = True
     needs_gpu = True
     needs_speed_postprocess = True
+    supports_language = True
     suitable_for_channels = True
     calibration_vram_reserve_mb = 0  # static allocation, no peak above idle
 
