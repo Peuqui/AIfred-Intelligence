@@ -6,12 +6,29 @@ including backend restart and vLLM restart.
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import reflex as rx
 
 from ..lib.logging_utils import CONSOLE_SEPARATOR
+
+
+# Verify ("probe") lines from flow._fmt_verify always start with a
+# ``[<prefix>.<iteration>]`` tag (e.g. ``[gpu.1]``, ``[tts.3]``,
+# ``[hyb.1]``). Everything else in the calibration stream is a Phase-1
+# math projection, metadata or budget line.
+_VERIFY_LINE_RE = re.compile(r"^\[[a-z]+\.\d+\]")
+
+
+def _calib_line(progress_msg: str) -> str:
+    """Prefix a calibration-console line with a phase icon:
+    🧪 for verify probes (a real model load is being tested),
+    📐 for everything else (Phase-1 math projection — pure calculation,
+    no model load)."""
+    icon = "🧪" if _VERIFY_LINE_RE.match(progress_msg) else "📐"
+    return f"{icon} {progress_msg}"
 
 
 def _parse_calibration_result(msg: str) -> dict:
@@ -150,16 +167,20 @@ class CalibrationMixin(rx.State, mixin=True):
         return items
 
     def open_calibration_picker(self) -> None:
-        """Reset the selection — every item starts unchecked. The user
-        explicitly ticks what they want calibrated, so a single click on
-        "Kalibrierung starten" with nothing ticked is a deliberate no-op
-        (or, if the base is missing, a clean abort with an explanatory
-        message). Avoids accidentally re-running a 1h base calibration."""
+        """Sync the picker selection with the installed engines without
+        discarding the user's previous choice — the picker stays sticky
+        within a session: close it, reopen it, the checkboxes are still
+        where you left them.
+
+        On first open every item defaults to unchecked (the user
+        explicitly ticks what to calibrate). A freshly installed engine
+        shows up as a new, unchecked entry; engines already in the map
+        keep their state."""
         from aifred.lib.tts_engines import installed_gpu_engines
-        sel: dict[str, bool] = {"__base__": False}
-        for e in installed_gpu_engines():
-            sel[e.key] = False
-        self.tts_calibration_selection = sel
+        cur = dict(self.tts_calibration_selection)
+        for key in ["__base__", *(e.key for e in installed_gpu_engines())]:
+            cur.setdefault(key, False)
+        self.tts_calibration_selection = cur
 
     def set_calibration_tts_engine(self, payload: list) -> None:
         """Set one item's checkbox to ``checked``. ``payload`` is the
@@ -587,7 +608,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         else:
                             speed_split_cuda0 = int(speed_payload)
                     else:
-                        self.add_debug(f"📊 {progress_msg}")  # type: ignore[attr-defined]
+                        self.add_debug(_calib_line(progress_msg))  # type: ignore[attr-defined]
                         yield
 
             # Step 3: Process result
@@ -810,6 +831,32 @@ class CalibrationMixin(rx.State, mixin=True):
                                     f"{calibration_model_id}-tts-{tts_backend} "
                                     f"(isolated, ctx {format_number(iso_ctx)})"
                                 )
+                                # Write the VRAM-cache entry too — without
+                                # this the isolated path left the YAML
+                                # profile and the cache out of sync (the
+                                # fast/full paths both write the cache).
+                                from ..lib.model_vram_cache import (
+                                    add_llamacpp_calibration as _iso_alc,
+                                    load_cache as _iso_lc,
+                                )
+                                _iso_tts_id = f"{calibration_model_id}-tts-{tts_backend}"
+                                _iso_base_meta = _iso_lc().get(calibration_model_id, {})
+                                _iso_alc(
+                                    model_id=_iso_tts_id,
+                                    max_context=iso_ctx,
+                                    native_context=int(
+                                        _iso_base_meta.get("native_context", iso_ctx)
+                                    ),
+                                    gguf_path=str(_iso_base_meta.get("gguf_path", "")),
+                                    quantization=str(_iso_base_meta.get("quantization", "")),
+                                    gpu_model=str(_iso_base_meta.get("gpu_model", "")),
+                                    model_size_gb=float(
+                                        _iso_base_meta.get("model_size_gb", 0.0)
+                                    ),
+                                    ngl=99,
+                                    mode="gpu",
+                                    speed_split=0,
+                                )
                             else:
                                 self.add_debug(  # type: ignore[attr-defined]
                                     f"   ⚠️ Could not write {tts_label} variant to config"
@@ -907,7 +954,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                         approx_split = _r["tensor_split"]
                                         approx_num_gpus = _r["num_gpus"]
                                 else:
-                                    self.add_debug(f"   📊 {_msg}")  # type: ignore[attr-defined]
+                                    self.add_debug(f"   {_calib_line(_msg)}")  # type: ignore[attr-defined]
                                     yield
                     except (OSError, ValueError, KeyError) as _e:
                         self.add_debug(  # type: ignore[attr-defined]
@@ -963,7 +1010,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         yield
                         continue  # skip full re-calibration
 
-                    self.add_debug(f"   {tts_label} loaded, running calibration with reduced VRAM...")  # type: ignore[attr-defined]
+                    self.add_debug(f"   {tts_label}: fast path didn't fit — running full calibration...")  # type: ignore[attr-defined]
                     yield
 
                     tts_ctx = None
@@ -979,9 +1026,19 @@ class CalibrationMixin(rx.State, mixin=True):
                     # thinking_result=True whenever skipped, causing Instruct
                     # models to falsely report "Reasoning: yes" in TTS phases.
                     known_thinking = supports_thinking if thinking_tested else None
+                    # Thread the engine's VRAM reserve into the full
+                    # calibration too — the fast path already accounts for
+                    # it, but without this the fallback would plan the TTS
+                    # GPU full and the resulting profile would OOM once the
+                    # real TTS container is up.
+                    from ..lib.process_utils import get_tts_gpu_uuid as _get_tts_uuid
+                    _fallback_tts_uuid = _get_tts_uuid()
+                    _fallback_reserve_mb = tts_engine.calibration_vram_reserve_mb
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
                         known_thinking=known_thinking,
+                        tts_gpu_uuid=_fallback_tts_uuid,
+                        tts_gpu_extra_reserve_mb=_fallback_reserve_mb,
                     ):
                         if progress_msg.startswith("__RESULT__:"):
                             r = _parse_calibration_result(progress_msg)
@@ -1001,7 +1058,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             except (ValueError, IndexError):
                                 self.add_debug(f"   ⚠️ Could not parse {tts_label} speed payload: {payload[:80]}")  # type: ignore[attr-defined]
                         else:
-                            self.add_debug(f"   📊 {progress_msg}")  # type: ignore[attr-defined]
+                            self.add_debug(f"   {_calib_line(progress_msg)}")  # type: ignore[attr-defined]
                             yield
 
                     stop_fn()

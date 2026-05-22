@@ -347,6 +347,8 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         dry_run: bool = False,
         min_kv: str = "f16",
         known_thinking: Optional[bool] = None,
+        tts_gpu_uuid: Optional[str] = None,
+        tts_gpu_extra_reserve_mb: int = 0,
     ) -> AsyncIterator[str]:
         """
         Calibrate maximum context for a llama.cpp model via binary search.
@@ -444,6 +446,8 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             min_kv=min_kv,
             known_thinking=known_thinking,
             env=env,
+            tts_gpu_uuid=tts_gpu_uuid,
+            tts_gpu_extra_reserve_mb=tts_gpu_extra_reserve_mb,
         ):
             yield msg
 

@@ -66,6 +66,8 @@ async def calibrate_llamacpp_model(
     min_kv: str = "f16",
     known_thinking: Optional[bool] = None,
     env: Optional[dict[str, str]] = None,
+    tts_gpu_uuid: Optional[str] = None,
+    tts_gpu_extra_reserve_mb: int = 0,
 ) -> AsyncIterator[str]:
     """Calibrate one llama.cpp model end-to-end.
 
@@ -99,6 +101,28 @@ async def calibrate_llamacpp_model(
         yield "No GPUs detected"
         yield "__RESULT__:0:0:error"
         return
+
+    # TTS-variant calibration: subtract the engine's permanent VRAM
+    # reserve from the TTS GPU so the LLM gets planned with a cushion
+    # for the (not-currently-loaded) TTS container. Same adjustment the
+    # fast path applies — without it the fallback full calibration would
+    # plan the TTS GPU full and the resulting profile would OOM once the
+    # real TTS container is up.
+    if tts_gpu_extra_reserve_mb > 0 and tts_gpu_uuid:
+        from dataclasses import replace
+        adjusted = []
+        for g in gpus:
+            if g.uuid == tts_gpu_uuid:
+                new_free = max(0, g.free_mb - tts_gpu_extra_reserve_mb)
+                yield (
+                    f"TTS variant: reserving {tts_gpu_extra_reserve_mb} MB "
+                    f"on {g.name} ({g.free_mb} → {new_free} MB free)"
+                )
+                adjusted.append(replace(g, free_mb=new_free))
+            else:
+                adjusted.append(g)
+        gpus = adjusted
+
     gpu_total = tuple(g.total_mb for g in gpus)
 
     # Vision models keep extra reserve for image-preprocessing buffers.

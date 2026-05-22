@@ -51,6 +51,31 @@ class TTSConfigMixin(rx.State, mixin=True):
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         return [t(f"tts_engine_{key}", lang=lang) for key in TTS_ENGINE_KEYS]
 
+    @rx.var(deps=["ui_language", "aifred_model_id", "backend_type"], auto_deps=False)
+    def tts_engine_options(self) -> List[dict]:
+        """Dropdown options with a ``disabled`` flag. A GPU-TTS engine is
+        disabled when the current llama.cpp model has no calibrated
+        ``<model>-tts-<engine>`` profile — picking it would load the base
+        profile (V100 planned full) and OOM once the TTS container is up.
+        Non-GPU engines (Edge/Piper/eSpeak/DashScope) and non-llamacpp
+        backends are never disabled — they don't share the LLM's VRAM."""
+        from ..lib.config import TTS_ENGINE_KEYS, LLAMASWAP_CONFIG_PATH
+        from ..lib.i18n import t
+        from ..lib.tts_engines import gpu_engines
+        from ..lib.calibration import has_llamaswap_tts_variant
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        gpu_keys = {e.key for e in gpu_engines()}
+        model_id = self.aifred_model_id  # type: ignore[attr-defined]
+        is_llamacpp = self.backend_type == "llamacpp"  # type: ignore[attr-defined]
+        out: List[dict] = []
+        for key in TTS_ENGINE_KEYS:
+            disabled = (
+                is_llamacpp and key in gpu_keys and bool(model_id)
+                and not has_llamaswap_tts_variant(LLAMASWAP_CONFIG_PATH, model_id, key)
+            )
+            out.append({"label": t(f"tts_engine_{key}", lang=lang), "disabled": disabled})
+        return out
+
     @rx.var
     def xtts_gpu_enabled(self) -> bool:
         """Computed: True when GPU mode, False when CPU mode."""

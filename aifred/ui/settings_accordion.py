@@ -1308,6 +1308,34 @@ def settings_accordion() -> rx.Component:
                     # Row 1: Label + AutoPlay + Streaming toggles
                     rx.hstack(
                         rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
+                        # Lightbulb: explains why some engines are greyed out.
+                        rx.popover.root(
+                            rx.popover.trigger(
+                                rx.tooltip(
+                                    rx.icon(
+                                        "lightbulb",
+                                        size=14,
+                                        color="#FFD700",
+                                        cursor="pointer",
+                                        style={
+                                            "transition": "transform 0.2s ease",
+                                            "&:hover": {"transform": "scale(1.15)"},
+                                        },
+                                    ),
+                                    content=t("tts_engine_disabled_tooltip"),
+                                ),
+                            ),
+                            rx.popover.content(
+                                rx.text(
+                                    t("tts_engine_disabled_tooltip"),
+                                    font_size="11px",
+                                    color="#ddd",
+                                    line_height="1.5",
+                                ),
+                                max_width="340px",
+                                padding="10px",
+                            ),
+                        ),
                         # Spacer
                         rx.box(flex="1"),
                         # Autoplay Toggle Group (only show when TTS enabled)
@@ -1360,10 +1388,28 @@ def settings_accordion() -> rx.Component:
                             native_select_tts(
                                 AIState.tts_engine_or_off,
                                 AIState.set_tts_engine_or_off,
-                                AIState.tts_engines,
+                                AIState.tts_engine_options,
                             ),
-                            rx.select(
-                                AIState.tts_engines,
+                            rx.select.root(
+                                rx.select.trigger(width="100%"),
+                                rx.select.content(
+                                    rx.foreach(
+                                        AIState.tts_engine_options,
+                                        lambda opt: rx.select.item(
+                                            opt["label"],
+                                            value=opt["label"].to(str),
+                                            disabled=opt["disabled"].to(bool),
+                                            # Radix barely dims disabled
+                                            # items in the dark theme —
+                                            # force a visible greyed-out
+                                            # look.
+                                            opacity=rx.cond(
+                                                opt["disabled"].to(bool),
+                                                "0.4", "1",
+                                            ),
+                                        ),
+                                    ),
+                                ),
                                 value=AIState.tts_engine_or_off,
                                 on_change=AIState.set_tts_engine_or_off,
                                 size="2",

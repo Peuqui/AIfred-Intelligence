@@ -539,6 +539,26 @@ class ChatMixin(rx.State, mixin=True):
             if not (self.tts_engine == "xtts" and self.xtts_force_cpu):  # type: ignore[attr-defined]
                 wanted = self.tts_engine  # type: ignore[attr-defined]
 
+        # Gate: a GPU-TTS engine on llama.cpp needs a calibrated
+        # <model>-tts-<engine> profile. Without it the LLM would load the
+        # base profile (TTS GPU planned full) and the container start
+        # would OOM. Force wanted="" so ensure_tts_state stops any
+        # running container and the LLM keeps the base profile. Catches
+        # the cases the dropdown can't (model switched after selecting,
+        # leftover container, stale settings.json).
+        if wanted and self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+            from ..lib.calibration import has_llamaswap_tts_variant
+            from ..lib.config import LLAMASWAP_CONFIG_PATH
+            if not has_llamaswap_tts_variant(
+                LLAMASWAP_CONFIG_PATH, self.aifred_model_id, wanted,  # type: ignore[attr-defined]
+            ):
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"⚠️ No calibrated {wanted} profile for "
+                    f"{self.aifred_model_id} — voice output disabled "  # type: ignore[attr-defined]
+                    f"for this model (calibrate it first)"
+                )
+                wanted = ""
+
         gen = ensure_tts_state(
             wanted_tts=wanted,
             backend_type=self.backend_type,  # type: ignore[attr-defined]

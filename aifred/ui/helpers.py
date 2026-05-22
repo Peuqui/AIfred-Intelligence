@@ -171,12 +171,18 @@ def native_select_model(value_var, on_change_handler, disabled_condition=False, 
 def native_select_tts(value_var, on_change_handler, options_list) -> rx.Component:
     """Native HTML <select> for TTS Settings (Mobile)
 
-    Same styling as backend/model selects for consistent mobile experience.
+    ``options_list`` is a list of ``{label, disabled}`` dicts — GPU-TTS
+    engines without a calibrated profile for the current model render
+    as disabled <option>s. Same styling as backend/model selects.
     """
     return rx.el.select(
         rx.foreach(
             options_list,
-            lambda option: rx.el.option(option, value=option),
+            lambda option: rx.el.option(
+                option["label"],
+                value=option["label"].to(str),
+                disabled=option["disabled"].to(bool),
+            ),
         ),
         value=value_var,
         on_change=on_change_handler,
