@@ -571,3 +571,33 @@ def add_llamaswap_tts_variant(
     _write_yaml(config_path, config)
     logger.info(f"{'Updated' if existed else 'Added'} TTS variant: {tts_id}")
     return True
+
+
+def remove_llamaswap_tts_variant(
+    config_path: Path, model_id: str, tts_backend: str,
+) -> bool:
+    """Remove the ``<model>-tts-<backend>`` entry from llama-swap YAML —
+    both the model definition and its group membership.
+
+    Called when a TTS-variant calibration fails: a stale variant left
+    over from an earlier (successful or buggy) run must not survive, or
+    llama-swap will happily load a profile that no longer fits the GPU
+    layout and OOM. Returns True if an entry was actually removed."""
+    if not config_path.exists():
+        return False
+    config = _read_yaml(config_path)
+    tts_id = f"{model_id}-tts-{tts_backend}"
+    removed = False
+    models = config.get("models") or {}
+    if tts_id in models:
+        del models[tts_id]
+        removed = True
+    for group in (config.get("groups") or {}).values():
+        members = group.get("members") or []
+        if tts_id in members:
+            members.remove(tts_id)
+            removed = True
+    if removed:
+        _write_yaml(config_path, config)
+        logger.info(f"Removed stale TTS variant: {tts_id}")
+    return removed

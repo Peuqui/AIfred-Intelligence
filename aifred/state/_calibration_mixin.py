@@ -1085,6 +1085,25 @@ class CalibrationMixin(rx.State, mixin=True):
                                 )
                     else:
                         self.add_debug(f"   ❌ {tts_label} variant calibration failed")  # type: ignore[attr-defined]
+                        # A failed calibration must not leave a stale variant
+                        # behind: an earlier run may have written a
+                        # <model>-tts-<backend> profile that no longer fits the
+                        # current GPU layout. Leaving it lets llama-swap load
+                        # an oversized profile → V100 OOM, and the picker keeps
+                        # showing a misleading "already calibrated" dot.
+                        from ..lib.calibration import remove_llamaswap_tts_variant
+                        from ..lib.model_vram_cache import remove_model_from_cache
+                        for _suffix in (tts_backend, f"{tts_backend}-speed"):
+                            if remove_llamaswap_tts_variant(
+                                LLAMASWAP_CONFIG_PATH, calibration_model_id, _suffix,
+                            ):
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   🧹 Removed stale profile "
+                                    f"{calibration_model_id}-tts-{_suffix}"
+                                )
+                            remove_model_from_cache(
+                                f"{calibration_model_id}-tts-{_suffix}"
+                            )
                     yield
 
             # Step 6: Restart llama-swap
