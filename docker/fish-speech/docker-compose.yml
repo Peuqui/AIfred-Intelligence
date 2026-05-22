@@ -33,10 +33,9 @@ services:
       - TORCHINDUCTOR_CACHE_DIR=/app/compile-cache/inductor
       - TRITON_CACHE_DIR=/app/compile-cache/triton
 
-      # ── Auto-shutdown — placeholder, no built-in idle watcher yet.
-      # AIfred stops the container externally via stop_fishspeech_container
-      # when the user picks a different engine. KEEP_ALIVE-style self-stop
-      # can be retrofitted as a sidecar thread later if needed.
+      # ── Auto-shutdown after N minutes idle (parity with XTTS / MOSS /
+      # Qwen3-TTS). aifred_idle_server.py runs the watchdog: it frees the
+      # ~20 GB GPU VRAM when Fish-Speech sits unused. 0 disables it.
       - FISH_SPEECH_KEEP_ALIVE=${FISH_SPEECH_KEEP_ALIVE:-30}
 
     volumes:

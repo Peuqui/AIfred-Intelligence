@@ -63,10 +63,15 @@ EXPOSE 8080
 
 # Fish-Speech S2 wants the model checkpoints already in /app/checkpoints
 # when it starts. The wrapper command first ensures they're downloaded
-# (idempotent via huggingface_hub), then launches the upstream API
-# server with torch.compile enabled by default (≈10× speed-up).
+# (idempotent via huggingface_hub), then launches the API server with
+# torch.compile enabled by default (≈10× speed-up).
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+# Idle-watchdog wrapper around the upstream Kui ASGI app — terminates the
+# container after FISH_SPEECH_KEEP_ALIVE minutes of inactivity, identical
+# behaviour to the XTTS / MOSS / Qwen3-TTS server.py watchdogs.
+COPY aifred_idle_server.py /app/aifred_idle_server.py
 
 # AIfred-internal WebUI for Fish-Speech. The upstream tools/server/views.py
 # already exposes a /ui route that serves /app/awesome_webui/dist/index.html

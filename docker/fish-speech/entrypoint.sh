@@ -34,7 +34,11 @@ fi
 # Bfloat16 needs sm_80+ (Ampere/H100/etc.) for native tensor-core support;
 # on Volta/Turing (V100, RTX 8000) it falls back to fp32 and crawls.
 # fp16 has hardware tensor-core paths on every modern GPU we own.
-exec /app/venv/bin/python tools/api_server.py \
+#
+# aifred_idle_server.py wraps the upstream Kui app — same args as
+# tools/api_server.py — and adds the FISH_SPEECH_KEEP_ALIVE idle
+# watchdog (parity with XTTS / MOSS / Qwen3-TTS).
+exec /app/venv/bin/python /app/aifred_idle_server.py \
     --llama-checkpoint-path "${CHECKPOINT_DIR}" \
     --decoder-checkpoint-path "${CHECKPOINT_DIR}/codec.pth" \
     --listen "0.0.0.0:8080" \
