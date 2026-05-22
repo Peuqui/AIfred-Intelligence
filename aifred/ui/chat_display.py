@@ -228,30 +228,42 @@ def session_list_display() -> rx.Component:
         # session has: session_id, title, last_seen, created_at, message_count
         return rx.box(
             rx.hstack(
-                # Session title or placeholder
-                rx.text(
+                # Session title or placeholder — rendered as rx.el.span so
+                # the data-session-id attribute makes it into the DOM. The
+                # Radix rx.text component filters unknown props out (both
+                # `custom_attrs=…` and `**`-unpacking did NOT render the
+                # attribute, confirmed via DevTools); rx.el.* are raw-HTML
+                # elements that pass kwargs through. The class + data-attr
+                # let custom.js patch the title live when the Browser Push
+                # Bus delivers a "session_title" event — same pattern as
+                # data-audio-urls on rx.el.button (message_renderer.py).
+                rx.el.span(
                     rx.cond(
                         session["title"],
                         session["title"],
                         rx.cond(
                             AIState.ui_language == "de",
                             "Unbenannter Chat",
-                            "Untitled Chat"
+                            "Untitled Chat",
                         ),
                     ),
-                    font_size="13px",
-                    font_weight=rx.cond(
-                        session["session_id"] == AIState.session_id,
-                        "600",  # Bold for current session
-                        "400",
-                    ),
-                    color=rx.cond(
-                        session["session_id"] == AIState.session_id,
-                        COLORS["primary"],  # Orange for current
-                        COLORS["text_primary"],
-                    ),
-                    flex="1",
-                    word_break="break-word",  # Allow line breaks for long titles
+                    class_name="session-title-text",
+                    **{"data-session-id": session["session_id"]},
+                    style={
+                        "fontSize": "13px",
+                        "fontWeight": rx.cond(
+                            session["session_id"] == AIState.session_id,
+                            "600",  # Bold for current session
+                            "400",
+                        ),
+                        "color": rx.cond(
+                            session["session_id"] == AIState.session_id,
+                            COLORS["primary"],  # Orange for current
+                            COLORS["text_primary"],
+                        ),
+                        "flex": "1",
+                        "wordBreak": "break-word",
+                    },
                 ),
                 # Message count badge
                 rx.badge(

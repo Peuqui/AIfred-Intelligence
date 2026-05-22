@@ -63,8 +63,13 @@ class ChatMixin(rx.State, mixin=True):
     def add_debug(self, message: str) -> None:
         """Add message to debug console.
 
-        Appends to Reflex State list (live browser UI) and forwards
-        to the Debug Bus (logfile + optional session file persistence).
+        Appends to the Reflex State list (rx.foreach render + session
+        persistence) and forwards to the Debug Bus (logfile + optional
+        session file persistence).
+
+        Lines appended from a background create_task reach the browser via
+        the 500ms refresh_debug_console timer, which re-flags debug_messages
+        dirty so Reflex pushes the delta.
         """
         import datetime as _dt
         from ..lib.debug_bus import debug as _debug
@@ -72,9 +77,8 @@ class ChatMixin(rx.State, mixin=True):
         timestamp = _dt.datetime.now().strftime("%H:%M:%S")
         formatted_msg = f"{timestamp} | {message}"
 
-        # Reflex State list (live browser UI via WebSocket).
-        # Reassign instead of .append() — Reflex only fires the reactive
-        # update path on identity change, not on in-place mutation.
+        # Reflex State list. Reassign instead of .append() — Reflex only
+        # fires the reactive update on identity change, not in-place mutation.
         self.debug_messages = [*self.debug_messages, formatted_msg][-DEBUG_MESSAGES_MAX:]
 
         # Debug Bus (logfile + optional session persistence)
@@ -518,8 +522,14 @@ class ChatMixin(rx.State, mixin=True):
         self.is_generating = False
         yield
 
-        async for _ in self._generate_session_title(title_model_override=effective_vision_id):  # type: ignore[attr-defined]
-            yield
+        # Title generation runs fire-and-forget (it can take >100s with a
+        # reasoning model) — see _generate_session_title. Save + refresh run
+        # right away; the finished title reaches the browser over the Browser
+        # Push Bus (kind="session_title").
+        from ._base import track_orphan_task
+        track_orphan_task(asyncio.create_task(
+            self._generate_session_title(title_model_override=effective_vision_id)  # type: ignore[attr-defined]
+        ))
         self._save_current_session()  # type: ignore[attr-defined]
         self.refresh_session_list()  # type: ignore[attr-defined]
         yield
@@ -766,11 +776,11 @@ class ChatMixin(rx.State, mixin=True):
         tts_streaming = self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled and agent_tts_on  # type: ignore[attr-defined]
         if tts_streaming:
             self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
-            from ..lib.api import audio_queue_clear
-            audio_queue_clear(self.session_id)  # type: ignore[attr-defined]
+            from ..lib.api import browser_queue_clear
+            browser_queue_clear(self.session_id)  # type: ignore[attr-defined]
         # SSE stream (re)start — idempotent if already connected.
         yield rx.call_script(  # type: ignore[attr-defined]
-            f"if(window.startAudioStream) startAudioStream('{self.session_id}');"
+            f"if(window.startBrowserStream) startBrowserStream('{self.session_id}');"
         )
 
         # ============================================================
@@ -1428,10 +1438,16 @@ class ChatMixin(rx.State, mixin=True):
             # Only runs on first Q&A pair, skipped if title already exists
             # Skip if no AI response was generated (e.g. RPC connection error)
             if ai_text:
-                # Use effective model ID to avoid llama-swap model swap
+                # Use effective model ID to avoid llama-swap model swap.
+                # Title generation runs fire-and-forget — it can take >100s
+                # with a reasoning model and must not block the handler (and
+                # the 500ms debug-refresh timer). The title reaches the
+                # browser via the Browser Push Bus (kind="session_title").
                 effective_id = self._effective_model_id("aifred")  # type: ignore[attr-defined]
-                async for _ in self._generate_session_title(title_model_override=effective_id):  # type: ignore[attr-defined]
-                    yield  # Forward UI updates from title generation
+                from ._base import track_orphan_task
+                track_orphan_task(asyncio.create_task(
+                    self._generate_session_title(title_model_override=effective_id)  # type: ignore[attr-defined]
+                ))
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
             # IMPORTANT: Save BEFORE refresh so message_count is up-to-date
