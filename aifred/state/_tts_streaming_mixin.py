@@ -701,7 +701,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         return [combined_url] if combined_url else []
 
-    async def _finalize_streaming_tts_in_background(self, agent: str, text_snippet: str) -> None:
+    async def _finalize_streaming_tts_in_background(self, agent: str) -> None:
         """Fire-and-forget finalize: wait for all pending TTS tasks in the
         background, then patch the resulting combined-URL onto the bubble
         that has just been added to chat_history.
@@ -713,10 +713,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
         can yield immediately, the bubble renders complete (text + sources
         + sandbox), and AIfred is ready for the next prompt right away.
 
-        We identify the right bubble by scanning chat_history for the most
-        recent assistant message with a matching agent + text-prefix; the
-        chat is single-user/single-conversation so the most recent match
-        is always the one we just emitted.
+        We identify the right bubble as the most recent assistant message
+        from this agent that still has no audio — its combined URL is what
+        we are about to attach. No text matching against the rendered
+        content, which carries <details> think-blocks for reasoning models
+        and would never match the raw pipeline text.
         """
         try:
             audio_urls = await self._finalize_streaming_tts()
@@ -737,10 +738,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     continue
                 if msg.get("agent") != agent:
                     continue
-                # Light sanity check on content prefix so we don't accidentally
-                # patch an older bubble that happens to share the agent name.
-                content = msg.get("content", "") or ""
-                if text_snippet and text_snippet[:40] not in content:
+                # The bubble we just produced is the most recent one from
+                # this agent without audio yet — older ones were already
+                # patched by their own finalize task.
+                if msg.get("has_audio"):
                     continue
                 target = i
                 break
