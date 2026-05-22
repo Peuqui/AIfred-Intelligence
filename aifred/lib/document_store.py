@@ -649,7 +649,7 @@ class DocumentStore:
             from .config import DOCUMENT_SEARCH_NEIGHBOR_WINDOW
             neighbor_window = DOCUMENT_SEARCH_NEIGHBOR_WINDOW
 
-        from .config import DOCUMENT_SEARCH_MAX_RESULTS
+        from .config import DOCUMENT_SEARCH_MAX_RESULTS, DOCUMENT_SEARCH_DISTANCE_MAX
         page = max(1, page)
         # Stable pool: always fetch the full MAX_RESULTS slice (or whole index
         # if smaller). Same query → same pool → page-stable. MMR re-rank acts
@@ -703,6 +703,21 @@ class DocumentStore:
                 })
                 if results.get("embeddings") and results["embeddings"][0] is not None:
                     all_embs.append(results["embeddings"][0][i])
+
+        # Drop hits beyond the off-topic distance ceiling. Keeps a query
+        # with no real match in this folder (or a fachfremde query) from
+        # returning a long tail of irrelevant chunks, and makes has_more
+        # honest — pagination ends once the on-topic pool does.
+        if all_hits:
+            kept = [
+                i for i, h in enumerate(all_hits)
+                if h["distance"] is None
+                or h["distance"] <= DOCUMENT_SEARCH_DISTANCE_MAX
+            ]
+            if len(kept) < len(all_hits):
+                all_hits = [all_hits[i] for i in kept]
+                if all_embs:
+                    all_embs = [all_embs[i] for i in kept]
 
         # MMR re-rank: diversify the full pool once, page-slice afterwards.
         # Skip when only one hit (nothing to diversify) or embeddings missing.

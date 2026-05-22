@@ -354,10 +354,12 @@ FISH_SPEECH_VOICES_FALLBACK = {
 }
 
 # Working-set VRAM the LLM calibration should permanently reserve on
-# the TTS GPU. S2 Pro is officially "requires at least 24 GB" — we go
-# with the upper end as a permanent floor so a long generation can't
-# OOM the V100. Tunable via env var.
-FISH_SPEECH_VRAM_RESERVE_MB = int(os.environ.get("FISH_SPEECH_VRAM_RESERVE_MB", "24576"))
+# the TTS GPU. S2 Pro is officially "requires at least 24 GB". Fish was
+# measured ~19.6 GB idle → ~23.5 GB peak, so a 24 GB reserve left only
+# ~0.5 GB headroom over the peak — too thin once the LLM runs at near-
+# full context on the same GPU. 26 GB gives the peak a ~2.5 GB cushion.
+# Tunable via env var.
+FISH_SPEECH_VRAM_RESERVE_MB = int(os.environ.get("FISH_SPEECH_VRAM_RESERVE_MB", "26624"))
 
 
 # ============================================================
@@ -1322,6 +1324,17 @@ DOCUMENT_SEARCH_NEIGHBOR_WINDOW = 1 # ±N neighbor chunks returned per hit. Comp
                                      # mid-sentence chunk cuts: a hit at chunk K also returns
                                      # K-1 and K+1 so the model sees the full sentence/paragraph
                                      # context, not just a fragment. 0 = off, 1 = standard, 2 = wide.
+# Relevance gating for the search_documents tool. The aifred_documents
+# collection uses ChromaDB's default L2 distance. Measured on the indexed
+# Bible corpus (bge-m3 embeddings): a verbatim-quote query bottoms out at
+# ~0.67, a topical query sits at ~0.77-1.07, clearly off-topic text lands
+# at ~1.34+. There is no sharp relevance cliff — these thresholds only
+# separate on-topic from off-topic and gate the pagination hint; they do
+# NOT pinpoint an exact passage.
+DOCUMENT_SEARCH_DISTANCE_MAX = 1.20    # Hits beyond this are dropped as off-topic.
+DOCUMENT_SEARCH_DISTANCE_STRONG = 0.85 # Below = "high" relevance. The next-page hint
+                                        # is only emitted while a page is still mostly
+                                        # high-relevance hits.
 DOCUMENT_COLLECTION = "aifred_documents"  # ChromaDB collection name
 
 # Tool-output budget — caps how many tokens a single tool result may occupy

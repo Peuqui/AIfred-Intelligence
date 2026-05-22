@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from ....lib.config import DATA_DIR, DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS
+from ....lib.config import (
+    DATA_DIR, DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
+    DOCUMENT_SEARCH_DISTANCE_STRONG,
+)
 from ....lib import file_manager as fm
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
@@ -553,28 +556,51 @@ class WorkspacePlugin:
                     ),
                     "indexed_count": indexed_count,
                 })
-            results = [
-                {
+            # Tag each hit with a qualitative relevance label derived from
+            # its L2 distance — the model can act on "high"/"medium" but
+            # not on a raw distance whose scale it cannot interpret.
+            # Neighbor chunks carry no distance → "context".
+            results = []
+            strong_hits = 0
+            similarity_hits = 0
+            for hit in hits:
+                dist = hit.get("distance")
+                if hit.get("_neighbor") or dist is None:
+                    relevance = "context"
+                else:
+                    similarity_hits += 1
+                    if dist < DOCUMENT_SEARCH_DISTANCE_STRONG:
+                        relevance = "high"
+                        strong_hits += 1
+                    else:
+                        relevance = "medium"
+                results.append({
                     "filename": hit["filename"],
                     "folder": hit.get("folder", ""),
                     "chunk": f"{hit['chunk_index'] + 1}/{hit['total_chunks']}",
                     "content": hit["content"],
-                    # Tag context-only chunks so the model can distinguish
-                    # similarity hits from neighbor augmentation
-                    **({"context_neighbor": True} if hit.get("_neighbor") else {}),
-                }
-                for hit in hits
-            ]
+                    "relevance": relevance,
+                })
             payload: dict[str, Any] = {
                 "total_results": len(results),
                 "page": page,
                 "has_more": has_more,
                 "results": results,
             }
-            if has_more:
+            # Pagination guidance: only invite a next page while the current
+            # one is still mostly strong hits. Once a page is dominated by
+            # weak matches, deeper pages only get worse — withhold the
+            # invitation and tell the model to stop instead.
+            if has_more and similarity_hits and strong_hits * 2 >= similarity_hits:
                 payload["next_page_hint"] = (
-                    f"More similarity hits available — call with page={page + 1} "
-                    f"and the same query to get the next batch."
+                    f"Page {page} still has strong matches — call page={page + 1} "
+                    f"with the same query for more. Stop once the topic is covered."
+                )
+            elif has_more:
+                payload["pagination_note"] = (
+                    f"Page {page} hits are only weakly related and further pages "
+                    f"will not be better. Stop paginating; refine the query or "
+                    f"work with what you have."
                 )
             return json.dumps(payload, ensure_ascii=False)
 
@@ -591,21 +617,18 @@ class WorkspacePlugin:
                 "Use list_indexed to see which folders have content. "
                 "Omitting folder searches the WHOLE store (cross-corpus) — only do this when you "
                 "genuinely don't know which corpus is relevant. "
-                "Each similarity hit also returns its immediate neighbor chunks "
-                "(marked context_neighbor=true) so you see the full surrounding "
-                "passage; if a chunk ends mid-sentence, the next chunk is included. "
+                "Each result carries a relevance label: 'high' / 'medium' for "
+                "similarity hits, 'context' for the neighbor chunks added around "
+                "each hit so you see the full surrounding passage. "
                 "Results are MMR-diversified by default — instead of returning "
                 "many near-duplicate chunks from one dominant document, the result "
                 "spreads across files / vector regions automatically. "
-                "PAGINATION (IMPORTANT): if the topic is broad and the first "
-                "results don't cover everything, call again with the SAME query "
-                "and page=2, page=3, ... — do NOT reformulate the query into "
-                "synonyms or rearranged wording. Semantic search is deterministic "
-                "for the same query, but reformulations often land in nearly the "
-                "same vector region and return overlapping chunks; pagination "
-                "moves you deeper into the diversified ranking and surfaces new "
-                "material. Watch has_more in the response — true means another "
-                "page is worth fetching."
+                "PAGINATION: only paginate when the response contains a "
+                "next_page_hint — call again with the SAME query and page=2, "
+                "page=3, ... (do NOT reformulate into synonyms; reformulations "
+                "land in the same vector region and return overlapping chunks). "
+                "If the response carries a pagination_note instead, STOP — "
+                "deeper pages only hold weaker matches."
             ),
             parameters={
                 "type": "object",
