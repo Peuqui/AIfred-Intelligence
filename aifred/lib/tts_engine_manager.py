@@ -111,30 +111,32 @@ async def tts_keepalive_loop(
 ) -> None:
     """Ping ``/keep_alive`` on each given GPU TTS engine while a pipeline runs.
 
-    Each ping resets the container-internal idle timer (XTTS_KEEP_ALIVE /
-    MOSS_KEEP_ALIVE) to its full window. Used by the FreeEcho.2 channel and the
-    browser pipeline to prevent the engine from shutting down mid-flight
-    during long-running inference (multi-step web research, large models).
+    Each ping resets the container-internal idle timer to its full window.
+    Used by the FreeEcho.2 channel and the browser pipeline to prevent the
+    engine from shutting down mid-flight during long-running inference
+    (multi-step web research, large models). Only runs for the duration of
+    a pipeline — started as a task at pipeline start, cancelled at the end.
 
     Args:
-        engines: List of GPU engine names ("xtts" / "moss") to keep alive.
+        engines: GPU engine keys to keep alive. The container's service URL
+            of each is resolved from the TTSEngine registry (SSOT), so this
+            covers every GPU engine — xtts, moss, qwen3local, fishspeech, …
         interval: Seconds between pings. Defaults to
             ``TTS_KEEPALIVE_INTERVAL_SECONDS`` from config (5 min).
         on_warn: Optional callable(msg: str) for logging failed pings.
                  If None, failures are silently swallowed.
     """
     import asyncio
+    import functools
     import requests
     from .config import (
-        XTTS_SERVICE_URL,
-        MOSS_TTS_SERVICE_URL,
         TTS_KEEPALIVE_INTERVAL_SECONDS,
         TTS_KEEPALIVE_HTTP_TIMEOUT,
     )
+    from .tts_engines import get_engine
 
     if interval is None:
         interval = TTS_KEEPALIVE_INTERVAL_SECONDS
-    urls = {"xtts": XTTS_SERVICE_URL, "moss": MOSS_TTS_SERVICE_URL}
     loop = asyncio.get_running_loop()
     while True:
         try:
@@ -142,14 +144,19 @@ async def tts_keepalive_loop(
         except asyncio.CancelledError:
             return
         for engine in engines:
-            base_url = urls.get(engine)
+            # Service URL straight from the TTSEngine registry (SSOT) —
+            # no hardcoded engine→URL map to keep in sync.
+            eng = get_engine(engine)
+            base_url = eng.service_url if eng else None
             if not base_url:
                 continue
             try:
                 await loop.run_in_executor(
                     None,
-                    lambda u=base_url: requests.get(
-                        f"{u}/keep_alive", timeout=TTS_KEEPALIVE_HTTP_TIMEOUT
+                    functools.partial(
+                        requests.get,
+                        f"{base_url}/keep_alive",
+                        timeout=TTS_KEEPALIVE_HTTP_TIMEOUT,
                     ),
                 )
             except Exception as exc:
