@@ -490,15 +490,6 @@ class WorkspacePlugin:
             when the topic is broad (many relevant passages exist) and the
             first page didn't surface enough material.
             """
-            # Scripture-reference gate: a query naming a concrete passage
-            # ("Psalm 5", "Joh 3,16", "1. Mose 1,1-5") is answered by an
-            # exact lookup in the structured Bible (Schlachter 1951), not
-            # by semantic search. resolve() returns None for non-references.
-            from ....lib.bible_reference import resolve as _resolve_bible
-            bible = _resolve_bible(query)
-            if bible is not None:
-                return json.dumps(bible, ensure_ascii=False)
-
             page = max(1, int(page or 1))
             result = await fm.search_index(
                 query, n_results=n_results, folder=folder, page=page
@@ -618,10 +609,6 @@ class WorkspacePlugin:
             tier=TIER_READONLY,
             description=(
                 "Search indexed documents semantically in the vector database. "
-                "SCRIPTURE REFERENCES: if the query names a concrete Bible passage "
-                "(e.g. 'Psalm 5', 'Joh 3,16', '1. Mose 1,1-5'), this tool returns the "
-                "exact verse text (Schlachter 1951) directly — no pagination or "
-                "rephrasing needed. Use a named passage for that, a topical query for themes. "
                 "Only finds documents that have been indexed (uploaded via UI or via index_document). "
                 "Use list_files to see all files on disk, search_documents to search indexed content. "
                 "The folder parameter restricts the search and INCLUDES all nested sub-folders: "

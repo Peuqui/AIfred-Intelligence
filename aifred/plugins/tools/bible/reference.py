@@ -1,23 +1,31 @@
-"""Bible reference lookup against the structured Schlachter 1951 JSON.
+"""Scripture reference lookup against a structured Bible JSON.
 
 Resolves textual references like ``Psalm 5``, ``Joh 3,16`` or
 ``1. Mose 1,1-5`` to the exact verse text — the precise counterpart to
-semantic search when the user names a concrete passage instead of a
-topic. The data source is ``data/documents/bibel/Schlachter/
-schlachter1951.json`` (66 books, 1189 chapters, every chapter
-contiguously numbered).
+semantic search when a concrete passage is named instead of a topic.
+
+The Bible JSON (book/chapter/verse; see scripts/build_schlachter1951.py)
+defaults to the Schlachter 1951 file under data/. Override the path with
+the ``BIBLE_REFERENCE_JSON`` environment variable. The translation name
+is read from the JSON's own ``translation`` field — no translation is
+hard-coded here.
 """
 from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
-from .config import DATA_DIR
+from ....lib.config import DATA_DIR
 
-_BIBLE_PATH = DATA_DIR / "documents" / "bibel" / "Schlachter" / "schlachter1951.json"
+_DEFAULT_BIBLE_JSON = (
+    DATA_DIR / "documents" / "bibel" / "Schlachter" / "schlachter1951.json"
+)
+BIBLE_PATH = Path(os.environ.get("BIBLE_REFERENCE_JSON", str(_DEFAULT_BIBLE_JSON)))
 
 # Book aliases: nr -> [canonical display name, abbreviations…]. Matching
 # is case-insensitive and tolerant of dot/space in numbered books
@@ -126,18 +134,27 @@ def _pattern() -> re.Pattern:
 
 
 @functools.lru_cache(maxsize=1)
-def _bible() -> dict[int, dict]:
-    """Load the Bible JSON into ``{book_nr: {"name", chapters: {ch: {v: text}}}}``."""
-    with open(_BIBLE_PATH, encoding="utf-8") as f:
+def _bible() -> dict:
+    """Load the Bible JSON.
+
+    Returns ``{"translation": str, "books": {nr: {"name", "chapters"}}}``;
+    the translation name comes from the JSON itself, not from code.
+    """
+    with open(BIBLE_PATH, encoding="utf-8") as f:
         raw = json.load(f)
-    out: dict[int, dict] = {}
+    books: dict[int, dict] = {}
     for book in raw["books"]:
         chapters = {
             ch["chapter"]: {v["verse"]: v["text"] for v in ch["verses"]}
             for ch in book["chapters"]
         }
-        out[book["nr"]] = {"name": book["name"], "chapters": chapters}
-    return out
+        books[book["nr"]] = {"name": book["name"], "chapters": chapters}
+    return {"translation": raw.get("translation", "Bible"), "books": books}
+
+
+def data_available() -> bool:
+    """True if the Bible JSON is present (the lookup's data source)."""
+    return BIBLE_PATH.is_file()
 
 
 @dataclass
@@ -178,7 +195,8 @@ def lookup(ref: BibleReference) -> dict:
     On success: ``{reference, book, chapter, translation, verses:[…]}``.
     On a missing book/chapter/verse: ``{reference, error}``.
     """
-    book = _bible().get(ref.book_nr)
+    bible = _bible()
+    book = bible["books"].get(ref.book_nr)
     if not book:
         return {"reference": ref.display, "error": "Book not in this translation"}
     chapter = book["chapters"].get(ref.chapter)
@@ -201,7 +219,7 @@ def lookup(ref: BibleReference) -> dict:
         "reference": ref.display,
         "book": ref.book_name,
         "chapter": ref.chapter,
-        "translation": "Schlachter (1951)",
+        "translation": bible["translation"],
         "verses": verses,
     }
 
