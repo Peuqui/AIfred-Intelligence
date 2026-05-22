@@ -298,6 +298,11 @@ TTS_ENGINE_KEYS = [
     "edge",
 ]
 
+# Default TTS engine — preselected in fresh state and in the agent
+# editor's backend dropdown until the user picks one. Single source of
+# truth: the state mixins read this instead of each hardcoding a key.
+TTS_DEFAULT_ENGINE = "qwen3local"
+
 # Channel-plugin TTS-engine dropdown options — derived from the
 # TTSEngine registry (aifred.lib.tts_engines). Each engine declares
 # ``suitable_for_channels`` itself, so adding a new engine to the

@@ -13,6 +13,7 @@ class Qwen3LocalEngine(TTSEngine):
     runs_in_container = True
     needs_gpu = True
     needs_speed_postprocess = True
+    supports_language = True
     suitable_for_channels = True
 
     # qwen-tts allocates KV-cache + decoder buffers dynamically during
