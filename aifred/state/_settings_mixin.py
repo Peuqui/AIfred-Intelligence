@@ -586,6 +586,7 @@ class SettingsMixin(rx.State, mixin=True):
 
         # Try channel first, then tool plugin
         fields: list[CredentialField] = []
+        tool = None
         plugin = get_channel(channel_name)
         if plugin:
             fields = plugin.credential_fields
@@ -597,10 +598,19 @@ class SettingsMixin(rx.State, mixin=True):
         if not fields:
             return
 
-        # Load plugin settings.json for non-secret fields
+        # Load plugin settings.json for non-secret fields — channels via
+        # load_settings(), tool plugins via the private _load_settings
+        # convention (mirrors save_channel_credentials).
         plugin_settings: dict[str, str] = {}
         if plugin:
             plugin_settings = plugin.load_settings()
+        elif tool:
+            tool_loader = getattr(tool, "_load_settings", None)
+            if callable(tool_loader):
+                try:
+                    plugin_settings = dict(tool_loader())
+                except Exception:
+                    plugin_settings = {}
 
         # Pre-fill values: secrets from os.environ, config from settings.json
         lang = self.ui_language  # type: ignore[attr-defined]

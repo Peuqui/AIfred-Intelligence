@@ -4,11 +4,25 @@ Resolves textual references like ``Psalm 5``, ``Joh 3,16`` or
 ``1. Mose 1,1-5`` to the exact verse text — the precise counterpart to
 semantic search when a concrete passage is named instead of a topic.
 
-The Bible JSON (book/chapter/verse; see scripts/build_schlachter1951.py)
-defaults to the Schlachter 1951 file under data/. Override the path with
-the ``BIBLE_REFERENCE_JSON`` environment variable. The translation name
-is read from the JSON's own ``translation`` field — no translation is
-hard-coded here.
+Bible data lives under data/documents/bibel/, one sub-folder per
+translation, each holding a structured book/chapter/verse JSON (see
+scripts/build_bible.py). Which translation is active is the
+``BIBLE_TRANSLATION`` setting — the sub-folder name — managed via the
+plugin settings; when unset, the first available translation is used.
+The translation name and the language are read from the JSON's own
+``translation`` / ``language`` fields — nothing translation- or
+language-specific is hard-coded here.
+
+Book recognition is fully data-driven:
+
+- the canonical book names come from the JSON's per-book ``name`` field
+  (so the lookup speaks the language of whichever Bible is loaded);
+- the abbreviations come from a language-specific alias table,
+  ``book_aliases/<lang>.json``, shipped with the plugin.
+
+Any 66-book Bible in any language works — German Schlachter, English
+KJV, … — by dropping its JSON folder in. A new language only needs its
+own ``book_aliases/<lang>.json``.
 """
 from __future__ import annotations
 
@@ -22,93 +36,51 @@ from typing import Optional
 
 from ....lib.config import DATA_DIR
 
-_DEFAULT_BIBLE_JSON = (
-    DATA_DIR / "documents" / "bibel" / "Schlachter" / "schlachter1951.json"
-)
-BIBLE_PATH = Path(os.environ.get("BIBLE_REFERENCE_JSON", str(_DEFAULT_BIBLE_JSON)))
+# Root of all Bible translations — one sub-folder per translation, each
+# holding the structured *.json built by scripts/build_bible.py.
+BIBLE_ROOT = DATA_DIR / "documents" / "bibel"
 
-# Book aliases: nr -> [canonical display name, abbreviations…]. Matching
-# is case-insensitive and tolerant of dot/space in numbered books
-# ("1. Mose" == "1.Mose" == "1 Mose" == "1Mose").
-_BOOKS: dict[int, list[str]] = {
-    1: ["1. Mose", "1Mo", "Genesis", "Gen"],
-    2: ["2. Mose", "2Mo", "Exodus", "Ex"],
-    3: ["3. Mose", "3Mo", "Levitikus", "Lev"],
-    4: ["4. Mose", "4Mo", "Numeri", "Num"],
-    5: ["5. Mose", "5Mo", "Deuteronomium", "Dtn"],
-    6: ["Josua", "Jos"],
-    7: ["Richter", "Ri"],
-    8: ["Rut", "Ruth"],
-    9: ["1. Samuel", "1Sam"],
-    10: ["2. Samuel", "2Sam"],
-    11: ["1. Könige", "1Kön"],
-    12: ["2. Könige", "2Kön"],
-    13: ["1. Chronik", "1Chr"],
-    14: ["2. Chronik", "2Chr"],
-    15: ["Esra", "Esr"],
-    16: ["Nehemia", "Neh"],
-    17: ["Ester", "Est"],
-    18: ["Hiob", "Hi", "Ijob"],
-    19: ["Psalmen", "Psalm", "Ps"],
-    20: ["Sprüche", "Spr"],
-    21: ["Prediger", "Pred", "Kohelet"],
-    22: ["Hohes Lied", "Hoheslied", "Hohelied", "Hld"],
-    23: ["Jesaja", "Jes"],
-    24: ["Jeremia", "Jer"],
-    25: ["Klagelieder", "Klgl"],
-    26: ["Hesekiel", "Hes", "Ezechiel", "Ez"],
-    27: ["Daniel", "Dan"],
-    28: ["Hosea", "Hos"],
-    29: ["Joel", "Joe"],
-    30: ["Amos", "Am"],
-    31: ["Obadja", "Obd"],
-    32: ["Jona", "Jon"],
-    33: ["Micha", "Mi"],
-    34: ["Nahum", "Nah"],
-    35: ["Habakuk", "Hab"],
-    36: ["Zefanja", "Zef"],
-    37: ["Haggai", "Hag"],
-    38: ["Sacharja", "Sach"],
-    39: ["Maleachi", "Mal"],
-    40: ["Matthäus", "Mt", "Matth"],
-    41: ["Markus", "Mk", "Mark"],
-    42: ["Lukas", "Lk", "Luk"],
-    43: ["Johannes", "Joh"],
-    44: ["Apostelgeschichte", "Apg"],
-    45: ["Römer", "Röm"],
-    46: ["1. Korinther", "1Kor"],
-    47: ["2. Korinther", "2Kor"],
-    48: ["Galater", "Gal"],
-    49: ["Epheser", "Eph"],
-    50: ["Philipper", "Phil"],
-    51: ["Kolosser", "Kol"],
-    52: ["1. Thessalonicher", "1Thess", "1Thes"],
-    53: ["2. Thessalonicher", "2Thess", "2Thes"],
-    54: ["1. Timotheus", "1Tim"],
-    55: ["2. Timotheus", "2Tim"],
-    56: ["Titus", "Tit"],
-    57: ["Philemon", "Phlm"],
-    58: ["Hebräer", "Hebr", "Heb"],
-    59: ["Jakobus", "Jak"],
-    60: ["1. Petrus", "1Petr", "1Pt"],
-    61: ["2. Petrus", "2Petr", "2Pt"],
-    62: ["1. Johannes", "1Joh"],
-    63: ["2. Johannes", "2Joh"],
-    64: ["3. Johannes", "3Joh"],
-    65: ["Judas", "Jud"],
-    66: ["Offenbarung", "Offb", "Apk", "Apokalypse"],
-}
+# Language-specific book-alias tables live next to this module.
+_ALIAS_DIR = Path(__file__).parent / "book_aliases"
+
+# Settings / os.environ key naming the active translation: the
+# BIBLE_ROOT sub-folder to read. Set via the plugin settings.
+TRANSLATION_ENV_KEY = "BIBLE_TRANSLATION"
+
+
+def available_translations() -> list[str]:
+    """Sub-folders of BIBLE_ROOT that hold a Bible JSON — the set of
+    translations the user can choose between."""
+    if not BIBLE_ROOT.is_dir():
+        return []
+    return sorted(
+        d.name for d in BIBLE_ROOT.iterdir()
+        if d.is_dir() and any(d.glob("*.json"))
+    )
+
+
+def _active_bible_path() -> Optional[Path]:
+    """The JSON file of the currently selected translation.
+
+    The translation is the BIBLE_ROOT sub-folder named by the
+    ``BIBLE_TRANSLATION`` setting; its single ``*.json`` file is the
+    data source. When the setting is unset or names a folder that is
+    gone, the first available translation is used instead. ``None``
+    when no translation exists at all.
+    """
+    wanted = os.environ.get(TRANSLATION_ENV_KEY, "").strip()
+    names = available_translations()
+    ordered = ([wanted] if wanted in names else []) + names
+    for name in ordered:
+        jsons = sorted((BIBLE_ROOT / name).glob("*.json"))
+        if jsons:
+            return jsons[0]
+    return None
 
 
 def _norm(name: str) -> str:
     """Normalize a book name for alias lookup: lowercase, no dots/spaces."""
     return re.sub(r"[.\s]", "", name).lower()
-
-
-# normalized alias -> book nr
-_ALIAS_TO_NR: dict[str, int] = {
-    _norm(alias): nr for nr, names in _BOOKS.items() for alias in names
-}
 
 
 def _flex(alias: str) -> str:
@@ -121,9 +93,74 @@ def _flex(alias: str) -> str:
 
 
 @functools.lru_cache(maxsize=1)
+def _bible() -> dict:
+    """Load the active translation's Bible JSON.
+
+    Returns ``{"translation": str, "language": str,
+    "books": {nr: {"name", "chapters"}}}``; the translation name and
+    language come from the JSON itself, not from code.
+    """
+    path = _active_bible_path()
+    if path is None:
+        raise FileNotFoundError(f"No Bible translation found under {BIBLE_ROOT}")
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    books: dict[int, dict] = {}
+    for book in raw["books"]:
+        chapters = {
+            ch["chapter"]: {v["verse"]: v["text"] for v in ch["verses"]}
+            for ch in book["chapters"]
+        }
+        books[book["nr"]] = {"name": book["name"], "chapters": chapters}
+    return {
+        "translation": raw.get("translation", "Bible"),
+        "language": raw.get("language", "de"),
+        "books": books,
+    }
+
+
+@functools.lru_cache(maxsize=8)
+def _aliases(lang: str) -> dict[int, list[str]]:
+    """Abbreviation table for ``lang`` (``book_aliases/<lang>.json``).
+
+    Returns ``{nr: [abbreviation, …]}``. An empty dict when the language
+    ships no alias file — recognition then rests on the canonical book
+    names from the JSON alone (full names still work, abbreviations
+    don't).
+    """
+    path = _ALIAS_DIR / f"{lang}.json"
+    if not path.is_file():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    return {int(nr): list(forms) for nr, forms in raw.items()}
+
+
+def _book_forms() -> dict[int, list[str]]:
+    """All recognition forms per book nr: the canonical name from the
+    loaded Bible JSON plus the current language's abbreviations."""
+    bible = _bible()
+    aliases = _aliases(bible["language"])
+    return {
+        nr: [book["name"], *aliases.get(nr, [])]
+        for nr, book in bible["books"].items()
+    }
+
+
+@functools.lru_cache(maxsize=1)
+def _alias_to_nr() -> dict[str, int]:
+    """Normalized recognition form -> book nr."""
+    return {
+        _norm(form): nr
+        for nr, forms in _book_forms().items()
+        for form in forms
+    }
+
+
+@functools.lru_cache(maxsize=1)
 def _pattern() -> re.Pattern:
     """Compiled reference regex: <book> <chapter>[,<verse>[-<verse>]]."""
-    forms = [a for names in _BOOKS.values() for a in names]
+    forms = [f for fs in _book_forms().values() for f in fs]
     forms.sort(key=len, reverse=True)  # "1. Johannes" must beat "Johannes"
     book_alt = "|".join(_flex(f) for f in forms)
     return re.compile(
@@ -133,28 +170,18 @@ def _pattern() -> re.Pattern:
     )
 
 
-@functools.lru_cache(maxsize=1)
-def _bible() -> dict:
-    """Load the Bible JSON.
-
-    Returns ``{"translation": str, "books": {nr: {"name", "chapters"}}}``;
-    the translation name comes from the JSON itself, not from code.
-    """
-    with open(BIBLE_PATH, encoding="utf-8") as f:
-        raw = json.load(f)
-    books: dict[int, dict] = {}
-    for book in raw["books"]:
-        chapters = {
-            ch["chapter"]: {v["verse"]: v["text"] for v in ch["verses"]}
-            for ch in book["chapters"]
-        }
-        books[book["nr"]] = {"name": book["name"], "chapters": chapters}
-    return {"translation": raw.get("translation", "Bible"), "books": books}
+def reload() -> None:
+    """Drop all cached state so the next lookup re-reads the active
+    translation. Called after the translation setting changes."""
+    _bible.cache_clear()
+    _alias_to_nr.cache_clear()
+    _pattern.cache_clear()
 
 
 def data_available() -> bool:
-    """True if the Bible JSON is present (the lookup's data source)."""
-    return BIBLE_PATH.is_file()
+    """True if at least one Bible translation is present (the lookup's
+    data source)."""
+    return _active_bible_path() is not None
 
 
 @dataclass
@@ -162,11 +189,11 @@ class BibleReference:
     """A parsed scripture reference."""
 
     book_nr: int
-    book_name: str       # canonical name
+    book_name: str       # canonical name, as the loaded JSON spells it
     chapter: int
     verse_from: Optional[int]   # None = whole chapter
     verse_to: Optional[int]     # None = single verse (or whole chapter)
-    display: str         # human form, e.g. "Psalm 5" or "Johannes 3,16"
+    display: str         # human form, e.g. "Psalmen 5" or "Johannes 3,16"
 
 
 def parse_reference(text: str) -> Optional[BibleReference]:
@@ -174,16 +201,16 @@ def parse_reference(text: str) -> Optional[BibleReference]:
     m = _pattern().search(text)
     if not m:
         return None
-    nr = _ALIAS_TO_NR.get(_norm(m.group("book")))
+    nr = _alias_to_nr().get(_norm(m.group("book")))
     if nr is None:
         return None
     chapter = int(m.group("ch"))
     v1 = int(m.group("v1")) if m.group("v1") else None
     v2 = int(m.group("v2")) if m.group("v2") else None
-    canonical = _BOOKS[nr][0]
-    # Psalms are cited "Psalm 5", not "Psalmen 5".
-    label = "Psalm" if nr == 19 else canonical
-    display = f"{label} {chapter}"
+    # The canonical display name is whatever the loaded Bible JSON calls
+    # the book — no per-book special-casing in code.
+    canonical = _bible()["books"][nr]["name"]
+    display = f"{canonical} {chapter}"
     if v1 is not None:
         display += f",{v1}" + (f"-{v2}" if v2 else "")
     return BibleReference(nr, canonical, chapter, v1, v2, display)

@@ -155,6 +155,8 @@ class TranslationManager:
             "deepl_cred_api_key_tooltip": "API Key von deepl.com/pro#developer.\nFree Keys enden auf :fx (500.000 Zeichen/Monat kostenlos).",
             "epim_cred_db_path": "Datenbank-Pfad",
             "epim_cred_db_path_tooltip": "Vollstaendiger Pfad zur EPIM-Datenbankdatei (.epim).",
+            "bible_cred_translation": "Übersetzung",
+            "bible_cred_translation_tooltip": "Welche Bibelübersetzung der Stellen-Lookup verwendet. Die Auswahl listet die Unterordner von data/documents/bibel/.",
             # Hub toast messages
             "hub_toast_received": "📨 {channel}: {sender}",
             "hub_toast_processing": "🔄 {channel}: {sender} — Generiere Antwort...",
@@ -659,6 +661,8 @@ class TranslationManager:
             "deepl_cred_api_key_tooltip": "API key from deepl.com/pro#developer.\nFree keys end with :fx (500,000 chars/month free).",
             "epim_cred_db_path": "Database Path",
             "epim_cred_db_path_tooltip": "Full path to the EPIM database file (.epim).",
+            "bible_cred_translation": "Translation",
+            "bible_cred_translation_tooltip": "Which Bible translation the reference lookup uses. The options list the sub-folders of data/documents/bibel/.",
             # Hub toast messages
             "hub_toast_received": "📨 {channel}: {sender}",
             "hub_toast_processing": "🔄 {channel}: {sender} — Generating response...",
