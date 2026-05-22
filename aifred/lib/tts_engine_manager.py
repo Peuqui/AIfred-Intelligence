@@ -458,13 +458,17 @@ def _do_switch(
         if ready_msg:
             yield ready_msg
 
-    # Step 4: Restart LLM with TTS-calibrated profile
+    # Step 4: Restart the LLM orchestrator (llama-swap) so it picks up the
+    # new VRAM/TTS profile. The LLM itself is NOT loaded here — llama-swap
+    # only orchestrates and lazy-loads the model on the first inference.
+    # Saying "LLM restarted" used to suggest the model was active again,
+    # which is wrong when no LLM was loaded before the switch.
     restart_llm_backend(backend_type)
     model_info = get_effective_model_info(backend_type)
     if model_info:
-        yield f"LLM restarted: {model_info}"
+        yield f"LLM profile ready: {model_info}"
     else:
-        yield "LLM restarted with TTS-calibrated profile"
+        yield "LLM profile ready (TTS-calibrated)"
 
 
 def force_tts_switch(
@@ -497,12 +501,14 @@ def force_tts_switch(
             stop_engine(still_running)
             yield f"{still_running.upper()} container stopped"
 
-        # Stop LLM (TTS variant), then restart with base profile
+        # Stop LLM (TTS variant), then restart llama-swap with the base
+        # profile selected. Same caveat as _do_switch step 4: llama-swap
+        # restarts, the LLM itself loads lazy on the next inference.
         stop_llama_swap()
         yield "VRAM freed: llama-swap stopped"
         restart_llm_backend(backend_type)
         model_info = get_effective_model_info(backend_type)
-        yield f"LLM restarted: {model_info}" if model_info else "LLM restarted with base profile"
+        yield f"LLM profile ready: {model_info}" if model_info else "LLM profile ready (base)"
         return TTSState(success=True, changed=True)
 
     running = _detect_running_tts_engine()
