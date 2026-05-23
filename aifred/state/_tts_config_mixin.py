@@ -78,10 +78,10 @@ class TTSConfigMixin(rx.State, mixin=True):
         non-llamacpp backends never gate on calibration — they don't
         share the LLM's VRAM.
         """
-        from ..lib.config import TTS_ENGINE_KEYS, LLAMASWAP_CONFIG_PATH
+        from ..lib.config import TTS_ENGINE_KEYS
         from ..lib.i18n import t
         from ..lib.tts_engines import get_engine, gpu_engines
-        from ..lib.calibration import has_llamaswap_tts_variant
+        from ..lib.model_vram_cache import is_tts_variant_calibrated
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         gpu_keys = {e.key for e in gpu_engines()}
         model_id = self.aifred_model_id  # type: ignore[attr-defined]
@@ -93,9 +93,14 @@ class TTSConfigMixin(rx.State, mixin=True):
             # "off" has no engine and is always kept.
             if eng is not None and eng.runs_in_container and not eng.is_installed():
                 continue
+            # Disabled when the TTS variant isn't *really* calibrated.
+            # Source-of-truth: vram_cache + non-empty gpu_model — autoscan
+            # defaults (gpu_model="") don't count, only the full
+            # AIfred-calibration measurement does. Picking a non-calibrated
+            # variant would OOM once the TTS container takes its VRAM share.
             disabled = (
                 is_llamacpp and key in gpu_keys and bool(model_id)
-                and not has_llamaswap_tts_variant(LLAMASWAP_CONFIG_PATH, model_id, key)
+                and not is_tts_variant_calibrated(model_id, key)
             )
             out.append({"label": t(f"tts_engine_{key}", lang=lang), "disabled": disabled})
         return out
