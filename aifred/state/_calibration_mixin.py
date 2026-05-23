@@ -58,6 +58,12 @@ class CalibrationMixin(rx.State, mixin=True):
     # ------------------------------------------------------------------
     is_calibrating: bool = False  # Shows spinner during context calibration
 
+    # Revision counter — bumped after every llama.cpp calibration finishes
+    # writing TTS variants to llama-swap.yaml. Pure-Python computed vars
+    # like ``tts_engine_options`` depend on this so they re-evaluate when
+    # the on-disk YAML changes (Reflex has no file-system watcher).
+    llamaswap_revision: int = 0
+
     # Calibration mode: "legacy" (deterministic algorithm, default) or
     # "ai-<qwen-model>" (LLM-driven via DashScope). The UI auto-disables
     # AI options when no DashScope API key is configured.
@@ -1212,6 +1218,12 @@ class CalibrationMixin(rx.State, mixin=True):
             if llama_swap_stopped:
                 from ..lib.process_utils import start_llama_swap
                 start_llama_swap()
+            # Bump the revision so dependent computed vars
+            # (tts_engine_options et al.) re-evaluate against the updated
+            # llama-swap.yaml. Without this, Reflex still serves the
+            # pre-calibration dropdown state — TTS engines stay greyed
+            # out even though their variants are now in the YAML.
+            self.llamaswap_revision += 1
             self.is_calibrating = False
             yield
 

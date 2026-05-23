@@ -53,7 +53,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         return [t(f"tts_engine_{key}", lang=lang) for key in TTS_ENGINE_KEYS]
 
-    @rx.var(deps=["ui_language", "aifred_model_id", "backend_type"], auto_deps=False)
+    @rx.var(deps=["ui_language", "aifred_model_id", "backend_type", "llamaswap_revision"], auto_deps=False)
     def tts_engine_options(self) -> List[dict]:
         """Dropdown options with a ``disabled`` flag. A GPU-TTS engine is
         disabled when the current llama.cpp model has no calibrated

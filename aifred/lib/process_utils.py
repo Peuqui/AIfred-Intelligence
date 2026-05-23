@@ -456,18 +456,20 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
         except Exception:
             pass
 
-    # 2. Stop TTS containers (skip the one we want to keep)
+    # 2. Stop TTS containers (skip the one we want to keep + engines
+    # whose image isn't installed locally — no container to stop there).
     # Only report "stopped" if the container was actually running.
     from .tts_engine_manager import _detect_running_tts_engine
+    from .tts_engines import installed_gpu_engines
     running_tts = _detect_running_tts_engine()
 
-    for _key, _label in (("xtts", "XTTS"), ("moss", "MOSS-TTS"), ("qwen3local", "Qwen3-TTS")):
-        if keep_tts == _key:
+    for _eng in installed_gpu_engines():
+        if keep_tts == _eng.key:
             continue
         try:
-            _docker_compose_action(_tts_compose(_key), "down", _label)
-            if running_tts == _key:
-                actions.append(f"{_label} stopped")
+            _docker_compose_action(_tts_compose(_eng.key), "down", _eng.label_short)
+            if running_tts == _eng.key:
+                actions.append(f"{_eng.label_short} stopped")
         except Exception:
             pass
 
