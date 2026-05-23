@@ -1019,6 +1019,107 @@ class CalibrationMixin(rx.State, mixin=True):
                                 mode="gpu",
                                 speed_split=0,
                             )
+
+                            # ── Speed + TTS combo via fast path ──
+                            # The full-calibration path further down generates a
+                            # ``<base>-tts-<engine>-speed`` profile from the
+                            # __SPEED__ payload. The fast path used to skip it
+                            # entirely, so Speed-Mode silently degraded to full
+                            # context the moment TTS was on. Re-run the same
+                            # base-fit projection with speed split + speed ctx
+                            # as the new "base" so we get a parallel
+                            # ``-tts-<engine>-speed`` profile.
+                            if speed_split_cuda0 > 0 and speed_layer_split:
+                                try:
+                                    _sp_parts = [
+                                        int(x) for x in speed_layer_split.split(":")
+                                    ]
+                                    _speed_split_tuple = tuple(
+                                        float(_sp_parts[i]) if i < len(_sp_parts) else 0.0
+                                        for i in range(len(_all_gpus))
+                                    )
+                                    _approx_sp_ok = False
+                                    _approx_sp_ctx = 0
+                                    _approx_sp_split = ""
+                                    _approx_sp_num_gpus = 0
+                                    async for _msg2 in calibrate_tts_variant_from_base(
+                                        model_id=calibration_model_id,
+                                        gguf_path=_gguf_path,
+                                        full_cmd=_full_cmd,
+                                        base_split=_speed_split_tuple,
+                                        base_ctx=int(speed_split_context),
+                                        base_kv=speed_kv_quant,
+                                        tts_gpu_uuid=_tts_uuid,
+                                        port=LLAMACPP_CALIBRATION_PORT,
+                                        env=_approx_env,
+                                        known_thinking=(
+                                            supports_thinking if thinking_tested else None
+                                        ),
+                                        tts_gpu_extra_reserve_mb=_tts_extra_reserve_mb,
+                                    ):
+                                        if _msg2.startswith("__RESULT__:"):
+                                            _r2 = _parse_calibration_result(_msg2)
+                                            if _r2["ctx"] > 0:
+                                                _approx_sp_ok = True
+                                                _approx_sp_ctx = _r2["ctx"]
+                                                _approx_sp_split = _r2["tensor_split"]
+                                                _approx_sp_num_gpus = _r2["num_gpus"]
+                                        else:
+                                            self.add_debug(f"   {_calib_line(_msg2)}")  # type: ignore[attr-defined]
+                                            yield
+                                    if _approx_sp_ok:
+                                        speed_added = add_llamaswap_tts_variant(
+                                            LLAMASWAP_CONFIG_PATH,
+                                            calibration_model_id,
+                                            _approx_sp_ctx,
+                                            f"{tts_backend}-speed",
+                                            kv_quant=speed_kv_quant,
+                                            tensor_split=_approx_sp_split,
+                                            num_gpus=_approx_sp_num_gpus,
+                                        )
+                                        if speed_added:
+                                            self.add_debug(  # type: ignore[attr-defined]
+                                                f"   ⚡ {tts_label} speed variant (fast path): "
+                                                f"{calibration_model_id}-tts-{tts_backend}-speed "
+                                                f"(ctx {format_number(_approx_sp_ctx)}, "
+                                                f"split {_approx_sp_split})"
+                                            )
+                                            _sp_cuda0 = 0
+                                            if _approx_sp_split:
+                                                try:
+                                                    _sp_cuda0 = int(
+                                                        _approx_sp_split.split(":")[0]
+                                                    )
+                                                except (ValueError, IndexError):
+                                                    _sp_cuda0 = 0
+                                            _alc(
+                                                model_id=(
+                                                    f"{calibration_model_id}"
+                                                    f"-tts-{tts_backend}-speed"
+                                                ),
+                                                max_context=_approx_sp_ctx,
+                                                native_context=int(
+                                                    _base_meta.get("native_context", _approx_sp_ctx)
+                                                ),
+                                                gguf_path=str(_base_meta.get("gguf_path", "")),
+                                                quantization=str(_base_meta.get("quantization", "")),
+                                                gpu_model=str(_base_meta.get("gpu_model", "")),
+                                                model_size_gb=float(
+                                                    _base_meta.get("model_size_gb", 0.0)
+                                                ),
+                                                ngl=99,
+                                                mode="gpu",
+                                                speed_split=_sp_cuda0,
+                                            )
+                                        else:
+                                            self.add_debug(  # type: ignore[attr-defined]
+                                                f"   ⚠️ Could not write {tts_label} speed variant to config"
+                                            )
+                                except (OSError, ValueError, KeyError) as _sp_e:
+                                    self.add_debug(  # type: ignore[attr-defined]
+                                        f"   ⚠️ {tts_label} speed fast-path failed: {_sp_e}"
+                                    )
+                                    yield
                         else:
                             self.add_debug(  # type: ignore[attr-defined]
                                 f"   ⚠️ Could not write {tts_label} variant to config"
