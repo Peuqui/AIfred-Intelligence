@@ -55,15 +55,32 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["ui_language", "aifred_model_id", "backend_type", "llamaswap_revision"], auto_deps=False)
     def tts_engine_options(self) -> List[dict]:
-        """Dropdown options with a ``disabled`` flag. A GPU-TTS engine is
-        disabled when the current llama.cpp model has no calibrated
-        ``<model>-tts-<engine>`` profile — picking it would load the base
-        profile (V100 planned full) and OOM once the TTS container is up.
-        Non-GPU engines (Edge/Piper/eSpeak/DashScope) and non-llamacpp
-        backends are never disabled — they don't share the LLM's VRAM."""
+        """Dropdown options with a ``disabled`` flag.
+
+        Three states per engine:
+
+        1. **Not installed** (container engine, Docker image missing):
+           omitted from the list entirely. The user removed the image
+           intentionally; offering a non-functional option just adds
+           noise. ``docker compose build`` brings it back, then it
+           shows up again automatically.
+
+        2. **Installed but not calibrated for the current llama.cpp
+           model** (``<model>-tts-<engine>`` missing in llama-swap.yaml):
+           shown but disabled. Picking it would load the base profile,
+           which planned the TTS GPU as fully available, and OOM once
+           the TTS container takes its VRAM share. The tooltip explains
+           that the user has to run the calibration first.
+
+        3. **Ready**: shown, enabled.
+
+        Non-GPU engines (Edge / Piper / eSpeak / DashScope) and
+        non-llamacpp backends never gate on calibration — they don't
+        share the LLM's VRAM.
+        """
         from ..lib.config import TTS_ENGINE_KEYS, LLAMASWAP_CONFIG_PATH
         from ..lib.i18n import t
-        from ..lib.tts_engines import gpu_engines
+        from ..lib.tts_engines import get_engine, gpu_engines
         from ..lib.calibration import has_llamaswap_tts_variant
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         gpu_keys = {e.key for e in gpu_engines()}
@@ -71,6 +88,11 @@ class TTSConfigMixin(rx.State, mixin=True):
         is_llamacpp = self.backend_type == "llamacpp"  # type: ignore[attr-defined]
         out: List[dict] = []
         for key in TTS_ENGINE_KEYS:
+            eng = get_engine(key)
+            # Hide container engines whose Docker image isn't on the host.
+            # "off" has no engine and is always kept.
+            if eng is not None and eng.runs_in_container and not eng.is_installed():
+                continue
             disabled = (
                 is_llamacpp and key in gpu_keys and bool(model_id)
                 and not has_llamaswap_tts_variant(LLAMASWAP_CONFIG_PATH, model_id, key)
