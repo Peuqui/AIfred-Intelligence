@@ -40,37 +40,6 @@ _VOICES_BATCH: dict[str, str] = {
     "Lenn":      "Lenn",
 }
 
-# Realtime WebSocket voice IDs. Cloned voices need a separate enrollment
-# for the realtime model and therefore get different IDs; built-in voices
-# share the name with the batch model.
-_VOICES_REALTIME: dict[str, str] = {
-    "★ AIfred":   "qwen-tts-vc-aifred_rt-voice-20260215200414292-7bcd",
-    "★ Sokrates": "qwen-tts-vc-sokrates_rt-voice-20260215200418894-da62",
-    "★ Salomo":   "qwen-tts-vc-salomo_rt-voice-20260215200423193-f528",
-    "Cherry":    "Cherry",
-    "Serena":    "Serena",
-    "Ethan":     "Ethan",
-    "Chelsie":   "Chelsie",
-    "Momo":      "Momo",
-    "Vivian":    "Vivian",
-    "Moon":      "Moon",
-    "Maia":      "Maia",
-    "Kai":       "Kai",
-    "Bella":     "Bella",
-    "Jennifer":  "Jennifer",
-    "Ryan":      "Ryan",
-    "Aiden":     "Aiden",
-    "Mia":       "Mia",
-    "Vincent":   "Vincent",
-    "Neil":      "Neil",
-    "Elias":     "Elias",
-    "Arthur":    "Arthur",
-    "Stella":    "Stella",
-    "Emilien":   "Emilien",
-    "Andre":     "Andre",
-    "Lenn":      "Lenn",
-}
-
 
 class DashScopeEngine(TTSEngine):
     key = "dashscope"
@@ -84,15 +53,10 @@ class DashScopeEngine(TTSEngine):
     suitable_for_channels = False
     display_order = 50
 
-    # DashScope service endpoints + model identifiers. Class attributes so
-    # the realtime WebSocket path (DashScopeRealtimeTTS) can read them
-    # without importing config.
+    # DashScope service endpoints + model identifiers.
     base_url: str = "https://dashscope-intl.aliyuncs.com/api/v1"
-    ws_url: str = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
     model_flash: str = "qwen3-tts-flash"
     model_vc_batch: str = "qwen3-tts-vc-2026-01-22"
-    model_vc_realtime: str = "qwen3-tts-vc-realtime-2026-01-15"
-    model_flash_realtime: str = "qwen3-tts-flash-realtime"
     # Volume boost (1.0 = unchanged, 2.0 = double, …). DashScope output is
     # noticeably quieter than the local engines; 3.0 brings it in line.
     output_gain: float = 3.0
@@ -112,13 +76,6 @@ class DashScopeEngine(TTSEngine):
         # DashScope has a fixed catalogue; no live discovery endpoint.
         return self.voices_fallback
 
-    @property
-    def realtime_voices(self) -> dict[str, str]:
-        """Voice catalogue for the realtime WebSocket path. Different IDs
-        than the batch catalogue because cloned voices need a separate
-        enrollment for the realtime model."""
-        return dict(_VOICES_REALTIME)
-
     def generate_speech(
         self,
         text: str,
@@ -130,12 +87,7 @@ class DashScopeEngine(TTSEngine):
         """DashScope cloud TTS — streaming mode collects PCM chunks and
         writes them as a single WAV file. Requires the ``cloud_qwen``
         api_key credential. Speed/pitch are post-processed centrally
-        via ffmpeg (the SDK has no native speed parameter).
-
-        Note: This is the non-realtime batch path; the realtime WebSocket
-        variant (token-by-token streaming) lives in
-        :class:`aifred.lib.audio_processing.DashScopeRealtimeTTS` — it
-        reads the model/URL/voice catalogue from this engine class."""
+        via ffmpeg (the SDK has no native speed parameter)."""
         import base64
         import os
         from ..audio_processing import (

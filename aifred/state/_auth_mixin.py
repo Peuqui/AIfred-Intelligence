@@ -152,15 +152,14 @@ class AuthMixin(rx.State, mixin=True):
         """Log out current user."""
         from ..lib.browser_storage import clear_username_script
         from ._audio_player_mixin import discard_audio_runtime_state
-        from ._tts_streaming_mixin import discard_dashscope_runtime, discard_tts_backend_state
+        from ._tts_streaming_mixin import discard_tts_backend_state
 
         self.add_debug(f"👋 Logged out: {self.logged_in_user}")  # type: ignore[attr-defined]
-        # Drop per-session runtime state (audio snapshot, DashScope socket,
-        # TTS backend tracking) for the session we're leaving — otherwise
-        # it accumulates for the lifetime of the server process.
+        # Drop per-session runtime state (audio snapshot, TTS backend
+        # tracking) for the session we're leaving — otherwise it
+        # accumulates for the lifetime of the server process.
         prev_session = self.session_id  # type: ignore[attr-defined]
         discard_audio_runtime_state(prev_session)
-        discard_dashscope_runtime(prev_session)
         discard_tts_backend_state(prev_session)
 
         self.logged_in_user = ""

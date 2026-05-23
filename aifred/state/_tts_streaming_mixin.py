@@ -12,16 +12,11 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import List
 
 import reflex as rx
 
 from ..lib.logging_utils import log_message
-
-
-# Module-level storage for DashScope WebSocket TTS instances (keyed by session_id).
-# Cannot be stored in Reflex state because WebSocket/SSLSocket objects are not serializable.
-_dashscope_rt_instances: dict[str, Any] = {}
 
 
 @dataclass
@@ -57,37 +52,10 @@ def get_tts_backend_state(session_id: str) -> TTSBackendState:
 
 
 def discard_tts_backend_state(session_id: str) -> None:
-    """Drop the per-session TTS backend state on logout / session delete.
-
-    Best-effort cleanup; mirrors discard_dashscope_runtime() so the two
-    per-session module-level stores share a single lifecycle.
-    """
+    """Drop the per-session TTS backend state on logout / session delete."""
     if not session_id:
         return
     _tts_backend_states.pop(session_id, None)
-
-
-def discard_dashscope_runtime(session_id: str) -> None:
-    """Close and drop the per-session DashScope WebSocket instance.
-
-    Called on logout / delete_session so dangling sockets don't pile up
-    across the process lifetime.
-    """
-    if not session_id:
-        return
-    inst = _dashscope_rt_instances.pop(session_id, None)
-    if inst is None:
-        return
-    for attr in ("close", "stop", "disconnect"):
-        fn = getattr(inst, attr, None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception:
-                # Best-effort cleanup; never let logout fail because of a
-                # half-dead socket.
-                pass
-            return
 
 
 # Concurrency-Throttle fuer TTS-HTTP-Calls. Verhindert dass AIfred bei langen
@@ -560,65 +528,12 @@ class TTSStreamingMixin(rx.State, mixin=True):
         tts_state.next_seq = 0
         tts_state.push_seq = 0
 
-        # DashScope: Use sentence-level streaming (same as XTTS/Edge/Piper).
-        # Better intonation per sentence, no chunk gaps.
-        #
-        # To re-enable realtime WebSocket streaming (word-level chunks, ~3s batches):
-        # Uncomment the block below. This feeds tokens directly into the DashScope
-        # WebSocket for immediate audio output during LLM inference, but produces
-        # small audible gaps between chunks and slightly worse prosody.
-        #
-        # if self.tts_engine == "dashscope":
-        #     self._init_dashscope_realtime(agent)
-        # else:
-        #     _dashscope_rt_instances.pop(self.session_id, None)
-        _dashscope_rt_instances.pop(self.session_id, None)  # type: ignore[attr-defined]
-
         log_message("🔊 TTS Init: State initialized, ready for chunks")
 
-    def _init_dashscope_realtime(self, agent: str) -> None:
-        """Open DashScope WebSocket connection for realtime TTS streaming."""
-        from ..lib.audio_processing import DashScopeRealtimeTTS
-
-        # Resolve voice for this agent
-        voice_choice = self.tts_voice  # type: ignore[attr-defined]
-        speed_value = 1.0
-        tts_agent_voices = dict(self.tts_agent_voices)  # type: ignore[attr-defined]
-        if agent in tts_agent_voices:
-            agent_settings = tts_agent_voices[agent]
-            if agent_settings.get("voice"):
-                voice_choice = agent_settings["voice"]
-            agent_speed = agent_settings.get("speed", "")
-            if agent_speed:
-                try:
-                    speed_value = float(agent_speed.replace("x", ""))
-                except ValueError:
-                    pass
-
-        # Strip ★ prefix (same as generate_tts() does centrally)
-        if voice_choice.startswith("★ "):
-            voice_choice = voice_choice[2:]
-
-        log_message(f"🔊 DashScope RT Init: Opening WebSocket for voice={voice_choice}, agent={agent}")
-        self.add_debug(f"🎤 TTS: DashScope Realtime WebSocket → {voice_choice}")  # type: ignore[attr-defined]
-        rt_tts = DashScopeRealtimeTTS(
-            voice_choice=voice_choice,
-            session_id=self.session_id,  # type: ignore[attr-defined]
-            agent=agent,
-            speed=speed_value,
-        )
-        _dashscope_rt_instances[self.session_id] = rt_tts  # type: ignore[attr-defined]
-        # Connect in background thread - doesn't block event loop
-        # This allows the yield to happen immediately so the browser can set up SSE
-        # TTFT is ~3s, so WebSocket connect (~0.6s) will be done before first token
-        import threading
-        threading.Thread(target=rt_tts.connect, daemon=True).start()
-
     async def _finalize_streaming_tts(self) -> list[str]:
-        """Wait for TTS tasks to complete and return combined audio URL.
-
-        DashScope Realtime: Calls finish() on WebSocket, waits for final audio.
-        Other engines: Waits for parallel create_task() TTS tasks to complete.
+        """Wait for the parallel sentence-based TTS tasks to complete and
+        return the combined audio URL. All engines run the same path —
+        no per-engine special cases here.
 
         Returns:
             List with single combined audio URL, or empty list if no audio
@@ -627,11 +542,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             log_message("🔊 TTS Finalize: Not active, skipping")
             return []
 
-        # DashScope Realtime: Finish WebSocket and get combined WAV
-        if self.session_id in _dashscope_rt_instances:  # type: ignore[attr-defined]
-            return await self._finalize_dashscope_realtime()
-
-        # --- Other engines: Sentence-based parallel TTS ---
+        # --- Sentence-based parallel TTS (all engines) ---
 
         # Merge carried-over short sentence with remaining buffer
         final_text = ""
@@ -797,58 +708,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
         except Exception as e:
             log_message(f"🔊 TTS Background: ❌ Bubble patch failed: {e}")
 
-    async def _finalize_dashscope_realtime(self) -> list[str]:
-        """Finalize DashScope WebSocket streaming and return combined WAV URL.
-
-        Audio batches (sentence-aligned) are pushed to the browser during synthesis
-        via _flush_push_buffer(). This method waits for the final audio, saves the
-        combined WAV to the session for re-play, and cleans up.
-        """
-        from ..lib.audio_processing import save_audio_to_session
-
-        rt_tts = _dashscope_rt_instances.pop(self.session_id, None)  # type: ignore[attr-defined]
-        if not rt_tts:
-            log_message("🔊 DashScope RT Finalize: No active WebSocket for this session")
-            return []
-
-        log_message("🔊 DashScope RT Finalize: Finishing WebSocket stream...")
-        self.add_debug("🎤 TTS: Waiting for remaining audio...")  # type: ignore[attr-defined]
-
-        # finish() flushes remaining text, signals end, waits for remaining audio, saves WAV
-        # Audio batches (sentence-aligned) are already pushed to browser during synthesis
-        combined_url = await rt_tts.finish()
-
-        # Save combined WAV to session directory (permanent storage for re-play)
-        session_url: str | None = None
-        if combined_url:
-            session_url = save_audio_to_session([combined_url], self.session_id)  # type: ignore[attr-defined]
-            if session_url:
-                log_message(f"🔊 DashScope RT Finalize: Saved to session → {session_url}")
-
-        self.add_debug(f"🎤 TTS: Streaming done ({rt_tts._push_count} chunks)")  # type: ignore[attr-defined]
-
-        # Cleanup WebSocket
-        rt_tts.close()
-
-        # Reset streaming state
-        self._tts_sentence_buffer = ""
-        self._tts_in_think_block = False
-        self._tts_streaming_active = False
-        tts_state = get_tts_backend_state(self.session_id)  # type: ignore[attr-defined]
-        tts_state.pending_requests = []
-        tts_state.completed_urls = {}
-        self._pending_audio_urls = []
-        log_message("🔊 DashScope RT Finalize: State reset complete")
-
-        return [session_url] if session_url else []
-
     def _process_streaming_tts_chunk(self, chunk: str) -> None:
         """Process a streaming chunk for TTS.
 
-        This is called for each content chunk during LLM streaming.
-
-        DashScope: Feeds tokens directly into WebSocket (natural ordering).
-        Other engines: Extracts sentences and generates TTS in parallel via create_task().
+        Called for each content chunk during LLM streaming. Extracts
+        complete sentences from the rolling buffer and kicks off TTS
+        synthesis in parallel via create_task() — all engines (XTTS /
+        MOSS / Qwen3 / Fish-Speech / Piper / eSpeak / Edge / DashScope)
+        use the same sentence-based path.
 
         Args:
             chunk: Text chunk from LLM streaming
@@ -878,14 +745,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
         # Don't process content while inside think block
         if self._tts_in_think_block:
             log_message("🔊 TTS Chunk: Inside think block, waiting...")
-            return
-
-        # DashScope Realtime: Feed raw tokens into WebSocket buffer
-        # Cleaning happens inside DashScopeRealtimeTTS on the accumulated buffer
-        # (clean_text_for_tts needs complete text, not individual tokens)
-        rt_tts = _dashscope_rt_instances.get(self.session_id)  # type: ignore[attr-defined]
-        if rt_tts is not None:
-            rt_tts.append_text(chunk)
             return
 
         # Try to extract complete sentences
