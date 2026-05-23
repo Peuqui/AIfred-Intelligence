@@ -10,7 +10,7 @@ Falls hier kein Crash entsteht, das im echten AIfred aber schon → der Bug lieg
 einer der Streaming-Funktionen oder im Concurrency-Throttle. Falls hier ein Crash
 entsteht → der Container hat ein deterministisches Reproduktionsproblem mit dem Text.
 
-Crash-Dumps liegen nach Container-Restart in docker/xtts/crash_dumps/.
+Crash-Dumps liegen nach Container-Restart in docker/tts/xtts/crash_dumps/.
 """
 from __future__ import annotations
 

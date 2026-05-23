@@ -19,6 +19,9 @@ class XTTSEngine(TTSEngine):
     # XTTS allocates statically at model load — no dynamic peak above
     # idle, so no extra reserve needed for LLM calibration.
     calibration_vram_reserve_mb = 0
+    display_order = 20
+
+    image_name = "xtts-rtx8000"
 
     @property
     def service_url(self) -> str:
@@ -38,9 +41,6 @@ class XTTSEngine(TTSEngine):
     def get_voices(self) -> dict[str, str]:
         from ..config import get_xtts_voices
         return get_xtts_voices()
-
-    def is_installed(self) -> bool:
-        return self.docker_compose_path.exists()
 
     def is_running(self) -> bool:
         import requests

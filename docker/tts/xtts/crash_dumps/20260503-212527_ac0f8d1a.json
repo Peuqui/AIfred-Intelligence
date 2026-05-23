@@ -1,0 +1,52 @@
+{
+  "req_id": "3dc80680",
+  "timestamp": 1777843527.4930923,
+  "language": "de",
+  "speaker": "AIfred",
+  "original_text": "Filter nach Dateityp.",
+  "normalized_text": "Filter nach Dateityp.",
+  "chunk_index": 0,
+  "chunk_count": 1,
+  "chunk_text": "Filter nach Dateityp.",
+  "chunk_repr": "'Filter nach Dateityp.'",
+  "char_inventory": {
+    "len": 21,
+    "categories": {
+      "Lu": 2,
+      "Ll": 16,
+      "Zs": 2,
+      "Po": 1
+    },
+    "non_ascii": [],
+    "non_ascii_count": 0
+  },
+  "token_info": {
+    "n_tokens": 13,
+    "max_id": 2743,
+    "min_id": 2,
+    "ids": [
+      260,
+      1749,
+      114,
+      2,
+      27,
+      77,
+      21,
+      2,
+      2743,
+      315,
+      210,
+      29,
+      9
+    ]
+  },
+  "inference_params": {
+    "temperature": 0.65,
+    "repetition_penalty": 15.0,
+    "length_penalty": 1.0,
+    "top_k": 30,
+    "top_p": 0.75
+  },
+  "exception": "RuntimeError('CUDA error: device-side assert triggered\\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\\n')",
+  "traceback": "Traceback (most recent call last):\n  File \"/app/server.py\", line 1635, in tts\n    outputs = model.inference(\n              ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 116, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/TTS/tts/models/xtts.py\", line 534, in inference\n    text_tokens = torch.IntTensor(self.tokenizer.encode(sent, lang=language)).unsqueeze(0).to(self.device)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: CUDA error: device-side assert triggered\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\n"
+}

@@ -14,6 +14,7 @@ class EspeakEngine(TTSEngine):
     # eSpeak's -s flag controls speed natively.
     needs_speed_postprocess = False
     suitable_for_channels = True
+    display_order = 70
 
     @property
     def voices_fallback(self) -> dict[str, str]:

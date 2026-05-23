@@ -1004,7 +1004,7 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
         str: Path to generated WAV file (relative URL for Reflex frontend), or None on error
 
     Note:
-        Requires XTTS Docker service running: cd docker/xtts && docker-compose up -d
+        Requires XTTS Docker service running: cd docker/tts/xtts && docker-compose up -d
     """
     import requests
     from .config import XTTS_SERVICE_URL
@@ -1043,7 +1043,7 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
             return None
 
     except requests.exceptions.ConnectionError:
-        log_message("❌ XTTS v2: Service not running. Start with: cd docker/xtts && docker-compose up -d")
+        log_message("❌ XTTS v2: Service not running. Start with: cd docker/tts/xtts && docker-compose up -d")
         return None
     except Exception as e:
         log_message(f"❌ XTTS v2 Exception: {e}")
@@ -1089,7 +1089,7 @@ def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIf
             return None
 
     except requests.exceptions.ConnectionError:
-        log_message("❌ MOSS-TTS: Service not running. Start with: cd docker/moss-tts && docker-compose up -d")
+        log_message("❌ MOSS-TTS: Service not running. Start with: cd docker/tts/moss-tts && docker-compose up -d")
         return None
     except Exception as e:
         log_message(f"❌ MOSS-TTS Exception: {e}")
@@ -1145,7 +1145,7 @@ def generate_speech_qwen3local(text: str, speed: float = 1.0, voice_choice: str 
         log_message(f"❌ Qwen3-TTS Error: {error_msg}")
         return None
     except requests.exceptions.ConnectionError:
-        log_message("❌ Qwen3-TTS: Service not running. Start with: cd docker/qwen3-tts && docker-compose up -d")
+        log_message("❌ Qwen3-TTS: Service not running. Start with: cd docker/tts/qwen3-tts && docker-compose up -d")
         return None
     except Exception as e:
         log_message(f"❌ Qwen3-TTS Exception: {e}")
@@ -1157,7 +1157,7 @@ def generate_speech_fishspeech(text: str, speed: float = 1.0, voice_choice: str 
 
     Fish-Speech's native API serves reference voices out of
     ``/app/references/<id>/<id>.wav`` + matching ``<id>.lab`` transcript.
-    We mount ``docker/fish-speech/voices/`` read-only at that path
+    We mount ``docker/tts/fish-speech/voices/`` read-only at that path
     (docker-compose.yml) and just pass the voice id — the container reads
     the files itself, no per-request base64 round-trip of a 1 MB WAV.
     Same shape as XTTS / MOSS / Qwen3-TTS (only the speaker name on the
@@ -1195,7 +1195,7 @@ def generate_speech_fishspeech(text: str, speed: float = 1.0, voice_choice: str 
         log_message(f"❌ Fish-Speech Error: {error_msg}")
         return None
     except requests.exceptions.ConnectionError:
-        log_message("❌ Fish-Speech: Service not running. Start with: cd docker/fish-speech && docker-compose up -d")
+        log_message("❌ Fish-Speech: Service not running. Start with: cd docker/tts/fish-speech && docker-compose up -d")
         return None
     except Exception as e:
         log_message(f"❌ Fish-Speech Exception: {e}")

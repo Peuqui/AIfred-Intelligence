@@ -14,6 +14,7 @@ class PiperEngine(TTSEngine):
     # Piper applies its --length-scale internally — no ffmpeg needed.
     needs_speed_postprocess = False
     suitable_for_channels = True
+    display_order = 60
 
     @property
     def voices_fallback(self) -> dict[str, str]:

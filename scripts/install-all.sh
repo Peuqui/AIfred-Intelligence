@@ -981,22 +981,22 @@ if [ "$QWEN3_CHOSEN" = "1" ] || [ "$XTTS_CHOSEN" = "1" ] || [ "$MOSS_CHOSEN" = "
     echo ""
     echo -e "${BLUE}🔎 Verifiziere TTS-Container-Images...${NC}"
     if [ "$QWEN3_CHOSEN" = "1" ]; then
-        q_img="$(tts_compose_image "$PROJECT_DIR/docker/qwen3-tts/docker-compose.yml" 2>/dev/null)"
+        q_img="$(tts_compose_image "$PROJECT_DIR/docker/tts/qwen3-tts/docker-compose.yml" 2>/dev/null)"
         verify_step "Qwen3-TTS Image '$q_img' vorhanden" \
             "docker image inspect '$q_img'" \
-            "cd docker/qwen3-tts && docker compose build"
+            "cd docker/tts/qwen3-tts && docker compose build"
     fi
     if [ "$XTTS_CHOSEN" = "1" ]; then
-        x_img="$(tts_compose_image "$PROJECT_DIR/docker/xtts/docker-compose.yml" 2>/dev/null)"
+        x_img="$(tts_compose_image "$PROJECT_DIR/docker/tts/xtts/docker-compose.yml" 2>/dev/null)"
         verify_step "XTTS v2 Image '$x_img' vorhanden" \
             "docker image inspect '$x_img'" \
-            "cd docker/xtts && docker compose build"
+            "cd docker/tts/xtts && docker compose build"
     fi
     if [ "$MOSS_CHOSEN" = "1" ]; then
-        m_img="$(tts_compose_image "$PROJECT_DIR/docker/moss-tts/docker-compose.yml" 2>/dev/null)"
+        m_img="$(tts_compose_image "$PROJECT_DIR/docker/tts/moss-tts/docker-compose.yml" 2>/dev/null)"
         verify_step "MOSS-TTS Image '$m_img' vorhanden" \
             "docker image inspect '$m_img'" \
-            "cd docker/moss-tts && docker compose build"
+            "cd docker/tts/moss-tts && docker compose build"
     fi
     step_summary "2g — Lokale TTS-Container"
 fi
@@ -1237,9 +1237,9 @@ echo "       Binary nach ~/bin, Config in ~/.config/llama-swap/config.yaml,"
 echo "       systemd-Unit nach /etc/systemd/system/llama-swap.service (eigene Recherche)."
 echo ""
 echo "   • Lokale TTS-Container (von AIfred on-demand gestartet — Image-Build hier nachholbar):"
-echo "       cd $PROJECT_DIR/docker/qwen3-tts && docker compose build   # Qwen3-TTS (Streaming)"
-echo "       cd $PROJECT_DIR/docker/xtts      && docker compose build   # XTTS v2 (Voice-Cloning)"
-echo "       cd $PROJECT_DIR/docker/moss-tts  && docker compose build   # MOSS-TTS (Zero-Shot)"
+echo "       cd $PROJECT_DIR/docker/tts/qwen3-tts && docker compose build   # Qwen3-TTS (Streaming)"
+echo "       cd $PROJECT_DIR/docker/tts/xtts      && docker compose build   # XTTS v2 (Voice-Cloning)"
+echo "       cd $PROJECT_DIR/docker/tts/moss-tts  && docker compose build   # MOSS-TTS (Zero-Shot)"
 echo ""
 echo "   • Reverse-Proxy-Setup (eigene Domain via nginx/caddy):"
 echo "       cp scripts/patch-vite-config.sh.example scripts/patch-vite-config.sh"
