@@ -115,9 +115,9 @@ diesen Aufschlag. Daher:
 > halten, pro Request nur das Embedding aus dem Dict ziehen.**
 
 **Vorbilder:**
-- Qwen3-TTS: `_warm_clone_prompts()` in [`docker/qwen3-tts/server.py`](../../../docker/qwen3-tts/server.py)
+- Qwen3-TTS: `_warm_clone_prompts()` in [`docker/tts/qwen3-tts/server.py`](../../../docker/tts/qwen3-tts/server.py)
   baut x-vector + with-transcript Prompts pro Speaker in `_clone_prompts`.
-- XTTS: identisches Muster in [`docker/xtts/server.py`](../../../docker/xtts/server.py),
+- XTTS: identisches Muster in [`docker/tts/xtts/server.py`](../../../docker/tts/xtts/server.py),
   zusätzlich Disk-Cache als `.pth` damit der zweite Container-Start
   schon mit warmen Embeddings hochkommt.
 
@@ -145,7 +145,7 @@ Implementierung:
 - Eigener Server (XTTS / MOSS / Qwen3): Idle-Thread direkt im Server-Code,
   Reset bei jedem `/tts`-Request.
 - Upstream-Server (Fish-Speech): ASGI-Middleware-Wrapper —
-  [`docker/fish-speech/aifred_idle_server.py`](../../../docker/fish-speech/aifred_idle_server.py).
+  [`docker/tts/fish-speech/aifred_idle_server.py`](../../../docker/tts/fish-speech/aifred_idle_server.py).
 
 Health-Checks, `/openapi`, `/keep_alive` selbst und das WebUI dürfen
 **nicht** als Aktivität zählen — sonst hält die `_detect_running_tts_engine()`-

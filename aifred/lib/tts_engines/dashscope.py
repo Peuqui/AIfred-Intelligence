@@ -16,6 +16,7 @@ class DashScopeEngine(TTSEngine):
     # Cloud engine needs an API key — channel devices don't always have
     # that wired up, so we keep it out of the FreeEcho-style dropdowns.
     suitable_for_channels = False
+    display_order = 50
 
     @property
     def voices_fallback(self) -> dict[str, str]:

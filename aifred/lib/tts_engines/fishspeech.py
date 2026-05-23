@@ -22,6 +22,9 @@ class FishSpeechEngine(TTSEngine):
     # Channel-Dropdowns aufnehmen, damit Endgeräte (FreeEcho.2) den
     # Engine nicht versehentlich anbieten.
     suitable_for_channels = False
+    display_order = 30
+
+    image_name = "fish-speech-s2-pro"
 
     # Fish grows dynamically during generate() — measured ~19.6 GB idle
     # → ~23.5 GB peak on the V100, then stable. Same pattern as Qwen3:
@@ -51,9 +54,6 @@ class FishSpeechEngine(TTSEngine):
     def get_voices(self) -> dict[str, str]:
         from ..config import get_fishspeech_voices
         return get_fishspeech_voices()
-
-    def is_installed(self) -> bool:
-        return self.docker_compose_path.exists()
 
     def is_running(self) -> bool:
         import requests

@@ -13,6 +13,7 @@ class EdgeEngine(TTSEngine):
     # Edge respects the rate parameter natively — no ffmpeg post.
     needs_speed_postprocess = False
     suitable_for_channels = True
+    display_order = 80
 
     @property
     def voices_fallback(self) -> dict[str, str]:

@@ -286,17 +286,15 @@ PUCK_TTS_FALLBACK_VOICE = "Deutsch (Karlsson)"
 # ============================================================
 # TTS ENGINES
 # ============================================================
-TTS_ENGINE_KEYS = [
-    "off",
-    "qwen3local",    # lokaler Qwen3-TTS-Container, Voice-Cloning + Streaming
-    "xtts",
-    "fishspeech",    # Fish Audio S2 Pro (5B Dual-AR, voice cloning, streaming)
-    "moss",
-    "dashscope",     # Cloud-Variante von Qwen3-TTS
-    "piper",
-    "espeak",
-    "edge",
-]
+# Engine list is derived from the TTSEngine plugin registry — the
+# single source of truth for "which TTS engines exist" lives in
+# ``aifred/lib/tts_engines/`` (one file per engine, auto-discovered).
+# To add a new engine, drop a file there; no edit needed here.
+def _build_tts_engine_keys() -> list[str]:
+    from .tts_engines import TTS_ENGINES
+    return ["off", *TTS_ENGINES.keys()]
+
+TTS_ENGINE_KEYS = _build_tts_engine_keys()
 
 # Default TTS engine — preselected in fresh state and in the agent
 # editor's backend dropdown until the user picks one. Single source of
@@ -324,21 +322,21 @@ def get_tts_engine_channel_options() -> list[tuple[str, str]]:
 # XTTS v2 CONFIGURATION (Docker Service)
 # ============================================================
 # XTTS v2 runs as a Docker service for voice cloning and multilingual TTS
-# Start with: cd docker/xtts && docker-compose up -d
+# Start with: cd docker/tts/xtts && docker-compose up -d
 XTTS_SERVICE_URL = "http://localhost:5051"
 
 # ============================================================
 # MOSS-TTS CONFIGURATION (Docker Service)
 # ============================================================
 # MOSS-TTS Local Transformer (1.7B) - zero-shot voice cloning, 20 languages
-# Start with: cd docker/moss-tts && docker-compose up -d
+# Start with: cd docker/tts/moss-tts && docker-compose up -d
 MOSS_TTS_SERVICE_URL = "http://localhost:5055"
 
 # ============================================================
 # Qwen3-TTS LOCAL CONFIGURATION (Docker Service)
 # ============================================================
 # Qwen3-TTS-12Hz-1.7B-Base (Voice Cloning, Streaming, 10 Sprachen)
-# Start with: cd docker/qwen3-tts && docker-compose up -d
+# Start with: cd docker/tts/qwen3-tts && docker-compose up -d
 QWEN3_TTS_SERVICE_URL = "http://localhost:5052"
 
 # ============================================================
@@ -349,7 +347,7 @@ QWEN3_TTS_SERVICE_URL = "http://localhost:5052"
 # License: Fish Audio Research License — research/non-commercial only.
 FISH_SPEECH_SERVICE_URL = "http://localhost:5053"
 
-# Voices ship with the container in docker/fish-speech/voices/. The
+# Voices ship with the container in docker/tts/fish-speech/voices/. The
 # wav+txt pair convention is the same as MOSS / Qwen3.
 FISH_SPEECH_VOICES_FALLBACK = {
     "AIfred":   "AIfred",
@@ -385,7 +383,7 @@ TTS_KEEPALIVE_HTTP_TIMEOUT = 5
 
 # ============================================================
 # XTTS voices are loaded dynamically from the service
-# Custom voices are auto-generated from WAV files in docker/xtts/voices/
+# Custom voices are auto-generated from WAV files in docker/tts/xtts/voices/
 # Built-in voices (58 speakers) are always available
 # Use get_xtts_voices() to fetch the current list from the service
 
@@ -478,7 +476,7 @@ QWEN3_TTS_VOICES_FALLBACK = {
 def get_fishspeech_voices() -> dict:
     """Fish-Speech uses static reference files from /app/references — no
     live HTTP discovery endpoint AIfred currently wants to use. The
-    docker/fish-speech/voices/ directory is the source of truth; we
+    docker/tts/fish-speech/voices/ directory is the source of truth; we
     expose the same names as the other GPU engines (AIfred, HAL9000,
     Salomo, Sokrates) so per-agent voice settings stay portable."""
     return dict(FISH_SPEECH_VOICES_FALLBACK)
@@ -1154,10 +1152,10 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
 
 # Docker-Compose paths (for container start/stop)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-XTTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "xtts", "docker-compose.yml")
-MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "moss-tts", "docker-compose.yml")
-QWEN3_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "qwen3-tts", "docker-compose.yml")
-FISH_SPEECH_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "fish-speech", "docker-compose.yml")
+XTTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "tts", "xtts", "docker-compose.yml")
+MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "tts", "moss-tts", "docker-compose.yml")
+QWEN3_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "tts", "qwen3-tts", "docker-compose.yml")
+FISH_SPEECH_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "tts", "fish-speech", "docker-compose.yml")
 WHISPER_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "whisper", "docker-compose.yml")
 
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)

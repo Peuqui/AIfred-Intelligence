@@ -1,0 +1,70 @@
+{
+  "req_id": "bac9c8a2",
+  "timestamp": 1777843527.8293326,
+  "language": "de",
+  "speaker": "AIfred",
+  "original_text": "Metadaten prüfen. Moderne Audioplayer (z.",
+  "normalized_text": "Metadaten prüfen. Moderne Audioplayer (z.",
+  "chunk_index": 0,
+  "chunk_count": 1,
+  "chunk_text": "Metadaten prüfen. Moderne Audioplayer (z.",
+  "chunk_repr": "'Metadaten prüfen. Moderne Audioplayer (z.'",
+  "char_inventory": {
+    "len": 41,
+    "categories": {
+      "Lu": 3,
+      "Ll": 31,
+      "Zs": 4,
+      "Po": 2,
+      "Ps": 1
+    },
+    "non_ascii": [
+      "U+00FC(ü)"
+    ],
+    "non_ascii_count": 1
+  },
+  "token_info": {
+    "n_tokens": 28,
+    "max_id": 1185,
+    "min_id": 2,
+    "ids": [
+      260,
+      80,
+      33,
+      68,
+      186,
+      27,
+      2,
+      29,
+      406,
+      132,
+      27,
+      9,
+      2,
+      26,
+      207,
+      428,
+      18,
+      2,
+      318,
+      17,
+      1185,
+      178,
+      88,
+      44,
+      2,
+      5,
+      39,
+      9
+    ]
+  },
+  "inference_params": {
+    "temperature": 0.65,
+    "repetition_penalty": 15.0,
+    "length_penalty": 1.0,
+    "top_k": 30,
+    "top_p": 0.75
+  },
+  "exception": "RuntimeError('CUDA error: device-side assert triggered\\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\\n')",
+  "traceback": "Traceback (most recent call last):\n  File \"/app/server.py\", line 1635, in tts\n    outputs = model.inference(\n              ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/torch/utils/_contextlib.py\", line 116, in decorate_context\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/TTS/tts/models/xtts.py\", line 534, in inference\n    text_tokens = torch.IntTensor(self.tokenizer.encode(sent, lang=language)).unsqueeze(0).to(self.device)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: CUDA error: device-side assert triggered\nCompile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n\n"
+}

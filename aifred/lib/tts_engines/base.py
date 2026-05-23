@@ -65,13 +65,25 @@ class TTSEngine(ABC):
     #: a channel device probably doesn't have wired up.
     suitable_for_channels: bool = True
 
+    #: Sort key for the UI engine dropdown — lower numbers come first.
+    #: Convention: 10 = most-recommended GPU container, 80 = cloud/CLI
+    #: fallback. New engines just pick a free integer.
+    display_order: int = 100
+
     # ── Locations (only for container-backed engines) ──────────────
     #: HTTP base URL of the local container's REST API. None for
     #: engines that don't run as a service we control.
     service_url: Optional[str] = None
 
-    #: docker-compose.yml path. None for lightweight engines.
+    #: docker-compose.yml path. The compose file is a *build recipe* —
+    #: present in the repo, used to (re)build the image. NOT used to
+    #: decide whether the engine is installed (the image is).
     docker_compose_path: Optional[Path] = None
+
+    #: Local Docker image name (without tag). None for lightweight
+    #: engines. Used by :meth:`is_installed` to check provisioning —
+    #: the image is the source of truth, the compose file is the recipe.
+    image_name: Optional[str] = None
 
     # ── Voices ─────────────────────────────────────────────────────
     @abstractmethod
@@ -104,14 +116,34 @@ class TTSEngine(ABC):
     # ── Lifecycle ──────────────────────────────────────────────────
     def is_installed(self) -> bool:
         """True if the engine is *provisioned* on this host — i.e. ready
-        to be started. Default ``True`` for lightweight engines (they
-        ship with AIfred); container engines override to check whether
-        their docker-compose.yml has been rolled out.
+        to be started.
 
-        Used by the calibration UI to hide engines the user hasn't set
-        up, so the picker only shows what's actually usable.
+        For container engines (``image_name`` set): asks Docker whether
+        the image is locally available. The image is the artefact that
+        can actually run; the compose file is just a recipe to rebuild
+        it. So deleting the image makes the engine "not installed"
+        even if the compose file is still in the repo — and a user can
+        always restore the engine via ``docker compose build`` without
+        any code changes.
+
+        For lightweight engines (Edge / Piper / eSpeak / cloud — no
+        ``image_name``): always True, they ship with AIfred.
+
+        Used by the calibration UI and engine dropdowns to hide engines
+        the user can't actually run right now.
         """
-        return True
+        if not self.image_name:
+            return True
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["docker", "image", "inspect", self.image_name],
+                capture_output=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
 
     def is_running(self) -> bool:
         """True if the engine can accept requests *right now*. Default

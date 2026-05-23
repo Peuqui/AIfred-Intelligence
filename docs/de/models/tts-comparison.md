@@ -207,7 +207,7 @@ Fuer AIfred (kurze Saetze, konversationell) koennen die Ergebnisse abweichen.
   [HuggingFace Local](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer) |
   [HuggingFace 8B](https://huggingface.co/OpenMOSS-Team/MOSS-TTS) |
   [HuggingFace Realtime](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Realtime)
-- **Docker-Container:** `docker/moss-tts/` (Port 5055)
+- **Docker-Container:** `docker/tts/moss-tts/` (Port 5055)
 - **Benchmarks (Seed-TTS-eval):**
   | Modell | EN WER | EN SIM | ZH CER | ZH SIM |
   |--------|--------|--------|--------|--------|

@@ -16,6 +16,9 @@ class MOSSEngine(TTSEngine):
     supports_language = True
     suitable_for_channels = True
     calibration_vram_reserve_mb = 0  # static allocation, no peak above idle
+    display_order = 40
+
+    image_name = "moss-tts-1.7b"
 
     @property
     def service_url(self) -> str:
@@ -35,9 +38,6 @@ class MOSSEngine(TTSEngine):
     def get_voices(self) -> dict[str, str]:
         from ..config import get_moss_voices
         return get_moss_voices() or {}
-
-    def is_installed(self) -> bool:
-        return self.docker_compose_path.exists()
 
     def is_running(self) -> bool:
         import requests

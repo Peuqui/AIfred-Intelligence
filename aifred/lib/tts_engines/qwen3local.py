@@ -15,6 +15,9 @@ class Qwen3LocalEngine(TTSEngine):
     needs_speed_postprocess = True
     supports_language = True
     suitable_for_channels = True
+    display_order = 10
+
+    image_name = "qwen3-tts-1.7b-base"
 
     # qwen-tts allocates KV-cache + decoder buffers dynamically during
     # generate() — idle ~5 GB, long-bubble peak ~7 GB. The LLM calibration
@@ -53,9 +56,6 @@ class Qwen3LocalEngine(TTSEngine):
     def get_voices(self) -> dict[str, str]:
         from ..config import get_qwen3local_voices
         return get_qwen3local_voices()
-
-    def is_installed(self) -> bool:
-        return self.docker_compose_path.exists()
 
     def is_running(self) -> bool:
         import requests
