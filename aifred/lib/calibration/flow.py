@@ -607,11 +607,14 @@ async def _project_cell(
     # Pin fit-params to the same UUID order calibration uses, so the
     # CUDA indices it reports line up with our tensor-split positions.
     fit_env = {"CUDA_VISIBLE_DEVICES": cuda_visible_devices(gpus)}
+    gpu_total_mb = tuple(g.total_mb for g in gpus)
     try:
         low = await proj.project(cmd, model.gguf_path, ctx_low, ngl=99,
-                                 n_gpus=total_gpus, env_override=fit_env)
+                                 n_gpus=total_gpus, env_override=fit_env,
+                                 gpu_total_mb=gpu_total_mb)
         high = await proj.project(cmd, model.gguf_path, ctx_high, ngl=99,
-                                  n_gpus=total_gpus, env_override=fit_env)
+                                  n_gpus=total_gpus, env_override=fit_env,
+                                  gpu_total_mb=gpu_total_mb)
     except proj.FitParamsError as e:
         logger.warning(f"fit-params failed (n_gpus={n_gpus}, kv={kv}): {e}")
         return None, f"fit-params error: {e}"
@@ -1803,13 +1806,14 @@ async def _calibrate_hybrid(
     ts_equal = tuple(float(1) for _ in range(len(gpus)))
     fit_env = {"CUDA_VISIBLE_DEVICES": cuda_visible_devices(gpus)}
 
+    gpu_total_mb_t = tuple(g.total_mb for g in gpus)
     for target in targets:
         # Project oversize at ngl=99
         cmd_f16 = proj.adjust_cmd_for_projection(full_cmd, ts_equal, "f16")
         try:
             point = await proj.project(
                 cmd_f16, model.gguf_path, target, ngl=99,
-                env_override=fit_env,
+                env_override=fit_env, gpu_total_mb=gpu_total_mb_t,
             )
         except proj.FitParamsError:
             continue
