@@ -54,8 +54,17 @@ class Qwen3LocalEngine(TTSEngine):
         }
 
     def get_voices(self) -> dict[str, str]:
-        from ..config import get_qwen3local_voices
-        return get_qwen3local_voices()
+        """One entry per <name>.wav in /app/voices/ inside the container —
+        the Qwen3 container exposes them via /voices, identical shape to
+        MOSS. Returns {} on any failure (caller falls back)."""
+        import requests
+        try:
+            r = requests.get(f"{self.service_url}/voices", timeout=5)
+            if r.ok:
+                return {name: name for name in r.json().get("voices", [])}
+        except (requests.RequestException, ValueError) as e:
+            print(f"⚠️ Failed to fetch Qwen3-TTS voices: {e}")
+        return {}
 
     def is_running(self) -> bool:
         import requests

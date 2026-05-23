@@ -33,8 +33,14 @@ class MOSSEngine(TTSEngine):
         }
 
     def get_voices(self) -> dict[str, str]:
-        from ..config import get_moss_voices
-        return get_moss_voices() or {}
+        import requests
+        try:
+            r = requests.get(f"{self.service_url}/voices", timeout=5)
+            if r.ok:
+                return {name: name for name in r.json().get("voices", [])}
+        except (requests.RequestException, ValueError) as e:
+            print(f"⚠️ Failed to fetch MOSS-TTS voices: {e}")
+        return {}
 
     def is_running(self) -> bool:
         import requests

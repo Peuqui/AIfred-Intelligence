@@ -100,26 +100,18 @@ class TTSConfigMixin(rx.State, mixin=True):
             if self.xtts_voices_cache:
                 return self.xtts_voices_cache  # Already sorted by _refresh_xtts_voices
             # Fallback when service unavailable
-            from ..lib.config import XTTS_VOICES_FALLBACK, sort_voices_custom_first
-            return sort_voices_custom_first(list(XTTS_VOICES_FALLBACK.keys()))
-        elif self.tts_engine == "moss":  # MOSS-TTS (batch)
-            from ..lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
-            voices = get_moss_voices()
-            if voices:
-                return sorted(list(voices.keys()))
-            return sorted(list(MOSS_TTS_VOICES_FALLBACK.keys()))
-        elif self.tts_engine == "qwen3local":  # Qwen3-TTS local container
-            from ..lib.config import get_qwen3local_voices, QWEN3_TTS_VOICES_FALLBACK
-            voices = get_qwen3local_voices()
-            if voices:
-                return sorted(list(voices.keys()))
-            return sorted(list(QWEN3_TTS_VOICES_FALLBACK.keys()))
-        elif self.tts_engine == "fishspeech":  # Fish-Speech S2 Pro local container
-            from ..lib.config import get_fishspeech_voices, FISH_SPEECH_VOICES_FALLBACK
-            voices = get_fishspeech_voices()
-            if voices:
-                return sorted(list(voices.keys()))
-            return sorted(list(FISH_SPEECH_VOICES_FALLBACK.keys()))
+            from ..lib.config import sort_voices_custom_first
+            from ..lib.tts_engines import get_engine
+            xtts = get_engine("xtts")
+            return sort_voices_custom_first(list(xtts.voices_fallback.keys())) if xtts else []
+        elif self.tts_engine in ("moss", "qwen3local", "fishspeech"):
+            # Live discovery via the engine, fall back to its static list.
+            from ..lib.tts_engines import get_engine
+            eng = get_engine(self.tts_engine)
+            if not eng:
+                return []
+            voices = eng.get_voices()
+            return sorted(list(voices.keys()) if voices else list(eng.voices_fallback.keys()))
         elif self.tts_engine == "dashscope":
             from ..lib.config import DASHSCOPE_VOICES, sort_voices_custom_first
             return sort_voices_custom_first(list(DASHSCOPE_VOICES.keys()))
@@ -192,19 +184,12 @@ class TTSConfigMixin(rx.State, mixin=True):
         if engine == "xtts":
             if self.xtts_voices_cache:
                 live_voices = set(self.xtts_voices_cache)
-        elif engine == "moss":
-            from ..lib.config import get_moss_voices
-            voices = get_moss_voices()  # Returns None if not running
-            if voices:
-                live_voices = set(voices.keys())
-        elif engine == "qwen3local":
-            from ..lib.config import get_qwen3local_voices, QWEN3_TTS_VOICES_FALLBACK
-            voices = get_qwen3local_voices()
-            live_voices = set(voices.keys()) if voices else set(QWEN3_TTS_VOICES_FALLBACK.keys())
-        elif engine == "fishspeech":
-            from ..lib.config import get_fishspeech_voices, FISH_SPEECH_VOICES_FALLBACK
-            voices = get_fishspeech_voices()
-            live_voices = set(voices.keys()) if voices else set(FISH_SPEECH_VOICES_FALLBACK.keys())
+        elif engine in ("moss", "qwen3local", "fishspeech"):
+            from ..lib.tts_engines import get_engine
+            eng = get_engine(engine)
+            if eng:
+                voices = eng.get_voices()
+                live_voices = set(voices.keys()) if voices else set(eng.voices_fallback.keys())
         elif engine == "dashscope":
             from ..lib.config import DASHSCOPE_VOICES
             live_voices = set(DASHSCOPE_VOICES.keys())
@@ -421,11 +406,14 @@ class TTSConfigMixin(rx.State, mixin=True):
     async def unload_xtts_model(self):
         """Unload XTTS model from memory to free VRAM."""
         import httpx
-        from ..lib.config import XTTS_SERVICE_URL
+        from ..lib.tts_engines import get_engine
+        xtts = get_engine("xtts")
+        if not xtts or not xtts.service_url:
+            return
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(f"{XTTS_SERVICE_URL}/unload")
+                response = await client.post(f"{xtts.service_url}/unload")
                 response.raise_for_status()
                 data = response.json()
 
@@ -646,9 +634,10 @@ class TTSConfigMixin(rx.State, mixin=True):
         Also validates that agent voices are in the available list.
         If a saved voice is not found, it resets to the default.
         """
-        from ..lib.config import get_xtts_voices
+        from ..lib.tts_engines import get_engine
         from ..lib.agent_config import get_tts_voice_default
-        voices = get_xtts_voices()
+        xtts = get_engine("xtts")
+        voices = xtts.get_voices() if xtts else {}
         if voices:
             from ..lib.config import sort_voices_custom_first
             self.xtts_voices_cache = sort_voices_custom_first(list(voices.keys()))
@@ -844,20 +833,20 @@ class TTSConfigMixin(rx.State, mixin=True):
             voice_dict = ESPEAK_VOICES
         elif engine_key == "xtts":
             # XTTS voices are loaded dynamically - use cached list or fallback
-            from ..lib.config import XTTS_VOICES_FALLBACK
+            from ..lib.tts_engines import get_engine
+            xtts = get_engine("xtts")
             if self.xtts_voices_cache:
                 voice_dict = {voice: voice for voice in self.xtts_voices_cache}
             else:
-                voice_dict = XTTS_VOICES_FALLBACK
-        elif engine_key == "moss":
-            # MOSS voices are loaded dynamically - fetch fresh or use fallback
-            from ..lib.config import get_moss_voices, MOSS_TTS_VOICES_FALLBACK
-            moss_voices = get_moss_voices()
-            voice_dict = moss_voices if moss_voices else MOSS_TTS_VOICES_FALLBACK
-        elif engine_key == "fishspeech":
-            from ..lib.config import get_fishspeech_voices, FISH_SPEECH_VOICES_FALLBACK
-            fish_voices = get_fishspeech_voices()
-            voice_dict = fish_voices if fish_voices else FISH_SPEECH_VOICES_FALLBACK
+                voice_dict = dict(xtts.voices_fallback) if xtts else {}
+        elif engine_key in ("moss", "fishspeech"):
+            from ..lib.tts_engines import get_engine
+            eng = get_engine(engine_key)
+            if eng:
+                live = eng.get_voices()
+                voice_dict = live if live else dict(eng.voices_fallback)
+            else:
+                voice_dict = {}
         elif engine_key == "dashscope":
             from ..lib.config import DASHSCOPE_VOICES
             voice_dict = DASHSCOPE_VOICES
