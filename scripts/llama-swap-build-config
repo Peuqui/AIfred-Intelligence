@@ -256,68 +256,6 @@ def cleanup_uninstalled_tts_profiles(data: dict) -> list[str]:
     return removed
 
 
-# ── Non-MTP-Superseded-Cleanup ─────────────────────────────────────────────
-def _normalize_mtp_stem(gguf_path: Path) -> str:
-    """Stem ohne ``-MTP`` und ohne Multi-Part-Split-Suffix.
-
-    ``Qwen3.6-27B-UD-Q8_K_XL.gguf``      -> ``Qwen3.6-27B-UD-Q8_K_XL``
-    ``Qwen3.6-27B-MTP-UD-Q8_K_XL.gguf``  -> ``Qwen3.6-27B-UD-Q8_K_XL``
-    ``X-00001-of-00003.gguf``            -> ``X``
-    """
-    stem = gguf_path.stem
-    stem = re.sub(r"-\d{5}-of-\d{5}$", "", stem)
-    stem = re.sub(r"-MTP\b", "", stem, count=1)
-    return stem
-
-
-def cleanup_superseded_by_mtp(data: dict, mtp_cache: dict) -> list[str]:
-    """Entfernt non-MTP-Modell-Einträge, wenn dieselbe Modell-Familie eine
-    MTP-fähige Variante in der config hat. Bereinigt auch ``groups.members``.
-
-    Heuristik: Zwei Modelle gehören zur gleichen Familie, wenn ihre GGUF-
-    Pfade nach Entfernen des ``-MTP``-Markers und des Multi-Part-Suffix
-    den gleichen Stem haben. Existieren MTP- *und* non-MTP-Einträge
-    parallel, ist der non-MTP obsolet (MTP ist strikt überlegen).
-    """
-    models = data.get("models") or {}
-
-    # Pro Modell-Name: (gguf, has_mtp, normalized_stem)
-    info: dict[str, tuple[Path, bool, str]] = {}
-    for name, cfg in models.items():
-        cmd = (cfg or {}).get("cmd", "")
-        if not cmd:
-            continue
-        tokens = shlex.split(cmd)
-        gguf = find_model_path(tokens)
-        if gguf is None:
-            continue
-        info[name] = (gguf, detect_mtp(gguf, mtp_cache), _normalize_mtp_stem(gguf))
-
-    # Stems, für die es mindestens einen MTP-Eintrag gibt.
-    mtp_stems = {stem for _, has, stem in info.values() if has}
-
-    removed = [
-        name for name, (_, has, stem) in info.items()
-        if not has and stem in mtp_stems
-    ]
-    if not removed:
-        return []
-
-    for name in removed:
-        del models[name]
-
-    removed_set = set(removed)
-    for grp_cfg in (data.get("groups") or {}).values():
-        if not isinstance(grp_cfg, dict):
-            continue
-        members = grp_cfg.get("members") or []
-        kept = [m for m in members if m not in removed_set]
-        if len(kept) != len(members):
-            grp_cfg["members"] = kept
-
-    return removed
-
-
 # ── YAML-IO ────────────────────────────────────────────────────────────────
 def extract_header_comments(text: str) -> tuple[str, str]:
     """Trennt führende Kommentar-/Leerzeilen ab, damit sie nach dem PyYAML-
@@ -355,18 +293,6 @@ def main() -> int:
             sys.stderr.write(f"   – {name}\n")
 
     mtp_cache = load_mtp_cache()
-
-    # Non-MTP-Modelle einer Familie loswerden, sobald ein MTP-Pendant
-    # existiert (MTP ist strikt überlegen — schnellere Generation, keine
-    # Quality-Trade-offs). Familienzuordnung über GGUF-Stem ohne -MTP-.
-    removed_superseded = cleanup_superseded_by_mtp(data, mtp_cache)
-    if removed_superseded:
-        sys.stderr.write(
-            f"🧹 Non-MTP-Profile entfernt "
-            f"({len(removed_superseded)} — MTP-Pendant vorhanden):\n"
-        )
-        for name in removed_superseded:
-            sys.stderr.write(f"   – {name}\n")
 
     summary: list[tuple[str, str]] = []
     changed = 0

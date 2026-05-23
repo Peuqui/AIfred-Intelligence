@@ -469,14 +469,21 @@ def _build_fit_params_cmd(
     kv_quant: Optional[str] = None,
     mmproj_path: Optional[Path] = None,
 ) -> list[str]:
-    """Build llama-fit-params command for per-GPU VRAM projection."""
+    """Build llama-fit-params command for per-GPU VRAM projection.
+
+    Requires llama.cpp b8857+ (renamed ``--fit-print`` flag, new per-line
+    output format ``CUDA<n> model_mb ctx_mb compute_mb``). Numeric ngl=99
+    aborts in newer builds — translated to ``-ngl all``.
+    """
+    ngl_arg = "all" if ngl >= 99 else str(ngl)
     cmd = [
         str(LLAMA_FIT_PARAMS_BIN),
         "--model", str(gguf_path.resolve()),
-        "-ngl", str(ngl),
+        "-ngl", ngl_arg,
         "-c", str(context),
         "--flash-attn", "on",
         "-np", "1",
+        "--fit-print", "on",
     ]
     if mmproj_path:
         cmd.extend(["--mmproj", str(mmproj_path.resolve())])
@@ -502,9 +509,20 @@ def _fit_params_per_gpu(
     gpu_flags: str,
     kv_quant: Optional[str] = None,
     mmproj_path: Optional[Path] = None,
+    gpu_total_mb: Optional[list[int]] = None,
 ) -> dict[str, dict[str, int]]:
     """
     Run llama-fit-params and parse per-GPU VRAM projections.
+
+    Output format from llama.cpp b8857+::
+
+        CUDA0 31683 661 505
+        CUDA1 10739 251 234
+        Host  2425  0   84
+
+    ``used = model + context + compute``. ``Host`` rows are ignored.
+    ``free`` is derived from ``gpu_total_mb`` (fit-params no longer
+    reports it); without that, ``free=0`` and ``total=used``.
 
     Returns dict like {"CUDA0": {"total": 45355, "used": 43710, "free": 1478}}.
     Empty dict if fit-params unavailable or parsing fails.
@@ -515,36 +533,22 @@ def _fit_params_per_gpu(
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return {}
 
-    # Per-GPU lines appear in stderr (present even on exit code 1)
     output = result.stderr + result.stdout
 
-    # Multi-GPU: per-GPU memory lines
     pattern = re.compile(
-        r'(CUDA\d+)\s+\([^)]+\)\s*:\s*(\d+)\s+total\s*,\s*(\d+)\s+used\s*,\s*(-?\d+)\s+free'
+        r'^CUDA(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$', re.MULTILINE,
     )
     gpus: dict[str, dict[str, int]] = {}
     for m in pattern.finditer(output):
-        gpus[m.group(1)] = {
-            "total": int(m.group(2)),
-            "used": int(m.group(3)),
-            "free": int(m.group(4)),
-        }
-
-    # Single-GPU fallback: parse summary lines
-    if not gpus:
-        proj_match = re.search(
-            r'projected to use\s+(\d+)\s+MiB.*?vs\.\s+(\d+)\s+MiB',
-            output,
-        )
-        leave_match = re.search(r'will leave\s+(-?\d+)', output)
-        if proj_match:
-            used = int(proj_match.group(1))
-            free_after = int(leave_match.group(1)) if leave_match else int(proj_match.group(2)) - used
-            gpus["CUDA0"] = {
-                "total": used + free_after,
-                "used": used,
-                "free": free_after,
-            }
+        idx = int(m.group(1))
+        used = int(m.group(2)) + int(m.group(3)) + int(m.group(4))
+        if gpu_total_mb and idx < len(gpu_total_mb):
+            total = gpu_total_mb[idx]
+            free = total - used
+        else:
+            total = used
+            free = 0
+        gpus[f"CUDA{idx}"] = {"total": total, "used": used, "free": free}
 
     return gpus
 
@@ -555,6 +559,7 @@ def _find_best_ngl(
     gpu_flags: str,
     kv_quant: Optional[str] = None,
     mmproj_path: Optional[Path] = None,
+    gpu_total_mb: Optional[list[int]] = None,
 ) -> tuple[int, dict[str, dict[str, int]]]:
     """
     Binary search for the highest NGL where all GPUs have free >= safety margin.
@@ -568,7 +573,10 @@ def _find_best_ngl(
 
     while ngl_low <= ngl_high:
         ngl_mid = (ngl_low + ngl_high) // 2
-        gpus = _fit_params_per_gpu(gguf_path, context, ngl_mid, gpu_flags, kv_quant, mmproj_path)
+        gpus = _fit_params_per_gpu(
+            gguf_path, context, ngl_mid, gpu_flags, kv_quant, mmproj_path,
+            gpu_total_mb=gpu_total_mb,
+        )
         if not gpus:
             ngl_high = ngl_mid - 1
             continue
@@ -630,6 +638,7 @@ def calibrate_model_fit_params(
 
             gpus = _fit_params_per_gpu(
                 gguf_path, ctx_mid, DEFAULT_NGL, gpu_flags, kv, mmproj,
+                gpu_total_mb=per_gpu_vram,
             )
             if gpus:
                 min_free = min(g["free"] for g in gpus.values())
@@ -653,6 +662,7 @@ def calibrate_model_fit_params(
                 ctx_mid = ((ctx_low + ctx_high) // 2 + 255) & ~255
                 ngl_result, gpus = _find_best_ngl(
                     gguf_path, ctx_mid, gpu_flags, kv, mmproj,
+                    gpu_total_mb=per_gpu_vram,
                 )
                 if ngl_result > 0:
                     best_ctx = ctx_mid
