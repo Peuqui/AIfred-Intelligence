@@ -16,7 +16,7 @@ import atexit
 import httpx
 import edge_tts
 from pathlib import Path
-from .config import PIPER_MODEL_PATH, PROJECT_ROOT, DATA_DIR
+from .config import PROJECT_ROOT, DATA_DIR
 from .logging_utils import log_message
 
 
@@ -804,497 +804,6 @@ def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
         loop.close()
 
 
-async def generate_speech_edge(text, voice, rate="+0%"):
-    """
-    Edge TTS - Cloud-based Text-to-Speech
-
-    Args:
-        text: Text to synthesize
-        voice: Voice name (e.g. "de-DE-KatjaNeural")
-        rate: Speed adjustment (e.g. "+25%" for 25% faster)
-
-    Returns:
-        str: Path to generated MP3 file (relative URL for Reflex frontend), or None on error
-    """
-    import concurrent.futures
-
-    try:
-        # Edge TTS rate format: +X% or -X% (e.g., "+25%" for 25% faster)
-        log_message(f"🎤 Edge TTS: voice={voice}, rate={rate}, text_length={len(text)}")
-
-        # Validate inputs
-        if not text or len(text.strip()) < 1:
-            log_message("⚠️ Edge TTS: Empty text, skipping")
-            return None
-
-        # Save to uploaded_files/tts_audio/ (served via /_upload/)
-        filename = _generate_tts_filename("mp3")
-        output_file = str(TTS_AUDIO_DIR / filename)
-
-        # Run Edge TTS in separate thread with its own event loop
-        # This avoids conflicts with Reflex's event loop
-        log_message(f"🔄 Edge TTS: Starting in thread → {output_file}")
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_edge_tts_sync, text, voice, rate, output_file)
-            success = future.result(timeout=None)  # no timeout — text length varies
-
-        if not success:
-            log_message("❌ Edge TTS: Thread execution failed")
-            return None
-
-        # Verify file was created and not empty
-        if _validate_audio_output(output_file):
-            file_size = os.path.getsize(output_file)
-            log_message(f"✅ Edge TTS: Audio saved → {output_file} ({file_size} bytes)")
-            return f"/_upload/tts_audio/{filename}"
-        else:
-            log_message(f"❌ Edge TTS: File missing or too small at {output_file}")
-            return None
-
-    except concurrent.futures.TimeoutError:
-        log_message("❌ Edge TTS: Timeout after 30 seconds")
-        return None
-    except Exception as e:
-        log_message(f"❌ Edge TTS Exception: {type(e).__name__}: {e}")
-        import traceback
-        log_message(f"Edge TTS Traceback: {traceback.format_exc()}")
-        return None
-
-
-def generate_speech_piper(text, speed=1.0, voice_choice="Deutsch (Thorsten)"):
-    """
-    Piper TTS - Local, fast Text-to-Speech
-
-    Args:
-        text: Text to synthesize
-        speed: Speed multiplier (1.0 = normal, 1.25 = 25% faster)
-        voice_choice: Voice display name (e.g., "Deutsch (Thorsten)")
-
-    Returns:
-        str: Path to generated WAV file (relative URL for Reflex frontend), or None on error
-    """
-    from .config import PIPER_VOICES, PROJECT_ROOT
-
-    # Save to uploaded_files/tts_audio/ (served via /_upload/)
-    filename = _generate_tts_filename("wav")
-    output_file = str(TTS_AUDIO_DIR / filename)
-
-    try:
-        # Get model path from PIPER_VOICES config
-        voice_config = PIPER_VOICES.get(voice_choice)
-        if voice_config:
-            model_filename, _ = voice_config
-            model_path = PROJECT_ROOT / "piper_models" / model_filename
-        else:
-            # Fallback to default Thorsten model
-            model_path = PIPER_MODEL_PATH
-            log_message(f"⚠️ Piper: Voice '{voice_choice}' not found, using default")
-
-        # Call Piper via subprocess
-        # length_scale: higher = slower (1.0 = normal, 0.8 = 1.25x faster, 0.5 = 2x faster)
-        length_scale = 1.0 / speed
-        log_message(f"🎤 Piper TTS: voice={voice_choice}, speed={speed}, length_scale={length_scale}")
-
-        result = subprocess.run(
-            [PIPER_BIN, "--model", str(model_path), "--output_file", output_file, "--length_scale", str(length_scale)],
-            input=text.encode('utf-8'),
-            capture_output=True,
-            timeout=None
-        )
-
-        if result.returncode == 0 and os.path.exists(output_file):
-            log_message(f"✅ Piper TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
-            # Return relative URL - browser uses current host/port automatically
-            return f"/_upload/tts_audio/{filename}"
-        else:
-            log_message(f"❌ Piper TTS Error: {result.stderr.decode()}")
-            return None
-
-    except Exception as e:
-        log_message(f"❌ Piper TTS Exception: {e}")
-        return None
-
-
-def generate_speech_espeak(text, speed=1.0, voice_choice="Deutsch (Roboter)"):
-    """
-    eSpeak TTS - Local, robotic Text-to-Speech
-
-    Args:
-        text: Text to synthesize
-        speed: Speed multiplier (1.0 = normal, 1.25 = 25% faster)
-        voice_choice: Voice display name (e.g., "Deutsch (Roboter)")
-
-    Returns:
-        str: Path to generated WAV file (relative URL for Reflex frontend), or None on error
-    """
-    from .config import ESPEAK_VOICES
-
-    # Save to uploaded_files/tts_audio/ (served via /_upload/)
-    filename = _generate_tts_filename("wav")
-    output_file = str(TTS_AUDIO_DIR / filename)
-
-    try:
-        # Get voice from ESPEAK_VOICES config
-        voice_config = ESPEAK_VOICES.get(voice_choice)
-        if voice_config:
-            voice_lang, _ = voice_config
-        else:
-            voice_lang = "de"
-            log_message(f"⚠️ eSpeak: Voice '{voice_choice}' not found, using 'de'")
-
-        # eSpeak speed: words per minute (default ~175, range 80-500)
-        # speed 1.0 = 175 wpm, 1.25 = 220 wpm, 2.0 = 350 wpm
-        wpm = int(175 * speed)
-        log_message(f"🎤 eSpeak TTS: voice={voice_lang}, speed={speed}, wpm={wpm}")
-
-        # Try espeak-ng first, fallback to espeak
-        espeak_cmd = "espeak"  # Default
-        try:
-            result_check = subprocess.run(
-                ["espeak-ng", "--version"],
-                capture_output=True,
-                timeout=5
-            )
-            if result_check.returncode == 0:
-                espeak_cmd = "espeak-ng"
-        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-            pass  # Stick with espeak
-
-        log_message(f"🔊 eSpeak: Using command '{espeak_cmd}'")
-
-        result = subprocess.run(
-            [espeak_cmd, "-v", voice_lang, "-s", str(wpm), "-w", output_file, text],
-            capture_output=True,
-            timeout=None
-        )
-
-        if result.returncode == 0 and os.path.exists(output_file):
-            log_message(f"✅ eSpeak TTS: Audio saved → {output_file} ({os.path.getsize(output_file)} bytes)")
-            # Return relative URL - browser uses current host/port automatically
-            return f"/_upload/tts_audio/{filename}"
-        else:
-            error_msg = result.stderr.decode() if result.stderr else "Unknown error"
-            log_message(f"❌ eSpeak TTS Error: {error_msg}")
-            return None
-
-    except FileNotFoundError:
-        log_message("❌ eSpeak TTS: espeak/espeak-ng not installed. Run: sudo apt install espeak-ng")
-        return None
-    except Exception as e:
-        log_message(f"❌ eSpeak TTS Exception: {e}")
-        return None
-
-
-def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Claribel Dervla", language: str = "de") -> str | None:
-    """
-    XTTS v2 TTS - Local voice cloning TTS via Docker service.
-
-    XTTS v2 supports voice cloning from reference audio and multilingual
-    text generation. The voice character is preserved across languages.
-
-    Args:
-        text: Text to synthesize
-        speed: Speed multiplier (currently unused - XTTS generates at fixed rate)
-        voice_choice: Voice name (built-in speaker or custom cloned voice)
-                     Custom voices are prefixed with "★ " in the UI
-        language: Language code for text (de, en, es, fr, etc.)
-
-    Returns:
-        str: Path to generated WAV file (relative URL for Reflex frontend), or None on error
-
-    Note:
-        Requires XTTS Docker service running: cd docker/tts/xtts && docker-compose up -d
-    """
-    import requests
-    from .tts_engines import get_engine
-    xtts_url = get_engine("xtts").service_url  # type: ignore[union-attr]
-
-    # Save to data/tts_audio/ (served via /_upload/)
-    # XTTS returns OGG/Opus format (not WAV)
-    filename = _generate_tts_filename("ogg")
-    output_file = str(TTS_AUDIO_DIR / filename)
-
-    try:
-        log_message(f"🎤 XTTS v2: speaker={voice_choice}, language={language}, text_length={len(text)}")
-
-        # Call XTTS Docker service
-        # No timeout - XTTS runs async and may take long on CPU (10+ min for long texts)
-        response = requests.post(
-            f"{xtts_url}/tts",
-            json={"text": text, "speaker": voice_choice, "language": language},
-            timeout=None
-        )
-
-        if response.status_code == 200:
-            # Save audio to file
-            with open(output_file, "wb") as f:
-                f.write(response.content)
-
-            if _validate_audio_output(output_file):
-                file_size = os.path.getsize(output_file)
-                log_message(f"✅ XTTS v2: Audio saved → {output_file} ({file_size} bytes)")
-                return f"/_upload/tts_audio/{filename}"
-            else:
-                log_message(f"⚠️ XTTS v2: File missing or too small at {output_file}")
-                return None
-        else:
-            error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
-            log_message(f"❌ XTTS v2 Error: {error_msg}")
-            return None
-
-    except requests.exceptions.ConnectionError:
-        log_message("❌ XTTS v2: Service not running. Start with: cd docker/tts/xtts && docker-compose up -d")
-        return None
-    except Exception as e:
-        log_message(f"❌ XTTS v2 Exception: {e}")
-        return None
-
-
-def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIfred", language: str = "de") -> str | None:
-    """
-    MOSS-TTS Local - Zero-shot voice cloning TTS via Docker service.
-
-    MOSS-TTS Local Transformer (1.7B) supports 20 languages and zero-shot
-    voice cloning from reference audio. Same API as XTTS v2.
-    """
-    import requests
-    from .tts_engines import get_engine
-    moss_url = get_engine("moss").service_url  # type: ignore[union-attr]
-
-    filename = _generate_tts_filename("ogg")
-    output_file = str(TTS_AUDIO_DIR / filename)
-
-    try:
-        log_message(f"🎤 MOSS-TTS: speaker={voice_choice}, language={language}, text_length={len(text)}")
-
-        response = requests.post(
-            f"{moss_url}/tts",
-            json={"text": text, "speaker": voice_choice, "language": language},
-            timeout=None
-        )
-
-        if response.status_code == 200:
-            with open(output_file, "wb") as f:
-                f.write(response.content)
-
-            if _validate_audio_output(output_file):
-                file_size = os.path.getsize(output_file)
-                log_message(f"✅ MOSS-TTS: Audio saved → {output_file} ({file_size} bytes)")
-                return f"/_upload/tts_audio/{filename}"
-            else:
-                log_message(f"⚠️ MOSS-TTS: File missing or too small at {output_file}")
-                return None
-        else:
-            error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
-            log_message(f"❌ MOSS-TTS Error: {error_msg}")
-            return None
-
-    except requests.exceptions.ConnectionError:
-        log_message("❌ MOSS-TTS: Service not running. Start with: cd docker/tts/moss-tts && docker-compose up -d")
-        return None
-    except Exception as e:
-        log_message(f"❌ MOSS-TTS Exception: {e}")
-        return None
-
-
-# Map between AIfred's short language codes (de/en/...) and Qwen3-TTS' full
-# language names ("German"/"English"/...). Qwen3-TTS-1.7B-Base supports
-# 10 languages — anything else gets routed to English as a safe default.
-_QWEN3_LANG_MAP = {
-    "de": "German",   "en": "English", "zh": "Chinese", "ja": "Japanese",
-    "ko": "Korean",   "fr": "French",  "ru": "Russian", "pt": "Portuguese",
-    "es": "Spanish",  "it": "Italian",
-}
-
-
-def generate_speech_qwen3local(text: str, speed: float = 1.0, voice_choice: str = "AIfred", language: str = "de") -> str | None:
-    """
-    Qwen3-TTS local (Docker) — voice-cloning TTS, 10 languages, ~97 ms streaming latency.
-
-    Uses the same /tts POST shape as XTTS / MOSS-TTS, just with the full
-    language name instead of a short code. Reference voices are warmed at
-    container startup from /app/voices/*.wav.
-    """
-    import requests
-    from .tts_engines import get_engine
-    qwen3_url = get_engine("qwen3local").service_url  # type: ignore[union-attr]
-
-    # Qwen3-TTS returns WAV — keep that format end-to-end (cleaner for
-    # downstream pitch/speed ffmpeg processing, and the Puck channel
-    # already prefers WAV).
-    filename = _generate_tts_filename("wav")
-    output_file = str(TTS_AUDIO_DIR / filename)
-
-    qwen3_lang = _QWEN3_LANG_MAP.get(language.lower(), "English")
-
-    try:
-        log_message(f"🎤 Qwen3-TTS: speaker={voice_choice}, language={qwen3_lang}, text_length={len(text)}")
-        response = requests.post(
-            f"{qwen3_url}/tts",
-            json={"text": text, "speaker": voice_choice, "language": qwen3_lang},
-            timeout=None,
-        )
-        if response.status_code == 200:
-            with open(output_file, "wb") as f:
-                f.write(response.content)
-            if _validate_audio_output(output_file):
-                file_size = os.path.getsize(output_file)
-                log_message(f"✅ Qwen3-TTS: Audio saved → {output_file} ({file_size} bytes)")
-                return f"/_upload/tts_audio/{filename}"
-            log_message(f"⚠️ Qwen3-TTS: File missing or too small at {output_file}")
-            return None
-        error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
-        log_message(f"❌ Qwen3-TTS Error: {error_msg}")
-        return None
-    except requests.exceptions.ConnectionError:
-        log_message("❌ Qwen3-TTS: Service not running. Start with: cd docker/tts/qwen3-tts && docker-compose up -d")
-        return None
-    except Exception as e:
-        log_message(f"❌ Qwen3-TTS Exception: {e}")
-        return None
-
-
-def generate_speech_fishspeech(text: str, speed: float = 1.0, voice_choice: str = "AIfred", language: str = "de") -> str | None:
-    """Fish Audio S2 Pro (Docker) — voice cloning via server-side reference_id.
-
-    Fish-Speech's native API serves reference voices out of
-    ``/app/references/<id>/<id>.wav`` + matching ``<id>.lab`` transcript.
-    We mount ``docker/tts/fish-speech/voices/`` read-only at that path
-    (docker-compose.yml) and just pass the voice id — the container reads
-    the files itself, no per-request base64 round-trip of a 1 MB WAV.
-    Same shape as XTTS / MOSS / Qwen3-TTS (only the speaker name on the
-    wire); consistent with what the upstream Fish-Speech WebUI does.
-    """
-    import requests
-    from .tts_engines import get_engine
-    fish_url = get_engine("fishspeech").service_url  # type: ignore[union-attr]
-
-    filename = _generate_tts_filename("wav")
-    output_file = str(TTS_AUDIO_DIR / filename)
-
-    try:
-        log_message(f"🎤 Fish-Speech: speaker={voice_choice}, language={language}, text_length={len(text)}")
-        response = requests.post(
-            f"{fish_url}/v1/tts",
-            json={
-                "text": text,
-                "format": "wav",
-                "reference_id": voice_choice,
-                "normalize": True,
-                "streaming": False,
-            },
-            timeout=None,
-        )
-        if response.status_code == 200:
-            with open(output_file, "wb") as f:
-                f.write(response.content)
-            if _validate_audio_output(output_file):
-                file_size = os.path.getsize(output_file)
-                log_message(f"✅ Fish-Speech: Audio saved → {output_file} ({file_size} bytes)")
-                return f"/_upload/tts_audio/{filename}"
-            log_message(f"⚠️ Fish-Speech: File missing or too small at {output_file}")
-            return None
-        error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
-        log_message(f"❌ Fish-Speech Error: {error_msg}")
-        return None
-    except requests.exceptions.ConnectionError:
-        log_message("❌ Fish-Speech: Service not running. Start with: cd docker/tts/fish-speech && docker-compose up -d")
-        return None
-    except Exception as e:
-        log_message(f"❌ Fish-Speech Exception: {e}")
-        return None
-
-
-def generate_speech_dashscope(text: str, speed: float = 1.0, voice_choice: str = "Cherry", language: str = "de") -> str | None:
-    """
-    DashScope Qwen3-TTS - Cloud-based streaming TTS via DashScope API.
-
-    Uses streaming mode to collect PCM chunks and save as WAV file.
-    Requires DASHSCOPE_API_KEY environment variable.
-
-    Args:
-        text: Text to synthesize
-        speed: Speed multiplier (currently unused, DashScope has no direct speed param)
-        voice_choice: Voice name from DASHSCOPE_VOICES config
-        language: Language code (de, en, etc.)
-
-    Returns:
-        str: Path to generated audio file (relative URL), or None on error
-    """
-    import base64
-    from .config import (
-        DASHSCOPE_TTS_MODEL, DASHSCOPE_TTS_VC_MODEL,
-        DASHSCOPE_TTS_BASE_URL, DASHSCOPE_LANGUAGE_MAP, DASHSCOPE_VOICES,
-        DASHSCOPE_TTS_GAIN,
-    )
-
-    filename = _generate_tts_filename("wav")
-    output_file = str(TTS_AUDIO_DIR / filename)
-
-    try:
-        import dashscope
-
-        from .credential_broker import broker
-        api_key = broker.get("cloud_qwen", "api_key")
-        if not api_key:
-            log_message("❌ DashScope TTS: API key not configured")
-            return None
-
-        dashscope.base_http_api_url = DASHSCOPE_TTS_BASE_URL
-        language_type = DASHSCOPE_LANGUAGE_MAP.get(language, "Auto")
-
-        # Resolve voice: display name -> voice ID from config
-        # ★ prefix is stripped centrally in generate_tts(), so try both variants
-        voice_id = DASHSCOPE_VOICES.get(voice_choice) or DASHSCOPE_VOICES.get(f"★ {voice_choice}", voice_choice)
-
-        # Use VC model for cloned voices, flash model for built-in
-        is_cloned = voice_id.startswith("qwen-tts-vc-")
-        model = DASHSCOPE_TTS_VC_MODEL if is_cloned else DASHSCOPE_TTS_MODEL
-
-        log_message(f"🎤 DashScope TTS: voice={voice_choice}, id={voice_id}, model={model}, lang={language_type}, text_length={len(text)}")
-
-        # Use streaming mode - collect PCM chunks (24kHz, 16-bit mono)
-        response = dashscope.MultiModalConversation.call(
-            model=model,
-            api_key=api_key,
-            text=text,
-            voice=voice_id,
-            language_type=language_type,
-            stream=True,
-        )
-
-        pcm_chunks: list[bytes] = []
-        for chunk in response:
-            if chunk.output and chunk.output.audio and chunk.output.audio.data:
-                pcm_bytes = base64.b64decode(chunk.output.audio.data)
-                pcm_chunks.append(pcm_bytes)
-
-        if not pcm_chunks:
-            log_message("❌ DashScope TTS: No audio chunks received")
-            return None
-
-        # Write PCM chunks as WAV file (24kHz, 16-bit mono) with gain
-        pcm_data = _apply_pcm_gain(b"".join(pcm_chunks), DASHSCOPE_TTS_GAIN)
-        _write_pcm_to_wav(pcm_data, output_file)
-
-        duration = len(pcm_data) / (24000 * 2)
-        if _validate_audio_output(output_file):
-            file_size = os.path.getsize(output_file)
-            log_message(f"✅ DashScope TTS: Audio saved → {output_file} ({file_size:,} bytes, {duration:.1f}s)")
-            return f"/_upload/tts_audio/{filename}"
-        else:
-            log_message(f"⚠️ DashScope TTS: File missing or too small at {output_file}")
-            return None
-
-    except ImportError:
-        log_message("❌ DashScope TTS: dashscope SDK not installed. Run: pip install dashscope>=1.24.6")
-        return None
-    except Exception as e:
-        log_message(f"❌ DashScope TTS Exception: {type(e).__name__}: {e}")
-        return None
-
-
 class DashScopeRealtimeTTS:
     """WebSocket-based realtime TTS streaming for DashScope Qwen3-TTS.
 
@@ -1984,102 +1493,63 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu")
 
 
 async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0, agent: str = "aifred", language: str = "de"):
-    """
-    Generate TTS audio from text (XTTS, MOSS-TTS, Piper, eSpeak, or Edge).
+    """Generate TTS audio from text via the engine plugin registry.
+
+    Dispatches to ``eng.generate_speech_async(...)`` — that's the
+    one place that knows about each engine. After the engine returns,
+    the central ffmpeg post-processor applies pitch / speed for engines
+    that don't handle them natively (flagged via
+    ``needs_speed_postprocess`` on the engine class).
 
     Args:
-        text: Text for TTS (already cleaned)
-        voice_choice: Voice display name (e.g. "Deutsch (Katja)" for Edge, "★ aifred" for XTTS custom)
-        speed_choice: Speed multiplier (e.g. 1.25)
-        tts_engine: Engine key (e.g. "xtts", "moss", "dashscope", "piper", "espeak", "edge")
-        pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
-        agent: Agent name for filename prefix (e.g. "sokrates", "aifred")
-        language: Language code for TTS phonetics (e.g. "de", "en")
+        text: Text for TTS (already cleaned).
+        voice_choice: Voice display name. The ★ prefix used by the UI
+            to mark custom-cloned voices is stripped here so engines
+            see the clean name.
+        speed_choice: Speed multiplier (e.g. 1.25).
+        tts_engine: Engine key (e.g. ``"xtts"``, ``"moss"``,
+            ``"dashscope"``, ``"piper"``, ``"espeak"``, ``"edge"``).
+            Must be registered in ``aifred.lib.tts_engines``.
+        pitch: Pitch factor (0.8 = 20 % lower, 1.0 = unchanged).
+        agent: Agent name for filename prefix.
+        language: Language ISO short code (e.g. ``"de"``).
 
     Returns:
-        str: Path to generated audio file, or None
+        Audio URL (``/_upload/tts_audio/<name>``) or None on failure.
     """
-    from .config import EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+    from .tts_engines import get_engine
 
-    # Set agent and engine for filename generation BEFORE any TTS call
-    # This ensures correct filename even with parallel create_task calls
+    # Set agent/engine for the filename helper BEFORE any TTS call —
+    # parallel create_task calls would otherwise race on these globals.
     set_tts_agent(agent)
     set_tts_engine(tts_engine)
 
-    # Strip "★ " UI prefix centrally - engines receive clean voice names
+    # Strip the UI ★ prefix centrally — engines see the clean voice name.
     if voice_choice.startswith("★ "):
         voice_choice = voice_choice[2:]
 
+    eng = get_engine(tts_engine)
+    if eng is None:
+        log_message(f"❌ TTS Error: unknown engine {tts_engine!r}")
+        return None
+
     try:
-        audio_url = None
-        loop = asyncio.get_running_loop()
+        audio_url = await eng.generate_speech_async(
+            text, voice_choice, language, speed_choice, pitch,
+        )
 
-        if tts_engine == "xtts":
-            # XTTS v2 (local via Docker) - voice cloning TTS
-            # Supports custom voices (★ prefix) and built-in speakers
-            # Speed is applied via ffmpeg post-processing (XTTS generates at fixed rate)
-            # Run in thread pool to avoid blocking event loop during HTTP call
-            audio_url = await loop.run_in_executor(
-                None, generate_speech_xtts, text, 1.0, voice_choice, language
-            )
-        elif tts_engine == "qwen3local":
-            # Qwen3-TTS-1.7B-Base (local via Docker) - voice cloning, 10 languages
-            audio_url = await loop.run_in_executor(
-                None, generate_speech_qwen3local, text, 1.0, voice_choice, language
-            )
-        elif tts_engine == "moss":
-            # MOSS-TTS Local (Docker) - zero-shot voice cloning, 20 languages
-            audio_url = await loop.run_in_executor(
-                None, generate_speech_moss, text, 1.0, voice_choice, language
-            )
-        elif tts_engine == "fishspeech":
-            # Fish Audio S2 Pro (Docker) - 5B Dual-AR, 80+ languages
-            audio_url = await loop.run_in_executor(
-                None, generate_speech_fishspeech, text, 1.0, voice_choice, language
-            )
-        elif tts_engine == "dashscope":
-            # DashScope Qwen3-TTS (Cloud) - streaming TTS, 0 GPU VRAM
-            audio_url = await loop.run_in_executor(
-                None, generate_speech_dashscope, text, 1.0, voice_choice, language
-            )
-        elif tts_engine == "piper":
-            # Piper TTS (local) - synchronous subprocess call
-            # Use Piper-specific voice, fallback to first available if not found
-            if voice_choice not in PIPER_VOICES:
-                voice_choice = list(PIPER_VOICES.keys())[0] if PIPER_VOICES else "Deutsch (Thorsten)"
-                log_message(f"⚠️ TTS: Voice not available for Piper, using: {voice_choice}")
-            # Run in thread pool to avoid blocking event loop
-            audio_url = await loop.run_in_executor(
-                None, generate_speech_piper, text, speed_choice, voice_choice
-            )
-        elif tts_engine == "espeak":
-            # eSpeak TTS (local, robotic) - synchronous subprocess call
-            if voice_choice not in ESPEAK_VOICES:
-                voice_choice = list(ESPEAK_VOICES.keys())[0] if ESPEAK_VOICES else "Deutsch (Roboter)"
-                log_message(f"⚠️ TTS: Voice not available for eSpeak, using: {voice_choice}")
-            # Run in thread pool to avoid blocking event loop
-            audio_url = await loop.run_in_executor(
-                None, generate_speech_espeak, text, speed_choice, voice_choice
-            )
-        else:
-            # Edge TTS (Cloud) - async API call (already non-blocking)
-            rate_pct = round((speed_choice - 1.0) * 100)
-            rate = f"{rate_pct:+d}%"
-            # Use Edge-specific voice, fallback if not found
-            voice_id = EDGE_TTS_VOICES.get(voice_choice, "de-DE-KatjaNeural")
-            audio_url = await generate_speech_edge(text, voice_id, rate)
-
-        # Apply pitch and/or speed adjustment via ffmpeg if needed
-        # Speed: Piper/eSpeak/Edge handle it natively, XTTS/MOSS/DashScope don't
-        needs_speed = tts_engine in ("xtts", "moss", "qwen3local", "fishspeech", "dashscope") and abs(speed_choice - 1.0) >= 0.01
+        # ffmpeg post-process: only for engines that don't handle speed
+        # natively. Pitch is universally a post-step (no engine has it).
+        needs_speed = eng.needs_speed_postprocess and abs(speed_choice - 1.0) >= 0.01
         needs_pitch = abs(pitch - 1.0) >= 0.01
         if audio_url and (needs_pitch or needs_speed):
             filename = audio_url.split("/")[-1]
             local_path = str(TTS_AUDIO_DIR / filename)
             ffmpeg_speed = speed_choice if needs_speed else 1.0
             ffmpeg_pitch = pitch if needs_pitch else 1.0
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
-                None, apply_audio_adjustments, local_path, ffmpeg_pitch, ffmpeg_speed
+                None, apply_audio_adjustments, local_path, ffmpeg_pitch, ffmpeg_speed,
             )
 
         return audio_url
