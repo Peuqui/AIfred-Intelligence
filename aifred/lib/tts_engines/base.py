@@ -70,20 +70,44 @@ class TTSEngine(ABC):
     #: fallback. New engines just pick a free integer.
     display_order: int = 100
 
-    # ── Locations (only for container-backed engines) ──────────────
-    #: HTTP base URL of the local container's REST API. None for
-    #: engines that don't run as a service we control.
-    service_url: Optional[str] = None
-
-    #: docker-compose.yml path. The compose file is a *build recipe* —
-    #: present in the repo, used to (re)build the image. NOT used to
-    #: decide whether the engine is installed (the image is).
-    docker_compose_path: Optional[Path] = None
-
     #: Local Docker image name (without tag). None for lightweight
     #: engines. Used by :meth:`is_installed` to check provisioning —
     #: the image is the source of truth, the compose file is the recipe.
     image_name: Optional[str] = None
+
+    #: Subdirectory under ``docker/tts/`` containing the build recipe.
+    #: Default = engine key; override only when the dir name differs
+    #: (MOSS key="moss" but dir="moss-tts").
+    compose_subdir: Optional[str] = None
+
+    # ── Locations (overridable via @property in subclasses) ────────
+    @property
+    def service_url(self) -> Optional[str]:
+        """HTTP base URL of the local container's REST API. None for
+        engines that don't run as a service we control."""
+        return None
+
+    @property
+    def docker_compose_path(self) -> Optional[Path]:
+        """docker-compose.yml path. The compose file is a *build recipe*
+        — present in the repo, used to (re)build the image. NOT used to
+        decide whether the engine is installed (the image is).
+
+        Default: ``docker/tts/<compose_subdir or key>/docker-compose.yml``
+        — engines only have to override ``compose_subdir`` if the directory
+        name differs from the engine key.
+        """
+        if not self.runs_in_container:
+            return None
+        from ..config import PROJECT_ROOT
+        subdir = self.compose_subdir or self.key
+        return Path(PROJECT_ROOT) / "docker" / "tts" / subdir / "docker-compose.yml"
+
+    @property
+    def voices_fallback(self) -> dict[str, str]:
+        """Static voice list used when the engine is unreachable. Same
+        shape as :meth:`get_voices`. Override per engine."""
+        return {}
 
     # ── Voices ─────────────────────────────────────────────────────
     @abstractmethod
@@ -96,14 +120,6 @@ class TTSEngine(ABC):
         Return ``{}`` if the engine isn't reachable — the caller falls
         back to :attr:`voices_fallback` in that case.
         """
-
-    @property
-    def voices_fallback(self) -> dict[str, str]:
-        """Static voice list used when the engine is unreachable. Same
-        shape as :meth:`get_voices`. Container engines return the
-        voices they ship with by default; cloud/CLI engines return
-        their stable list (Edge's neural voices etc.)."""
-        return {}
 
     # ── Language mapping (default: ISO codes pass through) ─────────
     @property

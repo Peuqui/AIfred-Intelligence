@@ -1,7 +1,6 @@
 """MOSS-TTS — zero-shot voice cloning, batch-after-bubble rendering."""
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 from .base import TTSEngine
@@ -19,21 +18,19 @@ class MOSSEngine(TTSEngine):
     display_order = 40
 
     image_name = "moss-tts-1.7b"
+    compose_subdir = "moss-tts"
 
     @property
     def service_url(self) -> str:
-        from ..config import MOSS_TTS_SERVICE_URL
-        return MOSS_TTS_SERVICE_URL
-
-    @property
-    def docker_compose_path(self) -> Path:
-        from ..config import MOSS_TTS_DOCKER_COMPOSE_PATH
-        return Path(MOSS_TTS_DOCKER_COMPOSE_PATH)
+        return "http://localhost:5055"
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        from ..config import MOSS_TTS_VOICES_FALLBACK
-        return dict(MOSS_TTS_VOICES_FALLBACK)
+        return {
+            "AIfred":   "AIfred",
+            "Salomo":   "Salomo",
+            "Sokrates": "Sokrates",
+        }
 
     def get_voices(self) -> dict[str, str]:
         from ..config import get_moss_voices

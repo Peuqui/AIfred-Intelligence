@@ -4,7 +4,7 @@ License: Fish Audio Research License — research/non-commercial only.
 """
 from __future__ import annotations
 
-from pathlib import Path
+import os
 from typing import Any, Optional
 
 from .base import TTSEngine
@@ -25,31 +25,31 @@ class FishSpeechEngine(TTSEngine):
     display_order = 30
 
     image_name = "fish-speech-s2-pro"
+    compose_subdir = "fish-speech"
 
     # Fish grows dynamically during generate() — measured ~19.6 GB idle
-    # → ~23.5 GB peak on the V100, then stable. Same pattern as Qwen3:
-    # do NOT load the container during calibration, just subtract the
-    # fixed 26 GB reserve from the TTS GPU. The reserve covers the peak
-    # with a ~2.5 GB headroom.
+    # → ~23.5 GB peak on the V100, then stable. S2 Pro is officially
+    # "requires at least 24 GB"; we pick 26 GB so the LLM can't creep
+    # into the peak headroom while the container is idle. Tunable via
+    # env FISH_SPEECH_VRAM_RESERVE_MB.
     @property
     def calibration_vram_reserve_mb(self) -> int:
-        from ..config import FISH_SPEECH_VRAM_RESERVE_MB
-        return FISH_SPEECH_VRAM_RESERVE_MB
+        return int(os.environ.get("FISH_SPEECH_VRAM_RESERVE_MB", "26624"))
 
     @property
     def service_url(self) -> str:
-        from ..config import FISH_SPEECH_SERVICE_URL
-        return FISH_SPEECH_SERVICE_URL
-
-    @property
-    def docker_compose_path(self) -> Path:
-        from ..config import FISH_SPEECH_DOCKER_COMPOSE_PATH
-        return Path(FISH_SPEECH_DOCKER_COMPOSE_PATH)
+        return "http://localhost:5053"
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        from ..config import FISH_SPEECH_VOICES_FALLBACK
-        return dict(FISH_SPEECH_VOICES_FALLBACK)
+        # Voices ship with the container in docker/tts/fish-speech/voices/.
+        # The wav+txt pair convention is the same as MOSS / Qwen3.
+        return {
+            "AIfred":   "AIfred",
+            "HAL9000":  "HAL9000",
+            "Salomo":   "Salomo",
+            "Sokrates": "Sokrates",
+        }
 
     def get_voices(self) -> dict[str, str]:
         from ..config import get_fishspeech_voices
