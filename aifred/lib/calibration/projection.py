@@ -61,7 +61,13 @@ def _build_fit_cmd(
     full_cmd: str, gguf_path: Path, context: int,
     ngl: int | None = None,
 ) -> list[str]:
-    """Extract GPU-relevant flags and build the fit-params argv."""
+    """Extract GPU-relevant flags and build the fit-params argv.
+
+    Always sets ``--fit-print on`` (required since llama.cpp b8857 to get
+    the per-device VRAM table; default ``off`` prints only fitted CLI args).
+    Translates legacy ``ngl=99`` to ``-ngl all`` — recent fit-params builds
+    abort when a numeric ngl is set explicitly together with auto-fit.
+    """
     parts = shlex.split(full_cmd)
     if not parts:
         raise FitParamsError("Empty llama-server cmd")
@@ -69,6 +75,7 @@ def _build_fit_cmd(
         str(_fit_binary(parts[0])),
         "--model", str(gguf_path),
         "-c", str(context),
+        "--fit-print", "on",
     ]
     i = 1  # skip binary
     while i < len(parts):
@@ -81,53 +88,50 @@ def _build_fit_cmd(
         else:
             i += 1
     if ngl is not None:
-        argv.extend(["-ngl", str(ngl)])
+        # fit-params accepts "auto", "all", or an exact number. "all" means
+        # all layers on GPUs; large integers (99) trigger an abort.
+        ngl_arg = "all" if ngl >= 99 else str(ngl)
+        argv.extend(["-ngl", ngl_arg])
     return argv
 
 
-def _parse_fit_output(text: str) -> dict[int, tuple[int, int]]:
-    """Parse fit-params output into ``{cuda_id: (used_mb, free_mb)}``.
+def _parse_fit_output(text: str) -> dict[int, int]:
+    """Parse fit-params output into ``{cuda_id: used_mb}``.
 
-    Understands both formats:
-      * multi-GPU:  ``CUDA0 (RTX 8000):  45355 total, 43710 used, 1478 free``
-      * single-GPU: ``projected to use 15011 MiB ... will leave 8273 >= 1024``
+    Output format from llama.cpp b8857+::
+
+        I llama_fit_params: printing estimated memory in MiB to stdout
+                            (device, model, context, compute) ...
+        CUDA0 31683 661 505
+        CUDA1 10739 251 234
+        Host  2425  0   84
+
+    ``used_mb = model + context + compute`` per device.  ``Host`` rows are
+    ignored — only GPU rows feed the optimizer.  Free-MB is derived later
+    from the GPU hardware totals (fit-params no longer reports free).
     """
-    result: dict[int, tuple[int, int]] = {}
-
-    # GPU label in parentheses is optional — newer fit-params builds may
-    # omit it. Without the (...)? group, multi-GPU output without labels
-    # silently collapsed all readings onto GPU 0 and the optimizer thought
-    # CUDA1..N had 0 free MB, leading to OOM during verify.
+    result: dict[int, int] = {}
     for match in re.finditer(
-        r"CUDA(\d+)(?:\s+\([^)]+\))?\s*:\s*\d+\s+total\s*,\s*"
-        r"(\d+)\s+used\s*,\s*(-?\d+)\s+free",
-        text,
+        r"^CUDA(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$",
+        text, flags=re.MULTILINE,
     ):
         cuda_id = int(match.group(1))
-        result[cuda_id] = (int(match.group(2)), int(match.group(3)))
-
-    if not result:
-        proj = re.search(
-            r"projected to use\s+(\d+)\s+MiB.*?vs\.\s+(\d+)\s+MiB", text,
-        )
-        leave = re.search(r"will leave\s+(-?\d+)", text)
-        if proj:
-            used = int(proj.group(1))
-            free = int(leave.group(1)) if leave else int(proj.group(2)) - used
-            result[0] = (used, free)
-
+        used = int(match.group(2)) + int(match.group(3)) + int(match.group(4))
+        result[cuda_id] = used
     return result
 
 
 async def _run_fit(
     argv: list[str], timeout: float = 15.0,
     env_override: dict[str, str] | None = None,
-) -> dict[int, tuple[int, int]]:
+) -> dict[int, int]:
     """Spawn llama-fit-params and parse its output.
 
     ``env_override`` lets the caller pin the GPU set via
     ``CUDA_VISIBLE_DEVICES=<uuid-list>``. When omitted, fit-params sees
     whatever GPUs the parent process has visible.
+
+    Returns ``{cuda_id: used_mb}``.
     """
     env = os.environ.copy()
     if env_override:
@@ -159,6 +163,7 @@ async def project(
     full_cmd: str, gguf_path: Path, context: int, ngl: int = 99,
     n_gpus: int | None = None,
     env_override: dict[str, str] | None = None,
+    gpu_total_mb: tuple[int, ...] | None = None,
 ) -> VRamPoint:
     """Single fit-params projection at a specific context.
 
@@ -168,18 +173,28 @@ async def project(
     ``env_override`` is forwarded to fit-params — typically used to set
     ``CUDA_VISIBLE_DEVICES=<uuid-list>`` so the projection sees the same
     GPU subset (in the same order) that the LLM will actually use.
+
+    ``gpu_total_mb`` is the per-GPU hardware total in CUDA-visible order.
+    Required to compute ``per_gpu_free_mb`` (fit-params no longer reports
+    free). When omitted, free defaults to 0 for every GPU.
     """
     argv = _build_fit_cmd(full_cmd, gguf_path, context, ngl=ngl)
     log_message(
         f"fit-params: ctx={context} ngl={ngl} cmd={' '.join(argv[:6])}...",
         category="stats",
     )
-    per_gpu = await _run_fit(argv, env_override=env_override)
+    per_gpu_used = await _run_fit(argv, env_override=env_override)
 
-    max_id = max(per_gpu) if per_gpu else -1
+    max_id = max(per_gpu_used) if per_gpu_used else -1
     length = n_gpus if n_gpus is not None else max_id + 1
-    used = tuple(per_gpu.get(i, (0, 0))[0] for i in range(length))
-    free = tuple(per_gpu.get(i, (0, 0))[1] for i in range(length))
+    used = tuple(per_gpu_used.get(i, 0) for i in range(length))
+    if gpu_total_mb is not None:
+        free = tuple(
+            gpu_total_mb[i] - used[i] if i < len(gpu_total_mb) else 0
+            for i in range(length)
+        )
+    else:
+        free = tuple(0 for _ in range(length))
     return VRamPoint(context=context, per_gpu_used_mb=used, per_gpu_free_mb=free)
 
 

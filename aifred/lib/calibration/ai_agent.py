@@ -261,10 +261,14 @@ async def _pre_search_max_ctx(
 
     cmd = set_tensor_split(full_cmd, initial_split)
     n_gpus = len(gpus)
+    gpu_total_mb = tuple(g.total_mb for g in gpus)
 
     # First check the native ctx directly — many small models fit it whole.
     try:
-        point = await proj.project(cmd, gguf_path, native_ctx, ngl=99, n_gpus=n_gpus)
+        point = await proj.project(
+            cmd, gguf_path, native_ctx, ngl=99, n_gpus=n_gpus,
+            gpu_total_mb=gpu_total_mb,
+        )
         free = list(point.per_gpu_free_mb)
         if free and min(free) >= safety_margin_mb:
             return (native_ctx, initial_split,
@@ -282,7 +286,10 @@ async def _pre_search_max_ctx(
         if mid <= lo:
             break
         try:
-            point = await proj.project(cmd, gguf_path, mid, ngl=99, n_gpus=n_gpus)
+            point = await proj.project(
+                cmd, gguf_path, mid, ngl=99, n_gpus=n_gpus,
+                gpu_total_mb=gpu_total_mb,
+            )
             free = list(point.per_gpu_free_mb)
         except Exception:
             free = []
@@ -318,8 +325,12 @@ async def _do_estimate(
     from . import projection as proj
 
     cmd = set_tensor_split(full_cmd, tensor_split)
+    gpu_total_mb = tuple(g.total_mb for g in gpus)
     try:
-        point = await proj.project(cmd, gguf_path, ctx, ngl=99, n_gpus=len(gpus))
+        point = await proj.project(
+            cmd, gguf_path, ctx, ngl=99, n_gpus=len(gpus),
+            gpu_total_mb=gpu_total_mb,
+        )
     except Exception as exc:
         logger.exception("project() raised during estimate")
         return _ProbeOutcome(status="estimate_failed", free_mb=[], detail=str(exc))
