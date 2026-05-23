@@ -74,15 +74,35 @@ def _name_to_key() -> dict[str, str]:
 
 @functools.lru_cache(maxsize=1)
 def _pattern() -> re.Pattern:
-    """Compiled reference regex: <work> <section>[,<entry>[-<entry>]]."""
+    """Compiled reference regex: <work> <section>[a|b][,<entry>[-<entry>]].
+
+    The optional ``a``/``b`` after the section number is the Vilna-edition
+    amud (recto/verso of a folio), used in Bavli citations like
+    ``Sanhedrin 97b``. Our Talmud JSONs follow Sefaria, which lists every
+    amud as one fortlaufender Daf — see :func:`_vilna_to_sefaria_daf`.
+    Non-Talmud works (Mishnah, Tanakh, Midrash, …) keep numeric sections;
+    the suffix simply never matches there.
+    """
     names = [n for e in _index().values() for n in e["names"]]
     names.sort(key=len, reverse=True)  # "Mishnah Sanhedrin" beats "Sanhedrin"
     work_alt = "|".join(_flex(n) for n in names)
     return re.compile(
-        rf"\b(?P<work>{work_alt})\.?\s+(?P<sec>\d+)"
+        rf"\b(?P<work>{work_alt})\.?\s+(?P<sec>\d+)(?P<amud>[ab])?"
         rf"(?:\s*[,:]\s*(?P<e1>\d+)(?:\s*[-–]\s*(?P<e2>\d+))?)?",
         re.IGNORECASE,
     )
+
+
+def _vilna_to_sefaria_daf(vilna_page: int, amud: str) -> str:
+    """Convert a Vilna Bavli reference (folio + amud) to the Sefaria daf.
+
+    Sefaria lists each amud as one fortlaufender Daf-Eintrag, starting
+    with the first Mishnah page as Daf 3 (Daf 1+2 are the editorial
+    front-matter that Sefaria leaves empty for every Bavli tractate). So
+    Sanhedrin 2a is Daf 3, 2b is Daf 4, 3a is Daf 5, …, 97b is Daf 194,
+    113b is Daf 226. Formula: ``2 * vilna − (1 if 'a' else 0)``.
+    """
+    return str(2 * vilna_page - (1 if amud == "a" else 0))
 
 
 def data_available() -> bool:
@@ -98,9 +118,10 @@ class JudaicaReference:
     work_key: str
     work_name: str             # display name
     section: str               # section number (JSON keys are strings)
+    amud: Optional[str]        # 'a' / 'b' for Talmud Bavli daf, else None
     entry_from: Optional[str]  # None = whole section
     entry_to: Optional[str]    # None = single entry (or whole section)
-    display: str               # human form, e.g. "Berakhot 3"
+    display: str               # human form, e.g. "Berakhot 3" or "Sanhedrin 97b"
 
 
 def parse_reference(text: str) -> Optional[JudaicaReference]:
@@ -115,12 +136,18 @@ def parse_reference(text: str) -> Optional[JudaicaReference]:
         return None
     work_name = _index()[key]["names"][0]
     section = m.group("sec")
+    amud = m.group("amud").lower() if m.group("amud") else None
     e1 = m.group("e1")
     e2 = m.group("e2")
-    display = f"{work_name} {section}"
+    # An a/b suffix only carries meaning for Talmud-Bavli works (Daf
+    # sections). On a Chapter-section work like Mishnah or Tanakh the user
+    # didn't really mean "amud" — drop it rather than carrying a stale flag.
+    if amud and _index()[key].get("section_type") != "Daf":
+        amud = None
+    display = f"{work_name} {section}{amud or ''}"
     if e1:
         display += f",{e1}" + (f"-{e2}" if e2 else "")
-    return JudaicaReference(key, work_name, section, e1, e2, display)
+    return JudaicaReference(key, work_name, section, amud, e1, e2, display)
 
 
 def lookup(ref: JudaicaReference) -> dict:
@@ -131,11 +158,20 @@ def lookup(ref: JudaicaReference) -> dict:
     """
     meta = _index()[ref.work_key]
     data = _work_json(meta["json"])
-    section = data["sections"].get(ref.section)
+    # Talmud Bavli citations come in as "97b" (Vilna folio + amud); the
+    # Sefaria-style JSON we ship lists every amud as a fortlaufender daf
+    # (97b → 194). Translate before the section lookup so users can cite
+    # the way they're used to, while the data layer stays 1:1 with Sefaria.
+    section_key = (
+        _vilna_to_sefaria_daf(int(ref.section), ref.amud)
+        if ref.amud and data["section_type"] == "Daf"
+        else ref.section
+    )
+    section = data["sections"].get(section_key)
     if not section:
         return {"reference": ref.display,
                 "error": f"{ref.work_name} has no "
-                         f"{data['section_type']} {ref.section}"}
+                         f"{data['section_type']} {ref.section}{ref.amud or ''}"}
 
     if ref.entry_from is None:
         wanted = sorted(section, key=int)
