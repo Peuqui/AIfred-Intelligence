@@ -17,6 +17,13 @@ __pycache__/
 dist/
 build/
 
+# Tool caches (mypy / pytest / ruff auto-generate these; some tools
+# drop their own inner .gitignore but it's fragile, so list them here
+# explicitly so VS Code doesn't surface them as untracked).
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
 # Piper Models (zu groß für Git)
 piper_models/
 
