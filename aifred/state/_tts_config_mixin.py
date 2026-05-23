@@ -93,7 +93,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         dependency detection (Reflex cannot introspect module-level imports).
         XTTS voices come from xtts_voices_cache (refreshed via _refresh_xtts_voices).
         """
-        from ..lib.config import EDGE_TTS_VOICES, ESPEAK_VOICES, PIPER_VOICES
+        from ..lib.tts_engines import get_engine
 
         if self.tts_engine == "xtts":
             # Use cached voices (refreshed when engine changes to XTTS)
@@ -101,26 +101,23 @@ class TTSConfigMixin(rx.State, mixin=True):
                 return self.xtts_voices_cache  # Already sorted by _refresh_xtts_voices
             # Fallback when service unavailable
             from ..lib.config import sort_voices_custom_first
-            from ..lib.tts_engines import get_engine
             xtts = get_engine("xtts")
             return sort_voices_custom_first(list(xtts.voices_fallback.keys())) if xtts else []
         elif self.tts_engine in ("moss", "qwen3local", "fishspeech"):
             # Live discovery via the engine, fall back to its static list.
-            from ..lib.tts_engines import get_engine
             eng = get_engine(self.tts_engine)
             if not eng:
                 return []
             voices = eng.get_voices()
             return sorted(list(voices.keys()) if voices else list(eng.voices_fallback.keys()))
         elif self.tts_engine == "dashscope":
-            from ..lib.config import DASHSCOPE_VOICES, sort_voices_custom_first
-            return sort_voices_custom_first(list(DASHSCOPE_VOICES.keys()))
-        elif self.tts_engine == "piper":
-            return sorted(list(PIPER_VOICES.keys()))
-        elif self.tts_engine == "espeak":
-            return sorted(list(ESPEAK_VOICES.keys()))
+            from ..lib.config import sort_voices_custom_first
+            ds = get_engine("dashscope")
+            return sort_voices_custom_first(list(ds.voices_fallback.keys())) if ds else []
         else:
-            return sorted(list(EDGE_TTS_VOICES.keys()))
+            # piper / espeak / edge — static catalogues, no live discovery.
+            eng = get_engine(self.tts_engine)
+            return sorted(list(eng.voices_fallback.keys())) if eng else []
 
     @rx.var(deps=["enable_tts"], auto_deps=False)
     def tts_player_visible(self) -> bool:
@@ -190,18 +187,12 @@ class TTSConfigMixin(rx.State, mixin=True):
             if eng:
                 voices = eng.get_voices()
                 live_voices = set(voices.keys()) if voices else set(eng.voices_fallback.keys())
-        elif engine == "dashscope":
-            from ..lib.config import DASHSCOPE_VOICES
-            live_voices = set(DASHSCOPE_VOICES.keys())
-        elif engine == "piper":
-            from ..lib.config import PIPER_VOICES
-            live_voices = set(PIPER_VOICES.keys())
-        elif engine == "espeak":
-            from ..lib.config import ESPEAK_VOICES
-            live_voices = set(ESPEAK_VOICES.keys())
         else:
-            from ..lib.config import EDGE_TTS_VOICES
-            live_voices = set(EDGE_TTS_VOICES.keys())
+            # dashscope / piper / espeak / edge — static catalogue lives on the engine.
+            from ..lib.tts_engines import get_engine
+            eng = get_engine(engine)
+            if eng:
+                live_voices = set(eng.voices_fallback.keys())
 
         # 3. Merge: saved (always) + live (if available)
         # ★ voices (cloned) come first, then alphabetical
@@ -819,39 +810,26 @@ class TTSConfigMixin(rx.State, mixin=True):
         1. User's saved preference for this engine/language (from assistant_settings.json)
         2. Default voice from TTS_DEFAULT_VOICES config
         """
-        from ..lib.config import TTS_DEFAULT_VOICES, EDGE_TTS_VOICES, PIPER_VOICES, ESPEAK_VOICES
+        from ..lib.config import TTS_DEFAULT_VOICES
+        from ..lib.tts_engines import get_engine
         from ..lib.settings import load_settings
 
         engine_key = self._get_engine_key()
+        eng = get_engine(engine_key)
 
-        # Get voice dictionary for current engine
-        # Values: str (Edge/XTTS/MOSS/DashScope) or tuple[str, str] (Piper/eSpeak)
+        # Get voice dictionary for the current engine. All engines now
+        # expose their catalogue via ``voices_fallback`` (display names
+        # mapped to themselves for piper/espeak; mapped to voice IDs for
+        # the rest — only the key set matters for "is this voice valid").
         voice_dict: dict[str, Any] = {}
-        if engine_key == "piper":
-            voice_dict = PIPER_VOICES
-        elif engine_key == "espeak":
-            voice_dict = ESPEAK_VOICES
-        elif engine_key == "xtts":
-            # XTTS voices are loaded dynamically - use cached list or fallback
-            from ..lib.tts_engines import get_engine
-            xtts = get_engine("xtts")
-            if self.xtts_voices_cache:
-                voice_dict = {voice: voice for voice in self.xtts_voices_cache}
-            else:
-                voice_dict = dict(xtts.voices_fallback) if xtts else {}
-        elif engine_key in ("moss", "fishspeech"):
-            from ..lib.tts_engines import get_engine
-            eng = get_engine(engine_key)
-            if eng:
-                live = eng.get_voices()
-                voice_dict = live if live else dict(eng.voices_fallback)
-            else:
-                voice_dict = {}
-        elif engine_key == "dashscope":
-            from ..lib.config import DASHSCOPE_VOICES
-            voice_dict = DASHSCOPE_VOICES
-        else:
-            voice_dict = EDGE_TTS_VOICES
+        if engine_key == "xtts" and self.xtts_voices_cache:
+            voice_dict = {voice: voice for voice in self.xtts_voices_cache}
+        elif engine_key in ("moss", "fishspeech") and eng:
+            # Live discovery for the container engines, fall back to static.
+            live = eng.get_voices()
+            voice_dict = live if live else dict(eng.voices_fallback)
+        elif eng:
+            voice_dict = dict(eng.voices_fallback)
 
         # Priority 1: Check for user's saved preference
         saved_settings = load_settings() or {}

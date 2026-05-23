@@ -16,10 +16,33 @@ class EdgeEngine(TTSEngine):
     suitable_for_channels = True
     display_order = 80
 
+    # display name → Microsoft Neural Voice id. Static catalogue —
+    # Edge has no live discovery endpoint we use.
+    _VOICES: dict[str, str] = {
+        # Deutschland (de-DE)
+        "Deutsch (Katja)":       "de-DE-KatjaNeural",
+        "Deutsch (Amala)":       "de-DE-AmalaNeural",
+        "Deutsch (Seraphina)":   "de-DE-SeraphinaMultilingualNeural",
+        "Deutsch (Conrad)":      "de-DE-ConradNeural",
+        "Deutsch (Killian)":     "de-DE-KillianNeural",
+        "Deutsch (Florian)":     "de-DE-FlorianMultilingualNeural",
+        # Österreich (de-AT)
+        "Österreich (Ingrid)":   "de-AT-IngridNeural",
+        "Österreich (Jonas)":    "de-AT-JonasNeural",
+        # Schweiz (de-CH)
+        "Schweiz (Leni)":        "de-CH-LeniNeural",
+        "Schweiz (Jan)":         "de-CH-JanNeural",
+        # Englisch
+        "Englisch (Jenny)":      "en-US-JennyNeural",
+        "Englisch (Guy)":        "en-US-GuyNeural",
+        # Weitere Sprachen
+        "Französisch (Denise)":  "fr-FR-DeniseNeural",
+        "Spanisch (Elvira)":     "es-ES-ElviraNeural",
+    }
+
     @property
     def voices_fallback(self) -> dict[str, str]:
-        from ..config import EDGE_TTS_VOICES
-        return dict(EDGE_TTS_VOICES)
+        return dict(self._VOICES)
 
     def get_voices(self) -> dict[str, str]:
         return self.voices_fallback

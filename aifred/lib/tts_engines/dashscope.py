@@ -6,6 +6,72 @@ from typing import Optional
 from .base import TTSEngine
 
 
+# Display name → voice id. Cloned voices use the qwen-tts-vc-* IDs that
+# the VC model wants; built-in voices share name and id. The ★ prefix
+# marks cloned voices in the UI; the dispatcher strips it before
+# voice resolution.
+_VOICES_BATCH: dict[str, str] = {
+    # Custom cloned voices (enrolled via DashScope Voice Enrollment API)
+    "★ AIfred":   "qwen-tts-vc-aifred-voice-20260215200351981-1e03",
+    "★ Sokrates": "qwen-tts-vc-sokrates-voice-20260215200356508-96af",
+    "★ Salomo":   "qwen-tts-vc-salomo-voice-20260215200400827-48f6",
+    # Built-in voices (multilingual, all support German)
+    "Cherry":    "Cherry",
+    "Serena":    "Serena",
+    "Ethan":     "Ethan",
+    "Chelsie":   "Chelsie",
+    "Momo":      "Momo",
+    "Vivian":    "Vivian",
+    "Moon":      "Moon",
+    "Maia":      "Maia",
+    "Kai":       "Kai",
+    "Bella":     "Bella",
+    "Jennifer":  "Jennifer",
+    "Ryan":      "Ryan",
+    "Aiden":     "Aiden",
+    "Mia":       "Mia",
+    "Vincent":   "Vincent",
+    "Neil":      "Neil",
+    "Elias":     "Elias",
+    "Arthur":    "Arthur",
+    "Stella":    "Stella",
+    "Emilien":   "Emilien",
+    "Andre":     "Andre",
+    "Lenn":      "Lenn",
+}
+
+# Realtime WebSocket voice IDs. Cloned voices need a separate enrollment
+# for the realtime model and therefore get different IDs; built-in voices
+# share the name with the batch model.
+_VOICES_REALTIME: dict[str, str] = {
+    "★ AIfred":   "qwen-tts-vc-aifred_rt-voice-20260215200414292-7bcd",
+    "★ Sokrates": "qwen-tts-vc-sokrates_rt-voice-20260215200418894-da62",
+    "★ Salomo":   "qwen-tts-vc-salomo_rt-voice-20260215200423193-f528",
+    "Cherry":    "Cherry",
+    "Serena":    "Serena",
+    "Ethan":     "Ethan",
+    "Chelsie":   "Chelsie",
+    "Momo":      "Momo",
+    "Vivian":    "Vivian",
+    "Moon":      "Moon",
+    "Maia":      "Maia",
+    "Kai":       "Kai",
+    "Bella":     "Bella",
+    "Jennifer":  "Jennifer",
+    "Ryan":      "Ryan",
+    "Aiden":     "Aiden",
+    "Mia":       "Mia",
+    "Vincent":   "Vincent",
+    "Neil":      "Neil",
+    "Elias":     "Elias",
+    "Arthur":    "Arthur",
+    "Stella":    "Stella",
+    "Emilien":   "Emilien",
+    "Andre":     "Andre",
+    "Lenn":      "Lenn",
+}
+
+
 class DashScopeEngine(TTSEngine):
     key = "dashscope"
     label_short = "DashScope"
@@ -18,15 +84,40 @@ class DashScopeEngine(TTSEngine):
     suitable_for_channels = False
     display_order = 50
 
+    # DashScope service endpoints + model identifiers. Class attributes so
+    # the realtime WebSocket path (DashScopeRealtimeTTS) can read them
+    # without importing config.
+    base_url: str = "https://dashscope-intl.aliyuncs.com/api/v1"
+    ws_url: str = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
+    model_flash: str = "qwen3-tts-flash"
+    model_vc_batch: str = "qwen3-tts-vc-2026-01-22"
+    model_vc_realtime: str = "qwen3-tts-vc-realtime-2026-01-15"
+    model_flash_realtime: str = "qwen3-tts-flash-realtime"
+    # Volume boost (1.0 = unchanged, 2.0 = double, …). DashScope output is
+    # noticeably quieter than the local engines; 3.0 brings it in line.
+    output_gain: float = 3.0
+
+    # ISO short code → DashScope language_type.
+    language_map_dashscope: dict[str, str] = {
+        "de": "German",   "en": "English", "fr": "French",   "es": "Spanish",
+        "it": "Italian",  "pt": "Portuguese", "ru": "Russian",
+        "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
+    }
+
     @property
     def voices_fallback(self) -> dict[str, str]:
-        from ..config import DASHSCOPE_VOICES
-        return dict(DASHSCOPE_VOICES)
+        return dict(_VOICES_BATCH)
 
     def get_voices(self) -> dict[str, str]:
-        # DashScope has a fixed catalogue; no live discovery endpoint
-        # AIfred currently uses, so we just return the static mapping.
+        # DashScope has a fixed catalogue; no live discovery endpoint.
         return self.voices_fallback
+
+    @property
+    def realtime_voices(self) -> dict[str, str]:
+        """Voice catalogue for the realtime WebSocket path. Different IDs
+        than the batch catalogue because cloned voices need a separate
+        enrollment for the realtime model."""
+        return dict(_VOICES_REALTIME)
 
     def generate_speech(
         self,
@@ -43,8 +134,8 @@ class DashScopeEngine(TTSEngine):
 
         Note: This is the non-realtime batch path; the realtime WebSocket
         variant (token-by-token streaming) lives in
-        :class:`aifred.lib.audio_processing.DashScopeRealtimeTTS` because
-        it has a different state model (LLM tokens feed in over time)."""
+        :class:`aifred.lib.audio_processing.DashScopeRealtimeTTS` — it
+        reads the model/URL/voice catalogue from this engine class."""
         import base64
         import os
         from ..audio_processing import (
@@ -53,11 +144,6 @@ class DashScopeEngine(TTSEngine):
             _apply_pcm_gain,
             _write_pcm_to_wav,
             TTS_AUDIO_DIR,
-        )
-        from ..config import (
-            DASHSCOPE_TTS_MODEL, DASHSCOPE_TTS_VC_MODEL,
-            DASHSCOPE_TTS_BASE_URL, DASHSCOPE_LANGUAGE_MAP, DASHSCOPE_VOICES,
-            DASHSCOPE_TTS_GAIN,
         )
         from ..logging_utils import log_message
 
@@ -72,16 +158,16 @@ class DashScopeEngine(TTSEngine):
                 log_message("❌ DashScope TTS: API key not configured")
                 return None
 
-            dashscope.base_http_api_url = DASHSCOPE_TTS_BASE_URL
-            language_type = DASHSCOPE_LANGUAGE_MAP.get(language, "Auto")
+            dashscope.base_http_api_url = self.base_url
+            language_type = self.language_map_dashscope.get(language, "Auto")
 
             # Voice resolution: display name → voice id. The ★ prefix is
             # stripped centrally before we get here, so check both forms.
-            voice_id = DASHSCOPE_VOICES.get(voice) or DASHSCOPE_VOICES.get(f"★ {voice}", voice)
+            voice_id = _VOICES_BATCH.get(voice) or _VOICES_BATCH.get(f"★ {voice}", voice)
 
             # VC model for cloned voices, flash model for built-in ones.
             is_cloned = voice_id.startswith("qwen-tts-vc-")
-            model = DASHSCOPE_TTS_VC_MODEL if is_cloned else DASHSCOPE_TTS_MODEL
+            model = self.model_vc_batch if is_cloned else self.model_flash
 
             log_message(f"🎤 DashScope TTS: voice={voice}, id={voice_id}, model={model}, lang={language_type}, text_length={len(text)}")
 
@@ -103,7 +189,7 @@ class DashScopeEngine(TTSEngine):
                 log_message("❌ DashScope TTS: No audio chunks received")
                 return None
 
-            pcm_data = _apply_pcm_gain(b"".join(pcm_chunks), DASHSCOPE_TTS_GAIN)
+            pcm_data = _apply_pcm_gain(b"".join(pcm_chunks), self.output_gain)
             _write_pcm_to_wav(pcm_data, output_file)
 
             duration = len(pcm_data) / (24000 * 2)

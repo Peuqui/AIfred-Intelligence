@@ -33,8 +33,6 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo r
 # - Excluded from git (.gitignore)
 DATA_DIR = PROJECT_ROOT / "data"
 
-PIPER_MODEL_PATH = PROJECT_ROOT / "piper_models" / "de_DE-thorsten-medium.onnx"
-
 # ============================================================
 # BACKEND URL FOR STATIC FILES (HTML Preview, Images)
 # ============================================================
@@ -240,45 +238,8 @@ BACKEND_LABELS = {
     "cloud_api": "Cloud APIs",
 }
 
-# ============================================================
-# AVAILABLE VOICES (Engine-specific)
-# ============================================================
-# Edge TTS Voices (Cloud - Microsoft Neural Voices)
-EDGE_TTS_VOICES = {
-    # Deutschland (de-DE)
-    "Deutsch (Katja)": "de-DE-KatjaNeural",
-    "Deutsch (Amala)": "de-DE-AmalaNeural",
-    "Deutsch (Seraphina)": "de-DE-SeraphinaMultilingualNeural",
-    "Deutsch (Conrad)": "de-DE-ConradNeural",
-    "Deutsch (Killian)": "de-DE-KillianNeural",
-    "Deutsch (Florian)": "de-DE-FlorianMultilingualNeural",
-    # Österreich (de-AT)
-    "Österreich (Ingrid)": "de-AT-IngridNeural",
-    "Österreich (Jonas)": "de-AT-JonasNeural",
-    # Schweiz (de-CH)
-    "Schweiz (Leni)": "de-CH-LeniNeural",
-    "Schweiz (Jan)": "de-CH-JanNeural",
-    # Englisch
-    "Englisch (Jenny)": "en-US-JennyNeural",
-    "Englisch (Guy)": "en-US-GuyNeural",
-    # Weitere Sprachen
-    "Französisch (Denise)": "fr-FR-DeniseNeural",
-    "Spanisch (Elvira)": "es-ES-ElviraNeural",
-}
-
-# Piper TTS Voices (Local - ONNX models)
-# Format: Display Name -> (model_filename, language_code)
-# Models stored in ~/.local/share/piper/
-PIPER_VOICES = {
-    # Deutsch - Männliche Stimmen
-    "Deutsch (Thorsten)": ("de_DE-thorsten-high.onnx", "de"),
-    "Deutsch (Karlsson)": ("de_DE-karlsson-low.onnx", "de"),
-    # Deutsch - Weibliche Stimmen
-    "Deutsch (Ramona)": ("de_DE-ramona-low.onnx", "de"),
-    "Deutsch (Kerstin)": ("de_DE-kerstin-low.onnx", "de"),
-    "Deutsch (Eva K)": ("de_DE-eva_k-x_low.onnx", "de"),
-    "Deutsch (MLS)": ("de_DE-mls-medium.onnx", "de"),  # Multi-speaker
-}
+# Engine-specific voice catalogues now live in aifred/lib/tts_engines/<engine>.py.
+# config.py stays engine-agnostic — adding a new engine is a one-file drop.
 
 # FreeEcho.2 TTS fallback voice (last resort if no agent/AIfred voice configured)
 PUCK_TTS_FALLBACK_VOICE = "Deutsch (Karlsson)"
@@ -383,189 +344,12 @@ QWEN3_TTS_CALIBRATION_TEXT = (
     "seine Bereitschaft, und der reguläre Inferenzbetrieb kann beginnen."
 )
 
-# ============================================================
-# DASHSCOPE QWEN3-TTS CONFIGURATION (Cloud API)
-# ============================================================
-# Cloud-based TTS via DashScope (Alibaba Cloud) - 0 GPU VRAM, 40+ voices
-# Requires DASHSCOPE_API_KEY environment variable
-DASHSCOPE_TTS_MODEL = "qwen3-tts-flash"
-DASHSCOPE_TTS_VC_MODEL = "qwen3-tts-vc-2026-01-22"  # Voice cloning model (batch, must match enrollment target_model)
-DASHSCOPE_TTS_VC_REALTIME_MODEL = "qwen3-tts-vc-realtime-2026-01-15"  # Voice cloning model (WebSocket realtime)
-DASHSCOPE_TTS_BASE_URL = "https://dashscope-intl.aliyuncs.com/api/v1"
-DASHSCOPE_WS_URL = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
-DASHSCOPE_TTS_GAIN = 3.0  # Volume boost for DashScope TTS (1.0 = unchanged, 2.0 = double, etc.)
-
-# Language mapping: ISO code -> DashScope language_type
-DASHSCOPE_LANGUAGE_MAP: dict[str, str] = {
-    "de": "German",
-    "en": "English",
-    "fr": "French",
-    "es": "Spanish",
-    "it": "Italian",
-    "pt": "Portuguese",
-    "ru": "Russian",
-    "ja": "Japanese",
-    "ko": "Korean",
-    "zh": "Chinese",
-}
-
-# Available DashScope voices (batch mode - sentence-based TTS / Re-Synth)
-# Custom cloned voices (★ prefix) use VC model, built-in voices use flash model
-DASHSCOPE_VOICES: dict[str, str] = {
-    # Custom cloned voices (enrolled via DashScope Voice Enrollment API)
-    "★ AIfred": "qwen-tts-vc-aifred-voice-20260215200351981-1e03",
-    "★ Sokrates": "qwen-tts-vc-sokrates-voice-20260215200356508-96af",
-    "★ Salomo": "qwen-tts-vc-salomo-voice-20260215200400827-48f6",
-    # Built-in voices (multilingual, all support German)
-    "Cherry": "Cherry",
-    "Serena": "Serena",
-    "Ethan": "Ethan",
-    "Chelsie": "Chelsie",
-    "Momo": "Momo",
-    "Vivian": "Vivian",
-    "Moon": "Moon",
-    "Maia": "Maia",
-    "Kai": "Kai",
-    "Bella": "Bella",
-    "Jennifer": "Jennifer",
-    "Ryan": "Ryan",
-    "Aiden": "Aiden",
-    "Mia": "Mia",
-    "Vincent": "Vincent",
-    "Neil": "Neil",
-    "Elias": "Elias",
-    "Arthur": "Arthur",
-    "Stella": "Stella",
-    "Emilien": "Emilien",
-    "Andre": "Andre",
-    "Lenn": "Lenn",
-}
-
-# Realtime WebSocket voice IDs (for streaming during LLM generation)
-# Cloned voices need separate enrollment for the realtime model
-# Built-in voices use same name as batch model
-DASHSCOPE_VOICES_REALTIME: dict[str, str] = {
-    # Custom cloned voices (enrolled for realtime model)
-    "★ AIfred": "qwen-tts-vc-aifred_rt-voice-20260215200414292-7bcd",
-    "★ Sokrates": "qwen-tts-vc-sokrates_rt-voice-20260215200418894-da62",
-    "★ Salomo": "qwen-tts-vc-salomo_rt-voice-20260215200423193-f528",
-    # Built-in voices use same ID for realtime
-    "Cherry": "Cherry",
-    "Serena": "Serena",
-    "Ethan": "Ethan",
-    "Chelsie": "Chelsie",
-    "Momo": "Momo",
-    "Vivian": "Vivian",
-    "Moon": "Moon",
-    "Maia": "Maia",
-    "Kai": "Kai",
-    "Bella": "Bella",
-    "Jennifer": "Jennifer",
-    "Ryan": "Ryan",
-    "Aiden": "Aiden",
-    "Mia": "Mia",
-    "Vincent": "Vincent",
-    "Neil": "Neil",
-    "Elias": "Elias",
-    "Arthur": "Arthur",
-    "Stella": "Stella",
-    "Emilien": "Emilien",
-    "Andre": "Andre",
-    "Lenn": "Lenn",
-}
-
 def sort_voices_custom_first(voices: list[str]) -> list[str]:
     """Sort voices: ★ custom voices first, then built-in alphabetically."""
     custom = sorted(v for v in voices if v.startswith("★"))
     builtin = sorted(v for v in voices if not v.startswith("★"))
     return custom + builtin
 
-
-# eSpeak Voices (Local - system package)
-# Install: sudo apt install espeak-ng (or espeak)
-# Format: "Display Name": ("voice_id", "language_code")
-# Voice variants: +m1/+m2 = male, +f1/+f2 = female
-# mbrola voices: mb/mb-deX (more natural, requires mbrola package)
-
-# All known eSpeak voices (will be filtered by get_available_espeak_voices())
-_ESPEAK_VOICES_ALL = {
-    # Deutsch - Standard eSpeak (roboterhaft, always available)
-    "Deutsch Standard": ("de", "de"),
-    "Deutsch Männlich 1": ("de+m1", "de"),
-    "Deutsch Männlich 2": ("de+m2", "de"),
-    "Deutsch Weiblich 1": ("de+f1", "de"),
-    "Deutsch Weiblich 2": ("de+f2", "de"),
-    # Deutsch - mbrola Stimmen (natürlicher, requires mbrola + mbrola-deX packages)
-    "Deutsch mbrola-2 (M)": ("mb/mb-de2", "de"),
-    "Deutsch mbrola-3 (F)": ("mb/mb-de3", "de"),
-    "Deutsch mbrola-4 (M)": ("mb/mb-de4", "de"),
-    "Deutsch mbrola-5 (F)": ("mb/mb-de5", "de"),
-    "Deutsch mbrola-6 (M)": ("mb/mb-de6", "de"),
-    "Deutsch mbrola-7 (F)": ("mb/mb-de7", "de"),
-    # Englisch - Standard eSpeak (always available)
-    "Englisch Standard": ("en", "en"),
-    "Englisch US": ("en-us", "en"),
-    "Englisch UK": ("en-gb", "en"),
-    # Englisch - mbrola Stimmen (requires mbrola + mbrola-en1/us1-3 packages)
-    "Englisch mbrola UK (M)": ("mb/mb-en1", "en"),
-    "Englisch mbrola US-1 (F)": ("mb/mb-us1", "en"),
-    "Englisch mbrola US-2 (M)": ("mb/mb-us2", "en"),
-    "Englisch mbrola US-3 (M)": ("mb/mb-us3", "en"),
-}
-
-def get_available_espeak_voices() -> dict:
-    """
-    Detect available eSpeak voices at runtime.
-
-    Standard eSpeak voices (de, en, etc.) are always available.
-    mbrola voices require: sudo apt install mbrola mbrola-deX mbrola-en1 etc.
-
-    Returns:
-        dict: Filtered ESPEAK_VOICES with only available voices
-    """
-    import subprocess
-
-    available = {}
-
-    # Get list of available mbrola voices from espeak-ng (or espeak fallback)
-    mbrola_available = set()
-    try:
-        # Try espeak-ng first (modern), fallback to espeak (legacy)
-        espeak_cmd = "espeak-ng"
-        try:
-            subprocess.run([espeak_cmd, "--version"], capture_output=True, timeout=2)
-        except (FileNotFoundError, OSError):
-            espeak_cmd = "espeak"
-
-        result = subprocess.run(
-            [espeak_cmd, "--voices=mb"],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0:
-            for line in result.stdout.split('\n')[1:]:  # Skip header
-                parts = line.split()
-                if len(parts) >= 5:
-                    # File column contains voice ID like "mb/mb-de2"
-                    voice_file = parts[4] if len(parts) > 4 else ""
-                    if voice_file.startswith("mb/"):
-                        mbrola_available.add(voice_file)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass  # espeak not installed or timeout
-
-    # Filter voices: include standard voices, only include available mbrola voices
-    for name, (voice_id, lang) in _ESPEAK_VOICES_ALL.items():
-        if voice_id.startswith("mb/"):
-            # mbrola voice - check if available
-            if voice_id in mbrola_available:
-                available[name] = (voice_id, lang)
-        else:
-            # Standard eSpeak voice - always available
-            available[name] = (voice_id, lang)
-
-    return available
-
-# Initialize ESPEAK_VOICES with available voices (cached at module load)
-ESPEAK_VOICES = get_available_espeak_voices()
 
 # ============================================================
 # DEFAULT TTS VOICES PER LANGUAGE
