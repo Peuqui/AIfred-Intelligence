@@ -322,62 +322,58 @@ async def scheduler_loop() -> None:
 
 
 async def _execute_job(job: Job) -> None:
-    """Execute a single job by calling the AIfred engine in an isolated session.
+    """Execute a scheduled job through the SSOT message-processing pipeline.
 
-    Creates a dedicated session for the job so it doesn't pollute
-    any existing conversation. Delivers the result based on the job's
-    delivery mode.
+    Hands the job off to ``process_inbound`` as a synthetic InboundMessage,
+    so chat-history / llm-history / hub-notifications / title generation
+    are persisted the same way as for any other channel. Only the final
+    delivery (review / announce / webhook) stays scheduler-specific.
     """
     import secrets
-    from .session_storage import create_empty_session
+    from datetime import datetime
     from .config import MESSAGE_HUB_OWNER
+    from .envelope import InboundMessage
+    from .message_processor import process_inbound
 
-    # Isolated session per run. ID must match the sanitizer regex
-    # ^[a-f0-9]{32}$ in session_storage; job linkage stays in the Job record.
-    session_id = secrets.token_hex(16)
-    if not create_empty_session(session_id, owner=MESSAGE_HUB_OWNER):
-        log_message(
-            f"Scheduler: could not create session for job '{job.name}' "
-            f"(session_id={session_id[:8]})",
-            "error",
-        )
-        return
-
-    message = job.payload.get("message", "")
+    message_text = job.payload.get("message", "")
     agent = job.payload.get("agent", "aifred")
 
-    if not message:
+    if not message_text:
         log_message(f"Scheduler: job '{job.name}' has no message, skipping", "warning")
         return
 
-    # Call engine with job's max_tier
-    from .message_processor import _call_engine
-    response_text, _ = await _call_engine(
-        user_text=message,
-        session_id=session_id,
-        agent=agent,
-        max_tier=job.max_tier,
-        source="cron",
+    # Fresh channel_id per run → routing_table allocates a new session,
+    # so every job execution lives in its own conversation (no history
+    # bleed between daily runs).
+    msg = InboundMessage(
+        channel="scheduler",
+        channel_id=secrets.token_hex(8),
+        sender=MESSAGE_HUB_OWNER,
+        text=message_text,
+        timestamp=datetime.now(),
+        metadata={
+            "job_name": job.name,
+            "job_id": job.job_id,
+            # wake_agent pins the target agent so the LLM-based intent
+            # detection in process_inbound doesn't reroute the request.
+            "wake_agent": agent,
+            # Honored by resolve_tier_for_sender for the scheduler channel
+            # only — see security.py.
+            "max_tier": job.max_tier,
+        },
+        target_agent=agent,
     )
 
-    if not response_text:
+    outbound = await process_inbound(msg)
+
+    if outbound is None or not outbound.text:
         raise RuntimeError(f"Engine returned no response for job '{job.name}'")
 
-    # Add agent identification tag (except for aifred who has none)
-    if agent != "aifred":
-        from .agent_config import get_agent_config
-        agent_cfg = get_agent_config(agent)
-        if agent_cfg:
-            response_text = f"— {agent_cfg.display_name} —\n\n{response_text}"
+    session_id = outbound.metadata.get("session_id", "")
+    if not session_id:
+        raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
 
-    # Store result in session debug log
-    from .debug_bus import debug, session_scope
-    with session_scope(session_id):
-        debug(f"Scheduled job: {job.name}")
-        debug(f"Result: {response_text[:500]}")
-
-    # Deliver result
-    await _deliver_result(job, response_text, session_id)
+    await _deliver_result(job, outbound.text, session_id)
 
 
 # ============================================================

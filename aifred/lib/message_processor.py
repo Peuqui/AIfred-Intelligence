@@ -437,6 +437,9 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         # damit Music sofort spielt ohne dass der Butler dazwischenredet.
         if result_metadata.get("silent_reply"):
             reply_metadata["silent_reply"] = True
+        # Internal triggers (scheduler, webhook) need the resolved session_id
+        # to hand off to their delivery layer. Plugins ignore this field.
+        reply_metadata["session_id"] = session_id
         outbound = OutboundMessage(
             channel=message.channel,
             channel_id=message.channel_id,
