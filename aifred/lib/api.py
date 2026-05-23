@@ -1214,41 +1214,61 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
 
     log_message(f"API: agent/trigger — '{request.message[:50]}...' (agent={request.agent}, tier={effective_tier})")
 
-    # Build job payload and execute async
+    # Pre-allocate session + routing so the synchronous response can
+    # already return the session_id while the engine call runs in the
+    # background. process_inbound picks up the existing session via
+    # routing_table.get_route().
     import secrets
-    session_id = f"webhook_{secrets.token_hex(8)}"
+    from .config import MESSAGE_HUB_OWNER
+    from .session_storage import create_empty_session
+    from .routing_table import routing_table
+
+    session_id = secrets.token_hex(16)
+    channel_id = secrets.token_hex(8)
+    if not create_empty_session(session_id, owner=MESSAGE_HUB_OWNER):
+        raise HTTPException(status_code=500, detail="Failed to create session")
+    routing_table.set_route("webhook", channel_id, session_id)
 
     async def _run():
-        from .session_storage import create_empty_session
-        from .config import MESSAGE_HUB_OWNER
-        from .message_processor import _call_engine
+        from datetime import datetime
+        from .envelope import InboundMessage
+        from .message_processor import process_inbound
         from .scheduler import _deliver_result, Job
 
-        create_empty_session(session_id, owner=MESSAGE_HUB_OWNER)
-
-        response_text, _ = await _call_engine(
-            user_text=request.message,
-            session_id=session_id,
-            agent=request.agent,
-            max_tier=effective_tier,
-            source="webhook",
+        msg = InboundMessage(
+            channel="webhook",
+            channel_id=channel_id,
+            sender=MESSAGE_HUB_OWNER,
+            text=request.message,
+            timestamp=datetime.now(),
+            metadata={
+                "wake_agent": request.agent,
+                # security.py honors max_tier on the webhook channel only.
+                "max_tier": effective_tier,
+            },
+            target_agent=request.agent,
         )
 
-        if response_text:
-            # Create a minimal Job for delivery
-            job = Job(
-                job_id=0,
-                name="webhook_trigger",
-                schedule_type="once",
-                schedule_expr="",
-                payload={
-                    "delivery": request.delivery,
-                    "channel": request.channel,
-                    "recipient": request.recipient,
-                    "webhook_url": request.webhook_url,
-                },
-            )
-            await _deliver_result(job, response_text, session_id)
+        outbound = await process_inbound(msg)
+
+        if outbound is None or not outbound.text:
+            return
+
+        # Create a minimal Job for delivery (delivery config comes from the
+        # webhook request, not from the scheduler store).
+        job = Job(
+            job_id=0,
+            name="webhook_trigger",
+            schedule_type="once",
+            schedule_expr="",
+            payload={
+                "delivery": request.delivery,
+                "channel": request.channel,
+                "recipient": request.recipient,
+                "webhook_url": request.webhook_url,
+            },
+        )
+        await _deliver_result(job, outbound.text, session_id)
 
     background_tasks.add_task(_run)
 

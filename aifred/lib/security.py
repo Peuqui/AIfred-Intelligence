@@ -43,7 +43,8 @@ DEFAULT_TIER_BY_SOURCE: dict[str, int] = {
     "email": TIER_COMMUNICATE,      # External message
     "discord": TIER_COMMUNICATE,    # External message
     "telegram": TIER_COMMUNICATE,   # External message
-    "cron": TIER_COMMUNICATE,       # Unattended
+    "cron": TIER_COMMUNICATE,       # Unattended (legacy, kept for compat)
+    "scheduler": TIER_READONLY,     # Internal cron trigger (per-job override via metadata["max_tier"])
     "webhook": TIER_READONLY,       # Externally triggered
 }
 
@@ -67,9 +68,22 @@ def resolve_tier_for_sender(
 ) -> int:
     """Determine the max tier for a sender on a channel.
 
-    Priority: user-configured tier (settings.json) > DEFAULT_TIER_BY_SOURCE.
+    Priority: internal-trigger override (metadata.max_tier on scheduler/
+    webhook) > user-configured tier (settings.json) > DEFAULT_TIER_BY_SOURCE.
     Owner gets max(channel_tier, OWNER_TIER).
     """
+    metadata = metadata or {}
+
+    # Internal triggers (scheduler, webhook) pin their tier via metadata
+    # — the job/webhook config is the authoritative source for these.
+    # Only honored for channels we control end-to-end, not for plugin
+    # channels (which receive their metadata from untrusted senders).
+    if channel in ("scheduler", "webhook") and "max_tier" in metadata:
+        try:
+            return int(metadata["max_tier"])
+        except (TypeError, ValueError):
+            pass
+
     # Check user-configured tier override from Plugin Manager
     from .settings import load_settings
     settings = load_settings() or {}
@@ -79,7 +93,7 @@ def resolve_tier_for_sender(
     else:
         channel_default = DEFAULT_TIER_BY_SOURCE.get(channel, TIER_COMMUNICATE)
 
-    if _is_owner(channel, sender, metadata or {}):
+    if _is_owner(channel, sender, metadata):
         return max(channel_default, OWNER_TIER)
 
     return channel_default
