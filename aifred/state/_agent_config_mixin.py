@@ -384,48 +384,44 @@ class AgentConfigMixin(rx.State, mixin=True):
     def _effective_model_id(self, agent: str) -> str:
         """Return model ID with variant suffix for the current configuration.
 
-        This is the SINGLE SOURCE OF TRUTH for model variant resolution.
-        The *_model_id state vars always contain the base ID.
-        All code that sends model IDs to the backend must use this method.
+        Delegates the suffix resolution to the SSOT helper
+        :func:`aifred.lib.calibration.resolve_variant_suffix`, so the
+        agents, the Automatik path, the compression-ctx lookup and the
+        chat gate all use the same fallback rules. The ``*_model_id``
+        state vars always contain the base ID; this method is what
+        every code path sends to the backend.
 
-        Priority:
-        1. Speed mode → base_id-speed
-        2. TTS on GPU (llamacpp) → base_id-tts-{engine}
-        3. Otherwise → base_id
+        See ``resolve_variant_suffix`` for the precedence rules
+        (Speed+TTS > TTS only > Speed only > base, with graceful
+        fallback when a variant isn't actually present in the YAML).
+
+        SSOT for the active profile is the user's UI toggle
+        (``enable_tts`` + ``tts_engine``), NOT the live container state.
+        Probing the container via HTTP every call would leak transient
+        states (idle KEEP_ALIVE, busy with a batch of sentences,
+        restart in progress) into model resolution.
+        ``ensure_tts_state()`` at pipeline start guarantees the
+        container is up before inference; from there the toggle stays
+        authoritative for the rest of the request.
         """
         base_id: str = getattr(self, f"{agent}_model_id")
-        if not base_id:
+        if not base_id or self.backend_type != "llamacpp":  # type: ignore[attr-defined]
             return base_id
 
-        # Speed mode takes priority (already has reduced context baked in)
-        speed_on: bool = getattr(self, f"{agent}_speed_mode")
-        has_speed: bool = getattr(self, f"{agent}_has_speed_variant")
-        if speed_on and has_speed:
-            return f"{base_id}-speed"
+        from ..lib.calibration import resolve_variant_suffix
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.tts_engine_manager import GPU_ENGINES
 
-        # TTS on GPU: use TTS-calibrated variant (reduced -c for VRAM sharing).
-        # SSOT for the active profile is the user's UI toggle (enable_tts +
-        # tts_engine), NOT the live container state. Probing the container via
-        # HTTP every call leaks transient states (idle KEEP_ALIVE, busy with a
-        # batch of sentences, restart in progress) into model resolution and
-        # makes Title-Gen / Automatik calls swap to the base profile mid-flow
-        # — full reload of the same .gguf with a different tensor-split.
-        # ensure_tts_state() at pipeline start guarantees the container is up
-        # before inference; from there the user's toggle stays authoritative
-        # for the rest of the request, including all follow-up calls.
-        if self.backend_type == "llamacpp" and self.enable_tts:  # type: ignore[attr-defined]
-            from ..lib.tts_engine_manager import GPU_ENGINES
-            if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-                from ..lib.calibration import parse_llamaswap_config
-                from ..lib.config import LLAMASWAP_CONFIG_PATH
-                tts_variant = f"{base_id}-tts-{self.tts_engine}"  # type: ignore[attr-defined]
-                swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-                if tts_variant in swap_cfg:
-                    return tts_variant
-                from ..lib.logging_utils import log_message
-                log_message(f"⚠️ _effective_model_id: TTS variant {tts_variant} NOT in config")
-
-        return base_id
+        suffix = resolve_variant_suffix(
+            LLAMASWAP_CONFIG_PATH,
+            base_id,
+            speed_on=getattr(self, f"{agent}_speed_mode"),
+            has_speed_variant=getattr(self, f"{agent}_has_speed_variant"),
+            tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
+            tts_engine=self.tts_engine,  # type: ignore[attr-defined]
+            gpu_tts_engines=GPU_ENGINES,
+        )
+        return base_id + suffix
 
     # ================================================================
     # SPEED MODE TOGGLES (llamacpp only)

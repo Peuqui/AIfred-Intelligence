@@ -498,14 +498,104 @@ def has_llamaswap_base(config_path: Path, model_id: str) -> bool:
 
 def has_llamaswap_tts_variant(
     config_path: Path, model_id: str, tts_backend: str,
+    require_speed: bool = False,
 ) -> bool:
-    """True if a TTS variant entry ``<model_id>-tts-<backend>`` exists in
-    llama-swap.yaml. Used by the calibration picker to flag engines that
-    have already been calibrated for this model."""
+    """True if a TTS variant exists in llama-swap.yaml for this model.
+
+    ``require_speed=False`` (default): accepts either ``-tts-<backend>``
+    or ``-tts-<backend>-speed`` — the engine is usable in *some* mode.
+    Used by the calibration picker / UI dropdown gating where the
+    granularity "has any TTS profile for this model" is enough.
+
+    ``require_speed=True``: only the ``-tts-<backend>-speed`` entry
+    counts. Used when the user has Speed-mode ON and we need to know
+    whether a Speed-flavoured TTS profile actually exists.
+    """
     if not config_path.exists():
         return False
-    config = _read_yaml(config_path)
-    return f"{model_id}-tts-{tts_backend}" in (config.get("models") or {})
+    models = (_read_yaml(config_path).get("models") or {})
+    if require_speed:
+        return f"{model_id}-tts-{tts_backend}-speed" in models
+    return (
+        f"{model_id}-tts-{tts_backend}" in models
+        or f"{model_id}-tts-{tts_backend}-speed" in models
+    )
+
+
+def resolve_variant_suffix(
+    config_path: Path,
+    base_id: str,
+    *,
+    speed_on: bool,
+    has_speed_variant: bool,
+    tts_active: bool,
+    tts_engine: str = "",
+    gpu_tts_engines: set[str] | None = None,
+) -> str:
+    """Resolve the variant suffix for ``base_id`` given the current toggles.
+
+    Single source of truth for "which profile do we send to llama-swap".
+    All four resolver call sites (``_effective_model_id`` for agents,
+    the Automatik resolver in ``_backend_mixin``, the compression-ctx
+    lookup in ``context_utils``, and the TTS pre-check gate in
+    ``_chat_mixin``) delegate here so that the fallback rules can only
+    diverge in one place.
+
+    Fallback order (first hit wins):
+
+    1. ``speed_on AND tts_active AND <base>-tts-<engine>-speed exists``
+       → ``-tts-<engine>-speed`` — TTS + Speed, both honored.
+    2. ``tts_active AND <base>-tts-<engine> exists``
+       → ``-tts-<engine>`` — TTS without Speed, full base ctx.
+    3. ``speed_on AND has_speed_variant`` → ``-speed`` — Speed without TTS.
+    4. otherwise → ``""`` (use the base id unchanged).
+
+    Returns the suffix to append to ``base_id`` (empty string for base).
+    The caller does ``base_id + suffix`` itself so the convention stays
+    visible at the call site.
+
+    ``gpu_tts_engines``: set of engine keys that need the TTS variant
+    profile (i.e. share GPU VRAM with the LLM). Engines outside this set
+    (Edge / Piper / eSpeak / DashScope) don't have a TTS variant — the
+    resolver falls through to the Speed-only or base rule for them.
+    """
+    if not base_id:
+        return ""
+
+    # Read the YAML once; subsequent ``has_llamaswap_tts_variant`` calls
+    # would re-read it on every check.
+    if not config_path.exists():
+        # Without the config file we can't claim any variant exists,
+        # so the only knob we can honor is Speed (which lives in state).
+        if speed_on and has_speed_variant:
+            return "-speed"
+        return ""
+    models = (_read_yaml(config_path).get("models") or {})
+
+    needs_tts_variant = (
+        tts_active
+        and bool(tts_engine)
+        and (gpu_tts_engines is None or tts_engine in gpu_tts_engines)
+    )
+
+    # Rule 1: Speed + TTS, both flavours present.
+    if needs_tts_variant and speed_on:
+        sp_id = f"{base_id}-tts-{tts_engine}-speed"
+        if sp_id in models:
+            return f"-tts-{tts_engine}-speed"
+
+    # Rule 2: TTS without Speed (or Speed flavour missing for this combo).
+    if needs_tts_variant:
+        base_tts_id = f"{base_id}-tts-{tts_engine}"
+        if base_tts_id in models:
+            return f"-tts-{tts_engine}"
+
+    # Rule 3: Speed only.
+    if speed_on and has_speed_variant:
+        return "-speed"
+
+    # Rule 4: bare base.
+    return ""
 
 
 def add_llamaswap_tts_variant(
