@@ -529,10 +529,14 @@ async def _find_speed_candidate(
 ) -> Candidate | None:
     """Find a speed variant: fewer GPUs, same KV quality as base.
 
+    Cascades through speed classes — first tries only the fastest
+    class with the smallest ``n_gpus`` that reaches
+    ``MIN_USEFUL_CONTEXT_TOKENS``. If nothing fits there, extends by
+    GPUs from the next slower class, peu à peu, until a usable
+    candidate appears or all classes are exhausted.
+
     Reuses already-projected cells from the base search when possible;
-    runs new projections only for cells we haven't seen.  Speed picks
-    the smallest n_gpus (strictly fewer than base) whose projected
-    max_context reaches at least ``MIN_USEFUL_CONTEXT_TOKENS``.
+    runs new projections only for cells we haven't seen.
 
     Returns ``None`` early when base is already at or below
     ``find_min_gpus_for_weights`` — the model simply won't fit on fewer
@@ -542,28 +546,45 @@ async def _find_speed_candidate(
     if base_n_gpus <= min_gpus:
         return None
 
-    fastest_count = sum(1 for g in gpus if g.speed_class == 0)
-    max_n = min(fastest_count, base_n_gpus - 1)
-    if max_n < 1:
+    # Cascade: start with the fastest speed class only; if no candidate
+    # there reaches MIN_USEFUL_CONTEXT, extend by one class at a time
+    # (peu à peu). Strictly fewer GPUs than the base in every stage —
+    # otherwise the variant offers no speed-up.
+    speed_classes = sorted({g.speed_class for g in gpus})
+    if not speed_classes:
         return None
 
-    for n in range(1, max_n + 1):
-        # Re-use from base search if the same (n, kv) was already projected
-        cached = next(
-            (c for c in already_tried
-             if c.n_gpus == n and c.kv_quant == base_kv),
-            None,
-        )
-        if cached is not None:
-            c: Candidate | None = cached
-        else:
-            c, _reason = await _project_cell(
-                model, gpus, budget, full_cmd, base_kv, n,
-            )
-        if c is None:
+    prev_cumulative = 0
+    for cls in speed_classes:
+        cumulative = prev_cumulative + sum(1 for g in gpus if g.speed_class == cls)
+        upper = min(cumulative, base_n_gpus - 1)
+        # First stage: any n_gpus from the fastest class.
+        # Later stages: must activate at least one GPU from the newly
+        # added class, so lower = prev_cumulative + 1.
+        lower = 1 if prev_cumulative == 0 else prev_cumulative + 1
+        prev_cumulative = cumulative
+
+        if upper < lower:
             continue
-        if c.max_context >= MIN_USEFUL_CONTEXT_TOKENS:
-            return c
+
+        for n in range(lower, upper + 1):
+            # Re-use from base search if the same (n, kv) was projected
+            cached = next(
+                (c for c in already_tried
+                 if c.n_gpus == n and c.kv_quant == base_kv),
+                None,
+            )
+            if cached is not None:
+                c: Candidate | None = cached
+            else:
+                c, _reason = await _project_cell(
+                    model, gpus, budget, full_cmd, base_kv, n,
+                )
+            if c is None:
+                continue
+            if c.max_context >= MIN_USEFUL_CONTEXT_TOKENS:
+                return c
+
     return None
 
 
