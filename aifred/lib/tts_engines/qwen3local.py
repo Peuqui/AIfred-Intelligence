@@ -1,7 +1,7 @@
 """Qwen3-TTS local container — streaming voice cloning on a single HBM GPU."""
 from __future__ import annotations
 
-from pathlib import Path
+import os
 from typing import Any, Optional
 
 from .base import TTSEngine
@@ -18,26 +18,22 @@ class Qwen3LocalEngine(TTSEngine):
     display_order = 10
 
     image_name = "qwen3-tts-1.7b-base"
+    compose_subdir = "qwen3-tts"
 
     # qwen-tts allocates KV-cache + decoder buffers dynamically during
     # generate() — idle ~5 GB, long-bubble peak ~7 GB. The LLM calibration
     # has to plan permanently around the peak, otherwise a long TTS call
-    # in production would OOM the V100. Adjustable via env var; see
-    # config.QWEN3_TTS_VRAM_RESERVE_MB.
+    # in production would OOM the V100. Empirically: idle ~5.3 GB,
+    # long-bubble peak ~6.7 GB. 7.5 GB sits a bit above the observed peak
+    # so even an unusually long bubble can't tip the LLM over its budget.
+    # Tunable via env QWEN3_TTS_VRAM_RESERVE_MB.
     @property
     def calibration_vram_reserve_mb(self) -> int:
-        from ..config import QWEN3_TTS_VRAM_RESERVE_MB
-        return QWEN3_TTS_VRAM_RESERVE_MB
+        return int(os.environ.get("QWEN3_TTS_VRAM_RESERVE_MB", "7680"))
 
     @property
     def service_url(self) -> str:
-        from ..config import QWEN3_TTS_SERVICE_URL
-        return QWEN3_TTS_SERVICE_URL
-
-    @property
-    def docker_compose_path(self) -> Path:
-        from ..config import QWEN3_TTS_DOCKER_COMPOSE_PATH
-        return Path(QWEN3_TTS_DOCKER_COMPOSE_PATH)
+        return "http://localhost:5052"
 
     @property
     def language_map(self) -> dict[str, str]:
@@ -50,8 +46,12 @@ class Qwen3LocalEngine(TTSEngine):
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        from ..config import QWEN3_TTS_VOICES_FALLBACK
-        return dict(QWEN3_TTS_VOICES_FALLBACK)
+        return {
+            "AIfred":   "AIfred",
+            "HAL9000":  "HAL9000",
+            "Salomo":   "Salomo",
+            "Sokrates": "Sokrates",
+        }
 
     def get_voices(self) -> dict[str, str]:
         from ..config import get_qwen3local_voices

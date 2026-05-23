@@ -1,7 +1,6 @@
 """XTTS v2 (Coqui) — voice cloning + built-in speakers, runs as Docker container."""
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Optional
 
 from .base import TTSEngine
@@ -25,18 +24,18 @@ class XTTSEngine(TTSEngine):
 
     @property
     def service_url(self) -> str:
-        from ..config import XTTS_SERVICE_URL
-        return XTTS_SERVICE_URL
-
-    @property
-    def docker_compose_path(self) -> Path:
-        from ..config import XTTS_DOCKER_COMPOSE_PATH
-        return Path(XTTS_DOCKER_COMPOSE_PATH)
+        return "http://localhost:5051"
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        from ..config import XTTS_VOICES_FALLBACK
-        return dict(XTTS_VOICES_FALLBACK)
+        # Static fallback list when the /voices endpoint isn't reachable.
+        # Live discovery in get_voices() also returns built-in speakers.
+        return {
+            "AIfred":   "AIfred",
+            "HAL9000":  "HAL9000",
+            "Salomo":   "Salomo",
+            "Sokrates": "Sokrates",
+        }
 
     def get_voices(self) -> dict[str, str]:
         from ..config import get_xtts_voices
