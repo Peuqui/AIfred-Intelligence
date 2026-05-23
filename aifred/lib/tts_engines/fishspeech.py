@@ -52,8 +52,11 @@ class FishSpeechEngine(TTSEngine):
         }
 
     def get_voices(self) -> dict[str, str]:
-        from ..config import get_fishspeech_voices
-        return get_fishspeech_voices()
+        """Fish-Speech uses static reference files from /app/references —
+        no live discovery endpoint we want to use. The on-disk
+        docker/tts/fish-speech/voices/ tree is the source of truth, and
+        the static voices_fallback mirrors its contents."""
+        return dict(self.voices_fallback)
 
     def is_running(self) -> bool:
         import requests

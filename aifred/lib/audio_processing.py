@@ -1007,7 +1007,8 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
         Requires XTTS Docker service running: cd docker/tts/xtts && docker-compose up -d
     """
     import requests
-    from .config import XTTS_SERVICE_URL
+    from .tts_engines import get_engine
+    xtts_url = get_engine("xtts").service_url  # type: ignore[union-attr]
 
     # Save to data/tts_audio/ (served via /_upload/)
     # XTTS returns OGG/Opus format (not WAV)
@@ -1020,7 +1021,7 @@ def generate_speech_xtts(text: str, speed: float = 1.0, voice_choice: str = "Cla
         # Call XTTS Docker service
         # No timeout - XTTS runs async and may take long on CPU (10+ min for long texts)
         response = requests.post(
-            f"{XTTS_SERVICE_URL}/tts",
+            f"{xtts_url}/tts",
             json={"text": text, "speaker": voice_choice, "language": language},
             timeout=None
         )
@@ -1058,7 +1059,8 @@ def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIf
     voice cloning from reference audio. Same API as XTTS v2.
     """
     import requests
-    from .config import MOSS_TTS_SERVICE_URL
+    from .tts_engines import get_engine
+    moss_url = get_engine("moss").service_url  # type: ignore[union-attr]
 
     filename = _generate_tts_filename("ogg")
     output_file = str(TTS_AUDIO_DIR / filename)
@@ -1067,7 +1069,7 @@ def generate_speech_moss(text: str, speed: float = 1.0, voice_choice: str = "AIf
         log_message(f"🎤 MOSS-TTS: speaker={voice_choice}, language={language}, text_length={len(text)}")
 
         response = requests.post(
-            f"{MOSS_TTS_SERVICE_URL}/tts",
+            f"{moss_url}/tts",
             json={"text": text, "speaker": voice_choice, "language": language},
             timeout=None
         )
@@ -1115,7 +1117,8 @@ def generate_speech_qwen3local(text: str, speed: float = 1.0, voice_choice: str 
     container startup from /app/voices/*.wav.
     """
     import requests
-    from .config import QWEN3_TTS_SERVICE_URL
+    from .tts_engines import get_engine
+    qwen3_url = get_engine("qwen3local").service_url  # type: ignore[union-attr]
 
     # Qwen3-TTS returns WAV — keep that format end-to-end (cleaner for
     # downstream pitch/speed ffmpeg processing, and the Puck channel
@@ -1128,7 +1131,7 @@ def generate_speech_qwen3local(text: str, speed: float = 1.0, voice_choice: str 
     try:
         log_message(f"🎤 Qwen3-TTS: speaker={voice_choice}, language={qwen3_lang}, text_length={len(text)}")
         response = requests.post(
-            f"{QWEN3_TTS_SERVICE_URL}/tts",
+            f"{qwen3_url}/tts",
             json={"text": text, "speaker": voice_choice, "language": qwen3_lang},
             timeout=None,
         )
@@ -1164,7 +1167,8 @@ def generate_speech_fishspeech(text: str, speed: float = 1.0, voice_choice: str 
     wire); consistent with what the upstream Fish-Speech WebUI does.
     """
     import requests
-    from .config import FISH_SPEECH_SERVICE_URL
+    from .tts_engines import get_engine
+    fish_url = get_engine("fishspeech").service_url  # type: ignore[union-attr]
 
     filename = _generate_tts_filename("wav")
     output_file = str(TTS_AUDIO_DIR / filename)
@@ -1172,7 +1176,7 @@ def generate_speech_fishspeech(text: str, speed: float = 1.0, voice_choice: str 
     try:
         log_message(f"🎤 Fish-Speech: speaker={voice_choice}, language={language}, text_length={len(text)}")
         response = requests.post(
-            f"{FISH_SPEECH_SERVICE_URL}/v1/tts",
+            f"{fish_url}/v1/tts",
             json={
                 "text": text,
                 "format": "wav",

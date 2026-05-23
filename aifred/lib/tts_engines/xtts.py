@@ -29,17 +29,40 @@ class XTTSEngine(TTSEngine):
     @property
     def voices_fallback(self) -> dict[str, str]:
         # Static fallback list when the /voices endpoint isn't reachable.
-        # Live discovery in get_voices() also returns built-in speakers.
+        # Custom-cloned voices first (★ prefix), then a small subset of
+        # the bundled built-in speakers — enough to keep the UI usable
+        # while the container is down. Live discovery in get_voices()
+        # returns the full bundled list (58 speakers).
         return {
-            "AIfred":   "AIfred",
-            "HAL9000":  "HAL9000",
-            "Salomo":   "Salomo",
-            "Sokrates": "Sokrates",
+            "★ AIfred":         "AIfred",
+            "★ Salomo":         "Salomo",
+            "★ Sokrates":       "Sokrates",
+            "Claribel Dervla":  "Claribel Dervla",
+            "Daisy Studious":   "Daisy Studious",
+            "Gracie Wise":      "Gracie Wise",
+            "Tammie Ema":       "Tammie Ema",
+            "Alison Dietlinde": "Alison Dietlinde",
         }
 
     def get_voices(self) -> dict[str, str]:
-        from ..config import get_xtts_voices
-        return get_xtts_voices()
+        """Fetch current XTTS voices from the container. Custom voices
+        are prefixed with "★ " in the display name so the user can tell
+        them apart from the 58 bundled speakers. Returns {} when the
+        service is unreachable; caller falls back to ``voices_fallback``."""
+        import requests
+        try:
+            r = requests.get(f"{self.service_url}/voices", timeout=5)
+            if r.ok:
+                data = r.json()
+                voices = {}
+                for name in data.get("custom", []):
+                    voices[f"★ {name}"] = name
+                for name in data.get("builtin", []):
+                    voices[name] = name
+                return voices
+        except (requests.RequestException, ValueError) as e:
+            print(f"⚠️ Failed to fetch XTTS voices: {e}")
+        return {}
 
     def is_running(self) -> bool:
         import requests

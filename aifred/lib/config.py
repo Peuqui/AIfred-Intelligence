@@ -319,51 +319,11 @@ def get_tts_engine_channel_options() -> list[tuple[str, str]]:
     return channel_engine_options()
 
 # ============================================================
-# XTTS v2 CONFIGURATION (Docker Service)
+# TTS engine specifics live in aifred/lib/tts_engines/<engine>.py.
+# Each engine class owns its service URL, voice fallback list, compose
+# directory, VRAM reserve, and Docker image name. config.py stays
+# engine-agnostic on purpose — adding a new engine is a one-file drop.
 # ============================================================
-# XTTS v2 runs as a Docker service for voice cloning and multilingual TTS
-# Start with: cd docker/tts/xtts && docker-compose up -d
-XTTS_SERVICE_URL = "http://localhost:5051"
-
-# ============================================================
-# MOSS-TTS CONFIGURATION (Docker Service)
-# ============================================================
-# MOSS-TTS Local Transformer (1.7B) - zero-shot voice cloning, 20 languages
-# Start with: cd docker/tts/moss-tts && docker-compose up -d
-MOSS_TTS_SERVICE_URL = "http://localhost:5055"
-
-# ============================================================
-# Qwen3-TTS LOCAL CONFIGURATION (Docker Service)
-# ============================================================
-# Qwen3-TTS-12Hz-1.7B-Base (Voice Cloning, Streaming, 10 Sprachen)
-# Start with: cd docker/tts/qwen3-tts && docker-compose up -d
-QWEN3_TTS_SERVICE_URL = "http://localhost:5052"
-
-# ============================================================
-# FISH-SPEECH S2 PRO CONFIGURATION (Docker Service)
-# ============================================================
-# Fish Audio S2 Pro (5B Dual-AR). Runs in its own container, exposes the
-# upstream FastAPI on port 5053 of the host (mapped to 8080 inside).
-# License: Fish Audio Research License — research/non-commercial only.
-FISH_SPEECH_SERVICE_URL = "http://localhost:5053"
-
-# Voices ship with the container in docker/tts/fish-speech/voices/. The
-# wav+txt pair convention is the same as MOSS / Qwen3.
-FISH_SPEECH_VOICES_FALLBACK = {
-    "AIfred":   "AIfred",
-    "HAL9000":  "HAL9000",
-    "Salomo":   "Salomo",
-    "Sokrates": "Sokrates",
-}
-
-# Working-set VRAM the LLM calibration should permanently reserve on
-# the TTS GPU. S2 Pro is officially "requires at least 24 GB". Fish was
-# measured ~19.6 GB idle → ~23.5 GB peak, so a 24 GB reserve left only
-# ~0.5 GB headroom over the peak — too thin once the LLM runs at near-
-# full context on the same GPU. 26 GB gives the peak a ~2.5 GB cushion.
-# Tunable via env var.
-FISH_SPEECH_VRAM_RESERVE_MB = int(os.environ.get("FISH_SPEECH_VRAM_RESERVE_MB", "26624"))
-
 
 # ============================================================
 # TTS Container Keep-Alive (heartbeat ping interval)
@@ -380,116 +340,6 @@ TTS_KEEPALIVE_INTERVAL_SECONDS = 300
 # Per-request HTTP timeout when pinging /keep_alive — should be tiny,
 # the endpoint just resets a timer and returns immediately.
 TTS_KEEPALIVE_HTTP_TIMEOUT = 5
-
-# ============================================================
-# XTTS voices are loaded dynamically from the service
-# Custom voices are auto-generated from WAV files in docker/tts/xtts/voices/
-# Built-in voices (58 speakers) are always available
-# Use get_xtts_voices() to fetch the current list from the service
-
-def get_xtts_voices() -> dict:
-    """
-    Fetch available XTTS voices from the Docker service.
-
-    Returns:
-        dict: Voice name -> voice ID mapping
-              Custom voices are prefixed with "★ " in the display name
-              Returns empty dict if service is unavailable
-    """
-    import requests
-
-    try:
-        response = requests.get(f"{XTTS_SERVICE_URL}/voices", timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            voices = {}
-            # Custom voices first (marked with ★)
-            for name in data.get("custom", []):
-                voices[f"★ {name}"] = name
-            # Built-in voices
-            for name in data.get("builtin", []):
-                voices[name] = name
-            return voices
-    except (requests.RequestException, ValueError) as e:
-        print(f"⚠️ Failed to fetch XTTS voices: {e}")
-    return {}
-
-def get_moss_voices() -> dict:
-    """
-    Fetch available MOSS-TTS voices from the Docker service.
-
-    Returns:
-        dict: Voice name -> voice ID mapping
-              Returns empty dict if service is unavailable
-    """
-    import requests
-
-    try:
-        response = requests.get(f"{MOSS_TTS_SERVICE_URL}/voices", timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            voices = {}
-            for name in data.get("voices", []):
-                voices[name] = name
-            return voices
-    except (requests.RequestException, ValueError) as e:
-        print(f"⚠️ Failed to fetch MOSS-TTS voices: {e}")
-    return {}
-
-MOSS_TTS_VOICES_FALLBACK = {
-    "AIfred": "AIfred",
-    "Salomo": "Salomo",
-    "Sokrates": "Sokrates",
-}
-
-
-def get_qwen3local_voices() -> dict:
-    """
-    Fetch available Qwen3-TTS voices from the local Docker service.
-
-    Returns one entry per <name>.wav in /app/voices/ inside the container —
-    the Qwen3 container exposes them via /voices, identical shape to MOSS.
-
-    Returns:
-        dict: voice name -> voice id (same string), empty dict if unavailable.
-    """
-    import requests
-
-    try:
-        response = requests.get(f"{QWEN3_TTS_SERVICE_URL}/voices", timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            return {name: name for name in data.get("voices", [])}
-    except (requests.RequestException, ValueError) as e:
-        print(f"⚠️ Failed to fetch Qwen3-TTS voices: {e}")
-    return {}
-
-
-QWEN3_TTS_VOICES_FALLBACK = {
-    "AIfred": "AIfred",
-    "HAL9000": "HAL9000",
-    "Salomo": "Salomo",
-    "Sokrates": "Sokrates",
-}
-
-
-def get_fishspeech_voices() -> dict:
-    """Fish-Speech uses static reference files from /app/references — no
-    live HTTP discovery endpoint AIfred currently wants to use. The
-    docker/tts/fish-speech/voices/ directory is the source of truth; we
-    expose the same names as the other GPU engines (AIfred, HAL9000,
-    Salomo, Sokrates) so per-agent voice settings stay portable."""
-    return dict(FISH_SPEECH_VOICES_FALLBACK)
-
-# VRAM the qwen3local container occupies once it has run a long inference.
-# The calibration kicks off a test TTS call before measuring free VRAM, so
-# this constant is normally not needed at all — but it serves as the
-# "we couldn't reach the container" floor so the LLM doesn't accidentally
-# get planned with all 7-8 GB worth of TTS budget on top.
-# Empirically: idle ~5.3 GB, long-bubble peak ~6.7 GB. 7.5 GB sits a
-# bit above the observed peak so even an unusually long bubble can't
-# tip the LLM over its budget. Tunable via env QWEN3_TTS_VRAM_RESERVE_MB.
-QWEN3_TTS_VRAM_RESERVE_MB = int(os.environ.get("QWEN3_TTS_VRAM_RESERVE_MB", "7680"))
 
 # Long text used for the calibration-time test inference that drives the
 # Qwen3-TTS KV-cache up to its real-world high-water mark. About ~800
@@ -630,19 +480,6 @@ def sort_voices_custom_first(voices: list[str]) -> list[str]:
     builtin = sorted(v for v in voices if not v.startswith("★"))
     return custom + builtin
 
-
-# Fallback voices when service is unavailable (for UI initialization)
-# Custom cloned voices first (★ prefix), then built-in voices
-XTTS_VOICES_FALLBACK = {
-    "★ AIfred": "AIfred",
-    "★ Salomo": "Salomo",
-    "★ Sokrates": "Sokrates",
-    "Claribel Dervla": "Claribel Dervla",
-    "Daisy Studious": "Daisy Studious",
-    "Gracie Wise": "Gracie Wise",
-    "Tammie Ema": "Tammie Ema",
-    "Alison Dietlinde": "Alison Dietlinde",
-}
 
 # eSpeak Voices (Local - system package)
 # Install: sudo apt install espeak-ng (or espeak)
@@ -1150,12 +987,10 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     return str(base_id)
 
 
-# Docker-Compose paths (for container start/stop)
+# Docker-Compose paths for non-TTS services. TTS engines derive their
+# compose paths inside their respective TTSEngine class (convention:
+# ``docker/tts/<compose_subdir or key>/docker-compose.yml``).
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-XTTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "tts", "xtts", "docker-compose.yml")
-MOSS_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "tts", "moss-tts", "docker-compose.yml")
-QWEN3_TTS_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "tts", "qwen3-tts", "docker-compose.yml")
-FISH_SPEECH_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "tts", "fish-speech", "docker-compose.yml")
 WHISPER_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "whisper", "docker-compose.yml")
 
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)

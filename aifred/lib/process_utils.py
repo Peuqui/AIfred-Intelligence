@@ -22,6 +22,31 @@ from .logging_utils import log_message
 _cached_tts_gpu_uuid: str | None = None
 
 
+def _tts_compose(key: str) -> str:
+    """compose-file path for TTS engine ``key`` via the plugin registry.
+
+    The registry is the single source of truth; this helper just turns
+    the engine instance into a path the docker_compose_action helper
+    understands. Raises if the engine isn't registered or has no
+    compose path — both are programmer errors at call sites."""
+    from .tts_engines import get_engine
+    eng = get_engine(key)
+    assert eng is not None, f"TTS engine {key!r} not registered"
+    path = eng.docker_compose_path
+    assert path is not None, f"TTS engine {key!r} has no docker_compose_path"
+    return str(path)
+
+
+def _tts_url(key: str) -> str:
+    """REST service URL for TTS engine ``key`` via the plugin registry."""
+    from .tts_engines import get_engine
+    eng = get_engine(key)
+    assert eng is not None, f"TTS engine {key!r} not registered"
+    url = eng.service_url
+    assert url is not None, f"TTS engine {key!r} has no service_url"
+    return url
+
+
 async def stop_process(
     pattern: str,
     wait_for_vram: bool = True,
@@ -211,13 +236,11 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
     Returns:
         tuple[bool, str]: (success, message)
     """
-    from .config import XTTS_DOCKER_COMPOSE_PATH
-
     env_vars = {"XTTS_FORCE_CPU": "1" if force_cpu else "0"}
     mode_str = "CPU" if force_cpu else "GPU (auto)"
 
     success, message = restart_docker_container(
-        compose_file=XTTS_DOCKER_COMPOSE_PATH,
+        compose_file=_tts_compose("xtts"),
         service_name="xtts",
         env_vars=env_vars
     )
@@ -438,30 +461,13 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
     from .tts_engine_manager import _detect_running_tts_engine
     running_tts = _detect_running_tts_engine()
 
-    if keep_tts != "xtts":
+    for _key, _label in (("xtts", "XTTS"), ("moss", "MOSS-TTS"), ("qwen3local", "Qwen3-TTS")):
+        if keep_tts == _key:
+            continue
         try:
-            from .config import XTTS_DOCKER_COMPOSE_PATH
-            _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "down", "XTTS")
-            if running_tts == "xtts":
-                actions.append("XTTS stopped")
-        except Exception:
-            pass
-
-    if keep_tts != "moss":
-        try:
-            from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
-            _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "down", "MOSS-TTS")
-            if running_tts == "moss":
-                actions.append("MOSS-TTS stopped")
-        except Exception:
-            pass
-
-    if keep_tts != "qwen3local":
-        try:
-            from .config import QWEN3_TTS_DOCKER_COMPOSE_PATH
-            _docker_compose_action(QWEN3_TTS_DOCKER_COMPOSE_PATH, "down", "Qwen3-TTS")
-            if running_tts == "qwen3local":
-                actions.append("Qwen3-TTS stopped")
+            _docker_compose_action(_tts_compose(_key), "down", _label)
+            if running_tts == _key:
+                actions.append(f"{_label} stopped")
         except Exception:
             pass
 
@@ -471,26 +477,22 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
 
 def start_xtts_container() -> tuple[bool, str]:
     """Start the XTTS Docker container."""
-    from .config import XTTS_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "up", "XTTS")
+    return _docker_compose_action(_tts_compose("xtts"), "up", "XTTS")
 
 
 def stop_xtts_container() -> tuple[bool, str]:
     """Stop the XTTS Docker container to free VRAM."""
-    from .config import XTTS_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(XTTS_DOCKER_COMPOSE_PATH, "down", "XTTS")
+    return _docker_compose_action(_tts_compose("xtts"), "down", "XTTS")
 
 
 def stop_qwen3local_container() -> tuple[bool, str]:
     """Stop the Qwen3-TTS Docker container to free VRAM."""
-    from .config import QWEN3_TTS_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(QWEN3_TTS_DOCKER_COMPOSE_PATH, "down", "Qwen3-TTS")
+    return _docker_compose_action(_tts_compose("qwen3local"), "down", "Qwen3-TTS")
 
 
 def start_qwen3local_container() -> tuple[bool, str]:
     """Start the Qwen3-TTS Docker container."""
-    from .config import QWEN3_TTS_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(QWEN3_TTS_DOCKER_COMPOSE_PATH, "up", "Qwen3-TTS")
+    return _docker_compose_action(_tts_compose("qwen3local"), "up", "Qwen3-TTS")
 
 
 def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
@@ -514,11 +516,11 @@ def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
     """
     import time
     import requests
-    from .config import QWEN3_TTS_SERVICE_URL
+    _url = _tts_url("qwen3local")
 
     # Step 1: Check if already running and model loaded
     try:
-        r = requests.get(f"{QWEN3_TTS_SERVICE_URL}/health", timeout=2)
+        r = requests.get(f"{_url}/health", timeout=2)
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
             # If we have a GPU available but the container landed on CPU
@@ -542,7 +544,7 @@ def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
     log_message("Qwen3-TTS: Waiting for model to load...")
     for _i in range(timeout):
         try:
-            r = requests.get(f"{QWEN3_TTS_SERVICE_URL}/health", timeout=2)
+            r = requests.get(f"{_url}/health", timeout=2)
             if r.ok and r.json().get("model_loaded"):
                 device = r.json().get("device", "unknown")
                 log_message(f"Qwen3-TTS: Model loaded on {device}")
@@ -556,14 +558,12 @@ def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
 
 def stop_fishspeech_container() -> tuple[bool, str]:
     """Stop the Fish-Speech Docker container to free VRAM."""
-    from .config import FISH_SPEECH_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(FISH_SPEECH_DOCKER_COMPOSE_PATH, "down", "Fish-Speech")
+    return _docker_compose_action(_tts_compose("fishspeech"), "down", "Fish-Speech")
 
 
 def start_fishspeech_container() -> tuple[bool, str]:
     """Start the Fish-Speech Docker container."""
-    from .config import FISH_SPEECH_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(FISH_SPEECH_DOCKER_COMPOSE_PATH, "up", "Fish-Speech")
+    return _docker_compose_action(_tts_compose("fishspeech"), "up", "Fish-Speech")
 
 
 def ensure_fishspeech_ready(timeout: int = 600) -> tuple[bool, str, str]:
@@ -581,11 +581,11 @@ def ensure_fishspeech_ready(timeout: int = 600) -> tuple[bool, str, str]:
     """
     import time
     import requests
-    from .config import FISH_SPEECH_SERVICE_URL
+    _url = _tts_url("fishspeech")
 
     def _health() -> dict | None:
         try:
-            r = requests.get(f"{FISH_SPEECH_SERVICE_URL}/v1/health", timeout=2)
+            r = requests.get(f"{_url}/v1/health", timeout=2)
             if r.ok:
                 return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"ok": True}
         except OSError:
@@ -637,11 +637,11 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
     """
     import time
     import requests
-    from .config import XTTS_SERVICE_URL
+    _url = _tts_url("xtts")
 
     # Step 1: Check if already running and model loaded
     try:
-        r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=2)
+        r = requests.get(f"{_url}/health", timeout=2)
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
             # If container is on CPU but a GPU is available, force a
@@ -664,7 +664,7 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
     log_message("XTTS: Waiting for model to load...")
     for i in range(timeout):
         try:
-            r = requests.get(f"{XTTS_SERVICE_URL}/health", timeout=2)
+            r = requests.get(f"{_url}/health", timeout=2)
             if r.ok and r.json().get("model_loaded"):
                 device = r.json().get("device", "unknown")
                 log_message(f"XTTS: Model loaded on {device}")
@@ -678,14 +678,12 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
 
 def start_moss_container() -> tuple[bool, str]:
     """Start the MOSS-TTS Docker container."""
-    from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "up", "MOSS-TTS")
+    return _docker_compose_action(_tts_compose("moss"), "up", "MOSS-TTS")
 
 
 def stop_moss_container() -> tuple[bool, str]:
     """Stop the MOSS-TTS Docker container to free VRAM."""
-    from .config import MOSS_TTS_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(MOSS_TTS_DOCKER_COMPOSE_PATH, "down", "MOSS-TTS")
+    return _docker_compose_action(_tts_compose("moss"), "down", "MOSS-TTS")
 
 
 def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
@@ -700,11 +698,11 @@ def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
     """
     import time
     import requests
-    from .config import MOSS_TTS_SERVICE_URL
+    _url = _tts_url("moss")
 
     # Step 1: Check if already running and model loaded
     try:
-        r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=2)
+        r = requests.get(f"{_url}/health", timeout=2)
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
             # If MOSS landed on CPU but a GPU is available, restart it.
@@ -725,7 +723,7 @@ def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
     log_message("MOSS-TTS: Waiting for model to load...")
     for i in range(timeout):
         try:
-            r = requests.get(f"{MOSS_TTS_SERVICE_URL}/health", timeout=2)
+            r = requests.get(f"{_url}/health", timeout=2)
             if r.ok and r.json().get("model_loaded"):
                 device = r.json().get("device", "unknown")
                 log_message(f"MOSS-TTS: Model loaded on {device}")
