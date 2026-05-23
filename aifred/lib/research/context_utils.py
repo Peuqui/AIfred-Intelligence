@@ -143,23 +143,32 @@ def get_agent_num_ctx(
         # past the real limit without ever triggering history compression.
         # SSOT is the State toggle (enable_tts + tts_engine), not a live
         # container probe — same rationale as _effective_model_id.
-        from ..calibration import parse_llamaswap_config
+        from ..calibration import parse_llamaswap_config, resolve_variant_suffix
         from ..config import LLAMASWAP_CONFIG_PATH
+        from ..tts_engine_manager import GPU_ENGINES
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 
-        effective_id = model_id
-        enable_tts = getattr(state, 'enable_tts', False)
-        tts_engine = getattr(state, 'tts_engine', '')
-        if enable_tts and tts_engine:
-            candidate = f"{model_id}-tts-{tts_engine}"
-            if candidate in config:
-                effective_id = candidate
+        # Resolve the variant via the SSOT — same rules as the model-id
+        # resolver in _agent_config_mixin. agent="vision" doesn't have a
+        # speed toggle of its own; vision uses the AIfred agent's flags.
+        speed_attr = f"{agent}_speed_mode" if agent != "vision" else "vision_speed_mode"
+        has_speed_attr = f"{agent}_has_speed_variant" if agent != "vision" else "vision_has_speed_variant"
+        suffix = resolve_variant_suffix(
+            LLAMASWAP_CONFIG_PATH,
+            model_id,
+            speed_on=getattr(state, speed_attr, False),
+            has_speed_variant=getattr(state, has_speed_attr, False),
+            tts_active=bool(getattr(state, "enable_tts", False)),
+            tts_engine=getattr(state, "tts_engine", ""),
+            gpu_tts_engines=GPU_ENGINES,
+        )
+        effective_id = model_id + suffix
 
         if effective_id in config and config[effective_id]["current_context"] > 0:
             num_ctx = config[effective_id]["current_context"]
             source = "llama-swap YAML"
-            if effective_id != model_id:
-                source += f" (tts={tts_engine})"
+            if suffix:
+                source += f" ({suffix.lstrip('-')})"
         else:
             log_message(f"⚠️ Model {effective_id} not found in llama-swap YAML → fallback {fallback}")
             num_ctx = fallback

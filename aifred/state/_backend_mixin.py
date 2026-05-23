@@ -242,21 +242,29 @@ class BackendMixin(rx.State, mixin=True):
             return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
         if self.automatik_model_id == self.aifred_model_id:
             return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
-        # Different Automatik model — still needs TTS variant if GPU TTS is
-        # actively enabled in the UI. Same SSOT as _effective_model_id:
-        # State toggle, not a live HTTP probe of the TTS container (which
-        # would flip to the base profile during idle/busy windows and cause
-        # the same .gguf to reload with a different tensor-split).
-        if self.backend_type == "llamacpp" and self.enable_tts:  # type: ignore[attr-defined]
-            from ..lib.tts_engine_manager import GPU_ENGINES
-            if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-                from ..lib.calibration import parse_llamaswap_config
-                from ..lib.config import LLAMASWAP_CONFIG_PATH
-                tts_variant = f"{self.automatik_model_id}-tts-{self.tts_engine}"  # type: ignore[attr-defined]
-                swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-                if tts_variant in swap_cfg:
-                    return tts_variant
-        return self.automatik_model_id
+        # Different Automatik model — still needs TTS / Speed variants
+        # if those toggles are active in the UI. Route through the SSOT
+        # so the fallback rules stay identical to _effective_model_id.
+        if self.backend_type != "llamacpp":  # type: ignore[attr-defined]
+            return self.automatik_model_id  # type: ignore[attr-defined, no-any-return]
+
+        from ..lib.calibration import resolve_variant_suffix
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.tts_engine_manager import GPU_ENGINES
+
+        # Automatik mirrors the AIfred agent's Speed toggle — it doesn't
+        # have an independent UI control, so a separate
+        # ``automatik_speed_mode`` flag doesn't exist.
+        suffix = resolve_variant_suffix(
+            LLAMASWAP_CONFIG_PATH,
+            self.automatik_model_id,  # type: ignore[attr-defined]
+            speed_on=self.aifred_speed_mode,  # type: ignore[attr-defined]
+            has_speed_variant=self.aifred_has_speed_variant,  # type: ignore[attr-defined]
+            tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
+            tts_engine=self.tts_engine,  # type: ignore[attr-defined]
+            gpu_tts_engines=GPU_ENGINES,
+        )
+        return self.automatik_model_id + suffix  # type: ignore[attr-defined, no-any-return]
 
     @rx.var
     def available_models_for_select(self) -> List[List[str]]:

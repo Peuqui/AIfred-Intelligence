@@ -765,106 +765,124 @@ class CalibrationMixin(rx.State, mixin=True):
                     #  b) base is already single-GPU (speed skipped for small
                     #     models that already fit on 1 GPU at native context)
                     #     → copy base
-                    use_speed = speed_num_gpus == 1 and speed_split_cuda0 > 0
-                    use_base = (
-                        not use_speed
-                        and speed_num_gpus == 0
-                        and calibrated_num_gpus == 1
-                    )
-                    if use_speed or use_base:
-                        from ..lib.calibration.gpu import enumerate_gpus
-                        from ..lib.calibration import llamaswap_io as _io
-                        from ..lib.process_utils import get_tts_gpu_uuid
+                    # Isolated-mode candidates: base + speed (if it exists).
+                    # The user's two toggles (Speed / TTS) are orthogonal,
+                    # so we write a TTS variant for *every* base candidate
+                    # whose GPU set is disjoint from the TTS GPU — that way
+                    # the resolver can mirror the toggle state at runtime
+                    # without re-calibrating.
+                    from ..lib.calibration.gpu import enumerate_gpus
+                    from ..lib.calibration import llamaswap_io as _io
+                    from ..lib.process_utils import get_tts_gpu_uuid
 
-                        # Read base/speed config to find which UUIDs the
-                        # LLM is pinned to. Calibration writes UUIDs in
-                        # CUDA_VISIBLE_DEVICES (no more index-space
-                        # confusion).
-                        iso_source = (
-                            f"{calibration_model_id}-speed" if use_speed
-                            else calibration_model_id
-                        )
-                        source_label = "speed" if use_speed else "base"
-                        cfg = _io._read_yaml(LLAMASWAP_CONFIG_PATH)
-                        src_entry = (cfg.get("models") or {}).get(iso_source) or {}
-                        src_env = src_entry.get("env") or []
-                        llm_uuids = _io._extract_uuids_from_env(src_env)
+                    gpus = enumerate_gpus()
+                    tts_uuid = get_tts_gpu_uuid()
+                    uuid_to_name = {g.uuid: g.name for g in gpus}
+                    cfg = _io._read_yaml(LLAMASWAP_CONFIG_PATH)
+                    models_cfg = (cfg.get("models") or {})
 
-                        # If base wasn't UUID-pinned (legacy stale entry),
-                        # we have nothing reliable to compare against — fall
-                        # through to shared-mode TTS calibration.
-                        gpus = enumerate_gpus()
-                        tts_uuid = get_tts_gpu_uuid()
+                    # ``base``: <model>-tts-<engine> with full base ctx.
+                    # ``speed``: <model>-tts-<engine>-speed (1-GPU LLM).
+                    iso_candidates: list[dict[str, Any]] = []
+                    if calibrated_num_gpus >= 1:
+                        iso_candidates.append({
+                            "label": "base",
+                            "source_id": calibration_model_id,
+                            "tts_suffix": tts_backend,
+                            "ctx": int(calibrated_ctx),
+                            "kv": calibration_kv,
+                        })
+                    if speed_num_gpus == 1 and speed_split_cuda0 > 0:
+                        iso_candidates.append({
+                            "label": "speed",
+                            "source_id": f"{calibration_model_id}-speed",
+                            "tts_suffix": f"{tts_backend}-speed",
+                            "ctx": int(speed_split_context),
+                            "kv": speed_kv_quant,
+                        })
+
+                    iso_written = False
+                    for _cand in iso_candidates:
+                        _src_entry = models_cfg.get(_cand["source_id"]) or {}
+                        _src_env = _src_entry.get("env") or []
+                        _llm_uuids = _io._extract_uuids_from_env(_src_env)
+                        # Without a UUID-pinned source we can't verify
+                        # disjointness — skip this candidate. (Legacy
+                        # stale entry without ``CUDA_VISIBLE_DEVICES``.)
                         disjoint = (
                             len(gpus) >= 2
-                            and bool(llm_uuids)
+                            and bool(_llm_uuids)
                             and bool(tts_uuid)
-                            and tts_uuid not in llm_uuids
+                            and tts_uuid not in _llm_uuids
                         )
-
-                        if disjoint:
-                            iso_ctx = speed_split_context if use_speed else calibrated_ctx
-                            iso_kv = speed_kv_quant if use_speed else calibration_kv
-                            uuid_to_name = {g.uuid: g.name for g in gpus}
-                            llm_label = ", ".join(
-                                f"{uuid_to_name.get(u, '?')}({u[:12]}…)"
-                                for u in llm_uuids
-                            ) or "all"
-                            tts_name = uuid_to_name.get(tts_uuid, "?")
+                        if not disjoint:
+                            continue
+                        _llm_label = ", ".join(
+                            f"{uuid_to_name.get(u, '?')}({u[:12]}…)"
+                            for u in _llm_uuids
+                        ) or "all"
+                        _tts_name = uuid_to_name.get(tts_uuid, "?")
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"   🎯 Isolated mode ({_cand['label']}): "
+                            f"LLM on {_llm_label}, "
+                            f"{tts_label} on {_tts_name}({tts_uuid[:12]}…) "
+                            f"— reusing {_cand['label']} result "
+                            f"(ctx {format_number(_cand['ctx'])})"
+                        )
+                        yield
+                        added = add_llamaswap_tts_variant(
+                            LLAMASWAP_CONFIG_PATH,
+                            calibration_model_id,
+                            _cand["ctx"],
+                            _cand["tts_suffix"],
+                            kv_quant=_cand["kv"],
+                            cuda_visible_devices=",".join(_llm_uuids),
+                            source_model_id=_cand["source_id"],
+                        )
+                        if added:
+                            iso_written = True
                             self.add_debug(  # type: ignore[attr-defined]
-                                f"   🎯 Isolated mode: LLM on {llm_label}, "
-                                f"{tts_label} on {tts_name}({tts_uuid[:12]}…) — "
-                                f"reusing {source_label} result "
-                                f"(ctx {format_number(iso_ctx)})"
+                                f"   ✅ {tts_label} variant: "
+                                f"{calibration_model_id}-tts-{_cand['tts_suffix']} "
+                                f"(isolated, ctx {format_number(_cand['ctx'])})"
                             )
-                            yield
-                            added = add_llamaswap_tts_variant(
-                                LLAMASWAP_CONFIG_PATH,
-                                calibration_model_id,
-                                iso_ctx,
-                                tts_backend,
-                                kv_quant=iso_kv,
-                                cuda_visible_devices=",".join(llm_uuids),
-                                source_model_id=iso_source,
+                            # Write the VRAM-cache entry too — without
+                            # this the isolated path left the YAML
+                            # profile and the cache out of sync (the
+                            # fast/full paths both write the cache).
+                            from ..lib.model_vram_cache import (
+                                add_llamacpp_calibration as _iso_alc,
+                                load_cache as _iso_lc,
                             )
-                            if added:
-                                self.add_debug(  # type: ignore[attr-defined]
-                                    f"   ✅ {tts_label} variant: "
-                                    f"{calibration_model_id}-tts-{tts_backend} "
-                                    f"(isolated, ctx {format_number(iso_ctx)})"
-                                )
-                                # Write the VRAM-cache entry too — without
-                                # this the isolated path left the YAML
-                                # profile and the cache out of sync (the
-                                # fast/full paths both write the cache).
-                                from ..lib.model_vram_cache import (
-                                    add_llamacpp_calibration as _iso_alc,
-                                    load_cache as _iso_lc,
-                                )
-                                _iso_tts_id = f"{calibration_model_id}-tts-{tts_backend}"
-                                _iso_base_meta = _iso_lc().get(calibration_model_id, {})
-                                _iso_alc(
-                                    model_id=_iso_tts_id,
-                                    max_context=iso_ctx,
-                                    native_context=int(
-                                        _iso_base_meta.get("native_context", iso_ctx)
-                                    ),
-                                    gguf_path=str(_iso_base_meta.get("gguf_path", "")),
-                                    quantization=str(_iso_base_meta.get("quantization", "")),
-                                    gpu_model=str(_iso_base_meta.get("gpu_model", "")),
-                                    model_size_gb=float(
-                                        _iso_base_meta.get("model_size_gb", 0.0)
-                                    ),
-                                    ngl=99,
-                                    mode="gpu",
-                                    speed_split=0,
-                                )
-                            else:
-                                self.add_debug(  # type: ignore[attr-defined]
-                                    f"   ⚠️ Could not write {tts_label} variant to config"
-                                )
-                            yield
-                            continue  # skip shared-mode calibration for this backend
+                            _iso_tts_id = (
+                                f"{calibration_model_id}-tts-{_cand['tts_suffix']}"
+                            )
+                            _iso_base_meta = _iso_lc().get(calibration_model_id, {})
+                            _iso_alc(
+                                model_id=_iso_tts_id,
+                                max_context=_cand["ctx"],
+                                native_context=int(
+                                    _iso_base_meta.get("native_context", _cand["ctx"])
+                                ),
+                                gguf_path=str(_iso_base_meta.get("gguf_path", "")),
+                                quantization=str(_iso_base_meta.get("quantization", "")),
+                                gpu_model=str(_iso_base_meta.get("gpu_model", "")),
+                                model_size_gb=float(
+                                    _iso_base_meta.get("model_size_gb", 0.0)
+                                ),
+                                ngl=99,
+                                mode="gpu",
+                                speed_split=0,
+                            )
+                        else:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   ⚠️ Could not write {tts_label} "
+                                f"{_cand['label']} variant to config"
+                            )
+                        yield
+
+                    if iso_written:
+                        continue  # skip shared-mode calibration for this backend
 
                     tts_ok = start_fn()
                     if not tts_ok:

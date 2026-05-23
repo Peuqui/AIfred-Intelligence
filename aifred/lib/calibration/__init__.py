@@ -24,6 +24,7 @@ from .llamaswap_io import (
     parse_sampling_from_cmd,
     parse_tensor_split,
     remove_llamaswap_kv_cache_quant,
+    resolve_variant_suffix,
     update_llamaswap_context,
     update_llamaswap_cuda_visible,
     update_llamaswap_kv_cache_quant,
@@ -52,4 +53,5 @@ __all__ = [
     "has_llamaswap_base",
     "has_llamaswap_tts_variant",
     "remove_llamaswap_tts_variant",
+    "resolve_variant_suffix",
 ]
