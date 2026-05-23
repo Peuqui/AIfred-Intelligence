@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""llama-swap-build-config — beim llama-swap-Restart aufgerufen, macht zwei
+Dinge an der ``config.yaml``:
+
+  1. Verwaiste TTS-Profile rauswerfen.
+     Pro ``<model>-tts-<engine>(-speed)?`` Variante prüfen, ob das
+     zugehörige Docker-Image laut AIfred-Engine-Registry noch
+     vorhanden ist. Ist die Engine deinstalliert, fliegt das Profil
+     samt Group-Membership raus.
+
+  2. Speculative-Decoding-Flags normalisieren.
+     MTP-fähige GGUFs (Tensor-Namen enthalten ``nextn``/``mtp``)
+     bekommen ``--spec-type draft-mtp``, non-MTP-Modelle ``ngram`` als
+     sicheren Default. Idempotent.
+
+Repo-Heimat: ``scripts/llama-swap-build-config`` im AIfred-Repo. Im PATH
+liegt ``~/bin/llama-swap-build-config`` als Symlink hierher — das
+Restart-Script ruft den absoluten ``/home/mp/bin/...`` Pfad auf, der
+Symlink leitet aufs Repo-File um.
+
+ENV:
+  LLAMA_SWAP_CONFIG  Pfad zur config.yaml (default: ~/.config/llama-swap/config.yaml)
+  AIFRED_REPO        Pfad zum AIfred-Repo (default: ~/Projekte/AIfred-Intelligence)
+                     — wird zum sys.path hinzugefügt, damit der TTS-Cleanup
+                     ``aifred.lib.tts_engines`` importieren kann
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shlex
+import sys
+from pathlib import Path
+
+import yaml
+
+try:
+    from gguf import GGUFReader
+except ImportError:
+    sys.stderr.write(
+        "❌ Python-Modul 'gguf' nicht verfügbar — "
+        "bitte mit AIfred-venv aufrufen oder `pip install gguf`.\n"
+    )
+    sys.exit(2)
+
+
+# ── Konfiguration ──────────────────────────────────────────────────────────
+CONFIG_PATH = Path(
+    os.environ.get(
+        "LLAMA_SWAP_CONFIG",
+        str(Path.home() / ".config/llama-swap/config.yaml"),
+    )
+)
+MTP_STATUS_CACHE = Path.home() / ".cache/llama_mtp_status.json"
+LOOKUP_CACHE_DIR = Path.home() / ".cache"
+
+# AIfred-Repo (für die TTS-Engine-Registry — wir lesen ``is_installed()``
+# von dort, um verwaiste TTS-Profile in der YAML aufzuräumen wenn eine
+# Engine deinstalliert wurde). Optional: ohne den Import fällt der
+# Cleanup einfach aus und das Script läuft weiter.
+AIFRED_REPO = Path(
+    os.environ.get("AIFRED_REPO", str(Path.home() / "Projekte/AIfred-Intelligence"))
+)
+if AIFRED_REPO.exists() and str(AIFRED_REPO) not in sys.path:
+    sys.path.insert(0, str(AIFRED_REPO))
+
+MTP_FLAGS = [
+    "--spec-type", "draft-mtp",
+    "--spec-draft-n-max", "4",
+    "--spec-draft-p-min", "0.75",
+]
+
+# Alle bekannten Spec-Flags (alt + neu), die vor der Re-Injektion entfernt
+# werden. Werte = Anzahl der nachfolgenden Wert-Argumente.
+SPEC_TOKENS = {
+    "--draft": 1, "--draft-n": 1, "--draft-max": 1,
+    "--draft-min": 1, "--draft-n-min": 1,
+    "--draft-p-min": 1, "--draft-p-split": 1,
+    "--spec-type": 1,
+    "--spec-draft-n-max": 1, "--spec-draft-n-min": 1,
+    "--spec-draft-p-min": 1, "--spec-draft-p-split": 1,
+    "--lookup-cache-dynamic": 1, "-lcd": 1,
+    "--lookup-cache-static": 1, "-lcs": 1,
+    "--spec-default": 0,
+}
+
+
+# ── MTP-Detection ──────────────────────────────────────────────────────────
+def load_mtp_cache() -> dict:
+    if MTP_STATUS_CACHE.exists():
+        try:
+            return json.loads(MTP_STATUS_CACHE.read_text())
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def save_mtp_cache(cache: dict) -> None:
+    MTP_STATUS_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    MTP_STATUS_CACHE.write_text(json.dumps(cache, indent=2, sort_keys=True))
+
+
+def detect_mtp(gguf_path: Path, cache: dict) -> bool:
+    """Liest GGUF-Header, prüft auf MTP-Tensoren. mtime-basierter Cache."""
+    key = str(gguf_path)
+    try:
+        mtime = gguf_path.stat().st_mtime
+    except FileNotFoundError:
+        sys.stderr.write(f"⚠️  GGUF nicht gefunden: {gguf_path}\n")
+        return False
+    entry = cache.get(key)
+    if entry and entry.get("mtime") == mtime:
+        return bool(entry["has_mtp"])
+
+    try:
+        reader = GGUFReader(str(gguf_path))
+        has_mtp = any(
+            ("nextn" in t.name.lower() or "mtp" in t.name.lower())
+            for t in reader.tensors
+        )
+    except Exception as e:
+        sys.stderr.write(f"⚠️  GGUF-Read-Fehler {gguf_path}: {e}\n")
+        return False
+
+    cache[key] = {"mtime": mtime, "has_mtp": has_mtp}
+    return has_mtp
+
+
+# ── Flag-Normalisierung ────────────────────────────────────────────────────
+def strip_spec_tokens(tokens: list[str]) -> list[str]:
+    """Entfernt alle bekannten Spec-Flags (inkl. ihrer Wert-Argumente)."""
+    out: list[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in SPEC_TOKENS:
+            i += 1 + SPEC_TOKENS[tok]
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
+def find_model_path(tokens: list[str]) -> Path | None:
+    for i, t in enumerate(tokens):
+        if t in ("--model", "-m") and i + 1 < len(tokens):
+            return Path(tokens[i + 1])
+    return None
+
+
+def lookup_cache_path(model_path: Path) -> Path:
+    """Cache-Pfad vom GGUF-Stem ableiten, damit Modell-Varianten (z.B. TTS-Splits
+    auf dem gleichen GGUF) sich denselben ngram-Cache teilen."""
+    stem = model_path.stem
+    # Bei Multi-Part-GGUFs den Split-Suffix abschneiden (z.B. -00001-of-00003)
+    stem = re.sub(r"-\d{5}-of-\d{5}$", "", stem)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("_")
+    return LOOKUP_CACHE_DIR / f"llama_lookup_{safe}.bin"
+
+
+def build_spec_flags(model_path: Path, has_mtp: bool) -> list[str]:
+    if has_mtp:
+        return list(MTP_FLAGS)
+    # ngram-mod statt ngram-cache: in-memory n-gram lookup (kein persistent
+    # disk-cache, aber ngram-cache crasht im Constructor in llama.cpp b9295).
+    # Funktional fast identisch.
+    return [
+        "--spec-type", "ngram-mod",
+        "--spec-draft-n-max", "4",
+        "--spec-draft-p-min", "0.75",
+    ]
+
+
+# Tokens die ohne Quoting wieder ausgegeben werden dürfen. llama-swap macht
+# ${VAR}-Substitution und splittet anhand von Whitespace; Single-Quotes von
+# shlex.quote() würden in den Argv-Token bleiben und das Argument verfälschen.
+_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./:=,${}@%+-]+$")
+
+
+def quote_if_needed(token: str) -> str:
+    if token and _SAFE_TOKEN_RE.match(token):
+        return token
+    return shlex.quote(token)
+
+
+def normalize_cmd(cmd: str, model_name: str, mtp_cache: dict) -> tuple[str, str]:
+    """Returns (new_cmd, status). status ∈ {'MTP', 'ngram', 'skip'}.
+
+    Strategie:
+    - MTP-Tensoren im GGUF erkannt -> MTP-Flags (--spec-type draft-mtp).
+    - Sonst -> ngram-cache mit p-min=0.75 als sicherer Default.
+
+    Modelle die explizit von Speculative-Decoding ausgenommen werden sollen
+    können hier per Name in einer Skip-Liste vermerkt werden (siehe SKIP_SPEC).
+    """
+    tokens = shlex.split(cmd)
+    model_path = find_model_path(tokens)
+    if model_path is None:
+        return cmd, "skip"
+
+    has_mtp = detect_mtp(model_path, mtp_cache)
+    base = strip_spec_tokens(tokens)
+    spec = build_spec_flags(model_path, has_mtp)
+    new_tokens = base + spec
+    new_cmd = " ".join(quote_if_needed(t) for t in new_tokens)
+    return new_cmd, ("MTP" if has_mtp else "ngram")
+
+
+# ── TTS-Profil-Cleanup ─────────────────────────────────────────────────────
+def cleanup_uninstalled_tts_profiles(data: dict) -> list[str]:
+    """Entfernt ``<model>-tts-<engine>`` und ``-speed``-Pendants aus der
+    config, wenn das Docker-Image der Engine lokal nicht (mehr) gebaut
+    ist. Bereinigt auch Group-``members``-Listen.
+
+    Source-of-Truth ist die AIfred-Engine-Registry — eine Engine gilt
+    als "installed", wenn ``TTSEngine.is_installed()`` ``True`` liefert
+    (Docker-Image vorhanden).
+    """
+    from aifred.lib.tts_engines import TTS_ENGINES, installed_gpu_engines
+
+    all_gpu_keys = {e.key for e in TTS_ENGINES.values() if e.needs_gpu}
+    installed_keys = {e.key for e in installed_gpu_engines()}
+    uninstalled = all_gpu_keys - installed_keys
+    if not uninstalled:
+        return []
+
+    # Engine-Key-Match anhand exakter Suffixe — fish-speech bleibt
+    # zusammen statt von einem Regex als "fish" gelesen zu werden.
+    suffixes: list[str] = []
+    for key in uninstalled:
+        suffixes.append(f"-tts-{key}")
+        suffixes.append(f"-tts-{key}-speed")
+
+    removed: list[str] = []
+    models = data.get("models") or {}
+    for name in list(models.keys()):
+        if any(name.endswith(s) for s in suffixes):
+            del models[name]
+            removed.append(name)
+
+    if not removed:
+        return []
+
+    # Auch aus group.members aufräumen.
+    removed_set = set(removed)
+    groups = data.get("groups") or {}
+    for grp_cfg in groups.values():
+        if not isinstance(grp_cfg, dict):
+            continue
+        members = grp_cfg.get("members") or []
+        kept = [m for m in members if m not in removed_set]
+        if len(kept) != len(members):
+            grp_cfg["members"] = kept
+
+    return removed
+
+
+# ── YAML-IO ────────────────────────────────────────────────────────────────
+def extract_header_comments(text: str) -> tuple[str, str]:
+    """Trennt führende Kommentar-/Leerzeilen ab, damit sie nach dem PyYAML-
+    Round-Trip wieder vorangestellt werden können."""
+    lines = text.splitlines(keepends=True)
+    i = 0
+    while i < len(lines) and (lines[i].lstrip().startswith("#") or lines[i].strip() == ""):
+        i += 1
+    return "".join(lines[:i]), "".join(lines[i:])
+
+
+def main() -> int:
+    dry_run = "--dry-run" in sys.argv or "-n" in sys.argv
+
+    if not CONFIG_PATH.exists():
+        sys.stderr.write(f"❌ config nicht gefunden: {CONFIG_PATH}\n")
+        return 1
+
+    raw = CONFIG_PATH.read_text()
+    header, body = extract_header_comments(raw)
+    data = yaml.safe_load(body)
+    if not isinstance(data, dict) or "models" not in data:
+        sys.stderr.write("❌ kein 'models'-key in config\n")
+        return 1
+
+    # Verwaiste TTS-Profile (Engine deinstalliert, Profil noch in YAML)
+    # rauswerfen, bevor wir die übrigen Modelle normalisieren.
+    removed_tts = cleanup_uninstalled_tts_profiles(data)
+    if removed_tts:
+        sys.stderr.write(
+            f"🧹 Verwaiste TTS-Profile entfernt "
+            f"({len(removed_tts)} — Engine-Image nicht installiert):\n"
+        )
+        for name in removed_tts:
+            sys.stderr.write(f"   – {name}\n")
+
+    mtp_cache = load_mtp_cache()
+    summary: list[tuple[str, str]] = []
+    changed = 0
+
+    for name, cfg in data["models"].items():
+        cmd = (cfg or {}).get("cmd", "")
+        if not cmd:
+            continue
+        new_cmd, status = normalize_cmd(cmd, name, mtp_cache)
+        if new_cmd != cmd:
+            data["models"][name]["cmd"] = new_cmd
+            changed += 1
+        summary.append((name, status))
+
+    save_mtp_cache(mtp_cache)
+
+    # Status-Übersicht (auch wenn nichts geändert wurde)
+    sys.stderr.write("Speculative-Status pro Modell:\n")
+    for name, status in summary:
+        symbol = {"MTP": "🚀", "ngram": "📋", "skip": "⚠️ "}.get(status, "?")
+        sys.stderr.write(f"  {symbol} {status:5}  {name}\n")
+
+    if changed == 0 and not removed_tts:
+        sys.stderr.write("\n✓ Keine Änderungen — config bereits normalisiert.\n")
+        return 0
+
+    rendered = yaml.safe_dump(
+        data, default_flow_style=False, sort_keys=False, width=10000, allow_unicode=True
+    )
+    new_content = header + rendered
+
+    if dry_run:
+        sys.stderr.write(
+            f"\n[DRY-RUN] {changed} Modell(e) würden aktualisiert werden.\n"
+            f"[DRY-RUN] Neue config würde nach: {CONFIG_PATH}\n"
+            f"[DRY-RUN] Vorschau (stdout):\n\n"
+        )
+        sys.stdout.write(new_content)
+        return 0
+
+    # Backup vor Write
+    bak = CONFIG_PATH.with_suffix(".yaml.bak")
+    bak.write_text(raw)
+    CONFIG_PATH.write_text(new_content)
+
+    sys.stderr.write(f"\n✓ {changed} Modell(e) aktualisiert. Backup: {bak}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
