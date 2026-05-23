@@ -92,7 +92,11 @@ def get_agent_num_ctx(
     Args:
         agent: Agent identifier - "aifred", "sokrates", or "salomo"
         state: AIState instance containing per-agent settings
-        model_id: Ollama model ID (e.g., "qwen3:14b")
+        model_id: **BASE** model ID without variant suffix (e.g., "qwen3:14b" or
+            "Qwen3.5-...-IQ3_XXS"). MUST NOT be a resolved variant id like
+            ``<base>-speed`` or ``<base>-tts-<engine>`` — this function runs
+            resolve_variant_suffix() itself and a doubly-resolved id would
+            never match a YAML entry and fall back to the default context.
         fallback: Default value if no calibration available (default: MAIN_LLM_FALLBACK_CONTEXT = 32K)
 
     Returns:

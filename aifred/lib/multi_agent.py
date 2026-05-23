@@ -522,9 +522,6 @@ async def _execute_agent_stream(
 
 def _setup_debate_contexts(
     state: 'AIState',
-    alfred_model: str,
-    sokrates_model: str,
-    salomo_model: str,
 ) -> dict[str, Any]:
     """Set up context limits, temperatures, and VRAM cache for a 3-agent debate.
 
@@ -532,10 +529,16 @@ def _setup_debate_contexts(
     """
     from .research.context_utils import get_agent_num_ctx
 
-    # Context limits
-    main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, alfred_model, fallback=32768)
-    sokrates_num_ctx, sokrates_source = get_agent_num_ctx("sokrates", state, sokrates_model, fallback=32768)
-    salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_model, fallback=32768)
+    # Context limits — pass BASE model_id, not the resolved one.
+    # get_agent_num_ctx runs resolve_variant_suffix internally; handing
+    # it the already-resolved id produces a double-suffix lookup that
+    # misses the YAML entry and triggers the 32K fallback.
+    aifred_base = state.aifred_model_id  # type: ignore[attr-defined,has-type]
+    sokrates_base = state.sokrates_model_id or aifred_base  # type: ignore[attr-defined]
+    salomo_base = state.salomo_model_id or aifred_base  # type: ignore[attr-defined]
+    main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, aifred_base, fallback=32768)
+    sokrates_num_ctx, sokrates_source = get_agent_num_ctx("sokrates", state, sokrates_base, fallback=32768)
+    salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_base, fallback=32768)
 
     state.add_debug(f"🎯 AIfred: {format_number(main_llm_ctx)} tok ({aifred_source})")
     state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok ({sokrates_source})")
@@ -715,18 +718,25 @@ async def _run_agent_direct_response(
             base_url=state.backend_url
         )
 
-        # Determine agent model — custom agents use AIfred's model
+        # Determine agent model — custom agents use AIfred's model.
+        # Track base + resolved separately: backend wants resolved (with
+        # speed/tts suffix), context lookup wants base (get_agent_num_ctx
+        # runs resolve_variant_suffix itself; a resolved id would
+        # double-suffix and trigger a 32K fallback).
         _default_agents = ("aifred", "sokrates", "salomo", "vision")
         if agent in _default_agents:
             agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
+            base_attr = "vision_model_id" if agent == "vision" else f"{agent}_model_id"
+            agent_base_id = getattr(state, base_attr, "") or state.aifred_model_id  # type: ignore[attr-defined]
         else:
             agent_model_id = state._effective_model_id("aifred")
+            agent_base_id = state.aifred_model_id  # type: ignore[attr-defined]
         state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_id} ({state.backend_type})")
 
         # Context limit — custom agents use AIfred's context
         from .research.context_utils import get_agent_num_ctx
         ctx_agent = agent if agent in _default_agents else "aifred"
-        agent_num_ctx, ctx_source = get_agent_num_ctx(ctx_agent, state, agent_model_id)
+        agent_num_ctx, ctx_source = get_agent_num_ctx(ctx_agent, state, agent_base_id)
         state.add_debug(f"   🎯 Context: {format_number(agent_num_ctx)} ({ctx_source})")
 
         # Combined toolkit: memory + research tools (based on research_mode)
@@ -1003,7 +1013,7 @@ async def run_sokrates_analysis(
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
 
         # Debate setup: context limits, temperatures, LLM options
-        ctx = _setup_debate_contexts(state, alfred_model, sokrates_model, salomo_model)
+        ctx = _setup_debate_contexts(state)
         sokrates_options = ctx["sokrates_options"]
         alfred_options = ctx["aifred_options"]
         sokrates_num_ctx = ctx["sokrates_ctx"]
@@ -1262,7 +1272,7 @@ async def run_tribunal(
         state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
         # Debate setup: context limits, temperatures, LLM options
-        ctx = _setup_debate_contexts(state, alfred_model, sokrates_model, salomo_model)
+        ctx = _setup_debate_contexts(state)
         sokrates_options = ctx["sokrates_options"]
         alfred_options = ctx["aifred_options"]
         salomo_options = ctx["salomo_options"]
@@ -1501,17 +1511,22 @@ async def run_symposion(
                 agent_label = cfg.display_name
                 emoji = cfg.emoji
 
-                # Model: custom agents use AIfred's model
+                # Model: custom agents use AIfred's model.
+                # Resolved id for the backend, base id for the context lookup
+                # (see _setup_debate_contexts comment).
                 if agent_id in default_agents:
                     model_id = state._effective_model_id(agent_id) or state._effective_model_id("aifred")
+                    base_attr = "vision_model_id" if agent_id == "vision" else f"{agent_id}_model_id"
+                    base_id = getattr(state, base_attr, "") or state.aifred_model_id  # type: ignore[attr-defined]
                 else:
                     model_id = state._effective_model_id("aifred")
+                    base_id = state.aifred_model_id  # type: ignore[attr-defined]
 
                 state.add_debug(f"{emoji} {agent_label} (R{round_num})")
 
                 # Context limit
                 ctx_agent = agent_id if agent_id in default_agents else "aifred"
-                agent_num_ctx, _ = get_agent_num_ctx(ctx_agent, state, model_id)
+                agent_num_ctx, _ = get_agent_num_ctx(ctx_agent, state, base_id)
 
                 # System prompt: agent identity + symposion rules + memory
                 # From round 2 onwards augment with the reflection prompt so
