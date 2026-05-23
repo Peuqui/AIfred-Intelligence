@@ -469,7 +469,6 @@ class CalibrationMixin(rx.State, mixin=True):
             # SSOT: iterate the TTS-engine registry instead of hardcoding container
             # names — every engine with ``needs_gpu=True`` gets stopped, no matter
             # which backend was running.
-            from ..lib.tts_engines import gpu_engines
             from ..lib.config import LLAMACPP_CALIBRATION_PORT
             self.add_debug("🧹 Cleaning up VRAM (TTS containers, orphaned servers)...")  # type: ignore[attr-defined]
             yield
@@ -483,16 +482,13 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")  # type: ignore[attr-defined]
             except (subprocess.SubprocessError, FileNotFoundError):
                 pass
-            # Stop every GPU-TTS container unconditionally. ``is_running()``
-            # is an HTTP health check with a 2 s timeout — a busy container
-            # can miss the window and look idle, leaving its VRAM allocated
-            # during the LLM calibration. ``docker compose down`` is
-            # idempotent and finishes in ~1 s when nothing is running, so
-            # we just always call stop() and trust the engine to no-op
-            # when there's nothing to stop.
-            for _eng in gpu_engines():
-                ok, msg = _eng.stop()
-                self.add_debug(f"   {'✅' if ok else '⚠️'} {_eng.label_short}: {msg}")  # type: ignore[attr-defined]
+            # Stop every installed GPU-TTS container unconditionally.
+            # SSOT helper: same logic as the TTS-switch cleanup path,
+            # so both flows skip engines without an image and log a
+            # consistent message format.
+            from ..lib.process_utils import stop_all_installed_tts
+            for label, ok, msg in stop_all_installed_tts():
+                self.add_debug(f"   {'✅' if ok else '⚠️'} {label}: {msg}")  # type: ignore[attr-defined]
             self.add_debug("   VRAM cleanup done")  # type: ignore[attr-defined]
             yield
 
