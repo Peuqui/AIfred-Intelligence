@@ -593,17 +593,20 @@ class ChatMixin(rx.State, mixin=True):
         from ..lib.research.context_utils import get_agent_num_ctx
         from ..lib.prompt_loader import get_max_system_prompt_tokens
 
-        # Determine effective context limit (minimum of all agents)
+        # Determine effective context limit (minimum of all agents).
+        # get_agent_num_ctx() runs resolve_variant_suffix itself — pass the
+        # BASE model_id, not the already-resolved _effective_model_id, or
+        # we get a double-suffix lookup that misses the YAML entry.
         context_limits: list[int] = []
-        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self._effective_model_id("aifred"))  # type: ignore[attr-defined, arg-type]
+        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.aifred_model_id)  # type: ignore[attr-defined, arg-type]
         context_limits.append(aifred_ctx)
 
         if self.multi_agent_mode != "standard":  # type: ignore[attr-defined]
             if self.sokrates_model_id:  # type: ignore[attr-defined]
-                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self._effective_model_id("sokrates"))  # type: ignore[attr-defined, arg-type]
+                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.sokrates_model_id)  # type: ignore[attr-defined, arg-type]
                 context_limits.append(sokrates_ctx)
             if self.salomo_model_id:  # type: ignore[attr-defined]
-                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self._effective_model_id("salomo"))  # type: ignore[attr-defined, arg-type]
+                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.salomo_model_id)  # type: ignore[attr-defined, arg-type]
                 context_limits.append(salomo_ctx)
 
         context_limit = min(context_limits) if context_limits else 4096

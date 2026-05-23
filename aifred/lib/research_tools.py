@@ -56,8 +56,11 @@ async def execute_research(
     from .research.context_utils import get_agent_num_ctx
     from .logging_utils import log_message
 
-    # Automatik-LLM for query generation (if needed)
-    automatik_model_id = state.automatik_model_id or state._effective_model_id("aifred")
+    # Automatik-LLM for query generation (if needed).
+    # Fall back to the BASE aifred id (not _effective_model_id) so that
+    # get_agent_num_ctx can run resolve_variant_suffix once; a resolved
+    # id here would double-suffix and miss the YAML lookup.
+    automatik_model_id = state.automatik_model_id or state.aifred_model_id  # type: ignore[has-type]
     automatik_num_ctx, _ = get_agent_num_ctx("aifred", state, automatik_model_id)
 
     llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)

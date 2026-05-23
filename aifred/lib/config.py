@@ -720,10 +720,11 @@ MOSS_TTS_VRAM_MB = 13700  # MB (measured peak 13609 + 91 buffer)
 def get_effective_model_from_settings(agent: str = "aifred") -> str:
     """Resolve effective model ID from settings.json (no Reflex state needed).
 
-    Same logic as State._effective_model_id but reads from settings file.
-    Use this in API/Message Hub/async contexts without State access.
-
-    Priority: speed variant > TTS variant > base model
+    Headless counterpart to State._effective_model_id. Delegates suffix
+    resolution to ``resolve_variant_suffix`` — the SSOT shared with the
+    state-based resolver, so both pick the same variant under the same
+    toggles (including the Speed+TTS fallback to TTS-base when no
+    combined variant exists).
     """
     from .settings import load_settings
     settings = load_settings() or {}
@@ -739,36 +740,26 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     if not base_id:
         return str(base_id)
 
-    # Speed mode
-    speed_on = settings.get(f"{agent}_speed_mode", False)
-    if speed_on and backend_type == "llamacpp":
-        speed_id = f"{base_id}-speed"
-        from .calibration import parse_llamaswap_config
-        swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-        if speed_id in swap_cfg:
-            return speed_id
+    if backend_type != "llamacpp":
+        # Other backends don't have llama-swap variants
+        return str(base_id)
 
-    # TTS variant — SSOT is the user's settings, NOT a live HTTP probe of the
-    # container. The container can be down (cold start pending), idle
-    # (KEEP_ALIVE between sentences) or busy (mid-batch); none of those mean
-    # the profile should switch. If the user has TTS enabled, the model
-    # profile must stay on the TTS variant for the whole session, otherwise
-    # follow-up calls (Title-Gen, Automatik) would reload the same .gguf with
-    # a different tensor-split. Used in headless contexts (API, Message Hub)
-    # that have no Reflex state — settings.json is the authority there.
-    if backend_type == "llamacpp":
-        enable_tts = settings.get("enable_tts", False)
-        tts_engine = settings.get("tts_engine", "")
-        if enable_tts and tts_engine:
-            from .tts_engine_manager import GPU_ENGINES
-            if tts_engine in GPU_ENGINES:
-                tts_id = f"{base_id}-tts-{tts_engine}"
-                from .calibration import parse_llamaswap_config
-                swap_cfg = parse_llamaswap_config(Path(LLAMASWAP_CONFIG_PATH))
-                if tts_id in swap_cfg:
-                    return tts_id
+    from .calibration import parse_llamaswap_config, resolve_variant_suffix
+    from .tts_engine_manager import GPU_ENGINES
 
-    return str(base_id)
+    swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+    has_speed_variant = f"{base_id}-speed" in swap_cfg
+
+    suffix = resolve_variant_suffix(
+        Path(LLAMASWAP_CONFIG_PATH),
+        base_id,
+        speed_on=settings.get(f"{agent}_speed_mode", False),
+        has_speed_variant=has_speed_variant,
+        tts_active=settings.get("enable_tts", False),
+        tts_engine=settings.get("tts_engine", ""),
+        gpu_tts_engines=GPU_ENGINES,
+    )
+    return base_id + suffix
 
 
 # Docker-Compose paths for non-TTS services. TTS engines derive their
