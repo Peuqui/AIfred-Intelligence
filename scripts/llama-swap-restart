@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# llama-swap-restart — Startet llama-swap neu, zeigt Startup-Ausgabe (inkl. Autoscan)
+#
+# Stoppt llama-swap inkl. aller llama-server-Kindprozesse, raeumt
+# verwaiste Lookup-Caches auf, ruft llama-swap-build-config fuer
+# TTS-Profil-Cleanup + Spec-Decoding-Flag-Normalisierung auf und
+# startet llama-swap neu.
+#
+# Repo-Heimat: ``scripts/llama-swap-restart`` im AIfred-Repo.
+# Installiert per Symlink von ``~/bin/llama-swap-restart`` hierher.
+
+echo "🔄 Stopping llama-swap..."
+stop_output=$(systemctl stop llama-swap 2>&1)
+stop_exit=$?
+if [ $stop_exit -ne 0 ] || echo "$stop_output" | grep -q "canceled"; then
+    echo "   ⚠️ systemctl stop meldet Probleme: $stop_output"
+fi
+
+# Warte bis systemd den Service wirklich als inactive meldet (max 30s)
+for i in $(seq 1 30); do
+    state=$(systemctl is-active llama-swap 2>/dev/null)
+    [ "$state" = "inactive" ] || [ "$state" = "failed" ] && break
+    sleep 1
+done
+
+# Validieren: ist der Service wirklich gestoppt?
+state=$(systemctl is-active llama-swap 2>/dev/null)
+if [ "$state" != "inactive" ] && [ "$state" != "failed" ]; then
+    echo "   ⚠️ Service nach 30s noch '$state' — Stop-Job wurde vermutlich canceled."
+    echo "   Erzwinge Stop via SIGTERM auf llama-swap-Prozess..."
+    pkill -x llama-swap 2>/dev/null
+    sleep 3
+    state=$(systemctl is-active llama-swap 2>/dev/null)
+    if [ "$state" != "inactive" ] && [ "$state" != "failed" ]; then
+        echo "❌ Konnte llama-swap nicht stoppen (state=$state). Abbruch."
+        exit 1
+    fi
+    echo "   ✓ Manuell gestoppt"
+fi
+
+# Sicherstellen, dass keine llama-server Prozesse mehr laufen
+remaining=$(pgrep -x llama-server 2>/dev/null | wc -l)
+if [ "$remaining" -gt 0 ]; then
+    echo "   ⚠️ $remaining llama-server Prozess(e) noch aktiv — sende SIGTERM..."
+    pkill -x llama-server 2>/dev/null
+    for i in $(seq 1 15); do
+        remaining=$(pgrep -x llama-server 2>/dev/null | wc -l)
+        [ "$remaining" -eq 0 ] && break
+        sleep 1
+    done
+    if [ "$remaining" -gt 0 ]; then
+        echo "   ⚠️ Erzwinge SIGKILL..."
+        pkill -9 -x llama-server 2>/dev/null
+        sleep 3
+    fi
+fi
+
+echo "   ✓ Stopped"
+
+# Warte bis llama-server VRAM tatsaechlich freigegeben ist (max 10s).
+# Nach pkill ist der Prozess weg, aber der GPU-Treiber kann 1-2s brauchen,
+# das VRAM zurueck in den Pool zu geben. Andere VRAM-User (XTTS, MOSS-TTS,
+# AIfred-Subprozesse) sind legitim und werden hier ignoriert — die kuemmern
+# llama-swap nichts. Beim Modell-Laden rechnet llama-swap selbst sein VRAM.
+for i in $(seq 1 10); do
+    gpu_apps=$(nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader 2>/dev/null)
+    echo "$gpu_apps" | grep -q "llama-server" || break
+    [ "$i" -eq 1 ] && echo "   ⏳ Warte auf llama-server VRAM-Freigabe..."
+    sleep 1
+done
+
+# Finale Pruefung — nur auf llama-server, andere Prozesse interessieren nicht
+gpu_apps=$(nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader 2>/dev/null)
+if echo "$gpu_apps" | grep -q "llama-server"; then
+    echo "   ⚠️ llama-server haelt noch VRAM nach 10s:"
+    echo "$gpu_apps" | grep "llama-server"
+    echo "   Versuche trotzdem zu starten..."
+fi
+
+# ── Lookup-Cache Orphan-Cleanup ────────────────────────────────────────
+# Wenn Modelle aus der config entfernt wurden, bleiben deren persistente
+# Speculative-Decoding-Cache-Dateien als Orphans im ~/.cache/ liegen.
+# Hier am Restart-Punkt aufraeumen: sammle alle Cache-Pfade, die in der
+# aktiven config noch referenziert werden — alle anderen Cache-Dateien
+# im selben Ordner sind verwaist und werden geloescht.
+config_yaml="/home/mp/.config/llama-swap/config.yaml"
+if [ -f "$config_yaml" ]; then
+    in_use=$(grep -oE -- '--lookup-cache-dynamic[[:space:]]+[^[:space:]]+' "$config_yaml" 2>/dev/null \
+             | awk '{print $2}' | sort -u)
+    orphans_removed=0
+    for cache in /home/mp/.cache/llama_lookup_*.bin; do
+        [ -f "$cache" ] || continue  # kein Match → Glob bleibt Pattern
+        if ! echo "$in_use" | grep -qFx "$cache"; then
+            size=$(du -h "$cache" 2>/dev/null | cut -f1)
+            echo "🧹 Orphan-Cache geloescht: $(basename "$cache") ($size)"
+            rm -f "$cache"
+            orphans_removed=$((orphans_removed + 1))
+        fi
+    done
+    [ "$orphans_removed" -eq 0 ] && echo "🧹 Lookup-Cache: keine Orphans gefunden"
+fi
+
+# ── Speculative-Decoding-Flags pro Modell anpassen ─────────────────────
+# Scannt die in config.yaml referenzierten GGUFs auf MTP-Tensoren
+# (nextn/mtp im Tensor-Namen). Falls vorhanden -> --spec-type draft-mtp.
+# Sonst ngram-mod als sicherer Default. Idempotent.
+build_config="/home/mp/bin/llama-swap-build-config"
+build_python="/home/mp/Projekte/AIfred-Intelligence/venv/bin/python"
+if [ -x "$build_config" ] && [ -x "$build_python" ]; then
+    echo "🔍 Pruefe Spec-Decoding-Flags pro Modell..."
+    if ! "$build_python" "$build_config" 2>&1 | sed 's/^/   /'; then
+        echo "❌ Spec-Config-Build fehlgeschlagen — Start abgebrochen."
+        exit 1
+    fi
+else
+    echo "⚠️ llama-swap-build-config nicht ausfuehrbar — ueberspringe Spec-Check."
+fi
+
+echo "🚀 Starting llama-swap..."
+start_time=$(date '+%Y-%m-%d %H:%M:%S')
+systemctl start llama-swap
+
+if [ $? -ne 0 ]; then
+    echo "❌ Start fehlgeschlagen!"
+    exit 1
+fi
+
+# Warte bis Startup komplett ("listening" im Log), max 60s
+timeout=60
+elapsed=0
+while ! journalctl -u llama-swap --since "$start_time" -o cat --no-pager 2>/dev/null | grep -q "listening"; do
+    sleep 1
+    elapsed=$((elapsed + 1))
+    if [ $elapsed -ge $timeout ]; then
+        echo "⚠️ Timeout nach ${timeout}s — llama-swap antwortet nicht."
+        echo "Log:"
+        journalctl -u llama-swap --since "$start_time" -o cat --no-pager
+        exit 1
+    fi
+done
+
+# Startup-Ausgabe anzeigen
+echo ""
+journalctl -u llama-swap --since "$start_time" -o cat --no-pager
+echo ""
+echo "✅ llama-swap bereit!"
