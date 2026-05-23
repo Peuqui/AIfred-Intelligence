@@ -143,4 +143,21 @@ done
 echo ""
 journalctl -u llama-swap --since "$start_time" -o cat --no-pager
 echo ""
+
+# ── Spec-Flags-Pass #2: nach autoscan ──────────────────────────────────
+# autoscan laeuft systemd-seitig als ExecStartPre und legt fuer neue
+# GGUFs (z.B. ein gerade frisch heruntergeladenes MTP-Modell) einen
+# Default-Eintrag in config.yaml an — der hat aber noch keine
+# --spec-type Flags. Ein zweiter build-config-Lauf ergaenzt sie. Wenn
+# autoscan nichts hinzugefuegt hat, ist der Lauf no-op (idempotent).
+# Watch-config-Polling von llama-swap (2s) zieht die Aenderung dann
+# automatisch nach.
+if [ -x "$build_config" ] && [ -x "$build_python" ]; then
+    out=$("$build_python" "$build_config" 2>&1)
+    if echo "$out" | grep -qE "aktualisiert werden|aktualisiert\.|Modell\(e\) aktualisiert"; then
+        echo "🔍 Spec-Flags-Nachpass (post-autoscan):"
+        echo "$out" | grep -E "🚀 MTP|📋 ngram|aktualisiert" | sed 's/^/   /'
+    fi
+fi
+
 echo "✅ llama-swap bereit!"

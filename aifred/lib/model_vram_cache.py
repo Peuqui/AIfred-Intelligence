@@ -143,6 +143,54 @@ def save_cache(cache: Dict[str, Any]) -> bool:
 
 
 # ============================================================================
+# CALIBRATION STATUS HELPERS
+# ============================================================================
+
+def is_model_calibrated(model_id: str) -> bool:
+    """True if ``model_id`` was *really* calibrated (not just discovered).
+
+    Discriminator: ``gpu_model`` field on the cache entry.
+
+    - **autoscan-default** (preliminary, fit-params without GPU layout):
+      writes the entry with ``gpu_model=""`` so consumers can tell it
+      apart from a real measurement.
+    - **AIfred calibration flow** (full per-GPU measurement): sets
+      ``gpu_model="RTX 8000, V100, ..."``.
+
+    Both fill ``llamacpp_calibrations`` with a max_context entry, so the
+    list alone doesn't distinguish the two. ``gpu_model`` does.
+    """
+    entry = load_cache().get(model_id)
+    return bool(entry and entry.get("gpu_model"))
+
+
+def is_tts_variant_calibrated(
+    model_id: str, tts_backend: str, require_speed: bool = False,
+) -> bool:
+    """True if a TTS variant of ``model_id`` for ``tts_backend`` has a
+    real (non-preliminary) calibration in the vram cache.
+
+    ``require_speed=False`` (default): accept either ``-tts-<backend>``
+    or ``-tts-<backend>-speed``.
+    ``require_speed=True``: only ``-tts-<backend>-speed``.
+
+    A TTS profile that exists only in llama-swap.yaml (e.g. carried over
+    from an older model via a manual migration) but has no entry in the
+    vram cache must NOT be reported as calibrated — picking it would
+    load the base VRAM profile and OOM once the TTS container starts.
+    """
+    cache = load_cache()
+    candidates = [f"{model_id}-tts-{tts_backend}-speed"]
+    if not require_speed:
+        candidates.append(f"{model_id}-tts-{tts_backend}")
+    for name in candidates:
+        entry = cache.get(name)
+        if entry and entry.get("gpu_model"):
+            return True
+    return False
+
+
+# ============================================================================
 # VRAM RATIO FUNCTIONS (Universal - ALL backends)
 # ============================================================================
 
