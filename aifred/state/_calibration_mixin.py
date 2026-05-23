@@ -134,23 +134,22 @@ class CalibrationMixin(rx.State, mixin=True):
         TTS engine. Each item carries ``{key, label, checked,
         already_calibrated, is_base}``. ``key="__base__"`` flags the
         base-calibration row so the UI and the handlers can treat it
-        specially without parsing the label."""
+        specially without parsing the label.
+
+        ``already_calibrated`` is the **real** calibration status from
+        the vram cache (``gpu_model != ""``), not just "entry exists in
+        llama-swap.yaml". autoscan writes a preliminary entry with
+        ``gpu_model=""`` for every newly discovered GGUF; that doesn't
+        count — only a measurement from the AIfred calibration flow does.
+        """
         from aifred.lib.tts_engines import installed_gpu_engines
-        from aifred.lib.calibration import (
-            has_llamaswap_base,
-            has_llamaswap_tts_variant,
+        from aifred.lib.model_vram_cache import (
+            is_model_calibrated,
+            is_tts_variant_calibrated,
         )
-        from aifred.lib.config import LLAMASWAP_CONFIG_PATH
-        from aifred.lib.model_vram_cache import get_llamacpp_calibration_info
 
         model_id = getattr(self, "aifred_model_id", "") or ""
-        base_in_yaml = bool(model_id) and has_llamaswap_base(
-            LLAMASWAP_CONFIG_PATH, model_id,
-        )
-        base_in_cache = bool(model_id) and (
-            get_llamacpp_calibration_info(model_id) is not None
-        )
-        base_done = base_in_yaml and base_in_cache
+        base_done = bool(model_id) and is_model_calibrated(model_id)
 
         items: list[dict] = [{
             "key": "__base__",
@@ -160,9 +159,7 @@ class CalibrationMixin(rx.State, mixin=True):
             "is_base": True,
         }]
         for e in installed_gpu_engines():
-            done = bool(model_id) and has_llamaswap_tts_variant(
-                LLAMASWAP_CONFIG_PATH, model_id, e.key,
-            )
+            done = bool(model_id) and is_tts_variant_calibrated(model_id, e.key)
             items.append({
                 "key": e.key,
                 "label": e.label_short,
