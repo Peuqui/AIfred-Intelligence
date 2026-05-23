@@ -16,15 +16,9 @@ import atexit
 import httpx
 import edge_tts
 from pathlib import Path
-from .config import PROJECT_ROOT, DATA_DIR
+from .config import DATA_DIR
 from .logging_utils import log_message
 
-
-# Determine platform-specific Piper binary path
-if os.name == 'nt':  # Windows
-    PIPER_BIN = PROJECT_ROOT / "venv" / "Scripts" / "piper.exe"
-else:  # Linux/Mac
-    PIPER_BIN = PROJECT_ROOT / "venv" / "bin" / "piper"
 
 # TTS Audio output directory (temporary chunks, 24h cleanup)
 # Located in data/ directory which is excluded from hot-reload
@@ -821,28 +815,30 @@ class DashScopeRealtimeTTS:
 
     def __init__(self, voice_choice: str, session_id: str, agent: str = "aifred",
                  speed: float = 1.0, language: str = "de"):
-        from .config import (
-            DASHSCOPE_TTS_VC_REALTIME_MODEL, DASHSCOPE_WS_URL,
-            DASHSCOPE_VOICES_REALTIME, DASHSCOPE_LANGUAGE_MAP,
-            DASHSCOPE_TTS_GAIN,
-        )
-        self._gain = DASHSCOPE_TTS_GAIN
+        # Configuration lives on the DashScopeEngine class — the realtime
+        # path reuses the same model/URL/voice catalogue.
+        from .tts_engines import get_engine
+        ds = get_engine("dashscope")
+        if ds is None:
+            raise RuntimeError("DashScope engine not registered")
+        self._gain = ds.output_gain  # type: ignore[attr-defined]
 
         self._session_id = session_id
         self._agent = agent
         self._speed = speed
 
-        # Resolve voice: display name -> realtime voice ID
-        # ★ prefix is stripped centrally in state.py, so try both variants
-        voice_id = (DASHSCOPE_VOICES_REALTIME.get(voice_choice)
-                     or DASHSCOPE_VOICES_REALTIME.get(f"★ {voice_choice}", voice_choice))
+        # Voice resolution: display name → realtime voice ID. ★ prefix is
+        # stripped centrally in state.py, so try both forms.
+        realtime_voices = ds.realtime_voices  # type: ignore[attr-defined]
+        voice_id = realtime_voices.get(voice_choice) or realtime_voices.get(f"★ {voice_choice}", voice_choice)
 
-        # Determine model: cloned voices use VC realtime model, built-in use flash
+        # Cloned voices need the VC realtime model; built-ins use the
+        # flash realtime model.
         is_cloned = voice_id.startswith("qwen-tts-vc-")
-        self._model = DASHSCOPE_TTS_VC_REALTIME_MODEL if is_cloned else "qwen3-tts-flash-realtime"
+        self._model = ds.model_vc_realtime if is_cloned else ds.model_flash_realtime  # type: ignore[attr-defined]
         self._voice_id = voice_id
-        self._ws_url = DASHSCOPE_WS_URL
-        self._language_type = DASHSCOPE_LANGUAGE_MAP.get(language, "Auto")
+        self._ws_url = ds.ws_url  # type: ignore[attr-defined]
+        self._language_type = ds.language_map_dashscope.get(language, "Auto")  # type: ignore[attr-defined]
 
         # State
         import threading

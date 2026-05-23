@@ -6,6 +6,75 @@ from typing import Optional
 from .base import TTSEngine
 
 
+# All catalogued eSpeak voices. Format: display_name → (espeak_voice_id, language).
+# Standard voices (de, en, ...) are always available. mbrola voices need
+# the corresponding ``mbrola`` + ``mbrola-deX`` apt packages and get
+# filtered out at runtime if not installed (see :meth:`get_voices`).
+_ESPEAK_VOICES_ALL: dict[str, tuple[str, str]] = {
+    # Deutsch — Standard eSpeak (robotic, always available)
+    "Deutsch Standard":         ("de",      "de"),
+    "Deutsch Männlich 1":       ("de+m1",   "de"),
+    "Deutsch Männlich 2":       ("de+m2",   "de"),
+    "Deutsch Weiblich 1":       ("de+f1",   "de"),
+    "Deutsch Weiblich 2":       ("de+f2",   "de"),
+    # Deutsch — mbrola (more natural, requires apt packages)
+    "Deutsch mbrola-2 (M)":     ("mb/mb-de2", "de"),
+    "Deutsch mbrola-3 (F)":     ("mb/mb-de3", "de"),
+    "Deutsch mbrola-4 (M)":     ("mb/mb-de4", "de"),
+    "Deutsch mbrola-5 (F)":     ("mb/mb-de5", "de"),
+    "Deutsch mbrola-6 (M)":     ("mb/mb-de6", "de"),
+    "Deutsch mbrola-7 (F)":     ("mb/mb-de7", "de"),
+    # Englisch — Standard eSpeak (always available)
+    "Englisch Standard":        ("en",      "en"),
+    "Englisch US":              ("en-us",   "en"),
+    "Englisch UK":              ("en-gb",   "en"),
+    # Englisch — mbrola
+    "Englisch mbrola UK (M)":   ("mb/mb-en1", "en"),
+    "Englisch mbrola US-1 (F)": ("mb/mb-us1", "en"),
+    "Englisch mbrola US-2 (M)": ("mb/mb-us2", "en"),
+    "Englisch mbrola US-3 (M)": ("mb/mb-us3", "en"),
+}
+
+
+def _detect_available_voices() -> dict[str, tuple[str, str]]:
+    """Filter ``_ESPEAK_VOICES_ALL`` down to the voices actually
+    installed on this host. mbrola voices are kept only when
+    ``espeak-ng --voices=mb`` lists them."""
+    import subprocess
+    mbrola_available: set[str] = set()
+    try:
+        espeak_cmd = "espeak-ng"
+        try:
+            subprocess.run([espeak_cmd, "--version"], capture_output=True, timeout=2)
+        except (FileNotFoundError, OSError):
+            espeak_cmd = "espeak"
+        result = subprocess.run(
+            [espeak_cmd, "--voices=mb"], capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split("\n")[1:]:
+                parts = line.split()
+                # File column (index 4) holds the voice id like "mb/mb-de2".
+                if len(parts) >= 5 and parts[4].startswith("mb/"):
+                    mbrola_available.add(parts[4])
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    available: dict[str, tuple[str, str]] = {}
+    for name, (voice_id, lang) in _ESPEAK_VOICES_ALL.items():
+        if voice_id.startswith("mb/"):
+            if voice_id in mbrola_available:
+                available[name] = (voice_id, lang)
+        else:
+            available[name] = (voice_id, lang)
+    return available
+
+
+# Cached at module load — re-detection on every dropdown render would
+# fork espeak-ng each time.
+_AVAILABLE_VOICES: dict[str, tuple[str, str]] = _detect_available_voices()
+
+
 class EspeakEngine(TTSEngine):
     key = "espeak"
     label_short = "eSpeak"
@@ -18,10 +87,9 @@ class EspeakEngine(TTSEngine):
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        # ESPEAK_VOICES still in config (display → (espeak_voice_id, lang)
-        # tuple). The dropdown only needs the display names.
-        from ..config import ESPEAK_VOICES
-        return {name: name for name in ESPEAK_VOICES}
+        # Dropdown only needs display names; the (voice_id, lang) tuple
+        # is used internally during synthesis.
+        return {name: name for name in _AVAILABLE_VOICES}
 
     def get_voices(self) -> dict[str, str]:
         return self.voices_fallback
@@ -39,14 +107,13 @@ class EspeakEngine(TTSEngine):
         import os
         import subprocess
         from ..audio_processing import _generate_tts_filename, TTS_AUDIO_DIR
-        from ..config import ESPEAK_VOICES
         from ..logging_utils import log_message
 
         filename = _generate_tts_filename("wav")
         output_file = str(TTS_AUDIO_DIR / filename)
 
         try:
-            voice_config = ESPEAK_VOICES.get(voice)
+            voice_config = _AVAILABLE_VOICES.get(voice)
             if voice_config:
                 voice_lang, _ = voice_config
             else:
