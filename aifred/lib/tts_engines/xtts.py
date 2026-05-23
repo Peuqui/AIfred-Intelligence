@@ -105,8 +105,48 @@ class XTTSEngine(TTSEngine):
         speed: float = 1.0,
         pitch: float = 1.0,
     ) -> Optional[str]:
-        from ..audio_processing import generate_speech_xtts
-        return generate_speech_xtts(text, speed, voice, language)
+        """Render ``text`` via the XTTS container. Speed/pitch are
+        ignored here — the central post-processor applies them with
+        ffmpeg afterwards (see ``needs_speed_postprocess=True``)."""
+        import os
+        import requests
+        from ..audio_processing import (
+            _generate_tts_filename,
+            _validate_audio_output,
+            TTS_AUDIO_DIR,
+        )
+        from ..logging_utils import log_message
+
+        filename = _generate_tts_filename("ogg")
+        output_file = str(TTS_AUDIO_DIR / filename)
+
+        try:
+            log_message(f"🎤 XTTS v2: speaker={voice}, language={language}, text_length={len(text)}")
+            # No timeout — XTTS runs async and may take long on CPU
+            # (10+ min for long texts).
+            r = requests.post(
+                f"{self.service_url}/tts",
+                json={"text": text, "speaker": voice, "language": language},
+                timeout=None,
+            )
+            if r.status_code == 200:
+                with open(output_file, "wb") as fh:
+                    fh.write(r.content)
+                if _validate_audio_output(output_file):
+                    size = os.path.getsize(output_file)
+                    log_message(f"✅ XTTS v2: Audio saved → {output_file} ({size} bytes)")
+                    return f"/_upload/tts_audio/{filename}"
+                log_message(f"⚠️ XTTS v2: File missing or too small at {output_file}")
+                return None
+            err = r.text[:200] if r.text else f"HTTP {r.status_code}"
+            log_message(f"❌ XTTS v2 Error: {err}")
+            return None
+        except requests.exceptions.ConnectionError:
+            log_message("❌ XTTS v2: Service not running. Start with: cd docker/tts/xtts && docker compose up -d")
+            return None
+        except Exception as e:
+            log_message(f"❌ XTTS v2 Exception: {e}")
+            return None
 
     def calibration_setup(self, debug: Any) -> bool:
         ok, msg, _device = self.ensure_ready(timeout=120)

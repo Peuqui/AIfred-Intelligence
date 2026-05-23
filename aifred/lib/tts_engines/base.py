@@ -191,24 +191,44 @@ class TTSEngine(ABC):
         speed: float = 1.0,
         pitch: float = 1.0,
     ) -> Optional[str]:
-        """Synthesise ``text`` with ``voice`` into a WAV/MP3 file.
+        """Synthesise ``text`` with ``voice`` into a WAV/MP3/OGG file.
 
         Returns a URL-style path the browser can fetch (e.g.
-        ``"/tts_audio/audio_123.wav"``), or ``None`` on failure.
+        ``"/_upload/tts_audio/audio_123.wav"``), or ``None`` on failure.
 
         ``language`` is the ISO short code (``"de"`` / ``"en"`` / …).
         The engine maps it through :attr:`language_map` if needed.
 
-        Default: ``NotImplementedError``. Not abstract because the
-        Edge engine has an async-only signature that doesn't fit this
-        sync contract; for now its dispatch stays in
-        :func:`audio_processing.generate_tts`. Phase-3 migration of the
-        sync engines uses this; Edge gets a follow-up cleanup once we
-        introduce an async variant on the base class.
+        ``speed`` / ``pitch`` semantics: engines with
+        ``needs_speed_postprocess=False`` (Piper / eSpeak / Edge) apply
+        the values natively here. Engines with ``True`` ignore them and
+        rely on the central ffmpeg post-processor in the dispatch path.
+
+        Default: ``NotImplementedError`` — engines must override.
         """
         raise NotImplementedError(
-            f"{self.key} engine has no sync generate_speech; route through "
-            f"audio_processing.generate_tts for now."
+            f"{self.key} engine has no sync generate_speech; engines with "
+            f"native async IO should override generate_speech_async instead."
+        )
+
+    async def generate_speech_async(
+        self,
+        text: str,
+        voice: str,
+        language: str,
+        speed: float = 1.0,
+        pitch: float = 1.0,
+    ) -> Optional[str]:
+        """Async wrapper around :meth:`generate_speech`. The default
+        offloads the sync method to a thread-pool executor so blocking
+        HTTP / subprocess calls don't stall the event loop. Engines with
+        native async IO (Edge) override this and skip the sync method.
+        """
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            self.generate_speech, text, voice, language, speed, pitch,
         )
 
     # ── Calibration support (only container/GPU engines) ───────────
