@@ -900,6 +900,19 @@ async def _verify_and_refine(
             # the search to crawl in 256-token decrements. Force one true
             # bisection step to escape that trap.
             math_unreliable = False
+            # Counter for math-driven probes that OOMed. After
+            # ``MATH_OOM_GIVEUP`` failures in a row we stop trusting math
+            # for the rest of this search — the bias model is broken in
+            # this region and we just bisect. Without this guard the
+            # loop oscillates between math_max (always OOMs) and bisect
+            # (always succeeds), wasting one probe per iteration.
+            consecutive_math_oom = 0
+            MATH_OOM_GIVEUP = 2
+            # Math predictions below this free-VRAM threshold are too
+            # tight to trust — even a small runtime activation bump pushes
+            # them OOM. Treat them as "math saw no fit" and bisect
+            # instead. (Empirically: predicted_free < 500 MB → real OOM.)
+            MATH_PREDICTION_MIN_FREE_MB = 512
             while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
                 math_max, predicted_min = _math_max_fitting_ctx(
                     current_split,
@@ -908,18 +921,35 @@ async def _verify_and_refine(
                     candidate, model, gpus, budget,
                     extra_safety_margin=math_bias_mb,
                 )
-                if math_max > lo and not math_unreliable:
+                math_too_tight = (
+                    math_max > lo
+                    and predicted_min < MATH_PREDICTION_MIN_FREE_MB
+                )
+                math_burned_out = consecutive_math_oom >= MATH_OOM_GIVEUP
+                math_usable = (
+                    math_max > lo
+                    and not math_unreliable
+                    and not math_too_tight
+                    and not math_burned_out
+                )
+                if math_usable:
                     cand_ctx = math_max
                     bias_note = f", bias +{math_bias_mb} MB" if math_bias_mb else ""
                     src = f"math max → {predicted_min} MB free{bias_note}"
+                    used_math = True
                 else:
                     cand_ctx = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
                     if cand_ctx <= lo or cand_ctx >= hi:
                         break
-                    src = (
-                        "bisect (math unreliable after silent crash)"
-                        if math_unreliable else "bisect (math saw no fit)"
-                    )
+                    if math_burned_out:
+                        src = f"bisect (math gave up after {MATH_OOM_GIVEUP} OOMs)"
+                    elif math_too_tight:
+                        src = f"bisect (math too tight: only {predicted_min} MB free predicted)"
+                    elif math_unreliable:
+                        src = "bisect (math unreliable after silent crash)"
+                    else:
+                        src = "bisect (math saw no fit)"
+                    used_math = False
                 iteration += 1
                 yield (
                     f"{status_prefix} 🧮 ctx {format_number(cand_ctx)} "
@@ -945,8 +975,12 @@ async def _verify_and_refine(
                     best_ctx = cand_ctx
                     lo = cand_ctx
                     math_unreliable = False
+                    if used_math:
+                        consecutive_math_oom = 0
                 else:
                     hi = cand_ctx
+                    if used_math:
+                        consecutive_math_oom += 1
                     # Update math-vs-real bias if probe gave measurements
                     if r.measured_free_mb:
                         math_unreliable = False
@@ -1084,6 +1118,11 @@ async def _verify_and_refine(
                 f"({min(active_free)} MB) — upward search to native ctx"
             )
             math_bias_mb = 0
+            # See the downward search above for the rationale behind these
+            # two guards (Fix C + D from the calibration audit).
+            consecutive_math_oom = 0
+            MATH_OOM_GIVEUP = 2
+            MATH_PREDICTION_MIN_FREE_MB = 512
             while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
                 math_max, predicted_min = _math_max_fitting_ctx(
                     current_split,
@@ -1092,15 +1131,32 @@ async def _verify_and_refine(
                     candidate, model, gpus, budget,
                     extra_safety_margin=math_bias_mb,
                 )
-                if math_max > lo:
+                math_too_tight = (
+                    math_max > lo
+                    and predicted_min < MATH_PREDICTION_MIN_FREE_MB
+                )
+                math_burned_out = consecutive_math_oom >= MATH_OOM_GIVEUP
+                math_usable = (
+                    math_max > lo
+                    and not math_too_tight
+                    and not math_burned_out
+                )
+                if math_usable:
                     cand_ctx = math_max
                     bias_note = f", bias +{math_bias_mb} MB" if math_bias_mb else ""
                     src = f"math max → {predicted_min} MB free{bias_note}"
+                    used_math = True
                 else:
                     cand_ctx = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
                     if cand_ctx <= lo or cand_ctx >= hi:
                         break
-                    src = "bisect (math saw no fit)"
+                    if math_burned_out:
+                        src = f"bisect (math gave up after {MATH_OOM_GIVEUP} OOMs)"
+                    elif math_too_tight:
+                        src = f"bisect (math too tight: only {predicted_min} MB free predicted)"
+                    else:
+                        src = "bisect (math saw no fit)"
+                    used_math = False
                 iteration += 1
                 yield (
                     f"{status_prefix} 🧮 upward ctx {format_number(cand_ctx)} "
@@ -1123,7 +1179,11 @@ async def _verify_and_refine(
                 if r_up.fits:
                     lo = cand_ctx
                     last_good = (r_up, current_split, cand_ctx)
+                    if used_math:
+                        consecutive_math_oom = 0
                 else:
+                    if used_math:
+                        consecutive_math_oom += 1
                     # OOM at this ctx — before giving up on it, try a one-shot
                     # split refinement from the measurement: another active GPU
                     # may still have headroom that we can move layers onto.
