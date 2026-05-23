@@ -894,27 +894,60 @@ echo "auf GPU laufen und on-demand von AIfred selbst gestartet werden — beim"
 echo "Wechsel im Engine-Dropdown der UI, NICHT beim Boot. Wir bauen hier nur"
 echo "das Image; das Container-Lifecycle macht AIfred später selbst."
 echo ""
-echo "Verfügbar sind:"
-echo ""
-echo -e "  ${GREEN}• Qwen3-TTS${NC} (empfohlen) — Streaming, 10 Sprachen, Voice-Cloning"
-echo "    Image ~11.8 GB · Modell-Cache ~3.4 GB · braucht GPU (V100 ideal)"
-echo "    Schnellstes Streaming-TTS, beste UX für FreeEcho.2 + Chat-Bubbles."
-echo ""
-echo -e "  ${GREEN}• XTTS v2 (Coqui)${NC} — bestes Voice-Cloning, viele Built-in-Sprecher"
-echo "    Image ~7.7 GB · Modell-Cache ~2 GB · braucht GPU oder CPU (langsam)"
-echo "    Klangtreueres Cloning als Qwen3, dafür höhere Latenz."
-echo ""
-echo -e "  ${GREEN}• MOSS-TTS${NC} — Zero-Shot Voice-Cloning, 20 Sprachen"
-echo "    Image ~6.9 GB · Modell-Cache ~3 GB · braucht GPU"
-echo "    Batch-Rendering nach Bubble-Ende (kein Streaming)."
-echo ""
+# Engine metadata. Display label + one-line description + an optional
+# "recommended" flag, keyed by the compose-subdir name. Adding a new
+# engine = drop a directory under docker/tts/<name>/ AND optionally
+# add an entry here for a nicer prompt. Missing entries fall back to
+# the directory name and a "see docker/tts/<name>/" hint — the engine
+# still works, the user just sees a less polished label.
+declare -A TTS_ENGINE_LABEL=(
+    [qwen3-tts]="Qwen3-TTS"
+    [xtts]="XTTS v2 (Coqui)"
+    [moss-tts]="MOSS-TTS"
+    [fish-speech]="Fish-Speech S2 Pro"
+)
+declare -A TTS_ENGINE_DESC=(
+    [qwen3-tts]="Streaming, 10 Sprachen, Voice-Cloning. Image ~11.8 GB · Modell-Cache ~3.4 GB · braucht GPU (V100 ideal). Schnellstes Streaming-TTS."
+    [xtts]="Bestes Voice-Cloning, viele Built-in-Sprecher. Image ~7.7 GB · Modell-Cache ~2 GB · GPU oder CPU. Klangtreuer als Qwen3, höhere Latenz."
+    [moss-tts]="Zero-Shot Voice-Cloning, 20 Sprachen. Image ~6.9 GB · Modell-Cache ~3 GB · braucht GPU. Batch-Rendering nach Bubble-Ende."
+    [fish-speech]="5B Dual-AR, Voice Cloning, 80+ Sprachen. Image ~14 GB · braucht GPU (≥24 GB VRAM). Streaming, Research-Lizenz."
+)
+declare -A TTS_ENGINE_RECOMMENDED=(
+    [qwen3-tts]=1
+)
+
+# Discover engines from the repo: anything under docker/tts/<subdir>/
+# with a docker-compose.yml is offerable. New engine = new directory.
+TTS_ENGINES_AVAILABLE=()
+for _compose in "$PROJECT_DIR"/docker/tts/*/docker-compose.yml; do
+    [ -f "$_compose" ] || continue
+    TTS_ENGINES_AVAILABLE+=("$(basename "$(dirname "$_compose")")")
+done
+
+if [ ${#TTS_ENGINES_AVAILABLE[@]} -eq 0 ]; then
+    echo "Keine TTS-Engines unter docker/tts/ gefunden — Schritt überspringen."
+    echo ""
+else
+    echo "Verfügbar sind:"
+    echo ""
+    for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
+        _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
+        _desc="${TTS_ENGINE_DESC[$_engine]:-Siehe docker/tts/$_engine/}"
+        if [ -n "${TTS_ENGINE_RECOMMENDED[$_engine]:-}" ]; then
+            echo -e "  ${GREEN}• ${_label}${NC} (empfohlen) — ${_desc}"
+        else
+            echo -e "  ${GREEN}• ${_label}${NC} — ${_desc}"
+        fi
+    done
+    echo ""
+fi
 echo "Ohne lokalen TTS-Container nutzt AIfred Edge-TTS (Cloud) oder Piper (offline,"
 echo "siehe Schritt 2d). Mit jeder zusätzlichen Engine: mehr Disk + einmaliger"
 echo "Build-Aufwand (5-15 min pro Container)."
 echo ""
 
 # Image-Name aus dem ersten `image:` der compose-Datei lesen.
-# Compose-Files in docker/<engine>/ verwenden eine fixe image:-Zeile
+# Compose-Files in docker/tts/<engine>/ verwenden eine fixe image:-Zeile
 # (z.B. "image: qwen3-tts-1.7b-base"), die wir hier als Source-of-Truth
 # nutzen — kein Raten via Heuristik mehr.
 tts_compose_image() {
@@ -925,11 +958,11 @@ tts_compose_image() {
 tts_build() {
     local engine="$1"
     local label="$2"
-    local dir="$PROJECT_DIR/docker/$engine"
+    local dir="$PROJECT_DIR/docker/tts/$engine"
     local compose="$dir/docker-compose.yml"
     if [ ! -f "$compose" ]; then
         echo -e "${YELLOW}⚠️  $compose fehlt — überspringe $label.${NC}"
-        STEP_WARNINGS+=("$label übersprungen — docker/$engine fehlt")
+        STEP_WARNINGS+=("$label übersprungen — docker/tts/$engine fehlt")
         return 1
     fi
     # Idempotent: image-Tag aus compose lesen, exakter Existenz-Check via
@@ -946,30 +979,30 @@ tts_build() {
         return 0
     fi
     echo -e "${YELLOW}⚠️  $label Build fehlgeschlagen.${NC}"
-    echo "   Manuell nachholen: cd docker/$engine && docker compose build"
+    echo "   Manuell nachholen: cd docker/tts/$engine && docker compose build"
     STEP_WARNINGS+=("$label Build fehlgeschlagen — siehe docker logs / docker compose build Output")
     return 1
 }
 
-# Default: NEIN — jeder Container ist ein paar GB, User soll bewusst wählen.
-QWEN3_CHOSEN=0; XTTS_CHOSEN=0; MOSS_CHOSEN=0
-read -p "Qwen3-TTS bauen (empfohlen)? (j/N): " -n 1 -r REPLY; echo
-if [[ $REPLY =~ ^[JjYy]$ ]]; then
-    QWEN3_CHOSEN=1
-    tts_build "qwen3-tts" "Qwen3-TTS" || true
-fi
-read -p "XTTS v2 bauen? (j/N): " -n 1 -r REPLY; echo
-if [[ $REPLY =~ ^[JjYy]$ ]]; then
-    XTTS_CHOSEN=1
-    tts_build "xtts" "XTTS v2" || true
-fi
-read -p "MOSS-TTS bauen? (j/N): " -n 1 -r REPLY; echo
-if [[ $REPLY =~ ^[JjYy]$ ]]; then
-    MOSS_CHOSEN=1
-    tts_build "moss-tts" "MOSS-TTS" || true
-fi
+# Interactive selection. Default: NEIN — jeder Container ist mehrere
+# GB, User soll bewusst wählen. Recommended engines bekommen einen
+# Hinweis im Prompt, aber kein vorausgewähltes "yes".
+TTS_CHOSEN_ENGINES=()
+for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
+    _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
+    if [ -n "${TTS_ENGINE_RECOMMENDED[$_engine]:-}" ]; then
+        _prompt="$_label bauen (empfohlen)? (j/N): "
+    else
+        _prompt="$_label bauen? (j/N): "
+    fi
+    read -p "$_prompt" -n 1 -r REPLY; echo
+    if [[ $REPLY =~ ^[JjYy]$ ]]; then
+        TTS_CHOSEN_ENGINES+=("$_engine")
+        tts_build "$_engine" "$_label" || true
+    fi
+done
 
-if [ "$QWEN3_CHOSEN" = "0" ] && [ "$XTTS_CHOSEN" = "0" ] && [ "$MOSS_CHOSEN" = "0" ]; then
+if [ ${#TTS_CHOSEN_ENGINES[@]} -eq 0 ]; then
     echo -e "${YELLOW}⏭️  Keine lokalen TTS-Container gewählt — AIfred nutzt Edge-TTS / Piper / eSpeak.${NC}"
 fi
 
@@ -977,27 +1010,16 @@ fi
 # Image-Existenz via exaktem Tag aus der jeweiligen compose-Datei prüfen,
 # damit fremde Images mit ähnlichem Namen (z.B. xtts-fork) hier nicht
 # als false positive durchgehen.
-if [ "$QWEN3_CHOSEN" = "1" ] || [ "$XTTS_CHOSEN" = "1" ] || [ "$MOSS_CHOSEN" = "1" ]; then
+if [ ${#TTS_CHOSEN_ENGINES[@]} -gt 0 ]; then
     echo ""
     echo -e "${BLUE}🔎 Verifiziere TTS-Container-Images...${NC}"
-    if [ "$QWEN3_CHOSEN" = "1" ]; then
-        q_img="$(tts_compose_image "$PROJECT_DIR/docker/tts/qwen3-tts/docker-compose.yml" 2>/dev/null)"
-        verify_step "Qwen3-TTS Image '$q_img' vorhanden" \
-            "docker image inspect '$q_img'" \
-            "cd docker/tts/qwen3-tts && docker compose build"
-    fi
-    if [ "$XTTS_CHOSEN" = "1" ]; then
-        x_img="$(tts_compose_image "$PROJECT_DIR/docker/tts/xtts/docker-compose.yml" 2>/dev/null)"
-        verify_step "XTTS v2 Image '$x_img' vorhanden" \
-            "docker image inspect '$x_img'" \
-            "cd docker/tts/xtts && docker compose build"
-    fi
-    if [ "$MOSS_CHOSEN" = "1" ]; then
-        m_img="$(tts_compose_image "$PROJECT_DIR/docker/tts/moss-tts/docker-compose.yml" 2>/dev/null)"
-        verify_step "MOSS-TTS Image '$m_img' vorhanden" \
-            "docker image inspect '$m_img'" \
-            "cd docker/tts/moss-tts && docker compose build"
-    fi
+    for _engine in "${TTS_CHOSEN_ENGINES[@]}"; do
+        _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
+        _img="$(tts_compose_image "$PROJECT_DIR/docker/tts/$_engine/docker-compose.yml" 2>/dev/null)"
+        verify_step "$_label Image '$_img' vorhanden" \
+            "docker image inspect '$_img'" \
+            "cd docker/tts/$_engine && docker compose build"
+    done
     step_summary "2g — Lokale TTS-Container"
 fi
 echo ""
@@ -1237,9 +1259,10 @@ echo "       Binary nach ~/bin, Config in ~/.config/llama-swap/config.yaml,"
 echo "       systemd-Unit nach /etc/systemd/system/llama-swap.service (eigene Recherche)."
 echo ""
 echo "   • Lokale TTS-Container (von AIfred on-demand gestartet — Image-Build hier nachholbar):"
-echo "       cd $PROJECT_DIR/docker/tts/qwen3-tts && docker compose build   # Qwen3-TTS (Streaming)"
-echo "       cd $PROJECT_DIR/docker/tts/xtts      && docker compose build   # XTTS v2 (Voice-Cloning)"
-echo "       cd $PROJECT_DIR/docker/tts/moss-tts  && docker compose build   # MOSS-TTS (Zero-Shot)"
+for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
+    _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
+    printf "       cd %s/docker/tts/%s && docker compose build   # %s\n" "$PROJECT_DIR" "$_engine" "$_label"
+done
 echo ""
 echo "   • Reverse-Proxy-Setup (eigene Domain via nginx/caddy):"
 echo "       cp scripts/patch-vite-config.sh.example scripts/patch-vite-config.sh"
