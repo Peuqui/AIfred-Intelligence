@@ -332,8 +332,18 @@ class AIState(  # type: ignore[misc]
         # yield only pushes vars Reflex flagged dirty in THIS event — so
         # re-assign the list to force it dirty. This 500ms timer is what
         # carries background-task lines to the rx.foreach debug console.
-        self.debug_messages = list(self.debug_messages)
-        yield
+        #
+        # Only reassign when the list has actually changed since the last
+        # tick we pushed to the browser — otherwise every tick produces a
+        # no-op state delta that React still has to reconcile, which wipes
+        # any active text selection inside chat bubbles every 500ms.
+        # ``_last_pushed_debug_len`` is declared in _settings_mixin so
+        # Reflex knows it's a tracked state var.
+        current_len = len(self.debug_messages)
+        if current_len != self._last_pushed_debug_len:
+            self.debug_messages = list(self.debug_messages)
+            self._last_pushed_debug_len = current_len
+            yield
 
     def _get_backend_url(self) -> str:
         """Get current backend URL based on backend_type."""
