@@ -57,6 +57,7 @@ class SettingsMixin(rx.State, mixin=True):
     # ── Settings File Tracking ────────────────────────────────────
     _last_settings_mtime: float = 0.0  # Last seen settings.json mtime (for multi-browser sync)
     _last_session_mtime: float = 0.0  # Last seen session file mtime (for multi-tab/cross-channel sync)
+    _last_pushed_debug_len: int = -1   # Last debug_messages length pushed to browser (for no-op tick suppression)
 
     # ================================================================
     # SETTINGS PERSISTENCE
