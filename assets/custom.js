@@ -514,23 +514,24 @@ function playBubbleAudio(audioUrl) {
  */
 function initBubbleAudioButtons() {
     const buttons = document.querySelectorAll('.bubble-audio-btn');
-    console.log(`🔊 initBubbleAudioButtons: Found ${buttons.length} buttons`);
+    // Idempotent: only write style if it actually changes. The MutationObserver
+    // re-runs this on every DOM change, so unconditional writes here become
+    // self-triggering loops and wipe text selection inside chat bubbles.
+    const setDisplay = (button, value) => {
+        if (button.style.display !== value) button.style.display = value;
+    };
     buttons.forEach((button, idx) => {
         const audioUrlsJson = button.dataset.audioUrls;
-        console.log(`🔊 Button[${idx}] data-audio-urls:`, audioUrlsJson);
         if (!audioUrlsJson) {
-            console.log(`🔊 Button[${idx}] → HIDE (no data attribute)`);
-            button.style.display = 'none';
+            setDisplay(button, 'none');
             return;
         }
         try {
             const audioUrls = JSON.parse(audioUrlsJson);
             if (!Array.isArray(audioUrls) || audioUrls.length === 0) {
-                console.log(`🔊 Button[${idx}] → HIDE (empty array)`);
-                button.style.display = 'none';
+                setDisplay(button, 'none');
             } else {
-                console.log(`🔊 Button[${idx}] → SHOW (${audioUrls.length} URLs)`);
-                button.style.display = 'inline-flex';
+                setDisplay(button, 'inline-flex');
                 // Attach click handler via JS (Reflex doesn't support native onclick strings)
                 // Important: Read URLs fresh on click, not from closure (URLs may change after regeneration)
                 if (!button.dataset.clickAttached) {
@@ -607,7 +608,9 @@ function playBubbleAudioFromEvent(event) {
  */
 function initBubbleRegenerateButtons() {
     const buttons = document.querySelectorAll('.bubble-regenerate-btn');
-    console.log(`🔄 initBubbleRegenerateButtons: Found ${buttons.length} buttons`);
+    // Idempotent: only update title if it actually changes. Re-runs every time
+    // the MutationObserver fires, and title writes count as DOM mutations
+    // that wipe text selection inside chat bubbles.
     buttons.forEach((button, idx) => {
         const audioUrlsJson = button.dataset.audioUrls;
         let hasAudio = false;
@@ -621,8 +624,10 @@ function initBubbleRegenerateButtons() {
         }
         const tipRegenerate = button.dataset.tooltipRegenerate;
         const tipGenerate = button.dataset.tooltipGenerate;
-        button.title = hasAudio ? (tipRegenerate || button.title) : (tipGenerate || button.title);
-        console.log(`🔄 Button[${idx}] → tooltip=${button.title} (hasAudio=${hasAudio})`);
+        const newTitle = hasAudio ? (tipRegenerate || button.title) : (tipGenerate || button.title);
+        if (button.title !== newTitle) {
+            button.title = newTitle;
+        }
     });
 }
 
