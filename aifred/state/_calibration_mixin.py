@@ -16,10 +16,14 @@ from ..lib.logging_utils import CONSOLE_SEPARATOR
 
 
 # Verify ("probe") lines from flow._fmt_verify always start with a
-# ``[<prefix>.<iteration>]`` tag (e.g. ``[gpu.1]``, ``[tts.3]``,
-# ``[hyb.1]``). Everything else in the calibration stream is a Phase-1
-# math projection, metadata or budget line.
-_VERIFY_LINE_RE = re.compile(r"^\[[a-z]+\.\d+\]")
+# ``[<prefix>.<iteration>]`` tag — historically simple labels like
+# ``[gpu.1]`` / ``[tts.3]`` / ``[hyb.1]``, but the multi-GPU cascade
+# code emits compound prefixes like ``[[5 GPUs (...)/f16].1]`` where
+# the inner brackets come from the label itself. Match any non-empty
+# prefix that ends with ``.<digit>]`` — pinning the trailing
+# ``.<iteration>]`` shape keeps math-projection lines (which don't
+# have that suffix) from being miscategorised as probes.
+_VERIFY_LINE_RE = re.compile(r"^\[\[?.+\.\d+\]")
 
 
 def _calib_line(progress_msg: str) -> str:
