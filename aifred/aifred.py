@@ -690,10 +690,18 @@ console.log('✂️ Crop handler loaded');
         currentBox = { x: 0, y: 0, width: 100, height: 100 };
         listenersAdded = false;
         isDragging = false;
-        // Body-Scroll wieder aktivieren
-        document.body.style.overflow = '';
-        document.documentElement.style.overflow = '';
-        console.log('✂️ Body scroll re-enabled');
+        // Body-Scroll wieder aktivieren — idempotent: nur schreiben wenn nötig.
+        // The MutationObserver below fires on EVERY body mutation (which is also
+        // triggered by Reflex's 500ms refresh tick), so resetCrop() runs constantly.
+        // An unconditional style write here is itself a DOM mutation that wipes
+        // any active text selection inside chat bubbles.
+        const needsBodyReset = document.body.style.overflow !== '';
+        const needsDocReset = document.documentElement.style.overflow !== '';
+        if (needsBodyReset) document.body.style.overflow = '';
+        if (needsDocReset) document.documentElement.style.overflow = '';
+        if (needsBodyReset || needsDocReset) {
+            console.log('✂️ Body scroll re-enabled');
+        }
     }
 
     // Observer für Modal-Öffnung/Schließung
