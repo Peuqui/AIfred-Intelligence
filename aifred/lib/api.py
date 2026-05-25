@@ -1716,46 +1716,39 @@ async def vision_snapshot_endpoint(
 _MJPEG_BOUNDARY = b"--frame"
 
 
-async def _mjpeg_stream(source: Any, fps: float) -> Any:
+async def _mjpeg_stream(source: Any, fps: float, width: int = 0, height: int = 0) -> Any:
     """Async generator yielding MJPEG frames (multipart/x-mixed-replace).
 
-    Loops until the client disconnects (StreamingResponse cancels the
-    generator). Caps the rate to whatever fps the caller asked for.
-    A capture failure is logged but does NOT break the stream — the
-    next iteration tries again, so a brief hiccup doesn't kill the
-    whole live view.
+    Delegates frame production to ``source.stream(fps, width, height)``
+    so the underlying FrameSource can hold a persistent capture handle
+    for the lifetime of the stream — critical for V4L2 where the cam
+    can only be opened once at a time. With the old snapshot-per-frame
+    approach, two parallel streams (e.g. an old browser tab still
+    closing while the new resolution-switched one is starting) would
+    fight over the device and stall for seconds.
+
+    When the client disconnects, Starlette cancels this generator,
+    which propagates into the inner ``source.stream()`` and triggers
+    its ``finally: cap.release()`` — freeing the device for the next
+    consumer immediately.
     """
-    import asyncio
-    interval = 1.0 / fps if fps and fps > 0 else 1.0
-    try:
-        while True:
-            try:
-                frame = await source.snapshot()
-            except Exception:  # noqa: BLE001
-                # Skip this frame, keep stream alive
-                await asyncio.sleep(interval)
-                continue
-            chunk = (
-                _MJPEG_BOUNDARY
-                + b"\r\nContent-Type: image/"
-                + frame.format.encode()
-                + b"\r\nContent-Length: "
-                + str(len(frame.image_bytes)).encode()
-                + b"\r\n\r\n"
-                + frame.image_bytes
-                + b"\r\n"
-            )
-            yield chunk
-            await asyncio.sleep(interval)
-    except asyncio.CancelledError:
-        # Client disconnected — Starlette cancels generators on close.
-        # Nothing to clean up, the FrameSource is per-snapshot (no
-        # persistent capture handle to release in V4L2Source).
-        raise
+    async for frame in source.stream(fps=fps, width=width, height=height):
+        yield (
+            _MJPEG_BOUNDARY
+            + b"\r\nContent-Type: image/"
+            + frame.format.encode()
+            + b"\r\nContent-Length: "
+            + str(len(frame.image_bytes)).encode()
+            + b"\r\n\r\n"
+            + frame.image_bytes
+            + b"\r\n"
+        )
 
 
 @api_app.get("/vision/stream/{source_id:path}", tags=["Vision"])
-async def vision_stream_endpoint(source_id: str, fps: float = 1.0) -> Any:
+async def vision_stream_endpoint(
+    source_id: str, fps: float = 1.0, width: int = 0, height: int = 0
+) -> Any:
     """MJPEG-Live-Stream der genannten Frame-Source.
 
     Browser-side: einfach ``<img src="/api/vision/stream/cam/v4l2_0?fps=2">``.
@@ -1765,7 +1758,9 @@ async def vision_stream_endpoint(source_id: str, fps: float = 1.0) -> Any:
     nutzt /vision/snapshot.
 
     Akzeptiert ``fps`` zwischen 0.1 und 30. Werte außerhalb werden
-    geklammert.
+    geklammert. ``width``/``height`` überschreiben den persistierten
+    Per-Source-Default; ``0/0`` fällt auf vision_store zurück (gleiche
+    Resolve-Logik wie beim Snapshot-Endpoint).
     """
     from starlette.responses import StreamingResponse
     from .frame_sources import get as get_source
@@ -1777,13 +1772,20 @@ async def vision_stream_endpoint(source_id: str, fps: float = 1.0) -> Any:
         raise HTTPException(status_code=503, detail=f"source not available: {source_id}")
     # Clamp + sanitize
     fps = max(0.1, min(30.0, float(fps) if fps else 1.0))
+    w, h = _resolve_resolution(source_id, width, height)
     return StreamingResponse(
-        _mjpeg_stream(src, fps),
+        _mjpeg_stream(src, fps, w, h),
         media_type=f"multipart/x-mixed-replace; boundary={_MJPEG_BOUNDARY.decode().lstrip('-')}",
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
-            # Keep-alive-ish hint for the multipart stream:
+            # Tell nginx (and any other reverse proxy that honours this
+            # header) to NOT buffer the response. Without it, nginx's
+            # default 4 KB proxy_buffer holds back frames until the
+            # buffer fills or times out — which is what makes 2-second
+            # streams take 4 seconds to deliver and fresh streams
+            # show black for a beat.
+            "X-Accel-Buffering": "no",
             "Connection": "close",
         },
     )

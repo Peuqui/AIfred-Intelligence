@@ -81,11 +81,11 @@ def _source_row(source: rx.Var) -> rx.Component:
             rx.select.trigger(),
             rx.select.content(
                 rx.foreach(
-                    AIState.vision_preview_resolution_options,
+                    source["resolution_options"].to(list[dict[str, str]]),
                     lambda opt: rx.select.item(opt["label"], value=opt["value"]),
                 ),
             ),
-            value=source["resolution"],
+            value=source["resolution"].to(str),
             on_change=lambda v: AIState.set_vision_preview_resolution(sid, v),
         ),
         spacing="3",
@@ -104,39 +104,68 @@ def _source_list() -> rx.Component:
 
 
 def _image_tile(entry: rx.Var) -> rx.Component:
-    """One image in the grid — ``entry`` is {id, label, image_url}."""
-    return rx.vstack(
-        rx.text(entry["label"], size="1", color="gray", weight="bold"),
+    """One image in the grid — ``entry`` is {id, label, image_url}.
+
+    Layout-wise the tile is a flex column where the image fills the
+    remaining vertical space and shrinks proportionally with ``object-
+    fit: contain`` so neither dimension creates a scrollbar in the
+    popup window.
+    """
+    return rx.box(
+        rx.text(
+            entry["label"], size="1", color="gray", weight="bold",
+            style={"flex_shrink": "0"},
+        ),
         rx.image(
             src=entry["image_url"],
             alt="Live preview",
-            width="100%",
-            height="auto",
-            object_fit="contain",
             border_radius="8px",
             background_color="#111",
+            style={
+                "max_width": "100%",
+                "max_height": "100%",
+                "width": "auto",
+                "height": "auto",
+                "object_fit": "contain",
+                "min_height": "0",
+                "flex": "1 1 auto",
+            },
         ),
-        spacing="1",
-        align="stretch",
-        width="100%",
+        style={
+            "display": "flex",
+            "flex_direction": "column",
+            "gap": "0.25em",
+            "min_height": "0",
+            "flex": "1 1 auto",
+            "width": "100%",
+            "align_items": "center",
+        },
     )
 
 
 def _image_grid() -> rx.Component:
     """Grid of all visible sources. Single-source case ↔ wide single tile.
-    Multi-source case ↔ 2-column responsive grid."""
+    Multi-source case ↔ 2-column responsive grid.
+
+    The grid is flex-1 inside the popup column layout so it takes
+    whatever vertical space remains after the header + source-list,
+    and its children shrink to fit (``min_height: 0`` is the magic
+    that lets flex children actually shrink instead of overflowing).
+    """
     return rx.cond(
         AIState.vision_preview_has_visible,
         rx.box(
             rx.foreach(AIState.vision_preview_visible_entries, _image_tile),
-            display="grid",
-            grid_template_columns=[
-                "1fr",                  # mobile: 1 col always
-                "1fr",
-                "repeat(auto-fit, minmax(360px, 1fr))",  # desktop: as many as fit
-            ],
-            gap="0.75em",
-            width="100%",
+            style={
+                "display": "grid",
+                "grid_template_columns":
+                    "repeat(auto-fit, minmax(280px, 1fr))",
+                "gap": "0.75em",
+                "width": "100%",
+                "flex": "1 1 auto",
+                "min_height": "0",
+                "overflow": "hidden",
+            },
         ),
         rx.box(
             rx.icon("camera-off", size=32, color="gray"),
@@ -147,23 +176,31 @@ def _image_grid() -> rx.Component:
                 margin_top="0.5em",
                 text_align="center",
             ),
-            display="flex",
-            flex_direction="column",
-            align_items="center",
-            justify_content="center",
-            width="100%",
-            height="40vh",
-            background_color="#1a1a1a",
-            border_radius="8px",
+            style={
+                "display": "flex",
+                "flex_direction": "column",
+                "align_items": "center",
+                "justify_content": "center",
+                "width": "100%",
+                "flex": "1 1 auto",
+                "min_height": "0",
+                "background_color": "#1a1a1a",
+                "border_radius": "8px",
+            },
         ),
     )
 
 
 def vision_preview_page() -> rx.Component:
     """Page-Komponente für die Route ``/vision-preview-popup`` — Multi-
-    Source Live-Preview, geöffnet als eigenständiges Browser-Fenster."""
-    return rx.container(
-        rx.vstack(
+    Source Live-Preview, geöffnet als eigenständiges Browser-Fenster.
+
+    Whole page is a 100vh flex column that hides overflow, so the
+    image grid sizes itself to the remaining vertical space and the
+    image proportionally shrinks with the window. No scrollbars.
+    """
+    return rx.box(
+        rx.box(
             # Title row
             rx.hstack(
                 rx.icon("video", size=20),
@@ -187,21 +224,30 @@ def vision_preview_page() -> rx.Component:
             rx.text(t("vision_preview_sources_label"), size="2", weight="bold"),
             _source_list(),
             rx.divider(),
-            _image_grid(),
-            rx.cond(
-                AIState.vision_preview_status != "",
-                rx.callout.root(
-                    rx.callout.icon(rx.icon("info")),
-                    rx.callout.text(AIState.vision_preview_status),
-                    color_scheme="amber",
-                ),
-            ),
-            align="stretch",
-            spacing="3",
-            width="100%",
+            style={
+                "display": "flex",
+                "flex_direction": "column",
+                "gap": "0.5em",
+                "flex_shrink": "0",
+            },
         ),
-        padding="1em",
-        width="100%",
-        max_width="100%",
-        overflow_x="hidden",
+        _image_grid(),
+        rx.cond(
+            AIState.vision_preview_status != "",
+            rx.callout.root(
+                rx.callout.icon(rx.icon("info")),
+                rx.callout.text(AIState.vision_preview_status),
+                color_scheme="amber",
+            ),
+        ),
+        style={
+            "display": "flex",
+            "flex_direction": "column",
+            "gap": "0.5em",
+            "padding": "1em",
+            "height": "100vh",
+            "width": "100%",
+            "overflow": "hidden",
+            "box_sizing": "border-box",
+        },
     )

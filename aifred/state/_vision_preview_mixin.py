@@ -33,19 +33,53 @@ import reflex as rx
 logger = logging.getLogger(__name__)
 
 
-# Built-in resolution presets — user can pick any from this dropdown. The
-# actual resolution the V4L2 driver delivers may differ if the hardware
-# can't do the requested size; cv2 falls back to the nearest mode.
-_RESOLUTION_PRESETS = [
-    {"value": "default", "label": "Treiber-Default"},
-    {"value": "320x240", "label": "320 × 240 (QVGA)"},
-    {"value": "640x480", "label": "640 × 480 (VGA)"},
-    {"value": "800x600", "label": "800 × 600 (SVGA)"},
-    {"value": "1280x720", "label": "1280 × 720 (HD)"},
-    {"value": "1920x1080", "label": "1920 × 1080 (Full HD)"},
-    {"value": "2560x1440", "label": "2560 × 1440 (QHD)"},
-    {"value": "3840x2160", "label": "3840 × 2160 (4K)"},
-]
+# Common resolutions for the dropdown labeller. Only those the driver
+# actually honours during the probe end up in the per-source dropdown
+# (see ``_build_resolution_options`` below).
+_RESOLUTION_LABELS: dict[tuple[int, int], str] = {
+    (320, 240): "320 × 240 (QVGA)",
+    (640, 480): "640 × 480 (VGA)",
+    (800, 600): "800 × 600 (SVGA)",
+    (1024, 768): "1024 × 768 (XGA)",
+    (1280, 720): "1280 × 720 (HD)",
+    (1280, 960): "1280 × 960 (SXGA-)",
+    (1600, 1200): "1600 × 1200 (UXGA)",
+    (1920, 1080): "1920 × 1080 (Full HD)",
+    (2560, 1440): "2560 × 1440 (QHD)",
+    (3840, 2160): "3840 × 2160 (4K)",
+}
+
+
+def _build_resolution_options(src: Any, available: bool) -> list[dict[str, str]]:
+    """Compose the per-source dropdown options.
+
+    Always starts with ``"default"`` (treiber default = whatever the
+    driver picks on cv2.VideoCapture without explicit width/height).
+    Below that, only the modes that the camera ACTUALLY supports
+    according to ``detect_resolutions()`` are listed.
+
+    For sources without a ``detect_resolutions()`` method (future RTSP /
+    file / screen sources) we just expose the default — they have their
+    own resolution semantics anyway.
+    """
+    opts: list[dict[str, str]] = [
+        {"value": "default", "label": "Treiber-Default"},
+    ]
+    if not available:
+        return opts
+    detector = getattr(src, "detect_resolutions", None)
+    if not callable(detector):
+        return opts
+    try:
+        supported = detector()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("resolution detect failed for %s: %s", src.source_id, e)
+        return opts
+    for w, h in supported:
+        key = (w, h)
+        label = _RESOLUTION_LABELS.get(key, f"{w} × {h}")
+        opts.append({"value": f"{w}x{h}", "label": label})
+    return opts
 
 
 class VisionPreviewMixin(rx.State, mixin=True):
@@ -78,7 +112,8 @@ class VisionPreviewMixin(rx.State, mixin=True):
         {"value": "2", "label": "0.5 s"},
         {"value": "10", "label": "0.1 s"},
     ]
-    vision_preview_resolution_options: list[dict[str, str]] = _RESOLUTION_PRESETS
+    # Resolution options are per-source now (built in _refresh_sources from
+    # the camera's actual supported modes) — no global field anymore.
 
     @rx.var
     def vision_preview_fps_value(self) -> str:
@@ -101,6 +136,12 @@ class VisionPreviewMixin(rx.State, mixin=True):
         as query parameters so the browser issues the right request.
         Computed here (not in the UI render lambda) because Reflex Vars
         can't be string-concatenated inside rx.foreach lambdas.
+
+        URL stays bare ``/api/...`` — NO ``frontend_path`` prefix. nginx
+        on this host routes ``/api/...`` directly to the backend (port
+        8002); the ``/aifred/...`` location goes to the Vite frontend
+        (port 3002), and Vite has no API proxy, so a prefixed URL would
+        get the SPA fallback HTML instead of the JPEG.
         """
         entries: list[dict[str, str]] = []
         fps = self.vision_preview_fps
@@ -157,8 +198,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
     @rx.event
     def on_load_vision_preview(self) -> None:
         """Page-load handler for the popup window — populates the source
-        list, loads persisted per-source resolutions, picks a sensible
-        default visible-set."""
+        list, loads persisted per-source resolutions + global FPS, picks
+        a sensible default visible-set."""
+        self._load_preview_fps()
         self._refresh_sources()
         self.vision_preview_cache_buster += 1
 
@@ -180,7 +222,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
     @rx.event
     def set_vision_preview_resolution(self, source_id: str, value: str) -> None:
         """Persist the resolution choice for a single source. ``value`` is
-        either ``"default"`` or ``"WIDTHxHEIGHT"`` (from the dropdown)."""
+        either ``"default"`` or ``"WIDTHxHEIGHT"`` (from the dropdown).
+        Cache-buster bump forces ``<img>`` to actually reload — Reflex
+        sometimes skips DOM updates if only a query param changes."""
         if not source_id:
             return
         # update reactive dict (Reflex needs assignment to trigger re-render)
@@ -198,6 +242,20 @@ class VisionPreviewMixin(rx.State, mixin=True):
 
     @rx.event
     def set_vision_preview_fps(self, value: str) -> None:
+        """FPS-Setter. Structurally identical to
+        :meth:`set_vision_preview_resolution` because that path is the
+        ONLY one Reflex's foreach diff reliably propagates into the
+        ``<img src>`` attribute in nested tiles. A pure float change
+        on ``vision_preview_fps`` plus a counter bump apparently isn't
+        enough — the diff stays at the outer list level and never
+        reaches the per-tile DOM update. Mirroring the resolution path
+        (touch ``vision_preview_resolutions`` + rebuild each source
+        dict with ``{**e}``) makes the foreach see fresh inner items
+        and rebuild every tile.
+
+        FPS is persisted globally for the preview popup (not per-source)
+        in ``data/vision_preview.json``.
+        """
         try:
             fps = float(value)
         except (TypeError, ValueError):
@@ -209,6 +267,12 @@ class VisionPreviewMixin(rx.State, mixin=True):
         elif fps > 30:
             fps = 30.0
         self.vision_preview_fps = fps
+        # Mirror the re-render pattern from set_vision_preview_resolution:
+        self.vision_preview_resolutions = dict(self.vision_preview_resolutions)
+        self.vision_preview_sources = [
+            {**e} for e in self.vision_preview_sources
+        ]
+        self._persist_preview_fps(fps)
         self.vision_preview_cache_buster += 1
 
     @rx.event
@@ -267,17 +331,20 @@ class VisionPreviewMixin(rx.State, mixin=True):
             logger.warning("vision-preview resolution load failed: %s", e)
         self.vision_preview_resolutions = new_resolutions
 
-        # Build the source list with current resolution baked into each entry
+        # Build the source list with current resolution + per-source
+        # resolution options baked into each entry.
         entries: list[dict[str, Any]] = []
         for src in sources_raw:
             src_info = src.info()
             base_label = src_info.display_name or src_info.source_id
             display = base_label if src_info.available else f"{base_label}  ✗"
+            options = _build_resolution_options(src, src_info.available)
             entries.append({
                 "id": src_info.source_id,
                 "label": display,
                 "available": bool(src_info.available),
                 "resolution": new_resolutions.get(src_info.source_id, "default"),
+                "resolution_options": options,
             })
         self.vision_preview_sources = entries
 
@@ -286,6 +353,47 @@ class VisionPreviewMixin(rx.State, mixin=True):
             available = [e["id"] for e in self.vision_preview_sources if e["available"]]
             if available:
                 self.vision_preview_visible_sources = [available[0]]
+
+    # ----- Global preview-settings persistence -------------------------
+    # Stored separately from per-source state because FPS is a global
+    # user preference for the live-preview popup, not a per-cam attribute.
+
+    @staticmethod
+    def _preview_settings_path() -> Any:
+        from ..lib.config import DATA_DIR
+        return DATA_DIR / "vision_preview.json"
+
+    def _load_preview_fps(self) -> None:
+        """Load the persisted global FPS choice on popup open."""
+        try:
+            import json
+            path = self._preview_settings_path()
+            if not path.exists():
+                return
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            fps = data.get("fps")
+            if isinstance(fps, (int, float)) and 0 <= fps <= 30:
+                self.vision_preview_fps = float(fps)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vision-preview fps load failed: %s", e)
+
+    def _persist_preview_fps(self, fps: float) -> None:
+        """Write the global FPS choice; merge-update so future settings
+        added to the same file aren't clobbered."""
+        try:
+            import json
+            path = self._preview_settings_path()
+            data: dict[str, Any] = {}
+            if path.exists():
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f) or {}
+            data["fps"] = fps
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vision-preview fps persist failed: %s", e)
 
     def _persist_source_resolution(self, source_id: str, resolution: str) -> None:
         """Write the per-source resolution choice to vision_store.sources."""
