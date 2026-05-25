@@ -1,8 +1,8 @@
-"""Vision-Plugin Settings-Page — /vision-settings.
+"""Vision-Plugin settings modal — opened from the Plugin-Tab gear icon.
 
-Minimaler Inhalt (Mode + Modell + Sync-Toggle) — Reflex-Page analog zur
-audio_settings_page, aber ohne Source-Verwaltung weil Vision-Quellen
-hardware-erkannt sind (siehe ``vision_rescan_sources`` Tool).
+Uses rx.cond + absolute-positioned rx.box (analog to crop_modal in
+modals.py) instead of rx.dialog — Mobile-Kompatibilität und konsistent
+mit dem Rest der UI. i18n über den t()-Helper aus ui/helpers.py.
 """
 
 from __future__ import annotations
@@ -10,47 +10,36 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
+from .helpers import t
 
 
-def _mode_card() -> rx.Component:
-    return rx.box(
-        rx.heading("Modus", size="4", margin_bottom="0.3em"),
-        rx.text(
-            "off: Vision deaktiviert, alle Vision-Tools verschwinden aus der LLM-Sicht. "
-            "on-demand: VLM wird bei Bedarf geladen (Default). "
-            "live: VLM permanent im VRAM (für Türsteher / Always-On).",
-            color="gray",
-            size="2",
-            margin_bottom="0.5em",
-        ),
+def _mode_section() -> rx.Component:
+    return rx.vstack(
+        rx.text(t("vision_settings_mode_label"), font_weight="bold", size="3"),
+        rx.text(t("vision_settings_mode_help"), color="gray", size="1"),
         rx.select.root(
-            rx.select.trigger(),
+            rx.select.trigger(width="100%"),
             rx.select.content(
-                rx.select.item("Aus", value="off"),
-                rx.select.item("Bei Bedarf", value="on-demand"),
-                rx.select.item("Permanent (live)", value="live"),
+                rx.select.item(t("vision_settings_mode_off"), value="off"),
+                rx.select.item(t("vision_settings_mode_ondemand"), value="on-demand"),
+                rx.select.item(t("vision_settings_mode_live"), value="live"),
             ),
             value=AIState.vision_mode_value,
             on_change=AIState.set_vision_mode_value,
         ),
-        margin_bottom="1.5em",
+        align="stretch",
+        spacing="1",
+        width="100%",
     )
 
 
-def _model_card() -> rx.Component:
-    return rx.box(
-        rx.heading("VLM-Modell (Side-Channel)", size="4", margin_bottom="0.3em"),
-        rx.text(
-            "Wird für Webcam-Snapshots, Watch-Mode und für den Side-Channel "
-            "des Chat-Bild-Uploads genutzt (vermeidet llama-swap-Modell-Swap). "
-            "Aus Ollama-Discovery — neue Modelle erscheinen nach `ollama pull`.",
-            color="gray",
-            size="2",
-            margin_bottom="0.5em",
-        ),
+def _model_section() -> rx.Component:
+    return rx.vstack(
+        rx.text(t("vision_settings_model_label"), font_weight="bold", size="3"),
+        rx.text(t("vision_settings_model_help"), color="gray", size="1"),
         rx.hstack(
             rx.select.root(
-                rx.select.trigger(),
+                rx.select.trigger(width="100%"),
                 rx.select.content(
                     rx.foreach(
                         AIState.vision_available_models,
@@ -66,75 +55,97 @@ def _model_card() -> rx.Component:
                 size="2",
                 variant="soft",
                 color_scheme="gray",
-                title="Ollama-Modelle neu scannen",
+                title=t("vision_settings_rescan_tooltip"),
             ),
             spacing="2",
             align="center",
-        ),
-        margin_bottom="1.5em",
-    )
-
-
-def _sync_card() -> rx.Component:
-    return rx.hstack(
-        rx.switch(
-            checked=AIState.vision_sync_value,
-            on_change=AIState.set_vision_sync_value,
-        ),
-        rx.vstack(
-            rx.text("Mit Vision-LLM aus Hauptsettings synchronisieren"),
-            rx.text(
-                "Wenn aktiv, übernimmt die Vision-Pipeline das Modell aus "
-                "dem Vision-LLM-Dropdown der Hauptsettings statt obiger Auswahl.",
-                color="gray",
-                size="2",
-            ),
-            align="start",
-            spacing="0",
-        ),
-        spacing="3",
-        align="center",
-        margin_bottom="1.5em",
-    )
-
-
-def _status_callout() -> rx.Component:
-    return rx.cond(
-        AIState.vision_settings_status != "",
-        rx.callout.root(
-            rx.callout.icon(rx.icon("info")),
-            rx.callout.text(AIState.vision_settings_status),
-            color_scheme="green",
-            margin_bottom="1em",
-        ),
-    )
-
-
-def vision_settings_page() -> rx.Component:
-    """Page-Komponente für die Route ``/vision-settings``."""
-    return rx.container(
-        rx.heading("Bild & Video — Einstellungen", size="6"),
-        rx.text(
-            "Konfiguration der Vision-Pipeline: ob aktiv, welches VLM für "
-            "Webcam und Side-Channel-Routing genutzt wird.",
-            color="gray",
-            margin_bottom="1.5em",
-        ),
-        rx.vstack(
-            _mode_card(),
-            _model_card(),
-            _sync_card(),
-            _status_callout(),
-            rx.button(
-                "Zurück",
-                on_click=rx.redirect("/"),
-                variant="soft",
-                margin_top="1em",
-            ),
-            align="stretch",
-            spacing="3",
             width="100%",
         ),
-        padding="2em",
-        max_width="640px",
+        align="stretch",
+        spacing="1",
+        width="100%",
+    )
+
+
+def vision_settings_modal() -> rx.Component:
+    """Modal globally mounted in aifred.py. Visible only when
+    ``AIState.vision_settings_open`` is True. Closes on backdrop click or
+    on the close button (top right + bottom)."""
+    return rx.cond(
+        AIState.vision_settings_open,
+        rx.box(
+            # Backdrop (klickbar zum Schließen) — gleiches Pattern wie crop_modal
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.5)",
+                on_click=AIState.close_vision_settings,
+            ),
+            # Modal content — zentriert, kompakte Box
+            rx.box(
+                rx.vstack(
+                    # Header: Titel + X-Close
+                    rx.hstack(
+                        rx.icon("camera", size=20),
+                        rx.text(
+                            t("vision_settings_title"),
+                            font_weight="bold",
+                            size="4",
+                        ),
+                        rx.spacer(),
+                        rx.icon_button(
+                            rx.icon("x", size=16),
+                            on_click=AIState.close_vision_settings,
+                            size="1",
+                            variant="ghost",
+                            color_scheme="gray",
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                    ),
+                    rx.text(
+                        t("vision_settings_subtitle"),
+                        color="gray",
+                        size="2",
+                        margin_bottom="0.5em",
+                    ),
+                    rx.divider(),
+                    _mode_section(),
+                    rx.divider(),
+                    _model_section(),
+                    rx.divider(),
+                    rx.button(
+                        t("vision_settings_close"),
+                        on_click=AIState.close_vision_settings,
+                        variant="soft",
+                        width="100%",
+                    ),
+                    align="stretch",
+                    spacing="3",
+                    width="100%",
+                ),
+                position="absolute",
+                top="50%",
+                left="50%",
+                transform="translate(-50%, -50%)",
+                background_color="var(--gray-2)",
+                border="1px solid var(--gray-6)",
+                border_radius="12px",
+                padding="1.5em",
+                width="min(540px, 92vw)",
+                max_height="92vh",
+                overflow_y="auto",
+                box_shadow="0 20px 60px rgba(0,0,0,0.5)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="9999",
+        ),
     )

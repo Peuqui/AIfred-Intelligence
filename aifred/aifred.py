@@ -33,7 +33,7 @@ from .ui.settings_accordion import settings_accordion  # noqa: F401
 from .ui.agent_editor import agent_editor_page  # noqa: F401
 from .ui.file_picker import file_picker_modal  # noqa: F401
 from .ui.audio_settings import audio_settings_page, audio_help_modal  # noqa: F401
-from .ui.vision_settings import vision_settings_page  # noqa: F401
+from .ui.vision_settings import vision_settings_modal  # noqa: F401
 
 
 def _audio_player_element() -> rx.Component:
@@ -753,6 +753,9 @@ console.log('✂️ Crop handler loaded');
         # Image Lightbox Modal (for viewing history images full-size)
         image_lightbox_modal(),
 
+        # Vision-Plugin Settings Modal (gear icon next to "Bild & Video")
+        vision_settings_modal(),
+
         # Multi-Agent Help Modal (Diskussionsmodi-Übersicht)
         multi_agent_help_modal(),
 
@@ -1089,14 +1092,6 @@ def audio_settings_route() -> rx.Component:
     return rx.fragment(audio_settings_page(), audio_help_modal())
 
 
-@rx.page(
-    route="/vision-settings",
-    on_load=AIState.on_load_vision_settings,
-    title="Vision Settings — AIfred",
-)
-def vision_settings_route() -> rx.Component:
-    """Vision-Plugin Settings — VLM-Wahl + Mode-Toggle + Sync-Option."""
-    return vision_settings_page()
 
 
 @rx.page(
