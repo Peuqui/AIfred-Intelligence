@@ -109,13 +109,23 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 logger.warning("prewarm on mode-switch failed: %s", e)
 
     @rx.event
-    def set_vision_model_value(self, value: str) -> None:
+    async def set_vision_model_value(self, value: str) -> None:
+        """Modell wechseln + altes Modell aus dem VRAM entladen.
+        Sonst hängen beim Hin-und-Her-Schalten zwei Modelle parallel
+        im Speicher, bis Ollamas keep_alive abläuft."""
         if not value:
             return
+        old_model = self.vision_model_value
         self.vision_model_value = value
         settings = _load_settings()
         settings.setdefault("vlm", {})["model"] = value
         _save_settings(settings)
+        if old_model and old_model != value:
+            try:
+                from ..lib.vision_prewarm import unload_vlm_model
+                await unload_vlm_model(old_model)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("unload of old VLM model failed: %s", e)
 
     @rx.event
     def rescan_vision_models(self) -> None:

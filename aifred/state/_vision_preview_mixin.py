@@ -554,6 +554,23 @@ class VisionPreviewMixin(rx.State, mixin=True):
     # (SSOT, schreibt in plugins/tools/vision/settings.json).
 
     @rx.event
+    def clear_vlm_teleprompter(self, source_id: str) -> Any:
+        """Buffer der Live-Analyse-Box im Frontend leeren. Ruft die
+        JS-Funktion ``window.clearVlmTeleprompter(sid)`` aus
+        vlm_sse_manager.js — die hält die Zeilen client-seitig.
+        Der EventSource bleibt offen, neue VLM-Antworten füllen die
+        Box wieder auf."""
+        if not source_id:
+            return None
+        # Einfache Sanitisierung — source_id ist sonst kontrolliert
+        # ("cam/v4l2_0"), aber Anführungszeichen filtern wir aus
+        # Vorsicht raus, damit kein JS-String aufgerissen werden kann.
+        safe = source_id.replace("'", "").replace("\\", "")
+        return rx.call_script(
+            f"window.clearVlmTeleprompter && window.clearVlmTeleprompter('{safe}')"
+        )
+
+    @rx.event
     def set_vision_preview_teleprompter_mode(self, value: str) -> None:
         """Toggle between overlay (subtitle on image) and below (full-
         width block below image) for the VLM teleprompter."""
