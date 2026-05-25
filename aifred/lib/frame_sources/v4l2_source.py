@@ -36,9 +36,53 @@ _WARMUP_FRAMES = 3
 _JPEG_QUALITY = 90
 
 
+def _resolve_usb_product_name(sysfs_entry: Path) -> str | None:
+    """Walk the device symlink upwards to find the USB ``product`` /
+    ``manufacturer`` attributes. UVC drivers report a nice product name
+    via the v4l2 ``name`` file, but gspca + other legacy drivers expose
+    only the driver name ("gspca main driver"). For those we fall back
+    to the USB product label, which is usually meaningful enough
+    ("USB Camera", "OmniVision …") and lets the user identify the
+    physical device.
+    """
+    try:
+        device_real = (sysfs_entry / "device").resolve()
+    except OSError:
+        return None
+    # device_real points to the USB *interface* (e.g. ``1-2:1.0``);
+    # walk up at most three parents to find one with a ``product`` file
+    # (the USB device node, e.g. ``1-2``).
+    candidate: Path = device_real
+    for _ in range(4):
+        product_file = candidate / "product"
+        if product_file.exists():
+            try:
+                product = product_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                product = ""
+            manufacturer = ""
+            mfr_file = candidate / "manufacturer"
+            if mfr_file.exists():
+                try:
+                    manufacturer = mfr_file.read_text(encoding="utf-8").strip()
+                except OSError:
+                    manufacturer = ""
+            if manufacturer and product:
+                return f"{manufacturer} {product}"
+            return product or None
+        candidate = candidate.parent
+    return None
+
+
 def _enumerate_devices() -> list[tuple[int, str]]:
     """Find V4L2 video devices in /sys/class/video4linux/. Returns list of
-    ``(index, human_name)``."""
+    ``(index, human_name)``.
+
+    Name resolution priority:
+    1. USB product/manufacturer from sysfs (works for gspca + UVC)
+    2. The v4l2 ``name`` file (driver-reported — fine for UVC, ugly for gspca)
+    3. Generic fallback ``V4L2 videoN``
+    """
     if not _V4L2_SYSFS.exists():
         return []
     devices: list[tuple[int, str]] = []
@@ -51,8 +95,18 @@ def _enumerate_devices() -> list[tuple[int, str]]:
             continue
         if not (_V4L2_DEV_DIR / entry.name).exists():
             continue
-        name_file = entry / "name"
-        name = name_file.read_text(encoding="utf-8").strip() if name_file.exists() else f"V4L2 video{idx}"
+        # USB product name takes precedence — gives "Hercules Dualpix HD"
+        # rather than "gspca main driver" for legacy cams.
+        usb_name = _resolve_usb_product_name(entry)
+        if usb_name:
+            name = usb_name
+        else:
+            name_file = entry / "name"
+            name = (
+                name_file.read_text(encoding="utf-8").strip()
+                if name_file.exists()
+                else f"V4L2 video{idx}"
+            )
         devices.append((idx, name))
     return devices
 
@@ -124,9 +178,18 @@ class V4L2Source:
         finally:
             cap.release()
 
-    async def snapshot(self) -> Frame:
+    async def snapshot(self, *, width: int = 0, height: int = 0) -> Frame:
+        """Snapshot mit optionaler Ziel-Auflösung.
+
+        ``width=0, height=0`` (Default): die Cam liefert was sie default-mäßig
+        gibt — meist 640×480. Mit konkreten Werten versucht cv2 das per
+        ``CAP_PROP_FRAME_WIDTH/HEIGHT`` zu setzen; was die Hardware
+        wirklich liefert, steht dann in ``Frame.width / .height``.
+        """
         async with self._lock:
-            jpeg_bytes, w, h = await asyncio.to_thread(self._capture_single)
+            jpeg_bytes, w, h = await asyncio.to_thread(
+                self._capture_single, width, height
+            )
         return Frame(
             source_id=self.source_id,
             timestamp=datetime.now(),
@@ -137,21 +200,27 @@ class V4L2Source:
             metadata={"kind": "rgb"},
         )
 
-    async def stream(self, fps: float = 1.0) -> AsyncIterator[Frame]:
+    async def stream(
+        self, fps: float = 1.0, *, width: int = 0, height: int = 0
+    ) -> AsyncIterator[Frame]:
         if fps <= 0:
             raise ValueError(f"stream fps must be > 0, got {fps}")
         interval = 1.0 / fps
         sequence_id = str(uuid.uuid4())
         async with self._lock:
-            # Eine cv2.VideoCapture wird für den ganzen Stream offen gehalten —
-            # open/close pro Frame wäre auf USB-Cams 200-500 ms Latenz.
             cap = await asyncio.to_thread(cv2.VideoCapture, self.index, cv2.CAP_V4L2)
             try:
                 if not cap.isOpened():
                     raise RuntimeError(
                         f"Cannot open {self.source_id} for streaming"
                     )
-                # Warmup
+                if width > 0 and height > 0:
+                    await asyncio.to_thread(
+                        cap.set, cv2.CAP_PROP_FRAME_WIDTH, float(width)
+                    )
+                    await asyncio.to_thread(
+                        cap.set, cv2.CAP_PROP_FRAME_HEIGHT, float(height)
+                    )
                 for _ in range(_WARMUP_FRAMES):
                     await asyncio.to_thread(cap.read)
                 frame_idx = 0
