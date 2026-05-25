@@ -771,6 +771,24 @@ async def extract_structured_data_from_images(
             backend_url = DEFAULT_OLLAMA_URL
             log_message(f"⚠️ No backend_url provided, using default: {DEFAULT_OLLAMA_URL}")
 
+    # === Side-Channel-Routing ===
+    # If the user picked a llama-swap/vllm/tabbyapi VL model that also exists
+    # in Ollama (e.g. "Qwen3VL-4B-Instruct-Q8_0" ↔ "qwen3-vl:4b-instruct-q8_0"),
+    # route to Ollama instead so the chat LLM doesn't get model-swapped out
+    # for the duration of the vision call. Cloud-API and Ollama backends pass
+    # through unchanged. See aifred/lib/vision_routing.py.
+    from .vision_routing import maybe_route_to_ollama
+    backend_url, backend_type, vision_model, _rerouted = maybe_route_to_ollama(
+        backend_url=backend_url,
+        backend_type=backend_type,
+        vision_model=vision_model,
+    )
+    if _rerouted:
+        log_message(
+            f"🔀 Vision routed to Ollama side-channel: {vision_model} "
+            f"(avoids llama-swap model-swap)"
+        )
+
     log_message(f"📐 Reading model capabilities for Vision-LLM ({vision_model})...")
 
     # Cloud API doesn't have /api/show endpoint - use sensible defaults
