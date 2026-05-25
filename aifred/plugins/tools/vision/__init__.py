@@ -432,6 +432,12 @@ class VisionPlugin:
                 "prompt": result.prompt,
                 "duration_ms": round(result.duration_ms, 1),
                 "description": result.text,
+                # vlm_raw is the marker llm_pipeline.py picks up to
+                # auto-render the raw VLM text as a <vlm_output> XML tag
+                # → collapsible in the chat bubble. Same description
+                # text — duplicated under a stable key so the pipeline
+                # has something deterministic to look for.
+                "vlm_raw": result.text,
             }
             # Persist the *last* frame to the session image dir so the
             # chat bubble can show what the VLM actually saw. Without

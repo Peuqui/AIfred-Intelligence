@@ -198,6 +198,24 @@ async def run_llm_stream(
             result_text = chunk.get("result", "")
             log_message(f"🔧 Tool result: {result_text}")
 
+            # Auto-extract VLM raw output → <vlm_output> tag in full_response.
+            # The vision_analyze tool puts the VLM description under "vlm_raw"
+            # in its JSON response specifically so we can prepend it here as
+            # a collapsible — same mechanism as <think>, controlled by the
+            # system, not by the LLM's text formatting choices.
+            if result_text and "vlm_raw" in result_text:
+                try:
+                    parsed = json.loads(result_text)
+                    if isinstance(parsed, dict):
+                        vlm_text = parsed.get("vlm_raw", "")
+                        if isinstance(vlm_text, str) and vlm_text.strip():
+                            full_response = (
+                                f"<vlm_output>{vlm_text.strip()}</vlm_output>"
+                                + full_response
+                            )
+                except (ValueError, json.JSONDecodeError):
+                    pass
+
             # Update last URL success status
             if fetched_urls and fetched_urls[-1]["success"] is None:
                 fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
