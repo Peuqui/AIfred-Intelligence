@@ -347,6 +347,16 @@ class TranslationManager:
             "vision_settings_model_help": "Vision-Modell für Webcam, Watch-Mode und Side-Channel beim Chat-Bild-Upload. Aus Ollama-Discovery — neue Modelle erscheinen nach 'ollama pull'.",
             "vision_settings_rescan_tooltip": "Ollama-Modelle neu scannen",
             "vision_settings_close": "Schließen",
+
+            # Vision Live-Preview Modal
+            "vision_preview_title": "Webcam Live-Vorschau",
+            "vision_preview_subtitle": "Aktuelles Bild der angeschlossenen Kameras. Nutze Aktualisieren für einen neuen Snapshot.",
+            "vision_preview_refresh_tooltip": "Neues Bild holen",
+            "vision_preview_rescan_tooltip": "Kameras neu suchen",
+            "vision_preview_no_source": "Keine Kamera verfügbar — schließe eine USB-Webcam an und klicke auf das Such-Symbol.",
+            "vision_preview_close": "Schließen",
+            "vision_preview_button": "Webcam",
+            "vision_preview_button_tooltip": "Live-Vorschau der angeschlossenen Webcam(s) öffnen",
             "crop_cancel": "Abbrechen",
             "crop_apply": "Zuschneiden",
             "crop_rotate": "Drehen",
@@ -866,6 +876,16 @@ class TranslationManager:
             "vision_settings_model_help": "Vision model used for webcam, watch mode and the side-channel on chat image upload. From Ollama discovery — new models appear after `ollama pull`.",
             "vision_settings_rescan_tooltip": "Re-scan Ollama models",
             "vision_settings_close": "Close",
+
+            # Vision Live-Preview Modal
+            "vision_preview_title": "Webcam Live Preview",
+            "vision_preview_subtitle": "Current snapshot of attached camera sources. Use refresh for a fresh capture.",
+            "vision_preview_refresh_tooltip": "Get a fresh snapshot",
+            "vision_preview_rescan_tooltip": "Re-scan for cameras",
+            "vision_preview_no_source": "No camera available — plug in a USB webcam and click the search icon.",
+            "vision_preview_close": "Close",
+            "vision_preview_button": "Webcam",
+            "vision_preview_button_tooltip": "Open live preview of attached webcam(s)",
             "crop_cancel": "Cancel",
             "crop_apply": "Crop",
             "crop_rotate": "Rotate",

@@ -34,6 +34,7 @@ from .ui.agent_editor import agent_editor_page  # noqa: F401
 from .ui.file_picker import file_picker_modal  # noqa: F401
 from .ui.audio_settings import audio_settings_page, audio_help_modal  # noqa: F401
 from .ui.vision_settings import vision_settings_modal  # noqa: F401
+from .ui.vision_preview import vision_preview_modal  # noqa: F401
 
 
 def _audio_player_element() -> rx.Component:
@@ -755,6 +756,9 @@ console.log('✂️ Crop handler loaded');
 
         # Vision-Plugin Settings Modal (gear icon next to "Bild & Video")
         vision_settings_modal(),
+
+        # Vision Live-Preview Modal (camera button in input row)
+        vision_preview_modal(),
 
         # Multi-Agent Help Modal (Diskussionsmodi-Übersicht)
         multi_agent_help_modal(),
