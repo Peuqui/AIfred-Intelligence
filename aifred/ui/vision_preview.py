@@ -124,16 +124,6 @@ def _header_row() -> rx.Component:
             ),
         ),
         _header_group(
-            t("vision_preview_face_recognition_label"),
-            rx.switch(
-                checked=AIState.face_recognition_enabled,
-                on_change=AIState.set_face_recognition_enabled,
-                size="2",
-                color_scheme="orange",
-            ),
-            wrap_label=True,
-        ),
-        _header_group(
             t("vision_preview_face_throttle_label"),
             rx.select.root(
                 rx.select.trigger(),
@@ -145,7 +135,6 @@ def _header_row() -> rx.Component:
                 ),
                 value=AIState.vision_preview_face_throttle_value,
                 on_change=AIState.set_vision_preview_face_throttle,
-                disabled=~AIState.face_recognition_enabled,
             ),
         ),
         _header_group(
@@ -193,29 +182,53 @@ _WATCH_BTN_ACTIVE_STYLE = {
 }
 
 
-def _watch_button(sid: rx.Var) -> rx.Component:
-    """Watch-Toggle als richtiger Button (grün → rot) — wie der
-    Aufnahme-Button im Hauptfenster.
-    """
-    is_watching = AIState.vision_preview_watching.contains(sid)
+def _toggle_button(
+    sid: rx.Var,
+    is_active: rx.Var,
+    label_key: str,
+    on_click_event,
+) -> rx.Component:
+    """Generischer Toggle-Button mit konstantem Label und wechselndem
+    Icon/Style. Label bleibt sichtbar in beiden Zuständen — Icon und
+    Hintergrund signalisieren ob's gerade läuft."""
     return rx.cond(
-        is_watching,
+        is_active,
         rx.button(
             rx.icon("circle-stop", size=14),
-            rx.text(t("vision_preview_watch_stop"), font_size="13px"),
-            on_click=AIState.toggle_vision_preview_watch(sid),
+            rx.text(t(label_key), font_size="13px"),
+            on_click=on_click_event,
             size="2",
             variant="outline",
             style=_WATCH_BTN_ACTIVE_STYLE,
         ),
         rx.button(
             rx.icon("play", size=14),
-            rx.text(t("vision_preview_watch_start"), font_size="13px"),
-            on_click=AIState.toggle_vision_preview_watch(sid),
+            rx.text(t(label_key), font_size="13px"),
+            on_click=on_click_event,
             size="2",
             variant="outline",
             style=_WATCH_BTN_IDLE_STYLE,
         ),
+    )
+
+
+def _watch_button(sid: rx.Var) -> rx.Component:
+    """Bild-Analyse-Toggle (continuous-VLM)."""
+    return _toggle_button(
+        sid,
+        AIState.vision_preview_watching.contains(sid),
+        "vision_preview_watch_start",
+        AIState.toggle_vision_preview_watch(sid),
+    )
+
+
+def _face_recognition_button(sid: rx.Var) -> rx.Component:
+    """Gesichtserkennungs-Toggle (continuous face-detection)."""
+    return _toggle_button(
+        sid,
+        AIState.vision_preview_face_active.contains(sid),
+        "vision_preview_face_button",
+        AIState.toggle_vision_preview_face_recognition(sid),
     )
 
 
@@ -241,6 +254,7 @@ def _source_row(source: rx.Var) -> rx.Component:
             style={"flex": "0 0 220px", "min_width": "0"},
         ),
         _watch_button(sid),
+        _face_recognition_button(sid),
         # Spacer schiebt die Auflösung nach rechts ans Zeilenende.
         rx.spacer(),
         rx.select.root(

@@ -200,6 +200,12 @@ class VisionPreviewMixin(rx.State, mixin=True):
     # frontend opens.
     vision_preview_watching: list[str] = []
 
+    # Source-IDs mit aktiver Gesichts­erkennung im Watch-Mode. Lebt
+    # parallel zu ``vision_preview_watching`` — beide können
+    # unabhängig an sein, die Watcher-Engine läuft solange
+    # mindestens einer der beiden Modi für eine Source aktiv ist.
+    vision_preview_face_active: list[str] = []
+
     # Global cooldown between VLM calls in continuous watch-mode.
     # Seconds; persisted in vision_preview.json. 1s is the minimum
     # sane value (the VLM itself answers in ~0.4s for short prompts).
@@ -417,7 +423,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             "if (!window.__aifredVLMSSEInjected) {"
             "  window.__aifredVLMSSEInjected = true;"
             "  var s = document.createElement('script');"
-            "  s.src = '/vlm_sse_manager.js?v=9';"
+            "  s.src = '/vlm_sse_manager.js?v=10';"
             "  s.async = true;"
             "  document.head.appendChild(s);"
             "  console.log('[AIfred-VLM] injected script tag');"
@@ -529,76 +535,87 @@ class VisionPreviewMixin(rx.State, mixin=True):
         self._persist_source_resolution(source_id, value)
         self.vision_preview_cache_buster += 1
 
-    @rx.event
-    async def toggle_vision_preview_watch(self, source_id: str) -> None:
-        """Start or stop the continuous-VLM watcher for a single source.
+    async def _apply_watch_mode(self, source_id: str) -> None:
+        """Watcher anhand der zwei UI-Toggles (Bild-Analyse +
+        Gesichts-Erkennung) konfigurieren. Beide Modi laufen über
+        denselben Watcher-Task — die Combo wird hier aus dem State
+        zusammengebaut, der Watcher wird bei jeder Toggle-Aktion
+        komplett neu gestartet (stop → start), weil WatchConfig
+        unveränderlich ist.
 
-        Wires through to VisionWatcher — the actual VLM-on-tick logic
-        lives in vision_watcher.py. We only manage UI state here.
+        Wenn beide aus → Watcher wird gestoppt.
+        Wenn mindestens einer an → Watcher mit kombinierter Config.
         """
-        if not source_id:
-            return
         from ..lib.vision_watcher import WatchConfig, get_default_watcher
         watcher = get_default_watcher()
-        if source_id in self.vision_preview_watching:
+
+        vlm_on = source_id in self.vision_preview_watching
+        face_on = source_id in self.vision_preview_face_active
+
+        # Cache-buster: ein Toggle bedeutet potenzielle Cam-Eviction
+        # — der Browser muss den MJPEG-Stream neu öffnen.
+        self.vision_preview_cache_buster += 1
+
+        if not vlm_on and not face_on:
             await watcher.stop(source_id)
-            self.vision_preview_watching = [
-                s for s in self.vision_preview_watching if s != source_id
-            ]
-            # Cache-buster bump → image URL changes → browser reconnects
-            # the MJPEG stream. Without this the <img> stays frozen on
-            # the last frame because the previous stream got evicted
-            # when the watcher took/released the cam.
-            self.vision_preview_cache_buster += 1
             return
-        # Start: pull cooldown + fps from defaults; the per-cam briefing
-        # is read by the watcher itself from vision_store.prompt_context
-        # so we don't have to plumb it through here.
-        #
-        # Watcher-fps muss höher als die Cooldown-fps sein, denn die
-        # gleichen Frames werden vom MJPEG-Live-Stream über den
-        # FrameBus konsumiert (api.py:_mjpeg_stream fällt bei aktivem
-        # Watcher auf bus.subscribe zurück). Bei cooldown=5s wäre 0.4
-        # fps die "VLM-natürliche" Rate — das wäre die Diashow im
-        # Browser. Stattdessen orientieren wir uns an der gewünschten
-        # Vorschau-fps des Users und nehmen mindestens 2 fps, damit
-        # die Live-Vorschau flüssig bleibt und die VLM trotzdem nur
-        # alle ``vlm_cooldown_sec`` einen Frame analysiert.
+
         cd = max(0.5, float(self.vision_preview_vlm_cooldown_sec))
         preview_fps = float(self.vision_preview_fps or 0.0)
         stream_fps = max(2.0, preview_fps)
-        # Face-Recognition: enabled toggle aus dem Plugin-Setting
-        # (SSOT mit dem Settings-Modal — analog VLM-Modell).
-        from ._vision_settings_mixin import _load_settings as _load_vis_settings
-        vs = _load_vis_settings() or {}
-        face_enabled = bool(
-            (vs.get("face_recognition") or {}).get("enabled", True)
-        )
         cfg = WatchConfig(
             fps=stream_fps,
             run_vlm_on_motion=False,
-            run_vlm_continuous=True,
+            run_vlm_continuous=vlm_on,
             vlm_cooldown_sec=cd,
-            run_face_detect_on_motion=face_enabled,
+            run_face_detect_on_motion=face_on,
+            # Mit aktivem Face-Toggle läuft face-detection
+            # kontinuierlich (motion-unabhängig), sonst nur
+            # bei motion-Events.
+            face_recognition_continuous=face_on,
             min_event_interval_sec=max(
                 0.1, float(self.vision_preview_face_throttle_sec)
             ),
         )
+        # Stop + Start, damit die neue Config greift. start() ist
+        # idempotent — wenn schon was läuft, returnt es; deshalb
+        # stoppen wir explizit vorher.
+        await watcher.stop(source_id)
         try:
             await watcher.start(source_id, cfg)
-            self.vision_preview_watching = self.vision_preview_watching + [source_id]
-            # Same reason as on the stop path — bump cache-buster so the
-            # browser reconnects to the MJPEG stream. The previous live-
-            # stream got evicted when the watcher took the cam, and the
-            # new stream needs a fresh URL so the <img> requests it.
-            self.vision_preview_cache_buster += 1
-            # SSE manager is loaded as an asset script in the page itself,
-            # so we don't need to fire it here. The MutationObserver inside
-            # the script will pick up DOM changes from this toggle and open
-            # the EventSource automatically.
         except Exception as e:  # noqa: BLE001
             logger.warning("watcher start failed for %s: %s", source_id, e)
             self.vision_preview_status = f"⚠️ Watcher: {e}"
+
+    @rx.event
+    async def toggle_vision_preview_watch(self, source_id: str) -> None:
+        """Toggle Bild-Analyse (continuous-VLM) für die Source."""
+        if not source_id:
+            return
+        if source_id in self.vision_preview_watching:
+            self.vision_preview_watching = [
+                s for s in self.vision_preview_watching if s != source_id
+            ]
+        else:
+            self.vision_preview_watching = self.vision_preview_watching + [source_id]
+        await self._apply_watch_mode(source_id)
+
+    @rx.event
+    async def toggle_vision_preview_face_recognition(self, source_id: str) -> None:
+        """Toggle Gesichts-Erkennung für die Source. Läuft im
+        Continuous-Modus (motion-unabhängig) parallel zur Bild-Analyse.
+        """
+        if not source_id:
+            return
+        if source_id in self.vision_preview_face_active:
+            self.vision_preview_face_active = [
+                s for s in self.vision_preview_face_active if s != source_id
+            ]
+        else:
+            self.vision_preview_face_active = (
+                self.vision_preview_face_active + [source_id]
+            )
+        await self._apply_watch_mode(source_id)
 
     @rx.event
     def set_vision_preview_vlm_cooldown(self, value: str) -> None:

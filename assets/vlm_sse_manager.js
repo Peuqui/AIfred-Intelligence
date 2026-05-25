@@ -101,22 +101,27 @@ console.log('[AIfred-VLM] script file fetched + parsed');
             ? '<img class="vlm-face-thumb" src="' +
               escapeHtml(item.crop_url) + '" alt="" />'
             : '<span class="vlm-face-thumb-placeholder"></span>';
+          // Verwerfen-Button ist immer da (auch bei known/unsure —
+          // falsche Matches sollen rausfliegen können). Tag-Button
+          // nur bei unknown, weil bei known/unsure die Person schon
+          // eine Identity hat.
           var actions = '';
           if (item.band === 'unknown' && item.embedding_b64) {
-            actions =
+            actions +=
               '<button class="vlm-face-enroll-btn" ' +
                 'data-embedding="' + escapeHtml(item.embedding_b64) + '" ' +
                 'data-source="' + escapeHtml(sid) + '" ' +
                 'data-item-id="' + item._id + '">' +
                 escapeHtml(item.enroll_label || '+ taggen') +
-              '</button>' +
-              '<button class="vlm-face-discard-btn" ' +
-                'data-source="' + escapeHtml(sid) + '" ' +
-                'data-item-id="' + item._id + '" ' +
-                'title="' + escapeHtml(item.discard_label || 'Verwerfen') + '">' +
-                '✗' +
               '</button>';
           }
+          actions +=
+            '<button class="vlm-face-discard-btn" ' +
+              'data-source="' + escapeHtml(sid) + '" ' +
+              'data-item-id="' + item._id + '" ' +
+              'title="' + escapeHtml(item.discard_label || 'Verwerfen') + '">' +
+              '✗' +
+            '</button>';
           return '<div class="vlm-line vlm-face-line" data-item-id="' +
                  item._id + '">' +
                  thumb + dot +
