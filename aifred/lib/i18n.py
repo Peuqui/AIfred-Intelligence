@@ -346,6 +346,8 @@ class TranslationManager:
             "vision_settings_model_label": "VLM-Modell",
             "vision_settings_model_help": "Vision-Modell für Webcam, Watch-Mode und Side-Channel beim Chat-Bild-Upload. Aus Ollama-Discovery — neue Modelle erscheinen nach 'ollama pull'.",
             "vision_settings_rescan_tooltip": "Ollama-Modelle neu scannen",
+            "vision_settings_verbose_label": "Debug-Ausgabe ausführlich",
+            "vision_settings_verbose_help": "Wenn aktiv: VLM-Statistiken (TTFT, Tokens/s, Inferenzzeit) und der rohe VLM-Antworttext landen in der Debug-Konsole. Praktisch zum Vergleichen ob die VLM-Beschreibung selbst oder erst AIfred's Übersetzung Fehler enthält.",
             "vision_settings_close": "Schließen",
 
             # Vision Live-Preview Modal
@@ -867,6 +869,8 @@ class TranslationManager:
             "crop_modal_hint": "Drag corners or edges",
 
             # Vision Plugin Settings Modal
+            "vision_settings_verbose_label": "Verbose debug output",
+            "vision_settings_verbose_help": "When on: VLM statistics (TTFT, tokens/sec, inference time) and the raw VLM answer text are written to the debug console. Useful for comparing whether the VLM description itself is wrong, or AIfred's translation of it.",
             "vision_settings_title": "Image & Video — Settings",
             "vision_settings_subtitle": "Vision pipeline configuration (webcam, watch mode, side-channel).",
             "vision_settings_mode_label": "Mode",

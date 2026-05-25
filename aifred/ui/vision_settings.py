@@ -67,6 +67,26 @@ def _model_section() -> rx.Component:
     )
 
 
+def _verbose_section() -> rx.Component:
+    return rx.hstack(
+        rx.vstack(
+            rx.text(t("vision_settings_verbose_label"), font_weight="bold", size="3"),
+            rx.text(t("vision_settings_verbose_help"), color="gray", size="1"),
+            spacing="1",
+            align="start",
+            style={"flex": "1"},
+        ),
+        rx.switch(
+            checked=AIState.vision_verbose_logging,
+            on_change=AIState.set_vision_verbose_logging,
+            size="2",
+        ),
+        spacing="3",
+        align="center",
+        width="100%",
+    )
+
+
 def vision_settings_modal() -> rx.Component:
     """Modal globally mounted in aifred.py. Visible only when
     ``AIState.vision_settings_open`` is True. Closes on backdrop click or
@@ -117,6 +137,8 @@ def vision_settings_modal() -> rx.Component:
                     _mode_section(),
                     rx.divider(),
                     _model_section(),
+                    rx.divider(),
+                    _verbose_section(),
                     rx.divider(),
                     rx.button(
                         t("vision_settings_close"),

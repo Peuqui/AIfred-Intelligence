@@ -59,6 +59,14 @@ class WatchConfig:
     min_event_interval_sec: float = 5.0
     save_event_frames: bool = True
     run_face_detect_on_motion: bool = True
+    # ── VLM-Analyse pro Motion-Event ─────────────────────────────────
+    # Wenn aktiviert, wird das Motion-Frame zusätzlich an die VLM gegeben
+    # und der beschreibende Text als ``vlm_analysis``-Event ins Store
+    # geschrieben. Das ist der Mechanismus, der das Teleprompter-Feld
+    # im Live-Preview-Popup mit Inhalt füllt.
+    run_vlm_on_motion: bool = False
+    vlm_prompt: str = ""           # Override für default_prompt aus settings.json
+    vlm_cooldown_sec: float = 10.0  # Mindestabstand zwischen VLM-Calls
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -100,6 +108,9 @@ class VisionWatcher:
         self._configs: dict[str, WatchConfig] = {}
         self._statuses: dict[str, WatchStatus] = {}
         self._lock = Lock()
+        # Per-source timestamp of the last VLM call; used to throttle
+        # so we don't fire vlm_cooldown_sec → see _maybe_run_vlm.
+        self._last_vlm_at: dict[str, datetime] = {}
 
     # ── Public API ────────────────────────────────────────────────
 
