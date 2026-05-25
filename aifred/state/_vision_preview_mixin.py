@@ -133,9 +133,23 @@ class VisionPreviewMixin(rx.State, mixin=True):
     def open_vision_preview(self) -> Any:
         """Triggered by the camera button in the input row — opens a real
         OS window via ``window.open()``. The popup page itself initializes
-        its state from ``on_load_vision_preview``."""
+        its state from ``on_load_vision_preview``.
+
+        Re-clicking the same button reuses the existing window because
+        we pass a fixed ``windowName`` ("aifred-cam"); the browser
+        focuses the open window instead of spawning a duplicate.
+
+        URL is built from the ``frontend_path`` config (env-var
+        ``AIFRED_FRONTEND_PATH`` — default ``""``). Reflex auto-mounts
+        all rx.page routes under that prefix, but window.open() is raw
+        JS and must use the prefixed URL or it hits a 404.
+        """
+        import os
+        # Read the frontend_path same way rxconfig.py does — single source.
+        prefix = (os.getenv("AIFRED_FRONTEND_PATH", "") or "").strip("/")
+        url = f"/{prefix}/vision-preview-popup" if prefix else "/vision-preview-popup"
         return rx.call_script(
-            "window.open('/vision-preview-popup','aifred-cam',"
+            f"window.open('{url}','aifred-cam',"
             "'popup=yes,width=900,height=820,left=180,top=100,"
             "menubar=no,toolbar=no,location=no,status=no')"
         )
