@@ -91,9 +91,14 @@ class VisionPreviewMixin(rx.State, mixin=True):
             entries: list[dict[str, Any]] = []
             for src in list_all():
                 info = src.info()
+                base_label = info.display_name or info.source_id
+                # Pre-format the label with an availability marker — Reflex
+                # Vars can't be string-concatenated in render functions, so
+                # we build the final display string here in pure Python.
+                display = base_label if info.available else f"{base_label}  ✗"
                 entries.append({
                     "id": info.source_id,
-                    "label": info.display_name or info.source_id,
+                    "label": display,
                     "available": bool(info.available),
                 })
             self.vision_preview_sources = entries
