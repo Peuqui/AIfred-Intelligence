@@ -92,6 +92,21 @@ async def calibrate_llamacpp_model(
         yield "__RESULT__:0:0:error"
         return
 
+    # ── Pre-warm Vision-LLM if configured ───────────────────────────
+    # Loading the VLM into VRAM before the GPU probe makes the
+    # ``nvidia-smi memory.free`` read in ``enumerate_gpus()`` see the
+    # real footprint of the always-on side-channel. The main-LLM
+    # calibration below then plans automatically around it — no
+    # separate reservation table needed. A failed pre-warm is non-fatal
+    # (caller logs, calibration continues with whatever VRAM is free).
+    from ..vision_prewarm import is_vision_active, prewarm_vlm
+    if is_vision_active():
+        yield "Pre-warming Vision-LLM (so calibration sees its VRAM footprint)..."
+        if await prewarm_vlm():
+            yield "✓ Vision-LLM loaded"
+        else:
+            yield "⚠ Vision-LLM pre-warm failed — main calibration may plan into VLM-allocated VRAM"
+
     await kill_orphan_on_port(port)
     yield "Waiting for VRAM to stabilize..."
     await wait_for_vram_stable(max_wait_seconds=15.0)
