@@ -54,6 +54,14 @@ _pending_responses: dict[str, asyncio.Future] = {}
 # directly after wake detection, and a new wake overwrites or clears this.
 _pending_wake_agent: dict[str, str] = {}
 
+# Aktive Audio-Pipeline-Task pro Room. Der WebSocket-Reader startet
+# _handle_audio() als Background-Task und legt die Referenz hier ab, sodass
+# der Reader weiterhin Text-Frames (insbesondere "wake _stop") empfangen kann
+# waehrend STT/LLM/TTS laeuft. _handle_command_token cancelt dieses Task
+# direkt — fuer die Phase BEVOR process_inbound() sich im pipeline_registry
+# registriert (STT, TTS-Engine-Setup) gibt es sonst keinen Cancel-Hook.
+_pipeline_tasks: dict[str, asyncio.Task] = {}
+
 # WebSocket server port
 _DEFAULT_PORT = 9777
 _DEFAULT_PATH = "/ws/freeecho2"
@@ -216,8 +224,25 @@ class FreeEchoChannel(BaseChannel):
                         pass
 
                 elif msg.type == WSMsgType.BINARY:
-                    # Audio data from device
-                    await self._handle_audio(ws, msg.data, room)
+                    # Audio-Pipeline in eigene Task auslagern, sonst blockiert
+                    # der lange STT/LLM/TTS-Lauf den async-for-Reader und
+                    # ein nachfolgender "wake _stop"-Frame liegt im aiohttp-
+                    # Queue bis die Pipeline schon durch ist (= Action-Button
+                    # auf dem Puck wirkt nicht). Per-Room-Slot mit
+                    # newest-wins-Supersession: falls noch eine alte Pipeline
+                    # laeuft (sollte nicht, der Puck schickt sequenziell)
+                    # wird die zuerst gecancelt.
+                    previous = _pipeline_tasks.get(room)
+                    if previous is not None and not previous.done():
+                        previous.cancel()
+                    task = asyncio.create_task(
+                        self._handle_audio(ws, msg.data, room)
+                    )
+                    _pipeline_tasks[room] = task
+                    task.add_done_callback(
+                        lambda t, r=room: _pipeline_tasks.pop(r, None)
+                        if _pipeline_tasks.get(r) is t else None
+                    )
 
                 elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
                     break
@@ -225,6 +250,11 @@ class FreeEchoChannel(BaseChannel):
         except Exception as e:
             self.channel_log(f"WebSocket error ({room}): {e}", "error")
         finally:
+            # Laufende Pipeline beim Disconnect canceln — sonst spielt
+            # der Server noch TTS in einen toten Socket.
+            task = _pipeline_tasks.get(room)
+            if task is not None and not task.done():
+                task.cancel()
             if room in _devices and _devices[room] is ws:
                 del _devices[room]
             self.channel_log(f"FreeEcho.2 disconnected: room={room}")
@@ -526,7 +556,17 @@ class FreeEchoChannel(BaseChannel):
         from ....lib import audio_channels
 
         target_id = f"freeecho2:{room}"
-        cancelled = self._cancel_pipeline_for_room(room)
+        # Erst direkt die _handle_audio-Task canceln. Das deckt die Phase
+        # vor process_inbound ab (STT, TTS-Engine-Setup), in der
+        # cancel_pipeline_for_room nichts findet weil pipeline_scope noch
+        # nicht aktiv ist. CancelledError propagiert durch alle await's
+        # bis ins finally-Cleanup von _handle_audio.
+        task = _pipeline_tasks.get(room)
+        task_cancelled = False
+        if task is not None and not task.done():
+            task.cancel()
+            task_cancelled = True
+        cancelled = self._cancel_pipeline_for_room(room) or task_cancelled
 
         stopped = False
         channel = audio_channels.resolve(target_id)
