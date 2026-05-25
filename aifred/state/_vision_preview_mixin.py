@@ -50,6 +50,18 @@ _RESOLUTION_LABELS: dict[tuple[int, int], str] = {
 }
 
 
+def _label_from(entry: dict[str, Any], alias: str) -> str:
+    """Recompute a source-list label given a fresh alias. Used by the
+    alias-setter to keep the label in sync without re-running the full
+    _refresh_sources cycle.
+
+    Pattern matches what _refresh_sources writes: alias if set, else
+    the hardware display name, suffixed with ``✗`` for unavailable cams.
+    """
+    base = alias or str(entry.get("hardware_name") or entry.get("label") or entry["id"])
+    return base if entry.get("available") else f"{base}  ✗"
+
+
 def _build_resolution_options(src: Any, available: bool) -> list[dict[str, str]]:
     """Compose the per-source dropdown options.
 
@@ -220,6 +232,23 @@ class VisionPreviewMixin(rx.State, mixin=True):
         self.vision_preview_cache_buster += 1
 
     @rx.event
+    def set_vision_preview_alias(self, source_id: str, value: str) -> None:
+        """User-given camera name. Persists to vision_store.sources.settings.alias.
+        Empty string clears the alias and the source falls back to its
+        hardware display name."""
+        if not source_id:
+            return
+        new_alias = value.strip() if isinstance(value, str) else ""
+        self.vision_preview_sources = [
+            {**e, "alias": new_alias, "label": _label_from(e, new_alias)}
+            if e["id"] == source_id else e
+            for e in self.vision_preview_sources
+        ]
+        self._persist_source_alias(source_id, new_alias)
+        # No cache-buster bump — the image URL doesn't change with the
+        # alias, only the label/overlay does.
+
+    @rx.event
     def set_vision_preview_resolution(self, source_id: str, value: str) -> None:
         """Persist the resolution choice for a single source. ``value`` is
         either ``"default"`` or ``"WIDTHxHEIGHT"`` (from the dropdown).
@@ -331,17 +360,38 @@ class VisionPreviewMixin(rx.State, mixin=True):
             logger.warning("vision-preview resolution load failed: %s", e)
         self.vision_preview_resolutions = new_resolutions
 
+        # Load persisted aliases the same way as resolutions.
+        try:
+            from ..lib.vision_store import VisionStore
+            store = VisionStore()
+            stored_aliases: dict[str, str] = {}
+            for src in sources_raw:
+                sid = src.source_id
+                stored = store.get_source(sid)
+                if stored:
+                    a = (stored.get("settings") or {}).get("alias")
+                    if isinstance(a, str) and a.strip():
+                        stored_aliases[sid] = a.strip()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vision-preview alias load failed: %s", e)
+            stored_aliases = {}
+
         # Build the source list with current resolution + per-source
         # resolution options baked into each entry.
         entries: list[dict[str, Any]] = []
         for src in sources_raw:
             src_info = src.info()
-            base_label = src_info.display_name or src_info.source_id
+            hardware_name = src_info.display_name or src_info.source_id
+            alias = stored_aliases.get(src_info.source_id, "")
+            # Label = alias if set, else hardware name; with availability marker.
+            base_label = alias or hardware_name
             display = base_label if src_info.available else f"{base_label}  ✗"
             options = _build_resolution_options(src, src_info.available)
             entries.append({
                 "id": src_info.source_id,
                 "label": display,
+                "alias": alias,
+                "hardware_name": hardware_name,
                 "available": bool(src_info.available),
                 "resolution": new_resolutions.get(src_info.source_id, "default"),
                 "resolution_options": options,
@@ -394,6 +444,40 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 json.dump(data, f, indent=2)
         except Exception as e:  # noqa: BLE001
             logger.warning("vision-preview fps persist failed: %s", e)
+
+    def _persist_source_alias(self, source_id: str, alias: str) -> None:
+        """Write the per-source user alias to vision_store.sources.settings.alias.
+        Empty string removes the alias (source falls back to hardware name)."""
+        try:
+            from ..lib.frame_sources import get as get_source
+            from ..lib.vision_store import VisionStore
+            store = VisionStore()
+            src = get_source(source_id)
+            existing = store.get_source(source_id)
+            display_name = existing.get("display_name") if existing else (
+                src.display_name if src else source_id
+            )
+            kind = existing.get("kind") if existing else (
+                src.kind if src else "webcam"
+            )
+            settings = dict(existing.get("settings", {})) if existing else {}
+            if alias:
+                settings["alias"] = alias
+            else:
+                settings.pop("alias", None)
+            store.upsert_source(
+                source_id=source_id,
+                display_name=str(display_name or source_id),
+                kind=str(kind or "webcam"),
+                prompt_context=str(existing.get("prompt_context", "")) if existing else "",
+                position=str(existing.get("position", "")) if existing else "",
+                auto_start=bool(existing.get("auto_start", False)) if existing else False,
+                sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
+                settings=settings,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vision-preview alias persist failed: %s", e)
+            self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
 
     def _persist_source_resolution(self, source_id: str, resolution: str) -> None:
         """Write the per-source resolution choice to vision_store.sources."""

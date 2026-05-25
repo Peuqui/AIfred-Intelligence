@@ -64,10 +64,15 @@ def _header_row() -> rx.Component:
 
 
 def _source_row(source: rx.Var) -> rx.Component:
-    """One row in the source list: toggle + name + per-source resolution.
+    """One row in the source list — the per-cam manager.
 
-    ``source`` is a foreach item — dict Var with keys ``id``, ``label``,
-    ``available``, ``resolution`` (pre-computed in _refresh_sources).
+    Layout: visibility-switch + editable alias-input + (hardware-name as
+    placeholder/tooltip) + resolution-dropdown. The alias is what the
+    user types ("Türkamera"); empty → falls back to hardware name.
+    On blur the new alias gets persisted into vision_store via
+    ``set_vision_preview_alias`` — tools then pick it up immediately
+    (vision_list_sources returns the alias, the chat-bubble image
+    uses it as the markdown alt-text).
     """
     sid = source["id"]
     return rx.hstack(
@@ -76,7 +81,13 @@ def _source_row(source: rx.Var) -> rx.Component:
             on_change=lambda _checked: AIState.toggle_vision_preview_source(sid),
             size="1",
         ),
-        rx.text(source["label"], size="2", style={"flex": "1", "min_width": "0"}),
+        rx.input(
+            default_value=source["alias"].to(str),
+            placeholder=source["hardware_name"].to(str),
+            on_blur=lambda v: AIState.set_vision_preview_alias(sid, v),
+            size="2",
+            style={"flex": "1", "min_width": "0"},
+        ),
         rx.select.root(
             rx.select.trigger(),
             rx.select.content(
@@ -106,19 +117,17 @@ def _source_list() -> rx.Component:
 def _image_tile(entry: rx.Var) -> rx.Component:
     """One image in the grid — ``entry`` is {id, label, image_url}.
 
-    Layout-wise the tile is a flex column where the image fills the
-    remaining vertical space and shrinks proportionally with ``object-
-    fit: contain`` so neither dimension creates a scrollbar in the
-    popup window.
+    Layout: a relative-positioned flex column. The image fills the
+    remaining vertical space (``object-fit: contain`` keeps the aspect
+    ratio without scrollbars). The camera label sits ON TOP of the
+    image as a semi-transparent overlay — client-side only, the JPEG
+    bytes stay clean so the VLM doesn't accidentally describe the
+    text in the picture.
     """
     return rx.box(
-        rx.text(
-            entry["label"], size="1", color="gray", weight="bold",
-            style={"flex_shrink": "0"},
-        ),
         rx.image(
             src=entry["image_url"],
-            alt="Live preview",
+            alt=entry["label"],
             border_radius="8px",
             background_color="#111",
             style={
@@ -131,10 +140,33 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                 "flex": "1 1 auto",
             },
         ),
+        # Label overlay — sits at top-left of the image. pointer-events:
+        # none so it doesn't intercept clicks if anything below it is
+        # interactive later. Semi-transparent black background with
+        # white text reads on any image content.
+        rx.box(
+            entry["label"],
+            style={
+                "position": "absolute",
+                "top": "0.5em",
+                "left": "0.5em",
+                "padding": "2px 8px",
+                "background_color": "rgba(0, 0, 0, 0.65)",
+                "color": "#fff",
+                "font_size": "0.85em",
+                "font_weight": "bold",
+                "border_radius": "4px",
+                "pointer_events": "none",
+                "max_width": "calc(100% - 1em)",
+                "overflow": "hidden",
+                "text_overflow": "ellipsis",
+                "white_space": "nowrap",
+            },
+        ),
         style={
+            "position": "relative",
             "display": "flex",
             "flex_direction": "column",
-            "gap": "0.25em",
             "min_height": "0",
             "flex": "1 1 auto",
             "width": "100%",
