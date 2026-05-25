@@ -33,7 +33,25 @@ _V4L2_SYSFS = Path("/sys/class/video4linux")
 _WARMUP_FRAMES = 3
 
 # JPEG-Qualität für encodeJPEG. 90 ist guter Default (klein + visuell ok).
+# Wird nur bei nicht-MJPEG-Cams gebraucht — bei nativem MJPEG-Output
+# (FOURCC=JPEG/MJPG) reichen wir den unveränderten Bytestream durch.
 _JPEG_QUALITY = 90
+
+# FOURCC-Codes der Cams die nativ schon MJPEG liefern — dann reichen
+# wir die Bytes 1:1 durch ans Frontend (kein Decode→Reencode).
+_NATIVE_JPEG_FOURCCS = frozenset({"JPEG", "MJPG"})
+
+
+def _fourcc_str(cap: cv2.VideoCapture) -> str:
+    """Lies das aktuelle Pixel-Format als 4-char string, z.B. ``"JPEG"``,
+    ``"MJPG"``, ``"YUYV"``."""
+    code = int(cap.get(cv2.CAP_PROP_FOURCC))
+    return (
+        chr(code & 0xFF)
+        + chr((code >> 8) & 0xFF)
+        + chr((code >> 16) & 0xFF)
+        + chr((code >> 24) & 0xFF)
+    )
 
 
 def _resolve_usb_product_name(sysfs_entry: Path) -> str | None:
@@ -141,11 +159,65 @@ class V4L2Source:
         self.source_id = f"cam/v4l2_{index}"
         self.display_name = display_name
         self._lock = asyncio.Lock()
+        # Lazy-cached list of (width, height) modes the driver actually
+        # honoured during probe. ``None`` = not yet detected.
+        self._supported_resolutions: list[tuple[int, int]] | None = None
+        # Eviction signal for the currently active stream. A new stream()
+        # call sets this so the old loop exits its yield/sleep cycle and
+        # releases the V4L2 device — needed because the browser's TCP
+        # cleanup on src-change can lag behind, and waiting for the old
+        # generator's CancelledError to arrive naturally makes
+        # resolution/fps switches feel laggy.
+        self._stream_stop: asyncio.Event | None = None
 
     # ── Protocol ────────────────────────────────────────────────────
 
     def is_available(self) -> bool:
         return _can_capture(self.index)
+
+    def detect_resolutions(self) -> list[tuple[int, int]]:
+        """Return the list of (width, height) modes the V4L2 driver honours.
+
+        Probes a fixed set of common webcam resolutions; cv2 silently
+        clamps to its nearest supported mode when an unsupported size is
+        requested, so we compare the reported back-value with the
+        requested one. Result is cached on the instance — call once per
+        process per source.
+
+        Returns an empty list if the device can't be opened (e.g. cam
+        disconnected during the probe).
+        """
+        if self._supported_resolutions is not None:
+            return list(self._supported_resolutions)
+        probe_set = [
+            (320, 240),
+            (640, 480),
+            (800, 600),
+            (1024, 768),
+            (1280, 720),
+            (1280, 960),
+            (1600, 1200),
+            (1920, 1080),
+            (2560, 1440),
+            (3840, 2160),
+        ]
+        cap = cv2.VideoCapture(self.index, cv2.CAP_V4L2)
+        try:
+            if not cap.isOpened():
+                self._supported_resolutions = []
+                return []
+            supported: list[tuple[int, int]] = []
+            for w, h in probe_set:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(w))
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(h))
+                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                if (actual_w, actual_h) == (w, h):
+                    supported.append((w, h))
+            self._supported_resolutions = supported
+            return list(supported)
+        finally:
+            cap.release()
 
     def info(self) -> SourceInfo:
         cap = cv2.VideoCapture(self.index, cv2.CAP_V4L2)
@@ -203,11 +275,38 @@ class V4L2Source:
     async def stream(
         self, fps: float = 1.0, *, width: int = 0, height: int = 0
     ) -> AsyncIterator[Frame]:
+        """Stream frames at ``fps``. If another stream is already running
+        on this source, signal it to stop first and wait for it to
+        release the device — otherwise the new consumer would deadlock
+        on ``self._lock`` waiting for the old browser TCP-cleanup.
+
+        Native MJPEG passthrough: if the cam reports FOURCC=JPEG/MJPG,
+        ``CAP_PROP_CONVERT_RGB`` is disabled and ``cap.read()`` returns
+        the raw JPEG bytes — they're forwarded 1:1 without the
+        decode→reencode round-trip. Saves CPU and avoids a second
+        lossy JPEG step.
+        """
         if fps <= 0:
             raise ValueError(f"stream fps must be > 0, got {fps}")
         interval = 1.0 / fps
         sequence_id = str(uuid.uuid4())
+
+        # Evict any active stream on this source.
+        old_stop = self._stream_stop
+        if old_stop is not None:
+            old_stop.set()
+        # Register ourselves as the new active stream BEFORE taking the
+        # lock so concurrent stream() calls see us and trigger the same
+        # eviction dance.
+        my_stop = asyncio.Event()
+        self._stream_stop = my_stop
+
         async with self._lock:
+            # If we got evicted while waiting for the lock (yet another
+            # stream() call came in), bail out cleanly. Whoever set
+            # _stream_stop is now the new owner.
+            if my_stop.is_set():
+                return
             cap = await asyncio.to_thread(cv2.VideoCapture, self.index, cv2.CAP_V4L2)
             try:
                 if not cap.isOpened():
@@ -221,12 +320,25 @@ class V4L2Source:
                     await asyncio.to_thread(
                         cap.set, cv2.CAP_PROP_FRAME_HEIGHT, float(height)
                     )
+                native_jpeg = await asyncio.to_thread(_configure_native_jpeg, cap)
+                # Best-effort: tell the V4L2 driver we only want one
+                # frame queued. Not all drivers honour this, but where
+                # they do it keeps reads close to real-time. Combined
+                # with the grab-drain in the sleep loop below, this
+                # ensures long intervals don't return stale frames.
+                await asyncio.to_thread(cap.set, cv2.CAP_PROP_BUFFERSIZE, 1.0)
+                eff_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                eff_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                logger.info(
+                    "v4l2 stream open: %s @ %dx%d, native_jpeg=%s",
+                    self.source_id, eff_w, eff_h, native_jpeg,
+                )
                 for _ in range(_WARMUP_FRAMES):
                     await asyncio.to_thread(cap.read)
                 frame_idx = 0
-                while True:
+                while not my_stop.is_set():
                     jpeg_bytes, w, h = await asyncio.to_thread(
-                        _read_and_encode, cap
+                        _read_frame, cap, native_jpeg, eff_w, eff_h
                     )
                     yield Frame(
                         source_id=self.source_id,
@@ -242,34 +354,127 @@ class V4L2Source:
                         },
                     )
                     frame_idx += 1
-                    await asyncio.sleep(interval)
+                    # Drain-sleep: instead of plain asyncio.sleep, we
+                    # periodically issue cap.grab() during the wait to
+                    # consume frames that the driver buffers behind our
+                    # back. Without this, a 2-second interval would
+                    # show a frame that's almost 2 seconds old, because
+                    # cap.read() returns whatever is at the head of the
+                    # driver's FIFO. Wakes up immediately if evicted.
+                    if not await _drain_sleep(cap, interval, my_stop):
+                        break
             finally:
                 await asyncio.to_thread(cap.release)
+                if self._stream_stop is my_stop:
+                    self._stream_stop = None
 
     # ── Internals ──────────────────────────────────────────────────
 
-    def _capture_single(self) -> tuple[bytes, int, int]:
-        """Sync: open → warmup → read → encode → close. Über
-        ``asyncio.to_thread()`` aufgerufen, damit es den Event-Loop
-        nicht blockiert."""
+    def _capture_single(self, width: int = 0, height: int = 0) -> tuple[bytes, int, int]:
+        """Sync: open → set resolution → warmup → read → encode → close.
+        Über ``asyncio.to_thread()`` aufgerufen, damit es den Event-Loop
+        nicht blockiert. ``width``/``height``=0 bedeutet "Treiber-Default".
+        Nutzt native MJPEG passthrough wenn die Cam das anbietet."""
         cap = cv2.VideoCapture(self.index, cv2.CAP_V4L2)
         try:
             if not cap.isOpened():
                 raise RuntimeError(
                     f"Cannot open {self.source_id} (/dev/video{self.index})"
                 )
+            if width > 0 and height > 0:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(width))
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(height))
+            native_jpeg = _configure_native_jpeg(cap)
+            eff_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            eff_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             for _ in range(_WARMUP_FRAMES):
                 cap.read()
-            return _read_and_encode(cap)
+            return _read_frame(cap, native_jpeg, eff_w, eff_h)
         finally:
             cap.release()
 
 
-def _read_and_encode(cap: cv2.VideoCapture) -> tuple[bytes, int, int]:
-    """Read one frame from an already-opened capture and JPEG-encode it."""
+async def _drain_sleep(
+    cap: cv2.VideoCapture, interval: float, stop_event: asyncio.Event
+) -> bool:
+    """Wait ``interval`` seconds while continuously draining the driver
+    frame buffer so the next ``cap.read()`` returns a fresh frame.
+
+    Without draining, a 2-second interval gives you the frame at the
+    head of the driver FIFO — which can be 100-200 ms old at 30 fps,
+    not the one captured the instant we read.
+
+    Returns False if the stream was evicted (caller should exit the
+    yield loop), True if the full interval elapsed normally.
+
+    ``cap.grab()`` is cheaper than ``cap.read()`` — it captures from
+    the device into the next buffer slot but skips decode. We grab
+    roughly once per native frame period (~33 ms at 30 fps) so the
+    ring stays empty.
+    """
+    grab_period = 0.033  # ~30 fps native cam rate
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + interval
+    while not stop_event.is_set():
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return True
+        if remaining > grab_period:
+            await asyncio.to_thread(cap.grab)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=grab_period)
+                return False  # evicted mid-sleep
+            except asyncio.TimeoutError:
+                pass
+        else:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=remaining)
+                return False
+            except asyncio.TimeoutError:
+                return True
+    return False
+
+
+def _configure_native_jpeg(cap: cv2.VideoCapture) -> bool:
+    """Aktiviere native MJPEG passthrough wenn die Cam das anbietet.
+
+    Setzt ``CAP_PROP_CONVERT_RGB=0``, sodass ``cap.read()`` die rohen
+    JPEG-Bytes als 1D-ndarray liefert statt sie zu BGR zu dekodieren.
+    Spart einen Decode-Encode-Cycle pro Frame und vermeidet einen
+    zweiten lossy JPEG-Step.
+
+    Returns True wenn passthrough aktiv ist, False wenn die Cam
+    ein Nicht-JPEG-Format liefert (dann muss der Reader klassisch
+    decoden + reencoden).
+    """
+    fcc = _fourcc_str(cap).strip().upper()
+    if fcc not in _NATIVE_JPEG_FOURCCS:
+        return False
+    # 0.0 disables the implicit decode-to-RGB step in cv2's V4L2 backend.
+    ok = cap.set(cv2.CAP_PROP_CONVERT_RGB, 0.0)
+    if not ok:
+        # Some drivers don't honour the property — fall back gracefully.
+        return False
+    return True
+
+
+def _read_frame(
+    cap: cv2.VideoCapture, native_jpeg: bool, fallback_w: int, fallback_h: int
+) -> tuple[bytes, int, int]:
+    """Read + (maybe) encode one frame from an already-opened capture.
+
+    With ``native_jpeg=True`` we trust the driver to deliver pre-encoded
+    MJPEG bytes and forward them as-is — width/height come from
+    ``CAP_PROP_FRAME_WIDTH/HEIGHT`` since the 1D byte ndarray doesn't
+    carry image dimensions. With ``native_jpeg=False`` (YUYV cams etc.)
+    we decode-then-encode like before.
+    """
     ok, raw = cap.read()
     if not ok or raw is None:
         raise RuntimeError("Failed to read frame from capture")
+    if native_jpeg:
+        # raw is a 1D ndarray of uint8 containing the MJPEG bytestream.
+        return bytes(raw), fallback_w, fallback_h
     h, w = raw.shape[:2]
     ok_enc, buf = cv2.imencode(".jpg", raw, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY])
     if not ok_enc:
