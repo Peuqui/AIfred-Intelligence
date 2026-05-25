@@ -122,6 +122,15 @@ console.log('[AIfred-VLM] script file fetched + parsed');
 
     scan();
     setInterval(scan, 2000);
+
+    // Globaler Clear-Handler — wird vom „Leeren"-Button im Teleprompter-
+    // Header per rx.call_script aufgerufen. Leert den Zeilen-Buffer
+    // einer source und re-rendert leer (zeigt den idle-Text wieder).
+    window.clearVlmTeleprompter = function (sid) {
+      if (!sid) return;
+      lines[sid] = [];
+      render(sid);
+    };
   }
 
   if (document.readyState === 'loading') {

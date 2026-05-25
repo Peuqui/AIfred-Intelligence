@@ -234,15 +234,16 @@ def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
     el.scrollHeight`` direkt auf dieses Element, der äußere Container
     darf nicht scrollen, sonst rennt der Auto-Scroll ins Leere.
 
-    ``pointer_events: auto`` nur am Scroll-Element selbst, der
+    ``pointer_events: auto`` nur am Scroll-Element + Clear-Button, der
     transparente Wrapper drumherum bleibt durchklick-freundlich für
     das darunter liegende Bild.
     """
+    sid = entry["id"]
     return rx.box(
         rx.box(
             t("vision_preview_teleprompter_idle"),
             class_name="vlm-event-target vlm-event-overlay",
-            custom_attrs={"data-vlm-source": entry["id"]},
+            custom_attrs={"data-vlm-source": sid},
             style={
                 "color": "rgba(255, 255, 255, 0.88)",
                 "font_style": "italic",
@@ -256,6 +257,27 @@ def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
                 "border_radius": "6px",
                 "pointer_events": "auto",
                 "box_sizing": "border-box",
+            },
+        ),
+        # Clear-Button oben rechts auf dem Overlay — analog zum
+        # ``_teleprompter_below``-Header, nur dezent als floating
+        # Icon. ``pointer_events: auto`` damit er klickbar ist trotz
+        # ``pointer_events: none`` am Wrapper.
+        rx.icon_button(
+            # AIfred-Orange — gleiches Pattern wie im below-Header.
+            rx.icon("eraser", size=12, color="#e67700"),
+            on_click=AIState.clear_vlm_teleprompter(sid),
+            size="1",
+            variant="soft",
+            color_scheme="gray",
+            title=t("vision_preview_teleprompter_clear"),
+            style={
+                "position": "absolute",
+                "top": "0.25em",
+                "right": "0.25em",
+                "pointer_events": "auto",
+                "background_color": "rgba(0, 0, 0, 0.6)",
+                "opacity": "0.85",
             },
         ),
         style={
@@ -273,10 +295,29 @@ def _teleprompter_below(entry: rx.Var) -> rx.Component:
     """Full-width block below the image. Same data-vlm-source hook
     as the overlay variant so the script attaches an EventSource
     regardless of which layout the user picked."""
+    sid = entry["id"]
     return rx.box(
-        rx.text(
-            t("vision_preview_teleprompter_label"),
-            size="1", color="gray", weight="bold",
+        # Header-Zeile: Label + Clear-Button (rechts).
+        rx.hstack(
+            rx.text(
+                t("vision_preview_teleprompter_label"),
+                size="1", color="gray", weight="bold",
+            ),
+            rx.spacer(),
+            rx.icon_button(
+                # AIfred-Orange aus theme.py (primary #e67700) — der
+                # User-Brand-Akzent zieht den Klick-Punkt ins Auge,
+                # ohne den Button selbst voll-orange einzufärben.
+                rx.icon("eraser", size=12, color="#e67700"),
+                on_click=AIState.clear_vlm_teleprompter(sid),
+                size="1",
+                variant="ghost",
+                color_scheme="gray",
+                title=t("vision_preview_teleprompter_clear"),
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
             style={"margin_bottom": "0.25em"},
         ),
         rx.box(

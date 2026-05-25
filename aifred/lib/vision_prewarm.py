@@ -160,3 +160,41 @@ def prewarm_vlm_sync(**kwargs: Any) -> bool:
     """Synchronous wrapper for callers that aren't in an asyncio context
     (e.g. the calibration script). Spins up a private event loop."""
     return asyncio.run(prewarm_vlm(**kwargs))
+
+
+async def unload_vlm_model(model: str, host: str | None = None) -> bool:
+    """Aus dem Ollama-VRAM entfernen. Wird beim Modell-Wechsel im
+    Settings-/Popup-Header gerufen, damit das alte Modell nicht
+    parallel zum neuen geladen bleibt.
+
+    Mechanismus: gleicher generate-Call wie beim Pre-Warm, aber mit
+    ``keep_alive=0`` — Ollama lädt das Modell sofort aus.
+    """
+    if not model:
+        return False
+    try:
+        from ollama import AsyncClient
+    except ImportError as e:
+        logger.error("unload_vlm_model: ollama python client missing: %s", e)
+        return False
+    from .config import resolve_vlm_host
+    effective_host = host or resolve_vlm_host()
+    client = AsyncClient(host=effective_host)
+    logger.info("unload_vlm_model: dropping model=%s from VRAM", model)
+    try:
+        await asyncio.wait_for(
+            client.generate(
+                model=str(model),
+                prompt="",
+                keep_alive=0,
+                stream=False,
+            ),
+            timeout=10.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("unload_vlm_model: timeout while unloading %s", model)
+        return False
+    except Exception as e:  # noqa: BLE001
+        logger.warning("unload_vlm_model: ollama call failed: %s", e)
+        return False
+    return True
