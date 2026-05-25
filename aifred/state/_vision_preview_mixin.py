@@ -316,16 +316,68 @@ class VisionPreviewMixin(rx.State, mixin=True):
         )
 
     @rx.event
-    def on_load_vision_preview(self) -> None:
+    def on_load_vision_preview(self) -> Any:
         """Page-load handler for the popup window — populates the source
         list, loads persisted per-source resolutions + global FPS, picks
-        a sensible default visible-set. SSE manager is wired up via the
-        asset-script in the page itself, not from here."""
+        a sensible default visible-set, injiziert den VLM-SSE-Manager
+        und schreibt die persistierten Briefings via JS in die
+        Textareas.
+
+        Zwei JS-Tasks:
+
+        * SSE-Manager-Injection: ``rx.script(src=…)`` und
+          ``rx.el.script(src=…)`` in Reflex-0.8-Lazy-Bundles landen im
+          virtuellen DOM und werden vom Browser nicht ausgeführt
+          (React-DOM-Restriktion). Daher hängen wir den Tag dynamisch
+          ans ``<head>``.
+        * Briefing-Initial-Set: Reflex propagiert weder ``value=``
+          noch ``default_value=`` aus rx.foreach-entries auf das
+          Radix-TextArea. Wir suchen per ``data-vlm-briefing-source``
+          und schreiben den State-Wert direkt ins DOM.
+        """
+        import json as _json
+
         from ..lib.logging_utils import log_message
         log_message("🎬 on_load_vision_preview firing")
         self._load_preview_fps()
         self._refresh_sources()
         self.vision_preview_cache_buster += 1
+        briefings_map = {
+            str(e["id"]): str(e.get("prompt_context", ""))
+            for e in self.vision_preview_sources
+        }
+        briefings_json = _json.dumps(briefings_map)
+        return rx.call_script(
+            "(function(){"
+            # SSE-Manager idempotent injecten
+            "if (!window.__aifredVLMSSEInjected) {"
+            "  window.__aifredVLMSSEInjected = true;"
+            "  var s = document.createElement('script');"
+            "  s.src = '/vlm_sse_manager.js?v=3';"
+            "  s.async = true;"
+            "  document.head.appendChild(s);"
+            "  console.log('[AIfred-VLM] injected script tag');"
+            "}"
+            # Briefings ins DOM schreiben — polling, weil die Textareas
+            # erst nach Reflex-Hydration im DOM erscheinen.
+            f"var briefings = {briefings_json};"
+            "var attempts = 0;"
+            "var iv = setInterval(function(){"
+            "  attempts++;"
+            "  var allWritten = true;"
+            "  Object.keys(briefings).forEach(function(sid){"
+            "    var sel = 'textarea[data-vlm-briefing-source=\"' + sid + '\"]';"
+            "    var el = document.querySelector(sel);"
+            "    if (!el) { allWritten = false; return; }"
+            "    if (el.dataset.briefingInitialized) return;"
+            "    el.value = briefings[sid] || '';"
+            "    el.dataset.briefingInitialized = '1';"
+            "    console.log('[AIfred-VLM] briefing set for', sid);"
+            "  });"
+            "  if (allWritten || attempts > 40) clearInterval(iv);"
+            "}, 100);"
+            "})();"
+        )
 
     @rx.event
     def toggle_vision_preview_source(self, source_id: str) -> None:

@@ -92,14 +92,55 @@ def _header_row() -> rx.Component:
     )
 
 
+# Stil-Spiegel zum Aufnahme-Button im Haupt-Input (input_sections.py).
+# Idle: outline-grün. Aktiv: gefüllt-rot (Stop-Signal). Beide Varianten
+# als separate rx.button via rx.cond — Reflex 0.8 propagiert rx.cond
+# auf einzelnen Properties nicht zuverlässig.
+_WATCH_BTN_IDLE_STYLE = {
+    "background": "rgba(0, 80, 30, 0.4)",
+    "color": "#3fb950",
+    "border_color": "#3fb950",
+    "cursor": "pointer",
+}
+_WATCH_BTN_ACTIVE_STYLE = {
+    "background": "#dc2626",
+    "color": "white",
+    "border_color": "#dc2626",
+    "cursor": "pointer",
+}
+
+
+def _watch_button(sid: rx.Var) -> rx.Component:
+    """Watch-Toggle als richtiger Button (grün → rot) — wie der
+    Aufnahme-Button im Hauptfenster.
+    """
+    is_watching = AIState.vision_preview_watching.contains(sid)
+    return rx.cond(
+        is_watching,
+        rx.button(
+            rx.icon("circle-stop", size=14),
+            rx.text(t("vision_preview_watch_stop"), font_size="13px"),
+            on_click=AIState.toggle_vision_preview_watch(sid),
+            size="2",
+            variant="outline",
+            style=_WATCH_BTN_ACTIVE_STYLE,
+        ),
+        rx.button(
+            rx.icon("play", size=14),
+            rx.text(t("vision_preview_watch_start"), font_size="13px"),
+            on_click=AIState.toggle_vision_preview_watch(sid),
+            size="2",
+            variant="outline",
+            style=_WATCH_BTN_IDLE_STYLE,
+        ),
+    )
+
+
 def _source_row(source: rx.Var) -> rx.Component:
     """One row in the source list — the per-cam manager.
 
-    Layout: visibility-switch + editable alias-input + watch-switch +
-    resolution-dropdown (right-aligned). Watch ist ein normaler rx.switch
-    — der Button-Variante (grün/rot wie Aufnahme) folgt in einem
-    separaten Schritt, sobald wir sicher sind dass rx.cond mit zwei
-    rx.button im Reflex-Compile stabil ist.
+    Layout: visibility-switch + alias-input + watch-button +
+    resolution-dropdown (rechtsbündig).
     """
     sid = source["id"]
     return rx.hstack(
@@ -116,13 +157,7 @@ def _source_row(source: rx.Var) -> rx.Component:
             size="2",
             style={"flex": "0 0 220px", "min_width": "0"},
         ),
-        rx.text(t("vision_preview_watch_label"), size="1", color="gray"),
-        rx.switch(
-            checked=AIState.vision_preview_watching.contains(sid),
-            on_change=lambda _checked: AIState.toggle_vision_preview_watch(sid),
-            size="1",
-            color_scheme="red",
-        ),
+        _watch_button(sid),
         # Spacer schiebt die Auflösung nach rechts ans Zeilenende.
         rx.spacer(),
         rx.select.root(
@@ -178,8 +213,15 @@ def _alias_overlay(entry: rx.Var) -> rx.Component:
 
 def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
     """Subtitle-style overlay at the bottom of the image. The inner
-    div has data-vlm-source so the page-level MutationObserver script
-    can attach an EventSource as soon as the tile is rendered."""
+    .vlm-event-target div both carries the SSE-Hook and is the
+    scroll-container — vlm_sse_manager.js setzt ``el.scrollTop =
+    el.scrollHeight`` direkt auf dieses Element, der äußere Container
+    darf nicht scrollen, sonst rennt der Auto-Scroll ins Leere.
+
+    ``pointer_events: auto`` nur am Scroll-Element selbst, der
+    transparente Wrapper drumherum bleibt durchklick-freundlich für
+    das darunter liegende Bild.
+    """
     return rx.box(
         rx.box(
             t("vision_preview_teleprompter_idle"),
@@ -190,6 +232,13 @@ def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
                 "font_style": "italic",
                 "font_size": "0.85em",
                 "white_space": "pre-wrap",
+                "max_height": "8em",
+                "overflow_y": "auto",
+                "padding": "0.4em 0.6em",
+                "background_color": "rgba(0, 0, 0, 0.55)",
+                "border_radius": "6px",
+                "pointer_events": "auto",
+                "box_sizing": "border-box",
             },
         ),
         style={
@@ -197,11 +246,6 @@ def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
             "bottom": "0.5em",
             "left": "0.5em",
             "right": "0.5em",
-            "padding": "0.4em 0.6em",
-            "background_color": "rgba(0, 0, 0, 0.55)",
-            "border_radius": "6px",
-            "max_height": "30%",
-            "overflow_y": "auto",
             "pointer_events": "none",
             "z_index": "2",
         },
@@ -290,15 +334,16 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     style={"margin_bottom": "0.25em"},
                 ),
                 rx.text_area(
-                    # Controlled component: ``default_value`` würde den
-                    # initialen (leeren) State festschreiben, das spätere
-                    # _refresh_sources-Update käme im DOM nie an. Mit
-                    # ``value=`` reagiert das Feld auf jeden State-Wechsel
-                    # — also auch auf den nachgeladenen prompt_context.
-                    value=entry["prompt_context"],
+                    # Reflex 0.8 propagiert weder ``value=`` noch
+                    # ``default_value=`` aus rx.foreach zuverlässig auf
+                    # die unterliegende Radix-TextArea. Der initiale
+                    # Wert wird daher nach Page-Load via JavaScript
+                    # aus on_load_vision_preview gesetzt (sucht das
+                    # textarea per data-vlm-briefing-source). on_blur
+                    # persistiert wie gehabt.
                     placeholder=t("vision_preview_briefing_placeholder"),
-                    on_change=lambda v: AIState.set_vision_preview_briefing_text(sid, v),
                     on_blur=lambda v: AIState.set_vision_preview_prompt_context(sid, v),
+                    custom_attrs={"data-vlm-briefing-source": sid},
                     size="2",
                     resize="vertical",
                     style={
@@ -387,83 +432,6 @@ def _image_grid() -> rx.Component:
 
 
 
-_VLM_SSE_INLINE = r"""
-console.log('[VLM-SSE-Inline] script tag executed');
-(function () {
-  function boot() {
-    console.log('[VLM-SSE-Inline] boot() running');
-    if (window.__aifredVLMSSEInit) { console.log('[VLM-SSE-Inline] already init'); return; }
-    window.__aifredVLMSSEInit = true;
-    var streams = {};
-    var lines = {};
-    var MAX_LINES = 8;
-    function render(sid) {
-      var items = lines[sid] || [];
-      document.querySelectorAll('.vlm-event-target[data-vlm-source="' + sid + '"]').forEach(function (el) {
-        if (items.length === 0) {
-          if (el.textContent !== (el.dataset.idleText || '')) {
-            el.textContent = el.dataset.idleText || '';
-          }
-          el.style.fontStyle = 'italic';
-          return;
-        }
-        el.style.fontStyle = 'normal';
-        var newText = items.join('\n');
-        if (el.textContent !== newText) {
-          el.textContent = newText;
-          el.scrollTop = el.scrollHeight;
-        }
-      });
-    }
-    function openStream(sid) {
-      if (streams[sid] && streams[sid].readyState !== 2) return;
-      console.log('[VLM-SSE-Inline] opening EventSource for ' + sid);
-      var es = new EventSource('/api/vision/events/' + sid);
-      streams[sid] = es;
-      lines[sid] = lines[sid] || [];
-      es.onmessage = function (ev) {
-        try {
-          var data = JSON.parse(ev.data);
-          var ts = (data.timestamp || '').split('T')[1] || '';
-          var desc = (data.description || '').replace(/\s+/g, ' ').trim();
-          lines[sid].push(ts + '  ' + desc);
-          if (lines[sid].length > MAX_LINES) lines[sid].shift();
-          render(sid);
-        } catch (e) {}
-      };
-    }
-    function scan() {
-      var targets = document.querySelectorAll('.vlm-event-target[data-vlm-source]');
-      var seen = new Set();
-      targets.forEach(function (el) {
-        var sid = el.dataset.vlmSource;
-        if (!sid) return;
-        if (!el.dataset.idleText) el.dataset.idleText = el.textContent;
-        seen.add(sid);
-        openStream(sid);
-        render(sid);
-      });
-      Object.keys(streams).forEach(function (sid) {
-        if (!seen.has(sid) && streams[sid]) { streams[sid].close(); delete streams[sid]; }
-      });
-    }
-    // KEIN MutationObserver — der würde mit unseren eigenen
-    // textContent-Updates eine Endlos-Schleife bilden und das Frontend
-    // einfrieren. Stattdessen alle 2s neu scannen: deckt Toggle
-    // visible/Watch und Resolution-Wechsel ab; reicht völlig weil der
-    // EventSource selbst persistent ist.
-    scan();
-    setInterval(scan, 2000);
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-  }
-})();
-"""
-
-
 def vision_preview_page() -> rx.Component:
     """Page-Komponente für die Route ``/vision-preview-popup`` — Multi-
     Source Live-Preview, geöffnet als eigenständiges Browser-Fenster.
@@ -472,11 +440,11 @@ def vision_preview_page() -> rx.Component:
     image grid sizes itself to the remaining vertical space and the
     image proportionally shrinks with the window. No scrollbars.
 
-    VLM-SSE-Manager wird hier inline geladen — die Hauptseite hat
-    custom.js dafür, aber das Popup ist ein eigenes Lazy-Bundle.
+    VLM-SSE-Manager wird via ``rx.call_script`` aus
+    :meth:`on_load_vision_preview` dynamisch injiziert — siehe
+    Begründung dort.
     """
     return rx.box(
-        rx.script(_VLM_SSE_INLINE),
         rx.box(
             # Title row
             rx.hstack(

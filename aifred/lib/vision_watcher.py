@@ -124,6 +124,12 @@ class VisionWatcher:
         self._configs: dict[str, WatchConfig] = {}
         self._statuses: dict[str, WatchStatus] = {}
         self._lock = Lock()
+        # Per-source generation counter — wird bei jedem ``start()``
+        # hochgezählt. Fire-and-forget VLM-Tasks (``_maybe_run_continuous_vlm``)
+        # capturen den Wert beim Eintritt; passt der beim Abschluss
+        # nicht zur aktuellen Generation, wird ihr Ergebnis verworfen
+        # statt in den frisch geleerten History-Ring zu kippen.
+        self._watch_generation: dict[str, int] = {}
         # Per-source timestamp of the last VLM call; used to throttle
         # so we don't fire vlm_cooldown_sec → see _maybe_run_vlm.
         self._last_vlm_at: dict[str, datetime] = {}
@@ -139,7 +145,13 @@ class VisionWatcher:
 
     async def start(self, source_id: str, config: WatchConfig) -> WatchStatus:
         """Start watching a registered source. Idempotent — if already
-        running, returns the existing status without restarting."""
+        running, returns the existing status without restarting.
+
+        Eine neue Session startet immer mit frischem VLM-Kontext: die
+        Ring-Buffer-History UND die Cooldown-Marke werden geleert,
+        damit der erste Call die Szene voll beschreibt statt
+        gegen alte „Bisherige Beobachtungen" zu vergleichen.
+        """
         with self._lock:
             existing = self._tasks.get(source_id)
             if existing is not None and not existing.done():
@@ -153,6 +165,16 @@ class VisionWatcher:
             # The watch loop's stream() call has retry-open logic and
             # will fail cleanly there if the cam truly can't be opened.
             self._configs[source_id] = config
+            # Frischer Start: weder VLM-History noch Cooldown-Marke
+            # aus einer vorigen Session sollen die neue beeinflussen.
+            # Generation-Bump invalidiert noch laufende VLM-Tasks der
+            # alten Session, damit ihr Resultat den frischen Ring nicht
+            # nachträglich wieder mit altem Kontext füllt.
+            self._watch_generation[source_id] = (
+                self._watch_generation.get(source_id, 0) + 1
+            )
+            self._vlm_history.pop(source_id, None)
+            self._last_vlm_at.pop(source_id, None)
             self._statuses[source_id] = WatchStatus(
                 source_id=source_id,
                 running=True,
@@ -352,6 +374,11 @@ class VisionWatcher:
         and lastly to settings.json default_prompt.
         """
         source_id = frame.source_id
+        # Snapshot der aktuellen Generation: wird beim Abschluss
+        # geprüft, um Resultate aus einer alten (gestoppten) Session
+        # zu verwerfen — sonst kippt der eintreffende alte VLM-Output
+        # in den frisch geleerten Ring der neuen Session.
+        my_gen = self._watch_generation.get(source_id, 0)
         # Cooldown check (separate from motion-event throttle)
         last = self._last_vlm_at.get(source_id)
         if last is not None:
@@ -426,6 +453,17 @@ class VisionWatcher:
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("continuous-VLM failed for %s: %s", source_id, e)
+            return
+
+        # Stale-Resultat verwerfen: zwischen Call-Start und -Ende
+        # hat ``start()`` die Generation hochgezählt (Watcher wurde
+        # aus- und wieder eingeschaltet). Der frische Ring soll
+        # leer bleiben, Bus und Store nichts aus der alten Session
+        # mehr erhalten.
+        if self._watch_generation.get(source_id, 0) != my_gen:
+            logger.debug(
+                "VLM result discarded (stale generation): %s", source_id
+            )
             return
 
         # Update ring buffer FIRST so even a failed store-event still
