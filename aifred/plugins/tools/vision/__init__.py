@@ -408,8 +408,9 @@ class VisionPlugin:
             )
             # In "live"-Mode (Türsteher/Always-On) override keep_alive auf -1,
             # damit das VLM permanent im VRAM bleibt und der nächste Event
-            # ohne Cold-Start beantwortet wird.
-            keep_alive = "-1" if _vision_mode() == "live" else str(
+            # ohne Cold-Start beantwortet wird. Muss int sein — Ollama
+            # parsed strings als Duration ("30m") und scheitert an "-1".
+            keep_alive: Any = -1 if _vision_mode() == "live" else str(
                 vlm_cfg.get("keep_alive", DEFAULT_KEEP_ALIVE)
             )
             try:
@@ -432,6 +433,26 @@ class VisionPlugin:
                 "duration_ms": round(result.duration_ms, 1),
                 "description": result.text,
             }
+            # Persist the *last* frame to the session image dir so the
+            # chat bubble can show what the VLM actually saw. Without
+            # this the user gets a text-only "Beschreibung: …" with no
+            # way to verify what the model was looking at — and that
+            # makes it impossible to judge whether a wrong analysis
+            # came from a bad cam frame or a confused VLM.
+            if ctx.session_id and frames:
+                last = frames[-1]
+                try:
+                    fname = (
+                        f"analyze_{last.timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
+                    )
+                    path = save_image_to_file(
+                        last.image_bytes, ctx.session_id, fname
+                    )
+                    url = get_image_url(path)
+                    payload["image_url"] = url
+                    payload["markdown"] = f"![Analyzed]({url})"
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("analyze save-frame failed: %s", e)
             # Persist event for query_events
             try:
                 _store().add_event(

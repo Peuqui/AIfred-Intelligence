@@ -98,9 +98,17 @@ async def prewarm_vlm(
         return False
 
     mode = str(cfg.get("vision_mode", "on-demand")).lower().strip()
-    keep_alive = keep_alive_override or (
-        "-1" if mode == "live" else str(vlm_cfg.get("keep_alive", "30m"))
-    )
+    # Ollama's keep_alive accepts a string with unit ("30m", "1h") OR an
+    # integer (negative = permanent, positive = seconds). Plain "-1" as
+    # a string fails with "missing unit in duration". For "live" we want
+    # permanent residency, so pass the integer -1.
+    keep_alive: Any
+    if keep_alive_override is not None:
+        keep_alive = keep_alive_override
+    elif mode == "live":
+        keep_alive = -1
+    else:
+        keep_alive = str(vlm_cfg.get("keep_alive", "30m"))
 
     try:
         from ollama import AsyncClient
