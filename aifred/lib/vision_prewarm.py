@@ -116,7 +116,13 @@ async def prewarm_vlm(
         logger.error("prewarm_vlm: ollama python client missing: %s", e)
         return False
 
-    client = AsyncClient(host=host or vlm_cfg.get("host"))
+    # Resolve the Ollama endpoint dynamically: pinned VLM daemon if chat
+    # uses a non-ollama backend, default daemon otherwise. Explicit
+    # ``host=`` arg wins for tests, then plugin-settings ``vlm.host``,
+    # then the AIfred-orchestrated default.
+    from .config import resolve_vlm_host
+    effective_host = host or vlm_cfg.get("host") or resolve_vlm_host()
+    client = AsyncClient(host=effective_host)
 
     # Pass num_ctx explicitly — without it Ollama loads the model with
     # its MAX context, which for qwen3-vl:4b is 262144 tokens. That

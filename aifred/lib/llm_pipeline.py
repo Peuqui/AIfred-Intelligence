@@ -215,6 +215,8 @@ async def run_llm_stream(
                         vlm_text = parsed.get("vlm_raw", "")
                         vlm_stats = parsed.get("vlm_stats", {}) or {}
                         vlm_model = parsed.get("model", "")
+                        image_url = parsed.get("image_url", "")
+                        vlm_source_id = parsed.get("source_id", "")
                         if isinstance(vlm_text, str) and vlm_text.strip():
                             # Reuse build_inference_metadata so the VLM
                             # bubble footer + debug console line look
@@ -238,8 +240,27 @@ async def run_llm_stream(
                             body = vlm_text.strip()
                             if vlm_meta_display:
                                 body += f"\n\n{vlm_meta_display}"
+                            # Image goes BEFORE the collapsible, as a
+                            # plain markdown reference at the very top
+                            # of the bubble — the user explicitly wants
+                            # it visible by default, not hidden behind
+                            # a collapsible click. Alt-text uses the
+                            # user-given camera alias so it's meaningful
+                            # (e.g. "Türkamera" vs the hardware string).
+                            prefix = ""
+                            if isinstance(image_url, str) and image_url:
+                                try:
+                                    from .vision_utils import resolve_source_alias
+                                    alt = resolve_source_alias(
+                                        str(vlm_source_id), fallback="Snapshot"
+                                    )
+                                except Exception:  # noqa: BLE001
+                                    alt = "Snapshot"
+                                prefix = f"![{alt}]({image_url})\n\n"
                             full_response = (
-                                f"<vlm_output>{body}</vlm_output>" + full_response
+                                prefix
+                                + f"<vlm_output>{body}</vlm_output>"
+                                + full_response
                             )
                             if vlm_debug_msg:
                                 yield {"type": "debug", "message": vlm_debug_msg}
