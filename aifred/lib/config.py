@@ -632,10 +632,19 @@ VISION_DEFAULT_REPEAT_PENALTY = 1.0
 # Allows debug log to survive browser refresh during long inferences
 DEBUG_LOG_MAX_ENTRIES = 250
 
+
 # Log RAW messages sent to LLMs (debug.log only)
 # Useful for debugging prompt injection issues
 # Shows full message list with role and content preview for each LLM call
 DEBUG_LOG_RAW_MESSAGES = False
+
+# Log the raw VLM response text to aifred_debug.log on every vision_analyze
+# call. Metriken (TTFT, tok/s, inference) werden IMMER geloggt — diese
+# Konstante steuert nur ob der vollständige beschreibende VLM-Text auch
+# nochmal komplett ins Log geschrieben wird. Nützlich um genau zu sehen
+# ob eine falsche Bildbeschreibung schon vom VLM kommt oder erst von
+# AIfreds nachfolgender Verarbeitung.
+DEBUG_LOG_VLM_RAW = False
 
 # ============================================================
 # LOUDNESS NORMALIZATION (Music-Wiedergabe via FreeEcho.2)

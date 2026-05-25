@@ -56,7 +56,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
     vision_mode_value: str = "on-demand"
     vision_model_value: str = "qwen3-vl:4b-instruct-q8_0"
     vision_available_models: list[str] = []
-    vision_verbose_logging: bool = True
 
     @rx.event
     def open_vision_settings(self) -> None:
@@ -66,7 +65,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.vision_mode_value = str(settings.get("vision_mode", "on-demand"))
         vlm = settings.get("vlm", {})
         self.vision_model_value = str(vlm.get("model", "qwen3-vl:4b-instruct-q8_0"))
-        self.vision_verbose_logging = bool(vlm.get("verbose_logging", True))
         try:
             from ..lib.ollama_models import list_ollama_vlm_models
             models = [m.name for m in list_ollama_vlm_models()]
@@ -111,15 +109,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.vision_model_value = value
         settings = _load_settings()
         settings.setdefault("vlm", {})["model"] = value
-        _save_settings(settings)
-
-    @rx.event
-    def set_vision_verbose_logging(self, value: bool) -> None:
-        """Toggle the VLM verbose-logging flag. Read on every VLM call,
-        so the change takes effect immediately without a restart."""
-        self.vision_verbose_logging = bool(value)
-        settings = _load_settings()
-        settings.setdefault("vlm", {})["verbose_logging"] = bool(value)
         _save_settings(settings)
 
     @rx.event
