@@ -1768,8 +1768,13 @@ async def vision_stream_endpoint(
     src = get_source(source_id)
     if src is None:
         raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
-    if not src.is_available():
-        raise HTTPException(status_code=503, detail=f"source not available: {source_id}")
+    # NOTE: deliberately NOT calling src.is_available() here. That
+    # method opens cv2.VideoCapture to probe, which races against the
+    # previous stream's release() during a stream-switch — the probe
+    # fails with "can't open camera by index", we'd return 503, the
+    # browser sees an error and shows black. The actual open in
+    # source.stream() has a retry loop and handles the cleanup latency
+    # properly. Letting the stream attempt the open is the right move.
     # Clamp + sanitize
     fps = max(0.1, min(30.0, float(fps) if fps else 1.0))
     w, h = _resolve_resolution(source_id, width, height)

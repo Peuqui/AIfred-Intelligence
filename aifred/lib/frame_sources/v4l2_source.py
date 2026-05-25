@@ -307,12 +307,8 @@ class V4L2Source:
             # _stream_stop is now the new owner.
             if my_stop.is_set():
                 return
-            cap = await asyncio.to_thread(cv2.VideoCapture, self.index, cv2.CAP_V4L2)
+            cap = await _open_capture_with_retry(self.index)
             try:
-                if not cap.isOpened():
-                    raise RuntimeError(
-                        f"Cannot open {self.source_id} for streaming"
-                    )
                 if width > 0 and height > 0:
                     await asyncio.to_thread(
                         cap.set, cv2.CAP_PROP_FRAME_WIDTH, float(width)
@@ -392,6 +388,35 @@ class V4L2Source:
             return _read_frame(cap, native_jpeg, eff_w, eff_h)
         finally:
             cap.release()
+
+
+async def _open_capture_with_retry(
+    index: int, attempts: int = 12, delay: float = 0.1
+) -> cv2.VideoCapture:
+    """Open a V4L2 device, retrying for up to ``attempts * delay`` seconds.
+
+    The Linux V4L2/USB stack needs a beat to free the device after a
+    previous ``release()`` — the file descriptor is gone but the
+    kernel's internal capture state can stay busy for 50-200 ms.
+    Opening immediately after a release on the same device commonly
+    fails with "can't open camera by index" and ``cap.isOpened() ==
+    False``. Without the retry, a stream-switch (FPS/resolution change
+    in the popup → eviction → new stream() call) would 500 the new
+    HTTP response and the browser shows a black frame.
+
+    Defaults give ~1.2 s of total slack, which beats every USB cam
+    I've seen in practice.
+    """
+    for attempt in range(attempts):
+        cap = await asyncio.to_thread(cv2.VideoCapture, index, cv2.CAP_V4L2)
+        if cap.isOpened():
+            return cap
+        await asyncio.to_thread(cap.release)
+        if attempt < attempts - 1:
+            await asyncio.sleep(delay)
+    raise RuntimeError(
+        f"Cannot open V4L2 device {index} after {attempts} attempts"
+    )
 
 
 async def _drain_sleep(
