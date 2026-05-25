@@ -347,6 +347,13 @@ class TranslationManager:
             "vision_settings_model_help": "Vision-Modell für Webcam, Watch-Mode und Side-Channel beim Chat-Bild-Upload. Aus Ollama-Discovery — neue Modelle erscheinen nach 'ollama pull'.",
             "vision_settings_rescan_tooltip": "Ollama-Modelle neu scannen",
             "vision_settings_close": "Schließen",
+            "vision_preview_briefing_label": "VLM-Briefing",
+            "vision_preview_briefing_placeholder": "Was die VLM zu dieser Kamera wissen sollte (z.B. 'Eingang, Tür mit Briefkasten links — achte auf Personen').",
+            "vision_preview_teleprompter_label": "Live-Analyse",
+            "vision_preview_teleprompter_idle": "Watch-Mode nicht aktiv — VLM-Beobachtung pausiert.",
+            "vision_preview_teleprompter_mode_label": "Teleprompter",
+            "vision_preview_teleprompter_mode_overlay": "Über Bild",
+            "vision_preview_teleprompter_mode_below": "Unter Bild",
 
             # Vision Live-Preview Modal
             "vision_preview_title": "Webcam Live-Vorschau",
@@ -868,6 +875,13 @@ class TranslationManager:
             "crop_modal_hint": "Drag corners or edges",
 
             # Vision Plugin Settings Modal
+            "vision_preview_briefing_label": "VLM briefing",
+            "vision_preview_briefing_placeholder": "What the VLM should know about this camera (e.g. 'Front door, with mailbox on the left — watch for people').",
+            "vision_preview_teleprompter_label": "Live analysis",
+            "vision_preview_teleprompter_idle": "Watch mode inactive — VLM observation paused.",
+            "vision_preview_teleprompter_mode_label": "Teleprompter",
+            "vision_preview_teleprompter_mode_overlay": "On image",
+            "vision_preview_teleprompter_mode_below": "Below image",
             "vision_settings_title": "Image & Video — Settings",
             "vision_settings_subtitle": "Vision pipeline configuration (webcam, watch mode, side-channel).",
             "vision_settings_mode_label": "Mode",

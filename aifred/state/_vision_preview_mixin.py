@@ -109,6 +109,11 @@ class VisionPreviewMixin(rx.State, mixin=True):
     # Global FPS for all visible sources. 0 = manual single-shot mode.
     vision_preview_fps: float = 1.0
 
+    # Teleprompter layout: "overlay" (subtitle-style on the image) or
+    # "below" (full-width block below the image). Global because users
+    # tend to settle on one style. Persisted in vision_preview.json.
+    vision_preview_teleprompter_mode: str = "overlay"
+
     # Bumped on every refresh request — appended to image URLs as cache-buster
     vision_preview_cache_buster: int = 0
 
@@ -232,6 +237,23 @@ class VisionPreviewMixin(rx.State, mixin=True):
         self.vision_preview_cache_buster += 1
 
     @rx.event
+    def set_vision_preview_prompt_context(self, source_id: str, value: str) -> None:
+        """Per-camera briefing text for the VLM. Persists to
+        vision_store.sources.prompt_context (top-level column, not in
+        the settings json — schema has had it from day one). The
+        vision_analyze tool prepends this to the user-given prompt so
+        the VLM gets context about what it's actually looking at."""
+        if not source_id:
+            return
+        new_text = value.strip() if isinstance(value, str) else ""
+        self.vision_preview_sources = [
+            {**e, "prompt_context": new_text}
+            if e["id"] == source_id else e
+            for e in self.vision_preview_sources
+        ]
+        self._persist_source_prompt_context(source_id, new_text)
+
+    @rx.event
     def set_vision_preview_alias(self, source_id: str, value: str) -> None:
         """User-given camera name. Persists to vision_store.sources.settings.alias.
         Empty string clears the alias and the source falls back to its
@@ -268,6 +290,15 @@ class VisionPreviewMixin(rx.State, mixin=True):
         ]
         self._persist_source_resolution(source_id, value)
         self.vision_preview_cache_buster += 1
+
+    @rx.event
+    def set_vision_preview_teleprompter_mode(self, value: str) -> None:
+        """Toggle between overlay (subtitle on image) and below (full-
+        width block below image) for the VLM teleprompter."""
+        if value not in ("overlay", "below"):
+            return
+        self.vision_preview_teleprompter_mode = value
+        self._persist_preview_setting("teleprompter_mode", value)
 
     @rx.event
     def set_vision_preview_fps(self, value: str) -> None:
@@ -360,21 +391,25 @@ class VisionPreviewMixin(rx.State, mixin=True):
             logger.warning("vision-preview resolution load failed: %s", e)
         self.vision_preview_resolutions = new_resolutions
 
-        # Load persisted aliases the same way as resolutions.
+        # Load persisted aliases + prompt-contexts the same way as resolutions.
+        stored_aliases: dict[str, str] = {}
+        stored_prompts: dict[str, str] = {}
         try:
             from ..lib.vision_store import VisionStore
             store = VisionStore()
-            stored_aliases: dict[str, str] = {}
             for src in sources_raw:
                 sid = src.source_id
                 stored = store.get_source(sid)
-                if stored:
-                    a = (stored.get("settings") or {}).get("alias")
-                    if isinstance(a, str) and a.strip():
-                        stored_aliases[sid] = a.strip()
+                if not stored:
+                    continue
+                a = (stored.get("settings") or {}).get("alias")
+                if isinstance(a, str) and a.strip():
+                    stored_aliases[sid] = a.strip()
+                pc = stored.get("prompt_context")
+                if isinstance(pc, str) and pc.strip():
+                    stored_prompts[sid] = pc.strip()
         except Exception as e:  # noqa: BLE001
-            logger.warning("vision-preview alias load failed: %s", e)
-            stored_aliases = {}
+            logger.warning("vision-preview alias/prompt load failed: %s", e)
 
         # Build the source list with current resolution + per-source
         # resolution options baked into each entry.
@@ -395,6 +430,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 "available": bool(src_info.available),
                 "resolution": new_resolutions.get(src_info.source_id, "default"),
                 "resolution_options": options,
+                "prompt_context": stored_prompts.get(src_info.source_id, ""),
             })
         self.vision_preview_sources = entries
 
@@ -414,7 +450,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         return DATA_DIR / "vision_preview.json"
 
     def _load_preview_fps(self) -> None:
-        """Load the persisted global FPS choice on popup open."""
+        """Load all persisted preview settings on popup open."""
         try:
             import json
             path = self._preview_settings_path()
@@ -425,12 +461,16 @@ class VisionPreviewMixin(rx.State, mixin=True):
             fps = data.get("fps")
             if isinstance(fps, (int, float)) and 0 <= fps <= 30:
                 self.vision_preview_fps = float(fps)
+            mode = data.get("teleprompter_mode")
+            if isinstance(mode, str) and mode in ("overlay", "below"):
+                self.vision_preview_teleprompter_mode = mode
         except Exception as e:  # noqa: BLE001
-            logger.warning("vision-preview fps load failed: %s", e)
+            logger.warning("vision-preview settings load failed: %s", e)
 
-    def _persist_preview_fps(self, fps: float) -> None:
-        """Write the global FPS choice; merge-update so future settings
-        added to the same file aren't clobbered."""
+    def _persist_preview_setting(self, key: str, value: Any) -> None:
+        """Merge-update a single key in vision_preview.json — other
+        keys stay untouched. Used by both the FPS setter and the
+        teleprompter-mode setter."""
         try:
             import json
             path = self._preview_settings_path()
@@ -438,12 +478,46 @@ class VisionPreviewMixin(rx.State, mixin=True):
             if path.exists():
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f) or {}
-            data["fps"] = fps
+            data[key] = value
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:  # noqa: BLE001
-            logger.warning("vision-preview fps persist failed: %s", e)
+            logger.warning("vision-preview setting '%s' persist failed: %s", key, e)
+
+    def _persist_preview_fps(self, fps: float) -> None:
+        """Backwards-compat wrapper — delegates to _persist_preview_setting."""
+        self._persist_preview_setting("fps", fps)
+
+    def _persist_source_prompt_context(self, source_id: str, prompt_context: str) -> None:
+        """Write the per-source briefing text to vision_store.sources.prompt_context.
+        That's a top-level column in the schema (already there for the
+        original day-one design), not buried in settings_json."""
+        try:
+            from ..lib.frame_sources import get as get_source
+            from ..lib.vision_store import VisionStore
+            store = VisionStore()
+            src = get_source(source_id)
+            existing = store.get_source(source_id)
+            display_name = existing.get("display_name") if existing else (
+                src.display_name if src else source_id
+            )
+            kind = existing.get("kind") if existing else (
+                src.kind if src else "webcam"
+            )
+            store.upsert_source(
+                source_id=source_id,
+                display_name=str(display_name or source_id),
+                kind=str(kind or "webcam"),
+                prompt_context=prompt_context,
+                position=str(existing.get("position", "")) if existing else "",
+                auto_start=bool(existing.get("auto_start", False)) if existing else False,
+                sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
+                settings=dict(existing.get("settings", {})) if existing else {},
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vision-preview prompt-context persist failed: %s", e)
+            self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
 
     def _persist_source_alias(self, source_id: str, alias: str) -> None:
         """Write the per-source user alias to vision_store.sources.settings.alias.

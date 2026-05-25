@@ -427,6 +427,19 @@ class VisionPlugin:
             actual_prompt = prompt or vlm_cfg.get(
                 "default_prompt", "Beschreibe knapp, was zu sehen ist."
             )
+            # Per-camera briefing from vision_store (set in the live-
+            # preview popup). Prepended to the user-given prompt so the
+            # VLM sees the static context first ("Eingang, Tür mit
+            # Briefkasten") and then the variable instruction
+            # ("Beschreibe was zu sehen ist"). Empty briefing → no-op.
+            try:
+                from ....lib.vision_store import VisionStore
+                _info = VisionStore().get_source(source_id)
+                briefing = (_info or {}).get("prompt_context") or ""
+                if isinstance(briefing, str) and briefing.strip():
+                    actual_prompt = f"{briefing.strip()}\n\n{actual_prompt}"
+            except Exception as e:  # noqa: BLE001
+                logger.warning("analyze briefing load failed: %s", e)
             # In "live"-Mode (Türsteher/Always-On) override keep_alive auf -1,
             # damit das VLM permanent im VRAM bleibt und der nächste Event
             # ohne Cold-Start beantwortet wird. Muss int sein — Ollama
