@@ -118,9 +118,15 @@ async def prewarm_vlm(
 
     client = AsyncClient(host=host or vlm_cfg.get("host"))
 
+    # Pass num_ctx explicitly — without it Ollama loads the model with
+    # its MAX context, which for qwen3-vl:4b is 262144 tokens. That
+    # eats ~26 GB of KV-cache on top of 4 GB weights = ~30 GB VRAM.
+    # Image analysis doesn't need that — 4-8K tokens fits a picture
+    # plus prompt and response with room to spare.
+    num_ctx = int(vlm_cfg.get("num_ctx", 4096))
     logger.info(
-        "prewarm_vlm: loading model=%s keep_alive=%s timeout=%.0fs",
-        model, keep_alive, timeout_seconds,
+        "prewarm_vlm: loading model=%s keep_alive=%s num_ctx=%d timeout=%.0fs",
+        model, keep_alive, num_ctx, timeout_seconds,
     )
     try:
         # Empty prompt + keep_alive → Ollama loads the model and immediately
@@ -130,6 +136,7 @@ async def prewarm_vlm(
                 model=str(model),
                 prompt="",
                 keep_alive=keep_alive,
+                options={"num_ctx": num_ctx},
                 stream=False,
             ),
             timeout=timeout_seconds,
