@@ -173,6 +173,36 @@ def image_upload_section() -> rx.Component:
                 ),
             ),
 
+            # Vision Live-Preview button — opens the modal showing whatever
+            # USB / IP camera is connected to the server-side V4L2 stack
+            # (independent of the browser's getUserMedia camera).
+            rx.tooltip(
+                rx.button(
+                    rx.icon("video", size=16),
+                    rx.text(
+                        t("vision_preview_button"),
+                        font_size="14px",
+                        display=["none", "none", "inline"],
+                    ),
+                    size="2",
+                    variant="outline",
+                    color_scheme="orange",
+                    on_click=AIState.open_vision_preview,
+                    disabled=AIState.is_generating,
+                    style={
+                        "background": "rgba(100, 10, 0, 0.4)",
+                        "color": "#d98030",
+                        "border_color": "#d98030",
+                        "&:hover:not([disabled])": {
+                            "background": "rgba(150, 15, 0, 0.6) !important",
+                        },
+                        "&[disabled]": {"opacity": "0.45"},
+                    },
+                    flex=["1 1 0%", "1 1 0%", "0 0 auto"],
+                ),
+                content=t("vision_preview_button_tooltip"),
+            ),
+
             # Upload button with drag & drop - with tooltip
             rx.upload(
                 rx.tooltip(

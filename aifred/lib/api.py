@@ -1642,6 +1642,40 @@ async def audio_position(req: AudioPositionRequest):
 
 
 # ============================================================
+# Vision: live JPEG snapshot endpoint
+# ============================================================
+
+@api_app.get("/vision/snapshot/{source_id:path}", tags=["Vision"])
+async def vision_snapshot_endpoint(source_id: str) -> Response:
+    """Liefert einen frischen JPEG-Snapshot der genannten Frame-Source.
+
+    Wird vom Live-Preview-Modal im Browser per ``<img>``-Tag mit
+    Cache-Buster-Query aufgerufen. Source-IDs enthalten typischerweise
+    einen Slash (``cam/v4l2_0``) — daher der ``:path``-Wildcard.
+    """
+    from .frame_sources import get as get_source
+
+    src = get_source(source_id)
+    if src is None:
+        raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
+    if not src.is_available():
+        raise HTTPException(status_code=503, detail=f"source not available: {source_id}")
+    try:
+        frame = await src.snapshot()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"snapshot failed: {e}") from e
+    return Response(
+        content=frame.image_bytes,
+        media_type=f"image/{frame.format}",
+        headers={
+            # Prevent any kind of caching — browser must always refetch
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+# ============================================================
 # Export for api_transformer
 # ============================================================
 

@@ -114,6 +114,7 @@ from ._tts_config_mixin import TTSConfigMixin  # noqa: E402
 from ._tts_streaming_mixin import TTSStreamingMixin  # noqa: E402
 from ._audio_player_mixin import AudioPlayerMixin  # noqa: E402
 from ._vision_settings_mixin import VisionSettingsMixin  # noqa: E402
+from ._vision_preview_mixin import VisionPreviewMixin  # noqa: E402
 from ._file_picker_mixin import FilePickerMixin  # noqa: E402
 from ._agent_config_mixin import AgentConfigMixin  # noqa: E402
 from ._settings_mixin import SettingsMixin  # noqa: E402
@@ -132,6 +133,7 @@ class AIState(  # type: ignore[misc]
     TTSStreamingMixin,
     AudioPlayerMixin,
     VisionSettingsMixin,
+    VisionPreviewMixin,
     FilePickerMixin,
     AgentConfigMixin,
     SettingsMixin,
