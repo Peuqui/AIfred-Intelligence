@@ -485,8 +485,14 @@ def _build_fit_params_cmd(
         "-np", "1",
         "--fit-print", "on",
     ]
-    if mmproj_path:
-        cmd.extend(["--mmproj", str(mmproj_path.resolve())])
+    # NOTE: llama-fit-params does NOT accept `--mmproj` (only llama-server
+    # does). It auto-detects the mmproj sibling file in the same directory
+    # ("mmproj is also downloaded automatically if available" per its
+    # `--help`). Passing `--mmproj` aborts the whole probe with
+    # `error: invalid argument: --mmproj`, which the caller then misreports
+    # as "Cannot fit on available hardware". The variable is kept in the
+    # function signature for API stability but no longer added to the cmd.
+    _ = mmproj_path  # explicitly unused — kept for signature compatibility
     if kv_quant:
         cmd.extend(["-ctk", kv_quant, "-ctv", kv_quant])
     # GPU flags: -sm, --tensor-split, -b, -ub (skip -fit which is server-only)
@@ -2088,7 +2094,20 @@ def main() -> None:
             else:
                 skip_list[model["name"]] = reason
                 save_skip_list(skip_list)
-                print(f"  ✗ {model['name']}: {reason} — skipping")
+                # Symlink wieder löschen — sonst bleibt ein Dangling-Eintrag in
+                # MODELS_DIR, der bei jedem Restart wieder als "found GGUF" auf‐
+                # taucht aber nie verfügbar wird. Nur eigene Symlinks anfassen
+                # (Ollama-Blob-Targets oder HF-Cache-Targets), keine echten
+                # GGUF-Files die der User selbst dort abgelegt hat.
+                removed_note = ""
+                sym = Path(model["path"])
+                try:
+                    if sym.is_symlink() and sym.parent == MODELS_DIR:
+                        sym.unlink()
+                        removed_note = " (symlink removed)"
+                except OSError as err:
+                    removed_note = f" (symlink removal failed: {err})"
+                print(f"  ✗ {model['name']}: {reason} — skipping{removed_note}")
         new_models = compatible_models
         print()
 
