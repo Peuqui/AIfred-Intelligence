@@ -58,6 +58,8 @@ def strip_tool_json(text: str) -> str:
     ).strip()
 
 
+
+
 async def chat_stream_with_retry(
     llm_client: 'LLMClient',
     model: str,
@@ -203,16 +205,44 @@ async def run_llm_stream(
             # in its JSON response specifically so we can prepend it here as
             # a collapsible — same mechanism as <think>, controlled by the
             # system, not by the LLM's text formatting choices.
+            # The tool also returns "vlm_stats" with TTFT/tok-per-s/etc., so
+            # we build a metrics footer to mirror the chat-bubble layout
+            # (description text, then an italic stats line in parentheses).
             if result_text and "vlm_raw" in result_text:
                 try:
                     parsed = json.loads(result_text)
                     if isinstance(parsed, dict):
                         vlm_text = parsed.get("vlm_raw", "")
+                        vlm_stats = parsed.get("vlm_stats", {}) or {}
+                        vlm_model = parsed.get("model", "")
                         if isinstance(vlm_text, str) and vlm_text.strip():
-                            full_response = (
-                                f"<vlm_output>{vlm_text.strip()}</vlm_output>"
-                                + full_response
+                            # Reuse build_inference_metadata so the VLM
+                            # bubble footer + debug console line look
+                            # identical to the chat-LLM ones (locale-aware
+                            # number formatting included).
+                            _, vlm_meta_display, vlm_debug_msg = build_inference_metadata(
+                                ttft=float(vlm_stats.get("ttft_s") or 0) or None,
+                                inference_time=float(vlm_stats.get("inference_s") or 0),
+                                tokens_generated=int(vlm_stats.get("eval_tokens") or 0),
+                                tokens_per_sec=float(vlm_stats.get("eval_tok_per_s") or 0),
+                                source=f"VL ({vlm_model})" if vlm_model else "VL",
+                                backend_metrics={
+                                    "prompt_per_second": float(
+                                        vlm_stats.get("pp_tok_per_s") or 0
+                                    ),
+                                },
+                                tokens_prompt=int(vlm_stats.get("prompt_tokens") or 0),
+                                backend_type="ollama",
+                                agent_label="👁️ VLM",
                             )
+                            body = vlm_text.strip()
+                            if vlm_meta_display:
+                                body += f"\n\n{vlm_meta_display}"
+                            full_response = (
+                                f"<vlm_output>{body}</vlm_output>" + full_response
+                            )
+                            if vlm_debug_msg:
+                                yield {"type": "debug", "message": vlm_debug_msg}
                 except (ValueError, json.JSONDecodeError):
                     pass
 

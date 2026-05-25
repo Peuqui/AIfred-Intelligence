@@ -163,24 +163,27 @@ async def analyze_sequence(
     stats = _compute_vlm_stats(resp_dict, duration_ms)
     metadata["stats"] = stats
 
-    logger.info(
-        "VLM call ok: model=%s n_frames=%d duration=%.0fms text_len=%d",
-        model, len(frames), duration_ms, len(text),
+    # Metrics line: ALWAYS logged. The actual debug-console line + chat-
+    # bubble footer are built by llm_pipeline via build_inference_metadata()
+    # so the locale-aware formatting is shared with chat LLMs. Here we
+    # just log a compact dev-level info line — useful when the VLM is
+    # called outside the tool-pipeline (e.g. from the watcher directly).
+    from .formatting import format_number
+    from .logging_utils import log_message
+    log_message(
+        f"👁️ VLM done ({format_number(stats['inference_s'], 1)}s, "
+        f"{int(stats['eval_tokens'])} tok, "
+        f"{format_number(stats['eval_tok_per_s'], 1)} tok/s, "
+        f"TTFT {format_number(stats['ttft_s'], 2)}s, "
+        f"PP {format_number(stats['pp_tok_per_s'], 1)} tok/s, "
+        f"model {model})"
     )
-    # Verbose log (gated by AIFRED_VISION_VERBOSE env var or vlm.verbose_logging
-    # in plugin settings). Prints the same compact stats line we use for chat
-    # LLMs so the user can compare numbers side by side. Also prints the raw
-    # VLM response text — useful for distinguishing "VLM said something wrong"
-    # from "AIfred misinterpreted the VLM output" when debugging.
-    if _verbose_logging_enabled():
-        from .logging_utils import log_message
-        log_message(
-            f"👁️ VLM stats: TTFT {stats['ttft_s']:.2f}s | "
-            f"PP {stats['pp_tok_per_s']:.1f} tok/s | "
-            f"Inference {stats['inference_s']:.1f}s | "
-            f"{stats['eval_tok_per_s']:.1f} tok/s | "
-            f"{stats['eval_tokens']} tok | model={model}"
-        )
+    # Raw VLM text: ONLY if DEBUG_LOG_VLM_RAW is set in config.py.
+    # Same gating pattern as DEBUG_LOG_RAW_MESSAGES — opt-in, default off,
+    # so the log doesn't fill up with multi-paragraph VLM descriptions
+    # on every motion event when the watcher is running.
+    from .config import DEBUG_LOG_VLM_RAW
+    if DEBUG_LOG_VLM_RAW:
         log_message(f"👁️ VLM raw response: {text}")
 
     return VisionAnalysis(
@@ -231,23 +234,3 @@ def _compute_vlm_stats(resp: dict[str, Any], wall_clock_ms: float) -> dict[str, 
     }
 
 
-def _verbose_logging_enabled() -> bool:
-    """Single source of truth: ``vlm.verbose_logging`` in the vision plugin
-    settings.json. The setting is read on every call (no module-level
-    cache) so toggling it from the UI takes effect immediately without
-    a service restart.
-    """
-    try:
-        import json
-        from pathlib import Path
-        settings_path = (
-            Path(__file__).parent.parent
-            / "plugins/tools/vision/settings.json"
-        )
-        if not settings_path.exists():
-            return False
-        with open(settings_path, encoding="utf-8") as f:
-            cfg = json.load(f)
-        return bool(cfg.get("vlm", {}).get("verbose_logging", False))
-    except Exception:  # noqa: BLE001
-        return False

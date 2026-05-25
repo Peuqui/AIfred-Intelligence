@@ -425,6 +425,7 @@ class VisionPlugin:
             except RuntimeError as e:
                 return _err(f"VLM call failed: {e}")
 
+            stats = result.metadata.get("stats", {}) if result.metadata else {}
             payload: dict[str, Any] = {
                 "source_id": source_id,
                 "n_frames": result.n_frames,
@@ -434,10 +435,12 @@ class VisionPlugin:
                 "description": result.text,
                 # vlm_raw is the marker llm_pipeline.py picks up to
                 # auto-render the raw VLM text as a <vlm_output> XML tag
-                # → collapsible in the chat bubble. Same description
-                # text — duplicated under a stable key so the pipeline
-                # has something deterministic to look for.
+                # → collapsible in the chat bubble. vlm_stats carries
+                # TTFT / inference / tok-per-s so the same collapsible
+                # can show a metrics footer in italics, mirroring the
+                # main chat-LLM bubble's layout.
                 "vlm_raw": result.text,
+                "vlm_stats": stats,
             }
             # Persist the *last* frame to the session image dir so the
             # chat bubble can show what the VLM actually saw. Without
