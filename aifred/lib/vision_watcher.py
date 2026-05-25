@@ -93,6 +93,11 @@ class WatchConfig:
     # NB: Kein eigenes vlm_model-Feld mehr — das Modell wird einheitlich
     # aus plugins/tools/vision/settings.json gelesen. Der Live-Vorschau-
     # Popup ändert dieses Setting direkt (SSOT mit dem Settings-Modal).
+    # Wenn True läuft die Face-Detection auf JEDEM Frame (gedrosselt
+    # durch ``min_event_interval_sec``), nicht nur bei motion. Sinnvoll
+    # für Schreibtisch-Setups wo eine Person ruhig vor der Cam sitzt
+    # und vom Motion-Detector nicht mehr getriggert wird.
+    face_recognition_continuous: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -366,8 +371,45 @@ class VisionWatcher:
                         "continuous-VLM cycle error for %s: %s", source_id, e
                     )
 
+        async def face_cycle() -> None:
+            """Continuous Face-Recognition (motion-unabhängig). Wird nur
+            gestartet wenn ``face_recognition_continuous=True``. Läuft
+            analog zum vlm_cycle: wartet auf neuen Frame, drosselt
+            durch ``min_event_interval_sec``, ruft die face-Detection
+            direkt — kein Motion-Detector dazwischen."""
+            if not config.face_recognition_continuous:
+                return
+            if not config.run_face_detect_on_motion:
+                # Wenn Face-Recognition komplett aus ist, gibt's auch
+                # keinen continuous-Modus.
+                return
+            last_face_at: datetime | None = None
+            last_seq_processed = -1
+            while True:
+                if latest["seq"] == last_seq_processed:
+                    new_frame_evt.clear()
+                    await new_frame_evt.wait()
+                # Throttle gegen GPU-Überlast.
+                if last_face_at is not None:
+                    delta = (datetime.now() - last_face_at).total_seconds()
+                    if delta < config.min_event_interval_sec:
+                        await asyncio.sleep(
+                            config.min_event_interval_sec - delta
+                        )
+                frame = latest["frame"]
+                last_seq_processed = latest["seq"]
+                if frame is None:
+                    continue
+                last_face_at = datetime.now()
+                try:
+                    await self._run_face_detection(frame, config, motion_event_id=None)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "continuous face cycle error for %s: %s", source_id, e
+                    )
+
         try:
-            await asyncio.gather(frame_consumer(), vlm_cycle())
+            await asyncio.gather(frame_consumer(), vlm_cycle(), face_cycle())
         except asyncio.CancelledError:
             logger.info("Watch loop cancelled for %s", source_id)
             raise
@@ -403,9 +445,26 @@ class VisionWatcher:
 
         if not config.run_face_detect_on_motion:
             return
+        # Im motion-getriggerten Pfad: continuous-Modus läuft separat
+        # via face_cycle — hier nicht doppelt feuern.
+        if config.face_recognition_continuous:
+            return
+        await self._run_face_detection(frame, config, motion_event_id=motion_event_id, frame_path=frame_path)
 
-        # Face-Detection is CPU/GPU-intensive — run in a thread so the
-        # event loop stays responsive for other sources.
+    async def _run_face_detection(
+        self,
+        frame: "Frame",
+        config: WatchConfig,
+        *,
+        motion_event_id: int | None = None,
+        frame_path: str = "",
+    ) -> None:
+        """Eigentliche Face-Detection + Recognition + Event-Publishing.
+        Wird sowohl aus dem motion-getriggerten Pfad als auch aus dem
+        Continuous-face_cycle gerufen. ``motion_event_id`` ist nur
+        gesetzt wenn der Aufruf aus einem motion-Event kam — sonst
+        ``None`` (continuous-Detection ohne Motion-Bezug)."""
+        source_id = frame.source_id
         try:
             detector = self._get_face_detector()
             detections = await asyncio.to_thread(detector.detect, frame)
@@ -443,15 +502,12 @@ class VisionWatcher:
                     "detection_score": det.detection_score,
                     "bbox": list(det.bbox),
                 },
-                metadata={"parent_event_id": motion_event_id},
+                metadata={
+                    "parent_event_id": motion_event_id,
+                    "trigger": "motion" if motion_event_id else "continuous",
+                },
             )
             self._statuses[source_id].face_events += 1  # type: ignore[misc]
-            # Face-Crop speichern (Dedup pro Identity / Pseudo-Id):
-            # bei known/unsure überschreibt das aktuellste Bild die
-            # bestehende face_<id>.jpg, bei unknown clustert die
-            # FaceCropStore via embedding-Similarity. ``crop_url``
-            # landet im SSE-Event und wird vom Frontend als
-            # <img>-Thumbnail dargestellt.
             crop_result = crop_store.save(
                 frame_bytes=frame.image_bytes,
                 bbox=tuple(int(v) for v in det.bbox),  # type: ignore[arg-type]
@@ -464,8 +520,6 @@ class VisionWatcher:
             crop_url = crop_result.url if crop_result else ""
             identity_key = crop_result.identity_key if crop_result else ""
             session_id = crop_result.session_id if crop_result else ""
-            # Embedding-Base64 für inline-Enroll-Workflow im Frontend
-            # (Klick auf „+ taggen" schickt Embedding + Name zurück).
             try:
                 emb_b64 = _base64.b64encode(det.embedding.tobytes()).decode("ascii")
             except Exception:  # noqa: BLE001
