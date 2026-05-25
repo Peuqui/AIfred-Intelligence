@@ -405,6 +405,17 @@ class BackendMixin(rx.State, mixin=True):
                     from ..lib.audio_state import cleanup_audio_state_task
                     _asyncio.create_task(cleanup_audio_state_task())
 
+                    # Vision pre-warm: when vision_mode is "live" the VLM
+                    # is supposed to stay resident in VRAM. Fire-and-forget
+                    # because the load can take seconds and we don't want
+                    # to block server startup behind it. On-demand mode
+                    # deliberately skips this — the whole point of
+                    # on-demand is lazy loading.
+                    from ..lib.vision_prewarm import get_vision_mode, prewarm_vlm
+                    if get_vision_mode() == "live":
+                        log_message("🎥 Vision pre-warm: starting (mode=live)")
+                        _asyncio.create_task(prewarm_vlm())
+
                     # Lookup-Cache cleanup task (Speculative-Decoding-Caches einsammeln)
                     from ..lib.lookup_cache_cleanup import cleanup_lookup_cache_task
                     _asyncio.create_task(cleanup_lookup_cache_task())

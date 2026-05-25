@@ -84,13 +84,23 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.vision_settings_open = False
 
     @rx.event
-    def set_vision_mode_value(self, value: str) -> None:
+    async def set_vision_mode_value(self, value: str) -> None:
         if value not in ("off", "on-demand", "live"):
             return
         self.vision_mode_value = value
         settings = _load_settings()
         settings["vision_mode"] = value
         _save_settings(settings)
+        # When the user flips to "live", honour the contract immediately:
+        # load the VLM into VRAM with keep_alive=-1 so it stays there.
+        # Without this, the model wouldn't appear in nvidia-smi until the
+        # first vision_analyze call (or the next calibration run).
+        if value == "live":
+            try:
+                from ..lib.vision_prewarm import prewarm_vlm
+                await prewarm_vlm()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("prewarm on mode-switch failed: %s", e)
 
     @rx.event
     def set_vision_model_value(self, value: str) -> None:
