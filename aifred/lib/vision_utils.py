@@ -15,9 +15,12 @@ from typing import Tuple, Optional
 from .config import DATA_DIR
 from .logging_utils import log_message
 
-# Images are stored in data/images/{session_id}/
-# This directory is served by Reflex via /_upload/images/...
-IMAGES_BASE_DIR = DATA_DIR / "images"
+# Images are stored in data/vision/snapshots/{session_id}/
+# This directory is served by Reflex via /_upload/images/... (URL prefix
+# kept stable for backwards-compat with persisted message metadata; the
+# filesystem path was moved under data/vision/ for consistency with the
+# wider vision pipeline — frames/, clips/, recordings/, faces/).
+IMAGES_BASE_DIR = DATA_DIR / "vision" / "snapshots"
 
 logger = logging.getLogger(__name__)
 
@@ -601,9 +604,10 @@ def crop_and_resize_image(
 # Image File Storage (Session-based)
 # ============================================================
 
-# Images are stored in data/images/{session_id}/
-# Structure: {session_id}/{NNN}_{filename}
-# Served by Reflex via /_upload/images/...
+# Images are stored in data/vision/snapshots/{session_id}/
+# Structure: {session_id}/{uuid}_{filename}
+# Served by Reflex via /_upload/images/... (URL prefix preserved for
+# backwards-compat with persisted message metadata).
 
 
 def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Path:
@@ -649,8 +653,9 @@ def get_image_url(image_path: Path) -> str:
     """
     Convert absolute file path to relative URL for UI display.
 
-    The URL uses Reflex's /_upload/ endpoint:
-    data/images/{session_id}/{filename}
+    The URL uses Reflex's /_upload/ endpoint (URL prefix /_upload/images/
+    is preserved for backwards-compat); files now live under
+    data/vision/snapshots/{session_id}/{filename}.
 
     Uses relative URL so the browser automatically uses the current host/port.
     This ensures images work correctly regardless of which port the user
@@ -886,7 +891,7 @@ def cleanup_session_images(session_id: str) -> int:
     Delete all images for a session.
 
     Called when chat is cleared or session is deleted.
-    Removes the images directory under data/images/{session_id}/.
+    Removes the images directory under data/vision/snapshots/{session_id}/.
 
     Args:
         session_id: Device identifier (32-char hex string)

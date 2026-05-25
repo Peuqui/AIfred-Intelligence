@@ -722,6 +722,33 @@ respektieren statt f16 hartzucodieren.
 → MOSS-Variante zeigt deutlichen Headroom-Spielraum, der mit den oben
 genannten Optimierungen besser ausgenutzt werden könnte.
 
+### 4. „Vision-Ready"-Profil — VRAM-Reserve für Ollama-VLM
+
+**Hintergrund:** Die Vision-Pipeline (Schicht 1+2 implementiert 2026-05-25)
+ruft das VLM als Side-Channel direkt über Ollama auf, parallel zum Haupt-
+LLM auf llama-swap. Das bedeutet: bei jedem Klingel-/Watch-Event oder
+on-demand Snapshot kann ein VLM-Call ankommen — der Hauptchat soll
+dabei nicht ausgeknockt werden.
+
+**Vorschlag:** Neues Profil „Vision-Ready" (sollte Default werden,
+„Maximum" bleibt als explizites Opt-out für VLM-freie Setups):
+
+- Reserviert pro GPU einen konfigurierbaren VRAM-Block für Ollama-VLM.
+- **Default 5 GB**, weil das VLM mit ``num_ctx=4096`` (statt 128k) läuft —
+  damit passt Qwen2.5-VL-7B Q8_0 (~8.5 GB im Worst-Case bei 4k ctx,
+  typisch ~5 GB) komfortabel rein. Qwen3-VL-30B-A3B bräuchte ~15-18 GB
+  bei 4k ctx — wenn der User das nutzen will, manuell höher setzen.
+- Haupt-LLM-Kalibration rechnet mit ``(total - reservation)`` pro GPU.
+- Pre-Flight-VRAM-Check vor jedem ``ollama.generate(images=...)``-Call
+  in der Vision-Schicht (kommt mit Schicht 3, ``vision_analyzer.py``).
+  Bei Unterdeckung: Event in Audit-Log + Fallback auf reine Face-Match-
+  Ebene, kein OOM-Crash.
+
+**Code-Stellen, die zu erweitern sind:**
+- ``aifred/lib/calibration/flow.py`` — neues Profil neben Hybrid/Speed/Max
+- ``aifred/lib/calibration/`` — Reservation-Subtraktion vor GPU-Allokation
+- Settings-UI: VLM-Reserve-Slider (default 5 GB)
+
 ---
 
 ## Security-Verfeinerung

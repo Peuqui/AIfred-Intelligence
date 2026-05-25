@@ -1,0 +1,50 @@
+{
+  "plugin_display_name": {
+    "de": "Bild & Video",
+    "en": "Vision"
+  },
+  "plugin_description": {
+    "de": "Macht Fotos und kurze Bildbeschreibungen über Webcam oder andere Bildquellen. Erkennt Bewegung und bekannte Gesichter.",
+    "en": "Captures snapshots and short scene descriptions from webcams or other image sources. Detects motion and recognised faces."
+  },
+  "status_listing_sources": {
+    "de": "Verfügbare Bildquellen werden gesucht …",
+    "en": "Listing image sources …"
+  },
+  "status_snapshot": {
+    "de": "Foto wird aufgenommen …",
+    "en": "Capturing snapshot …"
+  },
+  "status_analyzing": {
+    "de": "Bild wird analysiert (VLM) …",
+    "en": "Analysing image (VLM) …"
+  },
+  "status_enrolling": {
+    "de": "Gesicht wird gespeichert …",
+    "en": "Storing face …"
+  },
+  "status_starting_watch": {
+    "de": "Live-Überwachung wird gestartet …",
+    "en": "Starting live watch …"
+  },
+  "status_stopping_watch": {
+    "de": "Live-Überwachung wird gestoppt …",
+    "en": "Stopping live watch …"
+  },
+  "status_query_events": {
+    "de": "Ereignisse werden abgefragt …",
+    "en": "Querying events …"
+  },
+  "error_no_sources": {
+    "de": "Keine Bildquelle verfügbar — Webcam einstöpseln und ggf. „Quellen neu suchen" auslösen.",
+    "en": "No image source available — plug in a webcam and trigger a rescan."
+  },
+  "error_source_unknown": {
+    "de": "Quelle „{source_id}\" ist nicht registriert.",
+    "en": "Source \"{source_id}\" is not registered."
+  },
+  "error_source_unavailable": {
+    "de": "Quelle „{source_id}\" ist nicht erreichbar.",
+    "en": "Source \"{source_id}\" is not reachable."
+  }
+}

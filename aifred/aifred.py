@@ -1143,8 +1143,11 @@ app._api.mount("/api", api_app)
 from starlette.staticfiles import StaticFiles  # noqa: E402
 from .lib.config import DATA_DIR  # noqa: E402
 
-# Mount images directory for Vision uploads
-images_dir = DATA_DIR / "images"
+# Mount snapshot directory for Vision uploads. Filesystem lives under
+# data/vision/snapshots/ (consistent with the wider vision pipeline:
+# frames/, clips/, recordings/, faces/) — URL prefix stays /_upload/images/
+# for backwards-compat with persisted message metadata.
+images_dir = DATA_DIR / "vision" / "snapshots"
 images_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/images", StaticFiles(directory=str(images_dir)), name="uploaded_images")
 
