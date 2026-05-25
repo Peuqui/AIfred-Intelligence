@@ -420,6 +420,12 @@ class BackendMixin(rx.State, mixin=True):
                     from ..lib.lookup_cache_cleanup import cleanup_lookup_cache_task
                     _asyncio.create_task(cleanup_lookup_cache_task())
 
+                    # Vision cleanup task — räumt alte Face-Crops, Motion-
+                    # Frames und Vision-DB-Events auf, TTL aus
+                    # plugins/tools/vision/settings.json face_recognition.retention_days.
+                    from ..lib.vision_cleanup import cleanup_vision_task
+                    _asyncio.create_task(cleanup_vision_task())
+
                     # Audio index incremental sync (only for sources already populated)
                     from ..lib.audio_index import sync_audio_index_task
                     _asyncio.create_task(sync_audio_index_task())

@@ -81,6 +81,58 @@ def _model_section() -> rx.Component:
     )
 
 
+def _face_recognition_section() -> rx.Component:
+    """Toggle für Face-Recognition + Retention-Input. Beide schreiben
+    in plugins/tools/vision/settings.json."""
+    return rx.vstack(
+        rx.hstack(
+            rx.text(
+                t("vision_settings_face_recognition_label"),
+                font_weight="bold", size="3",
+            ),
+            rx.spacer(),
+            rx.switch(
+                checked=AIState.face_recognition_enabled,
+                on_change=AIState.set_face_recognition_enabled,
+                size="2",
+                color_scheme="orange",
+            ),
+            align="center",
+            width="100%",
+        ),
+        rx.text(
+            t("vision_settings_face_recognition_help"),
+            color="gray", size="1",
+        ),
+        # Retention-Input
+        rx.hstack(
+            rx.text(
+                t("vision_settings_face_retention_label"),
+                size="2", color="gray",
+            ),
+            rx.input(
+                type="number",
+                default_value=AIState.face_retention_days.to(str),
+                on_blur=AIState.set_face_retention_days,
+                size="2",
+                min=1,
+                max=3650,
+                style={"width": "5em"},
+            ),
+            align="center",
+            spacing="2",
+            style={"margin_top": "0.5em"},
+        ),
+        rx.text(
+            t("vision_settings_face_retention_help"),
+            color="gray", size="1",
+        ),
+        align="stretch",
+        spacing="1",
+        width="100%",
+    )
+
+
 def vision_settings_modal() -> rx.Component:
     """Modal globally mounted in aifred.py. Visible only when
     ``AIState.vision_settings_open`` is True. Closes on backdrop click or
@@ -131,6 +183,8 @@ def vision_settings_modal() -> rx.Component:
                     _mode_section(),
                     rx.divider(),
                     _model_section(),
+                    rx.divider(),
+                    _face_recognition_section(),
                     rx.divider(),
                     rx.button(
                         t("vision_settings_close"),

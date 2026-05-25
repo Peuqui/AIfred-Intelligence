@@ -23,88 +23,155 @@ from ..state import AIState
 from .helpers import t
 
 
+def _header_group(
+    label: rx.Var | str,
+    *controls: rx.Component,
+    wrap_label: bool = False,
+) -> rx.Component:
+    """Eine Header-Gruppe: Label oben, Controls unten. Wird in
+    ``_header_row`` mehrfach genutzt, damit das Header bei Bedarf
+    in zwei Zeilen umbricht (flex-wrap) statt rechts aus dem Modal
+    zu laufen.
+
+    Bei ``wrap_label=True`` darf das Label selbst umbrechen — sinnvoll
+    für lange deutsche Wörter wie „Gesichtserkennung", die sonst die
+    Spalte weit machen.
+    """
+    label_style = {"line_height": "1.1"}
+    if not wrap_label:
+        label_style["white_space"] = "nowrap"
+    else:
+        # Erzwungener Umbruch am Bindestrich + Fallback ``overflow-wrap``
+        # für lange Wörter ohne natürlichen Trennpunkt.
+        label_style["overflow_wrap"] = "anywhere"
+    return rx.vstack(
+        rx.text(label, size="1", color="gray", style=label_style),
+        rx.hstack(*controls, spacing="1", align="center"),
+        spacing="1",
+        align="start",
+        style={
+            "flex_shrink": "0",
+            "max_width": "6em" if wrap_label else "none",
+        },
+    )
+
+
 def _header_row() -> rx.Component:
-    """Global FPS dropdown + refresh + rescan buttons."""
-    return rx.hstack(
-        rx.text(t("vision_preview_fps_label"), size="2", color="gray"),
-        rx.select.root(
-            rx.select.trigger(),
-            rx.select.content(
-                rx.foreach(
-                    AIState.vision_preview_fps_options,
-                    lambda opt: rx.select.item(opt["label"], value=opt["value"]),
+    """Header mit Gruppen (Label oben, Control unten). ``flex-wrap``
+    auf dem äußeren Container lässt das Header bei schmalen Fenstern
+    automatisch in zwei Reihen umbrechen, statt rechts überzulaufen.
+    """
+    return rx.box(
+        _header_group(
+            t("vision_preview_fps_label"),
+            rx.select.root(
+                rx.select.trigger(),
+                rx.select.content(
+                    rx.foreach(
+                        AIState.vision_preview_fps_options,
+                        lambda opt: rx.select.item(opt["label"], value=opt["value"]),
+                    ),
+                ),
+                value=AIState.vision_preview_fps_value,
+                on_change=AIState.set_vision_preview_fps,
+            ),
+            rx.cond(
+                AIState.vision_preview_is_manual_mode,
+                rx.icon_button(
+                    rx.icon("refresh-cw", size=14),
+                    on_click=AIState.refresh_vision_preview,
+                    size="2",
+                    variant="soft",
+                    color_scheme="gray",
+                    title=t("vision_preview_refresh_tooltip"),
                 ),
             ),
-            value=AIState.vision_preview_fps_value,
-            on_change=AIState.set_vision_preview_fps,
-        ),
-        rx.cond(
-            AIState.vision_preview_is_manual_mode,
             rx.icon_button(
-                rx.icon("refresh-cw", size=14),
-                on_click=AIState.refresh_vision_preview,
+                rx.icon("scan-search", size=14),
+                on_click=AIState.rescan_vision_preview_sources,
                 size="2",
                 variant="soft",
                 color_scheme="gray",
-                title=t("vision_preview_refresh_tooltip"),
+                title=t("vision_preview_rescan_tooltip"),
             ),
         ),
-        rx.icon_button(
-            rx.icon("scan-search", size=14),
-            on_click=AIState.rescan_vision_preview_sources,
-            size="2",
-            variant="soft",
-            color_scheme="gray",
-            title=t("vision_preview_rescan_tooltip"),
-        ),
-        rx.spacer(),
-        # VLM-Modell-Dropdown — SSOT mit dem Plugin-Settings-Modal.
-        # Schreibt direkt in plugins/tools/vision/settings.json,
-        # damit das gewählte Modell überall gilt (Chat-Bild-Upload,
-        # Tool-Snapshots, Watch-Mode), nicht nur im Live-Preview.
-        rx.text(t("vision_preview_vlm_model_label"), size="2", color="gray"),
-        rx.select.root(
-            rx.select.trigger(),
-            rx.select.content(
-                rx.foreach(
-                    AIState.vision_available_models,
-                    lambda m: rx.select.item(m, value=m),
+        _header_group(
+            t("vision_preview_vlm_model_label"),
+            rx.select.root(
+                rx.select.trigger(),
+                rx.select.content(
+                    rx.foreach(
+                        AIState.vision_available_models,
+                        lambda m: rx.select.item(m, value=m),
+                    ),
                 ),
+                value=AIState.vision_model_value,
+                on_change=AIState.set_vision_model_value,
             ),
-            value=AIState.vision_model_value,
-            on_change=AIState.set_vision_model_value,
         ),
-        # VLM analysis cooldown
-        rx.text(t("vision_preview_cooldown_label"), size="2", color="gray"),
-        rx.select.root(
-            rx.select.trigger(),
-            rx.select.content(
-                rx.foreach(
-                    AIState.vision_preview_cooldown_options,
-                    lambda opt: rx.select.item(opt["label"], value=opt["value"]),
+        _header_group(
+            t("vision_preview_cooldown_label"),
+            rx.select.root(
+                rx.select.trigger(),
+                rx.select.content(
+                    rx.foreach(
+                        AIState.vision_preview_cooldown_options,
+                        lambda opt: rx.select.item(opt["label"], value=opt["value"]),
+                    ),
                 ),
+                value=AIState.vision_preview_vlm_cooldown_value,
+                on_change=AIState.set_vision_preview_vlm_cooldown,
             ),
-            value=AIState.vision_preview_vlm_cooldown_value,
-            on_change=AIState.set_vision_preview_vlm_cooldown,
         ),
-        # Teleprompter layout toggle — right side of the header
-        rx.text(t("vision_preview_teleprompter_mode_label"), size="2", color="gray"),
-        rx.select.root(
-            rx.select.trigger(),
-            rx.select.content(
-                rx.select.item(
-                    t("vision_preview_teleprompter_mode_overlay"), value="overlay",
-                ),
-                rx.select.item(
-                    t("vision_preview_teleprompter_mode_below"), value="below",
-                ),
+        _header_group(
+            t("vision_preview_face_recognition_label"),
+            rx.switch(
+                checked=AIState.face_recognition_enabled,
+                on_change=AIState.set_face_recognition_enabled,
+                size="2",
+                color_scheme="orange",
             ),
-            value=AIState.vision_preview_teleprompter_mode,
-            on_change=AIState.set_vision_preview_teleprompter_mode,
+            wrap_label=True,
         ),
-        spacing="2",
-        align="center",
-        width="100%",
+        _header_group(
+            t("vision_preview_face_throttle_label"),
+            rx.select.root(
+                rx.select.trigger(),
+                rx.select.content(
+                    rx.foreach(
+                        AIState.vision_preview_face_throttle_options,
+                        lambda opt: rx.select.item(opt["label"], value=opt["value"]),
+                    ),
+                ),
+                value=AIState.vision_preview_face_throttle_value,
+                on_change=AIState.set_vision_preview_face_throttle,
+                disabled=~AIState.face_recognition_enabled,
+            ),
+        ),
+        _header_group(
+            t("vision_preview_teleprompter_mode_label"),
+            rx.select.root(
+                rx.select.trigger(),
+                rx.select.content(
+                    rx.select.item(
+                        t("vision_preview_teleprompter_mode_overlay"), value="overlay",
+                    ),
+                    rx.select.item(
+                        t("vision_preview_teleprompter_mode_below"), value="below",
+                    ),
+                ),
+                value=AIState.vision_preview_teleprompter_mode,
+                on_change=AIState.set_vision_preview_teleprompter_mode,
+            ),
+        ),
+        style={
+            "display": "flex",
+            "flex_direction": "row",
+            "flex_wrap": "wrap",
+            "gap": "1em",
+            "align_items": "flex-end",
+            "width": "100%",
+        },
     )
 
 
@@ -380,6 +447,12 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                 ),
                 _alias_overlay(entry),
                 rx.cond(overlay_mode, _teleprompter_overlay(entry), rx.fragment()),
+                # ``data-vlm-image-slot`` markiert diesen Container als
+                # Ziel für das „Light-Table"-Overlay vom SSE-Manager:
+                # Klick auf ein Crop-Thumb legt das Bild hier groß über
+                # das Live-Video, weitere Klicks wechseln das Bild im
+                # selben Slot.
+                custom_attrs={"data-vlm-image-slot": entry["id"]},
                 style={
                     "position": "relative",
                     "flex": "2 1 0",
@@ -411,9 +484,39 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     resize="vertical",
                     style={
                         "width": "100%",
-                        "height": "100%",
-                        "min_height": "120px",
+                        "flex": "1 1 0",
+                        "min_height": "80px",
                         "font_family": "var(--default-font-family)",
+                    },
+                ),
+                # Erkannte Personen — Live-Liste der Face-Events.
+                # Wird vom vlm_sse_manager.js befüllt (face_known /
+                # face_unsure / face_unknown mit farbigen Dots).
+                rx.text(
+                    t("vision_preview_faces_section_label"),
+                    size="1", color="gray", weight="bold",
+                    style={"margin_top": "0.5em", "margin_bottom": "0.25em"},
+                ),
+                rx.box(
+                    t("vision_preview_faces_idle"),
+                    class_name="vlm-face-target",
+                    custom_attrs={"data-vlm-face-source": sid},
+                    style={
+                        # 50/50-Verteilung mit dem Briefing-Textarea:
+                        # beide bekommen ``flex: 1 1 0`` mit derselben
+                        # ``min_height``, der Spalten-vstack teilt die
+                        # verfügbare Höhe gleichmäßig.
+                        "flex": "1 1 0",
+                        "min_height": "80px",
+                        "overflow_y": "auto",
+                        "padding": "0.4em 0.6em",
+                        "background_color": "rgba(0, 0, 0, 0.3)",
+                        "border_radius": "6px",
+                        "border": "1px solid var(--gray-6)",
+                        "font_size": "0.85em",
+                        "color": "rgba(255, 255, 255, 0.88)",
+                        "font_style": "italic",
+                        "white_space": "pre-wrap",
                     },
                 ),
                 style={

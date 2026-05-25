@@ -64,8 +64,8 @@ class FaceRecognizer:
         self,
         store: VisionStore,
         *,
-        threshold_known: float = 0.5,
-        threshold_unsure: float = 0.4,
+        threshold_known: float = 0.6,
+        threshold_unsure: float = 0.5,
     ) -> None:
         if threshold_unsure > threshold_known:
             raise ValueError(

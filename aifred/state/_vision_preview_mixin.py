@@ -205,6 +205,11 @@ class VisionPreviewMixin(rx.State, mixin=True):
     # sane value (the VLM itself answers in ~0.4s for short prompts).
     vision_preview_vlm_cooldown_sec: float = 5.0
 
+    # Min-Abstand zwischen Face-Recognition-Events (motion-getriggert).
+    # Default 1 s reicht für Eingangs-Überwachung — bei Bedarf im
+    # Header-Dropdown anpassbar. Läuft unabhängig vom VLM-Cycle.
+    vision_preview_face_throttle_sec: float = 1.0
+
     # NB: ein eigenes ``vision_preview_vlm_model`` gibt es nicht mehr.
     # Das Modell-Dropdown im Popup-Header bindet direkt an
     # ``vision_model_value`` aus _vision_settings_mixin (SSOT in
@@ -219,23 +224,49 @@ class VisionPreviewMixin(rx.State, mixin=True):
         {"value": "30", "label": "30 s"},
         {"value": "60", "label": "60 s"},
     ]
+    # Face-Throttle-Werte: Detection läuft GPU-seitig in ~10 ms,
+    # selbst 10 Events/s lasten die Karte nicht aus. Die schnellen
+    # Werte werden zusätzlich als „N/s" gelabelt (intuitiver für
+    # Türsteher-Modus), die langsamen als Sekunden.
+    vision_preview_face_throttle_options: list[dict[str, str]] = [
+        {"value": "0.1", "label": "0,1 s · 10/s"},
+        {"value": "0.2", "label": "0,2 s · 5/s"},
+        {"value": "0.5", "label": "0,5 s · 2/s"},
+        {"value": "1", "label": "1 s"},
+        {"value": "2", "label": "2 s"},
+        {"value": "3", "label": "3 s"},
+    ]
 
     @rx.var
     def vision_preview_vlm_cooldown_value(self) -> str:
         v = self.vision_preview_vlm_cooldown_sec
         return str(int(v)) if v == int(v) else str(v)
 
+    @rx.var
+    def vision_preview_face_throttle_value(self) -> str:
+        v = self.vision_preview_face_throttle_sec
+        if v == int(v):
+            return str(int(v))
+        # 0.1/0.2/0.5 sauber als „0.1" rendern (statt 0.10000…0001)
+        return f"{v:g}"
+
     vision_preview_status: str = ""
 
     # --- Static dropdown options (read-only) -----------------------------
 
+    # Bildrate-Optionen in fps. Sub-fps-Werte zusätzlich mit Sekunden
+    # gelabelt, damit „0,2 fps" nicht abstrakt wirkt.
     vision_preview_fps_options: list[dict[str, str]] = [
         {"value": "0", "label": "Manuell (Einzelbild)"},
-        {"value": "0.2", "label": "5 s"},
-        {"value": "0.5", "label": "2 s"},
-        {"value": "1", "label": "1 s"},
-        {"value": "2", "label": "0.5 s"},
-        {"value": "10", "label": "0.1 s"},
+        {"value": "0.2", "label": "0,2 fps · 1 Bild / 5 s"},
+        {"value": "0.5", "label": "0,5 fps · 1 Bild / 2 s"},
+        {"value": "1", "label": "1 fps"},
+        {"value": "2", "label": "2 fps"},
+        {"value": "5", "label": "5 fps"},
+        {"value": "10", "label": "10 fps"},
+        {"value": "15", "label": "15 fps"},
+        {"value": "30", "label": "30 fps"},
+        {"value": "60", "label": "60 fps"},
     ]
     # Resolution options are per-source now (built in _refresh_sources from
     # the camera's actual supported modes) — no global field anymore.
@@ -356,13 +387,37 @@ class VisionPreviewMixin(rx.State, mixin=True):
             for e in self.vision_preview_sources
         }
         briefings_json = _json.dumps(briefings_map)
+        # i18n-Strings ans Frontend, damit der Enroll-Button + prompt
+        # in der User-Sprache erscheint. vlm_sse_manager.js liest die
+        # aus window.__aifredFaceEnrollLabel / __aifredFaceEnrollPrompt.
+        # ``ui.helpers.t()`` returnt rx.Var (für Frontend-Rendering) —
+        # hier brauchen wir aber den rohen String, also direkt aus
+        # der Translation-Quelle holen.
+        from ..lib.i18n import TranslationManager
+        ui_lang = getattr(self, "ui_language", "de") or "de"
+        translations = TranslationManager._translations.get(ui_lang, {})
+        enroll_label = translations.get(
+            "vision_preview_face_enroll_button", "+ tag"
+        )
+        enroll_prompt = translations.get(
+            "vision_preview_face_enroll_placeholder", "Name?"
+        )
+        discard_label = translations.get(
+            "vision_preview_face_discard_button", "Discard"
+        )
+        enroll_label_json = _json.dumps(enroll_label)
+        enroll_prompt_json = _json.dumps(enroll_prompt)
+        discard_label_json = _json.dumps(discard_label)
         return rx.call_script(
             "(function(){"
+            f"window.__aifredFaceEnrollLabel = {enroll_label_json};"
+            f"window.__aifredFaceEnrollPrompt = {enroll_prompt_json};"
+            f"window.__aifredFaceDiscardLabel = {discard_label_json};"
             # SSE-Manager idempotent injecten
             "if (!window.__aifredVLMSSEInjected) {"
             "  window.__aifredVLMSSEInjected = true;"
             "  var s = document.createElement('script');"
-            "  s.src = '/vlm_sse_manager.js?v=3';"
+            "  s.src = '/vlm_sse_manager.js?v=9';"
             "  s.async = true;"
             "  document.head.appendChild(s);"
             "  console.log('[AIfred-VLM] injected script tag');"
@@ -512,12 +567,22 @@ class VisionPreviewMixin(rx.State, mixin=True):
         cd = max(0.5, float(self.vision_preview_vlm_cooldown_sec))
         preview_fps = float(self.vision_preview_fps or 0.0)
         stream_fps = max(2.0, preview_fps)
+        # Face-Recognition: enabled toggle aus dem Plugin-Setting
+        # (SSOT mit dem Settings-Modal — analog VLM-Modell).
+        from ._vision_settings_mixin import _load_settings as _load_vis_settings
+        vs = _load_vis_settings() or {}
+        face_enabled = bool(
+            (vs.get("face_recognition") or {}).get("enabled", True)
+        )
         cfg = WatchConfig(
             fps=stream_fps,
             run_vlm_on_motion=False,
             run_vlm_continuous=True,
             vlm_cooldown_sec=cd,
-            run_face_detect_on_motion=False,
+            run_face_detect_on_motion=face_enabled,
+            min_event_interval_sec=max(
+                0.1, float(self.vision_preview_face_throttle_sec)
+            ),
         )
         try:
             await watcher.start(source_id, cfg)
@@ -548,6 +613,19 @@ class VisionPreviewMixin(rx.State, mixin=True):
             return
         self.vision_preview_vlm_cooldown_sec = cd
         self._persist_preview_setting("vlm_cooldown_sec", cd)
+
+    @rx.event
+    def set_vision_preview_face_throttle(self, value: str) -> None:
+        """Min-Abstand zwischen Face-Events (Sekunden). Greift beim
+        nächsten Watcher-Start."""
+        try:
+            t = float(value)
+        except (TypeError, ValueError):
+            return
+        if t < 0.1 or t > 60:
+            return
+        self.vision_preview_face_throttle_sec = t
+        self._persist_preview_setting("face_throttle_sec", t)
 
     # set_vision_preview_vlm_model entfernt — das Popup-Header-Dropdown
     # ruft direkt set_vision_model_value aus _vision_settings_mixin
@@ -762,6 +840,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
             cd = data.get("vlm_cooldown_sec")
             if isinstance(cd, (int, float)) and 0.5 <= cd <= 300:
                 self.vision_preview_vlm_cooldown_sec = float(cd)
+            ft = data.get("face_throttle_sec")
+            if isinstance(ft, (int, float)) and 0.1 <= ft <= 60:
+                self.vision_preview_face_throttle_sec = float(ft)
         except Exception as e:  # noqa: BLE001
             logger.warning("vision-preview settings load failed: %s", e)
 

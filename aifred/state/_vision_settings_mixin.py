@@ -56,6 +56,13 @@ class VisionSettingsMixin(rx.State, mixin=True):
     vision_mode_value: str = "on-demand"
     vision_model_value: str = "qwen3-vl:4b-instruct-q8_0"
     vision_available_models: list[str] = []
+    # Gesichts­erkennung an/aus — SSOT in
+    # ``plugins/tools/vision/settings.json`` ``face_recognition.enabled``.
+    # Wirkt auf den Watcher (run_face_detect_on_motion).
+    face_recognition_enabled: bool = True
+    # Aufbewahrungsdauer der Face-Crops + Motion-Frames + Vision-DB-
+    # Events in Tagen. Cleanup-Task läuft täglich um 03:00 lokal.
+    face_retention_days: int = 14
 
     def _refresh_vision_settings(self) -> None:
         """Lade Plugin-Settings + Ollama-Modellliste in den State.
@@ -66,6 +73,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.vision_mode_value = str(settings.get("vision_mode", "on-demand"))
         vlm = settings.get("vlm", {})
         self.vision_model_value = str(vlm.get("model", "qwen3-vl:4b-instruct-q8_0"))
+        fr = settings.get("face_recognition", {}) or {}
+        self.face_recognition_enabled = bool(fr.get("enabled", True))
+        rd = fr.get("retention_days")
+        if isinstance(rd, (int, float)) and 1 <= rd <= 3650:
+            self.face_retention_days = int(rd)
         try:
             from ..lib.ollama_models import list_ollama_vlm_models
             models = [m.name for m in list_ollama_vlm_models()]
@@ -126,6 +138,33 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 await unload_vlm_model(old_model)
             except Exception as e:  # noqa: BLE001
                 logger.warning("unload of old VLM model failed: %s", e)
+
+    @rx.event
+    def set_face_recognition_enabled(self, value: bool) -> None:
+        """Toggle für Face-Recognition. Schreibt in
+        ``plugins/tools/vision/settings.json`` unter
+        ``face_recognition.enabled``. Wirkt beim nächsten
+        Watcher-Start (config.run_face_detect_on_motion)."""
+        self.face_recognition_enabled = bool(value)
+        settings = _load_settings()
+        settings.setdefault("face_recognition", {})["enabled"] = bool(value)
+        _save_settings(settings)
+
+    @rx.event
+    def set_face_retention_days(self, value: str) -> None:
+        """Tage, die Face-Crops + Motion-Frames + Vision-DB-Events
+        aufbewahrt werden. Wirkt beim nächsten Cleanup-Lauf
+        (täglich 03:00 lokal)."""
+        try:
+            days = int(value)
+        except (TypeError, ValueError):
+            return
+        if days < 1 or days > 3650:
+            return
+        self.face_retention_days = days
+        settings = _load_settings()
+        settings.setdefault("face_recognition", {})["retention_days"] = days
+        _save_settings(settings)
 
     @rx.event
     def rescan_vision_models(self) -> None:

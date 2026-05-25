@@ -1195,6 +1195,17 @@ session_audio_dir = DATA_DIR / "audio"
 session_audio_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/audio", StaticFiles(directory=str(session_audio_dir)), name="session_audio")
 
+# Face-Crops für die „Erkannte Personen"-Box im Live-Preview-Popup.
+# Pro Identity (face_id für known/unsure, Pseudo-Id für unknowns)
+# genau eine Datei, periodisch via vision_cleanup-Task aufgeräumt.
+face_crops_dir = DATA_DIR / "vision" / "faces"
+face_crops_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount(
+    "/_upload/face_crops",
+    StaticFiles(directory=str(face_crops_dir)),
+    name="face_crops",
+)
+
 # Mount documents directory for document download
 documents_dir = DATA_DIR / "documents"
 documents_dir.mkdir(parents=True, exist_ok=True)

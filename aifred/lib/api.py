@@ -1713,13 +1713,30 @@ async def _mjpeg_stream(source: Any, fps: float, width: int = 0, height: int = 0
     source.stream vs. bus.subscribe), die je nach Watcher-Zustand
     umgeschaltet wurden und beim Toggle blackouts produzierten — der
     Hub löst das strukturell.
+
+    ``fps`` ist die vom Browser gewünschte Anzeige-Rate. Der Hub
+    selbst läuft mit ``max(fps aller Subscriber)``; dieser Stream
+    drosselt clientseitig auf das vom User angeforderte Tempo —
+    sonst wirkt das Bildrate-Dropdown nicht, weil der Watcher den
+    Hub auf 10 fps zwingt und alle Frames an den Browser durch-
+    gereicht werden.
     """
+    import time
     from .frame_hub import get_default_hub
 
     hub = get_default_hub()
+    # Drossel-Intervall in Sekunden. Bei fps <= 0 (Manual-Modus) wird
+    # dieser Pfad eh nicht genutzt — der Browser holt einzeln über
+    # /vision/snapshot.
+    interval = 1.0 / max(0.01, float(fps))
+    last_emit = 0.0
     async for frame in hub.subscribe(
         source, name="mjpeg-live-preview", fps=fps, width=width, height=height,
     ):
+        now = time.monotonic()
+        if now - last_emit < interval:
+            continue
+        last_emit = now
         yield _encode_mjpeg_chunk(frame)
 
 
@@ -1812,6 +1829,91 @@ async def vision_events_endpoint(source_id: str) -> Any:
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
         },
+    )
+
+
+# ============================================================
+# Face Enrollment
+# ============================================================
+
+
+class FaceEnrollRequest(BaseModel):
+    """Body fürs Inline-Enroll aus dem Live-Vorschau-Popup. Embedding
+    kommt als base64-encoded float32-Array (512 dim für InsightFace
+    buffalo_l), wie es im SSE-Event mitgegeben wird."""
+    name: str = Field(..., min_length=1, description="Name der Person")
+    source_id: str = Field(..., description="Frame-Source-ID, aus der das Embedding stammt")
+    embedding_b64: str = Field(..., description="Base64-encodierter float32 numpy-array")
+
+
+class FaceEnrollResponse(BaseModel):
+    success: bool
+    face_id: int
+    name: str
+    is_new: bool
+
+
+@api_app.post("/vision/face/enroll", response_model=FaceEnrollResponse, tags=["Vision"])
+async def vision_face_enroll(request: FaceEnrollRequest) -> FaceEnrollResponse:
+    """Enrollen einer neuen Identity (oder weiteres Sample für eine
+    bestehende). Wird vom Inline-Button bei ``face_unknown``-Zeilen im
+    Live-Vorschau-Popup aufgerufen.
+
+    Idempotent zur Name-Dedup: wenn schon eine ``face_id`` mit dem
+    Namen existiert, wird das Embedding als zusätzliches Sample
+    angefügt — kein zweiter Datensatz. So kann der User beim
+    erneuten ``+ taggen`` einer bekannten Person das Modell mit
+    weiteren Posen anreichern.
+    """
+    import base64 as _b64
+    import numpy as _np
+    from .vision_store import VisionStore
+
+    name = request.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="empty name")
+
+    # Embedding dekodieren
+    try:
+        emb_bytes = _b64.b64decode(request.embedding_b64, validate=True)
+        embedding = _np.frombuffer(emb_bytes, dtype=_np.float32)
+        if embedding.size == 0:
+            raise ValueError("empty embedding")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=400, detail=f"invalid embedding: {e}"
+        ) from e
+
+    store = VisionStore()
+    existing = store.get_face_by_name(name)
+    if existing:
+        face_id = int(existing["id"])
+        is_new = False
+    else:
+        face_id = store.add_face(name=name, enrolled_by="popup")
+        is_new = True
+
+    try:
+        store.add_embedding(face_id, embedding, quality_score=1.0)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"add_embedding failed: {e}") from e
+
+    log_message(
+        f"🧑 Face enrolled: name='{name}' face_id={face_id} is_new={is_new} "
+        f"source={request.source_id}"
+    )
+
+    # Recognizer-Cache invalidieren, damit der nächste Frame die neue
+    # Identity sofort erkennt (sonst läuft das alte Cache-Mapping bis
+    # zum nächsten Watcher-Restart).
+    try:
+        from .vision_filters.face_recognize import FaceRecognizer
+        FaceRecognizer(store).invalidate()
+    except Exception as e:  # noqa: BLE001
+        log_message(f"⚠️ recognizer invalidate after enroll failed: {e}")
+
+    return FaceEnrollResponse(
+        success=True, face_id=face_id, name=name, is_new=is_new,
     )
 
 
