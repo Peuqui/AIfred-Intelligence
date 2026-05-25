@@ -866,6 +866,103 @@ tr:hover {
     padding: 0;
     line-height: 1.4;
 }
-.vlm-event-target .vlm-line:last-child {
+.vlm-event-target .vlm-line:last-child,
+.vlm-face-target .vlm-line:last-child {
     border-bottom: none;
+}
+.vlm-face-target .vlm-line {
+    /* Gleicher Separator wie der VLM-Teleprompter — Konsistenz. */
+    border-bottom: 1px solid rgba(230, 119, 0, 0.55);
+    padding: 0.25em 0;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+}
+.vlm-face-dot {
+    width: 0.75em;
+    height: 0.75em;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+    box-shadow: 0 0 4px currentColor;
+}
+.vlm-face-thumb,
+.vlm-face-thumb-placeholder {
+    width: 40px;
+    height: 40px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--gray-7);
+    cursor: pointer;
+}
+.vlm-face-thumb:hover {
+    border-color: #e67700;
+}
+.vlm-face-discard-btn {
+    flex-shrink: 0;
+    padding: 0.2em 0.5em;
+    border-radius: 4px;
+    border: 1px solid var(--gray-7);
+    background-color: transparent;
+    color: var(--gray-10);
+    font-size: 0.95em;
+    cursor: pointer;
+    line-height: 1;
+}
+.vlm-face-discard-btn:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+/* „Light-Table"-Overlay innerhalb des Live-Video-Containers.
+   ``position: absolute`` füllt den image-slot, klickt auf weitere
+   Crop-Thumbs wechselt das Bild im selben Slot. Klick auf das
+   Overlay (= Bild oder Hintergrund) schließt. Z-index 5 reicht —
+   über dem Live-Bild aber unter dem alias-overlay (z-index 2)
+   würde fehlschlagen, also drüber. */
+.vlm-light-table-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.9);
+    border-radius: 8px;
+    z-index: 5;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+    padding: 1em;
+}
+.vlm-light-table-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 6px;
+    pointer-events: none;  /* Klick geht durchs Bild zum Overlay → schließt */
+}
+.vlm-face-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.vlm-face-enroll-btn {
+    flex-shrink: 0;
+    padding: 0.2em 0.6em;
+    border-radius: 4px;
+    border: 1px solid #e67700;
+    background-color: rgba(230, 119, 0, 0.15);
+    color: #e67700;
+    font-size: 0.85em;
+    cursor: pointer;
+    font-weight: 500;
+}
+.vlm-face-enroll-btn:hover {
+    background-color: rgba(230, 119, 0, 0.3);
+}
+.vlm-face-enroll-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }

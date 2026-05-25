@@ -255,7 +255,28 @@ class VisionWatcher:
     def _get_face_recognizer(self) -> FaceRecognizer:
         if self._explicit_face_recognizer is not None:
             return self._explicit_face_recognizer
-        return FaceRecognizer(self._store)
+        # Thresholds aus dem Plugin-Setting lesen — Default-Constructor
+        # nimmt sonst nur die Code-Defaults, ungeachtet was im
+        # settings.json steht.
+        try:
+            import json
+            from pathlib import Path
+            cfg_path = (
+                Path(__file__).parent.parent
+                / "plugins/tools/vision/settings.json"
+            )
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f) or {}
+            fr = cfg.get("face_recognition") or {}
+            t_known = float(fr.get("threshold_known", 0.6))
+            t_unsure = float(fr.get("threshold_unsure", 0.5))
+        except Exception:  # noqa: BLE001
+            t_known, t_unsure = 0.6, 0.5
+        return FaceRecognizer(
+            self._store,
+            threshold_known=t_known,
+            threshold_unsure=t_unsure,
+        )
 
     async def _watch_loop(self, source: "FrameSource", config: WatchConfig) -> None:
         """Per-source watch loop with split frame-consumer / VLM-cycle.
@@ -396,6 +417,10 @@ class VisionWatcher:
 
         recognizer = self._get_face_recognizer()
         recognizer.invalidate()  # pick up any newly-enrolled faces
+        from .face_crop_store import get_default_store
+        from .vision_event_bus import publish_vlm_event
+        import base64 as _base64
+        crop_store = get_default_store()
         for det in detections:
             match = recognizer.match(det.embedding)
             event_type = (
@@ -405,7 +430,7 @@ class VisionWatcher:
                 if match.confidence_band == "unknown"
                 else "face_unsure"
             )
-            self._store.add_event(
+            event_id = self._store.add_event(
                 source_id=source_id,
                 event_type=event_type,
                 timestamp=frame.timestamp,
@@ -421,6 +446,45 @@ class VisionWatcher:
                 metadata={"parent_event_id": motion_event_id},
             )
             self._statuses[source_id].face_events += 1  # type: ignore[misc]
+            # Face-Crop speichern (Dedup pro Identity / Pseudo-Id):
+            # bei known/unsure überschreibt das aktuellste Bild die
+            # bestehende face_<id>.jpg, bei unknown clustert die
+            # FaceCropStore via embedding-Similarity. ``crop_url``
+            # landet im SSE-Event und wird vom Frontend als
+            # <img>-Thumbnail dargestellt.
+            crop_result = crop_store.save(
+                frame_bytes=frame.image_bytes,
+                bbox=tuple(int(v) for v in det.bbox),  # type: ignore[arg-type]
+                source_id=source_id,
+                event_type=event_type,
+                face_id=match.face_id if match.face_id > 0 else None,
+                name=match.name or "",
+                embedding=det.embedding,
+            )
+            crop_url = crop_result.url if crop_result else ""
+            identity_key = crop_result.identity_key if crop_result else ""
+            session_id = crop_result.session_id if crop_result else ""
+            # Embedding-Base64 für inline-Enroll-Workflow im Frontend
+            # (Klick auf „+ taggen" schickt Embedding + Name zurück).
+            try:
+                emb_b64 = _base64.b64encode(det.embedding.tobytes()).decode("ascii")
+            except Exception:  # noqa: BLE001
+                emb_b64 = ""
+            publish_vlm_event(source_id, {
+                "id": event_id,
+                "type": event_type,
+                "source_id": source_id,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "frame_timestamp": frame.timestamp.isoformat(timespec="seconds"),
+                "face_id": match.face_id if match.face_id > 0 else 0,
+                "identity_key": identity_key,
+                "session_id": session_id,
+                "name": match.name or "",
+                "similarity": round(float(match.similarity), 3),
+                "confidence_band": match.confidence_band,
+                "crop_url": crop_url,
+                "embedding_b64": emb_b64,
+            })
 
     async def _maybe_run_continuous_vlm(
         self, frame: "Frame", config: WatchConfig
