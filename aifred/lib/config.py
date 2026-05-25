@@ -646,6 +646,16 @@ DEBUG_LOG_RAW_MESSAGES = False
 # AIfreds nachfolgender Verarbeitung.
 DEBUG_LOG_VLM_RAW = False
 
+# Continuous-watch VLM history depth — how many of the last
+# descriptions get prepended to the prompt as "previous observations"
+# so the VLM can write a delta ("unverändert" / "die Person hat sich
+# umgedreht") instead of a full fresh report every tick.
+# 0 = no history (fully stateless), 10 ≈ 50 s of watch coverage at the
+# default 5 s cooldown (~500 tokens of context, fits comfortably in
+# the 4K window). Higher = longer memory but risk of the VLM echoing
+# its own history instead of describing the image.
+VISION_VLM_CONTINUOUS_HISTORY = 10
+
 # ============================================================
 # VLM Ollama hosts (orchestrated by AIfred per call)
 # ============================================================

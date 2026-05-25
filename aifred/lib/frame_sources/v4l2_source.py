@@ -173,6 +173,13 @@ class V4L2Source:
     # ── Protocol ────────────────────────────────────────────────────
 
     def is_available(self) -> bool:
+        # V4L2 erlaubt nur einen Reader gleichzeitig. Wenn wir SELBST
+        # gerade streamen (z.B. weil der Browser-MJPEG-Endpoint die
+        # Cam offen hält), würde ein zweiter cv2-Probe failen und die
+        # Source fälschlich als "nicht verfügbar" zurückmelden. Solange
+        # wir streamen, ist sie trivialerweise verfügbar.
+        if self._stream_stop is not None and not self._stream_stop.is_set():
+            return True
         return _can_capture(self.index)
 
     def detect_resolutions(self) -> list[tuple[int, int]]:
@@ -220,6 +227,22 @@ class V4L2Source:
             cap.release()
 
     def info(self) -> SourceInfo:
+        # Race-Schutz: Wenn wir gerade streamen, würde cv2.VideoCapture
+        # gegen unseren eigenen Stream konkurrieren und failen. In dem
+        # Fall verzichten wir auf den Probe und melden 'available' ohne
+        # frische width/height — die hat unser Caller eh nur als
+        # diagnostische Info, nicht als Pflichtfeld.
+        if self._stream_stop is not None and not self._stream_stop.is_set():
+            return SourceInfo(
+                source_id=self.source_id,
+                display_name=self.display_name,
+                kind=self.kind,
+                width=0,
+                height=0,
+                fps=None,
+                available=True,
+                extra={"device_path": f"/dev/video{self.index}"},
+            )
         cap = cv2.VideoCapture(self.index, cv2.CAP_V4L2)
         try:
             if not cap.isOpened():

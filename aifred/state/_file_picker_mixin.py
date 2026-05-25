@@ -176,13 +176,19 @@ class FilePickerMixin(rx.State, mixin=True):
             for e in result.entries
         ]
 
-    @rx.event
-    def picker_navigate(self, rel_path: str) -> None:
-        """Move to a specific relative path (folder)."""
+    def _picker_navigate(self, rel_path: str) -> None:
+        """Move to a relative path. Plain method so other event-handlers
+        can call it directly — calling the @rx.event variant from inside
+        Python code hits an EventNamespace shim and trips mypy."""
         self.picker_current = rel_path
         self.picker_path_input = rel_path
         self.picker_filter_text = ""
         self._picker_refresh()
+
+    @rx.event
+    def picker_navigate(self, rel_path: str) -> None:
+        """Event-handler entry-point used by the UI."""
+        self._picker_navigate(rel_path)
 
     @rx.event
     def picker_navigate_up(self) -> None:
@@ -190,12 +196,12 @@ class FilePickerMixin(rx.State, mixin=True):
             return
         parts = PurePosixPath(self.picker_current).parts
         new_path = str(PurePosixPath(*parts[:-1])) if len(parts) > 1 else ""
-        self.picker_navigate(new_path)
+        self._picker_navigate(new_path)
 
     @rx.event
     def picker_jump_to_path(self) -> None:
         """Jump to picker_path_input (typed by user)."""
-        self.picker_navigate(self.picker_path_input.strip().lstrip("/"))
+        self._picker_navigate(self.picker_path_input.strip().lstrip("/"))
 
     @rx.event
     def picker_set_path_input(self, value: str) -> None:
@@ -228,7 +234,7 @@ class FilePickerMixin(rx.State, mixin=True):
         """Default entry click handler: navigate into folders, pick files
         in pick_file mode, ignore file clicks in pick_folder mode."""
         if is_dir:
-            self.picker_navigate(rel_path)
+            self._picker_navigate(rel_path)
             return
         if self.picker_mode == "pick_file":
             self._dispatch_callback(rel_path)
