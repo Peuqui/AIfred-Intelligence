@@ -96,16 +96,21 @@ class FrameSource(Protocol):
         """
         ...
 
-    async def snapshot(self) -> Frame:
+    async def snapshot(self, *, width: int = 0, height: int = 0) -> Frame:
         """Liefert einen einzelnen Frame (on-demand, sofort).
 
         Bei Live-Quellen: aktuelles Bild ohne Stream-Aufbau. Bei File-
         Quellen: das ganze Bild bzw. der erste Frame. Bei nicht verfügbarer
         Source: ``RuntimeError`` — Konsument fängt das.
+
+        Optional ``width`` / ``height``: gewünschte Ziel-Auflösung. ``0/0``
+        (Default) heißt „was die Quelle natürlich liefert". Hardware-
+        Quellen versuchen das einzustellen, die effektive Auflösung steht
+        im zurückgegebenen ``Frame``.
         """
         ...
 
-    def stream(self, fps: float = 1.0) -> AsyncIterator[Frame]:
+    def stream(self, fps: float = 1.0, *, width: int = 0, height: int = 0) -> AsyncIterator[Frame]:
         """Kontinuierlicher Frame-Stream mit Ziel-Frequenz.
 
         Frames teilen sich eine ``metadata['sequence_id']`` (UUID-String,

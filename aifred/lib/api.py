@@ -1642,16 +1642,52 @@ async def audio_position(req: AudioPositionRequest):
 
 
 # ============================================================
-# Vision: live JPEG snapshot endpoint
+# Vision: live JPEG snapshot + MJPEG stream endpoints
 # ============================================================
 
+def _resolve_resolution(source_id: str, width: int, height: int) -> tuple[int, int]:
+    """Resolve effective width/height for a vision snapshot/stream.
+
+    Priority:
+    1. Explicit query-string override (caller passed width AND height)
+    2. Persisted per-source default in vision_store.sources.settings_json
+       (set via the live-preview popup dropdown)
+    3. ``(0, 0)`` — let cv2 / the V4L2 driver pick its own default
+       (typically 640×480 for USB webcams)
+
+    Returns ``(w, h)`` — caller hands these to ``snapshot(width=, height=)``.
+    """
+    if width > 0 and height > 0:
+        return width, height
+    try:
+        from .vision_store import VisionStore
+        store = VisionStore()
+        info = store.get_source(source_id)
+    except Exception:  # noqa: BLE001
+        return 0, 0
+    if not info:
+        return 0, 0
+    res = (info.get("settings") or {}).get("resolution")
+    if not isinstance(res, str) or "x" not in res:
+        return 0, 0
+    try:
+        w_str, h_str = res.lower().split("x", 1)
+        return int(w_str), int(h_str)
+    except (ValueError, TypeError):
+        return 0, 0
+
+
 @api_app.get("/vision/snapshot/{source_id:path}", tags=["Vision"])
-async def vision_snapshot_endpoint(source_id: str) -> Response:
+async def vision_snapshot_endpoint(
+    source_id: str, width: int = 0, height: int = 0
+) -> Response:
     """Liefert einen frischen JPEG-Snapshot der genannten Frame-Source.
 
-    Wird vom Live-Preview-Modal im Browser per ``<img>``-Tag mit
-    Cache-Buster-Query aufgerufen. Source-IDs enthalten typischerweise
-    einen Slash (``cam/v4l2_0``) — daher der ``:path``-Wildcard.
+    Single-shot Endpoint — für manuelle Refresh-Buttons oder das
+    Plugin-Tool. Streaming-Pendant ist :func:`vision_stream_endpoint`.
+
+    ``width`` und ``height`` sind optional und übersteuern den im
+    vision_store persistierten Per-Source-Default.
     """
     from .frame_sources import get as get_source
 
@@ -1660,17 +1696,95 @@ async def vision_snapshot_endpoint(source_id: str) -> Response:
         raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
     if not src.is_available():
         raise HTTPException(status_code=503, detail=f"source not available: {source_id}")
+    w, h = _resolve_resolution(source_id, width, height)
     try:
-        frame = await src.snapshot()
+        frame = await src.snapshot(width=w, height=h)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"snapshot failed: {e}") from e
     return Response(
         content=frame.image_bytes,
         media_type=f"image/{frame.format}",
         headers={
-            # Prevent any kind of caching — browser must always refetch
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
+        },
+    )
+
+
+# Boundary string used in the multipart MJPEG response. Must match the
+# `boundary=` parameter in the Content-Type header exactly.
+_MJPEG_BOUNDARY = b"--frame"
+
+
+async def _mjpeg_stream(source: Any, fps: float) -> Any:
+    """Async generator yielding MJPEG frames (multipart/x-mixed-replace).
+
+    Loops until the client disconnects (StreamingResponse cancels the
+    generator). Caps the rate to whatever fps the caller asked for.
+    A capture failure is logged but does NOT break the stream — the
+    next iteration tries again, so a brief hiccup doesn't kill the
+    whole live view.
+    """
+    import asyncio
+    interval = 1.0 / fps if fps and fps > 0 else 1.0
+    try:
+        while True:
+            try:
+                frame = await source.snapshot()
+            except Exception:  # noqa: BLE001
+                # Skip this frame, keep stream alive
+                await asyncio.sleep(interval)
+                continue
+            chunk = (
+                _MJPEG_BOUNDARY
+                + b"\r\nContent-Type: image/"
+                + frame.format.encode()
+                + b"\r\nContent-Length: "
+                + str(len(frame.image_bytes)).encode()
+                + b"\r\n\r\n"
+                + frame.image_bytes
+                + b"\r\n"
+            )
+            yield chunk
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        # Client disconnected — Starlette cancels generators on close.
+        # Nothing to clean up, the FrameSource is per-snapshot (no
+        # persistent capture handle to release in V4L2Source).
+        raise
+
+
+@api_app.get("/vision/stream/{source_id:path}", tags=["Vision"])
+async def vision_stream_endpoint(source_id: str, fps: float = 1.0) -> Any:
+    """MJPEG-Live-Stream der genannten Frame-Source.
+
+    Browser-side: einfach ``<img src="/api/vision/stream/cam/v4l2_0?fps=2">``.
+    Der Server hält die Connection offen und liefert kontinuierlich
+    JPEGs als multipart/x-mixed-replace. Bei ``fps=0`` setzen wir
+    intern auf 1.0 als Minimum — wer wirklich manuelle Frames will,
+    nutzt /vision/snapshot.
+
+    Akzeptiert ``fps`` zwischen 0.1 und 30. Werte außerhalb werden
+    geklammert.
+    """
+    from starlette.responses import StreamingResponse
+    from .frame_sources import get as get_source
+
+    src = get_source(source_id)
+    if src is None:
+        raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
+    if not src.is_available():
+        raise HTTPException(status_code=503, detail=f"source not available: {source_id}")
+    # Clamp + sanitize
+    fps = max(0.1, min(30.0, float(fps) if fps else 1.0))
+    return StreamingResponse(
+        _mjpeg_stream(src, fps),
+        media_type=f"multipart/x-mixed-replace; boundary={_MJPEG_BOUNDARY.decode().lstrip('-')}",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            # Keep-alive-ish hint for the multipart stream:
+            "Connection": "close",
         },
     )
 
