@@ -1,21 +1,17 @@
-"""Vision-Plugin Settings-Mixin — UI-State for the /vision-settings page.
+"""Vision-Plugin Settings-Mixin — UI state for the vision-settings modal.
 
-Reactive state for the three Vision-Plugin settings that the user can
-actually change at runtime:
+Reactive state for the Vision-Plugin settings that the user can change
+at runtime via the gear-icon modal in the Plugin tab:
 
 * ``vision_mode_value``    — off / on-demand / live
 * ``vision_model_value``   — which Ollama VLM tag to use for the
-                              webcam pipeline (watch + analyze)
-* ``vision_sync_value``    — if True, the vision pipeline uses the
-                              same model that's chosen in the main
-                              Vision-LLM dropdown (overrides
-                              ``vision_model_value``)
+                              webcam pipeline (watch + side-channel)
 
 The settings.json file under ``aifred/plugins/tools/vision/`` is the
-single source of truth — this mixin reads on page-load and writes on
-each change. The plugin loads the same file fresh per call (see
+single source of truth — this mixin reads on modal-open and writes on
+each change. The plugin re-reads the file fresh per call (see
 ``_load_settings`` in ``aifred/plugins/tools/vision/__init__.py``), so
-edits propagate without restart.
+edits propagate without a restart.
 """
 
 from __future__ import annotations
@@ -54,41 +50,38 @@ def _save_settings(data: dict[str, Any]) -> None:
 
 
 class VisionSettingsMixin(rx.State, mixin=True):
-    """UI-State für /vision-settings."""
+    """UI state for the Vision-Plugin settings modal."""
 
+    vision_settings_open: bool = False
     vision_mode_value: str = "on-demand"
     vision_model_value: str = "qwen3-vl:4b-instruct-q8_0"
-    vision_sync_value: bool = False
     vision_available_models: list[str] = []
-    vision_settings_status: str = ""
 
     @rx.event
-    def open_vision_settings(self):
-        """Navigate to the vision-settings page (called from Plugin-Tab gear)."""
-        return rx.redirect("/vision-settings")
-
-    @rx.event
-    def on_load_vision_settings(self) -> None:
-        """Page-load: populate state from settings.json + Ollama-discovery."""
+    def open_vision_settings(self) -> None:
+        """Open the modal (called from the Plugin-Tab gear icon)."""
+        # Populate from disk + run Ollama discovery before showing
         settings = _load_settings()
         self.vision_mode_value = str(settings.get("vision_mode", "on-demand"))
         vlm = settings.get("vlm", {})
         self.vision_model_value = str(vlm.get("model", "qwen3-vl:4b-instruct-q8_0"))
-        self.vision_sync_value = bool(vlm.get("sync_with_main_vision", False))
-        # Live-discover all Ollama VL models so the dropdown reflects what's
-        # actually pullable (incl. user-added 30B etc.)
         try:
             from ..lib.ollama_models import list_ollama_vlm_models
             models = [m.name for m in list_ollama_vlm_models()]
-            # Make sure the currently-configured model is in the list even if
-            # Ollama is momentarily unreachable — UI consistency.
             if self.vision_model_value and self.vision_model_value not in models:
                 models = [self.vision_model_value] + models
             self.vision_available_models = models
         except Exception as e:  # noqa: BLE001
             logger.warning("vision settings: ollama discovery failed: %s", e)
-            self.vision_available_models = [self.vision_model_value] if self.vision_model_value else []
-        self.vision_settings_status = ""
+            self.vision_available_models = (
+                [self.vision_model_value] if self.vision_model_value else []
+            )
+        self.vision_settings_open = True
+
+    @rx.event
+    def close_vision_settings(self) -> None:
+        """Close the modal (backdrop click or close button)."""
+        self.vision_settings_open = False
 
     @rx.event
     def set_vision_mode_value(self, value: str) -> None:
@@ -98,7 +91,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
         settings = _load_settings()
         settings["vision_mode"] = value
         _save_settings(settings)
-        self.vision_settings_status = f"✓ Modus gespeichert: {value}"
 
     @rx.event
     def set_vision_model_value(self, value: str) -> None:
@@ -108,17 +100,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
         settings = _load_settings()
         settings.setdefault("vlm", {})["model"] = value
         _save_settings(settings)
-        self.vision_settings_status = f"✓ Modell gespeichert: {value}"
-
-    @rx.event
-    def set_vision_sync_value(self, value: bool) -> None:
-        self.vision_sync_value = bool(value)
-        settings = _load_settings()
-        settings.setdefault("vlm", {})["sync_with_main_vision"] = bool(value)
-        _save_settings(settings)
-        self.vision_settings_status = (
-            f"✓ Sync mit Hauptmodell {'aktiv' if value else 'deaktiviert'}"
-        )
 
     @rx.event
     def rescan_vision_models(self) -> None:
@@ -129,6 +110,5 @@ class VisionSettingsMixin(rx.State, mixin=True):
             if self.vision_model_value and self.vision_model_value not in models:
                 models = [self.vision_model_value] + models
             self.vision_available_models = models
-            self.vision_settings_status = f"✓ {len(models)} VLM gefunden"
         except Exception as e:  # noqa: BLE001
-            self.vision_settings_status = f"⚠️ Discovery fehlgeschlagen: {e}"
+            logger.warning("vision settings rescan failed: %s", e)

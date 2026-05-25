@@ -334,6 +334,19 @@ class TranslationManager:
             # Image Crop Modal (Phase 5)
             "crop_modal_title": "Bild zuschneiden",
             "crop_modal_hint": "Ziehe die Ecken oder Kanten",
+
+            # Vision Plugin Settings Modal
+            "vision_settings_title": "Bild & Video — Einstellungen",
+            "vision_settings_subtitle": "Konfiguration der Vision-Pipeline (Webcam, Watch-Mode, Side-Channel).",
+            "vision_settings_mode_label": "Modus",
+            "vision_settings_mode_help": "off: Vision aus, alle Tools ausgeblendet. — Bei Bedarf: VLM wird lazy geladen (Default). — Permanent: VLM bleibt im VRAM (für Türsteher).",
+            "vision_settings_mode_off": "Aus",
+            "vision_settings_mode_ondemand": "Bei Bedarf",
+            "vision_settings_mode_live": "Permanent (live)",
+            "vision_settings_model_label": "VLM-Modell",
+            "vision_settings_model_help": "Vision-Modell für Webcam, Watch-Mode und Side-Channel beim Chat-Bild-Upload. Aus Ollama-Discovery — neue Modelle erscheinen nach 'ollama pull'.",
+            "vision_settings_rescan_tooltip": "Ollama-Modelle neu scannen",
+            "vision_settings_close": "Schließen",
             "crop_cancel": "Abbrechen",
             "crop_apply": "Zuschneiden",
             "crop_rotate": "Drehen",
@@ -840,6 +853,19 @@ class TranslationManager:
             # Image Crop Modal (Phase 5)
             "crop_modal_title": "Crop Image",
             "crop_modal_hint": "Drag corners or edges",
+
+            # Vision Plugin Settings Modal
+            "vision_settings_title": "Image & Video — Settings",
+            "vision_settings_subtitle": "Vision pipeline configuration (webcam, watch mode, side-channel).",
+            "vision_settings_mode_label": "Mode",
+            "vision_settings_mode_help": "off: vision disabled, all tools hidden. — On demand: VLM lazy-loaded (default). — Permanent: VLM stays resident in VRAM (door-watch use).",
+            "vision_settings_mode_off": "Off",
+            "vision_settings_mode_ondemand": "On demand",
+            "vision_settings_mode_live": "Permanent (live)",
+            "vision_settings_model_label": "VLM model",
+            "vision_settings_model_help": "Vision model used for webcam, watch mode and the side-channel on chat image upload. From Ollama discovery — new models appear after `ollama pull`.",
+            "vision_settings_rescan_tooltip": "Re-scan Ollama models",
+            "vision_settings_close": "Close",
             "crop_cancel": "Cancel",
             "crop_apply": "Crop",
             "crop_rotate": "Rotate",
