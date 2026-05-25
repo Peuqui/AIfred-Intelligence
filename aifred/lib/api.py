@@ -1918,6 +1918,146 @@ async def vision_face_enroll(request: FaceEnrollRequest) -> FaceEnrollResponse:
 
 
 # ============================================================
+# Personarium — Identity-Verwaltung
+# ============================================================
+
+
+class FaceSummary(BaseModel):
+    """Eine Identity-Zeile fürs Personarium."""
+    id: int
+    name: str
+    embedding_count: int
+    last_seen: str
+    crop_url: str
+    notes: str = ""
+
+
+class FaceSummaryList(BaseModel):
+    faces: List[FaceSummary]
+
+
+class FaceEvent(BaseModel):
+    id: int
+    timestamp: str
+    source_id: str
+    crop_url: str
+    confidence: float
+    confidence_band: str
+
+
+class FaceDetailResponse(BaseModel):
+    id: int
+    name: str
+    notes: str
+    embedding_count: int
+    events: List[FaceEvent]
+
+
+class FaceRenameRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+
+
+@api_app.get("/vision/face/list", response_model=FaceSummaryList, tags=["Vision"])
+async def vision_face_list() -> FaceSummaryList:
+    """Liste aller enrolled Identitäten mit Avatar (letzter Crop),
+    Anzahl Embeddings und letzter Sichtung."""
+    from .vision_store import VisionStore
+    store = VisionStore()
+    rows = store.list_faces_with_summary()
+    return FaceSummaryList(faces=[FaceSummary(**r) for r in rows])
+
+
+@api_app.get(
+    "/vision/face/{face_id}/details",
+    response_model=FaceDetailResponse,
+    tags=["Vision"],
+)
+async def vision_face_details(face_id: int) -> FaceDetailResponse:
+    """Detail-View einer Identity: alle face-Events mit Crops."""
+    from .vision_store import VisionStore
+    store = VisionStore()
+    face = store.get_face_by_id(face_id)
+    if not face:
+        raise HTTPException(status_code=404, detail=f"face {face_id} not found")
+    events = store.list_face_events(face_id, limit=50)
+    emb_count = len(store.list_embeddings(face_id))
+    return FaceDetailResponse(
+        id=face_id,
+        name=str(face["name"]),
+        notes=str(face.get("notes") or ""),
+        embedding_count=emb_count,
+        events=[FaceEvent(**e) for e in events],
+    )
+
+
+@api_app.post(
+    "/vision/face/{face_id}/rename",
+    response_model=SystemActionResponse,
+    tags=["Vision"],
+)
+async def vision_face_rename(face_id: int, request: FaceRenameRequest) -> SystemActionResponse:
+    """Identity umbenennen. 409 wenn der neue Name schon vergeben ist."""
+    from .vision_store import VisionStore
+    store = VisionStore()
+    try:
+        ok = store.rename_face(face_id, request.name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"face {face_id} not found")
+    return SystemActionResponse(success=True, message=f"renamed to '{request.name}'")
+
+
+@api_app.delete(
+    "/vision/face/{face_id}",
+    response_model=SystemActionResponse,
+    tags=["Vision"],
+)
+async def vision_face_delete(face_id: int) -> SystemActionResponse:
+    """Komplette Identity löschen: faces-Row + alle Embeddings + face_id-
+    Refs in events auf NULL. Crops auf Disk bleiben — werden vom
+    Cleanup-Task per TTL aufgeräumt."""
+    from .vision_store import VisionStore
+    store = VisionStore()
+    face = store.get_face_by_id(face_id)
+    if not face:
+        raise HTTPException(status_code=404, detail=f"face {face_id} not found")
+    info = store.delete_face_with_assets(face_id)
+    # Recognizer-Cache invalidieren, damit die Identity verschwindet
+    try:
+        from .vision_filters.face_recognize import FaceRecognizer
+        FaceRecognizer(store).invalidate()
+    except Exception as e:  # noqa: BLE001
+        log_message(f"⚠️ recognizer invalidate after delete failed: {e}")
+    return SystemActionResponse(
+        success=True,
+        message=f"deleted face {face_id} ({info['embeddings_deleted']} embeddings)",
+    )
+
+
+@api_app.delete(
+    "/vision/face/embedding/{embedding_id}",
+    response_model=SystemActionResponse,
+    tags=["Vision"],
+)
+async def vision_embedding_delete(embedding_id: int) -> SystemActionResponse:
+    """Einzelnes Embedding löschen — nützlich um schlechte
+    Enrollment-Samples (falsche Pose, schlechtes Licht) rauszuwerfen
+    ohne die ganze Identity zu kippen."""
+    from .vision_store import VisionStore
+    store = VisionStore()
+    ok = store.delete_embedding(embedding_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"embedding {embedding_id} not found")
+    try:
+        from .vision_filters.face_recognize import FaceRecognizer
+        FaceRecognizer(store).invalidate()
+    except Exception as e:  # noqa: BLE001
+        log_message(f"⚠️ recognizer invalidate after embedding delete failed: {e}")
+    return SystemActionResponse(success=True, message="embedding deleted")
+
+
+# ============================================================
 # Export for api_transformer
 # ============================================================
 

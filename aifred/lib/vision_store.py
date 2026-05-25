@@ -252,6 +252,143 @@ class VisionStore:
             cur = conn.execute("DELETE FROM faces WHERE id = ?", (face_id,))
             return cur.rowcount > 0
 
+    def rename_face(self, face_id: int, new_name: str) -> bool:
+        """Umbenennen einer Identity. ``new_name`` muss nicht-leer und
+        bisher nicht von einer anderen Identity belegt sein."""
+        new_name = new_name.strip()
+        if not new_name:
+            return False
+        now = _now_iso()
+        with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT id FROM faces WHERE name = ? AND id != ?",
+                (new_name, face_id),
+            ).fetchone()
+            if existing:
+                raise ValueError(f"face name already taken: {new_name}")
+            cur = conn.execute(
+                "UPDATE faces SET name = ?, updated_at = ? WHERE id = ?",
+                (new_name, now, face_id),
+            )
+            return cur.rowcount > 0
+
+    def list_faces_with_summary(self) -> list[dict[str, Any]]:
+        """Für das Personarium-Modal: pro Face-Identity ein Dict mit
+        Name, Anzahl Embeddings, letzter Sichtungs-Zeitpunkt und URL
+        des aktuellsten Crops.
+
+        Crop kommt aus dem ``classification.crop_url``-Feld des letzten
+        face_known/face_unsure-Events derselben face_id.
+        """
+        with self._conn() as conn:
+            face_rows = conn.execute(
+                "SELECT id, name, notes, enrolled_by, created_at, updated_at "
+                "FROM faces ORDER BY name"
+            ).fetchall()
+            result: list[dict[str, Any]] = []
+            for f in face_rows:
+                fid = int(f["id"])
+                # Anzahl Embeddings
+                emb_count_row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM face_embeddings WHERE face_id = ?",
+                    (fid,),
+                ).fetchone()
+                emb_count = int(emb_count_row["n"]) if emb_count_row else 0
+                # Letztes face-Event (für letzte Sichtung + Crop-URL)
+                evt = conn.execute(
+                    "SELECT timestamp, classification FROM events "
+                    "WHERE face_id = ? AND event_type IN "
+                    "('face_known','face_unsure') "
+                    "ORDER BY timestamp DESC LIMIT 1",
+                    (fid,),
+                ).fetchone()
+                last_seen = str(evt["timestamp"]) if evt else ""
+                crop_url = ""
+                if evt:
+                    try:
+                        import json
+                        cls = json.loads(evt["classification"] or "{}")
+                        crop_url = str(cls.get("crop_url") or "")
+                    except Exception:  # noqa: BLE001
+                        crop_url = ""
+                result.append({
+                    "id": fid,
+                    "name": str(f["name"]),
+                    "notes": str(f["notes"] or ""),
+                    "enrolled_by": str(f["enrolled_by"] or ""),
+                    "created_at": str(f["created_at"]),
+                    "updated_at": str(f["updated_at"]),
+                    "embedding_count": emb_count,
+                    "last_seen": last_seen,
+                    "crop_url": crop_url,
+                })
+            return result
+
+    def list_face_events(self, face_id: int, limit: int = 50) -> list[dict[str, Any]]:
+        """Alle face-Events einer Identity, chronologisch absteigend.
+        Liefert die ``classification`` als geparstes Dict mit, damit
+        der Caller direkt auf ``crop_url`` und ``confidence_band``
+        zugreifen kann."""
+        import json
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, source_id, event_type, timestamp, confidence, "
+                "classification, metadata FROM events "
+                "WHERE face_id = ? AND event_type IN "
+                "('face_known','face_unsure') "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (face_id, limit),
+            ).fetchall()
+        result = []
+        for r in rows:
+            try:
+                cls = json.loads(r["classification"] or "{}")
+            except Exception:  # noqa: BLE001
+                cls = {}
+            result.append({
+                "id": int(r["id"]),
+                "source_id": str(r["source_id"]),
+                "event_type": str(r["event_type"]),
+                "timestamp": str(r["timestamp"]),
+                "confidence": float(r["confidence"] or 0.0),
+                "crop_url": str(cls.get("crop_url") or ""),
+                "confidence_band": str(cls.get("confidence_band") or ""),
+            })
+        return result
+
+    def delete_face_with_assets(self, face_id: int) -> dict[str, int]:
+        """Löscht eine Identity vollständig: Face-Row, alle Embeddings,
+        face_id-Referenz in events (auf NULL setzen, damit die Events
+        als historischer Datensatz erhalten bleiben — wer das nicht
+        will, kann events mit dem Cleanup-Task per TTL räumen).
+
+        Crop-Dateien werden nicht gelöscht — die liegen unter
+        ``data/vision/faces/`` und werden vom vision_cleanup-Task per
+        TTL aufgeräumt. So bleibt der Rückgängig-Pfad offen (wer die
+        Person versehentlich gelöscht hat, kann den Crop noch sehen,
+        bis das TTL-Fenster zuschnappt).
+        """
+        deleted_embeddings = 0
+        with self._conn() as conn:
+            emb_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM face_embeddings WHERE face_id = ?",
+                (face_id,),
+            ).fetchone()
+            if emb_count:
+                deleted_embeddings = int(emb_count["n"])
+            conn.execute(
+                "DELETE FROM face_embeddings WHERE face_id = ?",
+                (face_id,),
+            )
+            conn.execute(
+                "UPDATE events SET face_id = NULL WHERE face_id = ?",
+                (face_id,),
+            )
+            conn.execute("DELETE FROM faces WHERE id = ?", (face_id,))
+        return {
+            "embeddings_deleted": deleted_embeddings,
+        }
+
     # ─────────────────────────────────────────────────────────────
     # Face-Embeddings
     # ─────────────────────────────────────────────────────────────
