@@ -41,10 +41,17 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_FRAMES_DIR = DATA_DIR / "vision" / "frames"
 
-# Default prompt for continuous-watch VLM calls. Designed to be short
-# and to discourage repetitive output ("a man, a man, still a man") so
-# the teleprompter feed reads as a delta-narration.
-_DEFAULT_CONTINUOUS_PROMPT = (
+# Erster Call nach Watch-Start: noch keine History, also keine
+# „unverändert"-Option im Prompt — die VLM muss die Szene voll
+# beschreiben statt zu vermuten was sich „nicht" geändert haben
+# könnte.
+_FIRST_CONTINUOUS_PROMPT = (
+    "Beschreibe in einem Satz, was du gerade siehst."
+)
+
+# Folge-Calls: „unverändert" als Kurz-Antwort erlaubt, damit der
+# Teleprompter als Delta-Narration liest und sich nicht wiederholt.
+_DELTA_CONTINUOUS_PROMPT = (
     "Beschreibe in einem Satz, was du gerade siehst. Wenn sich "
     "gegenüber dem letzten Frame nichts wesentlich geändert hat, "
     "sage knapp 'unverändert'."
@@ -83,6 +90,9 @@ class WatchConfig:
     run_vlm_continuous: bool = False
     vlm_prompt: str = ""           # Override für default_prompt aus settings.json
     vlm_cooldown_sec: float = 10.0  # Mindestabstand zwischen VLM-Calls
+    # NB: Kein eigenes vlm_model-Feld mehr — das Modell wird einheitlich
+    # aus plugins/tools/vision/settings.json gelesen. Der Live-Vorschau-
+    # Popup ändert dieses Setting direkt (SSOT mit dem Settings-Modal).
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -130,6 +140,14 @@ class VisionWatcher:
         # nicht zur aktuellen Generation, wird ihr Ergebnis verworfen
         # statt in den frisch geleerten History-Ring zu kippen.
         self._watch_generation: dict[str, int] = {}
+        # In-Flight-Sentinel: solange ein VLM-Call für eine Source
+        # läuft, lassen wir keinen zweiten parallel ran. Sonst rauschen
+        # bei hoher Stream-fps mehrere fire-and-forget Tasks
+        # gleichzeitig durch den Cooldown-Check, BEVOR der erste
+        # ``_last_vlm_at`` gesetzt hat — alle sehen ``last=None``,
+        # alle starten den VLM, der Anfang füllt sich mit
+        # duplizierten Volltext-Beschreibungen.
+        self._vlm_in_flight: set[str] = set()
         # Per-source timestamp of the last VLM call; used to throttle
         # so we don't fire vlm_cooldown_sec → see _maybe_run_vlm.
         self._last_vlm_at: dict[str, datetime] = {}
@@ -240,13 +258,21 @@ class VisionWatcher:
         return FaceRecognizer(self._store)
 
     async def _watch_loop(self, source: "FrameSource", config: WatchConfig) -> None:
-        """The actual per-source loop. Runs until task cancellation or
-        unrecoverable error.
+        """Per-source watch loop with split frame-consumer / VLM-cycle.
 
-        Subscribed jetzt am FrameHub (SSOT) statt selbst die Cam zu
-        öffnen — damit kann eine Source gleichzeitig vom Watcher
-        UND von beliebig vielen Browser-Tabs gelesen werden, ohne
-        V4L2-Konflikte.
+        Frühere Variante hatte fire-and-forget VLM-Tasks aus dem
+        Frame-Stream → Backlog möglich, weil Frames in der Queue
+        warteten während der VLM-Call läuft. Jetzt:
+
+        * **frame_consumer**: subscribt am FrameHub, hält ``_latest_frame``
+          synchron aktuell, fährt Motion-Detection auf jedem Frame.
+        * **vlm_cycle**: pull-basiert — wenn die VLM fertig ist, holt
+          sich der Cycle den AKTUELL frischesten Frame aus
+          ``_latest_frame`` und analysiert. Damit ist die Pipeline
+          immer am Live-Bild, ohne Frame-Backlog.
+
+        ``vlm_cooldown_sec`` wirkt jetzt als reine Untergrenze
+        (Mindest-Abstand zwischen Calls), nicht mehr als Bremse.
         """
         from .frame_hub import get_default_hub
         source_id = source.source_id
@@ -257,36 +283,70 @@ class VisionWatcher:
             warmup_frames=config.motion_warmup_frames,
         )
         hub = get_default_hub()
-        try:
+
+        # Shared state zwischen consumer + vlm-cycle. asyncio ist
+        # single-threaded — Dict-Writes sind atomar.
+        latest: dict[str, Any] = {"frame": None, "seq": 0}
+        new_frame_evt = asyncio.Event()
+
+        async def frame_consumer() -> None:
+            seq = 0
             async for frame in hub.subscribe(
                 source, name="watcher", fps=config.fps,
             ):
+                seq += 1
+                latest["frame"] = frame
+                latest["seq"] = seq
+                new_frame_evt.set()
                 self._statuses[source_id].frames_seen += 1  # type: ignore[misc]
 
-                # Continuous VLM narration path — independent from
-                # motion-detection. Fire-and-forget: ein blocking
-                # `await` würde diesen Loop für die VLM-Latenz
-                # anhalten und Frames vom Hub-Reader nicht mehr
-                # rechtzeitig abnehmen. Die Cooldown-Throttle in
-                # _maybe_run_continuous_vlm setzt ``_last_vlm_at``
-                # VOR dem Netzwerk-Call, deshalb können trotz
-                # paralleler Loop-Iterationen keine Doppel-Calls
-                # entstehen.
-                if config.run_vlm_continuous:
-                    asyncio.create_task(
-                        self._maybe_run_continuous_vlm(frame, config)
-                    )
-
-                result = motion.process(frame)
-                if not result.motion:
+                motion_result = motion.process(frame)
+                if not motion_result.motion:
                     continue
-                # Min-event-interval throttle
-                last = self._statuses[source_id].last_event_at
-                if last is not None:
-                    delta = (datetime.now() - last).total_seconds()
+                last_evt = self._statuses[source_id].last_event_at
+                if last_evt is not None:
+                    delta = (datetime.now() - last_evt).total_seconds()
                     if delta < config.min_event_interval_sec:
                         continue
-                await self._handle_motion_event(frame, result, config)
+                await self._handle_motion_event(frame, motion_result, config)
+
+        async def vlm_cycle() -> None:
+            if not config.run_vlm_continuous:
+                return
+            last_seq_processed = -1
+            while True:
+                # Auf neuen Frame warten — nicht polling, sondern via
+                # Event vom Consumer.
+                if latest["seq"] == last_seq_processed:
+                    new_frame_evt.clear()
+                    await new_frame_evt.wait()
+                # Mindestens vlm_cooldown_sec zwischen Calls einhalten
+                # (Schutz vor GPU-Überlast, wenn die VLM ungewöhnlich
+                # schnell antwortet).
+                last_call = self._last_vlm_at.get(source_id)
+                if last_call is not None:
+                    delta = (datetime.now() - last_call).total_seconds()
+                    if delta < config.vlm_cooldown_sec:
+                        await asyncio.sleep(config.vlm_cooldown_sec - delta)
+                # Frischestes Frame holen — kann zwischen wait() und
+                # hier wieder neuer geworden sein, deshalb erneut lesen.
+                frame = latest["frame"]
+                last_seq_processed = latest["seq"]
+                if frame is None:
+                    continue
+                my_gen = self._watch_generation.get(source_id, 0)
+                self._last_vlm_at[source_id] = datetime.now()
+                try:
+                    await self._run_continuous_vlm_inner(
+                        frame, config, source_id, my_gen
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "continuous-VLM cycle error for %s: %s", source_id, e
+                    )
+
+        try:
+            await asyncio.gather(frame_consumer(), vlm_cycle())
         except asyncio.CancelledError:
             logger.info("Watch loop cancelled for %s", source_id)
             raise
@@ -374,6 +434,15 @@ class VisionWatcher:
         and lastly to settings.json default_prompt.
         """
         source_id = frame.source_id
+        # In-Flight-Schutz: max ein gleichzeitiger VLM-Call pro Source.
+        # Check + add ist race-frei (kein await dazwischen). Sonst
+        # rauschen bei hoher Stream-fps mehrere fire-and-forget Tasks
+        # gleichzeitig durch den Cooldown-Check, BEVOR der erste
+        # ``_last_vlm_at`` gesetzt hat — alle sehen ``last=None``,
+        # alle senden den First-Prompt, mehrere Volltext-Beschreibungen
+        # landen am Anfang im Teleprompter.
+        if source_id in self._vlm_in_flight:
+            return
         # Snapshot der aktuellen Generation: wird beim Abschluss
         # geprüft, um Resultate aus einer alten (gestoppten) Session
         # zu verwerfen — sonst kippt der eintreffende alte VLM-Output
@@ -385,6 +454,23 @@ class VisionWatcher:
             delta = (datetime.now() - last).total_seconds()
             if delta < config.vlm_cooldown_sec:
                 return
+        self._vlm_in_flight.add(source_id)
+        try:
+            await self._run_continuous_vlm_inner(
+                frame, config, source_id, my_gen
+            )
+        finally:
+            self._vlm_in_flight.discard(source_id)
+
+    async def _run_continuous_vlm_inner(
+        self,
+        frame: "Frame",
+        config: WatchConfig,
+        source_id: str,
+        my_gen: int,
+    ) -> None:
+        """Eigentlicher VLM-Call. Vom Wrapper aufgerufen, der den
+        In-Flight-Sentinel hält."""
 
         # Build the prompt: per-cam briefing + explicit override
         from .vision_analyzer import analyze_sequence, DEFAULT_MODEL, DEFAULT_NUM_CTX
@@ -396,29 +482,44 @@ class VisionWatcher:
         stored = self._store.get_source(source_id)
         if stored:
             briefing = str(stored.get("prompt_context") or "").strip()
-        base_instruction = config.vlm_prompt.strip() or _DEFAULT_CONTINUOUS_PROMPT
 
-        # Build the history block from the per-source ring buffer.
-        # Format mirrors what the user reads in the teleprompter so the
-        # VLM mentally sees its own past lines.
-        history = self._vlm_history.get(source_id)
-        history_block = ""
-        if history and len(history) > 0:
-            entries = [
-                f"- {ts.strftime('%H:%M:%S')} — {text}"
-                for (ts, text) in list(history)
-            ]
-            history_block = (
-                "Bisherige Beobachtungen (chronologisch, älteste zuerst):\n"
-                + "\n".join(entries)
-                + "\n\n"
-            )
+        # ── KONTEXT-INJECTION DEAKTIVIERT ───────────────────────────
+        # Die History-Block-Injection und der „letzter Frame"-Hinweis
+        # produzierten zu viele „unverändert"-Antworten / Pattern-Lock.
+        # Ohne Kontext bekommt die VLM jeden Frame als „first frame"
+        # → komplette Neubeschreibung jedes Mal. Auskommentiert
+        # statt gelöscht, damit später reaktivierbar.
+        #
+        # history = self._vlm_history.get(source_id)
+        # if config.vlm_prompt.strip():
+        #     base_instruction = config.vlm_prompt.strip()
+        # elif history and len(history) > 0:
+        #     base_instruction = _DELTA_CONTINUOUS_PROMPT
+        # else:
+        #     base_instruction = _FIRST_CONTINUOUS_PROMPT
+        # history_block = ""
+        # if history and len(history) > 0:
+        #     entries = [
+        #         f"- {ts.strftime('%H:%M:%S')} — {text}"
+        #         for (ts, text) in list(history)
+        #     ]
+        #     history_block = (
+        #         "Bisherige Beobachtungen (chronologisch, älteste zuerst):\n"
+        #         + "\n".join(entries)
+        #         + "\n\n"
+        #     )
+
+        # User-Override gewinnt, sonst Plain-Beschreibungs-Prompt.
+        if config.vlm_prompt.strip():
+            base_instruction = config.vlm_prompt.strip()
+        else:
+            base_instruction = _FIRST_CONTINUOUS_PROMPT
 
         prompt_parts = []
         if briefing:
             prompt_parts.append(briefing)
-        if history_block:
-            prompt_parts.append(history_block.rstrip())
+        # if history_block:
+        #     prompt_parts.append(history_block.rstrip())
         prompt_parts.append(base_instruction)
         prompt = "\n\n".join(prompt_parts)
 
@@ -441,7 +542,12 @@ class VisionWatcher:
         )
         # Mark cooldown BEFORE the call so multiple in-flight frames
         # don't all kick off VLM calls when one is already underway.
-        self._last_vlm_at[source_id] = datetime.now()
+        # ``inference_start`` ist gleichzeitig das, was wir im Live-
+        # Event als Hauptzeitstempel ausgeben — Differenz zu
+        # frame.timestamp = Frame-Lag (wie alt war das Bild als die
+        # VLM es bekam).
+        inference_start = datetime.now()
+        self._last_vlm_at[source_id] = inference_start
         try:
             result = await analyze_sequence(
                 [frame],
@@ -466,16 +572,29 @@ class VisionWatcher:
             )
             return
 
-        # Update ring buffer FIRST so even a failed store-event still
-        # gives the next VLM call the right context.
+        # Debug-Log: zeigt was die VLM tatsächlich liefert, gekürzt.
+        # Ohne das ist im Log nur ``desc_len`` sichtbar — bei Pattern-
+        # Verdacht (z.B. „immer 'unverändert'") brauchen wir den Text.
+        text_full = result.text.strip()
+        from .logging_utils import log_message
+        log_message(
+            f"👁️ VLM text src={source_id} t={frame.timestamp.strftime('%H:%M:%S')} "
+            f"len={len(text_full)} → {text_full[:80]!r}"
+        )
+
+        # Ring sammelt alle Antworten 1:1 wie vom Modell geliefert.
+        # Der frühere „unverändert"-Filter ist raus (User-Wunsch).
+        # Der Ring wird zur Zeit eh nicht mehr in den Prompt injiziert
+        # (siehe Kontext-Deaktivierung oben), bleibt aber gepflegt
+        # für die Reaktivierung.
         from collections import deque
         ring = self._vlm_history.get(source_id)
         if ring is None:
             ring = deque(maxlen=max(1, self._vlm_history_size))
             self._vlm_history[source_id] = ring
-        ring.append((frame.timestamp, result.text.strip()))
+        ring.append((frame.timestamp, text_full))
 
-        # Persist + broadcast
+        # Persist + broadcast — Original-Text vom Modell, 1:1.
         event_id = -1
         try:
             event_id = self._store.add_event(
@@ -488,13 +607,22 @@ class VisionWatcher:
         except Exception as e:  # noqa: BLE001
             logger.warning("continuous-VLM store-event failed: %s", e)
 
-        # Push onto the in-memory event bus for SSE consumers
+        # Push onto the in-memory event bus for SSE consumers.
+        # Drei Zeitstempel im Event:
+        #   * ``frame_timestamp`` — wann das Bild aufgenommen wurde
+        #   * ``timestamp`` (=Inferenz-Start) — wann die VLM den
+        #     Call bekam (Capture→Start = Frame-Lag)
+        #   * ``inference_end`` — wann die Antwort kam
+        #     (Start→Ende = VLM-Dauer)
+        inference_end = datetime.now()
         from .vision_event_bus import publish_vlm_event
         publish_vlm_event(source_id, {
             "id": event_id,
             "type": "vlm_analysis",
             "source_id": source_id,
-            "timestamp": frame.timestamp.isoformat(timespec="seconds"),
+            "timestamp": inference_start.isoformat(timespec="seconds"),
+            "inference_end": inference_end.isoformat(timespec="seconds"),
+            "frame_timestamp": frame.timestamp.isoformat(timespec="seconds"),
             "description": result.text,
             "model": result.model,
             "duration_ms": round(result.duration_ms, 1),

@@ -26,7 +26,12 @@ console.log('[AIfred-VLM] script file fetched + parsed');
 
     var streams = {};
     var lines = {};
-    var MAX_LINES = 8;
+    var MAX_LINES = 10;
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
 
     function render(sid) {
       var items = lines[sid] || [];
@@ -35,14 +40,18 @@ console.log('[AIfred-VLM] script file fetched + parsed');
       ).forEach(function (el) {
         if (items.length === 0) {
           var idle = el.dataset.idleText || '';
-          if (el.textContent !== idle) el.textContent = idle;
+          if (el.innerHTML !== escapeHtml(idle)) el.innerHTML = escapeHtml(idle);
           if (el.style.fontStyle !== 'italic') el.style.fontStyle = 'italic';
           return;
         }
         if (el.style.fontStyle !== 'normal') el.style.fontStyle = 'normal';
-        var joined = items.join('\n');
-        if (el.textContent !== joined) {
-          el.textContent = joined;
+        // Eine Zeile = ein Div. CSS-Border-Bottom liefert die
+        // Separator-Linie ohne zusätzliche Zeilenhöhe.
+        var html = items.map(function (line) {
+          return '<div class="vlm-line">' + escapeHtml(line) + '</div>';
+        }).join('');
+        if (el.innerHTML !== html) {
+          el.innerHTML = html;
           el.scrollTop = el.scrollHeight;
         }
       });
@@ -61,9 +70,24 @@ console.log('[AIfred-VLM] script file fetched + parsed');
       es.onmessage = function (ev) {
         try {
           var data = JSON.parse(ev.data);
-          var ts = (data.timestamp || '').split('T')[1] || '';
+          // Drei Zeitstempel werden geliefert; Format im Teleprompter:
+          //   Bild HH:MM:SS → Start HH:MM:SS → Ende HH:MM:SS  Antworttext
+          // ↑ Capture        ↑ VLM-Start      ↑ VLM-Ende
+          // Capture→Start = Frame-Lag, Start→Ende = VLM-Dauer.
+          function hms(iso) {
+            var t = (iso || '').split('T')[1] || '';
+            return t.split('.')[0];  // HH:MM:SS ohne Millisekunden
+          }
+          var startTs = hms(data.timestamp);
+          var endTs = hms(data.inference_end);
+          var captureTs = hms(data.frame_timestamp);
           var desc = (data.description || '').replace(/\s+/g, ' ').trim();
-          lines[sid].push(ts + '  ' + desc);
+          var parts = [];
+          if (captureTs) parts.push(captureTs);
+          if (startTs) parts.push(startTs);
+          if (endTs) parts.push(endTs);
+          var prefix = parts.length > 0 ? parts.join(' → ') : '';
+          lines[sid].push((prefix ? prefix + '  ' : '') + desc);
           if (lines[sid].length > MAX_LINES) lines[sid].shift();
           render(sid);
         } catch (e) {

@@ -38,16 +38,28 @@ def _model_section() -> rx.Component:
         rx.text(t("vision_settings_model_label"), font_weight="bold", size="3"),
         rx.text(t("vision_settings_model_help"), color="gray", size="1"),
         rx.hstack(
-            rx.select.root(
-                rx.select.trigger(width="100%"),
-                rx.select.content(
-                    rx.foreach(
-                        AIState.vision_available_models,
-                        lambda m: rx.select.item(m, value=m),
+            # Box-Wrapper bekommt den flex-Grow — direkt am
+            # rx.select.root wirkt das style-Prop in Reflex 0.8
+            # nicht zuverlässig. ``min_width: 0`` lässt den Wrapper
+            # schrumpfen, damit der Refresh-Button nicht rechts aus
+            # dem Modal geschoben wird.
+            rx.box(
+                rx.select.root(
+                    rx.select.trigger(width="100%"),
+                    rx.select.content(
+                        rx.foreach(
+                            AIState.vision_available_models,
+                            lambda m: rx.select.item(m, value=m),
+                        ),
                     ),
+                    value=AIState.vision_model_value,
+                    on_change=AIState.set_vision_model_value,
                 ),
-                value=AIState.vision_model_value,
-                on_change=AIState.set_vision_model_value,
+                style={
+                    "flex": "1 1 0",
+                    "min_width": "0",
+                    "overflow": "hidden",
+                },
             ),
             rx.icon_button(
                 rx.icon("refresh-cw", size=14),
@@ -56,10 +68,12 @@ def _model_section() -> rx.Component:
                 variant="soft",
                 color_scheme="gray",
                 title=t("vision_settings_rescan_tooltip"),
+                style={"flex_shrink": "0"},
             ),
             spacing="2",
             align="center",
             width="100%",
+            style={"min_width": "0"},
         ),
         align="stretch",
         spacing="1",
