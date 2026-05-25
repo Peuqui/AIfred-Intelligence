@@ -157,10 +157,31 @@ async def analyze_sequence(
         if k not in ("response", "context") and v is not None
     }
 
+    # Compute TTFT/PP/tok-per-s stats from Ollama's nanosecond timings.
+    # Mirrors the format used elsewhere in AIfred (audio_processing.py)
+    # so the user sees the same shape of metrics across all model calls.
+    stats = _compute_vlm_stats(resp_dict, duration_ms)
+    metadata["stats"] = stats
+
     logger.info(
         "VLM call ok: model=%s n_frames=%d duration=%.0fms text_len=%d",
         model, len(frames), duration_ms, len(text),
     )
+    # Verbose log (gated by AIFRED_VISION_VERBOSE env var or vlm.verbose_logging
+    # in plugin settings). Prints the same compact stats line we use for chat
+    # LLMs so the user can compare numbers side by side. Also prints the raw
+    # VLM response text — useful for distinguishing "VLM said something wrong"
+    # from "AIfred misinterpreted the VLM output" when debugging.
+    if _verbose_logging_enabled():
+        from .logging_utils import log_message
+        log_message(
+            f"👁️ VLM stats: TTFT {stats['ttft_s']:.2f}s | "
+            f"PP {stats['pp_tok_per_s']:.1f} tok/s | "
+            f"Inference {stats['inference_s']:.1f}s | "
+            f"{stats['eval_tok_per_s']:.1f} tok/s | "
+            f"{stats['eval_tokens']} tok | model={model}"
+        )
+        log_message(f"👁️ VLM raw response: {text}")
 
     return VisionAnalysis(
         text=text,
@@ -170,3 +191,63 @@ async def analyze_sequence(
         duration_ms=duration_ms,
         metadata=metadata,
     )
+
+
+def _compute_vlm_stats(resp: dict[str, Any], wall_clock_ms: float) -> dict[str, float]:
+    """Derive TTFT / PP-tok-per-s / inference / eval-tok-per-s from Ollama's
+    nanosecond timings in the response dict.
+
+    Ollama always returns:
+      load_duration         — model-load wall time (0 if already loaded)
+      prompt_eval_duration  — time to process the prompt (images here)
+      prompt_eval_count     — number of prompt tokens
+      eval_duration         — output-token generation time
+      eval_count            — number of output tokens
+      total_duration        — sum, end-to-end on the Ollama side
+
+    Definition mirrors what audio_processing.py / chat-LLM stats use:
+      TTFT  = load + prompt_eval (time until first output token)
+      PP    = prompt_eval_count / prompt_eval_duration
+      gen   = eval_count / eval_duration
+    """
+    ns_to_s = 1e-9
+    load_ns = float(resp.get("load_duration") or 0)
+    pp_ns = float(resp.get("prompt_eval_duration") or 0)
+    pp_tok = int(resp.get("prompt_eval_count") or 0)
+    ev_ns = float(resp.get("eval_duration") or 0)
+    ev_tok = int(resp.get("eval_count") or 0)
+    ttft_s = (load_ns + pp_ns) * ns_to_s
+    inference_s = ev_ns * ns_to_s
+    pp_tok_per_s = (pp_tok / (pp_ns * ns_to_s)) if pp_ns > 0 else 0.0
+    eval_tok_per_s = (ev_tok / (ev_ns * ns_to_s)) if ev_ns > 0 else 0.0
+    return {
+        "ttft_s": ttft_s,
+        "pp_tok_per_s": pp_tok_per_s,
+        "inference_s": inference_s,
+        "eval_tok_per_s": eval_tok_per_s,
+        "eval_tokens": float(ev_tok),
+        "prompt_tokens": float(pp_tok),
+        "wall_clock_s": wall_clock_ms / 1000.0,
+    }
+
+
+def _verbose_logging_enabled() -> bool:
+    """Single source of truth: ``vlm.verbose_logging`` in the vision plugin
+    settings.json. The setting is read on every call (no module-level
+    cache) so toggling it from the UI takes effect immediately without
+    a service restart.
+    """
+    try:
+        import json
+        from pathlib import Path
+        settings_path = (
+            Path(__file__).parent.parent
+            / "plugins/tools/vision/settings.json"
+        )
+        if not settings_path.exists():
+            return False
+        with open(settings_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        return bool(cfg.get("vlm", {}).get("verbose_logging", False))
+    except Exception:  # noqa: BLE001
+        return False
