@@ -34,6 +34,7 @@ from .ui.agent_editor import agent_editor_page  # noqa: F401
 from .ui.file_picker import file_picker_modal  # noqa: F401
 from .ui.audio_settings import audio_settings_page, audio_help_modal  # noqa: F401
 from .ui.vision_settings import vision_settings_modal  # noqa: F401
+from .ui.personarium import personarium_modal  # noqa: F401
 from .ui.vision_preview import vision_preview_page  # noqa: F401
 
 
@@ -761,6 +762,10 @@ console.log('✂️ Crop handler loaded');
         # Vision-Plugin Settings Modal (gear icon next to "Bild & Video")
         vision_settings_modal(),
 
+        # Personarium — Identitäten-Verwaltung (vom Vision-Settings-
+        # Modal aus aufgerufen)
+        personarium_modal(),
+
         # Multi-Agent Help Modal (Diskussionsmodi-Übersicht)
         multi_agent_help_modal(),
 
@@ -1086,7 +1091,11 @@ def agent_editor_route() -> rx.Component:
     # vision_settings_modal hier mit-mounten, weil das Plugin-Tab im
     # Agent-Editor steht und das Modal sonst nicht im DOM ist, wenn
     # der User auf das Bild-&-Video-Zahnrad klickt.
-    return rx.fragment(agent_editor_page(), vision_settings_modal())
+    return rx.fragment(
+        agent_editor_page(),
+        vision_settings_modal(),
+        personarium_modal(),
+    )
 
 
 @rx.page(

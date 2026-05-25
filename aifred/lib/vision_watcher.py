@@ -489,25 +489,10 @@ class VisionWatcher:
                 if match.confidence_band == "unknown"
                 else "face_unsure"
             )
-            event_id = self._store.add_event(
-                source_id=source_id,
-                event_type=event_type,
-                timestamp=frame.timestamp,
-                frame_path=frame_path,
-                face_id=match.face_id if match.face_id > 0 else None,
-                confidence=float(match.similarity),
-                classification={
-                    "matched_name": match.name,
-                    "confidence_band": match.confidence_band,
-                    "detection_score": det.detection_score,
-                    "bbox": list(det.bbox),
-                },
-                metadata={
-                    "parent_event_id": motion_event_id,
-                    "trigger": "motion" if motion_event_id else "continuous",
-                },
-            )
-            self._statuses[source_id].face_events += 1  # type: ignore[misc]
+            # Crop ZUERST speichern, damit ``crop_url`` mit ins DB-Event
+            # geht — das Personarium-Modal greift später per
+            # ``SELECT … classification->>'crop_url' FROM events`` auf
+            # den letzten Crop pro Identity zu.
             crop_result = crop_store.save(
                 frame_bytes=frame.image_bytes,
                 bbox=tuple(int(v) for v in det.bbox),  # type: ignore[arg-type]
@@ -520,6 +505,27 @@ class VisionWatcher:
             crop_url = crop_result.url if crop_result else ""
             identity_key = crop_result.identity_key if crop_result else ""
             session_id = crop_result.session_id if crop_result else ""
+            event_id = self._store.add_event(
+                source_id=source_id,
+                event_type=event_type,
+                timestamp=frame.timestamp,
+                frame_path=frame_path,
+                face_id=match.face_id if match.face_id > 0 else None,
+                confidence=float(match.similarity),
+                classification={
+                    "matched_name": match.name,
+                    "confidence_band": match.confidence_band,
+                    "detection_score": det.detection_score,
+                    "bbox": list(det.bbox),
+                    "crop_url": crop_url,
+                },
+                metadata={
+                    "parent_event_id": motion_event_id,
+                    "trigger": "motion" if motion_event_id else "continuous",
+                    "session_id": session_id,
+                },
+            )
+            self._statuses[source_id].face_events += 1  # type: ignore[misc]
             try:
                 emb_b64 = _base64.b64encode(det.embedding.tobytes()).decode("ascii")
             except Exception:  # noqa: BLE001

@@ -186,6 +186,22 @@ def vision_settings_modal() -> rx.Component:
                     rx.divider(),
                     _face_recognition_section(),
                     rx.divider(),
+                    # Button um das Personarium-Modal zu öffnen — die
+                    # Identitäten-Verwaltung lebt in einem eigenen
+                    # Modal, weil die Tabelle eigenes Layout braucht.
+                    rx.button(
+                        rx.icon("users", size=16),
+                        rx.text(t("vision_settings_open_personarium")),
+                        on_click=[
+                            AIState.close_vision_settings,
+                            AIState.open_personarium,
+                        ],
+                        size="2",
+                        variant="soft",
+                        color_scheme="orange",
+                        width="100%",
+                    ),
+                    rx.divider(),
                     rx.button(
                         t("vision_settings_close"),
                         on_click=AIState.close_vision_settings,
