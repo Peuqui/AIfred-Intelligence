@@ -41,6 +41,15 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_FRAMES_DIR = DATA_DIR / "vision" / "frames"
 
+# Default prompt for continuous-watch VLM calls. Designed to be short
+# and to discourage repetitive output ("a man, a man, still a man") so
+# the teleprompter feed reads as a delta-narration.
+_DEFAULT_CONTINUOUS_PROMPT = (
+    "Beschreibe in einem Satz, was du gerade siehst. Wenn sich "
+    "gegenüber dem letzten Frame nichts wesentlich geändert hat, "
+    "sage knapp 'unverändert'."
+)
+
 
 @dataclass
 class WatchConfig:
@@ -65,6 +74,13 @@ class WatchConfig:
     # geschrieben. Das ist der Mechanismus, der das Teleprompter-Feld
     # im Live-Preview-Popup mit Inhalt füllt.
     run_vlm_on_motion: bool = False
+    # If True the watcher calls the VLM on EVERY tick (subject to
+    # vlm_cooldown_sec), not just on motion events. Used by the
+    # live-preview teleprompter — gives a continuous narration of
+    # what the cam sees. Combined with run_vlm_on_motion: motion path
+    # still emits "motion" events and triggers face-recog, the
+    # continuous path emits "vlm_analysis" events independently.
+    run_vlm_continuous: bool = False
     vlm_prompt: str = ""           # Override für default_prompt aus settings.json
     vlm_cooldown_sec: float = 10.0  # Mindestabstand zwischen VLM-Calls
     extra: dict[str, Any] = field(default_factory=dict)
@@ -111,6 +127,13 @@ class VisionWatcher:
         # Per-source timestamp of the last VLM call; used to throttle
         # so we don't fire vlm_cooldown_sec → see _maybe_run_vlm.
         self._last_vlm_at: dict[str, datetime] = {}
+        # Per-source ring buffer of the last N (timestamp, description)
+        # tuples — fed back into the next continuous-VLM prompt so the
+        # model can write a delta-update instead of starting fresh.
+        from collections import deque
+        from .config import VISION_VLM_CONTINUOUS_HISTORY
+        self._vlm_history: dict[str, deque[tuple[datetime, str]]] = {}
+        self._vlm_history_size = int(VISION_VLM_CONTINUOUS_HISTORY)
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -124,8 +147,11 @@ class VisionWatcher:
             source = get_source(source_id)
             if source is None:
                 raise ValueError(f"unknown source: {source_id}")
-            if not source.is_available():
-                raise RuntimeError(f"source not available: {source_id}")
+            # NOTE: deliberately NOT calling source.is_available() —
+            # that opens a cv2.VideoCapture probe which races against
+            # any running live-preview stream for the V4L2 device.
+            # The watch loop's stream() call has retry-open logic and
+            # will fail cleanly there if the cam truly can't be opened.
             self._configs[source_id] = config
             self._statuses[source_id] = WatchStatus(
                 source_id=source_id,
@@ -193,7 +219,14 @@ class VisionWatcher:
 
     async def _watch_loop(self, source: "FrameSource", config: WatchConfig) -> None:
         """The actual per-source loop. Runs until task cancellation or
-        unrecoverable error."""
+        unrecoverable error.
+
+        Subscribed jetzt am FrameHub (SSOT) statt selbst die Cam zu
+        öffnen — damit kann eine Source gleichzeitig vom Watcher
+        UND von beliebig vielen Browser-Tabs gelesen werden, ohne
+        V4L2-Konflikte.
+        """
+        from .frame_hub import get_default_hub
         source_id = source.source_id
         motion = MotionDetector(
             history=config.motion_history_frames,
@@ -201,12 +234,26 @@ class VisionWatcher:
             min_area_ratio=config.motion_min_area_ratio,
             warmup_frames=config.motion_warmup_frames,
         )
+        hub = get_default_hub()
         try:
-            async for frame in source.stream(fps=config.fps):
-                # Publish to bus first — other consumers (preview, etc.)
-                # see every frame regardless of motion result.
-                await self._bus.publish(source_id, frame)
+            async for frame in hub.subscribe(
+                source, name="watcher", fps=config.fps,
+            ):
                 self._statuses[source_id].frames_seen += 1  # type: ignore[misc]
+
+                # Continuous VLM narration path — independent from
+                # motion-detection. Fire-and-forget: ein blocking
+                # `await` würde diesen Loop für die VLM-Latenz
+                # anhalten und Frames vom Hub-Reader nicht mehr
+                # rechtzeitig abnehmen. Die Cooldown-Throttle in
+                # _maybe_run_continuous_vlm setzt ``_last_vlm_at``
+                # VOR dem Netzwerk-Call, deshalb können trotz
+                # paralleler Loop-Iterationen keine Doppel-Calls
+                # entstehen.
+                if config.run_vlm_continuous:
+                    asyncio.create_task(
+                        self._maybe_run_continuous_vlm(frame, config)
+                    )
 
                 result = motion.process(frame)
                 if not result.motion:
@@ -292,6 +339,128 @@ class VisionWatcher:
                 metadata={"parent_event_id": motion_event_id},
             )
             self._statuses[source_id].face_events += 1  # type: ignore[misc]
+
+    async def _maybe_run_continuous_vlm(
+        self, frame: "Frame", config: WatchConfig
+    ) -> None:
+        """Continuous-VLM path. Skips if we ran a VLM call within the
+        cooldown window; otherwise calls the VLM, stores the event,
+        and broadcasts on the event bus so SSE consumers see it live.
+
+        Uses the per-camera prompt_context from vision_store as the
+        briefing, falls back to the explicit vlm_prompt in the config,
+        and lastly to settings.json default_prompt.
+        """
+        source_id = frame.source_id
+        # Cooldown check (separate from motion-event throttle)
+        last = self._last_vlm_at.get(source_id)
+        if last is not None:
+            delta = (datetime.now() - last).total_seconds()
+            if delta < config.vlm_cooldown_sec:
+                return
+
+        # Build the prompt: per-cam briefing + explicit override
+        from .vision_analyzer import analyze_sequence, DEFAULT_MODEL, DEFAULT_NUM_CTX
+        from .vision_prewarm import get_vision_mode
+        # Briefing: prefer vision_store.sources.prompt_context (the
+        # per-camera context the user typed in the popup), fall back
+        # to whatever the config / settings say.
+        briefing = ""
+        stored = self._store.get_source(source_id)
+        if stored:
+            briefing = str(stored.get("prompt_context") or "").strip()
+        base_instruction = config.vlm_prompt.strip() or _DEFAULT_CONTINUOUS_PROMPT
+
+        # Build the history block from the per-source ring buffer.
+        # Format mirrors what the user reads in the teleprompter so the
+        # VLM mentally sees its own past lines.
+        history = self._vlm_history.get(source_id)
+        history_block = ""
+        if history and len(history) > 0:
+            entries = [
+                f"- {ts.strftime('%H:%M:%S')} — {text}"
+                for (ts, text) in list(history)
+            ]
+            history_block = (
+                "Bisherige Beobachtungen (chronologisch, älteste zuerst):\n"
+                + "\n".join(entries)
+                + "\n\n"
+            )
+
+        prompt_parts = []
+        if briefing:
+            prompt_parts.append(briefing)
+        if history_block:
+            prompt_parts.append(history_block.rstrip())
+        prompt_parts.append(base_instruction)
+        prompt = "\n\n".join(prompt_parts)
+
+        # Load VLM settings (model, num_ctx, host) from plugin config
+        try:
+            import json
+            from pathlib import Path
+            cfg_path = (
+                Path(__file__).parent.parent
+                / "plugins/tools/vision/settings.json"
+            )
+            with open(cfg_path, encoding="utf-8") as f:
+                _cfg = json.load(f) or {}
+            vlm_cfg = _cfg.get("vlm", {}) or {}
+        except Exception:  # noqa: BLE001
+            vlm_cfg = {}
+
+        keep_alive: Any = -1 if get_vision_mode() == "live" else str(
+            vlm_cfg.get("keep_alive", "30m")
+        )
+        # Mark cooldown BEFORE the call so multiple in-flight frames
+        # don't all kick off VLM calls when one is already underway.
+        self._last_vlm_at[source_id] = datetime.now()
+        try:
+            result = await analyze_sequence(
+                [frame],
+                prompt,
+                model=str(vlm_cfg.get("model", DEFAULT_MODEL)),
+                num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
+                keep_alive=keep_alive,
+                host=vlm_cfg.get("host"),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("continuous-VLM failed for %s: %s", source_id, e)
+            return
+
+        # Update ring buffer FIRST so even a failed store-event still
+        # gives the next VLM call the right context.
+        from collections import deque
+        ring = self._vlm_history.get(source_id)
+        if ring is None:
+            ring = deque(maxlen=max(1, self._vlm_history_size))
+            self._vlm_history[source_id] = ring
+        ring.append((frame.timestamp, result.text.strip()))
+
+        # Persist + broadcast
+        event_id = -1
+        try:
+            event_id = self._store.add_event(
+                source_id=source_id,
+                event_type="vlm_analysis",
+                timestamp=frame.timestamp,
+                classification={"description": result.text, "model": result.model},
+                metadata={"prompt": prompt, "n_frames": 1, "continuous": True},
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("continuous-VLM store-event failed: %s", e)
+
+        # Push onto the in-memory event bus for SSE consumers
+        from .vision_event_bus import publish_vlm_event
+        publish_vlm_event(source_id, {
+            "id": event_id,
+            "type": "vlm_analysis",
+            "source_id": source_id,
+            "timestamp": frame.timestamp.isoformat(timespec="seconds"),
+            "description": result.text,
+            "model": result.model,
+            "duration_ms": round(result.duration_ms, 1),
+        })
 
     def _save_frame(self, frame: "Frame") -> str:
         """Persist a JPEG-encoded frame to ``data/vision/frames/<source>/<date>/``.

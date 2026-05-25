@@ -726,8 +726,12 @@ console.log('✂️ Crop handler loaded');
         rx.script(paste_handler_js),
         rx.script(crop_js),
 
-        # Load custom.js for MediaRecorder and other features (cache-busting version)
-        rx.script(src="/custom.js?v=26"),
+        # custom.js wieder im <body> — head_components-Variante hat
+        # synchrone Script-Auswertung VOR React-Hydration ausgelöst
+        # und Browser-„Seite reagiert nicht"-Hänger produziert. Im
+        # Popup wird der SSE-Manager separat per Inline-Script geladen
+        # (siehe vision_preview.py).
+        rx.script(src="/custom.js?v=27"),
 
         # Hidden flags element — always present in the DOM, regardless of
         # chat state. custom.js reads UI toggles from here. Currently:

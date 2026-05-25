@@ -50,6 +50,84 @@ _RESOLUTION_LABELS: dict[tuple[int, int], str] = {
 }
 
 
+_VISION_SSE_MANAGER_SCRIPT = r"""
+(() => {
+  // Single SSE manager per page. Watches for elements with the
+  // .vlm-event-target class and a data-vlm-source attribute; opens
+  // an EventSource per unique source and pipes VLM analysis events
+  // into the matching DOM target as a 1-per-line teleprompter feed.
+  if (window.__aifredVLMSSEInit) return;
+  window.__aifredVLMSSEInit = true;
+  console.log('[AIfred-VLM] SSE manager booting');
+  const streams = {};
+  const lines = {};
+  const MAX_LINES = 8;
+
+  function render(sid) {
+    const items = lines[sid] || [];
+    document.querySelectorAll('.vlm-event-target[data-vlm-source="' + sid + '"]')
+      .forEach(function (el) {
+        if (items.length === 0) {
+          el.textContent = el.dataset.idleText || '';
+          el.style.fontStyle = 'italic';
+          return;
+        }
+        el.style.fontStyle = 'normal';
+        el.textContent = items.join('\n');
+        el.scrollTop = el.scrollHeight;
+      });
+  }
+
+  function openStream(sid) {
+    if (streams[sid] && streams[sid].readyState !== 2) return;
+    const url = '/api/vision/events/' + sid;
+    console.log('[AIfred-VLM] EventSource opening:', url);
+    const es = new EventSource(url);
+    streams[sid] = es;
+    lines[sid] = lines[sid] || [];
+    es.onopen = function () { console.log('[AIfred-VLM] EventSource open:', sid); };
+    es.onmessage = function (ev) {
+      try {
+        const data = JSON.parse(ev.data);
+        const ts = (data.timestamp || '').split('T')[1] || '';
+        const desc = (data.description || '').replace(/\s+/g, ' ').trim();
+        const line = ts + '  ' + desc;
+        lines[sid].push(line);
+        if (lines[sid].length > MAX_LINES) lines[sid].shift();
+        render(sid);
+      } catch (e) {}
+    };
+    es.onerror = function (e) {
+      console.warn('[AIfred-VLM] EventSource error:', sid, e);
+    };
+  }
+
+  function scan() {
+    const targets = document.querySelectorAll('.vlm-event-target[data-vlm-source]');
+    const seen = new Set();
+    targets.forEach(function (el) {
+      const sid = el.dataset.vlmSource;
+      if (!sid) return;
+      if (!el.dataset.idleText) el.dataset.idleText = el.textContent;
+      seen.add(sid);
+      openStream(sid);
+      render(sid);
+    });
+    Object.keys(streams).forEach(function (sid) {
+      if (!seen.has(sid) && streams[sid]) {
+        streams[sid].close();
+        delete streams[sid];
+      }
+    });
+  }
+
+  const obs = new MutationObserver(function () { scan(); });
+  obs.observe(document.body, { childList: true, subtree: true });
+  scan();
+})();
+"""
+
+
 def _label_from(entry: dict[str, Any], alias: str) -> str:
     """Recompute a source-list label given a fresh alias. Used by the
     alias-setter to keep the label in sync without re-running the full
@@ -116,6 +194,31 @@ class VisionPreviewMixin(rx.State, mixin=True):
 
     # Bumped on every refresh request — appended to image URLs as cache-buster
     vision_preview_cache_buster: int = 0
+
+    # Source IDs with an active continuous-VLM watcher. Drives the
+    # watch-toggle switch in each cam-tile and which SSE streams the
+    # frontend opens.
+    vision_preview_watching: list[str] = []
+
+    # Global cooldown between VLM calls in continuous watch-mode.
+    # Seconds; persisted in vision_preview.json. 1s is the minimum
+    # sane value (the VLM itself answers in ~0.4s for short prompts).
+    vision_preview_vlm_cooldown_sec: float = 5.0
+
+    vision_preview_cooldown_options: list[dict[str, str]] = [
+        {"value": "1", "label": "1 s"},
+        {"value": "2", "label": "2 s"},
+        {"value": "3", "label": "3 s"},
+        {"value": "5", "label": "5 s"},
+        {"value": "10", "label": "10 s"},
+        {"value": "30", "label": "30 s"},
+        {"value": "60", "label": "60 s"},
+    ]
+
+    @rx.var
+    def vision_preview_vlm_cooldown_value(self) -> str:
+        v = self.vision_preview_vlm_cooldown_sec
+        return str(int(v)) if v == int(v) else str(v)
 
     vision_preview_status: str = ""
 
@@ -216,7 +319,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
     def on_load_vision_preview(self) -> None:
         """Page-load handler for the popup window — populates the source
         list, loads persisted per-source resolutions + global FPS, picks
-        a sensible default visible-set."""
+        a sensible default visible-set. SSE manager is wired up via the
+        asset-script in the page itself, not from here."""
+        from ..lib.logging_utils import log_message
+        log_message("🎬 on_load_vision_preview firing")
         self._load_preview_fps()
         self._refresh_sources()
         self.vision_preview_cache_buster += 1
@@ -235,6 +341,22 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 source_id
             ]
         self.vision_preview_cache_buster += 1
+
+    @rx.event
+    def set_vision_preview_briefing_text(self, source_id: str, value: str) -> None:
+        """Live update beim Tippen — synchronisiert nur den State, ohne
+        DB-Write. Persistiert wird erst bei on_blur via
+        ``set_vision_preview_prompt_context``. Ohne diese Trennung würde
+        bei jedem Tastenanschlag ein DB-Write stattfinden.
+        """
+        if not source_id:
+            return
+        text = value if isinstance(value, str) else ""
+        self.vision_preview_sources = [
+            {**e, "prompt_context": text}
+            if e["id"] == source_id else e
+            for e in self.vision_preview_sources
+        ]
 
     @rx.event
     def set_vision_preview_prompt_context(self, source_id: str, value: str) -> None:
@@ -290,6 +412,81 @@ class VisionPreviewMixin(rx.State, mixin=True):
         ]
         self._persist_source_resolution(source_id, value)
         self.vision_preview_cache_buster += 1
+
+    @rx.event
+    async def toggle_vision_preview_watch(self, source_id: str) -> None:
+        """Start or stop the continuous-VLM watcher for a single source.
+
+        Wires through to VisionWatcher — the actual VLM-on-tick logic
+        lives in vision_watcher.py. We only manage UI state here.
+        """
+        if not source_id:
+            return
+        from ..lib.vision_watcher import WatchConfig, get_default_watcher
+        watcher = get_default_watcher()
+        if source_id in self.vision_preview_watching:
+            await watcher.stop(source_id)
+            self.vision_preview_watching = [
+                s for s in self.vision_preview_watching if s != source_id
+            ]
+            # Cache-buster bump → image URL changes → browser reconnects
+            # the MJPEG stream. Without this the <img> stays frozen on
+            # the last frame because the previous stream got evicted
+            # when the watcher took/released the cam.
+            self.vision_preview_cache_buster += 1
+            return
+        # Start: pull cooldown + fps from defaults; the per-cam briefing
+        # is read by the watcher itself from vision_store.prompt_context
+        # so we don't have to plumb it through here.
+        #
+        # Watcher-fps muss höher als die Cooldown-fps sein, denn die
+        # gleichen Frames werden vom MJPEG-Live-Stream über den
+        # FrameBus konsumiert (api.py:_mjpeg_stream fällt bei aktivem
+        # Watcher auf bus.subscribe zurück). Bei cooldown=5s wäre 0.4
+        # fps die "VLM-natürliche" Rate — das wäre die Diashow im
+        # Browser. Stattdessen orientieren wir uns an der gewünschten
+        # Vorschau-fps des Users und nehmen mindestens 2 fps, damit
+        # die Live-Vorschau flüssig bleibt und die VLM trotzdem nur
+        # alle ``vlm_cooldown_sec`` einen Frame analysiert.
+        cd = max(0.5, float(self.vision_preview_vlm_cooldown_sec))
+        preview_fps = float(self.vision_preview_fps or 0.0)
+        stream_fps = max(2.0, preview_fps)
+        cfg = WatchConfig(
+            fps=stream_fps,
+            run_vlm_on_motion=False,
+            run_vlm_continuous=True,
+            vlm_cooldown_sec=cd,
+            run_face_detect_on_motion=False,
+        )
+        try:
+            await watcher.start(source_id, cfg)
+            self.vision_preview_watching = self.vision_preview_watching + [source_id]
+            # Same reason as on the stop path — bump cache-buster so the
+            # browser reconnects to the MJPEG stream. The previous live-
+            # stream got evicted when the watcher took the cam, and the
+            # new stream needs a fresh URL so the <img> requests it.
+            self.vision_preview_cache_buster += 1
+            # SSE manager is loaded as an asset script in the page itself,
+            # so we don't need to fire it here. The MutationObserver inside
+            # the script will pick up DOM changes from this toggle and open
+            # the EventSource automatically.
+        except Exception as e:  # noqa: BLE001
+            logger.warning("watcher start failed for %s: %s", source_id, e)
+            self.vision_preview_status = f"⚠️ Watcher: {e}"
+
+    @rx.event
+    def set_vision_preview_vlm_cooldown(self, value: str) -> None:
+        """Cooldown between continuous-VLM calls (seconds). Takes effect
+        on the next watcher start — running watchers keep their current
+        cooldown until restarted."""
+        try:
+            cd = float(value)
+        except (TypeError, ValueError):
+            return
+        if cd < 0.5 or cd > 300:
+            return
+        self.vision_preview_vlm_cooldown_sec = cd
+        self._persist_preview_setting("vlm_cooldown_sec", cd)
 
     @rx.event
     def set_vision_preview_teleprompter_mode(self, value: str) -> None:
@@ -362,14 +559,16 @@ class VisionPreviewMixin(rx.State, mixin=True):
         resolution as ``"resolution"`` field — needed because Reflex
         can't index dict-vars with foreach-loop vars in render lambdas.
         """
+        from ..lib.logging_utils import log_message
         try:
             from ..lib.frame_sources import list_all
             sources_raw = list_all()
         except Exception as e:  # noqa: BLE001
-            logger.warning("vision-preview source listing failed: %s", e)
+            log_message(f"⚠️ vision-preview source listing failed: {e}")
             self.vision_preview_sources = []
             self.vision_preview_status = f"⚠️ {e}"
             return
+        log_message(f"🎬 _refresh_sources: list_all returned {len(sources_raw)} source(s)")
 
         # Load persisted per-source resolution from vision_store
         new_resolutions = dict(self.vision_preview_resolutions)
@@ -415,7 +614,11 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # resolution options baked into each entry.
         entries: list[dict[str, Any]] = []
         for src in sources_raw:
-            src_info = src.info()
+            try:
+                src_info = src.info()
+            except Exception as e:  # noqa: BLE001
+                log_message(f"⚠️ source.info() failed for {src.source_id}: {e}")
+                continue
             hardware_name = src_info.display_name or src_info.source_id
             alias = stored_aliases.get(src_info.source_id, "")
             # Label = alias if set, else hardware name; with availability marker.
@@ -433,12 +636,22 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 "prompt_context": stored_prompts.get(src_info.source_id, ""),
             })
         self.vision_preview_sources = entries
+        log_message(
+            f"🎬 _refresh_sources done: {len(entries)} entries, "
+            f"available={[e['id'] for e in entries if e['available']]}"
+        )
+        for e in entries:
+            log_message(
+                f"  entry id={e['id']} alias='{e.get('alias','')}' "
+                f"prompt_context='{e.get('prompt_context','')[:50]}'"
+            )
 
         # Pick a sensible default visible-set if the user hasn't yet
         if not self.vision_preview_visible_sources:
             available = [e["id"] for e in self.vision_preview_sources if e["available"]]
             if available:
                 self.vision_preview_visible_sources = [available[0]]
+                log_message(f"🎬 default visible source set to: {available[0]}")
 
     # ----- Global preview-settings persistence -------------------------
     # Stored separately from per-source state because FPS is a global
@@ -464,6 +677,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
             mode = data.get("teleprompter_mode")
             if isinstance(mode, str) and mode in ("overlay", "below"):
                 self.vision_preview_teleprompter_mode = mode
+            cd = data.get("vlm_cooldown_sec")
+            if isinstance(cd, (int, float)) and 0.5 <= cd <= 300:
+                self.vision_preview_vlm_cooldown_sec = float(cd)
         except Exception as e:  # noqa: BLE001
             logger.warning("vision-preview settings load failed: %s", e)
 

@@ -1659,22 +1659,21 @@ async def vision_snapshot_endpoint(
 ) -> Response:
     """Liefert einen frischen JPEG-Snapshot der genannten Frame-Source.
 
-    Single-shot Endpoint — für manuelle Refresh-Buttons oder das
-    Plugin-Tool. Streaming-Pendant ist :func:`vision_stream_endpoint`.
-
-    ``width`` und ``height`` sind optional und übersteuern den im
-    vision_store persistierten Per-Source-Default.
+    Geht durch den FrameHub: wenn schon ein Stream / Watcher läuft,
+    bekommt der Snapshot den nächsten Frame aus dem laufenden Loop —
+    kein zweiter V4L2-Open. Wenn niemand sonst zugreift, startet der
+    Hub einen kurzen Reader und beendet ihn nach Grace-Period.
     """
+    from .frame_hub import get_default_hub
     from .frame_sources import get as get_source
 
     src = get_source(source_id)
     if src is None:
         raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
-    if not src.is_available():
-        raise HTTPException(status_code=503, detail=f"source not available: {source_id}")
     w, h = _resolve_resolution(source_id, width, height)
+    hub = get_default_hub()
     try:
-        frame = await src.snapshot(width=w, height=h)
+        frame = await hub.snapshot(src, width=w, height=h)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"snapshot failed: {e}") from e
     return Response(
@@ -1692,33 +1691,36 @@ async def vision_snapshot_endpoint(
 _MJPEG_BOUNDARY = b"--frame"
 
 
+def _encode_mjpeg_chunk(frame: Any) -> bytes:
+    return (
+        _MJPEG_BOUNDARY
+        + b"\r\nContent-Type: image/"
+        + frame.format.encode()
+        + b"\r\nContent-Length: "
+        + str(len(frame.image_bytes)).encode()
+        + b"\r\n\r\n"
+        + frame.image_bytes
+        + b"\r\n"
+    )
+
+
 async def _mjpeg_stream(source: Any, fps: float, width: int = 0, height: int = 0) -> Any:
     """Async generator yielding MJPEG frames (multipart/x-mixed-replace).
 
-    Delegates frame production to ``source.stream(fps, width, height)``
-    so the underlying FrameSource can hold a persistent capture handle
-    for the lifetime of the stream — critical for V4L2 where the cam
-    can only be opened once at a time. With the old snapshot-per-frame
-    approach, two parallel streams (e.g. an old browser tab still
-    closing while the new resolution-switched one is starting) would
-    fight over the device and stall for seconds.
-
-    When the client disconnects, Starlette cancels this generator,
-    which propagates into the inner ``source.stream()`` and triggers
-    its ``finally: cap.release()`` — freeing the device for the next
-    consumer immediately.
+    Geht durch den FrameHub — egal wie viele Browser-Tabs, Watcher
+    oder Snapshots gerade aktiv sind, der Hub hält genau einen
+    V4L2-Reader pro Source offen. Vorher gab es zwei Pfade (direkter
+    source.stream vs. bus.subscribe), die je nach Watcher-Zustand
+    umgeschaltet wurden und beim Toggle blackouts produzierten — der
+    Hub löst das strukturell.
     """
-    async for frame in source.stream(fps=fps, width=width, height=height):
-        yield (
-            _MJPEG_BOUNDARY
-            + b"\r\nContent-Type: image/"
-            + frame.format.encode()
-            + b"\r\nContent-Length: "
-            + str(len(frame.image_bytes)).encode()
-            + b"\r\n\r\n"
-            + frame.image_bytes
-            + b"\r\n"
-        )
+    from .frame_hub import get_default_hub
+
+    hub = get_default_hub()
+    async for frame in hub.subscribe(
+        source, name="mjpeg-live-preview", fps=fps, width=width, height=height,
+    ):
+        yield _encode_mjpeg_chunk(frame)
 
 
 @api_app.get("/vision/stream/{source_id:path}", tags=["Vision"])
@@ -1768,6 +1770,47 @@ async def vision_stream_endpoint(
             # show black for a beat.
             "X-Accel-Buffering": "no",
             "Connection": "close",
+        },
+    )
+
+
+@api_app.get("/vision/events/{source_id:path}", tags=["Vision"])
+async def vision_events_endpoint(source_id: str) -> Any:
+    """Server-Sent-Events stream of VLM analysis events for a source.
+
+    Each line is a JSON object emitted by the watcher's continuous-VLM
+    path:
+
+        data: {"type":"vlm_analysis","timestamp":"…","description":"…", …}
+
+    The browser opens this with ``new EventSource(...)`` and the
+    teleprompter overlay appends each event as it arrives. Stream
+    runs until the client disconnects; the watcher itself is
+    started/stopped separately via the start/stop endpoints (or via
+    the tool plugin's vision_start_watch / vision_stop_watch).
+    """
+    from starlette.responses import StreamingResponse
+    from .vision_event_bus import subscribe
+
+    import json as _json
+
+    async def _gen() -> Any:
+        # Initial comment-line so the EventSource sees a successful
+        # 200 and any reverse proxy flushes its first response chunk
+        # (some proxies wait for the first byte before forwarding).
+        yield b":\n\n"
+        async for event in subscribe(source_id):
+            payload = _json.dumps(event, ensure_ascii=False)
+            yield f"data: {payload}\n\n".encode()
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
         },
     )
 
