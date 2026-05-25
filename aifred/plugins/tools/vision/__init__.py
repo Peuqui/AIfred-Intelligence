@@ -197,6 +197,9 @@ class VisionPlugin:
         "Macht Fotos und kurze Bildbeschreibungen über Webcam oder andere "
         "Bildquellen. Erkennt Bewegung und bekannte Gesichter."
     )
+    # Triggers the /vision-settings page (analog to audio_player). The
+    # Plugin-Tab gear icon dispatches this state event.
+    settings_event_name: str = "open_vision_settings"
 
     def is_available(self) -> bool:
         # Plugin is always loadable — individual tools fail gracefully
