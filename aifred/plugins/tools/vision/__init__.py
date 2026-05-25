@@ -271,12 +271,19 @@ class VisionPlugin:
 
     def _tool_list_sources(self, ctx: PluginContext) -> Tool:
         async def _exec() -> str:
+            from ....lib.vision_utils import resolve_source_alias
             sources = []
             for src in list_all_sources():
                 info = src.info()
+                # User-given alias takes precedence over the hardware
+                # display name — agent sees "Türkamera" instead of
+                # "OmniVision Technologies, Inc. USB Camera" when
+                # listing sources.
+                alias = resolve_source_alias(info.source_id, fallback=info.display_name)
                 sources.append({
                     "source_id": info.source_id,
-                    "display_name": info.display_name,
+                    "display_name": alias,
+                    "hardware_name": info.display_name,
                     "kind": info.kind,
                     "width": info.width,
                     "height": info.height,
@@ -331,8 +338,14 @@ class VisionPlugin:
                 return _err(f"unknown source: {source_id}")
             if not source.is_available():
                 return _err(f"source not available: {source_id}")
+            # Per-camera resolution from vision_store (set in the live-
+            # preview popup). Tools share the same persistent config as
+            # the UI so a 4K outdoor cam stays at 4K for snapshots and
+            # a low-res door cam stays low. (0, 0) → driver default.
+            from ....lib.vision_utils import resolve_source_resolution
+            w, h = resolve_source_resolution(source_id)
             try:
-                frame = await source.snapshot()
+                frame = await source.snapshot(width=w, height=h)
             except Exception as e:  # noqa: BLE001
                 return _err(f"snapshot failed: {e}")
             result: dict[str, Any] = {
@@ -349,7 +362,11 @@ class VisionPlugin:
                     )
                     url = get_image_url(path)
                     result["image_url"] = url
-                    result["markdown"] = f"![Snapshot]({url})"
+                    # Markdown alt-text uses the user alias if set —
+                    # falls back to "Snapshot" otherwise.
+                    from ....lib.vision_utils import resolve_source_alias
+                    alias = resolve_source_alias(source_id, fallback="Snapshot")
+                    result["markdown"] = f"![{alias}]({url})"
                 except Exception as e:  # noqa: BLE001
                     logger.warning("snapshot save failed: %s", e)
             return _ok(**result)
@@ -394,11 +411,15 @@ class VisionPlugin:
                 return _err(f"unknown source: {source_id}")
             if not source.is_available():
                 return _err(f"source not available: {source_id}")
+            # Same per-camera resolution as vision_snapshot, set in the
+            # live-preview popup.
+            from ....lib.vision_utils import resolve_source_resolution
+            w, h = resolve_source_resolution(source_id)
             try:
                 n = max(1, min(int(n_frames), 10))
                 frames = []
                 for _ in range(n):
-                    frames.append(await source.snapshot())
+                    frames.append(await source.snapshot(width=w, height=h))
             except Exception as e:  # noqa: BLE001
                 return _err(f"capture failed: {e}")
 
@@ -443,11 +464,15 @@ class VisionPlugin:
                 "vlm_stats": stats,
             }
             # Persist the *last* frame to the session image dir so the
-            # chat bubble can show what the VLM actually saw. Without
-            # this the user gets a text-only "Beschreibung: …" with no
-            # way to verify what the model was looking at — and that
-            # makes it impossible to judge whether a wrong analysis
-            # came from a bad cam frame or a confused VLM.
+            # chat bubble can show what the VLM actually saw. The URL
+            # is returned as a stable "image_url" key — llm_pipeline.py
+            # picks it up and injects the markdown image into the
+            # response BEFORE the LLM gets to format anything. We
+            # deliberately do NOT include a "markdown" shortcut here
+            # anymore: a smaller chat-LLM (e.g. the speed-variant) sees
+            # it as a hint, ignores it, and the image gets lost in
+            # translation. Better to pin the image deterministically
+            # via the pipeline.
             if ctx.session_id and frames:
                 last = frames[-1]
                 try:
@@ -459,7 +484,6 @@ class VisionPlugin:
                     )
                     url = get_image_url(path)
                     payload["image_url"] = url
-                    payload["markdown"] = f"![Analyzed]({url})"
                 except Exception as e:  # noqa: BLE001
                     logger.warning("analyze save-frame failed: %s", e)
             # Persist event for query_events

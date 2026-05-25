@@ -647,6 +647,49 @@ DEBUG_LOG_RAW_MESSAGES = False
 DEBUG_LOG_VLM_RAW = False
 
 # ============================================================
+# VLM Ollama hosts (orchestrated by AIfred per call)
+# ============================================================
+# We run two Ollama daemons:
+#  * default  :11434 — visible to all GPUs, used when chat backend = ollama
+#                       (so a large chat model isn't restricted to the V100)
+#  * vlm-pin  :11436 — pinned to the V100 via CUDA_VISIBLE_DEVICES in its
+#                       systemd unit, used when chat backend != ollama
+#                       (keeps the VLM out of the llama-swap GPU pool)
+#
+# resolve_vlm_host() picks the right endpoint based on the live
+# backend_type. If the pinned daemon isn't installed yet, callers
+# fall back to the default — degrades gracefully.
+VISION_VLM_HOST_DEFAULT = "http://localhost:11434"
+VISION_VLM_HOST_PINNED = "http://localhost:11436"
+
+
+def resolve_vlm_host(chat_backend_type: str | None = None) -> str:
+    """Pick the Ollama host for VLM calls based on the active chat backend.
+
+    * ``chat_backend_type == "ollama"`` → default daemon on :11434 (the
+      chat model already lives here, no point spinning up a second one).
+    * Anything else (``llamacpp``, ``vllm``, ``tabbyapi``, ``cloud_api``,
+      or ``None``) → pinned daemon on :11436, which is restricted to
+      the V100 by its systemd unit.
+
+    If ``chat_backend_type`` is None we read it from the persisted user
+    settings — useful for boot-time callers (prewarm) that don't have
+    a state reference handy.
+    """
+    if chat_backend_type is None:
+        try:
+            from .settings import load_settings
+            s = load_settings() or {}
+            chat_backend_type = str(s.get("backend_type", "ollama"))
+        except Exception:  # noqa: BLE001
+            chat_backend_type = "ollama"
+    return (
+        VISION_VLM_HOST_DEFAULT
+        if chat_backend_type == "ollama"
+        else VISION_VLM_HOST_PINNED
+    )
+
+# ============================================================
 # LOUDNESS NORMALIZATION (Music-Wiedergabe via FreeEcho.2)
 # ============================================================
 # Pro File einmal gemessen + in data/loudness.sqlite gecacht. Bei

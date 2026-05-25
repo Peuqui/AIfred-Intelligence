@@ -27,6 +27,72 @@ logger = logging.getLogger(__name__)
 _SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
 
+# ============================================================
+# Per-source vision configuration helpers
+# ============================================================
+# Single point of truth for "what does this camera want?". Reads from
+# vision_store.sources.settings_json, so the Live-Preview popup (UI-side)
+# and the vision_snapshot / vision_analyze tools (LLM-side) share one
+# persistent per-camera configuration — change it in the popup, the
+# tools pick it up immediately.
+
+
+def resolve_source_resolution(
+    source_id: str, width: int = 0, height: int = 0
+) -> tuple[int, int]:
+    """Effective ``(width, height)`` for a frame capture from this source.
+
+    Priority:
+    1. Explicit ``width AND height`` arguments — caller forced a value.
+    2. Persisted per-source resolution from vision_store.sources
+       (``settings_json.resolution`` as ``"WIDTHxHEIGHT"`` string).
+    3. ``(0, 0)`` → let cv2 / V4L2 pick its driver default.
+
+    Single-source-of-truth for both the HTTP endpoints in api.py and
+    the plugin tools in plugins/tools/vision/.
+    """
+    if width > 0 and height > 0:
+        return width, height
+    try:
+        from .vision_store import VisionStore
+        store = VisionStore()
+        info = store.get_source(source_id)
+    except Exception:  # noqa: BLE001
+        return 0, 0
+    if not info:
+        return 0, 0
+    res = (info.get("settings") or {}).get("resolution")
+    if not isinstance(res, str) or "x" not in res:
+        return 0, 0
+    try:
+        w_str, h_str = res.lower().split("x", 1)
+        return int(w_str), int(h_str)
+    except (ValueError, TypeError):
+        return 0, 0
+
+
+def resolve_source_alias(source_id: str, fallback: str = "") -> str:
+    """User-chosen display name for a camera, or ``fallback`` if none set.
+
+    The fallback is typically the FrameSource's ``display_name`` (which
+    is the hardware/driver string like "OmniVision Technologies, Inc.
+    USB Camera"). The user can override that in the live-preview popup
+    with something meaningful like "Haustür" or "Garten Süd".
+    """
+    try:
+        from .vision_store import VisionStore
+        store = VisionStore()
+        info = store.get_source(source_id)
+    except Exception:  # noqa: BLE001
+        return fallback
+    if not info:
+        return fallback
+    alias = (info.get("settings") or {}).get("alias")
+    if isinstance(alias, str) and alias.strip():
+        return alias.strip()
+    return fallback
+
+
 def _safe_session_images_dir(session_id: str) -> Optional[Path]:
     """Return the per-session images dir if session_id is well-formed and
     the resolved path stays under IMAGES_BASE_DIR, else None."""

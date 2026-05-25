@@ -117,7 +117,15 @@ async def analyze_sequence(
 
     images_b64 = [_to_b64(f.image_bytes) for f in frames]
 
-    client = AsyncClient(host=host or DEFAULT_HOST)
+    # Resolve the Ollama endpoint dynamically: pinned VLM daemon if chat
+    # uses a non-ollama backend (port 11436, V100), default daemon
+    # otherwise. Explicit ``host=`` parameter always wins.
+    if host:
+        effective_host = host
+    else:
+        from .config import resolve_vlm_host
+        effective_host = resolve_vlm_host()
+    client = AsyncClient(host=effective_host)
 
     started = time.perf_counter()
     try:

@@ -1645,36 +1645,12 @@ async def audio_position(req: AudioPositionRequest):
 # Vision: live JPEG snapshot + MJPEG stream endpoints
 # ============================================================
 
-def _resolve_resolution(source_id: str, width: int, height: int) -> tuple[int, int]:
-    """Resolve effective width/height for a vision snapshot/stream.
-
-    Priority:
-    1. Explicit query-string override (caller passed width AND height)
-    2. Persisted per-source default in vision_store.sources.settings_json
-       (set via the live-preview popup dropdown)
-    3. ``(0, 0)`` — let cv2 / the V4L2 driver pick its own default
-       (typically 640×480 for USB webcams)
-
-    Returns ``(w, h)`` — caller hands these to ``snapshot(width=, height=)``.
-    """
-    if width > 0 and height > 0:
-        return width, height
-    try:
-        from .vision_store import VisionStore
-        store = VisionStore()
-        info = store.get_source(source_id)
-    except Exception:  # noqa: BLE001
-        return 0, 0
-    if not info:
-        return 0, 0
-    res = (info.get("settings") or {}).get("resolution")
-    if not isinstance(res, str) or "x" not in res:
-        return 0, 0
-    try:
-        w_str, h_str = res.lower().split("x", 1)
-        return int(w_str), int(h_str)
-    except (ValueError, TypeError):
-        return 0, 0
+# resolve_source_resolution lives in vision_utils.py — shared with the
+# plugin tools so popup-UI resolution and tool-call resolution match.
+# (Import here, mid-module, is intentional: api.py orders imports by
+# feature section and ruff has E402 silenced via per-line noqa where
+# this pattern recurs.)
+from .vision_utils import resolve_source_resolution as _resolve_resolution  # noqa: E402
 
 
 @api_app.get("/vision/snapshot/{source_id:path}", tags=["Vision"])
