@@ -25,14 +25,7 @@ def _source_switcher() -> rx.Component:
             rx.select.content(
                 rx.foreach(
                     AIState.vision_preview_sources,
-                    lambda s: rx.select.item(
-                        rx.cond(
-                            s["available"],
-                            s["label"],
-                            s["label"] + "  ✗",
-                        ),
-                        value=s["id"],
-                    ),
+                    lambda s: rx.select.item(s["label"], value=s["id"]),
                 ),
             ),
             value=AIState.vision_preview_source,
