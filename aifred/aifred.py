@@ -1078,7 +1078,10 @@ console.log('✂️ Crop handler loaded');
     title="Agent Editor — AIfred",
 )
 def agent_editor_route() -> rx.Component:
-    return agent_editor_page()
+    # vision_settings_modal hier mit-mounten, weil das Plugin-Tab im
+    # Agent-Editor steht und das Modal sonst nicht im DOM ist, wenn
+    # der User auf das Bild-&-Video-Zahnrad klickt.
+    return rx.fragment(agent_editor_page(), vision_settings_modal())
 
 
 @rx.page(
