@@ -58,6 +58,22 @@ def _header_row() -> rx.Component:
             title=t("vision_preview_rescan_tooltip"),
         ),
         rx.spacer(),
+        # VLM-Modell-Dropdown — SSOT mit dem Plugin-Settings-Modal.
+        # Schreibt direkt in plugins/tools/vision/settings.json,
+        # damit das gewählte Modell überall gilt (Chat-Bild-Upload,
+        # Tool-Snapshots, Watch-Mode), nicht nur im Live-Preview.
+        rx.text(t("vision_preview_vlm_model_label"), size="2", color="gray"),
+        rx.select.root(
+            rx.select.trigger(),
+            rx.select.content(
+                rx.foreach(
+                    AIState.vision_available_models,
+                    lambda m: rx.select.item(m, value=m),
+                ),
+            ),
+            value=AIState.vision_model_value,
+            on_change=AIState.set_vision_model_value,
+        ),
         # VLM analysis cooldown
         rx.text(t("vision_preview_cooldown_label"), size="2", color="gray"),
         rx.select.root(
@@ -228,11 +244,12 @@ def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
             class_name="vlm-event-target vlm-event-overlay",
             custom_attrs={"data-vlm-source": entry["id"]},
             style={
-                "color": "rgba(255,255,255,0.85)",
+                "color": "rgba(255, 255, 255, 0.88)",
                 "font_style": "italic",
                 "font_size": "0.85em",
                 "white_space": "pre-wrap",
-                "max_height": "8em",
+                # Fix statt max — Container soll nicht wachsen.
+                "height": "15em",
                 "overflow_y": "auto",
                 "padding": "0.4em 0.6em",
                 "background_color": "rgba(0, 0, 0, 0.55)",
@@ -267,15 +284,18 @@ def _teleprompter_below(entry: rx.Var) -> rx.Component:
             class_name="vlm-event-target vlm-event-below",
             custom_attrs={"data-vlm-source": entry["id"]},
             style={
-                "min_height": "80px",
-                "max_height": "150px",
+                # Fixe Höhe statt min/max — sonst dehnt sich der
+                # Container, sobald die Antworten reinkommen, und
+                # drückt das Bild zusammen. ~10 Zeilen bei 0.85em
+                # font-size und line-height 1.4 ≈ 200 px + Padding.
+                "height": "220px",
                 "overflow_y": "auto",
                 "padding": "0.5em",
                 "background_color": "rgba(0, 0, 0, 0.3)",
                 "border_radius": "6px",
                 "border": "1px solid var(--gray-6)",
                 "font_size": "0.85em",
-                "color": "gray",
+                "color": "rgba(255, 255, 255, 0.88)",
                 "font_style": "italic",
                 "white_space": "pre-wrap",
             },
@@ -307,11 +327,13 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     alt=entry["label"],
                     border_radius="8px",
                     background_color="#111",
+                    # Immer auf Container-Größe skalieren — sowohl 320×240
+                    # als auch 4K bekommen die volle verfügbare Fläche.
+                    # ``object_fit: contain`` erhält das Seitenverhältnis,
+                    # damit nichts verzerrt wird.
                     style={
-                        "max_width": "100%",
-                        "max_height": "100%",
-                        "width": "auto",
-                        "height": "auto",
+                        "width": "100%",
+                        "height": "100%",
                         "object_fit": "contain",
                     },
                 ),

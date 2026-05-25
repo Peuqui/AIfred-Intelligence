@@ -57,10 +57,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
     vision_model_value: str = "qwen3-vl:4b-instruct-q8_0"
     vision_available_models: list[str] = []
 
-    @rx.event
-    def open_vision_settings(self) -> None:
-        """Open the modal (called from the Plugin-Tab gear icon)."""
-        # Populate from disk + run Ollama discovery before showing
+    def _refresh_vision_settings(self) -> None:
+        """Lade Plugin-Settings + Ollama-Modellliste in den State.
+        Wird sowohl vom Settings-Modal als auch vom Live-Preview-Popup
+        gerufen, damit das Modell-Dropdown im Popup-Header auch ohne
+        vorheriges Öffnen des Settings-Modals befüllt ist."""
         settings = _load_settings()
         self.vision_mode_value = str(settings.get("vision_mode", "on-demand"))
         vlm = settings.get("vlm", {})
@@ -76,6 +77,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
             self.vision_available_models = (
                 [self.vision_model_value] if self.vision_model_value else []
             )
+
+    @rx.event
+    def open_vision_settings(self) -> None:
+        """Open the modal (called from the Plugin-Tab gear icon)."""
+        self._refresh_vision_settings()
         self.vision_settings_open = True
 
     @rx.event

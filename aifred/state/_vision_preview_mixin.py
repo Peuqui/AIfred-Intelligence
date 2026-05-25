@@ -205,6 +205,11 @@ class VisionPreviewMixin(rx.State, mixin=True):
     # sane value (the VLM itself answers in ~0.4s for short prompts).
     vision_preview_vlm_cooldown_sec: float = 5.0
 
+    # NB: ein eigenes ``vision_preview_vlm_model`` gibt es nicht mehr.
+    # Das Modell-Dropdown im Popup-Header bindet direkt an
+    # ``vision_model_value`` aus _vision_settings_mixin (SSOT in
+    # plugins/tools/vision/settings.json). Ein Wert, zwei UIs.
+
     vision_preview_cooldown_options: list[dict[str, str]] = [
         {"value": "1", "label": "1 s"},
         {"value": "2", "label": "2 s"},
@@ -340,6 +345,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
         from ..lib.logging_utils import log_message
         log_message("🎬 on_load_vision_preview firing")
         self._load_preview_fps()
+        # Plugin-Settings (Modell + verfügbare Modelle) auch im Popup-
+        # Kontext laden — sonst ist das Header-Dropdown leer, wenn das
+        # Settings-Modal noch nie geöffnet wurde.
+        self._refresh_vision_settings()
         self._refresh_sources()
         self.vision_preview_cache_buster += 1
         briefings_map = {
@@ -540,6 +549,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
         self.vision_preview_vlm_cooldown_sec = cd
         self._persist_preview_setting("vlm_cooldown_sec", cd)
 
+    # set_vision_preview_vlm_model entfernt — das Popup-Header-Dropdown
+    # ruft direkt set_vision_model_value aus _vision_settings_mixin
+    # (SSOT, schreibt in plugins/tools/vision/settings.json).
+
     @rx.event
     def set_vision_preview_teleprompter_mode(self, value: str) -> None:
         """Toggle between overlay (subtitle on image) and below (full-
@@ -719,10 +732,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
         try:
             import json
             path = self._preview_settings_path()
-            if not path.exists():
-                return
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
+            data: dict[str, Any] = {}
+            if path.exists():
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f) or {}
             fps = data.get("fps")
             if isinstance(fps, (int, float)) and 0 <= fps <= 30:
                 self.vision_preview_fps = float(fps)

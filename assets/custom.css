@@ -853,3 +853,19 @@ tr:hover {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }
+
+/* ============================================================
+   VLM Live-Analyse Teleprompter
+   Eine dünne Separator-Linie zwischen jeder Inferenz-Zeile, OHNE
+   zusätzliche Zeilenhöhe (border-bottom auf das Block-Element).
+   ============================================================ */
+.vlm-event-target .vlm-line {
+    /* AIfred-Orange (theme.py: primary = #e67700), halbtransparent
+       für dezente aber sichtbare Trenner. */
+    border-bottom: 1px solid rgba(230, 119, 0, 0.55);
+    padding: 0;
+    line-height: 1.4;
+}
+.vlm-event-target .vlm-line:last-child {
+    border-bottom: none;
+}
