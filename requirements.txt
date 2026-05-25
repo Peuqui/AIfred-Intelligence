@@ -20,8 +20,14 @@ pymupdf>=1.26.0         # PDF text extraction (AWMF guidelines, PubMed PDFs)
 
 # Vector Database & Semantic Search
 chromadb>=0.4.24        # Vector database for semantic caching
-ollama>=0.4.0           # Ollama Python client for embeddings
-numpy>=1.24.0           # Required by chromadb embeddings
+ollama>=0.4.0           # Ollama Python client for embeddings + Vision-Side-Channel
+numpy>=1.24.0           # Required by chromadb embeddings + face embeddings
+
+# Vision Pipeline (frame_sources, face recognition, motion detection)
+opencv-python-headless>=4.10  # V4L2 capture, JPEG encode, motion-detect
+                              # (headless: no GUI libs — server-friendly)
+insightface>=0.7        # Face detection (RetinaFace) + embedding (ArcFace)
+onnxruntime-gpu>=1.20   # InsightFace inference backend on CUDA GPU
 
 # Backend Calibration & OAuth (direct imports — pin even if transitively present)
 PyYAML>=6.0             # llama-swap config read/write (aifred/lib/calibration/llamaswap_io.py)
@@ -35,7 +41,8 @@ fdb>=2.0                # EPIM Firebird DB plugin (plugins/tools/epim/) — requ
                         # and EPIM_DB_PATH configured in plugin settings (UI)
 
 # Audio Processing (TTS only — STT runs in Docker container: docker/whisper/)
-edge-tts==7.2.1         # Text-to-Speech (7.2.3 has NoAudioReceived bug)
+edge-tts>=7.2.1         # Text-to-Speech (7.2.3 had NoAudioReceived bug — fixed
+                        # in later versions, pin loosened to >= 2026-05-25)
 dashscope>=1.24.6       # DashScope Qwen3-TTS Cloud API
 # Whisper STT: NOT needed here — runs as Docker service (docker/whisper/)
 # Build: cd docker/whisper && docker compose build && docker compose up -d
@@ -44,8 +51,8 @@ dashscope>=1.24.6       # DashScope Qwen3-TTS Cloud API
 python-dotenv>=1.0.0    # .env file support
 
 # Model Management
-huggingface_hub>=1.4.1          # HuggingFace model downloads (hf CLI + GGUF discovery)
-hf>=1.4.1                       # HuggingFace CLI tool (hf download, hf upload, etc.)
+huggingface_hub>=1.4.1          # HuggingFace model downloads + `hf` CLI binary
+                                # (provides `hf download`, `hf upload`, etc.)
 gguf>=0.10.0                    # GGUF metadata reading (native context detection)
 
 # Document Processing

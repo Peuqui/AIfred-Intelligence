@@ -7,7 +7,7 @@ Runs user-provided Python code in an isolated subprocess with:
 - HTML output detection (for interactive visualizations)
 
 Output files are stored in data/sandbox_output/{session_id}/ for
-session-scoped cleanup (like images in data/images/{session_id}/).
+session-scoped cleanup (like images in data/vision/snapshots/{session_id}/).
 """
 
 import asyncio
