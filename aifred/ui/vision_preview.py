@@ -235,8 +235,12 @@ def _face_recognition_button(sid: rx.Var) -> rx.Component:
 def _source_row(source: rx.Var) -> rx.Component:
     """One row in the source list — the per-cam manager.
 
-    Layout: visibility-switch + alias-input + watch-button +
-    resolution-dropdown (rechtsbündig).
+    Pure Live-Steuerung: Sichtbarkeit, Alias, Watch/Face-Buttons
+    (Sofort-Aktionen für „jetzt ansehen"), Resolution.
+
+    Hintergrund-Toggle und Min-Bewegungsfläche leben jetzt im
+    Vigilantia-Settings-Modal (Quellen-Sektion) — dort sind die
+    Daueraufgaben besser aufgehoben.
     """
     sid = source["id"]
     return rx.hstack(
@@ -255,7 +259,6 @@ def _source_row(source: rx.Var) -> rx.Component:
         ),
         _watch_button(sid),
         _face_recognition_button(sid),
-        # Spacer schiebt die Auflösung nach rechts ans Zeilenende.
         rx.spacer(),
         rx.select.root(
             rx.select.trigger(),

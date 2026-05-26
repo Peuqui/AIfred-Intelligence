@@ -523,6 +523,187 @@ class VisionStore:
             for r in rows
         ]
 
+    def list_events_with_summary(
+        self,
+        *,
+        source_id: str | None = None,
+        event_types: list[str] | None = None,
+        face_id: int | None = None,
+        unknown_only: bool = False,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Listet Events für die Casus-Ereignisverwaltung. Pro Event ein
+        Dict mit den UI-relevanten Feldern (Zeit, Quelle, Typ, Confidence,
+        Crop-URL aus classification, Face-Name per JOIN, Confidence-Band).
+
+        ``unknown_only=True`` filtert auf ``face_id IS NULL`` — nützlich
+        für den "nachtaggen"-Workflow im Casus-Modal.
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+        if source_id:
+            clauses.append("e.source_id = ?")
+            params.append(source_id)
+        if event_types:
+            placeholders = ",".join("?" for _ in event_types)
+            clauses.append(f"e.event_type IN ({placeholders})")
+            params.extend(event_types)
+        if face_id is not None:
+            clauses.append("e.face_id = ?")
+            params.append(face_id)
+        if unknown_only:
+            clauses.append("e.face_id IS NULL")
+        if since is not None:
+            clauses.append("e.timestamp >= ?")
+            params.append(since.isoformat(timespec="microseconds"))
+        if until is not None:
+            clauses.append("e.timestamp <= ?")
+            params.append(until.isoformat(timespec="microseconds"))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        query = (
+            "SELECT e.id, e.source_id, e.event_type, e.timestamp, e.confidence, "
+            "e.classification, e.frame_path, e.face_id, f.name AS face_name "
+            "FROM events e "
+            "LEFT JOIN faces f ON f.id = e.face_id"
+            f"{where} "
+            "ORDER BY e.timestamp DESC LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
+        with self._conn() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            try:
+                cls = json.loads(r["classification"] or "{}")
+            except Exception:  # noqa: BLE001
+                cls = {}
+            result.append({
+                "id": int(r["id"]),
+                "source_id": str(r["source_id"]),
+                "event_type": str(r["event_type"]),
+                "timestamp": str(r["timestamp"]),
+                "confidence": float(r["confidence"] or 0.0),
+                "crop_url": str(cls.get("crop_url") or ""),
+                "confidence_band": str(cls.get("confidence_band") or ""),
+                "matched_name": str(cls.get("matched_name") or ""),
+                "frame_path": str(r["frame_path"] or ""),
+                "face_id": int(r["face_id"]) if r["face_id"] is not None else None,
+                "face_name": str(r["face_name"]) if r["face_name"] else "",
+                "area_ratio": float(cls.get("area_ratio") or 0.0),
+                "description": str(cls.get("description") or ""),
+            })
+        return result
+
+    def count_events(
+        self,
+        *,
+        source_id: str | None = None,
+        event_types: list[str] | None = None,
+        face_id: int | None = None,
+        unknown_only: bool = False,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """Wie ``list_events_with_summary``, gibt aber nur Anzahl zurück —
+        für Paginierung im Casus-Modal."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if source_id:
+            clauses.append("source_id = ?")
+            params.append(source_id)
+        if event_types:
+            placeholders = ",".join("?" for _ in event_types)
+            clauses.append(f"event_type IN ({placeholders})")
+            params.extend(event_types)
+        if face_id is not None:
+            clauses.append("face_id = ?")
+            params.append(face_id)
+        if unknown_only:
+            clauses.append("face_id IS NULL")
+        if since is not None:
+            clauses.append("timestamp >= ?")
+            params.append(since.isoformat(timespec="microseconds"))
+        if until is not None:
+            clauses.append("timestamp <= ?")
+            params.append(until.isoformat(timespec="microseconds"))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._conn() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) AS n FROM events{where}", tuple(params)
+            ).fetchone()
+        return int(row["n"]) if row else 0
+
+    def list_event_source_ids(self) -> list[str]:
+        """Distinct ``source_id`` aller je gespeicherten Events. Für
+        das Casus-Filter-Dropdown — zeigt nur Quellen, von denen
+        überhaupt Events vorliegen."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT source_id FROM events ORDER BY source_id"
+            ).fetchall()
+        return [str(r["source_id"]) for r in rows]
+
+    def delete_events_filtered(
+        self,
+        *,
+        source_id: str | None = None,
+        event_types: list[str] | None = None,
+        face_id: int | None = None,
+        unknown_only: bool = False,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
+        """Bulk-Delete mit denselben Filter-Parametern wie
+        ``list_events_with_summary`` / ``count_events``. Returnt die
+        Anzahl gelöschter Zeilen."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if source_id:
+            clauses.append("source_id = ?")
+            params.append(source_id)
+        if event_types:
+            placeholders = ",".join("?" for _ in event_types)
+            clauses.append(f"event_type IN ({placeholders})")
+            params.extend(event_types)
+        if face_id is not None:
+            clauses.append("face_id = ?")
+            params.append(face_id)
+        if unknown_only:
+            clauses.append("face_id IS NULL")
+        if since is not None:
+            clauses.append("timestamp >= ?")
+            params.append(since.isoformat(timespec="microseconds"))
+        if until is not None:
+            clauses.append("timestamp <= ?")
+            params.append(until.isoformat(timespec="microseconds"))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._conn() as conn:
+            cur = conn.execute(f"DELETE FROM events{where}", tuple(params))
+            return int(cur.rowcount)
+
+    def delete_event(self, event_id: int) -> bool:
+        """Einzelnes Event löschen. Embeddings, die dieses Event als
+        ``source_event_id`` referenzieren, bekommen NULL (ON DELETE SET
+        NULL aus dem Schema)."""
+        with self._conn() as conn:
+            cur = conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+            return cur.rowcount > 0
+
+    def set_event_face_id(self, event_id: int, face_id: int | None) -> bool:
+        """Tagging-Workflow: ein unknown-/unsure-Event nachträglich einer
+        Identity zuordnen (oder die Zuordnung lösen). Embedding wird
+        nicht automatisch erstellt — das macht das Personarium beim
+        Multi-Pose-Lernen über die Embedding-Pipeline."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE events SET face_id = ? WHERE id = ?",
+                (face_id, event_id),
+            )
+            return cur.rowcount > 0
+
     def prune_events(self, older_than: datetime) -> int:
         """Lösche Events älter als ``older_than``. Gibt Anzahl gelöschter
         Zeilen zurück. Für Retention-Cronjob (Schicht 6) gedacht."""

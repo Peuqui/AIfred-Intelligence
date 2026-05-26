@@ -60,9 +60,25 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # ``plugins/tools/vision/settings.json`` ``face_recognition.enabled``.
     # Wirkt auf den Watcher (run_face_detect_on_motion).
     face_recognition_enabled: bool = True
+    # Kontinuierliche (motion-unabhängige) Gesichtserkennung. Default
+    # OFF — die Detection läuft dann nur, wenn der Motion-Detector
+    # anschlägt (GPU-schonend, für Türsteher-Cam). User schaltet ihn
+    # ein, wenn die Cam einen ruhigen Schreibtisch zeigt und Motion
+    # nicht zuverlässig triggert.
+    face_recognition_continuous: bool = False
     # Aufbewahrungsdauer der Face-Crops + Motion-Frames + Vision-DB-
     # Events in Tagen. Cleanup-Task läuft täglich um 03:00 lokal.
     face_retention_days: int = 14
+    # Master-Schalter — wie scharf/unscharf an einer Alarmanlage.
+    # Erst wenn ``vigilantia_armed=True`` UND eine Source
+    # ``auto_start=True`` hat, läuft beim Boot ein Hintergrund-Watcher.
+    # Default OFF — der User schaltet bewusst scharf.
+    vigilantia_armed: bool = False
+    # Liste der Cams für die „Quellen"-Sektion im Settings-Modal —
+    # ein Dict pro Source mit ``id``, ``label``, ``auto_start``,
+    # ``motion_min_area_ratio``. Wird beim Modal-Open befüllt aus
+    # vision_store + frame_sources.
+    vigilantia_sources: list[dict[str, Any]] = []
 
     def _refresh_vision_settings(self) -> None:
         """Lade Plugin-Settings + Ollama-Modellliste in den State.
@@ -75,9 +91,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.vision_model_value = str(vlm.get("model", "qwen3-vl:4b-instruct-q8_0"))
         fr = settings.get("face_recognition", {}) or {}
         self.face_recognition_enabled = bool(fr.get("enabled", True))
+        self.face_recognition_continuous = bool(fr.get("continuous", False))
         rd = fr.get("retention_days")
         if isinstance(rd, (int, float)) and 1 <= rd <= 3650:
             self.face_retention_days = int(rd)
+        self.vigilantia_armed = bool(settings.get("vigilantia_armed", False))
+        self._reload_vigilantia_sources()
         try:
             from ..lib.ollama_models import list_ollama_vlm_models
             models = [m.name for m in list_ollama_vlm_models()]
@@ -151,6 +170,18 @@ class VisionSettingsMixin(rx.State, mixin=True):
         _save_settings(settings)
 
     @rx.event
+    def set_face_recognition_continuous(self, value: bool) -> None:
+        """Toggle: Gesichtserkennung kontinuierlich (motion-unabhängig)
+        oder nur bei Bewegung. Schreibt in
+        ``plugins/tools/vision/settings.json`` unter
+        ``face_recognition.continuous``. Wirkt beim nächsten Watcher-
+        Start (config.face_recognition_continuous)."""
+        self.face_recognition_continuous = bool(value)
+        settings = _load_settings()
+        settings.setdefault("face_recognition", {})["continuous"] = bool(value)
+        _save_settings(settings)
+
+    @rx.event
     def set_face_retention_days(self, value: str) -> None:
         """Tage, die Face-Crops + Motion-Frames + Vision-DB-Events
         aufbewahrt werden. Wirkt beim nächsten Cleanup-Lauf
@@ -165,6 +196,175 @@ class VisionSettingsMixin(rx.State, mixin=True):
         settings = _load_settings()
         settings.setdefault("face_recognition", {})["retention_days"] = days
         _save_settings(settings)
+
+    @rx.var
+    def vigilantia_has_armed_source(self) -> bool:
+        """True wenn mindestens eine Source ``auto_start=True`` hat —
+        die Live-Card zeigt sonst „Keine Cams scharfgeschaltet" statt
+        „Ruhig", damit der User nicht denkt, alles laufe schon."""
+        for c in self.vigilantia_sources:
+            if c.get("auto_start"):
+                return True
+        return False
+
+    def _reload_vigilantia_sources(self) -> None:
+        """Aktuelle Cam-Liste mit auto_start/min_area_ratio aus dem
+        Store laden — Quelle für die „Quellen"-Sektion im Settings-
+        Modal."""
+        try:
+            from ..lib.frame_sources import list_all
+            from ..lib.vision_store import VisionStore
+            store = VisionStore()
+            cams: list[dict[str, Any]] = []
+            for src in list_all():
+                try:
+                    info = src.info()
+                except Exception:  # noqa: BLE001
+                    continue
+                stored = store.get_source(info.source_id) or {}
+                s = stored.get("settings") or {}
+                alias = str(s.get("alias") or "").strip()
+                label = alias or info.display_name or info.source_id
+                mma = s.get("motion_min_area_ratio")
+                mma_val = (
+                    float(mma)
+                    if isinstance(mma, (int, float)) and 0.001 <= mma <= 0.5
+                    else 0.02
+                )
+                cams.append({
+                    "id": info.source_id,
+                    "label": label,
+                    "available": bool(info.available),
+                    "auto_start": bool(stored.get("auto_start", False)),
+                    "motion_min_area_ratio": mma_val,
+                    "resolution": str(s.get("resolution") or "default"),
+                })
+            self.vigilantia_sources = cams
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vigilantia sources load failed: %s", e)
+            self.vigilantia_sources = []
+
+    def _upsert_source_with(
+        self, source_id: str,
+        *, auto_start: bool | None = None,
+        settings_patch: dict[str, Any] | None = None,
+    ) -> None:
+        """Generischer Source-Patch: erhält bestehende Felder, ändert
+        nur das was übergeben wurde. Wird vom auto_start- und
+        motion_min-Setter genutzt."""
+        from ..lib.frame_sources import get as get_source
+        from ..lib.vision_store import VisionStore
+        store = VisionStore()
+        src = get_source(source_id)
+        existing = store.get_source(source_id)
+        display_name = existing.get("display_name") if existing else (
+            src.display_name if src else source_id
+        )
+        kind = existing.get("kind") if existing else (
+            src.kind if src else "webcam"
+        )
+        new_settings = dict(existing.get("settings", {})) if existing else {}
+        if settings_patch:
+            new_settings.update(settings_patch)
+        store.upsert_source(
+            source_id=source_id,
+            display_name=str(display_name or source_id),
+            kind=str(kind or "webcam"),
+            prompt_context=str(existing.get("prompt_context", "")) if existing else "",
+            position=str(existing.get("position", "")) if existing else "",
+            auto_start=bool(
+                auto_start if auto_start is not None
+                else (existing.get("auto_start", False) if existing else False)
+            ),
+            sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
+            settings=new_settings,
+        )
+
+    @rx.event
+    async def set_vigilantia_source_auto_start(
+        self, source_id: str, value: bool
+    ) -> None:
+        """Pro Cam Hintergrund-Toggle. Schreibt in DB + State,
+        startet/stoppt den Watcher live wenn ``armed=True``."""
+        if not source_id:
+            return
+        active = bool(value)
+        try:
+            self._upsert_source_with(source_id, auto_start=active)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("auto_start persist failed for %s: %s", source_id, e)
+            return
+        self.vigilantia_sources = [
+            {**c, "auto_start": active} if c["id"] == source_id else c
+            for c in self.vigilantia_sources
+        ]
+        # Live-Effekt nur wenn Master scharf ist.
+        if not self.vigilantia_armed:
+            return
+        try:
+            if active:
+                from ..lib.vision_autostart import start_background_watcher
+                await start_background_watcher(source_id)
+            else:
+                from ..lib.vision_watcher import get_default_watcher
+                await get_default_watcher().stop(source_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("watcher live-toggle failed for %s: %s", source_id, e)
+
+    @rx.event
+    def set_vigilantia_source_motion_min(
+        self, source_id: str, value: str
+    ) -> None:
+        """Pro Cam Min-Bewegung in Prozent (0,1–50). Greift beim
+        nächsten Watcher-Start."""
+        if not source_id:
+            return
+        try:
+            pct = float(str(value).replace(",", "."))
+        except (TypeError, ValueError):
+            return
+        if pct < 0.1:
+            pct = 0.1
+        if pct > 50:
+            pct = 50.0
+        mma = pct / 100.0
+        try:
+            self._upsert_source_with(
+                source_id, settings_patch={"motion_min_area_ratio": mma}
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("motion_min persist failed for %s: %s", source_id, e)
+            return
+        self.vigilantia_sources = [
+            {**c, "motion_min_area_ratio": mma} if c["id"] == source_id else c
+            for c in self.vigilantia_sources
+        ]
+
+    @rx.event
+    async def toggle_vigilantia_armed(self) -> None:
+        """Master-Schalter umlegen — wie scharf/unscharf an einer
+        Alarmanlage. Startet bzw. stoppt alle Hintergrund-Watcher der
+        Sources mit ``auto_start=True``.
+
+        Auf der gegenüberliegenden Flanke (User schaltet scharf): die
+        Watcher werden mit den aktuellen Plugin-Settings hochgezogen
+        (face_recognition.enabled / continuous). Beim Entschärfen wird
+        alles gestoppt — auch Watcher die durch UI-Toggles im Vorschau-
+        Popup laufen, weil ``armed`` als Master gilt."""
+        new_value = not self.vigilantia_armed
+        self.vigilantia_armed = new_value
+        settings = _load_settings()
+        settings["vigilantia_armed"] = new_value
+        _save_settings(settings)
+        try:
+            if new_value:
+                from ..lib.vision_autostart import start_all_background_watchers
+                await start_all_background_watchers()
+            else:
+                from ..lib.vision_autostart import stop_all_background_watchers
+                await stop_all_background_watchers()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vigilantia armed toggle side-effect failed: %s", e)
 
     @rx.event
     def rescan_vision_models(self) -> None:

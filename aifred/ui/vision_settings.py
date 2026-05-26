@@ -81,9 +81,161 @@ def _model_section() -> rx.Component:
     )
 
 
+def _source_card(cam: rx.Var) -> rx.Component:
+    """Eine Karte pro Cam in der Quellen-Sektion. Zeigt Name +
+    Hintergrund-Toggle + Min-Bewegungsfläche-Input.
+
+    Resolution + Alias bleiben im Vorschau-Popup — die ändert man
+    typischerweise beim Live-Bild („zu groß / falsch", direkt
+    sichtbar). Hier nur die Hintergrund-relevante Konfig.
+    """
+    sid = cam["id"]
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                rx.icon("camera", size=16, color="gray"),
+                rx.text(cam["label"], font_weight="bold", size="2"),
+                rx.cond(
+                    ~cam["available"].to(bool),
+                    rx.badge("✗", color_scheme="red", size="1"),
+                ),
+                rx.spacer(),
+                rx.switch(
+                    checked=cam["auto_start"].to(bool),
+                    on_change=lambda v: AIState.set_vigilantia_source_auto_start(sid, v),
+                    size="2",
+                    color_scheme="orange",
+                ),
+                align="center",
+                width="100%",
+            ),
+            rx.text(
+                t("vision_settings_source_background_help"),
+                color="gray", size="1",
+            ),
+            rx.hstack(
+                rx.text(
+                    t("vision_settings_source_motion_min_label"),
+                    size="2", color="gray",
+                ),
+                rx.input(
+                    type="number",
+                    default_value=(
+                        cam["motion_min_area_ratio"].to(float) * 100
+                    ).to(str),
+                    on_blur=lambda v: AIState.set_vigilantia_source_motion_min(sid, v),
+                    size="1",
+                    min=0.1,
+                    max=50,
+                    step=0.1,
+                    style={"width": "5em"},
+                ),
+                rx.text("%", size="1", color="gray"),
+                rx.spacer(),
+                rx.text(
+                    t("vision_settings_source_resolution_label"),
+                    size="2", color="gray",
+                ),
+                rx.text(cam["resolution"], size="1", color="gray"),
+                spacing="2",
+                align="center",
+                width="100%",
+                style={"margin_top": "0.3em"},
+            ),
+            spacing="1",
+            align="stretch",
+            width="100%",
+        ),
+        style={
+            "border": "1px solid var(--gray-6)",
+            "border_radius": "8px",
+            "padding": "0.7em",
+            "width": "100%",
+        },
+    )
+
+
+def _sources_section() -> rx.Component:
+    """Quellen-Liste — pro Cam eine Karte mit Hintergrund-Toggle +
+    Min-Bewegungsfläche. Ersetzt die zweite Zeile pro Source im
+    Vorschau-Popup; alles, was zur Hintergrund-Konfig gehört, jetzt
+    an einem Ort."""
+    return rx.vstack(
+        rx.hstack(
+            rx.text(
+                t("vision_settings_sources_label"),
+                font_weight="bold", size="3",
+            ),
+            rx.spacer(),
+            rx.icon_button(
+                rx.icon("refresh-cw", size=12),
+                on_click=AIState.open_vision_settings,
+                size="1",
+                variant="ghost",
+                color_scheme="gray",
+                title=t("vision_settings_sources_refresh"),
+            ),
+            align="center",
+            width="100%",
+        ),
+        rx.text(
+            t("vision_settings_sources_help"),
+            color="gray", size="1",
+        ),
+        rx.cond(
+            AIState.vigilantia_sources.length() > 0,
+            rx.vstack(
+                rx.foreach(AIState.vigilantia_sources, _source_card),
+                spacing="2",
+                align="stretch",
+                width="100%",
+            ),
+            rx.box(
+                rx.text(
+                    t("vision_settings_sources_empty"),
+                    color="gray", size="2", text_align="center",
+                ),
+                style={"padding": "1em"},
+            ),
+        ),
+        align="stretch",
+        spacing="1",
+        width="100%",
+    )
+
+
+def _feed_visibility_section() -> rx.Component:
+    """Toggle für den Vigilantia-Live-Feed im Haupttab. Default off —
+    User schaltet das ein, wenn er Hintergrund-Cams nutzt."""
+    return rx.vstack(
+        rx.hstack(
+            rx.text(
+                t("vision_settings_feed_visible_label"),
+                font_weight="bold", size="3",
+            ),
+            rx.spacer(),
+            rx.switch(
+                checked=AIState.vigilantia_feed_visible,
+                on_change=AIState.set_vigilantia_feed_visible,
+                size="2",
+                color_scheme="orange",
+            ),
+            align="center",
+            width="100%",
+        ),
+        rx.text(
+            t("vision_settings_feed_visible_help"),
+            color="gray", size="1",
+        ),
+        align="stretch",
+        spacing="1",
+        width="100%",
+    )
+
+
 def _face_recognition_section() -> rx.Component:
-    """Toggle für Face-Recognition + Retention-Input. Beide schreiben
-    in plugins/tools/vision/settings.json."""
+    """Toggle für Face-Recognition + Continuous-Modus + Retention-Input.
+    Alle schreiben in plugins/tools/vision/settings.json."""
     return rx.vstack(
         rx.hstack(
             rx.text(
@@ -102,6 +254,27 @@ def _face_recognition_section() -> rx.Component:
         ),
         rx.text(
             t("vision_settings_face_recognition_help"),
+            color="gray", size="1",
+        ),
+        # Continuous-Toggle: kontinuierliche Detection vs. nur-bei-Motion
+        rx.hstack(
+            rx.text(
+                t("vision_settings_face_continuous_label"),
+                size="2",
+            ),
+            rx.spacer(),
+            rx.switch(
+                checked=AIState.face_recognition_continuous,
+                on_change=AIState.set_face_recognition_continuous,
+                size="2",
+                color_scheme="orange",
+            ),
+            align="center",
+            width="100%",
+            style={"margin_top": "0.5em"},
+        ),
+        rx.text(
+            t("vision_settings_face_continuous_help"),
             color="gray", size="1",
         ),
         # Retention-Input
@@ -186,16 +359,37 @@ def vision_settings_modal() -> rx.Component:
                     rx.divider(),
                     _face_recognition_section(),
                     rx.divider(),
-                    # Button um das Personarium-Modal zu öffnen — die
-                    # Identitäten-Verwaltung lebt in einem eigenen
-                    # Modal, weil die Tabelle eigenes Layout braucht.
+                    _sources_section(),
+                    rx.divider(),
+                    _feed_visibility_section(),
+                    rx.divider(),
+                    # Sub-Modals (Personarium / Casus / Multi-Pose) öffnen
+                    # OHNE das Vigilantia-Modal zu schließen — sie
+                    # stapeln sich darüber. Beim Schließen des
+                    # Sub-Modals ist Vigilantia wieder die Top-Layer,
+                    # der User kommt nicht zu weit zurück.
                     rx.button(
                         rx.icon("users", size=16),
                         rx.text(t("vision_settings_open_personarium")),
-                        on_click=[
-                            AIState.close_vision_settings,
-                            AIState.open_personarium,
-                        ],
+                        on_click=AIState.open_personarium,
+                        size="2",
+                        variant="soft",
+                        color_scheme="orange",
+                        width="100%",
+                    ),
+                    rx.button(
+                        rx.icon("scroll-text", size=16),
+                        rx.text(t("vision_settings_open_casus")),
+                        on_click=AIState.open_casus,
+                        size="2",
+                        variant="soft",
+                        color_scheme="orange",
+                        width="100%",
+                    ),
+                    rx.button(
+                        rx.icon("user-cog", size=16),
+                        rx.text(t("vision_settings_open_multipose")),
+                        on_click=AIState.open_multipose(0, ""),
                         size="2",
                         variant="soft",
                         color_scheme="orange",

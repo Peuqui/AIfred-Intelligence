@@ -35,6 +35,9 @@ from .ui.file_picker import file_picker_modal  # noqa: F401
 from .ui.audio_settings import audio_settings_page, audio_help_modal  # noqa: F401
 from .ui.vision_settings import vision_settings_modal  # noqa: F401
 from .ui.personarium import personarium_modal  # noqa: F401
+from .ui.casus import casus_modal  # noqa: F401
+from .ui.multipose import multipose_modal  # noqa: F401
+from .ui.vigilantia_feed import vigilantia_feed_popover, vigilantia_help_modal  # noqa: F401
 from .ui.vision_preview import vision_preview_page  # noqa: F401
 
 
@@ -759,12 +762,25 @@ console.log('✂️ Crop handler loaded');
         # Image Lightbox Modal (for viewing history images full-size)
         image_lightbox_modal(),
 
-        # Vision-Plugin Settings Modal (gear icon next to "Bild & Video")
+        # Vigilantia-Plugin Settings Modal (gear icon next to "Vigilantia")
         vision_settings_modal(),
 
-        # Personarium — Identitäten-Verwaltung (vom Vision-Settings-
+        # Personarium — Identitäten-Verwaltung (vom Vigilantia-Settings-
         # Modal aus aufgerufen)
         personarium_modal(),
+
+        # Casus — Ereignis-Verwaltung (vom Vigilantia-Settings-Modal aus
+        # aufgerufen, chronologische Filter-/Tag-Tabelle)
+        casus_modal(),
+
+        # Multi-Pose-Lern-Modal — geführte Enrollment-Aufnahme mit
+        # mehreren Kopf-Posen für robustere Face-Recognition.
+        multipose_modal(),
+
+        # Vigilantia-Hilfe-Modal — Übersicht „was bedeutet was".
+        # Geöffnet über die Glühbirne neben dem Auge in der Modus-
+        # Zeile.
+        vigilantia_help_modal(),
 
         # Multi-Agent Help Modal (Diskussionsmodi-Übersicht)
         multi_agent_help_modal(),
@@ -1090,11 +1106,14 @@ console.log('✂️ Crop handler loaded');
 def agent_editor_route() -> rx.Component:
     # vision_settings_modal hier mit-mounten, weil das Plugin-Tab im
     # Agent-Editor steht und das Modal sonst nicht im DOM ist, wenn
-    # der User auf das Bild-&-Video-Zahnrad klickt.
+    # der User auf das Vigilantia-Zahnrad klickt.
     return rx.fragment(
         agent_editor_page(),
         vision_settings_modal(),
         personarium_modal(),
+        casus_modal(),
+        multipose_modal(),
+        vigilantia_help_modal(),
     )
 
 
@@ -1240,10 +1259,26 @@ async def _message_hub_lifespan():
     if not message_hub.is_running("scheduler"):
         message_hub.register("scheduler", scheduler_loop)
     await message_hub.start_all()
+    # Vigilantia: Hintergrund-Watcher für Quellen mit auto_start=True.
+    # Läuft unabhängig vom Browser-Tab — solange der AIfred-Service da
+    # ist, ist die Detection scharf.
+    try:
+        from .lib.vision_autostart import start_all_background_watchers
+        await start_all_background_watchers()
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(
+            "vigilantia autostart failed: %s", e
+        )
     try:
         yield
     finally:
         await message_hub.stop_all()
+        try:
+            from .lib.vision_watcher import get_default_watcher
+            await get_default_watcher().shutdown()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _register_message_hub_workers(hub: object) -> None:

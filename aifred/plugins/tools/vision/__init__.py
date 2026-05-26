@@ -192,7 +192,7 @@ def _err_mode_off() -> str:
 @dataclass
 class VisionPlugin:
     name: str = "vision"
-    display_name: str = "Bild & Video"
+    display_name: str = "Vigilantia"
     description: str = (
         "Macht Fotos und kurze Bildbeschreibungen über Webcam oder andere "
         "Bildquellen. Erkennt Bewegung und bekannte Gesichter."

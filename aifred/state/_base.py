@@ -116,6 +116,9 @@ from ._audio_player_mixin import AudioPlayerMixin  # noqa: E402
 from ._vision_settings_mixin import VisionSettingsMixin  # noqa: E402
 from ._vision_preview_mixin import VisionPreviewMixin  # noqa: E402
 from ._personarium_mixin import PersonariumMixin  # noqa: E402
+from ._casus_mixin import CasusMixin  # noqa: E402
+from ._multipose_mixin import MultiposeMixin  # noqa: E402
+from ._vigilantia_feed_mixin import VigilantiaFeedMixin  # noqa: E402
 from ._file_picker_mixin import FilePickerMixin  # noqa: E402
 from ._agent_config_mixin import AgentConfigMixin  # noqa: E402
 from ._settings_mixin import SettingsMixin  # noqa: E402
@@ -136,6 +139,9 @@ class AIState(  # type: ignore[misc]
     VisionSettingsMixin,
     VisionPreviewMixin,
     PersonariumMixin,
+    CasusMixin,
+    MultiposeMixin,
+    VigilantiaFeedMixin,
     FilePickerMixin,
     AgentConfigMixin,
     SettingsMixin,
@@ -221,6 +227,17 @@ class AIState(  # type: ignore[misc]
         Also checks for API update flags - if flag exists for this session_id,
         triggers browser reload to sync session data from API changes.
         """
+        # Vigilantia-Live-Feed mit-aktualisieren — kein eigener Timer,
+        # piggyback auf dem existierenden 500ms-Tick. Die Methode setzt
+        # state-Variablen, Reflex erkennt die Änderung und liefert ein
+        # Delta wenn was Neues da ist. Falls Mixin nicht im AIState
+        # gemounted ist (Tests), still no-op.
+        if getattr(self, "vigilantia_feed_visible", False):
+            try:
+                self._refresh_vigilantia_feed()
+            except Exception:  # noqa: BLE001
+                pass
+
         # Check if settings.json was modified (mtime-based, multi-browser safe)
         # Each browser tracks its own last-seen mtime - no race conditions
         import os

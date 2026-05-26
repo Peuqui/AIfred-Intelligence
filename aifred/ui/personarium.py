@@ -99,6 +99,14 @@ def _face_row(face: rx.Var) -> rx.Component:
             rx.fragment(),
             rx.hstack(
                 rx.icon_button(
+                    rx.icon("user-cog", size=14),
+                    on_click=AIState.open_multipose(fid, face["name"]),
+                    size="1",
+                    variant="soft",
+                    color_scheme="orange",
+                    title=t("personarium_multipose_add"),
+                ),
+                rx.icon_button(
                     rx.icon("pencil", size=14),
                     on_click=AIState.personarium_start_rename(fid, face["name"]),
                     size="1",
