@@ -207,11 +207,12 @@ def _event_row(event: rx.Var) -> rx.Component:
         _thumb(event),
         _event_type_badge(event),
         # Cluster-Member-Badge — nur sichtbar im Cluster-Mode wenn der
-        # Cluster mehr als 1 Mitglied hat. Tooltip zeigt Cluster-ID.
+        # Cluster mehr als 1 Mitglied hat. Reflex Var[Any] kann nicht
+        # direkt mit int verglichen werden → .to(int) Cast.
         rx.cond(
-            event["cluster_member_count"] > 1,
+            event["cluster_member_count"].to(int) > 1,
             rx.badge(
-                "+" + (event["cluster_member_count"] - 1).to(str),
+                "+" + (event["cluster_member_count"].to(int) - 1).to(str),
                 color_scheme="purple",
                 variant="soft",
                 size="1",
