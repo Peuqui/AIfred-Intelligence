@@ -71,6 +71,10 @@ class CasusMixin(rx.State, mixin=True):
     casus_bulk_progress: int = 0
     casus_bulk_message: str = ""
     casus_bulk_cancel: bool = False
+    # Cluster-Anzeige: bei True wird pro cluster_id nur der Repräsentant
+    # (jüngster Eintrag) gezeigt + Badge „+N ähnliche". Idle off, weil
+    # die meisten User „alle Events sehen" erwarten beim Modal-Open.
+    casus_cluster_mode: bool = False
 
     # ── Computed ─────────────────────────────────────────────────
 
@@ -137,6 +141,15 @@ class CasusMixin(rx.State, mixin=True):
     @rx.event
     def casus_set_filter_face(self, value: str) -> None:
         self.casus_filter_face = value or "all"
+        self.casus_page = 0
+        self.casus_confirm_delete_all = False
+        self._refresh_events()
+
+    @rx.event
+    def casus_toggle_cluster_mode(self, value: bool) -> None:
+        """Schalter „Gruppiert" — Cluster-Mitglieder mit gleicher
+        cluster_id werden zu einer Zeile zusammengefasst."""
+        self.casus_cluster_mode = bool(value)
         self.casus_page = 0
         self.casus_confirm_delete_all = False
         self._refresh_events()
@@ -460,7 +473,14 @@ class CasusMixin(rx.State, mixin=True):
 
     def _refresh_events(self) -> None:
         """Aktuelle Seite mit Filtern frisch aus dem Store holen.
-        Setzt ``casus_events`` + ``casus_total_count``."""
+        Setzt ``casus_events`` + ``casus_total_count``.
+
+        Cluster-Mode (``casus_cluster_mode=True``): die Server-Seite
+        liefert eine größere Roh-Liste (5000 Events), Python gruppiert
+        per ``cluster_id`` — pro Cluster der jüngste Member als
+        Repräsentant + ``cluster_member_count`` als Badge-Zähler.
+        Solo-Events (cluster_id leer) bleiben unverändert.
+        """
         try:
             from ..lib.vision_store import VisionStore
             store = VisionStore()
@@ -477,22 +497,66 @@ class CasusMixin(rx.State, mixin=True):
                     face_id = int(face_filter)
                 except (TypeError, ValueError):
                     face_id = None
-            offset = self.casus_page * _CASUS_PAGE_SIZE
-            events = store.list_events_with_summary(
-                source_id=source_id,
-                event_types=event_types or None,
-                face_id=face_id,
-                unknown_only=unknown_only,
-                limit=_CASUS_PAGE_SIZE,
-                offset=offset,
-            )
-            self.casus_events = events
-            self.casus_total_count = store.count_events(
-                source_id=source_id,
-                event_types=event_types or None,
-                face_id=face_id,
-                unknown_only=unknown_only,
-            )
+
+            if self.casus_cluster_mode:
+                # Größere Liste holen + Python-side gruppieren.
+                raw = store.list_events_with_summary(
+                    source_id=source_id,
+                    event_types=event_types or None,
+                    face_id=face_id,
+                    unknown_only=unknown_only,
+                    limit=5000,
+                    offset=0,
+                )
+                from collections import OrderedDict
+                cluster_groups: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()
+                solo_events: list[dict[str, Any]] = []
+                for e in raw:
+                    cid = str(e.get("cluster_id") or "")
+                    if cid:
+                        cluster_groups.setdefault(cid, []).append(e)
+                    else:
+                        solo_events.append(e)
+                # Repräsentant pro Cluster = erstes Element (= jüngster,
+                # weil DESC sortiert). Badge-Zahl = Mitglieder.
+                cluster_repr: list[dict[str, Any]] = []
+                for cid, members in cluster_groups.items():
+                    rep = dict(members[0])
+                    rep["cluster_member_count"] = len(members)
+                    cluster_repr.append(rep)
+                # Solos bekommen member_count=0 (UI: kein Badge).
+                for s in solo_events:
+                    s_copy = dict(s)
+                    s_copy["cluster_member_count"] = 0
+                    cluster_repr.append(s_copy)
+                # Wieder nach Timestamp DESC sortieren (Mischung von
+                # Cluster-Reps + Solos).
+                cluster_repr.sort(key=lambda x: x["timestamp"], reverse=True)
+                total = len(cluster_repr)
+                start = self.casus_page * _CASUS_PAGE_SIZE
+                end = start + _CASUS_PAGE_SIZE
+                self.casus_events = cluster_repr[start:end]
+                self.casus_total_count = total
+            else:
+                offset = self.casus_page * _CASUS_PAGE_SIZE
+                events = store.list_events_with_summary(
+                    source_id=source_id,
+                    event_types=event_types or None,
+                    face_id=face_id,
+                    unknown_only=unknown_only,
+                    limit=_CASUS_PAGE_SIZE,
+                    offset=offset,
+                )
+                # Im flachen Modus: keine Cluster-Badge.
+                for e in events:
+                    e["cluster_member_count"] = 0
+                self.casus_events = events
+                self.casus_total_count = store.count_events(
+                    source_id=source_id,
+                    event_types=event_types or None,
+                    face_id=face_id,
+                    unknown_only=unknown_only,
+                )
         except Exception as e:  # noqa: BLE001
             logger.warning("casus events refresh failed: %s", e)
             self.casus_events = []
