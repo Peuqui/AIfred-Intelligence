@@ -64,6 +64,13 @@ class CasusMixin(rx.State, mixin=True):
     # Single-Event-VLM-Analyse: ID des Events, das gerade analysiert
     # wird (0 = nichts läuft). Lässt die Zeile einen Spinner zeigen.
     casus_analyzing_event_id: int = 0
+    # Bulk-Worker-State — alle Events ohne description durch das VLM
+    # schicken, dedupliziert via pHash-Cluster (Story 3).
+    casus_bulk_running: bool = False
+    casus_bulk_total: int = 0
+    casus_bulk_progress: int = 0
+    casus_bulk_message: str = ""
+    casus_bulk_cancel: bool = False
 
     # ── Computed ─────────────────────────────────────────────────
 
@@ -167,6 +174,131 @@ class CasusMixin(rx.State, mixin=True):
         finally:
             self.casus_analyzing_event_id = 0
             self._refresh_events()
+
+    # ── Bulk-VLM-Analyse ─────────────────────────────────────────
+
+    @rx.event(background=True)
+    async def casus_bulk_start(self):
+        """Bulk-Worker: alle Events ohne description durch pHash-Dedup
+        clustern, pro Cluster einen VLM-Call, Beschreibung auf alle
+        Mitglieder anwenden.
+
+        Background-Event → Generator-Pattern für State-Updates während
+        des Laufs. ``async with self`` ist Reflex 0.8 standard für
+        background-events.
+        """
+        from ..lib.vision_cluster import cluster_events, write_clusters
+        from ..lib.vision_event_analysis import analyze_event_with_vlm
+        from ..lib.vision_store import VisionStore
+
+        async with self:
+            if self.casus_bulk_running:
+                return
+            self.casus_bulk_running = True
+            self.casus_bulk_cancel = False
+            self.casus_bulk_progress = 0
+            self.casus_bulk_total = 0
+            self.casus_bulk_message = "Sammle Events …"
+
+        try:
+            store = VisionStore()
+            # Nur motion + face-Events haben Frame-Paths zum Analysieren.
+            events = store.list_events_without_description(
+                event_types=["motion", "face_known", "face_unsure",
+                             "face_unknown"],
+                limit=5000,
+            )
+            if not events:
+                async with self:
+                    self.casus_bulk_message = "Keine Events zum Analysieren"
+                    self.casus_bulk_running = False
+                return
+
+            async with self:
+                self.casus_bulk_message = f"Clustere {len(events)} Events …"
+
+            mapping = cluster_events(events)
+            write_clusters(store, mapping)
+
+            # Eindeutige Cluster + Repräsentanten sammeln. Events ohne
+            # Cluster-ID (kein pHash → einzeln behandeln) bekommen eine
+            # synthetische Solo-Cluster-ID basierend auf event_id.
+            from collections import defaultdict
+            cluster_members: dict[str, list[int]] = defaultdict(list)
+            for eid, cid in mapping.items():
+                key = cid or f"solo-{eid}"
+                cluster_members[key].append(eid)
+
+            async with self:
+                self.casus_bulk_total = len(cluster_members)
+                self.casus_bulk_progress = 0
+                self.casus_bulk_message = (
+                    f"Analysiere {len(cluster_members)} Cluster "
+                    f"(Reduktion von {len(events)} Events)"
+                )
+
+            failed = 0
+            for idx, (cluster_id, member_ids) in enumerate(cluster_members.items()):
+                async with self:
+                    if self.casus_bulk_cancel:
+                        self.casus_bulk_message = (
+                            f"Abgebrochen bei {idx} / "
+                            f"{self.casus_bulk_total}"
+                        )
+                        break
+                    self.casus_bulk_progress = idx
+                # Repräsentant: das erste Mitglied (= ältester
+                # chronologisch wegen ORDER BY timestamp ASC).
+                repr_id = member_ids[0]
+                try:
+                    text = await analyze_event_with_vlm(
+                        repr_id, store=store,
+                    )
+                    # Bei „echten" Clustern (mehr als 1 Mitglied):
+                    # Beschreibung auf alle anwenden. Bei Solo-Cluster
+                    # (Sentinel-ID) bleibt es beim einzelnen Eintrag.
+                    if cluster_id and not cluster_id.startswith("solo-"):
+                        store.apply_cluster_description(
+                            cluster_id, text, "bulk-worker",
+                        )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "bulk: cluster %s failed: %s", cluster_id, e,
+                    )
+                    failed += 1
+
+            async with self:
+                final = self.casus_bulk_progress
+                if not self.casus_bulk_cancel:
+                    final = self.casus_bulk_total
+                self.casus_bulk_progress = final
+                if self.casus_bulk_cancel:
+                    self.casus_bulk_message = (
+                        f"Abgebrochen — {final} / {self.casus_bulk_total} "
+                        f"Cluster analysiert ({failed} Fehler)"
+                    )
+                else:
+                    self.casus_bulk_message = (
+                        f"Fertig — {final} Cluster analysiert"
+                        + (f", {failed} Fehler" if failed else "")
+                    )
+                self._refresh_events()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("bulk worker crashed: %s", e)
+            async with self:
+                self.casus_bulk_message = f"⚠️ Fehler: {e}"
+        finally:
+            async with self:
+                self.casus_bulk_running = False
+                self.casus_bulk_cancel = False
+
+    @rx.event
+    def casus_bulk_cancel_run(self) -> None:
+        """Setzt das Cancel-Flag — der Background-Worker checkt es
+        zwischen den Cluster-VLM-Calls."""
+        if self.casus_bulk_running:
+            self.casus_bulk_cancel = True
+            self.casus_bulk_message = "Wird abgebrochen …"
 
     # ── Bulk-Delete ──────────────────────────────────────────────
 
