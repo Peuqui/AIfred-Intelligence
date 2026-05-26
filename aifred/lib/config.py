@@ -659,8 +659,16 @@ FACE_DETECT_GPU_ID = 4
 # einem ``prewarm_vlm()``-Call (Ollama-Overhead schon eingerechnet,
 # inklusive Vision-Encoder + KV-Cache bei num_ctx=4096).
 VLM_VRAM_BUDGET_MB: dict[str, int] = {
-    "qwen3-vl:4b-instruct-q8_0": 6500,
+    # Werte gelten für VLM_NUM_CTX = 8192. Beim Wechsel auf höhere
+    # Kontext-Größen entsprechend hochsetzen (KV-Cache wächst linear).
+    "qwen3-vl:4b-instruct-q8_0": 7100,
     "qwen3-vl:8b-instruct-q8_0": 10500,
+    # 30B-A3B passt mit 8K-Context und Q8 grade-so auf eine V100
+    # (32 GB): aus Ollama-Logs gemessen — 29.6 GB Weights + 384 MB
+    # KV + 512 MB Compute-Graph = 30.5 GB. +500 MB Reserve (VRAM-
+    # Check) → 31 GB → bleibt ~1 GB für TTS o.ä. Wenn TTS auf V100
+    # läuft: nicht laden, sonst spillover oder OOM.
+    "qwen3-vl:30b-a3b-instruct-q8_0": 30800,
     # Trag weitere Modelle hier ein, wenn du sie testest. Fallback
     # für unbekannte Modelle: GGUF-Size × 1.4 (siehe vision_prewarm).
 }
