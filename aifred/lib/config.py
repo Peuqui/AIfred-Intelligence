@@ -626,6 +626,28 @@ VISION_DEFAULT_MIN_P = 0.0
 VISION_DEFAULT_REPEAT_PENALTY = 1.0
 
 # ============================================================
+# FACE-DETECTION PROVIDER (InsightFace / onnxruntime)
+# ============================================================
+# InsightFace buffalo_l läuft bei 640×480 auf CPU schnell genug
+# (~30–80 ms je Detection) und belegt keine GPU dauerhaft. Erst bei
+# höherer Auflösung oder vielen parallelen Cams lohnt sich CUDA.
+#
+# - False (Default): nur CPUExecutionProvider — GPU bleibt frei für
+#   andere Modelle (VLM, TTS, LLMs)
+# - True: bevorzugt CUDAExecutionProvider, fällt nur auf CPU zurück
+#   wenn cuDNN/CUDA nicht vorgeladen werden konnten
+FACE_DETECT_USE_GPU = False
+# Wenn ``FACE_DETECT_USE_GPU=True``: GPU-ID für die onnxruntime-
+# Session. CUDA_DEVICE_ORDER=FAST_FIRST sortiert nach Performance —
+# auf der MiniPC-Anlage:
+#   0,2 = Quadro RTX 8000 (48 GB, frei für LLMs)
+#   1,4 = Tesla P40 (24 GB, „Resterampe" im greedy cascade)
+#   3   = Tesla V100 (32 GB, TTS + Ollama-VLM festgetackert)
+# Default 4 = zweite P40: niedrigste Last, 300 MB InsightFace stören
+# da niemanden, RTX 8000 + V100 bleiben für die großen Modelle frei.
+FACE_DETECT_GPU_ID = 4
+
+# ============================================================
 # DEBUG LOG PERSISTENCE
 # ============================================================
 # Maximum number of debug log entries to persist in session
