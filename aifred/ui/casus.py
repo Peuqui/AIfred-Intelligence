@@ -282,9 +282,15 @@ def _bulk_bar() -> rx.Component:
             ),
             rx.progress(
                 value=progress_pct,
-                size="1",
+                size="3",
                 color_scheme="orange",
-                style={"margin_top": "0.3em"},
+                high_contrast=True,
+                style={
+                    "margin_top": "0.5em",
+                    # Track heller, damit der Restweg sichtbar bleibt.
+                    "--progress-track-color": "var(--gray-7)",
+                    "height": "10px",
+                },
             ),
             style={
                 "padding": "0.5em 0.7em",
