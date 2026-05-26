@@ -66,15 +66,37 @@ def _thumb(event: rx.Var) -> rx.Component:
 
 def _person_cell(event: rx.Var) -> rx.Component:
     """Namen-Zelle: bei zugeordnetem Face den Namen, sonst Confidence-
-    Band oder „—"."""
-    return rx.cond(
-        event["face_name"] != "",
-        rx.text(event["face_name"], size="2"),
+    Band oder „—". Wenn eine VLM-Beschreibung vorliegt, wird sie als
+    zweite Zeile dezenter angehängt."""
+    return rx.vstack(
         rx.cond(
-            event["matched_name"] != "",
-            rx.text(event["matched_name"], size="2", color="gray", style={"font_style": "italic"}),
-            rx.text("—", size="2", color="gray"),
+            event["face_name"] != "",
+            rx.text(event["face_name"], size="2"),
+            rx.cond(
+                event["matched_name"] != "",
+                rx.text(event["matched_name"], size="2", color="gray", style={"font_style": "italic"}),
+                rx.text("—", size="2", color="gray"),
+            ),
         ),
+        rx.cond(
+            event["description"] != "",
+            rx.text(
+                event["description"],
+                size="1",
+                color="gray",
+                style={
+                    "font_style": "italic",
+                    "overflow": "hidden",
+                    "text_overflow": "ellipsis",
+                    "display": "-webkit-box",
+                    "-webkit-line-clamp": "2",
+                    "-webkit-box-orient": "vertical",
+                },
+            ),
+        ),
+        spacing="0",
+        align="start",
+        width="100%",
     )
 
 
@@ -137,6 +159,24 @@ def _tag_controls(event: rx.Var) -> rx.Component:
                     variant="soft",
                     color_scheme="orange",
                     title=t("casus_tag_button"),
+                ),
+            ),
+            # VLM-Analyse-Button: nur sinnvoll wenn Frame-Pfad da ist
+            # und VLM-Modell geladen. Während Analyse: Spinner-Variante
+            # via loading=. Bei vorhandener Beschreibung: lila statt
+            # orange als „schon analysiert"-Hinweis.
+            rx.icon_button(
+                rx.icon("sparkles", size=14),
+                on_click=AIState.casus_analyze_event(eid),
+                size="1",
+                variant=rx.cond(event["description"] != "", "soft", "soft"),
+                color_scheme=rx.cond(event["description"] != "", "purple", "orange"),
+                loading=AIState.casus_analyzing_event_id == eid,
+                disabled=(AIState.casus_analyzing_event_id != 0) & (AIState.casus_analyzing_event_id != eid),
+                title=rx.cond(
+                    event["description"] != "",
+                    t("casus_analyze_again"),
+                    t("casus_analyze"),
                 ),
             ),
             rx.icon_button(
