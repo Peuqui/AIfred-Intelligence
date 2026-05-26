@@ -79,6 +79,13 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # ``motion_min_area_ratio``. Wird beim Modal-Open befüllt aus
     # vision_store + frame_sources.
     vigilantia_sources: list[dict[str, Any]] = []
+    # Ob das aktuell konfigurierte VLM-Modell im Ollama-VRAM liegt.
+    # Wird beim Page-Load + nach jedem Load/Unload-Toggle frisch von
+    # Ollama abgefragt — keine Annahme, dass der State stimmt, wenn
+    # jemand außerhalb von AIfred mit Ollama gespielt hat.
+    vlm_model_loaded: bool = False
+    # Lade/Entlade-Vorgang läuft gerade → Spinner-Optik am Button.
+    vlm_model_busy: bool = False
 
     def _refresh_vision_settings(self) -> None:
         """Lade Plugin-Settings + Ollama-Modellliste in den State.
@@ -365,6 +372,45 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 await stop_all_background_watchers()
         except Exception as e:  # noqa: BLE001
             logger.warning("vigilantia armed toggle side-effect failed: %s", e)
+
+    @rx.event
+    async def refresh_vlm_loaded(self) -> None:
+        """Status frisch von Ollama abfragen. Wird vom on_load des
+        Vorschau-Popups + vom Open des Vigilantia-Settings-Modals
+        gerufen, damit der Power-Button den realen Zustand zeigt."""
+        try:
+            from ..lib.vision_prewarm import is_vlm_loaded
+            self.vlm_model_loaded = await is_vlm_loaded(self.vision_model_value)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("refresh_vlm_loaded failed: %s", e)
+            self.vlm_model_loaded = False
+
+    @rx.event
+    async def toggle_vlm_model_loaded(self) -> None:
+        """Power-Toggle: Modell laden ↔ entladen via Ollama. Vor dem
+        Toggle wird der echte Status abgefragt (idempotent — wenn der
+        State falsch war, gleicht er sich aus)."""
+        if self.vlm_model_busy:
+            return
+        model = self.vision_model_value
+        if not model:
+            return
+        self.vlm_model_busy = True
+        try:
+            from ..lib.vision_prewarm import (
+                is_vlm_loaded, prewarm_vlm, unload_vlm_model,
+            )
+            currently_loaded = await is_vlm_loaded(model)
+            if currently_loaded:
+                await unload_vlm_model(model)
+                self.vlm_model_loaded = False
+            else:
+                ok = await prewarm_vlm()
+                self.vlm_model_loaded = bool(ok)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vlm toggle failed: %s", e)
+        finally:
+            self.vlm_model_busy = False
 
     @rx.event
     def rescan_vision_models(self) -> None:

@@ -356,6 +356,28 @@ def casus_modal() -> rx.Component:
                             size="4",
                         ),
                         rx.spacer(),
+                        # VLM-Power-Toggle: für die spätere Bulk-Analyse
+                        # braucht's das Modell im VRAM — der User kann
+                        # es hier direkt vor der Aktion laden.
+                        rx.tooltip(
+                            rx.icon_button(
+                                rx.icon("power", size=14),
+                                on_click=AIState.toggle_vlm_model_loaded,
+                                size="1",
+                                variant=rx.cond(
+                                    AIState.vlm_model_loaded, "solid", "soft",
+                                ),
+                                color_scheme=rx.cond(
+                                    AIState.vlm_model_loaded, "orange", "gray",
+                                ),
+                                loading=AIState.vlm_model_busy,
+                            ),
+                            content=rx.cond(
+                                AIState.vlm_model_loaded,
+                                t("vlm_unload_tooltip"),
+                                t("vlm_load_tooltip"),
+                            ),
+                        ),
                         rx.icon_button(
                             rx.icon("x", size=16),
                             on_click=AIState.close_casus,

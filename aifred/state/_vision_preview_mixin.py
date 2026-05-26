@@ -358,7 +358,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         )
 
     @rx.event
-    def on_load_vision_preview(self) -> Any:
+    async def on_load_vision_preview(self) -> Any:
         """Page-load handler for the popup window — populates the source
         list, loads persisted per-source resolutions + global FPS, picks
         a sensible default visible-set, injiziert den VLM-SSE-Manager
@@ -386,6 +386,14 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # Kontext laden — sonst ist das Header-Dropdown leer, wenn das
         # Settings-Modal noch nie geöffnet wurde.
         self._refresh_vision_settings()
+        # Echten Ollama-Status für das Power-Toggle abfragen — ohne
+        # das zeigt der Button immer „nicht geladen", selbst wenn ein
+        # anderes Tool das VLM schon im VRAM hat.
+        try:
+            from ..lib.vision_prewarm import is_vlm_loaded
+            self.vlm_model_loaded = await is_vlm_loaded(self.vision_model_value)
+        except Exception:  # noqa: BLE001
+            self.vlm_model_loaded = False
         self._refresh_sources()
         self.vision_preview_cache_buster += 1
         briefings_map = {

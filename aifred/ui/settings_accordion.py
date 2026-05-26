@@ -214,9 +214,19 @@ def _ctx_column(
     enabled_var, toggle_handler,
     value_var, set_handler,
     placeholder: str = "16384",
+    extra_disabled=False,
     **extra_style,
 ) -> rx.Component:
-    """Helper: One agent context column with toggle + input."""
+    """Helper: One agent context column with toggle + input.
+
+    ``extra_disabled`` (Reflex-Var oder Python-bool): zusätzlicher
+    Disabled-Grund. Für Chat-Agenten typischerweise
+    ``AIState.backend_type != "ollama"`` — bei llama.cpp/vLLM/TabbyAPI
+    wird ``num_ctx`` zur Modell-Lade-Zeit fix gesetzt, per Request
+    nicht mehr änderbar; Toggle + Input greifen also nicht und werden
+    grau. Vision ist davon ausgenommen (läuft immer via Ollama)."""
+    input_disabled = ~enabled_var | extra_disabled  # type: ignore[operator]
+    input_active = enabled_var & ~extra_disabled  # type: ignore[operator]
     return rx.vstack(
         rx.hstack(
             agent_emoji(emoji, size="13px"),
@@ -229,6 +239,7 @@ def _ctx_column(
             rx.switch(
                 checked=enabled_var,
                 on_change=toggle_handler,
+                disabled=extra_disabled,
                 size="1",
             ),
             spacing="1",
@@ -240,8 +251,8 @@ def _ctx_column(
             on_blur=set_handler,
             type="number",
             width="78px",
-            disabled=~enabled_var,  # type: ignore[arg-type]
-            opacity=rx.cond(enabled_var, "1.0", "0.5"),
+            disabled=input_disabled,
+            opacity=rx.cond(input_active, "1.0", "0.5"),
         ),
         spacing="1",
         **extra_style,
@@ -445,6 +456,10 @@ def llm_parameters_accordion() -> rx.Component:
                     ),
 
                     # Per-LLM Context Control - Four columns with toggle + input
+                    # Chat-Agenten: num_ctx wird nur bei Ollama zur Request-
+                    # Zeit \u00fcbernommen. Bei llama.cpp/vLLM/TabbyAPI ist die
+                    # ctx-Gr\u00f6\u00dfe zur Modell-Lade-Zeit fix (yaml/CLI-Args).
+                    # Vision ist immer Ollama \u2192 davon ausgenommen.
                     rx.hstack(
                         _ctx_column(
                             "\U0001f3a9", "AIfred",
@@ -452,6 +467,7 @@ def llm_parameters_accordion() -> rx.Component:
                             AIState.toggle_num_ctx_manual_aifred,
                             AIState.num_ctx_manual_aifred,
                             AIState.set_num_ctx_manual_aifred,
+                            extra_disabled=AIState.backend_type != "ollama",
                         ),
                         _ctx_column(
                             "\U0001f3db\ufe0f", "Sokrates",
@@ -459,6 +475,7 @@ def llm_parameters_accordion() -> rx.Component:
                             AIState.toggle_num_ctx_manual_sokrates,
                             AIState.num_ctx_manual_sokrates,
                             AIState.set_num_ctx_manual_sokrates,
+                            extra_disabled=AIState.backend_type != "ollama",
                         ),
                         _ctx_column(
                             "\U0001f451", "Salomo",
@@ -466,8 +483,12 @@ def llm_parameters_accordion() -> rx.Component:
                             AIState.toggle_num_ctx_manual_salomo,
                             AIState.num_ctx_manual_salomo,
                             AIState.set_num_ctx_manual_salomo,
+                            extra_disabled=AIState.backend_type != "ollama",
                         ),
-                        # Vision num_ctx (PERSISTENT - saved to settings.json)
+                        # Vision num_ctx \u2014 gilt nur bei Ollama-Chat-Backend.
+                        # Bei llama-swap/vLLM/TabbyAPI laufen Vision-Calls
+                        # \u00fcber den Vigilantia-Pfad (Server-Side), der den
+                        # State-Override nicht sieht \u2014 Toggle w\u00e4re wirkungslos.
                         _ctx_column(
                             "\U0001f441\ufe0f", "Vision",
                             AIState.vision_num_ctx_enabled,
@@ -475,6 +496,7 @@ def llm_parameters_accordion() -> rx.Component:
                             AIState.vision_num_ctx,  # type: ignore[arg-type]
                             AIState.set_vision_num_ctx,
                             placeholder="32768",
+                            extra_disabled=AIState.backend_type != "ollama",
                             margin_left="8px",
                         ),
                         spacing="3",
