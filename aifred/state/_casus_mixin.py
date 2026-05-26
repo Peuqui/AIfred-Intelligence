@@ -75,6 +75,17 @@ class CasusMixin(rx.State, mixin=True):
     # (jüngster Eintrag) gezeigt + Badge „+N ähnliche". Idle off, weil
     # die meisten User „alle Events sehen" erwarten beim Modal-Open.
     casus_cluster_mode: bool = False
+    # Hilfe-Modal — Klick auf die Glühbirne öffnet eine Erklärung
+    # zu „Alle analysieren" + „Gruppiert".
+    casus_help_open: bool = False
+
+    @rx.event
+    def open_casus_help(self) -> None:
+        self.casus_help_open = True
+
+    @rx.event
+    def close_casus_help(self) -> None:
+        self.casus_help_open = False
 
     # ── Computed ─────────────────────────────────────────────────
 

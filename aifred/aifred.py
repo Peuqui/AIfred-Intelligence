@@ -35,7 +35,7 @@ from .ui.file_picker import file_picker_modal  # noqa: F401
 from .ui.audio_settings import audio_settings_page, audio_help_modal  # noqa: F401
 from .ui.vision_settings import vision_settings_modal  # noqa: F401
 from .ui.personarium import personarium_modal  # noqa: F401
-from .ui.casus import casus_modal  # noqa: F401
+from .ui.casus import casus_modal, casus_help_modal  # noqa: F401
 from .ui.multipose import multipose_modal  # noqa: F401
 from .ui.vigilantia_feed import vigilantia_feed_popover, vigilantia_help_modal  # noqa: F401
 from .ui.vision_preview import vision_preview_page  # noqa: F401
@@ -772,6 +772,7 @@ console.log('✂️ Crop handler loaded');
         # Casus — Ereignis-Verwaltung (vom Vigilantia-Settings-Modal aus
         # aufgerufen, chronologische Filter-/Tag-Tabelle)
         casus_modal(),
+        casus_help_modal(),
 
         # Multi-Pose-Lern-Modal — geführte Enrollment-Aufnahme mit
         # mehreren Kopf-Posen für robustere Face-Recognition.

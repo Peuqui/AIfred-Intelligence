@@ -303,6 +303,22 @@ def _bulk_bar() -> rx.Component:
                 ),
             ),
             rx.spacer(),
+            # Glühbirne — öffnet das Casus-Hilfe-Modal (erklärt
+            # „Alle analysieren" + „Gruppiert"-Toggle).
+            rx.tooltip(
+                rx.icon(
+                    "lightbulb",
+                    size=14,
+                    color="#FFD700",
+                    cursor="pointer",
+                    on_click=AIState.open_casus_help,
+                    style={
+                        "transition": "transform 0.2s ease",
+                        "&:hover": {"transform": "scale(1.15)"},
+                    },
+                ),
+                content=t("casus_help_tooltip"),
+            ),
             rx.tooltip(
                 rx.button(
                     rx.icon("sparkles", size=14),
@@ -317,6 +333,127 @@ def _bulk_bar() -> rx.Component:
             spacing="2",
             align="center",
             width="100%",
+        ),
+    )
+
+
+def casus_help_modal() -> rx.Component:
+    """Modal mit Erklärung der Casus-Aktionen — „Alle analysieren"
+    (Bulk-VLM mit pHash-Dedup) und „Gruppiert" (Cluster-Anzeige).
+    Global gemountet in aifred.py."""
+    return rx.cond(
+        AIState.casus_help_open,
+        rx.box(
+            rx.box(
+                position="absolute", top="0", left="0",
+                width="100%", height="100%",
+                background_color="rgba(0, 0, 0, 0.5)",
+                on_click=AIState.close_casus_help,
+            ),
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("lightbulb", size=20, color="#FFD700"),
+                        rx.text(
+                            t("casus_help_title"),
+                            font_weight="bold", size="4",
+                        ),
+                        rx.spacer(),
+                        rx.icon_button(
+                            rx.icon("x", size=16),
+                            on_click=AIState.close_casus_help,
+                            size="1", variant="ghost", color_scheme="gray",
+                        ),
+                        spacing="2", align="center", width="100%",
+                    ),
+                    rx.text(
+                        t("casus_help_intro"),
+                        color="gray", size="2",
+                        margin_bottom="0.5em",
+                    ),
+                    rx.divider(),
+                    # Sparkles per single event
+                    rx.hstack(
+                        rx.icon("sparkles", size=18, color="var(--orange-9)",
+                                style={"flex_shrink": "0"}),
+                        rx.vstack(
+                            rx.text(
+                                t("casus_help_sparkles_label"),
+                                font_weight="bold", size="2",
+                            ),
+                            rx.text(
+                                t("casus_help_sparkles_body"),
+                                size="1", color="gray",
+                            ),
+                            spacing="1", align="stretch",
+                            style={"flex": "1 1 auto", "min_width": "0"},
+                        ),
+                        spacing="3", align="start", width="100%",
+                        style={"padding": "0.5em 0"},
+                    ),
+                    rx.divider(),
+                    # Alle analysieren
+                    rx.hstack(
+                        rx.icon("sparkles", size=18, color="var(--orange-9)",
+                                style={"flex_shrink": "0"}),
+                        rx.vstack(
+                            rx.text(
+                                t("casus_help_bulk_label"),
+                                font_weight="bold", size="2",
+                            ),
+                            rx.text(
+                                t("casus_help_bulk_body"),
+                                size="1", color="gray",
+                            ),
+                            spacing="1", align="stretch",
+                            style={"flex": "1 1 auto", "min_width": "0"},
+                        ),
+                        spacing="3", align="start", width="100%",
+                        style={"padding": "0.5em 0"},
+                    ),
+                    rx.divider(),
+                    # Gruppiert
+                    rx.hstack(
+                        rx.icon("layers", size=18, color="var(--purple-9)",
+                                style={"flex_shrink": "0"}),
+                        rx.vstack(
+                            rx.text(
+                                t("casus_help_grouped_label"),
+                                font_weight="bold", size="2",
+                            ),
+                            rx.text(
+                                t("casus_help_grouped_body"),
+                                size="1", color="gray",
+                            ),
+                            spacing="1", align="stretch",
+                            style={"flex": "1 1 auto", "min_width": "0"},
+                        ),
+                        spacing="3", align="start", width="100%",
+                        style={"padding": "0.5em 0"},
+                    ),
+                    rx.divider(),
+                    rx.button(
+                        t("vision_settings_close"),
+                        on_click=AIState.close_casus_help,
+                        size="2", variant="soft", width="100%",
+                    ),
+                    align="stretch", spacing="2", width="100%",
+                ),
+                position="absolute", top="50%", left="50%",
+                transform="translate(-50%, -50%)",
+                background_color="var(--gray-2)",
+                border="1px solid var(--gray-6)",
+                border_radius="12px",
+                padding="1.5em",
+                width="min(580px, 95vw)",
+                max_height="92vh",
+                overflow_y="auto",
+                box_shadow="0 20px 60px rgba(0,0,0,0.5)",
+            ),
+            position="fixed",
+            top="0", left="0",
+            width="100vw", height="100vh",
+            z_index="10000",  # über Casus selbst (9999)
         ),
     )
 
@@ -500,27 +637,29 @@ def casus_modal() -> rx.Component:
                             size="4",
                         ),
                         rx.spacer(),
-                        # VLM-Power-Toggle: für die spätere Bulk-Analyse
-                        # braucht's das Modell im VRAM — der User kann
-                        # es hier direkt vor der Aktion laden.
-                        rx.tooltip(
-                            rx.icon_button(
-                                rx.icon("power", size=14),
-                                on_click=AIState.toggle_vlm_model_loaded,
+                        # VLM-Power-Button: für die Bulk-Analyse braucht's
+                        # das Modell im VRAM. Voller Button mit Beschriftung
+                        # damit klar ist was passiert — der kleine Power-
+                        # Icon-Button war zu kryptisch.
+                        rx.button(
+                            rx.icon("power", size=14),
+                            rx.text(
+                                rx.cond(
+                                    AIState.vlm_model_loaded,
+                                    t("vlm_unload_button"),
+                                    t("vlm_load_button"),
+                                ),
                                 size="1",
-                                variant=rx.cond(
-                                    AIState.vlm_model_loaded, "solid", "soft",
-                                ),
-                                color_scheme=rx.cond(
-                                    AIState.vlm_model_loaded, "orange", "gray",
-                                ),
-                                loading=AIState.vlm_model_busy,
                             ),
-                            content=rx.cond(
-                                AIState.vlm_model_loaded,
-                                t("vlm_unload_tooltip"),
-                                t("vlm_load_tooltip"),
+                            on_click=AIState.toggle_vlm_model_loaded,
+                            size="1",
+                            variant=rx.cond(
+                                AIState.vlm_model_loaded, "solid", "soft",
                             ),
+                            color_scheme=rx.cond(
+                                AIState.vlm_model_loaded, "orange", "gray",
+                            ),
+                            loading=AIState.vlm_model_busy,
                         ),
                         rx.icon_button(
                             rx.icon("x", size=16),
