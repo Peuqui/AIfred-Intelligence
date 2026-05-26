@@ -70,7 +70,7 @@ def get_active_vlm_model() -> str | None:
 
 async def prewarm_vlm(
     *,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 180.0,
     host: str | None = None,
     keep_alive_override: str | None = None,
 ) -> bool:
