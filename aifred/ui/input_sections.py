@@ -11,6 +11,7 @@ from .helpers import t, clickable_tip
 from .helpers import native_select_generic
 from .settings_accordion import llm_parameters_accordion
 from .chat_display import processing_progress_banner
+from .vigilantia_feed import vigilantia_feed_popover
 
 
 def _agent_toggle_button(agent: rx.Var) -> rx.Component:
@@ -488,7 +489,7 @@ def text_input_section() -> rx.Component:
             },
         ),
 
-        # Row 1: Research Mode Pills + Info Icon
+        # Row 1: Research Mode Pills + Info Icon + Vigilantia-Live-Popover
         rx.hstack(
             _research_pill("automatik", "✨ Automatik", "✨ Auto"),
             _research_pill("none", "💡 Wissen", "💡 Knowledge"),
@@ -509,6 +510,11 @@ def text_input_section() -> rx.Component:
                 ),
                 content=t("choose_research_mode"),
             ),
+            # Vigilantia-Live: rechtsbündig durch den Spacer, kompakter
+            # Icon-Button mit Badge — Popover öffnet die letzte Chronik
+            # der Hintergrund-Watcher (auto_start-Cams).
+            rx.spacer(),
+            vigilantia_feed_popover(),
             spacing="2",
             align="center",
             flex_wrap="wrap",

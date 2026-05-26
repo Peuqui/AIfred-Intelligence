@@ -515,6 +515,69 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # alias, only the label/overlay does.
 
     @rx.event
+    async def set_vision_preview_auto_start(
+        self, source_id: str, value: bool
+    ) -> None:
+        """Per-Cam Hintergrund-Watch-Toggle. Wenn an, startet der
+        AIfred-Service beim Boot automatisch den Watcher für diese
+        Source — und beim sofortigen Umschalten triggern wir den
+        Start auch jetzt schon, damit der User nicht warten muss."""
+        if not source_id:
+            return
+        active = bool(value)
+        self.vision_preview_sources = [
+            {**e, "auto_start": active} if e["id"] == source_id else e
+            for e in self.vision_preview_sources
+        ]
+        self._persist_source_auto_start(source_id, active)
+        if active:
+            # Direkt starten — die Plugin-Settings entscheiden über die
+            # Watcher-Modi (face_recognition_enabled / continuous).
+            try:
+                from ..lib.vision_autostart import start_background_watcher
+                await start_background_watcher(source_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("auto-start now failed for %s: %s", source_id, e)
+                self.vision_preview_status = f"⚠️ {e}"
+        else:
+            # Wenn der Hintergrund-Watcher läuft, aber keiner der UI-
+            # Toggles (VLM/Face) an ist → stoppen. Sonst weiter laufen
+            # lassen, der User will ja noch die Live-Vorschau.
+            vlm_on = source_id in self.vision_preview_watching
+            face_on = source_id in self.vision_preview_face_active
+            if not vlm_on and not face_on:
+                try:
+                    from ..lib.vision_watcher import get_default_watcher
+                    await get_default_watcher().stop(source_id)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("auto-stop failed for %s: %s", source_id, e)
+
+    @rx.event
+    def set_vision_preview_motion_min(
+        self, source_id: str, value: str
+    ) -> None:
+        """Per-Cam Min-Bewegungsfläche. Eingabe vom UI kommt in
+        **Prozent** (0,1–50). Speicherung intern als ratio 0..1
+        (Detector-Konvention). Greift beim nächsten Watcher-Start —
+        und beim Hintergrund-Watch wird automatisch neu gestartet."""
+        if not source_id:
+            return
+        try:
+            pct = float(str(value).replace(",", "."))
+        except (TypeError, ValueError):
+            return
+        if pct < 0.1:
+            pct = 0.1
+        if pct > 50:
+            pct = 50.0
+        mma = pct / 100.0
+        self.vision_preview_sources = [
+            {**e, "motion_min_area_ratio": mma} if e["id"] == source_id else e
+            for e in self.vision_preview_sources
+        ]
+        self._persist_source_setting(source_id, "motion_min_area_ratio", mma)
+
+    @rx.event
     def set_vision_preview_resolution(self, source_id: str, value: str) -> None:
         """Persist the resolution choice for a single source. ``value`` is
         either ``"default"`` or ``"WIDTHxHEIGHT"`` (from the dropdown).
@@ -563,16 +626,35 @@ class VisionPreviewMixin(rx.State, mixin=True):
         cd = max(0.5, float(self.vision_preview_vlm_cooldown_sec))
         preview_fps = float(self.vision_preview_fps or 0.0)
         stream_fps = max(2.0, preview_fps)
+        # Continuous-Flag aus den Plugin-Settings — der Popup-Toggle
+        # aktiviert Face-Erkennung; ob die kontinuierlich oder nur
+        # motion-gated läuft, entscheidet der Settings-Schalter
+        # ``face_recognition.continuous`` (SSOT in settings.json).
+        # Default OFF = Türsteher-Modus (GPU-schonend), ON = Schreib-
+        # tisch-Modus (auch ruhige Personen werden erkannt).
+        continuous = face_on and bool(
+            getattr(self, "face_recognition_continuous", False)
+        )
+        # Per-Cam Motion-Schwelle aus der Source-Liste lesen (vom
+        # _refresh_sources eingefüttert). Default 0.02 wenn nichts
+        # gesetzt — Outdoor-Cams können das hochschrauben, um Wind
+        # in den Blättern zu ignorieren.
+        mma = 0.02
+        for e in self.vision_preview_sources:
+            if e.get("id") == source_id:
+                try:
+                    mma = float(e.get("motion_min_area_ratio", 0.02) or 0.02)
+                except (TypeError, ValueError):
+                    mma = 0.02
+                break
         cfg = WatchConfig(
             fps=stream_fps,
+            motion_min_area_ratio=mma,
             run_vlm_on_motion=False,
             run_vlm_continuous=vlm_on,
             vlm_cooldown_sec=cd,
             run_face_detect_on_motion=face_on,
-            # Mit aktivem Face-Toggle läuft face-detection
-            # kontinuierlich (motion-unabhängig), sonst nur
-            # bei motion-Events.
-            face_recognition_continuous=face_on,
+            face_recognition_continuous=continuous,
             min_event_interval_sec=max(
                 0.1, float(self.vision_preview_face_throttle_sec)
             ),
@@ -770,6 +852,8 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # Load persisted aliases + prompt-contexts the same way as resolutions.
         stored_aliases: dict[str, str] = {}
         stored_prompts: dict[str, str] = {}
+        stored_auto_start: dict[str, bool] = {}
+        stored_motion_min: dict[str, float] = {}
         try:
             from ..lib.vision_store import VisionStore
             store = VisionStore()
@@ -784,6 +868,14 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 pc = stored.get("prompt_context")
                 if isinstance(pc, str) and pc.strip():
                     stored_prompts[sid] = pc.strip()
+                # Per-Source Hintergrund-Watch + Motion-Schwelle.
+                # ``auto_start`` ist Top-Level-Spalte (Schema-Default),
+                # ``motion_min_area_ratio`` lebt im settings_json.
+                stored_auto_start[sid] = bool(stored.get("auto_start", False))
+                s = stored.get("settings") or {}
+                mma = s.get("motion_min_area_ratio")
+                if isinstance(mma, (int, float)) and 0.001 <= mma <= 0.5:
+                    stored_motion_min[sid] = float(mma)
         except Exception as e:  # noqa: BLE001
             logger.warning("vision-preview alias/prompt load failed: %s", e)
 
@@ -811,6 +903,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 "resolution": new_resolutions.get(src_info.source_id, "default"),
                 "resolution_options": options,
                 "prompt_context": stored_prompts.get(src_info.source_id, ""),
+                "auto_start": stored_auto_start.get(src_info.source_id, False),
+                "motion_min_area_ratio": stored_motion_min.get(
+                    src_info.source_id, 0.02
+                ),
             })
         self.vision_preview_sources = entries
         log_message(
@@ -947,6 +1043,70 @@ class VisionPreviewMixin(rx.State, mixin=True):
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("vision-preview alias persist failed: %s", e)
+            self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
+
+    def _persist_source_auto_start(self, source_id: str, value: bool) -> None:
+        """Toggle für Hintergrund-Watch auf der Top-Level-Spalte
+        ``sources.auto_start`` persistieren."""
+        try:
+            from ..lib.frame_sources import get as get_source
+            from ..lib.vision_store import VisionStore
+            store = VisionStore()
+            src = get_source(source_id)
+            existing = store.get_source(source_id)
+            display_name = existing.get("display_name") if existing else (
+                src.display_name if src else source_id
+            )
+            kind = existing.get("kind") if existing else (
+                src.kind if src else "webcam"
+            )
+            store.upsert_source(
+                source_id=source_id,
+                display_name=str(display_name or source_id),
+                kind=str(kind or "webcam"),
+                prompt_context=str(existing.get("prompt_context", "")) if existing else "",
+                position=str(existing.get("position", "")) if existing else "",
+                auto_start=bool(value),
+                sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
+                settings=dict(existing.get("settings", {})) if existing else {},
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vision-preview auto_start persist failed: %s", e)
+            self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
+
+    def _persist_source_setting(self, source_id: str, key: str, value: Any) -> None:
+        """Generischer Setter für ``sources.settings_json[key]``. Nutzt
+        denselben upsert-Pfad wie alias/resolution — eine Schicht
+        weniger Boilerplate für künftige per-Cam-Felder (ROI, Sensi-
+        tivität, …)."""
+        try:
+            from ..lib.frame_sources import get as get_source
+            from ..lib.vision_store import VisionStore
+            store = VisionStore()
+            src = get_source(source_id)
+            existing = store.get_source(source_id)
+            display_name = existing.get("display_name") if existing else (
+                src.display_name if src else source_id
+            )
+            kind = existing.get("kind") if existing else (
+                src.kind if src else "webcam"
+            )
+            settings = dict(existing.get("settings", {})) if existing else {}
+            settings[key] = value
+            store.upsert_source(
+                source_id=source_id,
+                display_name=str(display_name or source_id),
+                kind=str(kind or "webcam"),
+                prompt_context=str(existing.get("prompt_context", "")) if existing else "",
+                position=str(existing.get("position", "")) if existing else "",
+                auto_start=bool(existing.get("auto_start", False)) if existing else False,
+                sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
+                settings=settings,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "vision-preview setting '%s' persist failed: %s", key, e
+            )
             self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
 
     def _persist_source_resolution(self, source_id: str, resolution: str) -> None:
