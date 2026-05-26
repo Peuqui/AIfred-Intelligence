@@ -211,7 +211,21 @@ class CasusMixin(rx.State, mixin=True):
             self.casus_bulk_cancel = False
             self.casus_bulk_progress = 0
             self.casus_bulk_total = 0
-            self.casus_bulk_message = "Sammle Events …"
+            self.casus_bulk_message = "Prüfe VRAM …"
+
+        # VRAM-Vorab-Check: passt das VLM auf eine GPU? Sonst Abbruch
+        # mit klarer Fehlermeldung, damit nicht erst nach 100 Cluster
+        # ein OOM in Ollama kommt.
+        try:
+            from ..lib.vision_vram_check import check_vlm_fits
+            vram = await check_vlm_fits()
+            if not vram.fits:
+                async with self:
+                    self.casus_bulk_message = f"⚠️ {vram.message}"
+                    self.casus_bulk_running = False
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VRAM check failed (continuing anyway): %s", e)
 
         try:
             store = VisionStore()
