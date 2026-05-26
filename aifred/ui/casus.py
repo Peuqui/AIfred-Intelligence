@@ -234,6 +234,81 @@ def _event_row(event: rx.Var) -> rx.Component:
     )
 
 
+def _bulk_bar() -> rx.Component:
+    """Bulk-VLM-Analyse-Bedienleiste mit Start-Button, Progress und
+    Status-Text. Sichtbar wenn aktuell ein Bulk-Run läuft, sonst
+    nur der Start-Button."""
+    progress_pct = rx.cond(
+        AIState.casus_bulk_total > 0,
+        AIState.casus_bulk_progress * 100 / AIState.casus_bulk_total,
+        0,
+    )
+    return rx.cond(
+        AIState.casus_bulk_running,
+        rx.box(
+            rx.hstack(
+                rx.icon("sparkles", size=14, color="var(--orange-9)"),
+                rx.text(AIState.casus_bulk_message, size="1", color="gray"),
+                rx.spacer(),
+                rx.text(
+                    AIState.casus_bulk_progress.to(str) + " / " +
+                    AIState.casus_bulk_total.to(str),
+                    size="1", color="gray",
+                    style={"font_family": "monospace"},
+                ),
+                rx.button(
+                    rx.icon("x", size=12),
+                    rx.text(t("casus_bulk_cancel"), size="1"),
+                    on_click=AIState.casus_bulk_cancel_run,
+                    size="1",
+                    variant="soft",
+                    color_scheme="red",
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
+            ),
+            rx.progress(
+                value=progress_pct,
+                size="1",
+                color_scheme="orange",
+                style={"margin_top": "0.3em"},
+            ),
+            style={
+                "padding": "0.5em 0.7em",
+                "background_color": "var(--gray-2)",
+                "border": "1px solid var(--orange-9)",
+                "border_radius": "6px",
+                "width": "100%",
+            },
+        ),
+        rx.hstack(
+            rx.cond(
+                AIState.casus_bulk_message != "",
+                rx.text(
+                    AIState.casus_bulk_message,
+                    size="1", color="gray",
+                ),
+            ),
+            rx.spacer(),
+            rx.tooltip(
+                rx.button(
+                    rx.icon("sparkles", size=14),
+                    rx.text(t("casus_bulk_start"), size="1"),
+                    on_click=AIState.casus_bulk_start,
+                    size="1",
+                    variant="soft",
+                    color_scheme="orange",
+                ),
+                content=t("casus_bulk_start_tooltip"),
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
+        ),
+    )
+
+
 def _filter_bar() -> rx.Component:
     """Zeile mit Source-/Typ-/Identity-Filter + Clear-Button."""
     return rx.hstack(
@@ -436,6 +511,7 @@ def casus_modal() -> rx.Component:
                         margin_bottom="0.5em",
                     ),
                     rx.divider(),
+                    _bulk_bar(),
                     _filter_bar(),
                     rx.divider(),
                     # Event-Liste oder Leer-Zustand
