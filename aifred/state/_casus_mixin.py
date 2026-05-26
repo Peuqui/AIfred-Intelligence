@@ -61,6 +61,9 @@ class CasusMixin(rx.State, mixin=True):
     # „Wirklich löschen?" + „Abbrechen", damit nichts versehentlich
     # weggeklickt wird.
     casus_confirm_delete_all: bool = False
+    # Single-Event-VLM-Analyse: ID des Events, das gerade analysiert
+    # wird (0 = nichts läuft). Lässt die Zeile einen Spinner zeigen.
+    casus_analyzing_event_id: int = 0
 
     # ── Computed ─────────────────────────────────────────────────
 
@@ -139,6 +142,31 @@ class CasusMixin(rx.State, mixin=True):
         self.casus_page = 0
         self.casus_confirm_delete_all = False
         self._refresh_events()
+
+    # ── Single-Event-Analyse ─────────────────────────────────────
+
+    @rx.event
+    async def casus_analyze_event(self, event_id: int) -> None:
+        """VLM-Analyse für ein einzelnes Event. Klick im Casus.
+        Schreibt Beschreibung in classification.description und
+        lädt die Event-Liste neu, damit die Zeile aktualisiert wird."""
+        if self.casus_analyzing_event_id:
+            return  # einer reicht parallel
+        eid = int(event_id)
+        self.casus_analyzing_event_id = eid
+        self.casus_status = ""
+        try:
+            from ..lib.vision_event_analysis import analyze_event_with_vlm
+            text = await analyze_event_with_vlm(eid)
+            self.casus_status = f"✓ Analysiert: {text[:60]}…" if len(text) > 60 else f"✓ {text}"
+        except FileNotFoundError as e:
+            self.casus_status = f"⚠️ Frame nicht mehr auf Disk: {e}"
+        except Exception as e:  # noqa: BLE001
+            logger.warning("casus_analyze_event %d failed: %s", eid, e)
+            self.casus_status = f"⚠️ {e}"
+        finally:
+            self.casus_analyzing_event_id = 0
+            self._refresh_events()
 
     # ── Bulk-Delete ──────────────────────────────────────────────
 
