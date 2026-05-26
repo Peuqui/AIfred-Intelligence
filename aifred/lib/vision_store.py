@@ -26,7 +26,7 @@ from .config import DATA_DIR
 # Default-Speicherort. Tests übergeben einen tmp-Path im Konstruktor.
 DEFAULT_DB_PATH = DATA_DIR / "vision" / "vision.db"
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -98,10 +98,28 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             ON face_embeddings(face_id);
     """)
     row = conn.execute("SELECT version FROM schema_version").fetchone()
+    current = int(row["version"]) if row else 0
     if row is None:
         conn.execute(
             "INSERT INTO schema_version (version) VALUES (?)",
             (SCHEMA_VERSION,),
+        )
+        current = SCHEMA_VERSION
+    # Migrationen — idempotent, step-by-step von current → SCHEMA_VERSION.
+    # Step v1 → v2: cluster_id für pHash-basierte Bulk-Analyse-Dedup.
+    if current < 2:
+        cols = {
+            r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()
+        }
+        if "cluster_id" not in cols:
+            conn.execute(
+                "ALTER TABLE events ADD COLUMN cluster_id TEXT NOT NULL DEFAULT ''"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_cluster_id ON events(cluster_id)"
+        )
+        conn.execute(
+            "UPDATE schema_version SET version = ?", (2,)
         )
 
 
@@ -645,6 +663,97 @@ class VisionStore:
                 "SELECT DISTINCT source_id FROM events ORDER BY source_id"
             ).fetchall()
         return [str(r["source_id"]) for r in rows]
+
+    def set_event_cluster(self, event_id: int, cluster_id: str) -> bool:
+        """cluster_id eines Events setzen — vom Bulk-Worker (Story 4)
+        nach pHash-Cluster-Berechnung gerufen."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE events SET cluster_id = ? WHERE id = ?",
+                (cluster_id, event_id),
+            )
+            return cur.rowcount > 0
+
+    def list_events_without_description(
+        self,
+        *,
+        source_id: str | None = None,
+        event_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Events die noch keine VLM-Beschreibung haben. Genau das,
+        was der Bulk-Worker braucht — sortiert chronologisch (älteste
+        zuerst, weil sie sich für Time-Bucket-Clustering eignen)."""
+        clauses: list[str] = ["(json_extract(classification, '$.description') IS NULL"
+                              " OR json_extract(classification, '$.description') = '')"]
+        params: list[Any] = []
+        if source_id:
+            clauses.append("source_id = ?")
+            params.append(source_id)
+        if event_types:
+            placeholders = ",".join("?" for _ in event_types)
+            clauses.append(f"event_type IN ({placeholders})")
+            params.extend(event_types)
+        # Nur Events mit Frame-Pfad — sonst kein Bild zum Analysieren.
+        clauses.append("frame_path != ''")
+        where = " WHERE " + " AND ".join(clauses)
+        params.append(limit)
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, source_id, event_type, timestamp, frame_path, "
+                "classification, cluster_id "
+                f"FROM events{where} "
+                "ORDER BY timestamp ASC LIMIT ?",
+                tuple(params),
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            try:
+                cls = json.loads(r["classification"] or "{}")
+            except Exception:  # noqa: BLE001
+                cls = {}
+            result.append({
+                "id": int(r["id"]),
+                "source_id": str(r["source_id"]),
+                "event_type": str(r["event_type"]),
+                "timestamp": str(r["timestamp"]),
+                "frame_path": str(r["frame_path"]),
+                "cluster_id": str(r["cluster_id"] or ""),
+                "classification": cls,
+            })
+        return result
+
+    def apply_cluster_description(
+        self, cluster_id: str, description: str, analyzed_by: str,
+    ) -> int:
+        """Beschreibung an alle Events eines Clusters anwenden — wird
+        vom Bulk-Worker nach VLM-Call auf den Repräsentanten gerufen,
+        damit auch die anderen Cluster-Mitglieder als „analysiert"
+        zählen, ohne dass VLM jedes einzeln durchlief. Returnt Anzahl
+        der aktualisierten Zeilen."""
+        from datetime import datetime
+        analyzed_at = datetime.now().isoformat(timespec="seconds")
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, classification FROM events WHERE cluster_id = ?",
+                (cluster_id,),
+            ).fetchall()
+            updated = 0
+            for r in rows:
+                try:
+                    cls = json.loads(r["classification"] or "{}")
+                except Exception:  # noqa: BLE001
+                    cls = {}
+                cls["description"] = description
+                cls["analyzed_at"] = analyzed_at
+                cls["analyzed_by"] = analyzed_by
+                cls["analyzed_via"] = "cluster"
+                conn.execute(
+                    "UPDATE events SET classification = ? WHERE id = ?",
+                    (json.dumps(cls), int(r["id"])),
+                )
+                updated += 1
+            return updated
 
     def delete_events_filtered(
         self,
