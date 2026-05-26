@@ -500,9 +500,13 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     size="2",
                     resize="vertical",
                     style={
+                        # 1/4-Anteil an der rechten Spalte — Briefing
+                        # ist meist nur ein, zwei Sätze. ``resize:
+                        # vertical`` lässt den User bei längeren
+                        # Texten manuell vergrößern.
                         "width": "100%",
                         "flex": "1 1 0",
-                        "min_height": "80px",
+                        "min_height": "60px",
                         "font_family": "var(--default-font-family)",
                     },
                 ),
@@ -519,12 +523,12 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     class_name="vlm-face-target",
                     custom_attrs={"data-vlm-face-source": sid},
                     style={
-                        # 50/50-Verteilung mit dem Briefing-Textarea:
-                        # beide bekommen ``flex: 1 1 0`` mit derselben
-                        # ``min_height``, der Spalten-vstack teilt die
-                        # verfügbare Höhe gleichmäßig.
-                        "flex": "1 1 0",
-                        "min_height": "80px",
+                        # 3/4-Anteil an der rechten Spalte — hier
+                        # sammeln sich alle erkannten Personen-Events
+                        # mit Mini-Thumbs, das braucht deutlich mehr
+                        # vertikalen Platz als das Briefing.
+                        "flex": "3 1 0",
+                        "min_height": "180px",
                         "overflow_y": "auto",
                         "padding": "0.4em 0.6em",
                         "background_color": "rgba(0, 0, 0, 0.3)",
