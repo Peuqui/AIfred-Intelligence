@@ -661,7 +661,7 @@ FACE_DETECT_GPU_ID = 4
 VLM_VRAM_BUDGET_MB: dict[str, int] = {
     # Werte gelten für VLM_NUM_CTX = 8192. Beim Wechsel auf höhere
     # Kontext-Größen entsprechend hochsetzen (KV-Cache wächst linear).
-    "qwen3-vl:4b-instruct-q8_0": 6500,
+    "qwen3-vl:4b-instruct-q8_0": 7100,
     "qwen3-vl:8b-instruct-q8_0": 10500,
     # 30B-A3B passt mit 8K-Context und Q8 grade-so auf eine V100
     # (32 GB): aus Ollama-Logs gemessen — 29.6 GB Weights + 384 MB
