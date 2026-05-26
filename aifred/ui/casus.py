@@ -206,6 +206,17 @@ def _event_row(event: rx.Var) -> rx.Component:
         ),
         _thumb(event),
         _event_type_badge(event),
+        # Cluster-Member-Badge — nur sichtbar im Cluster-Mode wenn der
+        # Cluster mehr als 1 Mitglied hat. Tooltip zeigt Cluster-ID.
+        rx.cond(
+            event["cluster_member_count"] > 1,
+            rx.badge(
+                "+" + (event["cluster_member_count"] - 1).to(str),
+                color_scheme="purple",
+                variant="soft",
+                size="1",
+            ),
+        ),
         rx.text(
             event["source_id"],
             size="1",
@@ -363,6 +374,23 @@ def _filter_bar() -> rx.Component:
             on_change=AIState.casus_set_filter_face,
         ),
         rx.spacer(),
+        # Cluster-Mode-Toggle — eine Zeile pro pHash-Cluster statt aller
+        # Events einzeln. Nützlich nach Bulk-Analyse, wenn man die
+        # 1000 identischen „Person am Schreibtisch"-Events bündeln will.
+        rx.hstack(
+            rx.text(
+                t("casus_cluster_mode_label"),
+                size="1", color="gray",
+            ),
+            rx.switch(
+                checked=AIState.casus_cluster_mode,
+                on_change=AIState.casus_toggle_cluster_mode,
+                size="1",
+                color_scheme="orange",
+            ),
+            spacing="1",
+            align="center",
+        ),
         rx.button(
             t("casus_filter_clear"),
             on_click=AIState.casus_clear_filters,

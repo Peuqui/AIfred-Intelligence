@@ -583,7 +583,8 @@ class VisionStore:
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         query = (
             "SELECT e.id, e.source_id, e.event_type, e.timestamp, e.confidence, "
-            "e.classification, e.frame_path, e.face_id, f.name AS face_name "
+            "e.classification, e.frame_path, e.face_id, e.cluster_id, "
+            "f.name AS face_name "
             "FROM events e "
             "LEFT JOIN faces f ON f.id = e.face_id"
             f"{where} "
@@ -612,6 +613,7 @@ class VisionStore:
                 "face_name": str(r["face_name"]) if r["face_name"] else "",
                 "area_ratio": float(cls.get("area_ratio") or 0.0),
                 "description": str(cls.get("description") or ""),
+                "cluster_id": str(r["cluster_id"] or ""),
             })
         return result
 
