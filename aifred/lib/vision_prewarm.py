@@ -129,7 +129,9 @@ async def prewarm_vlm(
     # eats ~26 GB of KV-cache on top of 4 GB weights = ~30 GB VRAM.
     # Image analysis doesn't need that — 4-8K tokens fits a picture
     # plus prompt and response with room to spare.
-    num_ctx = int(vlm_cfg.get("num_ctx", 4096))
+    # Fixer Vision-Context aus config.py — SSOT für alle VLM-Pfade.
+    from .config import VLM_NUM_CTX
+    num_ctx = VLM_NUM_CTX
     logger.info(
         "prewarm_vlm: loading model=%s keep_alive=%s num_ctx=%d timeout=%.0fs",
         model, keep_alive, num_ctx, timeout_seconds,
@@ -154,6 +156,41 @@ async def prewarm_vlm(
         logger.warning("prewarm_vlm: ollama call failed: %s", e)
         return False
     return True
+
+
+async def is_vlm_loaded(model: str | None = None, host: str | None = None) -> bool:
+    """Prüft via Ollama ``/api/ps`` ob das angegebene Modell aktuell
+    im VRAM liegt. Ohne ``model``-Arg wird der konfigurierte VLM aus
+    settings.json genommen.
+
+    Wird vom Load/Unload-Toggle in der UI gerufen, um den Initial-
+    Status zu setzen — sonst weiß die UI nicht, ob das Modell vor
+    dem Page-Load schon (z.B. durch ein anderes Tool) geladen war."""
+    target = model or get_active_vlm_model()
+    if not target:
+        return False
+    try:
+        from ollama import AsyncClient
+    except ImportError as e:
+        logger.warning("is_vlm_loaded: ollama python client missing: %s", e)
+        return False
+    cfg = _load_vision_settings()
+    vlm_cfg = cfg.get("vlm", {})
+    from .config import resolve_vlm_host
+    effective_host = host or vlm_cfg.get("host") or resolve_vlm_host()
+    client = AsyncClient(host=effective_host)
+    try:
+        # ollama-python AsyncClient.ps() liefert die laufenden Modelle.
+        result = await client.ps()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("is_vlm_loaded: ps() failed: %s", e)
+        return False
+    models = getattr(result, "models", None) or result.get("models", [])
+    for m in models:
+        name = getattr(m, "name", None) or (m.get("name") if isinstance(m, dict) else None)
+        if name == target:
+            return True
+    return False
 
 
 def prewarm_vlm_sync(**kwargs: Any) -> bool:

@@ -108,6 +108,27 @@ def _header_row() -> rx.Component:
                 value=AIState.vision_model_value,
                 on_change=AIState.set_vision_model_value,
             ),
+            # Power-Toggle: VLM-Modell in/aus Ollama-VRAM laden.
+            # Solid + orange = geladen, soft + gray = entladen.
+            rx.tooltip(
+                rx.icon_button(
+                    rx.icon("power", size=14),
+                    on_click=AIState.toggle_vlm_model_loaded,
+                    size="2",
+                    variant=rx.cond(
+                        AIState.vlm_model_loaded, "solid", "soft",
+                    ),
+                    color_scheme=rx.cond(
+                        AIState.vlm_model_loaded, "orange", "gray",
+                    ),
+                    loading=AIState.vlm_model_busy,
+                ),
+                content=rx.cond(
+                    AIState.vlm_model_loaded,
+                    t("vlm_unload_tooltip"),
+                    t("vlm_load_tooltip"),
+                ),
+            ),
         ),
         _header_group(
             t("vision_preview_cooldown_label"),

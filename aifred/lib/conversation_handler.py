@@ -856,18 +856,19 @@ async def extract_structured_data_from_images(
     # Model limit (fallback to 128K if detection failed)
     model_limit = intrinsic_num_ctx or 131072
 
-    # Check for manual vision context override (PERSISTENT setting from UI)
-    # Note: num_predict removed - Ollama ignores it for thinking models anyway
+    # VLM-Context: Default aus config.py (VLM_NUM_CTX = SSOT). Der
+    # „Erweitert → Vision"-Toggle in der UI kann ihn als Override
+    # hochfahren — sinnvoll zum Experimentieren mit großen Modellen
+    # / hoher Bild-Auflösung. Default-Wert reicht für Türsteher-
+    # Beschreibungen.
+    from .config import VLM_NUM_CTX
     if state and getattr(state, 'vision_num_ctx_enabled', False):
-        manual_ctx = getattr(state, 'vision_num_ctx', 32768)
-        num_ctx = min(manual_ctx, model_limit)
-        ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (MANUAL)"
-        ctx_msg2 = f"   (Manual: {format_number(manual_ctx)}, Model-max: {format_number(model_limit)})"
+        num_ctx = int(getattr(state, 'vision_num_ctx', VLM_NUM_CTX))
+        ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (MANUAL OVERRIDE)"
     else:
-        # Use the VRAM-calibrated context directly (no "needed" calculation!)
-        num_ctx = min(vram_num_ctx, model_limit)
-        ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (calibrated)"
-        ctx_msg2 = f"   (VRAM-max: {format_number(vram_num_ctx)}, Model-max: {format_number(model_limit)})"
+        num_ctx = VLM_NUM_CTX
+        ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (VLM_NUM_CTX)"
+    ctx_msg2 = f"   (Model-max: {format_number(model_limit)})"
 
     # Log the context choice
     yield {"type": "debug", "message": ctx_msg1}

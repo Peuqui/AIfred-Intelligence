@@ -648,6 +648,39 @@ FACE_DETECT_USE_GPU = False
 FACE_DETECT_GPU_ID = 4
 
 # ============================================================
+# VLM VRAM-BUDGET (gemessene Werte pro Modell)
+# ============================================================
+# Tatsächliche VRAM-Belegung in MiB pro Ollama-VLM-Modell. Wird vom
+# Bulk-Worker (Story 4) genutzt, um vor dem Start zu prüfen ob das
+# Modell auf die Ziel-GPU passt. Wenn nicht: Liste verdrängbarer
+# Modelle anzeigen.
+#
+# Werte direkt am laufenden System gemessen via ``nvidia-smi`` nach
+# einem ``prewarm_vlm()``-Call (Ollama-Overhead schon eingerechnet,
+# inklusive Vision-Encoder + KV-Cache bei num_ctx=4096).
+VLM_VRAM_BUDGET_MB: dict[str, int] = {
+    "qwen3-vl:4b-instruct-q8_0": 6500,
+    "qwen3-vl:8b-instruct-q8_0": 10500,
+    # Trag weitere Modelle hier ein, wenn du sie testest. Fallback
+    # für unbekannte Modelle: GGUF-Size × 1.4 (siehe vision_prewarm).
+}
+
+# Fixer ``num_ctx`` für ALLE VLM-Anfragen (Chat-Pfad + Vigilantia-
+# Pfad). Keine Calibration, kein Manual-Override — einfach ein
+# vernünftiger Wert, der für die typischen Vision-Use-Cases reicht.
+#
+# Token-Bedarf je Bild (qwen3-vl smart-resize):
+#   640×480 (VGA)         ~  768 Tokens
+#   1080p                  ~ 1280 Tokens
+#   4K resized 1 MP        ~ 1280 Tokens  (Default-max_pixels)
+#   Panorama 2:1 hi-res    ~ 2500–5000 Tokens
+#
+# 8192 deckt das alles ab plus System-Prompt + Antwort, hält das
+# KV-Cache-VRAM klein. Wer wirklich 4K-Bilder mit max_pixels > 2 MP
+# ausreizen will, setzt den Wert hier hoch (zentrale SSOT).
+VLM_NUM_CTX = 8192
+
+# ============================================================
 # DEBUG LOG PERSISTENCE
 # ============================================================
 # Maximum number of debug log entries to persist in session

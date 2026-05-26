@@ -84,8 +84,9 @@ class CasusMixin(rx.State, mixin=True):
     # ── Modal lifecycle ───────────────────────────────────────────
 
     @rx.event
-    def open_casus(self) -> None:
-        """Modal öffnen — Filter-Optionen laden + erste Seite holen."""
+    async def open_casus(self) -> None:
+        """Modal öffnen — Filter-Optionen laden, erste Seite holen,
+        VLM-Status für den Power-Toggle im Header abfragen."""
         self.casus_open = True
         self.casus_page = 0
         self.casus_status = ""
@@ -94,6 +95,13 @@ class CasusMixin(rx.State, mixin=True):
         self.casus_confirm_delete_all = False
         self._refresh_filter_options()
         self._refresh_events()
+        # VLM-Power-Toggle braucht den realen Ollama-Status.
+        try:
+            from ..lib.vision_prewarm import is_vlm_loaded
+            model = getattr(self, "vision_model_value", None)
+            self.vlm_model_loaded = await is_vlm_loaded(model)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
 
     @rx.event
     def close_casus(self) -> None:

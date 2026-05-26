@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # Defaults — übersteuerbar pro Call oder via Plugin-Settings.
 DEFAULT_MODEL = "qwen2.5vl:7b-q8_0"
-DEFAULT_NUM_CTX = 4096
+from .config import VLM_NUM_CTX as DEFAULT_NUM_CTX  # noqa: E402  SSOT für VLM-Context
 DEFAULT_KEEP_ALIVE = "30m"
 DEFAULT_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
