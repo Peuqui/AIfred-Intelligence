@@ -312,16 +312,14 @@ async def resolve_vlm_reserve(
       and ``vlm.model`` from settings.json are ignored. This is how the
       multi-variant loop measures each user-selected VLM independently.
 
-    Resolution order (cheapest first), identical in both modes:
+    Resolution order — hardware-agnostic, no hand-pinned tables:
 
-    1. **Static table** :data:`config.VLM_VRAM_BUDGET_MB` — hand-measured,
-       headroom already baked in.
-    2. **JSON cache** :mod:`vlm_vram_cache` — previous stress-prewarm runs.
+    1. **JSON cache** :mod:`vlm_vram_cache` — previous stress-prewarm runs.
        Adds :data:`config.LLAMACPP_VLM_HEADROOM_MB` on top.
-    3. **Stress prewarm** (cold path) — fires a worst-case inference, writes
+    2. **Stress prewarm** (cold path) — fires a worst-case inference, writes
        the peak to the cache, returns ``peak + headroom``.
 
-    Failure of step 3 returns ``(uuid, 0)`` — caller should warn and skip
+    Failure of step 2 returns ``(uuid, 0)`` — caller should warn and skip
     the reservation. The alternative (a fabricated default) would either
     over-allocate (waste VRAM) or under-allocate (OOM) without any signal
     to the user; better to surface the problem than paper over it.
@@ -348,19 +346,11 @@ async def resolve_vlm_reserve(
     if not uuid:
         return None, 0
 
-    # 3. Resolve reserve_mb
-    from .config import VLM_VRAM_BUDGET_MB, LLAMACPP_VLM_HEADROOM_MB
+    # 3. Resolve reserve_mb — agnostic, cache + stress prewarm only.
+    from .config import LLAMACPP_VLM_HEADROOM_MB
     from . import vlm_vram_cache
 
-    # 3a. Static table — exact measurement, headroom already in the value.
-    if model_id in VLM_VRAM_BUDGET_MB:
-        reserve = VLM_VRAM_BUDGET_MB[model_id]
-        logger.info(
-            "vlm reserve: static table hit for %s → %d MiB", model_id, reserve,
-        )
-        return uuid, reserve
-
-    # 3b. Cache hit — stress-measured peak + runtime headroom.
+    # 3a. Cache hit — stress-measured peak + runtime headroom.
     cached = vlm_vram_cache.get(model_id, num_ctx)
     if cached:
         reserve = cached + LLAMACPP_VLM_HEADROOM_MB
@@ -370,7 +360,7 @@ async def resolve_vlm_reserve(
         )
         return uuid, reserve
 
-    # 3c. Cold path — stress prewarm + persist.
+    # 3b. Cold path — stress prewarm + persist.
     logger.info(
         "vlm reserve: cold path — stress-prewarming %s at num_ctx=%d on gpu=%d",
         model_id, num_ctx, gpu_idx,

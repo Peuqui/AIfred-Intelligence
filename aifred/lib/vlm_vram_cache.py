@@ -102,3 +102,28 @@ def put(model_id: str, num_ctx: int, peak_mb: int, source: str = "stress_prewarm
         "vlm_vram_cache: stored model=%s num_ctx=%d peak=%d MiB",
         model_id, num_ctx, peak_mb,
     )
+
+
+def clear() -> int:
+    """Drop all cached measurements. Returns count of removed entries.
+    Used by the UI reset button — the next calibration re-measures via
+    stress prewarm."""
+    with _lock:
+        data = _load()
+        count = len(data)
+        _save({})
+    logger.info("vlm_vram_cache: cleared %d entries", count)
+    return count
+
+
+def clear_one(model_id: str) -> bool:
+    """Drop a single model's measurement. Returns True if there was
+    something to remove."""
+    with _lock:
+        data = _load()
+        if model_id not in data:
+            return False
+        del data[model_id]
+        _save(data)
+    logger.info("vlm_vram_cache: cleared model=%s", model_id)
+    return True

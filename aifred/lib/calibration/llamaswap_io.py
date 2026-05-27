@@ -649,12 +649,17 @@ def add_llamaswap_tts_variant(
     cmd = set_context(cmd, tts_context)
     cmd = set_kv_quant(cmd, kv_quant)
     if tensor_split:
-        # llama.cpp's `-ts` wants COMMA-separated values. Some callers pass
-        # the colon-form used internally for log/sentinel formatting — normalize
-        # here so the YAML always lands with the format llama.cpp can parse.
+        # llama.cpp's `--tensor-split` wants COMMA-separated values. Some
+        # callers pass the colon-form used internally for log/sentinel
+        # formatting — normalize here so the YAML always lands with the
+        # format llama.cpp can parse. Use the long ``--tensor-split``
+        # form to stay consistent with the BASE writer (the short ``-ts``
+        # and the long form are functionally identical, but mixing both
+        # in the same YAML makes diffs and grep harder).
         ts_normalized = tensor_split.replace(":", ",")
         cmd = re.sub(
-            r"(--tensor-split|-ts)\s+[\d.,:]+", f"-ts {ts_normalized}", cmd,
+            r"(--tensor-split|-ts)\s+[\d.,:]+",
+            f"--tensor-split {ts_normalized}", cmd,
         )
     entry["cmd"] = cmd
 
@@ -830,9 +835,12 @@ def add_llamaswap_vlm_variant(
     cmd = set_context(cmd, vlm_context)
     cmd = set_kv_quant(cmd, kv_quant)
     if tensor_split:
+        # Same rationale as the TTS writer: long-form ``--tensor-split``
+        # keeps the YAML consistent with the BASE writer.
         ts_normalized = tensor_split.replace(":", ",")
         cmd = re.sub(
-            r"(--tensor-split|-ts)\s+[\d.,:]+", f"-ts {ts_normalized}", cmd,
+            r"(--tensor-split|-ts)\s+[\d.,:]+",
+            f"--tensor-split {ts_normalized}", cmd,
         )
     entry["cmd"] = cmd
 

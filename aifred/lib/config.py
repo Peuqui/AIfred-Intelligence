@@ -678,21 +678,6 @@ VLM_CALIBRATION_CHOICES: list[dict[str, str]] = [
 ]
 
 
-VLM_VRAM_BUDGET_MB: dict[str, int] = {
-    # Werte gelten für VLM_NUM_CTX = 8192. Beim Wechsel auf höhere
-    # Kontext-Größen entsprechend hochsetzen (KV-Cache wächst linear).
-    "qwen3-vl:4b-instruct-q8_0": 7100,
-    "qwen3-vl:8b-instruct-q8_0": 10500,
-    # 30B-A3B passt mit 8K-Context und Q8 grade-so auf eine V100
-    # (32 GB): aus Ollama-Logs gemessen — 29.6 GB Weights + 384 MB
-    # KV + 512 MB Compute-Graph = 30.5 GB. +500 MB Reserve (VRAM-
-    # Check) → 31 GB → bleibt ~1 GB für TTS o.ä. Wenn TTS auf V100
-    # läuft: nicht laden, sonst spillover oder OOM.
-    "qwen3-vl:30b-a3b-instruct-q8_0": 30800,
-    # Trag weitere Modelle hier ein, wenn du sie testest. Fallback
-    # für unbekannte Modelle: GGUF-Size × 1.4 (siehe vision_prewarm).
-}
-
 # Fixer ``num_ctx`` für ALLE VLM-Anfragen (Chat-Pfad + Vigilantia-
 # Pfad). Keine Calibration, kein Manual-Override — einfach ein
 # vernünftiger Wert, der für die typischen Vision-Use-Cases reicht.
@@ -847,12 +832,17 @@ RESEARCH_DEEP_URLS = 7
 # cause cudaMalloc OOM → GGML_ASSERT crash during ggml_gallocr reallocation.
 LLAMACPP_VISION_VRAM_RESERVE = 768  # MB (~682 measured + margin)
 
-# Extra headroom added on top of a cached/stress-measured VLM peak before
-# subtracting from the LLM's VRAM budget. Covers Ollama compute-graph
-# reallocation spikes and small drift between calibration-time measurement
-# and production-time peak. Not applied to the hand-measured static entries
-# in :data:`VLM_VRAM_BUDGET_MB` — those already include a safety buffer.
+# Extra headroom added on top of the stress-prewarm-measured VLM peak
+# before subtracting from the LLM's VRAM budget. Covers Ollama
+# compute-graph reallocation spikes and small drift between
+# calibration-time measurement and production-time peak.
 LLAMACPP_VLM_HEADROOM_MB = 500
+
+# Extra headroom added on top of the stress-burn-in-measured TTS peak
+# before subtracting from the LLM's VRAM budget on the TTS GPU. 512 MB
+# covers minor run-to-run drift between the burn-in and production
+# inference, plus container restart overhead.
+LLAMACPP_TTS_BURNIN_HEADROOM_MB = 512
 
 # TTS VRAM reserve for tensor-split calculation (MB).
 # TTS models can spike during inference (e.g. MOSS-TTS: ~350 MB peak above idle).

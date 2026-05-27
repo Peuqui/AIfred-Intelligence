@@ -94,8 +94,9 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     Wenn ``fits=False``: Caller sollte den User informieren mit
     ``message`` + ``blockers`` und nicht starten.
     """
-    from .config import VLM_NUM_CTX, VLM_VRAM_BUDGET_MB, resolve_vlm_host
+    from .config import VLM_NUM_CTX, resolve_vlm_host
     from .vision_prewarm import get_active_vlm_model
+    from . import vlm_vram_cache
 
     target = model or get_active_vlm_model()
     if not target:
@@ -104,11 +105,15 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
             message="Kein VLM-Modell konfiguriert.",
         )
 
-    needed_mb = VLM_VRAM_BUDGET_MB.get(target, 0)
+    # Primary source: stress-prewarm-measured peak from the VLM VRAM
+    # cache. Populated lazily by the calibration's resolve_vlm_reserve;
+    # if the user hasn't calibrated this VLM yet, fall back to the
+    # GGUF-size × 1.4 heuristic below.
+    needed_mb = vlm_vram_cache.get(target, VLM_NUM_CTX) or 0
     if needed_mb == 0:
         # Fallback: GGUF-Datei-Size × 1.4 (Faustregel, bestätigt mit
-        # 4B/8B-Messungen). Wer einen genaueren Wert will, trägt ihn
-        # in VLM_VRAM_BUDGET_MB ein.
+        # 4B/8B-Messungen). Bessere Werte kommen automatisch beim
+        # nächsten Kalibrationslauf via Stress-Burn-In.
         try:
             from ollama import AsyncClient
             client = AsyncClient(host=resolve_vlm_host())

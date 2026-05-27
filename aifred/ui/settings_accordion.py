@@ -153,6 +153,32 @@ def _calibration_picker_button() -> rx.Component:
                         width="100%",
                     ),
                 ),
+                # VRAM-Cache reset row — forces a fresh stress-burn-in
+                # measurement on the next calibration. Useful after a
+                # container update or when the user wants to re-validate.
+                rx.divider(margin_y="2px"),
+                rx.hstack(
+                    rx.button(
+                        rx.icon("rotate-ccw", size=11),
+                        rx.text("VLM-Cache", font_size="10px"),
+                        on_click=AIState.reset_vlm_vram_cache,
+                        size="1",
+                        variant="outline",
+                        color_scheme="gray",
+                        flex="1",
+                    ),
+                    rx.button(
+                        rx.icon("rotate-ccw", size=11),
+                        rx.text("TTS-Cache", font_size="10px"),
+                        on_click=AIState.reset_tts_vram_cache,
+                        size="1",
+                        variant="outline",
+                        color_scheme="gray",
+                        flex="1",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
                 spacing="2",
                 align="stretch",
             ),
