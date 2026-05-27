@@ -8,11 +8,33 @@ from __future__ import annotations
 
 import re
 from collections.abc import AsyncGenerator
-from typing import Any
+from pathlib import Path
+from typing import Any, TypedDict
 
 import reflex as rx
 
 from ..lib.logging_utils import CONSOLE_SEPARATOR
+
+
+class CalibrationCell(TypedDict):
+    """One checkbox cell in the calibration picker matrix.
+
+    Module-level TypedDict so Reflex can introspect the nested foreach
+    over ``row["cells"]`` — without an explicit element type the inner
+    iterator trips with ``ForeachVarError: Could not foreach over var
+    of type Any``.
+    """
+    key: str
+    checked: bool
+    already_calibrated: bool
+
+
+class CalibrationRow(TypedDict):
+    """One row in the calibration picker matrix (one VLM choice). The
+    first cell is the "no TTS" column, the remaining cells follow the
+    TTS engines in registry order."""
+    label: str
+    cells: list[CalibrationCell]
 
 
 # Verify ("probe") lines from flow._fmt_verify always start with a
@@ -78,13 +100,21 @@ class CalibrationMixin(rx.State, mixin=True):
     # inference. Toggle on for models that exceed total GPU VRAM.
     calibration_allow_hybrid: bool = False
 
-    # Per-engine selection for the next calibration run. Filled by
-    # ``open_calibration_picker`` with one entry per *installed* GPU TTS
-    # engine (key → checked). Step-5 of the calibration filters against
-    # this map so a 235B base + only-Qwen3 takes minutes instead of hours.
-    # Reset every time the user opens the picker — this is a per-click
-    # decision, not a persisted preference.
-    tts_calibration_selection: dict[str, bool] = {}
+    # Matrix-style selection for the next calibration run. One entry
+    # per (VLM × TTS) combination the user ticked in the picker. Key
+    # format: ``"<vlm_key>|<tts_engine_key>"`` — either side empty for
+    # "none". Examples:
+    #
+    #   ``"|"``                       → BASE (no VLM, no TTS)
+    #   ``"|qwen3local"``             → BASE + Qwen3-TTS variant
+    #   ``"qwen3vl4b|"``              → BASE + Vigilantia-4B variant
+    #   ``"qwen3vl4b|qwen3local"``    → Vigilantia-4B × Qwen3-TTS combo
+    #
+    # The calibration iterates this map exactly once, no hidden mode
+    # switching — what the user clicked is what gets calibrated.
+    # Resets every time the picker opens (per-click decision, not
+    # persisted).
+    calibration_matrix: dict[str, bool] = {}
 
     # Revision counter — bumped whenever something writes to agents.json
     # so that reactive computed vars (e.g. calibration_ai_label) re-read
@@ -133,74 +163,120 @@ class CalibrationMixin(rx.State, mixin=True):
     # ------------------------------------------------------------------
 
     @rx.var
-    def calibration_picker_items(self) -> list[dict]:
-        """Picker items: base row first, then one row per installed GPU
-        TTS engine. Each item carries ``{key, label, checked,
-        already_calibrated, is_base}``. ``key="__base__"`` flags the
-        base-calibration row so the UI and the handlers can treat it
-        specially without parsing the label.
+    def calibration_matrix_header(self) -> list[str]:
+        """Column labels for the calibration picker matrix — first cell
+        is the row-header placeholder, then one label per TTS column
+        ("Kein TTS" + each installed GPU TTS engine). Computed so the
+        UI can render the header row with a single ``rx.foreach``."""
+        from aifred.lib.tts_engines import installed_gpu_engines
+        return ["", "Kein TTS", *[e.label_short for e in installed_gpu_engines()]]
 
-        ``already_calibrated`` is the **real** calibration status from
-        the vram cache (``gpu_model != ""``), not just "entry exists in
-        llama-swap.yaml". autoscan writes a preliminary entry with
-        ``gpu_model=""`` for every newly discovered GGUF; that doesn't
-        count — only a measurement from the AIfred calibration flow does.
+    @rx.var
+    def calibration_matrix_rows(self) -> list[CalibrationRow]:
+        """One entry per VLM choice (including "no VLM"). Each entry
+        carries ``{label, cells}`` where ``cells`` is a list of dicts
+        ``{key, checked, already_calibrated}`` — one per TTS column.
+
+        ``key`` is the matrix key in the form ``"<vlm_key>|<tts_key>"``
+        (empty side for "none"). The UI binds each cell's checkbox to
+        ``calibration_matrix[key]`` and toggles via
+        :meth:`set_calibration_matrix_cell`.
+
+        ``already_calibrated`` reflects the real cache state — the
+        green dot appears only when ``gpu_model`` is set on the cache
+        entry, not just because a preliminary autoscan record exists.
         """
         from aifred.lib.tts_engines import installed_gpu_engines
         from aifred.lib.model_vram_cache import (
             is_model_calibrated,
             is_tts_variant_calibrated,
+            is_vlm_variant_calibrated,
+            load_cache,
         )
+        from aifred.lib.config import VLM_CALIBRATION_CHOICES
 
         model_id = getattr(self, "aifred_model_id", "") or ""
-        base_done = bool(model_id) and is_model_calibrated(model_id)
+        engines = list(installed_gpu_engines())
+        cache = load_cache() if model_id else {}
 
-        items: list[dict] = [{
-            "key": "__base__",
-            "label": "Basis-Kalibrierung",
-            "checked": self.tts_calibration_selection.get("__base__", False),
-            "already_calibrated": base_done,
-            "is_base": True,
-        }]
-        for e in installed_gpu_engines():
+        def _combo_done(vlm_key: str, tts_key: str) -> bool:
+            if not model_id:
+                return False
+            full_id = f"{model_id}-tts-{tts_key}-vlm-{vlm_key}"
+            entry = cache.get(full_id)
+            return bool(entry and entry.get("gpu_model"))
+
+        rows: list[dict] = []
+
+        # "Kein VLM" row — covers BASE + plain TTS variants.
+        no_vlm_cells: list[dict] = []
+        no_vlm_cells.append({
+            "key": "|",
+            "checked": self.calibration_matrix.get("|", False),
+            "already_calibrated": is_model_calibrated(model_id) if model_id else False,
+        })
+        for e in engines:
             done = bool(model_id) and is_tts_variant_calibrated(model_id, e.key)
-            items.append({
-                "key": e.key,
-                "label": e.label_short,
-                "checked": self.tts_calibration_selection.get(e.key, False),
+            no_vlm_cells.append({
+                "key": f"|{e.key}",
+                "checked": self.calibration_matrix.get(f"|{e.key}", False),
                 "already_calibrated": done,
-                "is_base": False,
             })
-        return items
+        rows.append({"label": "Kein VLM", "cells": no_vlm_cells})
+
+        # One row per VLM choice — first cell is VLM-only, then each
+        # column is a VLM × TTS combination.
+        for choice in VLM_CALIBRATION_CHOICES:
+            vlm_key = choice["key"]
+            vlm_label = choice["label"]
+            cells: list[dict] = []
+            vlm_only_done = (
+                bool(model_id) and is_vlm_variant_calibrated(model_id, vlm_key)
+            )
+            cells.append({
+                "key": f"{vlm_key}|",
+                "checked": self.calibration_matrix.get(f"{vlm_key}|", False),
+                "already_calibrated": vlm_only_done,
+            })
+            for e in engines:
+                combo_key = f"{vlm_key}|{e.key}"
+                cells.append({
+                    "key": combo_key,
+                    "checked": self.calibration_matrix.get(combo_key, False),
+                    "already_calibrated": _combo_done(vlm_key, e.key),
+                })
+            rows.append({"label": vlm_label, "cells": cells})
+
+        return rows
 
     def open_calibration_picker(self) -> None:
-        """Sync the picker selection with the installed engines without
-        discarding the user's previous choice — the picker stays sticky
-        within a session: close it, reopen it, the checkboxes are still
-        where you left them.
-
-        On first open every item defaults to unchecked (the user
-        explicitly ticks what to calibrate). A freshly installed engine
-        shows up as a new, unchecked entry; engines already in the map
-        keep their state."""
+        """Initialize the matrix map with one entry per cell on first
+        open. The picker stays sticky within a session — close it,
+        reopen it, the checkboxes are still where the user left them.
+        Newly installed engines show up as fresh unchecked entries."""
         from aifred.lib.tts_engines import installed_gpu_engines
-        cur = dict(self.tts_calibration_selection)
-        for key in ["__base__", *(e.key for e in installed_gpu_engines())]:
-            cur.setdefault(key, False)
-        self.tts_calibration_selection = cur
+        from aifred.lib.config import VLM_CALIBRATION_CHOICES
+        cur = dict(self.calibration_matrix)
+        engines = [e.key for e in installed_gpu_engines()]
+        vlm_keys = ["", *(c["key"] for c in VLM_CALIBRATION_CHOICES)]
+        tts_keys = ["", *engines]
+        for v in vlm_keys:
+            for t in tts_keys:
+                cur.setdefault(f"{v}|{t}", False)
+        self.calibration_matrix = cur
 
-    def set_calibration_tts_engine(self, payload: list) -> None:
-        """Set one item's checkbox to ``checked``. ``payload`` is the
-        Reflex-friendly ``[key, checked]`` list so the foreach lambda
-        can substitute ``item["key"]`` cleanly. ``key`` may be
-        ``"__base__"`` (base-calibration row) or a TTS engine key."""
+    def set_calibration_matrix_cell(self, payload: list) -> None:
+        """Toggle one cell of the calibration matrix. ``payload`` is the
+        Reflex-friendly ``[key, checked]`` list. ``key`` is in the
+        ``"<vlm_key>|<tts_engine_key>"`` form — either side empty for
+        "none"."""
         if not payload or len(payload) < 2:
             return
         key = str(payload[0])
         checked = bool(payload[1])
-        cur = dict(self.tts_calibration_selection)
+        cur = dict(self.calibration_matrix)
         cur[key] = checked
-        self.tts_calibration_selection = cur
+        self.calibration_matrix = cur
 
     @rx.var(cache=True, deps=["_agents_json_revision"])
     def calibration_ai_label(self) -> str:
@@ -506,6 +582,14 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("   Continuing anyway (VRAM may be limited)")  # type: ignore[attr-defined]
             yield
 
+            # Matrix-driven calibration: every variant the user wants
+            # is explicit in ``calibration_matrix``. No hidden VLM
+            # reserve from ``vision_mode``/``vlm.model`` — what's not
+            # ticked doesn't get calibrated. Imports stay here so the
+            # downstream loops can still resolve per-VLM reserves.
+            from ..lib.vlm_stress_prewarm import resolve_vlm_reserve
+            from ..lib.config import VLM_NUM_CTX, VLM_CALIBRATION_CHOICES
+
             # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed,
             #          Phase 3: Speed split for multi-GPU models)
             # Result format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}
@@ -533,7 +617,11 @@ class CalibrationMixin(rx.State, mixin=True):
             # instead of re-running the expensive measurement. Lets the
             # user add a freshly-installed TTS variant to a 235B model
             # without paying the base-calibration cost again.
-            skip_base = not self.tts_calibration_selection.get("__base__", False)
+            # BASE is calibrated when the "no VLM × no TTS" cell ("|")
+            # is ticked. When it's not, BASE is reused from the existing
+            # YAML + VRAM cache so variant calibrations still have a
+            # starting point.
+            skip_base = not self.calibration_matrix.get("|", False)
             if skip_base:
                 from ..lib.calibration import parse_llamaswap_config
                 from ..lib.model_vram_cache import (
@@ -581,7 +669,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
             if not skip_base:
                 async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                    calibration_model_id
+                    calibration_model_id,
                 ):
                     if progress_msg.startswith("__RESULT__:"):
                         r = _parse_calibration_result(progress_msg)
@@ -727,9 +815,10 @@ class CalibrationMixin(rx.State, mixin=True):
             #  • ``installed_gpu_engines`` — engines without a rolled-out
             #    docker-compose.yml are skipped without the 600s timeout
             #    that ``ensure_ready`` would otherwise eat.
-            #  • ``tts_calibration_selection`` — the user's per-click
-            #    picker; deselected engines are skipped. Empty dict means
-            #    "user never opened the picker" → default = all on.
+            #  • ``calibration_matrix`` — the per-click matrix picker;
+            #    only engines whose ``|<engine>`` cell is ticked enter the
+            #    TTS-only variant loop here. Combos ``<vlm>|<engine>`` are
+            #    handled in Step 5c.
             if True:
                 from ..lib.calibration import add_llamaswap_tts_variant
                 from ..lib.tts_engines import installed_gpu_engines
@@ -737,7 +826,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 for tts_engine in installed_gpu_engines():
                     tts_backend = tts_engine.key
                     tts_label = tts_engine.label_short
-                    if not self.tts_calibration_selection.get(tts_backend, False):
+                    if not self.calibration_matrix.get(f"|{tts_backend}", False):
                         self.add_debug(  # type: ignore[attr-defined]
                             f"⏭️ Skipping {tts_label} (deselected in picker)"
                         )
@@ -902,7 +991,6 @@ class CalibrationMixin(rx.State, mixin=True):
                     approx_split = ""
                     approx_num_gpus = 0
                     try:
-                        from pathlib import Path
                         from ..lib.calibration import (
                             calibrate_tts_variant_from_base,
                             parse_llamaswap_config,
@@ -965,6 +1053,8 @@ class CalibrationMixin(rx.State, mixin=True):
                                     supports_thinking if thinking_tested else None
                                 ),
                                 tts_gpu_extra_reserve_mb=_tts_extra_reserve_mb,
+                                vlm_gpu_uuid=None,
+                                vlm_gpu_extra_reserve_mb=0,
                             ):
                                 if _msg.startswith("__RESULT__:"):
                                     _r = _parse_calibration_result(_msg)
@@ -1060,6 +1150,8 @@ class CalibrationMixin(rx.State, mixin=True):
                                             supports_thinking if thinking_tested else None
                                         ),
                                         tts_gpu_extra_reserve_mb=_tts_extra_reserve_mb,
+                                        vlm_gpu_uuid=None,
+                                        vlm_gpu_extra_reserve_mb=0,
                                     ):
                                         if _msg2.startswith("__RESULT__:"):
                                             _r2 = _parse_calibration_result(_msg2)
@@ -1284,6 +1376,343 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"{calibration_model_id}-tts-{_suffix}"
                             )
                     yield
+
+            # Step 5b: VLM-only variants — one ticked cell in the
+            # "no TTS" column per VLM choice.
+            #
+            # For every ``<vlm>|`` key the user ticked in the matrix,
+            # derive a ``<base>-vlm-<key>`` profile from the BASE config
+            # via the calibrate_tts_variant_from_base re-projection
+            # helper (with tts_gpu_uuid=None so it skips TTS-specific
+            # checks and only subtracts the VLM reserve).
+            _any_vlm_only = any(
+                self.calibration_matrix.get(f"{c['key']}|", False)
+                for c in VLM_CALIBRATION_CHOICES
+            )
+            if _any_vlm_only and calibrated_ctx and calibrated_ctx > 0:
+                from ..lib.calibration import (
+                    calibrate_tts_variant_from_base,
+                    parse_llamaswap_config,
+                    add_llamaswap_vlm_variant,
+                    remove_llamaswap_vlm_variant,
+                )
+                from ..lib.calibration.gpu import (
+                    cuda_visible_devices as _vlm_cvd,
+                    enumerate_gpus as _vlm_eg,
+                )
+                from ..lib.calibration import parse_tensor_split
+
+                _cfg_v = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                _base_info_v = _cfg_v.get(calibration_model_id, {})
+                _full_cmd_v = str(_base_info_v.get("full_cmd", ""))
+                _gguf_path_v = Path(_base_info_v.get("gguf_path", ""))
+                _all_gpus_v = _vlm_eg()
+                _ts_v = parse_tensor_split(_full_cmd_v) or []
+                _base_split_v = tuple(
+                    float(_ts_v[i]) if i < len(_ts_v) else 0.0
+                    for i in range(len(_all_gpus_v))
+                )
+                _approx_env_v = (
+                    {"CUDA_VISIBLE_DEVICES": _vlm_cvd(_all_gpus_v)}
+                    if _all_gpus_v else None
+                )
+                _known_thinking_v = supports_thinking if thinking_tested else None
+
+                for vlm_choice in VLM_CALIBRATION_CHOICES:
+                    vlm_key = vlm_choice["key"]
+                    if not self.calibration_matrix.get(f"{vlm_key}|", False):
+                        continue
+                    vlm_model_id = vlm_choice["model_id"]
+                    vlm_label = vlm_choice["label"]
+                    self.add_debug(f"👁️ {vlm_label} variant calibration...")  # type: ignore[attr-defined]
+                    yield
+
+                    # Resolve reserve for this specific model — bypasses
+                    # vision_mode / vlm.model in settings.json via override.
+                    try:
+                        _vlm_u, _vlm_mb = await resolve_vlm_reserve(
+                            VLM_NUM_CTX, model_id_override=vlm_model_id,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        self.add_debug(f"   ⚠️ VLM reserve resolution failed for {vlm_label}: {e}")  # type: ignore[attr-defined]
+                        yield
+                        continue
+                    if not _vlm_u or _vlm_mb <= 0:
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"   ⚠️ {vlm_label}: could not determine reserve — skipping"
+                        )
+                        yield
+                        continue
+                    _vlm_pos = next(
+                        (i for i, g in enumerate(_all_gpus_v) if g.uuid == _vlm_u),
+                        -1,
+                    )
+                    _vlm_name = (
+                        _all_gpus_v[_vlm_pos].name if _vlm_pos >= 0 else "?"
+                    )
+                    self.add_debug(  # type: ignore[attr-defined]
+                        f"   📌 {vlm_label} reserve: {_vlm_mb} MB on "
+                        f"GPU{_vlm_pos} {_vlm_name}"
+                    )
+                    yield
+
+                    if not (_full_cmd_v and _gguf_path_v.exists()
+                            and _all_gpus_v and any(s > 0 for s in _base_split_v)):
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"   ⚠️ {vlm_label}: base config incomplete, skipping"
+                        )
+                        yield
+                        continue
+
+                    _vlm_ok = False
+                    _vlm_ctx = 0
+                    _vlm_kv = calibration_kv
+                    _vlm_split = ""
+                    _vlm_num_gpus = 0
+                    async for _msg_v in calibrate_tts_variant_from_base(
+                        model_id=calibration_model_id,
+                        gguf_path=_gguf_path_v,
+                        full_cmd=_full_cmd_v,
+                        base_split=_base_split_v,
+                        base_ctx=int(calibrated_ctx),
+                        base_kv=calibration_kv,
+                        tts_gpu_uuid=None,
+                        port=LLAMACPP_CALIBRATION_PORT,
+                        env=_approx_env_v,
+                        known_thinking=_known_thinking_v,
+                        tts_gpu_extra_reserve_mb=0,
+                        vlm_gpu_uuid=_vlm_u,
+                        vlm_gpu_extra_reserve_mb=_vlm_mb,
+                    ):
+                        if _msg_v.startswith("__RESULT__:"):
+                            _r_v = _parse_calibration_result(_msg_v)
+                            if _r_v["ctx"] > 0:
+                                _vlm_ok = True
+                                _vlm_ctx = _r_v["ctx"]
+                                _vlm_kv = _r_v["kv"]
+                                _vlm_split = _r_v["tensor_split"]
+                                _vlm_num_gpus = _r_v["num_gpus"]
+                        else:
+                            self.add_debug(f"   {_calib_line(_msg_v)}")  # type: ignore[attr-defined]
+                            yield
+
+                    if _vlm_ok:
+                        added_v = add_llamaswap_vlm_variant(
+                            LLAMASWAP_CONFIG_PATH,
+                            calibration_model_id,
+                            _vlm_ctx,
+                            vlm_key,
+                            kv_quant=_vlm_kv,
+                            tensor_split=_vlm_split,
+                            num_gpus=_vlm_num_gpus,
+                        )
+                        if added_v:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   ✅ {vlm_label} variant: "
+                                f"{calibration_model_id}-vlm-{vlm_key} "
+                                f"(ctx {format_number(_vlm_ctx)}, split {_vlm_split})"
+                            )
+                            from ..lib.model_vram_cache import (
+                                add_llamacpp_calibration as _vlm_alc,
+                                load_cache as _vlm_lc,
+                            )
+                            _vlm_full_id = f"{calibration_model_id}-vlm-{vlm_key}"
+                            _vlm_base_meta = _vlm_lc().get(calibration_model_id, {})
+                            _vlm_alc(
+                                model_id=_vlm_full_id,
+                                max_context=_vlm_ctx,
+                                native_context=int(
+                                    _vlm_base_meta.get("native_context", _vlm_ctx)
+                                ),
+                                gguf_path=str(_vlm_base_meta.get("gguf_path", "")),
+                                quantization=str(_vlm_base_meta.get("quantization", "")),
+                                gpu_model=str(_vlm_base_meta.get("gpu_model", "")),
+                                model_size_gb=float(
+                                    _vlm_base_meta.get("model_size_gb", 0.0)
+                                ),
+                                ngl=99,
+                                mode="gpu",
+                                speed_split=0,
+                            )
+                        else:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   ⚠️ Could not write {vlm_label} variant to config"
+                            )
+                    else:
+                        self.add_debug(f"   ❌ {vlm_label} variant calibration failed")  # type: ignore[attr-defined]
+                        from ..lib.model_vram_cache import remove_model_from_cache
+                        if remove_llamaswap_vlm_variant(
+                            LLAMASWAP_CONFIG_PATH, calibration_model_id, vlm_key,
+                        ):
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   🧹 Removed stale {vlm_label} profile"
+                            )
+                        remove_model_from_cache(
+                            f"{calibration_model_id}-vlm-{vlm_key}"
+                        )
+                    yield
+
+            # Step 5c: TTS × VLM combo variants — explicitly ticked
+            # ``<vlm>|<tts>`` cells only (no cross-product expansion).
+            #
+            # For every ``<vlm>|<tts>`` cell that's both non-empty halves
+            # AND ticked, derive a ``<base>-tts-<engine>-vlm-<key>``
+            # profile from BASE via calibrate_tts_variant_from_base with
+            # both reserves passed in.
+            _any_combo = any(
+                self.calibration_matrix.get(f"{c['key']}|{e.key}", False)
+                for c in VLM_CALIBRATION_CHOICES
+                for e in __import__("aifred.lib.tts_engines", fromlist=["installed_gpu_engines"]).installed_gpu_engines()
+            )
+            if _any_combo and calibrated_ctx and calibrated_ctx > 0:
+                from ..lib.tts_engines import installed_gpu_engines
+                from ..lib.process_utils import get_tts_gpu_uuid
+
+                for tts_engine_c in installed_gpu_engines():
+                    tts_backend_c = tts_engine_c.key
+                    # Skip engines that have no combo ticked at all
+                    if not any(
+                        self.calibration_matrix.get(f"{c['key']}|{tts_backend_c}", False)
+                        for c in VLM_CALIBRATION_CHOICES
+                    ):
+                        continue
+                    tts_label_c = tts_engine_c.label_short
+                    tts_reserve_c = tts_engine_c.calibration_vram_reserve_mb
+                    _tts_uuid_c = get_tts_gpu_uuid()
+
+                    for vlm_choice_c in VLM_CALIBRATION_CHOICES:
+                        vlm_key_c = vlm_choice_c["key"]
+                        if not self.calibration_matrix.get(f"{vlm_key_c}|{tts_backend_c}", False):
+                            continue
+                        vlm_model_id_c = vlm_choice_c["model_id"]
+                        vlm_label_c = vlm_choice_c["label"]
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"🔊👁️ {tts_label_c} × {vlm_label_c} combo calibration..."
+                        )
+                        yield
+
+                        try:
+                            _vu, _vmb = await resolve_vlm_reserve(
+                                VLM_NUM_CTX, model_id_override=vlm_model_id_c,
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            self.add_debug(f"   ⚠️ Combo resolve failed: {e}")  # type: ignore[attr-defined]
+                            yield
+                            continue
+                        if not _vu or _vmb <= 0:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   ⚠️ {vlm_label_c}: could not determine reserve — "
+                                f"skipping combo with {tts_label_c}"
+                            )
+                            yield
+                            continue
+
+                        if not (_full_cmd_v and _gguf_path_v.exists()
+                                and _all_gpus_v and _tts_uuid_c
+                                and any(s > 0 for s in _base_split_v)):
+                            self.add_debug(  # type: ignore[attr-defined]
+                                "   ⚠️ combo: base config / TTS GPU missing, skipping"
+                            )
+                            yield
+                            continue
+
+                        _c_ok = False
+                        _c_ctx = 0
+                        _c_kv = calibration_kv
+                        _c_split = ""
+                        _c_num_gpus = 0
+                        async for _msg_c in calibrate_tts_variant_from_base(
+                            model_id=calibration_model_id,
+                            gguf_path=_gguf_path_v,
+                            full_cmd=_full_cmd_v,
+                            base_split=_base_split_v,
+                            base_ctx=int(calibrated_ctx),
+                            base_kv=calibration_kv,
+                            tts_gpu_uuid=_tts_uuid_c,
+                            port=LLAMACPP_CALIBRATION_PORT,
+                            env=_approx_env_v,
+                            known_thinking=_known_thinking_v,
+                            tts_gpu_extra_reserve_mb=tts_reserve_c,
+                            vlm_gpu_uuid=_vu,
+                            vlm_gpu_extra_reserve_mb=_vmb,
+                        ):
+                            if _msg_c.startswith("__RESULT__:"):
+                                _r_c = _parse_calibration_result(_msg_c)
+                                if _r_c["ctx"] > 0:
+                                    _c_ok = True
+                                    _c_ctx = _r_c["ctx"]
+                                    _c_kv = _r_c["kv"]
+                                    _c_split = _r_c["tensor_split"]
+                                    _c_num_gpus = _r_c["num_gpus"]
+                            else:
+                                self.add_debug(f"   {_calib_line(_msg_c)}")  # type: ignore[attr-defined]
+                                yield
+
+                        if _c_ok:
+                            added_c = add_llamaswap_vlm_variant(
+                                LLAMASWAP_CONFIG_PATH,
+                                calibration_model_id,
+                                _c_ctx,
+                                vlm_key_c,
+                                kv_quant=_c_kv,
+                                tensor_split=_c_split,
+                                num_gpus=_c_num_gpus,
+                                tts_backend=tts_backend_c,
+                            )
+                            if added_c:
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   ✅ {tts_label_c}+{vlm_label_c} combo: "
+                                    f"{calibration_model_id}-tts-{tts_backend_c}-vlm-{vlm_key_c} "
+                                    f"(ctx {format_number(_c_ctx)}, split {_c_split})"
+                                )
+                                from ..lib.model_vram_cache import (
+                                    add_llamacpp_calibration as _c_alc,
+                                    load_cache as _c_lc,
+                                )
+                                _c_full_id = (
+                                    f"{calibration_model_id}-tts-{tts_backend_c}"
+                                    f"-vlm-{vlm_key_c}"
+                                )
+                                _c_base_meta = _c_lc().get(calibration_model_id, {})
+                                _c_alc(
+                                    model_id=_c_full_id,
+                                    max_context=_c_ctx,
+                                    native_context=int(
+                                        _c_base_meta.get("native_context", _c_ctx)
+                                    ),
+                                    gguf_path=str(_c_base_meta.get("gguf_path", "")),
+                                    quantization=str(_c_base_meta.get("quantization", "")),
+                                    gpu_model=str(_c_base_meta.get("gpu_model", "")),
+                                    model_size_gb=float(
+                                        _c_base_meta.get("model_size_gb", 0.0)
+                                    ),
+                                    ngl=99,
+                                    mode="gpu",
+                                    speed_split=0,
+                                )
+                            else:
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   ⚠️ Could not write {tts_label_c}+{vlm_label_c} combo to config"
+                                )
+                        else:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   ❌ {tts_label_c}+{vlm_label_c} combo failed"
+                            )
+                            from ..lib.model_vram_cache import remove_model_from_cache
+                            if remove_llamaswap_vlm_variant(
+                                LLAMASWAP_CONFIG_PATH,
+                                calibration_model_id,
+                                vlm_key_c,
+                                tts_backend=tts_backend_c,
+                            ):
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   🧹 Removed stale {tts_label_c}+{vlm_label_c} profile"
+                                )
+                            remove_model_from_cache(
+                                f"{calibration_model_id}-tts-{tts_backend_c}"
+                                f"-vlm-{vlm_key_c}"
+                            )
+                        yield
 
             # Step 6: Restart llama-swap
             self.add_debug("🔄 Restarting llama-swap service...")  # type: ignore[attr-defined]

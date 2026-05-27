@@ -412,6 +412,9 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.tts_engine_manager import GPU_ENGINES
 
+        from ..lib.vision_prewarm import is_vision_active, get_active_vlm_key
+        _vlm_active = is_vision_active()
+        _vlm_key = get_active_vlm_key() if _vlm_active else ""
         suffix = resolve_variant_suffix(
             LLAMASWAP_CONFIG_PATH,
             base_id,
@@ -420,6 +423,8 @@ class AgentConfigMixin(rx.State, mixin=True):
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
             tts_engine=self.tts_engine,  # type: ignore[attr-defined]
             gpu_tts_engines=GPU_ENGINES,
+            vlm_active=_vlm_active,
+            vlm_key=_vlm_key,
         )
         return base_id + suffix
 

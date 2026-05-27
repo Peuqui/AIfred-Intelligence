@@ -531,6 +531,8 @@ def resolve_variant_suffix(
     tts_active: bool,
     tts_engine: str = "",
     gpu_tts_engines: set[str] | None = None,
+    vlm_active: bool = False,
+    vlm_key: str = "",
 ) -> str:
     """Resolve the variant suffix for ``base_id`` given the current toggles.
 
@@ -541,18 +543,23 @@ def resolve_variant_suffix(
     ``_chat_mixin``) delegate here so that the fallback rules can only
     diverge in one place.
 
-    Fallback order (first hit wins):
+    Fallback order (first hit wins) — VLM combos are tried first when
+    ``vlm_active`` is true so a user with both VLM and TTS enabled
+    actually lands on the combined variant; if that variant does not
+    exist (e.g. user calibrated TTS but never the VLM × TTS combo) the
+    resolver gracefully degrades to the TTS-only variant (or further):
 
-    1. ``speed_on AND tts_active AND <base>-tts-<engine>-speed exists``
-       → ``-tts-<engine>-speed`` — TTS + Speed, both honored.
-    2. ``tts_active AND <base>-tts-<engine> exists``
-       → ``-tts-<engine>`` — TTS without Speed, full base ctx.
-    3. ``speed_on AND has_speed_variant`` → ``-speed`` — Speed without TTS.
-    4. otherwise → ``""`` (use the base id unchanged).
+    1. ``vlm_active AND tts_active AND <base>-tts-<engine>-vlm-<key> exists``
+    2. ``vlm_active AND <base>-vlm-<key> exists``
+    3. ``speed_on AND tts_active AND <base>-tts-<engine>-speed exists``
+    4. ``tts_active AND <base>-tts-<engine> exists``
+    5. ``speed_on AND has_speed_variant`` → ``-speed``
+    6. otherwise → ``""`` (use the base id unchanged).
 
-    Returns the suffix to append to ``base_id`` (empty string for base).
-    The caller does ``base_id + suffix`` itself so the convention stays
-    visible at the call site.
+    Speed × VLM is intentionally not enumerated here because the
+    calibration writer (Phase 2) does not produce ``-vlm-<key>-speed``
+    variants — only ``-vlm-<key>`` and ``-tts-<engine>-vlm-<key>``. If
+    that ever changes, add the speed rules above rule 1.
 
     ``gpu_tts_engines``: set of engine keys that need the TTS variant
     profile (i.e. share GPU VRAM with the LLM). Engines outside this set
@@ -577,24 +584,37 @@ def resolve_variant_suffix(
         and bool(tts_engine)
         and (gpu_tts_engines is None or tts_engine in gpu_tts_engines)
     )
+    needs_vlm_variant = vlm_active and bool(vlm_key)
 
-    # Rule 1: Speed + TTS, both flavours present.
+    # Rule 1: TTS × VLM combo — both active and the combo variant exists.
+    if needs_vlm_variant and needs_tts_variant:
+        combo_id = f"{base_id}-tts-{tts_engine}-vlm-{vlm_key}"
+        if combo_id in models:
+            return f"-tts-{tts_engine}-vlm-{vlm_key}"
+
+    # Rule 2: VLM only — VLM active, no TTS combo to honor.
+    if needs_vlm_variant:
+        vlm_id = f"{base_id}-vlm-{vlm_key}"
+        if vlm_id in models:
+            return f"-vlm-{vlm_key}"
+
+    # Rule 3: Speed + TTS, both flavours present.
     if needs_tts_variant and speed_on:
         sp_id = f"{base_id}-tts-{tts_engine}-speed"
         if sp_id in models:
             return f"-tts-{tts_engine}-speed"
 
-    # Rule 2: TTS without Speed (or Speed flavour missing for this combo).
+    # Rule 4: TTS without Speed (or Speed flavour missing for this combo).
     if needs_tts_variant:
         base_tts_id = f"{base_id}-tts-{tts_engine}"
         if base_tts_id in models:
             return f"-tts-{tts_engine}"
 
-    # Rule 3: Speed only.
+    # Rule 5: Speed only.
     if speed_on and has_speed_variant:
         return "-speed"
 
-    # Rule 4: bare base.
+    # Rule 6: bare base.
     return ""
 
 
@@ -690,4 +710,178 @@ def remove_llamaswap_tts_variant(
     if removed:
         _write_yaml(config_path, config)
         logger.info(f"Removed stale TTS variant: {tts_id}")
+    return removed
+
+
+def diagnose_uncalibrated_combo(
+    config_path: Path,
+    base_id: str,
+    *,
+    tts_active: bool,
+    tts_engine: str = "",
+    gpu_tts_engines: set[str] | None = None,
+    vlm_active: bool = False,
+    vlm_key: str = "",
+) -> str | None:
+    """Return a human-readable warning when the user's current toggle
+    state asks for a YAML variant that doesn't exist.
+
+    Counterpart to :func:`resolve_variant_suffix` — the resolver returns
+    *what gets loaded*, this function returns *what should have been
+    loaded but isn't*. Returns ``None`` when everything the user wants
+    is actually calibrated.
+
+    Useful at chat-submit time so the user sees a debug-console message
+    like "⚠️ TTS+VLM combo for X+Y is not calibrated, falling back to
+    Z — VLM may OOM on next inference" instead of silently picking the
+    wrong profile.
+    """
+    if not base_id or not config_path.exists():
+        return None
+
+    needs_tts = (
+        tts_active
+        and bool(tts_engine)
+        and (gpu_tts_engines is None or tts_engine in gpu_tts_engines)
+    )
+    needs_vlm = vlm_active and bool(vlm_key)
+    if not needs_tts and not needs_vlm:
+        return None
+
+    models = (_read_yaml(config_path).get("models") or {})
+
+    if needs_tts and needs_vlm:
+        ideal = f"{base_id}-tts-{tts_engine}-vlm-{vlm_key}"
+        if ideal in models:
+            return None
+        # Pick the best fallback the resolver would land on
+        fallbacks = [
+            f"{base_id}-vlm-{vlm_key}",
+            f"{base_id}-tts-{tts_engine}",
+            base_id,
+        ]
+        actual = next((f for f in fallbacks if f in models), base_id)
+        return (
+            f"⚠️ Combo profile {ideal} is not calibrated — runtime falls "
+            f"back to {actual}. Open the calibration matrix and tick "
+            f"the {tts_engine} × {vlm_key} cell to fix this."
+        )
+
+    if needs_vlm:
+        ideal = f"{base_id}-vlm-{vlm_key}"
+        if ideal in models:
+            return None
+        return (
+            f"⚠️ VLM profile {ideal} is not calibrated — runtime falls "
+            f"back to {base_id}. Tick the {vlm_key} / No-TTS cell in the "
+            f"calibration matrix to fix this."
+        )
+
+    # needs_tts only
+    ideal = f"{base_id}-tts-{tts_engine}"
+    if ideal in models:
+        return None
+    return (
+        f"⚠️ TTS profile {ideal} is not calibrated — runtime falls back "
+        f"to {base_id}. Tick the No-VLM / {tts_engine} cell in the "
+        f"calibration matrix to fix this."
+    )
+
+
+def add_llamaswap_vlm_variant(
+    config_path: Path,
+    model_id: str,
+    vlm_context: int,
+    vlm_key: str,
+    kv_quant: str = "f16",
+    tensor_split: str = "",
+    num_gpus: int = 0,
+    cuda_visible_devices: str = "",
+    source_model_id: str | None = None,
+    tts_backend: str | None = None,
+) -> bool:
+    """Create the ``<model>-vlm-<key>`` (or
+    ``<model>-tts-<backend>-vlm-<key>``) entry in llama-swap YAML.
+
+    Direct sibling of :func:`add_llamaswap_tts_variant` — same copy / set /
+    insert / group-add sequence, only the target id and the source id
+    differ. ``cuda_visible_devices`` (explicit) wins over ``num_gpus``
+    (derived). ``source_model_id`` lets isolated-mode inherit a parent
+    variant (typically BASE or the matching ``-speed`` variant). When
+    ``tts_backend`` is given, the target id becomes
+    ``<model>-tts-<backend>-vlm-<key>`` — used for the TTS×VLM combo
+    variants.
+    """
+    if not config_path.exists():
+        logger.error(f"llama-swap config not found: {config_path}")
+        return False
+    config = _read_yaml(config_path)
+    if tts_backend:
+        target_id = f"{model_id}-tts-{tts_backend}-vlm-{vlm_key}"
+    else:
+        target_id = f"{model_id}-vlm-{vlm_key}"
+    src_id = source_model_id or model_id
+    entry = _copy_entry(config, src_id, target_id)
+    if entry is None:
+        logger.error(f"Source model {src_id} not found in llama-swap config")
+        return False
+
+    cmd = entry.get("cmd", "")
+    cmd = set_context(cmd, vlm_context)
+    cmd = set_kv_quant(cmd, kv_quant)
+    if tensor_split:
+        ts_normalized = tensor_split.replace(":", ",")
+        cmd = re.sub(
+            r"(--tensor-split|-ts)\s+[\d.,:]+", f"-ts {ts_normalized}", cmd,
+        )
+    entry["cmd"] = cmd
+
+    if cuda_visible_devices:
+        entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_visible_devices}"]
+    else:
+        src_entry = (config.get("models") or {}).get(src_id) or {}
+        src_env = src_entry.get("env") or []
+        src_uuids = _extract_uuids_from_env(src_env)
+        if num_gpus > 0 and src_uuids and num_gpus < len(src_uuids):
+            entry["env"] = [
+                f"CUDA_VISIBLE_DEVICES={','.join(src_uuids[:num_gpus])}",
+            ]
+        else:
+            entry["env"] = list(src_env)
+
+    existed = target_id in config["models"]
+    _insert_variant(config, model_id, target_id, entry)
+    _ensure_in_group(config, target_id)
+    _write_yaml(config_path, config)
+    logger.info(f"{'Updated' if existed else 'Added'} VLM variant: {target_id}")
+    return True
+
+
+def remove_llamaswap_vlm_variant(
+    config_path: Path, model_id: str, vlm_key: str,
+    tts_backend: str | None = None,
+) -> bool:
+    """Remove a VLM variant from llama-swap YAML — mirror of
+    :func:`remove_llamaswap_tts_variant`. Removes both the model entry
+    and the group membership."""
+    if not config_path.exists():
+        return False
+    config = _read_yaml(config_path)
+    if tts_backend:
+        target_id = f"{model_id}-tts-{tts_backend}-vlm-{vlm_key}"
+    else:
+        target_id = f"{model_id}-vlm-{vlm_key}"
+    removed = False
+    models = config.get("models") or {}
+    if target_id in models:
+        del models[target_id]
+        removed = True
+    for group in (config.get("groups") or {}).values():
+        members = group.get("members") or []
+        if target_id in members:
+            members.remove(target_id)
+            removed = True
+    if removed:
+        _write_yaml(config_path, config)
+        logger.info(f"Removed stale VLM variant: {target_id}")
     return removed
