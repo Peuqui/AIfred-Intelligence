@@ -1648,19 +1648,27 @@ class CalibrationMixin(rx.State, mixin=True):
                             )
                     yield
 
-            # Step 5b: VLM-only variants — one ticked cell in the
-            # "no TTS" column per VLM choice.
-            #
-            # For every ``<vlm>|`` key the user ticked in the matrix,
-            # derive a ``<base>-vlm-<key>`` profile from the BASE config
-            # via the calibrate_tts_variant_from_base re-projection
-            # helper (with tts_gpu_uuid=None so it skips TTS-specific
-            # checks and only subtracts the VLM reserve).
+            # Shared setup for Step 5b (VLM-only) and Step 5c (combos).
+            # Both loops derive variants from the same BASE config, so
+            # the YAML lookup, GPU enumeration and tensor-split parsing
+            # happen once outside the loops. Previously this lived inside
+            # Step 5b, which crashed Step 5c with UnboundLocalError when
+            # the user picked only combo cells (no VLM-only).
+            from ..lib.tts_engines import installed_gpu_engines
             _any_vlm_only = any(
                 self.calibration_matrix.get(f"{c['key']}|", False)
                 for c in VLM_CALIBRATION_CHOICES
             )
-            if _any_vlm_only and calibrated_ctx and calibrated_ctx > 0:
+            _any_combo = any(
+                self.calibration_matrix.get(f"{c['key']}|{e.key}", False)
+                for c in VLM_CALIBRATION_CHOICES
+                for e in installed_gpu_engines()
+            )
+            _needs_vlm_setup = (
+                (_any_vlm_only or _any_combo)
+                and calibrated_ctx and calibrated_ctx > 0
+            )
+            if _needs_vlm_setup:
                 from ..lib.calibration import (
                     calibrate_tts_variant_from_base,
                     parse_llamaswap_config,
@@ -1689,6 +1697,15 @@ class CalibrationMixin(rx.State, mixin=True):
                 )
                 _known_thinking_v = supports_thinking if thinking_tested else None
 
+            # Step 5b: VLM-only variants — one ticked cell in the
+            # "no TTS" column per VLM choice.
+            #
+            # For every ``<vlm>|`` key the user ticked in the matrix,
+            # derive a ``<base>-vlm-<key>`` profile from the BASE config
+            # via the calibrate_tts_variant_from_base re-projection
+            # helper (with tts_gpu_uuid=None so it skips TTS-specific
+            # checks and only subtracts the VLM reserve).
+            if _any_vlm_only and calibrated_ctx and calibrated_ctx > 0:
                 for vlm_choice in VLM_CALIBRATION_CHOICES:
                     vlm_key = vlm_choice["key"]
                     if not self.calibration_matrix.get(f"{vlm_key}|", False):
@@ -1830,13 +1847,8 @@ class CalibrationMixin(rx.State, mixin=True):
             # AND ticked, derive a ``<base>-tts-<engine>-vlm-<key>``
             # profile from BASE via calibrate_tts_variant_from_base with
             # both reserves passed in.
-            _any_combo = any(
-                self.calibration_matrix.get(f"{c['key']}|{e.key}", False)
-                for c in VLM_CALIBRATION_CHOICES
-                for e in __import__("aifred.lib.tts_engines", fromlist=["installed_gpu_engines"]).installed_gpu_engines()
-            )
+            # ``_any_combo`` was computed in the shared-setup block above.
             if _any_combo and calibrated_ctx and calibrated_ctx > 0:
-                from ..lib.tts_engines import installed_gpu_engines
                 from ..lib.process_utils import get_tts_gpu_uuid
 
                 for tts_engine_c in installed_gpu_engines():
@@ -1889,6 +1901,65 @@ class CalibrationMixin(rx.State, mixin=True):
                             )
                             yield
                             continue
+
+                        # Side-channel capacity check: when TTS and VLM
+                        # share the same GPU (the design rule — both
+                        # land on the second-highest compute class via
+                        # ``pick_vlm_gpu``), their two reserves must
+                        # fit on that one card. If not, the YAML profile
+                        # we'd write here is physically impossible at
+                        # runtime: container + VLM would crash with an
+                        # OOM on first inference. Better fail fast and
+                        # skip the profile than silently produce a trap.
+                        if _tts_uuid_c == _vu:
+                            _side_gpu = next(
+                                (g for g in _all_gpus_v if g.uuid == _vu),
+                                None,
+                            )
+                            if _side_gpu is not None:
+                                _side_total = _side_gpu.total_mb
+                                _side_needed = tts_reserve_c + _vmb
+                                if _side_needed > _side_total:
+                                    self.add_debug(  # type: ignore[attr-defined]
+                                        f"   ❌ {tts_label_c} × {vlm_label_c} "
+                                        f"combo: needs {_side_needed} MB on "
+                                        f"{_side_gpu.name} ({_side_total} MB total) — "
+                                        f"TTS {tts_reserve_c} + VLM {_vmb} "
+                                        f"= {_side_needed} exceeds capacity by "
+                                        f"{_side_needed - _side_total} MB. Profile "
+                                        f"NOT written (would OOM at runtime)."
+                                    )
+                                    # Tear down any stale profile + cache
+                                    # entry from a previous run that
+                                    # predates this capacity check — the
+                                    # picker would otherwise show a green
+                                    # "calibrated" dot for a combo we now
+                                    # know is unusable.
+                                    from ..lib.model_vram_cache import (
+                                        remove_model_from_cache,
+                                    )
+                                    if remove_llamaswap_vlm_variant(
+                                        LLAMASWAP_CONFIG_PATH,
+                                        calibration_model_id,
+                                        vlm_key_c,
+                                        tts_backend=tts_backend_c,
+                                    ):
+                                        self.add_debug(  # type: ignore[attr-defined]
+                                            f"   🧹 Removed stale "
+                                            f"{tts_label_c}+{vlm_label_c} "
+                                            f"profile from llama-swap.yaml"
+                                        )
+                                    if remove_model_from_cache(
+                                        f"{calibration_model_id}-tts-"
+                                        f"{tts_backend_c}-vlm-{vlm_key_c}"
+                                    ):
+                                        self.add_debug(  # type: ignore[attr-defined]
+                                            f"   🧹 Removed stale "
+                                            f"{tts_label_c}+{vlm_label_c} "
+                                            f"entry from VRAM cache"
+                                        )
+                                    yield
+                                    continue
 
                         _c_ok = False
                         _c_ctx = 0
