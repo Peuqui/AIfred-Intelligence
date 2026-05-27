@@ -182,51 +182,124 @@ async def stress_burnin_tts(
                 pass
         logger.info(msg)
 
-    _log(f"🔥 Burn-in {engine_key}: starting container...")
-    started, start_msg = engine.start()
+    _log(f"🔥 Burn-in {engine_key}: starting container on GPU{gpu_index}...")
+    # All sync engine calls must run in a thread — otherwise the
+    # subprocess + time.sleep(1) polling loops inside ensure_ready()
+    # would block the Reflex/uvicorn event loop for up to 10 minutes
+    # (Fish-Speech first-start downloads 8 GB), the worker times out
+    # and gets force-killed mid-calibration.
+    _t_start_container = time.monotonic()
+    started, start_msg = await asyncio.to_thread(engine.start)
     if not started:
         _log(f"   ⚠️ {engine_key} start failed: {start_msg}")
         return None
-    ready, ready_msg, _device = engine.ensure_ready(timeout=600)
+    _baseline_after_start = _query_gpu_used_mb(gpu_index)
+    _log(
+        f"   ⏳ {engine_key}: container up in "
+        f"{time.monotonic() - _t_start_container:.1f}s, waiting for model load..."
+    )
+    _t_ready_start = time.monotonic()
+    ready, ready_msg, _device = await asyncio.to_thread(
+        engine.ensure_ready, 600,
+    )
     if not ready:
         _log(f"   ⚠️ {engine_key} not ready: {ready_msg}")
-        engine.stop()
+        await asyncio.to_thread(engine.stop)
         return None
+    _idle_after_load = _query_gpu_used_mb(gpu_index)
+    _log(
+        f"   ✓ {engine_key}: model loaded after "
+        f"{time.monotonic() - _t_ready_start:.1f}s — "
+        f"idle footprint {_idle_after_load} MiB"
+    )
 
-    # Pick a voice that's known to exist
-    voices = engine.get_voices() or engine.voices_fallback
+    # Pick a voice that's known to exist. We hand the display name
+    # (key) to generate_tts() — the SSOT call site strips the "★ "
+    # prefix internally before forwarding to the engine, so we don't
+    # need to know which engine uses prefixed display names.
+    voices = await asyncio.to_thread(engine.get_voices) or engine.voices_fallback
     if not voices:
         _log(f"   ⚠️ {engine_key}: no voices available — skipping burn-in")
-        engine.stop()
+        await asyncio.to_thread(engine.stop)
         return None
-    voice = next(iter(voices.keys()))
+    voice_display = next(iter(voices.keys()))
+    _log(
+        f"   🎤 {engine_key}: voice='{voice_display}', "
+        f"{iterations} stress syntheses planned"
+    )
 
-    _log(f"   📊 burn-in: {iterations} bilingual syntheses on GPU{gpu_index}")
+    # Route through the SSOT TTS call site (audio_processing.generate_tts):
+    # strips the ★ display prefix, hits the engine via the registry,
+    # runs the central ffmpeg post-process (a no-op here because we
+    # pass speed=1.0 and pitch=1.0). Identical to what aifred uses for
+    # chat-bubble synthesis — same code path, same edge-case handling.
+    from .audio_processing import generate_tts
+
     peak = 0
+    successes = 0
     try:
         async with _PeakMonitor(gpu_index, interval=0.1) as monitor:
             for i in range(iterations):
                 lang = "de" if i % 2 == 0 else "en"
                 text = _STRESS_TEXT_DE if lang == "de" else _STRESS_TEXT_EN
+                _pre_used = _query_gpu_used_mb(gpu_index)
+                _log(
+                    f"   ▶ {engine_key} synthesis {i+1}/{iterations}: "
+                    f"lang={lang}, {len(text)} chars, "
+                    f"VRAM before = {_pre_used} MiB"
+                )
                 t_start = time.monotonic()
-                # generate_speech is sync; run it in a thread so the
-                # peak monitor keeps polling concurrently.
-                result = await asyncio.to_thread(
-                    engine.generate_speech, text, voice, lang,
+                result = await generate_tts(
+                    text=text,
+                    voice_choice=voice_display,
+                    speed_choice=1.0,
+                    tts_engine=engine_key,
+                    pitch=1.0,
+                    agent="aifred",
+                    language=lang,
                 )
                 t_elapsed = time.monotonic() - t_start
+                _post_used = _query_gpu_used_mb(gpu_index)
+                _running_peak = monitor.peak_mb
                 if result is None:
-                    _log(f"   ⚠️ {engine_key}: synthesis {i+1} returned None")
+                    _log(
+                        f"   ⚠️ {engine_key} synthesis {i+1}/{iterations}: "
+                        f"returned None after {t_elapsed:.1f}s "
+                        f"(VRAM now {_post_used} MiB, running peak {_running_peak} MiB)"
+                    )
                 else:
-                    _log(f"   ✓ {engine_key}: synthesis {i+1} done in {t_elapsed:.1f}s")
+                    successes += 1
+                    _log(
+                        f"   ✓ {engine_key} synthesis {i+1}/{iterations}: "
+                        f"done in {t_elapsed:.1f}s "
+                        f"(VRAM now {_post_used} MiB, running peak {_running_peak} MiB)"
+                    )
         peak = monitor.peak_mb
-        _log(f"   📈 {engine_key}: peak VRAM = {peak} MiB on GPU{gpu_index}")
+        _log(
+            f"   📈 {engine_key} burn-in done: {successes}/{iterations} successful, "
+            f"peak VRAM = {peak} MiB (idle was {_idle_after_load} MiB, "
+            f"delta = {peak - _idle_after_load} MiB)"
+        )
     except Exception as e:  # noqa: BLE001
         _log(f"   ❌ {engine_key} burn-in error: {e}")
         peak = max(peak, _query_gpu_used_mb(gpu_index))
     finally:
         _log(f"   🛑 stopping {engine_key} container...")
-        engine.stop()
+        await asyncio.to_thread(engine.stop)
+
+    # Hard-fail when every synthesis call returned None — the measured
+    # "peak" would just be the container's idle footprint, not its real
+    # inference footprint. Caching an idle-only value would mislead the
+    # calibration into reserving too little VRAM on the TTS GPU, OOMing
+    # the very first production call. Return None → caller surfaces the
+    # error and does not cache.
+    if successes == 0:
+        _log(
+            f"   ❌ {engine_key}: ALL {iterations} stress syntheses failed — "
+            f"measured peak {peak} MiB reflects idle only, not real inference. "
+            f"NOT caching — fix the engine and re-run."
+        )
+        return None
 
     return peak if peak > 0 else None
 
