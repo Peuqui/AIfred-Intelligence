@@ -68,6 +68,8 @@ async def calibrate_llamacpp_model(
     env: Optional[dict[str, str]] = None,
     tts_gpu_uuid: Optional[str] = None,
     tts_gpu_extra_reserve_mb: int = 0,
+    vlm_gpu_uuid: Optional[str] = None,
+    vlm_gpu_extra_reserve_mb: int = 0,
 ) -> AsyncIterator[str]:
     """Calibrate one llama.cpp model end-to-end.
 
@@ -91,21 +93,6 @@ async def calibrate_llamacpp_model(
         yield "Cannot read GGUF metadata"
         yield "__RESULT__:0:0:error"
         return
-
-    # ── Pre-warm Vision-LLM if configured ───────────────────────────
-    # Loading the VLM into VRAM before the GPU probe makes the
-    # ``nvidia-smi memory.free`` read in ``enumerate_gpus()`` see the
-    # real footprint of the always-on side-channel. The main-LLM
-    # calibration below then plans automatically around it — no
-    # separate reservation table needed. A failed pre-warm is non-fatal
-    # (caller logs, calibration continues with whatever VRAM is free).
-    from ..vision_prewarm import is_vision_active, prewarm_vlm
-    if is_vision_active():
-        yield "Pre-warming Vision-LLM (so calibration sees its VRAM footprint)..."
-        if await prewarm_vlm():
-            yield "✓ Vision-LLM loaded"
-        else:
-            yield "⚠ Vision-LLM pre-warm failed — main calibration may plan into VLM-allocated VRAM"
 
     await kill_orphan_on_port(port)
     yield "Waiting for VRAM to stabilize..."
@@ -131,6 +118,27 @@ async def calibrate_llamacpp_model(
                 new_free = max(0, g.free_mb - tts_gpu_extra_reserve_mb)
                 yield (
                     f"TTS variant: reserving {tts_gpu_extra_reserve_mb} MB "
+                    f"on {g.name} ({g.free_mb} → {new_free} MB free)"
+                )
+                adjusted.append(replace(g, free_mb=new_free))
+            else:
+                adjusted.append(g)
+        gpus = adjusted
+
+    # Same idea for the VLM side-channel (Vigilantia + on-demand Tool-Use):
+    # the configured VLM model occupies a known peak (measured table or
+    # stress-prewarm cache) on its assigned GPU. Subtract that from the
+    # free budget so the LLM is permanently planned around it — the VLM
+    # may be unloaded at calibration time but will reclaim its slot on
+    # next inference.
+    if vlm_gpu_extra_reserve_mb > 0 and vlm_gpu_uuid:
+        from dataclasses import replace
+        adjusted = []
+        for g in gpus:
+            if g.uuid == vlm_gpu_uuid:
+                new_free = max(0, g.free_mb - vlm_gpu_extra_reserve_mb)
+                yield (
+                    f"VLM reserve: holding {vlm_gpu_extra_reserve_mb} MB "
                     f"on {g.name} ({g.free_mb} → {new_free} MB free)"
                 )
                 adjusted.append(replace(g, free_mb=new_free))
@@ -2011,11 +2019,13 @@ async def calibrate_tts_variant_from_base(
     base_split: tuple[float, ...],
     base_ctx: int,
     base_kv: str,
-    tts_gpu_uuid: str,
+    tts_gpu_uuid: Optional[str],
     port: int,
     env: Optional[dict[str, str]] = None,
     known_thinking: Optional[bool] = None,
     tts_gpu_extra_reserve_mb: int = 0,
+    vlm_gpu_uuid: Optional[str] = None,
+    vlm_gpu_extra_reserve_mb: int = 0,
 ) -> AsyncIterator[str]:
     """Derive a TTS variant from an already-calibrated base config.
 
@@ -2067,6 +2077,26 @@ async def calibrate_tts_variant_from_base(
                 adjusted.append(g)
         gpus = adjusted
 
+    # VLM reserve — same rationale as in calibrate_llamacpp_model: the
+    # configured VLM may be unloaded right now, but the next inference
+    # call will pull its measured peak back into VRAM, so we plan around
+    # it permanently.
+    if vlm_gpu_extra_reserve_mb > 0 and vlm_gpu_uuid:
+        from dataclasses import replace
+        adjusted = []
+        for g in gpus:
+            if g.uuid == vlm_gpu_uuid:
+                old = g.free_mb
+                new_free = max(0, g.free_mb - vlm_gpu_extra_reserve_mb)
+                yield (
+                    f"VLM reserve: holding {vlm_gpu_extra_reserve_mb} MB "
+                    f"on {g.name} ({old} → {new_free} MB free)"
+                )
+                adjusted.append(replace(g, free_mb=new_free))
+            else:
+                adjusted.append(g)
+        gpus = adjusted
+
     model = _load_model_meta(model_id, gguf_path)
     if not model:
         yield f"TTS variant: could not load model meta for {model_id}"
@@ -2078,17 +2108,23 @@ async def calibrate_tts_variant_from_base(
         safety_margin += LLAMACPP_VISION_VRAM_RESERVE
     budget = build_budget(gpus, safety_margin=safety_margin)
 
-    # Map TTS UUID to position in our compute-DESC enumeration.
-    tts_position = next(
-        (i for i, g in enumerate(gpus) if g.uuid == tts_gpu_uuid), -1,
-    )
-    if tts_position < 0:
-        yield (
-            f"TTS variant: TTS GPU UUID {tts_gpu_uuid[:12]}… not visible — "
-            f"falling back to full re-calibration"
+    # Map TTS UUID to position in our compute-DESC enumeration. When
+    # called for a VLM-only variant (no TTS side-channel), tts_gpu_uuid
+    # is None and we skip the position check entirely — the VLM reserve
+    # block above already subtracted the cushion from the right GPU.
+    if tts_gpu_uuid:
+        tts_position = next(
+            (i for i, g in enumerate(gpus) if g.uuid == tts_gpu_uuid), -1,
         )
-        yield "__RESULT__:0:0:error"
-        return
+        if tts_position < 0:
+            yield (
+                f"TTS variant: TTS GPU UUID {tts_gpu_uuid[:12]}… not visible — "
+                f"falling back to full re-calibration"
+            )
+            yield "__RESULT__:0:0:error"
+            return
+    else:
+        tts_position = -1
 
     # Active set = same GPUs as the base config. base_split is the full
     # tuple (length == total GPUs) with 0s on idle slots.
@@ -2105,13 +2141,20 @@ async def calibrate_tts_variant_from_base(
         yield "__RESULT__:0:0:error"
         return
 
-    yield (
-        f"TTS variant from base: active GPUs {active}, target ctx "
-        f"{format_number(base_ctx)}, KV={base_kv}, free now "
-        f"{format_number(total_free_mb(gpus))} MB "
-        f"(TTS on GPU{tts_position} {gpus[tts_position].name}: "
-        f"{format_number(gpus[tts_position].free_mb)} MB free)"
-    )
+    if tts_position >= 0:
+        yield (
+            f"TTS variant from base: active GPUs {active}, target ctx "
+            f"{format_number(base_ctx)}, KV={base_kv}, free now "
+            f"{format_number(total_free_mb(gpus))} MB "
+            f"(TTS on GPU{tts_position} {gpus[tts_position].name}: "
+            f"{format_number(gpus[tts_position].free_mb)} MB free)"
+        )
+    else:
+        yield (
+            f"Variant from base: active GPUs {active}, target ctx "
+            f"{format_number(base_ctx)}, KV={base_kv}, free now "
+            f"{format_number(total_free_mb(gpus))} MB"
+        )
 
     # Re-project the same active set with current (TTS-aware) free VRAM.
     # This produces a fresh Candidate (with vram_model) that the verify/

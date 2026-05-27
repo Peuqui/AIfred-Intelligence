@@ -190,6 +190,25 @@ def is_tts_variant_calibrated(
     return False
 
 
+def is_vlm_variant_calibrated(
+    model_id: str, vlm_key: str, require_speed: bool = False,
+) -> bool:
+    """True if a VLM variant of ``model_id`` for ``vlm_key`` has a real
+    (non-preliminary) calibration in the vram cache. Mirrors
+    :func:`is_tts_variant_calibrated` exactly so the picker UI can light
+    up the green dot the same way.
+    """
+    cache = load_cache()
+    candidates = [f"{model_id}-vlm-{vlm_key}-speed"]
+    if not require_speed:
+        candidates.append(f"{model_id}-vlm-{vlm_key}")
+    for name in candidates:
+        entry = cache.get(name)
+        if entry and entry.get("gpu_model"):
+            return True
+    return False
+
+
 # ============================================================================
 # VRAM RATIO FUNCTIONS (Universal - ALL backends)
 # ============================================================================

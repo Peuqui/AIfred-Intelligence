@@ -697,6 +697,41 @@ class ChatMixin(rx.State, mixin=True):
 
         await self._ensure_backend_initialized()  # type: ignore[attr-defined]
 
+        # Coverage check: warn (debug console + log) when the active
+        # TTS/VLM toggles point at a llama-swap profile that doesn't
+        # exist in the YAML. The runtime resolver will silently fall
+        # back to the next-best profile, which can OOM on first VLM
+        # inference — surfacing the mismatch here gives the user a
+        # chance to open the calibration matrix.
+        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+            try:
+                from ..lib.calibration import diagnose_uncalibrated_combo
+                from ..lib.config import LLAMASWAP_CONFIG_PATH
+                from ..lib.tts_engine_manager import GPU_ENGINES
+                from ..lib.vision_prewarm import (
+                    is_vision_active,
+                    get_active_vlm_key,
+                )
+                _vlm_active_chat = is_vision_active()
+                _vlm_key_chat = get_active_vlm_key() if _vlm_active_chat else ""
+                _warn = diagnose_uncalibrated_combo(
+                    LLAMASWAP_CONFIG_PATH,
+                    self.aifred_model_id,  # type: ignore[attr-defined]
+                    tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
+                    tts_engine=self.tts_engine,  # type: ignore[attr-defined]
+                    gpu_tts_engines=GPU_ENGINES,
+                    vlm_active=_vlm_active_chat,
+                    vlm_key=_vlm_key_chat,
+                )
+                if _warn:
+                    self.add_debug(_warn)
+                    from ..lib.logging_utils import log_message
+                    log_message(_warn)
+            except Exception as _e:  # noqa: BLE001
+                # Diagnostic only — never block a chat submit on a check failure
+                from ..lib.logging_utils import log_message
+                log_message(f"diagnose_uncalibrated_combo failed: {_e}")
+
         # ============================================================
         # PHASE 1: Spinner + textarea clear — yield IMMEDIATELY
         # ============================================================

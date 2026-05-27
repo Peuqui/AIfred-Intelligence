@@ -68,6 +68,28 @@ def get_active_vlm_model() -> str | None:
     return str(model) if model else None
 
 
+def get_active_vlm_key() -> str:
+    """Return the short calibration key for the currently active VLM
+    (e.g. ``qwen3vl4b``), or empty string when vision is off / the
+    active model is not in :data:`config.VLM_CALIBRATION_CHOICES`.
+
+    Used by :func:`resolve_variant_suffix` to decide whether a
+    ``-vlm-<key>`` (or ``-tts-<engine>-vlm-<key>``) variant should be
+    preferred over the base/TTS profile at runtime. A missing key here
+    just means "no VLM variant in YAML matches this model" — the
+    resolver then falls through to the existing TTS/Speed rules, which
+    is the safe default.
+    """
+    active = get_active_vlm_model()
+    if not active:
+        return ""
+    from .config import VLM_CALIBRATION_CHOICES
+    for choice in VLM_CALIBRATION_CHOICES:
+        if choice["model_id"] == active:
+            return choice["key"]
+    return ""
+
+
 async def prewarm_vlm(
     *,
     timeout_seconds: float = 180.0,

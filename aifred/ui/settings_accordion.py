@@ -26,10 +26,15 @@ from .helpers import (
 # ============================================================
 
 def _calibration_picker_button() -> rx.Component:
-    """Calibrate button for llama.cpp — opens a popover that lets the
-    user pick which installed TTS engines should get a variant. The
-    popover only lists engines whose docker-compose.yml is present,
-    so big models don't burn an hour on engines the user never set up.
+    """Calibrate button for llama.cpp — opens a popover with a 2D matrix
+    picker. Rows are VLM choices (no VLM, Vigilantia 4B, Vigilantia 8B),
+    columns are TTS choices (no TTS plus each installed engine). Every
+    ticked cell becomes one calibrated llama-swap profile.
+
+    No hidden defaults: open the popover, every cell is empty, the user
+    ticks exactly the combinations they want. A green dot on a cell
+    means that profile already has a real (non-preliminary) entry in
+    the VRAM cache.
     """
     return rx.popover.root(
         rx.popover.trigger(
@@ -63,52 +68,77 @@ def _calibration_picker_button() -> rx.Component:
                     font_size="12px",
                     font_weight="bold",
                 ),
+                # Header row: empty corner + one label per TTS column.
+                rx.hstack(
+                    rx.foreach(
+                        AIState.calibration_matrix_header,
+                        lambda lbl: rx.box(
+                            rx.text(
+                                lbl,
+                                font_size="10px",
+                                font_weight="bold",
+                                text_align="center",
+                            ),
+                            flex="1",
+                            min_width="60px",
+                        ),
+                    ),
+                    spacing="1",
+                    align="center",
+                    width="100%",
+                ),
+                rx.divider(margin_y="2px"),
+                # One hstack per VLM row: row label + one checkbox cell
+                # per TTS column.
                 rx.foreach(
-                    AIState.calibration_picker_items,
-                    lambda item: rx.fragment(
-                        rx.hstack(
-                            # Inner toggle — markup pixel-identical to
-                            # _agent_toggle. Without the surrounding
-                            # width="100%" the surface checkbox stays at
-                            # its native ~16px size instead of being
-                            # stretched by the popover's flex context.
-                            rx.hstack(
-                                rx.checkbox(
-                                    checked=item["checked"].to(bool),
-                                    on_change=lambda val, k=item["key"]: AIState.set_calibration_tts_engine([k, val]),
-                                    size="1",
-                                    color_scheme="orange",
-                                    variant="soft",
-                                ),
-                                rx.cond(
-                                    item["is_base"].to(bool),
-                                    rx.text(t("calibration_base_label"), font_size="11px"),
-                                    rx.text(item["label"], font_size="11px"),
-                                ),
-                                spacing="1",
-                                align="center",
+                    AIState.calibration_matrix_rows,
+                    lambda row: rx.hstack(
+                        rx.box(
+                            rx.text(
+                                row["label"],
+                                font_size="10px",
+                                font_weight="bold",
                             ),
-                            rx.spacer(),
-                            rx.cond(
-                                item["already_calibrated"].to(bool),
-                                rx.tooltip(
-                                    rx.box(
-                                        width="8px",
-                                        height="8px",
-                                        border_radius="50%",
-                                        background="#22c55e",
+                            flex="1",
+                            min_width="60px",
+                        ),
+                        rx.foreach(
+                            row["cells"],
+                            lambda cell: rx.box(
+                                rx.hstack(
+                                    rx.checkbox(
+                                        checked=cell["checked"].to(bool),
+                                        on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),
+                                        size="1",
+                                        color_scheme="orange",
+                                        variant="soft",
                                     ),
-                                    content=t("calibration_already_done"),
+                                    rx.cond(
+                                        cell["already_calibrated"].to(bool),
+                                        rx.tooltip(
+                                            rx.box(
+                                                width="6px",
+                                                height="6px",
+                                                border_radius="50%",
+                                                background="#22c55e",
+                                            ),
+                                            content=t("calibration_already_done"),
+                                        ),
+                                    ),
+                                    spacing="1",
+                                    align="center",
+                                    justify="center",
                                 ),
+                                flex="1",
+                                min_width="60px",
+                                display="flex",
+                                align_items="center",
+                                justify_content="center",
                             ),
-                            spacing="2",
-                            align="center",
-                            width="100%",
                         ),
-                        rx.cond(
-                            item["is_base"].to(bool),
-                            rx.divider(margin_y="2px"),
-                        ),
+                        spacing="1",
+                        align="center",
+                        width="100%",
                     ),
                 ),
                 # Start button — closes popover and kicks off calibration.
@@ -126,7 +156,7 @@ def _calibration_picker_button() -> rx.Component:
                 spacing="2",
                 align="stretch",
             ),
-            max_width="280px",
+            min_width="380px",
             padding="12px",
         ),
     )

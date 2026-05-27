@@ -255,6 +255,9 @@ class BackendMixin(rx.State, mixin=True):
         # Automatik mirrors the AIfred agent's Speed toggle — it doesn't
         # have an independent UI control, so a separate
         # ``automatik_speed_mode`` flag doesn't exist.
+        from ..lib.vision_prewarm import is_vision_active, get_active_vlm_key
+        _vlm_active = is_vision_active()
+        _vlm_key = get_active_vlm_key() if _vlm_active else ""
         suffix = resolve_variant_suffix(
             LLAMASWAP_CONFIG_PATH,
             self.automatik_model_id,  # type: ignore[attr-defined]
@@ -263,6 +266,8 @@ class BackendMixin(rx.State, mixin=True):
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
             tts_engine=self.tts_engine,  # type: ignore[attr-defined]
             gpu_tts_engines=GPU_ENGINES,
+            vlm_active=_vlm_active,
+            vlm_key=_vlm_key,
         )
         return self.automatik_model_id + suffix  # type: ignore[attr-defined, no-any-return]
 

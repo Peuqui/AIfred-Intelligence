@@ -658,6 +658,26 @@ FACE_DETECT_GPU_ID = 4
 # Werte direkt am laufenden System gemessen via ``nvidia-smi`` nach
 # einem ``prewarm_vlm()``-Call (Ollama-Overhead schon eingerechnet,
 # inklusive Vision-Encoder + KV-Cache bei num_ctx=4096).
+# VLM choices offered in the calibration picker. Each entry creates a
+# ``<base>-vlm-<key>`` YAML variant (and a ``<base>-tts-<engine>-vlm-<key>``
+# combo for every selected TTS engine). 30B is intentionally excluded —
+# its 30.8 GB footprint leaves nothing for the LLM next to it on the V100;
+# users who really want it still get it via ``vision_mode != off`` +
+# ``vlm.model`` in plugin settings (Phase-1 fallback path).
+VLM_CALIBRATION_CHOICES: list[dict[str, str]] = [
+    {
+        "key": "qwen3vl4b",
+        "model_id": "qwen3-vl:4b-instruct-q8_0",
+        "label": "Vigilantia 4B",
+    },
+    {
+        "key": "qwen3vl8b",
+        "model_id": "qwen3-vl:8b-instruct-q8_0",
+        "label": "Vigilantia 8B",
+    },
+]
+
+
 VLM_VRAM_BUDGET_MB: dict[str, int] = {
     # Werte gelten für VLM_NUM_CTX = 8192. Beim Wechsel auf höhere
     # Kontext-Größen entsprechend hochsetzen (KV-Cache wächst linear).
@@ -827,6 +847,13 @@ RESEARCH_DEEP_URLS = 7
 # cause cudaMalloc OOM → GGML_ASSERT crash during ggml_gallocr reallocation.
 LLAMACPP_VISION_VRAM_RESERVE = 768  # MB (~682 measured + margin)
 
+# Extra headroom added on top of a cached/stress-measured VLM peak before
+# subtracting from the LLM's VRAM budget. Covers Ollama compute-graph
+# reallocation spikes and small drift between calibration-time measurement
+# and production-time peak. Not applied to the hand-measured static entries
+# in :data:`VLM_VRAM_BUDGET_MB` — those already include a safety buffer.
+LLAMACPP_VLM_HEADROOM_MB = 500
+
 # TTS VRAM reserve for tensor-split calculation (MB).
 # TTS models can spike during inference (e.g. MOSS-TTS: ~350 MB peak above idle).
 # Subtracted from the TTS GPU's free VRAM before computing tensor-split ratios.
@@ -875,6 +902,14 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
     has_speed_variant = f"{base_id}-speed" in swap_cfg
 
+    # VLM activation mirrors the vision plugin's runtime state: if vision
+    # is active and the configured model matches one of the calibrated
+    # VLM variants, the resolver prefers the matching ``-vlm-<key>``
+    # profile so the LLM has the right VRAM cushion in place.
+    from .vision_prewarm import is_vision_active, get_active_vlm_key
+    vlm_active = is_vision_active()
+    vlm_key = get_active_vlm_key() if vlm_active else ""
+
     suffix = resolve_variant_suffix(
         Path(LLAMASWAP_CONFIG_PATH),
         base_id,
@@ -883,6 +918,8 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         tts_active=settings.get("enable_tts", False),
         tts_engine=settings.get("tts_engine", ""),
         gpu_tts_engines=GPU_ENGINES,
+        vlm_active=vlm_active,
+        vlm_key=vlm_key,
     )
     return base_id + suffix
 
