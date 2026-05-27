@@ -590,6 +590,47 @@ class CalibrationMixin(rx.State, mixin=True):
             from ..lib.process_utils import stop_all_installed_tts
             for label, ok, msg in stop_all_installed_tts():
                 self.add_debug(f"   {'✅' if ok else '⚠️'} {label}: {msg}")  # type: ignore[attr-defined]
+
+            # Unload any models currently held in Ollama VRAM (embedding
+            # models, VLMs that were warm from a previous Vigilantia
+            # session, etc.) so the calibration's nvidia-smi probe sees
+            # free GPU memory. Ollama itself stays up — the VLM
+            # burn-in below needs the daemon to be running so it can
+            # reload the chosen VLM on demand.
+            try:
+                import httpx
+                from ..lib.config import resolve_vlm_host
+                _ollama_host = resolve_vlm_host()
+                with httpx.Client(timeout=10.0) as _c:
+                    _ps = _c.get(f"{_ollama_host}/api/ps")
+                    if _ps.status_code == 200:
+                        _loaded = _ps.json().get("models") or []
+                        if _loaded:
+                            for _m in _loaded:
+                                _name = _m.get("name", "")
+                                if not _name:
+                                    continue
+                                _c.post(
+                                    f"{_ollama_host}/api/generate",
+                                    json={"model": _name, "prompt": "",
+                                          "keep_alive": 0},
+                                )
+                                self.add_debug(  # type: ignore[attr-defined]
+                                    f"   ✅ Ollama: unloaded {_name}"
+                                )
+                        else:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                "   ℹ️ Ollama: no models loaded"
+                            )
+                    else:
+                        self.add_debug(  # type: ignore[attr-defined]
+                            f"   ⚠️ Ollama /api/ps returned {_ps.status_code}"
+                        )
+            except Exception as _e:  # noqa: BLE001
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"   ⚠️ Ollama unload skipped: {_e}"
+                )
+
             self.add_debug("   VRAM cleanup done")  # type: ignore[attr-defined]
             yield
 

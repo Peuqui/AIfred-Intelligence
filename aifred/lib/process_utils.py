@@ -253,62 +253,49 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
 def _detect_tts_gpu_uuid() -> str:
     """Pick the UUID of the GPU that TTS containers should pin to.
 
-    Rule: **the GPU with the highest memory bandwidth** — TTS inference
-    is memory-bandwidth-bound, not compute-bound.
+    **Design rule (SSOT with VLM):** The GPU of the **second-highest
+    compute class** — same strategy as ``pick_vlm_gpu``. Co-locates the
+    side-channel workloads (TTS containers and Vigilantia VLM) on one
+    GPU and keeps the entire top-compute tier free for the main chat
+    LLM via llama-swap. Hardware-agnostic: on a 2× RTX 8000 + V100 +
+    2× P40 layout this picks the V100, on a 2× RTX 4090 + V100 layout
+    it also picks the V100, etc.
 
-    Benchmark basis (2026-05-21, all four engines, fp16, identical
-    8-sentence prompt, V100 vs. RTX 8000):
-      - Fish-Speech S2 Pro: V100 20.6 tok/s vs. RTX 8000 15.9 → V100 +30%
-      - Qwen3-TTS / MOSS-TTS / XTTS: within ±5% (noise)
-    No GPU here has native bfloat16 (needs sm_80+), so both cards use
-    the same fp16 tensor-core path — and then the V100's HBM2 bandwidth
-    (~900 GB/s vs. RTX 8000 GDDR6 ~672 GB/s) wins. compute_cap is NOT a
-    useful primary key on Volta/Turing-only setups. Revisit if an
-    sm_80+ card (A100/H100/Ada) is ever added — those *do* have native
-    BF16 and would flip the trade-off.
+    Historical context (kept for the record): an earlier rule picked
+    by memory bandwidth (HBM > GDDR), which on the Mini setup happened
+    to also land on the V100 because HBM2 beats GDDR6 there. With the
+    new compute-class rule the result is identical on this hardware
+    but the code path is unified with ``pick_vlm_gpu``.
 
-    HBM detection: HBM cards (V100, A100, H100 …) have *low* memory
-    clocks (~700-1200 MHz) but very wide buses, so they beat GDDR cards
-    (~6000-10000 MHz, narrow bus) on bandwidth. Detected via
-    ``clocks.max.memory < 1500 MHz`` + ``memory.total >= 16 GB``.
-
-    Falls back to the highest-clocked GDDR card if no HBM is present.
-    Returns ``""`` if nvidia-smi is unavailable.
+    Returns ``""`` if NVML / nvidia-smi is unavailable. Caller (TTS
+    compose env builder) treats ``""`` as "no GPU pin", which falls
+    back to whatever the container's own GPU selection logic does.
     """
+    from .vision_gpu_select import pick_vlm_gpu
+    try:
+        gpu_idx = pick_vlm_gpu()
+    except RuntimeError:
+        return ""
+    # Map PCI_BUS_ID index → UUID. TTS container compose files use
+    # the UUID form (``CUDA_VISIBLE_DEVICES=GPU-…``) because UUIDs
+    # survive PCI re-enumeration across reboots; indices don't.
     try:
         result = subprocess.run(
-            ["nvidia-smi",
-             "--query-gpu=uuid,clocks.max.memory,memory.total",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
+            [
+                "nvidia-smi",
+                f"--id={gpu_idx}",
+                "--query-gpu=uuid",
+                "--format=csv,noheader",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode != 0:
             return ""
+        return result.stdout.strip().split("\n")[0] or ""
     except (OSError, subprocess.TimeoutExpired):
         return ""
-
-    entries: list[tuple[str, int, int]] = []  # (uuid, mem_clock_mhz, total_mb)
-    for line in result.stdout.strip().split("\n"):
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) != 3:
-            continue
-        try:
-            entries.append((parts[0], int(parts[1]), int(parts[2])))
-        except ValueError:
-            continue
-    if not entries:
-        return ""
-
-    # HBM signature: low memory clock + reasonably large VRAM.
-    hbm = [e for e in entries if e[1] < 1500 and e[2] >= 16000]
-    if hbm:
-        # Multiple HBM cards: prefer larger VRAM, lower UUID for tiebreak.
-        hbm.sort(key=lambda e: (-e[2], e[0]))
-        return hbm[0][0]
-
-    # No HBM: highest GDDR clock (best bandwidth in a GDDR-only setup).
-    entries.sort(key=lambda e: (-e[1], -e[2], e[0]))
-    return entries[0][0]
 
 
 def get_tts_gpu_uuid() -> str:
