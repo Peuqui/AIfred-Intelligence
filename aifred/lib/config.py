@@ -844,6 +844,13 @@ LLAMACPP_VLM_HEADROOM_MB = 500
 # inference, plus container restart overhead.
 LLAMACPP_TTS_BURNIN_HEADROOM_MB = 512
 
+# Number of stress syntheses per TTS-engine burn-in. Real-world data
+# (Fish-Speech, Qwen3-TTS, XTTS) shows the VRAM peak is reached by
+# synthesis 1 with at most +10 MiB drift on synthesis 2 — fully covered
+# by the headroom above. Default 2 = DE + EN; one warm-up, one
+# steady-state. Raise this if a new engine shows late-arriving peaks.
+LLAMACPP_TTS_BURNIN_ITERATIONS = 2
+
 # TTS VRAM reserve for tensor-split calculation (MB).
 # TTS models can spike during inference (e.g. MOSS-TTS: ~350 MB peak above idle).
 # Subtracted from the TTS GPU's free VRAM before computing tensor-split ratios.
