@@ -32,10 +32,15 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
-# Deterministic worst-case input — bilingual long text designed to keep
-# the decoder allocating its full buffer set across multiple back-to-back
-# generations. Mixing languages exercises the tokenizer and prevents
-# engines from short-circuiting on cached prefixes.
+# Deterministic worst-case input — long bilingual passages designed
+# to drive the decoder into its full long-bubble KV-cache allocation.
+# Engines that grow their VRAM with output length (Qwen3-TTS: idle
+# ~5 GB, long-bubble peak ~7 GB) need a single synthesis that's
+# substantially longer than a chat sentence — short texts let the
+# decoder short-circuit before the cache grows. Roughly 1.8–2 kB per
+# language → ~120 s of synthesised audio per call, well past every
+# realistic chat-bubble length the engine will hit in production.
+
 _STRESS_TEXT_DE = (
     "Die schnelle braune Katze springt über den schlafenden Hund am "
     "Ufer des großen Flusses, während im Hintergrund die Glocken der "
@@ -43,7 +48,39 @@ _STRESS_TEXT_DE = (
     "engen Gassen der Altstadt treibt. Niemand bemerkt den Reisenden "
     "mit dem schweren Mantel, der gerade aus dem letzten Zug gestiegen "
     "ist und nun zielstrebig in Richtung des Marktplatzes geht, wo "
-    "sich um diese späte Stunde nur noch wenige Verkäufer aufhalten."
+    "sich um diese späte Stunde nur noch wenige Verkäufer aufhalten. "
+    "Am alten Brunnen vor dem Rathaus bleibt er stehen, holt einen "
+    "vergilbten Brief aus der Innentasche seines Mantels und liest ihn "
+    "noch einmal aufmerksam durch, bevor er entschlossen weitergeht. "
+    "Ein paar Straßen weiter, in einer schmalen Sackgasse, öffnet sich "
+    "die Tür eines kleinen Antiquariats, und der Reisende tritt ohne "
+    "ein Wort der Begrüßung ein. Der Inhaber, ein hagerer alter Mann "
+    "mit randloser Brille und einem grauen Tuch um die Schultern, "
+    "blickt von seinem Buch auf, nickt knapp und greift nach einem "
+    "verschlossenen Holzkästchen, das hinter dem Tresen aufbewahrt war. "
+    "Draußen beginnt es leise zu regnen, und in den Pfützen auf dem "
+    "Kopfsteinpflaster spiegeln sich die flackernden Laternen, die "
+    "noch aus einer früheren Zeit stammen, in der die Straßen abends "
+    "von einem Wärter mit langer Stange entzündet wurden. Der "
+    "Reisende öffnet das Kästchen vorsichtig, als wäre der Inhalt aus "
+    "feinstem Glas gefertigt, und betrachtet lange Zeit die ineinander "
+    "verschlungenen Buchstaben einer alten Inschrift, deren Bedeutung "
+    "ihm bis heute verborgen geblieben war. Der Antiquar tritt näher, "
+    "räuspert sich vernehmlich und erklärt mit ruhiger, sorgsam "
+    "abgewogener Stimme, dass diese Zeichen aus einer Sprache stammen, "
+    "die schon vor mehr als dreihundert Jahren verstummt sein soll, "
+    "als die letzten Bewohner einer abgelegenen Inselgemeinschaft im "
+    "Sturm vor der Küste verschwanden und keinerlei Zeugnisse hinter "
+    "sich ließen außer einigen wenigen Tafeln aus dunklem Schiefer. "
+    "Während sie noch sprechen, hört man von weit her das langsame "
+    "Quietschen eines Wagens, der über das nasse Pflaster rollt, und "
+    "kurz darauf das gedämpfte Hufschlagen zweier müder Pferde, die "
+    "ihre Last an einem unsichtbaren Ziel hin bewegen. In der "
+    "schmalen Werkstatt hinter dem Antiquariat, durch eine halb "
+    "geöffnete Tür sichtbar, brennt eine einzelne Kerze auf einem "
+    "Tisch voller Notizen, Werkzeuge und halb zerlegter mechanischer "
+    "Uhrwerke, deren feine Zahnräder im Licht der Flamme golden "
+    "schimmern und an die Geduld eines vergangenen Handwerks erinnern."
 )
 
 _STRESS_TEXT_EN = (
@@ -53,7 +90,38 @@ _STRESS_TEXT_EN = (
     "narrow alleys of the old town. Nobody notices the traveler with "
     "the heavy coat who has just stepped off the last train and is "
     "now walking purposefully towards the market square, where only a "
-    "few vendors remain at this late hour."
+    "few vendors remain at this late hour. At the old fountain in "
+    "front of the town hall he stops, pulls a yellowed letter from "
+    "the inner pocket of his coat, and reads it through once again "
+    "carefully before continuing on with determined steps. A few "
+    "streets further, in a narrow dead end, the door of a small "
+    "antiquarian bookshop swings open, and the traveler steps inside "
+    "without a word of greeting. The owner, a gaunt old man with "
+    "rimless glasses and a grey shawl around his shoulders, looks up "
+    "from his book, nods curtly, and reaches for a sealed wooden box "
+    "that had been kept behind the counter. Outside it begins to rain "
+    "softly, and in the puddles on the cobblestones the flickering "
+    "street lamps are reflected, lamps that date from an earlier era "
+    "when the streets in the evening were lit by a warden with a long "
+    "pole bearing a small flame at its tip. The traveler opens the "
+    "box carefully, as though its contents were fashioned from the "
+    "finest glass, and studies for a long time the interlocking "
+    "characters of an old inscription whose meaning has remained "
+    "hidden from him to this very day. The bookseller steps closer, "
+    "clears his throat audibly, and explains in a calm, carefully "
+    "measured voice that these signs come from a language that is "
+    "said to have fallen silent more than three hundred years ago, "
+    "when the last inhabitants of a remote island community vanished "
+    "in a storm off the coast and left behind no records save for a "
+    "few tablets of dark slate. While they are still talking, one "
+    "hears from far away the slow creaking of a cart rolling over "
+    "the wet pavement, and shortly afterwards the muffled hoofbeats "
+    "of two weary horses pulling their burden toward some invisible "
+    "destination. In the narrow workshop behind the bookshop, visible "
+    "through a half-open door, a single candle burns on a table "
+    "covered with notes, tools and half-disassembled clockwork "
+    "mechanisms whose delicate gears glint golden in the light of "
+    "the flame, reminding one of the patience of a craft long past."
 )
 
 
@@ -144,7 +212,7 @@ class _PeakMonitor:
 async def stress_burnin_tts(
     engine_key: str,
     *,
-    iterations: int = 3,
+    iterations: Optional[int] = None,
     debug: Any = None,
 ) -> Optional[int]:
     """Bring up the TTS engine, run a worst-case bilingual synthesis
@@ -152,11 +220,18 @@ async def stress_burnin_tts(
     ``None`` on any failure (caller can fall back to the engine's
     legacy static reserve in ``base.py``).
 
+    ``iterations`` defaults to :data:`config.LLAMACPP_TTS_BURNIN_ITERATIONS`
+    when not specified — single tunable knob for the burn-in loop length.
+
     The container is started fresh and stopped at the end so the
     measurement reflects the **container's full footprint at peak
     decode**, not just idle usage.
     """
+    from .config import LLAMACPP_TTS_BURNIN_ITERATIONS
     from .tts_engines.registry import get_engine
+
+    if iterations is None:
+        iterations = LLAMACPP_TTS_BURNIN_ITERATIONS
 
     engine = get_engine(engine_key)
     if engine is None:
@@ -182,7 +257,11 @@ async def stress_burnin_tts(
                 pass
         logger.info(msg)
 
-    _log(f"🔥 Burn-in {engine_key}: starting container on GPU{gpu_index}...")
+    # Pick voice first so the starting line can summarise everything
+    # in one go. Fallback is fine — we just need any working voice id.
+    voices_fallback = engine.voices_fallback
+    text_chars = max(len(_STRESS_TEXT_DE), len(_STRESS_TEXT_EN))
+
     # All sync engine calls must run in a thread — otherwise the
     # subprocess + time.sleep(1) polling loops inside ensure_ready()
     # would block the Reflex/uvicorn event loop for up to 10 minutes
@@ -191,41 +270,31 @@ async def stress_burnin_tts(
     _t_start_container = time.monotonic()
     started, start_msg = await asyncio.to_thread(engine.start)
     if not started:
-        _log(f"   ⚠️ {engine_key} start failed: {start_msg}")
+        _log(f"❌ {engine_key} container start failed: {start_msg}")
         return None
-    _baseline_after_start = _query_gpu_used_mb(gpu_index)
-    _log(
-        f"   ⏳ {engine_key}: container up in "
-        f"{time.monotonic() - _t_start_container:.1f}s, waiting for model load..."
-    )
-    _t_ready_start = time.monotonic()
-    ready, ready_msg, _device = await asyncio.to_thread(
-        engine.ensure_ready, 600,
-    )
-    if not ready:
-        _log(f"   ⚠️ {engine_key} not ready: {ready_msg}")
-        await asyncio.to_thread(engine.stop)
-        return None
-    _idle_after_load = _query_gpu_used_mb(gpu_index)
-    _log(
-        f"   ✓ {engine_key}: model loaded after "
-        f"{time.monotonic() - _t_ready_start:.1f}s — "
-        f"idle footprint {_idle_after_load} MiB"
-    )
-
-    # Pick a voice that's known to exist. We hand the display name
-    # (key) to generate_tts() — the SSOT call site strips the "★ "
-    # prefix internally before forwarding to the engine, so we don't
-    # need to know which engine uses prefixed display names.
-    voices = await asyncio.to_thread(engine.get_voices) or engine.voices_fallback
+    voices = await asyncio.to_thread(engine.get_voices) or voices_fallback
     if not voices:
-        _log(f"   ⚠️ {engine_key}: no voices available — skipping burn-in")
+        _log(f"❌ {engine_key}: no voices available — skipping burn-in")
         await asyncio.to_thread(engine.stop)
         return None
     voice_display = next(iter(voices.keys()))
     _log(
-        f"   🎤 {engine_key}: voice='{voice_display}', "
-        f"{iterations} stress syntheses planned"
+        f"🔥 {engine_key} burn-in starting "
+        f"(GPU{gpu_index}, voice='{voice_display}', "
+        f"{iterations}× ~{text_chars} chars bilingual)"
+    )
+    ready, ready_msg, _device = await asyncio.to_thread(
+        engine.ensure_ready, 600,
+    )
+    if not ready:
+        _log(f"   ❌ {engine_key} not ready: {ready_msg}")
+        await asyncio.to_thread(engine.stop)
+        return None
+    _idle_after_load = _query_gpu_used_mb(gpu_index)
+    _log(
+        f"   ✓ container + model ready in "
+        f"{time.monotonic() - _t_start_container:.1f}s — "
+        f"idle {_idle_after_load} MiB"
     )
 
     # Route through the SSOT TTS call site (audio_processing.generate_tts):
@@ -242,12 +311,6 @@ async def stress_burnin_tts(
             for i in range(iterations):
                 lang = "de" if i % 2 == 0 else "en"
                 text = _STRESS_TEXT_DE if lang == "de" else _STRESS_TEXT_EN
-                _pre_used = _query_gpu_used_mb(gpu_index)
-                _log(
-                    f"   ▶ {engine_key} synthesis {i+1}/{iterations}: "
-                    f"lang={lang}, {len(text)} chars, "
-                    f"VRAM before = {_pre_used} MiB"
-                )
                 t_start = time.monotonic()
                 result = await generate_tts(
                     text=text,
@@ -259,32 +322,28 @@ async def stress_burnin_tts(
                     language=lang,
                 )
                 t_elapsed = time.monotonic() - t_start
-                _post_used = _query_gpu_used_mb(gpu_index)
                 _running_peak = monitor.peak_mb
                 if result is None:
                     _log(
-                        f"   ⚠️ {engine_key} synthesis {i+1}/{iterations}: "
-                        f"returned None after {t_elapsed:.1f}s "
-                        f"(VRAM now {_post_used} MiB, running peak {_running_peak} MiB)"
+                        f"   ⚠️ synth {i+1}/{iterations} ({lang}): "
+                        f"{t_elapsed:.1f}s — returned None"
                     )
                 else:
                     successes += 1
                     _log(
-                        f"   ✓ {engine_key} synthesis {i+1}/{iterations}: "
-                        f"done in {t_elapsed:.1f}s "
-                        f"(VRAM now {_post_used} MiB, running peak {_running_peak} MiB)"
+                        f"   ✓ synth {i+1}/{iterations} ({lang}): "
+                        f"{t_elapsed:.1f}s, running peak {_running_peak} MiB"
                     )
         peak = monitor.peak_mb
+        _delta = peak - _idle_after_load
         _log(
-            f"   📈 {engine_key} burn-in done: {successes}/{iterations} successful, "
-            f"peak VRAM = {peak} MiB (idle was {_idle_after_load} MiB, "
-            f"delta = {peak - _idle_after_load} MiB)"
+            f"   📈 done: peak {peak} MiB "
+            f"(+{_delta} vs idle, {successes}/{iterations} successful)"
         )
     except Exception as e:  # noqa: BLE001
         _log(f"   ❌ {engine_key} burn-in error: {e}")
         peak = max(peak, _query_gpu_used_mb(gpu_index))
     finally:
-        _log(f"   🛑 stopping {engine_key} container...")
         await asyncio.to_thread(engine.stop)
 
     # Hard-fail when every synthesis call returned None — the measured
