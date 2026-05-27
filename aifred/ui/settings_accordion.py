@@ -113,19 +113,31 @@ def _calibration_picker_button() -> rx.Component:
                                         color_scheme="orange",
                                         variant="soft",
                                     ),
-                                    rx.cond(
-                                        cell["already_calibrated"].to(bool),
-                                        rx.tooltip(
-                                            rx.box(
-                                                width="6px",
-                                                height="6px",
-                                                border_radius="50%",
-                                                background="#22c55e",
+                                    # Fixed-width slot for the green
+                                    # "already calibrated" dot. Always
+                                    # rendered so the checkbox column
+                                    # alignment stays identical whether
+                                    # the dot is visible or not.
+                                    rx.box(
+                                        rx.cond(
+                                            cell["already_calibrated"].to(bool),
+                                            rx.tooltip(
+                                                rx.box(
+                                                    width="6px",
+                                                    height="6px",
+                                                    border_radius="50%",
+                                                    background="#22c55e",
+                                                ),
+                                                content=t("calibration_already_done"),
                                             ),
-                                            content=t("calibration_already_done"),
                                         ),
+                                        width="10px",
+                                        height="10px",
+                                        display="flex",
+                                        align_items="center",
+                                        justify_content="center",
                                     ),
-                                    spacing="1",
+                                    spacing="2",
                                     align="center",
                                     justify="center",
                                 ),

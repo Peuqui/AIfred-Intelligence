@@ -6,6 +6,7 @@ including backend restart and vLLM restart.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -273,8 +274,8 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib import vlm_vram_cache
         count = vlm_vram_cache.clear()
         self.add_debug(  # type: ignore[attr-defined]
-            f"🧹 VLM-VRAM-Cache geleert ({count} Einträge) — "
-            f"nächste Kalibration misst per Stress-Prewarm neu"
+            f"🧹 VLM VRAM cache cleared ({count} entries) — "
+            f"next calibration will re-measure via stress-prewarm"
         )
 
     def reset_tts_vram_cache(self) -> None:
@@ -284,8 +285,8 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib import tts_vram_cache
         count = tts_vram_cache.clear()
         self.add_debug(  # type: ignore[attr-defined]
-            f"🧹 TTS-VRAM-Cache geleert ({count} Einträge) — "
-            f"nächste Kalibration misst per Stress-Burn-In neu"
+            f"🧹 TTS VRAM cache cleared ({count} entries) — "
+            f"next calibration will re-measure via stress-burn-in"
         )
 
     def set_calibration_matrix_cell(self, payload: list) -> None:
@@ -643,7 +644,23 @@ class CalibrationMixin(rx.State, mixin=True):
                 ):
                     _needed_vlms.append(_vc)
 
-            # TTS burn-ins for missing cache entries
+            # TTS burn-ins for missing cache entries. Failures are fatal:
+            # a burn-in that can't actually do real synthesis would write
+            # only the container's idle footprint, misleading the LLM
+            # calibration into reserving too little VRAM on the TTS GPU.
+            # Better to abort here than silently calibrate a profile that
+            # OOMs on the first production call.
+            #
+            # Use the debug bus the same way FreeEcho2 / Telegram /
+            # Discord channels do: ``session_scope`` binds the current
+            # session ID, then progress callbacks call ``debug(msg)``
+            # **directly** (not through ``self.add_debug``). The bus
+            # writes each message straight to the session file; the
+            # UI's mtime-watcher picks it up on the next 500 ms tick.
+            # No State mutation, backend-agnostic, works post-Reflex.
+            from ..lib.debug_bus import session_scope as _debug_session_scope
+            _session_id = getattr(self, "session_id", "") or ""
+            _burnin_failures: list[str] = []
             if _needed_tts:
                 from ..lib.tts_stress_burnin import stress_burnin_tts
                 missing_tts = [k for k in sorted(_needed_tts)
@@ -654,22 +671,51 @@ class CalibrationMixin(rx.State, mixin=True):
                     )
                     yield
                     for _ek in missing_tts:
-                        try:
-                            _peak = await stress_burnin_tts(
-                                _ek, debug=self.add_debug,  # type: ignore[attr-defined]
+                        # Same pattern as the channels: bus_debug writes
+                        # to the session file (live via mtime-watcher),
+                        # asyncio.create_task keeps the work off the
+                        # main coroutine so periodic yields can push
+                        # any state-bound updates concurrently.
+                        with _debug_session_scope(_session_id):
+                            # Use ``self.add_debug`` so each progress
+                            # line mutates the Reflex state list AND
+                            # (because we're inside session_scope) gets
+                            # flushed to the session file. The state
+                            # path reaches the browser at the next
+                            # yield from the outer while loop; the file
+                            # path is the post-Reflex fallback.
+                            _t_task = asyncio.create_task(
+                                stress_burnin_tts(_ek, debug=self.add_debug)  # type: ignore[attr-defined]
                             )
-                            if _peak is not None and _peak > 0:
-                                tts_vram_cache.put(_ek, _peak)
+                            try:
+                                while not _t_task.done():
+                                    yield
+                                    await asyncio.sleep(0.3)
+                                _peak = await _t_task
+                            except Exception as _e:  # noqa: BLE001
                                 self.add_debug(  # type: ignore[attr-defined]
-                                    f"   ✅ {_ek}: peak {_peak} MiB cached"
+                                    f"   ❌ {_ek} burn-in error: {_e}"
                                 )
-                            else:
-                                self.add_debug(  # type: ignore[attr-defined]
-                                    f"   ⚠️ {_ek}: burn-in returned no value"
-                                )
-                        except Exception as _e:  # noqa: BLE001
+                                _burnin_failures.append(f"TTS {_ek}: {_e}")
+                                _peak = None
+                        if _peak is not None and _peak > 0:
+                            tts_vram_cache.put(_ek, _peak)
                             self.add_debug(  # type: ignore[attr-defined]
-                                f"   ⚠️ {_ek} burn-in error: {_e}"
+                                f"   ✅ {_ek}: peak {_peak} MiB cached"
+                            )
+                        elif _peak is None:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   ❌ {_ek}: burn-in failed — see error above"
+                            )
+                            _burnin_failures.append(
+                                f"TTS {_ek}: stress synthesis failed"
+                            )
+                        else:
+                            self.add_debug(  # type: ignore[attr-defined]
+                                f"   ⚠️ {_ek}: burn-in returned 0 MiB"
+                            )
+                            _burnin_failures.append(
+                                f"TTS {_ek}: zero-peak measurement"
                             )
                         yield
 
@@ -699,11 +745,30 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"   🔥 {_vc['label']} stress prewarm on GPU{_gpu_idx}..."
                             )
                             yield
-                            try:
-                                _peak = await stress_prewarm_vlm(
-                                    _mid, num_ctx=VLM_NUM_CTX,
-                                    gpu_index=_gpu_idx,
+                            with _debug_session_scope(_session_id):
+                                # stress_prewarm_vlm logs internally via
+                                # ``logger.info`` (no debug callback);
+                                # progress for the outer mixin happens
+                                # below in the while loop's yields.
+                                _v_task = asyncio.create_task(
+                                    stress_prewarm_vlm(
+                                        _mid, num_ctx=VLM_NUM_CTX,
+                                        gpu_index=_gpu_idx,
+                                    )
                                 )
+                                try:
+                                    while not _v_task.done():
+                                        yield
+                                        await asyncio.sleep(0.3)
+                                    _peak = await _v_task
+                                except Exception as _e:  # noqa: BLE001
+                                    self.add_debug(  # type: ignore[attr-defined]
+                                        f"   ❌ {_vc['label']} prewarm error: {_e}"
+                                    )
+                                    _burnin_failures.append(
+                                        f"VLM {_vc['label']}: {_e}"
+                                    )
+                                    _peak = None
                                 if _peak is not None and _peak > 0:
                                     vlm_vram_cache.put(_mid, VLM_NUM_CTX, _peak)
                                     self.add_debug(  # type: ignore[attr-defined]
@@ -711,12 +776,11 @@ class CalibrationMixin(rx.State, mixin=True):
                                     )
                                 else:
                                     self.add_debug(  # type: ignore[attr-defined]
-                                        f"   ⚠️ {_vc['label']}: prewarm returned no value"
+                                        f"   ❌ {_vc['label']}: prewarm failed"
                                     )
-                            except Exception as _e:  # noqa: BLE001
-                                self.add_debug(  # type: ignore[attr-defined]
-                                    f"   ⚠️ {_vc['label']} prewarm error: {_e}"
-                                )
+                                    _burnin_failures.append(
+                                        f"VLM {_vc['label']}: prewarm failed"
+                                    )
                             yield
 
             # Wait for VRAM to settle after burn-ins so the LLM
@@ -725,6 +789,28 @@ class CalibrationMixin(rx.State, mixin=True):
             if _needed_tts or _needed_vlms:
                 from ..backends.ollama import wait_for_vram_stable
                 await wait_for_vram_stable(max_wait_seconds=15.0)
+
+            # Hard abort if any burn-in failed — better to surface the
+            # problem now than write a calibration profile based on
+            # idle-only or fallback values that OOM in production.
+            if _burnin_failures:
+                self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+                self.add_debug(  # type: ignore[attr-defined]
+                    "❌ Burn-in failed — calibration aborted. Issues:"
+                )
+                for _f in _burnin_failures:
+                    self.add_debug(f"   • {_f}")  # type: ignore[attr-defined]
+                self.add_debug(  # type: ignore[attr-defined]
+                    "Check container logs (and verify voice/language "
+                    "config for the failing engine), then restart "
+                    "the calibration."
+                )
+                yield
+                # llama-swap wieder hochfahren, sonst hängt das System
+                from ..lib.process_utils import start_llama_swap
+                start_llama_swap()
+                self.add_debug("🔄 llama-swap restarted")  # type: ignore[attr-defined]
+                return
 
             # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed,
             #          Phase 3: Speed split for multi-GPU models)
