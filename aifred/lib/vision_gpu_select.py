@@ -1,18 +1,21 @@
 """Hardware-agnostische GPU-Auswahl für Vision-Workloads.
 
-Strategie (siehe Memory ``ollama-gpu-greedy-not-strategic``):
-Die VLM-Pipeline soll **nicht** die schnellste GPU blockieren, weil dort
-typischerweise der Haupt-Chat-LLM via llama-swap läuft. Stattdessen:
-**Zweite GPU der höchsten Compute-Klasse**. Damit bleibt die schnellste GPU
-für den Chat-Backend frei, und die VLM-Latenz bleibt im selben Architektur-
-Tier (z.B. zweite RTX 8000 statt P40-Fallback).
+Designentscheidung: Die VLM-Pipeline läuft auf der GPU der **zweit-
+höchsten Compute-Klasse**, nicht auf der schnellsten. Damit bleibt der
+Top-Compute-Tier komplett frei für den Haupt-Chat-LLM (typisch via
+llama-swap), und das VLM bekommt einen eigenen, klar abgegrenzten Tier.
+Bei einem 2× RTX 8000 (cc 7.5) + 1× V100 (cc 7.0) + 2× P40 (cc 6.1)
+Setup heißt das: VLM landet auf der V100.
+
+Hardware-agnostisch: Welche Karte das konkret ist, hängt von der
+aktuellen Bestückung ab. Es wird **nicht** „immer V100" hartkodiert.
 
 Fallback-Kaskade:
 
-1. **Bevorzugt:** zweitbeste GPU der höchsten Compute-Klasse
-   (z.B. 2× RTX 8000 ⇒ index der zweiten RTX 8000).
-2. **Wenn nur eine Top-Klasse-GPU:** nächstbeste GPU im Ranking
-   (RTX 8000 belegt für Chat ⇒ V100 fürs VLM).
+1. **Bevorzugt:** erste GPU der **zweithöchsten** Compute-Klasse.
+2. **Wenn alle GPUs in derselben Klasse sind:** die zweite GPU dieser
+   Klasse (z.B. 4× RTX 8000 ⇒ zweite RTX 8000) — Haupt-Chat-LLM
+   priorisiert die erste.
 3. **Wenn nur eine GPU im System:** diese eine GPU.
 4. **Kein NVIDIA-Stack verfügbar (pynvml fehlt):** ``RuntimeError`` —
    Caller (Plugin-Settings) fällt dann auf CPU-Provider zurück.
@@ -103,7 +106,8 @@ def _rank(gpus: Sequence[GpuInfo]) -> list[GpuInfo]:
 
 
 def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
-    """Choose a GPU index for the VLM (Ollama) according to the strategy.
+    """Choose a GPU index for the VLM (Ollama) according to the design
+    rule: **first GPU of the second-highest compute class**.
 
     Returns the PCI_BUS_ID index of the chosen GPU.
 
@@ -117,12 +121,13 @@ def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
     if len(ranked) == 1:
         return ranked[0].index
     top_cc = ranked[0].compute_capability
-    top_class = [g for g in ranked if g.compute_capability == top_cc]
-    if len(top_class) >= 2:
-        # Second of the top compute class — leaves the fastest free for chat LLM
-        return top_class[1].index
-    # Only one top-class GPU — pick the next-best (preserves the architecture
-    # tier as much as possible while still keeping the fastest free)
+    second_class = [g for g in ranked if g.compute_capability != top_cc]
+    if second_class:
+        # First GPU of the second-highest compute class — keeps the entire
+        # top tier free for the chat LLM. Example: 2× RTX 8000 + V100 → V100.
+        return second_class[0].index
+    # All GPUs share the top compute class — fall back to "second within
+    # the top tier" so the first stays available for the chat LLM.
     return ranked[1].index
 
 
