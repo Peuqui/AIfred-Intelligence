@@ -324,6 +324,31 @@ class CalibrationMixin(rx.State, mixin=True):
             f"next calibration will re-measure via stress-burn-in"
         )
 
+    def _persist_calibration_progress(self) -> None:
+        """Snapshot ``debug_messages`` to the session file mid-calibration.
+
+        A Calibration runs for tens of minutes with the picker popover
+        closed → the browser tab is usually backgrounded → Chrome/Firefox
+        throttle the WebSocket → Reflex purges the session as stale →
+        on the next focus the browser reconnects with a fresh on_load,
+        losing the in-memory ``debug_messages``.
+
+        We piggyback on the existing chat auto-save path
+        (:meth:`_save_current_session` in :class:`SessionMixin`): it
+        writes both ``chat_history`` and ``debug_messages`` to the
+        session file and — crucially — bumps ``_last_session_mtime``
+        right after, so the mtime-watch in :func:`refresh_debug_console`
+        treats this as "we are the writer" and skips the restore path.
+        That means no state delta, no React reconcile, no wiped text
+        selection — the safety net stays intact.
+
+        Wrapped in a broad except: persistence is best-effort, must
+        never break the calibration loop."""
+        try:
+            self._save_current_session()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
+
     def set_calibration_matrix_cell(self, payload: list) -> None:
         """Toggle one cell of the calibration matrix. ``payload`` is the
         Reflex-friendly ``[key, checked]`` list. ``key`` is in the
@@ -1736,6 +1761,12 @@ class CalibrationMixin(rx.State, mixin=True):
                         )
                     yield
 
+            # Persist Step-5 (TTS-only) progress to the session file so a
+            # mid-calibration browser-disconnect/reload keeps the audit
+            # of completed TTS variants. See _persist_calibration_progress
+            # for the no-React-reconcile rationale.
+            self._persist_calibration_progress()
+
             # Shared setup for Step 5b (VLM-only) and Step 5c (combos).
             # Both loops derive variants from the same BASE config, so
             # the YAML lookup, GPU enumeration and tensor-split parsing
@@ -1936,6 +1967,9 @@ class CalibrationMixin(rx.State, mixin=True):
                             f"find a fitting config",
                         )
                     yield
+
+            # Persist Step-5b (VLM-only) progress.
+            self._persist_calibration_progress()
 
             # Step 5c: TTS × VLM combo variants — explicitly ticked
             # ``<vlm>|<tts>`` cells only (no cross-product expansion).
@@ -2173,6 +2207,9 @@ class CalibrationMixin(rx.State, mixin=True):
                             )
                         yield
 
+            # Persist Step-5c (Combo) progress.
+            self._persist_calibration_progress()
+
             # Step 6: Restart llama-swap
             self.add_debug("🔄 Restarting llama-swap service...")  # type: ignore[attr-defined]
             from ..lib.process_utils import start_llama_swap
@@ -2229,6 +2266,10 @@ class CalibrationMixin(rx.State, mixin=True):
             # out even though their variants are now in the YAML.
             self.llamaswap_revision += 1
             self.is_calibrating = False
+            # Final persistence — catches the "everything done" snapshot
+            # plus any branch that landed in the except above. Belongs in
+            # finally so a failed calibration also keeps its audit.
+            self._persist_calibration_progress()
             yield
 
     # TTS calibration start/stop helpers — moved to TTSEngine subclasses
