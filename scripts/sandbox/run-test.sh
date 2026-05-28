@@ -109,6 +109,16 @@ COMMON_NSPAWN=(
     --bind-ro="$REPO_ROOT:/mnt/aifred-repo"
     --setenv=AIFRED_SANDBOX=1
 )
+# Netzwerk-Isolation:
+#  * no-boot/dry-run:  --private-network (kein Internet noetig — apt
+#                      + pip werden im dry-run uebersprungen — und der
+#                      Schutz gegen "Host-Ports werden gesehen" ist
+#                      wichtig fuer ehrliche Verifikations-Ergebnisse).
+#  * boot/shell:       Default-Netzwerk (Host shared), damit apt update,
+#                      ollama pull, playwright install Internet haben.
+#                      Dafuer Caveat: Port-Probes "sehen" Host-Services.
+#                      Reality-Check: das ist in v1 ein bewusster
+#                      Trade-off, real geht's ohne Internet nicht.
 
 # ─── Mode: shell (interaktiv mit systemd) ───────────────────────
 if [ "$MODE" = "shell" ]; then
@@ -126,11 +136,14 @@ fi
 # liefern, aber im dry-run-Modus ruft install-services.sh kein systemctl
 # auf — und Steps 1-2g in install-all.sh sind systemd-frei.
 if [ "$MODE" = "no-boot" ]; then
-    echo -e "${GREEN}Starte Sandbox ohne --boot (Dry-Run-tauglich, kein systemd).${NC}"
+    echo -e "${GREEN}Starte Sandbox ohne --boot (Dry-Run-tauglich, kein systemd, kein Netzwerk).${NC}"
     echo ""
     # Wir uebergeben das Runner-Snippet via stdin -> sudo -u aifred bash.
     # --bind-ro fuer das Repo macht das Skript verfuegbar.
+    # --private-network: Sandbox sieht KEIN Host-Netzwerk (verhindert
+    # dass Port-Probes laufende Host-Services faelschlich zaehlen).
     systemd-nspawn "${COMMON_NSPAWN[@]}" \
+        --private-network \
         --pipe \
         --user=aifred \
         /bin/bash -lc "
