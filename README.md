@@ -6,9 +6,9 @@
 
 # AIfred Intelligence
 
-**Autonomous AI Assistant with Tool Use, Message Hub, Multi-Agent Debates & Local LLM Inference**
+**Autonomous AI Assistant with Tool Use, Message Hub, Multi-Agent Debates, Vision/Camera Surveillance & Local LLM Inference**
 
-AIfred Intelligence is a fully-featured AI assistant running locally on your own hardware. It autonomously manages emails, appointments, documents and databases — with function calling, persistent memory and multi-agent debates. No cloud dependency, full data sovereignty.
+AIfred Intelligence is a fully-featured AI assistant running locally on your own hardware. It autonomously manages emails, appointments, documents, databases and camera feeds — with function calling, persistent memory, multi-agent debates and on-device VLM analysis. No cloud dependency, full data sovereignty.
 
 **📺 [View Example Showcases](https://peuqui.github.io/AIfred-Intelligence/)** - Exported chats: Multi-Agent debates, Chemistry, Math, Coding, and Web Research.
 
@@ -47,18 +47,54 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 
 - **Multi-Backend Support**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), Cloud APIs (Qwen, DeepSeek, Claude)
 - **Distributed Inference (RPC)**: Run models across multiple machines over LAN via llama.cpp RPC
-- **Automatic Context Calibration**: VRAM-aware context sizing per backend with Binary Search, RoPE scaling, tensor-split optimization
+- **Automatic Context Calibration**: VRAM-aware context sizing per backend with greedy cascade (fill the fastest compute class first, spill to the next), Binary Search, RoPE scaling, tensor-split optimization. Hardware-agnostic — no hand-tuned GPU lists in code
+  - **2D Matrix Picker**: explicit per-cell selection of which variants to calibrate — `(VLM × TTS engine)` grid plus a "no VLM / no TTS" row. Each cell becomes a separate llama-swap profile `<base>-vlm-<key>-tts-<engine>` that the chat-path resolver picks up automatically
+  - **Stress Burn-In**: VLM + TTS VRAM footprints are measured under load (worst-case bilingual TTS synthesis, VLM context-fill prewarm) instead of being hand-coded. Results cached in `data/vlm_vram_cache.json` / `data/tts_vram_cache.json`
+  - **Side-Channel Capacity Guard**: Before writing a `<base>-tts-<engine>-vlm-<key>` combo profile, the calibrator checks whether `tts_reserve + vlm_reserve` fits the shared side-channel GPU. Combos that would OOM at runtime are rejected with a clear "Profile NOT written" message — no stale traps in the YAML
+  - **Persistent Failure Tracking**: The picker shows three states per cell — green dot (calibrated), red dot (tried but failed, with reason), empty (never tried). Failure reasons: `capacity_exceeded`, `model_too_big`, `projection_failed`, `probe_unrecoverable`. A successful recalibration clears the red dot automatically
+  - **Strategy SSOT**: [docs/en/architecture/calibration-strategy.md](docs/en/architecture/calibration-strategy.md) is the verbindlich algorithmic reference; algorithm + (optional) AI agent path both read from it
 - **Thinking Mode**: Chain-of-Thought reasoning (Qwen3, NemoTron, QwQ)
 - **History Compression**: Intelligent compression at 70% context utilization for unlimited conversations
 - **Automatic Model Lifecycle**: Zero-config — new models auto-discovered on start, removed models auto-cleaned
 - **Sampling Parameters**: Per-agent Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual)
 - **Performance**: Direct-IO for fast model loading, details in [Model Parameter Docs](docs/en/benchmarks/model-params.md)
 
-### 🎤 Voice & Vision Interface
+### 🎤 Voice Interface
 
-- **Voice Interface**: STT via Whisper Docker container (dual-device: CPU permanent + GPU with TTL auto-unload, Web-UI for model/settings management). TTS engines: Edge TTS, XTTS v2 Voice Cloning, MOSS-TTS 1.7B, DashScope Qwen3-TTS Cloud Streaming, Piper, espeak. Per-agent TTS configuration (voice, speed, pitch, on/off per agent), gapless realtime audio playback
+- **STT** via Whisper Docker container (dual-device: CPU permanent + GPU with TTL auto-unload, Web-UI for model/settings management)
+- **TTS engines**: Qwen3-TTS (local, voice cloning, streaming), XTTS v2 (voice cloning), Fish-Speech S2 Pro (voice cloning, streaming), MOSS-TTS 1.7B, DashScope Qwen3-TTS (cloud streaming), Edge TTS, Piper, eSpeak. Per-agent TTS configuration (voice, speed, pitch, on/off per agent), gapless realtime audio playback, per-bubble audio regenerate button
+- **Stress Burn-In**: TTS engines are measured under a worst-case bilingual synthesis load on first use. Peak VRAM is cached in `data/tts_vram_cache.json` — calibrations and live inference use the measured value plus a fixed headroom instead of hand-tuned reserves
 - **FreeEcho.2 Voice Terminal**: Dedicated voice interface for Echo Dot 2 hardware (custom firmware). Wake word detection, immediate browser flush (user question visible within 500ms after STT), deferred TTS container management (parallel GPU cleanup during LLM inference)
-- **Vision/OCR**: Image analysis with multimodal LLMs (DeepSeek-OCR, Qwen3-VL, Ministral-3), VL Follow-Up, interactive image crop, 2-model architecture (Vision-LLM + Main-LLM)
+
+### 👁️ Vision
+
+- **Frame-Source Pipeline**: Plug-in based — drop a `frame_source` plugin under `plugins/vision_sources/`, it auto-registers with the FrameHub. Built-in: webcam (V4L2 + MJPEG passthrough), file-system snapshot. Each source has a per-camera **alias + resolution + briefing text** stored as single-source-of-truth
+- **Live Preview Modal**: Multi-source popup with MJPEG streams, per-camera resolution toggle, manual snapshot, **teleprompter overlay** for the LLM's last analysis. Stream eviction + retry on V4L2 lock contention
+- **VLM Power Toggle**: VLM can be loaded on demand (`vision_mode=on-demand`) or kept resident (`vision_mode=live`). `vision_mode=off` disables vision entirely
+- **Side-Channel Routing**: Calibration writes a separate `<base>-vlm-<key>` llama-swap profile that holds the VLM's measured VRAM on the second-highest-compute-class GPU. Chat-path resolver picks that profile automatically when vision is active — the main LLM has the correct cushion in place
+- **Per-Camera Briefing**: Each camera carries its own role/identity prompt (e.g. "hallway near front door"), prepended to the VLM call so analyses are context-aware
+- **Plugin Settings**: Dedicated route `/vision-settings` for sources, FPS, face thresholds, retention, model choice
+
+### 🔍 Vigilantia (Camera Surveillance)
+
+A separate plugin layered on top of the Vision pipeline — turns AIfred into a continuous monitoring agent. Plugin code under `plugins/channels/vigilantia/`.
+
+- **Master Eye + Background Watchers**: Per-source watcher threads (motion + face detect + optional VLM). Watcher state survives browser disconnects — runs in the Message Hub worker process, not the Reflex state
+- **Motion Detection**: OpenCV background subtraction (MOG2) with configurable min-area-ratio, warmup frames, event throttling. Saves event frame to disk on trigger
+- **Face Recognition**: `insightface` (`buffalo_l` model) with **configurable execution provider** (CUDA, CPU, CoreML). Continuous-detection mode for low-FPS streams. Known/unsure/unknown classification via cosine similarity against the **Personarium** (identity database). Per-face retention policy
+- **Personarium**: Identity-management modal — enroll faces from snapshots, name + ID + group, multi-pose enrollment wizard (frontal + 4 angles), edit + delete. Faces are stored as ONNX-embedded vectors, not raw images
+- **Casus Event Browser**: Modal with filter (type, source, face-id), pagination, per-event preview. Single-event **VLM-Analyse** on demand (asks the configured VLM "what's happening here"). Bulk-Mode: select N events → background worker runs VLM on each with progress + cancel
+- **pHash Dedup + Cluster Mode**: Perceptual hash on every saved frame, near-duplicate events collapsed into clusters (`cluster_id` in the SQLite schema). Cluster-Mode toggle in the Casus shows one card per cluster instead of N near-identical motion events
+- **VRAM Pre-Check before Bulk-Worker**: Bulk VLM-Analyse aborts cleanly if the side-channel GPU doesn't have enough headroom for the configured VLM batch — no half-completed run with OOM mid-stream
+- **Vigilantia Feed Live-Card**: Inline UI card on the main page showing the last N events from any watcher source, refreshed via the 500ms heartbeat (no extra timers, no per-tick state delta — see [_vigilantia_feed_mixin.py](aifred/state/_vigilantia_feed_mixin.py))
+- **Vision Tools**: The LLM has tools for `vision_snapshot`, `vision_analyze`, `vision_enroll_face`, `vision_start_watch`, `vision_stop_watch`, `vision_query_events` — autonomous use during conversations
+
+### 📷 Image Analysis (Chat)
+
+- **Image Attachments**: Drop images into the chat, interactive crop modal, multi-image messages (up to 5 per turn)
+- **Multimodal LLMs**: DeepSeek-OCR, Qwen3-VL, Ministral-3, llama.cpp's `--mmproj` for compatible models
+- **VL Follow-Up**: Visual Q&A continuation across multiple turns referencing the same image
+- **2-Model Architecture**: Dedicated Vision-LLM for image understanding, results passed to the Main-LLM as structured JSON
 
 ### 🔒 Security Architecture
 
