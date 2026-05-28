@@ -94,6 +94,25 @@ pip install -r requirements.txt
 
 ## 5. Set up systemd services
 
+For the AIfred-side services (chromadb + intelligence + optional
+corpus-server) use the installer script — it's update-safe:
+
+```bash
+sudo ./scripts/install-services.sh                 # install or update,
+                                                   # backs up modified
+                                                   # files before overwrite
+./scripts/install-services.sh --dry-run            # show what WOULD change
+                                                   # — no sudo, no writes
+sudo ./scripts/install-services.sh --no-overwrite  # keep existing service
+                                                   # files (preserves
+                                                   # machine-specific
+                                                   # tweaks)
+```
+
+The script reports `= Unverändert`, `♻️ Aktualisiert`, `✅ Neu installiert`
+or `🛡 Behalten` per file. `daemon-reload` and `restart` only fire when
+a unit actually changed — re-runs on a clean system are no-ops.
+
 ### llama-swap service (with autoscan)
 
 ```bash

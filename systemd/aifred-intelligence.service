@@ -9,6 +9,10 @@ Wants=ollama.service aifred-chromadb.service
 
 [Service]
 Type=simple
+# Optional .env-Datei einlesen (Secrets, machine-specific Overrides).
+# `-` Prefix: kein Fehler wenn die Datei fehlt — viele Setups brauchen
+# keine .env, sondern setzen ihre Werte direkt unten als Environment=.
+EnvironmentFile=-__PROJECT_DIR__/.env
 User=__USER__
 Group=__USER__
 WorkingDirectory=__PROJECT_DIR__
@@ -18,6 +22,7 @@ Environment="PYTHONUNBUFFERED=1"
 # data/ contains runtime files (images, audio, sessions)
 # prompts/ are loaded on-demand, no need for hot reload
 # Multiple paths separated by colon (:) as per Reflex documentation
+# (Drop-in hardening.conf erweitert diese Liste — siehe dort.)
 Environment="REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data:prompts"
 # Heap-Size fuer Bun (Frontend-Runner) und Node (react-router dev) hochsetzen.
 # Default ist 512 MB — bei einem 793 KB grossen _index.jsx (alle Modals
@@ -26,6 +31,22 @@ Environment="REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data:prompts"
 # laufender Indexierungs-Jobs (viele State-Updates).
 Environment="NODE_OPTIONS=--max-old-space-size=4096"
 Environment="BUN_MAX_OLD_SPACE_SIZE=4096"
+# ─────────────────────────────────────────────────────────────────
+# Machine-specific overrides — uncomment + adjust if needed:
+#
+# Behind a nginx reverse-proxy at /aifred? Set the frontend path so
+# Reflex generates absolute asset URLs that include the prefix.
+# Environment=AIFRED_FRONTEND_PATH=aifred
+#
+# llama-swap not on the default port 11434?
+# Environment="LLAMACPP_URL=http://localhost:11435/v1"
+#
+# Calibration probe port collides with another service (default 9999)?
+# Environment="LLAMACPP_CALIBRATION_PORT=19999"
+# ─────────────────────────────────────────────────────────────────
+# Reflex patch — fixes the frontend_path route-matching bug
+# (see CLAUDE.md). Idempotent: safe to run on every start.
+ExecStartPre=/bin/bash __PROJECT_DIR__/scripts/patch-vite-config.sh
 ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
 KillMode=control-group
