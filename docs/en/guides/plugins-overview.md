@@ -210,6 +210,26 @@ Text translation via DeepL API with automatic source language detection. 30+ lan
 
 ---
 
+### Vision (Camera + VLM)
+
+**File:** `plugins/tools/vision/`
+
+Tools for the vision subsystem — image snapshots, VLM analysis, face recognition, and watcher control. Built on top of the FrameHub frame-source pipeline and the Personarium identity database.
+
+| Tool | Description | Tier |
+|------|------------|------|
+| `vision_list_sources` | List available camera sources with status | READONLY |
+| `vision_rescan_sources` | Re-run source discovery (e.g. after hardware change) | READONLY |
+| `vision_snapshot` | Grab a single frame from a source | READONLY |
+| `vision_analyze` | Run a VLM analysis on a snapshot or watcher event | READONLY |
+| `vision_enroll_face` | Add a face to the Personarium database (identity enrollment) | WRITE_DATA |
+| `vision_start_watch` | Start a background watcher (motion + face + optional VLM) on a source | WRITE_DATA |
+| `vision_stop_watch` | Stop a running watcher on a source | WRITE_DATA |
+| `vision_list_active_watches` | List currently active watchers | READONLY |
+| `vision_query_events` | Search past vision events (filter by type, source, face id, time) | READONLY |
+
+---
+
 ## Channel Plugins
 
 Channel Plugins connect AIfred to external communication channels. Incoming messages are processed automatically with optional auto-reply.
@@ -262,6 +282,26 @@ Telegram bot via long polling.
 
 ---
 
+### Vigilantia (Camera Surveillance)
+
+**File:** `plugins/channels/vigilantia/`
+
+Continuous camera surveillance as its own channel — Master Eye, background watchers, Casus event browser, Personarium identity database. Built on top of the FrameHub pipeline (see [Vision tools](#vision-camera--vlm)).
+
+**Features:**
+- **Master Eye + per-source watchers** running in the Message Hub worker process (survives browser disconnects)
+- **Motion detection** via OpenCV MOG2 with configurable min-area-ratio, warmup frames, event throttling
+- **Face recognition** via insightface (`buffalo_l`), selectable execution provider (CUDA / CPU / CoreML), continuous-detection mode
+- **Personarium**: identity database for enrollment (name + id + group), multi-pose wizard, known/unsure/unknown classification via cosine similarity
+- **Casus event browser**: filter (type, source, face id), pagination, single-event VLM analysis, bulk mode with progress + cancel
+- **pHash dedup + cluster mode**: perceptual hash on every event frame, near-duplicates collapsed into clusters
+- **VRAM pre-check** before bulk VLM analysis — aborts cleanly instead of OOM-ing mid-run
+- **Vigilantia feed live-card** on the main page shows the last N events across all sources
+
+LLM-side tools for vision (snapshot, analyze, enroll_face, start_watch etc.) live under [Vision](#vision-camera--vlm) — Vigilantia is the persistent channel layer on top.
+
+---
+
 ## Plugin Architecture
 
 ```
@@ -280,10 +320,14 @@ aifred/plugins/
 │   └── google_suite/       # Google Calendar + Contacts (OAuth)
 │       ├── calendar/
 │       └── contacts/
-└── channels/               # Channel Plugins (communication)
-    ├── email_channel/      # Email (IMAP/SMTP)
-    ├── discord_channel/    # Discord bot
-    └── telegram_channel/   # Telegram bot
+├── channels/               # Channel Plugins (communication + Vigilantia)
+│   ├── email_channel/      # Email (IMAP/SMTP)
+│   ├── discord_channel/    # Discord bot
+│   ├── telegram_channel/   # Telegram bot
+│   └── vigilantia/         # Camera surveillance (Master Eye, Casus, Personarium)
+└── vision_sources/         # Frame-Source plugins (FrameHub)
+    ├── webcam/             # V4L2 + MJPEG
+    └── …
 ```
 
 **Auto-Discovery:** Any `.py` file with a `plugin` attribute (Tool) or `BaseChannel` subclass (Channel) is auto-discovered. No registration needed.
