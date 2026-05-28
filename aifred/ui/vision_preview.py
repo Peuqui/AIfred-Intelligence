@@ -693,6 +693,14 @@ def vision_preview_page() -> rx.Component:
                 color_scheme="amber",
             ),
         ),
+        # ESC closes the popup window. This page is opened via
+        # window.open() so it doesn't share the host page's
+        # data-modal-close listener — wire ESC directly to
+        # window.close() instead.
+        rx.script(
+            "document.addEventListener('keydown', function(e){"
+            "if(e.key==='Escape'){e.preventDefault();window.close();}});"
+        ),
         style={
             "display": "flex",
             "flex_direction": "column",

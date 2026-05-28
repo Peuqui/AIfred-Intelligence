@@ -735,7 +735,7 @@ console.log('✂️ Crop handler loaded');
         # und Browser-„Seite reagiert nicht"-Hänger produziert. Im
         # Popup wird der SSE-Manager separat per Inline-Script geladen
         # (siehe vision_preview.py).
-        rx.script(src="/custom.js?v=27"),
+        rx.script(src="/custom.js?v=28"),
 
         # Hidden flags element — always present in the DOM, regardless of
         # chat state. custom.js reads UI toggles from here. Currently:

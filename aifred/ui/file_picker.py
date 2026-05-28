@@ -283,6 +283,7 @@ def file_picker_modal() -> rx.Component:
                         variant="ghost",
                         on_click=AIState.picker_close,
                         cursor="pointer",
+                        custom_attrs={"data-modal-close": "true"},
                     ),
                     spacing="2",
                     align="center",

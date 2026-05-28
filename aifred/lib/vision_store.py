@@ -599,11 +599,29 @@ class VisionStore:
                 cls = json.loads(r["classification"] or "{}")
             except Exception:  # noqa: BLE001
                 cls = {}
+            ts_iso = str(r["timestamp"])
+            # Pre-render date + time strings so the UI doesn't have to
+            # juggle Reflex Var string ops. ISO timestamps look like
+            # "2026-05-28T19:31:12.123456" — split on T, reorder the
+            # date to DE format DD.MM.YYYY, trim microseconds off time.
+            date_display = ""
+            time_display = ""
+            try:
+                date_part, time_part = ts_iso.split("T", 1)
+                y, m, d = date_part.split("-")
+                date_display = f"{d}.{m}.{y}"
+                time_display = time_part.split(".", 1)[0]
+            except (ValueError, IndexError):
+                # Malformed timestamp — fall back to raw, UI shows what's there
+                date_display = ts_iso[:10]
+                time_display = ts_iso[11:19]
             result.append({
                 "id": int(r["id"]),
                 "source_id": str(r["source_id"]),
                 "event_type": str(r["event_type"]),
-                "timestamp": str(r["timestamp"]),
+                "timestamp": ts_iso,
+                "date_display": date_display,
+                "time_display": time_display,
                 "confidence": float(r["confidence"] or 0.0),
                 "crop_url": str(cls.get("crop_url") or ""),
                 "confidence_band": str(cls.get("confidence_band") or ""),

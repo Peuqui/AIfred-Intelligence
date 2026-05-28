@@ -37,6 +37,10 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
     vigilantia_feed_visible: bool = True
     # Akkordeon offen / zu
     vigilantia_feed_open: bool = False
+    # Live-Card-Popover offen / zu (rechte Modus-Zeile). Wir steuern den
+    # Radix-Popover controlled, damit Klick-daneben / ESC den Feed nicht
+    # zumachen — User wollte explizit nur via X schliessen koennen.
+    vigilantia_feed_popover_open: bool = False
     # Events der letzten _FEED_LIMIT Einträge (gemischt: motion, face_*,
     # vlm_analysis je nach was die Hintergrund-Watcher produzieren).
     vigilantia_feed_events: list[dict[str, Any]] = []
@@ -82,6 +86,28 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
     @rx.event
     def refresh_vigilantia_feed(self) -> None:
         self._refresh_vigilantia_feed()
+
+    @rx.event
+    def open_vigilantia_feed_popover(self) -> None:
+        """Open the live-card popover and refresh the feed."""
+        self.vigilantia_feed_popover_open = True
+        self._refresh_vigilantia_feed()
+
+    @rx.event
+    def close_vigilantia_feed_popover(self) -> None:
+        """Explicit close — bound to the X button inside the popover."""
+        self.vigilantia_feed_popover_open = False
+
+    @rx.event
+    def handle_vigilantia_feed_popover_change(self, value: bool) -> None:
+        """Bridge for Radix popover.root's on_open_change. Reflex passes
+        the new open state on every interaction (outside click, ESC,
+        trigger click). We only honor opens — closes must go through
+        the explicit X button — so the popover doesn't disappear on
+        accidental side-clicks while the user is reading the feed."""
+        if value:
+            self.vigilantia_feed_popover_open = True
+            self._refresh_vigilantia_feed()
 
     def _refresh_vigilantia_feed(self) -> None:
         # Source-Liste bei Erst-Tick laden (Live-Card braucht

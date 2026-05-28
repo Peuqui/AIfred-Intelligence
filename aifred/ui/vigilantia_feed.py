@@ -62,8 +62,11 @@ def _feed_badge(event: rx.Var) -> rx.Component:
 
 def _feed_row(event: rx.Var) -> rx.Component:
     return rx.hstack(
+        # Datum + Zeit in einer Zeile — im Popover-Feed wird die Liste
+        # mehrere Tage abdecken; ohne Datum sind Sprünge zwischen Tagen
+        # nicht erkennbar.
         rx.text(
-            event["timestamp"].to(str).split("T")[1].to(str).split(".")[0],
+            event["date_display"].to(str) + " " + event["time_display"].to(str),
             size="1",
             color="gray",
             style={"font_family": "monospace", "flex_shrink": "0"},
@@ -125,8 +128,10 @@ def _latest_event_card(event: rx.Var) -> rx.Component:
                 },
             ),
         ),
+        # Inline-Karte (rechte Modus-Zeile): Datum + Zeit kombiniert,
+        # gleich wie im Popover-Feed.
         rx.text(
-            event["timestamp"].to(str).split("T")[1].to(str).split(".")[0],
+            event["date_display"].to(str) + " " + event["time_display"].to(str),
             size="1",
             color="gray",
             style={"font_family": "monospace", "flex_shrink": "0"},
@@ -291,6 +296,7 @@ def vigilantia_help_modal() -> rx.Component:
                             rx.icon("x", size=16),
                             on_click=AIState.close_vigilantia_help,
                             size="1", variant="ghost", color_scheme="gray",
+                            custom_attrs={"data-modal-close": "true"},
                         ),
                         spacing="2",
                         align="center",
@@ -417,17 +423,20 @@ def vigilantia_feed_popover() -> rx.Component:
                 color_scheme="gray",
             ),
             rx.spacer(),
-            # Casus-Sprung schließt den Popover mit — sonst überdeckt
+            # Casus-Sprung schliesst den Popover mit — sonst ueberdeckt
             # der Popover (Radix-Standard-Stacking) das Casus-Modal.
-            rx.popover.close(
-                rx.button(
-                    rx.icon("scroll-text", size=12),
-                    rx.text(t("vigilantia_feed_open_casus"), size="1"),
-                    on_click=AIState.open_casus,
-                    size="1",
-                    variant="soft",
-                    color_scheme="orange",
-                ),
+            # Controlled popover: rx.popover.close greift nicht mehr,
+            # also explicit close + open_casus in einer Handler-Kette.
+            rx.button(
+                rx.icon("scroll-text", size=12),
+                rx.text(t("vigilantia_feed_open_casus"), size="1"),
+                on_click=[
+                    AIState.close_vigilantia_feed_popover,
+                    AIState.open_casus,
+                ],
+                size="1",
+                variant="soft",
+                color_scheme="orange",
             ),
             spacing="2",
             align="center",
@@ -578,7 +587,7 @@ def vigilantia_feed_popover() -> rx.Component:
                             _latest_event_card(AIState.vigilantia_feed_events[0]),
                             _idle_card(),
                         ),
-                        on_click=AIState.refresh_vigilantia_feed,
+                        on_click=AIState.open_vigilantia_feed_popover,
                     ),
                 ),
                 rx.popover.content(
@@ -590,13 +599,17 @@ def vigilantia_feed_popover() -> rx.Component:
                                 size="2",
                             ),
                             rx.spacer(),
-                            rx.popover.close(
-                                rx.icon_button(
-                                    rx.icon("x", size=12),
-                                    size="1",
-                                    variant="ghost",
-                                    color_scheme="gray",
-                                ),
+                            # Explicit close — not rx.popover.close, because
+                            # the popover is controlled. rx.popover.close
+                            # only manages the Radix-internal state, which
+                            # we override via open=... / on_open_change.
+                            rx.icon_button(
+                                rx.icon("x", size=12),
+                                size="1",
+                                variant="ghost",
+                                color_scheme="gray",
+                                on_click=AIState.close_vigilantia_feed_popover,
+                                custom_attrs={"data-modal-close": "true"},
                             ),
                             align="center",
                             width="100%",
@@ -609,7 +622,19 @@ def vigilantia_feed_popover() -> rx.Component:
                     ),
                     width="min(560px, 92vw)",
                     style={"padding": "0.8em"},
+                    # ESC stays a convenient close shortcut — wire it
+                    # directly to the explicit close handler. Without
+                    # this, the open-only filter in
+                    # handle_vigilantia_feed_popover_change would
+                    # swallow the close event coming from ESC too.
+                    on_escape_key_down=AIState.close_vigilantia_feed_popover,
                 ),
+                # Controlled popover — Radix would close on outside-click
+                # otherwise. The state mixin ignores `False` events from
+                # on_open_change (see handle_vigilantia_feed_popover_change),
+                # so only the explicit X button (or ESC, above) closes it.
+                open=AIState.vigilantia_feed_popover_open,
+                on_open_change=AIState.handle_vigilantia_feed_popover_change,
             ),
             spacing="2",
             align="center",
