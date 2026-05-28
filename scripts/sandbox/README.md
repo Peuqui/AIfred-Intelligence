@@ -1,87 +1,87 @@
-# AIfred Install-Skript Sandbox
+# AIfred install-script sandbox
 
-Test-Environment fuer `scripts/install-all.sh` + `scripts/install-services.sh`
-in voller Isolation vom Host-System.
+Test environment for `scripts/install-all.sh` + `scripts/install-services.sh`
+in full isolation from the host system.
 
-Verwendet `systemd-nspawn --ephemeral`: nach Container-Exit sind alle
-Aenderungen weg, Host bleibt unberuehrt. Auch ein verbuggtes Skript
-(das im `--dry-run`-Modus versehentlich was schreibt) trifft nur den
-Container-Snapshot.
+Uses `systemd-nspawn --ephemeral`: when the container exits all
+changes are gone, the host stays untouched. Even a buggy script
+(one that accidentally writes during `--dry-run`) only affects the
+container snapshot.
 
-## Einmal-Setup
+## One-time setup
 
 ```bash
 sudo ./scripts/sandbox/setup-nspawn-root.sh
 ```
 
-Was passiert:
-1. `apt install systemd-container debootstrap` (falls noch nicht da)
-2. `debootstrap noble /var/lib/machines/aifred-test/` baut ein minimales
-   Ubuntu-Noble-Root (~500 MB, ~3 Min einmalig)
-3. Container-Konfig: hostname, apt-Sources mit universe, Test-User
-   `aifred` mit passwordless sudo
+What happens:
+1. `apt install systemd-container debootstrap` (if missing)
+2. `debootstrap noble /var/lib/machines/aifred-test/` builds a minimal
+   Ubuntu Noble root (~500 MB, ~3 min one-off)
+3. Container config: hostname, apt sources with universe, test user
+   `aifred` with passwordless sudo
 
-Re-run ist idempotent — bestehender Container-Root wird auf Nachfrage
-gelöscht und neu gebaut.
+Re-run is idempotent — an existing container root is, on prompt,
+deleted and rebuilt.
 
-## Pro Test
+## Per test
 
-Dry-Run (schnell, kein systemd noetig):
+Dry-run (fast, no systemd needed):
 ```bash
 sudo ./scripts/sandbox/run-test.sh --dry-run
 sudo ./scripts/sandbox/run-test.sh --dry-run --no-overwrite
 ```
 
-Voller Real-Run (mit systemd-Boot, interaktiv in v1):
+Full real run (with systemd boot, interactive in v1):
 ```bash
 sudo ./scripts/sandbox/run-test.sh
 sudo ./scripts/sandbox/run-test.sh --no-overwrite
 ```
 
-Interaktive Shell (Debugging):
+Interactive shell (debugging):
 ```bash
 sudo ./scripts/sandbox/run-test.sh --shell
 ```
 
-## Was getestet wird
+## What is tested
 
-- Skript-Syntax + Logik
-- apt-Installation aller System-Deps
-- venv + `pip install -r requirements.txt` (auch `insightface`,
-  `onnxruntime-gpu` werden installiert; im Sandbox ohne CUDA-Runtime
-  fallen sie auf CPU-Provider zurueck)
-- Reflex-Patch, patch-vite-config
-- `install-services.sh`-Pfad (Service-File-Diff, Backup-Logik)
-- Idempotenz beim zweiten Run
+- Script syntax + logic
+- apt install of all system deps
+- venv + `pip install -r requirements.txt` (also `insightface` and
+  `onnxruntime-gpu` — without a CUDA runtime in the sandbox they
+  fall back to the CPU provider)
+- Reflex patch, patch-vite-config
+- `install-services.sh` path (service-file diff, backup logic)
+- Idempotency on a second run
 
-## Was NICHT testbar ist (GPU-only)
+## What is NOT testable here (GPU-only)
 
-- LLM-Inferenz
-- Calibration (kein nvidia-smi im Container)
-- Vision/Vigilantia mit echter Kamera (V4L2 + CUDA)
-- Local-TTS-Engines (XTTS, Fish-Speech brauchen CUDA)
+- LLM inference
+- Calibration (no nvidia-smi in container)
+- Vision / Vigilantia with a real camera (V4L2 + CUDA)
+- Local TTS engines (XTTS, Fish-Speech need CUDA)
 
-Diese verifiziert man eh nur auf der echten Hardware.
+Verify those on the actual hardware.
 
-## Limitierungen v1
+## v1 limitations
 
-* Der vollstaendige Real-Run-Modus (mit `--boot`) ist aktuell
-  interaktiv — du loggst dich nach dem Boot ein und fuehrst die
-  Befehle manuell aus. Auto-Run im booted nspawn-Container braucht
-  systemd-Bus-Magie, kommt in v2.
-* `--dry-run` laeuft non-interaktiv und ist daher der bevorzugte
-  Sanity-Check vor jedem Commit.
+* The full real run mode (with `--boot`) is interactive right now —
+  you log in after boot and run the commands manually. Auto-run
+  inside a booted nspawn container needs systemd-bus magic; that's
+  v2.
+* `--dry-run` runs non-interactively and is therefore the preferred
+  sanity check before every commit.
 
-## Container loswerden
+## Removing the container
 
-Wenn du den Sandbox-Root komplett entfernen willst:
+To delete the sandbox root entirely:
 
 ```bash
 sudo rm -rf /var/lib/machines/aifred-test/
 ```
 
-Oder einzelne `--ephemeral` Snapshots aufräumen (sollten sich
-selbst beim Container-Exit aufloesen, falls nicht):
+Or clean up individual `--ephemeral` snapshots (they should clear
+themselves on container exit, but in case they don't):
 
 ```bash
 sudo machinectl list
