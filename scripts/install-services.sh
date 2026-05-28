@@ -1,16 +1,61 @@
 #!/bin/bash
 # AIfred Intelligence - Systemd Services Installation Script
+#
+# Modes:
+#   sudo ./scripts/install-services.sh                  normal install/update —
+#                                                       differing files are
+#                                                       backed up + overwritten
+#   sudo ./scripts/install-services.sh --no-overwrite   keep existing files;
+#                                                       only create missing
+#                                                       ones, warn on diffs
+#        ./scripts/install-services.sh --dry-run        show what WOULD change,
+#                                                       no disk writes, no
+#                                                       systemctl side-effects
 
 set -e  # Exit on error
 
-echo "🚀 AIfred Intelligence - Systemd Services Installation"
-echo "======================================================"
-echo
+# ── Argument parsing ────────────────────────────────────────────
+DRY_RUN=0
+NO_OVERWRITE=0
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|-n)         DRY_RUN=1 ;;
+        --no-overwrite|-N)    NO_OVERWRITE=1 ;;
+        --help|-h)
+            sed -n '2,11p' "$0"
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown flag: $arg"
+            sed -n '2,11p' "$0"
+            exit 1
+            ;;
+    esac
+done
 
-# Check if running with sudo
-if [ "$EUID" -ne 0 ]; then
+if [ "$DRY_RUN" = "1" ]; then
+    echo "🔬 AIfred Intelligence - Systemd Services Installation (DRY-RUN)"
+    echo "================================================================"
+    echo "   No files written. No systemctl side-effects. Shows planned changes."
+    [ "$NO_OVERWRITE" = "1" ] && echo "   --no-overwrite is honored in the simulation."
+    echo
+elif [ "$NO_OVERWRITE" = "1" ]; then
+    echo "🛡  AIfred Intelligence - Systemd Services Installation (NO-OVERWRITE)"
+    echo "====================================================================="
+    echo "   Existing service files are kept untouched. Only missing files are"
+    echo "   created. Differences are reported, not applied."
+    echo
+else
+    echo "🚀 AIfred Intelligence - Systemd Services Installation"
+    echo "======================================================"
+    echo
+fi
+
+# Check if running with sudo — except in dry-run, where we don't touch /etc/.
+if [ "$DRY_RUN" != "1" ] && [ "$EUID" -ne 0 ]; then
     echo "❌ Dieses Script muss mit sudo ausgeführt werden:"
     echo "   sudo ./scripts/install-services.sh"
+    echo "   (oder ./scripts/install-services.sh --dry-run für eine Vorschau ohne sudo)"
     exit 1
 fi
 
@@ -60,34 +105,131 @@ if [ -z "$DOCKER_BIN" ]; then
     echo "   installiere danach nochmal: sudo $SCRIPT_DIR/install-services.sh"
 fi
 
-# Helper: Service-Datei templaten und installieren
-install_service() {
+# Update-Modus: bei Re-Run werden Service-Dateien nicht stumm überschrieben.
+# Drei Fälle pro Datei:
+#   * existiert nicht          → schreiben (return 0 = "geschrieben")
+#   * existiert + identisch    → silent skip (return 2 = "unchanged")
+#   * existiert + abweichend   → Backup .pre-aifred-update.<timestamp> + schreiben
+#                                (return 0 = "geschrieben")
+# Ein globales SERVICES_CHANGED-Flag sammelt, ob daemon-reload / restart nötig
+# sind. Idempotenter Re-Run kann so problemlos täglich laufen ohne den Service
+# zu unterbrechen.
+SERVICES_CHANGED=0
+
+# Render a service template to stdout (substitutes __USER__, __PROJECT_DIR__,
+# __DOCKER_BIN__). Separating render from write lets us cmp the rendered
+# output against the on-disk file without touching disk first.
+_render_service_template() {
     local src="$1"
-    local dst="/etc/systemd/system/$(basename "$src")"
     sed -e "s|__USER__|$ACTUAL_USER|g" \
         -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
         -e "s|__DOCKER_BIN__|$DOCKER_BIN|g" \
-        "$src" > "$dst"
-    echo "   ✅ Installiert: $(basename "$src")"
+        "$src"
 }
 
-# Helper: Drop-in-Konfig (override.conf, hardening.conf, …) unter
-# /etc/systemd/system/<service>.d/ installieren. Drop-ins überschreiben/ergänzen
-# Direktiven der Haupt-Service-Datei nach daemon-reload. Auch hier templaten
-# (gleiche Placeholder), falls jemand __USER__/__PROJECT_DIR__ in einem
-# Drop-in benutzt — aktuell ist hardening.conf rein statisch, aber sed ist
-# idempotent wenn keine Placeholder drin sind.
+# Helper: Service-Datei templaten und installieren — idempotent.
+install_service() {
+    local src="$1"
+    local name="$(basename "$src")"
+    local dst="/etc/systemd/system/${name}"
+    local tmp; tmp="$(mktemp)"
+    _render_service_template "$src" > "$tmp"
+
+    if [ ! -f "$dst" ]; then
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "   📝 WOULD create: ${name}"
+            rm -f "$tmp"
+        else
+            mv "$tmp" "$dst"
+            chmod 644 "$dst"
+            echo "   ✅ Neu installiert: ${name}"
+        fi
+        SERVICES_CHANGED=1
+        return 0
+    fi
+
+    if cmp -s "$tmp" "$dst"; then
+        rm -f "$tmp"
+        echo "   = Unverändert:    ${name}"
+        return 0
+    fi
+
+    # Datei existiert und unterscheidet sich.
+    if [ "$NO_OVERWRITE" = "1" ]; then
+        echo "   🛡  Behalten:      ${name}  (--no-overwrite — siehe Diff:)"
+        diff -u "$dst" "$tmp" | sed 's/^/      /' | head -30 || true
+        echo "      (Repo-Stand würde sonst installiert; lokale Anpassungen unverändert.)"
+        rm -f "$tmp"
+        return 0
+    fi
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "   📝 WOULD update: ${name}  (current → new diff):"
+        diff -u "$dst" "$tmp" | sed 's/^/      /' | head -30 || true
+        echo "      (would backup to ${name}.pre-aifred-<timestamp>)"
+        rm -f "$tmp"
+    else
+        local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
+        local backup="${dst}.pre-aifred-${stamp}"
+        cp -p "$dst" "$backup"
+        mv "$tmp" "$dst"
+        chmod 644 "$dst"
+        echo "   ♻️  Aktualisiert:  ${name}  (Backup: $(basename "$backup"))"
+    fi
+    SERVICES_CHANGED=1
+}
+
+# Helper: Drop-in-Konfig (override.conf, hardening.conf, …) idempotent
+# unter /etc/systemd/system/<service>.d/ installieren. Logik identisch
+# zu install_service: schreibt nur bei Mismatch und legt vorher ein
+# Backup an.
 install_dropin() {
     local svc_name="$1"      # z.B. aifred-intelligence.service
     local src="$2"           # Pfad zu Source-Drop-in
     local dst_dir="/etc/systemd/system/${svc_name}.d"
-    local dst="$dst_dir/$(basename "$src")"
-    mkdir -p "$dst_dir"
-    sed -e "s|__USER__|$ACTUAL_USER|g" \
-        -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
-        -e "s|__DOCKER_BIN__|$DOCKER_BIN|g" \
-        "$src" > "$dst"
-    echo "   ✅ Drop-in installiert: ${svc_name}.d/$(basename "$src")"
+    local name="$(basename "$src")"
+    local dst="${dst_dir}/${name}"
+    [ "$DRY_RUN" = "1" ] || mkdir -p "$dst_dir"
+    local tmp; tmp="$(mktemp)"
+    _render_service_template "$src" > "$tmp"
+
+    if [ ! -f "$dst" ]; then
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "   📝 WOULD create dropin: ${svc_name}.d/${name}"
+            rm -f "$tmp"
+        else
+            mv "$tmp" "$dst"
+            chmod 644 "$dst"
+            echo "   ✅ Drop-in neu:    ${svc_name}.d/${name}"
+        fi
+        SERVICES_CHANGED=1
+        return 0
+    fi
+
+    if cmp -s "$tmp" "$dst"; then
+        rm -f "$tmp"
+        echo "   = Drop-in unverändert: ${svc_name}.d/${name}"
+        return 0
+    fi
+
+    if [ "$NO_OVERWRITE" = "1" ]; then
+        echo "   🛡  Drop-in behalten: ${svc_name}.d/${name}  (--no-overwrite — Diff:)"
+        diff -u "$dst" "$tmp" | sed 's/^/      /' | head -30 || true
+        rm -f "$tmp"
+        return 0
+    fi
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "   📝 WOULD update dropin: ${svc_name}.d/${name}  (current → new diff):"
+        diff -u "$dst" "$tmp" | sed 's/^/      /' | head -30 || true
+        rm -f "$tmp"
+    else
+        local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
+        local backup="${dst}.pre-aifred-${stamp}"
+        cp -p "$dst" "$backup"
+        mv "$tmp" "$dst"
+        chmod 644 "$dst"
+        echo "   ♻️  Drop-in update: ${svc_name}.d/${name}  (Backup: $(basename "$backup"))"
+    fi
+    SERVICES_CHANGED=1
 }
 
 echo "1️⃣  Installiere Haupt-Services (chromadb + aifred-intelligence)..."
@@ -144,34 +286,87 @@ if [ -f "$SYSTEMD_DIR/aifred-corpus-server.service" ]; then
 fi
 echo
 
+# Idempotent ensure: enable always (no-op if already enabled), and prefer
+# start over restart unless we actually changed the unit file. Restarting
+# a healthy service for no reason interrupts a running calibration etc.
+ensure_active() {
+    local svc="$1"
+    if [ "$DRY_RUN" = "1" ]; then
+        local state; state="$(systemctl is-active "$svc" 2>&1 || true)"
+        if [ "$state" = "active" ]; then
+            if [ "$SERVICES_CHANGED" = "1" ]; then
+                echo "   📝 WOULD restart: ${svc}  (unit changed, currently $state)"
+            else
+                echo "   = ${svc} already active, nothing to do"
+            fi
+        else
+            echo "   📝 WOULD start: ${svc}  (currently $state)"
+        fi
+        return 0
+    fi
+    if systemctl is-active --quiet "$svc"; then
+        if [ "$SERVICES_CHANGED" = "1" ]; then
+            systemctl restart "$svc"
+            echo "   🔄 Neu gestartet: ${svc}  (Unit-Datei hat sich geändert)"
+        else
+            echo "   = ${svc} läuft bereits, kein Restart nötig"
+        fi
+    else
+        systemctl start "$svc"
+        echo "   ✅ Gestartet:    ${svc}"
+    fi
+}
+
 echo "3️⃣  Lade Systemd neu..."
-systemctl daemon-reload
-echo "   ✅ Systemd neu geladen"
+if [ "$SERVICES_CHANGED" = "1" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "   📝 WOULD: systemctl daemon-reload  (unit files changed)"
+    else
+        systemctl daemon-reload
+        echo "   ✅ Systemd neu geladen"
+    fi
+else
+    echo "   = Keine Unit-Änderungen, daemon-reload übersprungen"
+fi
 echo
 
 echo "4️⃣  Aktiviere Services beim Systemstart..."
-systemctl enable aifred-chromadb.service
-systemctl enable aifred-intelligence.service
-[ "$INSTALL_CORPUS" = "1" ] && systemctl enable aifred-corpus-server.service
-echo "   ✅ Services aktiviert"
+if [ "$DRY_RUN" = "1" ]; then
+    for s in aifred-chromadb.service aifred-intelligence.service; do
+        if systemctl is-enabled --quiet "$s" 2>/dev/null; then
+            echo "   = $s already enabled"
+        else
+            echo "   📝 WOULD enable: $s"
+        fi
+    done
+    [ "$INSTALL_CORPUS" = "1" ] && {
+        if systemctl is-enabled --quiet aifred-corpus-server.service 2>/dev/null; then
+            echo "   = aifred-corpus-server.service already enabled"
+        else
+            echo "   📝 WOULD enable: aifred-corpus-server.service"
+        fi
+    }
+else
+    systemctl enable aifred-chromadb.service
+    systemctl enable aifred-intelligence.service
+    [ "$INSTALL_CORPUS" = "1" ] && systemctl enable aifred-corpus-server.service
+    echo "   ✅ Services aktiviert"
+fi
 echo
 
-echo "5️⃣  Starte Services..."
+echo "5️⃣  Starte / Aktualisiere Services..."
 # ChromaDB nur wenn Docker da ist — sonst schlägt der ExecStart fehl.
 if command -v docker &>/dev/null && docker compose version &>/dev/null; then
-    systemctl start aifred-chromadb.service
-    echo "   ✅ ChromaDB gestartet"
-    sleep 2
+    ensure_active aifred-chromadb.service
+    [ "$DRY_RUN" = "1" ] || sleep 2
 else
     echo "   ⚠️  Docker oder 'docker compose' fehlt — aifred-chromadb.service nicht gestartet."
     echo "      ChromaDB manuell starten, sobald Docker installiert ist:"
     echo "        sudo systemctl start aifred-chromadb.service"
 fi
-systemctl start aifred-intelligence.service
-echo "   ✅ AIfred Intelligence gestartet"
+ensure_active aifred-intelligence.service
 if [ "$INSTALL_CORPUS" = "1" ]; then
-    systemctl start aifred-corpus-server.service
-    echo "   ✅ Corpus-Server gestartet"
+    ensure_active aifred-corpus-server.service
 fi
 echo
 
@@ -183,19 +378,43 @@ USER_HOME=$(getent passwd "$ACTUAL_USER" | cut -d: -f6)
 USER_BIN="$USER_HOME/bin"
 RESTART_SCRIPT="$PROJECT_DIR/scripts/llama-swap-restart.sh"
 if [ -f "$RESTART_SCRIPT" ]; then
-    sudo -u "$ACTUAL_USER" mkdir -p "$USER_BIN"
-    chmod +x "$RESTART_SCRIPT"
-    sudo -u "$ACTUAL_USER" ln -sf "$RESTART_SCRIPT" "$USER_BIN/llama-swap-restart"
-    echo "   ✅ Symlink: $USER_BIN/llama-swap-restart -> $RESTART_SCRIPT"
-    # PATH-Hinweis falls ~/bin nicht in PATH
-    if ! sudo -u "$ACTUAL_USER" bash -c 'echo "$PATH"' | tr ':' '\n' | grep -qx "$USER_BIN"; then
-        echo "   ⚠️  $USER_BIN ist nicht im PATH — fuege in ~/.bashrc hinzu:"
-        echo "       export PATH=\"\$HOME/bin:\$PATH\""
+    if [ "$DRY_RUN" = "1" ]; then
+        if [ -L "$USER_BIN/llama-swap-restart" ] && \
+           [ "$(readlink "$USER_BIN/llama-swap-restart" 2>/dev/null)" = "$RESTART_SCRIPT" ]; then
+            echo "   = Symlink already in place: $USER_BIN/llama-swap-restart"
+        else
+            echo "   📝 WOULD symlink: $USER_BIN/llama-swap-restart -> $RESTART_SCRIPT"
+        fi
+    else
+        sudo -u "$ACTUAL_USER" mkdir -p "$USER_BIN"
+        chmod +x "$RESTART_SCRIPT"
+        sudo -u "$ACTUAL_USER" ln -sf "$RESTART_SCRIPT" "$USER_BIN/llama-swap-restart"
+        echo "   ✅ Symlink: $USER_BIN/llama-swap-restart -> $RESTART_SCRIPT"
+        # PATH-Hinweis falls ~/bin nicht in PATH
+        if ! sudo -u "$ACTUAL_USER" bash -c 'echo "$PATH"' | tr ':' '\n' | grep -qx "$USER_BIN"; then
+            echo "   ⚠️  $USER_BIN ist nicht im PATH — fuege in ~/.bashrc hinzu:"
+            echo "       export PATH=\"\$HOME/bin:\$PATH\""
+        fi
     fi
 else
     echo "   ⚠️  $RESTART_SCRIPT nicht gefunden — Symlink uebersprungen"
 fi
 echo
+
+# Dry-run endet hier — status + verification beziehen sich auf die
+# Real-Installation. Der User sieht oben in den 6 Steps was passieren würde.
+if [ "$DRY_RUN" = "1" ]; then
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Dry-Run beendet. Keine Disk-Writes, keine Service-Side-Effects."
+    if [ "$SERVICES_CHANGED" = "1" ]; then
+        echo "  ⚠️  Einige Service-Files würden geschrieben/aktualisiert."
+        echo "  Real ausführen: sudo $0"
+    else
+        echo "  ✅ Alle Service-Files bereits aktuell. Real-Run würde nichts ändern."
+    fi
+    echo "═══════════════════════════════════════════════════════════════"
+    exit 0
+fi
 
 echo "7️⃣  Prüfe Service-Status..."
 echo
