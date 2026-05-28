@@ -183,23 +183,29 @@ def _calibration_picker_button() -> rx.Component:
                 # container update or when the user wants to re-validate.
                 rx.divider(margin_y="2px"),
                 rx.hstack(
-                    rx.button(
-                        rx.icon("rotate-ccw", size=11),
-                        rx.text("VLM-Cache", font_size="10px"),
-                        on_click=AIState.reset_vlm_vram_cache,
-                        size="1",
-                        variant="outline",
-                        color_scheme="gray",
-                        flex="1",
+                    rx.tooltip(
+                        rx.button(
+                            rx.icon("trash-2", size=11),
+                            rx.text(t("calibration_reset_vlm_cache_button"), font_size="10px"),
+                            on_click=AIState.reset_vlm_vram_cache,
+                            size="1",
+                            variant="outline",
+                            color_scheme="gray",
+                            flex="1",
+                        ),
+                        content=t("calibration_reset_vlm_cache_tooltip"),
                     ),
-                    rx.button(
-                        rx.icon("rotate-ccw", size=11),
-                        rx.text("TTS-Cache", font_size="10px"),
-                        on_click=AIState.reset_tts_vram_cache,
-                        size="1",
-                        variant="outline",
-                        color_scheme="gray",
-                        flex="1",
+                    rx.tooltip(
+                        rx.button(
+                            rx.icon("trash-2", size=11),
+                            rx.text(t("calibration_reset_tts_cache_button"), font_size="10px"),
+                            on_click=AIState.reset_tts_vram_cache,
+                            size="1",
+                            variant="outline",
+                            color_scheme="gray",
+                            flex="1",
+                        ),
+                        content=t("calibration_reset_tts_cache_tooltip"),
                     ),
                     spacing="2",
                     width="100%",

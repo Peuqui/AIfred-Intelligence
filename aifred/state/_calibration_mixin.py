@@ -169,16 +169,19 @@ class CalibrationMixin(rx.State, mixin=True):
     # TTS engine picker (per-click selection, not persisted)
     # ------------------------------------------------------------------
 
-    @rx.var
+    @rx.var(cache=True, auto_deps=False, deps=["ui_language"])
     def calibration_matrix_header(self) -> list[str]:
         """Column labels for the calibration picker matrix — first cell
         is the row-header placeholder, then one label per TTS column
-        ("Kein TTS" + each installed GPU TTS engine). Computed so the
-        UI can render the header row with a single ``rx.foreach``."""
+        ("Kein TTS" / "No TTS" + each installed GPU TTS engine).
+        Computed so the UI can render the header row with a single
+        ``rx.foreach``."""
         from aifred.lib.tts_engines import installed_gpu_engines
-        return ["", "Kein TTS", *[e.label_short for e in installed_gpu_engines()]]
+        from aifred.lib.i18n import t
+        return ["", t("calibration_matrix_no_tts"),
+                *[e.label_short for e in installed_gpu_engines()]]
 
-    @rx.var(cache=True, auto_deps=False, deps=["aifred_model_id", "calibration_matrix"])
+    @rx.var(cache=True, auto_deps=False, deps=["aifred_model_id", "calibration_matrix", "ui_language"])
     def calibration_matrix_rows(self) -> list[CalibrationRow]:
         """One entry per VLM choice (including "no VLM"). Each entry
         carries ``{label, cells}`` where ``cells`` is a list of dicts
@@ -250,7 +253,8 @@ class CalibrationMixin(rx.State, mixin=True):
                 "already_calibrated": done,
                 "calibration_failed": _failed(f"{model_id}-tts-{e.key}"),
             })
-        rows.append({"label": "Kein VLM", "cells": no_vlm_cells})
+        from aifred.lib.i18n import t as _t
+        rows.append({"label": _t("calibration_matrix_no_vlm"), "cells": no_vlm_cells})
 
         # One row per VLM choice — first cell is VLM-only, then each
         # column is a VLM × TTS combination.
