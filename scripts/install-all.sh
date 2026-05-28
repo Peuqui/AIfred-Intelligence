@@ -382,6 +382,32 @@ verify_step "import fastapi (REST-API)" \
 verify_step "import httpx (HTTP-Client)" \
     "'$PROJECT_DIR/venv/bin/python' -c 'import httpx'" \
     "pip install -r requirements.txt im venv"
+# Vision-Stack: cv2 = Motion-Detection + Frame-Grab + pHash; insightface
+# + onnxruntime-gpu = Face-Recognition für Vigilantia. Alle drei sind
+# in requirements.txt, daher harter verify_step. Fehlt eines, schlägt
+# der Vigilantia-Plugin-Start mit ImportError fehl.
+verify_step "import cv2 (Vision-Pipeline: motion, frames, pHash)" \
+    "'$PROJECT_DIR/venv/bin/python' -c 'import cv2'" \
+    "pip install -r requirements.txt im venv  (opencv-python-headless)"
+verify_step "import numpy (cv2 + face-embeddings)" \
+    "'$PROJECT_DIR/venv/bin/python' -c 'import numpy'" \
+    "pip install -r requirements.txt im venv"
+# insightface + onnxruntime-gpu sind only ein Soft-Requirement (für
+# Vigilantia-Face-Recognition). Wenn der User Vision/Vigilantia nicht
+# nutzt, ist der Import-Fehlschlag kein Blocker — daher warn_step.
+warn_step "import insightface (Vigilantia Face-Recognition, optional)" \
+    "'$PROJECT_DIR/venv/bin/python' -c 'import insightface'" \
+    "pip install insightface onnxruntime-gpu  (nur falls Vigilantia genutzt wird)"
+warn_step "import onnxruntime (insightface-Inference-Backend, optional)" \
+    "'$PROJECT_DIR/venv/bin/python' -c 'import onnxruntime'" \
+    "pip install onnxruntime-gpu  (CUDA) oder onnxruntime  (CPU-only)"
+# Webcam-Zugriff via V4L2 setzt voraus, dass der User-Account in der
+# 'video'-Gruppe ist. Sonst: opencv kann /dev/video* nicht öffnen,
+# Vigilantia-Source-Discovery liefert "no devices" trotz angeschlossener
+# Kamera. warn_step (kein Blocker — Server ohne Webcam ist legal).
+warn_step "User in 'video'-Gruppe (Webcam-Zugriff für Vigilantia)" \
+    "groups | grep -qw video" \
+    "sudo usermod -aG video $USER  → dann neu einloggen (oder 'newgrp video')"
 # Playwright Binary + Chromium-Browser sind Pflicht (Web-Research mit JS-Pages
 # braucht beides). setup-python.sh holt den Browser-Binary, der vorige
 # install-deps-Block holt die System-Libs. Wenn beide fehlschlagen, geht

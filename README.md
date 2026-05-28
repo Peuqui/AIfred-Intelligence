@@ -2303,7 +2303,8 @@ More documentation in the `docs/` directory:
 - [Message Hub Architecture](docs/de/architecture/message-hub.md)
 - [LLM Call Architecture](docs/en/architecture/llm-call.md)
 - [llama.cpp + llama-swap Setup Guide](docs/en/guides/llamacpp-setup.md)
-- [Deployment Guide](docs/en/guides/deployment.md)
+- [Deployment Guide](docs/en/guides/deployment.md) — fresh-install walkthrough, calibration matrix picker, vision + Vigilantia setup
+- [Calibration Strategy (SSOT)](docs/en/architecture/calibration-strategy.md) — greedy cascade, burn-in, capacity guard, failure tracking
 - [Tensor Split Benchmark: Speed vs. Full Context](docs/en/benchmarks/tensor-split.md)
 
 ---
