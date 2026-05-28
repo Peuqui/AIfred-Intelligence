@@ -2,7 +2,14 @@
 
 Setup guide for a fresh AIfred installation with the llama.cpp backend (llama-swap).
 
-**Last updated:** 2026-02-18
+**Last updated:** 2026-05-28
+
+> **TL;DR — fastest path:** `./scripts/install-all.sh` from a fresh
+> clone handles dependencies, venv, Playwright, the Reflex routing
+> patch, optional systemd services, `.env`, the `bge-m3` embedding pull
+> and a first whitelist user in one go. The sections below describe
+> the same flow **manually** for debugging and for non-standard setups
+> (multi-GPU rigs, camera surveillance, vLLM coexistence).
 
 ---
 
@@ -321,20 +328,178 @@ No manual YAML editing required.
 ## 9. VRAM calibration
 
 New models are added with their **native context** from the GGUF metadata.
-This is often larger than what actually fits in VRAM.
+This is often larger than what actually fits in VRAM. Calibration finds
+the real maximum.
 
 To calibrate in the AIfred UI:
-1. Select the new model in AIfred
-2. Click **"Calibrate"** in the debug panel at the bottom
-3. The algorithm runs a binary search to find the true maximum context
-4. Results are saved to `data/model_vram_cache.json` and the YAML is updated
 
-Without calibration the model still works — it runs with the native context.
-If that exceeds VRAM, the first request will fail with an OOM error.
+1. Select the new model in AIfred
+2. Click **"Calibrate"** next to the model selector
+3. Pick the variants you want via the **2D matrix picker**:
+   - Rows = VLM choices (No VLM / Vigilantia 4B / Vigilantia 8B)
+   - Columns = TTS engines (No TTS / Qwen3-TTS / XTTS / Fish-Speech)
+   - Each ticked cell becomes a separate `<base>-vlm-<key>-tts-<engine>`
+     llama-swap profile that the chat-path resolver picks up automatically
+4. Click **"Kalibrierung starten"**. The matrix shows three states per cell:
+   - 🟢 green dot — calibrated
+   - 🔴 red dot — tried but failed (hover for reason)
+   - empty — never tried
+
+What runs under the hood:
+
+- **Greedy cascade**: fill the fastest compute class first, spill to the
+  next, minimize active GPUs
+- **Stress burn-in** on first TTS/VLM use: a worst-case bilingual TTS
+  synthesis loop and a VLM context-fill prewarm measure peak VRAM under
+  load. Results cached in `data/tts_vram_cache.json` /
+  `data/vlm_vram_cache.json` — next calibrations reuse the measurement
+- **Side-channel capacity guard**: before writing a `tts-engine + vlm`
+  combo profile, the calibrator checks whether both reserves fit on the
+  shared side-channel GPU. Combos that would OOM at runtime are
+  rejected with a red dot
+- **Bias-tracked binary search**: when `llama-fit-params` is consistently
+  off (typical on MoE models), the bias is tracked across probes and
+  fed back into the math projection, so the search converges in 3-5
+  probes instead of 25+
+- Final results land in `data/model_vram_cache.json` and as profile
+  entries in `~/.config/llama-swap/config.yaml`
+
+> **Strategy reference (SSOT):** [calibration-strategy.md](../architecture/calibration-strategy.md)
+
+Without calibration the model still works — it runs with the native
+context. If that exceeds VRAM, the first request will fail with an OOM
+error.
 
 ---
 
-## 10. Troubleshooting
+## 10. Vision setup (optional)
+
+The vision pipeline is **off by default**. Turn it on when you want
+image analysis in chat, on-demand VLM queries via tools, or the
+Vigilantia camera-surveillance plugin.
+
+### Hardware
+
+- A V4L2-capable camera at `/dev/video0` (or any `/dev/video*`) for
+  webcam input. USB UVC cameras and integrated laptop webcams just work
+- For face recognition: an NVIDIA GPU (CUDA Execution Provider) is
+  recommended. CPU-only works but is much slower
+- **`video` group membership**: the AIfred service account must be in
+  the `video` group. The `install-all.sh` script verifies this and
+  shows a fix hint if it's missing
+
+```bash
+groups | grep -qw video || sudo usermod -aG video $USER
+# log out + back in (or run 'newgrp video') for the change to take effect
+```
+
+### Pull a VLM (Vision-Language Model) via Ollama
+
+VLM inference runs on Ollama (the llama.cpp `--mmproj` path is currently
+unreliable for Qwen3-VL — see the architecture notes). Pull one of the
+calibrated VLMs:
+
+```bash
+ollama pull qwen3-vl:4b-instruct-q8_0    # ~6.5 GB VRAM, fast
+ollama pull qwen3-vl:8b-instruct-q8_0    # ~11 GB VRAM, more accurate
+```
+
+### Enable in the UI
+
+1. Settings → Vision → set `vision_mode` to:
+   - `off` — disabled (default)
+   - `on-demand` — VLM loaded only when a vision tool is called
+   - `live` — VLM stays resident in VRAM (lower latency, higher idle
+     cost)
+2. Pick the active VLM model under Settings → Vision → Model
+3. (Optional) Configure face recognition:
+   - Settings → Vision → Face Recognition → Execution Provider
+     (CUDA / CPU / CoreML)
+   - Threshold for "known" vs "unsure" classification
+
+### Calibrate the LLM with VLM-awareness
+
+When `vision_mode` is `on-demand` or `live`, the LLM profile needs to
+reserve VRAM on the side-channel GPU for the VLM container. Re-run the
+calibration (Section 9) with the **Vigilantia 4B** or **Vigilantia 8B**
+row ticked — that produces a `<base>-vlm-<key>` profile and the
+resolver picks it automatically when vision is active.
+
+---
+
+## 11. Vigilantia (camera surveillance) setup (optional)
+
+Layered on top of the vision pipeline. Turns AIfred into a continuous
+monitoring agent with motion detection, face recognition and event
+review.
+
+### First-time setup
+
+1. Enable the **Vigilantia** channel plugin in the Plugin Manager
+2. Restart the Message Hub workers (it's loaded at start)
+3. Open the **Casus** modal — it lists detected camera sources
+
+### Enroll faces (Personarium)
+
+The face-recognition pipeline only labels a face as "known" if you've
+**enrolled** it first. Without enrollment, every face shows up as
+`unknown` events.
+
+1. Snapshot a frame from a camera with a clear face
+2. Open the **Personarium** modal
+3. Multi-pose wizard: capture frontal + 4 angles
+4. Assign a name + (optional) group
+5. The face vectors land in the SQLite store; the next watcher pass
+   classifies matching faces as `known`
+
+**First-run cost:** on the first call, `insightface` downloads the
+`buffalo_l` model (~280 MB) into `~/.insightface/models/`. Subsequent
+runs are fast.
+
+### Start a watcher
+
+```
+LLM: vision_start_watch(source="webcam0", motion=true, face=true, vlm_on_motion=false)
+```
+
+Or via the Casus UI: select a source → "Start watcher". The watcher
+runs in the Message Hub worker process, so it **survives browser
+disconnects**.
+
+### Configure thresholds
+
+Settings → Vision → Vigilantia:
+
+- `motion.min_area_ratio` — fraction of the frame that must change
+  before a motion event fires (default 0.02 = 2%)
+- `motion.warmup_frames` — frames to learn the background before
+  triggering (default 10)
+- `min_event_interval_sec` — debounce between events (default 5s)
+- `save_event_frames` — store the frame as JPEG on each event
+- `face_detect.threshold_known` — cosine similarity above which a face
+  is `known` (default 0.6)
+- `face_detect.threshold_unsure` — below `known` but above this →
+  `unsure` (default 0.5). Below → `unknown`
+- `events.retention_days_*` — per-event-type retention
+
+### Use the Casus event browser
+
+The **Casus** modal is the central event review tool:
+
+- Filter by type (motion / face_known / face_unsure / face_unknown / vlm_analysis)
+- Filter by source, by face id, by time
+- **Single-event VLM analysis**: click any event → "Analyze with VLM"
+  — runs the configured VLM on the saved frame
+- **Bulk VLM analysis**: select N events → background worker runs the
+  VLM on each with progress + cancel. A VRAM pre-check aborts cleanly
+  if there's not enough headroom for the configured VLM batch
+- **Cluster mode toggle**: collapses near-duplicate events (pHash-based)
+  into one card per cluster — useful when a tree branch moving in the
+  wind would otherwise produce 200 motion events in 10 minutes
+
+---
+
+## 12. Troubleshooting
 
 ### Model does not appear in AIfred
 
