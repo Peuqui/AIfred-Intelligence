@@ -363,6 +363,17 @@ def vigilantia_help_modal() -> rx.Component:
                               "vigilantia_help_multipose_label",
                               "vigilantia_help_multipose_body"),
                     rx.divider(),
+                    rx.text(
+                        t("vigilantia_help_lifecycle_link"),
+                        size="2",
+                        color="var(--orange-9)",
+                        cursor="pointer",
+                        on_click=[
+                            AIState.close_vigilantia_help,
+                            AIState.open_model_lifecycle_help,
+                        ],
+                        style={"text_decoration": "underline"},
+                    ),
                     rx.button(
                         t("vision_settings_close"),
                         on_click=AIState.close_vigilantia_help,

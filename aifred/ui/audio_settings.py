@@ -16,6 +16,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
+from .helpers import t
 
 
 def _help_bullet(label: str, text: str) -> rx.Component:
@@ -74,6 +75,17 @@ def audio_help_modal() -> rx.Component:
                     padding_right="8px",
                 ),
                 rx.hstack(
+                    rx.text(
+                        t("audio_help_lifecycle_link"),
+                        size="2",
+                        color="#ffd166",
+                        cursor="pointer",
+                        on_click=[
+                            AIState.toggle_audio_settings_help,
+                            AIState.open_model_lifecycle_help,
+                        ],
+                        style={"text_decoration": "underline"},
+                    ),
                     rx.spacer(),
                     rx.button(
                         "Schließen", size="2", variant="soft",

@@ -21,6 +21,7 @@ from .lib.config import (
 from .ui.helpers import t, left_column  # noqa: F401
 from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, research_help_modal, reasoning_thinking_help_modal,
+    model_lifecycle_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
     document_manager_page, channel_credentials_page, audit_log_modal,
     bundle_export_modal, bundle_import_modal,
@@ -791,6 +792,9 @@ console.log('✂️ Crop handler loaded');
 
         # Reasoning/Thinking Help Modal
         reasoning_thinking_help_modal(),
+
+        # Model Lifecycle Help Modal (base/VLM/TTS/LLM — when does what load)
+        model_lifecycle_help_modal(),
 
         # Agent Editor: lebt seit dem Multi-Route-Split auf /agent-editor
         # als eigene Page (Code-Splitting fuer ~258 KB JSX). Nicht mehr
