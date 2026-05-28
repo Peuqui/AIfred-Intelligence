@@ -105,14 +105,26 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
                 limit=_FEED_LIMIT,
                 offset=0,
             )
-            self.vigilantia_feed_events = events
+            # Only assign when the result actually changed. The 500ms tick
+            # invokes us on every refresh_debug_console pass while the feed
+            # is visible — unconditional assignment makes Reflex flag the
+            # var dirty and ship a state delta every tick, which React
+            # reconciles by re-mounting the chat-bubble subtree and wipes
+            # the user's text selection (same regression class as the
+            # debug_messages issue fixed in commit 531c84d).
+            if events != self.vigilantia_feed_events:
+                self.vigilantia_feed_events = events
             since = datetime.now() - timedelta(minutes=_BADGE_WINDOW_MIN)
-            self.vigilantia_feed_recent_count = store.count_events(
+            recent = store.count_events(
                 event_types=["motion", "face_known", "face_unsure",
                              "face_unknown", "vlm_analysis"],
                 since=since,
             )
+            if recent != self.vigilantia_feed_recent_count:
+                self.vigilantia_feed_recent_count = recent
         except Exception as e:  # noqa: BLE001
             logger.warning("vigilantia-feed refresh failed: %s", e)
-            self.vigilantia_feed_events = []
-            self.vigilantia_feed_recent_count = 0
+            if self.vigilantia_feed_events:
+                self.vigilantia_feed_events = []
+            if self.vigilantia_feed_recent_count:
+                self.vigilantia_feed_recent_count = 0
