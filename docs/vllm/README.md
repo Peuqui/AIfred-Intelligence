@@ -1,35 +1,48 @@
 # vLLM Documentation
 
-vLLM backend reference and implementation notes. Kept slim — historical
-debugging/rollback docs from the November 2025 crash episode were
-removed (they were context-specific and the fixes are long merged).
-
-> **Current status:** vLLM is **available** as a backend (selectable in
-> the UI) but **not the primary path** on this rig. The Pascal-generation
-> Tesla P40s in the active GPU pool have well-known issues with vLLM's
-> AWQ Marlin kernels. Once the P40 → V100 swap is complete, vLLM is
-> planned to come back as the primary backend.
+This directory contains documentation related to vLLM backend configuration, troubleshooting, and hardware-specific optimizations.
 
 ## Documents
 
-- **[vllm_vram_detection.md](vllm_vram_detection.md)** — How the vLLM
-  manager detects free VRAM and clamps `gpu_memory_utilization` to
-  avoid OOM during model load
-- **[VLLM_YARN_AUTO_DETECTION.md](VLLM_YARN_AUTO_DETECTION.md)** —
-  Auto-detection of YARN / RoPE scaling factor from the model's
-  `config.json`, used to pick a safe max-context per model
+### Configuration & Setup
+- **[VLLM_RTX3060_CONFIG.md](VLLM_RTX3060_CONFIG.md)** - RTX 3060 optimal configuration (26K context @ 90% GPU memory)
+  - Hardware limits and VRAM usage
+  - Command-line examples
+  - Performance specifications
 
-## Key Code Paths
+### Troubleshooting & Fixes
+- **[VLLM_FIX_SUMMARY.md](VLLM_FIX_SUMMARY.md)** - Summary of vLLM crash fixes
+  - Root cause analysis
+  - Solution implementation
+  - Rollback strategy
 
-- vLLM Manager: [aifred/lib/vllm_manager.py](../../aifred/lib/vllm_manager.py)
+- **[VLLM_CHANGES_ANALYSIS.md](VLLM_CHANGES_ANALYSIS.md)** - Detailed commit history analysis
+  - What changed between working/broken commits
+  - Key code differences
+  - Systematic debugging approach
+
+### Development History
+- **[COMMIT_HISTORY_VLLM.md](COMMIT_HISTORY_VLLM.md)** - Complete commit history for vLLM-related changes
+  - Chronological log of all vLLM modifications
+  - Useful for future debugging
+
+## Related Documentation
+
+- [CHANGELOG.md](../../CHANGELOG.md) - Main project changelog
+
+## Quick Links
+
+### GPU-Specific Configurations
+- **RTX 3060 (12GB, Ampere 8.6)**: 26,608 tokens @ 90% GPU memory ✅ Tested
+- **Tesla P40 (24GB, Pascal 6.1)**: ❌ Not compatible (use Ollama instead)
+
+### Key Features
+- ✅ Auto-detection of model context limits (40K-128K)
+- ✅ AWQ Marlin quantization for Ampere+ GPUs
+- ✅ Automatic quantization format detection
+- ✅ Hardware-constrained memory management
+
+## See Also
+- Main project README: [../../README.md](../../README.md)
 - GPU Detection: [aifred/lib/gpu_detection.py](../../aifred/lib/gpu_detection.py)
-- Backend Adapter: [aifred/backends/vllm_backend.py](../../aifred/backends/vllm_backend.py)
-
-## Hardware Compatibility
-
-| GPU | Compute Cap | vLLM AWQ Marlin | Status |
-|---|---|---|---|
-| Tesla V100 | 7.0 | ⚠️ Limited (no native AWQ Marlin) | Workable with FP16 |
-| Tesla P40 | 6.1 | ❌ Not supported | Use llama.cpp/Ollama |
-| Quadro RTX 8000 | 7.5 | ✅ Supported | Recommended |
-| RTX Ampere+ | 8.0+ | ✅ Full support | Recommended |
+- vLLM Manager: [aifred/lib/vllm_manager.py](../../aifred/lib/vllm_manager.py)
