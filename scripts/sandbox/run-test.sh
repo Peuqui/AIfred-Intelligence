@@ -1,33 +1,33 @@
 #!/bin/bash
 # scripts/sandbox/run-test.sh
 #
-# Startet einen ephemeral systemd-nspawn-Container und fuehrt drin
-# install-all.sh aus. Repo wird read-only reingespielt, drin wird per
-# git clone ein "fresh clone" simuliert.
+# Starts an ephemeral systemd-nspawn container and runs install-all.sh
+# inside. The repo is mounted read-only; a fresh `git clone` inside
+# the container simulates a brand-new install. All non-flag args are
+# passed through to install-all.sh.
 #
-# Drei Use-Cases:
+# Three use-cases:
 #
 #   sudo ./scripts/sandbox/run-test.sh --dry-run [--no-overwrite]
-#       → schnellster Test. Kein --boot (kein systemd), kein
-#         systemctl-Aufruf. Validiert apt/pip/Skript-Logik fuer
-#         Steps 1-2g + Service-File-Diffs ohne Disk-Writes.
+#       → fastest test. No --boot (no systemd), no systemctl calls.
+#         Validates apt/pip/script logic for steps 1-2g + service file
+#         diffs without disk writes.
 #
 #   sudo ./scripts/sandbox/run-test.sh
-#       → vollstaendiger Real-Run mit systemd im Container.
-#         Steps 1-2g + Service-Install + Service-Enable. Service-Start
-#         klappt mit systemd-Bus im Container. Container-State ist
-#         nach Exit weg (--ephemeral).
+#       → full real run with systemd inside the container. Steps
+#         1-2g + service install + service enable. Service start works
+#         because the systemd bus is in-container. Container state is
+#         gone on exit (--ephemeral).
 #
 #   sudo ./scripts/sandbox/run-test.sh --shell
-#       → interaktive Shell im Container, du fuehrst manuell aus.
-#         Fuer Debugging / Tiefenpruefung.
+#       → interactive shell inside the container for manual debugging
+#         / deep inspection.
 #
-# Alle nicht-Flag-Args werden an install-all.sh weitergereicht (z.B.
-# --no-overwrite).
+# All non-flag args are forwarded to install-all.sh (e.g. --no-overwrite).
 
 set -euo pipefail
 
-# ─── Konfiguration ──────────────────────────────────────────────
+# ─── Configuration ──────────────────────────────────────────────
 MACHINE_NAME="${MACHINE_NAME:-aifred-test}"
 MACHINE_ROOT="/var/lib/machines/${MACHINE_NAME}"
 
@@ -37,35 +37,35 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# ─── Sudo-Check ─────────────────────────────────────────────────
+# ─── Sudo check ─────────────────────────────────────────────────
 if [ "${EUID:-1}" -ne 0 ]; then
-    echo -e "${RED}❌ Dieses Skript benoetigt sudo (systemd-nspawn).${NC}"
+    echo -e "${RED}❌ This script needs sudo (systemd-nspawn).${NC}"
     echo "   sudo $0 $*"
     exit 1
 fi
 
-# ─── Container-Root-Check ───────────────────────────────────────
+# ─── Container root check ───────────────────────────────────────
 if [ ! -d "$MACHINE_ROOT" ] || [ ! -x "$MACHINE_ROOT/bin/bash" ]; then
-    echo -e "${RED}❌ Container-Root fehlt oder ist defekt: ${MACHINE_ROOT}${NC}"
-    echo "   Erst Setup ausfuehren:"
+    echo -e "${RED}❌ Container root missing or broken: ${MACHINE_ROOT}${NC}"
+    echo "   Run setup first:"
     echo "     sudo $(dirname "$0")/setup-nspawn-root.sh"
     exit 1
 fi
 
-# ─── Repo-Pfad ermitteln ────────────────────────────────────────
+# ─── Locate repo ────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if [ ! -d "$REPO_ROOT/.git" ] || [ ! -f "$REPO_ROOT/scripts/install-all.sh" ]; then
-    echo -e "${RED}❌ Repo-Root sieht nicht nach AIfred aus: ${REPO_ROOT}${NC}"
+    echo -e "${RED}❌ Repo root doesn't look like AIfred: ${REPO_ROOT}${NC}"
     exit 1
 fi
 
-# ─── Mode + Args trennen ────────────────────────────────────────
-# Modus-Wahl:
-#   --shell   → interaktive Login-Shell (mit --boot)
-#   --dry-run → kein --boot (schneller, kein systemd noetig)
-#   default   → --boot (voller Real-Run mit systemd)
+# ─── Split mode + args ──────────────────────────────────────────
+# Mode selection:
+#   --shell   → interactive login shell (with --boot)
+#   --dry-run → no --boot (faster, no systemd needed)
+#   default   → --boot (full real run with systemd)
 MODE="auto"
 INSTALL_ARGS=()
 for arg in "$@"; do
@@ -82,25 +82,25 @@ for arg in "$@"; do
     esac
 done
 
-# Falls --dry-run nicht dabei ist → Real-Run mit systemd-Boot.
+# No --dry-run → real run with systemd boot.
 if [ "$MODE" = "auto" ]; then
     MODE="boot"
 fi
 
 # ─── Banner ─────────────────────────────────────────────────────
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  AIfred Sandbox-Run via systemd-nspawn --ephemeral${NC}"
+echo -e "${BLUE}  AIfred sandbox run via systemd-nspawn --ephemeral${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo "  Container:       ${MACHINE_NAME} (${MACHINE_ROOT})"
 echo "  Repo (read-only): ${REPO_ROOT}"
-echo "  Modus:           ${MODE}"
+echo "  Mode:            ${MODE}"
 if [ "${#INSTALL_ARGS[@]}" -gt 0 ]; then
-    echo "  install-all-Args: ${INSTALL_ARGS[*]}"
+    echo "  install-all args: ${INSTALL_ARGS[*]}"
 fi
-echo -e "${YELLOW}  Alle Aenderungen sind nach Container-Exit weg (--ephemeral).${NC}"
+echo -e "${YELLOW}  All changes are gone on container exit (--ephemeral).${NC}"
 echo ""
 
-# ─── Gemeinsame nspawn-Args ─────────────────────────────────────
+# ─── Common nspawn args ─────────────────────────────────────────
 COMMON_NSPAWN=(
     --quiet
     --machine="${MACHINE_NAME}-$$"
@@ -109,39 +109,39 @@ COMMON_NSPAWN=(
     --bind-ro="$REPO_ROOT:/mnt/aifred-repo"
     --setenv=AIFRED_SANDBOX=1
 )
-# Netzwerk-Isolation:
-#  * no-boot/dry-run:  --private-network (kein Internet noetig — apt
-#                      + pip werden im dry-run uebersprungen — und der
-#                      Schutz gegen "Host-Ports werden gesehen" ist
-#                      wichtig fuer ehrliche Verifikations-Ergebnisse).
-#  * boot/shell:       Default-Netzwerk (Host shared), damit apt update,
-#                      ollama pull, playwright install Internet haben.
-#                      Dafuer Caveat: Port-Probes "sehen" Host-Services.
-#                      Reality-Check: das ist in v1 ein bewusster
-#                      Trade-off, real geht's ohne Internet nicht.
+# Network isolation:
+#  * no-boot / dry-run: --private-network (no internet needed — apt
+#                       and pip are skipped in dry-run anyway — and
+#                       protection against "host ports get probed"
+#                       matters for honest verification results).
+#  * boot / shell:      default network (shared with host) so apt
+#                       update, ollama pull, playwright install have
+#                       internet. Caveat: port probes "see" host
+#                       services. Conscious trade-off for v1; real
+#                       installs need internet.
 
-# ─── Mode: shell (interaktiv mit systemd) ───────────────────────
+# ─── Mode: shell (interactive with systemd) ─────────────────────
 if [ "$MODE" = "shell" ]; then
-    echo -e "${GREEN}Starte interaktive Shell im Sandbox (booted).${NC}"
-    echo "  Login: aifred / kein Passwort  (oder root)"
-    echo "  Repo  : /mnt/aifred-repo  (read-only)"
-    echo "  Beenden: 'sudo poweroff' im Container, oder Ctrl-] dreimal."
+    echo -e "${GREEN}Starting interactive shell in sandbox (booted).${NC}"
+    echo "  Login: aifred / no password  (or root)"
+    echo "  Repo:  /mnt/aifred-repo  (read-only)"
+    echo "  Exit:  'sudo poweroff' inside the container, or Ctrl-] three times."
     echo ""
     exec systemd-nspawn "${COMMON_NSPAWN[@]}" --boot
 fi
 
-# ─── Mode: no-boot (schneller dry-run, kein systemd noetig) ─────
-# nspawn ohne --boot fuehrt direkt einen Command aus. systemctl-Aufrufe
-# wuerden in einem solchen Container zwar "Failed to connect to bus"
-# liefern, aber im dry-run-Modus ruft install-services.sh kein systemctl
-# auf — und Steps 1-2g in install-all.sh sind systemd-frei.
+# ─── Mode: no-boot (fast dry-run, no systemd needed) ────────────
+# nspawn without --boot runs a command directly. systemctl calls in
+# such a container would give "Failed to connect to bus" — but in
+# dry-run mode install-services.sh doesn't call systemctl, and steps
+# 1-2g in install-all.sh are systemd-free.
 if [ "$MODE" = "no-boot" ]; then
-    echo -e "${GREEN}Starte Sandbox ohne --boot (Dry-Run-tauglich, kein systemd, kein Netzwerk).${NC}"
+    echo -e "${GREEN}Starting sandbox without --boot (dry-run friendly, no systemd, no network).${NC}"
     echo ""
-    # Wir uebergeben das Runner-Snippet via stdin -> sudo -u aifred bash.
-    # --bind-ro fuer das Repo macht das Skript verfuegbar.
-    # --private-network: Sandbox sieht KEIN Host-Netzwerk (verhindert
-    # dass Port-Probes laufende Host-Services faelschlich zaehlen).
+    # Pass the runner snippet via stdin → sudo -u aifred bash.
+    # --bind-ro for the repo makes the script available.
+    # --private-network: sandbox sees NO host network (stops port
+    # probes from picking up running host services).
     systemd-nspawn "${COMMON_NSPAWN[@]}" \
         --private-network \
         --pipe \
@@ -158,35 +158,32 @@ if [ "$MODE" = "no-boot" ]; then
     EXIT=$?
     echo ""
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}  Sandbox-Exit (no-boot, dry-run): ${EXIT}${NC}"
+    echo -e "${BLUE}  Sandbox exit (no-boot, dry-run): ${EXIT}${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     exit "$EXIT"
 fi
 
-# ─── Mode: boot (voller Real-Run mit systemd) ───────────────────
-# Hier brauchen wir --boot fuer systemctl. Auto-Ausfuehrung im booted
-# Container geht via systemd-run ueber den machined-Bus, ABER nicht
-# vor dem Boot. Pragmatische Loesung: wir starten den Container im
-# Hintergrund, warten auf "Reached target multi-user.target", dann
-# systemd-run im Container.
-#
-# Einfacher v1: interaktiver Run mit Anleitung. Spaeter automatisieren.
-echo -e "${GREEN}Starte vollen Real-Run mit --boot.${NC}"
+# ─── Mode: boot (full real run with systemd) ────────────────────
+# Here we need --boot for systemctl. Auto-exec in a booted container
+# goes via systemd-run over the machined bus, but not before boot
+# completes. Pragmatic v1: interactive run with instructions. Later
+# we automate.
+echo -e "${GREEN}Starting full real run with --boot.${NC}"
 echo ""
-echo -e "${YELLOW}Hinweis fuer v1:${NC} der Auto-Run innerhalb von --boot ist in dieser"
-echo "ersten Version manuell — der Container bootet, du fuehrst drin aus:"
+echo -e "${YELLOW}v1 caveat:${NC} auto-run inside --boot is interactive in this first"
+echo "version — the container boots, you run the commands inside:"
 echo ""
-echo "  1. Login als aifred (kein Passwort)"
-echo "  2. Folgende Befehle:"
+echo "  1. Login as aifred (no password)"
+echo "  2. These commands:"
 echo ""
 echo -e "     ${BLUE}git clone /mnt/aifred-repo ~/AIfred-Intelligence${NC}"
 echo -e "     ${BLUE}cd ~/AIfred-Intelligence${NC}"
 echo -e "     ${BLUE}bash scripts/install-all.sh ${INSTALL_ARGS[*]:-}${NC}"
 echo ""
-echo "  3. Container beenden:"
+echo "  3. Exit container:"
 echo -e "     ${BLUE}sudo poweroff${NC}"
 echo ""
-echo "Druecke Enter zum Booten des Containers..."
+echo "Press Enter to boot the container..."
 read -r _
 
 exec systemd-nspawn "${COMMON_NSPAWN[@]}" --boot
