@@ -3,13 +3,62 @@
 # AIfred Intelligence - Complete Installation Script
 # Installiert alles: System-Deps, Python-Environment, Systemd-Services (optional)
 #
+# Modes:
+#   ./scripts/install-all.sh                   normal fresh-install / update
+#   ./scripts/install-all.sh --dry-run         no disk writes, no apt/pip/
+#                                              systemctl side-effects. Shows
+#                                              what each step WOULD do.
+#                                              Service-Diffs delegated to
+#                                              install-services.sh --dry-run
+#   ./scripts/install-all.sh --no-overwrite    pass --no-overwrite to the
+#                                              systemd installer (keep local
+#                                              service file tweaks)
 
 set -e  # Exit on error
 
-echo "=================================================="
-echo "  AIfred Intelligence - Vollständige Installation"
-echo "=================================================="
-echo ""
+# ── Argument parsing ────────────────────────────────────────────
+DRY_RUN=0
+NO_OVERWRITE=0
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|-n)         DRY_RUN=1 ;;
+        --no-overwrite|-N)    NO_OVERWRITE=1 ;;
+        --help|-h)
+            sed -n '2,15p' "$0"
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown flag: $arg"
+            sed -n '2,15p' "$0"
+            exit 1
+            ;;
+    esac
+done
+
+# Build flag passthrough for the systemd sub-installer.
+SYSTEMD_FLAGS=()
+[ "$DRY_RUN" = "1" ]      && SYSTEMD_FLAGS+=("--dry-run")
+[ "$NO_OVERWRITE" = "1" ] && SYSTEMD_FLAGS+=("--no-overwrite")
+
+if [ "$DRY_RUN" = "1" ]; then
+    echo "=================================================="
+    echo "  AIfred Intelligence - Installation (DRY-RUN)"
+    echo "=================================================="
+    echo "  No disk writes, no apt/pip/systemctl side-effects."
+    [ "$NO_OVERWRITE" = "1" ] && echo "  --no-overwrite is honored in the simulation."
+    echo ""
+elif [ "$NO_OVERWRITE" = "1" ]; then
+    echo "=================================================="
+    echo "  AIfred Intelligence - Installation (NO-OVERWRITE)"
+    echo "=================================================="
+    echo "  Existing systemd service files are kept untouched."
+    echo ""
+else
+    echo "=================================================="
+    echo "  AIfred Intelligence - Vollständige Installation"
+    echo "=================================================="
+    echo ""
+fi
 
 # Farben für Output
 RED='\033[0;31m'
@@ -91,6 +140,23 @@ if [ "$EUID" -eq 0 ]; then
     echo "   alles andere muss als normaler User laufen (venv-Owner)."
     exit 1
 fi
+
+# ============================================================
+# Dry-run: skip steps 1 + 2 + 2b..2g (system-deps, venv, embedding
+# model, container builds). All of these are idempotent on a real run —
+# already-installed packages skip themselves, the venv is reused if
+# already present, ChromaDB/Whisper containers are no-ops if already
+# up — so dry-running them gives no new information. The interesting
+# dry-run is what install-services.sh would do to /etc/systemd/system,
+# which is delegated below in Step 3.
+# ============================================================
+if [ "$DRY_RUN" = "1" ]; then
+    echo -e "${YELLOW}📝 DRY-RUN: skipping Steps 1-2g (system-deps, Python env,${NC}"
+    echo -e "${YELLOW}              ChromaDB, Whisper, SearXNG, TTS containers).${NC}"
+    echo "   These steps are idempotent on a real run. To see actual"
+    echo "   install effects, re-run without --dry-run."
+    echo ""
+else
 
 # ============================================================
 # SCHRITT 1: System-Dependencies (mit sudo)
@@ -1051,6 +1117,8 @@ fi
 echo ""
 sleep 1
 
+fi  # end of "if [ "$DRY_RUN" = "1" ] / else" — Steps 1-2g
+
 # ============================================================
 # SCHRITT 3: Systemd Services Installation (Optional, MIT sudo)
 # ============================================================
@@ -1059,9 +1127,14 @@ echo -e "${BLUE}  Schritt 3/3: Systemd Services Installation (Optional)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "Systemd-Services für automatischen Start beim Booten."
-echo -e "${YELLOW}⚠️  Benötigt sudo-Rechte!${NC}"
-echo ""
-read -p "Systemd-Services installieren? (j/N): " -n 1 -r
+if [ "$DRY_RUN" = "1" ]; then
+    echo -e "${YELLOW}📝 DRY-RUN: kein sudo, keine Disk-Writes — delegiert an install-services.sh --dry-run.${NC}"
+    REPLY="j"
+else
+    echo -e "${YELLOW}⚠️  Benötigt sudo-Rechte!${NC}"
+    echo ""
+    read -p "Systemd-Services installieren? (j/N): " -n 1 -r
+fi
 echo ""
 
 SYSTEMD_CHOSEN=0
@@ -1069,15 +1142,25 @@ SYSTEMD_SVC_EXIT=0
 if [[ $REPLY =~ ^[JjYy]$ ]]; then
     SYSTEMD_CHOSEN=1
     if [ -f "$SCRIPT_DIR/install-services.sh" ]; then
-        echo "   Starte Installation mit sudo..."
-        # install-services.sh hat eigene Verifikation und exitet mit !=0,
-        # falls Services nicht laufen. Wir wollen aber die Final-Auswertung
-        # in install-all.sh erreichen, also Exit-Code merken statt abbrechen.
-        # set +e/-e umgeht das set -e des äusseren Scripts.
-        set +e
-        sudo bash "$SCRIPT_DIR/install-services.sh"
-        SYSTEMD_SVC_EXIT=$?
-        set -e
+        # In dry-run we don't need sudo (install-services.sh handles it
+        # itself). In a real or --no-overwrite run sudo is required.
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "   Starte install-services.sh ${SYSTEMD_FLAGS[*]} (kein sudo nötig im dry-run)..."
+            set +e
+            bash "$SCRIPT_DIR/install-services.sh" "${SYSTEMD_FLAGS[@]}"
+            SYSTEMD_SVC_EXIT=$?
+            set -e
+        else
+            echo "   Starte Installation mit sudo ${SYSTEMD_FLAGS[*]}..."
+            # install-services.sh hat eigene Verifikation und exitet mit !=0,
+            # falls Services nicht laufen. Wir wollen aber die Final-Auswertung
+            # in install-all.sh erreichen, also Exit-Code merken statt abbrechen.
+            # set +e/-e umgeht das set -e des äusseren Scripts.
+            set +e
+            sudo bash "$SCRIPT_DIR/install-services.sh" "${SYSTEMD_FLAGS[@]}"
+            SYSTEMD_SVC_EXIT=$?
+            set -e
+        fi
         if [ "$SYSTEMD_SVC_EXIT" -ne 0 ]; then
             STEP_FAILURES+=("install-services.sh exit $SYSTEMD_SVC_EXIT — siehe Output oben")
         fi
@@ -1170,6 +1253,15 @@ echo ""
 # Tracking-Flag für die Schluss-Zusammenfassung (Health-Check liest ihn).
 WHITELIST_USER_CREATED=0
 
+if [ "$DRY_RUN" = "1" ]; then
+    if [ -f "$PROJECT_DIR/data/allowed_users.json" ]; then
+        echo -e "${YELLOW}📝 DRY-RUN: allowed_users.json existiert bereits — würde übersprungen.${NC}"
+    else
+        echo -e "${YELLOW}📝 DRY-RUN: WOULD prompt for whitelist user (writes data/allowed_users.json).${NC}"
+    fi
+    echo ""
+else
+
 # Solange wiederholen, bis ein User angelegt wurde ODER User explizit
 # 'skip' eingibt. So vermeidet man den häufigen Silent-Fail-Fall, dass
 # enter-enter zum übersprungenen Schritt führt.
@@ -1193,6 +1285,7 @@ while true; do
         break
     fi
 done
+fi  # end of "if [ "$DRY_RUN" = "1" ] / else" — Whitelist-User-Prompt
 
 # ─── Verifikation Whitelist-User ───
 if [ "$WHITELIST_USER_CREATED" = "1" ]; then
