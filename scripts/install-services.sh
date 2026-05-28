@@ -78,11 +78,18 @@ SYSTEMD_DIR="$PROJECT_DIR/systemd"
 echo "📂 Projekt-Verzeichnis: $PROJECT_DIR"
 echo
 
-# venv-Check — die Hauptservice braucht $PROJECT_DIR/venv/bin/python
+# venv-Check — die Hauptservice braucht $PROJECT_DIR/venv/bin/python.
+# Im --dry-run wird nichts ausgefuehrt, also ist ein fehlendes venv
+# kein Blocker — nur ein Hinweis. Im Real-Run hard-failen wir.
 if [ ! -x "$PROJECT_DIR/venv/bin/python" ]; then
-    echo "❌ Python-venv nicht gefunden: $PROJECT_DIR/venv"
-    echo "   Bitte zuerst ./scripts/setup-python.sh ausführen."
-    exit 1
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "⚠️  Python-venv fehlt: $PROJECT_DIR/venv  (im Real-Run hard-fail)"
+        echo "   In einem echten Setup würde install-all.sh das venv vorher anlegen."
+    else
+        echo "❌ Python-venv nicht gefunden: $PROJECT_DIR/venv"
+        echo "   Bitte zuerst ./scripts/setup-python.sh ausführen."
+        exit 1
+    fi
 fi
 
 # Check if service files exist

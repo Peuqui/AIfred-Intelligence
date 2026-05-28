@@ -1180,7 +1180,14 @@ fi
 
 # ─── Verifikation Schritt 3: nur wenn User Systemd gewählt hat ───
 # Bei Skip ist es bewusst nicht da → kein Fehler, nur Info.
-if [ "$SYSTEMD_CHOSEN" = "1" ]; then
+# Im --dry-run komplett ueberspringen: kein Service wurde tatsaechlich
+# installiert/gestartet, und Port-Probes wuerden faelschlicherweise
+# laufende Host-Services im selben Netzwerk-Namespace zaehlen
+# (sandbox ohne --private-network = Host-Ports sichtbar).
+if [ "$DRY_RUN" = "1" ]; then
+    echo ""
+    echo -e "${YELLOW}📝 DRY-RUN: Service-Verifikation uebersprungen (kein realer Service-Start).${NC}"
+elif [ "$SYSTEMD_CHOSEN" = "1" ]; then
     echo ""
     echo -e "${BLUE}🔎 Verifiziere Systemd-Services...${NC}"
     verify_step "aifred-chromadb.service is-enabled" \
