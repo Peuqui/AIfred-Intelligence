@@ -522,6 +522,7 @@ class TranslationManager:
             "calibration_pick_engines": "GPU-TTS-Engines",
             "calibration_base_label": "Basis-Kalibrierung",
             "calibration_already_done": "bereits kalibriert",
+            "calibration_previously_failed": "vorheriger Versuch fehlgeschlagen — Häkchen setzen, um es erneut zu versuchen",
             "calibration_start": "Kalibrierung starten",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Denkprozess",
@@ -1204,6 +1205,7 @@ class TranslationManager:
             "calibration_pick_engines": "GPU TTS engines",
             "calibration_base_label": "Base calibration",
             "calibration_already_done": "already calibrated",
+            "calibration_previously_failed": "previous attempt failed — tick the box to retry",
             "calibration_start": "Start calibration",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Thinking Process",
