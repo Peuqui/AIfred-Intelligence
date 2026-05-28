@@ -286,7 +286,7 @@ def vigilantia_help_modal() -> rx.Component:
             rx.box(
                 rx.vstack(
                     rx.hstack(
-                        rx.icon("lightbulb", size=20, color="#FFD700"),
+                        rx.icon("lightbulb", size=20, color="#FFA500"),
                         rx.text(
                             t("vigilantia_help_title"),
                             font_weight="bold", size="4",
@@ -314,7 +314,7 @@ def vigilantia_help_modal() -> rx.Component:
                         font_weight="bold", size="3",
                         style={"margin_top": "0.5em"},
                     ),
-                    _help_row("eye", "var(--orange-9)",
+                    _help_row("eye", "#FFA500",
                               "vigilantia_help_eye_open_label",
                               "vigilantia_help_eye_open_body"),
                     _help_row("eye-off", "var(--gray-9)",
@@ -327,10 +327,10 @@ def vigilantia_help_modal() -> rx.Component:
                         font_weight="bold", size="3",
                         style={"margin_top": "0.5em"},
                     ),
-                    _help_row("camera", "var(--orange-9)",
+                    _help_row("camera", "#FFA500",
                               "vigilantia_help_sources_label",
                               "vigilantia_help_sources_body"),
-                    _help_row("users", "var(--orange-9)",
+                    _help_row("users", "#FFA500",
                               "vigilantia_help_face_label",
                               "vigilantia_help_face_body"),
                     _help_row("activity", "var(--blue-9)",
@@ -343,7 +343,7 @@ def vigilantia_help_modal() -> rx.Component:
                         font_weight="bold", size="3",
                         style={"margin_top": "0.5em"},
                     ),
-                    _help_row("monitor", "var(--orange-9)",
+                    _help_row("monitor", "#FFA500",
                               "vigilantia_help_preview_label",
                               "vigilantia_help_preview_body"),
                     rx.divider(),
@@ -353,20 +353,20 @@ def vigilantia_help_modal() -> rx.Component:
                         font_weight="bold", size="3",
                         style={"margin_top": "0.5em"},
                     ),
-                    _help_row("users", "var(--orange-9)",
+                    _help_row("users", "#FFA500",
                               "vigilantia_help_personarium_label",
                               "vigilantia_help_personarium_body"),
-                    _help_row("scroll-text", "var(--orange-9)",
+                    _help_row("scroll-text", "#FFA500",
                               "vigilantia_help_casus_label",
                               "vigilantia_help_casus_body"),
-                    _help_row("user-cog", "var(--orange-9)",
+                    _help_row("user-cog", "#FFA500",
                               "vigilantia_help_multipose_label",
                               "vigilantia_help_multipose_body"),
                     rx.divider(),
                     rx.text(
                         t("vigilantia_help_lifecycle_link"),
                         size="2",
-                        color="var(--orange-9)",
+                        color="#FFA500",
                         cursor="pointer",
                         on_click=[
                             AIState.close_vigilantia_help,
@@ -554,7 +554,7 @@ def vigilantia_feed_popover() -> rx.Component:
                 rx.icon(
                     "lightbulb",
                     size=14,
-                    color="#FFD700",
+                    color="#FFA500",
                     cursor="pointer",
                     on_click=AIState.open_vigilantia_help,
                     style={
