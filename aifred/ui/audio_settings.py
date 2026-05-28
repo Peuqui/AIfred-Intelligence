@@ -78,7 +78,7 @@ def audio_help_modal() -> rx.Component:
                     rx.text(
                         t("audio_help_lifecycle_link"),
                         size="2",
-                        color="#ffd166",
+                        color="#FFA500",
                         cursor="pointer",
                         on_click=[
                             AIState.toggle_audio_settings_help,
