@@ -195,8 +195,17 @@ def _latest_event_card(event: rx.Var) -> rx.Component:
             "border": "1px solid var(--orange-9)",
             "border_radius": "6px",
             "cursor": "pointer",
-            "min_width": "240px",
-            "max_width": "420px",
+            # No min_width: keeps the card from forcing a horizontal
+            # page scroll on very narrow windows. The white-space:nowrap
+            # + ellipsis on the description column means the card stays
+            # legible even when shrunk to ~150px.
+            "min_width": "0",
+            # Fixed cap (not vw-relative): when the window shrinks, the
+            # rx.spacer in front of us (flex-basis 0) eats all the
+            # leftover space first; only once the spacer is at 0 does
+            # the card itself start to shrink. A vw-relative cap would
+            # shrink the card immediately on every pixel of resize.
+            "max_width": "800px",
             "flex_shrink": "1",
         },
     )
@@ -599,7 +608,14 @@ def vigilantia_feed_popover() -> rx.Component:
                             _idle_card(),
                         ),
                         on_click=AIState.open_vigilantia_feed_popover,
+                        # min_width:0 propagates the shrinkability of
+                        # the outer hstack down to the card itself.
+                        # Without this, the box keeps its 800px content
+                        # basis and the page horizontal-scrolls on
+                        # narrow windows.
+                        style={"min_width": "0", "max_width": "100%"},
                     ),
+                    style={"min_width": "0", "max_width": "100%"},
                 ),
                 rx.popover.content(
                     rx.vstack(
@@ -649,5 +665,11 @@ def vigilantia_feed_popover() -> rx.Component:
             ),
             spacing="2",
             align="center",
+            # min_width: 0 + max_width: 100% lets the popover trio
+            # (lightbulb + eye + card) shrink with its row. Without
+            # max_width: 100% the hstack would insist on its content
+            # width (~860px) even when wrapped onto its own row in a
+            # narrower window — pushing horizontal page scroll.
+            style={"min_width": "0", "max_width": "100%"},
         ),
     )

@@ -510,11 +510,6 @@ def text_input_section() -> rx.Component:
                 ),
                 content=t("choose_research_mode"),
             ),
-            # Vigilantia-Live: rechtsbündig durch den Spacer, kompakter
-            # Icon-Button mit Badge — Popover öffnet die letzte Chronik
-            # der Hintergrund-Watcher (auto_start-Cams).
-            rx.spacer(),
-            vigilantia_feed_popover(),
             spacing="2",
             align="center",
             flex_wrap="wrap",
@@ -599,6 +594,12 @@ def text_input_section() -> rx.Component:
                     "Inkognito-Modus (kein Gedächtnis)",
                 ),
             ),
+            # Vigilantia-Live: rechtsbündig auf der Standard/Lock-Zeile
+            # (mehr horizontaler Platz als in Row 1 mit den Pills). Der
+            # Spacer schiebt nach rechts; die Card selbst wächst bis zu
+            # ihrem max_width (50vw, gedeckelt bei 800px).
+            rx.spacer(),
+            vigilantia_feed_popover(),
             # Agent toggle buttons (always visible in all modes)
             rx.hstack(
                 rx.box(
