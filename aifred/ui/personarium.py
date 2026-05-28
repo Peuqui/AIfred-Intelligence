@@ -172,6 +172,7 @@ def personarium_modal() -> rx.Component:
                             size="1",
                             variant="ghost",
                             color_scheme="gray",
+                            custom_attrs={"data-modal-close": "true"},
                         ),
                         spacing="2",
                         align="center",

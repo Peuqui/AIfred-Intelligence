@@ -2357,3 +2357,37 @@ document.addEventListener('keydown', (e) => {
     boot();
   }
 })();
+
+// ============================================================
+// GLOBAL ESC-TO-CLOSE FOR CUSTOM MODALS
+// ============================================================
+// Native rx.dialog.root / rx.popover.root handle ESC themselves
+// (Radix default). The custom rx.box-backdrop modals scattered
+// across casus / personarium / vision_settings / audio_settings /
+// multipose / file_picker / modals.py do NOT — they're just divs.
+//
+// We tag each modal's close button (the X icon) with
+// data-modal-close="true" in Python. This listener catches ESC,
+// finds the *last* such visible button in the DOM (topmost in
+// z-stacking order if multiple modals overlap), and clicks it.
+// One handler covers all current and future custom modals — new
+// modals only need the data-attribute on their close button.
+document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    // querySelectorAll preserves DOM order; the last one is the
+    // most recently mounted, which for stacked modals is the
+    // topmost. We filter out hidden elements to ignore close
+    // buttons inside collapsed dialogs.
+    const buttons = document.querySelectorAll('[data-modal-close="true"]');
+    if (buttons.length === 0) return;
+    for (let i = buttons.length - 1; i >= 0; i--) {
+        const btn = buttons[i];
+        // offsetParent === null means the element (or an ancestor)
+        // has display:none — not actually visible to the user.
+        if (btn.offsetParent !== null) {
+            btn.click();
+            e.preventDefault();
+            return;
+        }
+    }
+});

@@ -197,12 +197,24 @@ def _tag_controls(event: rx.Var) -> rx.Component:
 def _event_row(event: rx.Var) -> rx.Component:
     """Eine Zeile in der Casus-Tabelle."""
     return rx.hstack(
-        # Zeit (kompakt: HH:MM:SS)
-        rx.text(
-            event["timestamp"].to(str).split("T")[1].to(str).split(".")[0],
-            size="1",
-            color="gray",
-            style={"font_family": "monospace", "min_width": "5em", "flex_shrink": "0"},
+        # Datum + Zeit gestapelt — im Casus ist genug Platz für beides,
+        # und ohne Datum sind chronologische Sprünge schwer einzuordnen.
+        rx.vstack(
+            rx.text(
+                event["date_display"],
+                size="1",
+                color="gray",
+                style={"font_family": "monospace", "line_height": "1.1"},
+            ),
+            rx.text(
+                event["time_display"],
+                size="1",
+                color="gray",
+                style={"font_family": "monospace", "line_height": "1.1"},
+            ),
+            spacing="0",
+            align="start",
+            style={"min_width": "6em", "flex_shrink": "0"},
         ),
         _thumb(event),
         _event_type_badge(event),
@@ -369,6 +381,7 @@ def casus_help_modal() -> rx.Component:
                             rx.icon("x", size=16),
                             on_click=AIState.close_casus_help,
                             size="1", variant="ghost", color_scheme="gray",
+                            custom_attrs={"data-modal-close": "true"},
                         ),
                         spacing="2", align="center", width="100%",
                     ),
@@ -673,6 +686,7 @@ def casus_modal() -> rx.Component:
                             size="1",
                             variant="ghost",
                             color_scheme="gray",
+                            custom_attrs={"data-modal-close": "true"},
                         ),
                         spacing="2",
                         align="center",
