@@ -859,6 +859,18 @@ def settings_accordion() -> rx.Component:
                         ),
                     ),
 
+                    # Model lifecycle help (when does what load — base/VLM/TTS/LLM)
+                    rx.tooltip(
+                        rx.icon(
+                            "lightbulb",
+                            size=14,
+                            color="#FFD700",
+                            cursor="pointer",
+                            on_click=AIState.open_model_lifecycle_help,
+                        ),
+                        content=t("model_lifecycle_help_tooltip"),
+                    ),
+
                     spacing="3",
                     align="center",
                 ),

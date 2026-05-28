@@ -41,6 +41,7 @@ class ImageMixin(rx.State, mixin=True):
     multi_agent_help_open: bool = False
     reasoning_thinking_help_open: bool = False
     research_help_open: bool = False
+    model_lifecycle_help_open: bool = False
 
     # Mobile Detection
     is_mobile: bool = False
@@ -273,6 +274,18 @@ class ImageMixin(rx.State, mixin=True):
     def close_reasoning_thinking_help(self) -> None:
         """Closes the reasoning/thinking explanation modal"""
         self.reasoning_thinking_help_open = False
+
+    # ------------------------------------------------------------------
+    # Model Lifecycle Help Modal Handlers
+    # ------------------------------------------------------------------
+
+    def open_model_lifecycle_help(self) -> None:
+        """Opens the model lifecycle (base/VLM/TTS/LLM) help modal."""
+        self.model_lifecycle_help_open = True
+
+    def close_model_lifecycle_help(self) -> None:
+        """Closes the model lifecycle help modal."""
+        self.model_lifecycle_help_open = False
 
     # ------------------------------------------------------------------
     # Image Crop Handlers

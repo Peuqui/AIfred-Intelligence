@@ -392,6 +392,147 @@ def research_help_modal() -> rx.Component:
     )
 
 
+def _lifecycle_section(
+    title_key: str,
+    size_key: str,
+    body_key: str,
+    triggers_key: str,
+) -> rx.Component:
+    """One model-family block in the lifecycle modal. Title (bold) +
+    size/provider one-liner (monospace, dim) + main body + triggers."""
+    return rx.vstack(
+        rx.text(t(title_key), font_weight="bold", font_size="14px", color="#FFD700"),
+        rx.text(
+            t(size_key),
+            font_size="11px",
+            color="#aaa",
+            style={"font_family": "monospace"},
+        ),
+        rx.text(t(body_key), font_size="12px", color="white", style={"line_height": "1.5"}),
+        rx.text(t(triggers_key), font_size="12px", color="#ccc", style={"line_height": "1.5"}),
+        spacing="1",
+        align="start",
+        width="100%",
+    )
+
+
+def model_lifecycle_help_modal() -> rx.Component:
+    """Fullscreen overlay explaining the model lifecycles
+    (InsightFace base, VLM, TTS, LLM). Crosscutting reference linked
+    from Vigilantia-Help, Audio-Settings-Help, and the GPU-Details
+    row in the settings panel.
+    """
+    return rx.cond(
+        AIState.model_lifecycle_help_open,
+        rx.box(
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.85)",
+                on_click=rx.stop_propagation,
+            ),
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("lightbulb", size=24, color="#FFD700"),
+                    rx.text(
+                        t("model_lifecycle_help_title"),
+                        color="white",
+                        font_weight="bold",
+                        font_size="18px",
+                    ),
+                    spacing="3",
+                    align="center",
+                ),
+                rx.text(
+                    t("model_lifecycle_help_intro"),
+                    color="#ccc",
+                    font_size="12px",
+                    style={"line_height": "1.5"},
+                ),
+                rx.divider(),
+                _lifecycle_section(
+                    "model_lifecycle_help_base_title",
+                    "model_lifecycle_help_base_size",
+                    "model_lifecycle_help_base_body",
+                    "model_lifecycle_help_base_triggers",
+                ),
+                rx.divider(),
+                _lifecycle_section(
+                    "model_lifecycle_help_vlm_title",
+                    "model_lifecycle_help_vlm_size",
+                    "model_lifecycle_help_vlm_body",
+                    "model_lifecycle_help_vlm_triggers",
+                ),
+                rx.divider(),
+                _lifecycle_section(
+                    "model_lifecycle_help_tts_title",
+                    "model_lifecycle_help_tts_size",
+                    "model_lifecycle_help_tts_body",
+                    "model_lifecycle_help_tts_triggers",
+                ),
+                rx.divider(),
+                _lifecycle_section(
+                    "model_lifecycle_help_llm_title",
+                    "model_lifecycle_help_llm_size",
+                    "model_lifecycle_help_llm_body",
+                    "model_lifecycle_help_llm_triggers",
+                ),
+                rx.divider(),
+                rx.vstack(
+                    rx.text(
+                        t("model_lifecycle_help_vram_title"),
+                        font_weight="bold",
+                        font_size="14px",
+                        color="#FFD700",
+                    ),
+                    rx.text(
+                        t("model_lifecycle_help_vram_body"),
+                        font_size="12px",
+                        color="white",
+                        style={"line_height": "1.5"},
+                    ),
+                    spacing="1",
+                    align="start",
+                    width="100%",
+                ),
+                rx.button(
+                    t("model_lifecycle_help_close"),
+                    on_click=AIState.close_model_lifecycle_help,
+                    variant="soft",
+                    color_scheme="gray",
+                    size="3",
+                    margin_top="10px",
+                    custom_attrs={"data-modal-close": "true"},
+                ),
+                spacing="3",
+                align="stretch",
+                padding="25px",
+                background_color="#1a1a1a",
+                border_radius="12px",
+                max_width="95vw",
+                width="720px",
+                max_height="90vh",
+                overflow_y="auto",
+                position="relative",
+                z_index="1001",
+                color="white",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="1000",
+            display="flex",
+            justify_content="center",
+            align_items="center",
+        ),
+    )
+
+
 def login_dialog() -> rx.Component:
     """
     Fullscreen Overlay für Login/Registrierung.
