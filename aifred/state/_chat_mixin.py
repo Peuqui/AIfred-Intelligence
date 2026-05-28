@@ -725,11 +725,9 @@ class ChatMixin(rx.State, mixin=True):
                 )
                 if _warn:
                     self.add_debug(_warn)
-                    from ..lib.logging_utils import log_message
                     log_message(_warn)
             except Exception as _e:  # noqa: BLE001
                 # Diagnostic only — never block a chat submit on a check failure
-                from ..lib.logging_utils import log_message
                 log_message(f"diagnose_uncalibrated_combo failed: {_e}")
 
         # ============================================================
