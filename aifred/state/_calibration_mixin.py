@@ -24,10 +24,16 @@ class CalibrationCell(TypedDict):
     over ``row["cells"]`` — without an explicit element type the inner
     iterator trips with ``ForeachVarError: Could not foreach over var
     of type Any``.
+
+    ``already_calibrated`` and ``calibration_failed`` are mutually
+    exclusive at render time: a failure entry is cleared as soon as
+    a successful re-calibration writes the cache (see
+    :func:`aifred.lib.model_vram_cache.add_llamacpp_calibration`).
     """
     key: str
     checked: bool
     already_calibrated: bool
+    calibration_failed: bool
 
 
 class CalibrationRow(TypedDict):
@@ -172,11 +178,12 @@ class CalibrationMixin(rx.State, mixin=True):
         from aifred.lib.tts_engines import installed_gpu_engines
         return ["", "Kein TTS", *[e.label_short for e in installed_gpu_engines()]]
 
-    @rx.var
+    @rx.var(cache=True, auto_deps=False, deps=["aifred_model_id", "calibration_matrix"])
     def calibration_matrix_rows(self) -> list[CalibrationRow]:
         """One entry per VLM choice (including "no VLM"). Each entry
         carries ``{label, cells}`` where ``cells`` is a list of dicts
-        ``{key, checked, already_calibrated}`` — one per TTS column.
+        ``{key, checked, already_calibrated, calibration_failed}`` — one
+        per TTS column.
 
         ``key`` is the matrix key in the form ``"<vlm_key>|<tts_key>"``
         (empty side for "none"). The UI binds each cell's checkbox to
@@ -185,10 +192,25 @@ class CalibrationMixin(rx.State, mixin=True):
 
         ``already_calibrated`` reflects the real cache state — the
         green dot appears only when ``gpu_model`` is set on the cache
-        entry, not just because a preliminary autoscan record exists.
-        """
+        entry. ``calibration_failed`` lights up red when a prior
+        calibration attempt left a ``failure_status`` record.
+
+        Caching is verbindlich (``cache=True``) — ``cache=False`` would
+        recompute on every Reflex tick and ship a state delta to the
+        browser per cycle, which React reconciles by re-mounting the
+        chat-bubble subtree and wipes the user's text selection (the
+        exact regression commit 531c84d fixed for debug_messages).
+
+        Auto-deps is off because Reflex can't introspect the
+        ``is_*_calibrated``/``is_calibration_failed`` helpers (cross-
+        module + ``load_cache`` file IO). Explicit deps: the model id
+        (changes when the user picks a different model) and the matrix
+        dict (changes on every cell click — also clears stale failure
+        flags via :meth:`set_calibration_matrix_cell`, so cache state
+        is re-read on each interaction)."""
         from aifred.lib.tts_engines import installed_gpu_engines
         from aifred.lib.model_vram_cache import (
+            is_calibration_failed,
             is_model_calibrated,
             is_tts_variant_calibrated,
             is_vlm_variant_calibrated,
@@ -207,6 +229,9 @@ class CalibrationMixin(rx.State, mixin=True):
             entry = cache.get(full_id)
             return bool(entry and entry.get("gpu_model"))
 
+        def _failed(variant_id: str) -> bool:
+            return bool(model_id) and is_calibration_failed(variant_id)
+
         rows: list[dict] = []
 
         # "Kein VLM" row — covers BASE + plain TTS variants.
@@ -215,6 +240,7 @@ class CalibrationMixin(rx.State, mixin=True):
             "key": "|",
             "checked": self.calibration_matrix.get("|", False),
             "already_calibrated": is_model_calibrated(model_id) if model_id else False,
+            "calibration_failed": _failed(model_id) if model_id else False,
         })
         for e in engines:
             done = bool(model_id) and is_tts_variant_calibrated(model_id, e.key)
@@ -222,6 +248,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 "key": f"|{e.key}",
                 "checked": self.calibration_matrix.get(f"|{e.key}", False),
                 "already_calibrated": done,
+                "calibration_failed": _failed(f"{model_id}-tts-{e.key}"),
             })
         rows.append({"label": "Kein VLM", "cells": no_vlm_cells})
 
@@ -238,6 +265,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 "key": f"{vlm_key}|",
                 "checked": self.calibration_matrix.get(f"{vlm_key}|", False),
                 "already_calibrated": vlm_only_done,
+                "calibration_failed": _failed(f"{model_id}-vlm-{vlm_key}"),
             })
             for e in engines:
                 combo_key = f"{vlm_key}|{e.key}"
@@ -245,6 +273,9 @@ class CalibrationMixin(rx.State, mixin=True):
                     "key": combo_key,
                     "checked": self.calibration_matrix.get(combo_key, False),
                     "already_calibrated": _combo_done(vlm_key, e.key),
+                    "calibration_failed": _failed(
+                        f"{model_id}-tts-{e.key}-vlm-{vlm_key}"
+                    ),
                 })
             rows.append({"label": vlm_label, "cells": cells})
 
@@ -293,7 +324,13 @@ class CalibrationMixin(rx.State, mixin=True):
         """Toggle one cell of the calibration matrix. ``payload`` is the
         Reflex-friendly ``[key, checked]`` list. ``key`` is in the
         ``"<vlm_key>|<tts_engine_key>"`` form — either side empty for
-        "none"."""
+        "none".
+
+        Side effect: ticking a cell that currently shows the "red dot"
+        clears the persistent failure record. Rationale: the user is
+        explicitly asking for another try (e.g. after a hardware change
+        or container update), so the failure flag must not block the
+        next run from re-attempting that variant."""
         if not payload or len(payload) < 2:
             return
         key = str(payload[0])
@@ -301,6 +338,41 @@ class CalibrationMixin(rx.State, mixin=True):
         cur = dict(self.calibration_matrix)
         cur[key] = checked
         self.calibration_matrix = cur
+
+        if checked:
+            self._clear_failure_for_matrix_key(key)
+
+    def _clear_failure_for_matrix_key(self, key: str) -> None:
+        """Translate a matrix cell key (``"<vlm>|<tts>"``) into the
+        corresponding model_vram_cache variant id and drop any stored
+        failure_status. No-op if the cache has no entry or no failure
+        for that id."""
+        from aifred.lib.model_vram_cache import load_cache, save_cache
+        from aifred.lib.config import VLM_CALIBRATION_CHOICES
+
+        model_id = getattr(self, "aifred_model_id", "") or ""
+        if not model_id or "|" not in key:
+            return
+        vlm_key, tts_key = key.split("|", 1)
+        valid_vlms = {c["key"] for c in VLM_CALIBRATION_CHOICES}
+        if vlm_key and vlm_key not in valid_vlms:
+            return
+        if vlm_key and tts_key:
+            variant_id = f"{model_id}-tts-{tts_key}-vlm-{vlm_key}"
+        elif vlm_key:
+            variant_id = f"{model_id}-vlm-{vlm_key}"
+        elif tts_key:
+            variant_id = f"{model_id}-tts-{tts_key}"
+        else:
+            variant_id = model_id
+
+        cache = load_cache()
+        entry = cache.get(variant_id)
+        if not entry or not entry.get("failure_status"):
+            return
+        entry.pop("failure_status", None)
+        cache[variant_id] = entry
+        save_cache(cache)
 
     @rx.var(cache=True, deps=["_agents_json_revision"])
     def calibration_ai_label(self) -> str:
@@ -1634,7 +1706,10 @@ class CalibrationMixin(rx.State, mixin=True):
                         # an oversized profile → V100 OOM, and the picker keeps
                         # showing a misleading "already calibrated" dot.
                         from ..lib.calibration import remove_llamaswap_tts_variant
-                        from ..lib.model_vram_cache import remove_model_from_cache
+                        from ..lib.model_vram_cache import (
+                            record_calibration_failure,
+                            remove_model_from_cache,
+                        )
                         for _suffix in (tts_backend, f"{tts_backend}-speed"):
                             if remove_llamaswap_tts_variant(
                                 LLAMASWAP_CONFIG_PATH, calibration_model_id, _suffix,
@@ -1646,6 +1721,15 @@ class CalibrationMixin(rx.State, mixin=True):
                             remove_model_from_cache(
                                 f"{calibration_model_id}-tts-{_suffix}"
                             )
+                        # Persist failure so the picker shows a red dot for
+                        # this TTS column on the "Kein VLM" row.
+                        record_calibration_failure(
+                            f"{calibration_model_id}-tts-{tts_backend}",
+                            "projection_failed",
+                            f"{tts_label} reserve plus base LLM exceeds available "
+                            f"VRAM — no GPU-only configuration verified at "
+                            f"native context",
+                        )
                     yield
 
             # Shared setup for Step 5b (VLM-only) and Step 5c (combos).
@@ -1828,7 +1912,10 @@ class CalibrationMixin(rx.State, mixin=True):
                             )
                     else:
                         self.add_debug(f"   ❌ {vlm_label} variant calibration failed")  # type: ignore[attr-defined]
-                        from ..lib.model_vram_cache import remove_model_from_cache
+                        from ..lib.model_vram_cache import (
+                            record_calibration_failure,
+                            remove_model_from_cache,
+                        )
                         if remove_llamaswap_vlm_variant(
                             LLAMASWAP_CONFIG_PATH, calibration_model_id, vlm_key,
                         ):
@@ -1837,6 +1924,12 @@ class CalibrationMixin(rx.State, mixin=True):
                             )
                         remove_model_from_cache(
                             f"{calibration_model_id}-vlm-{vlm_key}"
+                        )
+                        record_calibration_failure(
+                            f"{calibration_model_id}-vlm-{vlm_key}",
+                            "probe_unrecoverable",
+                            f"Probe sequence for {vlm_label} variant could not "
+                            f"find a fitting config",
                         )
                     yield
 
@@ -1936,6 +2029,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                     # "calibrated" dot for a combo we now
                                     # know is unusable.
                                     from ..lib.model_vram_cache import (
+                                        record_calibration_failure,
                                         remove_model_from_cache,
                                     )
                                     if remove_llamaswap_vlm_variant(
@@ -1949,15 +2043,21 @@ class CalibrationMixin(rx.State, mixin=True):
                                             f"{tts_label_c}+{vlm_label_c} "
                                             f"profile from llama-swap.yaml"
                                         )
-                                    if remove_model_from_cache(
+                                    remove_model_from_cache(
                                         f"{calibration_model_id}-tts-"
                                         f"{tts_backend_c}-vlm-{vlm_key_c}"
-                                    ):
-                                        self.add_debug(  # type: ignore[attr-defined]
-                                            f"   🧹 Removed stale "
-                                            f"{tts_label_c}+{vlm_label_c} "
-                                            f"entry from VRAM cache"
-                                        )
+                                    )
+                                    # Persist the failure so the picker
+                                    # shows a red dot ("tried, doesn't fit")
+                                    # next time the dialog opens.
+                                    record_calibration_failure(
+                                        f"{calibration_model_id}-tts-"
+                                        f"{tts_backend_c}-vlm-{vlm_key_c}",
+                                        "capacity_exceeded",
+                                        f"TTS {tts_reserve_c} + VLM {_vmb} "
+                                        f"= {_side_needed} MB exceeds "
+                                        f"{_side_gpu.name} ({_side_total} MB total)",
+                                    )
                                     yield
                                     continue
 
@@ -2043,7 +2143,10 @@ class CalibrationMixin(rx.State, mixin=True):
                             self.add_debug(  # type: ignore[attr-defined]
                                 f"   ❌ {tts_label_c}+{vlm_label_c} combo failed"
                             )
-                            from ..lib.model_vram_cache import remove_model_from_cache
+                            from ..lib.model_vram_cache import (
+                                record_calibration_failure,
+                                remove_model_from_cache,
+                            )
                             if remove_llamaswap_vlm_variant(
                                 LLAMASWAP_CONFIG_PATH,
                                 calibration_model_id,
@@ -2056,6 +2159,13 @@ class CalibrationMixin(rx.State, mixin=True):
                             remove_model_from_cache(
                                 f"{calibration_model_id}-tts-{tts_backend_c}"
                                 f"-vlm-{vlm_key_c}"
+                            )
+                            record_calibration_failure(
+                                f"{calibration_model_id}-tts-{tts_backend_c}"
+                                f"-vlm-{vlm_key_c}",
+                                "probe_unrecoverable",
+                                f"Probe sequence for {tts_label_c}+{vlm_label_c} "
+                                f"combo could not find a fitting config",
                             )
                         yield
 

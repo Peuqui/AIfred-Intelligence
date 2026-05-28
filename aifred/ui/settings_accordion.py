@@ -113,11 +113,12 @@ def _calibration_picker_button() -> rx.Component:
                                         color_scheme="orange",
                                         variant="soft",
                                     ),
-                                    # Fixed-width slot for the green
-                                    # "already calibrated" dot. Always
+                                    # Fixed-width slot for the status
+                                    # dot: green = already calibrated,
+                                    # red = tried but failed. Always
                                     # rendered so the checkbox column
                                     # alignment stays identical whether
-                                    # the dot is visible or not.
+                                    # a dot is visible or not.
                                     rx.box(
                                         rx.cond(
                                             cell["already_calibrated"].to(bool),
@@ -129,6 +130,18 @@ def _calibration_picker_button() -> rx.Component:
                                                     background="#22c55e",
                                                 ),
                                                 content=t("calibration_already_done"),
+                                            ),
+                                            rx.cond(
+                                                cell["calibration_failed"].to(bool),
+                                                rx.tooltip(
+                                                    rx.box(
+                                                        width="6px",
+                                                        height="6px",
+                                                        border_radius="50%",
+                                                        background="#ef4444",
+                                                    ),
+                                                    content=t("calibration_previously_failed"),
+                                                ),
                                             ),
                                         ),
                                         width="10px",

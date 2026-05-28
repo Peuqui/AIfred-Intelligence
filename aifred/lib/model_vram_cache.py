@@ -968,6 +968,9 @@ def add_llamacpp_calibration(
         cache[model_id]["gguf_path"] = gguf_path
         if gpu_uuids:
             cache[model_id]["gpu_uuids"] = list(gpu_uuids)
+        # A successful calibration overrides any earlier failure_status
+        # so the picker drops the red dot on the same cell.
+        cache[model_id].pop("failure_status", None)
 
         calibration: Dict[str, Any] = {
             "max_context": max_context,
@@ -1126,6 +1129,84 @@ def remove_model_from_cache(model_id: str) -> bool:
         del cache[model_id]
         logger.info(f"Removed stale cache entry: {model_id}")
         return save_cache(cache)
+
+
+# ============================================================================
+# CALIBRATION FAILURE TRACKING
+# ============================================================================
+#
+# A variant that has been *tried* and failed gets a ``failure_status`` entry.
+# The picker UI reads this to render a red dot — distinct from "never tried"
+# (no entry) and "successfully calibrated" (``gpu_model`` set). On the next
+# successful calibration for the same key, ``failure_status`` is cleared.
+
+_VALID_FAILURE_REASONS = {
+    "capacity_exceeded",     # TTS+VLM reserves > side-channel-GPU total (combo pre-check)
+    "model_too_big",         # TTS reserve so large that LLM doesn't fit alongside it
+    "projection_failed",     # fit-params says "no fit" even at minimum context
+    "probe_unrecoverable",   # All layer-shifts and ctx-shrinks exhausted without a passing probe
+}
+
+
+def record_calibration_failure(
+    model_id: str,
+    reason: str,
+    detail: str = "",
+) -> bool:
+    """Record a failed calibration attempt for ``model_id``.
+
+    The picker UI uses this to show a red dot ("tried, doesn't work")
+    instead of leaving the cell visually empty ("never tried"). The
+    next successful calibration for the same key clears the failure
+    automatically via ``add_llamacpp_calibration``.
+
+    Args:
+        model_id: Variant key (e.g. ``"<base>-tts-fishspeech"``,
+            ``"<base>-tts-fishspeech-vlm-qwen3vl8b"``).
+        reason: One of ``_VALID_FAILURE_REASONS``.
+        detail: Human-readable explanation, shown in the UI tooltip.
+
+    Returns:
+        True if the failure was stored, False on validation or I/O error.
+    """
+    if reason not in _VALID_FAILURE_REASONS:
+        logger.error(
+            f"record_calibration_failure: invalid reason {reason!r} "
+            f"(allowed: {sorted(_VALID_FAILURE_REASONS)})"
+        )
+        return False
+
+    with _cache_lock:
+        cache = load_cache()
+        entry = cache.get(model_id) or {"backend": "llamacpp"}
+        entry["failure_status"] = {
+            "reason": reason,
+            "detail": detail,
+            "measured_at": datetime.now().isoformat(),
+        }
+        # A failure overrides any prior "calibrated" state: drop the
+        # gpu_model + llamacpp_calibrations so is_*_calibrated() helpers
+        # return False and the picker shows the red dot, not green.
+        entry.pop("gpu_model", None)
+        entry.pop("llamacpp_calibrations", None)
+        cache[model_id] = entry
+        logger.info(f"Recorded calibration failure for {model_id}: {reason} — {detail}")
+        return save_cache(cache)
+
+
+def is_calibration_failed(model_id: str) -> bool:
+    """True if ``model_id`` has a recorded failure (no successful retry yet)."""
+    entry = load_cache().get(model_id)
+    return bool(entry and entry.get("failure_status"))
+
+
+def get_calibration_failure(model_id: str) -> Optional[Dict[str, Any]]:
+    """Return the raw ``failure_status`` dict or None if not failed."""
+    entry = load_cache().get(model_id)
+    if not entry:
+        return None
+    status = entry.get("failure_status")
+    return status if isinstance(status, dict) else None
 
 
 def get_model_native_context_from_cache(model_id: str) -> Optional[int]:
