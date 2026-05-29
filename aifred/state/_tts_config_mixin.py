@@ -708,22 +708,27 @@ class TTSConfigMixin(rx.State, mixin=True):
         from ..lib.agent_config import get_tts_voice_defaults_for_engine
 
         settings = load_settings() or {}
-        saved_agent_voices = settings.get("tts_agent_voices_per_engine", {}).get(engine_key)
+        saved_agent_voices = (
+            settings.get("tts_agent_voices_per_engine", {}).get(engine_key) or {}
+        )
+        defaults = get_tts_voice_defaults_for_engine(engine_key)
 
-        if saved_agent_voices:
-            # Restore from saved preferences
-            for agent in self.tts_agent_voices:
-                if agent in saved_agent_voices:
-                    self.tts_agent_voices[agent].update(saved_agent_voices[agent])
-            source = "Restored"
-        else:
-            # Use engine-specific defaults from agents.json (known agents
-            # get specific defaults, others keep their current voice)
-            defaults = get_tts_voice_defaults_for_engine(engine_key)
-            for agent in self.tts_agent_voices:
-                if agent in defaults:
-                    self.tts_agent_voices[agent].update(defaults[agent])
-            source = "Default"
+        # Layered restore: agents.json engine defaults as the BASE, the
+        # user's saved prefs ON TOP. An empty saved voice must NOT clobber
+        # the default — that left e.g. HAL voiceless after an engine switch
+        # (saved hal.voice == ""), so the dropdown showed nothing and the
+        # re-synth fell back to AIfred's voice. Speed/pitch/language from
+        # saved prefs still apply even when the voice falls back to default.
+        for agent in self.tts_agent_voices:
+            if agent in defaults:
+                self.tts_agent_voices[agent].update(defaults[agent])
+            saved = saved_agent_voices.get(agent)
+            if saved:
+                merged = dict(saved)
+                if not str(merged.get("voice", "") or "").strip():
+                    merged.pop("voice", None)  # keep the default voice
+                self.tts_agent_voices[agent].update(merged)
+        source = "Restored" if saved_agent_voices else "Default"
 
         # Log actual agent voices
         voice_list = ", ".join(

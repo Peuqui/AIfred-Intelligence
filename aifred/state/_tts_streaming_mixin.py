@@ -12,7 +12,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import List
+from typing import Any, List
 
 import reflex as rx
 
@@ -147,6 +147,59 @@ class TTSStreamingMixin(rx.State, mixin=True):
             return override
         return self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
 
+    def _resolve_agent_tts(self, agent: str) -> tuple[str, float, float]:
+        """SSOT for per-agent (voice, speed, pitch) at the active engine.
+
+        A bubble for a named agent must NEVER borrow another agent's
+        voice. The old inline logic fell back straight to the global
+        ``tts_voice`` when an agent had no voice for the current engine —
+        which produced HAL bubbles spoken in AIfred's voice after an
+        engine switch (HAL's xtts voice was saved empty, AIfred's wasn't).
+
+        Voice precedence:
+          1. User's per-agent voice for this engine
+             (``tts_agent_voices[agent]["voice"]``), if set.
+          2. The agent's engine default from agents.json — so e.g. HAL
+             resolves to ``★ HAL9000`` even when the saved prefs left its
+             voice empty.
+          3. The global ``tts_voice`` as last resort — only for agents
+             with no engine default at all (custom agents lacking a
+             ``tts_voices`` entry for this engine).
+
+        Speed/pitch: per-agent override (``"1.25x"`` → 1.25), else the
+        agent's engine default, else neutral 1.0.
+        """
+        from ..lib.agent_config import get_tts_voice_defaults_for_engine
+
+        settings = self.tts_agent_voices.get(agent, {})  # type: ignore[attr-defined]
+        eng_default = get_tts_voice_defaults_for_engine(
+            self.tts_engine  # type: ignore[attr-defined]
+        ).get(agent, {})
+
+        def _as_float(raw: Any, fallback: float) -> float:
+            if raw in (None, ""):
+                return fallback
+            try:
+                return float(str(raw).replace("x", ""))
+            except (ValueError, TypeError):
+                return fallback
+
+        # voice: per-agent → agent's engine default → global (last resort)
+        voice = (
+            str(settings.get("voice", "") or "")
+            or str(eng_default.get("voice", "") or "")
+            or self.tts_voice  # type: ignore[attr-defined]
+        )
+        # pitch: per-agent → engine default → global tts_pitch → neutral
+        global_pitch = _as_float(self.tts_pitch, 1.0)  # type: ignore[attr-defined]
+        pitch = _as_float(
+            settings.get("pitch"),
+            _as_float(eng_default.get("pitch"), global_pitch),
+        )
+        # speed: per-agent → engine default → neutral (no global speed)
+        speed = _as_float(settings.get("speed"), _as_float(eng_default.get("speed"), 1.0))
+        return voice, speed, pitch
+
     # ── TTS Callback ──────────────────────────────────────────────────
 
     def handle_tts_callback(self, result: str):
@@ -192,32 +245,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             self.add_debug(f"🔊 TTS: Generating audio ({len(clean_text)} chars)...")  # type: ignore[attr-defined]
 
-            # Determine voice, pitch, and speed based on agent settings (generic for all engines)
-            voice_choice = self.tts_voice  # type: ignore[attr-defined]
-            pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0  # type: ignore[attr-defined]
-            speed_value = 1.0  # Default speed
-
-            # Use per-agent settings if configured (works with all TTS engines)
-            if agent in self.tts_agent_voices:  # type: ignore[attr-defined]
-                agent_settings = self.tts_agent_voices[agent]  # type: ignore[attr-defined]
-                agent_voice = agent_settings.get("voice", "")
-                agent_pitch = agent_settings.get("pitch", "")
-                agent_speed = agent_settings.get("speed", "")
-
-                if agent_voice:
-                    voice_choice = agent_voice
-                    self.add_debug(f"🎭 Using {agent}'s voice: {voice_choice}")  # type: ignore[attr-defined]
-                if agent_pitch:
-                    try:
-                        pitch_value = float(agent_pitch)
-                    except ValueError:
-                        pass
-                if agent_speed:
-                    try:
-                        # Parse speed like "1.1x" -> 1.1
-                        speed_value = float(agent_speed.replace("x", ""))
-                    except ValueError:
-                        pass
+            # Voice/speed/pitch via the SSOT resolver (per-agent → agent's
+            # engine default → global), so a named agent never borrows
+            # another agent's voice.
+            voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
+            self.add_debug(f"🎭 {agent} voice: {voice_choice}")  # type: ignore[attr-defined]
 
             # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
             # Per-agent speed is applied at generation time (different from browser playback rate)
@@ -332,32 +364,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
             _agent_name = _agent_cfg.display_name if _agent_cfg else agent.capitalize()
             self.add_debug(f"🔊 TTS Queue: Generating audio for {_agent_name} ({len(clean_text)} chars)...")  # type: ignore[attr-defined]
 
-            # Determine voice, pitch, and speed based on agent settings.
-            # Fallback: AIfred's voice for the current engine (always configured).
-            aifred_settings = self.tts_agent_voices.get("aifred", {})  # type: ignore[attr-defined]
-            voice_choice = aifred_settings.get("voice", "") or self.tts_voice  # type: ignore[attr-defined]
-            pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0  # type: ignore[attr-defined]
-            speed_value = 1.0
-
-            # Use per-agent settings if configured
-            if agent in self.tts_agent_voices:  # type: ignore[attr-defined]
-                agent_settings = self.tts_agent_voices[agent]  # type: ignore[attr-defined]
-                agent_voice = agent_settings.get("voice", "")
-                agent_pitch = agent_settings.get("pitch", "")
-                agent_speed = agent_settings.get("speed", "")
-
-                if agent_voice:
-                    voice_choice = agent_voice
-                if agent_pitch:
-                    try:
-                        pitch_value = float(agent_pitch)
-                    except ValueError:
-                        pass
-                if agent_speed:
-                    try:
-                        speed_value = float(agent_speed.replace("x", ""))
-                    except ValueError:
-                        pass
+            # Voice/speed/pitch via the SSOT resolver (per-agent → agent's
+            # engine default → global).
+            voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
 
             # Set agent name for audio filename prefixing
             set_tts_agent(agent)
@@ -830,31 +839,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 self._drain_tts_order_buffer(session_id)
                 return
 
-            # Read voice settings (snapshot for this task)
-            voice_choice = self.tts_voice  # type: ignore[attr-defined]
-            pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0  # type: ignore[attr-defined]
-            speed_value = 1.0
+            # Voice/speed/pitch via the SSOT resolver (per-agent → agent's
+            # engine default → global).
+            voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
             tts_engine = self.tts_engine  # type: ignore[attr-defined]
-            tts_agent_voices = dict(self.tts_agent_voices)  # type: ignore[attr-defined]  # Copy to avoid issues
-
-            if agent in tts_agent_voices:
-                agent_settings = tts_agent_voices[agent]
-                agent_voice = agent_settings.get("voice", "")
-                agent_pitch = agent_settings.get("pitch", "")
-                agent_speed = agent_settings.get("speed", "")
-
-                if agent_voice:
-                    voice_choice = agent_voice
-                if agent_pitch:
-                    try:
-                        pitch_value = float(agent_pitch)
-                    except ValueError:
-                        pass
-                if agent_speed:
-                    try:
-                        speed_value = float(agent_speed.replace("x", ""))
-                    except ValueError:
-                        pass
 
             # Generate TTS audio (this is the slow part - runs in parallel)
             tts_language = self._resolve_tts_language(agent)
@@ -1005,25 +993,12 @@ class TTSStreamingMixin(rx.State, mixin=True):
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} text too short after cleanup")
             return False
 
-        # Get agent voice settings
-        voice_choice = self.tts_voice  # type: ignore[attr-defined]
-        pitch_value = float(self.tts_pitch) if self.tts_pitch else 1.0  # type: ignore[attr-defined]
-        speed_value = 1.0
-
-        if agent in self.tts_agent_voices:  # type: ignore[attr-defined]
-            agent_settings = self.tts_agent_voices[agent]  # type: ignore[attr-defined]
-            if agent_settings.get("voice"):
-                voice_choice = agent_settings["voice"]
-            if agent_settings.get("pitch"):
-                try:
-                    pitch_value = float(agent_settings["pitch"])
-                except ValueError:
-                    pass
-            if agent_settings.get("speed"):
-                try:
-                    speed_value = float(agent_settings["speed"].replace("x", ""))
-                except ValueError:
-                    pass
+        # Voice/speed/pitch via the SSOT resolver. This is the bug the
+        # whole resolver exists for: re-synthing a HAL bubble after an
+        # engine switch used to grab the global (AIfred) voice because
+        # HAL's saved xtts voice was empty. Now it resolves HAL's engine
+        # default (★ HAL9000) instead.
+        voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
 
         # Generate TTS (complete bubble at once for best quality)
         tts_language = self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
