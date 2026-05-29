@@ -7,8 +7,9 @@ unabhängig vom aktuell aktiven Chat-LLM — kein Model-Swap, kein
 
 Ollama-Spezifika:
 
-* ``num_ctx=4096`` statt 128k — VLM-Context ist klein (1-5 Bilder + kurzer
-  Prompt + Beschreibung), das spart ~70% VRAM. Konfigurierbar.
+* ``num_ctx`` aus ``VLM_NUM_CTX`` (config.py, derzeit 8192) statt 128k —
+  VLM-Context ist klein (1-5 Bilder + kurzer Prompt + Beschreibung), das
+  spart viel VRAM. Konfigurierbar.
 * ``keep_alive="30m"`` — Modell bleibt 30 min nach letztem Call im VRAM.
   Bei seltenen Triggers (Klingel) ist das pragmatisch — Re-Load dauert
   nur einmal pro halbe Stunde, nicht pro Call.
