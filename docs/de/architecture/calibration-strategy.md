@@ -14,10 +14,11 @@ bei reduziertem Kontext.
 ## Hardware-Annahmen
 
 - Mehrere GPUs verschiedener Speed-Klassen (Compute Capability + VRAM-Größe)
-- TTS-Container (XTTS, MOSS) belegen einen Teil einer GPU, NICHT eine ganze
-  GPU. Aktuelle Pinning auf zweitschnellster GPU der schnellsten Klasse
-  (z.B. RTX 8000 #2). Konfigurierbar via `get_tts_gpu_id()`.
-- Sobald V100 verfügbar: TTS auf V100 → LLM bekommt RTX 8000 #2 zurück.
+- TTS-Container (XTTS, MOSS, …) und das Vigilantia-VLM (Ollama) belegen
+  jeweils einen Teil einer GPU, NICHT eine ganze GPU. Sie laufen auf dem
+  **Side-Channel-Tier** — der Compute-Klasse unterhalb der schnellsten,
+  die fürs Haupt-LLM reserviert bleibt. Details siehe Abschnitt
+  [Side-Channel-Platzierung](#side-channel-platzierung-vlm--tts).
 
 ## Sortierung (generisch)
 
@@ -29,6 +30,79 @@ GPUs werden sortiert nach:
 3. **CUDA-ID** (asc) als finaler Tiebreaker
 
 Implementiert in [`_gpu_ranking()`](../../aifred/lib/process_utils.py).
+
+## Side-Channel-Platzierung (VLM + TTS)
+
+> SSOT: [`aifred/lib/vision_gpu_select.py`](../../aifred/lib/vision_gpu_select.py).
+> Hardware-agnostisch — es wird **nichts** auf „immer V100" hartkodiert.
+
+Die schnellste Compute-Klasse bleibt komplett frei für die Chat-LLMs
+(Haupt + Automatik via llama-swap). Die Side-Channels — das
+Vigilantia-VLM (Ollama) und die TTS-Container — laufen auf dem
+**Side-Channel-Tier**: der Compute-Klasse direkt darunter.
+
+### Tier-Bildung (`_side_channel_tier()`)
+
+1. **Kandidaten** = alle Karten **unterhalb** der schnellsten
+   Compute-Klasse (Top-Tier bleibt LLM-only).
+2. **Homogenes Setup** (alle Karten gleiche Klasse, z.B. nur V100s):
+   die schnellste Karte bleibt fürs LLM, alle übrigen bilden den Tier.
+3. **Compute-Floor (weich):** Kandidaten mit Compute ≥ 7.0 (Volta+)
+   werden bevorzugt. Eine P40 (Pascal, 6.1) wird nur dann
+   Side-Channel-Host, wenn es gar keine schnellere Karte gibt
+   (letzter Notnagel statt „keine Vision"). Konstante:
+   `SIDE_CHANNEL_MIN_COMPUTE = (7, 0)`.
+
+### Aufteilung TTS vs. VLM
+
+- **`pick_tts_gpu()`** → erste Karte des Tiers.
+- **`pick_vlm_gpu()`** → zweite Karte des Tiers; gibt es nur eine,
+  teilt sich das VLM sie mit dem TTS (wie bisher).
+- **`pick_face_gpu()`** → folgt dem VLM (InsightFace ist mit ~280 MB
+  winzig und gehört thematisch zur Vision).
+
+Sobald der Tier ≥ 2 Karten hat, gibt es **keine VRAM-Konkurrenz** mehr
+zwischen TTS-Container und VLM auf einer Karte. Vorher konnten z.B.
+Fish-TTS und Vigilantia-8B nicht koexistieren (Combo-Capacity-Check
+verwarf das Profil). Bei einer einzelnen Tier-Karte greift dieser
+Check weiterhin: passen TTS-Reserve + VLM-Reserve nicht zusammen drauf,
+fällt genau diese Combo raus (Rest läuft).
+
+### Beispiele
+
+| Setup | LLM-Tier | TTS | VLM |
+|---|---|---|---|
+| 2× RTX 8000 + 1× V100 + 2× P40 (heute) | RTX 8000 ×2 | V100 | V100 (geteilt, P40 per Floor raus) |
+| 2× RTX 8000 + 2× V100 + … | RTX 8000 ×2 | V100 #1 | V100 #2 |
+| 3× RTX 8000 | RTX 8000 #1 | RTX 8000 #2 | RTX 8000 #3 |
+| nur P40s | P40 #1 | P40 #2 | P40 #3 (weicher Fallback) |
+| 1× RTX 8000 + 1× P40 | RTX 8000 | P40 | P40 (Notnagel) |
+
+### P40-Floor: Messdaten
+
+Gemessen (qwen3-vl Q8_0, vlm_stress_image, warm, 100 Decode-Tokens):
+
+| GPU | Prefill 4B | Prefill 8B | Decode 4B | Decode 8B |
+|---|---|---|---|---|
+| V100 | 0,94 s | 1,92 s | 96,6 tok/s | 68,8 tok/s |
+| RTX 8000 | 1,03 s | 2,34 s | 93,0 tok/s | 59,1 tok/s |
+| **P40** | **4,07 s** | **6,89 s** | **45,7 tok/s** | **29,0 tok/s** |
+
+Eine komplette 8B-Analyse (Prefill + Decode, Modell resident) kostet auf
+der V100 **~3,4 s**, auf der P40 **~10,3 s** (3×). Der Prefill — das
+Vision-Encoding, dominanter Anteil bei VLM — ist auf der P40 3,6–4,3×
+langsamer. Daher der Floor: Pascal-Karten sind als Vision-Host die
+falsche Wahl, solange etwas Schnelleres da ist.
+
+### Deployment-Hinweis (Ollama)
+
+Die Kalibration rechnet das VLM auf der vom Picker gewählten Karte ein.
+Damit Ollama das Modell zur Laufzeit auch dort lädt, muss der
+systemd-Drop-in (`CUDA_VISIBLE_DEVICES`, siehe `ollama_override_text()`)
+auf diese Karte gepinnt sein — Ollama wählt sonst greedy first-fit.
+Auf Single-Tier-Karten (heute) ist das identisch zum bisherigen Pin,
+also kein Handlungsbedarf; relevant erst, wenn TTS und VLM auf zwei
+verschiedene Karten aufgeteilt werden.
 
 ## User-Präferenzen (verbindlich)
 
@@ -273,6 +347,9 @@ handhaben als der deterministische Algorithmus.
   - `fill_fastest_first()` — greedy fill nach Speed-Klasse
 - Hardware: [`aifred/lib/process_utils.py`](../../aifred/lib/process_utils.py)
   - `_gpu_ranking()` — Compute-Capability-Sortierung
-  - `get_tts_gpu_id()` — TTS-GPU-Pinning
+  - `get_tts_gpu_uuid()` — TTS-GPU-Pinning (UUID, via `pick_tts_gpu`)
+- Side-Channel-Platzierung: [`aifred/lib/vision_gpu_select.py`](../../aifred/lib/vision_gpu_select.py)
+  - `_side_channel_tier()` — Tier-Bildung + Compute-Floor
+  - `pick_tts_gpu()` / `pick_vlm_gpu()` / `pick_face_gpu()` — Karten-Wahl
 - KI-Variante: [`aifred/lib/calibration/ai_agent.py`](../../aifred/lib/calibration/ai_agent.py)
 - Prompt: [`prompts/de/calibration/system.txt`](../../prompts/de/calibration/system.txt)

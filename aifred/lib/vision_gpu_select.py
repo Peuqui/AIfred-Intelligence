@@ -1,24 +1,39 @@
-"""Hardware-agnostische GPU-Auswahl für Vision-Workloads.
+"""Hardware-agnostische GPU-Auswahl für Vision- und TTS-Workloads.
 
-Designentscheidung: Die VLM-Pipeline läuft auf der GPU der **zweit-
-höchsten Compute-Klasse**, nicht auf der schnellsten. Damit bleibt der
-Top-Compute-Tier komplett frei für den Haupt-Chat-LLM (typisch via
-llama-swap), und das VLM bekommt einen eigenen, klar abgegrenzten Tier.
-Bei einem 2× RTX 8000 (cc 7.5) + 1× V100 (cc 7.0) + 2× P40 (cc 6.1)
-Setup heißt das: VLM landet auf der V100.
+Designentscheidung: Die schnellste Compute-Klasse bleibt komplett frei
+für den Haupt-Chat-LLM (typisch via llama-swap). Die Side-Channels
+(VLM + TTS) leben auf dem **Side-Channel-Tier** — der Klasse darunter.
+
+**TTS und VLM werden getrennt platziert**, sobald der Tier mehr als
+eine Karte hat: TTS auf die erste, VLM auf die zweite. Damit gibt es
+keine VRAM-Konkurrenz mehr zwischen TTS-Container und VLM auf einer
+Karte (vorher konnte z.B. Fish-TTS + Vigilantia-8B nicht koexistieren).
+Hat der Tier nur eine Karte, teilen sich beide sie wie bisher.
+
+**Compute-Floor (weich):** Side-Channels bevorzugen Karten mit Compute
+≥ 7.0 (Volta+). Eine P40 (Pascal, cc 6.1) ist beim VLM-Prefill 3–4×
+langsamer — sie wird als Side-Channel-Host nur dann gewählt, wenn es
+gar keine schnellere Karte gibt (letzter Notnagel statt „keine Vision").
+
+Side-Channel-Tier-Kaskade:
+
+1. **Bevorzugt:** Karten der **zweithöchsten** Compute-Klasse, gefiltert
+   auf Compute ≥ 7.0.
+2. **Wenn alle GPUs in derselben Klasse sind:** alle außer der
+   schnellsten (die bleibt fürs LLM) — z.B. 3× RTX 8000 ⇒ TTS auf die
+   zweite, VLM auf die dritte.
+3. **Wenn nur unter-7.0-Karten als Tier übrig sind:** weicher Fallback
+   auf diese (P40 als Notnagel).
+4. **Wenn nur eine GPU im System:** diese eine GPU.
+5. **Kein NVIDIA-Stack verfügbar (pynvml fehlt):** ``RuntimeError`` —
+   Caller (Plugin-Settings) fällt dann auf CPU-Provider zurück.
+
+Bei 2× RTX 8000 (cc 7.5) + 1× V100 (cc 7.0) + 2× P40 (cc 6.1): TTS und
+VLM beide auf die V100 (nur eine im Tier, P40 per Floor raus). Käme eine
+zweite V100 dazu: TTS auf V100 #1, VLM auf V100 #2.
 
 Hardware-agnostisch: Welche Karte das konkret ist, hängt von der
 aktuellen Bestückung ab. Es wird **nicht** „immer V100" hartkodiert.
-
-Fallback-Kaskade:
-
-1. **Bevorzugt:** erste GPU der **zweithöchsten** Compute-Klasse.
-2. **Wenn alle GPUs in derselben Klasse sind:** die zweite GPU dieser
-   Klasse (z.B. 4× RTX 8000 ⇒ zweite RTX 8000) — Haupt-Chat-LLM
-   priorisiert die erste.
-3. **Wenn nur eine GPU im System:** diese eine GPU.
-4. **Kein NVIDIA-Stack verfügbar (pynvml fehlt):** ``RuntimeError`` —
-   Caller (Plugin-Settings) fällt dann auf CPU-Provider zurück.
 
 GPU-Indexierung ist **PCI_BUS_ID-stabil** (entspricht ``nvidia-smi``-
 Reihenfolge), damit Werte zwischen Reboots und Subprozessen
@@ -35,6 +50,13 @@ from threading import Lock
 from typing import Sequence
 
 logger = logging.getLogger(__name__)
+
+# Compute-Floor für Side-Channel-Hosts (VLM + TTS). Volta (7.0) ist die
+# Untergrenze — Pascal (P40, 6.1) ist beim VLM-Prefill 3–4× langsamer
+# (gemessen: 8B-Analyse ~10 s auf P40 vs ~3,4 s auf V100). Weicher Floor:
+# greift nur, solange eine Karte ≥ 7.0 existiert; sonst Fallback nach
+# unten, damit P40-only-Hosts nicht ganz ohne Vision dastehen.
+SIDE_CHANNEL_MIN_COMPUTE: tuple[int, int] = (7, 0)
 
 
 @dataclass(frozen=True)
@@ -105,37 +127,75 @@ def _rank(gpus: Sequence[GpuInfo]) -> list[GpuInfo]:
     )
 
 
-def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
-    """Choose a GPU index for the VLM (Ollama) according to the design
-    rule: **first GPU of the second-highest compute class**.
+def _side_channel_tier(gpus: Sequence[GpuInfo]) -> list[GpuInfo]:
+    """Ordered list of side-channel host GPUs (best first).
 
-    Returns the PCI_BUS_ID index of the chosen GPU.
+    The chat LLM owns the fastest compute class; side-channels (VLM +
+    TTS) take the class below it. ``pick_tts_gpu`` claims the first card
+    of this tier, ``pick_vlm_gpu`` the second (or the first if the tier
+    has only one card). The soft compute floor keeps Pascal cards out
+    unless they are the only option. See module docstring for the full
+    cascade.
 
-    Raises ``RuntimeError`` if no GPU is available.
+    Assumes a non-empty ``gpus``.
+    """
+    ranked = _rank(gpus)
+    if len(ranked) == 1:
+        return [ranked[0]]
+    top_cc = ranked[0].compute_capability
+    # Cards below the top compute class — keep the top tier free for the
+    # chat LLM. If every card shares the top class, reserve only the
+    # fastest (ranked[0]) for the LLM and let the rest host side-channels.
+    candidates = [g for g in ranked if g.compute_capability != top_cc]
+    if not candidates:
+        candidates = list(ranked[1:])
+    # Soft compute floor: prefer Volta+ for vision/TTS. Only fall back to
+    # below-floor cards (P40 etc.) if nothing at/above the floor exists.
+    floored = [
+        g for g in candidates
+        if g.compute_capability >= SIDE_CHANNEL_MIN_COMPUTE
+    ]
+    if floored:
+        candidates = floored
+    return candidates
+
+
+def pick_tts_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
+    """Choose a GPU index for TTS containers: **first card of the
+    side-channel tier**.
+
+    Returns the PCI_BUS_ID index. Raises ``RuntimeError`` if no GPU is
+    available.
     """
     if gpus is None:
         gpus = list_gpus()
     if not gpus:
         raise RuntimeError("no CUDA GPU available")
-    ranked = _rank(gpus)
-    if len(ranked) == 1:
-        return ranked[0].index
-    top_cc = ranked[0].compute_capability
-    second_class = [g for g in ranked if g.compute_capability != top_cc]
-    if second_class:
-        # First GPU of the second-highest compute class — keeps the entire
-        # top tier free for the chat LLM. Example: 2× RTX 8000 + V100 → V100.
-        return second_class[0].index
-    # All GPUs share the top compute class — fall back to "second within
-    # the top tier" so the first stays available for the chat LLM.
-    return ranked[1].index
+    return _side_channel_tier(gpus)[0].index
+
+
+def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
+    """Choose a GPU index for the VLM (Ollama): **second card of the
+    side-channel tier**, falling back to the first card when the tier
+    has only one card (then VLM co-locates with TTS, as before).
+
+    Returns the PCI_BUS_ID index. Raises ``RuntimeError`` if no GPU is
+    available.
+    """
+    if gpus is None:
+        gpus = list_gpus()
+    if not gpus:
+        raise RuntimeError("no CUDA GPU available")
+    tier = _side_channel_tier(gpus)
+    return tier[1].index if len(tier) > 1 else tier[0].index
 
 
 def pick_face_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
     """Choose a GPU index for InsightFace (face_detect+recognize).
 
-    Same strategy as VLM — co-locating with the VLM is fine because
-    InsightFace's footprint is tiny (~200 MB vs the VLM's ~17 GB).
+    Co-locates with the VLM — InsightFace's footprint is tiny (~280 MB
+    vs the VLM's multi-GB) and both are vision workloads, so sharing the
+    VLM's card keeps the TTS card uncontended.
     """
     return pick_vlm_gpu(gpus)
 
