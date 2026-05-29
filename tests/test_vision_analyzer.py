@@ -15,6 +15,7 @@ import pytest
 from aifred.lib.frame_sources import Frame
 from aifred.lib.vision_analyzer import (
     DEFAULT_MODEL,
+    DEFAULT_NUM_CTX,
     VisionAnalysis,
     analyze_frame,
     analyze_sequence,
@@ -68,7 +69,7 @@ class TestAnalyzeFrame:
         assert captured_kwargs["prompt"] == "What is in this image?"
         assert captured_kwargs["stream"] is False
         assert captured_kwargs["keep_alive"] == "30m"
-        assert captured_kwargs["options"]["num_ctx"] == 4096
+        assert captured_kwargs["options"]["num_ctx"] == DEFAULT_NUM_CTX
         # Image is base64-encoded
         imgs = captured_kwargs["images"]
         assert len(imgs) == 1

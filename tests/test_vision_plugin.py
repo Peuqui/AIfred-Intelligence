@@ -65,7 +65,7 @@ class FakeSource:
     def is_available(self) -> bool:
         return True
 
-    async def snapshot(self) -> Frame:
+    async def snapshot(self, *, width: int = 0, height: int = 0) -> Frame:
         b = self._frames[self._idx % len(self._frames)]
         self._idx += 1
         return Frame(
@@ -77,7 +77,9 @@ class FakeSource:
             height=240,
         )
 
-    async def stream(self, fps: float = 1.0) -> AsyncIterator[Frame]:
+    async def stream(
+        self, fps: float = 1.0, *, width: int = 0, height: int = 0
+    ) -> AsyncIterator[Frame]:
         for _ in range(len(self._frames)):
             yield await self.snapshot()
             await asyncio.sleep(0.01)
@@ -514,7 +516,9 @@ class TestVisionMode:
         register(FakeSource("cam/test-live"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
         _exec_tool(tools["vision_analyze"], source_id="cam/test-live")
-        assert captured["keep_alive"] == "-1"
+        # live mode → int -1 (Ollama parses strings as duration; "-1"
+        # would fail, so the keep-alive override must be a real int)
+        assert captured["keep_alive"] == -1
 
     def test_mode_on_demand_uses_settings_keep_alive(
         self, patched_plugin, ctx, monkeypatch

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import pytest
@@ -92,7 +91,9 @@ class TestPrewarm:
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
         assert run(vpw.prewarm_vlm()) is True
-        assert captured["keep_alive"] == "-1"
+        # live mode → int -1, not the string "-1" (Ollama parses strings
+        # as a duration and would reject "-1")
+        assert captured["keep_alive"] == -1
 
     def test_returns_false_when_no_model_configured(self, patched_settings):
         patched_settings["settings"] = {"vision_mode": "on-demand", "vlm": {}}

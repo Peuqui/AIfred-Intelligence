@@ -51,10 +51,12 @@ class FakeSource:
     def is_available(self) -> bool:
         return True
 
-    async def snapshot(self) -> Frame:
+    async def snapshot(self, *, width: int = 0, height: int = 0) -> Frame:
         return self._make_frame(0)
 
-    async def stream(self, fps: float = 1.0) -> AsyncIterator[Frame]:
+    async def stream(
+        self, fps: float = 1.0, *, width: int = 0, height: int = 0
+    ) -> AsyncIterator[Frame]:
         for idx in range(len(self._frames)):
             yield self._make_frame(idx)
             if self._delay > 0:
@@ -131,17 +133,27 @@ class TestStartStop:
         with pytest.raises(ValueError, match="unknown source"):
             run(w.start("cam/does-not-exist", WatchConfig()))
 
-    def test_start_unavailable_source_raises(
+    def test_start_does_not_probe_availability(
         self, store: VisionStore, frames_dir: Path
     ):
+        """start() deliberately does NOT call is_available() — probing
+        opens a cv2.VideoCapture that races a running live-preview stream
+        for the same V4L2 device. A source reporting unavailable still
+        starts; a real open-failure is handled cleanly in the stream
+        loop instead (see _watch_loop)."""
         class Down(FakeSource):
             def is_available(self) -> bool:
                 return False
 
-        register(Down("cam/test-down", [_blank_jpeg()]))
+        register(Down("cam/test-down", [_blank_jpeg()] * 5, delay_sec=0.01))
         w = VisionWatcher(store, frames_dir=frames_dir)
-        with pytest.raises(RuntimeError, match="not available"):
-            run(w.start("cam/test-down", WatchConfig()))
+
+        async def go():
+            status = await w.start("cam/test-down", WatchConfig(fps=10.0))
+            assert status.running is True  # no RuntimeError despite "down"
+            await w.stop("cam/test-down")
+
+        run(go())
 
     def test_start_then_stop_clean(self, store: VisionStore, frames_dir: Path):
         register(FakeSource("cam/test-1", [_blank_jpeg()] * 5, delay_sec=0.01))
