@@ -253,27 +253,23 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
 def _detect_tts_gpu_uuid() -> str:
     """Pick the UUID of the GPU that TTS containers should pin to.
 
-    **Design rule (SSOT with VLM):** The GPU of the **second-highest
-    compute class** — same strategy as ``pick_vlm_gpu``. Co-locates the
-    side-channel workloads (TTS containers and Vigilantia VLM) on one
-    GPU and keeps the entire top-compute tier free for the main chat
-    LLM via llama-swap. Hardware-agnostic: on a 2× RTX 8000 + V100 +
-    2× P40 layout this picks the V100, on a 2× RTX 4090 + V100 layout
-    it also picks the V100, etc.
+    **Design rule:** the **first card of the side-channel tier** (the
+    compute class below the chat LLM's top tier, Volta+ preferred). When
+    that tier has a second card, the VLM goes there instead
+    (``pick_vlm_gpu``) so TTS and VLM no longer contend for one GPU.
+    With a single side-channel card both co-locate, as before.
 
-    Historical context (kept for the record): an earlier rule picked
-    by memory bandwidth (HBM > GDDR), which on the Mini setup happened
-    to also land on the V100 because HBM2 beats GDDR6 there. With the
-    new compute-class rule the result is identical on this hardware
-    but the code path is unified with ``pick_vlm_gpu``.
+    Hardware-agnostic: on 2× RTX 8000 + V100 + 2× P40 this picks the
+    V100 (and so does the VLM — one card in the tier). Add a second
+    V100 and TTS keeps V100 #1 while the VLM moves to V100 #2.
 
     Returns ``""`` if NVML / nvidia-smi is unavailable. Caller (TTS
     compose env builder) treats ``""`` as "no GPU pin", which falls
     back to whatever the container's own GPU selection logic does.
     """
-    from .vision_gpu_select import pick_vlm_gpu
+    from .vision_gpu_select import pick_tts_gpu
     try:
-        gpu_idx = pick_vlm_gpu()
+        gpu_idx = pick_tts_gpu()
     except RuntimeError:
         return ""
     # Map PCI_BUS_ID index → UUID. TTS container compose files use
