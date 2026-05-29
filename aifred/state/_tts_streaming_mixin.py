@@ -999,6 +999,17 @@ class TTSStreamingMixin(rx.State, mixin=True):
         # HAL's saved xtts voice was empty. Now it resolves HAL's engine
         # default (★ HAL9000) instead.
         voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
+        # Hard evidence for the "wrong voice on re-synth" report: log the
+        # engine, the bubble's agent, the per-agent voice still in state,
+        # and the voice the resolver actually picked. Lets us see whether
+        # a stale / wrong-engine name (e.g. "★ HAL9000" while on
+        # qwen3local) or an empty state slot is the culprit.
+        _state_voice = self.tts_agent_voices.get(agent, {}).get("voice", "")  # type: ignore[attr-defined]
+        log_message(
+            f"🎭 TTS Re-Synth resolve: engine={self.tts_engine} "  # type: ignore[attr-defined]
+            f"agent={agent} state_voice={_state_voice!r} → voice={voice_choice!r} "
+            f"speed={speed_value} pitch={pitch_value}"
+        )
 
         # Generate TTS (complete bubble at once for best quality)
         tts_language = self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
