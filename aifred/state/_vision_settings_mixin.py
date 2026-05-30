@@ -107,8 +107,13 @@ class VisionSettingsMixin(rx.State, mixin=True):
         try:
             from ..lib.ollama_models import list_ollama_vlm_models
             models = [m.name for m in list_ollama_vlm_models()]
-            if self.vision_model_value and self.vision_model_value not in models:
-                models = [self.vision_model_value] + models
+            # Only show models actually pulled in Ollama. If discovery
+            # returned a real list and the saved selection isn't in it, the
+            # model is gone → clear the selection instead of prepending a
+            # phantom entry. An empty list means Ollama was unreachable —
+            # leave the selection alone, we can't verify it right now.
+            if models and self.vision_model_value and self.vision_model_value not in models:
+                self.vision_model_value = ""
             self.vision_available_models = models
         except Exception as e:  # noqa: BLE001
             logger.warning("vision settings: ollama discovery failed: %s", e)
@@ -418,8 +423,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
         try:
             from ..lib.ollama_models import list_ollama_vlm_models
             models = [m.name for m in list_ollama_vlm_models()]
-            if self.vision_model_value and self.vision_model_value not in models:
-                models = [self.vision_model_value] + models
+            # See _refresh_vision_settings: only show pulled models, clear a
+            # stale selection, never prepend a phantom. Empty list (Ollama
+            # unreachable) leaves the selection untouched.
+            if models and self.vision_model_value and self.vision_model_value not in models:
+                self.vision_model_value = ""
             self.vision_available_models = models
         except Exception as e:  # noqa: BLE001
             logger.warning("vision settings rescan failed: %s", e)

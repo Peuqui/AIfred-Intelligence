@@ -697,6 +697,14 @@ class ChatMixin(rx.State, mixin=True):
 
         await self._ensure_backend_initialized()  # type: ignore[attr-defined]
 
+        # No main model selected — e.g. the configured one was deleted and
+        # got cleared on backend switch (we clear rather than silently
+        # substitute). Stop here with a clear hint instead of crashing
+        # downstream on an empty model id.
+        if not self.aifred_model_id:  # type: ignore[attr-defined]
+            self.add_debug("⚠️ No model selected — pick one in the settings panel")  # type: ignore[attr-defined]
+            return
+
         # Coverage check: warn (debug console + log) when the active
         # TTS/VLM toggles point at a llama-swap profile that doesn't
         # exist in the YAML. The runtime resolver will silently fall
