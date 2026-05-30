@@ -1017,11 +1017,14 @@ class BackendMixin(rx.State, mixin=True):
                     self.aifred_model = self.available_models_dict[self.aifred_model_id]
                     self.add_debug(f"✅ Model found: {self.aifred_model_id}")  # type: ignore[attr-defined, has-type]
                 elif self.available_models_dict:
-                    first_id = next(iter(self.available_models_dict.keys()))
-                    self.add_debug(f"⚠️ '{self.aifred_model_id}' not in {self.backend_type}! Using: '{first_id}'")  # type: ignore[attr-defined, has-type]
-                    log_message(f"⚠️ Configured model '{self.aifred_model_id}' not found, using '{first_id}'")
-                    self.aifred_model_id = first_id
-                    self.aifred_model = self.available_models_dict[first_id]
+                    # Stale main model (not pulled / deleted). Clear it instead
+                    # of silently substituting another model — the user picks
+                    # or pulls one. The guard (available_models_dict non-empty)
+                    # means a transient backend outage never wipes the choice.
+                    self.add_debug(f"⚠️ '{self.aifred_model_id}' not in {self.backend_type} — cleared, pick a model")  # type: ignore[attr-defined, has-type]
+                    log_message(f"⚠️ Configured model '{self.aifred_model_id}' not available — cleared")
+                    self.aifred_model_id = ""
+                    self.aifred_model = ""
 
                 # Validate and sync automatik_model
                 if not self.automatik_model_id:
@@ -1033,19 +1036,22 @@ class BackendMixin(rx.State, mixin=True):
                     self.automatik_model_id = ""
                     self.automatik_model = ""
 
-                # Validate and sync sokrates_model
+                # Validate and sync sokrates_model. Clearing the id to "" means
+                # "same as AIfred" (the default dropdown option). Only clear when
+                # discovery actually returned models (available_models_dict
+                # non-empty) — a transient backend outage must not wipe the choice.
                 if self.sokrates_model_id and self.sokrates_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
                     self.sokrates_model = self.available_models_dict[self.sokrates_model_id]  # type: ignore[attr-defined, has-type]
-                elif self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                    log_message(f"⚠️ Configured sokrates model '{self.sokrates_model_id}' not found, clearing")  # type: ignore[attr-defined, has-type]
+                elif self.sokrates_model_id and self.available_models_dict:  # type: ignore[attr-defined, has-type]
+                    log_message(f"⚠️ Configured sokrates model '{self.sokrates_model_id}' not available — reset to 'same as AIfred'")  # type: ignore[attr-defined, has-type]
                     self.sokrates_model_id = ""  # type: ignore[attr-defined, has-type]
                     self.sokrates_model = ""  # type: ignore[attr-defined, has-type]
 
-                # Validate and sync salomo_model
+                # Validate and sync salomo_model (same rules as sokrates).
                 if self.salomo_model_id and self.salomo_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
                     self.salomo_model = self.available_models_dict[self.salomo_model_id]  # type: ignore[attr-defined, has-type]
-                elif self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                    log_message(f"⚠️ Configured salomo model '{self.salomo_model_id}' not found, clearing")  # type: ignore[attr-defined, has-type]
+                elif self.salomo_model_id and self.available_models_dict:  # type: ignore[attr-defined, has-type]
+                    log_message(f"⚠️ Configured salomo model '{self.salomo_model_id}' not available — reset to 'same as AIfred'")  # type: ignore[attr-defined, has-type]
                     self.salomo_model_id = ""  # type: ignore[attr-defined, has-type]
                     self.salomo_model = ""  # type: ignore[attr-defined, has-type]
 
