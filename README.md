@@ -77,7 +77,7 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 
 ### 🔍 Vigilantia (Camera Surveillance)
 
-A separate plugin layered on top of the Vision pipeline — turns AIfred into a continuous monitoring agent. Plugin code under `plugins/channels/vigilantia/`.
+The Vision pipeline's watch mode — turns AIfred into a continuous monitoring agent. Code under `plugins/tools/vision/`; detailed docs: [Vision/Vigilantia plugin](docs/en/guides/plugins/vision.md).
 
 - **Master Eye + Background Watchers**: Per-source watcher threads (motion + face detect + optional VLM). Watcher state survives browser disconnects — runs in the Message Hub worker process, not the Reflex state
 - **Motion Detection**: OpenCV background subtraction (MOG2) with configurable min-area-ratio, warmup frames, event throttling. Saves event frame to disk on trigger
@@ -87,7 +87,7 @@ A separate plugin layered on top of the Vision pipeline — turns AIfred into a 
 - **pHash Dedup + Cluster Mode**: Perceptual hash on every saved frame, near-duplicate events collapsed into clusters (`cluster_id` in the SQLite schema). Cluster-Mode toggle in the Casus shows one card per cluster instead of N near-identical motion events
 - **VRAM Pre-Check before Bulk-Worker**: Bulk VLM-Analyse aborts cleanly if the side-channel GPU doesn't have enough headroom for the configured VLM batch — no half-completed run with OOM mid-stream
 - **Vigilantia Feed Live-Card**: Inline UI card on the main page showing the last N events from any watcher source, refreshed via the 500ms heartbeat (no extra timers, no per-tick state delta — see [_vigilantia_feed_mixin.py](aifred/state/_vigilantia_feed_mixin.py))
-- **Vision Tools**: The LLM has tools for `vision_snapshot`, `vision_analyze`, `vision_enroll_face`, `vision_start_watch`, `vision_stop_watch`, `vision_query_events` — autonomous use during conversations
+- **Vision Tools**: The LLM has tools for `vision_list_sources`, `vision_rescan_sources`, `vision_snapshot`, `vision_analyze`, `vision_enroll_face`, `vision_start_watch`, `vision_stop_watch`, `vision_list_active_watches`, `vision_query_events` — autonomous use during conversations
 
 ### 📷 Image Analysis (Chat)
 

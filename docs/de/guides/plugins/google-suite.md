@@ -2,7 +2,7 @@
 
 **Dateien:** `aifred/plugins/tools/google_suite/`
 
-Google Calendar, Contacts, Tasks und Drive ueber OAuth 2.0. Orchestrator-Plugin mit vier aktivierbaren Sub-Services. Benoetigt einmaligen OAuth-Flow in der Google Cloud Console.
+Google Calendar, Contacts, Tasks und Drive ueber OAuth 2.0. Orchestrator-Plugin mit vier aktivierbaren Sub-Services. Benoetigt einmaligen OAuth-Flow in der Google Cloud Console. Den OAuth-Mechanismus (Token-Storage, Auto-Refresh, API-Endpoints) beschreibt [oauth.md](oauth.md).
 
 ## Setup
 
@@ -17,7 +17,7 @@ Google Calendar, Contacts, Tasks und Drive ueber OAuth 2.0. Orchestrator-Plugin 
    GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=GOCSPX-...
    ```
-5. Sub-Services in `aifred/plugins/tools/google_suite/settings.json` aktivieren/deaktivieren (Standard: beide an)
+5. Sub-Services in `aifred/plugins/tools/google_suite/settings.json` aktivieren/deaktivieren (Standard: alle vier an)
 6. OAuth-Flow starten — Auth-URL generieren:
    ```bash
    curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://narnia.spdns.de:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
@@ -35,12 +35,12 @@ Google Calendar, Contacts, Tasks und Drive ueber OAuth 2.0. Orchestrator-Plugin 
 {
   "GOOGLE_CALENDAR_ENABLED": "true",
   "GOOGLE_CONTACTS_ENABLED": "true",
-  "GOOGLE_TASKS_ENABLED": "false",
-  "GOOGLE_DRIVE_ENABLED": "false"
+  "GOOGLE_TASKS_ENABLED": "true",
+  "GOOGLE_DRIVE_ENABLED": "true"
 }
 ```
 
-Einen Sub-Service deaktivieren: Wert auf `"false"` setzen, AIfred neu starten.
+Einen Sub-Service deaktivieren: Wert auf `"false"` setzen, AIfred neu starten. Welche Scopes der OAuth-Flow anfragt, ergibt sich aus den aktivierten Sub-Services (`aggregated_scopes()`).
 
 ## Calendar Tools
 

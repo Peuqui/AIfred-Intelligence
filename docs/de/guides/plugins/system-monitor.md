@@ -2,22 +2,37 @@
 
 **Datei:** `aifred/plugins/tools/system_monitor/`
 
-Gibt Auskunft über den aktuellen Systemzustand: CPU, RAM, GPU, Festplatte, Temperatur.
+Gibt Auskunft über den aktuellen Systemzustand: CPU-Last, RAM/Swap, GPU-VRAM und
+-Temperatur, Festplattenbelegung, Uptime und Sensor-Temperaturen. Read-only — es
+führt nur Abfrage-Befehle aus (`uptime`, `free`, `df`, `nvidia-smi`, `sensors`)
+und verändert nichts.
 
 ## Tools
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `system_status` | Hardware-Status abfragen (CPU, RAM, GPU, Disk, Temperatur) | READONLY |
+| `system_status` | Hardware-Status abfragen (CPU, RAM, GPU, Disk, Temperatur, Uptime) | READONLY |
 
 ## Parameter
 
-`components` — Kommagetrennt: `cpu`, `ram`, `gpu`, `disk`, `temp`, `uptime`, oder `all` (Standard).
+`components` — Kommagetrennte Liste der abzufragenden Teile: `cpu`, `ram`
+(Alias `memory`), `gpu`, `disk`, `temp`, `uptime`, oder `all` (Standard).
 
-## Beispielausgabe
+## Was die einzelnen Komponenten liefern
 
-- CPU: 16 Cores, Load 1.28/0.84/0.77
-- RAM: 32 GB total, 9 GB used, 22 GB available
-- GPUs: 4x (Tesla P40 × 3 + RTX 8000), VRAM, Temperatur, Auslastung
-- Disk: Mount, Größe, Belegung in Prozent
-- Sensoren: CPU-Temperatur, GPU-Temperatur, NVMe-Temperatur
+- **cpu / uptime** — Uptime-String, Anzahl Cores, Load-Average über 1/5/15 Minuten
+- **ram / memory** — RAM total/belegt/frei/verfügbar plus Swap (aus `free -h --si`)
+- **gpu** — pro GPU: Index, Name, VRAM total/belegt/frei (MB), Temperatur,
+  Auslastung (aus `nvidia-smi`; meldet einen Fehler, wenn `nvidia-smi` fehlt)
+- **disk** — Belegung der Mounts `/` und `/home` (Größe, belegt, verfügbar, Prozent)
+- **temp** — wichtige Sensor-Temperaturen (aus `sensors -j`; wird stillschweigend
+  übersprungen, wenn `sensors` nicht installiert ist)
+
+## Beispiel-Nutzung
+
+- „Wie viel VRAM ist frei?" → `system_status(components="gpu")`
+- „Zeig CPU und RAM" → `system_status(components="cpu,ram")`
+- „Kompletter Systemstatus" → `system_status(components="all")`
+
+Die Ausgabe erfolgt als JSON; der Agent ist angewiesen, sie als kompakte Tabelle
+mit Auslastung (belegt / gesamt) darzustellen, nicht nur als Gesamtwerte.

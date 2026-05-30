@@ -10,7 +10,22 @@ Channel-Plugin fuer E-Mail-Kommunikation via IMAP IDLE und SMTP.
 |------|-------------|------|
 | `email` | E-Mails abrufen, lesen, suchen, senden, verschieben, löschen, markieren | COMMUNICATE |
 
-Das `email`-Tool verwendet einen `action`-Parameter: `check`, `read`, `search`, `delete`, `send`, `move`, `list_folders`, `create_folder`, `mark`.
+Das `email`-Tool dispatcht ueber einen `action`-Parameter:
+`check`, `read`, `search`, `delete`, `send`, `move`, `list_folders`, `create_folder`, `mark`.
+
+| Action | Pflicht-Parameter | Hinweise |
+|--------|-------------------|----------|
+| `check` | – | `n` (Default 10, max. 20), `folder` (Default INBOX) |
+| `read` | `msg_id` | `folder` (Default INBOX) |
+| `search` | `query` | `folder` (Default INBOX) |
+| `send` | `to`, `subject`, `body` | registriert die Session-Route |
+| `move` | `msg_id`, `target_folder` | `folder` = Quelle (Default INBOX) |
+| `delete` | `msg_id` | `folder` (Default INBOX) |
+| `mark` | `msg_id`, `flag` | `flag` ∈ `read` / `unread` / `flagged` / `unflagged` |
+| `list_folders` | – | |
+| `create_folder` | `folder_name` | |
+
+Alle IMAP/SMTP-Operationen laufen in `asyncio.to_thread()` (blockierendes I/O).
 
 ## Architektur-Ueberblick
 
@@ -35,7 +50,8 @@ Externer Absender                      AIfred (GMX-Account)
 - **Auto-Reply:** Eingehende Mails werden automatisch beantwortet
 - **Startup-Recovery:** Mails die waehrend eines Neustarts ankommen, werden beim Start nachgeholt (Checkpoint-basiert)
 - **Session-Routing:** Replies werden via `In-Reply-To` Header der urspruenglichen Session zugeordnet
-- **Logging:** Alle Lifecycle-Events im journalctl (`journalctl -u aifred-intelligence | grep "\[email\]"`)
+- **HTML + Plaintext:** Antworten werden als `multipart/alternative` gesendet (Agent-Markdown wird zu HTML gerendert, mit Plaintext-Fallback)
+- **Logging:** Alle Lifecycle-Events im journalctl (`journalctl -u aifred-intelligence | grep "Email Plugin"`)
 
 ## Antwort-Verhalten
 
@@ -70,9 +86,32 @@ Beim (Neu-)Start:
 
 ## Konfiguration
 
-- IMAP/SMTP-Server, Port, Credentials ueber `.env` oder UI-Modal
-- TLS/SSL konfigurierbar
-- Allowlist fuer eingehende Absender (`EMAIL_ALLOWED_SENDERS`)
+Credentials werden ueber `.env` oder das UI-Modal eingegeben (verwaltet vom Credential-Broker):
+
+| Feld | Default | Zweck |
+|------|---------|-------|
+| `EMAIL_IMAP_HOST` | – | IMAP-Server |
+| `EMAIL_IMAP_PORT` | `993` | IMAP-Port (SSL) |
+| `EMAIL_SMTP_HOST` | – | SMTP-Server |
+| `EMAIL_SMTP_PORT` | `587` | SMTP-Port (STARTTLS) |
+| `EMAIL_USER` | – | Account-Login |
+| `EMAIL_PASSWORD` | – | Account-Passwort (geheim) |
+| `EMAIL_FROM` | faellt auf `EMAIL_USER` zurueck | Anzeigename |
+| `EMAIL_ALLOWED_SENDERS` | – | Allowlist fuer eingehende Absender |
+
+Das Plugin gilt als konfiguriert, wenn `enabled = true` ist und IMAP-Host, User
+und Passwort gesetzt sind.
+
+### Allowlist-Semantik (`EMAIL_ALLOWED_SENDERS`)
+
+Die Allowlist kontrolliert nur **eingehende** E-Mails — wer darf AIfred anschreiben.
+Ausgehende E-Mails koennen an jede Adresse gesendet werden.
+
+- **Leer** → niemand erlaubt (sicherer Default)
+- **`*`** → alle erlaubt
+- **Kommagetrennte** Adressen/Domains: `user@mail.de, @family.de`
+  - `@domain.de` matcht jede Adresse dieser Domain
+  - eine reine Adresse matcht exakt
 
 ## User-Mapping und E-Mail-Routing
 
@@ -102,10 +141,6 @@ Die Zuordnung wird in `data/user_mapping.json` konfiguriert:
 1. **Recipient im Job angegeben** (z.B. `"Lord Helmchen"`) → User-Mapping → `email_out` bevorzugt, Fallback auf `email`
 2. **Kein Recipient** → Erster User im Mapping → `email_out` bevorzugt
 3. **Kein Mapping** → Fallback auf `EMAIL_ALLOWED_SENDERS` (Allowlist, erster Eintrag)
-
-### Allowlist (Eingang)
-
-Die Allowlist in `EMAIL_ALLOWED_SENDERS` kontrolliert nur **eingehende** E-Mails — wer darf AIfred anschreiben. Ausgehende E-Mails koennen an jede Adresse gesendet werden.
 
 ## Delta Chat als Messenger-Alternative
 
