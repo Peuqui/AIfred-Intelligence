@@ -202,7 +202,7 @@ strong { color: #fff; }
 <p>A 176 GB VRAM inference server idling around ~76W. Try that with a proper server rack.</p>
 
 <h2>What It Runs</h2>
-<p class="subtitle">Representative models the Mini runs GPU-resident. The tok/s figures were measured on the earlier 4-GPU / 120 GB stage and are kept as a ballpark — GPU count, tensor split and context are auto-calibrated per model by AIfred, so the exact split on today's 5-GPU / 176 GB config differs.</p>
+<p class="subtitle">Representative models the Mini runs GPU-resident. Most tok/s figures are ballpark numbers from the earlier 4-GPU stage; the 397B figure is current. GPU count, tensor split and context are auto-calibrated per model by AIfred — and MTP-capable models now run with speculative decoding, so real-world speeds on the 5-GPU config tend to be higher.</p>
 
 <table>
 <tr><th>Model</th><th>Size</th><th>Quant</th><th>Context</th><th>KV Cache</th><th>TG tok/s</th></tr>
@@ -212,10 +212,10 @@ strong { color: #fff; }
 <tr><td>Qwen3-Next-80B-A3B</td><td>80B MoE</td><td>Q8_K_XL</td><td>262K</td><td>f16</td><td>~35</td></tr>
 <tr><td>Qwen3.5-122B-A10B</td><td>122B MoE</td><td>Q8_K_XL</td><td>262K</td><td>f16</td><td>~21</td></tr>
 <tr><td>Nemotron-3-Super-120B</td><td>120B NAS-MoE</td><td>Q5_K_XL</td><td><strong>874K</strong></td><td>f16</td><td>~17</td></tr>
-<tr><td>Qwen3.5-397B-A17B</td><td>397B MoE</td><td>IQ3_XXS</td><td>262K</td><td>q8_0</td><td>&mdash;</td></tr>
+<tr><td>Qwen3.5-397B-A17B</td><td>397B MoE</td><td>IQ3_XXS</td><td>262K</td><td>q8_0</td><td><strong>~20</strong></td></tr>
 <tr><td>Qwen3-235B-A22B Instruct</td><td>235B MoE</td><td>Q3_K_XL</td><td>112K</td><td><strong>q8_0</strong></td><td>~11</td></tr>
 </table>
-<p>All models GPU-only (ngl=99), flash-attn, Direct-IO, mlock. Context sizes and the per-GPU tensor split are auto-calibrated by AIfred's 3-phase calibration to maximize available VRAM — including a separate "speed" variant (fewer GPUs, less context, more throughput) and automatic placement of TTS / vision side-channels onto dedicated cards.</p>
+<p>All models GPU-only (ngl=99), flash-attn, Direct-IO, mlock. Context sizes and the per-GPU tensor split are auto-calibrated by AIfred's 3-phase calibration to maximize available VRAM — including a separate "speed" variant (fewer GPUs, less context, more throughput) and automatic placement of TTS / vision side-channels onto dedicated cards. MTP-capable models (UD-MTP GGUFs) additionally run with speculative decoding (<code>--spec-type draft-mtp</code>), which lifts generation speed further.</p>
 <p>Model lifecycle managed by <a href="https://github.com/mostlygeek/llama-swap">llama-swap</a> — models auto-swap on request, Direct-IO makes loading near-instant.</p>
 
 <h2>Limitations</h2>
