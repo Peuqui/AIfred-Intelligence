@@ -131,3 +131,6 @@ tools/echo_dot/tflite/lib/
 tools/echo_dot/tflite/*.tflite
 tools/echo_dot/
 data/FreeEchoDot2/
+
+# Private PR-/Marketing-Drafts (Foren-Posts, Redaktions-Mails) — nicht öffentlich
+/_private/
