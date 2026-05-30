@@ -147,7 +147,7 @@ strong { color: #fff; }
 <div class="step">
     <div class="step-title">Step 6: Expansion to 5 GPUs — a 2nd RTX 8000 and a modded V100</div>
     <div class="step-subtitle">176 GB VRAM &bull; The Frankenstein grows</div>
-    <p>A second Quadro RTX 8000 joined the mix, and the headline addition: a <strong>Tesla V100 (32 GB) that was modded from SXM2 to PCIe</strong> — a server-form-factor card carrier-boarded onto a PCIe interface. Compute capability 7.0, HBM2 with inline ECC, and noticeably faster than the P40s for the side-channel workloads (TTS / vision).</p>
+    <p>A second Quadro RTX 8000 joined the mix, and the headline addition: a <strong>Tesla V100 (32 GB), bought already converted from SXM2 to PCIe</strong> (a Chinese-market mod — a server-form-factor card carrier-boarded onto a PCIe interface). Compute capability 7.0, HBM2 with inline ECC, and noticeably faster than the P40s for the side-channel workloads (TTS / vision).</p>
     <p>To free up a fast M.2 slot for another OCuLink adapter, the <strong>boot SSD and a backup drive were moved out to USB 3</strong> — the precious PCIe lanes belong to the GPUs. End state: <strong>4 cards on M.2&rarr;OCuLink adapters with 4 dedicated PCIe lanes each, straight to the CPU; the 5th on the USB4 port.</strong></p>
 </div>
 
@@ -244,7 +244,7 @@ strong { color: #fff; }
 <p>The trajectory is swapping the remaining P40s out for faster cards (more V100s and/or RTX 8000s). Once the slow Pascal tier is gone, vLLM becomes viable across all GPUs and the whole rig moves up a class. ReBAR is sorted — it's just a matter of cards showing up at sane prices.</p>
 
 <h3>The honest take</h3>
-<p>For ~&euro;4,500 you could probably get a 128 GB unified memory MiniPC and call it a day. But I didn't know where this was going when I started. One GPU became two, two became four, then five, and suddenly I'm sawing fan grilles and modding a V100 from SXM2 to PCIe. That's how hobbies work. And honestly, the building was half the fun.</p>
+<p>For ~&euro;4,700 you could probably get a 128 GB unified memory MiniPC and call it a day. But I didn't know where this was going when I started. One GPU became two, two became four, then five, and suddenly I'm sawing fan grilles and hunting down an SXM2&rarr;PCIe-converted V100 from a Chinese seller. That's how hobbies work. And honestly, the building was half the fun.</p>
 
 <div class="footer">
     <p><a href="https://github.com/Peuqui/AIfred-Intelligence">AIfred Intelligence</a> &bull; <a href="../">Back to Showcases</a></p>
