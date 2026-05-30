@@ -557,48 +557,6 @@ def vigilantia_feed_popover() -> rx.Component:
     return rx.cond(
         AIState.vigilantia_feed_visible,
         rx.hstack(
-            # Glühbirne — öffnet das Hilfe-Modal mit der Übersicht
-            # über Master / Quellen / Vorschau und der Auge-Logik.
-            rx.tooltip(
-                rx.icon(
-                    "lightbulb",
-                    size=14,
-                    color="#FFA500",
-                    cursor="pointer",
-                    on_click=AIState.open_vigilantia_help,
-                    style={
-                        "transition": "transform 0.2s ease",
-                        "&:hover": {"transform": "scale(1.15)"},
-                    },
-                ),
-                content=t("vigilantia_help_tooltip"),
-            ),
-            # Auge-Icon — Master-Toggle für vigilantia_armed.
-            # Offenes Auge (eye) = scharf, geschlossenes Auge (eye-off)
-            # = deaktiviert. Klick toggled. Farbe macht den Zustand
-            # auch peripheriesicher erkennbar.
-            rx.tooltip(
-                rx.icon_button(
-                    rx.cond(
-                        AIState.vigilantia_armed,
-                        rx.icon("eye", size=14),
-                        rx.icon("eye-off", size=14),
-                    ),
-                    on_click=AIState.toggle_vigilantia_armed,
-                    size="1",
-                    variant=rx.cond(
-                        AIState.vigilantia_armed, "solid", "soft",
-                    ),
-                    color_scheme=rx.cond(
-                        AIState.vigilantia_armed, "orange", "gray",
-                    ),
-                ),
-                content=rx.cond(
-                    AIState.vigilantia_armed,
-                    t("vigilantia_disarm_tooltip"),
-                    t("vigilantia_arm_tooltip"),
-                ),
-            ),
             rx.popover.root(
                 rx.popover.trigger(
                     rx.box(
@@ -663,13 +621,61 @@ def vigilantia_feed_popover() -> rx.Component:
                 open=AIState.vigilantia_feed_popover_open,
                 on_open_change=AIState.handle_vigilantia_feed_popover_change,
             ),
+            # Glühbirne + Auge sitzen RECHTS von der Karte und damit am
+            # rechten Rand der Zeile. Der äußere rx.spacer ankert das Trio
+            # rechtsbündig; die Karte (erstes Element) wächst nach links in
+            # den freigewordenen Platz. So bleiben die beiden Klick-Targets
+            # ortsfest, egal wie die Erkennungs-Karte ihre Breite ändert —
+            # kein Springen mehr, und der Bildschirmrand ist ein leichtes Ziel.
+            # Glühbirne — öffnet das Hilfe-Modal mit der Übersicht
+            # über Master / Quellen / Vorschau und der Auge-Logik.
+            rx.tooltip(
+                rx.icon(
+                    "lightbulb",
+                    size=14,
+                    color="#FFA500",
+                    cursor="pointer",
+                    on_click=AIState.open_vigilantia_help,
+                    style={
+                        "transition": "transform 0.2s ease",
+                        "&:hover": {"transform": "scale(1.15)"},
+                    },
+                ),
+                content=t("vigilantia_help_tooltip"),
+            ),
+            # Auge-Icon — Master-Toggle für vigilantia_armed.
+            # Offenes Auge (eye) = scharf, geschlossenes Auge (eye-off)
+            # = deaktiviert. Klick toggled. Farbe macht den Zustand
+            # auch peripheriesicher erkennbar.
+            rx.tooltip(
+                rx.icon_button(
+                    rx.cond(
+                        AIState.vigilantia_armed,
+                        rx.icon("eye", size=14),
+                        rx.icon("eye-off", size=14),
+                    ),
+                    on_click=AIState.toggle_vigilantia_armed,
+                    size="1",
+                    variant=rx.cond(
+                        AIState.vigilantia_armed, "solid", "soft",
+                    ),
+                    color_scheme=rx.cond(
+                        AIState.vigilantia_armed, "orange", "gray",
+                    ),
+                ),
+                content=rx.cond(
+                    AIState.vigilantia_armed,
+                    t("vigilantia_disarm_tooltip"),
+                    t("vigilantia_arm_tooltip"),
+                ),
+            ),
             spacing="2",
             align="center",
-            # min_width: 0 + max_width: 100% lets the popover trio
-            # (lightbulb + eye + card) shrink with its row. Without
-            # max_width: 100% the hstack would insist on its content
-            # width (~860px) even when wrapped onto its own row in a
-            # narrower window — pushing horizontal page scroll.
+            # min_width: 0 + max_width: 100% lets the trio (card + lightbulb
+            # + eye) shrink with its row. Without max_width: 100% the hstack
+            # would insist on its content width (~860px) even when wrapped
+            # onto its own row in a narrower window — pushing horizontal
+            # page scroll.
             style={"min_width": "0", "max_width": "100%"},
         ),
     )
