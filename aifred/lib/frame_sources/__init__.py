@@ -83,6 +83,7 @@ def list_available() -> list[FrameSource]:
 # eigene ``discover()``-Funktion am Ende des Moduls. Damit ist beim
 # Erstzugriff auf das Registry alles eingerichtet.
 from . import v4l2_source as _v4l2_source  # noqa: E402
+from . import rtsp_source as _rtsp_source  # noqa: E402
 
 
 def rescan() -> None:
@@ -93,7 +94,7 @@ def rescan() -> None:
     (typisch via ``unregister_kind()``).
     """
     _v4l2_source.discover()
+    _rtsp_source.discover()
     # Künftige Source-Typen hier ergänzen:
-    # _rtsp_source.discover()
     # _file_source.discover()
     # _screen_source.discover()
