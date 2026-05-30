@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""llama-swap-build-config — beim llama-swap-Restart aufgerufen, macht zwei
-Dinge an der ``config.yaml``:
+"""llama-swap-build-config — beim llama-swap-Restart aufgerufen, räumt auf
+und normalisiert:
 
   1. Verwaiste TTS-Profile rauswerfen.
      Pro ``<model>-tts-<engine>(-speed)?`` Variante prüfen, ob das
@@ -8,7 +8,15 @@ Dinge an der ``config.yaml``:
      vorhanden ist. Ist die Engine deinstalliert, fliegt das Profil
      samt Group-Membership raus.
 
-  2. Speculative-Decoding-Flags normalisieren.
+  2. Tote Modelle rauswerfen (GGUF gelöscht).
+     Jedes config-Modell, dessen ``--model``-GGUF nicht mehr auf der
+     Platte liegt, fliegt aus ``config.yaml`` (models + group-members)
+     UND aus ``model_vram_cache.json``. So räumt sich beides selbst
+     auf, sobald ein Modell gelöscht wurde — kein Hand-Editieren. Nur
+     nachweislich Totes wird entfernt; Settings/Nicht-GGUF-Backends
+     bleiben bewusst unangetastet.
+
+  3. Speculative-Decoding-Flags normalisieren.
      MTP-fähige GGUFs (Tensor-Namen enthalten ``nextn``/``mtp``)
      bekommen ``--spec-type draft-mtp``, non-MTP-Modelle ``ngram`` als
      sicheren Default. Idempotent.
@@ -262,10 +270,15 @@ def cleanup_uninstalled_tts_profiles(data: dict) -> list[str]:
             del models[name]
             removed.append(name)
 
-    if not removed:
-        return []
+    _prune_from_groups(data, removed)
+    return removed
 
-    # Auch aus group.members aufräumen.
+
+def _prune_from_groups(data: dict, removed: list[str]) -> None:
+    """Entfernt die ``removed``-Modellnamen aus allen ``groups.*.members``-
+    Listen. Gemeinsame Mechanik für TTS- und Missing-GGUF-Cleanup."""
+    if not removed:
+        return
     removed_set = set(removed)
     groups = data.get("groups") or {}
     for grp_cfg in groups.values():
@@ -276,6 +289,73 @@ def cleanup_uninstalled_tts_profiles(data: dict) -> list[str]:
         if len(kept) != len(members):
             grp_cfg["members"] = kept
 
+
+# ── Missing-GGUF-Cleanup ────────────────────────────────────────────────────
+def cleanup_missing_gguf_models(data: dict) -> list[str]:
+    """Entfernt Modelle aus der config, deren ``--model``-GGUF nicht mehr auf
+    der Platte liegt — plus Group-``members``-Cleanup. Damit räumt sich die
+    config beim nächsten Restart selbst auf, sobald ein Modell gelöscht wurde
+    (alle Varianten eines gelöschten Basis-Modells teilen denselben GGUF-Pfad
+    und fliegen gemeinsam raus).
+
+    Konservativ: nur prunen wenn ``--model`` vorhanden UND die Datei fehlt.
+    Ein nicht parsbares cmd oder fehlendes ``--model`` bleibt unangetastet —
+    wir löschen nur, was nachweislich tot ist.
+    """
+    removed: list[str] = []
+    models = data.get("models") or {}
+    for name in list(models.keys()):
+        cmd = (models[name] or {}).get("cmd", "")
+        if not cmd:
+            continue
+        try:
+            model_path = find_model_path(shlex.split(cmd))
+        except ValueError:
+            continue  # unparsbares cmd — in Ruhe lassen
+        if model_path is None:
+            continue  # kein --model — nichts zu prüfen
+        if not model_path.exists():
+            del models[name]
+            removed.append(name)
+
+    _prune_from_groups(data, removed)
+    return removed
+
+
+def cleanup_missing_gguf_vram_cache(dry_run: bool) -> list[str]:
+    """Entfernt Einträge aus ``model_vram_cache.json``, deren ``gguf_path``
+    nicht mehr existiert. Spiegelt den config-Prune: ein gelöschtes Modell
+    soll auch im VRAM-Cache keine Leichen hinterlassen.
+
+    Nur Einträge MIT ``gguf_path`` werden geprüft — Einträge ohne (z.B.
+    Nicht-GGUF-Backends) bleiben unangetastet, weil ihre Gültigkeit nicht
+    über die Platte verifizierbar ist. Schreibt mit ``.bak``-Backup, außer
+    im Dry-Run.
+    """
+    try:
+        from aifred.lib.model_vram_cache import CACHE_FILE, load_cache, save_cache
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"⚠️  VRAM-Cache-Prune übersprungen (Import: {e})\n")
+        return []
+
+    cache = load_cache()
+    removed: list[str] = []
+    for model_id in list(cache.keys()):
+        entry = cache.get(model_id)
+        gguf = entry.get("gguf_path") if isinstance(entry, dict) else None
+        if gguf and not Path(gguf).exists():
+            del cache[model_id]
+            removed.append(model_id)
+
+    if not removed or dry_run:
+        return removed
+
+    bak = Path(str(CACHE_FILE) + ".bak")
+    try:
+        bak.write_text(CACHE_FILE.read_text())
+    except OSError:
+        pass
+    save_cache(cache)
     return removed
 
 
@@ -315,6 +395,29 @@ def main() -> int:
         for name in removed_tts:
             sys.stderr.write(f"   – {name}\n")
 
+    # Tote Modelle (GGUF gelöscht) aus der config werfen, bevor wir die
+    # übrigen normalisieren — sonst würde detect_mtp gleich über die
+    # fehlenden Dateien stolpern.
+    removed_gguf = cleanup_missing_gguf_models(data)
+    if removed_gguf:
+        sys.stderr.write(
+            f"🧹 Tote Modelle entfernt (GGUF nicht mehr vorhanden, "
+            f"{len(removed_gguf)}):\n"
+        )
+        for name in removed_gguf:
+            sys.stderr.write(f"   – {name}\n")
+
+    # Gleicher Prune im VRAM-Cache (eigene Datei, eigenes Backup, respektiert
+    # --dry-run). Läuft unabhängig vom config-Write.
+    removed_cache = cleanup_missing_gguf_vram_cache(dry_run)
+    if removed_cache:
+        verb = "würden entfernt" if dry_run else "entfernt"
+        sys.stderr.write(
+            f"🧹 VRAM-Cache: {len(removed_cache)} tote Eintrag/Einträge {verb}:\n"
+        )
+        for name in removed_cache:
+            sys.stderr.write(f"   – {name}\n")
+
     mtp_cache = load_mtp_cache()
 
     summary: list[tuple[str, str]] = []
@@ -338,7 +441,7 @@ def main() -> int:
         symbol = {"MTP": "🚀", "ngram": "📋", "skip": "⚠️ "}.get(status, "?")
         sys.stderr.write(f"  {symbol} {status:5}  {name}\n")
 
-    if changed == 0 and not removed_tts:
+    if changed == 0 and not removed_tts and not removed_gguf:
         sys.stderr.write("\n✓ Keine Änderungen — config bereits normalisiert.\n")
         return 0
 
@@ -349,7 +452,8 @@ def main() -> int:
 
     if dry_run:
         sys.stderr.write(
-            f"\n[DRY-RUN] {changed} Modell(e) würden aktualisiert werden.\n"
+            f"\n[DRY-RUN] {changed} Modell(e) würden aktualisiert, "
+            f"{len(removed_tts) + len(removed_gguf)} entfernt werden.\n"
             f"[DRY-RUN] Neue config würde nach: {CONFIG_PATH}\n"
             f"[DRY-RUN] Vorschau (stdout):\n\n"
         )
