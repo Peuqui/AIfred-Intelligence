@@ -120,7 +120,7 @@ Isolated Python code execution in subprocess.
 
 | Tool | Description | Tier |
 |------|------------|------|
-| `audio_play` | Play audio file (WAV, MP3, OGG, FLAC) | WRITE_DATA |
+| `audio_play` | Play audio file (WAV, MP3, OGG, FLAC) | READONLY |
 | `audio_stop` | Stop playback | READONLY |
 | `audio_status` | Query playback status | READONLY |
 
@@ -228,11 +228,43 @@ Tools for the vision subsystem — image snapshots, VLM analysis, face recogniti
 | `vision_list_active_watches` | List currently active watchers | READONLY |
 | `vision_query_events` | Search past vision events (filter by type, source, face id, time) | READONLY |
 
+> **Details:** [Vision Plugin](plugins/vision.md)
+
+---
+
+### Bible
+
+**File:** `plugins/tools/bible/`
+
+Bible access via a single tool: exact passage lookup for named references and thematic vector search, with the mode chosen automatically from the query.
+
+| Tool | Description | Tier |
+|------|------------|------|
+| `search_bible` | Look up a passage or search thematically (mode auto-selected) | READONLY |
+
+> **Details:** [Bible Plugin](plugins/bible.md)
+
+---
+
+### Judaica
+
+**File:** `plugins/tools/judaica/`
+
+Access to the Jewish source corpus (Tanakh, Talmud, Mishnah, Midrash, Halacha, classic Torah commentaries) via exact passage lookup or thematic vector search.
+
+| Tool | Description | Tier |
+|------|------------|------|
+| `search_judaica` | Look up a source or search thematically (mode auto-selected) | READONLY |
+
+> **Details:** [Judaica Plugin](plugins/judaica.md)
+
 ---
 
 ## Channel Plugins
 
 Channel Plugins connect AIfred to external communication channels. Incoming messages are processed automatically with optional auto-reply.
+
+> **Voice control:** Voice control is possible via "FreeEcho.2" — a **separate companion project** for the Amazon Echo Dot 2 (custom firmware that frees the device from cloud lock-in and turns it into a local voice interface). Availability and details TBD; it is **not part** of this open-source repository.
 
 **Outbound Markdown:** Agents reply in Markdown. Each channel converts that to a format its recipient can render via `BaseChannel.format_outbound()`. Email gets HTML + plain-text fallback (multipart/alternative), Telegram gets stripped plain text, Discord stays Markdown (rendered natively). Shared converters live in `aifred/lib/markdown_render.py` (`md_to_html`, `md_to_plain`). See [Plugin Development → Outbound Markdown Conversion](plugin-development.md#outbound-markdown-conversion) for the full pattern when writing a new channel.
 
@@ -314,6 +346,9 @@ aifred/plugins/
 │   ├── audio_player/       # Audio playback
 │   ├── scheduler_tool/     # Scheduled tasks
 │   ├── translator/         # DeepL translation
+│   ├── vision/             # Camera snapshots, VLM, face recognition
+│   ├── bible/              # Bible lookup + thematic search
+│   ├── judaica/            # Jewish source corpus
 │   ├── epim/               # EPIM database
 │   │   ├── tools.py
 │   │   └── db.py
