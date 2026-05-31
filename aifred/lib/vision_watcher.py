@@ -153,6 +153,9 @@ class VisionWatcher:
         # alle starten den VLM, der Anfang füllt sich mit
         # duplizierten Volltext-Beschreibungen.
         self._vlm_in_flight: set[str] = set()
+        # Per-source Zonen-Maske (oder None). Im blackout-Modus werden die
+        # Pixel der Zone vor Speichern/Face/VLM geschwärzt (DSGVO).
+        self._zone_masks: dict[str, Any] = {}
         # Per-source timestamp of the last VLM call; used to throttle
         # so we don't fire vlm_cooldown_sec → see _maybe_run_vlm.
         self._last_vlm_at: dict[str, datetime] = {}
@@ -304,6 +307,7 @@ class VisionWatcher:
         from .vision_filters.zone_mask import load_zone_mask
         source_id = source.source_id
         zone_mask = load_zone_mask(source_id)
+        self._zone_masks[source_id] = zone_mask
         motion = MotionDetector(
             history=config.motion_history_frames,
             var_threshold=config.motion_var_threshold,
@@ -363,6 +367,7 @@ class VisionWatcher:
                 last_seq_processed = latest["seq"]
                 if frame is None:
                     continue
+                frame = self._blackout_frame(frame)
                 my_gen = self._watch_generation.get(source_id, 0)
                 self._last_vlm_at[source_id] = datetime.now()
                 try:
@@ -403,6 +408,7 @@ class VisionWatcher:
                 last_seq_processed = latest["seq"]
                 if frame is None:
                     continue
+                frame = self._blackout_frame(frame)
                 last_face_at = datetime.now()
                 try:
                     await self._run_face_detection(frame, config, motion_event_id=None)
@@ -421,6 +427,29 @@ class VisionWatcher:
             self._statuses[source_id].last_error = str(e)  # type: ignore[misc]
             self._statuses[source_id].running = False  # type: ignore[misc]
 
+    def _blackout_frame(self, frame: "Frame") -> "Frame":
+        """DSGVO-Schwärzung: hat die Quelle eine ``blackout``-Maske, werden
+        die Pixel der Zone geschwärzt und ein Frame mit neuen Bytes zurück-
+        gegeben — Speichern/Face/VLM sehen dann nie den öffentlichen Raum.
+        Ohne blackout-Maske bleibt der Frame unverändert (kein Overhead)."""
+        zm = self._zone_masks.get(frame.source_id)
+        if zm is None or not zm.blacks_out:
+            return frame
+        import cv2
+        import numpy as np
+        from dataclasses import replace
+        arr = cv2.imdecode(
+            np.frombuffer(frame.image_bytes, np.uint8), cv2.IMREAD_COLOR
+        )
+        if arr is None:
+            return frame
+        ok, buf = cv2.imencode(
+            ".jpg", zm.blackout(arr), [cv2.IMWRITE_JPEG_QUALITY, 90]
+        )
+        if not ok:
+            return frame
+        return replace(frame, image_bytes=buf.tobytes())
+
     async def _handle_motion_event(
         self,
         frame: "Frame",
@@ -428,6 +457,7 @@ class VisionWatcher:
         config: WatchConfig,
     ) -> None:
         source_id = frame.source_id
+        frame = self._blackout_frame(frame)
         frame_path = ""
         if config.save_event_frames:
             frame_path = await asyncio.to_thread(self._save_frame, frame)
