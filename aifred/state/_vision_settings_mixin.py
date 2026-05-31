@@ -293,6 +293,17 @@ class VisionSettingsMixin(rx.State, mixin=True):
         )
 
     @rx.event
+    def open_zone_editor(self, source_id: str):
+        """Öffnet den standalone JS-Canvas-Zonen-Editor in einem neuen
+        Fenster (entkoppelt von Reflex). Übergibt die source_id als
+        Query-Param; der Editor redet per /api/vision/* mit dem Backend."""
+        import json
+        return rx.call_script(
+            "window.open('/zone_editor.html?source_id=' + "
+            f"encodeURIComponent({json.dumps(source_id or '')}), '_blank')"
+        )
+
+    @rx.event
     async def set_vigilantia_source_auto_start(
         self, source_id: str, value: bool
     ) -> None:

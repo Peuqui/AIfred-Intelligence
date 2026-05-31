@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigilantia — Zonen-Maske</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --border:#2a2f3a; --accent:#FFA500; --text:#e6e6e6; --muted:#9aa3b2; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui, sans-serif; }
+  header { padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0; color:var(--accent); font-weight:600; }
+  header .src { color:var(--muted); font-size:12px; font-family:monospace; }
+  .wrap { padding:16px; }
+  .controls { display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-bottom:12px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 14px; }
+  .controls label { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .controls input[type=range] { accent-color: var(--accent); }
+  .controls .seg { display:flex; gap:8px; }
+  button { background:#23272f; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:#3d2a00; color:var(--accent); border-color:var(--accent); font-weight:600; }
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  .canvas-box { display:inline-block; border:1px solid var(--border); border-radius:8px; overflow:hidden; line-height:0; background:#000; }
+  canvas { display:block; cursor:crosshair; touch-action:none; }
+  #status { margin-top:10px; font-size:13px; min-height:18px; }
+  #status.ok { color:#4caf50; } #status.err { color:#ff6b6b; }
+  kbd { background:#23272f; border:1px solid var(--border); border-radius:3px; padding:1px 5px; font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Vigilantia — Zonen-Maske</h1>
+  <span class="src" id="srcLabel"></span>
+</header>
+<div class="wrap">
+  <div class="controls">
+    <div class="seg">
+      <label><input type="radio" name="mode" value="motion" checked> nur Bewegung ignorieren</label>
+      <label><input type="radio" name="mode" value="blackout"> + Pixel schwärzen (DSGVO)</label>
+    </div>
+    <label>Pinsel <input type="range" id="brush" min="1" max="10" value="3"> <span id="brushVal">3</span></label>
+    <label>Raster <input type="range" id="grid" min="16" max="96" step="8" value="48"> <span id="gridVal">48</span></label>
+    <button id="reload">Bild neu laden</button>
+    <button id="clear">Alles löschen</button>
+    <button class="primary" id="save">Speichern</button>
+  </div>
+  <div class="hint">
+    <kbd>Linke Maustaste</kbd> ziehen = malen &nbsp;·&nbsp; <kbd>Rechte Maustaste</kbd> ziehen = radieren.
+    Markierte Bereiche werden bei der Bewegungserkennung ignoriert.
+  </div>
+  <div class="canvas-box"><canvas id="cv" width="900" height="506"></canvas></div>
+  <div id="status"></div>
+</div>
+<script>
+(function () {
+  "use strict";
+  const params = new URLSearchParams(location.search);
+  const sourceId = params.get("source_id") || "";
+  document.getElementById("srcLabel").textContent = sourceId;
+
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d");
+  const statusEl = document.getElementById("status");
+  const brushEl = document.getElementById("brush");
+  const brushValEl = document.getElementById("brushVal");
+  const gridEl = document.getElementById("grid");
+  const gridValEl = document.getElementById("gridVal");
+
+  const MAX_W = 900;          // Canvas-Anzeigebreite
+  let img = new Image();
+  let imgReady = false;
+  let cols = parseInt(gridEl.value, 10);
+  let rows = 27;              // wird aus dem Bild-Seitenverhältnis berechnet
+  let mask = [];              // mask[r][c] = 0/1
+  let painting = false;
+  let paintValue = 1;
+
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg;
+    statusEl.className = kind || "";
+  }
+
+  function newMask() {
+    mask = [];
+    for (let r = 0; r < rows; r++) mask.push(new Array(cols).fill(0));
+  }
+
+  function recomputeRows() {
+    const ar = (imgReady && img.naturalWidth) ? img.naturalHeight / img.naturalWidth : 9 / 16;
+    rows = Math.max(4, Math.round(cols * ar));
+  }
+
+  function render() {
+    if (imgReady) ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    else { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height); }
+    const cw = cv.width / cols, ch = cv.height / rows;
+    // markierte Zellen
+    ctx.fillStyle = "rgba(255,80,80,0.45)";
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++)
+        if (mask[r][c]) ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5);
+    // feines Raster
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let c = 0; c <= cols; c++) { ctx.moveTo(c * cw, 0); ctx.lineTo(c * cw, cv.height); }
+    for (let r = 0; r <= rows; r++) { ctx.moveTo(0, r * ch); ctx.lineTo(cv.width, r * ch); }
+    ctx.stroke();
+  }
+
+  function paintAt(px, py, value) {
+    const cw = cv.width / cols, ch = cv.height / rows;
+    const cc = Math.floor(px / cw), cr = Math.floor(py / ch);
+    const R = parseInt(brushEl.value, 10) - 1;   // 1 = nur die Zelle
+    for (let dr = -R; dr <= R; dr++)
+      for (let dc = -R; dc <= R; dc++) {
+        if (dr * dr + dc * dc > R * R) continue;
+        const r = cr + dr, c = cc + dc;
+        if (r >= 0 && r < rows && c >= 0 && c < cols) mask[r][c] = value;
+      }
+    render();
+  }
+
+  function evtPos(e) {
+    const rect = cv.getBoundingClientRect();
+    return [
+      (e.clientX - rect.left) * (cv.width / rect.width),
+      (e.clientY - rect.top) * (cv.height / rect.height),
+    ];
+  }
+
+  cv.addEventListener("contextmenu", (e) => e.preventDefault());
+  cv.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    painting = true;
+    paintValue = (e.button === 2) ? 0 : 1;   // rechte Taste radiert
+    cv.setPointerCapture(e.pointerId);
+    const [x, y] = evtPos(e); paintAt(x, y, paintValue);
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!painting) return;
+    const [x, y] = evtPos(e); paintAt(x, y, paintValue);
+  });
+  const endPaint = () => { painting = false; };
+  cv.addEventListener("pointerup", endPaint);
+  cv.addEventListener("pointercancel", endPaint);
+
+  brushEl.addEventListener("input", () => { brushValEl.textContent = brushEl.value; });
+  gridEl.addEventListener("change", () => {
+    cols = parseInt(gridEl.value, 10);
+    gridValEl.textContent = cols;
+    recomputeRows();
+    newMask();
+    render();
+    setStatus("Raster geändert — Maske geleert.", "");
+  });
+
+  document.getElementById("clear").addEventListener("click", () => {
+    newMask(); render(); setStatus("Maske geleert (noch nicht gespeichert).", "");
+  });
+  document.getElementById("reload").addEventListener("click", loadImage);
+
+  function maskToCells() {
+    let s = "";
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) s += mask[r][c] ? "1" : "0";
+    return s;
+  }
+
+  function selectedMode() {
+    const el = document.querySelector('input[name="mode"]:checked');
+    return el ? el.value : "motion";
+  }
+
+  document.getElementById("save").addEventListener("click", async () => {
+    const cells = maskToCells();
+    const hasAny = cells.indexOf("1") >= 0;
+    const payload = {
+      source_id: sourceId,
+      mode: hasAny ? selectedMode() : "off",
+      cols: cols, rows: rows, cells: cells,
+    };
+    setStatus("Speichere …", "");
+    try {
+      const res = await fetch("/api/vision/zone-mask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      setStatus(hasAny
+        ? "Gespeichert. Greift nach Neustart/Re-Arm der Quelle."
+        : "Maske entfernt (leer).", "ok");
+    } catch (err) {
+      setStatus("Speichern fehlgeschlagen: " + err.message, "err");
+    }
+  });
+
+  function loadImage() {
+    setStatus("Lade Kamerabild …", "");
+    img = new Image();
+    img.onload = () => {
+      imgReady = true;
+      cv.width = MAX_W;
+      cv.height = Math.round(MAX_W * img.naturalHeight / img.naturalWidth);
+      recomputeRows();
+      if (!mask.length || mask.length !== rows) newMask();
+      render();
+      setStatus("");
+    };
+    img.onerror = () => {
+      imgReady = false;
+      setStatus("Kamerabild konnte nicht geladen werden (Quelle offline?). Du kannst trotzdem auf dem schwarzen Raster malen.", "err");
+      recomputeRows(); if (!mask.length) newMask(); render();
+    };
+    // Bestehender FrameHub-Snapshot-Endpoint (source_id ist ein :path-Param
+    // mit Slash, daher roh angehängt — source_ids sind sichere Slugs).
+    img.src = "/api/vision/snapshot/" + sourceId + "?t=" + Date.now();
+  }
+
+  async function loadExisting() {
+    try {
+      const res = await fetch("/api/vision/zone-mask?source_id=" + encodeURIComponent(sourceId));
+      const d = await res.json();
+      if (d && d.exists && d.cells && d.cols && d.rows && d.cells.length === d.cols * d.rows) {
+        cols = d.cols; rows = d.rows;
+        gridEl.value = Math.min(96, Math.max(16, Math.round(cols / 8) * 8));
+        gridValEl.textContent = cols;
+        newMask();
+        for (let r = 0; r < rows; r++)
+          for (let c = 0; c < cols; c++)
+            mask[r][c] = d.cells[r * cols + c] === "1" ? 1 : 0;
+        if (d.mode === "blackout") document.querySelector('input[value="blackout"]').checked = true;
+      }
+    } catch (e) { /* keine bestehende Maske — egal */ }
+  }
+
+  if (!sourceId) { setStatus("Kein source_id-Parameter in der URL.", "err"); return; }
+  brushValEl.textContent = brushEl.value;
+  gridValEl.textContent = gridEl.value;
+  loadExisting().then(loadImage);
+})();
+</script>
+</body>
+</html>

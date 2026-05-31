@@ -2095,6 +2095,85 @@ async def vision_frame(id: int, w: int = 0) -> Response:
     )
 
 
+# Pfad der vision-settings.json (Heimat der zone_masks).
+_VISION_SETTINGS_PATH = (
+    Path(__file__).resolve().parents[1] / "plugins/tools/vision/settings.json"
+)
+
+
+class ZoneMaskPayload(BaseModel):
+    """Speicher-Payload des Zonen-Editors."""
+    source_id: str
+    mode: str = "motion"   # "off" | "motion" | "blackout"
+    cols: int = 0
+    rows: int = 0
+    cells: str = ""        # cols*rows Zeichen, '1' = ignorieren
+
+
+@api_app.get("/vision/zone-mask", tags=["Vision"])
+async def get_zone_mask(source_id: str) -> Dict[str, Any]:
+    """Gespeicherte Zonen-Maske einer Quelle (für den Editor zum Laden)."""
+    import json
+    try:
+        data = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    entry = (data.get("zone_masks") or {}).get(source_id)
+    if not isinstance(entry, dict):
+        return {"exists": False, "source_id": source_id}
+    return {
+        "exists": True,
+        "source_id": source_id,
+        "mode": entry.get("mode", "motion"),
+        "cols": entry.get("cols", 0),
+        "rows": entry.get("rows", 0),
+        "cells": entry.get("cells", ""),
+    }
+
+
+@api_app.post(
+    "/vision/zone-mask", response_model=SystemActionResponse, tags=["Vision"]
+)
+async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
+    """Zonen-Maske einer Quelle speichern (oder löschen bei mode=off /
+    leerem Raster). Schreibt in zone_masks der vision-settings.json.
+
+    Hinweis: Der Watcher lädt die Maske beim (Neu-)Start einer Quelle —
+    eine geänderte Maske greift erst nach Re-Arm/Neustart der Quelle."""
+    import json
+    if payload.mode not in ("off", "motion", "blackout"):
+        raise HTTPException(status_code=400, detail="invalid mode")
+    try:
+        data = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    masks = data.get("zone_masks")
+    if not isinstance(masks, dict):
+        masks = {}
+    if payload.mode == "off" or "1" not in payload.cells:
+        masks.pop(payload.source_id, None)
+        msg = "zone mask cleared"
+    else:
+        if (
+            payload.cols <= 0
+            or payload.rows <= 0
+            or len(payload.cells) != payload.cols * payload.rows
+        ):
+            raise HTTPException(status_code=400, detail="grid dimensions mismatch")
+        masks[payload.source_id] = {
+            "mode": payload.mode,
+            "cols": payload.cols,
+            "rows": payload.rows,
+            "cells": payload.cells,
+        }
+        msg = "zone mask saved"
+    data["zone_masks"] = masks
+    _VISION_SETTINGS_PATH.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return SystemActionResponse(success=True, message=msg)
+
+
 # ============================================================
 # Export for api_transformer
 # ============================================================
