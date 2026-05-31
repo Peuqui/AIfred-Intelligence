@@ -17,32 +17,40 @@ from .helpers import t
 
 
 def _feed_thumb(event: rx.Var) -> rx.Component:
+    """Vorschaubild (32×32): Face-Crop wenn vorhanden, sonst verkleinertes
+    Vollbild über den /api/vision/frame-Endpoint (w=64). Nur wenn weder
+    Crop noch Frame da sind, bleibt das Activity-Icon."""
+    img_style = {
+        "width": "32px",
+        "height": "32px",
+        "border_radius": "3px",
+        "object_fit": "cover",
+        "flex_shrink": "0",
+        "border": "1px solid var(--gray-7)",
+    }
     return rx.cond(
         event["crop_url"] != "",
-        rx.image(
-            src=event["crop_url"],
-            style={
-                "width": "32px",
-                "height": "32px",
-                "border_radius": "3px",
-                "object_fit": "cover",
-                "flex_shrink": "0",
-                "border": "1px solid var(--gray-7)",
-            },
-        ),
-        rx.box(
-            rx.icon("activity", size=14, color="gray"),
-            style={
-                "width": "32px",
-                "height": "32px",
-                "border_radius": "3px",
-                "background_color": "var(--gray-3)",
-                "border": "1px solid var(--gray-7)",
-                "display": "flex",
-                "align_items": "center",
-                "justify_content": "center",
-                "flex_shrink": "0",
-            },
+        rx.image(src=event["crop_url"], style=img_style),
+        rx.cond(
+            event["frame_path"] != "",
+            rx.image(
+                src="/api/vision/frame?id=" + event["id"].to(str) + "&w=64",
+                style=img_style,
+            ),
+            rx.box(
+                rx.icon("activity", size=14, color="gray"),
+                style={
+                    "width": "32px",
+                    "height": "32px",
+                    "border_radius": "3px",
+                    "background_color": "var(--gray-3)",
+                    "border": "1px solid var(--gray-7)",
+                    "display": "flex",
+                    "align_items": "center",
+                    "justify_content": "center",
+                    "flex_shrink": "0",
+                },
+            ),
         ),
     )
 
