@@ -343,9 +343,14 @@ class VisionPlugin:
             # the UI so a 4K outdoor cam stays at 4K for snapshots and
             # a low-res door cam stays low. (0, 0) → driver default.
             from ....lib.vision_utils import resolve_source_resolution
+            from ....lib.frame_hub import get_default_hub
             w, h = resolve_source_resolution(source_id)
             try:
-                frame = await source.snapshot(width=w, height=h)
+                # Über den FrameHub aufnehmen, nicht source.snapshot() direkt:
+                # ein laufender Watcher hält source._lock für die gesamte
+                # Stream-Dauer — ein direkter snapshot() liefe in den Deadlock.
+                # Der Hub teilt sich den Stream (Timeout 5 s).
+                frame = await get_default_hub().snapshot(source, width=w, height=h)
             except Exception as e:  # noqa: BLE001
                 return _err(f"snapshot failed: {e}")
             result: dict[str, Any] = {
@@ -414,12 +419,16 @@ class VisionPlugin:
             # Same per-camera resolution as vision_snapshot, set in the
             # live-preview popup.
             from ....lib.vision_utils import resolve_source_resolution
+            from ....lib.frame_hub import get_default_hub
             w, h = resolve_source_resolution(source_id)
             try:
+                # FrameHub statt direktem source.snapshot() — teilt sich den
+                # laufenden Watcher-Stream, kein Deadlock auf source._lock.
                 n = max(1, min(int(n_frames), 10))
+                hub = get_default_hub()
                 frames = []
                 for _ in range(n):
-                    frames.append(await source.snapshot(width=w, height=h))
+                    frames.append(await hub.snapshot(source, width=w, height=h))
             except Exception as e:  # noqa: BLE001
                 return _err(f"capture failed: {e}")
 
@@ -555,8 +564,11 @@ class VisionPlugin:
                 return _err(f"unknown source: {source_id}")
             if not source.is_available():
                 return _err(f"source not available: {source_id}")
+            from ....lib.frame_hub import get_default_hub
             try:
-                frame = await source.snapshot()
+                # FrameHub statt direktem source.snapshot() (Deadlock bei
+                # laufendem Watcher, siehe vision_snapshot).
+                frame = await get_default_hub().snapshot(source)
             except Exception as e:  # noqa: BLE001
                 return _err(f"snapshot failed: {e}")
             import asyncio
