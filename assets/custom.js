@@ -2399,7 +2399,8 @@ document.addEventListener('keydown', function (e) {
 // keep their normal behaviour elsewhere.
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    const dir = (e.key === 'ArrowLeft') ? 'prev' : 'next';
+    // Timeline-Konvention: links = Vergangenheit (älter), rechts = Zukunft (neuer).
+    const dir = (e.key === 'ArrowLeft') ? 'older' : 'newer';
     const btn = document.querySelector('[data-image-nav="' + dir + '"]');
     if (btn && btn.offsetParent !== null) {
         btn.click();

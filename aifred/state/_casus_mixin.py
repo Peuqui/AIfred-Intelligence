@@ -459,14 +459,16 @@ class CasusMixin(rx.State, mixin=True):
         self.casus_image_index = int(index)
 
     @rx.event
-    def casus_image_prev(self) -> None:
-        """Voriges Event (Pfeil links). Stoppt am Anfang."""
+    def casus_image_newer(self) -> None:
+        """Neueres Event (Pfeil rechts = Zukunft). casus_events ist
+        neueste-zuerst sortiert → Richtung niedrigerer Index. Stoppt oben."""
         if self.casus_image_index > 0:
             self.casus_image_index -= 1
 
     @rx.event
-    def casus_image_next(self) -> None:
-        """Nächstes Event (Pfeil rechts). Stoppt am Ende."""
+    def casus_image_older(self) -> None:
+        """Älteres Event (Pfeil links = Vergangenheit) → höherer Index.
+        Stoppt am Ende der Liste."""
         if self.casus_image_index < len(self.casus_events) - 1:
             self.casus_image_index += 1
 
