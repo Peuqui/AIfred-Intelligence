@@ -2391,3 +2391,18 @@ document.addEventListener('keydown', function (e) {
         }
     }
 });
+
+// Arrow-key navigation for the Casus image slideshow. When the image modal
+// is open, its prev/next buttons carry data-image-nav="prev"/"next".
+// ArrowLeft/ArrowRight click the matching visible button (fires the Reflex
+// event). No-op when the modal is closed (buttons absent), so arrow keys
+// keep their normal behaviour elsewhere.
+document.addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const dir = (e.key === 'ArrowLeft') ? 'prev' : 'next';
+    const btn = document.querySelector('[data-image-nav="' + dir + '"]');
+    if (btn && btn.offsetParent !== null) {
+        btn.click();
+        e.preventDefault();
+    }
+});

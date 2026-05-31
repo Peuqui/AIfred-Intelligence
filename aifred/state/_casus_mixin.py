@@ -68,7 +68,10 @@ class CasusMixin(rx.State, mixin=True):
     # ausgeklappt ist (0 = alle geklemmt). Klick auf den Text toggelt.
     casus_expanded_event_id: int = 0
     # Bild-Modal: URL des aktuell groß angezeigten Frames ("" = zu).
-    casus_image_url: str = ""
+    # Bild-Modal: Index des aktuell groß angezeigten Events in
+    # casus_events (-1 = zu). Index statt URL, damit man per Pfeil
+    # vor/zurück durch die Events blättern kann (Slideshow).
+    casus_image_index: int = -1
     # Bulk-Worker-State — alle Events ohne description durch das VLM
     # schicken, dedupliziert via pHash-Cluster (Story 3).
     casus_bulk_running: bool = False
@@ -430,15 +433,47 @@ class CasusMixin(rx.State, mixin=True):
         eid = int(event_id)
         self.casus_expanded_event_id = 0 if self.casus_expanded_event_id == eid else eid
 
+    @rx.var
+    def casus_image_open(self) -> bool:
+        """Ist das Bild-Modal offen?"""
+        return self.casus_image_index >= 0
+
+    @rx.var
+    def casus_image_src(self) -> str:
+        """Vollbild-URL des aktuell angezeigten Events (leer wenn zu)."""
+        i = self.casus_image_index
+        if i < 0 or i >= len(self.casus_events):
+            return ""
+        return "/api/vision/frame?id=" + str(self.casus_events[i].get("id", ""))
+
+    @rx.var
+    def casus_image_counter(self) -> str:
+        """Position in der Liste, z.B. „3 / 47" — Anzeige im Modal."""
+        if self.casus_image_index < 0 or not self.casus_events:
+            return ""
+        return f"{self.casus_image_index + 1} / {len(self.casus_events)}"
+
     @rx.event
-    def casus_show_image(self, url: str) -> None:
+    def casus_show_image_at(self, index: int) -> None:
         """Event-Frame im Bild-Modal groß anzeigen (Klick aufs Thumbnail)."""
-        self.casus_image_url = url
+        self.casus_image_index = int(index)
+
+    @rx.event
+    def casus_image_prev(self) -> None:
+        """Voriges Event (Pfeil links). Stoppt am Anfang."""
+        if self.casus_image_index > 0:
+            self.casus_image_index -= 1
+
+    @rx.event
+    def casus_image_next(self) -> None:
+        """Nächstes Event (Pfeil rechts). Stoppt am Ende."""
+        if self.casus_image_index < len(self.casus_events) - 1:
+            self.casus_image_index += 1
 
     @rx.event
     def casus_close_image(self) -> None:
         """Bild-Modal schließen."""
-        self.casus_image_url = ""
+        self.casus_image_index = -1
 
     @rx.event
     def casus_start_tag(self, event_id: int) -> None:

@@ -32,13 +32,13 @@ def _event_type_badge(event: rx.Var) -> rx.Component:
     )
 
 
-def _thumb(event: rx.Var) -> rx.Component:
+def _thumb(event: rx.Var, index: rx.Var) -> rx.Component:
     """Vorschaubild (40×40), klickbar → Bild-Modal mit dem Vollbild.
 
     Face-Events zeigen den Gesichts-Crop, reine Motion-Events ein
     verkleinertes Vollbild über den /api/vision/frame-Endpoint (w=80).
-    Klick öffnet jeweils das Vollbild groß. Nur wenn weder Crop noch
-    Frame existieren, bleibt das Activity-Icon (kein klickbares Bild)."""
+    Klick öffnet das Modal an diesem Index (von dort per Pfeil blätterbar).
+    Nur wenn weder Crop noch Frame existieren, bleibt das Activity-Icon."""
     full_url = "/api/vision/frame?id=" + event["id"].to(str)
     thumb_style = {
         "width": "40px",
@@ -53,14 +53,14 @@ def _thumb(event: rx.Var) -> rx.Component:
         event["crop_url"] != "",
         rx.image(
             src=event["crop_url"],
-            on_click=AIState.casus_show_image(full_url),
+            on_click=AIState.casus_show_image_at(index),
             style=thumb_style,
         ),
         rx.cond(
             event["frame_path"] != "",
             rx.image(
                 src=full_url + "&w=80",
-                on_click=AIState.casus_show_image(full_url),
+                on_click=AIState.casus_show_image_at(index),
                 style=thumb_style,
             ),
             rx.box(
@@ -231,8 +231,9 @@ def _tag_controls(event: rx.Var) -> rx.Component:
     )
 
 
-def _event_row(event: rx.Var) -> rx.Component:
-    """Eine Zeile in der Casus-Tabelle."""
+def _event_row(event: rx.Var, index: rx.Var) -> rx.Component:
+    """Eine Zeile in der Casus-Tabelle. ``index`` = Position in
+    casus_events, fürs Bild-Modal/Slideshow."""
     return rx.hstack(
         # Datum + Zeit gestapelt — im Casus ist genug Platz für beides,
         # und ohne Datum sind chronologische Sprünge schwer einzuordnen.
@@ -253,7 +254,7 @@ def _event_row(event: rx.Var) -> rx.Component:
             align="start",
             style={"min_width": "6em", "flex_shrink": "0"},
         ),
-        _thumb(event),
+        _thumb(event, index),
         _event_type_badge(event),
         # Cluster-Member-Badge — nur sichtbar im Cluster-Mode wenn der
         # Cluster mehr als 1 Mitglied hat. Reflex Var[Any] kann nicht
@@ -665,56 +666,77 @@ def _pagination_bar() -> rx.Component:
 
 
 def _image_overlay() -> rx.Component:
-    """Bild-Modal: zeigt den geklickten Event-Frame groß über dem Casus-
-    Modal (höherer z-index). Klick auf den Hintergrund schließt; der
-    Schließen-Button trägt ``data-modal-close``, damit ESC ihn zuerst
-    trifft (topmost). Sichtbar wenn ``casus_image_url`` gesetzt ist."""
+    """Bild-Modal mit Slideshow: zeigt den Event-Frame groß über dem Casus-
+    Modal. Pfeil-Buttons (und Pfeiltasten via data-image-nav in custom.js)
+    blättern vor/zurück durch die Events. Backdrop-Klick + X schließen;
+    der X-Button trägt ``data-modal-close`` für ESC."""
     return rx.cond(
-        AIState.casus_image_url != "",
+        AIState.casus_image_open,
         rx.box(
             # Backdrop — Klick schließt
             rx.box(
-                position="absolute",
-                top="0",
-                left="0",
-                width="100%",
-                height="100%",
-                background_color="rgba(0, 0, 0, 0.8)",
+                position="absolute", top="0", left="0",
+                width="100%", height="100%",
+                background_color="rgba(0, 0, 0, 0.85)",
                 on_click=AIState.casus_close_image,
             ),
-            # Bild + Schließen-Button, zentriert. Klick aufs Bild schließt
-            # NICHT (eigener Container über dem Backdrop).
-            rx.box(
-                rx.image(
-                    src=AIState.casus_image_url,
-                    style={
-                        "max_width": "92vw",
-                        "max_height": "88vh",
-                        "object_fit": "contain",
-                        "border_radius": "8px",
-                        "border": "1px solid var(--gray-6)",
-                        "box_shadow": "0 20px 60px rgba(0,0,0,0.6)",
-                    },
+            # Pfeil ◂ · Bild · Pfeil ▸ — zentriert. Klick aufs Bild schließt
+            # NICHT (eigene Container über dem Backdrop).
+            rx.hstack(
+                rx.icon_button(
+                    rx.icon("chevron-left", size=30),
+                    on_click=AIState.casus_image_prev,
+                    size="3", variant="soft", color_scheme="gray",
+                    custom_attrs={"data-image-nav": "prev"},
+                    style={"flex_shrink": "0", "opacity": "0.85"},
+                ),
+                rx.box(
+                    rx.image(
+                        src=AIState.casus_image_src,
+                        style={
+                            "max_width": "80vw",
+                            "max_height": "82vh",
+                            "object_fit": "contain",
+                            "border_radius": "8px",
+                            "border": "1px solid var(--gray-6)",
+                            "box_shadow": "0 20px 60px rgba(0,0,0,0.6)",
+                            "display": "block",
+                        },
+                    ),
+                    rx.icon_button(
+                        rx.icon("x", size=18),
+                        on_click=AIState.casus_close_image,
+                        size="2", variant="solid", color_scheme="gray",
+                        custom_attrs={"data-modal-close": "true"},
+                        style={"position": "absolute", "top": "-14px", "right": "-14px"},
+                    ),
+                    rx.badge(
+                        AIState.casus_image_counter,
+                        color_scheme="gray", variant="solid",
+                        style={
+                            "position": "absolute", "bottom": "8px",
+                            "left": "50%", "transform": "translateX(-50%)",
+                            "opacity": "0.9",
+                        },
+                    ),
+                    position="relative",
+                    style={"flex_shrink": "1", "min_width": "0"},
                 ),
                 rx.icon_button(
-                    rx.icon("x", size=18),
-                    on_click=AIState.casus_close_image,
-                    size="2",
-                    variant="solid",
-                    color_scheme="gray",
-                    custom_attrs={"data-modal-close": "true"},
-                    style={"position": "absolute", "top": "-14px", "right": "-14px"},
+                    rx.icon("chevron-right", size=30),
+                    on_click=AIState.casus_image_next,
+                    size="3", variant="soft", color_scheme="gray",
+                    custom_attrs={"data-image-nav": "next"},
+                    style={"flex_shrink": "0", "opacity": "0.85"},
                 ),
+                spacing="3",
+                align="center",
                 position="absolute",
-                top="50%",
-                left="50%",
+                top="50%", left="50%",
                 transform="translate(-50%, -50%)",
             ),
-            position="fixed",
-            top="0",
-            left="0",
-            width="100vw",
-            height="100vh",
+            position="fixed", top="0", left="0",
+            width="100vw", height="100vh",
             z_index="10001",
         ),
     )
