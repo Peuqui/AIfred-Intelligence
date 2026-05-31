@@ -259,7 +259,8 @@
 
   brushEl.addEventListener("input", () => { brushValEl.textContent = brushEl.value; });
   // Aktiv-Toggle: speichert sofort → Live-Reload, schnelle Gegenprobe.
-  activeEl.addEventListener("change", () => { save(); });
+  // measureMotion neu: inaktive Maske misst über die volle Fläche.
+  activeEl.addEventListener("change", () => { save(); measureMotion(); });
   gridEl.addEventListener("change", () => {
     cols = parseInt(gridEl.value, 10);
     recomputeRows();
@@ -401,7 +402,11 @@
       octx.drawImage(live, 0, 0, W, H);
       px = octx.getImageData(0, 0, W, H).data;
     } catch (e) { return; }  // Frame noch nicht bereit — nächster Tick
-    const roi = hasRoi();
+    // Inaktive Maske (Häkchen aus) misst über die volle Fläche — exakt wie
+    // der Watcher, der eine deaktivierte Maske komplett ignoriert. Sonst
+    // zeigte der Editor mit ausgehaktem Häkchen einen zu niedrigen Wert.
+    const maskActive = activeEl.checked;
+    const roi = maskActive && hasRoi();
     const cw = W / cols, ch = H / rows;
     const STEP = 2;  // jedes 2. Pixel — viertelt die Arbeit, Ratio bleibt gleich
     let observed = 0, moving = 0;
@@ -410,7 +415,7 @@
       if (!row) continue;
       for (let x = 0; x < W; x += STEP) {
         const v = row[Math.floor(x / cw)] || 0;
-        const keep = roi ? (v === 3) : (v === 0);
+        const keep = !maskActive || (roi ? (v === 3) : (v === 0));
         if (!keep) continue;
         observed++;
         const i = (y * W + x) * 4;
