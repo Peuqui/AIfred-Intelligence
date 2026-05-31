@@ -68,6 +68,7 @@ def _person_cell(event: rx.Var) -> rx.Component:
     """Namen-Zelle: bei zugeordnetem Face den Namen, sonst Confidence-
     Band oder „—". Wenn eine VLM-Beschreibung vorliegt, wird sie als
     zweite Zeile dezenter angehängt."""
+    desc_base = {"font_style": "italic", "cursor": "pointer"}
     return rx.vstack(
         rx.cond(
             event["face_name"] != "",
@@ -75,23 +76,42 @@ def _person_cell(event: rx.Var) -> rx.Component:
             rx.cond(
                 event["matched_name"] != "",
                 rx.text(event["matched_name"], size="2", color="gray", style={"font_style": "italic"}),
-                rx.text("—", size="2", color="gray"),
+                # Kein "—"-Platzhalter mehr: bei Motion-Events ohne Person
+                # bleibt die Zeile leer, die Beschreibung rückt nach oben.
+                rx.fragment(),
             ),
         ),
+        # VLM-Beschreibung: per Default auf 2 Zeilen geklemmt; Klick toggelt
+        # den Volltext (white-space:pre-wrap, keine Klemmung) — so kann man
+        # längere VLM-Analysen in der Liste vollständig lesen.
         rx.cond(
             event["description"] != "",
-            rx.text(
-                event["description"],
-                size="1",
-                color="gray",
-                style={
-                    "font_style": "italic",
-                    "overflow": "hidden",
-                    "text_overflow": "ellipsis",
-                    "display": "-webkit-box",
-                    "-webkit-line-clamp": "2",
-                    "-webkit-box-orient": "vertical",
-                },
+            rx.tooltip(
+                rx.cond(
+                    AIState.casus_expanded_event_id == event["id"],
+                    rx.text(
+                        event["description"],
+                        size="1",
+                        color="gray",
+                        on_click=AIState.casus_toggle_expand(event["id"]),
+                        style={**desc_base, "white_space": "pre-wrap"},
+                    ),
+                    rx.text(
+                        event["description"],
+                        size="1",
+                        color="gray",
+                        on_click=AIState.casus_toggle_expand(event["id"]),
+                        style={
+                            **desc_base,
+                            "overflow": "hidden",
+                            "text_overflow": "ellipsis",
+                            "display": "-webkit-box",
+                            "-webkit-line-clamp": "2",
+                            "-webkit-box-orient": "vertical",
+                        },
+                    ),
+                ),
+                content=t("casus_expand_hint"),
             ),
         ),
         spacing="0",
