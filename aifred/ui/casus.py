@@ -33,33 +33,50 @@ def _event_type_badge(event: rx.Var) -> rx.Component:
 
 
 def _thumb(event: rx.Var) -> rx.Component:
-    """Crop- oder Frame-Vorschau (40×40). Fallback: Icon."""
+    """Vorschaubild (40×40), klickbar → Bild-Modal mit dem Vollbild.
+
+    Face-Events zeigen den Gesichts-Crop, reine Motion-Events ein
+    verkleinertes Vollbild über den /api/vision/frame-Endpoint (w=80).
+    Klick öffnet jeweils das Vollbild groß. Nur wenn weder Crop noch
+    Frame existieren, bleibt das Activity-Icon (kein klickbares Bild)."""
+    full_url = "/api/vision/frame?id=" + event["id"].to(str)
+    thumb_style = {
+        "width": "40px",
+        "height": "40px",
+        "border_radius": "4px",
+        "object_fit": "cover",
+        "flex_shrink": "0",
+        "border": "1px solid var(--gray-7)",
+        "cursor": "pointer",
+    }
     return rx.cond(
         event["crop_url"] != "",
         rx.image(
             src=event["crop_url"],
-            style={
-                "width": "40px",
-                "height": "40px",
-                "border_radius": "4px",
-                "object_fit": "cover",
-                "flex_shrink": "0",
-                "border": "1px solid var(--gray-7)",
-            },
+            on_click=AIState.casus_show_image(full_url),
+            style=thumb_style,
         ),
-        rx.box(
-            rx.icon("activity", size=18, color="gray"),
-            style={
-                "width": "40px",
-                "height": "40px",
-                "border_radius": "4px",
-                "background_color": "var(--gray-3)",
-                "border": "1px solid var(--gray-7)",
-                "display": "flex",
-                "align_items": "center",
-                "justify_content": "center",
-                "flex_shrink": "0",
-            },
+        rx.cond(
+            event["frame_path"] != "",
+            rx.image(
+                src=full_url + "&w=80",
+                on_click=AIState.casus_show_image(full_url),
+                style=thumb_style,
+            ),
+            rx.box(
+                rx.icon("activity", size=18, color="gray"),
+                style={
+                    "width": "40px",
+                    "height": "40px",
+                    "border_radius": "4px",
+                    "background_color": "var(--gray-3)",
+                    "border": "1px solid var(--gray-7)",
+                    "display": "flex",
+                    "align_items": "center",
+                    "justify_content": "center",
+                    "flex_shrink": "0",
+                },
+            ),
         ),
     )
 
@@ -647,6 +664,62 @@ def _pagination_bar() -> rx.Component:
     )
 
 
+def _image_overlay() -> rx.Component:
+    """Bild-Modal: zeigt den geklickten Event-Frame groß über dem Casus-
+    Modal (höherer z-index). Klick auf den Hintergrund schließt; der
+    Schließen-Button trägt ``data-modal-close``, damit ESC ihn zuerst
+    trifft (topmost). Sichtbar wenn ``casus_image_url`` gesetzt ist."""
+    return rx.cond(
+        AIState.casus_image_url != "",
+        rx.box(
+            # Backdrop — Klick schließt
+            rx.box(
+                position="absolute",
+                top="0",
+                left="0",
+                width="100%",
+                height="100%",
+                background_color="rgba(0, 0, 0, 0.8)",
+                on_click=AIState.casus_close_image,
+            ),
+            # Bild + Schließen-Button, zentriert. Klick aufs Bild schließt
+            # NICHT (eigener Container über dem Backdrop).
+            rx.box(
+                rx.image(
+                    src=AIState.casus_image_url,
+                    style={
+                        "max_width": "92vw",
+                        "max_height": "88vh",
+                        "object_fit": "contain",
+                        "border_radius": "8px",
+                        "border": "1px solid var(--gray-6)",
+                        "box_shadow": "0 20px 60px rgba(0,0,0,0.6)",
+                    },
+                ),
+                rx.icon_button(
+                    rx.icon("x", size=18),
+                    on_click=AIState.casus_close_image,
+                    size="2",
+                    variant="solid",
+                    color_scheme="gray",
+                    custom_attrs={"data-modal-close": "true"},
+                    style={"position": "absolute", "top": "-14px", "right": "-14px"},
+                ),
+                position="absolute",
+                top="50%",
+                left="50%",
+                transform="translate(-50%, -50%)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index="10001",
+        ),
+    )
+
+
 def casus_modal() -> rx.Component:
     """Casus-Modal: chronologische Ereignisliste mit Filter + Aktionen.
     Global gemountet in aifred.py, sichtbar wenn
@@ -786,6 +859,7 @@ def casus_modal() -> rx.Component:
                 overflow_y="auto",
                 box_shadow="0 20px 60px rgba(0,0,0,0.5)",
             ),
+            _image_overlay(),
             position="fixed",
             top="0",
             left="0",

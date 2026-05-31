@@ -67,6 +67,8 @@ class CasusMixin(rx.State, mixin=True):
     # Volltext-Expand pro Zeile: event_id der Zeile, deren VLM-Beschreibung
     # ausgeklappt ist (0 = alle geklemmt). Klick auf den Text toggelt.
     casus_expanded_event_id: int = 0
+    # Bild-Modal: URL des aktuell groß angezeigten Frames ("" = zu).
+    casus_image_url: str = ""
     # Bulk-Worker-State — alle Events ohne description durch das VLM
     # schicken, dedupliziert via pHash-Cluster (Story 3).
     casus_bulk_running: bool = False
@@ -427,6 +429,16 @@ class CasusMixin(rx.State, mixin=True):
         """Volltext einer VLM-Beschreibung aus-/einklappen (Klick auf den Text)."""
         eid = int(event_id)
         self.casus_expanded_event_id = 0 if self.casus_expanded_event_id == eid else eid
+
+    @rx.event
+    def casus_show_image(self, url: str) -> None:
+        """Event-Frame im Bild-Modal groß anzeigen (Klick aufs Thumbnail)."""
+        self.casus_image_url = url
+
+    @rx.event
+    def casus_close_image(self) -> None:
+        """Bild-Modal schließen."""
+        self.casus_image_url = ""
 
     @rx.event
     def casus_start_tag(self, event_id: int) -> None:
