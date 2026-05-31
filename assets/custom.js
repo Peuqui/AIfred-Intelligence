@@ -2393,10 +2393,10 @@ document.addEventListener('keydown', function (e) {
 });
 
 // Arrow-key navigation for the Casus image slideshow. When the image modal
-// is open, its prev/next buttons carry data-image-nav="prev"/"next".
-// ArrowLeft/ArrowRight click the matching visible button (fires the Reflex
-// event). No-op when the modal is closed (buttons absent), so arrow keys
-// keep their normal behaviour elsewhere.
+// is open, its buttons carry data-image-nav="older"/"newer" (timeline:
+// left = older/past, right = newer/future). ArrowLeft/ArrowRight click the
+// matching visible button (fires the Reflex event). No-op when the modal is
+// closed (buttons absent), so arrow keys keep their normal behaviour elsewhere.
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     // Timeline-Konvention: links = Vergangenheit (älter), rechts = Zukunft (neuer).
