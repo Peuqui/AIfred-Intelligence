@@ -2402,7 +2402,11 @@ document.addEventListener('keydown', function (e) {
     // Timeline-Konvention: links = Vergangenheit (älter), rechts = Zukunft (neuer).
     const dir = (e.key === 'ArrowLeft') ? 'older' : 'newer';
     const btn = document.querySelector('[data-image-nav="' + dir + '"]');
-    if (btn && btn.offsetParent !== null) {
+    // getClientRects() statt offsetParent: das Bild-Overlay ist position:fixed,
+    // und offsetParent liefert für (Kinder in) fixed-Kontexten je nach Browser
+    // null trotz Sichtbarkeit — dann hätte der Klick nie gefeuert. getClientRects
+    // ist leer nur bei display:none / nicht gemountet (Modal zu) und sonst gefüllt.
+    if (btn && btn.getClientRects().length > 0) {
         btn.click();
         e.preventDefault();
     }
