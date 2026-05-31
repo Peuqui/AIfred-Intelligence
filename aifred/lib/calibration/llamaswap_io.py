@@ -820,9 +820,15 @@ def add_llamaswap_vlm_variant(
     cuda_visible_devices: str = "",
     source_model_id: str | None = None,
     tts_backend: str | None = None,
+    speed: bool = False,
 ) -> bool:
     """Create the ``<model>-vlm-<key>`` (or
     ``<model>-tts-<backend>-vlm-<key>``) entry in llama-swap YAML.
+
+    With ``speed=True`` the target id gains a trailing ``-speed`` (i.e.
+    ``<model>-vlm-<key>-speed`` / ``<model>-tts-<backend>-vlm-<key>-speed``)
+    — the fewer-GPU Speed flavour of the VLM variant, picked by the
+    resolver when the user has both Speed and VLM active.
 
     Direct sibling of :func:`add_llamaswap_tts_variant` — same copy / set /
     insert / group-add sequence, only the target id and the source id
@@ -841,6 +847,8 @@ def add_llamaswap_vlm_variant(
         target_id = f"{model_id}-tts-{tts_backend}-vlm-{vlm_key}"
     else:
         target_id = f"{model_id}-vlm-{vlm_key}"
+    if speed:
+        target_id += "-speed"
     src_id = source_model_id or model_id
     entry = _copy_entry(config, src_id, target_id)
     if entry is None:
@@ -884,10 +892,11 @@ def add_llamaswap_vlm_variant(
 def remove_llamaswap_vlm_variant(
     config_path: Path, model_id: str, vlm_key: str,
     tts_backend: str | None = None,
+    speed: bool = False,
 ) -> bool:
     """Remove a VLM variant from llama-swap YAML — mirror of
     :func:`remove_llamaswap_tts_variant`. Removes both the model entry
-    and the group membership."""
+    and the group membership. ``speed=True`` targets the ``-speed`` flavour."""
     if not config_path.exists():
         return False
     config = _read_yaml(config_path)
@@ -895,6 +904,8 @@ def remove_llamaswap_vlm_variant(
         target_id = f"{model_id}-tts-{tts_backend}-vlm-{vlm_key}"
     else:
         target_id = f"{model_id}-vlm-{vlm_key}"
+    if speed:
+        target_id += "-speed"
     removed = False
     models = config.get("models") or {}
     if target_id in models:

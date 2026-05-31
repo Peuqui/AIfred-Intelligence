@@ -633,6 +633,139 @@ class CalibrationMixin(rx.State, mixin=True):
     # llama.cpp calibration
     # ------------------------------------------------------------------
 
+    async def _calibrate_vlm_speed_flavour(
+        self, *,
+        model_id: str,
+        vlm_key: str,
+        vlm_label: str,
+        vlm_u: str,
+        vlm_mb: int,
+        tts_uuid: "str | None",
+        tts_reserve_mb: int,
+        tts_backend: "str | None",
+        gguf_path: "Path",
+        full_cmd: str,
+        speed_split: "tuple[float, ...]",
+        speed_ctx: int,
+        speed_kv: str,
+        env: "dict[str, str] | None",
+        known_thinking: "bool | None",
+    ):
+        """Re-project a VLM (or VLM×TTS) variant onto the fewer-GPU base-speed
+        subset — the Speed flavour of the VLM variant.
+
+        ``speed_split`` is the full-length base-speed tensor split (0s on idle
+        slots), so ``calibrate_tts_variant_from_base`` restricts the active set
+        to exactly the speed GPUs while still subtracting the VLM (and optional
+        TTS) reserve. Async generator yielding progress ticks. Safe no-op when
+        no smaller config fits: nothing is written and the resolver degrades to
+        the non-speed VLM variant. ``tts_backend`` None →
+        ``<base>-vlm-<key>-speed``; set → ``<base>-tts-<engine>-vlm-<key>-speed``.
+        """
+        from ..lib.calibration import (
+            calibrate_tts_variant_from_base,
+            add_llamaswap_vlm_variant,
+        )
+        from ..lib.config import LLAMASWAP_CONFIG_PATH, LLAMACPP_CALIBRATION_PORT
+        from ..lib.formatting import format_number
+
+        combo = f" × {tts_backend}" if tts_backend else ""
+        self.add_debug(f"   ⚡ {vlm_label}{combo} speed flavour...")  # type: ignore[attr-defined]
+        yield
+
+        vs_ok = False
+        vs_ctx = 0
+        vs_kv = speed_kv
+        vs_split = ""
+        vs_num_gpus = 0
+        async for msg in calibrate_tts_variant_from_base(
+            model_id=model_id,
+            gguf_path=gguf_path,
+            full_cmd=full_cmd,
+            base_split=speed_split,
+            base_ctx=speed_ctx,
+            base_kv=speed_kv,
+            tts_gpu_uuid=tts_uuid,
+            port=LLAMACPP_CALIBRATION_PORT,
+            env=env,
+            known_thinking=known_thinking,
+            tts_gpu_extra_reserve_mb=tts_reserve_mb,
+            vlm_gpu_uuid=vlm_u,
+            vlm_gpu_extra_reserve_mb=vlm_mb,
+        ):
+            if msg.startswith("__RESULT__:"):
+                r = _parse_calibration_result(msg)
+                if r["ctx"] > 0:
+                    vs_ok = True
+                    vs_ctx = r["ctx"]
+                    vs_kv = r["kv"]
+                    vs_split = r["tensor_split"]
+                    vs_num_gpus = r["num_gpus"]
+            else:
+                self.add_debug(f"   {_calib_line(msg)}")  # type: ignore[attr-defined]
+                yield
+
+        suffix = (
+            f"-tts-{tts_backend}-vlm-{vlm_key}-speed"
+            if tts_backend else f"-vlm-{vlm_key}-speed"
+        )
+        if not vs_ok:
+            self.add_debug(  # type: ignore[attr-defined]
+                f"   ⏭️ {vlm_label}{combo} speed flavour skipped (no smaller fit)"
+            )
+            # Drop a stale speed flavour from an earlier run so the resolver
+            # never picks an outdated -speed profile that no longer fits.
+            from ..lib.calibration import remove_llamaswap_vlm_variant
+            from ..lib.model_vram_cache import remove_model_from_cache
+            if remove_llamaswap_vlm_variant(
+                LLAMASWAP_CONFIG_PATH, model_id, vlm_key,
+                tts_backend=tts_backend, speed=True,
+            ):
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"   🧹 Removed stale {vlm_label}{combo} speed profile"
+                )
+            remove_model_from_cache(f"{model_id}{suffix}")
+            yield
+            return
+
+        if add_llamaswap_vlm_variant(
+            LLAMASWAP_CONFIG_PATH,
+            model_id,
+            vs_ctx,
+            vlm_key,
+            kv_quant=vs_kv,
+            tensor_split=vs_split,
+            num_gpus=vs_num_gpus,
+            tts_backend=tts_backend,
+            speed=True,
+        ):
+            self.add_debug(  # type: ignore[attr-defined]
+                f"   ✅ {vlm_label}{combo} speed variant: {model_id}{suffix} "
+                f"(ctx {format_number(vs_ctx)}, split {vs_split})"
+            )
+            from ..lib.model_vram_cache import (
+                add_llamacpp_calibration as _alc,
+                load_cache as _lc,
+            )
+            _meta = _lc().get(model_id, {})
+            _alc(
+                model_id=f"{model_id}{suffix}",
+                max_context=vs_ctx,
+                native_context=int(_meta.get("native_context", vs_ctx)),
+                gguf_path=str(_meta.get("gguf_path", "")),
+                quantization=str(_meta.get("quantization", "")),
+                gpu_model=str(_meta.get("gpu_model", "")),
+                model_size_gb=float(_meta.get("model_size_gb", 0.0)),
+                ngl=99,
+                mode="gpu",
+                speed_split=0,
+            )
+        else:
+            self.add_debug(  # type: ignore[attr-defined]
+                f"   ⚠️ Could not write {vlm_label}{combo} speed variant"
+            )
+        yield
+
     async def _calibrate_llamacpp(self):
         """
         llama.cpp calibration via direct llama-server binary search.
@@ -1815,6 +1948,22 @@ class CalibrationMixin(rx.State, mixin=True):
                     if _all_gpus_v else None
                 )
                 _known_thinking_v = supports_thinking if thinking_tested else None
+                # Speed flavour of the VLM variants: re-project onto the
+                # base-speed GPU subset (fewer GPUs) with the VLM reserve.
+                # base_split with 0s on idle slots restricts
+                # calibrate_tts_variant_from_base to exactly those GPUs
+                # (see flow.py: active = [i for i,l in base_split if l>0]).
+                _speed_ts_parts = (
+                    [float(x) for x in speed_layer_split.split(":")]
+                    if speed_layer_split else []
+                )
+                _speed_split_v = tuple(
+                    _speed_ts_parts[i] if i < len(_speed_ts_parts) else 0.0
+                    for i in range(len(_all_gpus_v))
+                )
+                _has_speed_base = (
+                    speed_split_cuda0 > 0 and any(s > 0 for s in _speed_split_v)
+                )
 
             # Step 5b: VLM-only variants — one ticked cell in the
             # "no TTS" column per VLM choice.
@@ -1966,6 +2115,31 @@ class CalibrationMixin(rx.State, mixin=True):
                             f"Probe sequence for {vlm_label} variant could not "
                             f"find a fitting config",
                         )
+
+                    # ⚡ Speed flavour — re-project the VLM variant onto the
+                    # fewer-GPU base-speed subset with the same VLM reserve.
+                    # Only when the full-GPU variant succeeded AND the base
+                    # produced a speed split. Safe failure: on no-fit nothing
+                    # is written and the resolver degrades to -vlm-<key>.
+                    if _vlm_ok and _has_speed_base:
+                        async for _ in self._calibrate_vlm_speed_flavour(
+                            model_id=calibration_model_id,
+                            vlm_key=vlm_key,
+                            vlm_label=vlm_label,
+                            vlm_u=_vlm_u,
+                            vlm_mb=_vlm_mb,
+                            tts_uuid=None,
+                            tts_reserve_mb=0,
+                            tts_backend=None,
+                            gguf_path=_gguf_path_v,
+                            full_cmd=_full_cmd_v,
+                            speed_split=_speed_split_v,
+                            speed_ctx=int(speed_split_context),
+                            speed_kv=speed_kv_quant,
+                            env=_approx_env_v,
+                            known_thinking=_known_thinking_v,
+                        ):
+                            yield
                     yield
 
             # Persist Step-5b (VLM-only) progress.
@@ -2205,6 +2379,28 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"Probe sequence for {tts_label_c}+{vlm_label_c} "
                                 f"combo could not find a fitting config",
                             )
+
+                        # ⚡ Speed flavour of the TTS×VLM combo — re-project
+                        # onto the base-speed subset with BOTH reserves.
+                        if _c_ok and _has_speed_base:
+                            async for _ in self._calibrate_vlm_speed_flavour(
+                                model_id=calibration_model_id,
+                                vlm_key=vlm_key_c,
+                                vlm_label=vlm_label_c,
+                                vlm_u=_vu,
+                                vlm_mb=_vmb,
+                                tts_uuid=_tts_uuid_c,
+                                tts_reserve_mb=tts_reserve_c,
+                                tts_backend=tts_backend_c,
+                                gguf_path=_gguf_path_v,
+                                full_cmd=_full_cmd_v,
+                                speed_split=_speed_split_v,
+                                speed_ctx=int(speed_split_context),
+                                speed_kv=speed_kv_quant,
+                                env=_approx_env_v,
+                                known_thinking=_known_thinking_v,
+                            ):
+                                yield
                         yield
 
             # Persist Step-5c (Combo) progress.
