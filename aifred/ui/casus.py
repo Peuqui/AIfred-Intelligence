@@ -569,6 +569,16 @@ def _filter_bar() -> rx.Component:
             on_change=AIState.casus_set_filter_face,
         ),
         rx.spacer(),
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("refresh-cw", size=14),
+                on_click=AIState.casus_refresh,
+                size="1",
+                variant="soft",
+                color_scheme="gray",
+            ),
+            content=t("casus_refresh"),
+        ),
         # Cluster-Mode-Toggle — eine Zeile pro pHash-Cluster statt aller
         # Events einzeln. Nützlich nach Bulk-Analyse, wenn man die
         # 1000 identischen „Person am Schreibtisch"-Events bündeln will.

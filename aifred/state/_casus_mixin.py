@@ -476,6 +476,14 @@ class CasusMixin(rx.State, mixin=True):
         self.casus_image_index = -1
 
     @rx.event
+    def casus_refresh(self) -> None:
+        """Ereignisliste manuell neu laden (Aktualisieren-Button). Bewusst
+        manuell statt Auto-Refresh: Casus ist Verwaltungs-Ansicht (filtern/
+        taggen/löschen) — eine sich selbst aktualisierende Liste würde
+        Scroll/Tagging stören. Der Live-Strom läuft im Vigilantia-Popover."""
+        self._refresh_events()
+
+    @rx.event
     def casus_start_tag(self, event_id: int) -> None:
         """Tag-Dropdown für eine Zeile öffnen."""
         self.casus_tag_event_id = int(event_id)
