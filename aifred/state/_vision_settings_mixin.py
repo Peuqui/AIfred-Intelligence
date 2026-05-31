@@ -79,6 +79,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # ``motion_min_area_ratio``. Wird beim Modal-Open befüllt aus
     # vision_store + frame_sources.
     vigilantia_sources: list[dict[str, Any]] = []
+    # Live-Anzeige des Motion-Slider-Werts WÄHREND des Ziehens (vor dem
+    # Commit): _sid = welche Quelle gezogen wird, _display = formatierter
+    # Prozentwert. Persistiert wird erst beim Loslassen (on_value_commit).
+    motion_slider_sid: str = ""
+    motion_slider_display: str = ""
     # Ob das aktuell konfigurierte VLM-Modell im Ollama-VRAM liegt.
     # Wird beim Page-Load + nach jedem Load/Unload-Toggle frisch von
     # Ollama abgefragt — keine Annahme, dass der State stimmt, wenn
@@ -226,6 +231,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         try:
             from ..lib.frame_sources import list_all
             from ..lib.vision_store import VisionStore
+            from ..lib.formatting import format_number
             store = VisionStore()
             cams: list[dict[str, Any]] = []
             for src in list_all():
@@ -249,6 +255,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "available": bool(info.available),
                     "auto_start": bool(stored.get("auto_start", False)),
                     "motion_min_area_ratio": mma_val,
+                    "motion_min_pct_display": format_number(mma_val * 100, 1),
                     "resolution": str(s.get("resolution") or "default"),
                 })
             self.vigilantia_sources = cams
@@ -340,11 +347,20 @@ class VisionSettingsMixin(rx.State, mixin=True):
             logger.warning("watcher live-toggle failed for %s: %s", source_id, e)
 
     @rx.event
+    def set_motion_slider_live(self, source_id: str, pct: float) -> None:
+        """Live-Anzeige während des Slider-Ziehens (on_change) — formatiert
+        den aktuellen Wert, persistiert aber NICHT (das macht on_value_commit
+        beim Loslassen)."""
+        from ..lib.formatting import format_number
+        self.motion_slider_sid = source_id
+        self.motion_slider_display = format_number(float(pct), 1)
+
+    @rx.event
     def set_vigilantia_source_motion_min(
         self, source_id: str, value: str
     ) -> None:
-        """Pro Cam Min-Bewegung in Prozent (0,1–50). Greift beim
-        nächsten Watcher-Start."""
+        """Pro Cam Min-Bewegung in Prozent (0,1–50). Greift live im
+        laufenden Watcher (Slider), sonst beim nächsten Watcher-Start."""
         if not source_id:
             return
         try:
@@ -363,10 +379,22 @@ class VisionSettingsMixin(rx.State, mixin=True):
         except Exception as e:  # noqa: BLE001
             logger.warning("motion_min persist failed for %s: %s", source_id, e)
             return
+        from ..lib.formatting import format_number
         self.vigilantia_sources = [
-            {**c, "motion_min_area_ratio": mma} if c["id"] == source_id else c
+            {
+                **c,
+                "motion_min_area_ratio": mma,
+                "motion_min_pct_display": format_number(pct, 1),
+            }
+            if c["id"] == source_id else c
             for c in self.vigilantia_sources
         ]
+        # Live im laufenden Watcher übernehmen — kein Re-Arm nötig.
+        try:
+            from ..lib.vision_watcher import get_default_watcher
+            get_default_watcher().reload_motion_min(source_id, mma)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("motion_min live-reload failed: %s", e)
 
     @rx.event
     async def toggle_vigilantia_armed(self) -> None:
