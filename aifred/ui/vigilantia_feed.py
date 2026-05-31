@@ -178,13 +178,18 @@ def _latest_event_card(event: rx.Var) -> rx.Component:
                 ),
             ),
         ),
-        # +N Indikator wenn mehrere Events da sind
+        # +N Indikator wenn mehrere Events da sind. Tooltip stellt klar,
+        # dass es ein gleitendes 10-Minuten-Fenster ist (zählt runter, wenn
+        # es ruhig wird) — sonst irritiert das Rückwärtszählen.
         rx.cond(
             AIState.vigilantia_feed_recent_count > 1,
-            rx.badge(
-                "+" + (AIState.vigilantia_feed_recent_count - 1).to(str),
-                color_scheme="orange",
-                size="1",
+            rx.tooltip(
+                rx.badge(
+                    "+" + (AIState.vigilantia_feed_recent_count - 1).to(str),
+                    color_scheme="orange",
+                    size="1",
+                ),
+                content=t("vigilantia_badge_window_tooltip"),
             ),
         ),
         spacing="2",

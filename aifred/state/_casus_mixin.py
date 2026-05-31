@@ -64,6 +64,9 @@ class CasusMixin(rx.State, mixin=True):
     # Single-Event-VLM-Analyse: ID des Events, das gerade analysiert
     # wird (0 = nichts läuft). Lässt die Zeile einen Spinner zeigen.
     casus_analyzing_event_id: int = 0
+    # Volltext-Expand pro Zeile: event_id der Zeile, deren VLM-Beschreibung
+    # ausgeklappt ist (0 = alle geklemmt). Klick auf den Text toggelt.
+    casus_expanded_event_id: int = 0
     # Bulk-Worker-State — alle Events ohne description durch das VLM
     # schicken, dedupliziert via pHash-Cluster (Story 3).
     casus_bulk_running: bool = False
@@ -418,6 +421,12 @@ class CasusMixin(rx.State, mixin=True):
             self.casus_status = f"⚠️ {e}"
             return
         self._refresh_events()
+
+    @rx.event
+    def casus_toggle_expand(self, event_id: int) -> None:
+        """Volltext einer VLM-Beschreibung aus-/einklappen (Klick auf den Text)."""
+        eid = int(event_id)
+        self.casus_expanded_event_id = 0 if self.casus_expanded_event_id == eid else eid
 
     @rx.event
     def casus_start_tag(self, event_id: int) -> None:
