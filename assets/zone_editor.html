@@ -32,6 +32,22 @@
   #status { margin-top:10px; font-size:13px; min-height:18px; }
   #status.ok { color:#4caf50; } #status.err { color:#ff6b6b; }
   kbd { background:#23272f; border:1px solid var(--border); border-radius:3px; padding:1px 5px; font-size:11px; }
+  #help-btn { background:none; border:none; cursor:pointer; padding:4px; margin-left:auto; line-height:0; }
+  #help-btn svg { transition:transform 0.15s ease; }
+  #help-btn:hover svg { transform:scale(1.15); }
+  #help-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:none; align-items:center; justify-content:center; z-index:50; }
+  #help-overlay.open { display:flex; }
+  #help-box { background:var(--panel); border:1px solid var(--border); border-radius:10px; max-width:560px; width:92%; max-height:88vh; overflow:auto; padding:18px 20px; }
+  .help-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .help-head .t { color:var(--accent); font-weight:600; font-size:15px; flex:1; }
+  #help-close { background:none; border:none; color:var(--muted); font-size:24px; cursor:pointer; line-height:1; }
+  #help-box p { font-size:13px; color:var(--text); line-height:1.5; margin:8px 0; }
+  .help-row { display:flex; gap:10px; align-items:flex-start; margin:10px 0; font-size:13px; line-height:1.45; }
+  .sw { width:16px; height:16px; border-radius:3px; flex-shrink:0; margin-top:2px; border:1px solid var(--border); }
+  .sw.red { background:rgba(255,80,80,0.7); }
+  .sw.black { background:rgba(0,0,0,0.85); }
+  .sw.green { background:rgba(0,220,90,0.7); }
+  .help-row b { color:var(--text); }
 </style>
 </head>
 <body>
@@ -48,6 +64,7 @@
       <label><input type="radio" name="brush" value="3"> <span data-i18n="zone_editor_mode_roi"></span></label>
     </div>
     <label><input type="checkbox" id="active" checked> <span data-i18n="zone_editor_active"></span></label>
+    <button id="help-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFA500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg></button>
     <label><span data-i18n="zone_editor_brush"></span> <input type="range" id="brush" min="1" max="10" value="3"> <span id="brushVal">3</span></label>
     <label><span data-i18n="zone_editor_grid"></span> <input type="range" id="grid" min="16" max="96" step="8" value="48"> <span id="gridVal"></span></label>
     <button id="reload" data-i18n="zone_editor_reload"></button>
@@ -60,6 +77,19 @@
     <canvas id="cv" width="900" height="506"></canvas>
   </div>
   <div id="status"></div>
+</div>
+<div id="help-overlay">
+  <div id="help-box">
+    <div class="help-head">
+      <span class="t" data-i18n="zone_editor_help_title"></span>
+      <button id="help-close">×</button>
+    </div>
+    <p data-i18n="zone_editor_help_intro"></p>
+    <div class="help-row"><span class="sw red"></span><div><b data-i18n="zone_editor_mode_motion"></b> — <span data-i18n="zone_editor_help_red"></span></div></div>
+    <div class="help-row"><span class="sw black"></span><div><b data-i18n="zone_editor_mode_blackout"></b> — <span data-i18n="zone_editor_help_black"></span></div></div>
+    <div class="help-row"><span class="sw green"></span><div><b data-i18n="zone_editor_mode_roi"></b> — <span data-i18n="zone_editor_help_green"></span></div></div>
+    <p data-i18n="zone_editor_help_controls"></p>
+  </div>
 </div>
 <script>
 (function () {
@@ -208,6 +238,15 @@
   });
   document.getElementById("reload").addEventListener("click", loadImage);
   document.getElementById("save").addEventListener("click", save);
+
+  // Hilfe-Overlay (Klick auf die Glühbirne) — touch-tauglich.
+  const helpOverlay = document.getElementById("help-overlay");
+  const helpBtn = document.getElementById("help-btn");
+  helpBtn.title = tr("zone_editor_help_title");
+  helpBtn.addEventListener("click", () => helpOverlay.classList.add("open"));
+  document.getElementById("help-close").addEventListener("click", () => helpOverlay.classList.remove("open"));
+  helpOverlay.addEventListener("click", (e) => { if (e.target === helpOverlay) helpOverlay.classList.remove("open"); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") helpOverlay.classList.remove("open"); });
 
   function maskToCells() {
     let s = "";
