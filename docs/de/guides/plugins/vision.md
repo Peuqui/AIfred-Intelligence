@@ -71,6 +71,33 @@ Das Plugin nutzt eine Kamera auf drei Arten:
 3. **Watch (Vigilantia scharf)** — eine kontinuierliche Hintergrundaufgabe.
    Siehe unten.
 
+## Kamera-Quellen (USB & RTSP/IP)
+
+Bildquellen sind als `FrameSource`-Plugins unter `aifred/lib/frame_sources/`
+organisiert und in einer Registry registriert. Jeder Typ bringt eine
+`discover()`-Funktion mit; `rescan()` ruft alle erneut auf (z.B. nach dem
+Einstecken einer Webcam).
+
+- **USB-Webcams** (`v4l2_source`) — werden automatisch erkannt (`/dev/video*`)
+  und ohne Konfiguration registriert.
+- **RTSP-/IP-/WLAN-Kameras** (`rtsp_source`) — werden über die `settings.json`
+  konfiguriert (Schlüssel `rtsp_cameras`), nicht auto-gescannt. Pro Eintrag:
+
+  ```json
+  "rtsp_cameras": [
+    {"name": "TrackMix", "host": "192.168.1.50", "port": 554,
+     "path": "Preview_01_sub", "cred": "trackmix"}
+  ]
+  ```
+
+  In der `settings.json` stehen **keine Zugangsdaten**. User und Passwort
+  kommen über den **CredentialBroker** (`rtsp_<cred>` → Umgebungsvariablen
+  `RTSP_<CRED>_USER` / `RTSP_<CRED>_PASSWORD` in der `.env`). Die fertige
+  `rtsp://user:pass@host:port/path`-URL wird erst beim Verbindungsaufbau lokal
+  gebaut und nie geloggt, gespeichert oder an das LLM gegeben — Konsumenten
+  sehen nur den Anzeigenamen. Ohne `cred` wird ohne Authentifizierung
+  verbunden; bei gesicherter Kamera schlägt das fail-closed fehl (kein Bild).
+
 ## Bewegungserkennung
 
 Die Bewegungserkennung nutzt OpenCVs `BackgroundSubtractorMOG2` (Mixture of
@@ -82,6 +109,56 @@ geänderter Pixel) und die Bounding-Box der größten Kontur.
 Kompressionsartefakte), und `motion_warmup_frames` ignoriert die ersten Frames,
 während sich das Hintergrundmodell stabilisiert. Reine CPU, ~5–15 ms pro Frame
 bei 640×480.
+
+Mit einer **Zonen-Maske** (siehe unten) wird die Foreground-Maske vor der
+Auswertung auf die beobachtete Zone beschränkt und der Schwellwert relativ zu
+deren Pixelzahl berechnet.
+
+## Zonen-Masken (ignorieren / schwärzen / ROI)
+
+Pro Kameraquelle lässt sich eine **Zonen-Maske** malen, die Bewegungserkennung
+und gespeicherte Bilder beeinflusst. Die Maske ist ein Raster (z.B. 48×36), pro
+Zelle vierwertig — die drei Typen lassen sich beliebig in einem Bild mischen:
+
+- **rot — Bewegung ignorieren:** Bewegung in der Zone löst keinen Trigger aus
+  (z.B. wackelnde Bäume). Das Bild bleibt unverändert sichtbar und gespeichert.
+- **schwarz — Pixel schwärzen (DSGVO):** die Pixel werden geschwärzt, bevor das
+  Bild gespeichert *und* bevor es ans VLM gegeben wird — öffentlicher Raum
+  (Straße, Nachbargrundstück) landet nie auf der Platte. Bewegung wird dort
+  ebenfalls unterdrückt.
+- **grün — Region of Interest (ROI):** sobald grüne Zellen existieren, wird
+  Bewegung **ausschließlich** dort ausgewertet, alles andere ignoriert. Grün
+  hat Vorrang vor Rot. ROI wirkt nur auf die Bewegungserkennung — das VLM
+  bekommt weiter das Vollbild minus Schwärzung (Kontext).
+
+**Schwellwert relativ zur beobachteten Fläche:** `motion_min_area_ratio` (z.B.
+2 %) bezieht sich auf die **unmaskierte** Fläche, nicht auf das Gesamtbild —
+Wegmaskieren großer Bereiche senkt also nicht die Empfindlichkeit im Rest.
+
+**Editor:** In den Vision-Settings öffnet pro Quelle der Button „Zonen-Maske
+bearbeiten" ein eigenständiges Popup-Fenster (`/api/vision/zone-editor`, reines
+Vanilla-JS/Canvas, von Reflex entkoppelt). Es zeigt das **Live-MJPEG-Bild** als
+Hintergrund; darüber malt man mit dem Pinsel (linke Maustaste malt den
+gewählten Typ, rechte radiert; Pinselgröße und Rasterfeinheit per Slider).
+Speichern schreibt die Maske nach `zone_masks[<source_id>]` der `settings.json`
+und greift **sofort im laufenden Watcher** (Live-Reload, kein Neustart nötig).
+Der Haken „Maske aktiv" ist ein Gesamt-Schalter für die schnelle Gegenprobe:
+aus = die Maske bleibt gespeichert, wirkt aber nicht.
+
+Implementierung: `aifred/lib/vision_filters/zone_mask.py` (Modell + Anwendung),
+angewandt im `MotionDetector` (Bewegung) und im `vision_watcher` (Schwärzung
+vor Speichern/VLM).
+
+## PTZ-Steuerung (ONVIF)
+
+Für schwenk-/neig-/zoombare IP-Kameras gibt es einen minimalen ONVIF-Client
+(`aifred/lib/ptz_control.py`, rohes SOAP über `requests`, keine zusätzliche
+Abhängigkeit): `continuous_move` / `stop` / `absolute_move` / `goto_preset`
+plus `nudge` und `aim_at_offset` (grobes „folge der Bounding-Box"). Auth läuft
+wie bei RTSP über den CredentialBroker; konfiguriert wird über dieselben
+`rtsp_cameras`-Einträge (`ptz: true`, optional `onvif_port`, Standard 8000).
+Stand: die Engine ist vorhanden, aber noch nicht an einen UI-/Tool-Bedienfluss
+angebunden.
 
 ## Watch-Modus (Vigilantia scharf)
 
@@ -157,8 +234,15 @@ Es liest und schreibt direkt im `VisionStore`. Dieselben Daten werden dem LLM
 über `vision_query_events` zugänglich gemacht, sodass der Assistent Fragen wie
 „Was war heute an der Tür?" oder „Wer war zuletzt da?" beantworten kann.
 
+Jede Zeile zeigt ein Vorschaubild (Gesichts-Crop oder verkleinertes Vollbild);
+ein Klick öffnet das Vollbild groß, durch das man wie in einer Slideshow per
+Pfeiltasten und Pfeil-Buttons blättert (links = älter, rechts = neuer). Ein
+Aktualisieren-Button lädt die Liste manuell neu — bewusst manuell statt
+Auto-Refresh, damit Filtern/Taggen/Scrollen nicht gestört wird (der Live-Strom
+läuft im Vigilantia-Feed).
+
 Eine Live-**Vigilantia-Feed**-Karte auf der Hauptseite zeigt die letzten N
-Events aller Quellen.
+Events aller Quellen (mit Thumbnail).
 
 ## Modell-Lifecycle
 
@@ -212,6 +296,11 @@ Neustart anpassen kann. Wichtige Gruppen:
 - **`snapshot`** — `jpeg_quality`, `save_to_disk`, `retention_days`.
 - **`events`** — Retention pro Typ (`retention_days_motion` / `_face` / `_vlm`)
   und `default_query_limit`.
+- **`rtsp_cameras`** — Liste der RTSP-/IP-Kameras (`name`, `host`, `port`,
+  `path`, `cred`, optional `ptz` / `onvif_port`). Zugangsdaten **nicht** hier,
+  sondern via CredentialBroker (`.env`).
+- **`zone_masks`** — pro Quelle die gemalte Zonen-Maske (`cols`, `rows`,
+  `cells` als Ziffern 0–3, `enabled`); wird über den Zonen-Editor geschrieben.
 
 Ollama muss erreichbar sein (Standard `http://localhost:11434`) und das
 konfigurierte VLM muss gepullt sein. InsightFace braucht installiertes
