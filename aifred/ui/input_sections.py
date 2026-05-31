@@ -783,6 +783,10 @@ def text_input_section() -> rx.Component:
 
         spacing="3",
         width="100%",
+        # Kappt den ~2px-Überstand des Hover-scale(1.02) des rechtesten
+        # Buttons ("Chat teilen") — sonst erscheint ein horizontaler
+        # Seiten-Scrollbalken.
+        overflow_x="hidden",
     )
 
 
