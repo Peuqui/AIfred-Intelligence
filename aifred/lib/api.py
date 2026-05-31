@@ -2104,10 +2104,11 @@ _VISION_SETTINGS_PATH = (
 class ZoneMaskPayload(BaseModel):
     """Speicher-Payload des Zonen-Editors."""
     source_id: str
-    mode: str = "motion"   # "off" | "motion" | "blackout"
+    mode: str = "motion"     # "motion" | "blackout"
     cols: int = 0
     rows: int = 0
-    cells: str = ""        # cols*rows Zeichen, '1' = ignorieren
+    cells: str = ""          # cols*rows Zeichen, '1' = ignorieren
+    enabled: bool = True     # Schnell-Toggle: aus = Maske bleibt, wirkt nicht
 
 
 @api_app.get("/vision/zone-mask", tags=["Vision"])
@@ -2128,6 +2129,7 @@ async def get_zone_mask(source_id: str) -> Dict[str, Any]:
         "cols": entry.get("cols", 0),
         "rows": entry.get("rows", 0),
         "cells": entry.get("cells", ""),
+        "enabled": entry.get("enabled", True),
     }
 
 
@@ -2141,7 +2143,7 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     Hinweis: Der Watcher lädt die Maske beim (Neu-)Start einer Quelle —
     eine geänderte Maske greift erst nach Re-Arm/Neustart der Quelle."""
     import json
-    if payload.mode not in ("off", "motion", "blackout"):
+    if payload.mode not in ("motion", "blackout"):
         raise HTTPException(status_code=400, detail="invalid mode")
     try:
         data = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
@@ -2150,7 +2152,8 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     masks = data.get("zone_masks")
     if not isinstance(masks, dict):
         masks = {}
-    if payload.mode == "off" or "1" not in payload.cells:
+    if "1" not in payload.cells:
+        # Nichts gemalt → Eintrag löschen.
         masks.pop(payload.source_id, None)
         msg = "zone mask cleared"
     else:
@@ -2165,8 +2168,9 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
             "cols": payload.cols,
             "rows": payload.rows,
             "cells": payload.cells,
+            "enabled": payload.enabled,
         }
-        msg = "zone mask saved"
+        msg = "zone mask saved" if payload.enabled else "zone mask saved (disabled)"
     data["zone_masks"] = masks
     _VISION_SETTINGS_PATH.write_text(
         json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -2186,13 +2190,27 @@ async def zone_editor_page() -> HTMLResponse:
     """Standalone JS-Canvas-Zonen-Editor (HTML). Über /api ausgeliefert,
     damit er unabhängig vom frontend_path-Prefix erreichbar ist; die
     source_id kommt als Query-Param (das JS liest sie aus location.search)."""
+    import json
+    from .i18n import TranslationManager, t
     editor = (
         Path(__file__).resolve().parents[2] / "assets" / "zone_editor.html"
     )
     try:
-        return HTMLResponse(editor.read_text(encoding="utf-8"))
+        html = editor.read_text(encoding="utf-8")
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"editor missing: {e}") from e
+    # Übersetzungen in der aktuellen UI-Sprache als window.T injizieren —
+    # zentral aus i18n.py, kein Duplikat im JS. Scannt alle zone_editor_*-Keys.
+    keys = [
+        k for k in TranslationManager._translations["de"]
+        if k.startswith("zone_editor_")
+    ]
+    inject = (
+        "<script>window.T="
+        + json.dumps({k: t(k) for k in keys}, ensure_ascii=False)
+        + ";</script>"
+    )
+    return HTMLResponse(html.replace("<!--I18N-->", inject))
 
 
 # ============================================================

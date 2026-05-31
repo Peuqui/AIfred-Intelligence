@@ -112,6 +112,10 @@ def load_zone_mask(source_id: str) -> ZoneMask | None:
     entry = masks.get(source_id)
     if not isinstance(entry, dict):
         return None
+    # Schnell-Toggle aus dem Editor: deaktiviert → Maske bleibt gespeichert
+    # (Zellen erhalten), wird aber nicht angewandt (Gegenprobe).
+    if not entry.get("enabled", True):
+        return None
     mode = str(entry.get("mode", "")).strip()
     if mode not in _VALID_MODES:
         return None
