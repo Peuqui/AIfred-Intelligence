@@ -2104,10 +2104,9 @@ _VISION_SETTINGS_PATH = (
 class ZoneMaskPayload(BaseModel):
     """Speicher-Payload des Zonen-Editors."""
     source_id: str
-    mode: str = "motion"     # "motion" | "blackout"
     cols: int = 0
     rows: int = 0
-    cells: str = ""          # cols*rows Zeichen, '1' = ignorieren
+    cells: str = ""          # cols*rows Ziffern aus {0,1,2,3}
     enabled: bool = True     # Schnell-Toggle: aus = Maske bleibt, wirkt nicht
 
 
@@ -2125,7 +2124,6 @@ async def get_zone_mask(source_id: str) -> Dict[str, Any]:
     return {
         "exists": True,
         "source_id": source_id,
-        "mode": entry.get("mode", "motion"),
         "cols": entry.get("cols", 0),
         "rows": entry.get("rows", 0),
         "cells": entry.get("cells", ""),
@@ -2143,8 +2141,6 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     Hinweis: Der Watcher lädt die Maske beim (Neu-)Start einer Quelle —
     eine geänderte Maske greift erst nach Re-Arm/Neustart der Quelle."""
     import json
-    if payload.mode not in ("motion", "blackout"):
-        raise HTTPException(status_code=400, detail="invalid mode")
     try:
         data = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -2152,8 +2148,9 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     masks = data.get("zone_masks")
     if not isinstance(masks, dict):
         masks = {}
-    if "1" not in payload.cells:
-        # Nichts gemalt → Eintrag löschen.
+    painted = any(ch != "0" for ch in payload.cells)
+    if not painted:
+        # Nichts gemalt (alles 0) → Eintrag löschen.
         masks.pop(payload.source_id, None)
         msg = "zone mask cleared"
     else:
@@ -2161,10 +2158,10 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
             payload.cols <= 0
             or payload.rows <= 0
             or len(payload.cells) != payload.cols * payload.rows
+            or any(ch not in "0123" for ch in payload.cells)
         ):
-            raise HTTPException(status_code=400, detail="grid dimensions mismatch")
+            raise HTTPException(status_code=400, detail="invalid grid")
         masks[payload.source_id] = {
-            "mode": payload.mode,
             "cols": payload.cols,
             "rows": payload.rows,
             "cells": payload.cells,

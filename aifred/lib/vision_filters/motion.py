@@ -102,9 +102,9 @@ class MotionDetector:
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         mask = self._bg.apply(blurred)
 
-        # Ignorier-Zonen vor jeder Auswertung ausblenden → Bewegung dort
-        # (Bäume im Wind o.ä.) zählt weder zu area_ratio noch zur bbox.
-        if self._zone_mask is not None and self._zone_mask.suppresses_motion:
+        # Zonen-Maske anwenden: Bewegung wird auf die keep-Zone beschränkt
+        # (Ignorier-/Schwärz-Zonen raus; bei vorhandener ROI nur dort).
+        if self._zone_mask is not None:
             mask = self._zone_mask.apply_to_motion(mask)
 
         self._frames_processed += 1
@@ -118,9 +118,15 @@ class MotionDetector:
             )
 
         h, w = mask.shape
-        total = float(h * w)
+        # Schwellwert relativ zur BEOBACHTETEN Fläche (keep-Pixel): maskiert
+        # man große Bereiche weg, bliebe die Empfindlichkeit im Rest sonst
+        # zu niedrig (2% vom Gesamtbild wären mehr als 2% des ROI).
+        if self._zone_mask is not None:
+            observed = float(self._zone_mask.observed_pixels(h, w))
+        else:
+            observed = float(h * w)
         foreground = float(int(np.count_nonzero(mask)))
-        area_ratio = foreground / total if total > 0 else 0.0
+        area_ratio = foreground / observed if observed > 0 else 0.0
         motion = area_ratio >= self._min_area_ratio
 
         bbox = self._largest_bbox(mask) if motion else None

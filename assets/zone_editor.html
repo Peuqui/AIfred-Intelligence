@@ -42,8 +42,9 @@
 <div class="wrap">
   <div class="controls">
     <div class="seg">
-      <label><input type="radio" name="mode" value="motion" checked> <span data-i18n="zone_editor_mode_motion"></span></label>
-      <label><input type="radio" name="mode" value="blackout"> <span data-i18n="zone_editor_mode_blackout"></span></label>
+      <label><input type="radio" name="brush" value="1" checked> <span data-i18n="zone_editor_mode_motion"></span></label>
+      <label><input type="radio" name="brush" value="2"> <span data-i18n="zone_editor_mode_blackout"></span></label>
+      <label><input type="radio" name="brush" value="3"> <span data-i18n="zone_editor_mode_roi"></span></label>
     </div>
     <label><input type="checkbox" id="active" checked> <span data-i18n="zone_editor_active"></span></label>
     <label><span data-i18n="zone_editor_brush"></span> <input type="range" id="brush" min="1" max="10" value="3"> <span id="brushVal">3</span></label>
@@ -118,9 +119,16 @@
     gridValEl.textContent = cols + "×" + rows;  // z.B. "48×27"
   }
 
-  function selectedMode() {
-    const el = document.querySelector('input[name="mode"]:checked');
-    return el ? el.value : "motion";
+  function selectedBrush() {
+    const el = document.querySelector('input[name="brush"]:checked');
+    return el ? parseInt(el.value, 10) : 1;
+  }
+
+  function colorFor(v) {
+    if (v === 1) return "rgba(255,80,80,0.45)";  // ignorieren = rot
+    if (v === 2) return "rgba(0,0,0,0.55)";       // schwärzen = fast schwarz
+    if (v === 3) return "rgba(0,220,90,0.40)";    // ROI = grün
+    return null;
   }
 
   function render() {
@@ -128,14 +136,15 @@
     // durch; wir zeichnen nur Maske + Raster.
     ctx.clearRect(0, 0, cv.width, cv.height);
     const cw = cv.width / cols, ch = cv.height / rows;
-    // Farbe spiegelt den Modus (live): rot = nur ignorieren (Pixel bleiben),
-    // dunkel = im blackout-Modus werden die Pixel geschwärzt (transparent
-    // genug, dass das Live-Bild durchscheint).
-    ctx.fillStyle = (selectedMode() === "blackout")
-      ? "rgba(0,0,0,0.55)" : "rgba(255,80,80,0.45)";
+    // Jede Zelle in der Farbe ihres Typs (rot/schwarz/grün) — transparent
+    // genug, dass das Live-Bild durchscheint.
     for (let r = 0; r < rows; r++)
-      for (let c = 0; c < cols; c++)
-        if (mask[r][c]) ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5);
+      for (let c = 0; c < cols; c++) {
+        const v = mask[r][c];
+        if (!v) continue;
+        ctx.fillStyle = colorFor(v);
+        ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5);
+      }
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -169,7 +178,7 @@
   cv.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     painting = true;
-    paintValue = (e.button === 2) ? 0 : 1;
+    paintValue = (e.button === 2) ? 0 : selectedBrush();
     cv.setPointerCapture(e.pointerId);
     const [x, y] = evtPos(e); paintAt(x, y, paintValue);
   });
@@ -182,9 +191,6 @@
   cv.addEventListener("pointercancel", endPaint);
 
   brushEl.addEventListener("input", () => { brushValEl.textContent = brushEl.value; });
-  document.querySelectorAll('input[name="mode"]').forEach(
-    (r) => r.addEventListener("change", render)
-  );
   // Aktiv-Toggle: speichert sofort → Live-Reload, schnelle Gegenprobe.
   activeEl.addEventListener("change", () => { save(); });
   gridEl.addEventListener("change", () => {
@@ -205,16 +211,15 @@
   function maskToCells() {
     let s = "";
     for (let r = 0; r < rows; r++)
-      for (let c = 0; c < cols; c++) s += mask[r][c] ? "1" : "0";
+      for (let c = 0; c < cols; c++) s += String(mask[r][c] || 0);
     return s;
   }
 
   async function save() {
     const cells = maskToCells();
-    const hasAny = cells.indexOf("1") >= 0;
+    const hasAny = /[^0]/.test(cells);
     const payload = {
       source_id: sourceId,
-      mode: selectedMode(),
       cols: cols, rows: rows, cells: cells,
       enabled: activeEl.checked,
     };
@@ -276,9 +281,10 @@
         gridEl.value = Math.min(96, Math.max(16, Math.round(cols / 8) * 8));
         newMask();
         for (let r = 0; r < rows; r++)
-          for (let c = 0; c < cols; c++)
-            mask[r][c] = d.cells[r * cols + c] === "1" ? 1 : 0;
-        if (d.mode === "blackout") document.querySelector('input[value="blackout"]').checked = true;
+          for (let c = 0; c < cols; c++) {
+            const v = parseInt(d.cells[r * cols + c], 10);
+            mask[r][c] = (v >= 1 && v <= 3) ? v : 0;
+          }
         activeEl.checked = (d.enabled !== false);
       }
     } catch (e) { /* keine bestehende Maske — egal */ }
