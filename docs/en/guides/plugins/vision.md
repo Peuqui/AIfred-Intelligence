@@ -66,6 +66,33 @@ There are three ways the plugin uses a camera:
    call is logged as a `vlm_analysis` event.
 3. **Watch (Vigilantia armed)** — a continuous background task. See below.
 
+## Camera sources (USB & RTSP/IP)
+
+Image sources are organised as `FrameSource` plugins under
+`aifred/lib/frame_sources/` and registered in a registry. Each type ships a
+`discover()` function; `rescan()` re-runs them all (e.g. after plugging in a
+webcam).
+
+- **USB webcams** (`v4l2_source`) — auto-detected (`/dev/video*`) and registered
+  without configuration.
+- **RTSP / IP / Wi-Fi cameras** (`rtsp_source`) — configured via `settings.json`
+  (key `rtsp_cameras`), not auto-scanned. Per entry:
+
+  ```json
+  "rtsp_cameras": [
+    {"name": "TrackMix", "host": "192.168.1.50", "port": 554,
+     "path": "Preview_01_sub", "cred": "trackmix"}
+  ]
+  ```
+
+  No credentials live in `settings.json`. User and password come from the
+  **CredentialBroker** (`rtsp_<cred>` → environment variables
+  `RTSP_<CRED>_USER` / `RTSP_<CRED>_PASSWORD` in `.env`). The full
+  `rtsp://user:pass@host:port/path` URL is only assembled locally at connect
+  time and never logged, stored or handed to the LLM — consumers see only the
+  display name. Without `cred` the connection is unauthenticated; on a secured
+  camera that fails closed (no image).
+
 ## Motion detection
 
 Motion detection uses OpenCV's `BackgroundSubtractorMOG2` (Mixture of
@@ -76,6 +103,54 @@ largest contour's bounding box. `motion_min_area_ratio` filters out micro-noise
 (wind in a tree, compression artefacts), and `motion_warmup_frames` ignores the
 first frames while the background model stabilises. CPU only, ~5–15 ms per frame
 at 640×480.
+
+With a **zone mask** (see below) the foreground mask is restricted to the
+observed zone before evaluation, and the threshold is computed relative to that
+zone's pixel count.
+
+## Zone masks (ignore / blackout / ROI)
+
+Each camera source can have a painted **zone mask** that affects motion
+detection and stored images. The mask is a grid (e.g. 48×36), four-valued per
+cell — the three types can be mixed freely in one image:
+
+- **red — ignore motion:** motion in the zone triggers nothing (e.g. swaying
+  trees). The image stays visible and is saved unchanged.
+- **black — black out pixels (GDPR):** pixels are blacked out before the image
+  is saved *and* before it goes to the VLM — public space (street, neighbour's
+  property) never lands on disk. Motion there is suppressed too.
+- **green — region of interest (ROI):** as soon as green cells exist, motion is
+  evaluated **only** there, everything else ignored. Green takes precedence over
+  red. ROI affects motion detection only — the VLM still gets the full frame
+  minus blackout (context).
+
+**Threshold relative to the observed area:** `motion_min_area_ratio` (e.g. 2 %)
+is relative to the **unmasked** area, not the full frame — masking large areas
+away does not lower sensitivity in the rest.
+
+**Editor:** In the vision settings a per-source button "Edit zone mask" opens a
+standalone popup window (`/api/vision/zone-editor`, plain vanilla JS/canvas,
+decoupled from Reflex). It shows the **live MJPEG image** as background; you
+paint on top with the brush (left mouse paints the selected type, right erases;
+brush size and grid resolution via sliders). Saving writes the mask to
+`zone_masks[<source_id>]` in `settings.json` and takes effect **immediately in
+the running watcher** (live reload, no restart needed). The "Mask active"
+checkbox is a master switch for a quick counter-check: off = the mask stays
+saved but has no effect.
+
+Implementation: `aifred/lib/vision_filters/zone_mask.py` (model + application),
+applied in the `MotionDetector` (motion) and the `vision_watcher` (blackout
+before save/VLM).
+
+## PTZ control (ONVIF)
+
+For pan/tilt/zoom IP cameras there is a minimal ONVIF client
+(`aifred/lib/ptz_control.py`, raw SOAP over `requests`, no extra dependency):
+`continuous_move` / `stop` / `absolute_move` / `goto_preset` plus `nudge` and
+`aim_at_offset` (coarse "follow the bounding box"). Auth goes through the
+CredentialBroker like RTSP; it is configured via the same `rtsp_cameras` entries
+(`ptz: true`, optional `onvif_port`, default 8000). Status: the engine exists
+but is not yet wired into a UI/tool flow.
 
 ## Watch mode (Vigilantia armed)
 
@@ -147,8 +222,15 @@ assign an unknown face to a person after the fact. It reads and writes the
 `vision_query_events`, so the assistant can answer questions like "what happened
 at the door today?" or "who was here last?".
 
+Each row shows a preview thumbnail (face crop or downscaled full frame); a click
+opens the full image large, which you page through like a slideshow with the
+arrow keys and arrow buttons (left = older, right = newer). A refresh button
+reloads the list manually — deliberately manual rather than auto-refresh so
+filtering/tagging/scrolling is not disturbed (the live stream lives in the
+Vigilantia feed).
+
 A live **Vigilantia feed** card on the main page shows the last N events across
-all sources.
+all sources (with thumbnail).
 
 ## Model lifecycle
 
@@ -198,6 +280,11 @@ restarting. Key groups:
 - **`snapshot`** — `jpeg_quality`, `save_to_disk`, `retention_days`.
 - **`events`** — per-type retention (`retention_days_motion` / `_face` / `_vlm`)
   and `default_query_limit`.
+- **`rtsp_cameras`** — list of RTSP/IP cameras (`name`, `host`, `port`, `path`,
+  `cred`, optional `ptz` / `onvif_port`). Credentials **not** here, but via the
+  CredentialBroker (`.env`).
+- **`zone_masks`** — per-source painted zone mask (`cols`, `rows`, `cells` as
+  digits 0–3, `enabled`); written by the zone editor.
 
 Ollama must be reachable (default `http://localhost:11434`) and the configured
 VLM must be pulled. InsightFace requires `insightface` + `onnxruntime` (GPU or
