@@ -80,6 +80,11 @@ class MotionDetector:
         # Foreground auf 0 gesetzt, bevor area_ratio/bbox berechnet werden.
         self._zone_mask = zone_mask
 
+    def set_zone_mask(self, zone_mask: "ZoneMask | None") -> None:
+        """Zonen-Maske zur Laufzeit austauschen (Live-Reload aus dem
+        Editor), ohne den Background-Subtractor zurückzusetzen."""
+        self._zone_mask = zone_mask
+
     def process(self, frame: "Frame") -> MotionResult:
         """Apply background subtraction and report motion.
 

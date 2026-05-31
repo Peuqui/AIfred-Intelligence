@@ -2171,7 +2171,28 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     _VISION_SETTINGS_PATH.write_text(
         json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    # Live in den laufenden Watcher übernehmen — greift sofort, kein
+    # Re-Arm/Neustart der Quelle nötig. No-op wenn die Quelle nicht läuft.
+    try:
+        from .vision_watcher import get_default_watcher
+        get_default_watcher().reload_zone_mask(payload.source_id)
+    except Exception as e:  # noqa: BLE001
+        log_message(f"⚠️ zone mask live-reload failed: {e}")
     return SystemActionResponse(success=True, message=msg)
+
+
+@api_app.get("/vision/zone-editor", tags=["Vision"])
+async def zone_editor_page() -> HTMLResponse:
+    """Standalone JS-Canvas-Zonen-Editor (HTML). Über /api ausgeliefert,
+    damit er unabhängig vom frontend_path-Prefix erreichbar ist; die
+    source_id kommt als Query-Param (das JS liest sie aus location.search)."""
+    editor = (
+        Path(__file__).resolve().parents[2] / "assets" / "zone_editor.html"
+    )
+    try:
+        return HTMLResponse(editor.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"editor missing: {e}") from e
 
 
 # ============================================================

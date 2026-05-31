@@ -156,6 +156,9 @@ class VisionWatcher:
         # Per-source Zonen-Maske (oder None). Im blackout-Modus werden die
         # Pixel der Zone vor Speichern/Face/VLM geschwärzt (DSGVO).
         self._zone_masks: dict[str, Any] = {}
+        # Per-source MotionDetector-Instanz — für Live-Reload der Maske
+        # (Editor-Save) ohne die Watch-Schleife neu zu starten.
+        self._detectors: dict[str, Any] = {}
         # Per-source timestamp of the last VLM call; used to throttle
         # so we don't fire vlm_cooldown_sec → see _maybe_run_vlm.
         self._last_vlm_at: dict[str, datetime] = {}
@@ -231,9 +234,24 @@ class VisionWatcher:
             pass
         with self._lock:
             self._tasks.pop(source_id, None)
+            self._detectors.pop(source_id, None)
+            self._zone_masks.pop(source_id, None)
             if source_id in self._statuses:
                 self._statuses[source_id].running = False  # type: ignore[misc]
         return True
+
+    def reload_zone_mask(self, source_id: str) -> None:
+        """Zonen-Maske einer Quelle live aus den Settings nachladen und in
+        Detektor + Blackout-Pfad übernehmen — ohne die Watch-Schleife neu
+        zu starten. Greift sofort beim nächsten Frame. No-op wenn die
+        Quelle nicht läuft (beim nächsten Start wird sie ohnehin frisch
+        geladen)."""
+        from .vision_filters.zone_mask import load_zone_mask
+        zm = load_zone_mask(source_id)
+        self._zone_masks[source_id] = zm
+        det = self._detectors.get(source_id)
+        if det is not None:
+            det.set_zone_mask(zm)
 
     def is_running(self, source_id: str) -> bool:
         task = self._tasks.get(source_id)
@@ -315,6 +333,7 @@ class VisionWatcher:
             warmup_frames=config.motion_warmup_frames,
             zone_mask=zone_mask,
         )
+        self._detectors[source_id] = motion
         hub = get_default_hub()
 
         # Shared state zwischen consumer + vlm-cycle. asyncio ist
