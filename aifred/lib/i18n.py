@@ -532,6 +532,7 @@ class TranslationManager:
             "vision_settings_zone_mask_button": "Zonen-Maske bearbeiten",
             # Standalone JS-Zonen-Editor (zone_editor.html, via /api injiziert)
             "zone_editor_title": "Vigilantia — Zonen-Maske",
+            "zone_editor_paint_with": "Malen mit:",
             "zone_editor_mode_motion": "Bewegung ignorieren",
             "zone_editor_mode_blackout": "Pixel schwärzen (DSGVO)",
             "zone_editor_mode_roi": "Nur diesen Bereich beobachten (ROI)",
@@ -1271,6 +1272,7 @@ class TranslationManager:
             "vision_settings_zone_mask_button": "Edit zone mask",
             # Standalone JS zone editor (zone_editor.html, injected via /api)
             "zone_editor_title": "Vigilantia — Zone Mask",
+            "zone_editor_paint_with": "Paint with:",
             "zone_editor_mode_motion": "ignore motion",
             "zone_editor_mode_blackout": "black out pixels (GDPR)",
             "zone_editor_mode_roi": "Watch only this area (ROI)",
