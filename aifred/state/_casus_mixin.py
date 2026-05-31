@@ -448,10 +448,16 @@ class CasusMixin(rx.State, mixin=True):
 
     @rx.var
     def casus_image_counter(self) -> str:
-        """Position in der Liste, z.B. „3 / 47" — Anzeige im Modal."""
+        """Position in der Liste, z.B. „47 / 47" — Anzeige im Modal.
+
+        Nummerierung nach Intuition: höchste Zahl = jüngstes Event. Da
+        ``casus_events`` neueste-zuerst (Index 0 = jüngstes) sortiert ist,
+        zählen wir invers — Index 0 → N, ältestes → 1. Damit geht „Pfeil
+        rechts" (neuer, Richtung Gegenwart) auf eine höhere Zahl zu."""
         if self.casus_image_index < 0 or not self.casus_events:
             return ""
-        return f"{self.casus_image_index + 1} / {len(self.casus_events)}"
+        total = len(self.casus_events)
+        return f"{total - self.casus_image_index} / {total}"
 
     @rx.event
     def casus_show_image_at(self, index: int) -> None:
