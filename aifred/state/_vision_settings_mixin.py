@@ -76,14 +76,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
     vigilantia_armed: bool = False
     # Liste der Cams für die „Quellen"-Sektion im Settings-Modal —
     # ein Dict pro Source mit ``id``, ``label``, ``auto_start``,
-    # ``motion_min_area_ratio``. Wird beim Modal-Open befüllt aus
-    # vision_store + frame_sources.
+    # ``resolution``. Wird beim Modal-Open befüllt aus vision_store +
+    # frame_sources. Bewegungs-Schwelle wird im Zonen-Editor getunt.
     vigilantia_sources: list[dict[str, Any]] = []
-    # Live-Anzeige des Motion-Slider-Werts WÄHREND des Ziehens (vor dem
-    # Commit): _sid = welche Quelle gezogen wird, _display = formatierter
-    # Prozentwert. Persistiert wird erst beim Loslassen (on_value_commit).
-    motion_slider_sid: str = ""
-    motion_slider_display: str = ""
     # Ob das aktuell konfigurierte VLM-Modell im Ollama-VRAM liegt.
     # Wird beim Page-Load + nach jedem Load/Unload-Toggle frisch von
     # Ollama abgefragt — keine Annahme, dass der State stimmt, wenn
@@ -231,7 +226,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
         try:
             from ..lib.frame_sources import list_all
             from ..lib.vision_store import VisionStore
-            from ..lib.formatting import format_number
             store = VisionStore()
             cams: list[dict[str, Any]] = []
             for src in list_all():
@@ -243,19 +237,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 s = stored.get("settings") or {}
                 alias = str(s.get("alias") or "").strip()
                 label = alias or info.display_name or info.source_id
-                mma = s.get("motion_min_area_ratio")
-                mma_val = (
-                    float(mma)
-                    if isinstance(mma, (int, float)) and 0.001 <= mma <= 0.5
-                    else 0.02
-                )
                 cams.append({
                     "id": info.source_id,
                     "label": label,
                     "available": bool(info.available),
                     "auto_start": bool(stored.get("auto_start", False)),
-                    "motion_min_area_ratio": mma_val,
-                    "motion_min_pct_display": format_number(mma_val * 100, 1),
                     "resolution": str(s.get("resolution") or "default"),
                 })
             self.vigilantia_sources = cams
@@ -263,14 +249,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
             logger.warning("vigilantia sources load failed: %s", e)
             self.vigilantia_sources = []
 
-    def _upsert_source_with(
-        self, source_id: str,
-        *, auto_start: bool | None = None,
-        settings_patch: dict[str, Any] | None = None,
-    ) -> None:
-        """Generischer Source-Patch: erhält bestehende Felder, ändert
-        nur das was übergeben wurde. Wird vom auto_start- und
-        motion_min-Setter genutzt."""
+    def _set_source_auto_start(self, source_id: str, active: bool) -> None:
+        """Hintergrund-Toggle einer Quelle persistieren, alle übrigen Felder
+        (settings, prompt_context …) bleiben erhalten. Legt die Quelle mit
+        Defaults an, falls sie noch nicht im Store existiert."""
         from ..lib.frame_sources import get as get_source
         from ..lib.vision_store import VisionStore
         store = VisionStore()
@@ -282,21 +264,15 @@ class VisionSettingsMixin(rx.State, mixin=True):
         kind = existing.get("kind") if existing else (
             src.kind if src else "webcam"
         )
-        new_settings = dict(existing.get("settings", {})) if existing else {}
-        if settings_patch:
-            new_settings.update(settings_patch)
         store.upsert_source(
             source_id=source_id,
             display_name=str(display_name or source_id),
             kind=str(kind or "webcam"),
             prompt_context=str(existing.get("prompt_context", "")) if existing else "",
             position=str(existing.get("position", "")) if existing else "",
-            auto_start=bool(
-                auto_start if auto_start is not None
-                else (existing.get("auto_start", False) if existing else False)
-            ),
+            auto_start=active,
             sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
-            settings=new_settings,
+            settings=dict(existing.get("settings", {})) if existing else {},
         )
 
     @rx.event
@@ -325,7 +301,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             return
         active = bool(value)
         try:
-            self._upsert_source_with(source_id, auto_start=active)
+            self._set_source_auto_start(source_id, active)
         except Exception as e:  # noqa: BLE001
             logger.warning("auto_start persist failed for %s: %s", source_id, e)
             return
@@ -345,56 +321,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 await get_default_watcher().stop(source_id)
         except Exception as e:  # noqa: BLE001
             logger.warning("watcher live-toggle failed for %s: %s", source_id, e)
-
-    @rx.event
-    def set_motion_slider_live(self, source_id: str, pct: float) -> None:
-        """Live-Anzeige während des Slider-Ziehens (on_change) — formatiert
-        den aktuellen Wert, persistiert aber NICHT (das macht on_value_commit
-        beim Loslassen)."""
-        from ..lib.formatting import format_number
-        self.motion_slider_sid = source_id
-        self.motion_slider_display = format_number(float(pct), 1)
-
-    @rx.event
-    def set_vigilantia_source_motion_min(
-        self, source_id: str, value: str
-    ) -> None:
-        """Pro Cam Min-Bewegung in Prozent (0,1–50). Greift live im
-        laufenden Watcher (Slider), sonst beim nächsten Watcher-Start."""
-        if not source_id:
-            return
-        try:
-            pct = float(str(value).replace(",", "."))
-        except (TypeError, ValueError):
-            return
-        if pct < 0.1:
-            pct = 0.1
-        if pct > 50:
-            pct = 50.0
-        mma = pct / 100.0
-        try:
-            self._upsert_source_with(
-                source_id, settings_patch={"motion_min_area_ratio": mma}
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("motion_min persist failed for %s: %s", source_id, e)
-            return
-        from ..lib.formatting import format_number
-        self.vigilantia_sources = [
-            {
-                **c,
-                "motion_min_area_ratio": mma,
-                "motion_min_pct_display": format_number(pct, 1),
-            }
-            if c["id"] == source_id else c
-            for c in self.vigilantia_sources
-        ]
-        # Live im laufenden Watcher übernehmen — kein Re-Arm nötig.
-        try:
-            from ..lib.vision_watcher import get_default_watcher
-            get_default_watcher().reload_motion_min(source_id, mma)
-        except Exception as e:  # noqa: BLE001
-            logger.debug("motion_min live-reload failed: %s", e)
 
     @rx.event
     async def toggle_vigilantia_armed(self) -> None:

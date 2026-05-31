@@ -47,6 +47,8 @@
   .sw.red { background:rgba(255,80,80,0.7); }
   .sw.black { background:rgba(0,0,0,0.85); }
   .sw.green { background:rgba(0,220,90,0.7); }
+  .sw.blue { background:rgba(40,120,255,0.8); }
+  #motion-controls b { font-variant-numeric:tabular-nums; }
   .help-row b { color:var(--text); }
 </style>
 </head>
@@ -71,6 +73,18 @@
     <button id="clear" data-i18n="zone_editor_clear"></button>
     <button class="primary" id="save" data-i18n="zone_editor_save"></button>
   </div>
+  <div class="controls" id="motion-controls">
+    <label><input type="checkbox" id="showMotion" checked> <span data-i18n="zone_editor_show_motion"></span></label>
+    <label style="flex:1; min-width:18em;">
+      <span data-i18n="zone_editor_motion_threshold"></span>
+      <input type="range" id="motionMin" min="0.5" max="25" step="0.5" value="2" style="flex:1; min-width:8em;">
+      <span id="motionMinVal" style="min-width:3.8em; text-align:right; color:var(--text);"></span>
+    </label>
+    <span style="font-size:13px; color:var(--muted);">
+      <span data-i18n="zone_editor_motion_current"></span>
+      <b id="motionCur">–</b>
+    </span>
+  </div>
   <div class="hint" data-i18n-html="zone_editor_hint"></div>
   <div id="stage">
     <img id="live" width="900" height="506" alt="">
@@ -88,6 +102,7 @@
     <div class="help-row"><span class="sw red"></span><div><b data-i18n="zone_editor_mode_motion"></b> — <span data-i18n="zone_editor_help_red"></span></div></div>
     <div class="help-row"><span class="sw black"></span><div><b data-i18n="zone_editor_mode_blackout"></b> — <span data-i18n="zone_editor_help_black"></span></div></div>
     <div class="help-row"><span class="sw green"></span><div><b data-i18n="zone_editor_mode_roi"></b> — <span data-i18n="zone_editor_help_green"></span></div></div>
+    <div class="help-row"><span class="sw blue"></span><div><b data-i18n="zone_editor_show_motion"></b> — <span data-i18n="zone_editor_help_blue"></span></div></div>
     <p data-i18n="zone_editor_help_controls"></p>
   </div>
 </div>
@@ -121,6 +136,14 @@
   const gridEl = document.getElementById("grid");
   const gridValEl = document.getElementById("gridVal");
   const activeEl = document.getElementById("active");
+  const showMotionEl = document.getElementById("showMotion");
+  const motionMinEl = document.getElementById("motionMin");
+  const motionMinValEl = document.getElementById("motionMinVal");
+  const motionCurEl = document.getElementById("motionCur");
+  // Dezimaltrenner kommt vom Server (gleicher format_number-Locale wie die
+  // App: DE Komma, EN Punkt), damit die Prozent-Anzeige konsistent ist.
+  const DEC = window.DEC || ".";
+  const fmtPct = (v) => v.toFixed(1).replace(".", DEC) + " %";
 
   const MAX_W = 900;
   let img = new Image();
@@ -308,7 +331,7 @@
       recomputeRows();
       updateGridLabel();
       if (!mask.length || mask.length !== rows) newMask();
-      live.src = "/api/vision/stream/" + sourceId + "?fps=4&t=" + Date.now();
+      live.src = streamUrl();
       render();
       setStatus(tr("zone_editor_live"));
     };
@@ -343,9 +366,110 @@
     } catch (e) { /* keine bestehende Maske — egal */ }
   }
 
+  // ── Bewegungs-Tuning ──────────────────────────────────────────────
+  // Der Server brennt die Live-Bewegung (rohe MOG2-Foreground) blau in den
+  // Stream. Wir messen den Bewegungsanteil hier im Browser: blaue Pixel
+  // zählen, aber nur in der keep-Zone (ROI vorhanden → nur ROI-Zellen,
+  // sonst alles außer ignorieren/schwärzen) — exakt wie der Watcher. So
+  // reagiert der Prozentwert live auf die gerade gemalte Maske, ohne dass
+  // der Server Sitzungs-State halten muss.
+  function streamUrl() {
+    let u = "/api/vision/stream/" + sourceId + "?fps=4&t=" + Date.now();
+    if (showMotionEl.checked) u += "&overlay=motion";
+    return u;
+  }
+
+  const ocv = document.createElement("canvas");
+  const octx = ocv.getContext("2d", { willReadFrequently: true });
+
+  function hasRoi() {
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) if (mask[r][c] === 3) return true;
+    return false;
+  }
+
+  function measureMotion() {
+    if (!showMotionEl.checked || !imgReady || !live.naturalWidth) {
+      motionCurEl.textContent = "–";
+      motionCurEl.style.color = "var(--muted)";
+      return;
+    }
+    const W = cv.width, H = cv.height;
+    if (ocv.width !== W || ocv.height !== H) { ocv.width = W; ocv.height = H; }
+    let px;
+    try {
+      octx.drawImage(live, 0, 0, W, H);
+      px = octx.getImageData(0, 0, W, H).data;
+    } catch (e) { return; }  // Frame noch nicht bereit — nächster Tick
+    const roi = hasRoi();
+    const cw = W / cols, ch = H / rows;
+    const STEP = 2;  // jedes 2. Pixel — viertelt die Arbeit, Ratio bleibt gleich
+    let observed = 0, moving = 0;
+    for (let y = 0; y < H; y += STEP) {
+      const row = mask[Math.floor(y / ch)];
+      if (!row) continue;
+      for (let x = 0; x < W; x += STEP) {
+        const v = row[Math.floor(x / cw)] || 0;
+        const keep = roi ? (v === 3) : (v === 0);
+        if (!keep) continue;
+        observed++;
+        const i = (y * W + x) * 4;
+        const r = px[i], g = px[i + 1], b = px[i + 2];
+        // Eingebranntes Blau hat nach dem Blend immer B deutlich über R und G;
+        // natürliches Himmelblau (hohes Grün) fällt durch das B-G-Kriterium raus.
+        if (b - r > 70 && b - g > 70 && b > 110) moving++;
+      }
+    }
+    const pct = observed > 0 ? (moving / observed) * 100 : 0;
+    motionCurEl.textContent = fmtPct(pct);
+    motionCurEl.style.color =
+      pct >= parseFloat(motionMinEl.value) ? "#ff6b6b" : "#4caf50";
+  }
+  setInterval(measureMotion, 300);
+
+  async function saveMotionMin() {
+    const ratio = parseFloat(motionMinEl.value) / 100;
+    try {
+      const res = await fetch("/api/vision/motion-min", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_id: sourceId, motion_min_area_ratio: ratio }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      flashStatus(tr("zone_editor_motion_saved"), "ok");
+    } catch (err) {
+      setStatus(tr("zone_editor_motion_save_failed") + err.message, "err");
+    }
+  }
+
+  async function loadMotionMin() {
+    try {
+      const res = await fetch(
+        "/api/vision/motion-min?source_id=" + encodeURIComponent(sourceId));
+      const d = await res.json();
+      if (d && typeof d.motion_min_area_ratio === "number") {
+        const pct = Math.max(0.5, Math.min(25, d.motion_min_area_ratio * 100));
+        motionMinEl.value = String(pct);
+      }
+    } catch (e) { /* Default (2 %) bleibt */ }
+    motionMinValEl.textContent = fmtPct(parseFloat(motionMinEl.value));
+  }
+
+  // Ziehen: nur Anzeige + Farbe live (kein Persist). Loslassen: speichern.
+  motionMinEl.addEventListener("input", () => {
+    motionMinValEl.textContent = fmtPct(parseFloat(motionMinEl.value));
+    measureMotion();
+  });
+  motionMinEl.addEventListener("change", saveMotionMin);
+  showMotionEl.addEventListener("change", () => {
+    if (imgReady) live.src = streamUrl();
+    measureMotion();
+  });
+
   if (!sourceId) { setStatus(tr("zone_editor_no_source"), "err"); return; }
   brushValEl.textContent = brushEl.value;
   updateGridLabel();
+  loadMotionMin();
   loadExisting().then(loadImage);
 })();
 </script>

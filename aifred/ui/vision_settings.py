@@ -83,11 +83,12 @@ def _model_section() -> rx.Component:
 
 def _source_card(cam: rx.Var) -> rx.Component:
     """Eine Karte pro Cam in der Quellen-Sektion. Zeigt Name +
-    Hintergrund-Toggle + Min-Bewegungsfläche-Input.
+    Hintergrund-Toggle + Auflösung.
 
-    Resolution + Alias bleiben im Vorschau-Popup — die ändert man
-    typischerweise beim Live-Bild („zu groß / falsch", direkt
-    sichtbar). Hier nur die Hintergrund-relevante Konfig.
+    Bewegungs-Schwelle und Zonen-Maske werden im Zonen-Editor (Button)
+    eingestellt — dort sieht man die Live-Bewegung blau überlagert und
+    tunt die Schwelle direkt am Bild. Resolution + Alias bleiben im
+    Vorschau-Popup. Hier nur die Hintergrund-relevante Konfig.
     """
     sid = cam["id"]
     return rx.box(
@@ -115,47 +116,11 @@ def _source_card(cam: rx.Var) -> rx.Component:
             ),
             rx.hstack(
                 rx.text(
-                    t("vision_settings_source_motion_min_label"),
-                    size="2", color="gray",
-                ),
-                rx.slider(
-                    default_value=[cam["motion_min_area_ratio"].to(float) * 100],
-                    min=0.5,
-                    max=25,
-                    step=0.5,
-                    # on_change: nur Live-Anzeige (kein Persist), damit der Wert
-                    # beim Ziehen mitläuft. on_value_commit persistiert erst beim
-                    # Loslassen + greift live im laufenden Watcher.
-                    on_change=lambda v: AIState.set_motion_slider_live(sid, v[0]),
-                    on_value_commit=lambda v: AIState.set_vigilantia_source_motion_min(sid, v[0]),
-                    size="1",
-                    high_contrast=True,
-                    color_scheme="orange",
-                    style={
-                        "flex": "1",
-                        "min_width": "7em",
-                        "max_width": "14em",
-                        # Füllstand kräftiger orange (AIfred-Akzent #FFA500).
-                        "& .rt-SliderRange": {"background_color": "#FFA500"},
-                    },
-                ),
-                rx.text(
-                    rx.cond(
-                        AIState.motion_slider_sid == sid,
-                        AIState.motion_slider_display,
-                        cam["motion_min_pct_display"],
-                    ),
-                    " %",
-                    size="1",
-                    color="gray",
-                    style={"min_width": "3.5em", "text_align": "right"},
-                ),
-                rx.spacer(),
-                rx.text(
                     t("vision_settings_source_resolution_label"),
                     size="2", color="gray",
                 ),
                 rx.text(cam["resolution"], size="1", color="gray"),
+                rx.spacer(),
                 spacing="2",
                 align="center",
                 width="100%",
