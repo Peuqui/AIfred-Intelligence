@@ -24,6 +24,7 @@ Lifecycle:
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -691,32 +692,76 @@ class FreeEcho2Stream:
     async def _fifo_pump(self) -> None:
         """Lese PCM aus der FIFO und schicke jeden Chunk an den FreeEcho.2.
 
-        Die FIFO wird non-blocking geöffnet (O_NONBLOCK), damit der
-        Default-Executor-Slot nicht permanent durch einen hängenden
-        ``os.open(O_RDONLY)``-Aufruf belegt wird (mpv hängt → Slot
-        weg → andere ``loop.run_in_executor``-Aufrufe stauen sich).
+        FIFO-Open Race vermeiden: Die Lese-Seite wird BLOCKING geöffnet
+        (im Executor, damit der Event-Loop nicht blockt) — das wartet
+        garantiert bis mpv die FIFO als Writer geöffnet hat. Erst danach
+        wird der fd auf ``O_NONBLOCK`` umgeschaltet damit Reads im Loop
+        Backpressure-fähig bleiben.
 
-        Reads liefern bei leerer Pipe ``BlockingIOError`` → kurzer
-        ``asyncio.sleep`` und neuer Versuch. EOF (Writer geschlossen)
-        liefert b"" → Loop endet.
+        Wenn wir wie früher direkt non-blocking öffnen würden (O_RDONLY |
+        O_NONBLOCK), kann mpv zwischen "IPC-Socket existiert" (auf den wir
+        in ``start()`` warten) und "FIFO-Writer geöffnet" noch einige
+        Hundert ms brauchen — typisch wenn Codec/Resampler/Up-Mixing
+        (z.B. Mono-Source → Stereo-Output) zusätzliche Init-Zeit kostet.
+        In diesem Gap liefert ``read()`` auf Linux SOFORT ``0`` (echtes
+        EOF-Verhalten, NICHT EAGAIN), weil noch nie ein Writer da war —
+        und wir würden den Stream fälschlich als "mpv exited" beenden,
+        ohne dass auch nur ein Byte PCM geflossen ist (Symptom: Puck
+        hängt im RECEIVING/SPEAKING mit energy_lr:0:0).
 
-        Backpressure: vor jedem Read wartet der Pump auf
-        ``_flow_resumed`` (Event). Wenn der FreeEcho.2 flow=pause schickt,
-        clear()-t der Channel das Event → Pump hängt → mpv blockiert
-        am FIFO-write (OS-Pipe-Backpressure, Pipe-Buffer ~64 KB). Bei
-        flow=resume wird das Event wieder gesetzt → Pump pumpt weiter.
+        Reads liefern bei leerer Pipe (mit aktivem Writer) jetzt zuverlässig
+        ``BlockingIOError`` → kurzer ``asyncio.sleep`` und neuer Versuch.
+        EOF (Writer geschlossen) liefert b"" → Loop endet.
+
+        Backpressure: vor jedem Read wartet der Pump auf ``_flow_resumed``
+        (Event). Wenn der FreeEcho.2 flow=pause schickt, clear()-t der
+        Channel das Event → Pump hängt → mpv blockiert am FIFO-write
+        (OS-Pipe-Backpressure, Pipe-Buffer ~64 KB). Bei flow=resume wird
+        das Event wieder gesetzt → Pump pumpt weiter.
         """
+        # Blocking open im Executor — wartet bis mpv die FIFO als Writer
+        # geöffnet hat. Timeout 10 s deckt langsame Boot-Pfade ab (große
+        # Demuxer, langsame Codecs, http-Latenz); wenn mpv die Source gar
+        # nicht öffnen kann, exited es ohne FIFO-Open und der executor-
+        # Task hängt — wait_for cancelt nach Timeout.
+        loop = asyncio.get_event_loop()
         try:
-            fd = os.open(self._fifo_path, os.O_RDONLY | os.O_NONBLOCK)
+            fd = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, lambda: os.open(self._fifo_path, os.O_RDONLY)
+                ),
+                timeout=10.0,
+            )
+        except asyncio.TimeoutError:
+            log_message(
+                f"FreeEcho2Stream[{self.room}]: mpv hat FIFO nicht "
+                f"innerhalb 10 s geöffnet — Source/Codec-Fehler?",
+                "error",
+            )
+            return
         except OSError as exc:
             log_message(
                 f"FreeEcho2Stream[{self.room}]: FIFO open failed: {exc}", "error"
             )
             return
 
-        # Idle-poll: ~5 ms zwischen Read-Versuchen bevor ein Writer da ist
-        # oder zwischen leeren Reads während des Streams. Bei aktiver
-        # Wiedergabe füllt mpv die Pipe immer wieder, der Loop liest sofort.
+        # Nach dem Open auf NONBLOCK schalten, damit os.read im Loop nicht
+        # blockt — Backpressure via _flow_resumed muss greifen, und Stop
+        # via _stopping muss in <5 ms reagieren.
+        try:
+            fcntl.fcntl(fd, fcntl.F_SETFL,
+                        fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)
+        except OSError as exc:
+            log_message(
+                f"FreeEcho2Stream[{self.room}]: FIFO set NONBLOCK failed: {exc}",
+                "error",
+            )
+            os.close(fd)
+            return
+
+        # Idle-poll: ~5 ms zwischen Read-Versuchen wenn die Pipe gerade
+        # leer ist. Bei aktiver Wiedergabe füllt mpv die Pipe immer
+        # wieder, der Loop liest sofort.
         idle_sleep = 0.005
 
         try:
