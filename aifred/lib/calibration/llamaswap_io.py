@@ -547,19 +547,23 @@ def resolve_variant_suffix(
     ``vlm_active`` is true so a user with both VLM and TTS enabled
     actually lands on the combined variant; if that variant does not
     exist (e.g. user calibrated TTS but never the VLM × TTS combo) the
-    resolver gracefully degrades to the TTS-only variant (or further):
+    resolver gracefully degrades to the TTS-only variant (or further).
+    For each VLM/TTS tier the Speed flavour is preferred when ``speed_on``
+    so the Speed toggle stays effective even while VLM is active:
 
-    1. ``vlm_active AND tts_active AND <base>-tts-<engine>-vlm-<key> exists``
-    2. ``vlm_active AND <base>-vlm-<key> exists``
-    3. ``speed_on AND tts_active AND <base>-tts-<engine>-speed exists``
-    4. ``tts_active AND <base>-tts-<engine> exists``
-    5. ``speed_on AND has_speed_variant`` → ``-speed``
-    6. otherwise → ``""`` (use the base id unchanged).
+    1. ``vlm AND tts AND speed AND <base>-tts-<engine>-vlm-<key>-speed exists``
+    2. ``vlm AND tts AND <base>-tts-<engine>-vlm-<key> exists``
+    3. ``vlm AND speed AND <base>-vlm-<key>-speed exists``
+    4. ``vlm AND <base>-vlm-<key> exists``
+    5. ``speed AND tts AND <base>-tts-<engine>-speed exists``
+    6. ``tts AND <base>-tts-<engine> exists``
+    7. ``speed AND has_speed_variant`` → ``-speed``
+    8. otherwise → ``""`` (use the base id unchanged).
 
-    Speed × VLM is intentionally not enumerated here because the
-    calibration writer (Phase 2) does not produce ``-vlm-<key>-speed``
-    variants — only ``-vlm-<key>`` and ``-tts-<engine>-vlm-<key>``. If
-    that ever changes, add the speed rules above rule 1.
+    The Speed flavour of a VLM tier only wins if the calibration writer
+    actually produced that profile (``in models`` check); otherwise the
+    resolver gracefully degrades to the non-speed VLM variant, so an
+    un-calibrated combo never breaks resolution.
 
     ``gpu_tts_engines``: set of engine keys that need the TTS variant
     profile (i.e. share GPU VRAM with the LLM). Engines outside this set
@@ -586,35 +590,47 @@ def resolve_variant_suffix(
     )
     needs_vlm_variant = vlm_active and bool(vlm_key)
 
-    # Rule 1: TTS × VLM combo — both active and the combo variant exists.
+    # Rule 1: TTS × VLM × Speed — all three active and the combo exists.
+    if needs_vlm_variant and needs_tts_variant and speed_on:
+        combo_speed = f"{base_id}-tts-{tts_engine}-vlm-{vlm_key}-speed"
+        if combo_speed in models:
+            return f"-tts-{tts_engine}-vlm-{vlm_key}-speed"
+
+    # Rule 2: TTS × VLM combo — both active and the combo variant exists.
     if needs_vlm_variant and needs_tts_variant:
         combo_id = f"{base_id}-tts-{tts_engine}-vlm-{vlm_key}"
         if combo_id in models:
             return f"-tts-{tts_engine}-vlm-{vlm_key}"
 
-    # Rule 2: VLM only — VLM active, no TTS combo to honor.
+    # Rule 3: VLM × Speed — VLM active, Speed on, speed flavour exists.
+    if needs_vlm_variant and speed_on:
+        vlm_speed_id = f"{base_id}-vlm-{vlm_key}-speed"
+        if vlm_speed_id in models:
+            return f"-vlm-{vlm_key}-speed"
+
+    # Rule 4: VLM only — VLM active, no TTS combo to honor.
     if needs_vlm_variant:
         vlm_id = f"{base_id}-vlm-{vlm_key}"
         if vlm_id in models:
             return f"-vlm-{vlm_key}"
 
-    # Rule 3: Speed + TTS, both flavours present.
+    # Rule 5: Speed + TTS, both flavours present.
     if needs_tts_variant and speed_on:
         sp_id = f"{base_id}-tts-{tts_engine}-speed"
         if sp_id in models:
             return f"-tts-{tts_engine}-speed"
 
-    # Rule 4: TTS without Speed (or Speed flavour missing for this combo).
+    # Rule 6: TTS without Speed (or Speed flavour missing for this combo).
     if needs_tts_variant:
         base_tts_id = f"{base_id}-tts-{tts_engine}"
         if base_tts_id in models:
             return f"-tts-{tts_engine}"
 
-    # Rule 5: Speed only.
+    # Rule 7: Speed only.
     if speed_on and has_speed_variant:
         return "-speed"
 
-    # Rule 6: bare base.
+    # Rule 8: bare base.
     return ""
 
 

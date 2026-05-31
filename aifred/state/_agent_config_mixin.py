@@ -436,9 +436,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Toggle speed/context mode for any agent."""
         attr = f"{agent}_speed_mode"
         setattr(self, attr, not getattr(self, attr))
-        base_id = getattr(self, f"{agent}_model_id", "") or self.aifred_model_id  # type: ignore[attr-defined]
-        max_ctx = getattr(self, f"{agent}_max_context", 0)
-        self.add_debug(f"\U0001f500 {agent.capitalize()} mode: {self._speed_mode_debug_str(getattr(self, attr), base_id, max_ctx)}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f500 {agent.capitalize()} mode: {self._speed_mode_debug_str(agent, getattr(self, attr))}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_aifred_speed_mode(self, _value: bool | None = None) -> None:
@@ -453,19 +451,31 @@ class AgentConfigMixin(rx.State, mixin=True):
     def toggle_vision_speed_mode(self, _value: bool | None = None) -> None:
         self._toggle_speed_mode("vision")
 
-    def _speed_mode_debug_str(self, speed_on: bool, base_model_id: str, max_ctx: int) -> str:
-        """Build debug string for speed mode toggle showing tensor-split and context."""
-        from ..lib.model_vram_cache import get_llamacpp_speed_split
+    def _speed_mode_debug_str(self, agent: str, speed_on: bool) -> str:
+        """Build the speed-toggle debug string from the profile that ACTUALLY
+        resolves \u2014 not the speed split in isolation.
+
+        When a higher-precedence variant (VLM / TTS) overrides Speed, the
+        message says so and reports the real loaded context, instead of
+        promising the speed context the user won't actually get. Mirrors the
+        runtime resolver (``_effective_model_id``)."""
         from ..lib.formatting import format_number
-        from ..lib.config import MIN_USEFUL_CONTEXT_TOKENS
-        if speed_on:
-            cuda0, rest, speed_ctx = get_llamacpp_speed_split(base_model_id)
-            split_str = f" ({cuda0}:{rest} tensor-split)" if cuda0 > 0 else ""
-            ctx = format_number(speed_ctx if speed_ctx > 0 else MIN_USEFUL_CONTEXT_TOKENS)
-            return f"\u26a1 speed \u2014 {ctx} tok{split_str}"
-        else:
-            ctx = format_number(max_ctx) if max_ctx else "n/a"
-            return f"\U0001f4d6 context \u2014 {ctx} tok"
+        from ..lib.research.context_utils import get_model_native_context
+        base_id = getattr(self, f"{agent}_model_id", "") or self.aifred_model_id  # type: ignore[attr-defined]
+        effective = self._effective_model_id(agent)
+        ctx = get_model_native_context(effective, self.backend_type)  # type: ignore[attr-defined]
+        ctx_str = format_number(ctx) if ctx > 0 else "n/a"
+        suffix = (
+            effective[len(base_id):].lstrip("-")
+            if base_id and effective.startswith(base_id) and effective != base_id
+            else ""
+        )
+        if not speed_on:
+            return f"\U0001f4d6 context \u2014 {ctx_str} tok"
+        if suffix.endswith("speed"):
+            return f"\u26a1 speed \u2014 {ctx_str} tok"
+        # Speed requested but a higher-precedence variant won resolution.
+        return f"\u26a1 speed \u2192 overridden by {suffix or 'base'} \u2014 {ctx_str} tok"
 
     # ================================================================
     # ROPE FACTOR SETTERS
