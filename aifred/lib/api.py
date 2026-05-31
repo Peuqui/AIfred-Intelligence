@@ -2057,6 +2057,44 @@ async def vision_embedding_delete(embedding_id: int) -> SystemActionResponse:
     return SystemActionResponse(success=True, message="embedding deleted")
 
 
+@api_app.get("/vision/frame", tags=["Vision"])
+async def vision_frame(id: int, w: int = 0) -> Response:
+    """Gespeichertes Event-Vollbild als JPEG ausliefern.
+
+    ``id`` ist die Event-ID, ``w`` ein optionaler Ziel-Breiten-Parameter:
+    >0 skaliert serverseitig herunter (Casus-Thumbnail nutzt w=80, das
+    Bild-Modal lädt ohne ``w`` in Vollauflösung). Kein extra Auth-Gate —
+    Zugriff ist von außen ohnehin durch den Basic-Auth-Reverse-Proxy und
+    lokal durch Maschinenzugang geschützt (gleiches Niveau wie die
+    face-crop-Auslieferung unter /_upload)."""
+    from .vision_store import VisionStore
+    path_str = VisionStore().get_event_frame_path(id)
+    if not path_str:
+        raise HTTPException(status_code=404, detail=f"no frame for event {id}")
+    frame_file = Path(path_str)
+    if not frame_file.is_file():
+        raise HTTPException(status_code=404, detail="frame file missing on disk")
+    data = frame_file.read_bytes()
+    if w and w > 0:
+        import cv2
+        import numpy as np
+        arr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if arr is not None and arr.shape[1] > w:
+            scale = w / float(arr.shape[1])
+            arr = cv2.resize(
+                arr, (w, max(1, int(arr.shape[0] * scale))),
+                interpolation=cv2.INTER_AREA,
+            )
+            ok, buf = cv2.imencode(".jpg", arr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                data = buf.tobytes()
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 # ============================================================
 # Export for api_transformer
 # ============================================================

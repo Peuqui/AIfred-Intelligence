@@ -833,6 +833,18 @@ class VisionStore:
             )
             return cur.rowcount > 0
 
+    def get_event_frame_path(self, event_id: int) -> str:
+        """Frame-Pfad (gespeichertes Vollbild) eines Events per ID.
+
+        Leerer String, wenn das Event nicht existiert oder kein Frame
+        gespeichert wurde. Für den Frame-Serving-Endpoint (Casus-Thumbnail
+        + Bild-Modal)."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT frame_path FROM events WHERE id = ?", (int(event_id),)
+            ).fetchone()
+        return str(row["frame_path"]) if row and row["frame_path"] else ""
+
     def prune_events(self, older_than: datetime) -> int:
         """Lösche Events älter als ``older_than``. Gibt Anzahl gelöschter
         Zeilen zurück. Für Retention-Cronjob (Schicht 6) gedacht."""
