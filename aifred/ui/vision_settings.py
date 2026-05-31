@@ -118,19 +118,38 @@ def _source_card(cam: rx.Var) -> rx.Component:
                     t("vision_settings_source_motion_min_label"),
                     size="2", color="gray",
                 ),
-                rx.input(
-                    type="number",
-                    default_value=(
-                        cam["motion_min_area_ratio"].to(float) * 100
-                    ).to(str),
-                    on_blur=lambda v: AIState.set_vigilantia_source_motion_min(sid, v),
+                rx.slider(
+                    default_value=[cam["motion_min_area_ratio"].to(float) * 100],
+                    min=0.5,
+                    max=25,
+                    step=0.5,
+                    # on_change: nur Live-Anzeige (kein Persist), damit der Wert
+                    # beim Ziehen mitläuft. on_value_commit persistiert erst beim
+                    # Loslassen + greift live im laufenden Watcher.
+                    on_change=lambda v: AIState.set_motion_slider_live(sid, v[0]),
+                    on_value_commit=lambda v: AIState.set_vigilantia_source_motion_min(sid, v[0]),
                     size="1",
-                    min=0.1,
-                    max=50,
-                    step=0.1,
-                    style={"width": "5em"},
+                    high_contrast=True,
+                    color_scheme="orange",
+                    style={
+                        "flex": "1",
+                        "min_width": "7em",
+                        "max_width": "14em",
+                        # Füllstand kräftiger orange (AIfred-Akzent #FFA500).
+                        "& .rt-SliderRange": {"background_color": "#FFA500"},
+                    },
                 ),
-                rx.text("%", size="1", color="gray"),
+                rx.text(
+                    rx.cond(
+                        AIState.motion_slider_sid == sid,
+                        AIState.motion_slider_display,
+                        cam["motion_min_pct_display"],
+                    ),
+                    " %",
+                    size="1",
+                    color="gray",
+                    style={"min_width": "3.5em", "text_align": "right"},
+                ),
                 rx.spacer(),
                 rx.text(
                     t("vision_settings_source_resolution_label"),

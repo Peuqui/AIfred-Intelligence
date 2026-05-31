@@ -253,6 +253,14 @@ class VisionWatcher:
         if det is not None:
             det.set_zone_mask(zm)
 
+    def reload_motion_min(self, source_id: str, ratio: float) -> None:
+        """Bewegungs-Schwellwert einer laufenden Quelle live setzen (Slider
+        in den Vision-Settings), ohne Re-Arm. No-op wenn die Quelle nicht
+        läuft (beim nächsten Start wird der Wert ohnehin frisch geladen)."""
+        det = self._detectors.get(source_id)
+        if det is not None:
+            det.set_min_area_ratio(ratio)
+
     def is_running(self, source_id: str) -> bool:
         task = self._tasks.get(source_id)
         return task is not None and not task.done()

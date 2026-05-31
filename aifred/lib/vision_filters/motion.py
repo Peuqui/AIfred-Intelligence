@@ -85,6 +85,11 @@ class MotionDetector:
         Editor), ohne den Background-Subtractor zurückzusetzen."""
         self._zone_mask = zone_mask
 
+    def set_min_area_ratio(self, ratio: float) -> None:
+        """Bewegungs-Schwellwert zur Laufzeit ändern (Slider in den Vision-
+        Settings), ohne den Background-Subtractor zurückzusetzen."""
+        self._min_area_ratio = float(ratio)
+
     def process(self, frame: "Frame") -> MotionResult:
         """Apply background subtraction and report motion.
 
