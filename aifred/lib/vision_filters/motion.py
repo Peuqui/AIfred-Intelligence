@@ -19,6 +19,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from ..frame_sources import Frame
+    from .zone_mask import ZoneMask
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ class MotionDetector:
         min_area_ratio: float = 0.01,
         warmup_frames: int = 10,
         return_mask: bool = False,
+        zone_mask: "ZoneMask | None" = None,
     ) -> None:
         self._bg = cv2.createBackgroundSubtractorMOG2(
             history=history,
@@ -74,6 +76,9 @@ class MotionDetector:
         self._warmup_remaining = warmup_frames
         self._return_mask = return_mask
         self._frames_processed = 0
+        # Optionale Ignorier-Zonen (z.B. Bäume): in der Zone wird der
+        # Foreground auf 0 gesetzt, bevor area_ratio/bbox berechnet werden.
+        self._zone_mask = zone_mask
 
     def process(self, frame: "Frame") -> MotionResult:
         """Apply background subtraction and report motion.
@@ -91,6 +96,11 @@ class MotionDetector:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         mask = self._bg.apply(blurred)
+
+        # Ignorier-Zonen vor jeder Auswertung ausblenden → Bewegung dort
+        # (Bäume im Wind o.ä.) zählt weder zu area_ratio noch zur bbox.
+        if self._zone_mask is not None and self._zone_mask.suppresses_motion:
+            mask = self._zone_mask.apply_to_motion(mask)
 
         self._frames_processed += 1
         if self._warmup_remaining > 0:

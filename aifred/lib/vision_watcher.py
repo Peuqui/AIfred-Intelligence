@@ -301,12 +301,15 @@ class VisionWatcher:
         (Mindest-Abstand zwischen Calls), nicht mehr als Bremse.
         """
         from .frame_hub import get_default_hub
+        from .vision_filters.zone_mask import load_zone_mask
         source_id = source.source_id
+        zone_mask = load_zone_mask(source_id)
         motion = MotionDetector(
             history=config.motion_history_frames,
             var_threshold=config.motion_var_threshold,
             min_area_ratio=config.motion_min_area_ratio,
             warmup_frames=config.motion_warmup_frames,
+            zone_mask=zone_mask,
         )
         hub = get_default_hub()
 
