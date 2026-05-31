@@ -100,8 +100,11 @@
     // durch; wir zeichnen nur Maske + Raster.
     ctx.clearRect(0, 0, cv.width, cv.height);
     const cw = cv.width / cols, ch = cv.height / rows;
-    // markierte Zellen
-    ctx.fillStyle = "rgba(255,80,80,0.45)";
+    // markierte Zellen — Farbe spiegelt den Modus (live): rot = nur
+    // ignorieren (Pixel bleiben), fast-schwarz = im blackout-Modus werden
+    // die Pixel tatsächlich geschwärzt (Preview der echten Wirkung).
+    ctx.fillStyle = (selectedMode() === "blackout")
+      ? "rgba(0,0,0,0.82)" : "rgba(255,80,80,0.45)";
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++)
         if (mask[r][c]) ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5);
@@ -152,6 +155,10 @@
   cv.addEventListener("pointercancel", endPaint);
 
   brushEl.addEventListener("input", () => { brushValEl.textContent = brushEl.value; });
+  // Modus-Umschalten färbt die markierten Bereiche sofort um (rot/schwarz).
+  document.querySelectorAll('input[name="mode"]').forEach(
+    (r) => r.addEventListener("change", render)
+  );
   gridEl.addEventListener("change", () => {
     cols = parseInt(gridEl.value, 10);
     gridValEl.textContent = cols;
