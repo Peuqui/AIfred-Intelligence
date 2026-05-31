@@ -2210,7 +2210,10 @@ async def zone_editor_page() -> HTMLResponse:
         + json.dumps({k: t(k) for k in keys}, ensure_ascii=False)
         + ";</script>"
     )
-    return HTMLResponse(html.replace("<!--I18N-->", inject))
+    return HTMLResponse(
+        html.replace("<!--I18N-->", inject),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
 
 
 # ============================================================
