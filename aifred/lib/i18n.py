@@ -548,7 +548,7 @@ class TranslationManager:
             "zone_editor_cleared": "Maske geleert (noch nicht gespeichert).",
             "zone_editor_saving": "Speichere …",
             "zone_editor_saved": "Gespeichert — greift sofort im laufenden Watcher.",
-            "zone_editor_saved_off": "Gespeichert, aber INAKTIV (Haken „Maske aktiv" ist aus) — Gegenprobe.",
+            "zone_editor_saved_off": "Gespeichert, aber INAKTIV (Haken »Maske aktiv« ist aus) — Gegenprobe.",
             "zone_editor_removed": "Maske entfernt (leer).",
             "zone_editor_save_failed": "Speichern fehlgeschlagen: ",
             "zone_editor_no_source": "Kein source_id-Parameter in der URL.",
