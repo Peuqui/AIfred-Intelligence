@@ -58,6 +58,23 @@ def strip_tool_json(text: str) -> str:
     ).strip()
 
 
+def _dedup_injected_images(text: str, urls: list[str]) -> str:
+    """Single Source of Truth fürs gerenderte VLM-Bild: Die Pipeline stellt
+    das Bild deterministisch voran (``![alias](url)``). Sieht das LLM dieselbe
+    image_url im Tool-Result und rendert sie ein zweites Mal, erschiene das
+    Bild doppelt. Hier bleibt pro URL nur das ERSTE ``![...](url)`` stehen,
+    alle weiteren (das LLM-Echo) werden entfernt."""
+    for url in urls:
+        pattern = re.compile(r"!\[[^\]]*\]\(" + re.escape(url) + r"\)")
+        matches = list(pattern.finditer(text))
+        if len(matches) > 1:
+            # Alle außer dem ersten entfernen — rückwärts, damit die vorigen
+            # Match-Indizes gültig bleiben.
+            for m in reversed(matches[1:]):
+                text = text[: m.start()] + text[m.end():]
+    return text
+
+
 
 
 async def chat_stream_with_retry(
@@ -147,6 +164,10 @@ async def run_llm_stream(
     sandbox_html_urls: list[str] = []
     sandbox_image_urls: list[str] = []
     silent_reply = False  # set True if any tool_result has silent_reply
+    # SSoT fürs gerenderte VLM-Bild: URLs, die die Pipeline deterministisch
+    # eingefügt hat. Ein späteres LLM-Echo derselben URL wird im Post-
+    # Processing entfernt (sonst erscheint dasselbe Bild zweimal).
+    injected_image_urls: list[str] = []
 
     # Select stream source: with or without retry
     if retry:
@@ -257,6 +278,7 @@ async def run_llm_stream(
                                 except Exception:  # noqa: BLE001
                                     alt = "Snapshot"
                                 prefix = f"![{alt}]({image_url})\n\n"
+                                injected_image_urls.append(image_url)
                             full_response = (
                                 prefix
                                 + f"<vlm_output>{body}</vlm_output>"
@@ -306,6 +328,13 @@ async def run_llm_stream(
 
     # Strip fallback tool-call JSON from response text
     full_response = strip_tool_json(full_response)
+
+    # SSoT fürs VLM-Bild durchsetzen: Die Pipeline hat das Bild oben
+    # deterministisch vorangestellt. Hat das LLM dieselbe image_url (die es im
+    # Tool-Result sah) ein zweites Mal als Markdown gerendert, entfernen wir
+    # die Dublette — pro URL bleibt nur das erste ![...](url) stehen.
+    if injected_image_urls:
+        full_response = _dedup_injected_images(full_response, injected_image_urls)
 
     # Thinking blocks
     text_clean = strip_thinking_blocks(full_response) if full_response else ""
