@@ -1098,6 +1098,7 @@ class FreeEchoChannel(BaseChannel):
         self,
         room: str,
         total_size: int | None = None,
+        channels: int = 1,
     ) -> bool:
         """Signalisiert PCM-Stream-Setup an den FreeEcho.2.
 
@@ -1105,10 +1106,13 @@ class FreeEchoChannel(BaseChannel):
         gesendet, BEVOR die binary chunks fließen. Bei alarm/notification
         ohne TTS-Tail gibt's kein audio_start (Puck spielt lokale WAV).
 
-        Format ist hardcoded auf 48 kHz mono int16 (FreeEcho.2-Hardware-
-        Constraint, kann nichts anderes). channels/rate werden NICHT mehr
-        mitgesendet — würden bei der Firmware-Whitelist-Validation FATAL
-        triggern, wenn der Wert nicht exakt 1/48000 ist.
+        Format: 48 kHz int16 little-endian, Endpoint-Constraint der
+        FreeEcho.2-Hardware (Rate ist fix, nicht verhandelbar). ``rate``
+        wird nicht mitgeschickt — würde nur die Firmware-Whitelist-
+        Validation FATAL triggern. ``channels`` ist 1 (mono, default für
+        TTS/Speech) oder 2 (Stereo, für Music — echtes L/R an
+        Stereo-BT-Speakern). Der Puck akzeptiert beide via
+        ``freeecho2_client.c::audio_start``-Parser.
 
         ``total_size`` ist optional (typischerweise für TTS verfügbar,
         nicht für endlose Music-Streams). Puck nutzt es bisher nicht für
@@ -1128,6 +1132,11 @@ class FreeEchoChannel(BaseChannel):
             )
             return False
         payload: dict[str, Any] = {"type": "audio_start"}
+        if channels not in (1, 2):
+            raise ValueError(
+                f"send_audio_start: channels must be 1 or 2, got {channels!r}"
+            )
+        payload["channels"] = channels
         if total_size is not None:
             payload["total_size"] = int(total_size)
         try:

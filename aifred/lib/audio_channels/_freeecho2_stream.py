@@ -41,8 +41,32 @@ READ_CHUNK_SIZE = 64 * 1024   # ~666ms @ 48kHz mono int16 — gut für Latenz
 DEFAULT_SAVE_INTERVAL_SEC = 60
 
 FE2_SAMPLE_RATE = 48000
-FE2_CHANNELS = 1
 FE2_SAMPLE_FORMAT = "s16"   # mpv-Notation; ergibt int16 little-endian
+
+# Channels pro audio_type.
+#   tts:    AIfred-eigene Voice-Synthese (XTTS/Piper) — immer mono.
+#   speech: Hoerbuecher / Podcasts / Lesungen (audio_sources.py mappt
+#           audiobook|hoerbuch|podcast|lesung auf "speech"). Hoerbuecher
+#           sind heute meist Stereo (Ambient, Musik-Untermalung) → 2 ch.
+#           Bei Mono-Quellen pumpt mpv automatisch auf L=R hoch
+#           (Bandbreite-Tradeoff ist akzeptabel).
+#   music:  Musik-Streams — Stereo gewuenscht, sonst ist's nur halb-
+#           wertige Wiedergabe an L/R-Speakern.
+_CHANNELS_PER_TYPE = {
+    "tts":    1,
+    "speech": 2,
+    "music":  2,
+}
+
+
+def fe2_channels_for_type(audio_type: str) -> int:
+    """Returns mpv-Output-Channel-Count für den gegebenen audio_type.
+
+    Default 1 (mono) für unbekannte Typen — safer fallback, vermeidet
+    versehentliche Bandbreiten-Verdopplung. Puck-Wire-Protocol akzeptiert
+    1 oder 2 (siehe freeecho2_client.c::audio_start-Parser).
+    """
+    return _CHANNELS_PER_TYPE.get(audio_type, 1)
 
 
 # Type aliases — WS-Bridge in freeecho2_channel hat diese Form.
@@ -223,7 +247,7 @@ class FreeEcho2Stream:
                 "--demuxer-max-bytes=512MiB",
                 "--network-timeout=30",
                 f"--audio-samplerate={FE2_SAMPLE_RATE}",
-                f"--audio-channels={FE2_CHANNELS}",
+                f"--audio-channels={fe2_channels_for_type(audio_type)}",
                 f"--audio-format={FE2_SAMPLE_FORMAT}",
                 "--ao=pcm",
                 f"--ao-pcm-file={self._fifo_path}",
@@ -296,8 +320,11 @@ class FreeEcho2Stream:
                 )
 
             # Audio-Bus-Protokoll: erst audio_flag (Type-Setting für LED+VU),
-            # dann audio_start (PCM-Stream-Setup-Header). channels/rate werden
-            # nicht gesendet — Puck-Hardware ist fest auf 48 kHz mono int16.
+            # dann audio_start (PCM-Stream-Setup-Header) inkl. channels.
+            # Rate ist fest auf 48 kHz (Puck-Hardware-Constraint), wird
+            # nicht mitgesendet (gleicher Wert per Default). Channels je
+            # nach audio_type: 1 (TTS/Speech) oder 2 (Music — echte Stereo-
+            # Wiedergabe an BT-Stereo-Speakern). Siehe fe2_channels_for_type.
             # Music-Streams haben keine bekannte Total-Size (Music läuft bis
             # mpv-EOF oder User-Stop) — total_size weglassen.
             if audio_type not in ("music", "tts", "speech"):
@@ -319,7 +346,10 @@ class FreeEcho2Stream:
                 raise FreeEcho2StreamError(
                     f"audio_flag({audio_type}) send failed — abort start"
                 )
-            start_ok = await self._send_start(self.room)
+            start_ok = await self._send_start(
+                self.room,
+                channels=fe2_channels_for_type(audio_type),
+            )
             log_message(
                 f"FreeEcho2Stream[{self.room}]: → audio_start sent ok={start_ok}"
             )
