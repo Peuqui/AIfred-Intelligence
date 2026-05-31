@@ -131,9 +131,22 @@
   let painting = false;
   let paintValue = 1;
 
+  let statusTimer = null;
   function setStatus(msg, kind) {
+    if (statusTimer) { clearTimeout(statusTimer); statusTimer = null; }
     statusEl.textContent = msg;
     statusEl.className = kind || "";
+  }
+  // Speicher-Toast nach ein paar Sekunden wieder ausblenden — zurück auf
+  // den Live-Hinweis. Ein zwischenzeitliches setStatus() (z.B. Malen,
+  // Raster ändern) bricht den Timer ab, der neuere Status gewinnt.
+  function flashStatus(msg, kind) {
+    setStatus(msg, kind);
+    statusTimer = setTimeout(() => {
+      statusTimer = null;
+      statusEl.textContent = tr("zone_editor_live");
+      statusEl.className = "";
+    }, 3500);
   }
 
   function newMask() {
@@ -271,7 +284,7 @@
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("HTTP " + res.status);
-      setStatus(
+      flashStatus(
         hasAny
           ? (activeEl.checked ? tr("zone_editor_saved") : tr("zone_editor_saved_off"))
           : tr("zone_editor_removed"),
