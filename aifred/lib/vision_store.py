@@ -214,6 +214,29 @@ class VisionStore:
         d["settings"] = json.loads(d.pop("settings_json"))
         return d
 
+    def patch_source_settings(
+        self, source_id: str, patch: dict[str, Any]
+    ) -> None:
+        """Nur einzelne ``settings``-Felder einer Quelle ändern, alle
+        anderen Felder (display_name, kind, auto_start …) bleiben erhalten.
+
+        No-op-sicher für unbekannte Quellen: legt sie mit Defaults an, falls
+        sie noch nicht existiert (z.B. erste Konfig einer frisch entdeckten
+        Cam). Gemeinsamer Persist-Pfad für State und API."""
+        existing = self.get_source(source_id) or {}
+        new_settings = dict(existing.get("settings") or {})
+        new_settings.update(patch)
+        self.upsert_source(
+            source_id=source_id,
+            display_name=str(existing.get("display_name") or source_id),
+            kind=str(existing.get("kind") or "webcam"),
+            prompt_context=str(existing.get("prompt_context", "")),
+            position=str(existing.get("position", "")),
+            auto_start=bool(existing.get("auto_start", False)),
+            sensitivity=str(existing.get("sensitivity", "medium")),
+            settings=new_settings,
+        )
+
     def list_sources(self) -> list[dict[str, Any]]:
         with self._conn() as conn:
             rows = conn.execute("SELECT * FROM sources ORDER BY source_id").fetchall()

@@ -1704,7 +1704,69 @@ def _encode_mjpeg_chunk(frame: Any) -> bytes:
     )
 
 
-async def _mjpeg_stream(source: Any, fps: float, width: int = 0, height: int = 0) -> Any:
+class _MotionOverlay:
+    """Brennt die rohe MOG2-Foreground-Maske halbtransparent blau in jeden
+    Frame — fürs Bewegungs-Tuning im Zonen-Editor.
+
+    Eigener Detector-State pro Stream (kein globaler Zustand über Requests),
+    mit denselben MOG2-Params wie der Watcher, damit die sichtbaren Pixel
+    repräsentativ sind. BEWUSST ohne zone_mask: der Nutzer soll auch das
+    Rauschen sehen, das er gerade wegmaskieren will. Die Prozent-Auswertung
+    (gegen die gemalte Maske) macht der Browser anhand der blauen Pixel —
+    der Server bleibt zustandslos.
+    """
+
+    # Gesättigtes Blau (BGR), das nach dem Blend immer B >> R und B >> G hat;
+    # der Browser erkennt die Foreground-Pixel daran zuverlässig wieder.
+    _BLUE = (255.0, 40.0, 0.0)
+    _ALPHA = 0.6  # Anteil Blau im Blend (Rest: Originalbild)
+
+    def __init__(self) -> None:
+        import numpy as np
+
+        from .vision_filters import MotionDetector
+        from .vision_watcher import WatchConfig
+
+        cfg = WatchConfig()
+        self._det = MotionDetector(
+            history=cfg.motion_history_frames,
+            var_threshold=cfg.motion_var_threshold,
+            warmup_frames=cfg.motion_warmup_frames,
+            return_mask=True,
+        )
+        self._np = np
+
+    def apply(self, frame: Any) -> Any:
+        import dataclasses
+
+        import cv2
+
+        np = self._np
+        mask = self._det.process(frame).foreground_mask
+        if mask is None or not mask.any():
+            return frame
+        img = cv2.imdecode(np.frombuffer(frame.image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return frame
+        if mask.shape[:2] != img.shape[:2]:
+            mask = cv2.resize(
+                mask, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST
+            )
+        sel = mask > 0
+        blue = np.array(self._BLUE, dtype=np.float32)
+        img[sel] = (
+            (1.0 - self._ALPHA) * img[sel].astype(np.float32) + self._ALPHA * blue
+        ).astype(np.uint8)
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if not ok:
+            return frame
+        return dataclasses.replace(frame, image_bytes=buf.tobytes(), format="jpeg")
+
+
+async def _mjpeg_stream(
+    source: Any, fps: float, width: int = 0, height: int = 0,
+    motion_overlay: bool = False,
+) -> Any:
     """Async generator yielding MJPEG frames (multipart/x-mixed-replace).
 
     Geht durch den FrameHub — egal wie viele Browser-Tabs, Watcher
@@ -1730,6 +1792,7 @@ async def _mjpeg_stream(source: Any, fps: float, width: int = 0, height: int = 0
     # /vision/snapshot.
     interval = 1.0 / max(0.01, float(fps))
     last_emit = 0.0
+    overlay = _MotionOverlay() if motion_overlay else None
     async for frame in hub.subscribe(
         source, name="mjpeg-live-preview", fps=fps, width=width, height=height,
     ):
@@ -1737,12 +1800,15 @@ async def _mjpeg_stream(source: Any, fps: float, width: int = 0, height: int = 0
         if now - last_emit < interval:
             continue
         last_emit = now
+        if overlay is not None:
+            frame = overlay.apply(frame)
         yield _encode_mjpeg_chunk(frame)
 
 
 @api_app.get("/vision/stream/{source_id:path}", tags=["Vision"])
 async def vision_stream_endpoint(
-    source_id: str, fps: float = 1.0, width: int = 0, height: int = 0
+    source_id: str, fps: float = 1.0, width: int = 0, height: int = 0,
+    overlay: str = "",
 ) -> Any:
     """MJPEG-Live-Stream der genannten Frame-Source.
 
@@ -1756,6 +1822,9 @@ async def vision_stream_endpoint(
     geklammert. ``width``/``height`` überschreiben den persistierten
     Per-Source-Default; ``0/0`` fällt auf vision_store zurück (gleiche
     Resolve-Logik wie beim Snapshot-Endpoint).
+
+    ``overlay=motion`` brennt die rohe Bewegungsmaske halbtransparent blau
+    ein (Zonen-Editor-Tuning) — eigener MOG2-State pro Stream, zustandslos.
     """
     from starlette.responses import StreamingResponse
     from .frame_sources import get as get_source
@@ -1774,7 +1843,7 @@ async def vision_stream_endpoint(
     fps = max(0.1, min(30.0, float(fps) if fps else 1.0))
     w, h = _resolve_resolution(source_id, width, height)
     return StreamingResponse(
-        _mjpeg_stream(src, fps, w, h),
+        _mjpeg_stream(src, fps, w, h, motion_overlay=(overlay == "motion")),
         media_type=f"multipart/x-mixed-replace; boundary={_MJPEG_BOUNDARY.decode().lstrip('-')}",
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -2182,12 +2251,55 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     return SystemActionResponse(success=True, message=msg)
 
 
+class MotionMinPayload(BaseModel):
+    """Speicher-Payload des Bewegungs-Schwellwert-Sliders im Zonen-Editor."""
+    source_id: str
+    motion_min_area_ratio: float    # 0.001–0.5 (Anteil bewegter Pixel)
+
+
+@api_app.get("/vision/motion-min", tags=["Vision"])
+async def get_motion_min(source_id: str) -> Dict[str, Any]:
+    """Bewegungs-Schwellwert einer Quelle (für den Editor-Slider zum Laden).
+
+    Fällt auf den globalen Default (0.02) zurück, wenn die Quelle (noch)
+    keinen eigenen Wert hat."""
+    from .vision_store import VisionStore
+    stored = VisionStore().get_source(source_id) or {}
+    mma = (stored.get("settings") or {}).get("motion_min_area_ratio")
+    value = (
+        float(mma)
+        if isinstance(mma, (int, float)) and 0.001 <= mma <= 0.5
+        else 0.02
+    )
+    return {"source_id": source_id, "motion_min_area_ratio": value}
+
+
+@api_app.post(
+    "/vision/motion-min", response_model=SystemActionResponse, tags=["Vision"]
+)
+async def save_motion_min(payload: MotionMinPayload) -> SystemActionResponse:
+    """Bewegungs-Schwellwert einer Quelle speichern (Editor-Slider beim
+    Loslassen). Greift live im laufenden Watcher — kein Re-Arm nötig."""
+    from .vision_store import VisionStore
+    mma = max(0.001, min(0.5, float(payload.motion_min_area_ratio)))
+    VisionStore().patch_source_settings(
+        payload.source_id, {"motion_min_area_ratio": mma}
+    )
+    try:
+        from .vision_watcher import get_default_watcher
+        get_default_watcher().reload_motion_min(payload.source_id, mma)
+    except Exception as e:  # noqa: BLE001
+        log_message(f"⚠️ motion_min live-reload failed: {e}")
+    return SystemActionResponse(success=True, message="motion min saved")
+
+
 @api_app.get("/vision/zone-editor", tags=["Vision"])
 async def zone_editor_page() -> HTMLResponse:
     """Standalone JS-Canvas-Zonen-Editor (HTML). Über /api ausgeliefert,
     damit er unabhängig vom frontend_path-Prefix erreichbar ist; die
     source_id kommt als Query-Param (das JS liest sie aus location.search)."""
     import json
+    from .formatting import format_number
     from .i18n import TranslationManager, t
     editor = (
         Path(__file__).resolve().parents[2] / "assets" / "zone_editor.html"
@@ -2202,9 +2314,15 @@ async def zone_editor_page() -> HTMLResponse:
         k for k in TranslationManager._translations["de"]
         if k.startswith("zone_editor_")
     ]
+    # Dezimaltrenner aus demselben format_number-Locale wie die App ableiten
+    # (DE „1,5" → Komma, EN „1.5" → Punkt) — der Editor formatiert Prozente
+    # damit konsistent zur restlichen UI.
+    decimal_sep = format_number(1.1, 1)[1]
     inject = (
         "<script>window.T="
         + json.dumps({k: t(k) for k in keys}, ensure_ascii=False)
+        + ";window.DEC="
+        + json.dumps(decimal_sep)
         + ";</script>"
     )
     return HTMLResponse(
