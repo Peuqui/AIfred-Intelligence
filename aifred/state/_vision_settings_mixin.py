@@ -304,7 +304,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         return rx.call_script(
             "window.open('/api/vision/zone-editor?source_id=' + "
             f"encodeURIComponent({sid}),'aifred-zone-editor',"
-            "'popup=yes,width=960,height=900,left=200,top=70,"
+            "'popup=yes,width=960,height=945,left=200,top=55,"
             "menubar=no,toolbar=no,location=no,status=no')"
         )
 
