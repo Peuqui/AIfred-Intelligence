@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vigilantia — Zonen-Maske</title>
+<title>Vigilantia</title>
+<!--I18N-->
 <style>
   :root { --bg:#0f1115; --panel:#171a21; --border:#2a2f3a; --accent:#FFA500; --text:#e6e6e6; --muted:#9aa3b2; }
   * { box-sizing: border-box; }
@@ -15,6 +16,7 @@
   .controls { display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-bottom:12px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 14px; }
   .controls label { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
   .controls input[type=range] { accent-color: var(--accent); }
+  .controls input[type=checkbox] { accent-color: var(--accent); width:16px; height:16px; }
   .controls .seg { display:flex; gap:8px; }
   button { background:#23272f; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; }
   button:hover { border-color:var(--accent); }
@@ -30,25 +32,23 @@
 </head>
 <body>
 <header>
-  <h1>Vigilantia — Zonen-Maske</h1>
+  <h1 data-i18n="zone_editor_title"></h1>
   <span class="src" id="srcLabel"></span>
 </header>
 <div class="wrap">
   <div class="controls">
     <div class="seg">
-      <label><input type="radio" name="mode" value="motion" checked> nur Bewegung ignorieren</label>
-      <label><input type="radio" name="mode" value="blackout"> + Pixel schwärzen (DSGVO)</label>
+      <label><input type="radio" name="mode" value="motion" checked> <span data-i18n="zone_editor_mode_motion"></span></label>
+      <label><input type="radio" name="mode" value="blackout"> <span data-i18n="zone_editor_mode_blackout"></span></label>
     </div>
-    <label>Pinsel <input type="range" id="brush" min="1" max="10" value="3"> <span id="brushVal">3</span></label>
-    <label>Raster <input type="range" id="grid" min="16" max="96" step="8" value="48"> <span id="gridVal">48</span></label>
-    <button id="reload">Bild neu laden</button>
-    <button id="clear">Alles löschen</button>
-    <button class="primary" id="save">Speichern</button>
+    <label><input type="checkbox" id="active" checked> <span data-i18n="zone_editor_active"></span></label>
+    <label><span data-i18n="zone_editor_brush"></span> <input type="range" id="brush" min="1" max="10" value="3"> <span id="brushVal">3</span></label>
+    <label><span data-i18n="zone_editor_grid"></span> <input type="range" id="grid" min="16" max="96" step="8" value="48"> <span id="gridVal"></span></label>
+    <button id="reload" data-i18n="zone_editor_reload"></button>
+    <button id="clear" data-i18n="zone_editor_clear"></button>
+    <button class="primary" id="save" data-i18n="zone_editor_save"></button>
   </div>
-  <div class="hint">
-    <kbd>Linke Maustaste</kbd> ziehen = malen &nbsp;·&nbsp; <kbd>Rechte Maustaste</kbd> ziehen = radieren.
-    Markierte Bereiche werden bei der Bewegungserkennung ignoriert.
-  </div>
+  <div class="hint" data-i18n-html="zone_editor_hint"></div>
   <div id="stage">
     <img id="live" width="900" height="506" alt="">
     <canvas id="cv" width="900" height="506"></canvas>
@@ -58,6 +58,20 @@
 <script>
 (function () {
   "use strict";
+  const T = window.T || {};
+  const tr = (k) => (T[k] !== undefined ? T[k] : k);
+
+  function applyI18n() {
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+      el.textContent = tr(el.getAttribute("data-i18n"));
+    });
+    document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+      el.innerHTML = tr(el.getAttribute("data-i18n-html"));
+    });
+    document.title = tr("zone_editor_title");
+  }
+  applyI18n();
+
   const params = new URLSearchParams(location.search);
   const sourceId = params.get("source_id") || "";
   document.getElementById("srcLabel").textContent = sourceId;
@@ -70,13 +84,14 @@
   const brushValEl = document.getElementById("brushVal");
   const gridEl = document.getElementById("grid");
   const gridValEl = document.getElementById("gridVal");
+  const activeEl = document.getElementById("active");
 
-  const MAX_W = 900;          // Canvas-Anzeigebreite
+  const MAX_W = 900;
   let img = new Image();
   let imgReady = false;
   let cols = parseInt(gridEl.value, 10);
-  let rows = 27;              // wird aus dem Bild-Seitenverhältnis berechnet
-  let mask = [];              // mask[r][c] = 0/1
+  let rows = 27;
+  let mask = [];
   let painting = false;
   let paintValue = 1;
 
@@ -95,20 +110,28 @@
     rows = Math.max(4, Math.round(cols * ar));
   }
 
+  function updateGridLabel() {
+    gridValEl.textContent = cols + "×" + rows;  // z.B. "48×27"
+  }
+
+  function selectedMode() {
+    const el = document.querySelector('input[name="mode"]:checked');
+    return el ? el.value : "motion";
+  }
+
   function render() {
     // Canvas ist transparent — der Live-MJPEG-Stream darunter scheint
     // durch; wir zeichnen nur Maske + Raster.
     ctx.clearRect(0, 0, cv.width, cv.height);
     const cw = cv.width / cols, ch = cv.height / rows;
-    // markierte Zellen — Farbe spiegelt den Modus (live): rot = nur
-    // ignorieren (Pixel bleiben), fast-schwarz = im blackout-Modus werden
-    // die Pixel tatsächlich geschwärzt (Preview der echten Wirkung).
+    // Farbe spiegelt den Modus (live): rot = nur ignorieren (Pixel bleiben),
+    // dunkel = im blackout-Modus werden die Pixel geschwärzt (transparent
+    // genug, dass das Live-Bild durchscheint).
     ctx.fillStyle = (selectedMode() === "blackout")
       ? "rgba(0,0,0,0.55)" : "rgba(255,80,80,0.45)";
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++)
         if (mask[r][c]) ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5);
-    // feines Raster
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -120,7 +143,7 @@
   function paintAt(px, py, value) {
     const cw = cv.width / cols, ch = cv.height / rows;
     const cc = Math.floor(px / cw), cr = Math.floor(py / ch);
-    const R = parseInt(brushEl.value, 10) - 1;   // 1 = nur die Zelle
+    const R = parseInt(brushEl.value, 10) - 1;
     for (let dr = -R; dr <= R; dr++)
       for (let dc = -R; dc <= R; dc++) {
         if (dr * dr + dc * dc > R * R) continue;
@@ -142,7 +165,7 @@
   cv.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     painting = true;
-    paintValue = (e.button === 2) ? 0 : 1;   // rechte Taste radiert
+    paintValue = (e.button === 2) ? 0 : 1;
     cv.setPointerCapture(e.pointerId);
     const [x, y] = evtPos(e); paintAt(x, y, paintValue);
   });
@@ -155,23 +178,25 @@
   cv.addEventListener("pointercancel", endPaint);
 
   brushEl.addEventListener("input", () => { brushValEl.textContent = brushEl.value; });
-  // Modus-Umschalten färbt die markierten Bereiche sofort um (rot/schwarz).
   document.querySelectorAll('input[name="mode"]').forEach(
     (r) => r.addEventListener("change", render)
   );
+  // Aktiv-Toggle: speichert sofort → Live-Reload, schnelle Gegenprobe.
+  activeEl.addEventListener("change", () => { save(); });
   gridEl.addEventListener("change", () => {
     cols = parseInt(gridEl.value, 10);
-    gridValEl.textContent = cols;
     recomputeRows();
+    updateGridLabel();
     newMask();
     render();
-    setStatus("Raster geändert — Maske geleert.", "");
+    setStatus(tr("zone_editor_grid_changed"), "");
   });
 
   document.getElementById("clear").addEventListener("click", () => {
-    newMask(); render(); setStatus("Maske geleert (noch nicht gespeichert).", "");
+    newMask(); render(); setStatus(tr("zone_editor_cleared"), "");
   });
   document.getElementById("reload").addEventListener("click", loadImage);
+  document.getElementById("save").addEventListener("click", save);
 
   function maskToCells() {
     let s = "";
@@ -180,20 +205,16 @@
     return s;
   }
 
-  function selectedMode() {
-    const el = document.querySelector('input[name="mode"]:checked');
-    return el ? el.value : "motion";
-  }
-
-  document.getElementById("save").addEventListener("click", async () => {
+  async function save() {
     const cells = maskToCells();
     const hasAny = cells.indexOf("1") >= 0;
     const payload = {
       source_id: sourceId,
-      mode: hasAny ? selectedMode() : "off",
+      mode: selectedMode(),
       cols: cols, rows: rows, cells: cells,
+      enabled: activeEl.checked,
     };
-    setStatus("Speichere …", "");
+    setStatus(tr("zone_editor_saving"), "");
     try {
       const res = await fetch("/api/vision/zone-mask", {
         method: "POST",
@@ -201,13 +222,11 @@
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("HTTP " + res.status);
-      setStatus(hasAny
-        ? "Gespeichert — greift sofort im laufenden Watcher."
-        : "Maske entfernt (leer).", "ok");
+      setStatus(hasAny ? tr("zone_editor_saved") : tr("zone_editor_removed"), "ok");
     } catch (err) {
-      setStatus("Speichern fehlgeschlagen: " + err.message, "err");
+      setStatus(tr("zone_editor_save_failed") + err.message, "err");
     }
-  });
+  }
 
   function sizeStage(w, h) {
     cv.width = w; cv.height = h;
@@ -215,27 +234,27 @@
   }
 
   function loadImage() {
-    setStatus("Lade Kamerabild …", "");
-    // Einmal-Snapshot nur zum Bestimmen von Seitenverhältnis/Größe; der
-    // sichtbare Hintergrund ist danach der Live-Stream.
+    setStatus(tr("zone_editor_loading"), "");
     img = new Image();
     img.onload = () => {
       imgReady = true;
       sizeStage(MAX_W, Math.round(MAX_W * img.naturalHeight / img.naturalWidth));
       recomputeRows();
+      updateGridLabel();
       if (!mask.length || mask.length !== rows) newMask();
-      // Live-MJPEG-Stream als Hintergrund (source_id ist :path-Param mit
-      // Slash → roh angehängt; source_ids sind sichere Slugs).
       live.src = "/api/vision/stream/" + sourceId + "?fps=4&t=" + Date.now();
       render();
-      setStatus("Live — male über die Bereiche, die ignoriert werden sollen.");
+      setStatus(tr("zone_editor_live"));
     };
     img.onerror = () => {
       imgReady = false;
       live.removeAttribute("src");
       sizeStage(MAX_W, Math.round(MAX_W * 9 / 16));
-      setStatus("Kamerabild nicht ladbar (Quelle offline?). Du kannst trotzdem auf dem schwarzen Raster malen.", "err");
-      recomputeRows(); if (!mask.length) newMask(); render();
+      recomputeRows();
+      updateGridLabel();
+      if (!mask.length) newMask();
+      render();
+      setStatus(tr("zone_editor_offline"), "err");
     };
     img.src = "/api/vision/snapshot/" + sourceId + "?t=" + Date.now();
   }
@@ -247,19 +266,19 @@
       if (d && d.exists && d.cells && d.cols && d.rows && d.cells.length === d.cols * d.rows) {
         cols = d.cols; rows = d.rows;
         gridEl.value = Math.min(96, Math.max(16, Math.round(cols / 8) * 8));
-        gridValEl.textContent = cols;
         newMask();
         for (let r = 0; r < rows; r++)
           for (let c = 0; c < cols; c++)
             mask[r][c] = d.cells[r * cols + c] === "1" ? 1 : 0;
         if (d.mode === "blackout") document.querySelector('input[value="blackout"]').checked = true;
+        activeEl.checked = (d.enabled !== false);
       }
     } catch (e) { /* keine bestehende Maske — egal */ }
   }
 
-  if (!sourceId) { setStatus("Kein source_id-Parameter in der URL.", "err"); return; }
+  if (!sourceId) { setStatus(tr("zone_editor_no_source"), "err"); return; }
   brushValEl.textContent = brushEl.value;
-  gridValEl.textContent = gridEl.value;
+  updateGridLabel();
   loadExisting().then(loadImage);
 })();
 </script>
