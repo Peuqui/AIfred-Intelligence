@@ -294,13 +294,18 @@ class VisionSettingsMixin(rx.State, mixin=True):
 
     @rx.event
     def open_zone_editor(self, source_id: str):
-        """Öffnet den standalone JS-Canvas-Zonen-Editor in einem neuen
-        Fenster (entkoppelt von Reflex). Übergibt die source_id als
-        Query-Param; der Editor redet per /api/vision/* mit dem Backend."""
+        """Öffnet den standalone JS-Canvas-Zonen-Editor als eigenständiges
+        Popup-Fenster (gleiche Mechanik wie die Vigilantia-Live-Vorschau:
+        verschiebbares OS-Fenster, fixer Name fokussiert es beim Reklick).
+        Ausgeliefert über /api (prefix-unabhängig); source_id als Query-
+        Param, der Editor redet per /api/vision/* mit dem Backend."""
         import json
+        sid = json.dumps(source_id or "")
         return rx.call_script(
-            "window.open('/zone_editor.html?source_id=' + "
-            f"encodeURIComponent({json.dumps(source_id or '')}), '_blank')"
+            "window.open('/api/vision/zone-editor?source_id=' + "
+            f"encodeURIComponent({sid}),'aifred-zone-editor',"
+            "'popup=yes,width=960,height=900,left=200,top=70,"
+            "menubar=no,toolbar=no,location=no,status=no')"
         )
 
     @rx.event

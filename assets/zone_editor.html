@@ -20,8 +20,9 @@
   button:hover { border-color:var(--accent); }
   button.primary { background:#3d2a00; color:var(--accent); border-color:var(--accent); font-weight:600; }
   .hint { font-size:12px; color:var(--muted); margin-top:4px; }
-  .canvas-box { display:inline-block; border:1px solid var(--border); border-radius:8px; overflow:hidden; line-height:0; background:#000; }
-  canvas { display:block; cursor:crosshair; touch-action:none; }
+  #stage { position:relative; display:inline-block; border:1px solid var(--border); border-radius:8px; overflow:hidden; line-height:0; background:#000; }
+  #live { display:block; }
+  #cv { position:absolute; top:0; left:0; cursor:crosshair; touch-action:none; }
   #status { margin-top:10px; font-size:13px; min-height:18px; }
   #status.ok { color:#4caf50; } #status.err { color:#ff6b6b; }
   kbd { background:#23272f; border:1px solid var(--border); border-radius:3px; padding:1px 5px; font-size:11px; }
@@ -48,7 +49,10 @@
     <kbd>Linke Maustaste</kbd> ziehen = malen &nbsp;·&nbsp; <kbd>Rechte Maustaste</kbd> ziehen = radieren.
     Markierte Bereiche werden bei der Bewegungserkennung ignoriert.
   </div>
-  <div class="canvas-box"><canvas id="cv" width="900" height="506"></canvas></div>
+  <div id="stage">
+    <img id="live" width="900" height="506" alt="">
+    <canvas id="cv" width="900" height="506"></canvas>
+  </div>
   <div id="status"></div>
 </div>
 <script>
@@ -60,6 +64,7 @@
 
   const cv = document.getElementById("cv");
   const ctx = cv.getContext("2d");
+  const live = document.getElementById("live");
   const statusEl = document.getElementById("status");
   const brushEl = document.getElementById("brush");
   const brushValEl = document.getElementById("brushVal");
@@ -91,8 +96,9 @@
   }
 
   function render() {
-    if (imgReady) ctx.drawImage(img, 0, 0, cv.width, cv.height);
-    else { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height); }
+    // Canvas ist transparent — der Live-MJPEG-Stream darunter scheint
+    // durch; wir zeichnen nur Maske + Raster.
+    ctx.clearRect(0, 0, cv.width, cv.height);
     const cw = cv.width / cols, ch = cv.height / rows;
     // markierte Zellen
     ctx.fillStyle = "rgba(255,80,80,0.45)";
@@ -189,32 +195,41 @@
       });
       if (!res.ok) throw new Error("HTTP " + res.status);
       setStatus(hasAny
-        ? "Gespeichert. Greift nach Neustart/Re-Arm der Quelle."
+        ? "Gespeichert — greift sofort im laufenden Watcher."
         : "Maske entfernt (leer).", "ok");
     } catch (err) {
       setStatus("Speichern fehlgeschlagen: " + err.message, "err");
     }
   });
 
+  function sizeStage(w, h) {
+    cv.width = w; cv.height = h;
+    live.width = w; live.height = h;
+  }
+
   function loadImage() {
     setStatus("Lade Kamerabild …", "");
+    // Einmal-Snapshot nur zum Bestimmen von Seitenverhältnis/Größe; der
+    // sichtbare Hintergrund ist danach der Live-Stream.
     img = new Image();
     img.onload = () => {
       imgReady = true;
-      cv.width = MAX_W;
-      cv.height = Math.round(MAX_W * img.naturalHeight / img.naturalWidth);
+      sizeStage(MAX_W, Math.round(MAX_W * img.naturalHeight / img.naturalWidth));
       recomputeRows();
       if (!mask.length || mask.length !== rows) newMask();
+      // Live-MJPEG-Stream als Hintergrund (source_id ist :path-Param mit
+      // Slash → roh angehängt; source_ids sind sichere Slugs).
+      live.src = "/api/vision/stream/" + sourceId + "?fps=4&t=" + Date.now();
       render();
-      setStatus("");
+      setStatus("Live — male über die Bereiche, die ignoriert werden sollen.");
     };
     img.onerror = () => {
       imgReady = false;
-      setStatus("Kamerabild konnte nicht geladen werden (Quelle offline?). Du kannst trotzdem auf dem schwarzen Raster malen.", "err");
+      live.removeAttribute("src");
+      sizeStage(MAX_W, Math.round(MAX_W * 9 / 16));
+      setStatus("Kamerabild nicht ladbar (Quelle offline?). Du kannst trotzdem auf dem schwarzen Raster malen.", "err");
       recomputeRows(); if (!mask.length) newMask(); render();
     };
-    // Bestehender FrameHub-Snapshot-Endpoint (source_id ist ein :path-Param
-    // mit Slash, daher roh angehängt — source_ids sind sichere Slugs).
     img.src = "/api/vision/snapshot/" + sourceId + "?t=" + Date.now();
   }
 
