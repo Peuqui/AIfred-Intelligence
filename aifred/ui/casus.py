@@ -695,9 +695,9 @@ def _image_overlay() -> rx.Component:
             rx.hstack(
                 rx.icon_button(
                     rx.icon("chevron-left", size=30),
-                    on_click=AIState.casus_image_prev,
+                    on_click=AIState.casus_image_older,
                     size="3", variant="soft", color_scheme="gray",
-                    custom_attrs={"data-image-nav": "prev"},
+                    custom_attrs={"data-image-nav": "older"},
                     style={"flex_shrink": "0", "opacity": "0.85"},
                 ),
                 rx.box(
@@ -734,9 +734,9 @@ def _image_overlay() -> rx.Component:
                 ),
                 rx.icon_button(
                     rx.icon("chevron-right", size=30),
-                    on_click=AIState.casus_image_next,
+                    on_click=AIState.casus_image_newer,
                     size="3", variant="soft", color_scheme="gray",
-                    custom_attrs={"data-image-nav": "next"},
+                    custom_attrs={"data-image-nav": "newer"},
                     style={"flex_shrink": "0", "opacity": "0.85"},
                 ),
                 spacing="3",
