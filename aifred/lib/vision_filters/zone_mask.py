@@ -1,29 +1,35 @@
 """Zonen-Masken für Vision-Quellen.
 
-Markierte Bildbereiche (z.B. Bäume, Straße) werden bei der Bewegungs-
-erkennung ignoriert und — je nach Modus — zusätzlich DSGVO-konform
-geschwärzt. Die Maske liegt pro Quelle in
-``plugins/tools/vision/settings.json`` unter ``zone_masks[<source_id>]``::
+Pro Zelle ein Typ (4-wertig), gemalt im JS-Canvas-Editor:
+
+* ``0`` normal      — Bewegung zählt hier (Default)
+* ``1`` ignorieren  — Bewegung in der Zone wird unterdrückt (Pixel bleiben)
+* ``2`` schwärzen   — Pixel werden geschwärzt (DSGVO) UND Bewegung unterdrückt
+* ``3`` ROI         — sobald irgendeine ROI-Zelle existiert, zählt Bewegung
+                      AUSSCHLIESSLICH in den ROI-Zellen (alles andere ignoriert)
+
+Daraus ergeben sich drei abgeleitete Masken:
+
+* **keep** (wo Bewegung zählt): mit ROI → nur ``==3``; ohne ROI → nur ``==0``.
+* **blackout** (Pixel schwärzen): ``==2`` — unabhängig vom ROI, immer DSGVO.
+* **observed_pixels**: Anzahl der keep-Pixel — Bezugsgröße für den
+  Bewegungs-Schwellwert, damit Maskieren die Empfindlichkeit im beobachteten
+  Bereich nicht senkt.
+
+Die Maske liegt pro Quelle in ``plugins/tools/vision/settings.json`` unter
+``zone_masks[<source_id>]``::
 
     "zone_masks": {
       "cam/v4l2_0": {
-        "mode": "motion",          # Toggle, siehe unten
-        "cols": 40, "rows": 24,    # Rasterauflösung
-        "cells": "000111000..."    # cols*rows Zeichen, '1' = ignorieren
+        "enabled": true,
+        "cols": 48, "rows": 36,
+        "cells": "0011223300..."   # cols*rows Ziffern aus {0,1,2,3}
       }
     }
 
-``mode`` ist der Toggle, den der User pro Maske setzt:
-
-* ``"motion"``   → nur den Motion-Trigger in der Zone unterdrücken; das
-                   Bild bleibt unverändert gespeichert.
-* ``"blackout"`` → zusätzlich die Pixel der Zone schwärzen, bevor das Bild
-                   gespeichert oder ans VLM gegeben wird (öffentlicher Raum
-                   landet nie auf der Platte).
-
-Das Raster ist auflösungsunabhängig: Es wird per Nearest-Neighbor auf die
-jeweilige Frame-Größe skaliert. Der (spätere) JS-Canvas-Editor malt in
-genau diese Rasterzellen.
+``enabled=false`` lässt die Maske gespeichert, wendet sie aber nicht an
+(Schnell-Gegenprobe). Das Raster wird per Nearest-Neighbor auf die Frame-
+Auflösung skaliert (auflösungsunabhängig).
 """
 
 from __future__ import annotations
@@ -43,62 +49,73 @@ _VISION_SETTINGS = (
     Path(__file__).resolve().parents[2] / "plugins/tools/vision/settings.json"
 )
 
-_VALID_MODES = ("motion", "blackout")
+# Zell-Typen
+_IGNORE = 1
+_BLACKOUT = 2
+_ROI = 3
 
 
 @dataclass
 class ZoneMask:
-    """Ignorier-Zonen einer Quelle als Raster (1 = ignorieren)."""
+    """Zonen-Typen einer Quelle als Raster (0/1/2/3, siehe Modul-Docstring)."""
 
     source_id: str
-    mode: str
     cols: int
     rows: int
-    grid: np.ndarray  # (rows, cols) uint8, 1 = ignorieren
-    # Keep-Masken-Cache je Frame-Größe (Quellen liefern konstante Auflösung).
-    _keep_cache: dict[tuple[int, int], np.ndarray] = field(
+    grid: np.ndarray  # (rows, cols) uint8 mit Werten 0..3
+    # Cache je Frame-Größe: (keep-Maske, Anzahl beobachteter Pixel).
+    _cache: dict[tuple[int, int], tuple[np.ndarray, int]] = field(
         default_factory=dict, repr=False, compare=False
     )
 
     @property
-    def suppresses_motion(self) -> bool:
-        """In beiden Modi wird der Motion-Trigger in der Zone unterdrückt."""
-        return self.mode in _VALID_MODES
-
-    @property
     def blacks_out(self) -> bool:
-        """Nur im ``blackout``-Modus werden die Pixel geschwärzt (DSGVO)."""
-        return self.mode == "blackout"
+        """Gibt es Schwärzungs-Zellen (DSGVO)?"""
+        return bool((self.grid == _BLACKOUT).any())
 
-    def _keep(self, h: int, w: int) -> np.ndarray:
-        """Keep-Maske (1 = behalten, 0 = ignorieren), auf (h, w) skaliert."""
-        cached = self._keep_cache.get((h, w))
+    def _keep(self, h: int, w: int) -> tuple[np.ndarray, int]:
+        """Keep-Maske (1 = Bewegung zählt) + Anzahl beobachteter Pixel,
+        auf (h, w) skaliert und gecacht."""
+        cached = self._cache.get((h, w))
         if cached is None:
-            ignore = cv2.resize(self.grid, (w, h), interpolation=cv2.INTER_NEAREST)
-            cached = (ignore == 0).astype(np.uint8)
-            self._keep_cache[(h, w)] = cached
+            if (self.grid == _ROI).any():
+                keep_grid = self.grid == _ROI            # ROI: nur hier
+            else:
+                keep_grid = self.grid == 0               # sonst: alles außer ignore/schwärzen
+            keep = cv2.resize(
+                keep_grid.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST
+            )
+            cached = (keep, int(np.count_nonzero(keep)))
+            self._cache[(h, w)] = cached
         return cached
 
     def apply_to_motion(self, foreground: np.ndarray) -> np.ndarray:
-        """Foreground-Maske in den Ignorier-Zonen auf 0 setzen."""
+        """Foreground-Maske auf die keep-Zone beschränken (Rest auf 0)."""
         h, w = foreground.shape[:2]
-        result: np.ndarray = cv2.bitwise_and(
-            foreground, foreground, mask=self._keep(h, w)
-        )
+        keep, _ = self._keep(h, w)
+        result: np.ndarray = cv2.bitwise_and(foreground, foreground, mask=keep)
         return result
 
+    def observed_pixels(self, h: int, w: int) -> int:
+        """Anzahl der Pixel, in denen Bewegung gezählt wird (Schwellwert-Bezug)."""
+        return self._keep(h, w)[1]
+
     def blackout(self, img: np.ndarray) -> np.ndarray:
-        """Pixel der Ignorier-Zonen schwärzen. Gibt eine Kopie zurück."""
+        """Pixel der Schwärzungs-Zellen (``==2``) auf Schwarz setzen. Kopie."""
         h, w = img.shape[:2]
+        bo = cv2.resize(
+            (self.grid == _BLACKOUT).astype(np.uint8), (w, h),
+            interpolation=cv2.INTER_NEAREST,
+        )
         out = img.copy()
-        out[self._keep(h, w) == 0] = 0
+        out[bo == 1] = 0
         return out
 
 
 def load_zone_mask(source_id: str) -> ZoneMask | None:
     """Zonen-Maske einer Quelle aus der vision-settings.json laden.
 
-    ``None`` wenn keine (gültige, nicht-leere) Maske konfiguriert ist —
+    ``None`` wenn keine (aktive, nicht-leere) Maske konfiguriert ist —
     dann läuft die Motion-Detection unverändert.
     """
     try:
@@ -116,9 +133,6 @@ def load_zone_mask(source_id: str) -> ZoneMask | None:
     # (Zellen erhalten), wird aber nicht angewandt (Gegenprobe).
     if not entry.get("enabled", True):
         return None
-    mode = str(entry.get("mode", "")).strip()
-    if mode not in _VALID_MODES:
-        return None
     try:
         cols = int(entry["cols"])
         rows = int(entry["rows"])
@@ -128,8 +142,8 @@ def load_zone_mask(source_id: str) -> ZoneMask | None:
     if cols <= 0 or rows <= 0 or len(cells) != cols * rows:
         logger.warning("zone_mask for %s: malformed grid, ignoring", source_id)
         return None
-    grid = (np.frombuffer(cells.encode("ascii"), dtype=np.uint8) == ord("1"))
-    grid = grid.astype(np.uint8).reshape(rows, cols)
+    raw = np.frombuffer(cells.encode("ascii"), dtype=np.uint8).astype(np.int16)
+    grid = np.clip(raw - ord("0"), 0, 3).astype(np.uint8).reshape(rows, cols)
     if not grid.any():
-        return None  # nichts markiert → wie keine Maske
-    return ZoneMask(source_id=source_id, mode=mode, cols=cols, rows=rows, grid=grid)
+        return None  # nur Nullen → wie keine Maske
+    return ZoneMask(source_id=source_id, cols=cols, rows=rows, grid=grid)
