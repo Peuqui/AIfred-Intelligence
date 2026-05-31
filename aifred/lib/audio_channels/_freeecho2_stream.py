@@ -44,18 +44,19 @@ FE2_SAMPLE_RATE = 48000
 FE2_SAMPLE_FORMAT = "s16"   # mpv-Notation; ergibt int16 little-endian
 
 # Channels pro audio_type.
-#   tts:    AIfred-eigene Voice-Synthese (XTTS/Piper) — immer mono.
-#   speech: Hoerbuecher / Podcasts / Lesungen (audio_sources.py mappt
-#           audiobook|hoerbuch|podcast|lesung auf "speech"). Hoerbuecher
-#           sind heute meist Stereo (Ambient, Musik-Untermalung) → 2 ch.
-#           Bei Mono-Quellen pumpt mpv automatisch auf L=R hoch
-#           (Bandbreite-Tradeoff ist akzeptabel).
-#   music:  Musik-Streams — Stereo gewuenscht, sonst ist's nur halb-
-#           wertige Wiedergabe an L/R-Speakern.
+# REVERT 2026-05-31: Stereo-Pfad fuer music/speech crashte/hing den
+# Puck-Client im RECEIVING/SPEAKING State (energy_lr:0 Spam, dunkler
+# LED-Ring). Wurzel-Ursache am Puck noch nicht isoliert — vorerst alle
+# Streams mono (Status-Quo vor heutiger Aenderung) damit das Geraet
+# normal nutzbar bleibt.
+#
+# Zum Re-Aktivieren nach Puck-Side-Fix:
+#   "speech": 2,  # Hoerbuch/Podcast/Lesung
+#   "music":  2,  # Musik
 _CHANNELS_PER_TYPE = {
     "tts":    1,
-    "speech": 2,
-    "music":  2,
+    "speech": 1,
+    "music":  1,
 }
 
 
