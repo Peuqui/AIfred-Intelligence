@@ -1125,7 +1125,7 @@ def agent_editor_route() -> rx.Component:
 @rx.page(
     route="/vision-preview-popup",
     on_load=AIState.on_load_vision_preview,
-    title="Webcam Live — AIfred",
+    title="Vigilantia Live — AIfred",
 )
 def vision_preview_popup_route() -> rx.Component:
     """Eigenes Browser-Fenster (via window.open) für Live-Preview."""
