@@ -411,6 +411,18 @@ def stop_all_installed_tts(keep: str = "") -> list[tuple[str, bool, str]]:
     for eng in installed_gpu_engines():
         if keep == eng.key:
             continue
+        # Only stop engines that are ACTUALLY running. `docker compose down`
+        # on a non-running project returns success (no-op) — without this
+        # guard it gets logged as "<engine> container stopped" even though
+        # nothing ran, which is a misleading false positive (and pointless
+        # work). Skip silently when the container isn't up.
+        try:
+            if not eng.is_running():
+                continue
+        except Exception:  # noqa: BLE001
+            # Health-probe failure → fall through and attempt the stop, so a
+            # genuinely-running-but-unreachable container still gets cleaned.
+            pass
         ok, msg = eng.stop()
         out.append((eng.label_short, ok, msg))
     return out
