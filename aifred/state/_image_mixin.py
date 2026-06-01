@@ -116,7 +116,10 @@ class ImageMixin(rx.State, mixin=True):
 
     async def _process_image_upload(self, files: List[rx.UploadFile], from_camera: bool = False):
         """Internal handler for image uploads with validation (async generator for UI updates)"""
+        from datetime import datetime
+
         from ..lib.vision_utils import (
+            UPLOAD_IMAGES_DIR,
             validate_image_file,
             resize_image_if_needed,
             save_image_to_file,
@@ -170,20 +173,25 @@ class ImageMixin(rx.State, mixin=True):
                 # Resize if needed (save bandwidth/VRAM)
                 resized_content = resize_image_if_needed(content)
 
-                # Camera photos: Short generic name (uuid prefix added by save_image_to_file)
-                # File uploads: Keep original filename
+                # Build a unique, recognizable filename: original stem +
+                # microsecond timestamp. Camera shots have no meaningful
+                # original name, so use a "camera_" stem. No uuid prefix —
+                # the timestamp makes it unique within the session folder.
+                stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                ext = filename.rsplit(".", 1)[1].lower() if "." in filename else "jpg"
                 if from_camera:
-                    ext = filename.rsplit(".", 1)[1] if "." in filename else "jpg"
-                    display_name = f"Image.{ext}"
+                    display_name = f"camera_{stamp}.{ext}"
                 else:
-                    display_name = filename
+                    stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+                    display_name = f"{stem}_{stamp}.{ext}"
 
-                # Save image as file (not Base64 in memory)
-                # Uses session_id for persistent session-based storage
-                image_path = save_image_to_file(resized_content, self.session_id, display_name)  # type: ignore[attr-defined]
+                # Save under the user-upload tree (data/upload/images/<session>/),
+                # separate from the surveillance captures (vigilantia/).
+                image_path = save_image_to_file(
+                    resized_content, self.session_id, display_name,
+                    base_dir=UPLOAD_IMAGES_DIR,
+                )  # type: ignore[attr-defined]
                 image_url = get_image_url(image_path)
-
-                # Use actual filename (includes uuid prefix from save_image_to_file)
                 saved_name = image_path.name
 
                 # Store with file path (for LLM) and URL (for UI).
@@ -410,8 +418,15 @@ class ImageMixin(rx.State, mixin=True):
 
     async def _do_apply_crop(self, x: float, y: float, width: float, height: float) -> None:
         """Interne Funktion: Fuehrt den Crop mit gegebenen Koordinaten aus"""
-        from ..lib.vision_utils import crop_and_resize_image, save_image_to_file, get_image_url
+        from datetime import datetime
         from pathlib import Path
+
+        from ..lib.vision_utils import (
+            UPLOAD_IMAGES_DIR,
+            crop_and_resize_image,
+            save_image_to_file,
+            get_image_url,
+        )
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
             self.add_debug("\u274c Crop failed: Invalid image index")  # type: ignore[attr-defined]
@@ -448,8 +463,19 @@ class ImageMixin(rx.State, mixin=True):
             cropped_img = Image.open(io.BytesIO(cropped_bytes))
             px_width, px_height = cropped_img.size
 
-            # Save cropped image as new file
-            new_path = save_image_to_file(cropped_bytes, self.session_id, image_data["name"])  # type: ignore[attr-defined]
+            # Save cropped image under a NEW unique name (stem + fresh
+            # timestamp) — same name would resolve to the same path now that
+            # there's no uuid prefix, and the unlink() below would then delete
+            # the file we just wrote.
+            _stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            _old = image_data["name"]
+            _stem = _old.rsplit(".", 1)[0] if "." in _old else _old
+            _ext = _old.rsplit(".", 1)[1] if "." in _old else "jpg"
+            crop_name = f"{_stem}_crop_{_stamp}.{_ext}"
+            new_path = save_image_to_file(
+                cropped_bytes, self.session_id, crop_name,
+                base_dir=UPLOAD_IMAGES_DIR,
+            )  # type: ignore[attr-defined]
             new_url = get_image_url(new_path)
 
             # Delete old file
@@ -464,7 +490,7 @@ class ImageMixin(rx.State, mixin=True):
             self.pending_images = [
                 *self.pending_images[:idx],
                 {
-                    "name": image_data["name"],
+                    "name": crop_name,
                     "path": str(new_path),
                     "url": new_url,
                     "size_kb": str(len(cropped_bytes) // 1024),

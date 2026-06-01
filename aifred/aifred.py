@@ -1217,13 +1217,18 @@ app._api.mount("/api", api_app)
 from starlette.staticfiles import StaticFiles  # noqa: E402
 from .lib.config import DATA_DIR  # noqa: E402
 
-# Mount snapshot directory for Vision uploads. Filesystem lives under
-# data/vision/snapshots/ (consistent with the wider vision pipeline:
-# frames/, clips/, recordings/, faces/) — URL prefix stays /_upload/images/
-# for backwards-compat with persisted message metadata.
-images_dir = DATA_DIR / "vision" / "snapshots"
-images_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/images", StaticFiles(directory=str(images_dir)), name="uploaded_images")
+# User uploads (mobile camera + file picker) live under data/upload/images/
+# and are served at /_upload/images/.
+upload_images_dir = DATA_DIR / "upload" / "images"
+upload_images_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount("/_upload/images", StaticFiles(directory=str(upload_images_dir)), name="uploaded_images")
+
+# Surveillance captures live under data/vigilantia/ — on-demand tool-call
+# snapshots (toolcall/<session>/) and background motion frames
+# (motion/<cam>/<date>/) — served at /_upload/vigilantia/.
+vigilantia_dir = DATA_DIR / "vigilantia"
+vigilantia_dir.mkdir(parents=True, exist_ok=True)
+app._api.mount("/_upload/vigilantia", StaticFiles(directory=str(vigilantia_dir)), name="vigilantia_images")
 
 # Mount html_preview directory for share_chat feature
 html_preview_dir = DATA_DIR / "html_preview"

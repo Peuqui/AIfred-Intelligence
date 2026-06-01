@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_FRAMES_DIR = DATA_DIR / "vision" / "frames"
+_DEFAULT_FRAMES_DIR = DATA_DIR / "vigilantia" / "motion"
 
 # Erster Call nach Watch-Start: noch keine History, also keine
 # „unverändert"-Option im Prompt — die VLM muss die Szene voll
@@ -839,7 +839,7 @@ class VisionWatcher:
         )
 
     def _save_frame(self, frame: "Frame") -> str:
-        """Persist a JPEG-encoded frame to ``data/vision/frames/<source>/<date>/``.
+        """Persist a JPEG-encoded frame to ``data/vigilantia/motion/<source>/<date>/``.
 
         Returns the file path as string (empty on failure — caller logs).
         """

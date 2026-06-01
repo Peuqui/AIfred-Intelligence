@@ -7,7 +7,6 @@ Supports Ollama, llama.cpp (via llama-swap), vLLM, and TabbyAPI backends.
 
 import logging
 import re
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Tuple, Optional
@@ -16,12 +15,16 @@ from typing import Any, Tuple, Optional
 from .config import DATA_DIR
 from .logging_utils import log_message
 
-# Images are stored in data/vision/snapshots/{session_id}/
-# This directory is served by Reflex via /_upload/images/... (URL prefix
-# kept stable for backwards-compat with persisted message metadata; the
-# filesystem path was moved under data/vision/ for consistency with the
-# wider vision pipeline — frames/, clips/, recordings/, faces/).
-IMAGES_BASE_DIR = DATA_DIR / "vision" / "snapshots"
+# Vision images live in two session-scoped trees:
+#   data/vigilantia/toolcall/<session>/ — on-demand camera captures
+#       (vision_snapshot / vision_analyze), served via /_upload/vigilantia/...
+#   data/upload/images/<session>/       — user-provided images (mobile camera +
+#       file picker), served via /_upload/images/...
+# Background motion frames are session-free and live under
+# data/vigilantia/motion/<cam>/<date>/ (written by the watcher, age-pruned).
+VIGILANTIA_DIR: Path = DATA_DIR / "vigilantia"
+TOOLCALL_IMAGES_DIR: Path = VIGILANTIA_DIR / "toolcall"
+UPLOAD_IMAGES_DIR: Path = DATA_DIR / "upload" / "images"
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +97,13 @@ def resolve_source_alias(source_id: str, fallback: str = "") -> str:
     return fallback
 
 
-def _safe_session_images_dir(session_id: str) -> Optional[Path]:
-    """Return the per-session images dir if session_id is well-formed and
-    the resolved path stays under IMAGES_BASE_DIR, else None."""
+def _safe_session_dir(base_dir: Path, session_id: str) -> Optional[Path]:
+    """Return ``base_dir/session_id`` if session_id is well-formed and the
+    resolved path stays under ``base_dir``, else None (path-traversal-safe)."""
     if not isinstance(session_id, str) or not _SESSION_ID_RE.match(session_id):
         return None
-    root = IMAGES_BASE_DIR.resolve()
-    candidate = (IMAGES_BASE_DIR / session_id).resolve()
+    root = base_dir.resolve()
+    candidate = (base_dir / session_id).resolve()
     try:
         candidate.relative_to(root)
     except ValueError:
@@ -764,38 +767,40 @@ def crop_and_resize_image(
 # Image File Storage (Session-based)
 # ============================================================
 
-# Images are stored in data/vision/snapshots/{session_id}/
-# Structure: {session_id}/{uuid}_{filename}
-# Served by Reflex via /_upload/images/... (URL prefix preserved for
-# backwards-compat with persisted message metadata).
+# Session-scoped images: {base_dir}/{session_id}/{filename}
+# where base_dir is TOOLCALL_IMAGES_DIR or UPLOAD_IMAGES_DIR (see top of file).
+# The caller passes an already-unique filename; no uuid prefix is added.
 
 
-def save_image_to_file(image_bytes: bytes, session_id: str, filename: str) -> Path:
+def save_image_to_file(
+    image_bytes: bytes, session_id: str, filename: str, *, base_dir: Path
+) -> Path:
     """
-    Save image bytes as JPEG file in session-specific directory.
+    Save image bytes as a JPEG file in a session-specific directory under
+    ``base_dir`` (e.g. TOOLCALL_IMAGES_DIR or UPLOAD_IMAGES_DIR).
 
-    Filename gets a session-wide sequential number prefix (e.g. 001_Image.jpg).
-    The counter is based on existing files in the session directory.
+    The caller is responsible for passing an already-unique ``filename``
+    (a microsecond timestamp, or original-name + timestamp) — no uuid prefix
+    is added anymore, so the on-disk name is exactly the caller's name.
 
     Args:
         image_bytes: Raw JPEG image data
         session_id: Device identifier (32-char hex string)
-        filename: Original filename (e.g., "photo.jpg")
+        filename: Final, already-unique filename (e.g. "20260601_202600_123456.jpg")
+        base_dir: Storage root (the per-session folder is created under it)
 
     Returns:
         Absolute path to saved file
     """
     # Ensure session images directory exists (path-traversal-safe)
-    images_dir = _safe_session_images_dir(session_id)
+    images_dir = _safe_session_dir(base_dir, session_id)
     if images_dir is None:
         raise ValueError(f"Unsafe session_id for image storage: {session_id!r}")
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Strip any path components the caller may have sent and add a short
-    # uuid prefix instead of a `len(existing)+1` counter, which would
-    # race when two uploads arrive concurrently for the same session.
+    # Strip any path components the caller may have sent — the name is final.
     safe_filename = Path(filename).name or "image.jpg"
-    file_path = (images_dir / f"{uuid.uuid4().hex[:8]}_{safe_filename}").resolve()
+    file_path = (images_dir / safe_filename).resolve()
     try:
         file_path.relative_to(images_dir.resolve())
     except ValueError:
@@ -813,9 +818,9 @@ def get_image_url(image_path: Path) -> str:
     """
     Convert absolute file path to relative URL for UI display.
 
-    The URL uses Reflex's /_upload/ endpoint (URL prefix /_upload/images/
-    is preserved for backwards-compat); files now live under
-    data/vision/snapshots/{session_id}/{filename}.
+    Maps the on-disk path to its serving prefix: paths under data/vigilantia/
+    → /_upload/vigilantia/..., paths under data/upload/images/ →
+    /_upload/images/....
 
     Uses relative URL so the browser automatically uses the current host/port.
     This ensures images work correctly regardless of which port the user
@@ -825,17 +830,24 @@ def get_image_url(image_path: Path) -> str:
         image_path: Absolute path to image file
 
     Returns:
-        Relative URL like "/_upload/images/{session_id}/{filename}"
+        Relative URL like "/_upload/vigilantia/{...}" or "/_upload/images/{...}"
     """
-    # Extract relative path from IMAGES_BASE_DIR
-    try:
-        relative_path = image_path.relative_to(IMAGES_BASE_DIR)
-    except ValueError:
-        # Path not under IMAGES_BASE_DIR - use full path as fallback
-        relative_path = Path(image_path.name)
+    # Map the on-disk path to its serving URL prefix. Vigilantia (camera
+    # captures, both toolcall/ and motion/) → /_upload/vigilantia, user
+    # uploads → /_upload/images.
+    resolved = image_path.resolve()
+    for base, prefix in (
+        (VIGILANTIA_DIR, "/_upload/vigilantia"),
+        (UPLOAD_IMAGES_DIR, "/_upload/images"),
+    ):
+        try:
+            relative_path = resolved.relative_to(base.resolve())
+            return f"{prefix}/{relative_path}"
+        except ValueError:
+            continue
 
-    # Return relative URL - browser uses current host/port automatically
-    return f"/_upload/images/{relative_path}"
+    # Path under no known base - use bare filename as fallback
+    return f"/_upload/images/{image_path.name}"
 
 
 def load_image_as_base64(image_path: Path) -> str:
@@ -868,8 +880,9 @@ def url_to_file_path(image_url: str) -> Optional[Path]:
     Convert an image URL back to filesystem path.
 
     Handles URLs like:
-    - /_upload/images/{session_id}/{filename}
-    - http://host:port/_upload/images/{session_id}/{filename}
+    - /_upload/vigilantia/{...}  → data/vigilantia/{...}
+    - /_upload/images/{session_id}/{filename}  → data/upload/images/{...}
+    - http://host:port/_upload/...  (host stripped)
 
     Args:
         image_url: URL from get_image_url() or stored in chat
@@ -879,13 +892,15 @@ def url_to_file_path(image_url: str) -> Optional[Path]:
     """
     import re
 
-    # Extract path part after /_upload/images/
-    match = re.search(r'/_upload/images/(.+)$', image_url)
-    if not match:
-        return None
+    match = re.search(r'/_upload/vigilantia/(.+)$', image_url)
+    if match:
+        return VIGILANTIA_DIR / str(match.group(1))
 
-    relative_path = match.group(1)
-    return IMAGES_BASE_DIR / relative_path
+    match = re.search(r'/_upload/images/(.+)$', image_url)
+    if match:
+        return UPLOAD_IMAGES_DIR / str(match.group(1))
+
+    return None
 
 
 def load_image_url_as_base64(image_url: str) -> Optional[str]:
@@ -1048,33 +1063,36 @@ def resolve_image_path_by_index(
 
 def cleanup_session_images(session_id: str) -> int:
     """
-    Delete all images for a session.
+    Delete all session-scoped images for a session.
 
-    Called when chat is cleared or session is deleted.
-    Removes the images directory under data/vision/snapshots/{session_id}/.
+    Called when chat is cleared or session is deleted. Removes both
+    session-bound trees:
+      * data/vigilantia/toolcall/{session_id}/  (on-demand camera captures)
+      * data/upload/images/{session_id}/        (user uploads)
+
+    Session-free motion frames (data/vigilantia/motion/) are NOT touched here —
+    they are age-pruned by the daily vision-cleanup task.
 
     Args:
         session_id: Device identifier (32-char hex string)
 
     Returns:
-        Number of files deleted
+        Number of files deleted across both trees
     """
     import shutil
 
-    images_dir = _safe_session_images_dir(session_id)
-    if images_dir is None or not images_dir.exists():
-        return 0
+    total = 0
+    for base_dir in (TOOLCALL_IMAGES_DIR, UPLOAD_IMAGES_DIR):
+        images_dir = _safe_session_dir(base_dir, session_id)
+        if images_dir is None or not images_dir.exists():
+            continue
+        count = len(list(images_dir.glob("*")))
+        try:
+            shutil.rmtree(images_dir)
+            total += count
+        except OSError as e:
+            logger.warning(f"⚠️ Could not delete session images in {base_dir}: {e}")
 
-    # Count files before deletion
-    files = list(images_dir.glob("*"))
-    count = len(files)
-
-    # Remove images directory (not the whole session folder!)
-    try:
-        shutil.rmtree(images_dir)
-        logger.info(f"🗑️ Deleted {count} image(s) for session {session_id[:8]}...")
-    except OSError as e:
-        logger.warning(f"⚠️ Could not delete session images: {e}")
-        return 0
-
-    return count
+    if total:
+        logger.info(f"🗑️ Deleted {total} image(s) for session {session_id[:8]}...")
+    return total

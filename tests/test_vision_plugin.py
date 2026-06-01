@@ -196,10 +196,16 @@ class TestSnapshot:
         assert "not available" in result["error"]
 
     def test_snapshot_save_returns_url(self, patched_plugin, ctx, monkeypatch, tmp_path: Path):
-        # Redirect IMAGES_BASE_DIR to a tmp path so file save doesn't pollute data/
+        # Redirect the vigilantia tree to a tmp path so the save doesn't
+        # pollute data/. Patch the vision_utils globals (used by get_image_url
+        # for the path→URL mapping) AND the plugin's imported
+        # TOOLCALL_IMAGES_DIR binding (the save target).
         import aifred.lib.vision_utils as vu
 
-        monkeypatch.setattr(vu, "IMAGES_BASE_DIR", tmp_path / "snapshots")
+        vig = tmp_path / "vigilantia"
+        monkeypatch.setattr(vu, "VIGILANTIA_DIR", vig)
+        monkeypatch.setattr(vu, "TOOLCALL_IMAGES_DIR", vig / "toolcall")
+        monkeypatch.setattr(vp, "TOOLCALL_IMAGES_DIR", vig / "toolcall")
 
         register(FakeSource("cam/test-snap"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
@@ -207,11 +213,12 @@ class TestSnapshot:
         assert result["success"] is True
         assert result["source_id"] == "cam/test-snap"
         assert "image_url" in result
-        assert result["image_url"].startswith("/_upload/images/")
-        assert "markdown" in result
+        assert result["image_url"].startswith("/_upload/vigilantia/")
+        # No markdown echo anymore — the pipeline pins exactly one image.
+        assert "markdown" not in result
         # File should actually exist under the patched base dir
-        rel = result["image_url"].removeprefix("/_upload/images/")
-        assert (tmp_path / "snapshots" / rel).exists()
+        rel = result["image_url"].removeprefix("/_upload/vigilantia/")
+        assert (vig / rel).exists()
 
     def test_snapshot_no_save(self, patched_plugin, ctx):
         register(FakeSource("cam/test-snap2"))

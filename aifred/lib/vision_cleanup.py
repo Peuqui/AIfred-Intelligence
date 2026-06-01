@@ -8,7 +8,7 @@ Was wird aufgeräumt:
 
 * **Face-Crops** unter ``DATA_DIR/vision/faces/<source>/<datum>/`` —
   ganze Tagesordner älter als TTL werden gelöscht.
-* **Motion-Frames** unter ``DATA_DIR/vision/frames/<source>/<datum>/`` —
+* **Motion-Frames** unter ``DATA_DIR/vigilantia/motion/<source>/<datum>/`` —
   selbes Schema, gleiches TTL.
 * **Vision-DB-Events** in ``vision_store.events`` mit ``timestamp``
   vor dem TTL-Cutoff (motion + face_known/unsure/unknown).
@@ -132,7 +132,7 @@ async def cleanup_vision_task() -> None:
                 DATA_DIR / "vision" / "faces", cutoff
             )
             frames_removed = _cleanup_dated_subdirs(
-                DATA_DIR / "vision" / "frames", cutoff
+                DATA_DIR / "vigilantia" / "motion", cutoff
             )
             db_removed = _cleanup_vision_db_events(cutoff)
             if crops_removed or frames_removed or db_removed:
