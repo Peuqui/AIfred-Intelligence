@@ -88,7 +88,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
     # Streaming TTS - send sentences to TTS as they are generated
     _tts_sentence_buffer: str = ""  # Accumulates tokens until sentence boundary detected
     _tts_short_carry: str = ""  # Short sentences (< 3 words) waiting to merge with next
-    _tts_in_think_block: bool = False  # True when inside <think>...</think> block
+    _tts_in_collapsible_block: bool = False  # True while a collapsible block (think/vlm_output/data/…) is still streaming in
     _tts_streaming_active: bool = False  # True during active streaming session
     _tts_streaming_agent: str = "aifred"  # Current agent for voice selection (aifred/sokrates/salomo)
     _pending_audio_urls: List[str] = []  # Audio URLs collected during streaming, for message assignment
@@ -525,7 +525,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         reset_content_hint_flags()
         self._tts_sentence_buffer = ""
         self._tts_short_carry = ""
-        self._tts_in_think_block = False
+        self._tts_in_collapsible_block = False
         self._tts_streaming_active = True
         self._tts_streaming_agent = agent
 
@@ -622,7 +622,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         # Reset streaming state
         self._tts_sentence_buffer = ""
-        self._tts_in_think_block = False
+        self._tts_in_collapsible_block = False
         self._tts_streaming_active = False
         tts_state.pending_requests = []
         tts_state.completed_urls = {}
@@ -734,26 +734,26 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         from ..lib.audio_processing import (
             extract_complete_sentences,
-            strip_think_content_streaming,
+            strip_collapsible_content_streaming,
+            buffer_has_open_collapsible,
         )
 
-        # Add chunk to buffer (used for think-block detection in all modes)
+        # Add chunk to buffer (used for collapsible-block detection in all modes)
         self._tts_sentence_buffer += chunk
         log_message(f"🔊 TTS Chunk: +{len(chunk)} chars, buffer now {len(self._tts_sentence_buffer)} chars")
 
-        # Check for <think> blocks - don't process content inside them
-        if "<think>" in self._tts_sentence_buffer.lower():
-            self._tts_in_think_block = True
-            log_message("🔊 TTS Chunk: Entered <think> block")
-        if "</think>" in self._tts_sentence_buffer.lower():
-            self._tts_in_think_block = False
-            log_message("🔊 TTS Chunk: Exited </think> block")
-            self._tts_sentence_buffer = strip_think_content_streaming(self._tts_sentence_buffer)
-            log_message(f"🔊 TTS Chunk: After strip, buffer now {len(self._tts_sentence_buffer)} chars")
+        # Strip COMPLETE collapsible blocks (think, vlm_output, data, …) from the
+        # buffer now — their content is hidden in the UI and must never be spoken.
+        # Generic + config-driven (SSoT), replacing the old <think>-only special
+        # case. Preserves whitespace (runs every chunk).
+        self._tts_sentence_buffer = strip_collapsible_content_streaming(self._tts_sentence_buffer)
 
-        # Don't process content while inside think block
-        if self._tts_in_think_block:
-            log_message("🔊 TTS Chunk: Inside think block, waiting...")
+        # A collapsible block still streaming in (opened, close not yet arrived) →
+        # wait for the rest before extracting sentences, so a half-open block is
+        # never spoken. Recomputed from the buffer each chunk (no special-casing).
+        self._tts_in_collapsible_block = buffer_has_open_collapsible(self._tts_sentence_buffer)
+        if self._tts_in_collapsible_block:
+            log_message("🔊 TTS Chunk: Inside collapsible block, waiting...")
             return
 
         # Try to extract complete sentences
