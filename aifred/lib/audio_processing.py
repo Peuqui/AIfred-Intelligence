@@ -39,7 +39,11 @@ _current_tts_engine: str = ""
 _table_hint_announced: bool = False
 _formula_hint_announced: bool = False
 _code_hint_announced: bool = False
-_inside_details_block: bool = False  # Track if we're inside a <details> block (streaming)
+# Collapsible tag whose content we're skipping mid-stream (None = outside one).
+# Generalised from the old <details>-only flag: the raw stream carries the
+# SOURCE tags (<think>, <vlm_output>, <data>, …), not the rendered <details>.
+_skip_block_tag: "str | None" = None
+_collapsible_tags_cache: "tuple[str, ...] | None" = None
 _list_streaming_count: int = 0       # consecutive list items seen (streaming mode)
 _list_hint_announced: bool = False   # "und weitere Einträge" emitted once per overflow
 
@@ -75,12 +79,12 @@ def _validate_audio_output(output_path: str, min_size: int = 100) -> bool:
 
 def reset_content_hint_flags() -> None:
     """Reset all content hint flags (for new streaming session or after regular text)."""
-    global _table_hint_announced, _formula_hint_announced, _code_hint_announced, _inside_details_block
+    global _table_hint_announced, _formula_hint_announced, _code_hint_announced, _skip_block_tag
     global _list_streaming_count, _list_hint_announced
     _table_hint_announced = False
     _formula_hint_announced = False
     _code_hint_announced = False
-    _inside_details_block = False
+    _skip_block_tag = None
     _list_streaming_count = 0
     _list_hint_announced = False
 
@@ -751,24 +755,45 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     return sentences, remaining
 
 
-def strip_think_content_streaming(text: str) -> str:
-    """
-    Remove content inside <think> blocks for streaming TTS.
+def _strip_collapsible_blocks(text: str) -> str:
+    """Remove every COMPLETE collapsible block WITH its content — think,
+    vlm_output, data, analysis, python, code, sql, json, plus the rendered
+    <details>. THE shared rule, used by both the streaming buffer pre-strip
+    and the per-sentence clean_text_for_tts. One config-derived tag set (SSoT),
+    so "what is hidden from TTS" lives in exactly one place.
 
-    Unlike strip_thinking_blocks(), this handles partial blocks
-    that may span multiple streaming chunks.
+    Strips only COMPLETE blocks — an unclosed opening tag is left in place on
+    purpose, so the streaming buffer-wait (buffer_has_open_collapsible) can
+    detect a block that is still mid-stream and hold off until its close. Any
+    stray tag that survives is removed by the generic tag stripper later in
+    clean_text_for_tts."""
+    for tag in _collapsible_tags():
+        text = re.sub(rf'<{tag}[^>]*>.*?</{tag}>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    return text
 
-    Args:
-        text: Text that may contain <think> blocks
 
-    Returns:
-        Text with <think> content removed
-    """
-    # Remove complete <think>...</think> blocks
-    result = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    # Remove any remaining <think> or </think> tags (partial blocks)
-    result = re.sub(r'</?think>', '', result, flags=re.IGNORECASE)
-    return result.strip()
+def strip_collapsible_content_streaming(text: str) -> str:
+    """Buffer-level strip for streaming TTS: removes complete collapsible
+    blocks (think, vlm_output, data, …) from the accumulated buffer BEFORE it
+    is split into sentences, so content behind a collapsible is never spoken
+    and text after a closing tag in the same chunk isn't lost.
+
+    Generic successor of the old think-only stripper — same config-derived tag
+    set as clean_text_for_tts (SSoT). Does NOT .strip(): it runs on every chunk,
+    and trimming the buffer would merge words across chunk boundaries."""
+    return _strip_collapsible_blocks(text)
+
+
+def buffer_has_open_collapsible(text: str) -> bool:
+    """True if the streaming buffer holds a collapsible-tag opening whose close
+    hasn't streamed in yet — the caller waits before emitting sentences, so a
+    half-open block is never spoken. Matches the raw-stream form ``<tag>`` (no
+    attributes; the rendered <details> never appears in the raw stream)."""
+    low = text.lower()
+    for tag in _collapsible_tags():
+        if low.count(f'<{tag}>') > low.count(f'</{tag}>'):
+            return True
+    return False
 
 
 def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
@@ -795,6 +820,18 @@ def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
         return False
     finally:
         loop.close()
+
+
+def _collapsible_tags() -> "tuple[str, ...]":
+    """Tag names that render as collapsibles — derived from get_xml_tag_config
+    (think, analysis, data, python, code, sql, json, vlm_output) plus the
+    rendered ``details`` form. SSoT: read from config, cached once. Their
+    content is hidden in the UI, so TTS must never read it aloud."""
+    global _collapsible_tags_cache
+    if _collapsible_tags_cache is None:
+        from .config import get_xml_tag_config
+        _collapsible_tags_cache = tuple(get_xml_tag_config().keys()) + ("details",)
+    return _collapsible_tags_cache
 
 
 def clean_text_for_tts(text):
@@ -827,23 +864,28 @@ def clean_text_for_tts(text):
     Returns:
         str: Cleaned text suitable for TTS
     """
-    global _inside_details_block
+    global _skip_block_tag
 
     # Detect multi-line content (Re-Synth/regeneration mode) vs single-line (streaming mode)
     # Multi-line content should skip streaming state logic and use regex-based removal
     is_multiline = '\n' in text or len(text) > 500
 
-    # Handle <details> blocks in STREAMING mode ONLY (tags come line by line)
-    # In non-streaming mode, the regex below handles it properly
+    # Handle collapsible blocks in STREAMING mode (tags arrive chunk by chunk).
+    # The raw stream carries the SOURCE tags (<think>, <vlm_output>, <data>, …),
+    # not the rendered <details>. Track which one we're inside across chunks;
+    # a block that opens AND closes within one chunk falls through to the regex
+    # strip below. In multi-line (regeneration) mode the regex handles it all.
     if not is_multiline:
-        if '<details' in text.lower():
-            _inside_details_block = True
-            return ""  # Don't read the opening tag line
-
-        if _inside_details_block:
-            if '</details>' in text.lower():
-                _inside_details_block = False
-            return ""  # Skip ALL content inside details block
+        low = text.lower()
+        if _skip_block_tag is not None:
+            if f'</{_skip_block_tag}>' in low:
+                _skip_block_tag = None
+            return ""  # still inside a collapsible block opened in an earlier chunk
+        for _tag in _collapsible_tags():
+            if f'<{_tag}' in low and f'</{_tag}>' not in low:
+                _skip_block_tag = _tag  # opens here, continues into next chunk(s)
+                return ""
+        # complete blocks (open+close in this chunk) fall through to the regex below
     else:
         # Reset ALL streaming state when processing full content (regeneration)
         # This prevents stale state from previous streaming sessions affecting regeneration
@@ -856,16 +898,10 @@ def clean_text_for_tts(text):
     # Fix "AIfred" pronunciation: capital I causes TTS to say "A-I-fred" instead of "Alfred"
     clean_text = clean_text.replace('AIfred', 'Alfred')
 
-    # Remove <think> tags and content (raw thinking from LLM)
-    # Note: llm_history should be clean, but this handles edge cases
-    # Use IGNORECASE to catch <Think>, <THINK>, etc.
-    clean_text = re.sub(r'<think>.*?</think>', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
-    # Also remove partial/unclosed think tags (streaming edge case)
-    clean_text = re.sub(r'</?think>', '', clean_text, flags=re.IGNORECASE)
-
-    # Remove <details>/<summary> blocks (collapsible UI elements) - entire blocks (non-streaming)
-    # Note: Must match <details> with attributes like style="..."
-    clean_text = re.sub(r'<details[^>]*>.*?</details>', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
+    # Remove ALL collapsible blocks WITH their content (think, vlm_output, data,
+    # …, plus the rendered <details>) via the shared SSoT helper — their content
+    # is hidden behind a collapsible in the UI, so it must never be spoken.
+    clean_text = _strip_collapsible_blocks(clean_text).strip()
 
     # Remove ALL HTML/XML tags but keep content between them
     # Catches <br>, <span>, <div>, <p>, <b>, <i>, <u>, <strong>, <em>, etc.
