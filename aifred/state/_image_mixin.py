@@ -124,6 +124,7 @@ class ImageMixin(rx.State, mixin=True):
             resize_image_if_needed,
             save_image_to_file,
             get_image_url,
+            filename_timestamp,
         )
 
         # Show loading state immediately
@@ -177,7 +178,7 @@ class ImageMixin(rx.State, mixin=True):
                 # microsecond timestamp. Camera shots have no meaningful
                 # original name, so use a "camera_" stem. No uuid prefix —
                 # the timestamp makes it unique within the session folder.
-                stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                stamp = filename_timestamp(datetime.now())
                 ext = filename.rsplit(".", 1)[1].lower() if "." in filename else "jpg"
                 if from_camera:
                     display_name = f"camera_{stamp}.{ext}"
@@ -426,6 +427,7 @@ class ImageMixin(rx.State, mixin=True):
             crop_and_resize_image,
             save_image_to_file,
             get_image_url,
+            filename_timestamp,
         )
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
@@ -467,7 +469,7 @@ class ImageMixin(rx.State, mixin=True):
             # timestamp) — same name would resolve to the same path now that
             # there's no uuid prefix, and the unlink() below would then delete
             # the file we just wrote.
-            _stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            _stamp = filename_timestamp(datetime.now())
             _old = image_data["name"]
             _stem = _old.rsplit(".", 1)[0] if "." in _old else _old
             _ext = _old.rsplit(".", 1)[1] if "." in _old else "jpg"
