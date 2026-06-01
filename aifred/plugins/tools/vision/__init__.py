@@ -362,9 +362,18 @@ class VisionPlugin:
             if save and ctx.session_id:
                 try:
                     fname = f"snap_{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
-                    path = save_image_to_file(
-                        frame.image_bytes, ctx.session_id, fname
+                    # Burn the documentation overlay (name + location + capture
+                    # time) into the saved still — same as stored watcher events.
+                    # The VLM path (analyze) captures its own clean frames.
+                    from ....lib.vision_utils import (
+                        annotate_frame, source_overlay_label,
                     )
+                    stamped = annotate_frame(
+                        frame.image_bytes,
+                        source_overlay_label(source_id),
+                        timestamp=frame.timestamp,
+                    )
+                    path = save_image_to_file(stamped, ctx.session_id, fname)
                     url = get_image_url(path)
                     result["image_url"] = url
                     # Markdown alt-text uses the user alias if set —

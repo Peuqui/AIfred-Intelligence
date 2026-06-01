@@ -8,8 +8,9 @@ Supports Ollama, llama.cpp (via llama-swap), vLLM, and TabbyAPI backends.
 import logging
 import re
 import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Any, Tuple, Optional
 
 # Imports for session-based image storage
 from .config import DATA_DIR
@@ -585,6 +586,99 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int | None = None)
     logger.info(f"📐 Image resized: {img.width}x{img.height} → {new_size[0]}x{new_size[1]} ({format_to_use})")
 
     return output.getvalue()
+
+
+def source_overlay_label(source_id: str) -> str:
+    """»Name (Aufstellort)« for a camera source: alias/display-name, plus the
+    position in parentheses when set. Shared by the burned-in snapshot overlay
+    and the live-tile captions, so the labelling rule lives in one place.
+    Read fresh (no cache) so a rename takes effect immediately."""
+    try:
+        from .vision_store import VisionStore
+        stored = VisionStore().get_source(source_id) or {}
+        settings = stored.get("settings") or {}
+        name = str(
+            settings.get("alias") or stored.get("display_name") or source_id
+        ).strip()
+        pos = str(stored.get("position") or "").strip()
+        return f"{name} ({pos})" if pos else name
+    except Exception as e:  # noqa: BLE001
+        logger.debug("source_overlay_label lookup failed for %s: %s", source_id, e)
+        return source_id
+
+
+# DejaVuSans-Bold is present on the box and reads well on the overlay pill.
+# Falls back to PIL's bitmap default if the TTF ever goes missing.
+_OVERLAY_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def annotate_frame(
+    image_bytes: bytes,
+    label: str,
+    *,
+    timestamp: Optional[datetime] = None,
+) -> bytes:
+    """Burn a documentation overlay into a JPEG frame.
+
+    Draws a semi-transparent pill — sized to the text, bottom-left — with
+    ``label`` (camera name, plus location in parentheses) and, for captured
+    stills, the moment of capture as ``YYYY-MM-DD HH:MM:SS``. The pill hugs
+    the text; it is NOT a full-width footer.
+
+    Returns new JPEG bytes; on any failure returns the input unchanged — the
+    overlay is documentation, never worth losing the frame over. Apply only
+    to STORED / displayed snapshots, never to the motion-detection or VLM
+    input, which must stay clean.
+    """
+    if not label and timestamp is None:
+        return image_bytes
+    try:
+        import io
+
+        from PIL import Image, ImageDraw, ImageFont
+
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        text = label or ""
+        if timestamp is not None:
+            stamp = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            text = f"{text}  {stamp}" if text else stamp
+
+        # Font size scales with image height so it stays readable on a 480p
+        # still as well as a 1080p capture.
+        font_size = max(13, img.height // 36)
+        font: Any
+        try:
+            font = ImageFont.truetype(_OVERLAY_FONT_PATH, font_size)
+        except OSError:
+            font = ImageFont.load_default()
+
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        pad = max(4, font_size // 3)
+        margin = max(6, font_size // 2)
+        tb = draw.textbbox((0, 0), text, font=font)
+        tw, th = tb[2] - tb[0], tb[3] - tb[1]
+        x0, y1 = margin, img.height - margin
+        x1, y0 = x0 + tw + 2 * pad, y1 - th - 2 * pad
+        box = [x0, y0, x1, y1]
+        try:
+            draw.rounded_rectangle(box, radius=max(4, pad), fill=(0, 0, 0, 140))
+        except (AttributeError, TypeError):  # very old Pillow → square pill
+            draw.rectangle(box, fill=(0, 0, 0, 140))
+        # textbbox offsets (tb[0]/tb[1]) can be non-zero — subtract them so
+        # the glyphs sit centred inside the pill.
+        draw.text(
+            (x0 + pad - tb[0], y0 + pad - tb[1]),
+            text, font=font, fill=(255, 255, 255, 235),
+        )
+
+        out = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+        buf = io.BytesIO()
+        out.save(buf, format="JPEG", quality=90)
+        return buf.getvalue()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("annotate_frame failed: %s", e)
+        return image_bytes
 
 
 def crop_and_resize_image(

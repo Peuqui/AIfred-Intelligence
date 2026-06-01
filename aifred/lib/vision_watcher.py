@@ -485,6 +485,9 @@ class VisionWatcher:
     ) -> None:
         source_id = frame.source_id
         frame = self._blackout_frame(frame)
+        # Captured as an output now → burn the overlay once. Save, VLM and
+        # face detection downstream all use this one stamped frame.
+        frame = await asyncio.to_thread(self._stamp_frame, frame)
         frame_path = ""
         if config.save_event_frames:
             frame_path = await asyncio.to_thread(self._save_frame, frame)
@@ -732,9 +735,13 @@ class VisionWatcher:
         # VLM es bekam).
         inference_start = datetime.now()
         self._last_vlm_at[source_id] = inference_start
+        # Same single stamped frame as the saved still: the VLM reads name +
+        # location + capture time straight from the image (frame.timestamp is
+        # preserved, so the logging/event timestamps below stay correct).
+        vlm_frame = await asyncio.to_thread(self._stamp_frame, frame)
         try:
             result = await analyze_sequence(
-                [frame],
+                [vlm_frame],
                 prompt,
                 model=str(vlm_cfg.get("model", DEFAULT_MODEL)),
                 num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
@@ -812,6 +819,25 @@ class VisionWatcher:
             "duration_ms": round(result.duration_ms, 1),
         })
 
+    def _stamp_frame(self, frame: "Frame") -> "Frame":
+        """Burn the documentation overlay (name + location + capture time)
+        into the frame once — at the moment it is taken as an output. The
+        same stamped frame then flows to save, VLM and face detection; there
+        is no separate clean copy. Motion detection runs upstream on the raw
+        stream (it is the trigger, not a consumer of the captured still), so
+        the detector never sees the overlay."""
+        from dataclasses import replace
+
+        from .vision_utils import annotate_frame, source_overlay_label
+        return replace(
+            frame,
+            image_bytes=annotate_frame(
+                frame.image_bytes,
+                source_overlay_label(frame.source_id),
+                timestamp=frame.timestamp,
+            ),
+        )
+
     def _save_frame(self, frame: "Frame") -> str:
         """Persist a JPEG-encoded frame to ``data/vision/frames/<source>/<date>/``.
 
@@ -826,6 +852,8 @@ class VisionWatcher:
             outdir.mkdir(parents=True, exist_ok=True)
             ts_part = frame.timestamp.strftime("%H%M%S_%f")
             outfile = outdir / f"{ts_part}_{uuid.uuid4().hex[:6]}.jpg"
+            # The frame is already overlay-stamped by _stamp_frame at the
+            # moment it was taken as an output — write it as-is.
             outfile.write_bytes(frame.image_bytes)
             return str(outfile)
         except Exception as e:  # noqa: BLE001
