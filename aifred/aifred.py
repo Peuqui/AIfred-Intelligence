@@ -725,18 +725,35 @@ console.log('✂️ Crop handler loaded');
 })();
 """
 
+    # SSoT-Loader: lädt /custom.js GENAU EINMAL. React re-mountet dieses
+    # Inline-Script bei Re-Renders, was zuvor /custom.js jedes Mal neu
+    # ausführte und jeden Listener/Observer/Interval darin stapelte (Symptom:
+    # „ein Tastendruck = 3 Bilder"). Der ID-Check macht das Laden idempotent —
+    # das angehängte <script> liegt außerhalb von Reacts Baum, überlebt
+    # Remounts und wird nur einmal hinzugefügt. Bei custom.js-Änderungen
+    # ?v= hochzählen (Cache-Bust).
+    custom_js_loader = """
+(function() {
+    if (document.getElementById('aifred-custom-js')) return;
+    var s = document.createElement('script');
+    s.id = 'aifred-custom-js';
+    s.src = '/custom.js?v=30';
+    document.head.appendChild(s);
+})();
+"""
+
     return rx.box(
         # Inline JavaScript (guaranteed to execute)
         rx.script(autoscroll_js),
         rx.script(paste_handler_js),
         rx.script(crop_js),
 
-        # custom.js wieder im <body> — head_components-Variante hat
-        # synchrone Script-Auswertung VOR React-Hydration ausgelöst
-        # und Browser-„Seite reagiert nicht"-Hänger produziert. Im
-        # Popup wird der SSE-Manager separat per Inline-Script geladen
-        # (siehe vision_preview.py).
-        rx.script(src="/custom.js?v=30"),
+        # custom.js wird über den idempotenten Loader genau einmal geladen
+        # (nicht via rx.script(src=…), das React bei jedem Remount neu
+        # ausführen würde). head_components-Variante fällt weiterhin aus:
+        # synchrone Auswertung VOR React-Hydration löste Browser-Hänger aus.
+        # Im Popup wird der SSE-Manager separat per Inline-Script geladen.
+        rx.script(custom_js_loader),
 
         # Hidden flags element — always present in the DOM, regardless of
         # chat state. custom.js reads UI toggles from here. Currently:
