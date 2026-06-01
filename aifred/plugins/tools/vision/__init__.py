@@ -43,7 +43,13 @@ from ....lib.vision_filters.face_detect import (
 from ....lib.vision_filters.face_recognize import FaceRecognizer
 from ....lib.vision_gpu_select import resolve_gpu_id
 from ....lib.vision_store import VisionStore
-from ....lib.vision_utils import get_image_url, save_image_to_file
+from ....lib.vision_utils import (
+    TOOLCALL_IMAGES_DIR,
+    annotate_frame,
+    get_image_url,
+    save_image_to_file,
+    source_overlay_label,
+)
 from ....lib.vision_watcher import (
     VisionWatcher,
     WatchConfig,
@@ -361,26 +367,26 @@ class VisionPlugin:
             }
             if save and ctx.session_id:
                 try:
-                    fname = f"snap_{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
+                    # Microsecond timestamp = already unique within the
+                    # per-session folder; no uuid prefix needed.
+                    fname = f"{frame.timestamp.strftime('%Y%m%d_%H%M%S_%f')}.jpg"
                     # Burn the documentation overlay (name + location + capture
-                    # time) into the saved still — same as stored watcher events.
-                    # The VLM path (analyze) captures its own clean frames.
-                    from ....lib.vision_utils import (
-                        annotate_frame, source_overlay_label,
-                    )
+                    # time) into the still. The same stamped image is what the
+                    # user sees; analyze sends an identically-stamped frame to
+                    # the VLM (one image everywhere — SSOT).
                     stamped = annotate_frame(
                         frame.image_bytes,
                         source_overlay_label(source_id),
                         timestamp=frame.timestamp,
                     )
-                    path = save_image_to_file(stamped, ctx.session_id, fname)
-                    url = get_image_url(path)
-                    result["image_url"] = url
-                    # Markdown alt-text uses the user alias if set —
-                    # falls back to "Snapshot" otherwise.
-                    from ....lib.vision_utils import resolve_source_alias
-                    alias = resolve_source_alias(source_id, fallback="Snapshot")
-                    result["markdown"] = f"![{alias}]({url})"
+                    path = save_image_to_file(
+                        stamped, ctx.session_id, fname,
+                        base_dir=TOOLCALL_IMAGES_DIR,
+                    )
+                    # Return only image_url — the pipeline pins exactly one
+                    # vision image per turn. No "markdown" echo (a small chat
+                    # model drops it or, worse, fabricates a stale URL).
+                    result["image_url"] = get_image_url(path)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("snapshot save failed: %s", e)
             return _ok(**result)
@@ -389,9 +395,9 @@ class VisionPlugin:
             name="vision_snapshot",
             description=(
                 "Capture a single frame from the given source. If `save=true` "
-                "(default) the image is persisted to the current session and "
-                "an `image_url` plus `markdown` shortcut is returned that the "
-                "chat UI will render inline."
+                "(default) the image is persisted to the current session and an "
+                "`image_url` is returned; the chat UI renders it inline "
+                "automatically — do NOT echo the URL or any markdown yourself."
             ),
             parameters={
                 "type": "object",
@@ -440,6 +446,23 @@ class VisionPlugin:
                     frames.append(await hub.snapshot(source, width=w, height=h))
             except Exception as e:  # noqa: BLE001
                 return _err(f"capture failed: {e}")
+
+            # Burn the documentation overlay (name + location + capture time)
+            # into every captured frame. The VLM sees exactly the image the
+            # user sees — one stamped artifact, no clean/stamped divergence
+            # (SSOT). Motion detection ran upstream on the raw stream, so the
+            # overlay never affects detection.
+            from dataclasses import replace
+            _label = source_overlay_label(source_id)
+            frames = [
+                replace(
+                    f,
+                    image_bytes=annotate_frame(
+                        f.image_bytes, _label, timestamp=f.timestamp
+                    ),
+                )
+                for f in frames
+            ]
 
             vlm_cfg = _load_settings().get("vlm", {})
             actual_prompt = prompt or vlm_cfg.get(
@@ -505,16 +528,14 @@ class VisionPlugin:
             # translation. Better to pin the image deterministically
             # via the pipeline.
             if ctx.session_id and frames:
-                last = frames[-1]
+                last = frames[-1]  # already overlay-stamped above
                 try:
-                    fname = (
-                        f"analyze_{last.timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
-                    )
+                    fname = f"{last.timestamp.strftime('%Y%m%d_%H%M%S_%f')}.jpg"
                     path = save_image_to_file(
-                        last.image_bytes, ctx.session_id, fname
+                        last.image_bytes, ctx.session_id, fname,
+                        base_dir=TOOLCALL_IMAGES_DIR,
                     )
-                    url = get_image_url(path)
-                    payload["image_url"] = url
+                    payload["image_url"] = get_image_url(path)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("analyze save-frame failed: %s", e)
             # Persist event for query_events

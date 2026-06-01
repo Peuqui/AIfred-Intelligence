@@ -18,7 +18,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Optional
 
 from .context_manager import estimate_tokens, strip_thinking_blocks
 from .formatting import build_inference_metadata, format_thinking_process
@@ -168,6 +168,11 @@ async def run_llm_stream(
     # eingefügt hat. Ein späteres LLM-Echo derselben URL wird im Post-
     # Processing entfernt (sonst erscheint dasselbe Bild zweimal).
     injected_image_urls: list[str] = []
+    # Genau EIN Vision-Bild pro Turn: analyze hat Vorrang vor snapshot (es
+    # zeigt, was das VLM real gesehen hat). Beide Tools liefern nur noch
+    # image_url — die Pipeline pinnt das gewählte Bild im Post-Processing.
+    analyze_image: Optional[tuple[str, str]] = None   # (url, alt)
+    snapshot_image: Optional[tuple[str, str]] = None  # (url, alt)
 
     # Select stream source: with or without retry
     if retry:
@@ -261,14 +266,11 @@ async def run_llm_stream(
                             body = vlm_text.strip()
                             if vlm_meta_display:
                                 body += f"\n\n{vlm_meta_display}"
-                            # Image goes BEFORE the collapsible, as a
-                            # plain markdown reference at the very top
-                            # of the bubble — the user explicitly wants
-                            # it visible by default, not hidden behind
-                            # a collapsible click. Alt-text uses the
-                            # user-given camera alias so it's meaningful
-                            # (e.g. "Türkamera" vs the hardware string).
-                            prefix = ""
+                            # Record analyze's image (highest priority). The
+                            # actual image is pinned ONCE in post-processing so
+                            # exactly one vision image appears per turn, even
+                            # when snapshot + analyze both ran. Alt-text uses
+                            # the user-given camera alias (e.g. "Türkamera").
                             if isinstance(image_url, str) and image_url:
                                 try:
                                     from .vision_utils import resolve_source_alias
@@ -277,15 +279,38 @@ async def run_llm_stream(
                                     )
                                 except Exception:  # noqa: BLE001
                                     alt = "Snapshot"
-                                prefix = f"![{alt}]({image_url})\n\n"
-                                injected_image_urls.append(image_url)
+                                analyze_image = (image_url, alt)
                             full_response = (
-                                prefix
-                                + f"<vlm_output>{body}</vlm_output>"
+                                f"<vlm_output>{body}</vlm_output>"
                                 + full_response
                             )
                             if vlm_debug_msg:
                                 yield {"type": "debug", "message": vlm_debug_msg}
+                except (ValueError, json.JSONDecodeError):
+                    pass
+
+            # vision_snapshot (no VLM) returns image_url without vlm_raw —
+            # record it as the fallback vision image (analyze wins if present).
+            if (
+                result_text
+                and '"image_url"' in result_text
+                and '"vlm_raw"' not in result_text
+            ):
+                try:
+                    parsed = json.loads(result_text)
+                    if (
+                        isinstance(parsed, dict)
+                        and parsed.get("image_url")
+                        and parsed.get("source_id")
+                    ):
+                        try:
+                            from .vision_utils import resolve_source_alias
+                            snap_alt = resolve_source_alias(
+                                str(parsed.get("source_id")), fallback="Snapshot"
+                            )
+                        except Exception:  # noqa: BLE001
+                            snap_alt = "Snapshot"
+                        snapshot_image = (str(parsed["image_url"]), snap_alt)
                 except (ValueError, json.JSONDecodeError):
                     pass
 
@@ -328,6 +353,16 @@ async def run_llm_stream(
 
     # Strip fallback tool-call JSON from response text
     full_response = strip_tool_json(full_response)
+
+    # Genau EIN Vision-Bild pro Turn ganz oben pinnen (analyze vor snapshot).
+    # So erscheint bei kombiniertem „Foto + Analyse" nicht dasselbe Motiv
+    # doppelt. Die URL kommt zusätzlich in injected_image_urls, damit ein
+    # etwaiges LLM-Echo derselben URL unten dedupliziert wird.
+    chosen_image = analyze_image or snapshot_image
+    if chosen_image:
+        _img_url, _img_alt = chosen_image
+        full_response = f"![{_img_alt}]({_img_url})\n\n" + full_response
+        injected_image_urls.append(_img_url)
 
     # SSoT fürs VLM-Bild durchsetzen: Die Pipeline hat das Bild oben
     # deterministisch vorangestellt. Hat das LLM dieselbe image_url (die es im
