@@ -221,7 +221,20 @@ class VisionPlugin:
                 "dauerhafte Überwachung starten. Quellen werden über "
                 "stabile IDs wie `cam/v4l2_0` adressiert — `vision_list_sources` "
                 "liefert das Mapping. Wenn nichts gefunden wird, schlage "
-                "`vision_rescan_sources` vor (z.B. nach Anschluss einer Webcam)."
+                "`vision_rescan_sources` vor (z.B. nach Anschluss einer Webcam).\n\n"
+                "WICHTIG — Aufnehmen und Analysieren sind getrennt: "
+                "`vision_snapshot` nimmt auf und gibt `image_url`(s) plus "
+                "`source_id` zurück, analysiert aber NICHT. `vision_analyze` "
+                "nimmt NICHTS auf — gib ihm die `image_url`(s) UND die "
+                "`source_id` aus dem Snapshot-Ergebnis. Für „mach ein Bild und "
+                "analysiere es“: erst `vision_snapshot`, dann `vision_analyze` "
+                "mit genau dessen `image_url` — so wird nur EINMAL aufgenommen "
+                "und das angezeigte Bild ist exakt das analysierte. Für Bewegung/"
+                "„einen kurzen Film beurteilen“: `vision_snapshot` mit "
+                "`n_frames`>1 aufrufen und ALLE zurückgegebenen `image_urls` an "
+                "`vision_analyze` als Sequenz übergeben. Du kannst mit "
+                "`vision_analyze` auch hochgeladene Bilder analysieren — einfach "
+                "deren `image_url` übergeben."
             )
         return (
             "You can access connected webcams/cameras via the `vision_*` "
@@ -229,7 +242,18 @@ class VisionPlugin:
             "faces, and start a persistent watch. Sources are addressed "
             "via stable IDs like `cam/v4l2_0` — `vision_list_sources` "
             "returns the mapping. If nothing is found, suggest "
-            "`vision_rescan_sources` (e.g. after plugging in a webcam)."
+            "`vision_rescan_sources` (e.g. after plugging in a webcam).\n\n"
+            "IMPORTANT — capture and analysis are separate: `vision_snapshot` "
+            "captures and returns `image_url`(s) plus `source_id`, but does NOT "
+            "analyse. `vision_analyze` captures NOTHING — give it the "
+            "`image_url`(s) AND the `source_id` from the snapshot result. For "
+            "'take a photo and analyse it': call `vision_snapshot` first, then "
+            "`vision_analyze` on exactly that `image_url` — this captures only "
+            "ONCE and the displayed image is exactly the analysed one. For "
+            "motion / 'judge a short film': call `vision_snapshot` with "
+            "`n_frames`>1 and pass ALL returned `image_urls` to `vision_analyze` "
+            "as a sequence. `vision_analyze` can also analyse uploaded images — "
+            "just pass their `image_url`."
         )
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
@@ -338,7 +362,9 @@ class VisionPlugin:
     # ── snapshot ─────────────────────────────────────────────────
 
     def _tool_snapshot(self, ctx: PluginContext) -> Tool:
-        async def _exec(source_id: str, save: bool = True) -> str:
+        async def _exec(source_id: str, n_frames: int = 1, save: bool = True) -> str:
+            import asyncio
+            from dataclasses import replace
             source = get_source(source_id)
             if source is None:
                 return _err(f"unknown source: {source_id}")
@@ -351,53 +377,72 @@ class VisionPlugin:
             from ....lib.vision_utils import resolve_source_resolution
             from ....lib.frame_hub import get_default_hub
             w, h = resolve_source_resolution(source_id)
+            n = max(1, min(int(n_frames), 10))
+            # Burst spread: a tight loop would grab N near-identical frames.
+            # Spacing them by burst_interval_s turns the burst into a real
+            # short sequence ("film") that vision_analyze can judge over time.
+            interval = float(_load_settings().get("snapshot", {}).get("burst_interval_s", 0.5))
             try:
                 # Über den FrameHub aufnehmen, nicht source.snapshot() direkt:
                 # ein laufender Watcher hält source._lock für die gesamte
                 # Stream-Dauer — ein direkter snapshot() liefe in den Deadlock.
                 # Der Hub teilt sich den Stream (Timeout 5 s).
-                frame = await get_default_hub().snapshot(source, width=w, height=h)
+                hub = get_default_hub()
+                frames = []
+                for i in range(n):
+                    if i > 0 and interval > 0:
+                        await asyncio.sleep(interval)
+                    frames.append(await hub.snapshot(source, width=w, height=h))
             except Exception as e:  # noqa: BLE001
                 return _err(f"snapshot failed: {e}")
+            # Burn the documentation overlay (name + location + capture time)
+            # into every frame. The same stamped image is what the user sees
+            # AND what vision_analyze later sends to the VLM (one artifact
+            # everywhere — SSOT).
+            label = source_overlay_label(source_id)
+            frames = [
+                replace(f, image_bytes=annotate_frame(
+                    f.image_bytes, label, timestamp=f.timestamp))
+                for f in frames
+            ]
             result: dict[str, Any] = {
-                "source_id": frame.source_id,
-                "timestamp": frame.timestamp.isoformat(timespec="seconds"),
-                "width": frame.width,
-                "height": frame.height,
+                "source_id": source_id,
+                "n_frames": len(frames),
+                "timestamp": frames[-1].timestamp.isoformat(timespec="seconds"),
+                "width": frames[-1].width,
+                "height": frames[-1].height,
             }
             if save and ctx.session_id:
-                try:
-                    # Microsecond timestamp = already unique within the
-                    # per-session folder; no uuid prefix needed.
-                    fname = f"{frame.timestamp.strftime('%Y%m%d_%H%M%S_%f')}.jpg"
-                    # Burn the documentation overlay (name + location + capture
-                    # time) into the still. The same stamped image is what the
-                    # user sees; analyze sends an identically-stamped frame to
-                    # the VLM (one image everywhere — SSOT).
-                    stamped = annotate_frame(
-                        frame.image_bytes,
-                        source_overlay_label(source_id),
-                        timestamp=frame.timestamp,
-                    )
-                    path = save_image_to_file(
-                        stamped, ctx.session_id, fname,
-                        base_dir=TOOLCALL_IMAGES_DIR,
-                    )
-                    # Return only image_url — the pipeline pins exactly one
-                    # vision image per turn. No "markdown" echo (a small chat
-                    # model drops it or, worse, fabricates a stale URL).
-                    result["image_url"] = get_image_url(path)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("snapshot save failed: %s", e)
+                urls: list[str] = []
+                for f in frames:
+                    try:
+                        # Microsecond timestamp = unique within the per-session
+                        # folder; no uuid prefix needed.
+                        fname = f"{f.timestamp.strftime('%Y%m%d_%H%M%S_%f')}.jpg"
+                        path = save_image_to_file(
+                            f.image_bytes, ctx.session_id, fname,
+                            base_dir=TOOLCALL_IMAGES_DIR,
+                        )
+                        urls.append(get_image_url(path))
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("snapshot save failed: %s", e)
+                if urls:
+                    # image_urls = the full burst (pass to vision_analyze for a
+                    # sequence). image_url = representative (last) frame — the
+                    # pipeline pins exactly one image per turn. No markdown echo.
+                    result["image_urls"] = urls
+                    result["image_url"] = urls[-1]
             return _ok(**result)
 
         return Tool(
             name="vision_snapshot",
             description=(
-                "Capture a single frame from the given source. If `save=true` "
-                "(default) the image is persisted to the current session and an "
-                "`image_url` is returned; the chat UI renders it inline "
-                "automatically — do NOT echo the URL or any markdown yourself."
+                "Capture from a source and persist to the current session. "
+                "`n_frames=1` (default) takes one photo; `n_frames>1` takes a "
+                "short burst (a few hundred ms apart) for motion/'film'. Returns "
+                "`image_url` (shown inline automatically — do NOT echo it) plus "
+                "`image_urls` (the full burst) and `source_id`. To analyse the "
+                "result, pass those to vision_analyze — snapshot does NOT analyse."
             ),
             parameters={
                 "type": "object",
@@ -405,6 +450,11 @@ class VisionPlugin:
                     "source_id": {
                         "type": "string",
                         "description": "Source identifier (see vision_list_sources).",
+                    },
+                    "n_frames": {
+                        "type": "integer",
+                        "description": "1 = single photo; 2-10 = burst sequence for motion/film.",
+                        "default": 1,
                     },
                     "save": {
                         "type": "boolean",
@@ -422,68 +472,63 @@ class VisionPlugin:
 
     def _tool_analyze(self, ctx: PluginContext) -> Tool:
         async def _exec(
-            source_id: str,
+            image_urls: Any,
             prompt: str | None = None,
-            n_frames: int = 1,
+            source_id: str | None = None,
         ) -> str:
-            source = get_source(source_id)
-            if source is None:
-                return _err(f"unknown source: {source_id}")
-            if not source.is_available():
-                return _err(f"source not available: {source_id}")
-            # Same per-camera resolution as vision_snapshot, set in the
-            # live-preview popup.
-            from ....lib.vision_utils import resolve_source_resolution
-            from ....lib.frame_hub import get_default_hub
-            w, h = resolve_source_resolution(source_id)
-            try:
-                # FrameHub statt direktem source.snapshot() — teilt sich den
-                # laufenden Watcher-Stream, kein Deadlock auf source._lock.
-                n = max(1, min(int(n_frames), 10))
-                hub = get_default_hub()
-                frames = []
-                for _ in range(n):
-                    frames.append(await hub.snapshot(source, width=w, height=h))
-            except Exception as e:  # noqa: BLE001
-                return _err(f"capture failed: {e}")
+            # Separated capture/analyze: this tool does NOT take a photo. It
+            # runs the VLM on ALREADY-captured images (from vision_snapshot, an
+            # upload, or any saved image_url). A single url or a list is
+            # accepted; a list is sent as a temporal sequence ("film").
+            from ....lib.vision_utils import url_to_file_path
+            from ....lib.frame_sources import Frame
 
-            # Burn the documentation overlay (name + location + capture time)
-            # into every captured frame. The VLM sees exactly the image the
-            # user sees — one stamped artifact, no clean/stamped divergence
-            # (SSOT). Motion detection ran upstream on the raw stream, so the
-            # overlay never affects detection.
-            from dataclasses import replace
-            _label = source_overlay_label(source_id)
-            frames = [
-                replace(
-                    f,
-                    image_bytes=annotate_frame(
-                        f.image_bytes, _label, timestamp=f.timestamp
-                    ),
+            if isinstance(image_urls, str):
+                urls = [image_urls]
+            elif isinstance(image_urls, list):
+                urls = [str(u) for u in image_urls if u]
+            else:
+                urls = []
+            if not urls:
+                return _err(
+                    "image_urls required — pass the image_url(s) returned by "
+                    "vision_snapshot (snapshot first, then analyze)."
                 )
-                for f in frames
-            ]
+
+            frames: list[Frame] = []
+            for u in urls[:10]:
+                p = url_to_file_path(u)
+                if p is None or not p.exists():
+                    return _err(f"image not found: {u}")
+                try:
+                    data = p.read_bytes()
+                except OSError as e:  # noqa: BLE001
+                    return _err(f"cannot read image {u}: {e}")
+                frames.append(Frame(
+                    source_id=source_id or "",
+                    timestamp=datetime.now(),
+                    image_bytes=data,
+                ))
 
             vlm_cfg = _load_settings().get("vlm", {})
             actual_prompt = prompt or vlm_cfg.get(
                 "default_prompt", "Beschreibe knapp, was zu sehen ist."
             )
-            # Per-camera briefing from vision_store (set in the live-
-            # preview popup). Prepended to the user-given prompt so the
-            # VLM sees the static context first ("Eingang, Tür mit
-            # Briefkasten") and then the variable instruction
-            # ("Beschreibe was zu sehen ist"). Empty briefing → no-op.
-            try:
-                from ....lib.vision_store import VisionStore
-                _info = VisionStore().get_source(source_id)
-                briefing = (_info or {}).get("prompt_context") or ""
-                if isinstance(briefing, str) and briefing.strip():
-                    actual_prompt = f"{briefing.strip()}\n\n{actual_prompt}"
-            except Exception as e:  # noqa: BLE001
-                logger.warning("analyze briefing load failed: %s", e)
+            # Per-camera briefing (prompt_context) — only when the caller passes
+            # the source_id from the snapshot result. Optional static context
+            # ("Eingang, Tür mit Briefkasten"), prepended to the prompt. Without
+            # it the analysis still runs, just without the location hint.
+            if source_id:
+                try:
+                    from ....lib.vision_store import VisionStore
+                    _info = VisionStore().get_source(source_id)
+                    briefing = (_info or {}).get("prompt_context") or ""
+                    if isinstance(briefing, str) and briefing.strip():
+                        actual_prompt = f"{briefing.strip()}\n\n{actual_prompt}"
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("analyze briefing load failed: %s", e)
             # In "live"-Mode (Türsteher/Always-On) override keep_alive auf -1,
-            # damit das VLM permanent im VRAM bleibt und der nächste Event
-            # ohne Cold-Start beantwortet wird. Muss int sein — Ollama
+            # damit das VLM permanent im VRAM bleibt. Muss int sein — Ollama
             # parsed strings als Duration ("30m") und scheitert an "-1".
             keep_alive: Any = -1 if _vision_mode() == "live" else str(
                 vlm_cfg.get("keep_alive", DEFAULT_KEEP_ALIVE)
@@ -502,46 +547,25 @@ class VisionPlugin:
 
             stats = result.metadata.get("stats", {}) if result.metadata else {}
             payload: dict[str, Any] = {
-                "source_id": source_id,
+                "source_id": source_id or "",
                 "n_frames": result.n_frames,
                 "model": result.model,
                 "prompt": result.prompt,
                 "duration_ms": round(result.duration_ms, 1),
                 "description": result.text,
-                # vlm_raw is the marker llm_pipeline.py picks up to
-                # auto-render the raw VLM text as a <vlm_output> XML tag
-                # → collapsible in the chat bubble. vlm_stats carries
-                # TTFT / inference / tok-per-s so the same collapsible
-                # can show a metrics footer in italics, mirroring the
-                # main chat-LLM bubble's layout.
+                # vlm_raw → llm_pipeline.py renders it as a <vlm_output>
+                # collapsible; vlm_stats feeds the metrics footer.
                 "vlm_raw": result.text,
                 "vlm_stats": stats,
+                # The analysed image IS the already-saved image we were given —
+                # return the representative url so the pipeline pins exactly the
+                # image the VLM saw. No new file is written here (true SSOT).
+                "image_url": urls[-1],
             }
-            # Persist the *last* frame to the session image dir so the
-            # chat bubble can show what the VLM actually saw. The URL
-            # is returned as a stable "image_url" key — llm_pipeline.py
-            # picks it up and injects the markdown image into the
-            # response BEFORE the LLM gets to format anything. We
-            # deliberately do NOT include a "markdown" shortcut here
-            # anymore: a smaller chat-LLM (e.g. the speed-variant) sees
-            # it as a hint, ignores it, and the image gets lost in
-            # translation. Better to pin the image deterministically
-            # via the pipeline.
-            if ctx.session_id and frames:
-                last = frames[-1]  # already overlay-stamped above
-                try:
-                    fname = f"{last.timestamp.strftime('%Y%m%d_%H%M%S_%f')}.jpg"
-                    path = save_image_to_file(
-                        last.image_bytes, ctx.session_id, fname,
-                        base_dir=TOOLCALL_IMAGES_DIR,
-                    )
-                    payload["image_url"] = get_image_url(path)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("analyze save-frame failed: %s", e)
             # Persist event for query_events
             try:
                 _store().add_event(
-                    source_id=source_id,
+                    source_id=source_id or "",
                     event_type="vlm_analysis",
                     timestamp=datetime.now(),
                     classification={"description": result.text, "model": result.model},
@@ -554,15 +578,27 @@ class VisionPlugin:
         return Tool(
             name="vision_analyze",
             description=(
-                "Capture N frames from a source and have the VLM describe them. "
-                "n_frames > 1 sends them as a temporal sequence to the model "
-                "(useful for action/movement description). VLM call is "
-                "independent from the active chat model — runs on Ollama."
+                "Run the VLM on ALREADY-captured image(s) — does NOT take a "
+                "photo. Pass `image_urls`: the image_url(s) returned by "
+                "vision_snapshot, or an uploaded image. A list of urls is "
+                "analysed as a temporal sequence (motion/'film'). Also pass "
+                "`source_id` (from the snapshot result) so the per-camera "
+                "briefing is applied. VLM runs on Ollama, independent of the "
+                "chat model. Workflow: vision_snapshot first, then vision_analyze "
+                "on its image_url(s)."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "source_id": {"type": "string"},
+                    "image_urls": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "image_url(s) from vision_snapshot (or an upload). "
+                            "Multiple = temporal sequence. A single string is "
+                            "also accepted."
+                        ),
+                    },
                     "prompt": {
                         "type": "string",
                         "description": (
@@ -570,13 +606,15 @@ class VisionPlugin:
                             "the configured default prompt is used."
                         ),
                     },
-                    "n_frames": {
-                        "type": "integer",
-                        "description": "1-10; >1 = burst for motion description.",
-                        "default": 1,
+                    "source_id": {
+                        "type": "string",
+                        "description": (
+                            "Source of the image (from the snapshot result) — "
+                            "applies the per-camera briefing. Optional."
+                        ),
                     },
                 },
-                "required": ["source_id"],
+                "required": ["image_urls"],
             },
             executor=_exec,
             tier=TIER_READONLY,

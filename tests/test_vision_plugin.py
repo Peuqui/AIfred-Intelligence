@@ -234,13 +234,21 @@ class TestSnapshot:
 
 
 class TestAnalyze:
+    def _patch_dirs(self, monkeypatch, tmp_path):
+        # Redirect the vigilantia tree to tmp so snapshot saves there and
+        # analyze can resolve the image_url back to a real file.
+        import aifred.lib.vision_utils as vu
+        vig = tmp_path / "vigilantia"
+        monkeypatch.setattr(vu, "VIGILANTIA_DIR", vig)
+        monkeypatch.setattr(vu, "TOOLCALL_IMAGES_DIR", vig / "toolcall")
+        monkeypatch.setattr(vp, "TOOLCALL_IMAGES_DIR", vig / "toolcall")
+
     def test_analyze_calls_ollama_and_logs_event(
-        self, patched_plugin, ctx, store, monkeypatch
+        self, patched_plugin, ctx, store, monkeypatch, tmp_path: Path
     ):
-        captured = {}
+        self._patch_dirs(monkeypatch, tmp_path)
 
         async def fake_generate(self, **kwargs):
-            captured.update(kwargs)
             return {"response": "Eine Person steht vor der Tür."}
 
         import ollama
@@ -249,8 +257,12 @@ class TestAnalyze:
 
         register(FakeSource("cam/test-analyze"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
+        # New flow: snapshot captures, analyze runs the VLM on its image_url.
+        snap = _exec_tool(tools["vision_snapshot"], source_id="cam/test-analyze")
+        assert snap["success"] is True
         result = _exec_tool(
             tools["vision_analyze"],
+            image_urls=[snap["image_url"]],
             source_id="cam/test-analyze",
             prompt="Was siehst du?",
         )
@@ -262,7 +274,17 @@ class TestAnalyze:
         assert len(events) == 1
         assert events[0]["event_type"] == "vlm_analysis"
 
-    def test_analyze_multi_frame(self, patched_plugin, ctx, monkeypatch):
+    def test_analyze_rejects_missing_image_urls(self, patched_plugin, ctx):
+        # analyze no longer captures — without image_urls it must error,
+        # not silently grab a frame.
+        register(FakeSource("cam/test-noimg"))
+        tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
+        result = _exec_tool(tools["vision_analyze"], image_urls=[])
+        assert result["success"] is False
+        assert "image_urls required" in result["error"]
+
+    def test_analyze_multi_frame(self, patched_plugin, ctx, monkeypatch, tmp_path: Path):
+        self._patch_dirs(monkeypatch, tmp_path)
         captured = {}
 
         async def fake_generate(self, **kwargs):
@@ -275,8 +297,17 @@ class TestAnalyze:
 
         register(FakeSource("cam/test-multi", frames=[_blank(), _rect(), _blank()]))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
+        # Burst capture (3 frames) → analyze the whole sequence.
+        snap = _exec_tool(
+            tools["vision_snapshot"], source_id="cam/test-multi", n_frames=3
+        )
+        assert snap["success"] is True
+        assert snap["n_frames"] == 3
+        assert len(snap["image_urls"]) == 3
         result = _exec_tool(
-            tools["vision_analyze"], source_id="cam/test-multi", n_frames=3
+            tools["vision_analyze"],
+            image_urls=snap["image_urls"],
+            source_id="cam/test-multi",
         )
         assert result["success"] is True
         assert result["n_frames"] == 3
@@ -506,9 +537,18 @@ class TestVisionMode:
         names = {t.name for t in vp.plugin.get_tools(ctx)}
         assert len(names) == 9
 
+    @staticmethod
+    def _patch_dirs(monkeypatch, tmp_path):
+        import aifred.lib.vision_utils as vu
+        vig = tmp_path / "vigilantia"
+        monkeypatch.setattr(vu, "VIGILANTIA_DIR", vig)
+        monkeypatch.setattr(vu, "TOOLCALL_IMAGES_DIR", vig / "toolcall")
+        monkeypatch.setattr(vp, "TOOLCALL_IMAGES_DIR", vig / "toolcall")
+
     def test_mode_live_overrides_keep_alive_to_minus_one(
-        self, patched_plugin, ctx, monkeypatch
+        self, patched_plugin, ctx, monkeypatch, tmp_path: Path
     ):
+        self._patch_dirs(monkeypatch, tmp_path)
         captured: dict = {}
 
         async def fake_generate(self, **kwargs):
@@ -522,14 +562,19 @@ class TestVisionMode:
 
         register(FakeSource("cam/test-live"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        _exec_tool(tools["vision_analyze"], source_id="cam/test-live")
+        snap = _exec_tool(tools["vision_snapshot"], source_id="cam/test-live")
+        _exec_tool(
+            tools["vision_analyze"],
+            image_urls=[snap["image_url"]], source_id="cam/test-live",
+        )
         # live mode → int -1 (Ollama parses strings as duration; "-1"
         # would fail, so the keep-alive override must be a real int)
         assert captured["keep_alive"] == -1
 
     def test_mode_on_demand_uses_settings_keep_alive(
-        self, patched_plugin, ctx, monkeypatch
+        self, patched_plugin, ctx, monkeypatch, tmp_path: Path
     ):
+        self._patch_dirs(monkeypatch, tmp_path)
         captured: dict = {}
 
         async def fake_generate(self, **kwargs):
@@ -543,6 +588,10 @@ class TestVisionMode:
 
         register(FakeSource("cam/test-od"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        _exec_tool(tools["vision_analyze"], source_id="cam/test-od")
+        snap = _exec_tool(tools["vision_snapshot"], source_id="cam/test-od")
+        _exec_tool(
+            tools["vision_analyze"],
+            image_urls=[snap["image_url"]], source_id="cam/test-od",
+        )
         # settings.json hat "30m" als keep_alive — soll durchgereicht werden
         assert captured["keep_alive"] == "30m"
