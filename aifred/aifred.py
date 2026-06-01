@@ -743,6 +743,13 @@ console.log('✂️ Crop handler loaded');
 """
 
     return rx.box(
+        # Sperrt die UI, solange der Reflex-State-Socket (/_event/) getrennt
+        # ist — z.B. direkt nach einem systemctl-Restart, wenn granian noch
+        # hochfährt und der WS 502 liefert. Ohne das wirken Enter/Paste „tot"
+        # (die custom.js-Handler feuern, aber die ausgelösten Reflex-Events
+        # erreichen das Backend nicht). Blendet sich beim Reconnect aus.
+        rx.connection_modal(),
+
         # Inline JavaScript (guaranteed to execute)
         rx.script(autoscroll_js),
         rx.script(paste_handler_js),
