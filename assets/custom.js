@@ -3,6 +3,17 @@
 
 console.log('🔧 custom.js loaded');
 
+// Reflex (SPA) can re-inject custom.js on re-renders/navigations, which would
+// stack every document-level listener — one arrow press was firing the Casus
+// nav handler 3× (= 3 images per keypress). bindDocKeydownOnce dedupes by key,
+// so repeated custom.js executions register each keydown listener only once.
+window.__aifredKeydownBound = window.__aifredKeydownBound || {};
+function bindDocKeydownOnce(key, handler, opts) {
+    if (window.__aifredKeydownBound[key]) return;
+    window.__aifredKeydownBound[key] = true;
+    document.addEventListener('keydown', handler, opts);
+}
+
 // ============================================================
 // MEDIARECORDER IMPLEMENTATION FOR LIVE AUDIO RECORDING
 // ============================================================
@@ -2231,7 +2242,7 @@ if (document.readyState === 'loading') {
 // the textarea's default behavior (newline). Document-level capture
 // listener — survives any remounts of the textarea.
 // ============================================================
-document.addEventListener('keydown', (e) => {
+bindDocKeydownOnce('enter', (e) => {
     if (e.key !== 'Enter' || e.shiftKey) return;
     // The only textarea in AIfred's chat UI is the message input.
     // Radix' TextArea places id="user-text-input" on the wrapper div;
@@ -2372,7 +2383,7 @@ document.addEventListener('keydown', (e) => {
 // z-stacking order if multiple modals overlap), and clicks it.
 // One handler covers all current and future custom modals — new
 // modals only need the data-attribute on their close button.
-document.addEventListener('keydown', function (e) {
+bindDocKeydownOnce('esc', function (e) {
     if (e.key !== 'Escape') return;
     // querySelectorAll preserves DOM order; the last one is the
     // most recently mounted, which for stacked modals is the
@@ -2397,7 +2408,7 @@ document.addEventListener('keydown', function (e) {
 // left = older/past, right = newer/future). ArrowLeft/ArrowRight click the
 // matching visible button (fires the Reflex event). No-op when the modal is
 // closed (buttons absent), so arrow keys keep their normal behaviour elsewhere.
-document.addEventListener('keydown', function (e) {
+bindDocKeydownOnce('arrownav', function (e) {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     // Timeline-Konvention: links = Vergangenheit (älter), rechts = Zukunft (neuer).
     const dir = (e.key === 'ArrowLeft') ? 'older' : 'newer';
