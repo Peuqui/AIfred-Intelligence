@@ -151,16 +151,19 @@ class TestSendAudioStart:
         ch = FreeEchoChannel()
         run(ch.send_audio_start(rid))
         sent = _last_json(ws)
-        assert sent == {"type": "audio_start"}
-        # Hardware-Constraint: kein channels/rate (Puck fest 48k mono)
-        assert "channels" not in sent
+        # channels wird immer mitgeschickt (Default mono=1); rate NICHT
+        # (Puck-Hardware fest 48 kHz — rate würde die Firmware-Whitelist
+        # FATAL triggern).
+        assert sent == {"type": "audio_start", "channels": 1}
         assert "rate" not in sent
 
     def test_with_total_size(self, room):
         rid, ws = room
         ch = FreeEchoChannel()
         run(ch.send_audio_start(rid, total_size=1024))
-        assert _last_json(ws) == {"type": "audio_start", "total_size": 1024}
+        assert _last_json(ws) == {
+            "type": "audio_start", "channels": 1, "total_size": 1024,
+        }
 
 
 class TestSendAudioEnd:
