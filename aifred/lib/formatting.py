@@ -876,6 +876,14 @@ def format_thinking_process(ai_response: str, model_name: str | None = None, inf
         # Collapse multiple consecutive blank lines (pre-wrap preserves them literally)
         content = re.sub(r'\n{3,}', '\n\n', content.strip())
 
+        # Empty tag (e.g. the model opened <think></think> in a multi-step
+        # tool turn but produced no reasoning) → no collapsible. The tag is
+        # still stripped from the response below, so nothing leaks as raw
+        # text — this just avoids the empty "Denkprozess" accordion.
+        if not content:
+            log_message(f"ℹ️ Skipping empty <{tag_name}> tag (no content)")
+            continue
+
         # Build collapsible HTML
         collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{summary_text}</summary>
