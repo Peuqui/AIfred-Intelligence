@@ -46,8 +46,11 @@ from ....lib.vision_store import VisionStore
 from ....lib.vision_utils import (
     TOOLCALL_IMAGES_DIR,
     annotate_frame,
+    filename_timestamp,
     get_image_url,
+    resolve_source_alias,
     save_image_to_file,
+    slugify_for_filename,
     source_overlay_label,
 )
 from ....lib.vision_watcher import (
@@ -413,12 +416,16 @@ class VisionPlugin:
                 "height": frames[-1].height,
             }
             if save and ctx.session_id:
+                # Filename: <kamera-alias>_<YYYY-MM-DD_HH-MM-SS_mmm>.jpg —
+                # readable date/time + ms (unique within the per-session folder,
+                # no uuid). The subfolder (toolcall/) already encodes the type.
+                _alias = slugify_for_filename(
+                    resolve_source_alias(source_id, fallback="cam")
+                )
                 urls: list[str] = []
                 for f in frames:
                     try:
-                        # Microsecond timestamp = unique within the per-session
-                        # folder; no uuid prefix needed.
-                        fname = f"{f.timestamp.strftime('%Y%m%d_%H%M%S_%f')}.jpg"
+                        fname = f"{_alias}_{filename_timestamp(f.timestamp)}.jpg"
                         path = save_image_to_file(
                             f.image_bytes, ctx.session_id, fname,
                             base_dir=TOOLCALL_IMAGES_DIR,

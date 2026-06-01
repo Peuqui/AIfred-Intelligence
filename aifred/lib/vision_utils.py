@@ -111,6 +111,21 @@ def _safe_session_dir(base_dir: Path, session_id: str) -> Optional[Path]:
     return candidate
 
 
+def filename_timestamp(dt: datetime) -> str:
+    """Readable, filesystem-safe timestamp for image filenames:
+    ``YYYY-MM-DD_HH-MM-SS_mmm`` (millisecond precision — enough to keep burst
+    frames distinct, far less cryptic than raw microseconds)."""
+    return dt.strftime("%Y-%m-%d_%H-%M-%S") + f"_{dt.microsecond // 1000:03d}"
+
+
+def slugify_for_filename(text: str, fallback: str = "cam") -> str:
+    """Short, filesystem-safe slug from a camera alias for a filename prefix.
+    Keeps unicode word chars (umlauts ok), collapses the rest to single
+    underscores. Empty → fallback."""
+    slug = re.sub(r"[^\w-]+", "_", (text or "").strip()).strip("_")
+    return slug or fallback
+
+
 def is_vision_model_sync(model_name: str) -> bool:
     """
     Synchronous vision model detection by name patterns (for UI filtering).
