@@ -876,6 +876,14 @@ def format_thinking_process(ai_response: str, model_name: str | None = None, inf
         # Collapse multiple consecutive blank lines (pre-wrap preserves them literally)
         content = re.sub(r'\n{3,}', '\n\n', content.strip())
 
+        # Strip residual same-type tag delimiters that leaked into the content
+        # via malformed nesting. A thinking model (Qwen3) re-emits a bare
+        # <think> in a tool-continuation roundtrip; the pipeline wraps it again
+        # (<think><think></think>), so the non-greedy match leaves the outer
+        # block's content as the literal "<think>". Remove those so the block
+        # is recognised as empty and skipped below.
+        content = re.sub(rf'</?{re.escape(tag_name)}\b[^>]*>', '', content).strip()
+
         # Empty tag (e.g. the model opened <think></think> in a multi-step
         # tool turn but produced no reasoning) → no collapsible. The tag is
         # still stripped from the response below, so nothing leaks as raw
