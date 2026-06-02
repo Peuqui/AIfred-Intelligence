@@ -593,6 +593,14 @@ class BackendMixin(rx.State, mixin=True):
                 self.vision_num_ctx_enabled = saved_settings.get("vision_num_ctx_enabled", self.vision_num_ctx_enabled)  # type: ignore[attr-defined, has-type]
                 self.vision_num_ctx = saved_settings.get("vision_num_ctx", self.vision_num_ctx)  # type: ignore[attr-defined, has-type]
 
+                # Restore the Vigilantia master switch (vigilantia_armed) +
+                # vision_mode / VLM model from the vision plugin's settings.json,
+                # so the 👁️ eye shows the real scharf/unscharf state right after
+                # login instead of the default "disarmed". The background watchers
+                # run server-side regardless — this is purely the UI restore that
+                # was previously only done when the vision popup opened.
+                self._refresh_vision_settings()  # type: ignore[attr-defined]
+
                 init_system_prompt_cache()
 
                 # Load TTS/STT Settings
