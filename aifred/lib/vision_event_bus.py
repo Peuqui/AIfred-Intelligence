@@ -30,6 +30,37 @@ _subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
 # 2.6 minutes of backlog before drops.
 _QUEUE_MAXSIZE = 32
 
+# Grace period after the last SSE viewer for a source disconnects before
+# its live-preview watcher is torn down. Survives transient EventSource
+# reconnects (network blips, popup re-render) without killing the VLM
+# observation mid-stream. Matches frame_hub.GRACE_SEC.
+_IDLE_GRACE_SEC = 5.0
+
+# Pending teardown tasks per source — cancelled if a new viewer arrives
+# inside the grace window.
+_pending_teardown: dict[str, asyncio.Task[None]] = {}
+
+
+async def _teardown_after_grace(source_id: str) -> None:
+    """Wait out the grace window, then — if still nobody is watching —
+    return the source to its baseline (restore armed surveillance or
+    stop it). Cancelled by a new subscriber before the window elapses."""
+    try:
+        await asyncio.sleep(_IDLE_GRACE_SEC)
+    except asyncio.CancelledError:
+        return
+    if _subscribers.get(source_id):
+        return  # a viewer came back during the grace window
+    from .logging_utils import log_message
+    log_message(f"🛑 vision_event_bus idle teardown source={source_id}")
+    try:
+        from .vision_autostart import restore_or_stop_after_preview
+        await restore_or_stop_after_preview(source_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("event-bus: preview teardown failed for %s: %s", source_id, e)
+    finally:
+        _pending_teardown.pop(source_id, None)
+
 
 def publish_vlm_event(source_id: str, event: dict[str, Any]) -> None:
     """Push an event to all subscribers of this source. Non-blocking —
@@ -62,6 +93,11 @@ async def subscribe(source_id: str) -> AsyncIterator[dict[str, Any]]:
     """
     q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
     _subscribers.setdefault(source_id, []).append(q)
+    # A viewer is (back) — cancel any pending idle teardown for this
+    # source so a reconnect inside the grace window keeps the watcher.
+    pending = _pending_teardown.pop(source_id, None)
+    if pending is not None:
+        pending.cancel()
     from .logging_utils import log_message
     log_message(
         f"🔗 vision_event_bus subscribe source={source_id} "
@@ -78,10 +114,17 @@ async def subscribe(source_id: str) -> AsyncIterator[dict[str, Any]]:
             lst.remove(q)
         if not lst and source_id in _subscribers:
             del _subscribers[source_id]
+        # Last viewer gone → schedule a grace-delayed teardown of the
+        # popup's on-demand watcher (restore armed surveillance or stop).
+        if not lst:
+            _pending_teardown[source_id] = asyncio.create_task(
+                _teardown_after_grace(source_id),
+                name=f"vlm_preview_teardown|{source_id}",
+            )
 
 
 def active_subscriber_count(source_id: str) -> int:
     """How many SSE clients are currently subscribed to this source.
-    Used by /api/vision/events/active for diagnostics + the future
-    auto-stop logic (no subscribers = stop the watcher)."""
+    Used by /api/vision/events/active for diagnostics; the idle-teardown
+    in ``subscribe()`` drives the auto-stop (no viewers = tear down)."""
     return len(_subscribers.get(source_id, []))
