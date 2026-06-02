@@ -103,6 +103,37 @@ async def start_background_watcher(source_id: str) -> bool:
         return False
 
 
+async def restore_or_stop_after_preview(source_id: str) -> None:
+    """Called when the last live-preview SSE viewer for a source
+    disconnects (popup closed). Tears down the popup's on-demand
+    VLM/face overlay and returns the source to its baseline state.
+
+    Two concepts, kept separate:
+
+    * Continuous-VLM is GPU-hungry and only a deliberate opt-in in the
+      live popup — it always ends here.
+    * Motion + (CPU) face recognition is the permanent surveillance and
+      belongs to the armed/``auto_start`` path, not the popup.
+
+    So: a source that is armed AND ``auto_start`` is restored to its
+    background watcher (motion + face per settings, VLM off); any other
+    source — opened ad-hoc in the popup without being armed — is stopped
+    entirely so nothing keeps running once the window is gone.
+    """
+    from .vision_store import VisionStore
+    from .vision_watcher import get_default_watcher
+
+    plugin = _load_plugin_settings()
+    armed = bool(plugin.get("vigilantia_armed", False))
+    record = VisionStore().get_source(source_id)
+    auto_start = bool(record.get("auto_start")) if record else False
+
+    if armed and auto_start:
+        await start_background_watcher(source_id)
+    else:
+        await get_default_watcher().stop(source_id)
+
+
 async def start_all_background_watchers() -> int:
     """Beim AIfred-Service-Boot aufgerufen. Startet alle Sources, die
     in der DB ``auto_start=True`` haben. Returnt Anzahl gestarteter
