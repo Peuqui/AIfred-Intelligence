@@ -91,29 +91,47 @@ class TestDelivery:
 
 
 class TestThrottle:
-    def _disp(self, calls_deliver):
+    """One alert per cluster (dedup_key): the SAME key never re-alerts while
+    remembered; a NEW key alerts immediately, regardless of timing. Keyless
+    events fall back to a per-rule time cooldown."""
+
+    def _disp(self, calls_deliver, *, min_interval_sec=0.0):
         calls, deliver = calls_deliver
         return calls, AlertDispatcher(
-            [AlertRule(producer="vision", sinks=["telegram"], min_interval_sec=300)],
+            [AlertRule(producer="vision", sinks=["telegram"],
+                       min_interval_sec=min_interval_sec)],
             deliver=deliver,
         )
 
-    def test_same_dedup_key_within_interval_suppressed(self):
+    def test_same_cluster_alerts_once(self):
         calls, d = self._disp(_recorder())
         assert asyncio.run(d.emit(_ev(dedup_key="c1", timestamp=_T0))) == 1
+        # Repeat of the same cluster, even much later → still suppressed.
         assert asyncio.run(d.emit(_ev(dedup_key="c1", timestamp=_T0 + timedelta(seconds=60)))) == 0
+        assert asyncio.run(d.emit(_ev(dedup_key="c1", timestamp=_T0 + timedelta(seconds=600)))) == 0
         assert len(calls) == 1
 
-    def test_different_dedup_key_not_throttled(self):
+    def test_different_cluster_not_throttled(self):
         calls, d = self._disp(_recorder())
         asyncio.run(d.emit(_ev(dedup_key="c1", timestamp=_T0)))
+        # A new cluster fires at once — even seconds later (no wall-clock gate).
         assert asyncio.run(d.emit(_ev(dedup_key="c2", timestamp=_T0 + timedelta(seconds=10)))) == 1
         assert len(calls) == 2
 
-    def test_interval_elapsed_allows_again(self):
+    def test_cluster_refires_after_retention(self):
         calls, d = self._disp(_recorder())
         asyncio.run(d.emit(_ev(dedup_key="c", timestamp=_T0)))
-        assert asyncio.run(d.emit(_ev(dedup_key="c", timestamp=_T0 + timedelta(seconds=301)))) == 1
+        # Beyond the dedup retention (1800s) the key is pruned and may fire
+        # again — bounds memory; a real cluster_id never actually recurs.
+        assert asyncio.run(d.emit(_ev(dedup_key="c", timestamp=_T0 + timedelta(seconds=2000)))) == 1
+        assert len(calls) == 2
+
+    def test_keyless_uses_time_cooldown(self):
+        # No dedup_key → fall back to the per-rule time window.
+        calls, d = self._disp(_recorder(), min_interval_sec=300)
+        assert asyncio.run(d.emit(_ev(dedup_key="", timestamp=_T0))) == 1
+        assert asyncio.run(d.emit(_ev(dedup_key="", timestamp=_T0 + timedelta(seconds=60)))) == 0
+        assert asyncio.run(d.emit(_ev(dedup_key="", timestamp=_T0 + timedelta(seconds=301)))) == 1
         assert len(calls) == 2
 
 

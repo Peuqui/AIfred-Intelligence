@@ -90,11 +90,15 @@ class AlertDispatcher:
         *,
         deliver: "DeliverFn | None" = None,
     ) -> None:
+        from .config import ALERT_DEDUP_RETENTION_SEC
         self.rules = list(rules)
         self._deliver = deliver or _default_deliver
         self._last_sent: dict[tuple[str, str], datetime] = {}
-        self._max_interval = max(
-            (r.min_interval_sec for r in self.rules), default=0.0
+        # How long to remember a fired (rule, dedup_key) — the longer of the
+        # rules' time cooldowns and the cluster-dedup retention. Keeping a key
+        # this long is what makes "one alert per cluster" hold.
+        self._prune_cutoff = max(
+            [r.min_interval_sec for r in self.rules] + [ALERT_DEDUP_RETENTION_SEC]
         )
 
     def _rule_key(self, rule: AlertRule, ev: AlertEvent) -> tuple[str, str]:
@@ -111,21 +115,29 @@ class AlertDispatcher:
         return h >= start or h < end  # window wraps midnight
 
     def _throttled(self, rule: AlertRule, ev: AlertEvent, now: datetime) -> bool:
+        last = self._last_sent.get(self._rule_key(rule, ev))
+        if last is None:
+            return False
+        # A non-empty dedup_key identifies one discrete happening (vision:
+        # the cluster_id). One alert per happening — every repeat of the SAME
+        # key is suppressed for as long as we remember it (see _prune). A new
+        # happening carries a new key and alerts immediately. This is "one
+        # alert per cluster", independent of any wall-clock window. Keyless
+        # producers fall back to a per-rule time cooldown.
+        if ev.dedup_key:
+            return True
         if rule.min_interval_sec <= 0:
             return False
-        last = self._last_sent.get(self._rule_key(rule, ev))
-        return last is not None and (now - last).total_seconds() < rule.min_interval_sec
+        return (now - last).total_seconds() < rule.min_interval_sec
 
     def _prune(self, now: datetime) -> None:
-        """Drop last-sent entries older than the longest cooldown — beyond it
-        they can never throttle anything, so keeping them just leaks memory."""
-        if self._max_interval <= 0:
-            self._last_sent.clear()
-            return
-        cutoff = self._max_interval
+        """Forget last-sent entries older than the retention window — beyond
+        it they can neither time-throttle a keyless event nor dedup a
+        (deterministic, non-recurring) cluster key, so keeping them just leaks
+        memory."""
         self._last_sent = {
             k: t for k, t in self._last_sent.items()
-            if (now - t).total_seconds() < cutoff
+            if (now - t).total_seconds() < self._prune_cutoff
         }
 
     async def emit(self, ev: AlertEvent) -> int:
@@ -209,7 +221,7 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         try:
             record_autonomous_turn(
                 ev.producer, ev.source_id or ev.producer,
-                ev.title or ev.category, text,
+                ev.title or ev.category, text, media=ev.media,
             )
             recorded = True
         except Exception as e:  # noqa: BLE001

@@ -814,12 +814,15 @@ async def announce_to_channel(
 
 def record_autonomous_turn(
     channel: str, channel_id: str, title: str, text: str, *,
+    media: str | None = None,
     owner: str = MESSAGE_HUB_OWNER,
 ) -> str:
     """SSoT for surfacing an autonomous event as a normal browser session.
     Routes to a (stable) session, appends an assistant chat turn, and writes a
     hub notification — same primitives process_inbound persists with, just
-    without the LLM. Returns the session_id."""
+    without the LLM. ``media`` (an on-disk frame path) is embedded as a
+    Markdown image so the browser session shows exactly what a channel like
+    Telegram received. Returns the session_id."""
     from .session_storage import load_session
 
     route = routing_table.get_route(channel, channel_id)
@@ -830,9 +833,17 @@ def record_autonomous_turn(
         create_empty_session(session_id, owner=owner)
         routing_table.set_route(channel, channel_id, session_id)
 
+    content = text
+    if media:
+        from pathlib import Path
+        from .vision_utils import get_image_url
+        url = get_image_url(Path(media))
+        if url:
+            content = f"{text}\n\n![{title}]({url})"
+
     session = load_session(session_id)
     chat_history = list((session or {}).get("data", {}).get("chat_history", []))
-    chat_history.append({"role": "assistant", "content": text})
+    chat_history.append({"role": "assistant", "content": content})
     update_chat_data(session_id, chat_history, owner=owner)
 
     write_hub_notification(session_id, title, channel, "system", status="done")
