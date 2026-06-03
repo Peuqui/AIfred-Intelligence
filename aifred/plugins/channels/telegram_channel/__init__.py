@@ -181,6 +181,55 @@ class TelegramChannel(BaseChannel):
         from ....lib.debug_bus import debug
         debug(f"Auto-reply sent to Telegram chat {chat_id}")
 
+    # ── Proactive (alert pipeline) ────────────────────────────
+
+    @property
+    def supports_proactive(self) -> bool:
+        return True
+
+    async def send_proactive(self, *, text: str, media: "str | None" = None) -> bool:
+        """Send an unsolicited message to the configured target(s). Targets are
+        the numeric IDs in ``allowed_users`` (= chat IDs for private chats) —
+        no caller-supplied ID needed. ``media`` (local file path or URL) is
+        sent as a photo with the text as caption; otherwise text-only."""
+        from telegram import Bot
+
+        token = broker.get("telegram", "bot_token")
+        if not token:
+            return False
+        targets = _proactive_targets()
+        if not targets:
+            log_message(
+                "Telegram Plugin: proactive send skipped — no concrete target "
+                "in allowed_users (empty or '*')", "warning",
+            )
+            return False
+        body = self.format_outbound(text)["text"]
+        local = _local_photo_path(media)
+        url = _photo_url(media)
+        sent = False
+        bot = Bot(token)
+        async with bot:
+            for chat_id in targets:
+                try:
+                    if local:
+                        with open(local, "rb") as fh:
+                            await bot.send_photo(chat_id=chat_id, photo=fh, caption=body[:1024])
+                    elif url:
+                        await bot.send_photo(chat_id=chat_id, photo=url, caption=body[:1024])
+                    else:
+                        for chunk in _split_message(body, _MAX_MESSAGE_LENGTH):
+                            await bot.send_message(chat_id=chat_id, text=chunk)
+                    sent = True
+                except Exception as e:  # noqa: BLE001
+                    log_message(
+                        f"Telegram Plugin: proactive send to {chat_id} failed: {e}",
+                        "warning",
+                    )
+        if sent:
+            log_message(f"Telegram Plugin: proactive alert sent to {len(targets)} chat(s)")
+        return sent
+
     # ── Context ───────────────────────────────────────────────
 
     def build_context(self, message: "InboundMessage") -> str:
@@ -251,6 +300,34 @@ class TelegramChannel(BaseChannel):
 
 
 # ── Helpers ──────────────────────────────────────────────────
+
+def _proactive_targets() -> list[int]:
+    """Concrete chat IDs for proactive sends — the numeric entries in
+    ``allowed_users`` (a private chat's user ID == its chat ID). ``"*"``
+    (everyone) yields no concrete target."""
+    raw = broker.get("telegram", "allowed_users").strip()
+    if not raw or raw == "*":
+        return []
+    out: list[int] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if entry.isdigit():
+            out.append(int(entry))
+    return out
+
+
+def _local_photo_path(media: "str | None") -> "str | None":
+    """Local file path if ``media`` points at an existing file, else None."""
+    if not media or media.startswith(("http://", "https://")):
+        return None
+    from pathlib import Path
+    return media if Path(media).exists() else None
+
+
+def _photo_url(media: "str | None") -> "str | None":
+    """``media`` if it is an http(s) URL Telegram can fetch, else None."""
+    return media if media and media.startswith(("http://", "https://")) else None
+
 
 def _is_user_allowed(user_id: int) -> bool:
     """Check if a Telegram user ID is in the whitelist.
