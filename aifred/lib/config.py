@@ -648,6 +648,29 @@ FACE_DETECT_USE_GPU = False
 FACE_DETECT_GPU_ID = 4
 
 # ============================================================
+# PERSON DETECTION (YOLO body detection)
+# ============================================================
+# Vision-Modell-Gewichte (YOLO etc.) liegen im Vigilantia-Datenbaum,
+# Seite an Seite mit Motion-Frames und der Vision-DB. data/* ist
+# gitignored — binäre Gewichte gehören nicht in die Versionierung.
+VISION_MODELS_DIR = DATA_DIR / "vigilantia" / "models"
+# YOLO-Person-Detektor: erkennt GANZE Personen (Körper), ergänzend zur
+# InsightFace-Gesichtserkennung. Läuft motion-gated über onnxruntime.
+PERSON_DETECT_MODEL = "yolo11n.onnx"
+# COCO-Klassen-Index für "person". Standard-COCO: 0.
+PERSON_DETECT_CLASS_ID = 0
+# Eingangsgröße (quadratisch, letterbox). 320 = schnell (~10-25 ms CPU,
+# reicht für "Person ja/nein"), 640 = genauer bei kleinen/fernen Personen.
+PERSON_DETECT_INPUT_SIZE = 480
+# Mindest-Konfidenz, damit eine Box als Person zählt.
+PERSON_DETECT_CONFIDENCE = 0.35
+# IoU-Schwelle für Non-Maximum-Suppression überlappender Boxen.
+PERSON_DETECT_NMS_IOU = 0.45
+# GPU analog zu FACE_DETECT — Default CPU, GPU bleibt frei für LLM/VLM/TTS.
+PERSON_DETECT_USE_GPU = False
+PERSON_DETECT_GPU_ID = 4
+
+# ============================================================
 # VLM VRAM-BUDGET (gemessene Werte pro Modell)
 # ============================================================
 # Tatsächliche VRAM-Belegung in MiB pro Ollama-VLM-Modell. Wird vom
