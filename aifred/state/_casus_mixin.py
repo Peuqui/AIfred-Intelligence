@@ -503,7 +503,12 @@ class CasusMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_store import VisionStore
             store = VisionStore()
-            sources = store.list_event_source_ids()
+            # Leere source_ids überspringen — z.B. vlm_analysis-Events aus
+            # einem Upload/manuellen Analyze ohne Kamera-Quelle. Ein leerer
+            # Wert würde sonst ein <Select.Item value=""> erzeugen, das Radix
+            # ablehnt ("must have a value prop that is not an empty string")
+            # und damit das ganze Casus-Modal am Rendern hindert.
+            sources = [s for s in store.list_event_source_ids() if str(s).strip()]
             self.casus_source_options = (
                 [{"value": "all", "label": "Alle Quellen"}]
                 + [{"value": s, "label": s} for s in sources]
