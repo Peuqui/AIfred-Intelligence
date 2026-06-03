@@ -761,6 +761,20 @@ def _resolve_channel_recipient(channel: str, recipient: str) -> str:
         allowlist = broker.get(*key)
         if allowlist and allowlist != "*":
             return allowlist.split(",")[0].strip()
+
+    # FreeEcho.2 hat keine Allowlist (lokale Hardware, kein Sender-
+    # Filter — siehe has_allowlist=False im Plugin). Stattdessen
+    # aufloesen auf den ersten gerade verbundenen Geraete-Room.
+    # Push-Targets bleiben damit ohne Konfig "der einzige Puck im LAN"
+    # oder bei Multi-Puck "der zuerst verbundene". Wer gezielter pushen
+    # will, setzt recipient explizit auf den Room-Namen.
+    if channel == "freeecho2":
+        try:
+            from ..plugins.channels.freeecho2_channel import _devices
+        except ImportError:
+            return ""
+        if _devices:
+            return next(iter(_devices.keys()))
     return ""
 
 
