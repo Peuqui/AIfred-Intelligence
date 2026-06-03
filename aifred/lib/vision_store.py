@@ -564,6 +564,21 @@ class VisionStore:
             for r in rows
         ]
 
+    def get_event(self, event_id: int) -> dict[str, Any] | None:
+        """Ein einzelnes Event per ID (mit geparster classification/metadata),
+        oder ``None``. Direkter Primary-Key-Lookup — anders als ein Scan der
+        jüngsten N Events findet das auch alte Events zuverlässig."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM events WHERE id = ?", (int(event_id),)
+            ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        d["classification"] = json.loads(d.get("classification") or "{}")
+        d["metadata"] = json.loads(d.get("metadata") or "{}")
+        return d
+
     def list_events_with_summary(
         self,
         *,
@@ -696,6 +711,43 @@ class VisionStore:
                 f"SELECT COUNT(*) AS n FROM events{where}", tuple(params)
             ).fetchone()
         return int(row["n"]) if row else 0
+
+    def list_event_ids(
+        self,
+        *,
+        source_id: str | None = None,
+        event_types: list[str] | None = None,
+        face_id: int | None = None,
+        unknown_only: bool = False,
+        limit: int = 10000,
+    ) -> list[int]:
+        """Nur die Event-IDs der gefilterten Menge, timestamp DESC —
+        identische Filter-/Sortierlogik wie ``list_events_with_summary``,
+        aber leichtgewichtig (keine Joins, keine Klassifikation). Treibt
+        die seitenübergreifende Vollbild-Slideshow im Casus, ohne dass
+        alle Frames/Metadaten geladen werden müssen."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if source_id:
+            clauses.append("source_id = ?")
+            params.append(source_id)
+        if event_types:
+            placeholders = ",".join("?" for _ in event_types)
+            clauses.append(f"event_type IN ({placeholders})")
+            params.extend(event_types)
+        if face_id is not None:
+            clauses.append("face_id = ?")
+            params.append(face_id)
+        if unknown_only:
+            clauses.append("face_id IS NULL")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT id FROM events{where} ORDER BY timestamp DESC LIMIT ?",
+                tuple(params),
+            ).fetchall()
+        return [int(r["id"]) for r in rows]
 
     def list_event_source_ids(self) -> list[str]:
         """Distinct ``source_id`` aller je gespeicherten Events. Für

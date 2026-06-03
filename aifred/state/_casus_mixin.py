@@ -43,6 +43,10 @@ class CasusMixin(rx.State, mixin=True):
     casus_events: list[dict[str, Any]] = []
     casus_total_count: int = 0
     casus_page: int = 0  # 0-basiert
+    # Vollständige, geordnete ID-Liste der gefilterten Menge (alle
+    # Seiten) — treibt die seitenübergreifende Vollbild-Slideshow,
+    # während das Raster seitenweise bleibt. Leichtgewichtig (nur IDs).
+    casus_all_ids: list[int] = []
     # Filter-Werte (UI-bindings). Default: alle.
     casus_filter_source: str = "all"
     casus_filter_type: str = "all"
@@ -67,10 +71,10 @@ class CasusMixin(rx.State, mixin=True):
     # Volltext-Expand pro Zeile: event_id der Zeile, deren VLM-Beschreibung
     # ausgeklappt ist (0 = alle geklemmt). Klick auf den Text toggelt.
     casus_expanded_event_id: int = 0
-    # Bild-Modal: URL des aktuell groß angezeigten Frames ("" = zu).
-    # Bild-Modal: Index des aktuell groß angezeigten Events in
-    # casus_events (-1 = zu). Index statt URL, damit man per Pfeil
-    # vor/zurück durch die Events blättern kann (Slideshow).
+    # Bild-Modal: globaler Index des aktuell groß angezeigten Events in
+    # ``casus_all_ids`` (-1 = zu). Global statt seiten-lokal, damit die
+    # Pfeil-Navigation seitenübergreifend durch ALLE Events blättert,
+    # nicht nur durch die 50 der aktuellen Rasterseite.
     casus_image_index: int = -1
     # Bulk-Worker-State — alle Events ohne description durch das VLM
     # schicken, dedupliziert via pHash-Cluster (Story 3).
@@ -377,33 +381,44 @@ class CasusMixin(rx.State, mixin=True):
 
     @rx.var
     def casus_image_src(self) -> str:
-        """Vollbild-URL des aktuell angezeigten Events (leer wenn zu)."""
+        """Vollbild-URL des aktuell angezeigten Events (leer wenn zu).
+        Indexiert die seitenübergreifende ``casus_all_ids``-Liste."""
         i = self.casus_image_index
-        if i < 0 or i >= len(self.casus_events):
+        if i < 0 or i >= len(self.casus_all_ids):
             return ""
-        return "/api/vision/frame?id=" + str(self.casus_events[i].get("id", ""))
+        return "/api/vision/frame?id=" + str(self.casus_all_ids[i])
 
     @rx.var
     def casus_image_counter(self) -> str:
-        """Position in der Liste, z.B. „47 / 47" — Anzeige im Modal.
+        """Position in der GESAMTEN gefilterten Liste, z.B. „1340 / 1344".
 
         Nummerierung nach Intuition: höchste Zahl = jüngstes Event. Da
-        ``casus_events`` neueste-zuerst (Index 0 = jüngstes) sortiert ist,
+        ``casus_all_ids`` neueste-zuerst (Index 0 = jüngstes) sortiert ist,
         zählen wir invers — Index 0 → N, ältestes → 1. Damit geht „Pfeil
         rechts" (neuer, Richtung Gegenwart) auf eine höhere Zahl zu."""
-        if self.casus_image_index < 0 or not self.casus_events:
+        if self.casus_image_index < 0 or not self.casus_all_ids:
             return ""
-        total = len(self.casus_events)
+        total = len(self.casus_all_ids)
         return f"{total - self.casus_image_index} / {total}"
 
     @rx.event
     def casus_show_image_at(self, index: int) -> None:
-        """Event-Frame im Bild-Modal groß anzeigen (Klick aufs Thumbnail)."""
-        self.casus_image_index = int(index)
+        """Event-Frame groß anzeigen (Klick aufs Thumbnail). Der Klick
+        liefert den Rasterseiten-Index; wir lösen ihn über die Event-ID
+        zum globalen Index in ``casus_all_ids`` auf, damit die Slideshow
+        anschließend seitenübergreifend navigiert."""
+        i = int(index)
+        if i < 0 or i >= len(self.casus_events):
+            return
+        eid = int(self.casus_events[i].get("id", 0))
+        try:
+            self.casus_image_index = self.casus_all_ids.index(eid)
+        except ValueError:
+            self.casus_image_index = -1
 
     @rx.event
     def casus_image_newer(self) -> None:
-        """Neueres Event (Pfeil rechts = Zukunft). casus_events ist
+        """Neueres Event (Pfeil rechts = Zukunft). ``casus_all_ids`` ist
         neueste-zuerst sortiert → Richtung niedrigerer Index. Stoppt oben."""
         if self.casus_image_index > 0:
             self.casus_image_index -= 1
@@ -411,8 +426,8 @@ class CasusMixin(rx.State, mixin=True):
     @rx.event
     def casus_image_older(self) -> None:
         """Älteres Event (Pfeil links = Vergangenheit) → höherer Index.
-        Stoppt am Ende der Liste."""
-        if self.casus_image_index < len(self.casus_events) - 1:
+        Stoppt am Ende der gesamten gefilterten Liste."""
+        if self.casus_image_index < len(self.casus_all_ids) - 1:
             self.casus_image_index += 1
 
     @rx.event
@@ -571,6 +586,9 @@ class CasusMixin(rx.State, mixin=True):
                 end = start + _CASUS_PAGE_SIZE
                 self.casus_events = cluster_repr[start:end]
                 self.casus_total_count = total
+                # Slideshow läuft im Cluster-Modus über die Repräsentanten
+                # (eine ID pro Vorkommnis), passend zur Rasteransicht.
+                self.casus_all_ids = [int(r["id"]) for r in cluster_repr]
             else:
                 offset = self.casus_page * _CASUS_PAGE_SIZE
                 events = store.list_events_with_summary(
@@ -591,10 +609,18 @@ class CasusMixin(rx.State, mixin=True):
                     face_id=face_id,
                     unknown_only=unknown_only,
                 )
+                # Volle ID-Liste (alle Seiten) für die Slideshow.
+                self.casus_all_ids = store.list_event_ids(
+                    source_id=source_id,
+                    event_types=event_types or None,
+                    face_id=face_id,
+                    unknown_only=unknown_only,
+                )
         except Exception as e:  # noqa: BLE001
             logger.warning("casus events refresh failed: %s", e)
             self.casus_events = []
             self.casus_total_count = 0
+            self.casus_all_ids = []
             self.casus_status = f"⚠️ {e}"
 
     # Statische Type-Filter-Werte. Labels rendert die UI per rx.match

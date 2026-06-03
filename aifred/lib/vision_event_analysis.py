@@ -54,10 +54,10 @@ async def analyze_event_with_vlm(
     ``model``: optional, sonst aus plugins/tools/vision/settings.json.
     """
     store = store or VisionStore()
-    # Event laden — direkt query_events mit ID-Filter, da kein
-    # get_event(id) existiert.
-    events = store.query_events(limit=1000)
-    target = next((e for e in events if int(e["id"]) == int(event_id)), None)
+    # Direkter Primary-Key-Lookup — der frühere Scan der jüngsten 1000
+    # Events fand alles Ältere nicht („event not found") und ließ damit
+    # das gesamte Backlog jenseits der letzten 1000 Events unbeschrieben.
+    target = store.get_event(int(event_id))
     if not target:
         raise ValueError(f"event {event_id} not found")
 
