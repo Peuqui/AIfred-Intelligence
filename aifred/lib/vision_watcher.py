@@ -576,6 +576,7 @@ class VisionWatcher:
             crop_url = crop_result.url if crop_result else ""
             identity_key = crop_result.identity_key if crop_result else ""
             session_id = crop_result.session_id if crop_result else ""
+            cid = self._cluster_id_for(frame)
             event_id = self._store.add_event(
                 source_id=source_id,
                 event_type=event_type,
@@ -595,7 +596,7 @@ class VisionWatcher:
                     "trigger": "motion" if motion_event_id else "continuous",
                     "session_id": session_id,
                 },
-                cluster_id=self._cluster_id_for(frame),
+                cluster_id=cid,
             )
             self._statuses[source_id].face_events += 1  # type: ignore[misc]
             try:
@@ -617,6 +618,18 @@ class VisionWatcher:
                 "crop_url": crop_url,
                 "embedding_b64": emb_b64,
             })
+
+            # Proactive alert (armed-gated, deduped per happening via cid).
+            from .vision_alerts import emit_face_alert
+            await emit_face_alert(
+                source_id=source_id,
+                event_type=event_type,
+                frame_path=frame_path,
+                cluster_id=cid,
+                name=match.name or "",
+                timestamp=frame.timestamp,
+                store=self._store,
+            )
 
     async def _maybe_run_continuous_vlm(
         self, frame: "Frame", config: WatchConfig
