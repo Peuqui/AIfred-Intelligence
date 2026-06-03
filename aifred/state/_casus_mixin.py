@@ -248,11 +248,15 @@ class CasusMixin(rx.State, mixin=True):
                 return self.casus_bulk_cancel
 
         try:
+            # check_vram=False: Ollama verwaltet den Side-Channel-VLM-VRAM
+            # selbst; ein Vorab-Check könnte fälschlich abbrechen.
             result = await run_bulk_describe(
-                progress_cb=_progress, cancel_cb=_cancel,
+                progress_cb=_progress, cancel_cb=_cancel, check_vram=False,
             )
             async with self:
-                if result.aborted_vram:
+                if result.skipped:
+                    self.casus_bulk_message = "Läuft bereits — bitte warten"
+                elif result.aborted_vram:
                     self.casus_bulk_message = f"⚠️ {result.vram_message}"
                 elif result.total_events == 0:
                     self.casus_bulk_message = "Keine Events zum Analysieren"

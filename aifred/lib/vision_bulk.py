@@ -26,6 +26,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
+from .logging_utils import log_message
+
 logger = logging.getLogger(__name__)
 
 # progress_cb(processed, total, message) — message is None when only the
@@ -51,6 +53,15 @@ class BulkDescribeResult:
     cancelled: bool = False
     aborted_vram: bool = False
     vram_message: str = ""
+    skipped: bool = False  # another bulk run was already in flight
+
+
+# Single-flight guard: only one bulk-describe at a time across all callers
+# (Casus button, nightly run, on-demand). A second concurrent call would just
+# duplicate VLM work and race on cluster_id writes — so it is skipped. Safe
+# without a lock: asyncio doesn't preempt between the check and the set (no
+# await in between), and the flag is always cleared in a finally.
+_bulk_running = False
 
 
 async def run_bulk_describe(
@@ -60,21 +71,50 @@ async def run_bulk_describe(
     event_types: list[str] | None = None,
     since: "object | None" = None,
     until: "object | None" = None,
-    limit: int = 5000,
+    limit: int | None = None,
     check_vram: bool = True,
     progress_cb: ProgressCb | None = None,
     cancel_cb: CancelCb | None = None,
 ) -> BulkDescribeResult:
     """Describe all undescribed events (clustered) and return a summary.
 
-    ``since`` / ``until`` (datetimes) scope the work to a time window —
-    the on-demand chat hook passes the queried span so it only describes
-    what was asked about, not the whole backlog. ``check_vram`` runs a
-    VRAM pre-check and aborts early if the VLM would not fit (the Casus UI
-    wants this; the nightly run, where the GPU is idle, can keep it on
-    too). ``progress_cb`` / ``cancel_cb`` are optional — headless callers
-    pass neither.
+    Single-flight: if a bulk run is already in progress this call returns
+    immediately with ``skipped=True`` instead of duplicating the work.
+
+    ``since`` / ``until`` (datetimes) scope the work to a time window — the
+    on-demand chat hook passes the queried span. ``limit=None`` (default)
+    describes everything in scope. ``check_vram`` runs a VRAM pre-check
+    (only the interactive Casus button uses it; nightly/on-demand pass
+    False and let Ollama manage its own VRAM). ``progress_cb`` /
+    ``cancel_cb`` are optional — headless callers pass neither.
     """
+    global _bulk_running
+    if _bulk_running:
+        log_message("🖌️ bulk-describe: already running — skipping concurrent run")
+        return BulkDescribeResult(skipped=True)
+    _bulk_running = True
+    try:
+        return await _bulk_describe_impl(
+            store=store, source_id=source_id, event_types=event_types,
+            since=since, until=until, limit=limit, check_vram=check_vram,
+            progress_cb=progress_cb, cancel_cb=cancel_cb,
+        )
+    finally:
+        _bulk_running = False
+
+
+async def _bulk_describe_impl(
+    *,
+    store: object | None = None,
+    source_id: str | None = None,
+    event_types: list[str] | None = None,
+    since: "object | None" = None,
+    until: "object | None" = None,
+    limit: int | None = None,
+    check_vram: bool = True,
+    progress_cb: ProgressCb | None = None,
+    cancel_cb: CancelCb | None = None,
+) -> BulkDescribeResult:
     from .vision_cluster import cluster_events, write_clusters
     from .vision_event_analysis import analyze_event_with_vlm
     from .vision_store import VisionStore
@@ -114,7 +154,6 @@ async def run_bulk_describe(
         cluster_members[cid or f"solo-{eid}"].append(eid)
 
     total = len(cluster_members)
-    from .logging_utils import log_message
     log_message(
         f"🖌️ bulk-describe: {len(events)} undescribed events → {total} clusters "
         f"(source={source_id or 'all'})"
