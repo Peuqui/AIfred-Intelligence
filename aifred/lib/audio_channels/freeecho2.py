@@ -160,6 +160,25 @@ class FreeEcho2Channel:
                 )
         return _cb
 
+    def _make_natural_end_cb(self, target_id: str) -> Any:
+        """Terminal-Sequenz wenn ein Einzeltitel von selbst ausläuft (mpv-EOF,
+        FIFO leer): ``stop()`` → orc.stop → audio_end + done → Puck geht IDLE.
+        Symmetrisch zum User-Stop und zum Alert-Pfad (Design A)."""
+        room = _parse_room(target_id) or target_id
+        async def _cb() -> None:
+            log_message(
+                f"FreeEcho2Channel[{room}]: track self-ended → stop() "
+                f"(audio_end + done)"
+            )
+            try:
+                await self.stop(target_id)
+            except Exception as exc:  # noqa: BLE001
+                log_message(
+                    f"FreeEcho2Channel[{room}]: natural-end stop() failed: {exc}",
+                    "warning",
+                )
+        return _cb
+
     def _get_or_create_orchestrator(self, room: str) -> AudioOrchestrator | None:
         """Lazy-Init des AudioOrchestrator pro Room. Returnt None wenn
         die Bridge nicht geladen ist."""
@@ -204,6 +223,10 @@ class FreeEcho2Channel:
                 "target": target_id,
                 "error": "freeecho2 bridge unavailable",
             }
+        # Einzeltitel: läuft er von selbst aus, schließt der natural-end-cb
+        # die Turn-Grenze (audio_end + done). Bei Queue wird er in
+        # _start_queue_item auf None gesetzt (dort steuert _on_eof_cb).
+        stream._on_natural_end_cb = self._make_natural_end_cb(target_id)
         # Streams haben keinen sinnvollen Resume-Punkt
         local_start = (
             start_pos_sec if (start_pos_sec and start_pos_sec > 0 and not src.is_stream) else None
@@ -375,6 +398,10 @@ class FreeEcho2Channel:
             await self._advance_queue(room)
 
         stream._on_eof_cb = _advance
+        # Queue steuert Track-Übergänge selbst über _on_eof_cb — der
+        # natural-end-cb (Einzeltitel-Terminal) darf hier NICHT feuern,
+        # sonst Race zwischen advance() und stop() am Track-Wechsel.
+        stream._on_natural_end_cb = None
 
         # Queue-Items koennen prinzipiell Streams sein (uri startet mit
         # http://). In der Praxis sind's lokale Files (audio_play_folder),

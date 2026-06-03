@@ -403,6 +403,17 @@ class AudioOrchestrator:
             if self._active_type is None:
                 return False
             await self._reset_active_unlocked()
+            # Design A: Terminal-Kontrakt audio_end + done — überall gleich.
+            # _reset_active_unlocked hat audio_end geschickt (für music/tts);
+            # done schließt die Turn-Grenze deterministisch ab (Puck → IDLE +
+            # _done-ACK), symmetrisch zum Alert- und reaktiven Pfad.
+            try:
+                await self.bridge.send_done(self.room)
+            except Exception as exc:  # noqa: BLE001
+                log_message(
+                    f"AudioOrchestrator[{self.room}]: send_done error: {exc}",
+                    "warning",
+                )
             log_message(f"AudioOrchestrator[{self.room}]: stop → IDLE")
             return True
 
