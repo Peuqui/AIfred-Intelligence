@@ -65,12 +65,6 @@ logger = logging.getLogger(__name__)
 _PLUGIN_DIR = Path(__file__).parent
 _SETTINGS_PATH = _PLUGIN_DIR / "settings.json"
 
-# How many raw events vision_query_events scans before collapsing them into
-# distinct happenings (one per cluster). Big enough to cover a full window so
-# clusters that span it are deduped correctly; the response itself is capped
-# by the caller's `limit` (happenings, not frames).
-_QUERY_SCAN_LIMIT = 5000
-
 
 def _load_settings() -> dict[str, Any]:
     """Load plugin settings fresh on every access — file is small, not a hot path."""
@@ -868,19 +862,21 @@ class VisionPlugin:
                         source_id=source_id,
                         event_types=[event_type] if event_type else None,
                         since=since,
+                        check_vram=False,
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.warning("on-demand describe failed: %s", e)
 
-            # Scan the whole window so dedup can collapse clusters that span
-            # it, then return only `limit` distinct happenings.
+            # Scan the WHOLE window (no cap) so dedup can collapse clusters that
+            # span it without any happening slipping through an artificial
+            # limit, then return only `limit` distinct happenings.
             store = _store()
             try:
                 raw = store.query_events(
                     source_id=source_id,
                     event_type=event_type,
                     since=since,
-                    limit=_QUERY_SCAN_LIMIT,
+                    limit=None,
                 )
             except Exception as e:  # noqa: BLE001
                 return _err(f"query failed: {e}")

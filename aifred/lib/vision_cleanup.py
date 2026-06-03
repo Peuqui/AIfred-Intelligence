@@ -132,7 +132,10 @@ async def cleanup_vision_task() -> None:
             # gives ample margin, but the order makes it correct by design).
             try:
                 from .vision_bulk import run_bulk_describe
-                described = await run_bulk_describe()
+                # No VRAM pre-check — Ollama manages the side-channel VLM's VRAM
+                # itself; a pre-check could falsely abort and silently skip the
+                # whole nightly backfill. A partial run is idempotent anyway.
+                described = await run_bulk_describe(check_vram=False)
                 if described.aborted_vram:
                     log_message(
                         f"🌙 Nightly describe skipped: {described.vram_message}"

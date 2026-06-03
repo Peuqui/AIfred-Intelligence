@@ -531,8 +531,11 @@ class VisionStore:
         face_id: int | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
-        limit: int = 100,
+        limit: int | None = 100,
     ) -> list[dict[str, Any]]:
+        """``limit=None`` → kein LIMIT (alle passenden Events). Genutzt vom
+        Cluster-Dedup, das das gesamte Zeitfenster sehen muss, damit kein
+        Vorkommnis durch eine künstliche Obergrenze durchrutscht."""
         clauses: list[str] = []
         params: list[Any] = []
         if source_id is not None:
@@ -551,8 +554,10 @@ class VisionStore:
             clauses.append("timestamp <= ?")
             params.append(until.isoformat(timespec="microseconds"))
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-        query = f"SELECT * FROM events{where} ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
+        query = f"SELECT * FROM events{where} ORDER BY timestamp DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
         with self._conn() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
         return [
@@ -776,11 +781,12 @@ class VisionStore:
         event_types: list[str] | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
-        limit: int = 5000,
+        limit: int | None = 5000,
     ) -> list[dict[str, Any]]:
         """Events die noch keine VLM-Beschreibung haben. Genau das,
         was der Bulk-Worker braucht — sortiert chronologisch (älteste
         zuerst, weil sie sich für Time-Bucket-Clustering eignen).
+        ``limit=None`` → kein LIMIT (alle unbeschriebenen im Fenster).
 
         ``since`` / ``until`` grenzen das Zeitfenster ein — vom On-demand-
         Chat-Hook genutzt, der nur die gerade abgefragte Spanne beschreibt
@@ -804,15 +810,16 @@ class VisionStore:
         # Nur Events mit Frame-Pfad — sonst kein Bild zum Analysieren.
         clauses.append("frame_path != ''")
         where = " WHERE " + " AND ".join(clauses)
-        params.append(limit)
+        query = (
+            "SELECT id, source_id, event_type, timestamp, frame_path, "
+            "classification, cluster_id "
+            f"FROM events{where} ORDER BY timestamp ASC"
+        )
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT id, source_id, event_type, timestamp, frame_path, "
-                "classification, cluster_id "
-                f"FROM events{where} "
-                "ORDER BY timestamp ASC LIMIT ?",
-                tuple(params),
-            ).fetchall()
+            rows = conn.execute(query, tuple(params)).fetchall()
         result: list[dict[str, Any]] = []
         for r in rows:
             try:
