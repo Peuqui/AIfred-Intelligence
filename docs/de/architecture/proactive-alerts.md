@@ -66,6 +66,16 @@ Producer (Vision emittiert nur, wenn scharf) — der Kern bleibt agnostisch.
 3. **Action** (später) — nicht jede Reaktion ist „Nachricht": Webhook,
    Skript, Kamera scharf/unscharf. Channel-Send ist nur *eine* Action-Art.
 
+**Nicht jeder Channel kann Push.** `supports_proactive` (Default False)
+trennt das: Sinks ohne Proaktiv-Fähigkeit überspringt der Dispatcher sauber.
+Beispiel **FreeEcho2 (Puck)**: Request-Response (Gerät sendet nach Wake-Word,
+wartet auf Reply) — der Server hält zwar die persistente WS (`_devices[room]`,
+Transport vorhanden), aber die Firmware spielt server-initiiertes `audio_out`
+noch nicht. Für gesprochene Alerts später: `send_proactive` im
+freeecho2-Channel überschreiben (Text → TTS → Push über die offene WS) **plus**
+Firmware-Erweiterung (unaufgefordertes Audio annehmen, mit Chime). Bis dahin
+ist der Puck kein Sink — die Pipeline läuft trotzdem.
+
 ## Live-Clustering (Fundament, ersetzt Batch-only)
 
 Live-Alerts feuern im Moment der Erkennung — **bevor** der Describe-Lauf
