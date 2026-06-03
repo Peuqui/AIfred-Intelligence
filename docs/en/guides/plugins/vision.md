@@ -262,6 +262,33 @@ description is applied idempotently to all members. Implementation:
 - `VISION_CLUSTER_PHASH_THRESHOLD` (default `5`) — Hamming distance between two
   64-bit hashes below which two frames count as "similar".
 
+**The algorithm in detail** (`cluster_events` in `vision_cluster.py`): the
+undescribed events are walked in chronological order, keeping *one open* cluster
+per source. For each event:
+
+1. The saved frame is read from disk and its **64-bit perceptual hash** is
+   computed. If the file is missing or no hash can be formed, the event gets
+   `cluster_id = ""` (solo — described individually).
+2. If the timestamp is more than `BUCKET_SECONDS` past the start of the open
+   cluster, that cluster is closed and a new one started (the time-bucket cap —
+   stops one continuous happening from absorbing everything).
+3. Otherwise the new pHash is compared against the hashes of the current
+   cluster's members. If the **Hamming distance to *any* member is ≤
+   `PHASH_THRESHOLD`**, the frame joins that cluster; otherwise a new cluster is
+   opened.
+
+Each cluster gets a **deterministic ID** of the form
+`{camera-slug}-{time-bucket}-{hash-prefix}` (the bucket floored to the
+`BUCKET_SECONDS` boundary). Deterministic means the same frame lands in the same
+cluster ID on a repeated run — so runs are idempotent and non-overlapping.
+`write_clusters` persists the computed IDs into each event's `cluster_id` column.
+
+Then only the **representative** of each cluster (the first, oldest member) is
+described by the VLM; `apply_cluster_description` fans the text out to all members
+sharing that `cluster_id`. Solo events (empty `cluster_id`) are described
+individually. On read, `vision_query_events` groups by `cluster_id` again and
+returns one row per cluster (`frames_in_cluster` = member count).
+
 Three paths trigger the same run:
 
 1. **Casus button** — manual bulk run from the UI, with progress bar, cancel and
