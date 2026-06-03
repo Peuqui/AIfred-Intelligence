@@ -655,6 +655,13 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 except (TypeError, ValueError):
                     mma = 0.02
                 break
+        # Personenerkennung läuft parallel zur Gesichtserkennung — wie
+        # beim Auge (Hintergrund). Gekoppelt an den Face-Button (die
+        # Überwachungs-Paarung „wer ist da"), gesteuert von derselben
+        # SSoT wie der Hintergrund (settings.json).
+        person_on = face_on and bool(
+            getattr(self, "person_detect_enabled", False)
+        )
         cfg = WatchConfig(
             fps=stream_fps,
             motion_min_area_ratio=mma,
@@ -662,6 +669,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             run_vlm_continuous=vlm_on,
             vlm_cooldown_sec=cd,
             run_face_detect_on_motion=face_on,
+            run_person_detect_on_motion=person_on,
             face_recognition_continuous=continuous,
             min_event_interval_sec=max(
                 0.1, float(self.vision_preview_face_throttle_sec)

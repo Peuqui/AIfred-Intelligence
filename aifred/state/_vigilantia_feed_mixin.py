@@ -126,7 +126,7 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
             from ..lib.vision_store import VisionStore
             store = VisionStore()
             events = store.list_events_with_summary(
-                event_types=["motion", "face_known", "face_unsure",
+                event_types=["motion", "person", "face_known", "face_unsure",
                              "face_unknown", "vlm_analysis"],
                 limit=_FEED_LIMIT,
                 offset=0,
@@ -142,7 +142,7 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
                 self.vigilantia_feed_events = events
             since = datetime.now() - timedelta(minutes=_BADGE_WINDOW_MIN)
             recent = store.count_events(
-                event_types=["motion", "face_known", "face_unsure",
+                event_types=["motion", "person", "face_known", "face_unsure",
                              "face_unknown", "vlm_analysis"],
                 since=since,
             )
