@@ -80,12 +80,11 @@ class WatchConfig:
     save_event_frames: bool = True
     run_face_detect_on_motion: bool = True
     # ── YOLO-Person-Detection pro Motion-Event ───────────────────────
-    # Wenn aktiv, läuft nach Motion zuerst der YOLO-Körper-Detektor:
-    # findet er eine Person, wird ein ``person``-Event geschrieben (+ ggf.
-    # Alert) UND erst dann die InsightFace-Gesichtserkennung getriggert.
-    # Findet er keine Person, wird die Gesichtserkennung übersprungen
-    # (kein Mensch → kein Identitäts-Check). Aus → alter Direktpfad
-    # Motion → Face wie bisher.
+    # Wenn aktiv, läuft bei Motion der YOLO-Körper-Detektor PARALLEL zur
+    # Gesichtserkennung (kein Gate untereinander): findet er einen Körper,
+    # wird ein ``person``-Event geschrieben (+ ggf. Alert). Die
+    # Gesichtserkennung läuft unabhängig davon — sonst bliebe ein
+    # formatfüllendes Gesicht (Nahaufnahme ohne ganzen Körper) unerkannt.
     run_person_detect_on_motion: bool = False
     # ── Motion-Gating ────────────────────────────────────────────────
     # True (Default, statische Kameras): die Detektions-Pipeline läuft
@@ -543,22 +542,22 @@ class VisionWatcher:
         self._statuses[source_id].motion_events += 1  # type: ignore[misc]
         self._statuses[source_id].last_event_at = frame.timestamp  # type: ignore[misc]
 
-        # Abfolge: Motion → YOLO-Person → (falls Person) Gesichtserkennung.
-        # Ohne Person-Detect bleibt person_present True → alter Direktpfad.
-        person_present = True
+        # Motion löst ZWEI unabhängige Schichten aus — KEIN Gating
+        # untereinander: YOLO-Person erkennt "Körper im Bild" (auch ohne
+        # sichtbares Gesicht, abgewandt/fern), InsightFace die Identität.
+        # Die beiden dürfen NICHT gekoppelt werden: ein formatfüllendes
+        # Gesicht (Nahaufnahme) hat keinen ganzen Körper, den YOLO als
+        # Person erkennt — würde Face an einen YOLO-Treffer gekoppelt,
+        # bliebe genau dieser wichtigste Fall unerkannt.
         if config.run_person_detect_on_motion:
-            person_present = await self._run_person_detection(
+            await self._run_person_detection(
                 frame, config, motion_event_id=motion_event_id, frame_path=frame_path
             )
 
         if not config.run_face_detect_on_motion:
             return
-        # Im motion-getriggerten Pfad: continuous-Modus läuft separat
-        # via face_cycle — hier nicht doppelt feuern.
+        # Continuous-Modus läuft separat via face_cycle — nicht doppelt feuern.
         if config.face_recognition_continuous:
-            return
-        # Kein Mensch im Bild → kein Identitäts-Check.
-        if config.run_person_detect_on_motion and not person_present:
             return
         await self._run_face_detection(frame, config, motion_event_id=motion_event_id, frame_path=frame_path)
 
@@ -569,21 +568,20 @@ class VisionWatcher:
         *,
         motion_event_id: int | None = None,
         frame_path: str = "",
-    ) -> bool:
+    ) -> None:
         """YOLO-Körper-Detektion. Schreibt bei Treffer ein ``person``-Event
-        (+ proaktiven Alert, armed-gated) und gibt zurück, ob mindestens eine
-        Person gefunden wurde. Best-effort — Fehler brechen die Watch-Schleife
-        nicht ab (dann ``True``, damit die Gesichtserkennung nicht
-        fälschlich übersprungen wird)."""
+        (+ proaktiven Alert, armed-gated). Unabhängig von der
+        Gesichtserkennung — kein Gate. Best-effort: Fehler brechen die
+        Watch-Schleife nicht ab."""
         source_id = frame.source_id
         try:
             detector = self._get_person_detector()
             persons = await asyncio.to_thread(detector.detect, frame)
         except Exception as e:  # noqa: BLE001
             logger.warning("person_detect failed for %s: %s", source_id, e)
-            return True
+            return
         if not persons:
-            return False
+            return
 
         cid = self._cluster_id_for(frame)
         max_score = max(p.score for p in persons)
@@ -614,7 +612,6 @@ class VisionWatcher:
             timestamp=frame.timestamp,
             store=self._store,
         )
-        return True
 
     async def _run_face_detection(
         self,
