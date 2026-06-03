@@ -481,6 +481,7 @@ class VisionStore:
         confidence: float = 0.0,
         face_id: int | None = None,
         metadata: dict[str, Any] | None = None,
+        cluster_id: str = "",
     ) -> int:
         ts = (timestamp or datetime.now()).isoformat(timespec="microseconds")
         cls_json = json.dumps(classification or {})
@@ -489,11 +490,12 @@ class VisionStore:
             cur = conn.execute(
                 """
                 INSERT INTO events (source_id, timestamp, event_type, frame_path,
-                                    classification, confidence, face_id, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    classification, confidence, face_id, metadata,
+                                    cluster_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (source_id, ts, event_type, frame_path, cls_json, confidence,
-                 face_id, meta_json),
+                 face_id, meta_json, cluster_id),
             )
             return int(cur.lastrowid or 0)
 

@@ -169,6 +169,13 @@ class VisionWatcher:
         from .config import VISION_VLM_CONTINUOUS_HISTORY
         self._vlm_history: dict[str, deque[tuple[datetime, str]]] = {}
         self._vlm_history_size = int(VISION_VLM_CONTINUOUS_HISTORY)
+        # Live-Clustering: ein inkrementeller Clusterer (per-Source-State)
+        # weist Motion-/Face-Events beim Erkennen einen cluster_id zu —
+        # pHash aus dem In-Memory-Frame, kein Disk-Reread. So haben Events
+        # ihren cluster_id sofort (Alert-Dedup, Query-Dedup), und der
+        # Batch-Describe muss nicht mehr neu clustern.
+        from .vision_cluster import IncrementalClusterer
+        self._clusterer = IncrementalClusterer()
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -502,6 +509,7 @@ class VisionWatcher:
             },
             confidence=float(motion_result.area_ratio),
             metadata={"watch_fps": config.fps},
+            cluster_id=self._cluster_id_for(frame),
         )
         self._statuses[source_id].motion_events += 1  # type: ignore[misc]
         self._statuses[source_id].last_event_at = frame.timestamp  # type: ignore[misc]
@@ -587,6 +595,7 @@ class VisionWatcher:
                     "trigger": "motion" if motion_event_id else "continuous",
                     "session_id": session_id,
                 },
+                cluster_id=self._cluster_id_for(frame),
             )
             self._statuses[source_id].face_events += 1  # type: ignore[misc]
             try:
@@ -818,6 +827,19 @@ class VisionWatcher:
             "model": result.model,
             "duration_ms": round(result.duration_ms, 1),
         })
+
+    def _cluster_id_for(self, frame: "Frame") -> str:
+        """Live cluster_id for an event's (stamped) frame — pHash from memory,
+        fed to the incremental clusterer. The batch path reads the same saved
+        frame from disk, so the pHash (and thus the cluster) is consistent.
+        Empty string on failure → the event is treated as solo."""
+        try:
+            from .vision_phash import phash_bytes
+            ph = phash_bytes(frame.image_bytes)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("live cluster phash failed for %s: %s", frame.source_id, e)
+            return ""
+        return self._clusterer.assign(frame.source_id, frame.timestamp, ph)
 
     def _stamp_frame(self, frame: "Frame") -> "Frame":
         """Burn the documentation overlay (name + location + capture time)

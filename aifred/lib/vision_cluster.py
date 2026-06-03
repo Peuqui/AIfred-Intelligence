@@ -1,19 +1,20 @@
-"""Bulk-Cluster-Builder für die Vigilantia-Analyse.
+"""Clustering für die Vigilantia-Analyse — Source + Time-Bucket + pHash.
 
-Gruppiert Events nach Source + Time-Bucket + pHash-Ähnlichkeit, damit
-das VLM bei der Bulk-Analyse nur einmal pro Cluster läuft.
+Gruppiert near-identische Frames zu einem Vorkommnis, damit das VLM nur
+einmal pro Cluster läuft und Alerts/Abfragen pro Vorkommnis (nicht pro
+Frame) dedupliziert werden.
 
-Ablauf:
-1. Events sortiert nach (source_id, timestamp) holen
-2. Pro Source: gleitendes Fenster, neue pHashes mit Cluster-Mitgliedern
-   vergleichen (Hamming-Distanz). Ähnlich → gleicher Cluster.
-3. Time-Bucket-Cap: nach ``BUCKET_SECONDS`` Sekunden wird ein neuer
-   Cluster aufgemacht, auch wenn die Frames noch ähnlich sind —
-   sonst kriegt man ewige Cluster („Person sitzt 8 h vor Cam").
+Der Matching-Kern ist :class:`IncrementalClusterer` (zustandsbehaftet,
+SSoT): pro Source ein offener Cluster; ein neuer pHash schließt sich an,
+wenn die Hamming-Distanz zu einem Mitglied ≤ ``threshold`` ist und der
+Time-Bucket (``bucket_seconds``) noch passt — sonst neuer Cluster. Die
+Cluster-ID ``{source-slug}-{bucket-ts}-{hash-prefix}`` ist deterministisch.
 
-Deterministische Cluster-ID: ``{source-slug}-{bucket-ts}-{hash-prefix}``,
-damit derselbe Frame bei wiederholtem Bulk-Run im selben Cluster
-landet.
+* **Live**: der ``vision_watcher`` füttert den Clusterer beim Erkennen mit
+  dem In-Memory-Frame und schreibt den ``cluster_id`` direkt ins Event.
+* **Backfill**: :func:`cluster_events` liest Frames von Disk und clustert
+  nur Events, die noch keinen ``cluster_id`` haben (Altbestand / Watcher
+  war aus) — selber Kern.
 """
 
 from __future__ import annotations
@@ -37,21 +38,59 @@ logger = logging.getLogger(__name__)
 @dataclass
 class _Cluster:
     cluster_id: str
-    source_id: str
     bucket_start: datetime
     phashes: list[int] = field(default_factory=list)
-    member_ids: list[int] = field(default_factory=list)
 
 
 def _source_slug(source_id: str) -> str:
     return source_id.replace("/", "_").replace(":", "_")
 
 
-def _bucket_key(ts: datetime) -> str:
-    """Time-Bucket-Anker — auf BUCKET_SECONDS-Grenze gerundet."""
+def _bucket_key(ts: datetime, bucket_seconds: int) -> str:
+    """Time-Bucket-Anker — auf ``bucket_seconds``-Grenze gerundet."""
     epoch = int(ts.timestamp())
-    bucket = epoch - (epoch % BUCKET_SECONDS)
+    bucket = epoch - (epoch % bucket_seconds)
     return datetime.fromtimestamp(bucket).strftime("%Y%m%dT%H%M%S")
+
+
+class IncrementalClusterer:
+    """Zustandsbehafteter per-Source-Open-Cluster-Matcher (SSoT fürs
+    Clustering). ``assign`` nimmt einen *vorberechneten* pHash (Caller liest
+    den Frame — Batch von Disk, Watcher aus dem Speicher) und liefert die
+    deterministische ``cluster_id``, oder ``""`` bei ungültigem pHash (0).
+
+    Annahme: pro Source kommen die Events zeitlich aufsteigend (Open-Cluster-
+    Modell) — beim Watcher (Live) und beim Batch (ORDER BY timestamp) erfüllt.
+    """
+
+    def __init__(
+        self,
+        *,
+        threshold: int = PHASH_THRESHOLD,
+        bucket_seconds: int = BUCKET_SECONDS,
+    ) -> None:
+        self._threshold = threshold
+        self._bucket_seconds = bucket_seconds
+        self._active: dict[str, _Cluster] = {}
+
+    def assign(self, source_id: str, timestamp: datetime, phash: int) -> str:
+        if phash == 0:
+            return ""
+        cur = self._active.get(source_id)
+        if cur and (timestamp - cur.bucket_start).total_seconds() > self._bucket_seconds:
+            cur = None  # Time-Bucket überschritten → neuer Cluster
+            self._active.pop(source_id, None)
+        if cur is not None:
+            for member_hash in cur.phashes:
+                if hamming_distance(phash, member_hash) <= self._threshold:
+                    cur.phashes.append(phash)
+                    return cur.cluster_id
+        cluster_id = (
+            f"{_source_slug(source_id)}-{_bucket_key(timestamp, self._bucket_seconds)}"
+            f"-{phash & 0xFFFF:04x}"
+        )
+        self._active[source_id] = _Cluster(cluster_id, timestamp, [phash])
+        return cluster_id
 
 
 def cluster_events(
@@ -60,19 +99,23 @@ def cluster_events(
     threshold: int = PHASH_THRESHOLD,
     bucket_seconds: int = BUCKET_SECONDS,
 ) -> dict[int, str]:
-    """Berechnet pHash + Cluster-ID für jede Event-ID. Returnt Mapping
+    """Backfill: berechnet ``cluster_id`` für Events. Returnt Mapping
     ``event_id → cluster_id``.
 
-    Liest die Frame-JPEGs von Disk (frame_path). Events ohne lesbares
-    Frame bekommen ``cluster_id = ""`` (= individuell, kein Cluster).
+    Events mit bereits gesetztem ``cluster_id`` (live geclustert) werden
+    übernommen — kein erneutes Disk-Read, keine ID-Änderung. Für die übrigen
+    wird der Frame von Disk gelesen und über den ``IncrementalClusterer``
+    geclustert; ohne lesbaren Frame → ``""`` (individuell).
     """
-    # Pro Source einen offenen Cluster-Pool, dann durch Events laufen.
-    active_clusters: dict[str, _Cluster] = {}
+    clusterer = IncrementalClusterer(threshold=threshold, bucket_seconds=bucket_seconds)
     result: dict[int, str] = {}
 
     for event in events:
         eid = int(event["id"])
-        source = str(event["source_id"])
+        existing = str(event.get("cluster_id") or "")
+        if existing:
+            result[eid] = existing  # schon live geclustert → übernehmen
+            continue
         frame_path = str(event.get("frame_path") or "")
         if not frame_path or not Path(frame_path).exists():
             result[eid] = ""
@@ -83,48 +126,11 @@ def cluster_events(
             logger.debug("phash failed for %s: %s", frame_path, e)
             result[eid] = ""
             continue
-        if ph == 0:
-            result[eid] = ""
-            continue
         try:
             ts = datetime.fromisoformat(str(event["timestamp"]))
         except (TypeError, ValueError):
             ts = datetime.now()
-
-        # Aktiven Cluster für die Source finden (falls einer offen ist
-        # UND time-bucket-mäßig noch passt).
-        cur = active_clusters.get(source)
-        if cur and (ts - cur.bucket_start).total_seconds() > bucket_seconds:
-            # Zeit-Fenster überschritten → neuer Cluster
-            cur = None
-            active_clusters.pop(source, None)
-
-        # Prüfen ob dieser Frame zu einem Member im aktiven Cluster passt
-        match: _Cluster | None = None
-        if cur:
-            for member_hash in cur.phashes:
-                if hamming_distance(ph, member_hash) <= threshold:
-                    match = cur
-                    break
-
-        if match is None:
-            # Neuen Cluster aufmachen
-            slug = _source_slug(source)
-            bkey = _bucket_key(ts)
-            cluster_id = f"{slug}-{bkey}-{ph & 0xFFFF:04x}"
-            new_cluster = _Cluster(
-                cluster_id=cluster_id,
-                source_id=source,
-                bucket_start=ts,
-                phashes=[ph],
-                member_ids=[eid],
-            )
-            active_clusters[source] = new_cluster
-            result[eid] = cluster_id
-        else:
-            match.phashes.append(ph)
-            match.member_ids.append(eid)
-            result[eid] = match.cluster_id
+        result[eid] = clusterer.assign(str(event["source_id"]), ts, ph)
 
     return result
 
