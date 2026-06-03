@@ -181,6 +181,13 @@ class FreeEcho2Stream:
         # auseinanderlaufen. Anders als _on_eof_cb (natuerliches Ende):
         # hier ist die Source noch nicht durch, aber das Pumpen ist tot.
         self._on_send_failed_cb: Optional[Callable[[], Awaitable[None]]] = None
+        # Optional callback fired when the fifo_pump reaches NATURAL EOF
+        # (mpv exited, FIFO drained — the track finished playing). Used by
+        # FreeEcho2Channel.play() to run the terminal sequence (orc.stop →
+        # audio_end + done) so a self-ended song closes the turn cleanly,
+        # exactly like a user-stop. NOT fired on cancel (replace/stop) or
+        # send-fail (those have their own paths).
+        self._on_natural_end_cb: Optional[Callable[[], Awaitable[None]]] = None
         self._stopping = False
 
         # Backpressure: Pump-Task wartet vor jedem Read auf dieses Event.
@@ -677,6 +684,31 @@ class FreeEcho2Stream:
             _run(), name=f"freeecho2-{self.room}-send-failed-cb",
         )
 
+    def _fire_natural_end_cb(self) -> None:
+        """Schedule den natural-end-Callback als unabhaengigen Task.
+
+        Vom fifo_pump gerufen wenn der Track von selbst auslief (mpv-EOF,
+        FIFO leer). Der Callback ruft typischerweise ``orc.stop()`` → das
+        cancelt den (bereits beendeten) Pump-Task und schickt audio_end +
+        done. Als Task statt direkt awaited, analog zum send-failed-cb, um
+        jede Selbst-Cancel-Verschraenkung zu vermeiden."""
+        cb = self._on_natural_end_cb
+        self._on_natural_end_cb = None
+        if cb is None:
+            return
+
+        async def _run() -> None:
+            try:
+                await cb()
+            except Exception as exc:  # noqa: BLE001
+                log_message(
+                    f"FreeEcho2Stream[{self.room}]: natural-end cb error: {exc}",
+                    "warning",
+                )
+        asyncio.create_task(
+            _run(), name=f"freeecho2-{self.room}-natural-end-cb",
+        )
+
     # ── FIFO-Pumpe: PCM von mpv → freeecho2 WS-Bridge ───────
 
     async def _make_fifo(self) -> None:
@@ -763,6 +795,13 @@ class FreeEcho2Stream:
         # leer ist. Bei aktiver Wiedergabe füllt mpv die Pipe immer
         # wieder, der Loop liest sofort.
         idle_sleep = 0.005
+        sent_chunks = 0
+        sent_bytes = 0
+        natural_eof = False
+        log_message(
+            f"FreeEcho2Stream[{self.room}]: fifo pump start — mpv FIFO open, "
+            f"streaming PCM"
+        )
 
         try:
             while True:
@@ -795,7 +834,8 @@ class FreeEcho2Stream:
                     )
                     break
                 if not chunk:
-                    # mpv exited — natural end
+                    # mpv exited — natural end (FIFO drained)
+                    natural_eof = True
                     break
                 try:
                     ok = await self._send_chunk(self.room, chunk)
@@ -812,6 +852,24 @@ class FreeEcho2Stream:
                     )
                     self._fire_send_failed_cb()
                     break
+                if sent_chunks == 0:
+                    log_message(
+                        f"FreeEcho2Stream[{self.room}]: first PCM chunk sent "
+                        f"({len(chunk)} bytes)"
+                    )
+                sent_chunks += 1
+                sent_bytes += len(chunk)
+            log_message(
+                f"FreeEcho2Stream[{self.room}]: fifo pump end — "
+                f"{sent_chunks} chunks / {sent_bytes} bytes"
+            )
+            # Track lief von selbst aus (kein User-Stop, kein Replace, kein
+            # Send-Fail) → Terminal-Sequenz anstoßen (orc.stop → audio_end +
+            # done). Re-entrancy-sicher als Task, weil stop() den Pump-Task
+            # cancelt — der ist hier zwar schon fertig, aber wir vermeiden
+            # jede Selbst-Cancel-Verschränkung wie beim send-failed-cb.
+            if natural_eof and not self._stopping:
+                self._fire_natural_end_cb()
         except asyncio.CancelledError:
             return
         finally:
