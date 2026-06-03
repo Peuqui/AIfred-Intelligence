@@ -699,3 +699,127 @@ def _is_auto_reply_enabled(channel: str) -> bool:
     settings = load_settings() or {}
     channel_toggles = settings.get("channel_toggles", {})
     return bool(channel_toggles.get(channel, {}).get("auto_reply", False))
+
+
+# ============================================================
+# AUTONOMOUS DELIVERY (SSoT) — used by scheduler + alert pipeline
+# ============================================================
+# Sending something AIfred initiated (a scheduled result, a proactive alert)
+# to a channel and/or surfacing it as a normal browser session. One way to do
+# each, reused by every autonomous producer — no parallel send paths.
+
+def _resolve_channel_recipient(channel: str, recipient: str) -> str:
+    """Resolve a recipient for an autonomous channel send.
+
+    A given name → channel-specific ID via user_mapping.json; a raw ID passes
+    through. Empty → auto-resolve (first user's channel id / email_out), then
+    fall back to the channel allowlist (owner = first entry)."""
+    import json as _json
+    from .config import DATA_DIR
+
+    mapping_path = DATA_DIR / "user_mapping.json"
+    mappings: dict = {}
+    if mapping_path.exists():
+        try:
+            mappings = _json.loads(mapping_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            mappings = {}
+
+    def _from_mapping(name: str) -> str:
+        for user_name, channels in mappings.items():
+            if user_name.lower() == name.lower():
+                if channel == "email" and channels.get("email_out"):
+                    out = channels["email_out"]
+                    return out[0] if isinstance(out, list) else str(out)
+                ids = channels.get(channel, [])
+                if ids:
+                    return ids[0] if isinstance(ids, list) else str(ids)
+        return ""
+
+    if recipient:
+        resolved = _from_mapping(recipient)
+        return resolved or recipient
+
+    # Auto: first user's address for this channel
+    for user_name, channels in mappings.items():
+        if channel == "email" and channels.get("email_out"):
+            out = channels["email_out"]
+            return out[0] if isinstance(out, list) else str(out)
+        ids = channels.get(channel, [])
+        if ids:
+            return ids[0] if isinstance(ids, list) else str(ids)
+
+    # Fallback: channel allowlist (owner = first entry)
+    from .credential_broker import broker
+    allowlist_keys = {
+        "telegram": ("telegram", "allowed_users"),
+        "email": ("email", "allowed_senders"),
+        "discord": ("discord", "channel_ids"),
+    }
+    key = allowlist_keys.get(channel)
+    if key:
+        allowlist = broker.get(*key)
+        if allowlist and allowlist != "*":
+            return allowlist.split(",")[0].strip()
+    return ""
+
+
+async def announce_to_channel(
+    channel: str, recipient: str, text: str, *,
+    media: str | None = None, metadata: dict | None = None,
+) -> bool:
+    """SSoT for sending an autonomous (non-reply) message to a channel.
+    Resolves the recipient, builds an OutboundMessage (+ media) and a minimal
+    inbound, and calls the channel's ``send_reply`` (the one delivery path)."""
+    from datetime import datetime
+    from .plugin_registry import get_channel
+
+    plugin = get_channel(channel)
+    if not plugin:
+        log_message(f"announce: channel '{channel}' not found", "error")
+        return False
+    target = _resolve_channel_recipient(channel, recipient)
+    if not target:
+        log_message(f"announce: no recipient/allowlist for '{channel}'", "warning")
+        return False
+    outbound = OutboundMessage(
+        channel=channel, channel_id=target, recipient=target,
+        text=text, media=media, metadata=metadata or {},
+    )
+    dummy = InboundMessage(
+        channel=channel, channel_id=target, sender="system",
+        text="", timestamp=datetime.now(),
+    )
+    try:
+        await plugin.send_reply(outbound, dummy)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log_message(f"announce: send via '{channel}' failed: {e}", "warning")
+        return False
+
+
+def record_autonomous_turn(
+    channel: str, channel_id: str, title: str, text: str, *,
+    owner: str = MESSAGE_HUB_OWNER,
+) -> str:
+    """SSoT for surfacing an autonomous event as a normal browser session.
+    Routes to a (stable) session, appends an assistant chat turn, and writes a
+    hub notification — same primitives process_inbound persists with, just
+    without the LLM. Returns the session_id."""
+    from .session_storage import load_session
+
+    route = routing_table.get_route(channel, channel_id)
+    if route:
+        session_id = route.session_id
+    else:
+        session_id = secrets.token_hex(16)
+        create_empty_session(session_id, owner=owner)
+        routing_table.set_route(channel, channel_id, session_id)
+
+    session = load_session(session_id)
+    chat_history = list((session or {}).get("data", {}).get("chat_history", []))
+    chat_history.append({"role": "assistant", "content": text})
+    update_chat_data(session_id, chat_history, owner=owner)
+
+    write_hub_notification(session_id, title, channel, "system", status="done")
+    return session_id

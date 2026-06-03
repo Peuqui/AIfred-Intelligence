@@ -743,6 +743,16 @@ VISION_CLUSTER_BUCKET_SECONDS = 300
 VISION_CLUSTER_PHASH_THRESHOLD = 5
 
 # ============================================================
+# PROAKTIVE ALERTS
+# ============================================================
+# Wie der Alert-Text erzeugt wird, wenn eine Regel nichts anderes vorgibt:
+#   "template" — fester Formatstring, deterministisch, kein LLM (Default)
+#   "llm"      — AIfred formuliert via process_inbound (ein LLM-Call pro
+#                Alert; sinnvoll z.B. für gesprochene Puck-Ausgabe)
+# Pro Regel über das Feld "compose" in alert_rules.json überschreibbar.
+ALERT_COMPOSE_DEFAULT = "template"
+
+# ============================================================
 # VLM Ollama hosts (orchestrated by AIfred per call)
 # ============================================================
 # We run two Ollama daemons:

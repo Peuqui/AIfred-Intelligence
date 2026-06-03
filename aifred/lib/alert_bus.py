@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,7 @@ class AlertRule:
     min_interval_sec: float = 0.0                 # cooldown per (rule, dedup_key)
     quiet_hours: tuple[int, int] | None = None    # (start_hour, end_hour), local
     rule_id: str = ""                             # stable id for throttle bookkeeping
+    compose: str = ""                             # "template" | "llm"; "" = config default
 
     def matches(self, ev: AlertEvent) -> bool:
         if ev.producer != self.producer:
@@ -70,31 +71,27 @@ class AlertRule:
         )
 
 
-# name -> channel-like object exposing async send_proactive(text=, media=).
-ChannelResolver = Callable[[str], Any]
-
-
-def _default_resolver(name: str) -> Any:
-    from .plugin_registry import get_channel
-    return get_channel(name)
+# Deliver one matched event for one rule. Returns True if it reached at least
+# one destination (a channel or the browser session). Injectable for tests;
+# the default routes through the autonomous-delivery SSoT.
+DeliverFn = Callable[["AlertEvent", "AlertRule"], Awaitable[bool]]
 
 
 class AlertDispatcher:
-    """Matches AlertEvents against rules, throttles, delivers to sinks.
-
-    ``channel_resolver`` defaults to the real ``plugin_registry`` (SSoT); tests
-    inject a fake. State is the last-sent time per ``(rule, dedup_key)``, which
-    drives the cooldown and is pruned to stay bounded.
+    """Matches AlertEvents against rules, throttles, and hands each fired rule
+    to the deliver function. ``deliver`` defaults to the SSoT path
+    (:func:`_default_deliver`); tests inject a fake. State is the last-sent time
+    per ``(rule, dedup_key)``, which drives the cooldown and is pruned bounded.
     """
 
     def __init__(
         self,
         rules: list[AlertRule],
         *,
-        channel_resolver: ChannelResolver | None = None,
+        deliver: "DeliverFn | None" = None,
     ) -> None:
         self.rules = list(rules)
-        self._resolve = channel_resolver or _default_resolver
+        self._deliver = deliver or _default_deliver
         self._last_sent: dict[tuple[str, str], datetime] = {}
         self._max_interval = max(
             (r.min_interval_sec for r in self.rules), default=0.0
@@ -132,7 +129,7 @@ class AlertDispatcher:
         }
 
     async def emit(self, ev: AlertEvent) -> int:
-        """Route one event. Returns how many sink deliveries succeeded."""
+        """Route one event. Returns how many rules delivered."""
         now = ev.timestamp or datetime.now()
         self._prune(now)
         delivered = 0
@@ -143,34 +140,89 @@ class AlertDispatcher:
                 continue
             if self._throttled(rule, ev, now):
                 continue
-            sent_any = False
-            for sink_name in rule.sinks:
-                channel = self._resolve(sink_name)
-                if channel is None:
-                    logger.warning("alert: sink '%s' unknown (no channel)", sink_name)
-                    continue
-                try:
-                    ok = await channel.send_proactive(text=_format(ev), media=ev.media)
-                except NotImplementedError:
-                    logger.warning("alert: channel '%s' has no proactive send", sink_name)
-                    continue
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("alert: send via '%s' failed: %s", sink_name, e)
-                    continue
-                if ok:
-                    sent_any = True
-                    delivered += 1
-            if sent_any:
+            try:
+                ok = await self._deliver(ev, rule)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "alert: deliver failed for rule '%s': %s",
+                    rule.rule_id or rule.producer, e,
+                )
+                ok = False
+            if ok:
                 self._last_sent[self._rule_key(rule, ev)] = now
+                delivered += 1
         return delivered
 
 
 def _format(ev: AlertEvent) -> str:
-    """Default text rendering — title + body. (AIfred-composed phrasing is a
-    later, optional layer on top.)"""
+    """Template text rendering — title + body (deterministic, no LLM)."""
     if ev.title and ev.body:
         return f"{ev.title}\n{ev.body}"
     return ev.title or ev.body
+
+
+async def _compose_via_llm(ev: AlertEvent) -> str | None:
+    """AIfred formuliert den Alert via ``process_inbound`` — das legt
+    gleichzeitig die Browser-Session an. Returnt den Text oder None bei
+    Fehlschlag (Caller fällt dann aufs Template zurück)."""
+    from datetime import datetime as _dt
+    from .envelope import InboundMessage
+    from .message_processor import process_inbound
+
+    prompt = f"[{ev.producer}] {ev.title} — {ev.body}".strip(" —")
+    msg = InboundMessage(
+        channel=ev.producer,
+        channel_id=ev.source_id or ev.producer,
+        sender="system",
+        text=prompt,
+        timestamp=ev.timestamp or _dt.now(),
+        metadata={"wake_agent": "aifred", "max_tier": 0},
+        target_agent="aifred",
+    )
+    out = await process_inbound(msg)
+    return out.text if out and out.text else None
+
+
+async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
+    """SSoT-Zustellung: Text erzeugen (Template oder LLM), als normale
+    Browser-Session sichtbar machen und an die Kanal-Sinks der Regel
+    announcen. Eine Wahrheit pro Kanal (``announce_to_channel``) und pro
+    Session-Eintrag (``record_autonomous_turn`` bzw. ``process_inbound``)."""
+    from .config import ALERT_COMPOSE_DEFAULT
+    from .message_processor import announce_to_channel, record_autonomous_turn
+
+    mode = rule.compose or ALERT_COMPOSE_DEFAULT
+    text = _format(ev)
+    recorded = False  # browser session already written?
+
+    if mode == "llm":
+        try:
+            composed = await _compose_via_llm(ev)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("alert: LLM compose failed (%s) — template fallback", e)
+            composed = None
+        if composed:
+            text = composed
+            recorded = True  # process_inbound recorded the session itself
+
+    if not recorded:
+        try:
+            record_autonomous_turn(
+                ev.producer, ev.source_id or ev.producer,
+                ev.title or ev.category, text,
+            )
+            recorded = True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("alert: session record failed: %s", e)
+
+    channel_ok = False
+    for sink in rule.sinks:
+        if await announce_to_channel(sink, "", text, media=ev.media):
+            channel_ok = True
+
+    # Browser-Session zählt als Zustellung (Kontroll-Trail) — auch wenn ein
+    # Kanal nicht konfiguriert ist.
+    return channel_ok or recorded
 
 
 # ── Runtime: central rule config + shared dispatcher ──────────────────────
@@ -199,7 +251,7 @@ def load_rules() -> list[AlertRule]:
         return []
     fields = {
         "producer", "sinks", "category", "source_id", "min_severity",
-        "min_interval_sec", "quiet_hours", "rule_id",
+        "min_interval_sec", "quiet_hours", "rule_id", "compose",
     }
     rules: list[AlertRule] = []
     for entry in raw:

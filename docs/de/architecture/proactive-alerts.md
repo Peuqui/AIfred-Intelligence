@@ -42,11 +42,10 @@ Bleibt für immer klein und producer-/kanal-agnostisch.
   `min_severity`), `sinks` (Liste Kanalnamen), `min_interval_sec`,
   optionale `quiet_hours`. Referenziert nur *registrierte* Producer/Sinks.
 - **`AlertDispatcher`** — `emit(event)`: matchende Regeln finden → drosseln →
-  an die Sinks der Regel zustellen. **Keine eigene Sink-Registry** — die
-  SSoT ist `plugin_registry`: der Dispatcher löst jeden Sink über
-  `plugin_registry.get_channel(name)` auf und ruft dessen `send_proactive(...)`.
-  (Für Tests injizierbarer Resolver, Default = das echte Registry.)
-  Throttle-State: `(rule, dedup_key) → letzter Versand`.
+  pro Regel an eine `deliver`-Funktion übergeben (für Tests injizierbar,
+  Default = `_default_deliver`). Throttle-State: `(rule, dedup_key) → letzter
+  Versand`. Der Dispatcher-Kern (Matching + Drossel) bleibt rein und stellt
+  selbst nichts zu — das macht die SSoT-Zustellung (s.u.).
 
 Gating wie `armed` (scharf) ist **producer-spezifisch** und bleibt im
 Producer (Vision emittiert nur, wenn scharf) — der Kern bleibt agnostisch.
@@ -56,25 +55,45 @@ Producer (Vision emittiert nur, wenn scharf) — der Kern bleibt agnostisch.
 1. **Producer** (neu) — meldet sich mit Manifest an (`name`, `categories`,
    Quell-Enumeration) und `emit`-et. Die zentrale Regel-UI baut sich daraus
    selbst auf. Erster Producer: **Vision**.
-2. **Sink** — die bestehenden **Channel-Plugins** (im `plugin_registry`, der
-   SSoT) bekommen eine neue Methode `send_proactive(...)` auf der
-   `BaseChannel`-Basis — Default „nicht unterstützt", einzelne Channels
-   überschreiben. Heute können sie nur `send_reply` auf Inbound. Das **Ziel
-   löst das Channel-Plugin selbst auf** (Telegram: erlaubte Chats /
-   `routing_table`), die Regel nennt nur den Kanalnamen. Erster Sink:
-   **Telegram** (Text + Foto).
+2. **Sink** — kein neuer Sende-Weg: die Zustellung läuft über die **bestehende
+   `send_reply`-Methode** der Channel-Plugins (SSoT), gekapselt in
+   `message_processor.announce_to_channel(channel, recipient, text, media)`
+   — Empfänger-Auflösung (user_mapping → Allowlist-Fallback) inklusive. Genau
+   diese Funktion nutzt auch der **Scheduler** (vorher Duplikat in
+   `_deliver_announce`, jetzt delegiert). `send_reply` kann nun ein `media`
+   (Foto) mitsenden. Erster Sink: **Telegram** (Text + Foto).
 3. **Action** (später) — nicht jede Reaktion ist „Nachricht": Webhook,
    Skript, Kamera scharf/unscharf. Channel-Send ist nur *eine* Action-Art.
 
-**Nicht jeder Channel kann Push.** `supports_proactive` (Default False)
-trennt das: Sinks ohne Proaktiv-Fähigkeit überspringt der Dispatcher sauber.
-Beispiel **FreeEcho2 (Puck)**: Request-Response (Gerät sendet nach Wake-Word,
-wartet auf Reply) — der Server hält zwar die persistente WS (`_devices[room]`,
-Transport vorhanden), aber die Firmware spielt server-initiiertes `audio_out`
-noch nicht. Für gesprochene Alerts später: `send_proactive` im
-freeecho2-Channel überschreiben (Text → TTS → Push über die offene WS) **plus**
-Firmware-Erweiterung (unaufgefordertes Audio annehmen, mit Chime). Bis dahin
-ist der Puck kein Sink — die Pipeline läuft trotzdem.
+**Nicht jeder Channel kann Push.** Beispiel **FreeEcho2 (Puck)**:
+Request-Response (Gerät sendet nach Wake-Word, wartet auf Reply) — der Server
+hält zwar die persistente WS (`_devices[room]`, Transport vorhanden), aber die
+Firmware spielt server-initiiertes `audio_out` noch nicht. Für gesprochene
+Alerts später: ein proaktiver freeecho2-Sende-Weg (Text → TTS → Push über die
+offene WS) **plus** Firmware-Erweiterung (unaufgefordertes Audio annehmen, mit
+Chime). Bis dahin ist der Puck kein Sink — die Pipeline läuft trotzdem.
+
+## Zustellung & Modi (SSoT, ein Weg für Template + LLM)
+
+`_default_deliver(ev, rule)` ist die eine Zustellung — beide Text-Wege teilen
+sie:
+
+1. **Text erzeugen** je `compose`-Modus (Regel-Feld `compose`, sonst
+   `config.ALERT_COMPOSE_DEFAULT`):
+   - `"template"` — fester Formatstring aus `AlertEvent` (deterministisch,
+     kein LLM).
+   - `"llm"` — `_compose_via_llm` baut eine synthetische `InboundMessage` und
+     ruft **`process_inbound`** (AIfred formuliert; legt dabei selbst die
+     Session an — wie der Scheduler).
+2. **Browser-Session** (Kontroll-Trail): `record_autonomous_turn` schreibt den
+   Turn über dieselben Primitive wie `process_inbound` (`routing_table` +
+   `create_empty_session` + `update_chat_data` + `write_hub_notification`) →
+   erscheint als **normale Session** im Browser. (Im LLM-Modus hat das schon
+   `process_inbound` erledigt.)
+3. **Kanäle**: `announce_to_channel` pro Sink der Regel (SSoT, s.o.).
+
+Eine Browser-Session zählt selbst als Zustellung — Alerts sind also auch dann
+sichtbar (im Browser), wenn ein Kanal mal nicht konfiguriert ist.
 
 ## Live-Clustering (Fundament, ersetzt Batch-only)
 

@@ -31,4 +31,5 @@ class OutboundMessage:
     channel_id: str     # Same thread / conversation
     recipient: str      # Original sender
     text: str           # Reply text
+    media: str | None = None   # optional image (local path or URL) to attach
     metadata: dict = field(default_factory=dict)   # Channel-specific extras

@@ -160,7 +160,9 @@ class TelegramChannel(BaseChannel):
         return {"text": md_to_plain(text)}
 
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
-        """Send a text reply via Telegram Bot API."""
+        """Send a reply via Telegram Bot API. If ``outbound.media`` is set
+        (local path or URL), send it as a photo with the text as caption;
+        otherwise plain text."""
         from telegram import Bot
 
         token = broker.get("telegram", "bot_token")
@@ -168,67 +170,21 @@ class TelegramChannel(BaseChannel):
 
         chat_id = outbound.channel_id or original.channel_id
         text = self.format_outbound(outbound.text)["text"]
+        local = _local_photo_path(outbound.media)
+        url = _photo_url(outbound.media)
 
-        # Split long messages
-        chunks = _split_message(text, _MAX_MESSAGE_LENGTH)
         async with bot:
-            for chunk in chunks:
-                await bot.send_message(
-                    chat_id=int(chat_id),
-                    text=chunk,
-                )
+            if local:
+                with open(local, "rb") as fh:
+                    await bot.send_photo(chat_id=int(chat_id), photo=fh, caption=text[:1024])
+            elif url:
+                await bot.send_photo(chat_id=int(chat_id), photo=url, caption=text[:1024])
+            else:
+                for chunk in _split_message(text, _MAX_MESSAGE_LENGTH):
+                    await bot.send_message(chat_id=int(chat_id), text=chunk)
 
         from ....lib.debug_bus import debug
-        debug(f"Auto-reply sent to Telegram chat {chat_id}")
-
-    # ── Proactive (alert pipeline) ────────────────────────────
-
-    @property
-    def supports_proactive(self) -> bool:
-        return True
-
-    async def send_proactive(self, *, text: str, media: "str | None" = None) -> bool:
-        """Send an unsolicited message to the configured target(s). Targets are
-        the numeric IDs in ``allowed_users`` (= chat IDs for private chats) —
-        no caller-supplied ID needed. ``media`` (local file path or URL) is
-        sent as a photo with the text as caption; otherwise text-only."""
-        from telegram import Bot
-
-        token = broker.get("telegram", "bot_token")
-        if not token:
-            return False
-        targets = _proactive_targets()
-        if not targets:
-            log_message(
-                "Telegram Plugin: proactive send skipped — no concrete target "
-                "in allowed_users (empty or '*')", "warning",
-            )
-            return False
-        body = self.format_outbound(text)["text"]
-        local = _local_photo_path(media)
-        url = _photo_url(media)
-        sent = False
-        bot = Bot(token)
-        async with bot:
-            for chat_id in targets:
-                try:
-                    if local:
-                        with open(local, "rb") as fh:
-                            await bot.send_photo(chat_id=chat_id, photo=fh, caption=body[:1024])
-                    elif url:
-                        await bot.send_photo(chat_id=chat_id, photo=url, caption=body[:1024])
-                    else:
-                        for chunk in _split_message(body, _MAX_MESSAGE_LENGTH):
-                            await bot.send_message(chat_id=chat_id, text=chunk)
-                    sent = True
-                except Exception as e:  # noqa: BLE001
-                    log_message(
-                        f"Telegram Plugin: proactive send to {chat_id} failed: {e}",
-                        "warning",
-                    )
-        if sent:
-            log_message(f"Telegram Plugin: proactive alert sent to {len(targets)} chat(s)")
-        return sent
+        debug(f"Reply sent to Telegram chat {chat_id}")
 
     # ── Context ───────────────────────────────────────────────
 
@@ -300,21 +256,6 @@ class TelegramChannel(BaseChannel):
 
 
 # ── Helpers ──────────────────────────────────────────────────
-
-def _proactive_targets() -> list[int]:
-    """Concrete chat IDs for proactive sends — the numeric entries in
-    ``allowed_users`` (a private chat's user ID == its chat ID). ``"*"``
-    (everyone) yields no concrete target."""
-    raw = broker.get("telegram", "allowed_users").strip()
-    if not raw or raw == "*":
-        return []
-    out: list[int] = []
-    for entry in raw.split(","):
-        entry = entry.strip()
-        if entry.isdigit():
-            out.append(int(entry))
-    return out
-
 
 def _local_photo_path(media: "str | None") -> "str | None":
     """Local file path if ``media`` points at an existing file, else None."""

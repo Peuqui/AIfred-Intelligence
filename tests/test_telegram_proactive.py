@@ -1,32 +1,12 @@
-"""Tests for the Telegram channel's proactive-send helpers (target + media
-resolution). The actual Bot send needs live verification."""
+"""Tests for the Telegram channel's photo-media resolution (used by
+send_reply when an alert carries an image). The actual Bot send needs live
+verification."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from aifred.plugins.channels.telegram_channel import (
-    _local_photo_path,
-    _photo_url,
-    _proactive_targets,
-)
-
-
-class TestProactiveTargets:
-    def test_numeric_ids_parsed(self, monkeypatch):
-        import aifred.plugins.channels.telegram_channel as tg
-        monkeypatch.setattr(tg.broker, "get", lambda *a: "111, 222 , x, 333")
-        assert _proactive_targets() == [111, 222, 333]
-
-    def test_star_yields_no_concrete_target(self, monkeypatch):
-        import aifred.plugins.channels.telegram_channel as tg
-        monkeypatch.setattr(tg.broker, "get", lambda *a: "*")
-        assert _proactive_targets() == []
-
-    def test_empty_yields_none(self, monkeypatch):
-        import aifred.plugins.channels.telegram_channel as tg
-        monkeypatch.setattr(tg.broker, "get", lambda *a: "   ")
-        assert _proactive_targets() == []
+from aifred.plugins.channels.telegram_channel import _local_photo_path, _photo_url
 
 
 class TestMediaResolution:

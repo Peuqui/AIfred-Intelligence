@@ -1,4 +1,6 @@
-"""Tests for the generic proactive alert pipeline core (alert_bus)."""
+"""Tests for the generic proactive alert pipeline core (alert_bus):
+matching, throttle/dedup, quiet hours, rule loading. Delivery is injected as
+a recording fake — the real SSoT delivery is covered separately."""
 
 from __future__ import annotations
 
@@ -10,21 +12,6 @@ from aifred.lib.alert_bus import AlertDispatcher, AlertEvent, AlertRule
 _T0 = datetime(2026, 6, 3, 14, 0, 0)
 
 
-class FakeChannel:
-    """Records proactive sends; mimics a channel plugin's send_proactive."""
-
-    def __init__(self, *, supported: bool = True, ok: bool = True) -> None:
-        self.supported = supported
-        self.ok = ok
-        self.sends: list[tuple[str, str | None]] = []
-
-    async def send_proactive(self, *, text: str, media: str | None = None) -> bool:
-        if not self.supported:
-            raise NotImplementedError("no proactive")
-        self.sends.append((text, media))
-        return self.ok
-
-
 def _ev(**kw) -> AlertEvent:
     base = dict(
         producer="vision", category="face_unknown", source_id="cam/office",
@@ -34,8 +21,15 @@ def _ev(**kw) -> AlertEvent:
     return AlertEvent(**base)
 
 
-def _dispatch(rules, channels):
-    return AlertDispatcher(rules, channel_resolver=lambda n: channels.get(n))
+def _recorder():
+    """A deliver function that records (ev, rule) calls and reports success."""
+    calls: list[tuple] = []
+
+    async def deliver(ev, rule):
+        calls.append((ev, rule))
+        return True
+
+    return calls, deliver
 
 
 class TestMatching:
@@ -59,69 +53,81 @@ class TestMatching:
 
 
 class TestDelivery:
-    def test_matching_event_delivered_to_sink(self):
-        tg = FakeChannel()
-        d = _dispatch([AlertRule(producer="vision", sinks=["telegram"])], {"telegram": tg})
-        n = asyncio.run(d.emit(_ev(media="/x/a.jpg")))
-        assert n == 1
-        assert tg.sends == [("Unbekannt\ncam/office", "/x/a.jpg")]
+    def test_matching_event_delivered(self):
+        calls, deliver = _recorder()
+        d = AlertDispatcher([AlertRule(producer="vision", sinks=["telegram"])], deliver=deliver)
+        assert asyncio.run(d.emit(_ev())) == 1
+        assert len(calls) == 1 and calls[0][1].sinks == ["telegram"]
 
-    def test_non_matching_event_not_delivered(self):
-        tg = FakeChannel()
-        d = _dispatch([AlertRule(producer="vision", sinks=["telegram"], category="motion")],
-                      {"telegram": tg})
+    def test_non_matching_not_delivered(self):
+        calls, deliver = _recorder()
+        d = AlertDispatcher(
+            [AlertRule(producer="vision", sinks=["telegram"], category="motion")],
+            deliver=deliver,
+        )
         assert asyncio.run(d.emit(_ev(category="face_unknown"))) == 0
-        assert tg.sends == []
+        assert calls == []
 
-    def test_fans_out_to_multiple_sinks(self):
-        tg, mail = FakeChannel(), FakeChannel()
-        d = _dispatch([AlertRule(producer="vision", sinks=["telegram", "email"])],
-                      {"telegram": tg, "email": mail})
-        assert asyncio.run(d.emit(_ev())) == 2
-        assert len(tg.sends) == 1 and len(mail.sends) == 1
+    def test_multiple_matching_rules_each_deliver(self):
+        calls, deliver = _recorder()
+        rules = [
+            AlertRule(producer="vision", sinks=["telegram"]),
+            AlertRule(producer="vision", sinks=["email"]),
+        ]
+        assert asyncio.run(AlertDispatcher(rules, deliver=deliver).emit(_ev())) == 2
+        assert len(calls) == 2
 
-    def test_unknown_sink_skipped_no_crash(self):
-        d = _dispatch([AlertRule(producer="vision", sinks=["ghost"])], {})
+    def test_deliver_false_not_counted(self):
+        async def deliver(ev, rule):
+            return False
+        d = AlertDispatcher([AlertRule(producer="vision", sinks=["telegram"])], deliver=deliver)
         assert asyncio.run(d.emit(_ev())) == 0
 
-    def test_channel_without_proactive_skipped(self):
-        tg = FakeChannel(supported=False)
-        d = _dispatch([AlertRule(producer="vision", sinks=["telegram"])], {"telegram": tg})
-        assert asyncio.run(d.emit(_ev())) == 0
+    def test_deliver_exception_swallowed(self):
+        async def deliver(ev, rule):
+            raise RuntimeError("boom")
+        d = AlertDispatcher([AlertRule(producer="vision", sinks=["telegram"])], deliver=deliver)
+        assert asyncio.run(d.emit(_ev())) == 0  # no crash, not counted
 
 
 class TestThrottle:
-    def test_same_dedup_key_within_interval_suppressed(self):
-        tg = FakeChannel()
-        d = _dispatch(
+    def _disp(self, calls_deliver):
+        calls, deliver = calls_deliver
+        return calls, AlertDispatcher(
             [AlertRule(producer="vision", sinks=["telegram"], min_interval_sec=300)],
-            {"telegram": tg},
+            deliver=deliver,
         )
-        assert asyncio.run(d.emit(_ev(dedup_key="cluster-1", timestamp=_T0))) == 1
-        # 60s later, same cluster → throttled
-        assert asyncio.run(d.emit(_ev(dedup_key="cluster-1", timestamp=_T0 + timedelta(seconds=60)))) == 0
-        assert len(tg.sends) == 1
+
+    def test_same_dedup_key_within_interval_suppressed(self):
+        calls, d = self._disp(_recorder())
+        assert asyncio.run(d.emit(_ev(dedup_key="c1", timestamp=_T0))) == 1
+        assert asyncio.run(d.emit(_ev(dedup_key="c1", timestamp=_T0 + timedelta(seconds=60)))) == 0
+        assert len(calls) == 1
 
     def test_different_dedup_key_not_throttled(self):
-        tg = FakeChannel()
-        d = _dispatch(
-            [AlertRule(producer="vision", sinks=["telegram"], min_interval_sec=300)],
-            {"telegram": tg},
-        )
-        asyncio.run(d.emit(_ev(dedup_key="cluster-1", timestamp=_T0)))
-        # different happening → its own alert
-        assert asyncio.run(d.emit(_ev(dedup_key="cluster-2", timestamp=_T0 + timedelta(seconds=10)))) == 1
-        assert len(tg.sends) == 2
+        calls, d = self._disp(_recorder())
+        asyncio.run(d.emit(_ev(dedup_key="c1", timestamp=_T0)))
+        assert asyncio.run(d.emit(_ev(dedup_key="c2", timestamp=_T0 + timedelta(seconds=10)))) == 1
+        assert len(calls) == 2
 
     def test_interval_elapsed_allows_again(self):
-        tg = FakeChannel()
-        d = _dispatch(
-            [AlertRule(producer="vision", sinks=["telegram"], min_interval_sec=300)],
-            {"telegram": tg},
-        )
+        calls, d = self._disp(_recorder())
         asyncio.run(d.emit(_ev(dedup_key="c", timestamp=_T0)))
         assert asyncio.run(d.emit(_ev(dedup_key="c", timestamp=_T0 + timedelta(seconds=301)))) == 1
-        assert len(tg.sends) == 2
+        assert len(calls) == 2
+
+
+class TestQuietHours:
+    def test_event_in_quiet_window_suppressed(self):
+        calls, deliver = _recorder()
+        d = AlertDispatcher(
+            [AlertRule(producer="vision", sinks=["telegram"], quiet_hours=(22, 7))],
+            deliver=deliver,
+        )
+        # 02:00 is inside 22→07 (wraps midnight) → suppressed
+        assert asyncio.run(d.emit(_ev(timestamp=_T0.replace(hour=2)))) == 0
+        # 14:00 is outside → delivered
+        assert asyncio.run(d.emit(_ev(timestamp=_T0))) == 1
 
 
 class TestLoadRules:
@@ -141,13 +147,13 @@ class TestLoadRules:
         self._write(monkeypatch, tmp_path,
                     '[{"producer":"vision","category":"face_unknown",'
                     '"sinks":["telegram"],"min_interval_sec":300,'
-                    '"quiet_hours":[22,7],"rule_id":"r1","ignored":"x"}]')
+                    '"quiet_hours":[22,7],"rule_id":"r1","compose":"llm","ignored":"x"}]')
         rules = ab.load_rules()
         assert len(rules) == 1
         r = rules[0]
         assert r.producer == "vision" and r.sinks == ["telegram"]
         assert r.quiet_hours == (22, 7)  # list → tuple
-        assert r.rule_id == "r1"
+        assert r.rule_id == "r1" and r.compose == "llm"
 
     def test_invalid_entries_skipped(self, monkeypatch, tmp_path):
         import aifred.lib.alert_bus as ab
@@ -159,17 +165,3 @@ class TestLoadRules:
         import aifred.lib.alert_bus as ab
         self._write(monkeypatch, tmp_path, "{ not json")
         assert ab.load_rules() == []
-
-
-class TestQuietHours:
-    def test_event_in_quiet_window_suppressed(self):
-        tg = FakeChannel()
-        d = _dispatch(
-            [AlertRule(producer="vision", sinks=["telegram"], quiet_hours=(22, 7))],
-            {"telegram": tg},
-        )
-        # 02:00 is inside 22→07 (wraps midnight) → suppressed
-        night = _T0.replace(hour=2)
-        assert asyncio.run(d.emit(_ev(timestamp=night))) == 0
-        # 14:00 is outside → delivered
-        assert asyncio.run(d.emit(_ev(timestamp=_T0))) == 1
