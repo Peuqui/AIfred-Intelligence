@@ -201,7 +201,11 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     announcen. Eine Wahrheit pro Kanal (``announce_to_channel``) und pro
     Session-Eintrag (``record_autonomous_turn`` bzw. ``process_inbound``)."""
     from .config import ALERT_COMPOSE_DEFAULT
-    from .message_processor import announce_to_channel, record_autonomous_turn
+    from .message_processor import (
+        announce_to_channel,
+        record_autonomous_turn,
+        resolve_announce_targets,
+    )
 
     mode = rule.compose or ALERT_COMPOSE_DEFAULT
     text = _format(ev)
@@ -229,22 +233,30 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
 
     # Severity → Audio-Type-Tupel fuer Sinks die einen lokalen Sound vor
     # der Nachricht abspielen koennen (FreeEcho.2: alarm_wav vs.
-    # notification_wav). ``critical`` triggert den auffaelligen
-    # alarm-Sound, alles darunter den sanften notification-Sound.
-    # Andere Sinks (Telegram, Email, …) ignorieren das Feld stillschweigend.
-    audio_type = "alarm" if ev.severity == "critical" else "notification"
+    # notification_wav). ``critical``/``warning`` (z.B. unbekannte Person)
+    # triggern den auffaelligen alarm-Sound, ``info`` (z.B. bekannte Person)
+    # den sanften notification-Sound. Andere Sinks (Telegram, Email, …)
+    # ignorieren das Feld stillschweigend.
+    audio_type = "alarm" if ev.severity in ("critical", "warning") else "notification"
     sink_metadata = {
         "audio_type": audio_type,
         "severity": ev.severity,
         "category": ev.category,
     }
 
+    # Sink-Format: "channel" oder "channel:ziel". ziel ist kanalspezifisch —
+    # fuer freeecho2 ein room, "@gruppe" oder "*" (Broadcast). Die Expansion
+    # auf konkrete Empfaenger macht resolve_announce_targets serverseitig;
+    # pro Empfaenger genau ein announce_to_channel (SSoT, kein Parallelpfad).
     channel_ok = False
     for sink in rule.sinks:
-        if await announce_to_channel(
-            sink, "", text, media=ev.media, metadata=sink_metadata,
-        ):
-            channel_ok = True
+        channel, _, target = sink.partition(":")
+        recipients = resolve_announce_targets(channel, target) or [target]
+        for recipient in recipients:
+            if await announce_to_channel(
+                channel, recipient, text, media=ev.media, metadata=sink_metadata,
+            ):
+                channel_ok = True
 
     # Browser-Session zählt als Zustellung (Kontroll-Trail) — auch wenn ein
     # Kanal nicht konfiguriert ist.

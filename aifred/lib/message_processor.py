@@ -778,6 +778,51 @@ def _resolve_channel_recipient(channel: str, recipient: str) -> str:
     return ""
 
 
+def _freeecho2_groups() -> dict[str, list[str]]:
+    """Lädt Puck-Gruppen aus ``data/freeecho2_groups.json`` (group_name →
+    [room, …]). Fehlt/ungültig → keine Gruppen. Rein serverseitig; die
+    Firmware kennt nur ``room``."""
+    import json as _json
+    from .config import DATA_DIR
+
+    path = DATA_DIR / "freeecho2_groups.json"
+    if not path.exists():
+        return {}
+    try:
+        raw = _json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(k): [str(r) for r in v]
+        for k, v in raw.items()
+        if isinstance(v, list)
+    }
+
+
+def resolve_announce_targets(channel: str, target: str) -> list[str]:
+    """Expandiert ein Sink-Ziel in konkrete Empfänger.
+
+    Für ``freeecho2``: ``"*"`` → alle gerade verbundenen Rooms, ``"@gruppe"``
+    → konfigurierte Rooms der Gruppe, sonst der einzelne (aufgelöste) Room.
+    Andere Kanäle: immer genau ein aufgelöster Empfänger. So bleibt das
+    Broadcast/Gruppen-Wissen serverseitig — die Firmware bleibt room-only."""
+    if channel == "freeecho2":
+        try:
+            from ..plugins.channels.freeecho2_channel import _devices
+        except ImportError:
+            _devices = {}
+        if target == "*":
+            return list(_devices.keys())
+        if target.startswith("@"):
+            return _freeecho2_groups().get(target[1:], [])
+        single = _resolve_channel_recipient(channel, target)
+        return [single] if single else []
+    single = _resolve_channel_recipient(channel, target)
+    return [single] if single else []
+
+
 async def announce_to_channel(
     channel: str, recipient: str, text: str, *,
     media: str | None = None, metadata: dict | None = None,
