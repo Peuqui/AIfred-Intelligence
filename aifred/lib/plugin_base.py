@@ -217,6 +217,21 @@ class BaseChannel(ABC):
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         ...
 
+    @property
+    def supports_proactive(self) -> bool:
+        """True if this channel can send unsolicited (alert) messages to its
+        own configured target(s) — not just reply to an inbound. Default
+        False; channels override when they implement ``send_proactive``."""
+        return False
+
+    async def send_proactive(self, *, text: str, media: "str | None" = None) -> bool:
+        """Send an unsolicited message (e.g. a proactive alert) to this
+        channel's own configured target(s). ``media`` is an optional image
+        path/URL. Returns True on success. Default: not supported — channels
+        that support it override this. Used by the proactive alert pipeline
+        (see docs/de/architecture/proactive-alerts.md)."""
+        raise NotImplementedError(f"channel '{self.name}' has no proactive send")
+
     @abstractmethod
     def build_context(self, message: "InboundMessage") -> str:
         ...
