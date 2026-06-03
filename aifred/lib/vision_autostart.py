@@ -63,11 +63,18 @@ def _build_background_config(
     face_enabled = bool(fr.get("enabled", True))
     face_continuous = bool(fr.get("continuous", False))
 
+    watch = plugin_settings.get("watch") or {}
+    person_enabled = bool(watch.get("run_person_detect_on_motion", False))
+    # Per-Source: PTZ-/Tracking-Kameras setzen motion_gated=False.
+    motion_gated = bool(settings.get("motion_gated", True))
+
     return WatchConfig(
         fps=2.0,  # Hintergrund-Default — niedrig, GPU-schonend
         motion_min_area_ratio=float(mma),
         save_event_frames=True,
         run_face_detect_on_motion=face_enabled,
+        run_person_detect_on_motion=person_enabled,
+        motion_gated=motion_gated,
         face_recognition_continuous=face_continuous and face_enabled,
         # VLM bleibt im Hintergrund AUS — opt-in nur über Live-Popup.
         run_vlm_on_motion=False,

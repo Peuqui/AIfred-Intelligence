@@ -138,6 +138,8 @@ def _watch_config_from_settings(overrides: dict[str, Any] | None = None) -> Watc
         min_event_interval_sec=_f("min_event_interval_sec", 5.0),
         save_event_frames=_b("save_event_frames", True),
         run_face_detect_on_motion=_b("run_face_detect_on_motion", True),
+        run_person_detect_on_motion=_b("run_person_detect_on_motion", False),
+        motion_gated=_b("motion_gated", True),
     )
 
 

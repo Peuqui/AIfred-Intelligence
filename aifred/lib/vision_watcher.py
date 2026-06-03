@@ -32,6 +32,10 @@ from .frame_sources import get as get_source
 from .vision_filters import MotionDetector
 from .vision_filters.face_detect import FaceDetector, get_default_detector
 from .vision_filters.face_recognize import FaceRecognizer
+from .vision_filters.person_detect import (
+    PersonDetector,
+    get_default_detector as get_default_person_detector,
+)
 from .vision_store import VisionStore
 
 if TYPE_CHECKING:
@@ -75,6 +79,22 @@ class WatchConfig:
     min_event_interval_sec: float = 5.0
     save_event_frames: bool = True
     run_face_detect_on_motion: bool = True
+    # ── YOLO-Person-Detection pro Motion-Event ───────────────────────
+    # Wenn aktiv, läuft nach Motion zuerst der YOLO-Körper-Detektor:
+    # findet er eine Person, wird ein ``person``-Event geschrieben (+ ggf.
+    # Alert) UND erst dann die InsightFace-Gesichtserkennung getriggert.
+    # Findet er keine Person, wird die Gesichtserkennung übersprungen
+    # (kein Mensch → kein Identitäts-Check). Aus → alter Direktpfad
+    # Motion → Face wie bisher.
+    run_person_detect_on_motion: bool = False
+    # ── Motion-Gating ────────────────────────────────────────────────
+    # True (Default, statische Kameras): die Detektions-Pipeline läuft
+    # nur, wenn der Motion-Detektor Bewegung meldet. False (PTZ-/
+    # Auto-Tracking-Kameras wie die Reolink TrackMix): jedes Frame wird
+    # gesampelt (weiterhin durch ``min_event_interval_sec`` gedrosselt) —
+    # bei schwenkender Kamera sind Motion-Detektor und Zonenmaske sinnlos
+    # (das ganze Bild "bewegt" sich, die Maske wandert mit).
+    motion_gated: bool = True
     # ── VLM-Analyse pro Motion-Event ─────────────────────────────────
     # Wenn aktiviert, wird das Motion-Frame zusätzlich an die VLM gegeben
     # und der beschreibende Text als ``vlm_analysis``-Event ins Store
@@ -126,6 +146,7 @@ class VisionWatcher:
         bus: FrameBus | None = None,
         face_detector: FaceDetector | None = None,
         face_recognizer: FaceRecognizer | None = None,
+        person_detector: PersonDetector | None = None,
         frames_dir: Path | None = None,
     ) -> None:
         self._store = store
@@ -134,6 +155,7 @@ class VisionWatcher:
         # when the first frame triggers face_detect.
         self._explicit_face_detector = face_detector
         self._explicit_face_recognizer = face_recognizer
+        self._explicit_person_detector = person_detector
         self._frames_dir = frames_dir or _DEFAULT_FRAMES_DIR
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._configs: dict[str, WatchConfig] = {}
@@ -293,6 +315,11 @@ class VisionWatcher:
             return self._explicit_face_detector
         return get_default_detector()
 
+    def _get_person_detector(self) -> PersonDetector:
+        if self._explicit_person_detector is not None:
+            return self._explicit_person_detector
+        return get_default_person_detector()
+
     def _get_face_recognizer(self) -> FaceRecognizer:
         if self._explicit_face_recognizer is not None:
             return self._explicit_face_recognizer
@@ -368,7 +395,9 @@ class VisionWatcher:
                 self._statuses[source_id].frames_seen += 1  # type: ignore[misc]
 
                 motion_result = motion.process(frame)
-                if not motion_result.motion:
+                # motion_gated (Default): nur bei Bewegung weiter. Aus
+                # (PTZ/Tracking): jedes Frame samplen, nur throttled.
+                if config.motion_gated and not motion_result.motion:
                     continue
                 last_evt = self._statuses[source_id].last_event_at
                 if last_evt is not None:
@@ -514,13 +543,78 @@ class VisionWatcher:
         self._statuses[source_id].motion_events += 1  # type: ignore[misc]
         self._statuses[source_id].last_event_at = frame.timestamp  # type: ignore[misc]
 
+        # Abfolge: Motion → YOLO-Person → (falls Person) Gesichtserkennung.
+        # Ohne Person-Detect bleibt person_present True → alter Direktpfad.
+        person_present = True
+        if config.run_person_detect_on_motion:
+            person_present = await self._run_person_detection(
+                frame, config, motion_event_id=motion_event_id, frame_path=frame_path
+            )
+
         if not config.run_face_detect_on_motion:
             return
         # Im motion-getriggerten Pfad: continuous-Modus läuft separat
         # via face_cycle — hier nicht doppelt feuern.
         if config.face_recognition_continuous:
             return
+        # Kein Mensch im Bild → kein Identitäts-Check.
+        if config.run_person_detect_on_motion and not person_present:
+            return
         await self._run_face_detection(frame, config, motion_event_id=motion_event_id, frame_path=frame_path)
+
+    async def _run_person_detection(
+        self,
+        frame: "Frame",
+        config: WatchConfig,
+        *,
+        motion_event_id: int | None = None,
+        frame_path: str = "",
+    ) -> bool:
+        """YOLO-Körper-Detektion. Schreibt bei Treffer ein ``person``-Event
+        (+ proaktiven Alert, armed-gated) und gibt zurück, ob mindestens eine
+        Person gefunden wurde. Best-effort — Fehler brechen die Watch-Schleife
+        nicht ab (dann ``True``, damit die Gesichtserkennung nicht
+        fälschlich übersprungen wird)."""
+        source_id = frame.source_id
+        try:
+            detector = self._get_person_detector()
+            persons = await asyncio.to_thread(detector.detect, frame)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("person_detect failed for %s: %s", source_id, e)
+            return True
+        if not persons:
+            return False
+
+        cid = self._cluster_id_for(frame)
+        max_score = max(p.score for p in persons)
+        self._store.add_event(
+            source_id=source_id,
+            event_type="person",
+            timestamp=frame.timestamp,
+            frame_path=frame_path,
+            confidence=float(max_score),
+            classification={
+                "count": len(persons),
+                "boxes": [list(p.bbox) for p in persons],
+                "max_score": max_score,
+            },
+            metadata={
+                "parent_event_id": motion_event_id,
+                "trigger": "motion",
+            },
+            cluster_id=cid,
+        )
+
+        from .vision_alerts import emit_person_alert
+        await emit_person_alert(
+            source_id=source_id,
+            frame_path=frame_path,
+            cluster_id=cid,
+            count=len(persons),
+            timestamp=frame.timestamp,
+            store=self._store,
+        )
+        return True
 
     async def _run_face_detection(
         self,

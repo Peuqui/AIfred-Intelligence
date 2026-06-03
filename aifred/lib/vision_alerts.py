@@ -57,6 +57,37 @@ def _compose(event_type: str, alias: str, name: str, ts: datetime) -> tuple[str,
     return title, f"{alias} · {when}"
 
 
+async def _emit(
+    *,
+    source_id: str,
+    category: str,
+    severity: str,
+    title: str,
+    body: str,
+    dedup_key: str,
+    frame_path: str,
+    timestamp: datetime,
+) -> None:
+    """Build + dispatch one AlertEvent. Best-effort — never raises into the
+    watcher's hot path. The shared dispatcher's rules decide where it goes."""
+    try:
+        from .alert_bus import AlertEvent, get_default_dispatcher
+        ev = AlertEvent(
+            producer="vision",
+            category=category,
+            source_id=source_id,
+            severity=severity,
+            title=title,
+            body=body,
+            dedup_key=dedup_key,
+            media=frame_path or None,
+            timestamp=timestamp,
+        )
+        await get_default_dispatcher().emit(ev)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("vision alert emit failed for %s: %s", source_id, e)
+
+
 async def emit_face_alert(
     *,
     source_id: str,
@@ -67,30 +98,54 @@ async def emit_face_alert(
     timestamp: datetime | None = None,
     store: Any = None,
 ) -> None:
-    """Emit a face detection as a proactive AlertEvent — but only while armed.
-    Best-effort: never raises into the watcher's hot path."""
+    """Emit a face detection as a proactive AlertEvent — but only while armed."""
     if event_type not in _ALERT_EVENT_TYPES:
         return
     if not _vigilantia_armed():
         return
-    try:
-        from .alert_bus import AlertEvent, get_default_dispatcher
-        ts = timestamp or datetime.now()
-        alias = _source_alias(source_id, store)
-        title, body = _compose(event_type, alias, name, ts)
-        severity = "warning" if event_type in ("face_unknown", "face_unsure") else "info"
-        ev = AlertEvent(
-            producer="vision",
-            category=event_type,
-            source_id=source_id,
-            severity=severity,
-            title=title,
-            body=body,
-            # One alert per happening; fall back to source+type if unclustered.
-            dedup_key=cluster_id or f"{source_id}:{event_type}",
-            media=frame_path or None,
-            timestamp=ts,
-        )
-        await get_default_dispatcher().emit(ev)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("vision alert emit failed for %s: %s", source_id, e)
+    ts = timestamp or datetime.now()
+    alias = _source_alias(source_id, store)
+    title, body = _compose(event_type, alias, name, ts)
+    severity = "warning" if event_type in ("face_unknown", "face_unsure") else "info"
+    await _emit(
+        source_id=source_id,
+        category=event_type,
+        severity=severity,
+        title=title,
+        body=body,
+        # One alert per happening; fall back to source+type if unclustered.
+        dedup_key=cluster_id or f"{source_id}:{event_type}",
+        frame_path=frame_path,
+        timestamp=ts,
+    )
+
+
+async def emit_person_alert(
+    *,
+    source_id: str,
+    frame_path: str,
+    cluster_id: str,
+    count: int = 1,
+    timestamp: datetime | None = None,
+    store: Any = None,
+) -> None:
+    """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
+    but only while armed. Coarser than faces: "a person is present", even
+    with no recognisable face."""
+    if not _vigilantia_armed():
+        return
+    ts = timestamp or datetime.now()
+    alias = _source_alias(source_id, store)
+    when = ts.strftime("%H:%M")
+    title = "🚶 Person erkannt" if count == 1 else f"🚶 {count} Personen erkannt"
+    await _emit(
+        source_id=source_id,
+        category="person",
+        severity="warning",
+        title=title,
+        body=f"{alias} · {when}",
+        # One alert per happening; fall back to source if unclustered.
+        dedup_key=cluster_id or f"{source_id}:person",
+        frame_path=frame_path,
+        timestamp=ts,
+    )

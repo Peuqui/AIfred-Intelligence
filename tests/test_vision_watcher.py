@@ -23,6 +23,7 @@ from aifred.lib.frame_sources import (
 )
 from aifred.lib.vision_filters.face_detect import FaceDetection
 from aifred.lib.vision_filters.face_recognize import FaceRecognizer
+from aifred.lib.vision_filters.person_detect import PersonDetection
 from aifred.lib.vision_store import VisionStore
 from aifred.lib.vision_watcher import VisionWatcher, WatchConfig
 
@@ -97,6 +98,19 @@ class FakeFaceDetector:
         return list(self._detections)
 
 
+class FakePersonDetector:
+    """YOLO person detector stand-in — returns a configurable list of
+    PersonDetections regardless of input."""
+
+    def __init__(self, detections):
+        self._detections = detections
+        self.calls = 0
+
+    def detect(self, frame: Frame):
+        self.calls += 1
+        return list(self._detections)
+
+
 def _blank_jpeg(color: int = 0) -> bytes:
     img = np.full((240, 320, 3), color, dtype=np.uint8)
     return _encode_jpeg(img)
@@ -130,6 +144,7 @@ def _no_real_alerts(monkeypatch):
         return None
 
     monkeypatch.setattr(va, "emit_face_alert", _noop)
+    monkeypatch.setattr(va, "emit_person_alert", _noop)
 
 
 @pytest.fixture()
@@ -395,6 +410,92 @@ class TestFaceDetectIntegration:
         assert face_events, "expected at least one face_known event"
         assert face_events[0]["face_id"] == fid
         assert face_events[0]["classification"]["matched_name"] == "Alice"
+
+
+class TestPersonGate:
+    """Sequence: motion → YOLO person → (only if person) face detection."""
+
+    def _run(self, store, frames_dir, source, persons, face_dets):
+        register(FakeSource(source, [_blank_jpeg()] * 3 + [_rect_jpeg()],
+                            delay_sec=0.01))
+        face_det = FakeFaceDetector(face_dets)
+        w = VisionWatcher(
+            store,
+            frames_dir=frames_dir,
+            face_detector=face_det,
+            face_recognizer=FaceRecognizer(store),
+            person_detector=FakePersonDetector(persons),
+        )
+
+        async def go():
+            await w.start(source, WatchConfig(
+                fps=20.0, motion_warmup_frames=2, motion_min_area_ratio=0.01,
+                min_event_interval_sec=0.0, save_event_frames=False,
+                run_face_detect_on_motion=True,
+                run_person_detect_on_motion=True,
+            ))
+            await asyncio.sleep(0.3)
+            await w.stop(source)
+
+        run(go())
+        return face_det
+
+    def test_person_present_writes_event_and_runs_face(self, store, frames_dir):
+        face_det = self._run(
+            store, frames_dir, "cam/test-person-yes",
+            persons=[PersonDetection(bbox=(10, 10, 80, 200), score=0.9)],
+            face_dets=[FaceDetection(bbox=(10, 10, 80, 80),
+                                     embedding=np.zeros(512, dtype=np.float32),
+                                     detection_score=0.9, keypoints=None)],
+        )
+        person_events = store.query_events(
+            source_id="cam/test-person-yes", event_type="person"
+        )
+        assert person_events, "expected a person event"
+        assert person_events[0]["classification"]["count"] == 1
+        # Person present → face detection ran.
+        assert face_det.calls >= 1
+
+    def test_no_person_skips_face(self, store, frames_dir):
+        face_det = self._run(
+            store, frames_dir, "cam/test-person-no",
+            persons=[],  # YOLO finds nobody
+            face_dets=[FaceDetection(bbox=(10, 10, 80, 80),
+                                     embedding=np.zeros(512, dtype=np.float32),
+                                     detection_score=0.9, keypoints=None)],
+        )
+        person_events = store.query_events(
+            source_id="cam/test-person-no", event_type="person"
+        )
+        assert not person_events, "no person → no person event"
+        # No person → face detection skipped entirely.
+        assert face_det.calls == 0
+
+
+class TestMotionGating:
+    """motion_gated=False (PTZ/tracking cams): sample every frame, no motion
+    needed — only throttled by min_event_interval_sec."""
+
+    def test_ungated_samples_without_motion(self, store, frames_dir):
+        # All-blank frames → the motion detector never fires.
+        register(FakeSource("cam/test-ungated", [_blank_jpeg()] * 8,
+                            delay_sec=0.01))
+        w = VisionWatcher(store, frames_dir=frames_dir)
+
+        async def go():
+            await w.start("cam/test-ungated", WatchConfig(
+                fps=20.0, motion_warmup_frames=2, min_event_interval_sec=0.0,
+                save_event_frames=False, run_face_detect_on_motion=False,
+                motion_gated=False,
+            ))
+            await asyncio.sleep(0.3)
+            await w.stop("cam/test-ungated")
+
+        run(go())
+        events = store.query_events(
+            source_id="cam/test-ungated", event_type="motion"
+        )
+        assert events, "ungated source should sample frames without motion"
 
 
 class TestStatus:
