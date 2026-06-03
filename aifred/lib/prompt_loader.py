@@ -900,6 +900,27 @@ def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
         return f.read().strip()
 
 
+def get_vision_event_single_prompt(lang: Optional[str] = None) -> str:
+    """Prompt für die Einzelbild-Analyse eines gespeicherten Vision-Events
+    (Casus-Button). In ``prompts/{lang}/vision/vision_event_single.txt``."""
+    if lang is None:
+        lang = _current_language
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_single.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
+def get_vision_event_sequence_prompt(lang: Optional[str] = None) -> str:
+    """Prompt für die Sequenz-Analyse eines Vorkommnisses (mehrere Keyframes
+    in Zeitreihenfolge — Szene + was sich verändert). Genutzt vom Cluster-/
+    Bulk-Describe. In ``prompts/{lang}/vision/vision_event_sequence.txt``."""
+    if lang is None:
+        lang = _current_language
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_sequence.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
 def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) -> str:
     """
     Load cache metadata generation prompt.

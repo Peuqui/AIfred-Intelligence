@@ -116,7 +116,7 @@ async def _bulk_describe_impl(
     cancel_cb: CancelCb | None = None,
 ) -> BulkDescribeResult:
     from .vision_cluster import cluster_events, write_clusters
-    from .vision_event_analysis import analyze_event_with_vlm
+    from .vision_event_analysis import analyze_cluster_with_vlm
     from .vision_store import VisionStore
 
     store = store or VisionStore()
@@ -173,10 +173,11 @@ async def _bulk_describe_impl(
             break
         if progress_cb is not None:
             await progress_cb(processed, total, None)
-        # Representative: first member = oldest (ORDER BY timestamp ASC).
-        repr_id = member_ids[0]
         try:
-            text = await analyze_event_with_vlm(repr_id, store=store)  # type: ignore[arg-type]
+            # Analyse the whole happening as a time-ordered keyframe
+            # sequence (door opens, people arrive) instead of a single
+            # static frame; persisted on the representative (member_ids[0]).
+            text = await analyze_cluster_with_vlm(member_ids, store=store)  # type: ignore[arg-type]
             # Real cluster (more than the representative): fan the
             # description out to all members. Solo-clusters stay single.
             if cluster_id and not cluster_id.startswith("solo-"):
