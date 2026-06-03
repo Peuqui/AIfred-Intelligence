@@ -54,7 +54,8 @@ class TestResolveFreeechoRecipient:
 
     def test_auto_resolves_to_first_connected_room(self):
         from aifred.lib.message_processor import _resolve_channel_recipient
-        ws = MagicMock(); ws.closed = False
+        ws = MagicMock()
+        ws.closed = False
         _devices["wohnzimmer"] = ws
         assert _resolve_channel_recipient("freeecho2", "") == "wohnzimmer"
 
@@ -62,8 +63,10 @@ class TestResolveFreeechoRecipient:
         # Wer gezielter pushen will, gibt recipient explizit an.
         # Sonst nehmen wir den first-connected — dict-Insertion-Order.
         from aifred.lib.message_processor import _resolve_channel_recipient
-        ws1 = MagicMock(); ws1.closed = False
-        ws2 = MagicMock(); ws2.closed = False
+        ws1 = MagicMock()
+        ws1.closed = False
+        ws2 = MagicMock()
+        ws2.closed = False
         _devices["wohnzimmer"] = ws1
         _devices["kueche"] = ws2
         assert _resolve_channel_recipient("freeecho2", "") == "wohnzimmer"
@@ -76,12 +79,16 @@ def push_setup():
     """Channel + verbundener WS + gemockter Orchestrator."""
     _devices.clear()
     rid = "wohnzimmer"
-    ws = MagicMock(); ws.closed = False
+    ws = MagicMock()
+    ws.closed = False
     _devices[rid] = ws
 
     orc = MagicMock()
     orc.play_tts = AsyncMock(return_value=None)
     orc.play_notification = AsyncMock(return_value=None)
+    orc.play_alarm = AsyncMock(return_value=None)
+    # Design A: der Worker schickt nach play_* das done-Frame via bridge.
+    orc.bridge.send_done = AsyncMock(return_value=True)
 
     audio_ch = MagicMock()
     audio_ch.get_orchestrator = MagicMock(return_value=orc)
@@ -287,7 +294,10 @@ class TestAlertBusSeverityMapping:
         assert captured["metadata"].get("audio_type") == "alarm"
         assert captured["metadata"].get("severity") == "critical"
 
-    def test_warning_maps_to_notification(self):
+    def test_warning_maps_to_alarm(self):
+        # warning (z.B. unbekannte Person an der Tür) → auffälliger
+        # alarm-Sound, nicht notification. SSoT: alert_bus._default_deliver
+        # mappt critical UND warning auf "alarm".
         from aifred.lib.alert_bus import _default_deliver, AlertEvent, AlertRule
 
         ev = AlertEvent(
@@ -309,7 +319,7 @@ class TestAlertBusSeverityMapping:
         ):
             run(_default_deliver(ev, rule))
 
-        assert captured["metadata"].get("audio_type") == "notification"
+        assert captured["metadata"].get("audio_type") == "alarm"
         assert captured["metadata"].get("severity") == "warning"
 
     def test_info_maps_to_notification(self):
