@@ -5,11 +5,11 @@ The :class:`AlertDispatcher` matches it against central :class:`AlertRule`s,
 throttles (dedup by key + per-rule cooldown + quiet hours), and delivers to
 the rule's sinks.
 
-Sinks are NOT a separate registry — the single source of truth is
-``plugin_registry``: each sink name resolves to a channel plugin via
-``plugin_registry.get_channel(name)`` and the dispatcher calls its
-``send_proactive(...)``. Producers and channels stay plugins; this core only
-orchestrates. See docs/de/architecture/proactive-alerts.md.
+Sinks are NOT a separate registry — the single source of truth is the
+channel plugins' existing ``send_reply`` path, wrapped by
+``message_processor.announce_to_channel(channel, recipient, text, media)``
+(recipient resolution included). Producers and channels stay plugins; this
+core only orchestrates. See docs/de/architecture/proactive-alerts.md.
 """
 
 from __future__ import annotations

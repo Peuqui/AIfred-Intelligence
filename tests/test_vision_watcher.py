@@ -117,6 +117,21 @@ def _clean_fake_sources():
     unregister_kind("test-cam")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_alerts(monkeypatch):
+    """Neutralise the alert side-effect. The real VisionWatcher fires
+    emit_face_alert on face events, which reaches the live alert pipeline
+    (dispatcher → record_autonomous_turn writes data/sessions/,
+    announce_to_channel sends a real Telegram). These tests cover the watcher,
+    not alerts (those have their own isolated test) — so stub it out."""
+    import aifred.lib.vision_alerts as va
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(va, "emit_face_alert", _noop)
+
+
 @pytest.fixture()
 def store(tmp_path: Path) -> VisionStore:
     return VisionStore(tmp_path / "vision_watcher.db")
