@@ -725,6 +725,24 @@ DEBUG_LOG_VLM_RAW = False
 VISION_VLM_CONTINUOUS_HISTORY = 10
 
 # ============================================================
+# VIGILANTIA BULK-DESCRIBE CLUSTERING
+# ============================================================
+# Bulk-Analyse (Casus-Worker + Nacht-Lauf) gruppiert Motion-/Face-Events
+# vor dem VLM-Call, damit nicht jeder einzelne Frame beschrieben wird —
+# ein Vorkommnis = ein Cluster = ein VLM-Call. Zwei Stellschrauben:
+#
+# * BUCKET_SECONDS — Zeitfenster, innerhalb dessen ähnliche Frames zu
+#   EINEM Cluster zusammengefasst werden. Nach Ablauf wird ein neuer
+#   Cluster aufgemacht, auch wenn die Frames noch ähnlich sind — sonst
+#   entstehen ewige Cluster ("Person sitzt 8 h vor der Cam"). 300 = 5 Min.
+# * PHASH_THRESHOLD — Hamming-Distanz zweier 64-bit perceptual hashes,
+#   unter der zwei Frames als "ähnlich" (= selber Cluster) gelten. 5
+#   fängt JPEG-Rauschen + Mikro-Bewegung ein, ohne verschiedene Szenen
+#   zu verschmelzen.
+VISION_CLUSTER_BUCKET_SECONDS = 300
+VISION_CLUSTER_PHASH_THRESHOLD = 5
+
+# ============================================================
 # VLM Ollama hosts (orchestrated by AIfred per call)
 # ============================================================
 # We run two Ollama daemons:

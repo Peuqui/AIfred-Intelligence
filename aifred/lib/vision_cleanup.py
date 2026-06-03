@@ -126,6 +126,26 @@ async def cleanup_vision_task() -> None:
     while True:
         try:
             await asyncio.sleep(seconds_until_next_run(GARBAGE_COLLECTION_HOUR))
+            # Describe before pruning: every undescribed motion/face event
+            # gets a clustered VLM description while the GPU is idle, so no
+            # frame is ever pruned before it has been described (the 14d TTL
+            # gives ample margin, but the order makes it correct by design).
+            try:
+                from .vision_bulk import run_bulk_describe
+                described = await run_bulk_describe()
+                if described.aborted_vram:
+                    log_message(
+                        f"🌙 Nightly describe skipped: {described.vram_message}"
+                    )
+                elif described.total_events:
+                    log_message(
+                        f"🌙 Nightly describe: {described.total_clusters} clusters "
+                        f"from {described.total_events} events, "
+                        f"{described.failed} failed"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                log_message(f"⚠️ Nightly describe error: {exc}")
+
             ttl_days = _load_retention_days()
             cutoff = datetime.now() - timedelta(days=ttl_days)
             crops_removed = _cleanup_dated_subdirs(

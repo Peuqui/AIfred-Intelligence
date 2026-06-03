@@ -818,12 +818,28 @@ class VisionPlugin:
             event_type: str | None = None,
             since_hours: float | None = None,
             limit: int = 50,
+            describe: bool = False,
         ) -> str:
             cfg = _load_settings().get("events", {})
             actual_limit = max(1, min(int(limit), 500))
             since = None
             if since_hours is not None and since_hours > 0:
                 since = datetime.now() - timedelta(hours=float(since_hours))
+            # On-demand: backfill VLM descriptions for events in the queried
+            # window that don't have one yet — clustered, so the cost scales
+            # with the number of happenings, not raw frames. The nightly run
+            # normally does this; describe=true covers the gap for fresh
+            # same-day data the user asks about before tonight's run.
+            if describe:
+                try:
+                    from ....lib.vision_bulk import run_bulk_describe
+                    await run_bulk_describe(
+                        source_id=source_id,
+                        event_types=[event_type] if event_type else None,
+                        since=since,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("on-demand describe failed: %s", e)
             try:
                 events = _store().query_events(
                     source_id=source_id,
@@ -857,7 +873,11 @@ class VisionPlugin:
                 "Query past vision events (motion / face_known / face_unknown "
                 "/ vlm_analysis). Filterable by source, event type, and time "
                 "window. Use when the user asks 'was war heute an der Tür?', "
-                "'wer war zuletzt da?', etc."
+                "'wer war zuletzt da?', etc. Motion/face events carry only "
+                "metadata; a scene description lives in classification."
+                "description. If those are empty and the user wants to know "
+                "what actually happened, set describe=true to generate them "
+                "for the queried window first (GPU work, bounded by clustering)."
             ),
             parameters={
                 "type": "object",
@@ -875,6 +895,16 @@ class VisionPlugin:
                         "description": "Only events newer than N hours.",
                     },
                     "limit": {"type": "integer", "default": 50},
+                    "describe": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Generate missing VLM scene descriptions for the "
+                            "queried window before returning. Use only when the "
+                            "user wants the actual content of what happened and "
+                            "the events still lack a description."
+                        ),
+                    },
                 },
                 "required": [],
             },
