@@ -456,7 +456,9 @@ class TestPersonGate:
         # Person present → face detection ran.
         assert face_det.calls >= 1
 
-    def test_no_person_skips_face(self, store, frames_dir):
+    def test_no_person_still_runs_face(self, store, frames_dir):
+        # YOLO finds no body (e.g. close-up face) — face detection must
+        # STILL run, the two layers are independent (no gate).
         face_det = self._run(
             store, frames_dir, "cam/test-person-no",
             persons=[],  # YOLO finds nobody
@@ -468,8 +470,8 @@ class TestPersonGate:
             source_id="cam/test-person-no", event_type="person"
         )
         assert not person_events, "no person → no person event"
-        # No person → face detection skipped entirely.
-        assert face_det.calls == 0
+        # No YOLO person, but a face is visible → face detection still ran.
+        assert face_det.calls >= 1
 
 
 class TestMotionGating:
