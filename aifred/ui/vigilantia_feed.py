@@ -60,6 +60,7 @@ def _feed_badge(event: rx.Var) -> rx.Component:
     return rx.match(
         et,
         ("motion", rx.badge(t("casus_badge_motion"), color_scheme="blue", variant="soft", size="1")),
+        ("person", rx.badge(t("casus_badge_person"), color_scheme="purple", variant="soft", size="1")),
         ("face_known", rx.badge(t("casus_badge_face_known"), color_scheme="green", variant="soft", size="1")),
         ("face_unsure", rx.badge(t("casus_badge_face_unsure"), color_scheme="amber", variant="soft", size="1")),
         ("face_unknown", rx.badge(t("casus_badge_face_unknown"), color_scheme="gray", variant="soft", size="1")),
@@ -358,6 +359,9 @@ def vigilantia_help_modal() -> rx.Component:
                     _help_row("activity", "var(--blue-9)",
                               "vigilantia_help_motion_label",
                               "vigilantia_help_motion_body"),
+                    _help_row("person-standing", "var(--purple-9)",
+                              "vigilantia_help_person_label",
+                              "vigilantia_help_person_body"),
                     rx.divider(),
                     # Ebene 3: Vorschau
                     rx.text(

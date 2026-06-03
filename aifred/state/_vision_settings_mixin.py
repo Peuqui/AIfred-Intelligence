@@ -66,6 +66,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # ein, wenn die Cam einen ruhigen Schreibtisch zeigt und Motion
     # nicht zuverlässig triggert.
     face_recognition_continuous: bool = False
+    # YOLO-Körper-/Personen-Erkennung pro Motion-Event. SSoT aus
+    # ``settings.json`` ``watch.run_person_detect_on_motion``. Läuft
+    # parallel zur Gesichtserkennung (kein Gate) — sowohl im Hintergrund-
+    # Watcher (Auge) als auch im Live-Preview, wenn Face aktiv ist.
+    person_detect_enabled: bool = False
     # Aufbewahrungsdauer der Face-Crops + Motion-Frames + Vision-DB-
     # Events in Tagen. Cleanup-Task läuft täglich um 03:00 lokal.
     face_retention_days: int = 14
@@ -99,6 +104,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
         fr = settings.get("face_recognition", {}) or {}
         self.face_recognition_enabled = bool(fr.get("enabled", True))
         self.face_recognition_continuous = bool(fr.get("continuous", False))
+        watch = settings.get("watch", {}) or {}
+        self.person_detect_enabled = bool(watch.get("run_person_detect_on_motion", False))
         rd = fr.get("retention_days")
         if isinstance(rd, (int, float)) and 1 <= rd <= 3650:
             self.face_retention_days = int(rd)
