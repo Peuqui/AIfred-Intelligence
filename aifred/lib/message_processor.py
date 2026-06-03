@@ -813,12 +813,21 @@ def resolve_announce_targets(channel: str, target: str) -> list[str]:
             from ..plugins.channels.freeecho2_channel import _devices
         except ImportError:
             _devices = {}
-        if target == "*":
+        t = (target or "").strip()
+        # Manche LLMs packen den Kanal-Präfix mit in den target-Param
+        # ("freeecho2:wohnzimmer") — defensiv abstreifen.
+        if t.startswith("freeecho2:"):
+            t = t[len("freeecho2:"):]
+        # Broadcast / leer → alle gerade verbundenen Pucks.
+        if t in ("", "*"):
             return list(_devices.keys())
-        if target.startswith("@"):
-            return _freeecho2_groups().get(target[1:], [])
-        single = _resolve_channel_recipient(channel, target)
-        return [single] if single else []
+        # Gruppe → konfigurierte Rooms, gefiltert auf gerade verbundene.
+        if t.startswith("@"):
+            return [r for r in _freeecho2_groups().get(t[1:], []) if r in _devices]
+        # Expliziter Room: NUR wenn auch verbunden. Ein halluzinierter/
+        # unbekannter Room ergibt [] → der Caller meldet sauberen Fehlschlag
+        # statt ins Leere zu senden und fälschlich "success" zu melden.
+        return [t] if t in _devices else []
     single = _resolve_channel_recipient(channel, target)
     return [single] if single else []
 
