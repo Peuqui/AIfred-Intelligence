@@ -243,6 +243,7 @@ class AudioOrchestrator:
         loopt der **Caller** play_alarm() mehrfach (kein Loop-Counter im
         Frame). _stop bricht dann den Caller-Loop ab.
         """
+        task: Optional[asyncio.Task[None]] = None
         async with self._lock:
             await self._reset_active_unlocked()
             self._active_type = "alarm"
@@ -268,6 +269,17 @@ class AudioOrchestrator:
                     self._pump_tts_buffer(),
                     name=f"freeecho2-{self.room}-tts-tail-pump",
                 )
+                task = self._tts_pump_task
+
+        # Tail-Pump AUSSERHALB des Locks auspumpen lassen — so weiß der Caller
+        # (Alert-Worker), dass audio_end raus ist, bevor er das done-Frame
+        # schickt. pause/stop können den Pump weiter canceln (CancelledError
+        # ist normal). Ohne Tail kehrt play_alarm sofort zurück (Wecker-Loop).
+        if task is not None:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     async def play_notification(
         self, with_tts: bool, tts_pcm: Optional[bytes] = None,
@@ -276,6 +288,7 @@ class AudioOrchestrator:
 
         Analog zu ``play_alarm`` — nur einmal abspielen statt Loop.
         """
+        task: Optional[asyncio.Task[None]] = None
         async with self._lock:
             await self._reset_active_unlocked()
             self._active_type = "notification"
@@ -299,6 +312,15 @@ class AudioOrchestrator:
                     self._pump_tts_buffer(),
                     name=f"freeecho2-{self.room}-tts-tail-pump",
                 )
+                task = self._tts_pump_task
+
+        # Tail-Pump auspumpen lassen (siehe play_alarm) — Caller weiß danach,
+        # dass audio_end raus ist und kann das done-Frame schicken.
+        if task is not None:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     async def pause(self) -> bool:
         """Type-aware pause.
@@ -431,6 +453,13 @@ class AudioOrchestrator:
         Bei normalem Ende: schickt audio_end. Bei cancel: KEIN audio_end
         — der Buffer kann noch resumed werden.
         """
+        total = self._tts_buffer.total_bytes if self._tts_buffer is not None else 0
+        sent_chunks = 0
+        sent_bytes = 0
+        log_message(
+            f"AudioOrchestrator[{self.room}]: TTS pump start "
+            f"({_fmt_mib(total)}, {total} bytes)"
+        )
         try:
             while self._tts_buffer is not None and not self._tts_buffer.done:
                 chunk = self._tts_buffer.next_chunk()
@@ -440,12 +469,19 @@ class AudioOrchestrator:
                 if not ok:
                     log_message(
                         f"AudioOrchestrator[{self.room}]: TTS chunk send "
-                        f"failed — abort pump",
+                        f"failed — abort pump after {sent_chunks} chunks / "
+                        f"{sent_bytes} bytes",
                         "warning",
                     )
                     return
+                sent_chunks += 1
+                sent_bytes += len(chunk)
             # Normal beendet — TTS-Stream voll durchgelaufen
             await self.bridge.send_audio_end(self.room)
+            log_message(
+                f"AudioOrchestrator[{self.room}]: TTS pump complete "
+                f"({sent_chunks} chunks / {sent_bytes} bytes) — audio_end sent"
+            )
             async with self._lock:
                 if self._active_type == "tts":
                     self._active_type = None
@@ -453,5 +489,9 @@ class AudioOrchestrator:
                     self._tts_pump_task = None
         except asyncio.CancelledError:
             # Pause oder stop — KEIN audio_end, Buffer-Cursor bleibt
+            log_message(
+                f"AudioOrchestrator[{self.room}]: TTS pump cancelled after "
+                f"{sent_chunks} chunks / {sent_bytes} bytes"
+            )
             raise
 
