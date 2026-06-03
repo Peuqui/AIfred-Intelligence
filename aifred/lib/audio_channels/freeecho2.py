@@ -14,8 +14,9 @@ mpv resampled selbst, keine separate ffmpeg-Stage nötig.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, TypeVar
 
 from ._audio_orchestrator import AudioOrchestrator
 from ._freeecho2_stream import FreeEcho2Stream
@@ -62,6 +63,25 @@ def _bridge() -> Any:
         return FreeEchoChannel_instance
     except ImportError:
         return None
+
+
+_F = TypeVar("_F", bound=Callable[..., Coroutine[Any, Any, Any]])
+
+
+def _on_ws_loop(method: _F) -> _F:
+    """Public-Methode auf dem WebSocket-Server-Loop ausführen.
+
+    Browser-/Scheduler-initiierte Audio-Befehle (play, pause, …) laufen im
+    Chat-/Tool-Pipeline-Loop, der WebSocket + mpv-FIFO-Pump + mpv-IPC leben
+    aber im aiohttp-Loop. Ohne Pinning sendet der Pump cross-loop und bricht
+    ab. ``run_on_ws_loop`` ist die SSoT-Marshalling-Funktion; läuft der
+    Aufruf bereits im ws-Loop (reaktiver Puck-Request), awaited sie direkt."""
+    @functools.wraps(method)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        from ...plugins.channels.freeecho2_channel import run_on_ws_loop
+        return await run_on_ws_loop(method(*args, **kwargs))
+
+    return wrapper  # type: ignore[return-value]
 
 
 class FreeEcho2Channel:
@@ -160,6 +180,7 @@ class FreeEcho2Channel:
         um TTS via Orchestrator zu pumpen statt direkt am Wire."""
         return self._get_or_create_orchestrator(room)
 
+    @_on_ws_loop
     async def play(
         self,
         src: "ResolvedSource",
@@ -221,6 +242,7 @@ class FreeEcho2Channel:
             "resumed_at_sec": result.get("start_pos_sec", 0.0),
         }
 
+    @_on_ws_loop
     async def pause(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
         """Type-aware pause via AudioOrchestrator.
 
@@ -235,6 +257,7 @@ class FreeEcho2Channel:
             return False
         return await orc.pause()
 
+    @_on_ws_loop
     async def resume(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
         """Resume via AudioOrchestrator. No-op wenn nichts pausiert ist."""
         room = _parse_room(target_id)
@@ -245,6 +268,7 @@ class FreeEcho2Channel:
             return False
         return await orc.resume()
 
+    @_on_ws_loop
     async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
         """Stop alles via AudioOrchestrator + cleanup queue + stream-state.
 
@@ -270,6 +294,7 @@ class FreeEcho2Channel:
             self._streams.pop(room, None)
         return stopped
 
+    @_on_ws_loop
     async def play_queue(
         self,
         items: list[dict[str, str]],
@@ -425,6 +450,7 @@ class FreeEcho2Channel:
             return
         stream.notify_flow(state)
 
+    @_on_ws_loop
     async def seek(
         self,
         target_id: str,
@@ -440,6 +466,7 @@ class FreeEcho2Channel:
             return False
         return bool(await stream.seek(float(position_sec), relative=relative))
 
+    @_on_ws_loop
     async def set_speed(
         self, target_id: str, factor: float, ctx: "PluginContext | None" = None
     ) -> bool:
@@ -457,6 +484,7 @@ class FreeEcho2Channel:
         except Exception:  # noqa: BLE001
             return False
 
+    @_on_ws_loop
     async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:
         room = _parse_room(target_id)
         if not room:

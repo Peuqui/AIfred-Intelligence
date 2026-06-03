@@ -23,7 +23,7 @@ import io
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Coroutine, Optional
 
 from ....lib.config import get_tts_engine_channel_options
 from ....lib.formatting import format_number
@@ -67,6 +67,13 @@ _pending_wake_agent: dict[str, str] = {}
 _alert_queues: dict[str, "asyncio.Queue[tuple[str, bytes | None]]"] = {}
 _alert_workers: dict[str, asyncio.Task] = {}
 _playback_done: dict[str, asyncio.Event] = {}
+# Event-Loop des WebSocket-Servers (aiohttp). Der proaktive Emit-Pfad
+# (Vision-Watcher → announce-Tool) läuft im Chat-/Tool-Pipeline-Loop, der
+# WebSocket lebt aber hier. Queue, Worker und das TTS-Pumpen müssen im
+# ws-Loop laufen, sonst sendet der Pump aus einem fremden Loop
+# (RuntimeError: "got Future attached to a different loop" → Pump-Abbruch
+# mitten in der Ansage). enqueue_alert marshallt deshalb auf diesen Loop.
+_ws_loop: "asyncio.AbstractEventLoop | None" = None
 # Fallback-Marge für das _done-Warten: der Worker wartet content-abhängig
 # = tatsächliche Wiedergabe-Dauer (aus der PCM-Größe) + diese Marge (Chime +
 # Netz + Sicherheit). So wird eine lange Ansage NIE abgeschnitten (Timeout
@@ -75,6 +82,27 @@ _playback_done: dict[str, asyncio.Event] = {}
 _PLAYBACK_DONE_MARGIN_SEC = 15.0
 # 48 kHz, int16, mono → Bytes pro Sekunde Wiedergabe.
 _PCM_BYTES_PER_SEC = 96000.0
+
+
+async def run_on_ws_loop(coro: "Coroutine[Any, Any, Any]") -> Any:
+    """Eine Coroutine auf dem WebSocket-Server-Loop ausführen, awaitbar aus
+    JEDEM Loop. SSoT für proaktive Puck-Audio-Ausgabe.
+
+    Jegliches ``ws.send_bytes`` (TTS-Pump, mpv-FIFO-Pump) und jede mpv-IPC-
+    Operation muss in dem Loop laufen, dem der WebSocket gehört — sonst wirft
+    asyncio "got Future attached to a different loop" und der Pump bricht
+    mitten in der Ausgabe ab. Proaktive Aufrufer (Announce-Queue, Browser-
+    Audio-Befehle) laufen im Chat-/Tool-Pipeline-Loop; ihre Orchestrator-/
+    Stream-Arbeit wird hierüber auf den ws-Loop geschoben. Läuft der Aufrufer
+    bereits im ws-Loop (reaktiver Puck-Request), wird direkt awaited."""
+    try:
+        current: "asyncio.AbstractEventLoop | None" = asyncio.get_running_loop()
+    except RuntimeError:
+        current = None
+    if _ws_loop is not None and _ws_loop is not current:
+        fut = asyncio.run_coroutine_threadsafe(coro, _ws_loop)
+        return await asyncio.wrap_future(fut)
+    return await coro
 
 
 def _playback_done_event(room: str) -> asyncio.Event:
@@ -91,9 +119,9 @@ def signal_playback_done(room: str) -> None:
     _playback_done_event(room).set()
 
 
-async def enqueue_alert(room: str, audio_type: str, tts_pcm: "bytes | None") -> None:
-    """Proaktiven Alarm in die room-Queue legen + Worker sicherstellen.
-    Kehrt sofort zurück (entkoppelt vom Emit-Pfad)."""
+async def _enqueue_on_ws_loop(room: str, audio_type: str, tts_pcm: "bytes | None") -> None:
+    """Put + Worker-Sicherstellung — läuft IMMER im ws-Loop, damit Queue,
+    Worker und das spätere ws.send_bytes loop-konsistent sind."""
     queue = _alert_queues.get(room)
     if queue is None:
         queue = asyncio.Queue()
@@ -104,6 +132,16 @@ async def enqueue_alert(room: str, audio_type: str, tts_pcm: "bytes | None") -> 
         _alert_workers[room] = asyncio.create_task(
             _alert_worker(room), name=f"freeecho2-alert-worker-{room}",
         )
+
+
+async def enqueue_alert(room: str, audio_type: str, tts_pcm: "bytes | None") -> None:
+    """Proaktiven Alarm in die room-Queue legen + Worker sicherstellen.
+    Kehrt sofort zurück (entkoppelt vom Emit-Pfad).
+
+    Der Emit-Pfad läuft typischerweise in einem anderen Event-Loop als der
+    WebSocket; ``run_on_ws_loop`` schiebt Queue/Worker auf den ws-Loop, damit
+    der Pump nicht cross-loop sendet."""
+    await run_on_ws_loop(_enqueue_on_ws_loop(room, audio_type, tts_pcm))
 
 
 async def _alert_worker(room: str) -> None:
@@ -132,12 +170,19 @@ async def _alert_worker(room: str) -> None:
             evt = _playback_done_event(room)
             evt.clear()
             with_tts = tts_pcm is not None
+            # play_* wartet jetzt bis der Tail-Pump durch ist (audio_end raus).
             if audio_type == "alarm":
                 await orc.play_alarm(with_tts=with_tts, tts_pcm=tts_pcm)
             else:
                 await orc.play_notification(with_tts=with_tts, tts_pcm=tts_pcm)
+            # Design A: kanonische Turn-Grenze. done sagt dem Puck "geh auf
+            # IDLE + quittiere mit _done". Symmetrisch zum reaktiven Pfad
+            # (audio_end + done in jedem Pfad).
+            await orc.bridge.send_done(room)
             # Content-abhängiger Timeout: echte Wiedergabe-Dauer (PCM-Größe)
-            # + Marge. Nie kürzer als die Ansage selbst → kein Abschneiden.
+            # + Marge als Fallback. Normal weckt das _done des Pucks (auf das
+            # done-Frame) den Worker sofort; der Timeout greift nur wenn der
+            # Puck stumm bleibt.
             playback_sec = (len(tts_pcm) / _PCM_BYTES_PER_SEC) if tts_pcm else 0.0
             done_timeout = playback_sec + _PLAYBACK_DONE_MARGIN_SEC
             try:
@@ -275,6 +320,11 @@ class FreeEchoChannel(BaseChannel):
 
         site = web.TCPSite(runner, "0.0.0.0", port, ssl_context=ssl_ctx)
         await site.start()
+        # Diesen Loop für den proaktiven Alarm-Pfad festhalten: enqueue_alert
+        # marshallt Queue/Worker/Pump hierher, damit ws.send_bytes immer aus
+        # dem Loop läuft, dem der WebSocket gehört (kein Cross-Loop-Abbruch).
+        global _ws_loop
+        _ws_loop = asyncio.get_running_loop()
         proto = "wss" if ssl_ctx else "ws"
         self.channel_log(f"WebSocket server listening on {proto}://0.0.0.0:{port}{_DEFAULT_PATH}")
 
@@ -891,7 +941,7 @@ class FreeEchoChannel(BaseChannel):
                 if not text:
                     self.channel_log(f"[FreeEcho.2 {room}] STT returned empty text", "warning")
                     debug("❌ STT: no text recognized")
-                    await ws.send_str(json.dumps({"type": "done", "reason": "stt_empty"}))
+                    await self.send_done(room, reason="stt_empty")
                     return  # hub scope writes "done" on exit → toast closes after 5 s
 
                 self.channel_log(f"[FreeEcho.2 {room}] STT ({_fe2_time.monotonic()-_fe2_t0:.1f}s): {text}")
@@ -976,13 +1026,13 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] ← Pipeline complete ({total_time:.1f}s)")
 
             # Signal client: all done, go back to IDLE
-            await ws.send_str(json.dumps({"type": "done"}))
+            await self.send_done(room)
 
         except Exception as e:
             self.channel_log(f"[FreeEcho.2 {room}] Pipeline error: {e}", "error")
             heartbeat_running = False
             try:
-                await ws.send_str(json.dumps({"type": "done", "reason": "error"}))
+                await self.send_done(room, reason="error")
             except Exception:
                 pass
         finally:
@@ -1472,6 +1522,29 @@ class FreeEchoChannel(BaseChannel):
         except Exception as exc:  # noqa: BLE001
             self.channel_log(
                 f"[FreeEcho.2 {room}] send_audio_end error: {exc}", "warning",
+            )
+            return False
+
+    async def send_done(self, room: str, reason: str | None = None) -> bool:
+        """SSoT for the ``done`` frame — the canonical turn boundary.
+
+        ``done`` tells the puck the whole turn is finished: go back to IDLE
+        and reply with the ``_done`` token. Both the reactive reply pipeline
+        and the proactive alert queue send it after their audio_end so the
+        terminal contract is symmetric (audio_end + done in every path)."""
+        ws = _devices.get(room)
+        if ws is None:
+            return False
+        payload: dict[str, str] = {"type": "done"}
+        if reason is not None:
+            payload["reason"] = reason
+        try:
+            await ws.send_str(json.dumps(payload))
+            self.channel_log(f"[FreeEcho.2 {room}] → done sent (reason={reason})")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.channel_log(
+                f"[FreeEcho.2 {room}] send_done error: {exc}", "warning",
             )
             return False
 
