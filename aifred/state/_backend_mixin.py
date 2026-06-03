@@ -324,10 +324,22 @@ class BackendMixin(rx.State, mixin=True):
                 get_llamacpp_speed_split,
             )
             setattr(self, f"{agent}_rope_factor", 1.0)
-            setattr(self, f"{agent}_max_context", get_llamacpp_calibration(model_id) or 0)
             setattr(self, f"{agent}_is_hybrid", False)
             setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
+            # Reihenfolge: has_speed_variant MUSS vor _effective_model_id
+            # gesetzt sein — der Variant-Resolver liest es.
             setattr(self, f"{agent}_has_speed_variant", get_llamacpp_speed_split(model_id)[0] > 0)
+            # max_context ist VARIANTEN-spezifisch: das aktive
+            # ``-tts-<engine>-vlm-<vlm>``-Koexistenz-Profil hat weniger
+            # Kontext als die Basis (TTS belegt VRAM). Den Kalibrierungs-
+            # Lookup also mit der AUFGELÖSTEN Varianten-ID machen (die ganze
+            # Matrix ist kalibriert), nicht mit der Basis-ID. Fallback auf
+            # die Basis, falls die Variante mal nicht kalibriert ist.
+            effective_id = self._effective_model_id(agent) or model_id  # type: ignore[attr-defined]
+            ctx = get_llamacpp_calibration(effective_id)
+            if ctx is None and effective_id != model_id:
+                ctx = get_llamacpp_calibration(model_id)
+            setattr(self, f"{agent}_max_context", ctx or 0)
 
     def _load_all_agent_model_params(self) -> None:
         """Load model parameters for all agents from cache."""
