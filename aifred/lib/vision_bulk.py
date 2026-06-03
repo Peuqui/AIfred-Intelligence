@@ -114,6 +114,11 @@ async def run_bulk_describe(
         cluster_members[cid or f"solo-{eid}"].append(eid)
 
     total = len(cluster_members)
+    from .logging_utils import log_message
+    log_message(
+        f"🖌️ bulk-describe: {len(events)} undescribed events → {total} clusters "
+        f"(source={source_id or 'all'})"
+    )
     if progress_cb is not None:
         await progress_cb(
             0, total,
@@ -144,6 +149,10 @@ async def run_bulk_describe(
             failed += 1
         processed += 1
 
+    log_message(
+        f"🖌️ bulk-describe done: {processed - failed}/{total} described, "
+        f"{failed} failed" + (" (cancelled)" if cancelled else "")
+    )
     return BulkDescribeResult(
         total_events=len(events),
         total_clusters=total,

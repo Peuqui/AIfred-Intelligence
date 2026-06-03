@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -63,6 +64,12 @@ logger = logging.getLogger(__name__)
 
 _PLUGIN_DIR = Path(__file__).parent
 _SETTINGS_PATH = _PLUGIN_DIR / "settings.json"
+
+# How many raw events vision_query_events scans before collapsing them into
+# distinct happenings (one per cluster). Big enough to cover a full window so
+# clusters that span it are deduped correctly; the response itself is capped
+# by the caller's `limit` (happenings, not frames).
+_QUERY_SCAN_LIMIT = 5000
 
 
 def _load_settings() -> dict[str, Any]:
@@ -237,7 +244,19 @@ class VisionPlugin:
                 "`n_frames`>1 aufrufen und ALLE zurückgegebenen `image_urls` an "
                 "`vision_analyze` als Sequenz übergeben. Du kannst mit "
                 "`vision_analyze` auch hochgeladene Bilder analysieren — einfach "
-                "deren `image_url` übergeben."
+                "deren `image_url` übergeben.\n\n"
+                "CHRONIK & EREIGNISSE — `vision_query_events` liefert vergangene "
+                "Vorkommnisse (eine Zeile pro Vorkommnis; near-identische Frames "
+                "sind zu einem zusammengefasst), jeweils mit Zeitstempel, "
+                "Beschreibung (`classification.description`) und `image_url`. "
+                "Fehlen die Beschreibungen und der Nutzer will wissen, was "
+                "passiert ist, rufe mit `describe=true` auf. Wenn du über ein "
+                "Vorkommnis schreibst, BETTE sein Bild als Markdown ein — "
+                "`![Kamera HH:MM](image_url)` mit GENAU der `image_url` aus "
+                "genau diesem Vorkommnis —, damit der Nutzer das passende Bild "
+                "zum jeweiligen Ereignis sieht. Bette nur die `image_url`s der "
+                "Vorkommnisse ein, über die du tatsächlich schreibst; erfinde "
+                "niemals URLs."
             )
         return (
             "You can access connected webcams/cameras via the `vision_*` "
@@ -256,7 +275,17 @@ class VisionPlugin:
             "motion / 'judge a short film': call `vision_snapshot` with "
             "`n_frames`>1 and pass ALL returned `image_urls` to `vision_analyze` "
             "as a sequence. `vision_analyze` can also analyse uploaded images — "
-            "just pass their `image_url`."
+            "just pass their `image_url`.\n\n"
+            "CHRONICLE & EVENTS — `vision_query_events` returns past happenings "
+            "(one row per happening; near-identical frames are collapsed into "
+            "one), each with a timestamp, a description "
+            "(`classification.description`) and an `image_url`. If descriptions "
+            "are missing and the user wants to know what happened, call with "
+            "`describe=true`. When you write about a happening, EMBED its frame "
+            "as markdown — `![Camera HH:MM](image_url)` using EXACTLY the "
+            "`image_url` from that happening — so the user sees the matching "
+            "image next to each event. Only embed the `image_url`s of happenings "
+            "you actually describe; never invent URLs."
         )
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
@@ -825,11 +854,13 @@ class VisionPlugin:
             since = None
             if since_hours is not None and since_hours > 0:
                 since = datetime.now() - timedelta(hours=float(since_hours))
-            # On-demand: backfill VLM descriptions for events in the queried
-            # window that don't have one yet — clustered, so the cost scales
-            # with the number of happenings, not raw frames. The nightly run
-            # normally does this; describe=true covers the gap for fresh
-            # same-day data the user asks about before tonight's run.
+            # On-demand: describe the whole queried window first.
+            # run_bulk_describe clusters near-identical frames (CPU pHash —
+            # cheap) and runs the VLM once per happening on everything still
+            # undescribed, fresh events included, so the chronicle is complete.
+            # The side-channel VLM is cheap even for a lot of frames; the nightly
+            # run is the safety net, and it is idempotent (described events are
+            # skipped).
             if describe:
                 try:
                     from ....lib.vision_bulk import run_bulk_describe
@@ -840,30 +871,64 @@ class VisionPlugin:
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.warning("on-demand describe failed: %s", e)
+
+            # Scan the whole window so dedup can collapse clusters that span
+            # it, then return only `limit` distinct happenings.
+            store = _store()
             try:
-                events = _store().query_events(
+                raw = store.query_events(
                     source_id=source_id,
                     event_type=event_type,
                     since=since,
-                    limit=actual_limit,
+                    limit=_QUERY_SCAN_LIMIT,
                 )
             except Exception as e:  # noqa: BLE001
                 return _err(f"query failed: {e}")
+
+            # Collapse cluster members into one representative per happening:
+            # N near-identical motion frames = one event, one description, one
+            # image — not the same text N times. `raw` is newest-first, so the
+            # first occurrence of a cluster_id is its representative; further
+            # members only bump the frame count. Events without a cluster_id
+            # (unclustered / faces) are kept individually.
+            reps: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+            solo: list[dict[str, Any]] = []
+            member_count: dict[str, int] = {}
+            for ev in raw:
+                cid = str(ev.get("cluster_id") or "")
+                if cid:
+                    member_count[cid] = member_count.get(cid, 0) + 1
+                    if cid not in reps:
+                        reps[cid] = ev
+                else:
+                    solo.append(ev)
+            happenings = sorted(
+                list(reps.values()) + solo,
+                key=lambda ev: ev["timestamp"], reverse=True,
+            )[:actual_limit]
+
+            def _out(ev: dict[str, Any]) -> dict[str, Any]:
+                cid = str(ev.get("cluster_id") or "")
+                fp = str(ev.get("frame_path") or "")
+                return {
+                    "id": ev["id"],
+                    "source_id": ev["source_id"],
+                    "timestamp": ev["timestamp"],
+                    "event_type": ev["event_type"],
+                    "confidence": ev["confidence"],
+                    "face_id": ev["face_id"],
+                    "classification": ev["classification"],
+                    # Browser-servable URL so the assistant can embed the frame
+                    # as ![…](image_url) in its reply (and re-analyze it via
+                    # vision_analyze).
+                    "image_url": get_image_url(Path(fp)) if fp else "",
+                    # How many frames this one happening spans.
+                    "frames_in_cluster": member_count.get(cid, 1) if cid else 1,
+                }
+
             return _ok(
-                count=len(events),
-                events=[
-                    {
-                        "id": e["id"],
-                        "source_id": e["source_id"],
-                        "timestamp": e["timestamp"],
-                        "event_type": e["event_type"],
-                        "confidence": e["confidence"],
-                        "face_id": e["face_id"],
-                        "classification": e["classification"],
-                        "frame_path": e["frame_path"],
-                    }
-                    for e in events
-                ],
+                count=len(happenings),
+                events=[_out(ev) for ev in happenings],
                 config_defaults={"limit": cfg.get("default_query_limit", 50)},
             )
 
@@ -873,11 +938,16 @@ class VisionPlugin:
                 "Query past vision events (motion / face_known / face_unknown "
                 "/ vlm_analysis). Filterable by source, event type, and time "
                 "window. Use when the user asks 'was war heute an der Tür?', "
-                "'wer war zuletzt da?', etc. Motion/face events carry only "
-                "metadata; a scene description lives in classification."
-                "description. If those are empty and the user wants to know "
-                "what actually happened, set describe=true to generate them "
-                "for the queried window first (GPU work, bounded by clustering)."
+                "'wer war zuletzt da?', etc. Returns ONE row per happening "
+                "(near-identical frames collapsed into one cluster, "
+                "`frames_in_cluster` = how many), each with `classification."
+                "description`, `image_url` (embed it as ![…](url) when you "
+                "describe that happening) and `id`. The `limit` counts "
+                "happenings, not raw frames. Motion/face events carry only "
+                "metadata until described; if the description is empty and the "
+                "user wants to know what actually happened, set describe=true to "
+                "generate it for the queried window first (GPU work, bounded by "
+                "clustering)."
             ),
             parameters={
                 "type": "object",
