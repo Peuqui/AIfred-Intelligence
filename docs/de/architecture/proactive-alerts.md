@@ -78,19 +78,30 @@ das durch denselben SSoT-Pfad wie alle anderen Sinks (`send_reply` mit dummy
   Wer mehrere Pucks hat und gezielt zustellen will, übergibt
   `recipient="wohnzimmer"` explizit.
 - **`send_reply`** erkennt den autonomen Aufruf an `sender == "system"`
-  (oder `outbound.metadata.proactive=True`) und routet über
-  `AudioOrchestrator.play_notification(with_tts=True, tts_pcm=…)`. Die
-  Sequenz auf dem Wire: `audio_flag(notification, with_tts=True)` →
-  `audio_flag(tts)` → `audio_start` → PCM-Chunks → `audio_end`. Der Puck
-  spielt erst seinen lokalen `notification_wav`-Chime, puffert parallel den
-  TTS-Stream und wechselt nahtlos auf die Sprache — kein „Spricht aus
-  dem Nichts"-Effekt.
+  (oder `outbound.metadata.proactive=True`) und routet über den
+  `AudioOrchestrator` mit dem zur Severity passenden Chime — entweder
+  `play_alarm(with_tts=True, tts_pcm=…)` (auffälliger `alarm_wav`-Sound) oder
+  `play_notification(with_tts=True, tts_pcm=…)` (sanfter
+  `notification_wav`-Sound). Die Sequenz auf dem Wire:
+  `audio_flag(alarm|notification, with_tts=True)` → `audio_flag(tts)` →
+  `audio_start` → PCM-Chunks → `audio_end`. Der Puck spielt erst den
+  lokalen Sound, puffert parallel den TTS-Stream und wechselt nahtlos auf
+  die Sprache — kein „Spricht aus dem Nichts"-Effekt.
+- **Sound-Wahl per metadata.audio_type** — `_default_deliver` mappt
+  `ev.severity` auf das Tupel: `critical` → `"alarm"`, sonst →
+  `"notification"`. Das Tupel reist via `announce_to_channel(..., metadata=
+  {"audio_type": ..., "severity": ..., "category": ...})` durch und wird
+  vom Channel ausgelesen. Andere Sinks (Telegram, Email, …) ignorieren das
+  Feld stillschweigend. Schema-Drift (unbekanntes `audio_type`) fällt auf
+  `"notification"` zurück, damit ein Caller-Bug nicht den Push verschluckt.
 - **User-Wake-Reply** bleibt unverändert (kein Chime), weil `send_reply`
   dort `original.sender == "<room>"` sieht statt `"system"`.
 
-Tests: `tests/test_freeecho2_proactive_push.py` (Recipient-Resolver +
-send_reply-Routing). Live-Smoke-Test mit dem Vision-Producer → Puck als
-Sink in der Alert-Regel-Datei (`data/alert_rules.json`).
+Tests: `tests/test_freeecho2_proactive_push.py` — Recipient-Resolver,
+send_reply-Routing (system-Sender vs. metadata.proactive vs. silent_reply),
+audio_type-Mapping (alarm vs. notification vs. unknown-Fallback), und
+alert_bus-Severity-Mapping. Live-Smoke-Test mit dem Vision-Producer → Puck
+als Sink in der Alert-Regel-Datei (`data/alert_rules.json`).
 
 ## Zustellung & Modi (SSoT, ein Weg für Template + LLM)
 

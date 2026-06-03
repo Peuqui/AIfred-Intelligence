@@ -965,11 +965,15 @@ class FreeEchoChannel(BaseChannel):
 
             # Proaktive Push-Nachricht? Erkannt am dummy-inbound
             # ``sender == "system"`` aus message_processor.announce_to_channel.
-            # In dem Fall: lokaler Chime (notification_wav) vor dem TTS,
-            # damit der User nicht aus dem Nichts angesprochen wird.
-            # Frame-Sequenz: audio_flag(notification, with_tts=True) +
-            # audio_flag(tts) + audio_start + chunks + audio_end. Der
-            # Orchestrator ``play_notification`` macht alles in einem Aufruf.
+            # In dem Fall: lokaler Chime vor dem TTS, damit der User nicht
+            # aus dem Nichts angesprochen wird. Welcher Chime — alarm_wav
+            # (auffaellig) oder notification_wav (sanft) — kommt per
+            # metadata.audio_type aus dem Caller (alert_bus mappt severity →
+            # audio_type; explizite scheduler-Sends koennen es selbst setzen).
+            # Default "notification" wenn unklar.
+            # Frame-Sequenz: audio_flag(alarm|notification, with_tts=True) +
+            # audio_flag(tts) + audio_start + chunks + audio_end — der
+            # Orchestrator macht alles in einem Aufruf.
             # Normal-Reply (User hat selbst getriggert) bleibt ohne Chime.
             is_proactive = (
                 (original is not None and original.sender == "system")
@@ -978,12 +982,25 @@ class FreeEchoChannel(BaseChannel):
 
             secs = format_number(len(pcm_data) / 96000, 1)
             if is_proactive:
+                audio_type = str(
+                    outbound.metadata.get("audio_type") or "notification"
+                )
+                if audio_type not in ("alarm", "notification"):
+                    self.channel_log(
+                        f"[FreeEcho.2 {room}] unknown audio_type "
+                        f"{audio_type!r} — falling back to notification",
+                        "warning",
+                    )
+                    audio_type = "notification"
                 self.channel_log(
-                    f"[FreeEcho.2 {room}] Proactive push: "
+                    f"[FreeEcho.2 {room}] Proactive push ({audio_type}): "
                     f"chime + TTS {_fmt_mib(len(pcm_data))} ({secs}s) "
                     f"via orchestrator"
                 )
-                await orc.play_notification(with_tts=True, tts_pcm=pcm_data)
+                if audio_type == "alarm":
+                    await orc.play_alarm(with_tts=True, tts_pcm=pcm_data)
+                else:
+                    await orc.play_notification(with_tts=True, tts_pcm=pcm_data)
             else:
                 self.channel_log(
                     f"[FreeEcho.2 {room}] Sending TTS: {_fmt_mib(len(pcm_data))} "
