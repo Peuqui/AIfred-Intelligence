@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aifred.lib.vision_store import VisionStore, SCHEMA_VERSION
+from aifred.lib.vision_store import VisionStore
 
 
 @pytest.fixture()
@@ -17,9 +17,12 @@ def store(tmp_path: Path) -> VisionStore:
 
 
 class TestSchema:
-    def test_init_creates_db_and_sets_version(self, store: VisionStore):
+    def test_init_creates_db(self, store: VisionStore):
         assert store.db_path.exists()
-        assert store.schema_version() == SCHEMA_VERSION
+        # cluster_id muss im frischen Schema vorhanden sein (deklarativ,
+        # nicht erst per Migration) — sonst bricht das Clustering.
+        store.add_event("cam/x", "motion")
+        assert store.set_event_cluster(1, "c1") is True
 
     def test_idempotent_init(self, tmp_path: Path):
         VisionStore(tmp_path / "v.db")

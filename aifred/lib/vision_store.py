@@ -1,8 +1,9 @@
 """Vision-Store — SQLite für Events, Faces, Embeddings und Source-Konfig.
 
 Eine zentrale Datenbank pro AIfred-Installation unter
-``data/vision/vision.db``. Schema-Versionierung über ``schema_version``-
-Tabelle erlaubt spätere Migrationen ohne Daten-Verlust.
+``data/vision/vision.db``. Das Schema ist rein deklarativ (``CREATE TABLE IF
+NOT EXISTS``) — keine Migrationen; bei einer inkompatiblen Schema-Änderung
+wird die DB neu aufgesetzt.
 
 Public API — eine ``VisionStore``-Klasse mit thread-safe Connection-pro-
 Operation. Embeddings werden als ``float32``-Blob gespeichert; Bulk-
@@ -26,8 +27,6 @@ from .config import DATA_DIR
 # Default-Speicherort. Tests übergeben einen tmp-Path im Konstruktor.
 DEFAULT_DB_PATH = DATA_DIR / "vision" / "vision.db"
 
-SCHEMA_VERSION = 2
-
 
 def _connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -42,10 +41,6 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     """Erstelle Tabellen, falls noch nicht da. Reihenfolge wichtig wegen
     Foreign-Key-Constraints (faces ← events ← face_embeddings)."""
     conn.executescript("""
-        CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER NOT NULL
-        );
-
         CREATE TABLE IF NOT EXISTS sources (
             source_id      TEXT PRIMARY KEY,
             display_name   TEXT NOT NULL,
@@ -77,7 +72,8 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             classification  TEXT NOT NULL DEFAULT '{}',
             confidence      REAL NOT NULL DEFAULT 0.0,
             face_id         INTEGER REFERENCES faces(id) ON DELETE SET NULL,
-            metadata        TEXT NOT NULL DEFAULT '{}'
+            metadata        TEXT NOT NULL DEFAULT '{}',
+            cluster_id      TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_events_source_ts
             ON events(source_id, timestamp DESC);
@@ -85,6 +81,8 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             ON events(event_type, timestamp DESC);
         CREATE INDEX IF NOT EXISTS idx_events_face_id
             ON events(face_id);
+        CREATE INDEX IF NOT EXISTS idx_events_cluster_id
+            ON events(cluster_id);
 
         CREATE TABLE IF NOT EXISTS face_embeddings (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,30 +95,6 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_face_embeddings_face_id
             ON face_embeddings(face_id);
     """)
-    row = conn.execute("SELECT version FROM schema_version").fetchone()
-    current = int(row["version"]) if row else 0
-    if row is None:
-        conn.execute(
-            "INSERT INTO schema_version (version) VALUES (?)",
-            (SCHEMA_VERSION,),
-        )
-        current = SCHEMA_VERSION
-    # Migrationen — idempotent, step-by-step von current → SCHEMA_VERSION.
-    # Step v1 → v2: cluster_id für pHash-basierte Bulk-Analyse-Dedup.
-    if current < 2:
-        cols = {
-            r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()
-        }
-        if "cluster_id" not in cols:
-            conn.execute(
-                "ALTER TABLE events ADD COLUMN cluster_id TEXT NOT NULL DEFAULT ''"
-            )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_cluster_id ON events(cluster_id)"
-        )
-        conn.execute(
-            "UPDATE schema_version SET version = ?", (2,)
-        )
 
 
 def _embedding_to_blob(emb: np.ndarray) -> bytes:
@@ -949,7 +923,3 @@ class VisionStore:
             )
             return int(cur.rowcount)
 
-    def schema_version(self) -> int:
-        with self._conn() as conn:
-            row = conn.execute("SELECT version FROM schema_version").fetchone()
-        return int(row["version"]) if row else 0
