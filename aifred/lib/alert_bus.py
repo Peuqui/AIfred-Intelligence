@@ -171,3 +171,58 @@ def _format(ev: AlertEvent) -> str:
     if ev.title and ev.body:
         return f"{ev.title}\n{ev.body}"
     return ev.title or ev.body
+
+
+# ── Runtime: central rule config + shared dispatcher ──────────────────────
+
+def _rules_path():
+    from .config import DATA_DIR
+    return DATA_DIR / "alert_rules.json"
+
+
+def load_rules() -> list[AlertRule]:
+    """Load the central alert rules from ``data/alert_rules.json`` (a JSON
+    list of rule objects). Missing/invalid file → no rules (no alerts), a safe
+    default. Unknown keys are ignored so the schema can grow."""
+    import json
+
+    path = _rules_path()
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("alert rules unreadable (%s): %s", path, e)
+        return []
+    if not isinstance(raw, list):
+        logger.warning("alert rules: expected a JSON list, got %s", type(raw).__name__)
+        return []
+    fields = {
+        "producer", "sinks", "category", "source_id", "min_severity",
+        "min_interval_sec", "quiet_hours", "rule_id",
+    }
+    rules: list[AlertRule] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or "producer" not in entry or "sinks" not in entry:
+            logger.warning("alert rules: skipping invalid entry %r", entry)
+            continue
+        kwargs = {k: v for k, v in entry.items() if k in fields}
+        qh = kwargs.get("quiet_hours")
+        if isinstance(qh, list) and len(qh) == 2:
+            kwargs["quiet_hours"] = (int(qh[0]), int(qh[1]))
+        rules.append(AlertRule(**kwargs))
+    return rules
+
+
+_default_dispatcher: AlertDispatcher | None = None
+
+
+def get_default_dispatcher() -> AlertDispatcher:
+    """Shared dispatcher, rules loaded once from the central config. Producers
+    emit here. Sinks resolve via plugin_registry (SSoT)."""
+    global _default_dispatcher
+    if _default_dispatcher is None:
+        rules = load_rules()
+        _default_dispatcher = AlertDispatcher(rules)
+        logger.info("alert dispatcher ready (%d rule(s))", len(rules))
+    return _default_dispatcher

@@ -124,6 +124,43 @@ class TestThrottle:
         assert len(tg.sends) == 2
 
 
+class TestLoadRules:
+    def _write(self, monkeypatch, tmp_path, content: str):
+        import aifred.lib.alert_bus as ab
+        p = tmp_path / "alert_rules.json"
+        p.write_text(content, encoding="utf-8")
+        monkeypatch.setattr(ab, "_rules_path", lambda: p)
+
+    def test_missing_file_no_rules(self, monkeypatch, tmp_path):
+        import aifred.lib.alert_bus as ab
+        monkeypatch.setattr(ab, "_rules_path", lambda: tmp_path / "nope.json")
+        assert ab.load_rules() == []
+
+    def test_parses_rules_and_quiet_hours_tuple(self, monkeypatch, tmp_path):
+        import aifred.lib.alert_bus as ab
+        self._write(monkeypatch, tmp_path,
+                    '[{"producer":"vision","category":"face_unknown",'
+                    '"sinks":["telegram"],"min_interval_sec":300,'
+                    '"quiet_hours":[22,7],"rule_id":"r1","ignored":"x"}]')
+        rules = ab.load_rules()
+        assert len(rules) == 1
+        r = rules[0]
+        assert r.producer == "vision" and r.sinks == ["telegram"]
+        assert r.quiet_hours == (22, 7)  # list → tuple
+        assert r.rule_id == "r1"
+
+    def test_invalid_entries_skipped(self, monkeypatch, tmp_path):
+        import aifred.lib.alert_bus as ab
+        self._write(monkeypatch, tmp_path,
+                    '[{"producer":"vision","sinks":["telegram"]}, {"no":"producer"}, 42]')
+        assert len(ab.load_rules()) == 1
+
+    def test_bad_json_no_rules(self, monkeypatch, tmp_path):
+        import aifred.lib.alert_bus as ab
+        self._write(monkeypatch, tmp_path, "{ not json")
+        assert ab.load_rules() == []
+
+
 class TestQuietHours:
     def test_event_in_quiet_window_suppressed(self):
         tg = FakeChannel()

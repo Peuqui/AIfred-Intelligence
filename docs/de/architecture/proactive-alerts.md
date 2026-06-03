@@ -107,6 +107,33 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   System → Metrik-Name).
 - Pro Regel zusätzlich `min_interval_sec` + optionale Ruhezeiten.
 
+## Regel-Config
+
+Zentral in `data/alert_rules.json` — eine JSON-Liste von Regel-Objekten.
+**Fehlt die Datei → keine Regeln → keine Alerts** (sicherer Default; das
+Feature aktiviert sich erst, wenn man die Datei anlegt). Unbekannte Keys
+werden ignoriert (Schema darf wachsen). Beispiel:
+
+```json
+[
+  {
+    "rule_id": "vision-stranger",
+    "producer": "vision",
+    "category": "face_unknown",
+    "source_id": null,
+    "min_severity": "info",
+    "sinks": ["telegram"],
+    "min_interval_sec": 300,
+    "quiet_hours": [22, 7]
+  }
+]
+```
+
+`category`/`source_id` = `null` heißt „alle". `sinks` sind Kanalnamen aus
+dem `plugin_registry`. `min_interval_sec` ist der Cooldown pro
+`(Regel, dedup_key)`; `quiet_hours` `[start, end]` (lokal, wraps über
+Mitternacht). Geladen einmalig von `get_default_dispatcher()`.
+
 ## Künftige Producer (kein Vorbau, nur Andocken)
 
 System-Health (GPU-Temp, Disk, Dienst-Crash), Scheduler/Erinnerungen,
@@ -126,9 +153,17 @@ Watchdogs, Kalender/EPIM. Jeder = „Manifest registrieren + `emit`en".
 5. **Zentrale Regel-Config** + Verdrahtung.
 6. **Tests + Checks**; später Regel-UI, weitere Producer/Sinks.
 
-## Offene Entscheidungen
+## Status & offene Punkte
 
-- Producer-Registrierung: simple Startup-Registrierung jetzt, formales
-  Manifest-Plugin, sobald die Regel-UI kommt.
-- Regel-Config-Format/Ort (JSON neben den Plugin-Settings vs. zentral).
-- Nachricht: Template zuerst (deterministisch), AIfred-formuliert optional.
+Umgesetzt: Kern (Paket 1), Live-Clustering (2), Telegram-Proaktiv-Send (3),
+Vision-Producer + Regel-Config + Verdrahtung (4/5). Erster vertikaler
+Schnitt steht: unbekanntes Gesicht an scharfer Kamera → Telegram mit Bild
+(aktiviert sich, sobald `data/alert_rules.json` angelegt ist).
+
+Offen / später:
+- Producer-Registrierung formalisieren (Manifest-Plugin), sobald eine
+  Regel-UI kommt — bis dahin emittiert der Vision-Producer direkt.
+- Weitere Producer (System-Health, Scheduler) und Sinks (FreeEcho-Voice).
+- Nachricht: aktuell Template (deterministisch); AIfred-formuliert optional.
+- Live-Verifikation nötig: Watcher-Restart (Live-Clustering greift) und ein
+  echter Telegram-Versand mit gesetzter `data/alert_rules.json`.
