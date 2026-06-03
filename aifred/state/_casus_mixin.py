@@ -215,13 +215,13 @@ class CasusMixin(rx.State, mixin=True):
         clustern, pro Cluster einen VLM-Call, Beschreibung auf alle
         Mitglieder anwenden.
 
-        Background-Event → Generator-Pattern für State-Updates während
-        des Laufs. ``async with self`` ist Reflex 0.8 standard für
-        background-events.
+        Die Orchestrierung lebt headless in ``vision_bulk.run_bulk_describe``
+        (SSOT, geteilt mit Nacht-Lauf + Chat-Hook). Hier bleibt nur die
+        Reflex-Verdrahtung: Fortschrittsbalken + Abbrechen-Flag werden
+        über zwei Callbacks an den Worker gebrückt. ``async with self``
+        ist Reflex 0.8 standard für background-events.
         """
-        from ..lib.vision_cluster import cluster_events, write_clusters
-        from ..lib.vision_event_analysis import analyze_event_with_vlm
-        from ..lib.vision_store import VisionStore
+        from ..lib.vision_bulk import run_bulk_describe
 
         async with self:
             if self.casus_bulk_running:
@@ -232,101 +232,38 @@ class CasusMixin(rx.State, mixin=True):
             self.casus_bulk_total = 0
             self.casus_bulk_message = "Prüfe VRAM …"
 
-        # VRAM-Vorab-Check: passt das VLM auf eine GPU? Sonst Abbruch
-        # mit klarer Fehlermeldung, damit nicht erst nach 100 Cluster
-        # ein OOM in Ollama kommt.
-        try:
-            from ..lib.vision_vram_check import check_vlm_fits
-            vram = await check_vlm_fits()
-            if not vram.fits:
-                async with self:
-                    self.casus_bulk_message = f"⚠️ {vram.message}"
-                    self.casus_bulk_running = False
-                return
-        except Exception as e:  # noqa: BLE001
-            logger.warning("VRAM check failed (continuing anyway): %s", e)
+        async def _progress(processed: int, total: int, message: str | None) -> None:
+            async with self:
+                self.casus_bulk_total = total
+                self.casus_bulk_progress = processed
+                if message is not None:
+                    self.casus_bulk_message = message
+
+        async def _cancel() -> bool:
+            async with self:
+                return self.casus_bulk_cancel
 
         try:
-            store = VisionStore()
-            # Nur motion + face-Events haben Frame-Paths zum Analysieren.
-            events = store.list_events_without_description(
-                event_types=["motion", "face_known", "face_unsure",
-                             "face_unknown"],
-                limit=5000,
+            result = await run_bulk_describe(
+                progress_cb=_progress, cancel_cb=_cancel,
             )
-            if not events:
-                async with self:
+            async with self:
+                if result.aborted_vram:
+                    self.casus_bulk_message = f"⚠️ {result.vram_message}"
+                elif result.total_events == 0:
                     self.casus_bulk_message = "Keine Events zum Analysieren"
-                    self.casus_bulk_running = False
-                return
-
-            async with self:
-                self.casus_bulk_message = f"Clustere {len(events)} Events …"
-
-            mapping = cluster_events(events)
-            write_clusters(store, mapping)
-
-            # Eindeutige Cluster + Repräsentanten sammeln. Events ohne
-            # Cluster-ID (kein pHash → einzeln behandeln) bekommen eine
-            # synthetische Solo-Cluster-ID basierend auf event_id.
-            from collections import defaultdict
-            cluster_members: dict[str, list[int]] = defaultdict(list)
-            for eid, cid in mapping.items():
-                key = cid or f"solo-{eid}"
-                cluster_members[key].append(eid)
-
-            async with self:
-                self.casus_bulk_total = len(cluster_members)
-                self.casus_bulk_progress = 0
-                self.casus_bulk_message = (
-                    f"Analysiere {len(cluster_members)} Cluster "
-                    f"(Reduktion von {len(events)} Events)"
-                )
-
-            failed = 0
-            for idx, (cluster_id, member_ids) in enumerate(cluster_members.items()):
-                async with self:
-                    if self.casus_bulk_cancel:
-                        self.casus_bulk_message = (
-                            f"Abgebrochen bei {idx} / "
-                            f"{self.casus_bulk_total}"
-                        )
-                        break
-                    self.casus_bulk_progress = idx
-                # Repräsentant: das erste Mitglied (= ältester
-                # chronologisch wegen ORDER BY timestamp ASC).
-                repr_id = member_ids[0]
-                try:
-                    text = await analyze_event_with_vlm(
-                        repr_id, store=store,
-                    )
-                    # Bei „echten" Clustern (mehr als 1 Mitglied):
-                    # Beschreibung auf alle anwenden. Bei Solo-Cluster
-                    # (Sentinel-ID) bleibt es beim einzelnen Eintrag.
-                    if cluster_id and not cluster_id.startswith("solo-"):
-                        store.apply_cluster_description(
-                            cluster_id, text, "bulk-worker",
-                        )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(
-                        "bulk: cluster %s failed: %s", cluster_id, e,
-                    )
-                    failed += 1
-
-            async with self:
-                final = self.casus_bulk_progress
-                if not self.casus_bulk_cancel:
-                    final = self.casus_bulk_total
-                self.casus_bulk_progress = final
-                if self.casus_bulk_cancel:
+                elif result.cancelled:
+                    self.casus_bulk_progress = result.processed
                     self.casus_bulk_message = (
-                        f"Abgebrochen — {final} / {self.casus_bulk_total} "
-                        f"Cluster analysiert ({failed} Fehler)"
+                        f"Abgebrochen — {result.processed} / "
+                        f"{result.total_clusters} Cluster analysiert "
+                        f"({result.failed} Fehler)"
                     )
                 else:
+                    self.casus_bulk_progress = result.total_clusters
                     self.casus_bulk_message = (
-                        f"Fertig — {final} Cluster analysiert"
-                        + (f", {failed} Fehler" if failed else "")
+                        f"Fertig — {result.total_clusters} Cluster analysiert"
+                        + (f", {result.failed} Fehler" if result.failed else "")
                     )
                 self._refresh_events()
         except Exception as e:  # noqa: BLE001

@@ -35,7 +35,7 @@ Liste und der Assistent sieht das Plugin gar nicht.
 | `vision_start_watch` | Kontinuierliche Hintergrund-Überwachung auf einer Quelle starten: nimmt Frames mit `fps` auf, erkennt Bewegung und (wenn aktiviert) führt Gesichtserkennung durch. Events landen in der Vision-DB. | WRITE_DATA |
 | `vision_stop_watch` | Laufende Überwachung auf einer Quelle stoppen. No-op, wenn nichts lief. | WRITE_DATA |
 | `vision_list_active_watches` | Aktuell laufende Watch-Tasks mit Zählern pro Watch (gesehene Frames, Motion-Events, Face-Events) auflisten. | READONLY |
-| `vision_query_events` | Vergangene Events (`motion` / `face_known` / `face_unsure` / `face_unknown` / `vlm_analysis`) abfragen, filterbar nach Quelle, Event-Typ und Zeitfenster. | READONLY |
+| `vision_query_events` | Vergangene Events (`motion` / `face_known` / `face_unsure` / `face_unknown` / `vlm_analysis`) abfragen, filterbar nach Quelle, Event-Typ und Zeitfenster. Mit `describe=true` werden fehlende Szenenbeschreibungen für das abgefragte Fenster vorab per VLM erzeugt (Cluster-Analyse, siehe unten). | READONLY |
 
 ### Tool-Parameter
 
@@ -48,7 +48,8 @@ Liste und der Assistent sieht das Plugin gar nicht.
   den Settings), `run_face_detect` (optional; Standard aus den Settings).
 - **`vision_stop_watch`** — `source_id` (Pflicht).
 - **`vision_query_events`** — `source_id`, `event_type`, `since_hours`, `limit`
-  (Standard `50`, gedeckelt bei `500`) — alle optional.
+  (Standard `50`, gedeckelt bei `500`), `describe` (bool, Standard `false`) — alle
+  optional.
 
 Auflösung pro Kamera und ein statisches „Briefing" (Prompt-Kontext) werden bei
 jedem Call aus dem `vision_store` gelesen; gesetzt wird das über das
@@ -171,8 +172,10 @@ und -abgleich ausführt. Die Events fließen in die Vision-Datenbank:
   Bbox).
 - **`face_known` / `face_unsure` / `face_unknown`** — Gesicht erkannt und (nicht)
   einer eingelernten Person zugeordnet.
-- **`vlm_analysis`** — wenn kontinuierliche/Bewegungs-VLM aktiviert ist oder aus
-  einem manuellen `vision_analyze`-Call.
+- **`vlm_analysis`** — wenn kontinuierliche/Bewegungs-VLM aktiviert ist, aus
+  einem manuellen `vision_analyze`-Call oder aus der Cluster-Analyse
+  (Bulk-Beschreibung, siehe unten). Der beschreibende Text steht im Feld
+  `classification.description`.
 
 `min_event_interval_sec` entprellt Events, damit ein einzelner Passant das Log
 nicht überflutet. Event-Frames werden bei `save_event_frames=true` auf die
@@ -232,7 +235,10 @@ Vision-Events (`motion` / `face_known` / `face_unsure` / `face_unknown` /
 Event löschen oder ein unbekanntes Gesicht nachträglich einer Person zuordnen.
 Es liest und schreibt direkt im `VisionStore`. Dieselben Daten werden dem LLM
 über `vision_query_events` zugänglich gemacht, sodass der Assistent Fragen wie
-„Was war heute an der Tür?" oder „Wer war zuletzt da?" beantworten kann.
+„Was war heute an der Tür?" oder „Wer war zuletzt da?" beantworten kann. Ein
+**Bulk-Analyse-Button** stößt die Cluster-Beschreibung aller noch unbeschriebenen
+Events an (mit Fortschritt + Abbrechen) — derselbe Lauf, den auch der Nacht-Job
+fährt (siehe *Bulk-Beschreibung* unten).
 
 Jede Zeile zeigt ein Vorschaubild (Gesichts-Crop oder verkleinertes Vollbild);
 ein Klick öffnet das Vollbild groß, durch das man wie in einer Slideshow per
@@ -243,6 +249,49 @@ läuft im Vigilantia-Feed).
 
 Eine Live-**Vigilantia-Feed**-Karte auf der Hauptseite zeigt die letzten N
 Events aller Quellen (mit Thumbnail).
+
+## Bulk-Beschreibung (Cluster-Analyse)
+
+Bewegungs- und Gesichts-Events tragen zunächst nur Metadaten (Zeitstempel,
+`area_ratio`, erkannte Person) — die eigentliche Szenenbeschreibung steht im Feld
+`classification.description` und entsteht erst durch einen VLM-Call. Die
+Hintergrund-Überwachung lässt das VLM bewusst **aus** (GPU-schonend), sodass
+diese Beschreibungen separat nachgezogen werden. `vision_query_events` liefert
+für unbeschriebene Events also nur „Bewegung um 14:03" und erkannte Gesichter,
+keine Erzählung — bis die Beschreibung erzeugt wurde.
+
+Damit das Nachziehen bezahlbar bleibt, werden Events vor dem VLM **geclustert**:
+ein Call pro *Vorkommnis*, nicht pro Frame. Eine Person, die 40 s durchs Bild
+läuft und 30 Motion-Events auslöst, wird einmal beschrieben. Das Clustering läuft
+über Perceptual-Hash (pHash) plus ein Zeit-Bucket — visuell ähnliche Frames
+innerhalb desselben Zeitfensters landen in einem Cluster, der Repräsentant
+(ältestes Mitglied) wird beschrieben, und die Beschreibung wird idempotent auf
+alle Mitglieder angewandt. Implementierung: `aifred/lib/vision_cluster.py`
+(Clustering) + `aifred/lib/vision_bulk.py` (`run_bulk_describe` — die geteilte
+Orchestrierung). Zwei Stellschrauben in `config.py`:
+
+- `VISION_CLUSTER_BUCKET_SECONDS` (Standard `300`) — Zeitfenster, in dem ähnliche
+  Frames zu einem Cluster zusammengefasst werden; danach beginnt ein neuer
+  Cluster, auch bei weiter ähnlichen Frames (verhindert ewige Cluster bei
+  „Person sitzt 8 h vor der Cam").
+- `VISION_CLUSTER_PHASH_THRESHOLD` (Standard `5`) — Hamming-Distanz zweier
+  64-bit-Hashes, unter der zwei Frames als „ähnlich" gelten.
+
+Drei Wege lösen denselben Lauf aus:
+
+1. **Casus-Button** — manueller Bulk-Lauf über die UI, mit Fortschrittsbalken,
+   Abbrechen und VRAM-Vorabcheck.
+2. **Nacht-Lauf** — die tägliche Garbage-Collection um `GARBAGE_COLLECTION_HOUR`
+   (Standard `03:00`) beschreibt **erst** alle noch unerfassten Events, **dann**
+   prunt sie. So hat jeder Frame eine Beschreibung, bevor er nach Ablauf der TTL
+   gelöscht wird, und die Tageschronik ist morgens vollständig — auch ohne
+   geöffnetes Vorschau-Popup. Code: `cleanup_vision_task` in
+   `aifred/lib/vision_cleanup.py`.
+3. **On-demand** — `vision_query_events` mit `describe=true` zieht fehlende
+   Beschreibungen nur für das gerade abgefragte Zeitfenster vorab. Das deckt
+   frische Daten des laufenden Tages ab, die der Nutzer abfragt, bevor der
+   Nacht-Lauf greift. Der Aufwand bleibt durch Zeitfenster + Clustering
+   begrenzt.
 
 ## Modell-Lifecycle
 

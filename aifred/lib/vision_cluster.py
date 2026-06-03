@@ -24,19 +24,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .config import (
+    VISION_CLUSTER_BUCKET_SECONDS as BUCKET_SECONDS,
+    VISION_CLUSTER_PHASH_THRESHOLD as PHASH_THRESHOLD,
+)
 from .vision_phash import hamming_distance, phash_file
 from .vision_store import VisionStore
 
 logger = logging.getLogger(__name__)
-
-# Innerhalb dieses Zeitfensters werden ähnliche Frames gruppiert.
-# Großzügig 5 Min — beim Türsteher-Use-Case läuft eine Person typisch
-# ≤ 30 s durch, beim Schreibtisch-Use-Case sitzt sie evtl. Stunden.
-BUCKET_SECONDS = 300
-
-# Hamming-Distanz-Schwelle für „ähnlich". 5 ist ein guter Standardwert
-# bei 64-bit pHash — JPEG-Rauschen + Mikro-Bewegung kommen unter 5.
-PHASH_THRESHOLD = 5
 
 
 @dataclass

@@ -722,11 +722,17 @@ class VisionStore:
         *,
         source_id: str | None = None,
         event_types: list[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
         limit: int = 5000,
     ) -> list[dict[str, Any]]:
         """Events die noch keine VLM-Beschreibung haben. Genau das,
         was der Bulk-Worker braucht — sortiert chronologisch (älteste
-        zuerst, weil sie sich für Time-Bucket-Clustering eignen)."""
+        zuerst, weil sie sich für Time-Bucket-Clustering eignen).
+
+        ``since`` / ``until`` grenzen das Zeitfenster ein — vom On-demand-
+        Chat-Hook genutzt, der nur die gerade abgefragte Spanne beschreibt
+        statt des ganzen Backlogs."""
         clauses: list[str] = ["(json_extract(classification, '$.description') IS NULL"
                               " OR json_extract(classification, '$.description') = '')"]
         params: list[Any] = []
@@ -737,6 +743,12 @@ class VisionStore:
             placeholders = ",".join("?" for _ in event_types)
             clauses.append(f"event_type IN ({placeholders})")
             params.extend(event_types)
+        if since is not None:
+            clauses.append("timestamp >= ?")
+            params.append(since.isoformat(timespec="microseconds"))
+        if until is not None:
+            clauses.append("timestamp <= ?")
+            params.append(until.isoformat(timespec="microseconds"))
         # Nur Events mit Frame-Pfad — sonst kein Bild zum Analysieren.
         clauses.append("frame_path != ''")
         where = " WHERE " + " AND ".join(clauses)
