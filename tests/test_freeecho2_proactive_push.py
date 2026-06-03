@@ -190,3 +190,148 @@ class TestSendReplyProactive:
         run(ch.send_reply(outbound, dummy))
         orc.play_notification.assert_not_awaited()
         orc.play_tts.assert_not_awaited()
+
+
+class TestSendReplyAudioType:
+    """``outbound.metadata.audio_type`` bestimmt welcher Chime vor dem TTS
+    gespielt wird — passend zur Schwere des Events. Default ohne explizite
+    Angabe ist ``notification`` (sanfter Sound)."""
+
+    def _patched_call(self, audio_ch_mock, outbound, original):
+        ch = FreeEchoChannel()
+        with patch.object(
+            ch, "_run_tts", AsyncMock(return_value="/tmp/dummy.wav")
+        ), patch.object(
+            ch, "_convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
+        ), patch(
+            "aifred.lib.audio_channels.resolve", return_value=audio_ch_mock
+        ), patch(
+            "pathlib.Path.unlink"
+        ):
+            run(ch.send_reply(outbound, original))
+
+    def test_audio_type_alarm_uses_play_alarm(self, push_setup):
+        _rid, _ws, orc, audio_ch = push_setup
+        orc.play_alarm = AsyncMock(return_value=None)
+        outbound = _make_outbound("Brand!", audio_type="alarm")
+        dummy = _make_inbound(sender="system")
+        self._patched_call(audio_ch, outbound, dummy)
+        orc.play_alarm.assert_awaited_once()
+        kwargs = orc.play_alarm.await_args.kwargs
+        assert kwargs.get("with_tts") is True
+        assert kwargs.get("tts_pcm")
+        orc.play_notification.assert_not_awaited()
+
+    def test_audio_type_notification_uses_play_notification(self, push_setup):
+        _rid, _ws, orc, audio_ch = push_setup
+        orc.play_alarm = AsyncMock(return_value=None)
+        outbound = _make_outbound("FYI", audio_type="notification")
+        dummy = _make_inbound(sender="system")
+        self._patched_call(audio_ch, outbound, dummy)
+        orc.play_notification.assert_awaited_once()
+        orc.play_alarm.assert_not_awaited()
+
+    def test_audio_type_unknown_falls_back_to_notification(self, push_setup):
+        """Unbekannte Audio-Types werden zum Default ``notification`` —
+        Schema-Drift im Caller bricht den Push nicht."""
+        _rid, _ws, orc, audio_ch = push_setup
+        orc.play_alarm = AsyncMock(return_value=None)
+        outbound = _make_outbound("Test", audio_type="bogus")
+        dummy = _make_inbound(sender="system")
+        self._patched_call(audio_ch, outbound, dummy)
+        orc.play_notification.assert_awaited_once()
+        orc.play_alarm.assert_not_awaited()
+
+    def test_audio_type_missing_defaults_to_notification(self, push_setup):
+        """Kein audio_type-Feld → notification (sanfter Default)."""
+        _rid, _ws, orc, audio_ch = push_setup
+        orc.play_alarm = AsyncMock(return_value=None)
+        outbound = _make_outbound("Test")  # kein audio_type
+        dummy = _make_inbound(sender="system")
+        self._patched_call(audio_ch, outbound, dummy)
+        orc.play_notification.assert_awaited_once()
+        orc.play_alarm.assert_not_awaited()
+
+
+class TestAlertBusSeverityMapping:
+    """alert_bus._default_deliver mappt severity → audio_type und reicht
+    das via announce_to_channel-metadata an die Sinks weiter."""
+
+    def test_critical_maps_to_alarm(self):
+        from aifred.lib.alert_bus import _default_deliver, AlertEvent, AlertRule
+
+        ev = AlertEvent(
+            producer="vision", category="intruder", severity="critical",
+            title="Eindringling", body="An der Garage",
+        )
+        rule = AlertRule(producer="vision", sinks=["freeecho2"])
+
+        captured: dict = {}
+
+        async def fake_announce(channel, recipient, text, *, media=None, metadata=None):
+            captured["channel"] = channel
+            captured["metadata"] = metadata or {}
+            return True
+
+        # Auch die Browser-Session muss stubbed sein — wir testen nur
+        # die Metadata-Weiterreichung.
+        with patch(
+            "aifred.lib.message_processor.announce_to_channel", new=fake_announce
+        ), patch(
+            "aifred.lib.message_processor.record_autonomous_turn", return_value="sess"
+        ):
+            ok = run(_default_deliver(ev, rule))
+
+        assert ok is True
+        assert captured["channel"] == "freeecho2"
+        assert captured["metadata"].get("audio_type") == "alarm"
+        assert captured["metadata"].get("severity") == "critical"
+
+    def test_warning_maps_to_notification(self):
+        from aifred.lib.alert_bus import _default_deliver, AlertEvent, AlertRule
+
+        ev = AlertEvent(
+            producer="vision", category="face_unknown", severity="warning",
+            title="Unbekannt", body="An der Tür",
+        )
+        rule = AlertRule(producer="vision", sinks=["freeecho2"])
+
+        captured: dict = {}
+
+        async def fake_announce(channel, recipient, text, *, media=None, metadata=None):
+            captured["metadata"] = metadata or {}
+            return True
+
+        with patch(
+            "aifred.lib.message_processor.announce_to_channel", new=fake_announce
+        ), patch(
+            "aifred.lib.message_processor.record_autonomous_turn", return_value="sess"
+        ):
+            run(_default_deliver(ev, rule))
+
+        assert captured["metadata"].get("audio_type") == "notification"
+        assert captured["metadata"].get("severity") == "warning"
+
+    def test_info_maps_to_notification(self):
+        from aifred.lib.alert_bus import _default_deliver, AlertEvent, AlertRule
+
+        ev = AlertEvent(
+            producer="scheduler", category="reminder", severity="info",
+            title="Erinnerung", body="Tagesplan",
+        )
+        rule = AlertRule(producer="scheduler", sinks=["freeecho2"])
+
+        captured: dict = {}
+
+        async def fake_announce(channel, recipient, text, *, media=None, metadata=None):
+            captured["metadata"] = metadata or {}
+            return True
+
+        with patch(
+            "aifred.lib.message_processor.announce_to_channel", new=fake_announce
+        ), patch(
+            "aifred.lib.message_processor.record_autonomous_turn", return_value="sess"
+        ):
+            run(_default_deliver(ev, rule))
+
+        assert captured["metadata"].get("audio_type") == "notification"

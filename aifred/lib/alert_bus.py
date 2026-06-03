@@ -215,9 +215,23 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         except Exception as e:  # noqa: BLE001
             logger.warning("alert: session record failed: %s", e)
 
+    # Severity → Audio-Type-Tupel fuer Sinks die einen lokalen Sound vor
+    # der Nachricht abspielen koennen (FreeEcho.2: alarm_wav vs.
+    # notification_wav). ``critical`` triggert den auffaelligen
+    # alarm-Sound, alles darunter den sanften notification-Sound.
+    # Andere Sinks (Telegram, Email, …) ignorieren das Feld stillschweigend.
+    audio_type = "alarm" if ev.severity == "critical" else "notification"
+    sink_metadata = {
+        "audio_type": audio_type,
+        "severity": ev.severity,
+        "category": ev.category,
+    }
+
     channel_ok = False
     for sink in rule.sinks:
-        if await announce_to_channel(sink, "", text, media=ev.media):
+        if await announce_to_channel(
+            sink, "", text, media=ev.media, metadata=sink_metadata,
+        ):
             channel_ok = True
 
     # Browser-Session zählt als Zustellung (Kontroll-Trail) — auch wenn ein
