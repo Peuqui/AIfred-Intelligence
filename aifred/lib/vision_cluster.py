@@ -1,14 +1,15 @@
-"""Clustering für die Vigilantia-Analyse — Source + Time-Bucket + pHash.
+"""Clustering für die Vigilantia-Analyse — lückenbasiert pro Source.
 
-Gruppiert near-identische Frames zu einem Vorkommnis, damit das VLM nur
-einmal pro Cluster läuft und Alerts/Abfragen pro Vorkommnis (nicht pro
-Frame) dedupliziert werden.
+Gruppiert Frames eines Vorkommnisses, damit das VLM nur einmal pro Cluster
+läuft und Alerts/Abfragen pro Vorkommnis (nicht pro Frame) dedupliziert
+werden.
 
 Der Matching-Kern ist :class:`IncrementalClusterer` (zustandsbehaftet,
-SSoT): pro Source ein offener Cluster; ein neuer pHash schließt sich an,
-wenn die Hamming-Distanz zu einem Mitglied ≤ ``threshold`` ist und der
-Time-Bucket (``bucket_seconds``) noch passt — sonst neuer Cluster. Die
-Cluster-ID ``{source-slug}-{bucket-ts}-{hash-prefix}`` ist deterministisch.
+SSoT): pro Source ein offener Cluster. Ein neues Event schließt sich an,
+solange die Lücke zum letzten Event ≤ ``gap_seconds`` ist UND die
+Gesamtdauer ≤ ``max_seconds`` (Sicherheitsnetz gegen Dauerbewegung) —
+sonst beginnt ein neues Vorkommnis. Die Cluster-ID
+``{source-slug}-{start-ts}-{hash-prefix}`` ist deterministisch.
 
 * **Live**: der ``vision_watcher`` füttert den Clusterer beim Erkennen mit
   dem In-Memory-Frame und schreibt den ``cluster_id`` direkt ins Event.
@@ -20,16 +21,16 @@ Cluster-ID ``{source-slug}-{bucket-ts}-{hash-prefix}`` ist deterministisch.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .config import (
-    VISION_CLUSTER_BUCKET_SECONDS as BUCKET_SECONDS,
-    VISION_CLUSTER_PHASH_THRESHOLD as PHASH_THRESHOLD,
+    VISION_CLUSTER_GAP_SECONDS as GAP_SECONDS,
+    VISION_CLUSTER_MAX_SECONDS as MAX_SECONDS,
 )
-from .vision_phash import hamming_distance, phash_file
+from .vision_phash import phash_file
 from .vision_store import VisionStore
 
 logger = logging.getLogger(__name__)
@@ -38,19 +39,17 @@ logger = logging.getLogger(__name__)
 @dataclass
 class _Cluster:
     cluster_id: str
-    bucket_start: datetime
-    phashes: list[int] = field(default_factory=list)
+    start: datetime
+    last_seen: datetime
 
 
 def _source_slug(source_id: str) -> str:
     return source_id.replace("/", "_").replace(":", "_")
 
 
-def _bucket_key(ts: datetime, bucket_seconds: int) -> str:
-    """Time-Bucket-Anker — auf ``bucket_seconds``-Grenze gerundet."""
-    epoch = int(ts.timestamp())
-    bucket = epoch - (epoch % bucket_seconds)
-    return datetime.fromtimestamp(bucket).strftime("%Y%m%dT%H%M%S")
+def _ts_key(ts: datetime) -> str:
+    """Eindeutiger Anker je Vorkommnis — Startzeitpunkt sekundengenau."""
+    return ts.strftime("%Y%m%dT%H%M%S")
 
 
 class IncrementalClusterer:
@@ -59,45 +58,48 @@ class IncrementalClusterer:
     den Frame — Batch von Disk, Watcher aus dem Speicher) und liefert die
     deterministische ``cluster_id``, oder ``""`` bei ungültigem pHash (0).
 
-    Annahme: pro Source kommen die Events zeitlich aufsteigend (Open-Cluster-
-    Modell) — beim Watcher (Live) und beim Batch (ORDER BY timestamp) erfüllt.
+    Lückenbasiert: solange die Bewegung mit ≤ ``gap_seconds`` Abstand
+    weiterläuft, bleibt es dasselbe Vorkommnis; eine größere Lücke öffnet ein
+    neues. ``max_seconds`` deckelt die Cluster-Dauer hart. Der pHash dient
+    nur als ID-Suffix + Gültigkeitscheck (0 = unbrauchbar), nicht zum Splitten
+    — sonst zerhackte eine bewegte Person nah an der Kamera ein Vorkommnis.
+
+    Annahme: pro Source kommen die Events zeitlich aufsteigend — beim Watcher
+    (Live) und beim Batch (ORDER BY timestamp) erfüllt.
     """
 
     def __init__(
         self,
         *,
-        threshold: int = PHASH_THRESHOLD,
-        bucket_seconds: int = BUCKET_SECONDS,
+        gap_seconds: float = GAP_SECONDS,
+        max_seconds: float = MAX_SECONDS,
     ) -> None:
-        self._threshold = threshold
-        self._bucket_seconds = bucket_seconds
+        self._gap_seconds = gap_seconds
+        self._max_seconds = max_seconds
         self._active: dict[str, _Cluster] = {}
 
     def assign(self, source_id: str, timestamp: datetime, phash: int) -> str:
         if phash == 0:
             return ""
         cur = self._active.get(source_id)
-        if cur and (timestamp - cur.bucket_start).total_seconds() > self._bucket_seconds:
-            cur = None  # Time-Bucket überschritten → neuer Cluster
-            self._active.pop(source_id, None)
         if cur is not None:
-            for member_hash in cur.phashes:
-                if hamming_distance(phash, member_hash) <= self._threshold:
-                    cur.phashes.append(phash)
-                    return cur.cluster_id
+            gap = (timestamp - cur.last_seen).total_seconds()
+            age = (timestamp - cur.start).total_seconds()
+            if gap <= self._gap_seconds and age <= self._max_seconds:
+                cur.last_seen = timestamp
+                return cur.cluster_id
         cluster_id = (
-            f"{_source_slug(source_id)}-{_bucket_key(timestamp, self._bucket_seconds)}"
-            f"-{phash & 0xFFFF:04x}"
+            f"{_source_slug(source_id)}-{_ts_key(timestamp)}-{phash & 0xFFFF:04x}"
         )
-        self._active[source_id] = _Cluster(cluster_id, timestamp, [phash])
+        self._active[source_id] = _Cluster(cluster_id, timestamp, timestamp)
         return cluster_id
 
 
 def cluster_events(
     events: list[dict[str, Any]],
     *,
-    threshold: int = PHASH_THRESHOLD,
-    bucket_seconds: int = BUCKET_SECONDS,
+    gap_seconds: float = GAP_SECONDS,
+    max_seconds: float = MAX_SECONDS,
 ) -> dict[int, str]:
     """Backfill: berechnet ``cluster_id`` für Events. Returnt Mapping
     ``event_id → cluster_id``.
@@ -107,7 +109,7 @@ def cluster_events(
     wird der Frame von Disk gelesen und über den ``IncrementalClusterer``
     geclustert; ohne lesbaren Frame → ``""`` (individuell).
     """
-    clusterer = IncrementalClusterer(threshold=threshold, bucket_seconds=bucket_seconds)
+    clusterer = IncrementalClusterer(gap_seconds=gap_seconds, max_seconds=max_seconds)
     result: dict[int, str] = {}
 
     for event in events:

@@ -750,20 +750,33 @@ VISION_VLM_CONTINUOUS_HISTORY = 10
 # ============================================================
 # VIGILANTIA BULK-DESCRIBE CLUSTERING
 # ============================================================
-# Bulk-Analyse (Casus-Worker + Nacht-Lauf) gruppiert Motion-/Face-Events
-# vor dem VLM-Call, damit nicht jeder einzelne Frame beschrieben wird —
-# ein Vorkommnis = ein Cluster = ein VLM-Call. Zwei Stellschrauben:
+# Clustering gruppiert Motion-/Face-/Person-Events zu Vorkommnissen —
+# ein Vorkommnis = ein Cluster = ein VLM-Call + ein Alert. LÜCKENBASIERT:
+# solange Bewegung mit höchstens GAP_SECONDS Abstand weiterläuft, bleibt
+# es dasselbe Vorkommnis; eine größere Lücke (Szene leer) öffnet ein neues.
 #
-# * BUCKET_SECONDS — Zeitfenster, innerhalb dessen ähnliche Frames zu
-#   EINEM Cluster zusammengefasst werden. Nach Ablauf wird ein neuer
-#   Cluster aufgemacht, auch wenn die Frames noch ähnlich sind — sonst
-#   entstehen ewige Cluster ("Person sitzt 8 h vor der Cam"). 300 = 5 Min.
-# * PHASH_THRESHOLD — Hamming-Distanz zweier 64-bit perceptual hashes,
-#   unter der zwei Frames als "ähnlich" (= selber Cluster) gelten. 5
-#   fängt JPEG-Rauschen + Mikro-Bewegung ein, ohne verschiedene Szenen
-#   zu verschmelzen.
-VISION_CLUSTER_BUCKET_SECONDS = 300
-VISION_CLUSTER_PHASH_THRESHOLD = 5
+# * GAP_SECONDS — Maximale Bewegungs-Lücke innerhalb EINES Vorkommnisses.
+#   Eine Person an der Türkamera steht mal kurz still — unter dieser Lücke
+#   gilt das noch als derselbe Besuch. Geht jemand weg und kommt wieder
+#   (Lücke größer), ist es ein neues Vorkommnis = neuer Alert. 10 s trennt
+#   getrennte Besucher zuverlässig, ohne einen Besuch zu zerstückeln.
+# * MAX_SECONDS — Harte Obergrenze für die Cluster-Dauer als Sicherheitsnetz
+#   gegen Dauerbewegung (wehender Baum, belebte Straße): auch bei
+#   lückenloser Bewegung wird spätestens danach ein neuer Cluster
+#   aufgemacht, sonst entstünde ein ewiger Cluster. 300 = 5 Min.
+VISION_CLUSTER_GAP_SECONDS = 10
+VISION_CLUSTER_MAX_SECONDS = 300
+
+# Beschreibung (VLM) pro Cluster: maximale Anzahl Keyframes, die als
+# zeitliche Bildfolge ans VLM gehen. Statt gleichmäßigem Sampling wird die
+# Cluster-Zeitspanne in so viele Zeit-Fächer geteilt und je Fach das Frame
+# mit der größten pHash-Differenz zum zuletzt gewählten genommen — regelmäßig
+# über die Zeit verteilt UND an den Änderungspunkten (Tür auf, Person tritt
+# ein). So sieht das VLM den Ablauf statt eines statischen Einzelbilds. 8
+# passt zu VLM_NUM_CTX=8192 (~ein paar hundert Vision-Tokens je Frame); mehr
+# Frames brauchen ein größeres num_ctx (VRAM + Latenz steigen, 4B-Qualität
+# sinkt über viele fast gleiche Bilder).
+VISION_DESCRIBE_MAX_FRAMES = 8
 
 # ============================================================
 # PROAKTIVE ALERTS
@@ -774,6 +787,13 @@ VISION_CLUSTER_PHASH_THRESHOLD = 5
 #                Alert; sinnvoll z.B. für gesprochene Puck-Ausgabe)
 # Pro Regel über das Feld "compose" in alert_rules.json überschreibbar.
 ALERT_COMPOSE_DEFAULT = "template"
+
+# Wie lange ein bereits ausgelöster dedup_key (Vision: cluster_id) in
+# Erinnerung bleibt, sodass Wiederholungen DESSELBEN Vorkommnisses
+# unterdrückt werden ("ein Alert pro Cluster"). Cluster-IDs sind
+# deterministisch + zeit-gebucketed, wiederholen sich also nicht — der
+# Wert begrenzt nur den Speicher. Großzügig über die Cluster-Lebensdauer.
+ALERT_DEDUP_RETENTION_SEC = 1800.0
 
 # ============================================================
 # VLM Ollama hosts (orchestrated by AIfred per call)
