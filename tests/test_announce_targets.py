@@ -25,7 +25,8 @@ class TestFreeEcho2Targets:
         _set_devices(monkeypatch, [])
         assert mp.resolve_announce_targets("freeecho2", "*") == []
 
-    def test_group_resolves_to_configured_rooms(self, monkeypatch):
+    def test_group_resolves_to_connected_rooms(self, monkeypatch):
+        _set_devices(monkeypatch, ["wohnzimmer", "kueche"])
         monkeypatch.setattr(
             mp, "_freeecho2_groups",
             lambda: {"erdgeschoss": ["wohnzimmer", "kueche"]},
@@ -33,14 +34,37 @@ class TestFreeEcho2Targets:
         out = mp.resolve_announce_targets("freeecho2", "@erdgeschoss")
         assert out == ["wohnzimmer", "kueche"]
 
+    def test_group_filters_out_disconnected(self, monkeypatch):
+        # Group lists kueche but only wohnzimmer is connected → only wohnzimmer.
+        _set_devices(monkeypatch, ["wohnzimmer"])
+        monkeypatch.setattr(
+            mp, "_freeecho2_groups",
+            lambda: {"erdgeschoss": ["wohnzimmer", "kueche"]},
+        )
+        assert mp.resolve_announce_targets("freeecho2", "@erdgeschoss") == ["wohnzimmer"]
+
     def test_unknown_group_is_empty(self, monkeypatch):
+        _set_devices(monkeypatch, ["wohnzimmer"])
         monkeypatch.setattr(mp, "_freeecho2_groups", lambda: {})
         assert mp.resolve_announce_targets("freeecho2", "@nope") == []
 
-    def test_explicit_room_passes_through(self, monkeypatch):
-        monkeypatch.setattr(mp, "_resolve_channel_recipient",
-                            lambda ch, r: r)
-        assert mp.resolve_announce_targets("freeecho2", "wohnzimmer") == ["wohnzimmer"]
+    def test_connected_room_returned(self, monkeypatch):
+        _set_devices(monkeypatch, ["Puck-2"])
+        assert mp.resolve_announce_targets("freeecho2", "Puck-2") == ["Puck-2"]
+
+    def test_unknown_room_is_empty_not_false_success(self, monkeypatch):
+        # The LLM hallucinated "wohnzimmer"; only Puck-2 is connected → [].
+        _set_devices(monkeypatch, ["Puck-2"])
+        assert mp.resolve_announce_targets("freeecho2", "wohnzimmer") == []
+
+    def test_strips_channel_prefix(self, monkeypatch):
+        # LLM passed "freeecho2:Puck-2" → prefix stripped, room is connected.
+        _set_devices(monkeypatch, ["Puck-2"])
+        assert mp.resolve_announce_targets("freeecho2", "freeecho2:Puck-2") == ["Puck-2"]
+
+    def test_empty_target_is_broadcast(self, monkeypatch):
+        _set_devices(monkeypatch, ["Puck-2", "kueche"])
+        assert set(mp.resolve_announce_targets("freeecho2", "")) == {"Puck-2", "kueche"}
 
 
 class TestOtherChannelTargets:
