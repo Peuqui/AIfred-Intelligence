@@ -402,124 +402,23 @@ async def _deliver_result(job: Job, response_text: str, session_id: str) -> None
         await _deliver_webhook(job, response_text)
 
 
-def _resolve_recipient(channel: str, recipient: str) -> str:
-    """Resolve a user name to a channel-specific ID via user_mapping.json.
-
-    If recipient is already a raw ID (numeric for telegram, email address, etc.)
-    it is returned as-is. If it's a display name like "Lord Helmchen",
-    the user_mapping.json is checked for the corresponding channel ID.
-    """
-    import json as _json
-    from .config import DATA_DIR
-
-    mapping_path = DATA_DIR / "user_mapping.json"
-    if not mapping_path.exists():
-        return recipient
-
-    try:
-        mappings = _json.loads(mapping_path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        return recipient
-
-    for user_name, channels in mappings.items():
-        if user_name.lower() == recipient.lower():
-            # For email: prefer email_out (delivery address) over email (receive address)
-            if channel == "email" and channels.get("email_out"):
-                out_ids = channels["email_out"]
-                resolved = out_ids[0] if isinstance(out_ids, list) else str(out_ids)
-                log_message(f"Scheduler: resolved '{recipient}' → '{resolved}' for {channel} (email_out)")
-                return resolved
-            ids = channels.get(channel, [])
-            if ids:
-                resolved = ids[0] if isinstance(ids, list) else str(ids)
-                log_message(f"Scheduler: resolved '{recipient}' → '{resolved}' for {channel}")
-                return resolved
-
-    return recipient
-
-
 async def _deliver_announce(job: Job, response_text: str) -> None:
-    """Send result to a channel plugin."""
+    """Send result to a channel via the shared autonomous-delivery SSoT
+    (``message_processor.announce_to_channel`` — same path the alert pipeline
+    uses; recipient resolution + allowlist fallback live there)."""
     channel_name = job.payload.get("channel", "")
-    recipient = job.payload.get("recipient", "")
-
     if not channel_name:
         log_message(f"Scheduler: job '{job.name}' announce has no channel configured", "warning")
         return
-
-    from .plugin_registry import get_channel
-    from .envelope import OutboundMessage, InboundMessage
-
-    plugin = get_channel(channel_name)
-    if not plugin:
-        log_message(f"Scheduler: channel '{channel_name}' not found for job '{job.name}'", "error")
-        return
-
-    # Resolve recipient: user name → channel ID via user_mapping.json
-    if recipient:
-        resolved = _resolve_recipient(channel_name, recipient)
-        if resolved:
-            recipient = resolved
-
-    # Auto-resolve if still empty: first check user_mapping (email_out), then allowlist
-    if not recipient:
-        import json as _json
-        from .config import DATA_DIR
-        mapping_path = DATA_DIR / "user_mapping.json"
-        if mapping_path.exists():
-            try:
-                mappings = _json.loads(mapping_path.read_text(encoding="utf-8"))
-                # Take first user's outbound address
-                for user_name, channels in mappings.items():
-                    if channel_name == "email" and channels.get("email_out"):
-                        out_ids = channels["email_out"]
-                        recipient = out_ids[0] if isinstance(out_ids, list) else str(out_ids)
-                        log_message(f"Scheduler: auto-resolved to {user_name}'s email_out: {recipient}")
-                        break
-                    ids = channels.get(channel_name, [])
-                    if ids:
-                        recipient = ids[0] if isinstance(ids, list) else str(ids)
-                        log_message(f"Scheduler: auto-resolved to {user_name}: {recipient}")
-                        break
-            except (ValueError, OSError):
-                pass
-
-    # Fallback: channel allowlist (owner = first entry)
-    if not recipient:
-        from .credential_broker import broker
-        allowlist_keys = {
-            "telegram": ("telegram", "allowed_users"),
-            "email": ("email", "allowed_senders"),
-            "discord": ("discord", "channel_ids"),
-        }
-        key = allowlist_keys.get(channel_name)
-        if key:
-            allowlist = broker.get(*key)
-            if allowlist and allowlist != "*":
-                recipient = allowlist.split(",")[0].strip()
-                log_message(f"Scheduler: fallback to allowlist: {recipient}")
-
-    if not recipient:
-        log_message(f"Scheduler: job '{job.name}' has no recipient and no allowlist for {channel_name}", "error")
-        return
-
-    outbound = OutboundMessage(
-        channel=channel_name,
-        channel_id=recipient,
-        recipient=recipient,
-        text=response_text,
+    from .message_processor import announce_to_channel
+    ok = await announce_to_channel(
+        channel_name,
+        job.payload.get("recipient", ""),
+        response_text,
         metadata=job.payload.get("metadata", {}),
     )
-    # Create a minimal inbound for send_reply interface
-    dummy_inbound = InboundMessage(
-        channel=channel_name,
-        channel_id=recipient,
-        sender="scheduler",
-        text="",
-        timestamp=datetime.now(),
-    )
-    await plugin.send_reply(outbound, dummy_inbound)
-    log_message(f"Scheduler: announced to {channel_name} ({recipient})")
+    if not ok:
+        log_message(f"Scheduler: announce for job '{job.name}' did not deliver", "warning")
 
 
 def _deliver_review(job: Job, response_text: str, session_id: str) -> None:
