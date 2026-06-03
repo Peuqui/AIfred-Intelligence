@@ -963,12 +963,33 @@ class FreeEchoChannel(BaseChannel):
                 )
                 return
 
-            secs = format_number(len(pcm_data) / 96000, 1)
-            self.channel_log(
-                f"[FreeEcho.2 {room}] Sending TTS: {_fmt_mib(len(pcm_data))} "
-                f"({secs}s) via orchestrator"
+            # Proaktive Push-Nachricht? Erkannt am dummy-inbound
+            # ``sender == "system"`` aus message_processor.announce_to_channel.
+            # In dem Fall: lokaler Chime (notification_wav) vor dem TTS,
+            # damit der User nicht aus dem Nichts angesprochen wird.
+            # Frame-Sequenz: audio_flag(notification, with_tts=True) +
+            # audio_flag(tts) + audio_start + chunks + audio_end. Der
+            # Orchestrator ``play_notification`` macht alles in einem Aufruf.
+            # Normal-Reply (User hat selbst getriggert) bleibt ohne Chime.
+            is_proactive = (
+                (original is not None and original.sender == "system")
+                or bool(outbound.metadata.get("proactive"))
             )
-            await orc.play_tts(pcm_data)
+
+            secs = format_number(len(pcm_data) / 96000, 1)
+            if is_proactive:
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] Proactive push: "
+                    f"chime + TTS {_fmt_mib(len(pcm_data))} ({secs}s) "
+                    f"via orchestrator"
+                )
+                await orc.play_notification(with_tts=True, tts_pcm=pcm_data)
+            else:
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] Sending TTS: {_fmt_mib(len(pcm_data))} "
+                    f"({secs}s) via orchestrator"
+                )
+                await orc.play_tts(pcm_data)
             self.channel_log(f"[FreeEcho.2 {room}] TTS playback complete")
         finally:
             Path(tts_path).unlink(missing_ok=True)

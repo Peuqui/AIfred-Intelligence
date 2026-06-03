@@ -65,13 +65,32 @@ Producer (Vision emittiert nur, wenn scharf) — der Kern bleibt agnostisch.
 3. **Action** (später) — nicht jede Reaktion ist „Nachricht": Webhook,
    Skript, Kamera scharf/unscharf. Channel-Send ist nur *eine* Action-Art.
 
-**Nicht jeder Channel kann Push.** Beispiel **FreeEcho2 (Puck)**:
-Request-Response (Gerät sendet nach Wake-Word, wartet auf Reply) — der Server
-hält zwar die persistente WS (`_devices[room]`, Transport vorhanden), aber die
-Firmware spielt server-initiiertes `audio_out` noch nicht. Für gesprochene
-Alerts später: ein proaktiver freeecho2-Sende-Weg (Text → TTS → Push über die
-offene WS) **plus** Firmware-Erweiterung (unaufgefordertes Audio annehmen, mit
-Chime). Bis dahin ist der Puck kein Sink — die Pipeline läuft trotzdem.
+**FreeEcho.2 (Puck) als Sink — implementiert.** Der Puck hält eine persistente
+WebSocket (`_devices[room]`) und akzeptiert seit der Audio-Bus-Refactor-Phase
+auch server-initiierte Push-Sequenzen. Wenn der Dispatcher
+`announce_to_channel("freeecho2", recipient, text, media=…)` aufruft, läuft
+das durch denselben SSoT-Pfad wie alle anderen Sinks (`send_reply` mit dummy
+`InboundMessage(sender="system")`):
+
+- **Recipient-Resolver** (`_resolve_channel_recipient`) löst leere
+  `recipient`-Werte auf den ersten verbundenen Geräte-Room auf (FreeEcho.2
+  hat keine Allowlist — die Hardware ist im LAN, kein Sender-Filter).
+  Wer mehrere Pucks hat und gezielt zustellen will, übergibt
+  `recipient="wohnzimmer"` explizit.
+- **`send_reply`** erkennt den autonomen Aufruf an `sender == "system"`
+  (oder `outbound.metadata.proactive=True`) und routet über
+  `AudioOrchestrator.play_notification(with_tts=True, tts_pcm=…)`. Die
+  Sequenz auf dem Wire: `audio_flag(notification, with_tts=True)` →
+  `audio_flag(tts)` → `audio_start` → PCM-Chunks → `audio_end`. Der Puck
+  spielt erst seinen lokalen `notification_wav`-Chime, puffert parallel den
+  TTS-Stream und wechselt nahtlos auf die Sprache — kein „Spricht aus
+  dem Nichts"-Effekt.
+- **User-Wake-Reply** bleibt unverändert (kein Chime), weil `send_reply`
+  dort `original.sender == "<room>"` sieht statt `"system"`.
+
+Tests: `tests/test_freeecho2_proactive_push.py` (Recipient-Resolver +
+send_reply-Routing). Live-Smoke-Test mit dem Vision-Producer → Puck als
+Sink in der Alert-Regel-Datei (`data/alert_rules.json`).
 
 ## Zustellung & Modi (SSoT, ein Weg für Template + LLM)
 
