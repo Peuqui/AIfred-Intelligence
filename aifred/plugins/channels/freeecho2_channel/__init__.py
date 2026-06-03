@@ -43,6 +43,8 @@ def _channel_tts_options() -> list[tuple[str, str]]:
 if TYPE_CHECKING:
     from aiohttp.web import Request, WebSocketResponse
     from ....lib.envelope import InboundMessage, OutboundMessage
+    from ....lib.function_calling import Tool
+    from ....lib.plugin_base import PluginContext
 
 # Connected FreeEcho.2 devices: room_name → WebSocketResponse
 _devices: dict[str, WebSocketResponse] = {}
@@ -53,6 +55,105 @@ _pending_responses: dict[str, asyncio.Future] = {}
 # A stale entry (wake without audio) is harmless: the FreeEcho.2 only sends audio
 # directly after wake detection, and a new wake overwrites or clears this.
 _pending_wake_agent: dict[str, str] = {}
+
+# ── Proaktive Alarm-Warteschlange (server-owned, pro room) ───────────────
+# "Smart server, stupid device": der Puck puffert nicht (Queue-0), der
+# Server serialisiert. Pro room eine Queue + ein langlebiger Worker, der je
+# Item den lokalen Chime + TTS abspielt und auf das Puck-Fertig-Signal
+# (wake.agent=_done → _playback_done[room].set()) wartet, bevor das nächste
+# Item rausgeht. So stauen sich N Alarme sauber auf und werden nacheinander
+# angesagt — nichts wird verworfen. Entkoppelt vom Emit-Pfad (enqueue kehrt
+# sofort zurück, blockiert den Vision-Watcher nicht).
+_alert_queues: dict[str, "asyncio.Queue[tuple[str, bytes | None]]"] = {}
+_alert_workers: dict[str, asyncio.Task] = {}
+_playback_done: dict[str, asyncio.Event] = {}
+# Fallback-Marge für das _done-Warten: der Worker wartet content-abhängig
+# = tatsächliche Wiedergabe-Dauer (aus der PCM-Größe) + diese Marge (Chime +
+# Netz + Sicherheit). So wird eine lange Ansage NIE abgeschnitten (Timeout
+# immer > echte Wiedergabe), und bei ausbleibendem _done erholt sich die
+# Queue trotzdem zügig statt 2 Minuten zu hängen.
+_PLAYBACK_DONE_MARGIN_SEC = 15.0
+# 48 kHz, int16, mono → Bytes pro Sekunde Wiedergabe.
+_PCM_BYTES_PER_SEC = 96000.0
+
+
+def _playback_done_event(room: str) -> asyncio.Event:
+    evt = _playback_done.get(room)
+    if evt is None:
+        evt = asyncio.Event()
+        _playback_done[room] = evt
+    return evt
+
+
+def signal_playback_done(room: str) -> None:
+    """Vom WS-Handler bei ``wake.agent=_done`` gerufen — weckt den Worker für
+    das nächste Queue-Item."""
+    _playback_done_event(room).set()
+
+
+async def enqueue_alert(room: str, audio_type: str, tts_pcm: "bytes | None") -> None:
+    """Proaktiven Alarm in die room-Queue legen + Worker sicherstellen.
+    Kehrt sofort zurück (entkoppelt vom Emit-Pfad)."""
+    queue = _alert_queues.get(room)
+    if queue is None:
+        queue = asyncio.Queue()
+        _alert_queues[room] = queue
+    await queue.put((audio_type, tts_pcm))
+    worker = _alert_workers.get(room)
+    if worker is None or worker.done():
+        _alert_workers[room] = asyncio.create_task(
+            _alert_worker(room), name=f"freeecho2-alert-worker-{room}",
+        )
+
+
+async def _alert_worker(room: str) -> None:
+    """Langlebiger per-room-Worker: spielt Queue-Items seriell, wartet je
+    Item auf das _done-Signal des Pucks (mit Timeout). Musik-Pause/Resume
+    um den Queue-Lauf kommt mit Firmware-Phase 2 dazu."""
+    from ....lib import audio_channels
+    from ....lib.logging_utils import log_message
+
+    queue = _alert_queues[room]
+    while True:
+        audio_type, tts_pcm = await queue.get()
+        try:
+            ch = audio_channels.resolve(f"freeecho2:{room}")
+            orc = (
+                ch.get_orchestrator(room)
+                if ch is not None and hasattr(ch, "get_orchestrator")
+                else None
+            )
+            if orc is None:
+                log_message(
+                    f"[FreeEcho.2 {room}] alert worker: no orchestrator — drop",
+                    "warning",
+                )
+                continue
+            evt = _playback_done_event(room)
+            evt.clear()
+            with_tts = tts_pcm is not None
+            if audio_type == "alarm":
+                await orc.play_alarm(with_tts=with_tts, tts_pcm=tts_pcm)
+            else:
+                await orc.play_notification(with_tts=with_tts, tts_pcm=tts_pcm)
+            # Content-abhängiger Timeout: echte Wiedergabe-Dauer (PCM-Größe)
+            # + Marge. Nie kürzer als die Ansage selbst → kein Abschneiden.
+            playback_sec = (len(tts_pcm) / _PCM_BYTES_PER_SEC) if tts_pcm else 0.0
+            done_timeout = playback_sec + _PLAYBACK_DONE_MARGIN_SEC
+            try:
+                await asyncio.wait_for(evt.wait(), timeout=done_timeout)
+            except asyncio.TimeoutError:
+                log_message(
+                    f"[FreeEcho.2 {room}] alert worker: no _done within "
+                    f"{done_timeout:.0f}s (playback ~{playback_sec:.0f}s) — proceeding",
+                    "warning",
+                )
+        except Exception as e:  # noqa: BLE001
+            log_message(
+                f"[FreeEcho.2 {room}] alert worker error: {e}", "warning",
+            )
+        finally:
+            queue.task_done()
 
 # Aktive Audio-Pipeline-Task pro Room. Der WebSocket-Reader startet
 # _handle_audio() als Background-Task und legt die Referenz hier ab, sodass
@@ -421,7 +522,14 @@ class FreeEchoChannel(BaseChannel):
         - ``_resume``   → Pipeline canceln + Smart-Resume des letzten unfinished Items
         - ``_activate`` → no-op am Server (Soft-Mute aus, FreeEcho.2-lokal)
         """
-        if token in ("_stop", "_pause", "_standby"):
+        if token == "_done":
+            # Puck meldet: proaktive Wiedergabe (Chime + TTS) komplett durch.
+            # Weckt den Alarm-Worker für das nächste Queue-Item. KEIN
+            # Cancel/Stop — das war ein natürliches Ende, kein Abbruch.
+            signal_playback_done(room)
+            self.channel_log(f"✅ [FreeEcho.2 {room}] _done: playback complete")
+
+        elif token in ("_stop", "_pause", "_standby"):
             await self._cancel_pipeline_and_stop_stream(token, room)
 
         elif token == "_resume":
@@ -935,6 +1043,19 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] Deferred TTS switch starting")
             await self._force_tts_switch()
 
+        # Proaktive Pushes (Vision-Alert, freeecho2_announce) kommen OHNE
+        # vorausgegangene LLM-Inferenz → es gibt kein tts_deferred-Flag, und
+        # die TTS-Engine ist evtl. gar nicht geladen (GPUs idle). Genau wie
+        # bei einem echten Puck-Request den TTS-State sicherstellen und ggf.
+        # den Modell-Swap (LLM → TTS) erzwingen, BEVOR _run_tts läuft — sonst
+        # bleibt die Ansage stumm.
+        is_proactive = (
+            (original is not None and original.sender == "system")
+            or bool(outbound.metadata.get("proactive"))
+        )
+        if is_proactive:
+            await self._ensure_tts_ready(room)
+
         # Generate TTS audio (agent-specific voice if configured)
         agent = original.target_agent if original else "aifred"
         tts_path = await self._run_tts(outbound.text, agent=agent)
@@ -975,11 +1096,7 @@ class FreeEchoChannel(BaseChannel):
             # audio_flag(tts) + audio_start + chunks + audio_end — der
             # Orchestrator macht alles in einem Aufruf.
             # Normal-Reply (User hat selbst getriggert) bleibt ohne Chime.
-            is_proactive = (
-                (original is not None and original.sender == "system")
-                or bool(outbound.metadata.get("proactive"))
-            )
-
+            # is_proactive ist oben schon bestimmt (TTS-State-Sicherstellung).
             secs = format_number(len(pcm_data) / 96000, 1)
             if is_proactive:
                 audio_type = str(
@@ -995,12 +1112,12 @@ class FreeEchoChannel(BaseChannel):
                 self.channel_log(
                     f"[FreeEcho.2 {room}] Proactive push ({audio_type}): "
                     f"chime + TTS {_fmt_mib(len(pcm_data))} ({secs}s) "
-                    f"via orchestrator"
+                    f"→ alert queue"
                 )
-                if audio_type == "alarm":
-                    await orc.play_alarm(with_tts=True, tts_pcm=pcm_data)
-                else:
-                    await orc.play_notification(with_tts=True, tts_pcm=pcm_data)
+                # In die room-Queue legen statt direkt abspielen: der Worker
+                # serialisiert (ein Alarm nach dem anderen, je nach _done),
+                # und der Emit-Pfad (Vision-Watcher) wird NICHT blockiert.
+                await enqueue_alert(room, audio_type, pcm_data)
             else:
                 self.channel_log(
                     f"[FreeEcho.2 {room}] Sending TTS: {_fmt_mib(len(pcm_data))} "
@@ -1010,6 +1127,92 @@ class FreeEchoChannel(BaseChannel):
             self.channel_log(f"[FreeEcho.2 {room}] TTS playback complete")
         finally:
             Path(tts_path).unlink(missing_ok=True)
+
+    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+        """Stellt ``freeecho2_announce`` bereit: AIfred kann proaktiv eine
+        gesprochene Ansage (Chime + TTS) auf einen oder alle verbundenen
+        Pucks schicken. Läuft über denselben Queue-Pfad wie die Vision-
+        Alerts (announce_to_channel → enqueue → Worker → _done)."""
+        from ....lib.function_calling import Tool
+        from ....lib.security import TIER_COMMUNICATE
+        import json
+
+        async def _execute_announce(
+            message: str, target: str = "*", audio_type: str = "notification",
+        ) -> str:
+            from ....lib.message_processor import (
+                announce_to_channel,
+                resolve_announce_targets,
+            )
+
+            if audio_type not in ("alarm", "notification"):
+                audio_type = "notification"
+            rooms = resolve_announce_targets("freeecho2", target or "*")
+            if not rooms:
+                return json.dumps({
+                    "success": False,
+                    "error": "no FreeEcho.2 puck connected for target "
+                             f"{target!r}",
+                })
+            meta = {"audio_type": audio_type, "proactive": True}
+            reached = []
+            for room in rooms:
+                if await announce_to_channel(
+                    "freeecho2", room, message, metadata=meta,
+                ):
+                    reached.append(room)
+            return json.dumps({
+                "success": bool(reached),
+                "audio_type": audio_type,
+                "rooms": reached,
+            })
+
+        return [
+            Tool(
+                name="freeecho2_announce",
+                tier=TIER_COMMUNICATE,
+                description=(
+                    "Speak a proactive announcement (chime + voice) on a "
+                    "FreeEcho.2 puck. Use when the user wants to say/announce "
+                    "something out loud in a room — e.g. 'tell the living room "
+                    "dinner is ready' or an urgent alert. The puck plays a "
+                    "chime then speaks the message; music is paused and "
+                    "resumed around it."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "message": {
+                            "type": "string",
+                            "description": "What to say out loud (it is spoken via TTS).",
+                        },
+                        "target": {
+                            "type": "string",
+                            "description": (
+                                "Where to play. Leave as '*' (default) to "
+                                "reach all connected pucks — use this unless "
+                                "the user explicitly names a specific room. "
+                                "A bare room name targets one puck; '@group' a "
+                                "configured group. Do NOT invent room names and "
+                                "do NOT prefix with 'freeecho2:'. Unknown/"
+                                "disconnected rooms are rejected."
+                            ),
+                        },
+                        "audio_type": {
+                            "type": "string",
+                            "enum": ["notification", "alarm"],
+                            "description": (
+                                "'notification' = gentle chime (info, default); "
+                                "'alarm' = urgent chime + LED (stranger, "
+                                "intrusion, time-critical)."
+                            ),
+                        },
+                    },
+                    "required": ["message"],
+                },
+                executor=_execute_announce,
+            ),
+        ]
 
     # ── Public WS-Bridge — Audio-Bus-Frame-API ──────────────────────────
     #
@@ -1357,6 +1560,24 @@ class FreeEchoChannel(BaseChannel):
                     _current_session.reset(token)
 
         await asyncio.get_event_loop().run_in_executor(None, _run)
+
+    async def _ensure_tts_ready(self, room: str) -> None:
+        """SSoT für 'TTS-Engine jetzt synchron bereitstellen' — für proaktive
+        Pushes (Vision-Alert, freeecho2_announce), die OHNE vorausgehende
+        LLM-Inferenz kommen.
+
+        Nutzt dieselben Primitive wie der Chat-Flow (``_ensure_tts_state`` +
+        ``_force_tts_switch``), nur ohne Inferenz dazwischen: TTS-State
+        sicherstellen, und falls das große LLM die GPU blockiert (deferred),
+        den Modell-Swap LLM → TTS sofort erzwingen. Identisches Verhalten wie
+        bei einem echten Puck-Request, nur ohne Antwort-Generierung."""
+        deferred = await self._ensure_tts_state()
+        if deferred:
+            self.channel_log(
+                f"[FreeEcho.2 {room}] Proactive TTS switch "
+                f"(no prior inference — loading TTS engine)"
+            )
+            await self._force_tts_switch()
 
     async def _run_tts(self, text: str, agent: str = "aifred") -> str | None:
         """Generate TTS audio file from text. Returns absolute file path.
