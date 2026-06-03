@@ -277,6 +277,35 @@ Orchestrierung). Zwei Stellschrauben in `config.py`:
 - `VISION_CLUSTER_PHASH_THRESHOLD` (Standard `5`) — Hamming-Distanz zweier
   64-bit-Hashes, unter der zwei Frames als „ähnlich" gelten.
 
+**Der Algorithmus im Detail** (`cluster_events` in `vision_cluster.py`): Die
+unbeschriebenen Events werden chronologisch durchlaufen, pro Quelle wird *ein
+offener* Cluster gehalten. Für jedes Event:
+
+1. Das gespeicherte Frame wird von der Platte gelesen und sein **64-bit
+   Perceptual-Hash** berechnet. Fehlt die Datei oder lässt sich kein Hash bilden,
+   bekommt das Event `cluster_id = ""` (Solo — wird einzeln beschrieben).
+2. Liegt der Zeitstempel mehr als `BUCKET_SECONDS` nach dem Beginn des offenen
+   Clusters, wird dieser geschlossen und ein neuer begonnen (der Zeit-Bucket-Cap
+   — verhindert, dass ein Dauergeschehen alles in einen Cluster zieht).
+3. Sonst wird der neue pHash gegen die Hashes der bisherigen Cluster-Mitglieder
+   verglichen. Ist die **Hamming-Distanz zu *irgendeinem* Mitglied ≤
+   `PHASH_THRESHOLD`**, gehört das Frame in diesen Cluster; andernfalls wird ein
+   neuer Cluster aufgemacht.
+
+Jeder Cluster bekommt eine **deterministische ID** der Form
+`{kamera-slug}-{zeit-bucket}-{hash-präfix}` (der Bucket auf die
+`BUCKET_SECONDS`-Grenze abgerundet). Deterministisch heißt: derselbe Frame landet
+bei einem wiederholten Lauf in derselben Cluster-ID — Läufe sind also idempotent
+und überschneidungsfrei. Die berechneten IDs schreibt `write_clusters` in die
+`cluster_id`-Spalte jedes Events.
+
+Beschrieben wird dann pro Cluster **nur der Repräsentant** (das erste, älteste
+Mitglied) per VLM; `apply_cluster_description` verteilt den Text auf alle
+Mitglieder mit derselben `cluster_id`. Solo-Events (leerer `cluster_id`) werden
+einzeln beschrieben. `vision_query_events` gruppiert beim Abruf erneut nach
+`cluster_id` und liefert pro Cluster eine Zeile (`frames_in_cluster` = Zahl der
+Mitglieder).
+
 Drei Wege lösen denselben Lauf aus:
 
 1. **Casus-Button** — manueller Bulk-Lauf über die UI, mit Fortschrittsbalken,
