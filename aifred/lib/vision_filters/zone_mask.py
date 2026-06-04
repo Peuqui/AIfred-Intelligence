@@ -20,9 +20,9 @@ Die Maske liegt pro Quelle in ``plugins/tools/vision/settings.json`` unter
 ``zone_masks[<source_id>]``::
 
     "zone_masks": {
-      "cam/v4l2_0": {
+      "<source_id>": {
         "enabled": true,
-        "cols": 48, "rows": 36,
+        "cols": 48, "rows": 27,
         "cells": "0011223300..."   # cols*rows Ziffern aus {0,1,2,3}
       }
     }
