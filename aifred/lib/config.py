@@ -810,7 +810,16 @@ VISION_DESCRIBE_MAX_FRAMES = 10
 # Wie der Alert-Text erzeugt wird, wenn eine Regel nichts anderes vorgibt:
 #   "template" — fester Formatstring, deterministisch, kein LLM (Default)
 #   "llm"      — AIfred formuliert via process_inbound (ein LLM-Call pro
-#                Alert; sinnvoll z.B. für gesprochene Puck-Ausgabe)
+#                Alert; sinnvoll z.B. für gesprochene Puck-Ausgabe), sieht
+#                aber NUR Titel+Body, nicht das Bild
+#   "vlm"      — das aktive VLM beschreibt den Alert-Frame (ein VLM-Call,
+#                Einzelbild über VISION_VLM_MAX_PIXELS), die Beschreibung
+#                geht in den Alert-Body. So weiß die Telegram-Meldung was
+#                tatsächlich auf dem Foto ist.
+#   "vlm+llm"  — VLM beschreibt das Bild UND AIfred formuliert daraus den
+#                finalen Text (ein VLM- + ein LLM-Call). Bildverständnis +
+#                natürliche Sprache. Beim VLM-Call wird das Kamera-Briefing
+#                (prompt_context) als Kontext vorangestellt.
 # Pro Regel über das Feld "compose" in alert_rules.json überschreibbar.
 ALERT_COMPOSE_DEFAULT = "template"
 
