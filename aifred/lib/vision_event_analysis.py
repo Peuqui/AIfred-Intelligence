@@ -71,8 +71,12 @@ async def analyze_event_with_vlm(
     if not target_model:
         raise RuntimeError("no VLM model configured")
     from .prompt_loader import get_vision_event_single_prompt
+    from .config import VISION_VLM_MAX_PIXELS
+    from .vision_analyzer import downscale_for_vlm
     target_prompt = (prompt or get_vision_event_single_prompt()).strip()
-    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    image_b64 = base64.b64encode(
+        downscale_for_vlm(image_bytes, VISION_VLM_MAX_PIXELS)
+    ).decode("ascii")
     client = AsyncClient(host=resolve_vlm_host())
     response = await client.generate(
         model=str(target_model),

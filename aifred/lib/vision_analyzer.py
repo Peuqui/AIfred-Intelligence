@@ -57,6 +57,38 @@ def _to_b64(image_bytes: bytes) -> str:
     return base64.b64encode(image_bytes).decode("ascii")
 
 
+def downscale_for_vlm(image_bytes: bytes, max_pixels: int) -> bytes:
+    """Skaliert ein JPEG auf höchstens ``max_pixels`` Gesamtpixel herunter
+    (Seitenverhältnis erhalten) und gibt neue JPEG-Bytes zurück. Bilder unter
+    der Grenze bleiben unverändert (kein Re-Encode, kein Overhead).
+
+    Das VLM braucht für die Szenenbeschreibung keine volle Sensor-Auflösung;
+    weniger Pixel = weniger Vision-Tokens (dynamische VLMs wie Qwen-VL
+    skalieren ~linear), ohne dass die Beschreibung leidet. Die
+    Gesichtserkennung läuft auf einem eigenen Pfad am Vollbild und ist von
+    diesem Downscale nicht betroffen. ``max_pixels <= 0`` deaktiviert das
+    Skalieren komplett."""
+    if max_pixels <= 0:
+        return image_bytes
+    import cv2
+    import numpy as np
+
+    arr = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if arr is None:
+        return image_bytes
+    h, w = arr.shape[:2]
+    if w * h <= max_pixels:
+        return image_bytes
+    scale = (max_pixels / float(w * h)) ** 0.5
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    resized = cv2.resize(arr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        return image_bytes
+    return buf.tobytes()
+
+
 async def analyze_frame(
     frame: "Frame",
     prompt: str,
@@ -116,7 +148,13 @@ async def analyze_sequence(
     if extra_options:
         options.update(extra_options)
 
-    images_b64 = [_to_b64(f.image_bytes) for f in frames]
+    # Frames vor dem VLM-Call auf max_pixels deckeln — spart Vision-Tokens
+    # (passt N Keyframes in num_ctx), ohne die Beschreibung zu verschlechtern.
+    from .config import VISION_VLM_MAX_PIXELS
+    images_b64 = [
+        _to_b64(downscale_for_vlm(f.image_bytes, VISION_VLM_MAX_PIXELS))
+        for f in frames
+    ]
 
     # Resolve the Ollama endpoint dynamically: pinned VLM daemon if chat
     # uses a non-ollama backend (port 11436, V100), default daemon
