@@ -76,12 +76,13 @@ def resolve_source_resolution(
 
 
 def resolve_source_alias(source_id: str, fallback: str = "") -> str:
-    """User-chosen display name for a camera, or ``fallback`` if none set.
+    """User-chosen alias for a camera, or ``fallback`` if none set.
 
-    The fallback is typically the FrameSource's ``display_name`` (which
-    is the hardware/driver string like "OmniVision Technologies, Inc.
-    USB Camera"). The user can override that in the live-preview popup
-    with something meaningful like "Haustür" or "Garten Süd".
+    Anders als die SSoT :meth:`VisionStore.source_label` fällt diese Funktion
+    NICHT auf display_name/source_id zurück, sondern auf das vom Caller
+    übergebene ``fallback`` — gebraucht z.B. für Datei-Slugs (fallback="cam").
+    Für den user-facing Anzeigenamen (Alias > display_name > source_id) ist
+    :func:`resolve_source_label` die richtige Wahl.
     """
     try:
         from .vision_store import VisionStore
@@ -95,6 +96,22 @@ def resolve_source_alias(source_id: str, fallback: str = "") -> str:
     if isinstance(alias, str) and alias.strip():
         return alias.strip()
     return fallback
+
+
+def resolve_source_label(source_id: str) -> str:
+    """User-facing Anzeigename einer Kamera über die SSoT
+    :meth:`VisionStore.source_label` (Alias > display_name > source_id).
+    Eine Stelle, eine Reihenfolge — für alles, was dem Nutzer/LLM eine
+    Kamera benennt (Tool-Ergebnisse, Alerts, UI). Fällt bei Fehler auf die
+    source_id zurück, damit nie ein leerer Name entsteht."""
+    try:
+        from .vision_store import VisionStore
+        rec = VisionStore().get_source(source_id)
+        if rec:
+            return VisionStore.source_label(rec)
+    except Exception:  # noqa: BLE001
+        pass
+    return source_id
 
 
 def _safe_session_dir(base_dir: Path, session_id: str) -> Optional[Path]:
