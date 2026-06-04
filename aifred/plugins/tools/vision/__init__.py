@@ -248,12 +248,17 @@ class VisionPlugin:
                 "Vorkommnisse (eine Zeile pro Vorkommnis; near-identische Frames "
                 "sind zu einem zusammengefasst), jeweils mit Zeitstempel, "
                 "Beschreibung (`classification.description`) und `image_url`. "
-                "Fehlen die Beschreibungen und der Nutzer will wissen, was "
-                "passiert ist, rufe mit `describe=true` auf. Wenn du über ein "
-                "Vorkommnis schreibst, BETTE sein Bild als Markdown ein — "
+                "Für „war jemand da / hat sich jemand gezeigt?“ rufe mit "
+                "`event_type=\"presence\"` auf — das liefert genau die "
+                "Vorkommnisse mit echter Person/echtem Gesicht und lässt reine "
+                "Wetter-/Bewegungs-Trigger (Regen, Blätter) weg. Frag NICHT "
+                "Typ für Typ einzeln ab. Fehlen die Beschreibungen und der "
+                "Nutzer will wissen, was passiert ist, rufe mit `describe=true` "
+                "auf. BETTE das Bild JEDES Vorkommnisses ein, über das du "
+                "schreibst — nicht nur des ersten —, als "
                 "`![Kamera HH:MM](image_url)` mit GENAU der `image_url` aus "
-                "genau diesem Vorkommnis —, damit der Nutzer das passende Bild "
-                "zum jeweiligen Ereignis sieht. Bette nur die `image_url`s der "
+                "genau diesem Vorkommnis, damit der Nutzer zu jedem Ereignis das "
+                "passende Bild sieht. Bette nur die `image_url`s der "
                 "Vorkommnisse ein, über die du tatsächlich schreibst; erfinde "
                 "niemals URLs."
             )
@@ -280,13 +285,17 @@ class VisionPlugin:
             "CHRONICLE & EVENTS — `vision_query_events` returns past happenings "
             "(one row per happening; near-identical frames are collapsed into "
             "one), each with a timestamp, a description "
-            "(`classification.description`) and an `image_url`. If descriptions "
-            "are missing and the user wants to know what happened, call with "
-            "`describe=true`. When you write about a happening, EMBED its frame "
-            "as markdown — `![Camera HH:MM](image_url)` using EXACTLY the "
-            "`image_url` from that happening — so the user sees the matching "
-            "image next to each event. Only embed the `image_url`s of happenings "
-            "you actually describe; never invent URLs."
+            "(`classification.description`) and an `image_url`. For 'was anyone "
+            "there / did someone show up?' call with `event_type=\"presence\"` — "
+            "it returns exactly the happenings that contained a real person/face "
+            "and drops pure weather/motion triggers (rain, foliage). Do NOT "
+            "query type by type. If descriptions are missing and the user wants "
+            "to know what happened, call with `describe=true`. EMBED the frame of "
+            "EVERY happening you write about — not just the first — as "
+            "`![Camera HH:MM](image_url)` using EXACTLY the `image_url` from that "
+            "happening, so the user sees the matching image next to each event. "
+            "Only embed the `image_url`s of happenings you actually describe; "
+            "never invent URLs."
         )
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
@@ -862,12 +871,33 @@ class VisionPlugin:
             # The side-channel VLM is cheap even for a lot of frames; the nightly
             # run is the safety net, and it is idempotent (described events are
             # skipped).
+            # "presence"/"people" = "wer war da": Vereinigung aller Personen-/
+            # Gesichts-Typen, Motion ausgeschlossen. Wird ohne Store-Typ-Filter
+            # geholt und nach dem Dedup auf diese Typen reduziert — so kann das
+            # Personen-Event den Cluster repräsentieren, nicht ein Motion-Frame.
+            _PRESENCE = {"face_unknown", "face_unsure", "face_known", "person"}
+            # Wichtigkeit für die Repräsentanten-Wahl pro Cluster: ein Cluster,
+            # der eine Person/ein Gesicht enthielt, MUSS als solches auftauchen —
+            # nicht als Motion (Motion feuert am häufigsten und würde sonst als
+            # "neuestes" Event gewinnen und die Person verstecken). Reihenfolge:
+            # Fremder > Unsicher > Bekannt > Person (Körper) > VLM-Notiz > Motion.
+            _SIG = {
+                "face_unknown": 5, "face_unsure": 4, "face_known": 3,
+                "person": 2, "vlm_analysis": 1, "motion": 0,
+            }
+            presence = (event_type or "").strip().lower() in ("presence", "people")
+            store_event_type = None if presence else event_type
+
             if describe:
                 try:
                     from ....lib.vision_bulk import run_bulk_describe
+                    describe_types = (
+                        sorted(_PRESENCE) if presence
+                        else ([store_event_type] if store_event_type else None)
+                    )
                     await run_bulk_describe(
                         source_id=source_id,
-                        event_types=[event_type] if event_type else None,
+                        event_types=describe_types,
                         since=since,
                         check_vram=False,
                     )
@@ -881,19 +911,22 @@ class VisionPlugin:
             try:
                 raw = store.query_events(
                     source_id=source_id,
-                    event_type=event_type,
+                    event_type=store_event_type,
                     since=since,
                     limit=None,
                 )
             except Exception as e:  # noqa: BLE001
                 return _err(f"query failed: {e}")
 
-            # Collapse cluster members into one representative per happening:
-            # N near-identical motion frames = one event, one description, one
-            # image — not the same text N times. `raw` is newest-first, so the
-            # first occurrence of a cluster_id is its representative; further
-            # members only bump the frame count. Events without a cluster_id
-            # (unclustered / faces) are kept individually.
+            # Collapse cluster members into ONE representative per happening.
+            # `raw` is newest-first. Pick the MOST SIGNIFICANT event of a cluster
+            # as its representative (via _SIG), NOT merely the newest — otherwise
+            # the ever-present motion frames mask a person/face the same cluster
+            # detected. Ties keep the newer event (first seen). Events without a
+            # cluster_id (unclustered) are kept individually.
+            def _sig(ev: dict[str, Any]) -> int:
+                return _SIG.get(str(ev.get("event_type") or ""), 0)
+
             reps: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
             solo: list[dict[str, Any]] = []
             member_count: dict[str, int] = {}
@@ -901,13 +934,19 @@ class VisionPlugin:
                 cid = str(ev.get("cluster_id") or "")
                 if cid:
                     member_count[cid] = member_count.get(cid, 0) + 1
-                    if cid not in reps:
+                    cur = reps.get(cid)
+                    if cur is None or _sig(ev) > _sig(cur):
                         reps[cid] = ev
                 else:
                     solo.append(ev)
+            merged = list(reps.values()) + solo
+            if presence:
+                merged = [
+                    ev for ev in merged
+                    if str(ev.get("event_type") or "") in _PRESENCE
+                ]
             happenings = sorted(
-                list(reps.values()) + solo,
-                key=lambda ev: ev["timestamp"], reverse=True,
+                merged, key=lambda ev: ev["timestamp"], reverse=True,
             )[:actual_limit]
 
             def _out(ev: dict[str, Any]) -> dict[str, Any]:
@@ -938,19 +977,23 @@ class VisionPlugin:
         return Tool(
             name="vision_query_events",
             description=(
-                "Query past vision events (motion / face_known / face_unknown "
-                "/ vlm_analysis). Filterable by source, event type, and time "
-                "window. Use when the user asks 'was war heute an der Tür?', "
-                "'wer war zuletzt da?', etc. Returns ONE row per happening "
-                "(near-identical frames collapsed into one cluster, "
-                "`frames_in_cluster` = how many), each with `classification."
-                "description`, `image_url` (embed it as ![…](url) when you "
-                "describe that happening) and `id`. The `limit` counts "
-                "happenings, not raw frames. Motion/face events carry only "
-                "metadata until described; if the description is empty and the "
-                "user wants to know what actually happened, set describe=true to "
-                "generate it for the queried window first (GPU work, bounded by "
-                "clustering)."
+                "Query past vision events. Filterable by source, event type, "
+                "and time window. Use when the user asks 'was war heute an der "
+                "Tür?', 'wer war zuletzt da?', etc. For 'was anyone seen?' set "
+                "event_type='presence' — it returns every happening that "
+                "actually contained a person or face (face_known/face_unknown/"
+                "face_unsure/person), motion-only triggers (rain, foliage) "
+                "excluded. Returns ONE row per happening: near-identical frames "
+                "are collapsed into one cluster represented by its MOST "
+                "significant event (a person/face always wins over motion), "
+                "`frames_in_cluster` = how many. Each row has `classification."
+                "description`, `image_url` and `id`. EMBED the `image_url` of "
+                "EVERY happening you mention as ![…](url) — not just the first. "
+                "The `limit` counts happenings, not raw frames. Motion/face "
+                "events carry only metadata until described; if descriptions are "
+                "empty and the user wants to know what happened, set "
+                "describe=true to generate them for the queried window first "
+                "(GPU work, bounded by clustering)."
             ),
             parameters={
                 "type": "object",
@@ -968,8 +1011,11 @@ class VisionPlugin:
                     "event_type": {
                         "type": "string",
                         "description": (
-                            "Filter: motion | face_known | face_unknown | "
-                            "face_unsure | vlm_analysis"
+                            "Filter. Use 'presence' for 'was anyone there?' "
+                            "(union of face_known/face_unknown/face_unsure/"
+                            "person, motion excluded). Other values: motion | "
+                            "face_known | face_unknown | face_unsure | person | "
+                            "vlm_analysis. Omit for everything."
                         ),
                     },
                     "since_hours": {
