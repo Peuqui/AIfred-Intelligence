@@ -50,6 +50,7 @@ from ....lib.vision_utils import (
     filename_timestamp,
     get_image_url,
     resolve_source_alias,
+    resolve_source_label,
     save_image_to_file,
     slugify_for_filename,
     source_overlay_label,
@@ -229,6 +230,10 @@ class VisionPlugin:
                 "tippe sie nicht aus dem Gedächtnis — hol sie aus "
                 "`vision_list_sources` oder aus einem vorherigen Tool-Ergebnis, "
                 "oder lass `source_id` ganz weg, um über ALLE Kameras zu suchen. "
+                "Wenn du dem Nutzer eine Kamera nennst, nutze IMMER ihren "
+                "`source_name` (z.B. „Büro“) aus dem Tool-Ergebnis — NIE die "
+                "technische `source_id`; die ist nur internes Plumbing für "
+                "Folge-Tool-Calls. "
                 "Wenn nichts gefunden wird, schlage `vision_rescan_sources` vor "
                 "(z.B. nach Anschluss einer Webcam).\n\n"
                 "WICHTIG — Aufnehmen und Analysieren sind getrennt: "
@@ -268,7 +273,10 @@ class VisionPlugin:
             "faces, and start a persistent watch. Sources are addressed via "
             "stable, device-bound IDs. NEVER guess a `source_id` or type one "
             "from memory — get it from `vision_list_sources` or a prior tool "
-            "result, or omit `source_id` entirely to search ALL cameras. If "
+            "result, or omit `source_id` entirely to search ALL cameras. When "
+            "you name a camera to the user, ALWAYS use its `source_name` (e.g. "
+            "'Büro') from the tool result — NEVER the technical `source_id`, "
+            "which is internal plumbing for follow-up tool calls only. If "
             "nothing is found, suggest `vision_rescan_sources` (e.g. after "
             "plugging in a webcam).\n\n"
             "IMPORTANT — capture and analysis are separate: `vision_snapshot` "
@@ -343,18 +351,16 @@ class VisionPlugin:
 
     def _tool_list_sources(self, ctx: PluginContext) -> Tool:
         async def _exec() -> str:
-            from ....lib.vision_utils import resolve_source_alias
+            from ....lib.vision_utils import resolve_source_label
             sources = []
             for src in list_all_sources():
                 info = src.info()
-                # User-given alias takes precedence over the hardware
-                # display name — agent sees "Türkamera" instead of
-                # "OmniVision Technologies, Inc. USB Camera" when
-                # listing sources.
-                alias = resolve_source_alias(info.source_id, fallback=info.display_name)
+                # User-facing Anzeigename über die SSoT (Alias > display_name >
+                # source_id) — der Agent sieht "Büro" statt
+                # "OmniVision Technologies, Inc. USB Camera".
                 sources.append({
                     "source_id": info.source_id,
-                    "display_name": alias,
+                    "source_name": resolve_source_label(info.source_id),
                     "hardware_name": info.display_name,
                     "kind": info.kind,
                     "width": info.width,
@@ -449,6 +455,7 @@ class VisionPlugin:
             ]
             result: dict[str, Any] = {
                 "source_id": source_id,
+                "source_name": resolve_source_label(source_id),
                 "n_frames": len(frames),
                 "timestamp": frames[-1].timestamp.isoformat(timespec="seconds"),
                 "width": frames[-1].width,
@@ -594,6 +601,7 @@ class VisionPlugin:
             stats = result.metadata.get("stats", {}) if result.metadata else {}
             payload: dict[str, Any] = {
                 "source_id": source_id or "",
+                "source_name": resolve_source_label(source_id) if source_id else "",
                 "n_frames": result.n_frames,
                 "model": result.model,
                 "prompt": result.prompt,
@@ -760,6 +768,7 @@ class VisionPlugin:
                 return _err(str(e))
             return _ok(
                 source_id=status.source_id,
+                source_name=resolve_source_label(status.source_id),
                 running=status.running,
                 started_at=status.started_at.isoformat(timespec="seconds"),
                 fps=status.fps,
@@ -799,7 +808,11 @@ class VisionPlugin:
     def _tool_stop_watch(self, ctx: PluginContext) -> Tool:
         async def _exec(source_id: str) -> str:
             stopped = await _watcher().stop(source_id)
-            return _ok(source_id=source_id, was_running=stopped)
+            return _ok(
+                source_id=source_id,
+                source_name=resolve_source_label(source_id),
+                was_running=stopped,
+            )
 
         return Tool(
             name="vision_stop_watch",
@@ -826,6 +839,7 @@ class VisionPlugin:
                 watches=[
                     {
                         "source_id": s.source_id,
+                        "source_name": resolve_source_label(s.source_id),
                         "running": s.running,
                         "started_at": s.started_at.isoformat(timespec="seconds"),
                         "fps": s.fps,
@@ -949,12 +963,19 @@ class VisionPlugin:
                 merged, key=lambda ev: ev["timestamp"], reverse=True,
             )[:actual_limit]
 
+            # Kamera-Anzeigenamen (SSoT) für die Ausgabe — eine Query für alle
+            # Quellen, dann Dict-Lookup. So nennt der Assistent dem Nutzer "Büro"
+            # statt der technischen source_id.
+            labels = store.source_labels()
+
             def _out(ev: dict[str, Any]) -> dict[str, Any]:
                 cid = str(ev.get("cluster_id") or "")
                 fp = str(ev.get("frame_path") or "")
+                sid = str(ev["source_id"])
                 return {
                     "id": ev["id"],
-                    "source_id": ev["source_id"],
+                    "source_id": sid,
+                    "source_name": labels.get(sid, sid),
                     "timestamp": ev["timestamp"],
                     "event_type": ev["event_type"],
                     "confidence": ev["confidence"],
