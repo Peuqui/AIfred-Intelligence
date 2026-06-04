@@ -1295,6 +1295,7 @@ def get_xml_tag_config(lang: str = "de") -> dict:
         "sql": {"icon": "🗃️", "label": t("collapsible_sql", lang=lang), "class": "thinking-compact"},
         "json": {"icon": "📋", "label": t("collapsible_json", lang=lang), "class": "thinking-compact"},
         "vlm_output": {"icon": "👁️", "label": t("collapsible_vlm", lang=lang), "class": "thinking-compact"},
+        "image_descriptions": {"icon": "📷", "label": t("collapsible_image_descriptions", lang=lang), "class": "thinking-compact"},
     }
 
 

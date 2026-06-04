@@ -180,32 +180,29 @@ def count_tokens_with_tokenizer(text: str) -> int:
 
 
 def strip_thinking_blocks(text: str) -> str:
-    """
-    Remove thinking blocks from text (for History Compression).
+    """Entfernt ALLE Collapsible-Blöcke und liefert die sichtbare Antwort.
 
-    Supports two formats:
-    1. <think>...</think> (DeepSeek/Qwen3 style)
-    2. <|channel|>analysis<|message|>...<|end|> (GPT-OSS Harmony style)
+    Alles, was im UI hinter einem Collapsible versteckt ist, gehört nicht zur
+    sichtbaren Antwort — also strippen wir es für History-Compression, Titel-
+    Generierung, Intent-Klassifikation und Klartext-Extraktion.
 
-    These blocks contain:
-    - DeepSeek Reasoning (thinking process)
-    - GPT-OSS Harmony analysis channel
-    - Vision-LLM JSON (structured extraction)
-
-    Args:
-        text: Text with potential thinking blocks
-
-    Returns:
-        Text without thinking blocks
+    SSoT: Die Tag-Liste kommt aus ``get_xml_tag_config`` (think, analysis, data,
+    python, code, sql, json, vlm_output, image_descriptions, …) — derselbe
+    Single Source of Truth wie der Renderer (format_thinking_process) und das
+    TTS-Strippen (_collapsible_tags). Ein neuer Collapsible-Typ wird dort EINMAL
+    eingetragen und überall mitbehandelt. Zusätzlich: die GPT-OSS-Harmony-
+    ``analysis``-Variante (anderer Syntax) und die gerenderte ``<details>``-Form.
     """
     import re
+    from .config import get_xml_tag_config
     from .formatting import fix_orphan_closing_think_tag
     # Repair orphaned </think> (without <think>) before stripping
     text = fix_orphan_closing_think_tag(text)
-    # Remove <think>...</think> blocks (non-greedy, multi-line)
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    # Remove GPT-OSS Harmony analysis channel: <|channel|>analysis<|message|>...<|end|>
+    # GPT-OSS Harmony analysis channel: <|channel|>analysis<|message|>...<|end|>
     text = re.sub(r'<\|channel\|>analysis<\|message\|>.*?<\|end\|>', '', text, flags=re.DOTALL)
+    # Alle konfigurierten Collapsible-Tags + die gerenderte <details>-Form.
+    for tag in list(get_xml_tag_config().keys()) + ["details"]:
+        text = re.sub(rf'<{tag}\b[^>]*>.*?</{tag}>', '', text, flags=re.DOTALL)
     return text.strip()
 
 
