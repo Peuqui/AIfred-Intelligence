@@ -224,10 +224,13 @@ class VisionPlugin:
                 "Du kannst über die `vision_*`-Tools auf angeschlossene "
                 "Webcams/Kameras zugreifen, Fotos machen, Bilder per VLM "
                 "beschreiben lassen, Gesichter merken (Enrollment) und eine "
-                "dauerhafte Überwachung starten. Quellen werden über "
-                "stabile IDs wie `cam/v4l2_0` adressiert — `vision_list_sources` "
-                "liefert das Mapping. Wenn nichts gefunden wird, schlage "
-                "`vision_rescan_sources` vor (z.B. nach Anschluss einer Webcam).\n\n"
+                "dauerhafte Überwachung starten. Quellen werden über stabile, "
+                "gerätegebundene IDs adressiert. RATE eine `source_id` NIE und "
+                "tippe sie nicht aus dem Gedächtnis — hol sie aus "
+                "`vision_list_sources` oder aus einem vorherigen Tool-Ergebnis, "
+                "oder lass `source_id` ganz weg, um über ALLE Kameras zu suchen. "
+                "Wenn nichts gefunden wird, schlage `vision_rescan_sources` vor "
+                "(z.B. nach Anschluss einer Webcam).\n\n"
                 "WICHTIG — Aufnehmen und Analysieren sind getrennt: "
                 "`vision_snapshot` nimmt auf und gibt `image_url`(s) plus "
                 "`source_id` zurück, analysiert aber NICHT. `vision_analyze` "
@@ -257,10 +260,12 @@ class VisionPlugin:
         return (
             "You can access connected webcams/cameras via the `vision_*` "
             "tools: take snapshots, ask a VLM to describe them, enroll "
-            "faces, and start a persistent watch. Sources are addressed "
-            "via stable IDs like `cam/v4l2_0` — `vision_list_sources` "
-            "returns the mapping. If nothing is found, suggest "
-            "`vision_rescan_sources` (e.g. after plugging in a webcam).\n\n"
+            "faces, and start a persistent watch. Sources are addressed via "
+            "stable, device-bound IDs. NEVER guess a `source_id` or type one "
+            "from memory — get it from `vision_list_sources` or a prior tool "
+            "result, or omit `source_id` entirely to search ALL cameras. If "
+            "nothing is found, suggest `vision_rescan_sources` (e.g. after "
+            "plugging in a webcam).\n\n"
             "IMPORTANT — capture and analysis are separate: `vision_snapshot` "
             "captures and returns `image_url`(s) plus `source_id`, but does NOT "
             "analyse. `vision_analyze` captures NOTHING — give it the "
@@ -950,7 +955,16 @@ class VisionPlugin:
             parameters={
                 "type": "object",
                 "properties": {
-                    "source_id": {"type": "string"},
+                    "source_id": {
+                        "type": "string",
+                        "description": (
+                            "OPTIONAL camera filter. Omit to search ALL "
+                            "cameras (the usual case). If you set it, use an "
+                            "EXACT id from vision_list_sources or a prior tool "
+                            "result — never a guessed/remembered id, or you'll "
+                            "silently get zero results."
+                        ),
+                    },
                     "event_type": {
                         "type": "string",
                         "description": (
