@@ -429,17 +429,31 @@ async def run_llm_stream(
         shown_urls = [
             u for _alt, u in re.findall(r"!\[([^\]]*)\]\(([^)]+)\)", full_response)
         ]
+        # Akzent-Orange aus dem Theme (SSoT), nicht hardcoden.
+        try:
+            from ..theme import COLORS
+            _orange = COLORS.get("primary", "#e67700")
+        except Exception:  # noqa: BLE001
+            _orange = "#e67700"
+        # Trennlinie zwischen den Einträgen im Lieblingsorange.
+        sep = (
+            f'<hr style="border:none;border-top:1px solid {_orange};'
+            'opacity:0.6;margin:0.7em 0">'
+        )
         seen_urls: set[str] = set()
         entries: list[str] = []
         for u in shown_urls:
             if u in event_descriptions and u not in seen_urls:
                 seen_urls.add(u)
                 label, desc = event_descriptions[u]
-                entries.append(f"{label}\n{desc}" if label else desc)
+                head = (
+                    f'<b style="color:{_orange}">{label}</b><br>\n' if label else ""
+                )
+                entries.append(f"{head}{desc}")
         if entries:
             full_response = (
                 "<image_descriptions>\n"
-                + "\n\n".join(entries)
+                + ("\n" + sep + "\n").join(entries)
                 + "\n</image_descriptions>"
                 + full_response
             )

@@ -190,8 +190,14 @@ def strip_thinking_blocks(text: str) -> str:
     python, code, sql, json, vlm_output, image_descriptions, …) — derselbe
     Single Source of Truth wie der Renderer (format_thinking_process) und das
     TTS-Strippen (_collapsible_tags). Ein neuer Collapsible-Typ wird dort EINMAL
-    eingetragen und überall mitbehandelt. Zusätzlich: die GPT-OSS-Harmony-
-    ``analysis``-Variante (anderer Syntax) und die gerenderte ``<details>``-Form.
+    eingetragen und überall mitbehandelt. Plus die GPT-OSS-Harmony-``analysis``-
+    Variante (anderer Syntax).
+
+    WICHTIG — NICHT die gerenderte ``<details>``-Form strippen: Diese Funktion
+    wird teils auf bereits gerenderte Nachrichten angewandt (z.B. _chat_mixin,
+    vision_utils). Würde sie ``<details>`` entfernen, killte sie die fertigen
+    Collapsibles (Denkprozess etc.) in der Bubble. Wir strippen nur die ROHEN
+    Tags vor dem Rendern.
     """
     import re
     from .config import get_xml_tag_config
@@ -200,8 +206,8 @@ def strip_thinking_blocks(text: str) -> str:
     text = fix_orphan_closing_think_tag(text)
     # GPT-OSS Harmony analysis channel: <|channel|>analysis<|message|>...<|end|>
     text = re.sub(r'<\|channel\|>analysis<\|message\|>.*?<\|end\|>', '', text, flags=re.DOTALL)
-    # Alle konfigurierten Collapsible-Tags + die gerenderte <details>-Form.
-    for tag in list(get_xml_tag_config().keys()) + ["details"]:
+    # Alle konfigurierten Collapsible-Tags (ROH, vor dem Rendern) — NICHT details.
+    for tag in get_xml_tag_config().keys():
         text = re.sub(rf'<{tag}\b[^>]*>.*?</{tag}>', '', text, flags=re.DOTALL)
     return text.strip()
 
