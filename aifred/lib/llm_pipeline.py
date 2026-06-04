@@ -192,6 +192,10 @@ async def run_llm_stream(
     # image_url — die Pipeline pinnt das gewählte Bild im Post-Processing.
     analyze_image: Optional[tuple[str, str]] = None   # (url, alt)
     snapshot_image: Optional[tuple[str, str]] = None  # (url, alt)
+    # image_url → (label, VLM-Beschreibung) aus vision_query_events. Wird im
+    # Post-Processing als <image_descriptions>-Collapsible über die tatsächlich
+    # gezeigten Event-Bilder gehängt.
+    event_descriptions: dict[str, tuple[str, str]] = {}
 
     # Select stream source: with or without retry
     if retry:
@@ -333,6 +337,29 @@ async def run_llm_stream(
                 except (ValueError, json.JSONDecodeError):
                     pass
 
+            # vision_query_events: VLM-Beschreibung je Event einsammeln, damit
+            # das Post-Processing sie als Collapsible über die gezeigten Bilder
+            # hängt (image_url → (Label, Beschreibung)).
+            if result_text and '"events"' in result_text and '"image_url"' in result_text:
+                try:
+                    parsed = json.loads(result_text)
+                    for ev in (parsed.get("events") or []):
+                        if not isinstance(ev, dict):
+                            continue
+                        url = str(ev.get("image_url") or "").strip()
+                        desc = str(
+                            (ev.get("classification") or {}).get("description") or ""
+                        ).strip()
+                        if not url or not desc:
+                            continue
+                        name = str(ev.get("source_name") or ev.get("source_id") or "")
+                        ts = str(ev.get("timestamp") or "")
+                        tlabel = ts[11:16] if len(ts) >= 16 else ts
+                        label = " · ".join(p for p in (name, tlabel) if p)
+                        event_descriptions[url] = (label, desc)
+                except (ValueError, json.JSONDecodeError):
+                    pass
+
             # Update last URL success status
             if fetched_urls and fetched_urls[-1]["success"] is None:
                 fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
@@ -392,6 +419,30 @@ async def run_llm_stream(
     # die Dublette — pro URL bleibt nur das erste ![...](url) stehen.
     if injected_image_urls:
         full_response = _dedup_injected_images(full_response, injected_image_urls)
+
+    # Original-VLM-Beschreibungen der TATSÄCHLICH gezeigten Event-Bilder als
+    # Collapsible oben in die Bubble hängen, je mit Bildname davor. Als
+    # <image_descriptions>-Tag — wird wie think/vlm_output generisch zum
+    # Collapsible gerendert (SSoT get_xml_tag_config), aus dem Klartext gestript
+    # und vom TTS nicht vorgelesen.
+    if event_descriptions:
+        shown_urls = [
+            u for _alt, u in re.findall(r"!\[([^\]]*)\]\(([^)]+)\)", full_response)
+        ]
+        seen_urls: set[str] = set()
+        entries: list[str] = []
+        for u in shown_urls:
+            if u in event_descriptions and u not in seen_urls:
+                seen_urls.add(u)
+                label, desc = event_descriptions[u]
+                entries.append(f"{label}\n{desc}" if label else desc)
+        if entries:
+            full_response = (
+                "<image_descriptions>\n"
+                + "\n\n".join(entries)
+                + "\n</image_descriptions>"
+                + full_response
+            )
 
     # Thinking blocks
     text_clean = strip_thinking_blocks(full_response) if full_response else ""
