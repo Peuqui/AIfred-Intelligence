@@ -75,6 +75,25 @@ def _dedup_injected_images(text: str, urls: list[str]) -> str:
     return text
 
 
+def _normalize_image_urls(text: str) -> str:
+    """Erzwingt den absoluten Serving-Pfad für eingebettete Bilder. Das LLM
+    lässt beim Abtippen einer Bild-URL gelegentlich den führenden Slash weg
+    (``_upload/…`` statt ``/_upload/…``). Eine relative URL löst der Browser
+    gegen den aktuellen Seitenpfad auf und bricht nach einem Reload (→ 404,
+    z.B. ``/aifred/_upload/…``). Wir setzen den Slash für den bekannten
+    Serving-Prefix ``_upload/`` in Markdown-Bildern deterministisch zurück,
+    damit die Anzeige nicht von fehlerfreiem LLM-Kopieren abhängt.
+
+    Außerdem werden Platzhalter-Bilder entfernt, die das LLM gelegentlich
+    wörtlich aus der Anleitung übernimmt (z.B. ``![Kamera HH:MM](image_url)``):
+    eine echte Serving-URL enthält immer einen Slash; eine ohne ist bogus und
+    rendert als kaputtes Bild."""
+    text = re.sub(r"(!\[[^\]]*\]\()_upload/", r"\1/_upload/", text)
+    # Markdown-Bilder mit slash-loser (= unechter) URL streichen.
+    text = re.sub(r"!\[[^\]]*\]\([^)/\n]*\)", "", text)
+    return text
+
+
 
 
 async def chat_stream_with_retry(
@@ -353,6 +372,9 @@ async def run_llm_stream(
 
     # Strip fallback tool-call JSON from response text
     full_response = strip_tool_json(full_response)
+    # Bild-URLs absolut machen (LLM lässt den führenden Slash mal weg) — sonst
+    # bricht das Bild nach einem Tab-Reload (relative URL → 404).
+    full_response = _normalize_image_urls(full_response)
 
     # Genau EIN Vision-Bild pro Turn ganz oben pinnen (analyze vor snapshot).
     # So erscheint bei kombiniertem „Foto + Analyse" nicht dasselbe Motiv
