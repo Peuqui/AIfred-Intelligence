@@ -22,11 +22,12 @@
   button:hover { border-color:var(--accent); }
   button.primary { background:#3d2a00; color:var(--accent); border-color:var(--accent); font-weight:600; }
   .hint { font-size:12px; color:var(--muted); margin-top:4px; }
-  /* Responsiv: skaliert mit der Fensterbreite, aber nie über die native
-     Auflösung hinaus (max 100%). Die interne Canvas-Auflösung bleibt fix;
-     evtPos() rechnet die Mauskoordinaten über getBoundingClientRect um, das
-     Malen bleibt also bei jeder Anzeigegröße exakt. */
-  #stage { position:relative; display:block; width:100%; max-width:900px; border:1px solid var(--border); border-radius:8px; overflow:hidden; line-height:0; background:#000; }
+  /* Responsiv: die Stage-Breite wird in JS (fitStage) so gesetzt, dass das
+     Bild den verfügbaren Fensterplatz füllt — Breite UND Höhe, mit erhaltenem
+     Seitenverhältnis. Die interne Canvas-Auflösung bleibt fix; evtPos() rechnet
+     die Mauskoordinaten über getBoundingClientRect um, das Malen bleibt also
+     bei jeder Anzeigegröße exakt. */
+  #stage { position:relative; display:block; width:100%; border:1px solid var(--border); border-radius:8px; overflow:hidden; line-height:0; background:#000; }
   #live { display:block; width:100%; height:auto; }
   #cv { position:absolute; top:0; left:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
   #status { margin-top:10px; font-size:13px; min-height:18px; }
@@ -323,6 +324,29 @@
     live.width = w; live.height = h;
   }
 
+  // Display-Größe der Stage so setzen, dass das Bild den verfügbaren
+  // Fensterplatz füllt — limitiert durch Breite UND Höhe, damit nie
+  // gescrollt werden muss und das Seitenverhältnis erhalten bleibt. Die
+  // interne Canvas-Auflösung (sizeStage) bleibt davon unberührt.
+  const stage = document.getElementById("stage");
+  function fitStage() {
+    const ar = (imgReady && img.naturalWidth)
+      ? img.naturalHeight / img.naturalWidth : 9 / 16;
+    const wrap = document.querySelector(".wrap");
+    const cs = getComputedStyle(wrap);
+    const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    const availW = wrap.clientWidth - padX;
+    // Höhe ab der Stage-Oberkante bis zum Fensterrand, minus Platz für die
+    // Status-Zeile darunter. Die Stage-Oberkante hängt nur von den
+    // Controls darüber ab (volle Breite), nicht von der Stage-Breite —
+    // daher kein Zirkelbezug beim Setzen der Breite.
+    const top = stage.getBoundingClientRect().top;
+    const availH = window.innerHeight - top - 48;
+    let w = availW, h = w * ar;
+    if (h > availH) { h = availH; w = h / ar; }
+    stage.style.width = Math.max(160, Math.round(w)) + "px";
+  }
+
   function loadImage() {
     setStatus(tr("zone_editor_loading"), "");
     img = new Image();
@@ -333,6 +357,7 @@
       updateGridLabel();
       if (!mask.length || mask.length !== rows) newMask();
       live.src = streamUrl();
+      fitStage();
       render();
       setStatus(tr("zone_editor_live"));
     };
@@ -343,6 +368,7 @@
       recomputeRows();
       updateGridLabel();
       if (!mask.length) newMask();
+      fitStage();
       render();
       setStatus(tr("zone_editor_offline"), "err");
     };
@@ -474,6 +500,7 @@
   if (!sourceId) { setStatus(tr("zone_editor_no_source"), "err"); return; }
   brushValEl.textContent = brushEl.value;
   updateGridLabel();
+  window.addEventListener("resize", fitStage);
   loadMotionMin();
   loadExisting().then(loadImage);
 })();
