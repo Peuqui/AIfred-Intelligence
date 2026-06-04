@@ -12,7 +12,10 @@ auf den Bus gehen.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
+import os
+import struct
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +43,73 @@ _JPEG_QUALITY = 90
 # FOURCC-Codes der Cams die nativ schon MJPEG liefern — dann reichen
 # wir die Bytes 1:1 durch ans Frontend (kein Decode→Reencode).
 _NATIVE_JPEG_FOURCCS = frozenset({"JPEG", "MJPG"})
+
+
+# VIDIOC_ENUM_FRAMESIZES = _IOWR('V', 74, struct v4l2_frmsizeenum[44 bytes]).
+# Damit lassen sich die unterstützten Auflösungen über einen reinen
+# Metadaten-Ioctl auslesen — OHNE die Kamera für Capture zu greifen. Das
+# funktioniert parallel zu einem laufenden Watcher/Stream (der einzige
+# Reader-Konflikt entsteht erst beim Streaming, nicht beim Enum), während
+# cv2.VideoCapture-Probing an einer belegten Cam scheitert.
+_VIDIOC_ENUM_FRAMESIZES = 0xC02C564A
+_V4L2_FRMSIZE_DISCRETE = 1
+# Formate, deren Frame-Größen wir abfragen. MJPG zuerst — dort liegen bei
+# UVC-Cams die hohen Auflösungen (4K), YUYV ist bandbreitenbegrenzt.
+_PROBE_FOURCCS = ("MJPG", "YUYV")
+
+
+def _v4l2_fourcc(code: str) -> int:
+    return (
+        ord(code[0]) | (ord(code[1]) << 8)
+        | (ord(code[2]) << 16) | (ord(code[3]) << 24)
+    )
+
+
+# MJPG als FOURCC-Int (identisch zu cv2.VideoWriter_fourcc('M','J','P','G'),
+# aber ohne den fehlenden cv2-Type-Stub). Vor dem Setzen einer hohen
+# Auflösung an cap.set(CAP_PROP_FOURCC, …) übergeben.
+_MJPG_FOURCC = _v4l2_fourcc("MJPG")
+
+
+def _enum_frame_sizes(index: int) -> list[tuple[int, int]]:
+    """Unterstützte (width, height)-Modi via VIDIOC_ENUM_FRAMESIZES.
+
+    Öffnet ``/dev/videoN`` nur für Metadaten (kein Capture) und iteriert
+    die diskreten Frame-Größen je Pixelformat. Funktioniert auch während
+    der Watcher die Kamera streamt. Liefert ``[]`` wenn das Gerät nicht
+    geöffnet werden kann oder keine diskreten Größen meldet (z.B. exotische
+    Treiber mit stepwise-Größen)."""
+    path = f"/dev/video{index}"
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+    except OSError:
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
+            return []
+    sizes: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    try:
+        for fmt in _PROBE_FOURCCS:
+            pixfmt = _v4l2_fourcc(fmt)
+            for i in range(64):
+                # struct v4l2_frmsizeenum: index, pixel_format, type (3×u32),
+                # union (24 B), reserved[2] (8 B) = 44 B.
+                buf = struct.pack("III24x8x", i, pixfmt, 0)
+                try:
+                    res = fcntl.ioctl(fd, _VIDIOC_ENUM_FRAMESIZES, buf)
+                except OSError:
+                    break  # EINVAL = keine weiteren Größen für dieses Format
+                _idx, _pf, frmtype = struct.unpack_from("III", res, 0)
+                if frmtype != _V4L2_FRMSIZE_DISCRETE:
+                    break  # stepwise/continuous — überspringen
+                w, h = struct.unpack_from("II", res, 12)
+                if (w, h) not in seen:
+                    seen.add((w, h))
+                    sizes.append((int(w), int(h)))
+    finally:
+        os.close(fd)
+    return sorted(sizes)
 
 
 def _fourcc_str(cap: cv2.VideoCapture) -> str:
@@ -243,48 +313,20 @@ class V4L2Source:
         return _can_capture(self.index)
 
     def detect_resolutions(self) -> list[tuple[int, int]]:
-        """Return the list of (width, height) modes the V4L2 driver honours.
+        """Return the list of (width, height) modes the camera supports.
 
-        Probes a fixed set of common webcam resolutions; cv2 silently
-        clamps to its nearest supported mode when an unsupported size is
-        requested, so we compare the reported back-value with the
-        requested one. Result is cached on the instance — call once per
-        process per source.
+        Reads the driver's frame-size list via the VIDIOC_ENUM_FRAMESIZES
+        ioctl (metadata only, no capture) — so it works even while the
+        Watcher/preview is streaming the device, and reports the EXACT
+        modes the hardware advertises instead of cv2-probe guesswork. Union
+        of MJPG + YUYV. Result cached on the instance.
 
-        Returns an empty list if the device can't be opened (e.g. cam
-        disconnected during the probe).
-        """
+        Returns an empty list if the device can't be queried (e.g. cam
+        disconnected, or a driver that only reports stepwise sizes)."""
         if self._supported_resolutions is not None:
             return list(self._supported_resolutions)
-        probe_set = [
-            (320, 240),
-            (640, 480),
-            (800, 600),
-            (1024, 768),
-            (1280, 720),
-            (1280, 960),
-            (1600, 1200),
-            (1920, 1080),
-            (2560, 1440),
-            (3840, 2160),
-        ]
-        cap = cv2.VideoCapture(self.index, cv2.CAP_V4L2)
-        try:
-            if not cap.isOpened():
-                self._supported_resolutions = []
-                return []
-            supported: list[tuple[int, int]] = []
-            for w, h in probe_set:
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(w))
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(h))
-                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                if (actual_w, actual_h) == (w, h):
-                    supported.append((w, h))
-            self._supported_resolutions = supported
-            return list(supported)
-        finally:
-            cap.release()
+        self._supported_resolutions = _enum_frame_sizes(self.index)
+        return list(self._supported_resolutions)
 
     def info(self) -> SourceInfo:
         # Race-Schutz: Wenn wir gerade streamen, würde cv2.VideoCapture
@@ -393,6 +435,13 @@ class V4L2Source:
             cap = await _open_capture_with_retry(self.index)
             try:
                 if width > 0 and height > 0:
+                    # MJPG vor der Auflösung setzen: hohe Modi (z.B. 4K) gibt
+                    # es bei UVC-Cams nur im MJPG-Format, YUYV ist bandbreiten-
+                    # begrenzt und klemmt sonst auf eine niedrige Auflösung.
+                    # Bei Cams ohne MJPG ist das ein No-op (Format bleibt).
+                    await asyncio.to_thread(
+                        cap.set, cv2.CAP_PROP_FOURCC, float(_MJPG_FOURCC),
+                    )
                     await asyncio.to_thread(
                         cap.set, cv2.CAP_PROP_FRAME_WIDTH, float(width)
                     )
@@ -461,6 +510,8 @@ class V4L2Source:
                     f"Cannot open {self.source_id} (/dev/video{self.index})"
                 )
             if width > 0 and height > 0:
+                # MJPG vor der Auflösung (hohe Modi nur im MJPG-Format).
+                cap.set(cv2.CAP_PROP_FOURCC, float(_MJPG_FOURCC))
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(width))
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(height))
             native_jpeg = _configure_native_jpeg(cap)
