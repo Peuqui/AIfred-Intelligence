@@ -377,6 +377,15 @@ class VisionWatcher:
         self._detectors[source_id] = motion
         hub = get_default_hub()
 
+        # Persistierte Per-Source-Auflösung anwenden (SSoT mit den HTTP-
+        # Endpoints). Ohne das fordert der Watcher keine Auflösung an → der
+        # FrameHub läuft auf Treiber-Default (z.B. 640×480 4:3), und die
+        # gespeicherten Event-Frames hätten ein anderes Seitenverhältnis als
+        # die im UI gewählte Auflösung. (0,0) = Treiber-Default, falls nichts
+        # gesetzt ist.
+        from .vision_utils import resolve_source_resolution
+        cap_w, cap_h = resolve_source_resolution(source_id)
+
         # Shared state zwischen consumer + vlm-cycle. asyncio ist
         # single-threaded — Dict-Writes sind atomar.
         latest: dict[str, Any] = {"frame": None, "seq": 0}
@@ -386,6 +395,7 @@ class VisionWatcher:
             seq = 0
             async for frame in hub.subscribe(
                 source, name="watcher", fps=config.fps,
+                width=cap_w, height=cap_h,
             ):
                 seq += 1
                 latest["frame"] = frame
