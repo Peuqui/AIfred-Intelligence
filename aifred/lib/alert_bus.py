@@ -173,15 +173,62 @@ def _format(ev: AlertEvent) -> str:
     return ev.title or ev.body
 
 
-async def _compose_via_llm(ev: AlertEvent) -> str | None:
+async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
+    """Beschreibt den Alert-Frame (``ev.media``) mit dem aktiven VLM und
+    returnt eine kurze Szenenbeschreibung — oder ``None`` bei Fehlschlag
+    (kein Frame, Modell nicht geladen, leere Antwort). Einzelbild über den
+    geteilten VLM-Pfad (``analyze_sequence`` → Downscale auf
+    VISION_VLM_MAX_PIXELS). Stellt das Kamera-Briefing (``prompt_context``)
+    als Kontext voran, damit das VLM weiß, worauf die Kamera blickt."""
+    if not ev.media:
+        return None
+    from pathlib import Path
+    frame_file = Path(ev.media)
+    if not frame_file.exists():
+        return None
+    try:
+        from datetime import datetime as _dt
+        from .frame_sources import Frame
+        from .prompt_loader import get_vision_event_single_prompt
+        from .vision_analyzer import analyze_sequence
+        from .vision_prewarm import get_active_vlm_model
+        from .vision_store import VisionStore
+
+        model = get_active_vlm_model()
+        if not model:
+            return None
+        prompt = get_vision_event_single_prompt().strip()
+        rec = VisionStore().get_source(ev.source_id) if ev.source_id else None
+        briefing = str((rec or {}).get("prompt_context") or "").strip()
+        if briefing:
+            prompt = f"{briefing}\n\n{prompt}"
+        frame = Frame(
+            source_id=ev.source_id or "",
+            timestamp=ev.timestamp or _dt.now(),
+            image_bytes=frame_file.read_bytes(),
+        )
+        result = await analyze_sequence([frame], prompt, model=str(model))
+        desc = (result.text or "").strip()
+        return desc or None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("alert: VLM describe failed for %s: %s", ev.source_id, e)
+        return None
+
+
+async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | None:
     """AIfred formuliert den Alert via ``process_inbound`` — das legt
     gleichzeitig die Browser-Session an. Returnt den Text oder None bei
-    Fehlschlag (Caller fällt dann aufs Template zurück)."""
+    Fehlschlag (Caller fällt dann aufs Template zurück).
+
+    ``extra_context``: optionale VLM-Bildbeschreibung, die AIfred als
+    zusätzlichen Kontext mitbekommt (compose-Modus ``vlm+llm``)."""
     from datetime import datetime as _dt
     from .envelope import InboundMessage
     from .message_processor import process_inbound
 
     prompt = f"[{ev.producer}] {ev.title} — {ev.body}".strip(" —")
+    if extra_context:
+        prompt = f"{prompt}\n\nBildbeschreibung (VLM): {extra_context}"
     msg = InboundMessage(
         channel=ev.producer,
         channel_id=ev.source_id or ev.producer,
@@ -207,19 +254,33 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         resolve_announce_targets,
     )
 
-    mode = rule.compose or ALERT_COMPOSE_DEFAULT
+    mode = (rule.compose or ALERT_COMPOSE_DEFAULT).lower()
     text = _format(ev)
     recorded = False  # browser session already written?
 
-    if mode == "llm":
+    # VLM-Bildbeschreibung holen, wenn der Modus sie braucht ("vlm" oder
+    # "vlm+llm"). Läuft hier — NACH dem Dedup in emit() — also genau einmal
+    # pro Vorkommnis, nicht pro Frame.
+    vlm_desc: str | None = None
+    if "vlm" in mode:
+        vlm_desc = await _describe_media_via_vlm(ev)
+
+    if mode in ("llm", "vlm+llm"):
+        # AIfred-Pfad: formuliert den finalen Text, bei "vlm+llm" mit der
+        # VLM-Beschreibung als Kontext. process_inbound legt die Session an.
         try:
-            composed = await _compose_via_llm(ev)
+            composed = await _compose_via_llm(ev, extra_context=vlm_desc or "")
         except Exception as e:  # noqa: BLE001
             logger.warning("alert: LLM compose failed (%s) — template fallback", e)
             composed = None
         if composed:
             text = composed
             recorded = True  # process_inbound recorded the session itself
+    elif mode == "vlm":
+        # Reine VLM-Beschreibung in den Body. Bei leerer VLM-Antwort bleibt
+        # der Template-Text (gleiches Degradations-Muster wie bei "llm").
+        if vlm_desc:
+            text = f"{ev.title}\n{vlm_desc}\n{ev.body}".strip()
 
     if not recorded:
         try:

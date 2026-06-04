@@ -36,10 +36,18 @@ def _vigilantia_armed() -> bool:
 
 
 def _source_alias(source_id: str, store: Any) -> str:
+    """Anzeigename der Kamera für den Alert — der vom User vergebene Alias
+    ("Büro") hat Vorrang vor dem Hardware-Namen ("Image+ UGREEN Camera 4K"),
+    weil der den Standort verrät statt nur den Kameratyp (gleiche Reihenfolge
+    wie im UI-Label). Fällt zurück auf display_name, dann source_id."""
     try:
         rec = store.get_source(source_id) if store else None
-        if rec and rec.get("display_name"):
-            return str(rec["display_name"])
+        if rec:
+            alias = str((rec.get("settings") or {}).get("alias") or "").strip()
+            if alias:
+                return alias
+            if rec.get("display_name"):
+                return str(rec["display_name"])
     except Exception:  # noqa: BLE001
         pass
     return source_id
