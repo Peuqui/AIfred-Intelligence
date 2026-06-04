@@ -54,47 +54,101 @@ def _fourcc_str(cap: cv2.VideoCapture) -> str:
     )
 
 
-def _resolve_usb_product_name(sysfs_entry: Path) -> str | None:
-    """Walk the device symlink upwards to find the USB ``product`` /
-    ``manufacturer`` attributes. UVC drivers report a nice product name
-    via the v4l2 ``name`` file, but gspca + other legacy drivers expose
-    only the driver name ("gspca main driver"). For those we fall back
-    to the USB product label, which is usually meaningful enough
-    ("USB Camera", "OmniVision …") and lets the user identify the
-    physical device.
+def _sanitize_id_part(raw: str) -> str:
+    """Lowercase + collapse anything non-alphanumeric to single underscores.
+    Used to build stable, filesystem-/key-safe source-id fragments from USB
+    strings (manufacturer, product, serial, port)."""
+    out = []
+    prev_us = False
+    for ch in raw.strip().lower():
+        if ch.isalnum():
+            out.append(ch)
+            prev_us = False
+        elif not prev_us:
+            out.append("_")
+            prev_us = True
+    return "".join(out).strip("_")
+
+
+def _is_usable_serial(serial: str) -> bool:
+    """A USB serial is only useful as an identity anchor if it's non-empty
+    and not an all-zero/placeholder string. Many cheap cams report ``0`` /
+    ``00000000`` (or no serial descriptor at all → empty)."""
+    s = serial.strip()
+    return bool(s) and set(s) != {"0"}
+
+
+def _resolve_device_identity(sysfs_entry: Path) -> tuple[str | None, str | None]:
+    """Walk the device symlink upwards to the USB *device* node and derive
+    a human name + a STABLE identity key for the physical camera.
+
+    Returns ``(display_name, stable_key)``:
+
+    - ``display_name``: ``"<manufacturer> <product>"`` (e.g. "Image+ UGREEN
+      Camera 4K"), falling back to the product label alone. UVC reports a
+      nice name; gspca legacy cams expose only "USB Camera" but that still
+      beats "V4L2 videoN".
+    - ``stable_key``: ``"cam/<mfr>_<product>_<serial>"`` when the device
+      reports a usable serial (→ identity follows the physical camera across
+      ports). When there is NO serial (e.g. the gspca Hercules, which reports
+      SerialNumber=0), we fall back to the USB *port path* instead:
+      ``"cam/<mfr>_<product>_port_<bus-port>"`` — stable as long as the cam
+      stays in the same physical USB port. Two identical serial-less cams are
+      thus distinguished by port, never silently merged.
+
+    Both ``None`` if no USB device node is found (non-USB / odd topology) —
+    the caller then keeps the index-based id as a last resort.
     """
     try:
         device_real = (sysfs_entry / "device").resolve()
     except OSError:
-        return None
-    # device_real points to the USB *interface* (e.g. ``1-2:1.0``);
-    # walk up at most three parents to find one with a ``product`` file
-    # (the USB device node, e.g. ``1-2``).
+        return None, None
+
+    def _read(node: Path, name: str) -> str:
+        f = node / name
+        try:
+            return f.read_text(encoding="utf-8").strip() if f.exists() else ""
+        except OSError:
+            return ""
+
+    # device_real points to the USB *interface* (e.g. ``1-2:1.0``); walk up
+    # to the USB *device* node (e.g. ``1-2``), identified by the presence of
+    # ``idVendor`` (every USB device node has it).
     candidate: Path = device_real
-    for _ in range(4):
-        product_file = candidate / "product"
-        if product_file.exists():
-            try:
-                product = product_file.read_text(encoding="utf-8").strip()
-            except OSError:
-                product = ""
-            manufacturer = ""
-            mfr_file = candidate / "manufacturer"
-            if mfr_file.exists():
-                try:
-                    manufacturer = mfr_file.read_text(encoding="utf-8").strip()
-                except OSError:
-                    manufacturer = ""
+    for _ in range(6):
+        if (candidate / "idVendor").exists():
+            manufacturer = _read(candidate, "manufacturer")
+            product = _read(candidate, "product")
+            serial = _read(candidate, "serial")
+            vid = _read(candidate, "idVendor")
+            pid = _read(candidate, "idProduct")
+            port = candidate.name  # e.g. "1-2" or "1-1.1" — physical USB port
+
             if manufacturer and product:
-                return f"{manufacturer} {product}"
-            return product or None
+                name: str | None = f"{manufacturer} {product}"
+            else:
+                name = product or None
+
+            device_part = _sanitize_id_part(f"{manufacturer} {product}") or \
+                _sanitize_id_part(f"{vid} {pid}") or "usb_cam"
+            if _is_usable_serial(serial):
+                unique = _sanitize_id_part(serial)
+            else:
+                unique = f"port_{_sanitize_id_part(port)}"
+            return name, f"cam/{device_part}_{unique}"
         candidate = candidate.parent
-    return None
+    return None, None
 
 
-def _enumerate_devices() -> list[tuple[int, str]]:
+def _enumerate_devices() -> list[tuple[int, str, str]]:
     """Find V4L2 video devices in /sys/class/video4linux/. Returns list of
-    ``(index, human_name)``.
+    ``(index, human_name, stable_key)``.
+
+    ``stable_key`` anchors the camera identity to the physical USB *device*
+    (serial, or USB port for serial-less cams) — NOT the ``/dev/videoN``
+    index. So swapping cameras on the same port no longer makes a new cam
+    inherit the old one's config. Falls back to the index-based id only when
+    no USB device node is resolvable.
 
     Name resolution priority:
     1. USB product/manufacturer from sysfs (works for gspca + UVC)
@@ -103,7 +157,7 @@ def _enumerate_devices() -> list[tuple[int, str]]:
     """
     if not _V4L2_SYSFS.exists():
         return []
-    devices: list[tuple[int, str]] = []
+    devices: list[tuple[int, str, str]] = []
     for entry in sorted(_V4L2_SYSFS.iterdir()):
         if not entry.name.startswith("video"):
             continue
@@ -113,9 +167,10 @@ def _enumerate_devices() -> list[tuple[int, str]]:
             continue
         if not (_V4L2_DEV_DIR / entry.name).exists():
             continue
-        # USB product name takes precedence — gives "Hercules Dualpix HD"
-        # rather than "gspca main driver" for legacy cams.
-        usb_name = _resolve_usb_product_name(entry)
+        # USB device identity takes precedence — gives a real product name
+        # ("UGREEN Camera 4K") + a serial/port-anchored stable id rather than
+        # "gspca main driver" / index-based ids for legacy cams.
+        usb_name, stable_key = _resolve_device_identity(entry)
         if usb_name:
             name = usb_name
         else:
@@ -125,7 +180,10 @@ def _enumerate_devices() -> list[tuple[int, str]]:
                 if name_file.exists()
                 else f"V4L2 video{idx}"
             )
-        devices.append((idx, name))
+        # Last-resort id when there's no resolvable USB device node.
+        if not stable_key:
+            stable_key = f"cam/v4l2_{idx}"
+        devices.append((idx, name, stable_key))
     return devices
 
 
@@ -154,9 +212,11 @@ class V4L2Source:
 
     kind: str = "webcam"
 
-    def __init__(self, index: int, display_name: str) -> None:
+    def __init__(self, index: int, display_name: str, source_id: str) -> None:
         self.index = index
-        self.source_id = f"cam/v4l2_{index}"
+        # Stable, device-anchored id (serial/port) from _enumerate_devices —
+        # NOT derived from the /dev index, so config follows the physical cam.
+        self.source_id = source_id
         self.display_name = display_name
         self._lock = asyncio.Lock()
         # Lazy-cached list of (width, height) modes the driver actually
@@ -538,7 +598,8 @@ def discover() -> None:
     ``rescan()`` at runtime when devices are hot-plugged.
     """
     unregister_kind("webcam")
-    for index, name in _enumerate_devices():
+    seen_keys: set[str] = set()
+    for index, name, stable_key in _enumerate_devices():
         try:
             if not _can_capture(index):
                 logger.debug(
@@ -548,9 +609,32 @@ def discover() -> None:
         except Exception as e:  # noqa: BLE001
             logger.warning("V4L2 probe failed for /dev/video%d: %s", index, e)
             continue
-        source = V4L2Source(index=index, display_name=name)
+        # Doppelknoten-Merge: ein physisches Gerät meldet oft mehrere
+        # /dev/videoN-Knoten (Capture + Metadata) unter DEMSELBEN stable_key.
+        # Nur den ersten capture-fähigen Knoten pro Gerät registrieren.
+        if stable_key in seen_keys:
+            logger.debug(
+                "V4L2 /dev/video%d is a secondary node of %s — skipping",
+                index, stable_key,
+            )
+            continue
+        seen_keys.add(stable_key)
+        source = V4L2Source(index=index, display_name=name, source_id=stable_key)
+        # Auflösungen JETZT erkennen, solange das Gerät frei ist (vor dem
+        # ersten Stream) und auf der Instanz cachen — sonst läuft der lazy
+        # Probe der Live-Vorschau WÄHREND des Streamens, scheitert (V4L2
+        # erlaubt nur einen Reader) und das Dropdown zeigt nur "Treiber-Default".
+        try:
+            source.detect_resolutions()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(
+                "resolution probe at discover failed for %s: %s", stable_key, e
+            )
         register(source)
-        logger.info("Registered V4L2 source: %s (%s)", source.source_id, name)
+        logger.info(
+            "Registered V4L2 source: %s (%s, /dev/video%d)",
+            source.source_id, name, index,
+        )
 
 
 # Initial discovery beim Modul-Import. No-op wenn keine Cams da sind.
