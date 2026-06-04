@@ -269,7 +269,7 @@ def _event_row(event: rx.Var, index: rx.Var) -> rx.Component:
             ),
         ),
         rx.text(
-            event["source_id"],
+            event["source_name"],
             size="1",
             color="gray",
             style={

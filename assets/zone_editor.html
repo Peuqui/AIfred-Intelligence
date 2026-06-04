@@ -126,7 +126,9 @@
 
   const params = new URLSearchParams(location.search);
   const sourceId = params.get("source_id") || "";
-  document.getElementById("srcLabel").textContent = sourceId;
+  // Kamera-Anzeigename (Alias) wird serverseitig injiziert; Fallback auf die
+  // rohe source_id, falls die Quelle (noch) nicht registriert ist.
+  document.getElementById("srcLabel").textContent = window.SRC_NAME || sourceId;
 
   const cv = document.getElementById("cv");
   const ctx = cv.getContext("2d");

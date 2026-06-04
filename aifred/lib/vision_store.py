@@ -222,6 +222,23 @@ class VisionStore:
             result.append(d)
         return result
 
+    @staticmethod
+    def source_label(rec: dict[str, Any]) -> str:
+        """SSoT für den Kamera-Anzeigenamen: User-Alias (settings.alias) vor
+        Hardware-Name (display_name), sonst source_id. Erwartet ein Source-
+        Record-Dict (settings bereits geparst, wie aus get_source/list_sources).
+        ALLE Stellen, die einen Kamera-Namen anzeigen, gehen hierüber."""
+        alias = str((rec.get("settings") or {}).get("alias") or "").strip()
+        return alias or str(rec.get("display_name") or rec.get("source_id") or "")
+
+    def source_labels(self) -> dict[str, str]:
+        """Map ``source_id`` → Anzeigename (via :meth:`source_label`). Eine
+        Query — zum Anreichern von Source-/Event-Listen ohne Per-Row-Lookup."""
+        return {
+            str(rec["source_id"]): self.source_label(rec)
+            for rec in self.list_sources()
+        }
+
     def delete_source(self, source_id: str) -> bool:
         with self._conn() as conn:
             cur = conn.execute(
@@ -612,6 +629,9 @@ class VisionStore:
         params.extend([limit, offset])
         with self._conn() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
+        # Kamera-Anzeigenamen über die SSoT-Map (source_label) anreichern —
+        # eine Query für alle Quellen, dann Dict-Lookup pro Event.
+        labels = self.source_labels()
         result: list[dict[str, Any]] = []
         for r in rows:
             try:
@@ -637,6 +657,7 @@ class VisionStore:
             result.append({
                 "id": int(r["id"]),
                 "source_id": str(r["source_id"]),
+                "source_name": labels.get(str(r["source_id"]), str(r["source_id"])),
                 "event_type": str(r["event_type"]),
                 "timestamp": ts_iso,
                 "date_display": date_display,

@@ -2294,7 +2294,7 @@ async def save_motion_min(payload: MotionMinPayload) -> SystemActionResponse:
 
 
 @api_app.get("/vision/zone-editor", tags=["Vision"])
-async def zone_editor_page() -> HTMLResponse:
+async def zone_editor_page(source_id: str = "") -> HTMLResponse:
     """Standalone JS-Canvas-Zonen-Editor (HTML). Über /api ausgeliefert,
     damit er unabhängig vom frontend_path-Prefix erreichbar ist; die
     source_id kommt als Query-Param (das JS liest sie aus location.search)."""
@@ -2308,6 +2308,15 @@ async def zone_editor_page() -> HTMLResponse:
         html = editor.read_text(encoding="utf-8")
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"editor missing: {e}") from e
+    # Kamera-Anzeigename (Alias > display_name > source_id) auflösen, damit
+    # der Header den Standort zeigt statt der rohen source_id.
+    src_name = ""
+    if source_id:
+        try:
+            from .vision_store import VisionStore
+            src_name = VisionStore().source_labels().get(source_id, "")
+        except Exception:  # noqa: BLE001
+            src_name = ""
     # Übersetzungen in der aktuellen UI-Sprache als window.T injizieren —
     # zentral aus i18n.py, kein Duplikat im JS. Scannt alle zone_editor_*-Keys.
     keys = [
@@ -2323,6 +2332,8 @@ async def zone_editor_page() -> HTMLResponse:
         + json.dumps({k: t(k) for k in keys}, ensure_ascii=False)
         + ";window.DEC="
         + json.dumps(decimal_sep)
+        + ";window.SRC_NAME="
+        + json.dumps(src_name, ensure_ascii=False)
         + ";</script>"
     )
     return HTMLResponse(

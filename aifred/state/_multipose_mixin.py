@@ -261,6 +261,13 @@ class MultiposeMixin(rx.State, mixin=True):
             logger.warning("multipose source listing failed: %s", e)
             self.multipose_source_options = []
             return
+        # User-Alias ("Büro") hat Vorrang vor dem Hardware-Namen — eine
+        # Query, SSoT für die Präzedenz im Store.
+        try:
+            from ..lib.vision_store import VisionStore
+            labels = VisionStore().source_labels()
+        except Exception:  # noqa: BLE001
+            labels = {}
         opts: list[dict[str, str]] = []
         available: list[str] = []
         for src in sources:
@@ -268,7 +275,7 @@ class MultiposeMixin(rx.State, mixin=True):
                 info = src.info()
             except Exception:  # noqa: BLE001
                 continue
-            label = info.display_name or info.source_id
+            label = labels.get(info.source_id) or info.display_name or info.source_id
             if not info.available:
                 label = f"{label}  ✗"
             opts.append({"value": info.source_id, "label": label})

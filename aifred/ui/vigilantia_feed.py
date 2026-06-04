@@ -83,7 +83,7 @@ def _feed_row(event: rx.Var) -> rx.Component:
         _feed_thumb(event),
         _feed_badge(event),
         rx.text(
-            event["source_id"],
+            event["source_name"],
             size="1",
             color="gray",
             style={"flex_shrink": "0"},
@@ -174,7 +174,7 @@ def _latest_event_card(event: rx.Var) -> rx.Component:
                     },
                 ),
                 rx.text(
-                    event["source_id"],
+                    event["source_name"],
                     size="1",
                     color="gray",
                     style={
