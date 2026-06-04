@@ -701,20 +701,43 @@ VLM_CALIBRATION_CHOICES: list[dict[str, str]] = [
 ]
 
 
+# Obergrenze für die Pixelzahl, mit der ein Frame ans VLM geht. Frames
+# werden vor dem VLM-Call auf höchstens so viele Gesamtpixel herunter-
+# skaliert (Seitenverhältnis erhalten); kleinere Bilder bleiben unberührt.
+#
+# WARUM: Das VLM beschreibt nur die Szene grob ("Person an der Tür, Garten")
+# — dafür reicht ~1 MP. Volle Sensor-Auflösung kostet bei dynamischen VLMs
+# (Qwen-VL skaliert ~linear mit den Pixeln) nur Vision-Tokens/VRAM/Latenz,
+# ohne die Beschreibung zu verbessern. Die Gesichtserkennung läuft komplett
+# SEPARAT auf dem Vollbild (eigener Pfad im Watcher, eigener Crop-Store) und
+# ist von diesem Downscale NICHT betroffen — Detailerkennung bleibt voll.
+#
+# Gemessen qwen3-vl-4b/Ollama: ~985 Vision-Tokens je MP (linear). 0,8 MP
+# (1193×671) ≈ 786 tk/Frame; bei VISION_DESCRIBE_MAX_FRAMES=10 also ~7.860
+# Token für Bilder + ~120 Prompt = ~7.983 (gemessen) → passt in 9216 ctx.
+# 0,8 statt 1,0 MP ist für die Szenenbeschreibung nicht unterscheidbar,
+# spart aber gerade so viel ctx, dass der KV-Cache-Zuwachs minimal bleibt.
+VISION_VLM_MAX_PIXELS = 800_000
+
 # Fixer ``num_ctx`` für ALLE VLM-Anfragen (Chat-Pfad + Vigilantia-
 # Pfad). Keine Calibration, kein Manual-Override — einfach ein
 # vernünftiger Wert, der für die typischen Vision-Use-Cases reicht.
 #
-# Token-Bedarf je Bild (qwen3-vl smart-resize):
-#   640×480 (VGA)         ~  768 Tokens
-#   1080p                  ~ 1280 Tokens
-#   4K resized 1 MP        ~ 1280 Tokens  (Default-max_pixels)
-#   Panorama 2:1 hi-res    ~ 2500–5000 Tokens
+# Token-Bedarf je Bild — gemessen für qwen3-vl-4b über Ollama, ~985 tk/MP
+# (dynamische Auflösung, ~linear mit den Pixeln; modell-/serving-spezifisch,
+# bei anderem VLM neu messen):
+#   0,6 MP   ~ 585 Tokens
+#   0,8 MP   ~ 786 Tokens  (VLM-Downscale-Ziel, siehe VISION_VLM_MAX_PIXELS)
+#   1,0 MP   ~ 975 Tokens
+#   1080p (2,07 MP, UN-skaliert)  ~ 2.045 Tokens
 #
-# 8192 deckt das alles ab plus System-Prompt + Antwort, hält das
-# KV-Cache-VRAM klein. Wer wirklich 4K-Bilder mit max_pixels > 2 MP
-# ausreizen will, setzt den Wert hier hoch (zentrale SSOT).
-VLM_NUM_CTX = 8192
+# Worst Case = VISION_DESCRIBE_MAX_FRAMES Keyframes (NICHT die Cluster-Größe;
+# der Cluster-Pfad sampelt immer max. so viele Keyframes, egal ob 8 oder 51
+# Frames im Cluster). 10 Frames @ 0,8 MP = ~7.983 Token Prompt (gemessen) +
+# Antwort → passt in 9216 mit Puffer. Das sind nur +1024 über dem alten 8192,
+# also minimaler KV-Cache-Zuwachs (~0,15 GB). Wer mehr Frames oder höheres
+# max_pixels fährt, schraubt hier hoch (SSOT). Bei Änderung VLM neu kalibrieren.
+VLM_NUM_CTX = 9216
 
 # ============================================================
 # DEBUG LOG PERSISTENCE
@@ -772,11 +795,14 @@ VISION_CLUSTER_MAX_SECONDS = 300
 # Cluster-Zeitspanne in so viele Zeit-Fächer geteilt und je Fach das Frame
 # mit der größten pHash-Differenz zum zuletzt gewählten genommen — regelmäßig
 # über die Zeit verteilt UND an den Änderungspunkten (Tür auf, Person tritt
-# ein). So sieht das VLM den Ablauf statt eines statischen Einzelbilds. 8
-# passt zu VLM_NUM_CTX=8192 (~ein paar hundert Vision-Tokens je Frame); mehr
-# Frames brauchen ein größeres num_ctx (VRAM + Latenz steigen, 4B-Qualität
-# sinkt über viele fast gleiche Bilder).
-VISION_DESCRIBE_MAX_FRAMES = 8
+# ein). So sieht das VLM den Ablauf statt eines statischen Einzelbilds.
+#
+# 10 ist der Sweet Spot für das 4B-VLM: genug zeitliche Auflösung (bei einem
+# durchgehenden ~1-min-Cluster ein Bild alle ~6 s), ohne dass die Qualität
+# über zu viele fast gleiche Bilder kippt (das kleine Modell verliert dann
+# den Faden / halluziniert Bewegung). 10 @ 0,8 MP passt in VLM_NUM_CTX=9216;
+# höher gehen heißt num_ctx mitziehen (siehe dort) und ggf. 8B-VLM.
+VISION_DESCRIBE_MAX_FRAMES = 10
 
 # ============================================================
 # PROAKTIVE ALERTS
