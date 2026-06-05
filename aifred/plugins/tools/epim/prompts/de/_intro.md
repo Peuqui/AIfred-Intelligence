@@ -17,10 +17,10 @@ NIEMALS behaupten etwas eingetragen zu haben ohne das Tool aufgerufen zu haben!
 
 ENTITY TYPES: tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees
 
-VERFUEGBARE KATEGORIEN: {epim_categories}
-VERFUEGBARE KALENDER: {epim_calendars}
-VERFUEGBARE TODO-LISTEN: {epim_todolists}
-VERFUEGBARE NOTIZBAEUME: {epim_notetrees}
+VERFUEGBARE KATEGORIEN: Keine, Dienst, Fortbildung, DH1MP, Geburtstage, Arzt, Hessische Ferien&Feiertage, Miguel, Célia, Eltern
+VERFUEGBARE KALENDER: Kalender 1
+VERFUEGBARE TODO-LISTEN: Liste 1, Allgemeine Liste, ToDo, Einkauf
+VERFUEGBARE NOTIZBAEUME: Baum 1, Einkaufen, Worte von Papa, Diako, ToDo, Spezial, Gottes Taten
 
 TASK-FELDER: title, start (YYYY-MM-DD HH:MM), end (YYYY-MM-DD HH:MM), location, allday, text, priority, tags, category (Name!), calendar (Name!)
 KONTAKT-FELDER: Vorname, Nachname, Telefon, Mobiltelefon, E-Mail, Adresse, Ort, PLZ, Firma, Webseite, Geburtstag
@@ -28,7 +28,7 @@ TODO-FELDER: title, start, end, priority, text, tags, list (Name!)
 NOTIZ-FELDER: title, text, tab_name, tree (Name!), tags
 
 DATUMSREFERENZ (die naechsten 7 Tage ab heute):
-{upcoming_week}
+Samstag 06.06.2026, Sonntag 07.06.2026, Montag 08.06.2026, Dienstag 09.06.2026, Mittwoch 10.06.2026, Donnerstag 11.06.2026, Freitag 12.06.2026
 Verwende diese Referenz um "morgen", "naechste Woche", "kommender Montag" korrekt aufzuloesen!
 
 WEITERE REGELN:

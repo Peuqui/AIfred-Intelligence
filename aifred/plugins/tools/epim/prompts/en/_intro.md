@@ -17,10 +17,10 @@ NEVER claim to have created something without actually calling the tool!
 
 ENTITY TYPES: tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees
 
-AVAILABLE CATEGORIES: {epim_categories}
-AVAILABLE CALENDARS: {epim_calendars}
-AVAILABLE TODO LISTS: {epim_todolists}
-AVAILABLE NOTE TREES: {epim_notetrees}
+AVAILABLE CATEGORIES: Keine, Dienst, Fortbildung, DH1MP, Geburtstage, Arzt, Hessische Ferien&Feiertage, Miguel, Célia, Eltern
+AVAILABLE CALENDARS: Kalender 1
+AVAILABLE TODO LISTS: Liste 1, Allgemeine Liste, ToDo, Einkauf
+AVAILABLE NOTE TREES: Baum 1, Einkaufen, Worte von Papa, Diako, ToDo, Spezial, Gottes Taten
 
 TASK FIELDS: title, start (YYYY-MM-DD HH:MM), end (YYYY-MM-DD HH:MM), location, allday, text, priority, tags, category (name!), calendar (name!)
 CONTACT FIELDS: Vorname, Nachname, Telefon, Mobiltelefon, E-Mail, Adresse, Ort, PLZ, Firma, Webseite, Geburtstag
@@ -28,7 +28,7 @@ TODO FIELDS: title, start, end, priority, text, tags, list (name!)
 NOTE FIELDS: title, text, tab_name, tree (name!), tags
 
 DATE REFERENCE (next 7 days from today):
-{upcoming_week}
+Saturday 2026-06-06, Sunday 2026-06-07, Monday 2026-06-08, Tuesday 2026-06-09, Wednesday 2026-06-10, Thursday 2026-06-11, Friday 2026-06-12
 Use this reference to correctly resolve "tomorrow", "next week", "next Monday"!
 
 ADDITIONAL RULES:

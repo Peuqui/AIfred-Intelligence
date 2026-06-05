@@ -35,9 +35,10 @@ class EpimPlugin:
         from .tools import get_epim_tools
         return get_epim_tools(lang=ctx.lang)
 
-    def get_prompt_instructions(self, lang: str) -> str:
-        from ....lib.prompt_loader import load_prompt
-        return load_prompt("shared/epim_instructions", lang=lang) or ""
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        from ....lib.plugin_base import load_plugin_instructions
+        return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         if tool_name == "epim_search":
