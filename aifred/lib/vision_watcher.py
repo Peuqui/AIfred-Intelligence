@@ -117,6 +117,15 @@ class WatchConfig:
     # für Schreibtisch-Setups wo eine Person ruhig vor der Cam sitzt
     # und vom Motion-Detector nicht mehr getriggert wird.
     face_recognition_continuous: bool = False
+    # ── Trigger-Quelle ───────────────────────────────────────────────
+    # "motion" (Default): AIfreds MOG2-Detektor löst die Pipeline aus.
+    # "edge_ai": die Kamera erkennt Person/Fahrzeug/Tier on-device, AIfred
+    # pollt nur ihren Zustand (siehe ``edge_ai``) und triggert darauf.
+    # SSoT der erlaubten Werte: vision_profiles.TRIGGER_MOTION/EDGE_AI.
+    trigger_mode: str = "motion"
+    # Edge-AI-Poll-Konfiguration (nur bei trigger_mode="edge_ai"):
+    #   host, api_port, cred, poll_interval_sec, channel
+    edge_ai: dict[str, Any] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -391,6 +400,8 @@ class VisionWatcher:
         latest: dict[str, Any] = {"frame": None, "seq": 0}
         new_frame_evt = asyncio.Event()
 
+        edge_ai_trigger = config.trigger_mode == "edge_ai" and bool(config.edge_ai)
+
         async def frame_consumer() -> None:
             seq = 0
             async for frame in hub.subscribe(
@@ -402,6 +413,12 @@ class VisionWatcher:
                 latest["seq"] = seq
                 new_frame_evt.set()
                 self._statuses[source_id].frames_seen += 1  # type: ignore[misc]
+
+                # Edge-AI-Kamera: der Trigger kommt aus edge_ai_cycle (die
+                # Kamera erkennt selbst). Hier nur Frames frischhalten +
+                # auf den Bus geben — keine lokale MOG2-Detektion.
+                if edge_ai_trigger:
+                    continue
 
                 motion_result = motion.process(frame)
                 # motion_gated (Default): nur bei Bewegung weiter. Aus
@@ -489,8 +506,65 @@ class VisionWatcher:
                         "continuous face cycle error for %s: %s", source_id, e
                     )
 
+        async def edge_ai_cycle() -> None:
+            """Edge-AI-Trigger: pollt die On-Device-Erkennung der Kamera
+            (Person/Fahrzeug/Tier) und feuert bei einer steigenden Flanke
+            (0→1) ein Event auf dem AKTUELL frischesten Frame. Ersetzt
+            MOG2/YOLO für intelligente Kameras — die Roh-Detektion macht
+            die Kamera selbst."""
+            if not edge_ai_trigger:
+                return
+            from .reolink_ai import ReolinkAIClient, ReolinkAIError
+            ec = config.edge_ai or {}
+            client = ReolinkAIClient(
+                host=str(ec.get("host", "")),
+                api_port=int(ec.get("api_port", 80)),
+                cred=str(ec.get("cred", "")),
+                channel=int(ec.get("channel", 0)),
+            )
+            interval = float(ec.get("poll_interval_sec", 1.5))
+            settle = float(ec.get("settle_sec", 1.0))
+            prev: dict[str, bool] = {}
+            try:
+                while True:
+                    try:
+                        state = await client.get_ai_state()
+                    except ReolinkAIError as e:
+                        logger.warning("edge-ai poll failed for %s: %s", source_id, e)
+                        await asyncio.sleep(interval)
+                        continue
+                    # Steigende Flanken: Klasse jetzt aktiv, vorher nicht.
+                    triggered = [
+                        cls for cls, active in state.items()
+                        if active and not prev.get(cls, False)
+                    ]
+                    prev = state
+                    if triggered:
+                        last_evt = self._statuses[source_id].last_event_at
+                        throttled = (
+                            last_evt is not None
+                            and (datetime.now() - last_evt).total_seconds()
+                            < config.min_event_interval_sec
+                        )
+                        if not throttled:
+                            # Settle: dem PTZ-Kopf Zeit geben, das Subjekt zu
+                            # zentrieren — dann das frischeste Frame ziehen
+                            # (der frame_consumer hält ``latest`` aktuell).
+                            if settle > 0:
+                                await asyncio.sleep(settle)
+                            frame = latest["frame"]
+                            if frame is not None:
+                                await self._handle_edge_ai_event(
+                                    frame, triggered, config, client
+                                )
+                    await asyncio.sleep(interval)
+            finally:
+                await client.aclose()
+
         try:
-            await asyncio.gather(frame_consumer(), vlm_cycle(), face_cycle())
+            await asyncio.gather(
+                frame_consumer(), vlm_cycle(), face_cycle(), edge_ai_cycle()
+            )
         except asyncio.CancelledError:
             logger.info("Watch loop cancelled for %s", source_id)
             raise
@@ -571,6 +645,90 @@ class VisionWatcher:
             return
         await self._run_face_detection(frame, config, motion_event_id=motion_event_id, frame_path=frame_path)
 
+    async def _handle_edge_ai_event(
+        self,
+        frame: "Frame",
+        classes: list[str],
+        config: WatchConfig,
+        ai_client: Any = None,
+    ) -> None:
+        """Edge-AI-Event verarbeiten: die Kamera hat Person/Fahrzeug/Tier
+        erkannt. Schreibt pro Klasse ein Event (Detektor ``edge_ai``),
+        feuert die passenden Alerts und ergänzt — nur bei ``person`` — die
+        Gesichts-Identität, die die Kamera nicht liefern kann. Für das
+        Gesicht wird (Dual-Lens) das Zoom-Objektiv genutzt, sonst das
+        Weitwinkel-Frame."""
+        source_id = frame.source_id
+        frame = self._blackout_frame(frame)
+        # Wie im Motion-Pfad: einmal stempeln, dann fließt dasselbe Bild in
+        # Save, Face und Alert.
+        frame = await asyncio.to_thread(self._stamp_frame, frame)
+        frame_path = ""
+        if config.save_event_frames:
+            frame_path = await asyncio.to_thread(self._save_frame, frame)
+        cid = self._cluster_id_for(frame)
+        ts = frame.timestamp
+        for cls in classes:
+            self._store.add_event(
+                source_id=source_id,
+                event_type=cls,  # "person" | "vehicle" | "animal"
+                timestamp=ts,
+                frame_path=frame_path,
+                confidence=1.0,
+                classification={"detector": "edge_ai"},
+                metadata={"trigger": "edge_ai"},
+                cluster_id=cid,
+            )
+        self._statuses[source_id].motion_events += 1  # type: ignore[misc]
+        self._statuses[source_id].last_event_at = ts  # type: ignore[misc]
+
+        from .vision_alerts import emit_object_alert, emit_person_alert
+        if "person" in classes:
+            await emit_person_alert(
+                source_id=source_id, frame_path=frame_path, cluster_id=cid,
+                count=1, timestamp=ts, store=self._store,
+            )
+        for cls in ("vehicle", "animal"):
+            if cls in classes:
+                await emit_object_alert(
+                    source_id=source_id, object_type=cls, frame_path=frame_path,
+                    cluster_id=cid, timestamp=ts, store=self._store,
+                )
+
+        # Gesichts-Identität nur bei Person sinnvoll (Kamera kann kein „Wer").
+        if "person" in classes and config.run_face_detect_on_motion:
+            face_frame = await self._edge_ai_face_frame(frame, config, ai_client)
+            await self._run_face_detection(
+                face_frame, config, motion_event_id=None,
+                frame_path=frame_path, trigger="edge_ai",
+            )
+
+    async def _edge_ai_face_frame(
+        self, wide_frame: "Frame", config: WatchConfig, ai_client: Any
+    ) -> "Frame":
+        """Frame für die Gesichtserkennung wählen. Dual-Lens: ein frisches
+        Zoom-Standbild (mehr Pixel im Gesicht), sonst das Weitwinkel-Frame.
+        Fällt bei fehlendem ``face_channel``/Client oder Snap-Fehler sauber
+        aufs Weitwinkel zurück — die Erkennung bricht nie ab."""
+        ec = config.edge_ai or {}
+        face_ch = ec.get("face_channel")
+        if ai_client is None or face_ch is None or int(face_ch) < 0:
+            return wide_frame
+        try:
+            jpeg = await ai_client.snap(int(face_ch))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "edge-ai zoom snap failed for %s: %s — using wide frame",
+                wide_frame.source_id, e,
+            )
+            return wide_frame
+        from dataclasses import replace
+        return replace(
+            wide_frame,
+            image_bytes=jpeg,
+            metadata={**wide_frame.metadata, "lens": "zoom", "face_channel": int(face_ch)},
+        )
+
     async def _run_person_detection(
         self,
         frame: "Frame",
@@ -630,12 +788,15 @@ class VisionWatcher:
         *,
         motion_event_id: int | None = None,
         frame_path: str = "",
+        trigger: str | None = None,
     ) -> None:
         """Eigentliche Face-Detection + Recognition + Event-Publishing.
-        Wird sowohl aus dem motion-getriggerten Pfad als auch aus dem
-        Continuous-face_cycle gerufen. ``motion_event_id`` ist nur
-        gesetzt wenn der Aufruf aus einem motion-Event kam — sonst
-        ``None`` (continuous-Detection ohne Motion-Bezug)."""
+        Wird aus dem motion-getriggerten Pfad, dem Continuous-face_cycle
+        UND dem Edge-AI-Pfad gerufen. ``motion_event_id`` ist nur gesetzt
+        wenn der Aufruf aus einem motion-Event kam. ``trigger`` überschreibt
+        den Traceability-Marker im Event-Metadata; ohne Angabe wird er aus
+        ``motion_event_id`` abgeleitet (motion vs continuous)."""
+        trigger = trigger or ("motion" if motion_event_id else "continuous")
         source_id = frame.source_id
         try:
             detector = self._get_face_detector()
@@ -694,7 +855,7 @@ class VisionWatcher:
                 },
                 metadata={
                     "parent_event_id": motion_event_id,
-                    "trigger": "motion" if motion_event_id else "continuous",
+                    "trigger": trigger,
                     "session_id": session_id,
                 },
                 cluster_id=cid,

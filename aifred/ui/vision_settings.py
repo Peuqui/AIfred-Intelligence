@@ -95,12 +95,19 @@ def _source_card(cam: rx.Var) -> rx.Component:
         rx.vstack(
             rx.hstack(
                 rx.icon("camera", size=16, color="gray"),
-                rx.text(cam["label"], font_weight="bold", size="2"),
+                # Kameraname editierbar — SSoT für den Namen liegt jetzt hier
+                # in den Einstellungen (die Live-Vorschau zeigt ihn nur an).
+                rx.input(
+                    default_value=cam["alias"].to(str),
+                    placeholder=cam["hardware_name"].to(str),
+                    on_blur=lambda v: AIState.set_vigilantia_source_alias(sid, v),
+                    size="2",
+                    style={"flex": "1", "min_width": "0"},
+                ),
                 rx.cond(
                     ~cam["available"].to(bool),
                     rx.badge("✗", color_scheme="red", size="1"),
                 ),
-                rx.spacer(),
                 rx.switch(
                     checked=cam["auto_start"].to(bool),
                     on_change=lambda v: AIState.set_vigilantia_source_auto_start(sid, v),
@@ -109,6 +116,7 @@ def _source_card(cam: rx.Var) -> rx.Component:
                 ),
                 align="center",
                 width="100%",
+                spacing="2",
             ),
             rx.text(
                 t("vision_settings_source_background_help"),

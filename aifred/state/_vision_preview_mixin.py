@@ -505,22 +505,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
         ]
         self._persist_source_prompt_context(source_id, new_text)
 
-    @rx.event
-    def set_vision_preview_alias(self, source_id: str, value: str) -> None:
-        """User-given camera name. Persists to vision_store.sources.settings.alias.
-        Empty string clears the alias and the source falls back to its
-        hardware display name."""
-        if not source_id:
-            return
-        new_alias = value.strip() if isinstance(value, str) else ""
-        self.vision_preview_sources = [
-            {**e, "alias": new_alias, "label": _label_from(e, new_alias)}
-            if e["id"] == source_id else e
-            for e in self.vision_preview_sources
-        ]
-        self._persist_source_alias(source_id, new_alias)
-        # No cache-buster bump — the image URL doesn't change with the
-        # alias, only the label/overlay does.
+    # Hinweis: Der Kameranamen (Alias) wird jetzt in den Vigilantia-
+    # Einstellungen editiert (set_vigilantia_source_alias), die Live-
+    # Vorschau zeigt ihn nur noch als read-only Schild. Der frühere
+    # set_vision_preview_alias-Handler ist damit entfallen.
 
     @rx.event
     async def set_vision_preview_auto_start(

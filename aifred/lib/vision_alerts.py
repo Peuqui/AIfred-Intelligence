@@ -153,3 +153,42 @@ async def emit_person_alert(
         frame_path=frame_path,
         timestamp=ts,
     )
+
+
+# Anzeigetitel je Objektklasse (SSoT für die Edge-AI-Objekt-Alerts).
+_OBJECT_ALERT_TITLES = {
+    "vehicle": "🚗 Fahrzeug erkannt",
+    "animal": "🐾 Tier erkannt",
+}
+
+
+async def emit_object_alert(
+    *,
+    source_id: str,
+    object_type: str,
+    frame_path: str,
+    cluster_id: str,
+    timestamp: datetime | None = None,
+    store: Any = None,
+) -> None:
+    """Emit an edge-AI object detection (vehicle/animal) as a proactive
+    AlertEvent — but only while armed. Diese Klassen liefert die On-Device-
+    KI der Kamera; AIfreds eigene YOLO-Pipeline klassifiziert sie nicht."""
+    if not _vigilantia_armed():
+        return
+    title = _OBJECT_ALERT_TITLES.get(object_type)
+    if title is None:
+        return
+    ts = timestamp or datetime.now()
+    alias = _source_alias(source_id, store)
+    when = ts.strftime("%H:%M")
+    await _emit(
+        source_id=source_id,
+        category=object_type,
+        severity="info",
+        title=title,
+        body=f"{alias} · {when}",
+        dedup_key=cluster_id or f"{source_id}:{object_type}",
+        frame_path=frame_path,
+        timestamp=ts,
+    )
