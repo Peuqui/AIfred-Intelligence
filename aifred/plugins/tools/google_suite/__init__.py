@@ -132,90 +132,10 @@ class GooglePlugin:
 
         return tools
 
-    def get_prompt_instructions(self, lang: str) -> str:
-        settings = self._load_settings()
-        parts: list[str] = []
-
-        if settings.get("GOOGLE_CALENDAR_ENABLED", "true") == "true":
-            if lang == "de":
-                parts.append(
-                    "Du hast Zugriff auf Google Calendar. "
-                    "Nutze google_calendar_list_events für Terminabfragen, "
-                    "google_calendar_create_event um neue Termine anzulegen, "
-                    "google_calendar_update_event zum Ändern und "
-                    "google_calendar_delete_event zum Löschen. "
-                    "Zeitangaben müssen im RFC 3339 Format sein (z.B. 2026-04-22T10:00:00+02:00)."
-                )
-            else:
-                parts.append(
-                    "You have access to Google Calendar. "
-                    "Use google_calendar_list_events to query events, "
-                    "google_calendar_create_event to create, "
-                    "google_calendar_update_event to modify, "
-                    "google_calendar_delete_event to delete. "
-                    "Timestamps must be RFC 3339 (e.g. 2026-04-22T10:00:00+02:00)."
-                )
-
-        if settings.get("GOOGLE_CONTACTS_ENABLED", "true") == "true":
-            if lang == "de":
-                parts.append(
-                    "Du hast Zugriff auf Google Contacts. "
-                    "Nutze google_contacts_search um Kontakte nach Name oder E-Mail zu suchen "
-                    "(z.B. um Empfänger für E-Mails aufzulösen)."
-                )
-            else:
-                parts.append(
-                    "You have access to Google Contacts. "
-                    "Use google_contacts_search to find contacts by name or email."
-                )
-
-        if settings.get("GOOGLE_TASKS_ENABLED", "false") == "true":
-            if lang == "de":
-                parts.append(
-                    "Du hast Zugriff auf Google Tasks. "
-                    "Nutze google_tasks_list um Aufgaben abzurufen, "
-                    "google_tasks_create um neue anzulegen, "
-                    "google_tasks_complete um sie als erledigt zu markieren und "
-                    "google_tasks_delete zum Löschen. "
-                    "Mit google_tasks_list_tasklists siehst du alle vorhandenen Listen."
-                )
-            else:
-                parts.append(
-                    "You have access to Google Tasks. "
-                    "Use google_tasks_list to retrieve tasks, "
-                    "google_tasks_create to create new ones, "
-                    "google_tasks_complete to mark them done, "
-                    "google_tasks_delete to remove them. "
-                    "Use google_tasks_list_tasklists to see all task lists."
-                )
-
-        if settings.get("GOOGLE_DRIVE_ENABLED", "false") == "true":
-            if lang == "de":
-                parts.append(
-                    "Du hast Zugriff auf Google Drive. "
-                    "Nutze google_drive_list_files um Dateien aufzulisten (optional mit folder_id), "
-                    "google_drive_search für Volltextsuche, "
-                    "google_drive_get_file um Dateiinhalt zu lesen (Google Docs → Klartext, Sheets → CSV), "
-                    "google_drive_create_file um neue Textdateien zu erstellen, "
-                    "google_drive_update_file um Inhalte zu überschreiben, "
-                    "google_drive_delete_file zum Löschen, "
-                    "google_drive_create_folder um Ordner anzulegen und "
-                    "google_drive_move_file um Dateien zu verschieben."
-                )
-            else:
-                parts.append(
-                    "You have access to Google Drive. "
-                    "Use google_drive_list_files to list files (optionally filter by folder_id), "
-                    "google_drive_search for full-text search, "
-                    "google_drive_get_file to read file content (Google Docs → plain text, Sheets → CSV), "
-                    "google_drive_create_file to create new text files, "
-                    "google_drive_update_file to overwrite content, "
-                    "google_drive_delete_file to delete, "
-                    "google_drive_create_folder to create folders, and "
-                    "google_drive_move_file to move files."
-                )
-
-        return "\n\n".join(parts)
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        from ....lib.plugin_base import load_plugin_instructions
+        return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         status_map = {
