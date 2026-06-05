@@ -97,7 +97,9 @@ class CalculatorPlugin:
         ]
 
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
-        return ""
+        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        from ....lib.plugin_base import load_plugin_instructions
+        return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         if tool_name == "calculate":
