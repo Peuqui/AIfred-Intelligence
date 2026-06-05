@@ -20,7 +20,6 @@ from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from ....lib.plugin_base import PluginContext
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
-from ....lib.prompt_loader import load_prompt
 
 # Base directory for all file operations (path traversal protection)
 _DATA_DIR = DATA_DIR
@@ -849,11 +848,10 @@ class WorkspacePlugin:
 
         return tools
 
-    def get_prompt_instructions(self, lang: str) -> str:
-        try:
-            return load_prompt("shared/workspace_instructions", lang=lang)
-        except FileNotFoundError:
-            return ""
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        from ....lib.plugin_base import load_plugin_instructions
+        return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         if tool_name == "list_files":
