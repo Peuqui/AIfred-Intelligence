@@ -14,7 +14,6 @@ from typing import Any
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_WRITE_DATA, TIER_READONLY
 from ....lib.plugin_base import PluginContext
-from ....lib.prompt_loader import load_prompt
 
 
 @dataclass
@@ -206,8 +205,10 @@ class SchedulerPlugin:
             ),
         ]
 
-    def get_prompt_instructions(self, lang: str) -> str:
-        return load_prompt("shared/scheduler_instructions", lang=lang)
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        from ....lib.plugin_base import load_plugin_instructions
+        return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         if tool_name == "scheduler_create":
