@@ -135,12 +135,10 @@ class BiblePlugin:
             ),
         ]
 
-    def get_prompt_instructions(self, lang: str) -> str:
-        # Central Bible-research strategy — shipped inside the plugin
-        # (prompts/<lang>.txt), the one place this instruction lives.
-        # Inserted into the system prompt of every agent with search_bible.
-        path = Path(__file__).parent / "prompts" / f"{lang}.txt"
-        return path.read_text(encoding="utf-8").strip() if path.is_file() else ""
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        from ....lib.plugin_base import load_plugin_instructions
+        return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         if tool_name == "search_bible":
