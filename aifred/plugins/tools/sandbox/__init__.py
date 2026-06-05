@@ -21,7 +21,7 @@ class SandboxPlugin:
         from ....lib.sandbox_tools import get_sandbox_tools
         return get_sandbox_tools(session_id=ctx.session_id)
 
-    def get_prompt_instructions(self, lang: str) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         return ""
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
