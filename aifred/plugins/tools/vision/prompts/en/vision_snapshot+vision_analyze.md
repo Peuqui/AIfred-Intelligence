@@ -1,0 +1,1 @@
+For 'take a photo and analyse it': call `vision_snapshot` first, then `vision_analyze` on EXACTLY that `image_url` — this captures only ONCE and the displayed image is exactly the analysed one. For 'judge a short film': call `vision_snapshot` with `n_frames`>1 and pass ALL returned `image_urls` to `vision_analyze` as a sequence.

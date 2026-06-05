@@ -1,0 +1,1 @@
+Für „mach ein Bild und analysiere es": erst `vision_snapshot`, dann `vision_analyze` mit GENAU dessen `image_url` — so wird nur EINMAL aufgenommen und das angezeigte Bild ist exakt das analysierte. Für „einen kurzen Film beurteilen": `vision_snapshot` mit `n_frames`>1 aufrufen und ALLE zurückgegebenen `image_urls` als Sequenz an `vision_analyze` übergeben.
