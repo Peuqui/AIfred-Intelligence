@@ -21,7 +21,7 @@ class ResearchPlugin:
         from ....lib.research_tools import get_research_tools
         return get_research_tools(state=ctx.state, lang=ctx.lang, llm_history=ctx.llm_history)
 
-    def get_prompt_instructions(self, lang: str) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         return ""
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
