@@ -301,6 +301,7 @@
         "store_memory",
         "discord_send",
         "email",
+        "freeecho2_announce",
         "telegram_send"
       ]
     },
