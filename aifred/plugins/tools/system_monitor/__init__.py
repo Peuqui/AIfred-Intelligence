@@ -175,30 +175,10 @@ class SystemMonitorPlugin:
 
         return tools
 
-    def get_prompt_instructions(self, lang: str) -> str:
-        if lang == "de":
-            return (
-                "## System Monitor\n"
-                "Wenn du system_status aufrufst, antworte mit einer kompakten Tabelle.\n"
-                "Zeige IMMER Auslastung/Belegung, nicht nur Gesamtgroessen:\n"
-                "- RAM/Swap: belegt / gesamt (z.B. '15 / 32 GB')\n"
-                "- GPU: VRAM belegt / gesamt + Temperatur + Auslastung %\n"
-                "- Disk: belegt / gesamt + Auslastung %\n"
-                "- CPU: Load + Anzahl Cores\n"
-                "Kein Fliesstext, keine Kommentare, keine Analogien.\n"
-                "WICHTIG: Rufe system_status DIREKT auf. NIEMALS ueber den Scheduler!"
-            )
-        return (
-            "## System Monitor\n"
-            "When using system_status, respond with a compact table.\n"
-            "ALWAYS show utilization, not just totals:\n"
-            "- RAM/Swap: used / total (e.g. '15 / 32 GB')\n"
-            "- GPU: VRAM used / total + temp + utilization %\n"
-            "- Disk: used / total + usage %\n"
-            "- CPU: load + core count\n"
-            "No prose, no commentary, no analogies.\n"
-            "IMPORTANT: Call system_status DIRECTLY. NEVER use the scheduler!"
-        )
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        from ....lib.plugin_base import load_plugin_instructions
+        return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         return "📊 System Status"
