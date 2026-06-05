@@ -247,6 +247,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 cams.append({
                     "id": info.source_id,
                     "label": label,
+                    "alias": alias,
+                    "hardware_name": str(info.display_name or info.source_id),
                     "available": bool(info.available),
                     "auto_start": bool(stored.get("auto_start", False)),
                     "resolution": str(s.get("resolution") or "default"),
@@ -328,6 +330,38 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 await get_default_watcher().stop(source_id)
         except Exception as e:  # noqa: BLE001
             logger.warning("watcher live-toggle failed for %s: %s", source_id, e)
+
+    @rx.event
+    def set_vigilantia_source_alias(self, source_id: str, value: str) -> None:
+        """Kameranamen (Alias) aus der Settings-Quellen-Karte setzen.
+
+        Persistiert in ``vision_store.sources.settings.alias`` (SSoT, dieselbe
+        Stelle wie früher das Vorschau-Feld) und zieht beide Quell-Listen nach:
+        die Settings-Karte UND das read-only Namens-Schild in der Live-
+        Vorschau. Leerer Wert löscht den Alias → Fallback auf den Hardware-
+        Namen."""
+        if not source_id:
+            return
+        new_alias = value.strip() if isinstance(value, str) else ""
+        try:
+            self._persist_source_alias(source_id, new_alias)  # type: ignore[attr-defined]
+        except Exception as e:  # noqa: BLE001
+            logger.warning("alias persist failed for %s: %s", source_id, e)
+            return
+        self.vigilantia_sources = [
+            {**c, "alias": new_alias,
+             "label": new_alias or str(c.get("hardware_name") or c["id"])}
+            if c["id"] == source_id else c
+            for c in self.vigilantia_sources
+        ]
+        # Live-Vorschau-Schild mitziehen, falls die Quelle dort gelistet ist.
+        if hasattr(self, "vision_preview_sources"):
+            from ._vision_preview_mixin import _label_from
+            self.vision_preview_sources = [
+                {**e, "alias": new_alias, "label": _label_from(e, new_alias)}
+                if e["id"] == source_id else e
+                for e in self.vision_preview_sources
+            ]
 
     @rx.event
     async def toggle_vigilantia_armed(self) -> None:

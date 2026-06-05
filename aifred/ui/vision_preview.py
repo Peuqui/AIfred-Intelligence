@@ -271,12 +271,27 @@ def _source_row(source: rx.Var) -> rx.Component:
             size="1",
             color_scheme="orange",
         ),
-        rx.input(
-            default_value=source["alias"].to(str),
-            placeholder=source["hardware_name"].to(str),
-            on_blur=lambda v: AIState.set_vision_preview_alias(sid, v),
-            size="2",
-            style={"flex": "0 0 220px", "min_width": "0"},
+        # Read-only Namens-Schild — editiert wird der Name in den
+        # Vigilantia-Einstellungen (Quellen-Sektion), nicht mehr hier.
+        rx.box(
+            rx.text(
+                source["label"],
+                size="2",
+                weight="medium",
+                style={
+                    "overflow": "hidden",
+                    "text_overflow": "ellipsis",
+                    "white_space": "nowrap",
+                },
+            ),
+            style={
+                "flex": "0 0 220px",
+                "min_width": "0",
+                "padding": "0.3em 0.7em",
+                "border": "1px solid var(--gray-6)",
+                "border_radius": "6px",
+                "background": "var(--gray-2)",
+            },
         ),
         _watch_button(sid),
         _face_recognition_button(sid),

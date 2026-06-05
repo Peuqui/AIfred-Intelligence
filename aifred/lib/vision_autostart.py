@@ -43,17 +43,65 @@ def _load_plugin_settings() -> dict[str, Any]:
         return {}
 
 
+def _resolve_edge_ai(
+    source_id: str,
+    cam_cfg: dict[str, Any] | None,
+    plugin_settings: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Edge-AI-Poll-Block für den Watcher bauen — aus dem ``rtsp_cameras``-
+    Eintrag (host/cred/api_port) plus globalem Poll-Intervall. ``None`` wenn
+    kein Host bekannt ist (dann kann der Watcher nicht pollen)."""
+    if not cam_cfg:
+        logger.warning(
+            "autostart: %s hat Profil ai_camera, aber keinen rtsp_cameras-"
+            "Eintrag — Edge-AI-Trigger nicht möglich", source_id,
+        )
+        return None
+    host = str(cam_cfg.get("host", "")).strip()
+    if not host:
+        return None
+    watch = plugin_settings.get("watch") or {}
+    face_channel = cam_cfg.get("face_channel")
+    return {
+        "host": host,
+        "api_port": int(cam_cfg.get("api_port", 443)),
+        "cred": str(cam_cfg.get("cred", "")).strip(),
+        "channel": int(cam_cfg.get("channel", 0)),
+        "poll_interval_sec": float(watch.get("edge_ai_poll_interval_sec", 1.5)),
+        # Wartezeit nach der Erkennung, bevor das Frame gezogen wird — gibt
+        # dem schwenkenden PTZ-Kopf Zeit, das Subjekt zu zentrieren/zoomen,
+        # damit Gesicht + VLM ein scharfes, mittiges Bild bekommen.
+        "settle_sec": float(watch.get("edge_ai_settle_sec", 1.5)),
+        # Dual-Lens: Kanal des Zoom-/Tele-Objektivs für die Gesichts-
+        # erkennung (mehr Pixel im Gesicht). None = Gesicht auf dem
+        # Weitwinkel-Frame (kein separater Zoom-Snap).
+        "face_channel": int(face_channel) if face_channel is not None else None,
+    }
+
+
 def _build_background_config(
     source_record: dict[str, Any],
     plugin_settings: dict[str, Any],
 ) -> Any:
     """Baut die ``WatchConfig`` für den Hintergrund-Watcher einer Source.
 
-    Liest per-Source aus dem Store-Record, fällt für globale Flags
-    (face_recognition) auf das Plugin-Settings-JSON zurück.
+    Das Fähigkeitsprofil der Quelle (``webcam`` / ``ai_camera``, SSoT in
+    ``vision_profiles``) entscheidet über Trigger und lokale Roh-Erkennung:
+
+    * **webcam** — MOG2-Motion triggert, YOLO-Person läuft (Setting),
+      Gesicht + VLM wie gehabt.
+    * **ai_camera** — die Kamera erkennt Person/Fahrzeug/Tier on-device;
+      MOG2/YOLO bleiben AUS, der Edge-AI-Poll triggert. Gesichtserkennung
+      bleibt (das kann die Kamera nicht).
+
+    Gesichtserkennung folgt weiter den ``face_recognition``-Settings und
+    gilt für BEIDE Profile.
     """
+    from .frame_sources.rtsp_source import find_camera_config
+    from .vision_profiles import TRIGGER_MOTION, resolve_profile
     from .vision_watcher import WatchConfig
 
+    source_id = str(source_record.get("source_id") or "")
     settings = source_record.get("settings") or {}
     mma = settings.get("motion_min_area_ratio")
     if not isinstance(mma, (int, float)) or not 0.001 <= mma <= 0.5:
@@ -63,10 +111,22 @@ def _build_background_config(
     face_enabled = bool(fr.get("enabled", True))
     face_continuous = bool(fr.get("continuous", False))
 
+    # Profil: rtsp_cameras-Eintrag > per-Source-Settings > Default (webcam).
+    cam_cfg = find_camera_config(source_id) if source_id else None
+    profile_name = (cam_cfg or {}).get("profile") or settings.get("profile") or ""
+    profile = resolve_profile(str(profile_name))
+
     watch = plugin_settings.get("watch") or {}
-    person_enabled = bool(watch.get("run_person_detect_on_motion", False))
-    # Per-Source: PTZ-/Tracking-Kameras setzen motion_gated=False.
-    motion_gated = bool(settings.get("motion_gated", True))
+    if profile.allow_local_detection:
+        # Dumme Webcam: lokale Roh-Erkennung wie bisher.
+        person_enabled = bool(watch.get("run_person_detect_on_motion", False))
+        motion_gated = bool(settings.get("motion_gated", True))
+        edge_ai = None
+    else:
+        # Intelligente Kamera: Roh-Erkennung macht die Kamera.
+        person_enabled = False
+        motion_gated = False
+        edge_ai = _resolve_edge_ai(source_id, cam_cfg, plugin_settings)
 
     return WatchConfig(
         fps=2.0,  # Hintergrund-Default — niedrig, GPU-schonend
@@ -80,6 +140,8 @@ def _build_background_config(
         run_vlm_on_motion=False,
         run_vlm_continuous=False,
         min_event_interval_sec=1.0,
+        trigger_mode=profile.trigger_mode if edge_ai else TRIGGER_MOTION,
+        edge_ai=edge_ai,
     )
 
 

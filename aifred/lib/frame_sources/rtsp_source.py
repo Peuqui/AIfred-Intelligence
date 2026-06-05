@@ -42,7 +42,7 @@ import socket
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 from urllib.parse import quote
 
 import cv2
@@ -113,6 +113,31 @@ def _load_rtsp_configs() -> list[dict[str, str | int]]:
             "cred": str(c.get("cred", "")).strip(),
         })
     return result
+
+
+def find_camera_config(source_id: str) -> dict[str, Any] | None:
+    """Roh-Eintrag aus ``rtsp_cameras`` zu einer ``source_id`` finden.
+
+    Die ``source_id`` einer RTSP-Quelle ist ``cam/rtsp_<slug(name)>`` — hier
+    wird über den slugifizierten Namen zurückgemappt. Liefert das komplette
+    (ungefilterte) Dict des Eintrags, inkl. Zusatzfeldern wie ``profile``,
+    ``api_port`` oder ``onvif_port``. ``None`` wenn nichts passt (z.B. bei
+    V4L2-Quellen). Credentials sind hier NICHT enthalten — nur die
+    ``cred``-ID."""
+    try:
+        data = json.loads(_VISION_SETTINGS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    cams = data.get("rtsp_cameras")
+    if not isinstance(cams, list):
+        return None
+    for c in cams:
+        if not isinstance(c, dict):
+            continue
+        name = str(c.get("name", "")).strip()
+        if name and f"cam/rtsp_{_slugify(name)}" == source_id:
+            return c
+    return None
 
 
 def _make_capture(url: str) -> cv2.VideoCapture:
