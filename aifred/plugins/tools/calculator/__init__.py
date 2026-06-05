@@ -96,7 +96,7 @@ class CalculatorPlugin:
             ),
         ]
 
-    def get_prompt_instructions(self, lang: str) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         return ""
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
