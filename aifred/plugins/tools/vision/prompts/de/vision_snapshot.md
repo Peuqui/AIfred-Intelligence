@@ -1,0 +1,1 @@
+`vision_snapshot` nimmt ein Bild auf und gibt `image_url`(s) plus `source_id` zurück, analysiert aber NICHT. Für Bewegung / „einen kurzen Film": rufe `vision_snapshot` mit `n_frames`>1 auf — du bekommst mehrere `image_urls` zurück.

@@ -21,6 +21,94 @@ if TYPE_CHECKING:
     from ..lib.function_calling import Tool
 
 
+def load_plugin_instructions(
+    plugin: Any, lang: str, granted_tools: "set[str] | None" = None
+) -> str:
+    """Baut die Prompt-Anleitung eines Plugins aus ATOMAREN Fragment-Dateien im
+    Plugin-Ordner zusammen — layered, je nach freigeschalteten Tools.
+
+    Grundregel: KEIN Hardcoding — der Text lebt als Datei beim Plugin. Und
+    feingranular: das Modell sieht nur die Anleitung der Tools, die es auch
+    aufrufen darf (sonst hält es ein nicht-freigeschaltetes Tool für nutzbar).
+
+    Struktur ``<plugin_dir>/prompts/<de|en>/<requirement>.md``:
+      * Der Dateiname kodiert die benötigten Tools, mit ``+`` verknüpft (UND):
+          ``vision_snapshot.md``                 → nur wenn vision_snapshot erlaubt
+          ``vision_snapshot+vision_analyze.md``  → nur wenn BEIDE erlaubt (Workflow-Layer)
+      * ``_intro.md`` → Plugin-Übergreifendes, wird vorangestellt, sobald
+        mindestens ein Tool-Fragment greift.
+      * ``granted_tools=None`` → keine Whitelist → alle Fragmente.
+
+    Fallback: Existiert (noch) kein per-Tool-Ordner, aber eine flache
+    ``<de|en>.md``, wird die als Ganzes geliefert — plugin-weit gegated über die
+    Tool-Namen des Plugins (Übergangslösung für noch nicht aufgesplittete
+    Plugins). Leerer String, wenn der Agent kein Tool des Plugins hat.
+    """
+    import inspect
+    from pathlib import Path
+    lang_code = "de" if str(lang).startswith("de") else "en"
+    try:
+        prompts_dir = Path(inspect.getfile(plugin.__class__)).parent / "prompts"
+    except Exception:  # noqa: BLE001
+        return ""
+
+    per_tool_dir = prompts_dir / lang_code
+    if per_tool_dir.is_dir():
+        intro_text = ""
+        fragments: list[str] = []
+        for f in sorted(per_tool_dir.glob("*.md")):
+            if f.stem == "_intro":
+                intro_text = f.read_text(encoding="utf-8").strip()
+                continue
+            required = set(f.stem.split("+"))
+            if granted_tools is None or required <= granted_tools:
+                txt = f.read_text(encoding="utf-8").strip()
+                if txt:
+                    fragments.append(txt)
+        # ``_intro`` ist der allgemeine Plugin-Text (gilt für alle Tools des
+        # Plugins) → zeigen, sobald der Agent MINDESTENS EIN Tool des Plugins
+        # hat. So funktioniert es auch für Plugins, die NUR ein _intro haben
+        # (kein per-Tool-Text). Tool-spezifische Fragmente kommen zusätzlich.
+        out: list[str] = []
+        if intro_text:
+            ptools = _plugin_tool_names(plugin)
+            if granted_tools is None or not ptools or (ptools & granted_tools):
+                out.append(intro_text)
+        out.extend(fragments)
+        return "\n\n".join(out)  # "" wenn nichts greift
+
+    # Übergangs-Fallback: flache Plugin-Datei, plugin-weit gegated.
+    flat = prompts_dir / f"{lang_code}.md"
+    if not flat.exists():
+        return ""
+    if granted_tools is not None:
+        names = _plugin_tool_names(plugin)
+        if names and not (names & granted_tools):
+            return ""
+    return flat.read_text(encoding="utf-8").strip()
+
+
+_plugin_tool_names_cache: "dict[str, set[str]]" = {}
+
+
+def _plugin_tool_names(plugin: Any) -> "set[str]":
+    """Tool-Namen eines Plugins (gecacht) — fürs plugin-weite Gate der flachen
+    Fallback-Datei. Leere Menge, wenn nicht ermittelbar (Caller schließt dann
+    NICHT aus)."""
+    key = getattr(plugin, "name", plugin.__class__.__name__)
+    cached = _plugin_tool_names_cache.get(key)
+    if cached is not None:
+        return cached
+    names: "set[str]" = set()
+    try:
+        ctx = PluginContext(agent_id="_promptscan", lang="de", session_id="")
+        names = {t.name for t in plugin.get_tools(ctx)}
+    except Exception:  # noqa: BLE001
+        names = set()
+    _plugin_tool_names_cache[key] = names
+    return names
+
+
 # ============================================================
 # TOOL PLUGIN
 # ============================================================
@@ -66,8 +154,14 @@ class ToolPlugin(Protocol):
         """Return Tool instances bound to the given context."""
         ...
 
-    def get_prompt_instructions(self, lang: str) -> str:
-        """Return prompt text for the LLM system prompt. Empty string if none."""
+    def get_prompt_instructions(
+        self, lang: str, granted_tools: "set[str] | None" = None
+    ) -> str:
+        """Prompt-Anleitung fürs System-Prompt. ``granted_tools`` = die für
+        diesen Agent freigeschalteten Tool-Namen (None = keine Whitelist).
+        Das Plugin liefert NUR die Anleitung der erlaubten Tools — siehe
+        :func:`load_plugin_instructions` (atomare Fragmente pro Tool).
+        Leerer String, wenn der Agent kein Tool dieses Plugins hat."""
         ...
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:

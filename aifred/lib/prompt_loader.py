@@ -12,7 +12,7 @@ Personality System (v2.15.3+):
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # Base directory for prompts (relative to project root)
 PROMPTS_DIR = Path(__file__).parent.parent.parent / 'prompts'
@@ -720,6 +720,29 @@ def load_memory_instructions(lang: Optional[str] = None) -> str:
     return load_prompt('shared/memory_instructions', lang=lang)
 
 
+_plugin_tool_names_cache: dict[str, set[str]] = {}
+
+
+def _plugin_tool_names(plugin: Any, agent: str, lang: str) -> set[str]:
+    """Namen der Tools, die ein Plugin bereitstellt — gecacht (statisch pro
+    Prozess). Für das Whitelist-Gate der Plugin-Anleitungen: eine Anleitung
+    nur, wenn der Agent mindestens eines dieser Tools freigeschaltet hat.
+    Leere Menge, wenn nicht ermittelbar (Caller schließt dann NICHT aus)."""
+    key = getattr(plugin, "name", plugin.__class__.__name__)
+    cached = _plugin_tool_names_cache.get(key)
+    if cached is not None:
+        return cached
+    names: set[str] = set()
+    try:
+        from .plugin_base import PluginContext
+        ctx = PluginContext(agent_id=agent, lang=lang, session_id="")
+        names = {t.name for t in plugin.get_tools(ctx)}
+    except Exception:  # noqa: BLE001
+        names = set()
+    _plugin_tool_names_cache[key] = names
+    return names
+
+
 def _merge_prompt_layers(
     agent: str,
     task_prompt: str,
@@ -823,13 +846,39 @@ def _merge_prompt_layers(
         if tool_instructions:
             parts.append(tool_instructions)
 
-        # Plugin-specific instructions (dynamic)
+        # Plugin-specific instructions (dynamic) — NUR für Plugins, deren Tools
+        # dieser Agent laut Whitelist (agents.json) auch freigeschaltet hat.
+        # Dieselbe Quelle wie das Toolkit-Gate in prepare_agent_toolkit. Sonst
+        # bekäme ein Agent die Anleitung (inkl. Tool-Syntax) eines Tools, das er
+        # gar nicht aufrufen kann → halluzinierte Tool-Calls als Text.
+        # allowed=None (keine Whitelist) = alle Tools erlaubt → alle Anleitungen.
+        from .agent_config import get_agent_config
         from .plugin_registry import discover_tools
+        _cfg = get_agent_config(agent)
+        allowed = set(_cfg.tools) if (_cfg and _cfg.tools is not None) else None
         for p in discover_tools():
-            if p.is_available():
-                instr = p.get_prompt_instructions(lang)
-                if instr:
-                    parts.append(instr)
+            if not p.is_available():
+                continue
+            if allowed is not None:
+                pnames = _plugin_tool_names(p, agent, lang)
+                # Tools bekannt UND keines erlaubt → Anleitung weglassen.
+                if pnames and not (pnames & allowed):
+                    continue
+            # Per-Tool-Feingranularität: Plugins mit der neuen Signatur
+            # bekommen die freigeschalteten Tool-Namen und liefern nur die
+            # Fragmente der erlaubten Tools (Plugin baut selbst zusammen).
+            # Plugins mit alter Signatur werden oben plugin-weit gegated.
+            import inspect as _inspect
+            try:
+                _nparams = len(_inspect.signature(p.get_prompt_instructions).parameters)
+            except (TypeError, ValueError):
+                _nparams = 1
+            instr = (
+                p.get_prompt_instructions(lang, allowed) if _nparams >= 2
+                else p.get_prompt_instructions(lang)
+            )
+            if instr:
+                parts.append(instr)
 
     # Layer 10: Anti-hallucination (always, LAST — recency bias for date grounding)
     anti_halluc = load_prompt('shared/anti_hallucination', lang=lang)
