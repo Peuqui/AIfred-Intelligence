@@ -151,6 +151,9 @@ class ChatInjectRequest(BaseModel):
     """Chat inject request - injects message into browser session"""
     message: str = Field(..., min_length=1, description="User message to inject")
     session_id: str = Field(..., description="Browser session session_id (required)")
+    token: str = Field(
+        "", description="Auth token (configured in INJECT_API_TOKEN env var)"
+    )
 
 
 class ChatHistoryResponse(BaseModel):
@@ -420,6 +423,23 @@ async def inject_message(request: ChatInjectRequest):
     Use GET /api/sessions to list available sessions.
     """
     from .session_storage import set_pending_message
+
+    # Auth: inject läuft die volle Agenten-Pipeline (inkl. Tools) auf der
+    # Ziel-Session — also hinter ein Token klemmen, fail-closed. Ohne
+    # konfiguriertes Token ist der Endpoint deaktiviert (kein offener
+    # Remote-Control-Zugang).
+    import secrets as _secrets
+
+    from .credential_broker import broker
+    expected_token = broker.get("inject", "api_token")
+    if not expected_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Inject API not configured (INJECT_API_TOKEN not set)",
+        )
+    if not request.token or not _secrets.compare_digest(request.token, expected_token):
+        log_message("API: chat/inject — invalid token", "warning")
+        raise HTTPException(status_code=403, detail="Invalid token")
 
     log_message(f"📨 API: Injecting message to {request.session_id[:8]}...")
 

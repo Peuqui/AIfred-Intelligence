@@ -87,6 +87,8 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("telegram", "bot_token"): "TELEGRAM_BOT_TOKEN",
     ("telegram", "allowed_users"): "TELEGRAM_ALLOWED_USERS",
     ("telegram", "enabled"): "TELEGRAM_ENABLED",
+    # HTTP API control endpoints (gate remote control of the agent)
+    ("inject", "api_token"): "INJECT_API_TOKEN",
     # Webhook API
     ("webhook", "api_token"): "WEBHOOK_API_TOKEN",
     # DeepL Translation

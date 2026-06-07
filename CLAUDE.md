@@ -152,12 +152,13 @@ Um Nachrichten direkt in eine Browser-Session zu injizieren (z.B. für Tests):
 
 ```bash
 # API Endpoint: POST http://localhost:8002/api/chat/inject
-# Parameter: device_id (NICHT session_id!), message
+# Parameter: session_id, message, token
+# Auth: token MUSS gesetzt sein (INJECT_API_TOKEN aus .env) — sonst 403/503
 
 curl -s "http://localhost:8002/api/chat/inject" \
   -X POST \
   -H "Content-Type: application/json" \
-  -d '{"device_id": "SESSION_ID_HIER", "message": "Deine Nachricht hier"}'
+  -d '{"session_id": "SESSION_ID_HIER", "message": "Deine Nachricht hier", "token": "<INJECT_API_TOKEN>"}'
 
 # Erfolgreiche Antwort:
 # {"success":true,"message":"Message queued for browser processing","session_id":"...","queued":true}
@@ -169,7 +170,12 @@ curl -s "http://localhost:8002/api/chat/inject" \
 
 **Wichtig:**
 - Port ist `8002` (Backend-API), NICHT `3000` (Frontend)
-- Parameter heißt `device_id`, nicht `session_id`
+- Parameter heißt `session_id` (UUID der Browser-Session, Dateiname unter
+  `data/sessions/<session_id>.json`) — der Browser pollt `pending_message`
+  über genau diese `session_id`
+- **`token` ist Pflicht** — Wert aus `INJECT_API_TOKEN` (`.env`). Ohne gültiges
+  Token antwortet der Endpoint mit `403` (falsch) bzw. `503` (nicht konfiguriert).
+  Schützt den Remote-Control-Zugang zum Agenten.
 - Browser muss aktiv sein und pollen, damit die Nachricht aufgenommen wird
 
 ---
