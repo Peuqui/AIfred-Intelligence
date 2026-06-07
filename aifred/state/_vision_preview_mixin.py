@@ -471,6 +471,11 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 source_id
             ]
         self.vision_preview_cache_buster += 1
+        # Sichtbare Quellen-Menge persistieren, damit die Auswahl beim
+        # nächsten Öffnen des Popups erhalten bleibt.
+        self._persist_preview_setting(
+            "visible_sources", list(self.vision_preview_visible_sources)
+        )
 
     @rx.event
     def set_vision_preview_briefing_text(self, source_id: str, value: str) -> None:
@@ -923,8 +928,20 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 f"prompt_context='{e.get('prompt_context','')[:50]}'"
             )
 
-        # Pick a sensible default visible-set if the user hasn't yet
-        if not self.vision_preview_visible_sources:
+        # Sichtbare Quellen-Menge wiederherstellen:
+        #   * persistiert vorhanden → daraus (auf noch existierende Quellen
+        #     gefiltert), respektiert auch die bewusst leere Auswahl;
+        #   * noch nie gesetzt (None) → sinnvoller Default: erste verfügbare.
+        persisted = self._load_persisted_visible_sources()
+        if persisted is not None:
+            valid_ids = {e["id"] for e in self.vision_preview_sources}
+            self.vision_preview_visible_sources = [
+                s for s in persisted if s in valid_ids
+            ]
+            log_message(
+                f"🎬 restored visible sources: {self.vision_preview_visible_sources}"
+            )
+        elif not self.vision_preview_visible_sources:
             available = [e["id"] for e in self.vision_preview_sources if e["available"]]
             if available:
                 self.vision_preview_visible_sources = [available[0]]
@@ -984,6 +1001,27 @@ class VisionPreviewMixin(rx.State, mixin=True):
     def _persist_preview_fps(self, fps: float) -> None:
         """Backwards-compat wrapper — delegates to _persist_preview_setting."""
         self._persist_preview_setting("fps", fps)
+
+    def _load_persisted_visible_sources(self) -> list[str] | None:
+        """Persistierte sichtbare Quellen-Menge aus vision_preview.json lesen.
+
+        ``None`` = der Schlüssel fehlt (noch nie gesetzt → Default-Logik im
+        Aufbau greift). Leere Liste = der User hat bewusst alle abgeschaltet
+        (wird respektiert, kein Default)."""
+        try:
+            import json
+            path = self._preview_settings_path()
+            if not path.exists():
+                return None
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f) or {}
+            vis = data.get("visible_sources")
+            if not isinstance(vis, list):
+                return None
+            return [str(s) for s in vis]
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vision-preview visible-sources load failed: %s", e)
+            return None
 
     def _persist_source_prompt_context(self, source_id: str, prompt_context: str) -> None:
         """Write the per-source briefing text to vision_store.sources.prompt_context.
