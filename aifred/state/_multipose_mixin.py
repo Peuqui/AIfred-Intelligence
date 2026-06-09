@@ -35,6 +35,12 @@ POSE_STEPS: list[dict[str, str]] = [
     {"key": "down", "label_key": "multipose_pose_down"},
 ]
 
+# Pro Quelle ein wiederverwendeter Reolink-Snap-Client für die Modal-Session
+# (Token-Cache → eine Anmeldung statt Login-Sturm beim Preview-Polling). Wird
+# beim Schließen des Modals geschlossen + geleert. Modul-Level, weil Reflex-
+# State keine Client-Objekte serialisieren kann.
+_MULTIPOSE_SNAP_CLIENTS: dict[str, Any] = {}
+
 
 class MultiposeMixin(rx.State, mixin=True):
     """UI state for the Multi-Pose enrollment modal."""
@@ -116,11 +122,27 @@ class MultiposeMixin(rx.State, mixin=True):
         await self._refresh_multipose_sources()
 
     @rx.event
-    def close_multipose(self) -> None:
+    async def close_multipose(self) -> None:
         self.multipose_open = False
         self.multipose_captures = []
         self.multipose_preview_data_url = ""
         self.multipose_live_preview_url = ""
+        # Reolink-Snap-Clients der Session schließen.
+        for client in list(_MULTIPOSE_SNAP_CLIENTS.values()):
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+        _MULTIPOSE_SNAP_CLIENTS.clear()
+
+    @rx.event
+    async def multipose_live_tick(self) -> None:
+        """Vom rx.moment-Timer im offenen Modal: Live-Preview frisch nachladen,
+        damit der User seine Pose in Echtzeit prüfen kann. No-op wenn das Modal
+        zu ist oder gerade ein Capture läuft."""
+        if not self.multipose_open or self.multipose_busy:
+            return
+        await self._refresh_live_preview()
 
     @rx.event
     def multipose_set_name(self, value: str) -> None:
@@ -298,31 +320,60 @@ class MultiposeMixin(rx.State, mixin=True):
             logger.warning("multipose live-preview failed: %s", e)
             self.multipose_live_preview_url = ""
 
-    async def _snapshot_jpeg(self, source_id: str) -> bytes:
-        """Hub-Snapshot der Source als JPEG-Bytes."""
+    async def _fresh_frame(self, source_id: str) -> Any:
+        """Frischestes Frame der Quelle. Für Reolink (ai_camera) direkt über
+        die Snap-API — kein RTSP-Pufferlag, immer aktuell, und über das
+        Zoom-Objektiv (face_channel) mit mehr Gesichts-Pixeln. Der Snap-Client
+        wird pro Quelle wiederverwendet (Token-Cache → kein Login-Sturm).
+        Sonst Hub-Snapshot."""
+        from ..lib.frame_sources.rtsp_source import find_camera_config
+        cam = find_camera_config(source_id)
+        if cam and str(cam.get("profile")) == "ai_camera" and cam.get("cred"):
+            try:
+                from datetime import datetime
+
+                from ..lib.frame_sources.base import Frame
+                from ..lib.reolink_ai import ReolinkAIClient
+                client = _MULTIPOSE_SNAP_CLIENTS.get(source_id)
+                if client is None:
+                    client = ReolinkAIClient(
+                        host=str(cam.get("host", "")),
+                        api_port=int(cam.get("api_port", 443)),
+                        cred=str(cam.get("cred", "")),
+                    )
+                    _MULTIPOSE_SNAP_CLIENTS[source_id] = client
+                fc = cam.get("face_channel")
+                ch = int(fc) if fc is not None else int(cam.get("channel", 0))
+                jpeg = await client.snap(ch)
+                return Frame(
+                    source_id=source_id, timestamp=datetime.now(),
+                    image_bytes=jpeg, format="jpeg", width=0, height=0,
+                    metadata={"kind": "rgb", "via": "snap"},
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "multipose snap failed for %s: %s — hub fallback", source_id, e
+                )
         from ..lib.frame_hub import get_default_hub
         from ..lib.frame_sources import get as get_source
         src = get_source(source_id)
         if src is None:
             raise RuntimeError(f"source '{source_id}' not found")
-        hub = get_default_hub()
-        frame = await hub.snapshot(src, timeout=5.0)
+        return await get_default_hub().snapshot(src, timeout=5.0)
+
+    async def _snapshot_jpeg(self, source_id: str) -> bytes:
+        """Frisches JPEG der Source als Bytes (für die Live-Preview)."""
+        frame = await self._fresh_frame(source_id)
         return bytes(frame.image_bytes)
 
     async def _snapshot_and_detect(
         self, source_id: str
     ) -> tuple[bytes, Any]:
-        """Snapshot vom Hub + größtes Gesicht detektieren.
+        """Frisches Frame + größtes Gesicht detektieren.
         Returnt ``(jpeg_bytes, detection_or_none)``."""
         import asyncio
-        from ..lib.frame_hub import get_default_hub
-        from ..lib.frame_sources import get as get_source
         from ..lib.vision_filters.face_detect import get_default_detector
-        src = get_source(source_id)
-        if src is None:
-            raise RuntimeError(f"source '{source_id}' not found")
-        hub = get_default_hub()
-        frame = await hub.snapshot(src, timeout=5.0)
+        frame = await self._fresh_frame(source_id)
         detector = get_default_detector()
         detections = await asyncio.to_thread(detector.detect, frame)
         if not detections:
