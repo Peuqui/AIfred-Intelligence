@@ -53,6 +53,41 @@ def _save_settings(data: dict[str, Any]) -> None:
 # Reihenfolge der Checkboxen in der UI.
 _DEFAULT_ALERT_TYPES = ["person", "vehicle", "animal", "face"]
 
+# Alert-Routing-Kategorien für die Regeln-UI (Kategorie → i18n-Label). SSoT für
+# Reihenfolge + welche Kategorien überhaupt konfigurierbar sind. Diese matchen
+# die ``category`` der AlertEvents (siehe vision_alerts).
+_ALERT_RULE_CATEGORIES = [
+    ("person", "alert_cat_person"),
+    ("vehicle", "alert_cat_vehicle"),
+    ("animal", "alert_cat_animal"),
+    ("face_known", "alert_cat_face_known"),
+    ("face_unsure", "alert_cat_face_unsure"),
+    ("face_unknown", "alert_cat_face_unknown"),
+]
+
+
+def _alert_rules_path() -> Path:
+    from ..lib.config import DATA_DIR
+    return DATA_DIR / "alert_rules.json"
+
+
+def _load_alert_rules() -> list[dict[str, Any]]:
+    path = _alert_rules_path()
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return [r for r in raw if isinstance(r, dict)] if isinstance(raw, list) else []
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("alert_rules.json unreadable: %s", e)
+        return []
+
+
+def _save_alert_rules(rules: list[dict[str, Any]]) -> None:
+    _alert_rules_path().write_text(
+        json.dumps(rules, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
 
 class VisionSettingsMixin(rx.State, mixin=True):
     """UI state for the Vision-Plugin settings modal."""
@@ -108,6 +143,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
     rtsp_form_editing: str = ""
     rtsp_form_error: str = ""
 
+    # ── Alert-Routing-Regeln (Kategorie → Telegram/VLM/Cooldown) ──────
+    # Eine Zeile je Kategorie für die Regeln-UI; gespiegelt aus
+    # data/alert_rules.json. {category, label_key, telegram, vlm, cooldown}.
+    alert_rules_ui: list[dict[str, Any]] = []
+
     def _refresh_vision_settings(self) -> None:
         """Lade Plugin-Settings + Ollama-Modellliste in den State.
         Wird sowohl vom Settings-Modal als auch vom Live-Preview-Popup
@@ -148,6 +188,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
     def open_vision_settings(self) -> None:
         """Open the modal (called from the Plugin-Tab gear icon)."""
         self._refresh_vision_settings()
+        self._reload_alert_rules()
         self.vision_settings_open = True
 
     @rx.event
@@ -480,6 +521,76 @@ class VisionSettingsMixin(rx.State, mixin=True):
             {**c, field: display_val} if c["id"] == source_id else c
             for c in self.vigilantia_sources
         ]
+
+    # ── Alert-Routing-Regeln ─────────────────────────────────────────
+
+    def _reload_alert_rules(self) -> None:
+        """Regeln aus data/alert_rules.json in die UI-Liste spiegeln —
+        eine Zeile je bekannter Kategorie."""
+        by_cat = {
+            str(r.get("category")): r for r in _load_alert_rules()
+            if isinstance(r, dict)
+        }
+        out: list[dict[str, Any]] = []
+        for cat, label_key in _ALERT_RULE_CATEGORIES:
+            r = by_cat.get(cat) or {}
+            sinks = r.get("sinks") or []
+            out.append({
+                "category": cat,
+                "label_key": label_key,
+                "telegram": "telegram" in sinks,
+                "vlm": r.get("compose") == "vlm",
+                "cooldown": str(int(r.get("min_interval_sec", 300) or 0)),
+            })
+        self.alert_rules_ui = out
+
+    @rx.event
+    def set_alert_rule(self, category: str, field: str, value: Any) -> None:
+        """Eine Routing-Regel ändern (Telegram an/aus, VLM-Beschreibung,
+        Cooldown), in data/alert_rules.json schreiben und den Dispatcher live
+        neu laden — wirkt sofort ohne Service-Neustart."""
+        valid = {c for c, _ in _ALERT_RULE_CATEGORIES}
+        if category not in valid or field not in ("telegram", "vlm", "cooldown"):
+            return
+        rules = _load_alert_rules()
+        rule = next(
+            (r for r in rules if isinstance(r, dict) and r.get("category") == category),
+            None,
+        )
+        if rule is None:
+            rule = {
+                "rule_id": f"vision-{category}",
+                "producer": "vision",
+                "category": category,
+                "source_id": None,
+                "sinks": [],
+                "min_interval_sec": 300,
+            }
+            rules.append(rule)
+        if field == "telegram":
+            sinks = set(rule.get("sinks") or [])
+            if bool(value):
+                sinks.add("telegram")
+            else:
+                sinks.discard("telegram")
+            rule["sinks"] = sorted(sinks)
+        elif field == "vlm":
+            if bool(value):
+                rule["compose"] = "vlm"
+            else:
+                rule.pop("compose", None)
+        elif field == "cooldown":
+            try:
+                rule["min_interval_sec"] = max(0, int(str(value).strip()))
+            except (TypeError, ValueError):
+                pass
+        _save_alert_rules(rules)
+        try:
+            from ..lib.alert_bus import reload_rules
+            reload_rules()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("alert dispatcher reload failed: %s", e)
+        self._reload_alert_rules()
 
     # ── RTSP-Kamera-Verwaltung (Phase 2) ─────────────────────────────
 
