@@ -274,6 +274,14 @@ def multipose_modal() -> rx.Component:
                     rx.divider(),
                     _step_instruction(),
                     _live_preview(),
+                    # Kontinuierliche Live-Preview: tickt nur solange das Modal
+                    # offen ist (der Handler no-opt sonst) → frisches Bild zum
+                    # Pose-Prüfen.
+                    rx.moment(
+                        interval=1500,
+                        on_change=AIState.multipose_live_tick,
+                        display="none",
+                    ),
                     rx.text(
                         t("multipose_captures_label"),
                         size="1",
