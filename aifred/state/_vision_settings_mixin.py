@@ -491,9 +491,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
     def _empty_rtsp_form() -> dict[str, Any]:
         return {
             "name": "", "host": "", "port": "554", "path": "",
-            "cred": "", "profile": "webcam", "ptz": False,
-            "onvif_port": "8000", "api_port": "443", "face_channel": "",
-            "user": "", "password": "",
+            "cred": "", "profile": "webcam", "api_port": "443",
+            "face_channel": "", "user": "", "password": "",
         }
 
     def _reload_rtsp_cameras(self) -> None:
@@ -535,8 +534,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 "path": str(entry.get("path", "")),
                 "cred": str(entry.get("cred", "")),
                 "profile": str(entry.get("profile") or "webcam"),
-                "ptz": bool(entry.get("ptz", False)),
-                "onvif_port": str(entry.get("onvif_port", 8000)),
                 "api_port": str(entry.get("api_port", 443)),
                 "face_channel": "" if fc is None else str(fc),
             })
@@ -599,9 +596,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
             entry["cred"] = cred
         profile = str(f.get("profile") or "webcam")
         entry["profile"] = profile
-        if bool(f.get("ptz")):
-            entry["ptz"] = True
-            entry["onvif_port"] = _int(f.get("onvif_port"), 8000)
         if profile == "ai_camera":
             entry["api_port"] = _int(f.get("api_port"), 443)
             fc = str(f.get("face_channel", "")).strip()

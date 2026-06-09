@@ -362,21 +362,6 @@ def _rtsp_camera_form() -> rx.Component:
                 _rtsp_field("vision_rtsp_field_cred", "cred", "reolink"),
                 spacing="2", width="100%",
             ),
-            rx.hstack(
-                rx.text(t("vision_rtsp_field_ptz"), size="2", color="gray"),
-                rx.spacer(),
-                rx.switch(
-                    checked=AIState.rtsp_form["ptz"].to(bool),
-                    on_change=lambda v: AIState.set_rtsp_form_field("ptz", v),
-                    size="2", color_scheme="orange",
-                ),
-                align="center", width="100%",
-                style={"margin_top": "0.3em"},
-            ),
-            rx.cond(
-                AIState.rtsp_form["ptz"].to(bool),
-                _rtsp_field("vision_rtsp_field_onvif", "onvif_port", "8000"),
-            ),
             rx.cond(
                 AIState.rtsp_form["profile"].to(str) == "ai_camera",
                 rx.hstack(
