@@ -97,10 +97,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # Lade/Entlade-Vorgang läuft gerade → Spinner-Optik am Button.
     vlm_model_busy: bool = False
 
-    # ── RTSP-Kamera-Verwaltung (Phase 2) ─────────────────────────────
-    # Konfigurierte RTSP-Kameras (aus settings.json ``rtsp_cameras``), für die
-    # Verwaltungs-Sektion. Liste von {name, host, profile, ptz}.
-    rtsp_cameras_list: list[dict[str, Any]] = []
+    # ── RTSP-Kamera-Verwaltung ───────────────────────────────────────
+    # Bestehende RTSP-Kameras erscheinen als normale Quellen-Karte (mit
+    # Verbindungs-Stecker); dieses Formular legt neue an / bearbeitet die
+    # Verbindung einer bestehenden.
     # Add/Edit-Formular — alle Felder als String/Bool fürs Binding.
     rtsp_form: dict[str, Any] = {}
     rtsp_form_open: bool = False
@@ -148,7 +148,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
     def open_vision_settings(self) -> None:
         """Open the modal (called from the Plugin-Tab gear icon)."""
         self._refresh_vision_settings()
-        self._reload_rtsp_cameras()
         self.vision_settings_open = True
 
     @rx.event
@@ -266,6 +265,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "label": label,
                     "alias": alias,
                     "hardware_name": str(info.display_name or info.source_id),
+                    "is_rtsp": str(info.source_id).startswith("cam/rtsp_"),
                     "available": bool(info.available),
                     "auto_start": bool(stored.get("auto_start", False)),
                     "alerts_enabled": bool(s.get("alerts_enabled", True)),
@@ -495,21 +495,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
             "face_channel": "", "user": "", "password": "",
         }
 
-    def _reload_rtsp_cameras(self) -> None:
-        """RTSP-Kameras aus settings.json in die Anzeigeliste laden."""
-        cams = _load_settings().get("rtsp_cameras")
-        out: list[dict[str, Any]] = []
-        if isinstance(cams, list):
-            for c in cams:
-                if isinstance(c, dict) and c.get("name") and c.get("host"):
-                    out.append({
-                        "name": str(c.get("name")),
-                        "host": str(c.get("host")),
-                        "profile": str(c.get("profile") or "webcam"),
-                        "ptz": bool(c.get("ptz", False)),
-                    })
-        self.rtsp_cameras_list = out
-
     @rx.event
     def open_rtsp_camera_new(self) -> None:
         self.rtsp_form = self._empty_rtsp_form()
@@ -518,17 +503,18 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.rtsp_form_open = True
 
     @rx.event
-    def open_rtsp_camera_edit(self, name: str) -> None:
-        cams = _load_settings().get("rtsp_cameras") or []
-        entry = next(
-            (c for c in cams if isinstance(c, dict) and str(c.get("name")) == name),
-            None,
-        )
+    def open_rtsp_camera_edit_by_source(self, source_id: str) -> None:
+        """Verbindungs-Formular für eine bestehende RTSP-Quelle öffnen —
+        ausgelöst über den Stecker an der Quellen-Karte. Der Name der Kamera
+        wird über das Karten-Feld (Alias) verwaltet, NICHT hier; das Formular
+        zeigt nur die Verbindungs-Felder. ``rtsp_form_editing`` hält den
+        stabilen Config-Namen (= Basis der source_id), der unverändert bleibt."""
+        from ..lib.frame_sources.rtsp_source import find_camera_config
+        entry = find_camera_config(source_id) or {}
         form = self._empty_rtsp_form()
         if entry:
             fc = entry.get("face_channel")
             form.update({
-                "name": str(entry.get("name", "")),
                 "host": str(entry.get("host", "")),
                 "port": str(entry.get("port", 554)),
                 "path": str(entry.get("path", "")),
@@ -539,7 +525,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             })
             # Credentials werden NICHT vorbefüllt — Secrets bleiben verdeckt.
         self.rtsp_form = form
-        self.rtsp_form_editing = name
+        self.rtsp_form_editing = str(entry.get("name", "")) if entry else ""
         self.rtsp_form_error = ""
         self.rtsp_form_open = True
 
@@ -573,10 +559,16 @@ class VisionSettingsMixin(rx.State, mixin=True):
         (Update nach Name oder Append), Credentials in .env, Quellen neu
         einlesen."""
         f = self.rtsp_form
-        name = str(f.get("name", "")).strip()
+        editing = self.rtsp_form_editing
         host = str(f.get("host", "")).strip()
+        # Beim Bearbeiten bleibt der Config-Name stabil (source_id-Basis); der
+        # Anzeigename wird über das Karten-Alias-Feld verwaltet. Beim Anlegen
+        # ist der Formular-Name der neue Config-Name.
+        name = editing if editing else str(f.get("name", "")).strip()
         if not name or not host:
-            self.rtsp_form_error = "Name und Host sind Pflicht."
+            self.rtsp_form_error = (
+                "Host ist Pflicht." if editing else "Name und Host sind Pflicht."
+            )
             return
 
         def _int(v: Any, default: int) -> int:
@@ -635,7 +627,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
 
         self.rtsp_form_open = False
         self.rtsp_form_error = ""
-        self._reload_rtsp_cameras()
         self._reload_vigilantia_sources()
 
     @rx.event
@@ -652,7 +643,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             rescan()
         except Exception as e:  # noqa: BLE001
             logger.warning("frame source rescan failed: %s", e)
-        self._reload_rtsp_cameras()
+        self.rtsp_form_open = False
         self._reload_vigilantia_sources()
 
     @rx.event
