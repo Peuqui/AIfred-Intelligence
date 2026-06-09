@@ -222,6 +222,44 @@ def _source_card(cam: rx.Var) -> rx.Component:
                     style={"margin_top": "0.2em", "padding_left": "0.3em"},
                 ),
             ),
+            # Pro-Kamera Aktiv-Zeitfenster (scheduled Scharfschalten) — schaltet
+            # die Überwachung zeitgesteuert an/aus (unabhängig von der Ruhezeit,
+            # die nur Alerts unterdrückt).
+            rx.hstack(
+                rx.icon("clock", size=14, color="gray"),
+                rx.text(t("vision_settings_schedule_label"), size="2", color="gray"),
+                rx.switch(
+                    checked=cam["schedule_enabled"].to(bool),
+                    on_change=lambda v: AIState.set_vigilantia_schedule(
+                        sid, "schedule_enabled", v
+                    ),
+                    size="1", color_scheme="orange",
+                ),
+                rx.cond(
+                    cam["schedule_enabled"].to(bool),
+                    rx.hstack(
+                        rx.input(
+                            value=cam["schedule_start"].to(str),
+                            on_change=lambda v: AIState.set_vigilantia_schedule(
+                                sid, "schedule_start", v
+                            ),
+                            type="number", size="1", style={"width": "3.5em"},
+                        ),
+                        rx.text("–", size="1", color="gray"),
+                        rx.input(
+                            value=cam["schedule_end"].to(str),
+                            on_change=lambda v: AIState.set_vigilantia_schedule(
+                                sid, "schedule_end", v
+                            ),
+                            type="number", size="1", style={"width": "3.5em"},
+                        ),
+                        rx.text(t("vision_settings_quiet_oclock"), size="1", color="gray"),
+                        align="center", spacing="1",
+                    ),
+                ),
+                align="center", width="100%", spacing="2",
+                style={"margin_top": "0.3em"},
+            ),
             rx.hstack(
                 rx.text(
                     t("vision_settings_source_resolution_label"),

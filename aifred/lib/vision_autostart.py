@@ -79,6 +79,24 @@ def _resolve_edge_ai(
     }
 
 
+def _schedule_active_now(settings: dict[str, Any]) -> bool:
+    """True, wenn die Kamera laut Pro-Quelle-Zeitplan JETZT aktiv (scharf)
+    sein soll. Kein Zeitplan (``schedule_enabled`` False/fehlt) → immer aktiv.
+    Über Mitternacht (z.B. 18→8) korrekt; start==end → immer aktiv."""
+    if not settings.get("schedule_enabled"):
+        return True
+    try:
+        start = int(settings.get("schedule_start", 0)) % 24
+        end = int(settings.get("schedule_end", 0)) % 24
+    except (TypeError, ValueError):
+        return True
+    if start == end:
+        return True
+    from datetime import datetime
+    hour = datetime.now().hour
+    return (start <= hour < end) if start < end else (hour >= start or hour < end)
+
+
 def _build_background_config(
     source_record: dict[str, Any],
     plugin_settings: dict[str, Any],
@@ -158,8 +176,14 @@ async def start_background_watcher(source_id: str) -> bool:
         logger.warning("autostart: source %s not in store", source_id)
         return False
     plugin = _load_plugin_settings()
-    cfg = _build_background_config(record, plugin)
     watcher = get_default_watcher()
+    # Pro-Kamera-Zeitplan: außerhalb des Aktiv-Fensters nicht starten
+    # (der schedule_supervisor zieht sie hoch, sobald das Fenster beginnt).
+    if not _schedule_active_now(record.get("settings") or {}):
+        logger.info("autostart: %s außerhalb des Zeitplan-Fensters — nicht gestartet", source_id)
+        await watcher.stop(source_id)
+        return True
+    cfg = _build_background_config(record, plugin)
     # Idempotent — wenn schon was läuft, Stop+Start damit die neue
     # Config greift.
     await watcher.stop(source_id)
@@ -238,6 +262,10 @@ async def start_all_background_watchers() -> int:
         source_id = record.get("source_id") or ""
         if not source_id:
             continue
+        # Pro-Kamera-Zeitplan: außerhalb des Aktiv-Fensters überspringen.
+        if not _schedule_active_now(record.get("settings") or {}):
+            logger.info("autostart: %s außerhalb des Zeitplan-Fensters — übersprungen", source_id)
+            continue
         cfg = _build_background_config(record, plugin)
         try:
             await watcher.start(source_id, cfg)
@@ -246,6 +274,44 @@ async def start_all_background_watchers() -> int:
         except Exception as e:  # noqa: BLE001
             logger.warning("autostart: start failed for %s: %s", source_id, e)
     return started
+
+
+async def schedule_supervisor() -> None:
+    """Dauer-Supervisor: prüft minütlich die Pro-Kamera-Zeitpläne und startet/
+    stoppt die Watcher entsprechend — aber nur wenn global scharf. Kameras ohne
+    Zeitplan bleiben unangetastet (die regelt der armed-Master). Läuft ab
+    Service-Boot, failure-tolerant."""
+    from .vision_store import VisionStore
+    from .vision_watcher import get_default_watcher
+    while True:
+        try:
+            await asyncio.sleep(60)
+            plugin = _load_plugin_settings()
+            if plugin.get("vision_mode") == "off" or not plugin.get("vigilantia_armed", False):
+                continue
+            store = VisionStore()
+            watcher = get_default_watcher()
+            for record in store.list_sources():
+                if not record.get("auto_start"):
+                    continue
+                settings = record.get("settings") or {}
+                if not settings.get("schedule_enabled"):
+                    continue
+                source_id = record.get("source_id") or ""
+                if not source_id:
+                    continue
+                active = _schedule_active_now(settings)
+                running = watcher.is_running(source_id)
+                if active and not running:
+                    await start_background_watcher(source_id)
+                    logger.info("schedule: %s im Zeitfenster → gestartet", source_id)
+                elif not active and running:
+                    await watcher.stop(source_id)
+                    logger.info("schedule: %s außerhalb Zeitfenster → gestoppt", source_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("schedule supervisor error: %s", e)
 
 
 async def stop_all_background_watchers() -> int:
@@ -288,6 +354,9 @@ def schedule_autostart() -> None:
         loop = asyncio.get_event_loop()
         if loop.is_running():
             asyncio.create_task(start_all_background_watchers())
+            # Dauer-Supervisor für die Pro-Kamera-Zeitpläne (nur im laufenden
+            # Loop sinnvoll — die one-shot-Pfade unten haben keinen).
+            asyncio.create_task(schedule_supervisor())
         else:
             loop.run_until_complete(start_all_background_watchers())
     except RuntimeError:

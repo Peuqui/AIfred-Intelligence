@@ -316,6 +316,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "quiet_enabled": bool(s.get("quiet_enabled", False)),
                     "quiet_start": str(s.get("quiet_start", 22)),
                     "quiet_end": str(s.get("quiet_end", 6)),
+                    "schedule_enabled": bool(s.get("schedule_enabled", False)),
+                    "schedule_start": str(s.get("schedule_start", 18)),
+                    "schedule_end": str(s.get("schedule_end", 8)),
                     "resolution": str(s.get("resolution") or "default"),
                 })
             self.vigilantia_sources = cams
@@ -521,6 +524,62 @@ class VisionSettingsMixin(rx.State, mixin=True):
             {**c, field: display_val} if c["id"] == source_id else c
             for c in self.vigilantia_sources
         ]
+
+    @rx.event
+    async def set_vigilantia_schedule(
+        self, source_id: str, field: str, value: Any
+    ) -> None:
+        """Pro-Kamera Aktiv-Zeitfenster (scheduled Scharfschalten). ``field`` ∈
+        schedule_enabled / schedule_start / schedule_end. Anders als die
+        Ruhezeit (die nur Alerts unterdrückt) schaltet das die Überwachung der
+        Kamera an/aus — greift sofort über den schedule_supervisor."""
+        if not source_id or field not in (
+            "schedule_enabled", "schedule_start", "schedule_end"
+        ):
+            return
+        if field == "schedule_enabled":
+            stored_val: Any = bool(value)
+            display_val: Any = bool(value)
+        else:
+            try:
+                hour = max(0, min(23, int(str(value).strip())))
+            except (TypeError, ValueError):
+                hour = 0
+            stored_val = hour
+            display_val = str(hour)
+        try:
+            self._persist_source_setting(source_id, field, stored_val)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("schedule persist failed for %s: %s", source_id, e)
+            return
+        self.vigilantia_sources = [
+            {**c, field: display_val} if c["id"] == source_id else c
+            for c in self.vigilantia_sources
+        ]
+        # Sofort anwenden: Watcher je nach Fenster + global-armed starten/stoppen.
+        try:
+            from ..lib.vision_autostart import (
+                _schedule_active_now,
+                start_background_watcher,
+            )
+            from ..lib.vision_watcher import get_default_watcher
+            if self.vigilantia_armed:
+                rec = next(
+                    (c for c in self.vigilantia_sources if c["id"] == source_id), None
+                )
+                settings = {
+                    "schedule_enabled": bool(rec.get("schedule_enabled")) if rec else False,
+                    "schedule_start": int(rec.get("schedule_start", 0) or 0) if rec else 0,
+                    "schedule_end": int(rec.get("schedule_end", 0) or 0) if rec else 0,
+                }
+                active = _schedule_active_now(settings)
+                running = get_default_watcher().is_running(source_id)
+                if active and not running:
+                    await start_background_watcher(source_id)
+                elif not active and running:
+                    await get_default_watcher().stop(source_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("schedule live-apply failed for %s: %s", source_id, e)
 
     # ── Alert-Routing-Regeln ─────────────────────────────────────────
 
