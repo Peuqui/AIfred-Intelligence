@@ -500,14 +500,20 @@ def _orange_sep() -> rx.Component:
     )
 
 
+# Feste Spaltenbreiten — Header und Zellen teilen sie, damit alles sauber
+# untereinander steht (tabellarisch). Die Kanäle-Spalte wächst + bricht intern um.
+_COL_CAT = "0 0 110px"
+_COL_VLM = "0 0 64px"
+_COL_CD = "0 0 92px"
+
+
 def _alert_rule_row(index: int, category: str, label_key: str) -> rx.Component:
-    """Eine Regel-Zeile: Kategorie-Label, ein Schalter PRO Kanal (kanal-
-    agnostisch aus alert_channels), VLM-Switch, Cooldown. Gebunden an
-    AIState.alert_rules_ui[index]."""
+    """Eine Regel-Zeile als feste Spalten: Kategorie | Kanäle (je ein Schalter,
+    kanal-agnostisch) | Bild-Text | Cooldown. Gebunden an alert_rules_ui[index]."""
     r = AIState.alert_rules_ui[index]
     return rx.hstack(
-        rx.text(t(label_key), size="2", style={"flex": "0 0 130px"}),
-        rx.hstack(
+        rx.text(t(label_key), size="2", style={"flex": _COL_CAT}),
+        rx.flex(
             rx.foreach(
                 AIState.alert_channels,
                 lambda ch: rx.checkbox(
@@ -519,20 +525,26 @@ def _alert_rule_row(index: int, category: str, label_key: str) -> rx.Component:
                     size="1", color_scheme="orange",
                 ),
             ),
-            spacing="3", wrap="wrap", align="center",
+            wrap="wrap", gap="3", align="center",
+            style={"flex": "1 1 auto", "min_width": "0"},
         ),
-        rx.spacer(),
-        rx.switch(
-            checked=r["vlm"].to(bool),
-            on_change=lambda v: AIState.set_alert_rule(category, "vlm", v),
-            size="1", color_scheme="orange",
+        rx.box(
+            rx.checkbox(
+                checked=r["vlm"].to(bool),
+                on_change=lambda v: AIState.set_alert_rule(category, "vlm", v),
+                size="1", color_scheme="orange",
+            ),
+            style={"flex": _COL_VLM, "display": "flex", "justify_content": "center"},
         ),
-        rx.input(
-            value=r["cooldown"].to(str),
-            on_change=lambda v: AIState.set_alert_rule(category, "cooldown", v),
-            type="number", size="1", style={"width": "4.5em"},
+        rx.hstack(
+            rx.input(
+                value=r["cooldown"].to(str),
+                on_change=lambda v: AIState.set_alert_rule(category, "cooldown", v),
+                type="number", size="1", style={"width": "3.5em"},
+            ),
+            rx.text("s", size="1", color="gray"),
+            spacing="1", align="center", justify="center", style={"flex": _COL_CD},
         ),
-        rx.text("s", size="1", color="gray"),
         align="center", width="100%", spacing="2",
     )
 
@@ -545,12 +557,19 @@ def _alert_rules_section() -> rx.Component:
         rx.text(t("alert_rules_title"), font_weight="bold", size="3"),
         rx.text(t("alert_rules_help"), size="1", color="gray"),
         rx.hstack(
-            rx.box(style={"flex": "0 0 130px"}),
-            rx.text(t("alert_rules_col_channels"), size="1", color="gray"),
-            rx.spacer(),
-            rx.text(t("alert_rules_col_vlm"), size="1", color="gray"),
-            rx.spacer(),
-            rx.text(t("alert_rules_col_cooldown"), size="1", color="gray"),
+            rx.box(style={"flex": _COL_CAT}),
+            rx.text(
+                t("alert_rules_col_channels"), size="1", weight="bold", color="gray",
+                style={"flex": "1 1 auto", "min_width": "0"},
+            ),
+            rx.text(
+                t("alert_rules_col_vlm"), size="1", weight="bold", color="gray",
+                style={"flex": _COL_VLM, "text_align": "center"},
+            ),
+            rx.text(
+                t("alert_rules_col_cooldown"), size="1", weight="bold", color="gray",
+                style={"flex": _COL_CD, "text_align": "center"},
+            ),
             align="center", width="100%", spacing="2",
         ),
         rx.cond(
