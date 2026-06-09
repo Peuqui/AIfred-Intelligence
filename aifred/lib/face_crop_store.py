@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -170,6 +171,23 @@ class FaceCropStore:
             band=session.band,
             started_at=session.started_at,
         )
+
+    def save_raw(self, jpeg_bytes: bytes, face_id: int) -> str:
+        """Ein bereits zugeschnittenes Crop-JPEG ablegen (z.B. aus dem
+        Multipose-Enrollment, wo der Crop schon vorliegt) und die served-URL
+        zurückgeben. Anders als ``save()`` wird hier nicht aus einem Frame
+        gecroppt. Leere URL bei Fehler (Best-Effort)."""
+        if not jpeg_bytes:
+            return ""
+        rel = Path(f"enroll/face_{int(face_id)}") / f"{uuid.uuid4().hex[:12]}.jpg"
+        abs_path = self._base_dir / rel
+        try:
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_bytes(jpeg_bytes)
+        except OSError as e:
+            logger.warning("save_raw crop write failed for %s: %s", abs_path, e)
+            return ""
+        return f"{self.URL_PREFIX}/{rel.as_posix()}"
 
     # ── Session-Lookup / -Eröffnung ──────────────────────────────
 

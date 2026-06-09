@@ -33,6 +33,11 @@ class PersonariumMixin(rx.State, mixin=True):
     # (0 = niemand), plus aktueller Input.
     personarium_edit_face_id: int = 0
     personarium_edit_name: str = ""
+    # Embedding-Manager: face_id der Identität, deren Embeddings gerade
+    # inline angezeigt werden (0 = keine), + die Embedding-Liste
+    # ({id, quality, created_at, crop_url} — ohne den numpy-Vektor).
+    personarium_manage_face_id: int = 0
+    personarium_embeddings: list[dict[str, Any]] = []
 
     @rx.event
     def open_personarium(self) -> None:
@@ -57,6 +62,57 @@ class PersonariumMixin(rx.State, mixin=True):
             logger.warning("personarium refresh failed: %s", e)
             self.personarium_faces = []
             self.personarium_status = f"⚠️ {e}"
+
+    def _reload_personarium_embeddings(self) -> None:
+        """Embeddings der gerade verwalteten Identität laden (ohne den
+        numpy-Vektor — der gehört nicht in den Reflex-State)."""
+        fid = int(self.personarium_manage_face_id)
+        if fid <= 0:
+            self.personarium_embeddings = []
+            return
+        try:
+            from ..lib.vision_store import VisionStore
+            rows = VisionStore().list_embeddings(fid)
+            self.personarium_embeddings = [
+                {
+                    "id": int(r.get("id")),
+                    "quality": round(float(r.get("quality_score", 0.0) or 0.0), 2),
+                    "created_at": str(r.get("created_at", "") or "")[:19].replace("T", " "),
+                    "crop_url": str(r.get("crop_url", "") or ""),
+                }
+                for r in rows
+            ]
+        except Exception as e:  # noqa: BLE001
+            logger.warning("personarium embeddings load failed: %s", e)
+            self.personarium_embeddings = []
+
+    @rx.event
+    def personarium_open_embeddings(self, face_id: int) -> None:
+        """Embedding-Manager für eine Identität ein-/ausklappen."""
+        fid = int(face_id)
+        if self.personarium_manage_face_id == fid:
+            self.personarium_manage_face_id = 0
+            self.personarium_embeddings = []
+            return
+        self.personarium_manage_face_id = fid
+        self._reload_personarium_embeddings()
+
+    @rx.event
+    def personarium_delete_embedding(self, embedding_id: int) -> None:
+        """Ein einzelnes Embedding löschen (Crop bleibt auf Disk, wird vom
+        Cleanup-TTL erfasst). Aktualisiert Liste + Identity-Count."""
+        try:
+            from ..lib.vision_filters.face_recognize import FaceRecognizer
+            from ..lib.vision_store import VisionStore
+            store = VisionStore()
+            store.delete_embedding(int(embedding_id))
+            FaceRecognizer(store).invalidate()  # frisch erkennen
+        except Exception as e:  # noqa: BLE001
+            logger.warning("delete embedding failed: %s", e)
+            self.personarium_status = f"⚠️ {e}"
+            return
+        self._reload_personarium_embeddings()
+        self._refresh_personarium_faces()
 
     @rx.event
     def personarium_start_rename(self, face_id: int, current_name: str) -> None:

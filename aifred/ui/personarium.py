@@ -18,7 +18,8 @@ def _face_row(face: rx.Var) -> rx.Component:
     """Eine Zeile in der Identitäten-Tabelle."""
     fid = face["id"]
     is_editing = AIState.personarium_edit_face_id == fid
-    return rx.hstack(
+    return rx.vstack(
+        rx.hstack(
         # Avatar
         rx.cond(
             face["crop_url"] != "",
@@ -107,6 +108,14 @@ def _face_row(face: rx.Var) -> rx.Component:
                     title=t("personarium_multipose_add"),
                 ),
                 rx.icon_button(
+                    rx.icon("layers", size=14),
+                    on_click=AIState.personarium_open_embeddings(fid),
+                    size="1",
+                    variant="soft",
+                    color_scheme="gray",
+                    title=t("personarium_manage_embeddings"),
+                ),
+                rx.icon_button(
                     rx.icon("pencil", size=14),
                     on_click=AIState.personarium_start_rename(fid, face["name"]),
                     size="1",
@@ -134,6 +143,73 @@ def _face_row(face: rx.Var) -> rx.Component:
             "padding": "0.5em 0",
             "border_bottom": "1px solid var(--gray-6)",
         },
+        ),
+        # Embedding-Manager: inline-Grid unter der Zeile, wenn diese Identität
+        # aufgeklappt ist (über den „layers"-Button).
+        rx.cond(
+            AIState.personarium_manage_face_id == fid,
+            _embedding_grid(),
+        ),
+        spacing="1",
+        align="stretch",
+        width="100%",
+    )
+
+
+def _embedding_grid() -> rx.Component:
+    """Grid der Embeddings der gerade verwalteten Identität: Crop (oder
+    Platzhalter) + Quality + Einzel-Löschen."""
+    return rx.box(
+        rx.cond(
+            AIState.personarium_embeddings.length() > 0,
+            rx.flex(
+                rx.foreach(AIState.personarium_embeddings, _embedding_cell),
+                wrap="wrap", gap="2",
+            ),
+            rx.text(t("personarium_no_embeddings"), size="1", color="gray"),
+        ),
+        style={
+            "padding": "0.5em 0.5em 0.7em",
+            "border_bottom": "1px solid var(--gray-6)",
+            "width": "100%",
+        },
+    )
+
+
+def _embedding_cell(emb: rx.Var) -> rx.Component:
+    """Eine Embedding-Kachel: Crop-Thumbnail (oder Platzhalter), Quality-Badge
+    und ein Löschen-Overlay."""
+    return rx.box(
+        rx.cond(
+            emb["crop_url"] != "",
+            rx.image(
+                src=emb["crop_url"],
+                style={
+                    "width": "64px", "height": "64px", "object_fit": "cover",
+                    "border_radius": "4px", "border": "1px solid var(--gray-7)",
+                },
+            ),
+            rx.box(
+                rx.icon("image-off", size=20, color="gray"),
+                style={
+                    "width": "64px", "height": "64px", "border_radius": "4px",
+                    "background_color": "var(--gray-3)", "border": "1px solid var(--gray-7)",
+                    "display": "flex", "align_items": "center", "justify_content": "center",
+                },
+            ),
+        ),
+        rx.text(
+            emb["quality"].to(str),
+            size="1", color="gray", style={"text_align": "center"},
+        ),
+        rx.icon_button(
+            rx.icon("trash-2", size=12),
+            on_click=AIState.personarium_delete_embedding(emb["id"]),
+            size="1", variant="soft", color_scheme="red",
+            style={"position": "absolute", "top": "2px", "right": "2px"},
+            title=t("personarium_delete_embedding"),
+        ),
+        style={"position": "relative", "width": "64px"},
     )
 
 
