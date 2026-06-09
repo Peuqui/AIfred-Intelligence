@@ -50,6 +50,38 @@ def _alerts_enabled(source_id: str, store: Any) -> bool:
     return True
 
 
+def _alert_passes_filters(source_id: str, store: Any, alert_type: str) -> bool:
+    """Pro-Kamera Feinfilter: welche Event-Typen alerten + Ruhezeiten.
+
+    * ``settings.alert_types`` (Liste): nur enthaltene Typen alerten. Fehlt der
+      Schlüssel → alle Typen erlaubt (Default).
+    * ``settings.quiet_enabled`` + ``quiet_start``/``quiet_end`` (Stunde 0–23):
+      in diesem Zeitfenster keine Alerts. Über Mitternacht (z.B. 22→6) wird
+      korrekt behandelt.
+    ``alert_type`` ist einer von person/vehicle/animal/face."""
+    try:
+        rec = store.get_source(source_id) if store else None
+    except Exception:  # noqa: BLE001
+        rec = None
+    settings = (rec.get("settings") or {}) if rec else {}
+
+    types = settings.get("alert_types")
+    if isinstance(types, list) and alert_type not in types:
+        return False
+
+    if settings.get("quiet_enabled"):
+        try:
+            start = int(settings.get("quiet_start", 22)) % 24
+            end = int(settings.get("quiet_end", 6)) % 24
+        except (TypeError, ValueError):
+            return True
+        hour = datetime.now().hour
+        in_quiet = (start <= hour < end) if start < end else (hour >= start or hour < end)
+        if in_quiet:
+            return False
+    return True
+
+
 def _source_alias(source_id: str, store: Any) -> str:
     """Anzeigename der Kamera für den Alert. Geht über die SSoT
     :meth:`VisionStore.source_label` (Alias > display_name > source_id) —
@@ -124,6 +156,8 @@ async def emit_face_alert(
         return
     if not _alerts_enabled(source_id, store):
         return
+    if not _alert_passes_filters(source_id, store, "face"):
+        return
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
     title, body = _compose(event_type, alias, name, ts)
@@ -156,6 +190,8 @@ async def emit_person_alert(
     if not _vigilantia_armed():
         return
     if not _alerts_enabled(source_id, store):
+        return
+    if not _alert_passes_filters(source_id, store, "person"):
         return
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
@@ -196,6 +232,8 @@ async def emit_object_alert(
     if not _vigilantia_armed():
         return
     if not _alerts_enabled(source_id, store):
+        return
+    if not _alert_passes_filters(source_id, store, object_type):
         return
     title = _OBJECT_ALERT_TITLES.get(object_type)
     if title is None:
