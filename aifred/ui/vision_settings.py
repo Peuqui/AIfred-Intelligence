@@ -121,6 +121,17 @@ def _source_card(cam: rx.Var) -> rx.Component:
                     ~cam["available"].to(bool),
                     rx.badge("✗", color_scheme="red", size="1"),
                 ),
+                # Nur RTSP-Kameras: Verbindung (Host/Profil/Credentials) direkt
+                # an der Karte bearbeiten. Webcams haben kein Verbindungs-Rezept.
+                rx.cond(
+                    cam["is_rtsp"].to(bool),
+                    rx.icon_button(
+                        rx.icon("plug", size=12),
+                        on_click=lambda: AIState.open_rtsp_camera_edit_by_source(sid),
+                        size="1", variant="ghost", color_scheme="gray",
+                        title=t("vision_rtsp_edit_connection"),
+                    ),
+                ),
                 rx.switch(
                     checked=cam["auto_start"].to(bool),
                     on_change=lambda v: AIState.set_vigilantia_source_auto_start(sid, v),
@@ -311,36 +322,23 @@ def _rtsp_field(
     )
 
 
-def _rtsp_camera_row(cam: rx.Var) -> rx.Component:
-    """Eine Zeile pro konfigurierter RTSP-Kamera (Name, Profil, Host) +
-    Bearbeiten/Löschen."""
-    return rx.hstack(
-        rx.icon("video", size=14, color="gray"),
-        rx.text(cam["name"], size="2", weight="medium"),
-        rx.badge(cam["profile"], color_scheme="orange", size="1"),
-        rx.text(cam["host"], size="1", color="gray"),
-        rx.spacer(),
-        rx.icon_button(
-            rx.icon("pencil", size=12),
-            on_click=lambda: AIState.open_rtsp_camera_edit(cam["name"]),
-            size="1", variant="ghost", color_scheme="gray",
-        ),
-        rx.icon_button(
-            rx.icon("trash-2", size=12),
-            on_click=lambda: AIState.delete_rtsp_camera(cam["name"]),
-            size="1", variant="ghost", color_scheme="red",
-        ),
-        align="center", width="100%", spacing="2",
-    )
-
-
 def _rtsp_camera_form() -> rx.Component:
     """Add/Edit-Formular für eine RTSP-Kamera."""
     return rx.box(
         rx.vstack(
+            rx.cond(
+                AIState.rtsp_form_editing == "",
+                rx.text(t("vision_rtsp_form_new_header"), font_weight="bold", size="2"),
+                rx.text(t("vision_rtsp_form_edit_header"), font_weight="bold", size="2"),
+            ),
             rx.hstack(
-                _rtsp_field("vision_rtsp_field_name", "name", "Hauseingang"),
-                _rtsp_field("vision_rtsp_field_host", "host", "192.168.0.251"),
+                # Name nur beim Anlegen — bei bestehenden Kameras kommt der Name
+                # von der Quellen-Karte (Alias) und bleibt dort.
+                rx.cond(
+                    AIState.rtsp_form_editing == "",
+                    _rtsp_field("vision_rtsp_field_name", "name", "z. B. Garage"),
+                ),
+                _rtsp_field("vision_rtsp_field_host", "host", "z. B. 192.168.0.50"),
                 spacing="2", width="100%",
             ),
             rx.hstack(
@@ -359,7 +357,7 @@ def _rtsp_camera_form() -> rx.Component:
                     ),
                     spacing="1", align="stretch", width="100%",
                 ),
-                _rtsp_field("vision_rtsp_field_cred", "cred", "reolink"),
+                _rtsp_field("vision_rtsp_field_cred", "cred", "z. B. garage"),
                 spacing="2", width="100%",
             ),
             rx.cond(
@@ -391,7 +389,19 @@ def _rtsp_camera_form() -> rx.Component:
                     on_click=AIState.close_rtsp_camera_form,
                     size="2", variant="soft", color_scheme="gray",
                 ),
-                spacing="2",
+                rx.spacer(),
+                rx.cond(
+                    AIState.rtsp_form_editing != "",
+                    rx.button(
+                        rx.icon("trash-2", size=12),
+                        t("vision_rtsp_delete"),
+                        on_click=lambda: AIState.delete_rtsp_camera(
+                            AIState.rtsp_form_editing
+                        ),
+                        size="2", variant="soft", color_scheme="red",
+                    ),
+                ),
+                spacing="2", width="100%",
             ),
             spacing="2", align="stretch", width="100%",
         ),
@@ -406,7 +416,8 @@ def _rtsp_camera_form() -> rx.Component:
 
 
 def _rtsp_cameras_section() -> rx.Component:
-    """RTSP-Kamera-Verwaltung: Liste + Hinzufügen/Bearbeiten/Löschen."""
+    """Neue RTSP-Kamera anlegen. Bestehende werden über den Stecker an der
+    jeweiligen Quellen-Karte bearbeitet (eine Kamera = eine Karte)."""
     return rx.vstack(
         rx.hstack(
             rx.text(t("vision_rtsp_section_title"), font_weight="bold", size="3"),
@@ -419,14 +430,7 @@ def _rtsp_cameras_section() -> rx.Component:
             ),
             align="center", width="100%",
         ),
-        rx.cond(
-            AIState.rtsp_cameras_list.length() > 0,
-            rx.vstack(
-                rx.foreach(AIState.rtsp_cameras_list, _rtsp_camera_row),
-                spacing="1", align="stretch", width="100%",
-            ),
-            rx.text(t("vision_rtsp_empty"), color="gray", size="1"),
-        ),
+        rx.text(t("vision_rtsp_section_help"), color="gray", size="1"),
         rx.cond(AIState.rtsp_form_open, _rtsp_camera_form()),
         align="stretch", spacing="1", width="100%",
     )
