@@ -149,10 +149,24 @@ class ReolinkAIClient:
         raise ReolinkAIError(f"Snap ch{ch}: retry logic exhausted")
 
     async def aclose(self) -> None:
-        """HTTP-Client schließen. Idempotent."""
+        """Token auf der Kamera abmelden (gibt das Session-Kontingent sofort
+        frei — Reolink hält Tokens sonst bis zum Lease-Ende, ~1h, und das
+        begrenzte Kontingent läuft voll) und HTTP-Client schließen. Idempotent,
+        Best-Effort: ein fehlgeschlagener Logout blockiert das Schließen nie."""
         if self._client is not None:
+            if self._token:
+                try:
+                    await self._client.post(
+                        self._base,
+                        params={"cmd": "Logout", "token": self._token},
+                        json=[{"cmd": "Logout", "param": {}}],
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             await self._client.aclose()
             self._client = None
+        self._token = ""
+        self._token_expires_at = 0.0
 
     # ── Internals ─────────────────────────────────────────────────
 
