@@ -49,6 +49,11 @@ def _save_settings(data: dict[str, Any]) -> None:
     )
 
 
+# Alarmierbare Event-Typen pro Kamera (Default: alle aktiv). SSoT auch für die
+# Reihenfolge der Checkboxen in der UI.
+_DEFAULT_ALERT_TYPES = ["person", "vehicle", "animal", "face"]
+
+
 class VisionSettingsMixin(rx.State, mixin=True):
     """UI state for the Vision-Plugin settings modal."""
 
@@ -264,6 +269,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "available": bool(info.available),
                     "auto_start": bool(stored.get("auto_start", False)),
                     "alerts_enabled": bool(s.get("alerts_enabled", True)),
+                    "alert_types": [
+                        str(x) for x in s.get("alert_types", _DEFAULT_ALERT_TYPES)
+                    ],
+                    "quiet_enabled": bool(s.get("quiet_enabled", False)),
+                    "quiet_start": str(s.get("quiet_start", 22)),
+                    "quiet_end": str(s.get("quiet_end", 6)),
                     "resolution": str(s.get("resolution") or "default"),
                 })
             self.vigilantia_sources = cams
@@ -417,6 +428,56 @@ class VisionSettingsMixin(rx.State, mixin=True):
             return
         self.vigilantia_sources = [
             {**c, "alerts_enabled": active} if c["id"] == source_id else c
+            for c in self.vigilantia_sources
+        ]
+
+    @rx.event
+    def set_vigilantia_alert_type(
+        self, source_id: str, alert_type: str, enabled: bool
+    ) -> None:
+        """Pro-Kamera einen Alarm-Event-Typ (person/vehicle/animal/face) an/aus.
+        Persistiert als ``sources.settings.alert_types`` (Liste)."""
+        if not source_id or alert_type not in _DEFAULT_ALERT_TYPES:
+            return
+        cam = next((c for c in self.vigilantia_sources if c["id"] == source_id), None)
+        current = list(cam.get("alert_types", _DEFAULT_ALERT_TYPES)) if cam else list(_DEFAULT_ALERT_TYPES)
+        if enabled and alert_type not in current:
+            current.append(alert_type)
+        elif not enabled and alert_type in current:
+            current.remove(alert_type)
+        try:
+            self._persist_source_setting(source_id, "alert_types", current)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("alert_types persist failed for %s: %s", source_id, e)
+            return
+        self.vigilantia_sources = [
+            {**c, "alert_types": current} if c["id"] == source_id else c
+            for c in self.vigilantia_sources
+        ]
+
+    @rx.event
+    def set_vigilantia_quiet(self, source_id: str, field: str, value: Any) -> None:
+        """Pro-Kamera Ruhezeit setzen. ``field`` ∈ quiet_enabled / quiet_start /
+        quiet_end. Start/Ende werden auf 0–23 normalisiert."""
+        if not source_id or field not in ("quiet_enabled", "quiet_start", "quiet_end"):
+            return
+        if field == "quiet_enabled":
+            stored_val: Any = bool(value)
+            display_val: Any = bool(value)
+        else:
+            try:
+                hour = max(0, min(23, int(str(value).strip())))
+            except (TypeError, ValueError):
+                hour = 0
+            stored_val = hour
+            display_val = str(hour)
+        try:
+            self._persist_source_setting(source_id, field, stored_val)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("quiet persist failed for %s: %s", source_id, e)
+            return
+        self.vigilantia_sources = [
+            {**c, field: display_val} if c["id"] == source_id else c
             for c in self.vigilantia_sources
         ]
 

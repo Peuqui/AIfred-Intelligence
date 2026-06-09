@@ -81,6 +81,19 @@ def _model_section() -> rx.Component:
     )
 
 
+def _alert_type_check(
+    sid: rx.Var, cam: rx.Var, atype: str, label_key: str
+) -> rx.Component:
+    """Checkbox für einen Alarm-Event-Typ einer Kamera (Phase 3)."""
+    return rx.checkbox(
+        t(label_key),
+        checked=cam["alert_types"].to(list[str]).contains(atype),
+        on_change=lambda v: AIState.set_vigilantia_alert_type(sid, atype, v),
+        size="1",
+        color_scheme="orange",
+    )
+
+
 def _source_card(cam: rx.Var) -> rx.Component:
     """Eine Karte pro Cam in der Quellen-Sektion. Zeigt Name +
     Hintergrund-Toggle + Auflösung.
@@ -138,6 +151,65 @@ def _source_card(cam: rx.Var) -> rx.Component:
                 width="100%",
                 spacing="2",
                 style={"margin_top": "0.3em"},
+            ),
+            # Feinfilter (nur sinnvoll wenn Alerts an): welche Event-Typen
+            # alarmieren + Ruhezeit. (Phase 3)
+            rx.cond(
+                cam["alerts_enabled"].to(bool),
+                rx.vstack(
+                    rx.hstack(
+                        rx.text(
+                            t("vision_settings_alert_types_label"),
+                            size="1", color="gray",
+                        ),
+                        _alert_type_check(sid, cam, "person", "vision_settings_alert_type_person"),
+                        _alert_type_check(sid, cam, "vehicle", "vision_settings_alert_type_vehicle"),
+                        _alert_type_check(sid, cam, "animal", "vision_settings_alert_type_animal"),
+                        _alert_type_check(sid, cam, "face", "vision_settings_alert_type_face"),
+                        spacing="2", align="center", wrap="wrap",
+                    ),
+                    rx.hstack(
+                        rx.icon("moon", size=13, color="gray"),
+                        rx.text(t("vision_settings_quiet_label"), size="1", color="gray"),
+                        rx.switch(
+                            checked=cam["quiet_enabled"].to(bool),
+                            on_change=lambda v: AIState.set_vigilantia_quiet(
+                                sid, "quiet_enabled", v
+                            ),
+                            size="1", color_scheme="orange",
+                        ),
+                        rx.cond(
+                            cam["quiet_enabled"].to(bool),
+                            rx.hstack(
+                                rx.input(
+                                    value=cam["quiet_start"].to(str),
+                                    on_change=lambda v: AIState.set_vigilantia_quiet(
+                                        sid, "quiet_start", v
+                                    ),
+                                    type="number", size="1",
+                                    style={"width": "3.5em"},
+                                ),
+                                rx.text("–", size="1", color="gray"),
+                                rx.input(
+                                    value=cam["quiet_end"].to(str),
+                                    on_change=lambda v: AIState.set_vigilantia_quiet(
+                                        sid, "quiet_end", v
+                                    ),
+                                    type="number", size="1",
+                                    style={"width": "3.5em"},
+                                ),
+                                rx.text(
+                                    t("vision_settings_quiet_oclock"),
+                                    size="1", color="gray",
+                                ),
+                                align="center", spacing="1",
+                            ),
+                        ),
+                        align="center", spacing="2", width="100%",
+                    ),
+                    spacing="1", align="start", width="100%",
+                    style={"margin_top": "0.2em", "padding_left": "0.3em"},
+                ),
             ),
             rx.hstack(
                 rx.text(
