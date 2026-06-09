@@ -10,6 +10,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
+from ..theme import COLORS
 from .helpers import t
 
 
@@ -486,6 +487,19 @@ _ALERT_RULE_CATS = [
 ]
 
 
+def _orange_sep() -> rx.Component:
+    """Dünne Trennlinie im Lieblingsorange (COLORS['primary']) zwischen den
+    Regel-Zeilen — trennt die Kategorien optisch."""
+    return rx.box(
+        style={
+            "height": "1px",
+            "background": COLORS.get("primary", "#e67700"),
+            "opacity": "0.45",
+            "width": "100%",
+        },
+    )
+
+
 def _alert_rule_row(index: int, category: str, label_key: str) -> rx.Component:
     """Eine Regel-Zeile: Kategorie-Label, ein Schalter PRO Kanal (kanal-
     agnostisch aus alert_channels), VLM-Switch, Cooldown. Gebunden an
@@ -543,10 +557,14 @@ def _alert_rules_section() -> rx.Component:
             AIState.alert_rules_ui.length() >= 6,
             rx.vstack(
                 *[
-                    _alert_rule_row(i, cat, label_key)
+                    comp
                     for i, (cat, label_key) in enumerate(_ALERT_RULE_CATS)
+                    for comp in (
+                        ([] if i == 0 else [_orange_sep()])
+                        + [_alert_rule_row(i, cat, label_key)]
+                    )
                 ],
-                spacing="1", align="stretch", width="100%",
+                spacing="2", align="stretch", width="100%",
             ),
         ),
         align="stretch", spacing="1", width="100%",
