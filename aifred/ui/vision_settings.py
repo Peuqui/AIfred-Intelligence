@@ -487,23 +487,32 @@ _ALERT_RULE_CATS = [
 
 
 def _alert_rule_row(index: int, category: str, label_key: str) -> rx.Component:
-    """Eine Regel-Zeile: Kategorie-Label, Telegram-Switch, VLM-Switch,
-    Cooldown. Gebunden an AIState.alert_rules_ui[index]."""
+    """Eine Regel-Zeile: Kategorie-Label, ein Schalter PRO Kanal (kanal-
+    agnostisch aus alert_channels), VLM-Switch, Cooldown. Gebunden an
+    AIState.alert_rules_ui[index]."""
     r = AIState.alert_rules_ui[index]
     return rx.hstack(
-        rx.text(t(label_key), size="2", style={"flex": "0 0 140px"}),
-        rx.switch(
-            checked=r["telegram"].to(bool),
-            on_change=lambda v: AIState.set_alert_rule(category, "telegram", v),
-            size="1", color_scheme="orange",
+        rx.text(t(label_key), size="2", style={"flex": "0 0 130px"}),
+        rx.hstack(
+            rx.foreach(
+                AIState.alert_channels,
+                lambda ch: rx.checkbox(
+                    ch["display_name"],
+                    checked=r["sinks"].to(list[str]).contains(ch["name"]),
+                    on_change=lambda v: AIState.toggle_alert_sink(
+                        category, ch["name"], v
+                    ),
+                    size="1", color_scheme="orange",
+                ),
+            ),
+            spacing="3", wrap="wrap", align="center",
         ),
-        rx.box(style={"flex": "0 0 24px"}),
+        rx.spacer(),
         rx.switch(
             checked=r["vlm"].to(bool),
             on_change=lambda v: AIState.set_alert_rule(category, "vlm", v),
             size="1", color_scheme="orange",
         ),
-        rx.spacer(),
         rx.input(
             value=r["cooldown"].to(str),
             on_change=lambda v: AIState.set_alert_rule(category, "cooldown", v),
@@ -515,15 +524,15 @@ def _alert_rule_row(index: int, category: str, label_key: str) -> rx.Component:
 
 
 def _alert_rules_section() -> rx.Component:
-    """Routing-Regeln: welche Erkennung auf Telegram gemeldet wird (+ VLM-
-    Bildbeschreibung + Cooldown). Schreibt data/alert_rules.json, lädt den
-    Dispatcher live neu."""
+    """Routing-Regeln: welche Erkennung über welche Kanäle gemeldet wird
+    (+ VLM-Bildbeschreibung + Cooldown). Kanäle kommen kanal-agnostisch aus der
+    Plugin-Registry. Schreibt data/alert_rules.json, lädt den Dispatcher live."""
     return rx.vstack(
         rx.text(t("alert_rules_title"), font_weight="bold", size="3"),
         rx.text(t("alert_rules_help"), size="1", color="gray"),
         rx.hstack(
-            rx.box(style={"flex": "0 0 140px"}),
-            rx.text(t("alert_rules_col_telegram"), size="1", color="gray"),
+            rx.box(style={"flex": "0 0 130px"}),
+            rx.text(t("alert_rules_col_channels"), size="1", color="gray"),
             rx.spacer(),
             rx.text(t("alert_rules_col_vlm"), size="1", color="gray"),
             rx.spacer(),
