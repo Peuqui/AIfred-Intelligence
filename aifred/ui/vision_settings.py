@@ -122,6 +122,23 @@ def _source_card(cam: rx.Var) -> rx.Component:
                 t("vision_settings_source_background_help"),
                 color="gray", size="1",
             ),
+            # Pro-Kamera Push-Alerts an/aus (Anti-Spam). Aus = erkennt/speichert
+            # weiter, schickt aber keine proaktiven Benachrichtigungen.
+            rx.hstack(
+                rx.icon("bell", size=14, color="gray"),
+                rx.text(t("vision_settings_source_alerts_label"), size="2", color="gray"),
+                rx.spacer(),
+                rx.switch(
+                    checked=cam["alerts_enabled"].to(bool),
+                    on_change=lambda v: AIState.set_vigilantia_source_alerts(sid, v),
+                    size="2",
+                    color_scheme="orange",
+                ),
+                align="center",
+                width="100%",
+                spacing="2",
+                style={"margin_top": "0.3em"},
+            ),
             rx.hstack(
                 rx.text(
                     t("vision_settings_source_resolution_label"),

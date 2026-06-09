@@ -251,6 +251,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "hardware_name": str(info.display_name or info.source_id),
                     "available": bool(info.available),
                     "auto_start": bool(stored.get("auto_start", False)),
+                    "alerts_enabled": bool(s.get("alerts_enabled", True)),
                     "resolution": str(s.get("resolution") or "default"),
                 })
             self.vigilantia_sources = cams
@@ -362,6 +363,50 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 if e["id"] == source_id else e
                 for e in self.vision_preview_sources
             ]
+
+    def _persist_source_setting(self, source_id: str, key: str, value: Any) -> None:
+        """Einen Schlüssel in ``sources.settings`` mergen, alle übrigen Felder
+        (auto_start, prompt_context, andere settings …) bleiben erhalten. Legt
+        die Quelle mit Defaults an, falls sie noch nicht im Store existiert."""
+        from ..lib.frame_sources import get as get_source
+        from ..lib.vision_store import VisionStore
+        store = VisionStore()
+        src = get_source(source_id)
+        existing = store.get_source(source_id)
+        display_name = existing.get("display_name") if existing else (
+            src.display_name if src else source_id
+        )
+        kind = existing.get("kind") if existing else (src.kind if src else "webcam")
+        settings = dict(existing.get("settings", {})) if existing else {}
+        settings[key] = value
+        store.upsert_source(
+            source_id=source_id,
+            display_name=str(display_name or source_id),
+            kind=str(kind or "webcam"),
+            prompt_context=str(existing.get("prompt_context", "")) if existing else "",
+            position=str(existing.get("position", "")) if existing else "",
+            auto_start=bool(existing.get("auto_start", False)) if existing else False,
+            sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
+            settings=settings,
+        )
+
+    @rx.event
+    def set_vigilantia_source_alerts(self, source_id: str, value: bool) -> None:
+        """Pro-Kamera Push-Alerts an/aus (``sources.settings.alerts_enabled``).
+        Aus = die Kamera erkennt/speichert weiter, schickt aber keine
+        proaktiven Benachrichtigungen (Anti-Spam)."""
+        if not source_id:
+            return
+        active = bool(value)
+        try:
+            self._persist_source_setting(source_id, "alerts_enabled", active)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("alerts_enabled persist failed for %s: %s", source_id, e)
+            return
+        self.vigilantia_sources = [
+            {**c, "alerts_enabled": active} if c["id"] == source_id else c
+            for c in self.vigilantia_sources
+        ]
 
     @rx.event
     async def toggle_vigilantia_armed(self) -> None:

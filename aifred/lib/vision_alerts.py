@@ -35,6 +35,21 @@ def _vigilantia_armed() -> bool:
         return False
 
 
+def _alerts_enabled(source_id: str, store: Any) -> bool:
+    """Pro-Kamera Alert-Opt-out (SSoT: ``sources.settings.alerts_enabled``).
+
+    Default an. Aus = die Kamera erkennt/speichert/chronisiert weiter, schickt
+    aber KEINE proaktiven Push-Alerts — verhindert Dauer-Spam von Kameras, die
+    permanent Bewegung sehen (z.B. der eigene Schreibtisch)."""
+    try:
+        rec = store.get_source(source_id) if store else None
+        if rec:
+            return bool((rec.get("settings") or {}).get("alerts_enabled", True))
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
 def _source_alias(source_id: str, store: Any) -> str:
     """Anzeigename der Kamera für den Alert. Geht über die SSoT
     :meth:`VisionStore.source_label` (Alias > display_name > source_id) —
@@ -107,6 +122,8 @@ async def emit_face_alert(
         return
     if not _vigilantia_armed():
         return
+    if not _alerts_enabled(source_id, store):
+        return
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
     title, body = _compose(event_type, alias, name, ts)
@@ -137,6 +154,8 @@ async def emit_person_alert(
     but only while armed. Coarser than faces: "a person is present", even
     with no recognisable face."""
     if not _vigilantia_armed():
+        return
+    if not _alerts_enabled(source_id, store):
         return
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
@@ -175,6 +194,8 @@ async def emit_object_alert(
     AlertEvent — but only while armed. Diese Klassen liefert die On-Device-
     KI der Kamera; AIfreds eigene YOLO-Pipeline klassifiziert sie nicht."""
     if not _vigilantia_armed():
+        return
+    if not _alerts_enabled(source_id, store):
         return
     title = _OBJECT_ALERT_TITLES.get(object_type)
     if title is None:
