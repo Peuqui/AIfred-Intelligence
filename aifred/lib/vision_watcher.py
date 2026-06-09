@@ -636,24 +636,26 @@ class VisionWatcher:
         self._statuses[source_id].motion_events += 1  # type: ignore[misc]
         self._statuses[source_id].last_event_at = frame.timestamp  # type: ignore[misc]
 
-        # Motion löst ZWEI unabhängige Schichten aus — KEIN Gating
-        # untereinander: YOLO-Person erkennt "Körper im Bild" (auch ohne
-        # sichtbares Gesicht, abgewandt/fern), InsightFace die Identität.
-        # Die beiden dürfen NICHT gekoppelt werden: ein formatfüllendes
-        # Gesicht (Nahaufnahme) hat keinen ganzen Körper, den YOLO als
-        # Person erkennt — würde Face an einen YOLO-Treffer gekoppelt,
-        # bliebe genau dieser wichtigste Fall unerkannt.
-        if config.run_person_detect_on_motion:
-            await self._run_person_detection(
+        # Beide Detektions-Schichten laufen unabhängig (beide schreiben ihr
+        # EVENT — YOLO „Körper im Bild", InsightFace die Identität; ein
+        # formatfüllendes Gesicht ohne ganzen Körper bliebe sonst unerkannt).
+        # ABER: für die ALERTS gilt — Gesicht zuerst; wird eins erkannt, ist
+        # das die informativere Meldung und der generische Person-Alert wird
+        # unterdrückt (sonst zwei Telegram-Nachrichten mit demselben Bild).
+        face_found = False
+        face_active = (
+            config.run_face_detect_on_motion
+            and not config.face_recognition_continuous
+        )
+        if face_active:
+            face_found = await self._run_face_detection(
                 frame, config, motion_event_id=motion_event_id, frame_path=frame_path
             )
-
-        if not config.run_face_detect_on_motion:
-            return
-        # Continuous-Modus läuft separat via face_cycle — nicht doppelt feuern.
-        if config.face_recognition_continuous:
-            return
-        await self._run_face_detection(frame, config, motion_event_id=motion_event_id, frame_path=frame_path)
+        if config.run_person_detect_on_motion:
+            await self._run_person_detection(
+                frame, config, motion_event_id=motion_event_id,
+                frame_path=frame_path, emit_alert=not face_found,
+            )
 
     async def _handle_edge_ai_event(
         self,
@@ -693,7 +695,20 @@ class VisionWatcher:
         self._statuses[source_id].last_event_at = ts  # type: ignore[misc]
 
         from .vision_alerts import emit_object_alert, emit_person_alert
-        if "person" in classes:
+
+        # Gesicht ZUERST (nur bei Person sinnvoll — Kamera kann kein „Wer"):
+        # eine erkannte Identität ist die informativere Meldung. Findet die
+        # Gesichtserkennung ein Gesicht, wird der generische Person-Alert
+        # unterdrückt — sonst zwei Telegram-Nachrichten mit demselben Bild.
+        # Das person-EVENT bleibt erhalten (Chronik), nur der ALERT entfällt.
+        face_found = False
+        if "person" in classes and config.run_face_detect_on_motion:
+            face_frame = await self._edge_ai_face_frame(frame, config, ai_client)
+            face_found = await self._run_face_detection(
+                face_frame, config, motion_event_id=None,
+                frame_path=frame_path, trigger="edge_ai",
+            )
+        if "person" in classes and not face_found:
             await emit_person_alert(
                 source_id=source_id, frame_path=frame_path, cluster_id=cid,
                 count=1, timestamp=ts, store=self._store,
@@ -704,14 +719,6 @@ class VisionWatcher:
                     source_id=source_id, object_type=cls, frame_path=frame_path,
                     cluster_id=cid, timestamp=ts, store=self._store,
                 )
-
-        # Gesichts-Identität nur bei Person sinnvoll (Kamera kann kein „Wer").
-        if "person" in classes and config.run_face_detect_on_motion:
-            face_frame = await self._edge_ai_face_frame(frame, config, ai_client)
-            await self._run_face_detection(
-                face_frame, config, motion_event_id=None,
-                frame_path=frame_path, trigger="edge_ai",
-            )
 
     async def _edge_ai_face_frame(
         self, wide_frame: "Frame", config: WatchConfig, ai_client: Any
@@ -746,11 +753,13 @@ class VisionWatcher:
         *,
         motion_event_id: int | None = None,
         frame_path: str = "",
+        emit_alert: bool = True,
     ) -> None:
-        """YOLO-Körper-Detektion. Schreibt bei Treffer ein ``person``-Event
-        (+ proaktiven Alert, armed-gated). Unabhängig von der
-        Gesichtserkennung — kein Gate. Best-effort: Fehler brechen die
-        Watch-Schleife nicht ab."""
+        """YOLO-Körper-Detektion. Schreibt bei Treffer ein ``person``-Event;
+        der proaktive Alert (armed-gated) wird nur gesendet, wenn
+        ``emit_alert=True`` — der Caller unterdrückt ihn, wenn parallel ein
+        Gesicht erkannt wurde (sonst Doppel-Alert). Best-effort: Fehler
+        brechen die Watch-Schleife nicht ab."""
         source_id = frame.source_id
         try:
             detector = self._get_person_detector()
@@ -781,15 +790,16 @@ class VisionWatcher:
             cluster_id=cid,
         )
 
-        from .vision_alerts import emit_person_alert
-        await emit_person_alert(
-            source_id=source_id,
-            frame_path=frame_path,
-            cluster_id=cid,
-            count=len(persons),
-            timestamp=frame.timestamp,
-            store=self._store,
-        )
+        if emit_alert:
+            from .vision_alerts import emit_person_alert
+            await emit_person_alert(
+                source_id=source_id,
+                frame_path=frame_path,
+                cluster_id=cid,
+                count=len(persons),
+                timestamp=frame.timestamp,
+                store=self._store,
+            )
 
     async def _run_face_detection(
         self,
@@ -799,8 +809,10 @@ class VisionWatcher:
         motion_event_id: int | None = None,
         frame_path: str = "",
         trigger: str | None = None,
-    ) -> None:
+    ) -> bool:
         """Eigentliche Face-Detection + Recognition + Event-Publishing.
+        Returnt ``True``, wenn mindestens ein Gesicht erkannt wurde (der
+        Caller unterdrückt dann den generischen Person-Alert).
         Wird aus dem motion-getriggerten Pfad, dem Continuous-face_cycle
         UND dem Edge-AI-Pfad gerufen. ``motion_event_id`` ist nur gesetzt
         wenn der Aufruf aus einem motion-Event kam. ``trigger`` überschreibt
@@ -813,9 +825,9 @@ class VisionWatcher:
             detections = await asyncio.to_thread(detector.detect, frame)
         except Exception as e:  # noqa: BLE001
             logger.warning("face_detect failed for %s: %s", source_id, e)
-            return
+            return False
         if not detections:
-            return
+            return False
 
         recognizer = self._get_face_recognizer()
         recognizer.invalidate()  # pick up any newly-enrolled faces
@@ -902,6 +914,7 @@ class VisionWatcher:
                 timestamp=frame.timestamp,
                 store=self._store,
             )
+        return True
 
     async def _maybe_run_continuous_vlm(
         self, frame: "Frame", config: WatchConfig
