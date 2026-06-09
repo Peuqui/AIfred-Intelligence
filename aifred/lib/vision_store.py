@@ -95,6 +95,14 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_face_embeddings_face_id
             ON face_embeddings(face_id);
     """)
+    # Additive Migration: crop_url pro Embedding (für den Embedding-Manager —
+    # zeigt das Gesichts-Crop je Embedding). Alte Embeddings haben '' (kein
+    # Crop), neue Anlagen speichern es mit.
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(face_embeddings)")}
+    if "crop_url" not in cols:
+        conn.execute(
+            "ALTER TABLE face_embeddings ADD COLUMN crop_url TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def _embedding_to_blob(emb: np.ndarray) -> bytes:
@@ -432,14 +440,15 @@ class VisionStore:
         *,
         quality_score: float = 0.0,
         source_event_id: int | None = None,
+        crop_url: str = "",
     ) -> int:
         now = _now_iso()
         blob = _embedding_to_blob(embedding)
         with self._conn() as conn:
             cur = conn.execute(
                 "INSERT INTO face_embeddings (face_id, embedding, quality_score, "
-                "source_event_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                (face_id, blob, quality_score, source_event_id, now),
+                "source_event_id, crop_url, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (face_id, blob, quality_score, source_event_id, crop_url, now),
             )
             return int(cur.lastrowid or 0)
 

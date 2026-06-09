@@ -249,12 +249,25 @@ class MultiposeMixin(rx.State, mixin=True):
                     face_id = int(existing["id"])
                 else:
                     face_id = store.add_face(name=name, enrolled_by="multipose")
+            from ..lib.face_crop_store import get_default_store
+            crop_store = get_default_store()
             for cap in self.multipose_captures:
                 emb_bytes = base64.b64decode(cap["embedding_b64"])
                 emb = np.frombuffer(emb_bytes, dtype=np.float32)
+                # Crop pro Embedding ablegen (für den Embedding-Manager) — das
+                # Vorschau-Crop liegt bereits als data-URL vor.
+                crop_url = ""
+                durl = str(cap.get("preview_data_url", ""))
+                if durl.startswith("data:image") and "," in durl:
+                    try:
+                        crop_jpeg = base64.b64decode(durl.split(",", 1)[1])
+                        crop_url = crop_store.save_raw(crop_jpeg, face_id)
+                    except Exception:  # noqa: BLE001
+                        crop_url = ""
                 store.add_embedding(
                     face_id, emb,
                     quality_score=float(cap.get("detection_score", 0.0)),
+                    crop_url=crop_url,
                 )
         except Exception as e:  # noqa: BLE001
             logger.warning("multipose finish failed: %s", e)
