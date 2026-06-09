@@ -143,10 +143,13 @@ class VisionSettingsMixin(rx.State, mixin=True):
     rtsp_form_editing: str = ""
     rtsp_form_error: str = ""
 
-    # ── Alert-Routing-Regeln (Kategorie → Telegram/VLM/Cooldown) ──────
+    # ── Alert-Routing-Regeln (Kategorie → Kanäle/VLM/Cooldown) ────────
     # Eine Zeile je Kategorie für die Regeln-UI; gespiegelt aus
-    # data/alert_rules.json. {category, label_key, telegram, vlm, cooldown}.
+    # data/alert_rules.json. {category, label_key, sinks(list), vlm, cooldown}.
     alert_rules_ui: list[dict[str, Any]] = []
+    # Alle verfügbaren Channel-Plugins (kanal-agnostisch via plugin_registry):
+    # {name, display_name}. Neue Channels tauchen automatisch auf.
+    alert_channels: list[dict[str, str]] = []
 
     def _refresh_vision_settings(self) -> None:
         """Lade Plugin-Settings + Ollama-Modellliste in den State.
@@ -584,8 +587,18 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # ── Alert-Routing-Regeln ─────────────────────────────────────────
 
     def _reload_alert_rules(self) -> None:
-        """Regeln aus data/alert_rules.json in die UI-Liste spiegeln —
-        eine Zeile je bekannter Kategorie."""
+        """Regeln aus data/alert_rules.json in die UI-Liste spiegeln (eine Zeile
+        je Kategorie) und die verfügbaren Channels generisch entdecken
+        (plugin_registry) — kein Kanal hartcodiert."""
+        try:
+            from ..lib.plugin_registry import all_channels
+            self.alert_channels = [
+                {"name": str(n), "display_name": str(c.display_name)}
+                for n, c in sorted(all_channels().items())
+            ]
+        except Exception as e:  # noqa: BLE001
+            logger.warning("channel discovery failed: %s", e)
+            self.alert_channels = []
         by_cat = {
             str(r.get("category")): r for r in _load_alert_rules()
             if isinstance(r, dict)
@@ -593,23 +606,19 @@ class VisionSettingsMixin(rx.State, mixin=True):
         out: list[dict[str, Any]] = []
         for cat, label_key in _ALERT_RULE_CATEGORIES:
             r = by_cat.get(cat) or {}
-            sinks = r.get("sinks") or []
             out.append({
                 "category": cat,
                 "label_key": label_key,
-                "telegram": "telegram" in sinks,
+                "sinks": [str(s) for s in (r.get("sinks") or [])],
                 "vlm": r.get("compose") == "vlm",
                 "cooldown": str(int(r.get("min_interval_sec", 300) or 0)),
             })
         self.alert_rules_ui = out
 
-    @rx.event
-    def set_alert_rule(self, category: str, field: str, value: Any) -> None:
-        """Eine Routing-Regel ändern (Telegram an/aus, VLM-Beschreibung,
-        Cooldown), in data/alert_rules.json schreiben und den Dispatcher live
-        neu laden — wirkt sofort ohne Service-Neustart."""
-        valid = {c for c, _ in _ALERT_RULE_CATEGORIES}
-        if category not in valid or field not in ("telegram", "vlm", "cooldown"):
+    def _apply_alert_rule_change(self, category: str, mutator: Any) -> None:
+        """Regel der Kategorie laden/anlegen, ``mutator(rule)`` anwenden,
+        speichern, Dispatcher live neu laden, UI-Liste auffrischen."""
+        if category not in {c for c, _ in _ALERT_RULE_CATEGORIES}:
             return
         rules = _load_alert_rules()
         rule = next(
@@ -626,23 +635,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 "min_interval_sec": 300,
             }
             rules.append(rule)
-        if field == "telegram":
-            sinks = set(rule.get("sinks") or [])
-            if bool(value):
-                sinks.add("telegram")
-            else:
-                sinks.discard("telegram")
-            rule["sinks"] = sorted(sinks)
-        elif field == "vlm":
-            if bool(value):
-                rule["compose"] = "vlm"
-            else:
-                rule.pop("compose", None)
-        elif field == "cooldown":
-            try:
-                rule["min_interval_sec"] = max(0, int(str(value).strip()))
-            except (TypeError, ValueError):
-                pass
+        mutator(rule)
         _save_alert_rules(rules)
         try:
             from ..lib.alert_bus import reload_rules
@@ -650,6 +643,43 @@ class VisionSettingsMixin(rx.State, mixin=True):
         except Exception as e:  # noqa: BLE001
             logger.warning("alert dispatcher reload failed: %s", e)
         self._reload_alert_rules()
+
+    @rx.event
+    def set_alert_rule(self, category: str, field: str, value: Any) -> None:
+        """VLM-Bildbeschreibung an/aus oder Cooldown einer Kategorie ändern."""
+        if field not in ("vlm", "cooldown"):
+            return
+
+        def _mut(rule: dict[str, Any]) -> None:
+            if field == "vlm":
+                if bool(value):
+                    rule["compose"] = "vlm"
+                else:
+                    rule.pop("compose", None)
+            else:
+                try:
+                    rule["min_interval_sec"] = max(0, int(str(value).strip()))
+                except (TypeError, ValueError):
+                    pass
+
+        self._apply_alert_rule_change(category, _mut)
+
+    @rx.event
+    def toggle_alert_sink(self, category: str, channel: str, enabled: bool) -> None:
+        """Einen Kanal (channel-agnostisch, beliebiges Channel-Plugin) für eine
+        Kategorie an/aus — landet in der ``sinks``-Liste der Regel."""
+        if not channel:
+            return
+
+        def _mut(rule: dict[str, Any]) -> None:
+            sinks = set(rule.get("sinks") or [])
+            if bool(enabled):
+                sinks.add(channel)
+            else:
+                sinks.discard(channel)
+            rule["sinks"] = sorted(sinks)
+
+        self._apply_alert_rule_change(category, _mut)
 
     # ── RTSP-Kamera-Verwaltung (Phase 2) ─────────────────────────────
 
