@@ -525,13 +525,23 @@ class VisionWatcher:
             interval = float(ec.get("poll_interval_sec", 1.5))
             settle = float(ec.get("settle_sec", 1.0))
             prev: dict[str, bool] = {}
+            fails = 0
             try:
                 while True:
                     try:
                         state = await client.get_ai_state()
+                        fails = 0
                     except ReolinkAIError as e:
-                        logger.warning("edge-ai poll failed for %s: %s", source_id, e)
-                        await asyncio.sleep(interval)
+                        # Exponentielles Backoff: selbst wenn der Client-seitige
+                        # Re-Login mal nicht greift, hämmern wir die Kamera nicht
+                        # mit Logins zu (das war die Sturm-Ursache).
+                        fails += 1
+                        backoff = min(interval * (2 ** min(fails, 5)), 60.0)
+                        logger.warning(
+                            "edge-ai poll failed for %s (#%d, retry in %.0fs): %s",
+                            source_id, fails, backoff, e,
+                        )
+                        await asyncio.sleep(backoff)
                         continue
                     # Steigende Flanken: Klasse jetzt aktiv, vorher nicht.
                     triggered = [

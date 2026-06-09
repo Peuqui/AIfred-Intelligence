@@ -52,7 +52,16 @@ _HTTP_TIMEOUT_S = 5.0
 
 
 class ReolinkAIError(RuntimeError):
-    """Edge-AI-Abfrage fehlgeschlagen (Login/Request/Antwort-Format)."""
+    """Edge-AI-Abfrage fehlgeschlagen (Login/Request/Antwort-Format).
+
+    ``auth_error=True`` markiert einen Token-/Login-Fehler (Reolink code=1
+    „please login first"): das passiert, wenn ein anderer Login das Token aus
+    dem begrenzten Token-Pool der Kamera verdrängt hat. Der Aufrufer meldet
+    sich dann genau EINMAL neu an und wiederholt — kein Login-Sturm."""
+
+    def __init__(self, message: str, *, auth_error: bool = False) -> None:
+        super().__init__(message)
+        self.auth_error = auth_error
 
 
 class ReolinkAIClient:
@@ -90,13 +99,12 @@ class ReolinkAIClient:
         Nur Klassen mit ``support=1`` tauchen auf (Kamera-abhängig). Wirft
         :class:`ReolinkAIError` bei Login-/Request-/Format-Fehlern — der
         Caller entscheidet, ob er das toleriert (Best-Effort-Poll)."""
-        token = await self._ensure_token()
         payload = [{
             "cmd": "GetAiState",
             "action": 0,
             "param": {"channel": self._channel},
         }]
-        data = await self._post("GetAiState", payload, token=token)
+        data = await self._call_with_relogin("GetAiState", payload)
         value = data.get("value") or {}
         result: dict[str, bool] = {}
         for api_key, logical in _CLASS_MAP.items():
@@ -115,25 +123,30 @@ class ReolinkAIClient:
         Holt das Bild direkt von der Kamera (nicht aus dem gepufferten
         RTSP-Stream) — geringere Latenz, volle Lens-Auflösung. Wirft
         :class:`ReolinkAIError` bei Fehler/leerer Antwort."""
-        token = await self._ensure_token()
         ch = self._channel if channel is None else channel
-        params: dict[str, Any] = {
-            "cmd": "Snap", "channel": ch, "rs": "aifred", "token": token,
-        }
-        try:
-            resp = await self._http().get(self._base, params=params)
-            resp.raise_for_status()
-        except httpx.HTTPError as e:
-            raise ReolinkAIError(f"Snap ch{ch} to {self._host} failed: {e}") from e
-        ct = resp.headers.get("content-type", "")
-        if "image" not in ct or len(resp.content) < 1000:
-            # Kein Bild → Token evtl. abgelaufen, beim nächsten Call erneuern.
+        for attempt in (1, 2):
+            token = await self._ensure_token()
+            params: dict[str, Any] = {
+                "cmd": "Snap", "channel": ch, "rs": "aifred", "token": token,
+            }
+            try:
+                resp = await self._http().get(self._base, params=params)
+                resp.raise_for_status()
+            except httpx.HTTPError as e:
+                raise ReolinkAIError(f"Snap ch{ch} to {self._host} failed: {e}") from e
+            ct = resp.headers.get("content-type", "")
+            if "image" in ct and len(resp.content) >= 1000:
+                return resp.content
+            # Kein Bild → Token vermutlich verdrängt: invalidieren und GENAU
+            # EINMAL neu anmelden + wiederholen (kein Login-Sturm).
             self._token = ""
             self._token_expires_at = 0.0
+            if attempt == 1:
+                continue
             raise ReolinkAIError(
                 f"Snap ch{ch} from {self._host}: no image (ct={ct!r})"
             )
-        return resp.content
+        raise ReolinkAIError(f"Snap ch{ch}: retry logic exhausted")
 
     async def aclose(self) -> None:
         """HTTP-Client schließen. Idempotent."""
@@ -192,9 +205,32 @@ class ReolinkAIClient:
         block: dict[str, Any] = body[0]
         code = int(block.get("code", -1))
         if code != 0:
-            # Token könnte abgelaufen sein → beim nächsten Call erneuern.
+            # Token könnte verdrängt/abgelaufen sein → invalidieren.
             self._token = ""
             self._token_expires_at = 0.0
-            detail = (block.get("error") or {}).get("detail", "")
-            raise ReolinkAIError(f"{cmd} returned code={code} {detail}".strip())
+            detail = str((block.get("error") or {}).get("detail", ""))
+            # code=1 / „please login first" = Token-/Auth-Fehler → Caller
+            # meldet sich einmal neu an und wiederholt (kein Login-Sturm).
+            auth = code == 1 or "login" in detail.lower()
+            raise ReolinkAIError(
+                f"{cmd} returned code={code} {detail}".strip(), auth_error=auth
+            )
         return block
+
+    async def _call_with_relogin(
+        self, cmd: str, payload: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Befehl absetzen; bei Token-/Auth-Fehler GENAU EINMAL neu anmelden
+        und wiederholen. Fängt die Token-Verdrängung ab (anderer Client hat
+        sich eingeloggt), ohne einen Login-Sturm auszulösen."""
+        for attempt in (1, 2):
+            token = await self._ensure_token()
+            try:
+                return await self._post(cmd, payload, token=token)
+            except ReolinkAIError as e:
+                # _post hat das Token bereits invalidiert; bei Auth-Fehler im
+                # ersten Versuch meldet sich _ensure_token neu an.
+                if attempt == 1 and e.auth_error:
+                    continue
+                raise
+        raise ReolinkAIError(f"{cmd}: retry logic exhausted")
