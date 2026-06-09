@@ -222,6 +222,159 @@ def _sources_section() -> rx.Component:
     )
 
 
+def _rtsp_field(
+    label_key: str, field: str, placeholder: str = "", input_type: str = "text"
+) -> rx.Component:
+    """Ein beschriftetes Formularfeld, gebunden an AIState.rtsp_form[field]."""
+    return rx.vstack(
+        rx.text(t(label_key), size="1", color="gray"),
+        rx.input(
+            value=AIState.rtsp_form[field].to(str),
+            placeholder=placeholder,
+            type=input_type,
+            on_change=lambda v: AIState.set_rtsp_form_field(field, v),
+            size="2", width="100%",
+        ),
+        spacing="1", align="stretch", width="100%",
+    )
+
+
+def _rtsp_camera_row(cam: rx.Var) -> rx.Component:
+    """Eine Zeile pro konfigurierter RTSP-Kamera (Name, Profil, Host) +
+    Bearbeiten/Löschen."""
+    return rx.hstack(
+        rx.icon("video", size=14, color="gray"),
+        rx.text(cam["name"], size="2", weight="medium"),
+        rx.badge(cam["profile"], color_scheme="orange", size="1"),
+        rx.text(cam["host"], size="1", color="gray"),
+        rx.spacer(),
+        rx.icon_button(
+            rx.icon("pencil", size=12),
+            on_click=lambda: AIState.open_rtsp_camera_edit(cam["name"]),
+            size="1", variant="ghost", color_scheme="gray",
+        ),
+        rx.icon_button(
+            rx.icon("trash-2", size=12),
+            on_click=lambda: AIState.delete_rtsp_camera(cam["name"]),
+            size="1", variant="ghost", color_scheme="red",
+        ),
+        align="center", width="100%", spacing="2",
+    )
+
+
+def _rtsp_camera_form() -> rx.Component:
+    """Add/Edit-Formular für eine RTSP-Kamera."""
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                _rtsp_field("vision_rtsp_field_name", "name", "Hauseingang"),
+                _rtsp_field("vision_rtsp_field_host", "host", "192.168.0.251"),
+                spacing="2", width="100%",
+            ),
+            rx.hstack(
+                _rtsp_field("vision_rtsp_field_port", "port", "554"),
+                _rtsp_field("vision_rtsp_field_path", "path", "h264Preview_01_sub"),
+                spacing="2", width="100%",
+            ),
+            rx.hstack(
+                rx.vstack(
+                    rx.text(t("vision_rtsp_field_profile"), size="1", color="gray"),
+                    rx.select(
+                        ["webcam", "ai_camera"],
+                        value=AIState.rtsp_form["profile"].to(str),
+                        on_change=lambda v: AIState.set_rtsp_form_field("profile", v),
+                        size="2", width="100%",
+                    ),
+                    spacing="1", align="stretch", width="100%",
+                ),
+                _rtsp_field("vision_rtsp_field_cred", "cred", "reolink"),
+                spacing="2", width="100%",
+            ),
+            rx.hstack(
+                rx.text(t("vision_rtsp_field_ptz"), size="2", color="gray"),
+                rx.spacer(),
+                rx.switch(
+                    checked=AIState.rtsp_form["ptz"].to(bool),
+                    on_change=lambda v: AIState.set_rtsp_form_field("ptz", v),
+                    size="2", color_scheme="orange",
+                ),
+                align="center", width="100%",
+                style={"margin_top": "0.3em"},
+            ),
+            rx.cond(
+                AIState.rtsp_form["ptz"].to(bool),
+                _rtsp_field("vision_rtsp_field_onvif", "onvif_port", "8000"),
+            ),
+            rx.cond(
+                AIState.rtsp_form["profile"].to(str) == "ai_camera",
+                rx.hstack(
+                    _rtsp_field("vision_rtsp_field_apiport", "api_port", "443"),
+                    _rtsp_field("vision_rtsp_field_facechannel", "face_channel", "1"),
+                    spacing="2", width="100%",
+                ),
+            ),
+            rx.hstack(
+                _rtsp_field("vision_rtsp_field_user", "user", "admin"),
+                _rtsp_field("vision_rtsp_field_password", "password", "", "password"),
+                spacing="2", width="100%",
+            ),
+            rx.text(t("vision_rtsp_cred_hint"), size="1", color="gray"),
+            rx.cond(
+                AIState.rtsp_form_error != "",
+                rx.text(AIState.rtsp_form_error, color="red", size="1"),
+            ),
+            rx.hstack(
+                rx.button(
+                    t("vision_rtsp_save"),
+                    on_click=AIState.save_rtsp_camera,
+                    size="2", color_scheme="orange",
+                ),
+                rx.button(
+                    t("vision_rtsp_cancel"),
+                    on_click=AIState.close_rtsp_camera_form,
+                    size="2", variant="soft", color_scheme="gray",
+                ),
+                spacing="2",
+            ),
+            spacing="2", align="stretch", width="100%",
+        ),
+        style={
+            "border": "1px solid var(--gray-6)",
+            "border_radius": "8px",
+            "padding": "0.8em",
+            "margin_top": "0.5em",
+            "width": "100%",
+        },
+    )
+
+
+def _rtsp_cameras_section() -> rx.Component:
+    """RTSP-Kamera-Verwaltung: Liste + Hinzufügen/Bearbeiten/Löschen."""
+    return rx.vstack(
+        rx.hstack(
+            rx.text(t("vision_rtsp_section_title"), font_weight="bold", size="3"),
+            rx.spacer(),
+            rx.button(
+                rx.icon("plus", size=12),
+                rx.text(t("vision_rtsp_add"), size="1"),
+                on_click=AIState.open_rtsp_camera_new,
+                size="1", variant="soft", color_scheme="orange",
+            ),
+            align="center", width="100%",
+        ),
+        rx.cond(
+            AIState.rtsp_cameras_list.length() > 0,
+            rx.vstack(
+                rx.foreach(AIState.rtsp_cameras_list, _rtsp_camera_row),
+                spacing="1", align="stretch", width="100%",
+            ),
+            rx.text(t("vision_rtsp_empty"), color="gray", size="1"),
+        ),
+        rx.cond(AIState.rtsp_form_open, _rtsp_camera_form()),
+        align="stretch", spacing="1", width="100%",
+    )
+
+
 def _feed_visibility_section() -> rx.Component:
     """Toggle für den Vigilantia-Live-Feed im Haupttab. Default off —
     User schaltet das ein, wenn er Hintergrund-Cams nutzt."""
@@ -379,6 +532,8 @@ def vision_settings_modal() -> rx.Component:
                     _face_recognition_section(),
                     rx.divider(),
                     _sources_section(),
+                    rx.divider(),
+                    _rtsp_cameras_section(),
                     rx.divider(),
                     _feed_visibility_section(),
                     rx.divider(),

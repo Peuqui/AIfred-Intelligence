@@ -92,6 +92,17 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # Lade/Entlade-Vorgang läuft gerade → Spinner-Optik am Button.
     vlm_model_busy: bool = False
 
+    # ── RTSP-Kamera-Verwaltung (Phase 2) ─────────────────────────────
+    # Konfigurierte RTSP-Kameras (aus settings.json ``rtsp_cameras``), für die
+    # Verwaltungs-Sektion. Liste von {name, host, profile, ptz}.
+    rtsp_cameras_list: list[dict[str, Any]] = []
+    # Add/Edit-Formular — alle Felder als String/Bool fürs Binding.
+    rtsp_form: dict[str, Any] = {}
+    rtsp_form_open: bool = False
+    # Name der gerade bearbeiteten Kamera ("" = neue Kamera anlegen).
+    rtsp_form_editing: str = ""
+    rtsp_form_error: str = ""
+
     def _refresh_vision_settings(self) -> None:
         """Lade Plugin-Settings + Ollama-Modellliste in den State.
         Wird sowohl vom Settings-Modal als auch vom Live-Preview-Popup
@@ -132,6 +143,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
     def open_vision_settings(self) -> None:
         """Open the modal (called from the Plugin-Tab gear icon)."""
         self._refresh_vision_settings()
+        self._reload_rtsp_cameras()
         self.vision_settings_open = True
 
     @rx.event
@@ -407,6 +419,186 @@ class VisionSettingsMixin(rx.State, mixin=True):
             {**c, "alerts_enabled": active} if c["id"] == source_id else c
             for c in self.vigilantia_sources
         ]
+
+    # ── RTSP-Kamera-Verwaltung (Phase 2) ─────────────────────────────
+
+    @staticmethod
+    def _env_path() -> str:
+        return str(Path(__file__).resolve().parents[2] / ".env")
+
+    @staticmethod
+    def _empty_rtsp_form() -> dict[str, Any]:
+        return {
+            "name": "", "host": "", "port": "554", "path": "",
+            "cred": "", "profile": "webcam", "ptz": False,
+            "onvif_port": "8000", "api_port": "443", "face_channel": "",
+            "user": "", "password": "",
+        }
+
+    def _reload_rtsp_cameras(self) -> None:
+        """RTSP-Kameras aus settings.json in die Anzeigeliste laden."""
+        cams = _load_settings().get("rtsp_cameras")
+        out: list[dict[str, Any]] = []
+        if isinstance(cams, list):
+            for c in cams:
+                if isinstance(c, dict) and c.get("name") and c.get("host"):
+                    out.append({
+                        "name": str(c.get("name")),
+                        "host": str(c.get("host")),
+                        "profile": str(c.get("profile") or "webcam"),
+                        "ptz": bool(c.get("ptz", False)),
+                    })
+        self.rtsp_cameras_list = out
+
+    @rx.event
+    def open_rtsp_camera_new(self) -> None:
+        self.rtsp_form = self._empty_rtsp_form()
+        self.rtsp_form_editing = ""
+        self.rtsp_form_error = ""
+        self.rtsp_form_open = True
+
+    @rx.event
+    def open_rtsp_camera_edit(self, name: str) -> None:
+        cams = _load_settings().get("rtsp_cameras") or []
+        entry = next(
+            (c for c in cams if isinstance(c, dict) and str(c.get("name")) == name),
+            None,
+        )
+        form = self._empty_rtsp_form()
+        if entry:
+            fc = entry.get("face_channel")
+            form.update({
+                "name": str(entry.get("name", "")),
+                "host": str(entry.get("host", "")),
+                "port": str(entry.get("port", 554)),
+                "path": str(entry.get("path", "")),
+                "cred": str(entry.get("cred", "")),
+                "profile": str(entry.get("profile") or "webcam"),
+                "ptz": bool(entry.get("ptz", False)),
+                "onvif_port": str(entry.get("onvif_port", 8000)),
+                "api_port": str(entry.get("api_port", 443)),
+                "face_channel": "" if fc is None else str(fc),
+            })
+            # Credentials werden NICHT vorbefüllt — Secrets bleiben verdeckt.
+        self.rtsp_form = form
+        self.rtsp_form_editing = name
+        self.rtsp_form_error = ""
+        self.rtsp_form_open = True
+
+    @rx.event
+    def close_rtsp_camera_form(self) -> None:
+        self.rtsp_form_open = False
+        self.rtsp_form_error = ""
+
+    @rx.event
+    def set_rtsp_form_field(self, field: str, value: Any) -> None:
+        self.rtsp_form = {**self.rtsp_form, field: value}
+
+    def _persist_rtsp_credentials(self, cred: str, user: str, password: str) -> None:
+        """User/Passwort in die .env schreiben (RTSP_<CRED>_USER/PASSWORD) und
+        sofort im Broker verfügbar machen. Leere Werte werden übersprungen,
+        damit ein leeres Edit-Feld bestehende Secrets nicht löscht."""
+        from dotenv import set_key
+
+        from ..lib.credential_broker import broker
+        env_path = self._env_path()
+        if user:
+            set_key(env_path, broker.get_env_key(f"rtsp_{cred}", "user"), user)
+            broker.set_runtime(f"rtsp_{cred}", "user", user)
+        if password:
+            set_key(env_path, broker.get_env_key(f"rtsp_{cred}", "password"), password)
+            broker.set_runtime(f"rtsp_{cred}", "password", password)
+
+    @rx.event
+    def save_rtsp_camera(self) -> None:
+        """Formular validieren, in settings.json ``rtsp_cameras`` schreiben
+        (Update nach Name oder Append), Credentials in .env, Quellen neu
+        einlesen."""
+        f = self.rtsp_form
+        name = str(f.get("name", "")).strip()
+        host = str(f.get("host", "")).strip()
+        if not name or not host:
+            self.rtsp_form_error = "Name und Host sind Pflicht."
+            return
+
+        def _int(v: Any, default: int) -> int:
+            try:
+                return int(str(v).strip())
+            except (TypeError, ValueError):
+                return default
+
+        entry: dict[str, Any] = {
+            "name": name, "host": host, "port": _int(f.get("port"), 554),
+        }
+        path = str(f.get("path", "")).strip().lstrip("/")
+        if path:
+            entry["path"] = path
+        cred = str(f.get("cred", "")).strip()
+        if cred:
+            entry["cred"] = cred
+        profile = str(f.get("profile") or "webcam")
+        entry["profile"] = profile
+        if bool(f.get("ptz")):
+            entry["ptz"] = True
+            entry["onvif_port"] = _int(f.get("onvif_port"), 8000)
+        if profile == "ai_camera":
+            entry["api_port"] = _int(f.get("api_port"), 443)
+            fc = str(f.get("face_channel", "")).strip()
+            if fc:
+                entry["face_channel"] = _int(fc, 1)
+
+        settings = _load_settings()
+        cams = settings.get("rtsp_cameras")
+        cams = cams if isinstance(cams, list) else []
+        target = self.rtsp_form_editing or name
+        new_list: list[Any] = []
+        replaced = False
+        for c in cams:
+            if isinstance(c, dict) and str(c.get("name")) == target:
+                new_list.append(entry)
+                replaced = True
+            else:
+                new_list.append(c)
+        if not replaced:
+            new_list.append(entry)
+        settings["rtsp_cameras"] = new_list
+        _save_settings(settings)
+
+        if cred:
+            try:
+                self._persist_rtsp_credentials(
+                    cred, str(f.get("user", "")).strip(), str(f.get("password", "")),
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("rtsp credential persist failed: %s", e)
+
+        try:
+            from ..lib.frame_sources import rescan
+            rescan()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("frame source rescan failed: %s", e)
+
+        self.rtsp_form_open = False
+        self.rtsp_form_error = ""
+        self._reload_rtsp_cameras()
+        self._reload_vigilantia_sources()
+
+    @rx.event
+    def delete_rtsp_camera(self, name: str) -> None:
+        settings = _load_settings()
+        cams = settings.get("rtsp_cameras") or []
+        settings["rtsp_cameras"] = [
+            c for c in cams
+            if not (isinstance(c, dict) and str(c.get("name")) == name)
+        ]
+        _save_settings(settings)
+        try:
+            from ..lib.frame_sources import rescan
+            rescan()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("frame source rescan failed: %s", e)
+        self._reload_rtsp_cameras()
+        self._reload_vigilantia_sources()
 
     @rx.event
     async def toggle_vigilantia_armed(self) -> None:
