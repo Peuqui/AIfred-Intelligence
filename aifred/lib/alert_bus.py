@@ -377,3 +377,15 @@ def get_default_dispatcher() -> AlertDispatcher:
         _default_dispatcher = AlertDispatcher(rules)
         logger.info("alert dispatcher ready (%d rule(s))", len(rules))
     return _default_dispatcher
+
+
+def reload_rules() -> int:
+    """Regeln frisch von ``data/alert_rules.json`` laden und den laufenden
+    Dispatcher neu aufbauen — damit Änderungen aus der UI sofort greifen, ohne
+    Service-Neustart. Returnt die Anzahl geladener Regeln. (Throttle-State wird
+    dabei zurückgesetzt — im schlimmsten Fall ein zusätzlicher Alert.)"""
+    global _default_dispatcher
+    rules = load_rules()
+    _default_dispatcher = AlertDispatcher(rules)
+    logger.info("alert dispatcher reloaded (%d rule(s))", len(rules))
+    return len(rules)

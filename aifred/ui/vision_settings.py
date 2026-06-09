@@ -436,6 +436,76 @@ def _rtsp_cameras_section() -> rx.Component:
     )
 
 
+# Kategorie → i18n-Label, in Anzeigereihenfolge. Muss zur Reihenfolge in
+# _vision_settings_mixin._ALERT_RULE_CATEGORIES passen (gleicher Index).
+_ALERT_RULE_CATS = [
+    ("person", "alert_cat_person"),
+    ("vehicle", "alert_cat_vehicle"),
+    ("animal", "alert_cat_animal"),
+    ("face_known", "alert_cat_face_known"),
+    ("face_unsure", "alert_cat_face_unsure"),
+    ("face_unknown", "alert_cat_face_unknown"),
+]
+
+
+def _alert_rule_row(index: int, category: str, label_key: str) -> rx.Component:
+    """Eine Regel-Zeile: Kategorie-Label, Telegram-Switch, VLM-Switch,
+    Cooldown. Gebunden an AIState.alert_rules_ui[index]."""
+    r = AIState.alert_rules_ui[index]
+    return rx.hstack(
+        rx.text(t(label_key), size="2", style={"flex": "0 0 140px"}),
+        rx.switch(
+            checked=r["telegram"].to(bool),
+            on_change=lambda v: AIState.set_alert_rule(category, "telegram", v),
+            size="1", color_scheme="orange",
+        ),
+        rx.box(style={"flex": "0 0 24px"}),
+        rx.switch(
+            checked=r["vlm"].to(bool),
+            on_change=lambda v: AIState.set_alert_rule(category, "vlm", v),
+            size="1", color_scheme="orange",
+        ),
+        rx.spacer(),
+        rx.input(
+            value=r["cooldown"].to(str),
+            on_change=lambda v: AIState.set_alert_rule(category, "cooldown", v),
+            type="number", size="1", style={"width": "4.5em"},
+        ),
+        rx.text("s", size="1", color="gray"),
+        align="center", width="100%", spacing="2",
+    )
+
+
+def _alert_rules_section() -> rx.Component:
+    """Routing-Regeln: welche Erkennung auf Telegram gemeldet wird (+ VLM-
+    Bildbeschreibung + Cooldown). Schreibt data/alert_rules.json, lädt den
+    Dispatcher live neu."""
+    return rx.vstack(
+        rx.text(t("alert_rules_title"), font_weight="bold", size="3"),
+        rx.text(t("alert_rules_help"), size="1", color="gray"),
+        rx.hstack(
+            rx.box(style={"flex": "0 0 140px"}),
+            rx.text(t("alert_rules_col_telegram"), size="1", color="gray"),
+            rx.spacer(),
+            rx.text(t("alert_rules_col_vlm"), size="1", color="gray"),
+            rx.spacer(),
+            rx.text(t("alert_rules_col_cooldown"), size="1", color="gray"),
+            align="center", width="100%", spacing="2",
+        ),
+        rx.cond(
+            AIState.alert_rules_ui.length() >= 6,
+            rx.vstack(
+                *[
+                    _alert_rule_row(i, cat, label_key)
+                    for i, (cat, label_key) in enumerate(_ALERT_RULE_CATS)
+                ],
+                spacing="1", align="stretch", width="100%",
+            ),
+        ),
+        align="stretch", spacing="1", width="100%",
+    )
+
+
 def _feed_visibility_section() -> rx.Component:
     """Toggle für den Vigilantia-Live-Feed im Haupttab. Default off —
     User schaltet das ein, wenn er Hintergrund-Cams nutzt."""
@@ -595,6 +665,8 @@ def vision_settings_modal() -> rx.Component:
                     _sources_section(),
                     rx.divider(),
                     _rtsp_cameras_section(),
+                    rx.divider(),
+                    _alert_rules_section(),
                     rx.divider(),
                     _feed_visibility_section(),
                     rx.divider(),
