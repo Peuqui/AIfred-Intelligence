@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -40,11 +41,22 @@ from aifred.lib.config import DOCUMENTS_DIR  # noqa: E402
 
 app = FastAPI(title="AIfred Corpus Search & Admin", version="1.0")
 
-# Local-only by design (reverse-proxied by nginx). CORS is permissive so the
-# UI served from the same origin can call the API without preflight pain.
+# The UI is served from the same origin (nginx /corpus/), so same-origin
+# requests need no CORS grant at all. We restrict cross-origin access to an
+# explicit allowlist instead of "*" — a wildcard would let any website issue
+# requests against the (basic-auth-protected) admin API from a logged-in user's
+# browser. Extra origins via CORPUS_ALLOWED_ORIGINS (comma-separated); defaults
+# to the production reverse-proxy origin.
+_allowed_origins = [
+    o.strip()
+    for o in os.environ.get(
+        "CORPUS_ALLOWED_ORIGINS", "https://narnia.spdns.de:8443"
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
