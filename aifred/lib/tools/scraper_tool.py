@@ -47,6 +47,7 @@ class WebScraperTool(BaseTool):
     # PLAYWRIGHT_FALLBACK_THRESHOLD imported from config.py (module level)
     MAX_RETRY_ATTEMPTS = 2  # Maximum retry attempts for Cloudflare/rate-limit blocks
     RETRY_DELAY = 3.0  # Seconds to wait before retry
+    SAFE_MAX_REDIRECTS = 3  # Max redirect hops, each re-validated against SSRF rules
 
     def __init__(self):
         super().__init__()
@@ -58,6 +59,32 @@ class WebScraperTool(BaseTool):
         self.trafilatura_config = deepcopy(DEFAULT_CONFIG)
         self.trafilatura_config.set('DEFAULT', 'DOWNLOAD_TIMEOUT', '10')
         self.trafilatura_config.set('DEFAULT', 'MAX_REDIRECTS', '2')  # Max 2 redirects (default is more)
+
+    def _safe_request(self, method: str, url: str, **kwargs) -> requests.Response:
+        """HTTP request that re-validates every redirect hop against SSRF rules.
+
+        ``validate_external_url`` only covers the initial URL; a public host can
+        302-redirect to an internal address (cloud metadata, llama-swap,
+        ChromaDB). We disable automatic redirects and follow them manually,
+        re-validating each ``Location`` before connecting. Raises
+        :class:`UnsafeURLError` if any hop resolves to a private/reserved
+        address — the caller decides how to surface it (no silent pass-through).
+        """
+        kwargs.setdefault("timeout", 15)
+        kwargs["allow_redirects"] = False
+        current = url
+        for _ in range(self.SAFE_MAX_REDIRECTS + 1):
+            validate_external_url(current)
+            resp = requests.request(method, current, **kwargs)
+            if resp.is_redirect or resp.is_permanent_redirect:
+                location = resp.headers.get("Location")
+                if not location:
+                    return resp
+                current = requests.compat.urljoin(current, location)  # type: ignore[attr-defined]
+                continue
+            return resp
+        raise UnsafeURLError(f"Too many redirects for {url!r}")
+
     def execute(self, query: str, **kwargs) -> Dict:
         """
         Scrape a web page completely without length limit
@@ -82,9 +109,9 @@ class WebScraperTool(BaseTool):
         url = query
 
         # SSRF protection: reject URLs that resolve to private/loopback/reserved
-        # addresses. Note: this validates the initial URL only. Redirect targets
-        # are followed by trafilatura/Playwright without re-validation — that
-        # residual risk is accepted for now (no DNS-rebinding hardening here).
+        # addresses. The initial URL is validated here; redirect targets are
+        # re-validated per hop in _safe_request (requests paths) and via the
+        # route guard in _playwright_sync.
         try:
             validate_external_url(url)
         except UnsafeURLError as e:
@@ -154,8 +181,14 @@ class WebScraperTool(BaseTool):
             else:
                 logger.info(f"🔄 Retry {retry_attempt}/{self.MAX_RETRY_ATTEMPTS}: {url}")
 
-            # Download HTML with 10s timeout (via config)
-            downloaded = trafilatura.fetch_url(url, config=self.trafilatura_config)
+            # Download HTML via the SSRF-safe fetcher (re-validates redirects),
+            # then hand the raw HTML to trafilatura for extraction. We do NOT use
+            # trafilatura.fetch_url because it follows redirects without
+            # re-validation.
+            resp = self._safe_request("GET", url, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; AIfred/1.0)'
+            }, timeout=10)
+            downloaded = resp.text if resp.ok else None
 
             if not downloaded:
                 error_msg = "Download failed (no response)"
@@ -261,6 +294,20 @@ class WebScraperTool(BaseTool):
                 try:
                     page = browser.new_page()
 
+                    # SSRF guard: re-validate every request the page issues
+                    # (initial navigation, redirects, subresources). Abort any
+                    # hop that resolves to a private/reserved address.
+                    def _ssrf_guard(route, request):
+                        try:
+                            validate_external_url(request.url)
+                        except UnsafeURLError as exc:
+                            log_message(f"🛑 Playwright blocked unsafe request: {exc}", "warning")
+                            route.abort()
+                            return
+                        route.continue_()
+
+                    page.route("**/*", _ssrf_guard)
+
                     # Navigate to page and wait for DOM content
                     page.goto(url, wait_until='domcontentloaded', timeout=15000)
 
@@ -356,13 +403,16 @@ class WebScraperTool(BaseTool):
         if url.lower().endswith('.pdf'):
             return True
 
-        # Slow check: HEAD request for Content-Type
+        # Slow check: HEAD request for Content-Type (redirects re-validated)
         try:
-            response = requests.head(url, timeout=5, allow_redirects=True, headers={
+            response = self._safe_request("HEAD", url, timeout=5, headers={
                 'User-Agent': 'Mozilla/5.0 (compatible; AIfred/1.0)'
             })
             content_type = response.headers.get('Content-Type', '').lower()
             return 'application/pdf' in content_type
+        except UnsafeURLError as e:
+            log_message(f"🛑 PDF detection blocked unsafe redirect: {e}", "warning")
+            return False
         except OSError:
             # On error: Assume not PDF (trafilatura will try)
             return False
@@ -401,7 +451,7 @@ class WebScraperTool(BaseTool):
             parsed = urlparse(url)
             referer = f"{parsed.scheme}://{parsed.netloc}/"
 
-            response = requests.get(url, timeout=15, headers={
+            response = self._safe_request("GET", url, timeout=15, headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Referer': referer,
                 'Accept': 'application/pdf,*/*'

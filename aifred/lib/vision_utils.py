@@ -922,17 +922,32 @@ def url_to_file_path(image_url: str) -> Optional[Path]:
     Returns:
         Path object if valid, None if URL format not recognized
     """
-    import re
-
-    match = re.search(r'/_upload/vigilantia/(.+)$', image_url)
-    if match:
-        return VIGILANTIA_DIR / str(match.group(1))
-
-    match = re.search(r'/_upload/images/(.+)$', image_url)
-    if match:
-        return UPLOAD_IMAGES_DIR / str(match.group(1))
+    for marker, base in (
+        ("/_upload/vigilantia/", VIGILANTIA_DIR),
+        ("/_upload/images/", UPLOAD_IMAGES_DIR),
+    ):
+        match = re.search(re.escape(marker) + r"(.+)$", image_url)
+        if not match:
+            continue
+        return _contain_under(base, str(match.group(1)))
 
     return None
+
+
+def _contain_under(base: Path, relative: str) -> Optional[Path]:
+    """Resolve ``relative`` under ``base`` and reject path traversal.
+
+    Returns the resolved path only if it stays inside ``base`` — otherwise
+    None. Guards URL→filesystem conversions against ``../`` escapes.
+    """
+    root = base.resolve()
+    candidate = (base / relative).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        logger.warning(f"⚠️ Rejected path traversal attempt: {relative!r}")
+        return None
+    return candidate
 
 
 def load_image_url_as_base64(image_url: str) -> Optional[str]:

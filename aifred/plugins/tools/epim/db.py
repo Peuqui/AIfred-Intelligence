@@ -174,6 +174,21 @@ DEFAULT_CONTACT_FIELDS: dict[int, str] = {
 # Reverse map for encoding
 _CONTACT_NAME_TO_ID = {v: k for k, v in DEFAULT_CONTACT_FIELDS.items()}
 
+_LIMIT_MAX = 500
+
+
+def _clamp_limit(limit: int) -> int:
+    """Coerce a tool-supplied ``limit`` to a safe integer for ``SELECT FIRST``.
+
+    ``limit`` is interpolated into SQL (Firebird has no parameter binding for
+    FIRST), so it must never reach the query as an arbitrary string. The JSON
+    tool schema declares ``integer`` but that is not enforced by the executor,
+    so we coerce here. A non-numeric value raises ValueError (surfaced to the
+    LLM as a tool error) rather than being silently dropped.
+    """
+    value = int(limit)
+    return max(1, min(value, _LIMIT_MAX))
+
 
 class EpimDatabase:
     """Firebird 2.5 embedded database access for EPIM."""
@@ -342,7 +357,7 @@ class EpimDatabase:
 
         where = " AND ".join(conditions)
         sql = (
-            f"SELECT FIRST {limit} t.IDTASK, t.TITLE, t.STARTTIME, t.ENDTIME, "
+            f"SELECT FIRST {_clamp_limit(limit)} t.IDTASK, t.TITLE, t.STARTTIME, t.ENDTIME, "
             f"t.LOCATION, t.PRIORITY, t.ALLDAY, t.REPEATING, t.TAGS, "
             f"t.TEXT, t.COMPLETION, t.COMPLETED, "
             f"c.NAME AS CALENDAR_NAME, cat.NAME AS CATEGORY_NAME "
@@ -519,7 +534,7 @@ class EpimDatabase:
 
         where = " AND ".join(conditions)
         cur.execute(
-            f"SELECT FIRST {limit} IDCONTACT, SUBJECT, FIELDSDATA, FIELDSDATA2, "
+            f"SELECT FIRST {_clamp_limit(limit)} IDCONTACT, SUBJECT, FIELDSDATA, FIELDSDATA2, "
             f"TAGS, CREATED, LASTCHANGED "
             f"FROM CONTACTS WHERE {where} ORDER BY SUBJECT",
             params,
@@ -674,7 +689,7 @@ class EpimDatabase:
             where = " AND ".join(conditions)
 
         cur.execute(
-            f"SELECT FIRST {limit} n.IDNOTE, n.TITLE, n.TAGS, n.CREATED, "
+            f"SELECT FIRST {_clamp_limit(limit)} n.IDNOTE, n.TITLE, n.TAGS, n.CREATED, "
             f"n.LASTCHANGED, nt.NAME AS TREE_NAME "
             f"FROM NOTES n "
             f"LEFT JOIN NOTETREES nt ON nt.IDNOTETREE = n.IDNOTETREE "
@@ -859,7 +874,7 @@ class EpimDatabase:
 
         where = " AND ".join(conditions)
         cur.execute(
-            f"SELECT FIRST {limit} t.IDTODO, t.TITLE, t.STARTTIME, t.ENDTIME, "
+            f"SELECT FIRST {_clamp_limit(limit)} t.IDTODO, t.TITLE, t.STARTTIME, t.ENDTIME, "
             f"t.PRIORITY, t.COMPLETION, t.COMPLETED, t.TAGS, t.TEXT, "
             f"l.NAME AS LIST_NAME "
             f"FROM TODOS t "
@@ -978,7 +993,7 @@ class EpimDatabase:
 
         where = " AND ".join(conditions)
         cur.execute(
-            f"SELECT FIRST {limit} pe.IDPASSENTRY, pe.SUBJECT, pe.TAGS, "
+            f"SELECT FIRST {_clamp_limit(limit)} pe.IDPASSENTRY, pe.SUBJECT, pe.TAGS, "
             f"pe.CREATED, pe.LASTCHANGED, pg.SUBJECT AS GROUP_NAME "
             f"FROM PASSENTRIES pe "
             f"LEFT JOIN PASSGROUPS pg ON pg.IDPASSGROUP = ("

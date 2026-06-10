@@ -204,8 +204,11 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
     with _imap_connect() as imap:
         imap.select(folder, readonly=True)
 
-        # IMAP SEARCH: search in subject and from
-        search_criteria = f'(OR SUBJECT "{query}" FROM "{query}")'
+        # IMAP SEARCH: search in subject and from. Escape backslash/quote so a
+        # crafted query (LLM tool arg) cannot break out of the quoted string and
+        # rewrite the search semantics.
+        safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
+        search_criteria = f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'
         _, data = imap.search(None, search_criteria)
         msg_ids = data[0].split()[-n:]
         msg_ids.reverse()
@@ -252,6 +255,13 @@ def send_email(
     to the plain version. Without ``html``, a plain-text-only message
     is sent (no multipart wrapping).
     """
+    # Reject control characters in header values (CR/LF would otherwise raise
+    # an opaque HeaderParseError deep in smtplib). to/subject come from
+    # LLM-generated tool args — fail loudly and early with a clear message.
+    for field_name, value in (("to", to), ("subject", subject)):
+        if any(ch in value for ch in "\r\n"):
+            raise ValueError(f"Illegal newline in email {field_name!r}")
+
     email_user = broker.get("email", "user")
     email_from = broker.get("email", "from") or email_user
 

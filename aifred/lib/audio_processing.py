@@ -150,15 +150,34 @@ def _generate_tts_filename(extension: str = "wav") -> str:
     return f"audio_{agent}_{engine}_{timestamp}.{extension}"
 
 
+def _resolve_under(base: Path, relative: str) -> Path | None:
+    """Resolve ``relative`` under ``base`` and reject path traversal.
+
+    Returns the resolved path only if it stays inside ``base`` — otherwise
+    logs and returns None. Guards URL→filesystem conversion (and the os.remove
+    in concatenate_wav_files) against ``../`` escapes.
+    """
+    root = base.resolve()
+    candidate = (base / relative).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        log_message(f"⚠️ Rejected audio path traversal: {relative!r}")
+        return None
+    return candidate
+
+
 def _resolve_tts_urls_to_paths(wav_urls: list[str]) -> list[str]:
     """Convert TTS audio URLs to local file paths, filtering non-existent files."""
     file_paths: list[str] = []
     for url in wav_urls:
         if "/_upload/tts_audio/" in url:
             filename = url.split("/_upload/tts_audio/")[-1]
-            file_path = str(TTS_AUDIO_DIR / filename)
-            if os.path.exists(file_path):
-                file_paths.append(file_path)
+            file_path = _resolve_under(TTS_AUDIO_DIR, filename)
+            if file_path is None:
+                continue
+            if file_path.exists():
+                file_paths.append(str(file_path))
             else:
                 log_message(f"⚠️ Audio file not found: {file_path}")
     return file_paths
@@ -259,8 +278,8 @@ def save_audio_to_session(wav_urls: list[str], session_id: str) -> str | None:
         url = wav_urls[0]
         if "/_upload/tts_audio/" in url:
             filename = url.split("/_upload/tts_audio/")[-1]
-            source_path = TTS_AUDIO_DIR / filename
-            if source_path.exists():
+            source_path = _resolve_under(TTS_AUDIO_DIR, filename)
+            if source_path is not None and source_path.exists():
                 dest_path = session_audio_dir / output_filename
                 shutil.copy2(str(source_path), str(dest_path))
                 log_message(f"📁 Audio copied to session: {output_filename}")
@@ -351,10 +370,10 @@ def load_audio_url_as_base64(audio_url: str) -> str | None:
         return None
 
     relative_path = match.group(1)
-    file_path = SESSION_AUDIO_DIR / relative_path
+    file_path = _resolve_under(SESSION_AUDIO_DIR, relative_path)
 
-    if not file_path.exists():
-        log_message(f"⚠️ Audio file not found: {file_path}")
+    if file_path is None or not file_path.exists():
+        log_message(f"⚠️ Audio file not found: {SESSION_AUDIO_DIR / relative_path}")
         return None
 
     try:

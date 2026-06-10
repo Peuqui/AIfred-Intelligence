@@ -462,10 +462,15 @@ class DocumentMixin(rx.State, mixin=True):
 
     def preview_document(self, filename: str) -> None:
         """Load document content for preview in the modal."""
-        from ..lib.config import DOCUMENTS_DIR
         from ..lib.document_store import PARSERS
+        from ..lib.file_manager import safe_resolve
 
-        file_path = DOCUMENTS_DIR / self.doc_current_folder / filename
+        rel_path = f"{self.doc_current_folder}/{filename}".lstrip("/")
+        file_path, err = safe_resolve(rel_path)
+        if err or file_path is None:
+            self.document_preview_filename = filename
+            self.document_preview_content = "\u274c Invalid path"
+            return
         if not file_path.exists():
             self.document_preview_filename = filename
             self.document_preview_content = "\u274c File not found"

@@ -31,6 +31,7 @@ import logging
 import secrets
 import time
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape as _xml_escape
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -120,7 +121,7 @@ class PTZController:
         return (
             f'<wsse:Security xmlns:wsse="{_WSSE}" xmlns:wsu="{_WSU}" '
             f's:mustUnderstand="1"><wsse:UsernameToken>'
-            f"<wsse:Username>{user}</wsse:Username>"
+            f"<wsse:Username>{_xml_escape(user)}</wsse:Username>"
             f'<wsse:Password Type="{_PW_DIGEST}">{digest}</wsse:Password>'
             f'<wsse:Nonce EncodingType="{_B64_ENC}">{nonce_b64}</wsse:Nonce>'
             f"<wsu:Created>{created}</wsu:Created>"
@@ -225,7 +226,7 @@ class PTZController:
         token = self.profile_token()
         body = (
             f'<GotoPreset xmlns="{_NS_PTZ}"><ProfileToken>{token}</ProfileToken>'
-            f"<PresetToken>{preset_token}</PresetToken></GotoPreset>"
+            f"<PresetToken>{_xml_escape(preset_token)}</PresetToken></GotoPreset>"
         )
         self._post(f"{_NS_PTZ}/GotoPreset", body)
 

@@ -49,10 +49,12 @@ class WorkspacePlugin:
 
         async def _list_files(subfolder: str = "") -> str:
             """List files in data/documents/ or a subfolder."""
-            target = _DOCUMENTS_DIR / subfolder if subfolder else _DOCUMENTS_DIR
-            target = target.resolve()
-            if not str(target).startswith(str(_DOCUMENTS_DIR.resolve())):
-                return json.dumps({"error": "Access denied: path outside documents directory"})
+            if subfolder:
+                target, err = fm.safe_resolve(subfolder)
+                if err or target is None:
+                    return json.dumps({"error": "Access denied: path outside documents directory"})
+            else:
+                target = _DOCUMENTS_DIR.resolve()
             if not target.exists():
                 return json.dumps({"error": f"Directory not found: {subfolder}"})
 
