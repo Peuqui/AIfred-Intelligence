@@ -2490,10 +2490,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
         # model_id is always base ID (SSOT — no suffix stripping needed)
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
-            from ..lib.model_vram_cache import (
-                get_llamacpp_calibration,
-                get_llamacpp_speed_split,
-            )
+            from ..lib.model_vram_cache import get_llamacpp_calibration
             from ..lib.calibration import parse_llamaswap_config
             from ..lib.config import LLAMASWAP_CONFIG_PATH
             # YAML is the source of truth — that's the ctx the server
@@ -2519,19 +2516,13 @@ class CalibrationMixin(rx.State, mixin=True):
             # Show tensor-split (layer distribution) from llama-swap config
             total_gpus = self._show_tensor_split_info(model_id, format_number)
 
-            # Show speed variant if available
-            cuda0, rest, ctx = get_llamacpp_speed_split(model_id)
-            if cuda0 > 0:
-                active = (1 if rest == 0 else 2)
-                # Build split string with trailing zeros for remaining GPUs
-                parts = [str(cuda0), str(rest)]
-                for _ in range(max(0, total_gpus - 2)):
-                    parts.append("0")
-                split_str = ":".join(parts)
-                self.add_debug(  # type: ignore[attr-defined]
-                    f"   ⚡ Speed split: {split_str}, "
-                    f"ctx={format_number(ctx)} ({active}/{total_gpus} GPUs)"
-                )
+            # Show speed variant from the llama-swap config (source of truth).
+            # The cached speed_split/speed_split_rest pair is a compact
+            # "cuda0 : sum-of-remaining-GPUs" encoding (e.g. 19:42) that does
+            # NOT map to a per-GPU split — only the -speed config entry holds
+            # the real layout (e.g. 19:20:13:9:0). Reading the cache compact
+            # form here previously rendered a bogus "19:42:0:0:0 (2/5 GPUs)".
+            self._show_speed_split_info(model_id, format_number, total_gpus)
             return
 
         if self.backend_type != "ollama":  # type: ignore[attr-defined]
@@ -2583,6 +2574,43 @@ class CalibrationMixin(rx.State, mixin=True):
             f"   📊 Layer split: {split_str} ({active}/{total} GPUs)"
         )
         return total
+
+    def _show_speed_split_info(self, model_id: str, format_number, total_gpus: int = 0) -> None:  # type: ignore[type-arg]
+        """Show the speed-variant tensor-split from the llama-swap config.
+
+        Reads the ``{model_id}-speed`` entry directly (like the base split in
+        _show_tensor_split_info) instead of reconstructing it from the cache's
+        compact speed_split/speed_split_rest fields, which only store cuda0 and
+        the summed remainder — not the per-GPU layout. Shows nothing if no
+        speed variant exists in the config.
+
+        ``total_gpus`` is the system's physical GPU count (from the base split)
+        so the count reads as e.g. "4/5 GPUs" — the speed entry lists only its
+        active GPUs, which would otherwise show a misleading "4/4".
+        """
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.calibration import (
+            parse_llamaswap_config,
+            parse_tensor_split,
+        )
+
+        models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        speed_info = models.get(f"{model_id}-speed")
+        if not speed_info:
+            return
+
+        ratios = parse_tensor_split(speed_info["full_cmd"])
+        if not ratios:
+            return
+
+        split_str = ":".join(f"{r:g}" for r in ratios)
+        active = sum(1 for r in ratios if r > 0)
+        total = total_gpus or len(ratios)
+        ctx = int(speed_info.get("current_context", 0))
+        ctx_str = f", ctx={format_number(ctx)}" if ctx else ""
+        self.add_debug(  # type: ignore[attr-defined]
+            f"   ⚡ Speed split: {split_str} ({active}/{total} GPUs){ctx_str}"
+        )
 
     # ------------------------------------------------------------------
     # Backend restart
