@@ -526,6 +526,12 @@ class VisionWatcher:
             settle = float(ec.get("settle_sec", 1.0))
             prev: dict[str, bool] = {}
             fails = 0
+            # Zeitstempel des zuletzt befeuerten Frames — gegen eingefrorene
+            # RTSP-Streams: friert der Stream ein, bleibt latest["frame"]
+            # stehen (gleicher Timestamp), während die Kamera-Edge-AI nachts im
+            # IR-Bild weiter Person/Tier flackert. Ohne Guard würde AIfred
+            # dasselbe Standbild dutzendfach speichern + Fehlalarme feuern.
+            last_fired_ts: Any = None
             try:
                 while True:
                     try:
@@ -563,7 +569,17 @@ class VisionWatcher:
                             if settle > 0:
                                 await asyncio.sleep(settle)
                             frame = latest["frame"]
-                            if frame is not None:
+                            if frame is None:
+                                pass
+                            elif frame.timestamp == last_fired_ts:
+                                # Eingefrorener Stream: derselbe Frame wie beim
+                                # letzten Feuern → kein echtes Ereignis, skip.
+                                logger.warning(
+                                    "edge-ai: eingefrorenes Frame für %s (Stream "
+                                    "steht?) — Trigger verworfen", source_id,
+                                )
+                            else:
+                                last_fired_ts = frame.timestamp
                                 await self._handle_edge_ai_event(
                                     frame, triggered, config, client
                                 )
