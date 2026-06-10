@@ -125,7 +125,15 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
         import re
         match = re.search(r'[\w.+-]+@[\w.-]+', sender.lower())
         sender_email = match.group(0) if match else sender.lower()
-        return sender_email == first_entry or sender_email.endswith(first_entry)
+        if sender_email == first_entry:
+            return True
+        # Domain whitelist: an entry written as "@example.com" matches any
+        # address on that domain. A bare suffix is NOT accepted — otherwise
+        # "attacker@evil-e.mail.de" would match a "e.mail.de" entry and an
+        # attacker could spoof owner privileges (owner addresses are forgeable).
+        if first_entry.startswith("@") and sender_email.endswith(first_entry):
+            return True
+        return False
 
     if channel == "discord":
         # Discord doesn't have a simple owner concept in the whitelist.
@@ -200,22 +208,34 @@ def _strip_html(text: str) -> str:
 def sanitize_inbound(text: str) -> str:
     """Clean external message text before it enters the pipeline.
 
-    - Strip HTML tags (keep visible text only)
     - Remove zero-width / invisible Unicode characters
     - NFC-normalize Unicode
+    - Strip HTML tags (keep visible text only)
+
+    Invisible-char removal and normalization run BEFORE the HTML strip so a
+    tag smuggled with zero-width characters (e.g. ``<scr​ipt>``) cannot
+    survive the parser and be reconstructed afterwards.
     """
-    text = _strip_html(text)
     text = _INVISIBLE_CHARS.sub("", text)
     text = unicodedata.normalize("NFC", text)
+    text = _strip_html(text)
     return text
 
 
 def wrap_external_message(
     text: str, sender: str, channel: str, trust_level: str,
 ) -> str:
-    """Wrap text in security delimiters for the LLM context."""
+    """Wrap text in security delimiters for the LLM context.
+
+    sender/channel are escaped so a crafted value (e.g. a sender containing
+    ``" trust="high``) cannot close the attribute and forge the trust signal
+    that the LLM relies on as a security marker.
+    """
+    import html
+    safe_sender = html.escape(sender, quote=True)
+    safe_channel = html.escape(channel, quote=True)
     return (
-        f'<external_message sender="{sender}" channel="{channel}" trust="{trust_level}">\n'
+        f'<external_message sender="{safe_sender}" channel="{safe_channel}" trust="{trust_level}">\n'
         f"{text}\n"
         f"</external_message>"
     )

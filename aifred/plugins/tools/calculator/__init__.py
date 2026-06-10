@@ -49,7 +49,13 @@ class CalculatorPlugin:
                     op_type = type(node.op)
                     if op_type not in binary_ops:
                         raise ValueError(f"Unsupported operator: {op_type.__name__}")
-                    return binary_ops[op_type](_eval(node.left), _eval(node.right))
+                    left = _eval(node.left)
+                    right = _eval(node.right)
+                    # Bound exponents: reject absurd powers up front with a clear
+                    # error instead of leaning on a float OverflowError.
+                    if op_type is ast.Pow and abs(right) > 1000:
+                        raise ValueError("Exponent too large (max 1000)")
+                    return binary_ops[op_type](left, right)
                 elif isinstance(node, ast.UnaryOp):
                     uop_type = type(node.op)
                     if uop_type not in unary_ops:

@@ -1217,13 +1217,15 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
     The result is delivered based on the delivery mode.
     Auth via token (WEBHOOK_API_TOKEN env var).
     """
+    import secrets as _secrets
+
     from .credential_broker import broker
 
-    # Auth check
+    # Auth check (constant-time, fail-closed — analog zu /chat/inject)
     expected_token = broker.get("webhook", "api_token")
     if not expected_token:
         raise HTTPException(status_code=503, detail="Webhook API not configured (WEBHOOK_API_TOKEN not set)")
-    if request.token != expected_token:
+    if not request.token or not _secrets.compare_digest(request.token, expected_token):
         log_message("API: agent/trigger — invalid token", "warning")
         raise HTTPException(status_code=403, detail="Invalid token")
 
