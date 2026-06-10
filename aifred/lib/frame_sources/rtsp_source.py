@@ -70,6 +70,11 @@ _READ_TIMEOUT_MS = 5000
 # RTSP-Handshake, damit das Source-Listing flott bleibt.
 _REACH_TIMEOUT_S = 0.4
 _DEFAULT_PORT = 554
+# Reconnect-Backoff (s): bei Read-/Open-Fehler wartet stream() zwischen den
+# Wiederverbindungsversuchen, exponentiell bis zu diesem Maximum — damit ein
+# kurzer RTSP-Stall nicht stundenlang einfriert, aber eine tote Kamera nicht
+# pausenlos gehämmert wird.
+_RECONNECT_MAX_S = 30.0
 
 
 def _slugify(name: str) -> str:
@@ -237,16 +242,42 @@ class RTSPSource:
             raise ValueError(f"stream fps must be > 0, got {fps}")
         interval = 1.0 / fps
         sequence_id = str(uuid.uuid4())
-        url = self._build_url()
-        cap = await asyncio.to_thread(_make_capture, url)
+        frame_idx = 0
+        cap: cv2.VideoCapture | None = None
+        backoff = 1.0
         try:
-            if not await asyncio.to_thread(cap.isOpened):
-                raise RuntimeError(f"Cannot open RTSP stream {self.source_id}")
-            for _ in range(_WARMUP_FRAMES):
-                await asyncio.to_thread(cap.read)
-            frame_idx = 0
             while True:
-                jpeg_bytes, w, h = await asyncio.to_thread(_read_encode, cap)
+                # (Neu-)Verbindung aufbauen, falls noch kein offener Cap.
+                if cap is None:
+                    cap = await asyncio.to_thread(_make_capture, self._build_url())
+                    if not await asyncio.to_thread(cap.isOpened):
+                        await asyncio.to_thread(cap.release)
+                        cap = None
+                        logger.warning(
+                            "RTSP open failed for %s — retry in %.0fs",
+                            self.source_id, backoff,
+                        )
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * 2, _RECONNECT_MAX_S)
+                        continue
+                    for _ in range(_WARMUP_FRAMES):
+                        await asyncio.to_thread(cap.read)
+                    backoff = 1.0
+                # Frame lesen — bei Read-Fehler/Stall NICHT crashen (das ließ
+                # den Hub-Reader sterben → stundenlanges Einfrieren), sondern
+                # die Verbindung neu aufbauen (selbst-heilend).
+                try:
+                    jpeg_bytes, w, h = await asyncio.to_thread(_read_encode, cap)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "RTSP read failed for %s: %s — reconnecting in %.0fs",
+                        self.source_id, e, backoff,
+                    )
+                    await asyncio.to_thread(cap.release)
+                    cap = None
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, _RECONNECT_MAX_S)
+                    continue
                 yield Frame(
                     source_id=self.source_id,
                     timestamp=datetime.now(),
@@ -263,7 +294,8 @@ class RTSPSource:
                 frame_idx += 1
                 await asyncio.sleep(interval)
         finally:
-            await asyncio.to_thread(cap.release)
+            if cap is not None:
+                await asyncio.to_thread(cap.release)
 
     # ── Internals ──────────────────────────────────────────────────
 
