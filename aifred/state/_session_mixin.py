@@ -90,6 +90,26 @@ class SessionMixin(rx.State, mixin=True):
                 self.new_session()
             return
 
+        # Owner check (IDOR guard): switch_session is a client-callable event
+        # handler with an arbitrary session_id. Refuse loading a session that
+        # belongs to a different account. Sessions without an owner field
+        # (pre-account legacy) are allowed but logged — not silently passed.
+        session_owner = str(session.get("owner", "")).lower()
+        current_user = str(self.logged_in_user or "").lower()  # type: ignore[attr-defined]
+        if session_owner and session_owner != current_user:
+            log_message(
+                f"Refused switch to session {session_id[:8]}...: owned by "
+                f"'{session_owner}', not '{current_user or '(anonymous)'}'",
+                "warning",
+            )
+            self.add_debug("Access denied: session belongs to another account")  # type: ignore[attr-defined]
+            return
+        if not session_owner:
+            log_message(
+                f"Switching to ownerless (legacy) session {session_id[:8]}...",
+                "warning",
+            )
+
         # Update session_id, then restore full session state through the
         # central path so active_agent, multi_agent_mode, symposion_agents,
         # research_mode and audio state are picked up correctly.

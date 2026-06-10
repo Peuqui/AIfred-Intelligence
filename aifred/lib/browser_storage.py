@@ -140,7 +140,11 @@ def get_username_script() -> str:
 
 def set_username_script(username: str) -> str:
     """
-    Generate JavaScript to set username as cookie.
+    Generate JavaScript to set the (HMAC-signed) username cookie.
+
+    The cookie stores ``username.<signature>`` so it cannot be forged
+    client-side to impersonate another account. Signing/verification lives in
+    lib/auth (single source of truth).
 
     Args:
         username: Username to store
@@ -148,14 +152,17 @@ def set_username_script(username: str) -> str:
     Returns:
         JavaScript code as string
     """
+    from .auth import sign_username
+
     # Sanitize username: only allow alphanumeric and underscore
     safe_username = "".join(c for c in username if c.isalnum() or c == "_")[:50]
     if not safe_username:
         raise ValueError("Invalid username for cookie")
 
+    signed = sign_username(safe_username)
     max_age_seconds = COOKIE_MAX_AGE_DAYS * 24 * 60 * 60
 
-    return f'document.cookie = "{USERNAME_COOKIE_NAME}={safe_username}; path=/; max-age={max_age_seconds}; SameSite=Lax";'
+    return f'document.cookie = "{USERNAME_COOKIE_NAME}={signed}; path=/; max-age={max_age_seconds}; SameSite=Lax";'
 
 
 def clear_username_script() -> str:

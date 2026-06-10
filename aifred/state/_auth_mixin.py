@@ -176,21 +176,24 @@ class AuthMixin(rx.State, mixin=True):
 
     # ── Cookie-based Auto-Login ──────────────────────────────────────
 
-    def handle_username_loaded(self, username: str):  # type: ignore[return]
+    def handle_username_loaded(self, cookie_value: str):  # type: ignore[return]
         """Callback nach Cookie-Read via rx.call_script().
 
-        Wird aufgerufen wenn das JavaScript den Username aus dem Cookie gelesen hat.
-        Prüft ob Account existiert und loggt ein, sonst Login-Dialog öffnen.
+        Der Cookie enthält ``username.<hmac>`` — die Signatur wird gegen das
+        Server-Secret geprüft (lib/auth), bevor eingeloggt wird. Ein gefälschter
+        oder unsignierter Cookie führt zum Login-Dialog statt zum Auto-Login.
         """
-        print(f"🔑 handle_username_loaded called: username='{username}'")
-
         # Guard: Nur einmal ausführen
         if self._session_initialized:  # type: ignore[attr-defined, has-type]
             print("⏭️ Session already initialized, skipping")
             return
         self._session_initialized = True  # type: ignore[attr-defined]
 
+        from ..lib.auth import verify_signed_username
         from ..lib.session_storage import account_exists, list_sessions
+
+        username = verify_signed_username(cookie_value) if cookie_value else None
+        print(f"🔑 handle_username_loaded: verified username={username!r}")
 
         if username and account_exists(username):
             # Valid username in cookie - auto login

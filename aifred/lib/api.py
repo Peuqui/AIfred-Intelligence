@@ -427,19 +427,9 @@ async def inject_message(request: ChatInjectRequest):
     # Auth: inject läuft die volle Agenten-Pipeline (inkl. Tools) auf der
     # Ziel-Session — also hinter ein Token klemmen, fail-closed. Ohne
     # konfiguriertes Token ist der Endpoint deaktiviert (kein offener
-    # Remote-Control-Zugang).
-    import secrets as _secrets
-
-    from .credential_broker import broker
-    expected_token = broker.get("inject", "api_token")
-    if not expected_token:
-        raise HTTPException(
-            status_code=503,
-            detail="Inject API not configured (INJECT_API_TOKEN not set)",
-        )
-    if not request.token or not _secrets.compare_digest(request.token, expected_token):
-        log_message("API: chat/inject — invalid token", "warning")
-        raise HTTPException(status_code=403, detail="Invalid token")
+    # Remote-Control-Zugang). Zentrale, konstant-zeitige Prüfung in lib/auth.
+    from .auth import require_service_token
+    require_service_token("inject", request.token)
 
     log_message(f"📨 API: Injecting message to {request.session_id[:8]}...")
 
@@ -1217,17 +1207,9 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
     The result is delivered based on the delivery mode.
     Auth via token (WEBHOOK_API_TOKEN env var).
     """
-    import secrets as _secrets
-
-    from .credential_broker import broker
-
-    # Auth check (constant-time, fail-closed — analog zu /chat/inject)
-    expected_token = broker.get("webhook", "api_token")
-    if not expected_token:
-        raise HTTPException(status_code=503, detail="Webhook API not configured (WEBHOOK_API_TOKEN not set)")
-    if not request.token or not _secrets.compare_digest(request.token, expected_token):
-        log_message("API: agent/trigger — invalid token", "warning")
-        raise HTTPException(status_code=403, detail="Invalid token")
+    # Auth check (constant-time, fail-closed — zentrale Prüfung in lib/auth)
+    from .auth import require_service_token
+    require_service_token("webhook", request.token)
 
     # Tier cap: webhooks max tier 1 by default
     from .security import DEFAULT_TIER_BY_SOURCE

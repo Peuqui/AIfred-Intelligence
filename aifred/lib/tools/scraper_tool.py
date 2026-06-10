@@ -350,20 +350,23 @@ class WebScraperTool(BaseTool):
         except Exception as e:
             error_msg = str(e)
 
-            # Auto-install browsers if missing (e.g. after cache cleanup)
+            # The Chromium browser is installed as a deliberate deploy step
+            # (scripts/setup-python.sh + install-all.sh). We do NOT auto-install
+            # at runtime — that would run an unattended network/disk action
+            # triggered by an LLM scrape request. Surface a clear, actionable
+            # error instead.
             if "Executable doesn't exist" in error_msg:
-                logger.info("🔧 Playwright browsers missing — installing...")
-                log_message("🔧 Playwright browsers missing — installing...")
-                import subprocess
-                result = subprocess.run(
-                    ["playwright", "install", "chromium"],
-                    capture_output=True, text=True, timeout=120
-                )
-                if result.returncode == 0:
-                    logger.info("✅ Playwright browsers installed, retrying scrape")
-                    log_message("✅ Playwright browsers installed")
-                    return self._scrape_with_playwright(url)
-                logger.error(f"❌ Playwright install failed: {result.stderr}")
+                hint = ("Playwright Chromium not installed — run "
+                        "'source venv/bin/activate && playwright install --with-deps chromium'")
+                logger.error(f"❌ {hint}")
+                log_message(f"❌ {hint}", "error")
+                return {
+                    'success': False,
+                    'method': 'playwright',
+                    'source': url,
+                    'url': url,
+                    'error': hint,
+                }
 
             logger.error(f"❌ Playwright error at {url}: {error_msg}")
             log_message(f"❌ Playwright error: {error_msg}")

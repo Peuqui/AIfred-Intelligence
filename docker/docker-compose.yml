@@ -4,7 +4,11 @@ services:
     image: chromadb/chroma:latest
     container_name: aifred-chromadb
     ports:
-      - "8000:8000"
+      # Bind to loopback only: AIfred runs on the host and reaches ChromaDB via
+      # localhost:8000. Container↔container traffic uses the internal bridge
+      # network (service name), NOT the published port — so loopback binding
+      # does not break anything but keeps the unauthenticated vector DB off the LAN.
+      - "127.0.0.1:8000:8000"
     volumes:
       # Persistent storage on host filesystem.
       # ACHTUNG: chromadb/chroma:latest hat den Default-Persist-Path im Mai
@@ -41,7 +45,9 @@ services:
     container_name: aifred-searxng
     restart: unless-stopped
     ports:
-      - "8888:8080"
+      # Loopback only — AIfred reaches SearXNG via localhost:8888 for web
+      # research; no remote consumer. Keeps the internal search instance off the LAN.
+      - "127.0.0.1:8888:8080"
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
