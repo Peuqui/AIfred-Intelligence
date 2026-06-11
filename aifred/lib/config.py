@@ -646,6 +646,15 @@ FACE_DETECT_USE_GPU = False
 # Default 4 = zweite P40: niedrigste Last, 300 MB InsightFace stören
 # da niemanden, RTX 8000 + V100 bleiben für die großen Modelle frei.
 FACE_DETECT_GPU_ID = 4
+# Qualitäts-Filter gegen Phantom-Gesichter: InsightFace' interner
+# RetinaFace-Cutoff liegt bei 0.5 — knapp darüber (0.5–0.6) halluziniert
+# er Gesichter in Texturen (Blattwerk, Astgabeln). Echte Gesichter
+# scoren 0.8–0.95. Detections unter MIN_SCORE werden verworfen.
+FACE_DETECT_MIN_SCORE = 0.65
+# Mindest-Kantenlänge der Gesichts-Box in Pixeln. Unterhalb ~40 px kann
+# ArcFace kein verlässliches Embedding extrahieren — das Match wäre
+# Rauschen, der Alert wertlos.
+FACE_DETECT_MIN_SIZE_PX = 40
 
 # ============================================================
 # PERSON DETECTION (YOLO body detection)

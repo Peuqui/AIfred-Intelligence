@@ -124,6 +124,8 @@ class FaceDetector:
         providers: list[str] | None = None,
         gpu_id: int = 0,
         det_size: int = 640,
+        min_score: float = 0.0,
+        min_size_px: int = 0,
     ) -> None:
         if providers is None:
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -131,6 +133,12 @@ class FaceDetector:
         self._providers = providers
         self._gpu_id = gpu_id
         self._det_size = det_size
+        # Qualitäts-Filter (0 = aus): Detections unter min_score oder mit
+        # einer Box-Kante unter min_size_px werden verworfen — InsightFace
+        # halluziniert knapp über seinem internen 0.5-Cutoff Gesichter in
+        # Texturen, und aus Mini-Boxen kommt kein brauchbares Embedding.
+        self._min_score = float(min_score)
+        self._min_size_px = int(min_size_px)
         self._app: Any | None = None
         self._init_lock = Lock()
 
@@ -178,6 +186,14 @@ class FaceDetector:
             # InsightFace bbox is (x1, y1, x2, y2) — convert to (x, y, w, h)
             x1, y1, x2, y2 = map(int, r.bbox.tolist() if hasattr(r.bbox, "tolist") else r.bbox)
             bbox = (x1, y1, x2 - x1, y2 - y1)
+            score = float(getattr(r, "det_score", 0.0))
+            if score < self._min_score or min(bbox[2], bbox[3]) < self._min_size_px:
+                logger.debug(
+                    "face_detect: dropped low-quality detection on %s "
+                    "(score=%.2f, size=%dx%d)",
+                    frame.source_id, score, bbox[2], bbox[3],
+                )
+                continue
             # Prefer normed_embedding (L2-normalized) — required for cosine match
             emb = getattr(r, "normed_embedding", None)
             if emb is None:
@@ -191,7 +207,7 @@ class FaceDetector:
                 FaceDetection(
                     bbox=bbox,
                     embedding=embedding,
-                    detection_score=float(getattr(r, "det_score", 0.0)),
+                    detection_score=score,
                     keypoints=kps_arr,
                 )
             )
@@ -219,7 +235,8 @@ def set_default_detector_kwargs(**kwargs: Any) -> None:
     """Konfiguriert den Default-Detector. Muss VOR dem ersten
     ``get_default_detector()``-Call aufgerufen werden, sonst wirkungslos.
 
-    Erlaubte Keys: ``model_name``, ``providers``, ``gpu_id``, ``det_size``.
+    Erlaubte Keys: ``model_name``, ``providers``, ``gpu_id``, ``det_size``,
+    ``min_score``, ``min_size_px``.
     """
     global _default_kwargs
     with _default_lock:
@@ -251,6 +268,9 @@ def get_default_detector() -> FaceDetector:
             # Provider aus config nur dann setzen, wenn der User nichts
             # eigenes über set_default_detector_kwargs() gesetzt hat.
             kwargs = dict(_default_kwargs)
+            from ..config import FACE_DETECT_MIN_SCORE, FACE_DETECT_MIN_SIZE_PX
+            kwargs.setdefault("min_score", FACE_DETECT_MIN_SCORE)
+            kwargs.setdefault("min_size_px", FACE_DETECT_MIN_SIZE_PX)
             if "providers" not in kwargs:
                 from ..config import FACE_DETECT_GPU_ID, FACE_DETECT_USE_GPU
                 if FACE_DETECT_USE_GPU:
