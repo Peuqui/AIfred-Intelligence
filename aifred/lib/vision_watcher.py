@@ -183,6 +183,14 @@ class VisionWatcher:
         # alle starten den VLM, der Anfang füllt sich mit
         # duplizierten Volltext-Beschreibungen.
         self._vlm_in_flight: set[str] = set()
+        # Per-source Motion-Handler-Task: die Event-Verarbeitung (Face,
+        # YOLO, Alert-Compose) läuft abgekoppelt vom frame_consumer —
+        # der sampelt währenddessen lückenlos weiter, statt sekundenlang
+        # blind zu sein (eine Person konnte unbemerkt durchs Bild laufen,
+        # während ein Alert komponiert wurde). Der dict-Eintrag ist
+        # zugleich In-Flight-Schutz (max. ein Handler pro Source) und
+        # die starke Referenz, die fire-and-forget Tasks vor GC schützt.
+        self._motion_tasks: dict[str, asyncio.Task[None]] = {}
         # Per-source Zonen-Maske (oder None). Im blackout-Modus werden die
         # Pixel der Zone vor Speichern/Face/VLM geschwärzt (DSGVO).
         self._zone_masks: dict[str, Any] = {}
@@ -430,7 +438,17 @@ class VisionWatcher:
                     delta = (datetime.now() - last_evt).total_seconds()
                     if delta < config.min_event_interval_sec:
                         continue
-                await self._handle_motion_event(frame, motion_result, config)
+                # Verarbeitung abkoppeln: läuft noch ein Handler für diese
+                # Source, wird dieses Motion-Frame übersprungen (gleiche
+                # Drossel-Semantik wie der min_event_interval) — aber der
+                # Consumer bleibt am Stream und sieht die nächste Bewegung.
+                running = self._motion_tasks.get(source_id)
+                if running is not None and not running.done():
+                    continue
+                self._motion_tasks[source_id] = asyncio.create_task(
+                    self._run_motion_handler(frame, motion_result, config),
+                    name=f"vision-motion:{source_id}",
+                )
 
         async def vlm_cycle() -> None:
             if not config.run_vlm_continuous:
@@ -598,6 +616,28 @@ class VisionWatcher:
             logger.exception("Watch loop crashed for %s", source_id)
             self._statuses[source_id].last_error = str(e)  # type: ignore[misc]
             self._statuses[source_id].running = False  # type: ignore[misc]
+        finally:
+            # Abgekoppelten Motion-Handler nicht weiterlaufen lassen, wenn
+            # die Watch-Session endet — sein Event/Alert gehört zu ihr.
+            pending = self._motion_tasks.pop(source_id, None)
+            if pending is not None and not pending.done():
+                pending.cancel()
+
+    async def _run_motion_handler(
+        self,
+        frame: "Frame",
+        motion_result: Any,
+        config: WatchConfig,
+    ) -> None:
+        """Abgekoppelter Motion-Handler (siehe ``_motion_tasks``): fängt
+        Fehler selbst, damit ein Crash in Face/YOLO/Alert nicht stumm im
+        verworfenen Task-Objekt verschwindet."""
+        try:
+            await self._handle_motion_event(frame, motion_result, config)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("motion handler crashed for %s", frame.source_id)
 
     def _blackout_frame(self, frame: "Frame") -> "Frame":
         """DSGVO-Schwärzung: hat die Quelle eine ``blackout``-Maske, werden
