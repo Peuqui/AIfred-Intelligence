@@ -354,27 +354,9 @@ async def get_available_models():
     vision_models: List[str] = []
     backend_type = settings.get("backend_type", "ollama")
 
-    # llama.cpp models that carry a --mmproj (native vision encoder) in their
-    # llama-swap cmd are vision-capable through the language model itself — no
-    # separate VLM needed. Collect them so they show up as selectable vision
-    # models alongside the name-based (vision/vl/llava) Ollama VLMs.
-    mmproj_models: set[str] = set()
-    if backend_type == "llamacpp":
-        try:
-            from .calibration import parse_llamaswap_config
-            from .config import LLAMASWAP_CONFIG_PATH
-            _cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-            mmproj_models = {
-                mid for mid, info in _cfg.items()
-                if "--mmproj" in (info.get("full_cmd") or "")
-            }
-        except Exception as e:
-            log_message(f"⚠️ API: mmproj scan failed: {e}")
-
-    def _is_vision_model(model_id: str) -> bool:
-        if model_id in mmproj_models:
-            return True
-        return any(v in model_id.lower() for v in ['vision', 'vl', 'llava'])
+    # SSOT for vision detection: lib.vision_utils.is_vision_model_sync covers
+    # both native --mmproj models (Qwen3.5/3.6) and name-based VLMs.
+    from .vision_utils import is_vision_model_sync as _is_vision_model
 
     # Get models from global state (populated by initialize_backend)
     available = global_state.get("available_models", [])
