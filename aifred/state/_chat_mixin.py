@@ -446,8 +446,18 @@ class ChatMixin(rx.State, mixin=True):
         """
         from ..lib.llm_engine import call_llm
 
-        # Determine effective vision model (speed/TTS variants resolved centrally)
-        effective_vision_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
+        # Determine effective vision model (speed/TTS variants resolved centrally).
+        # Variant coupling: if the vision model IS the main (aifred) model, take
+        # the AIFRED variant — not a separately resolved vision variant. A
+        # diverging speed toggle would otherwise yield a different effective ID
+        # (e.g. "…-27B" vs "…-27B-speed") and force an unnecessary llama-swap
+        # reload, even though it is physically the same loaded model. With
+        # matching base IDs the image just hits the already-loaded main model
+        # with a different (vision) prompt — no swap.
+        if self.vision_model_id == self.aifred_model_id:  # type: ignore[attr-defined]
+            effective_vision_id = self._effective_model_id("aifred")  # type: ignore[attr-defined]
+        else:
+            effective_vision_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
         if effective_vision_id != self.vision_model_id:  # type: ignore[attr-defined]
             self.add_debug(f"⚡ VL variant: {effective_vision_id}")  # type: ignore[attr-defined]
             yield

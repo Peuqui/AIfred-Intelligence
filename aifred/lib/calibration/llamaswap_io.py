@@ -218,6 +218,19 @@ def set_kv_quant(cmd: str, kv_quant: str) -> str:
     return cmd
 
 
+def set_mmproj_path(cmd: str, mmproj_path: str) -> str:
+    """Set or remove the ``--mmproj`` (native vision encoder) flag.
+
+    An empty ``mmproj_path`` removes the flag (model runs text-only). A path
+    replaces any existing ``--mmproj`` or inserts it before ``--port``. The
+    path is assumed clean (no whitespace) like all model/gguf paths here.
+    """
+    cmd = re.sub(r"\s*--mmproj\s+\S+", "", cmd)
+    if not mmproj_path:
+        return cmd
+    return cmd.replace(" --port", f" --mmproj {mmproj_path} --port", 1)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Public YAML mutators (consumed by backends + state mixins)
 # ═══════════════════════════════════════════════════════════════════
@@ -247,6 +260,15 @@ def update_llamaswap_context(config_path: Path, model_id: str, ctx: int) -> bool
     return _update_cmd(
         config_path, model_id,
         lambda c: set_context(c, ctx), f"-c {ctx}",
+    )
+
+
+def update_llamaswap_mmproj(config_path: Path, model_id: str, mmproj_path: str) -> bool:
+    """Add/replace/remove the ``--mmproj`` flag on a model's cmd (persistent)."""
+    label = f"--mmproj {mmproj_path}" if mmproj_path else "remove --mmproj"
+    return _update_cmd(
+        config_path, model_id,
+        lambda c: set_mmproj_path(c, mmproj_path), label,
     )
 
 
