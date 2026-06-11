@@ -354,6 +354,28 @@ async def get_available_models():
     vision_models: List[str] = []
     backend_type = settings.get("backend_type", "ollama")
 
+    # llama.cpp models that carry a --mmproj (native vision encoder) in their
+    # llama-swap cmd are vision-capable through the language model itself — no
+    # separate VLM needed. Collect them so they show up as selectable vision
+    # models alongside the name-based (vision/vl/llava) Ollama VLMs.
+    mmproj_models: set[str] = set()
+    if backend_type == "llamacpp":
+        try:
+            from .calibration import parse_llamaswap_config
+            from .config import LLAMASWAP_CONFIG_PATH
+            _cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+            mmproj_models = {
+                mid for mid, info in _cfg.items()
+                if "--mmproj" in (info.get("full_cmd") or "")
+            }
+        except Exception as e:
+            log_message(f"⚠️ API: mmproj scan failed: {e}")
+
+    def _is_vision_model(model_id: str) -> bool:
+        if model_id in mmproj_models:
+            return True
+        return any(v in model_id.lower() for v in ['vision', 'vl', 'llava'])
+
     # Get models from global state (populated by initialize_backend)
     available = global_state.get("available_models", [])
 
@@ -371,7 +393,7 @@ async def get_available_models():
                         size_gb = m['size'] / (1024**3)
                         models_dict[model_id] = f"{model_id} ({format_number(size_gb, 1)} GB)"
                         # Check if vision model
-                        if any(v in model_id.lower() for v in ['vision', 'vl', 'llava']):
+                        if _is_vision_model(model_id):
                             vision_models.append(model_id)
         except Exception as e:
             log_message(f"⚠️ API: Failed to fetch models: {e}")
@@ -382,7 +404,7 @@ async def get_available_models():
             # Extract model ID from display label (e.g., "qwen3:8b (2.3 GB)" -> "qwen3:8b")
             model_id = display_label.split(" (")[0] if " (" in display_label else display_label
             models_dict[model_id] = display_label
-            if any(v in model_id.lower() for v in ['vision', 'vl', 'llava']):
+            if _is_vision_model(model_id):
                 vision_models.append(model_id)
 
     return ModelsResponse(

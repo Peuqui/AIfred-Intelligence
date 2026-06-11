@@ -180,6 +180,61 @@ def find_model_path(tokens: list[str]) -> Path | None:
     return None
 
 
+_MMPROJ_PRECISION_RE = re.compile(r"-(?:f16|bf16|f32|q\d+(?:_\w+)?)$", re.IGNORECASE)
+
+
+def find_mmproj_for_model(model_path: Path) -> Path | None:
+    """Find a vision projector (mmproj) that belongs to ``model_path``.
+
+    Convention: the mmproj GGUF lives in the SAME directory as the model GGUF
+    and its name (minus the ``mmproj-`` prefix and the ``-F16``/``-Q…``
+    precision suffix) is a prefix of the model's base stem. Example::
+
+        Qwen3.6-27B-MTP-UD-Q8_K_XL.gguf   ←  mmproj-Qwen3.6-27B-F16.gguf
+                                              core "Qwen3.6-27B" is a prefix
+
+    Returns the longest (most specific) match, or None. This keeps unrelated
+    projectors in the same folder (e.g. mmproj-Qwen3VL-8B) from matching.
+    """
+    name = model_path.name
+    m = re.match(r"^(.+)-\d{5}-of-\d{5}\.gguf$", name)
+    base_stem = (m.group(1) if m else model_path.stem).lower()
+
+    best: Path | None = None
+    best_len = 0
+    for cand in model_path.parent.glob("mmproj*.gguf"):
+        core = _MMPROJ_PRECISION_RE.sub("", cand.stem)
+        if core.lower().startswith("mmproj-"):
+            core = core[len("mmproj-"):]
+        if core and base_stem.startswith(core.lower()) and len(core) > best_len:
+            best, best_len = cand, len(core)
+    return best
+
+
+def strip_mmproj_if_missing(tokens: list[str]) -> tuple[list[str], str | None]:
+    """Entfernt ``--mmproj <pfad>`` aus der cmd, wenn die mmproj-Datei fehlt.
+
+    Anders als beim ``--model``-GGUF wird NICHT das ganze Modell verworfen —
+    ein fehlender Vision-Encoder soll das Sprachmodell nicht killen, sondern
+    es nur text-only weiterlaufen lassen. Gültige ``--mmproj``-Pfade bleiben
+    unangetastet (und überleben so jeden Restart). Gibt (tokens, dropped_path).
+    """
+    out: list[str] = []
+    dropped: str | None = None
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--mmproj" and i + 1 < len(tokens):
+            mmproj_path = Path(tokens[i + 1])
+            if not mmproj_path.exists():
+                dropped = str(mmproj_path)
+                i += 2
+                continue
+        out.append(tok)
+        i += 1
+    return out, dropped
+
+
 def lookup_cache_path(model_path: Path) -> Path:
     """Cache-Pfad vom GGUF-Stem ableiten, damit Modell-Varianten (z.B. TTS-Splits
     auf dem gleichen GGUF) sich denselben ngram-Cache teilen."""
@@ -229,6 +284,27 @@ def normalize_cmd(cmd: str, model_name: str, mtp_cache: dict) -> tuple[str, str]
     model_path = find_model_path(tokens)
     if model_path is None:
         return cmd, "skip"
+
+    # Selbstheilend: totes --mmproj entfernen (Modell läuft text-only weiter),
+    # gültiges --mmproj bleibt erhalten und überlebt so den Restart.
+    tokens, dropped_mmproj = strip_mmproj_if_missing(tokens)
+    if dropped_mmproj:
+        sys.stderr.write(
+            f"⚠️  {model_name}: --mmproj entfernt (Datei fehlt: {dropped_mmproj})\n"
+        )
+
+    # Auto-Detect: native Vision aktivieren, wenn ein passendes mmproj-File
+    # neben dem GGUF liegt. -vlm-Varianten nutzen den separaten Side-Channel
+    # und bleiben mmproj-frei (sonst doppelte Vision-Reserve). Die Kalibrierung
+    # erkennt das --mmproj und plant den Bild-VRAM (768 MB) selbst ein.
+    if "--mmproj" not in tokens and "-vlm" not in model_name:
+        mmproj = find_mmproj_for_model(model_path)
+        if mmproj is not None:
+            insert_at = next(
+                (i for i, t in enumerate(tokens) if t == "--port"), len(tokens)
+            )
+            tokens[insert_at:insert_at] = ["--mmproj", str(mmproj)]
+            sys.stderr.write(f"👁️  {model_name}: --mmproj gesetzt ({mmproj.name})\n")
 
     has_mtp = detect_mtp(model_path, mtp_cache)
     base = strip_spec_tokens(tokens)
