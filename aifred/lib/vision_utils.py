@@ -143,19 +143,57 @@ def slugify_for_filename(text: str, fallback: str = "cam") -> str:
     return slug or fallback
 
 
+_mmproj_models_cache: set[str] = set()
+_mmproj_cache_mtime: float = -1.0
+
+
+def llamaswap_mmproj_models() -> set[str]:
+    """llama-swap model IDs whose cmd carries a ``--mmproj`` (native vision).
+
+    mtime-cached against the config file — called per-model in dropdown
+    filter loops, so re-parsing the YAML every time would be wasteful.
+    """
+    global _mmproj_models_cache, _mmproj_cache_mtime
+    from .config import LLAMASWAP_CONFIG_PATH
+    try:
+        mtime = LLAMASWAP_CONFIG_PATH.stat().st_mtime
+    except OSError:
+        return set()
+    if mtime != _mmproj_cache_mtime:
+        from .calibration import parse_llamaswap_config
+        cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        _mmproj_models_cache = {
+            mid for mid, info in cfg.items()
+            if "--mmproj" in (info.get("full_cmd") or "")
+        }
+        _mmproj_cache_mtime = mtime
+    return _mmproj_models_cache
+
+
+def model_has_mmproj(model_name: str) -> bool:
+    """True if the model's llama-swap entry carries a native vision encoder."""
+    return model_name in llamaswap_mmproj_models()
+
+
 def is_vision_model_sync(model_name: str) -> bool:
     """
-    Synchronous vision model detection by name patterns (for UI filtering).
+    Synchronous vision model detection (for UI filtering).
 
-    Fast name-based detection for dropdown filtering. Does not query backends.
-    For precise detection, use async is_vision_model() with backend queries.
+    Two signals, no backend query:
+    1. a native vision encoder (``--mmproj``) in the model's llama-swap cmd
+       — covers reasoning models (Qwen3.5/3.6) that aren't named "…-vl…",
+    2. name patterns (qwen3-vl, llava, …) for the rest.
+
+    For precise per-backend detection, use async is_vision_model().
 
     Args:
-        model_name: Model name (e.g., "qwen3-vl:30b" or "deepseek-ocr:3b")
+        model_name: Model name (e.g., "qwen3-vl:30b" or "Qwen3.6-27B-…")
 
     Returns:
-        True if model name contains vision-related markers
+        True if the model supports vision input
     """
+    if model_has_mmproj(model_name):
+        return True
     vision_markers = [
         'vision', 'vl', 'visual', 'vlm',
         'qwen2-vl', 'qwen3-vl', 'llava', 'pixtral',
@@ -233,9 +271,9 @@ async def is_vision_model(state, model_name: str) -> bool:
                     logger.info(f"✅ Vision model detected (Ollama model_info): {model_name} has {key}")
                     return True
 
-        # === LLAMACPP: Name-based detection (llama-swap keys are descriptive) ===
+        # === LLAMACPP: native --mmproj in cmd, else name-based ===
         elif backend_type == "llamacpp":
-            return _is_vision_model_by_name(model_name)
+            return is_vision_model_sync(model_name)
 
         # === vLLM/TabbyAPI: Check HuggingFace config.json ===
         elif backend_type in ["vllm", "tabbyapi"]:
