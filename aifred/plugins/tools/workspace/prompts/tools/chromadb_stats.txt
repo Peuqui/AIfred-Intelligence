@@ -1,0 +1,1 @@
+Show all ChromaDB vector database collections with entry counts. Use this to get an overview of all stored data: documents, research cache, agent memories.

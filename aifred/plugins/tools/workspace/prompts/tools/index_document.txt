@@ -1,0 +1,1 @@
+Index a document from the documents directory into the vector database (ChromaDB). After indexing, the document can be searched semantically with search_documents. Supported formats: PDF, TXT, MD, CSV, DOCX, XLSX, PPTX, ODT, ODS, ODP.

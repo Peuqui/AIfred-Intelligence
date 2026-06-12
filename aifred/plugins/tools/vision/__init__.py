@@ -29,7 +29,7 @@ from ....lib.frame_sources import (
     rescan as rescan_sources,
 )
 from ....lib.function_calling import Tool
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.vision_analyzer import (
     DEFAULT_KEEP_ALIVE,
@@ -294,10 +294,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_list_sources",
-            description=(
-                "List all registered image sources (webcams, IP-cameras, etc.) "
-                "with their availability, resolution and configured context."
-            ),
+            description=load_tool_description(__file__, "vision_list_sources"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=_exec,
             tier=TIER_READONLY,
@@ -317,11 +314,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_rescan_sources",
-            description=(
-                "Re-scan the system for newly attached/detached image sources "
-                "(e.g. a webcam that was just plugged in). Use after the user "
-                "reports having connected hardware."
-            ),
+            description=load_tool_description(__file__, "vision_rescan_sources"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=_exec,
             tier=TIER_READONLY,
@@ -409,14 +402,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_snapshot",
-            description=(
-                "Capture from a source and persist to the current session. "
-                "`n_frames=1` (default) takes one photo; `n_frames>1` takes a "
-                "short burst (a few hundred ms apart) for motion/'film'. Returns "
-                "`image_url` (shown inline automatically — do NOT echo it) plus "
-                "`image_urls` (the full burst) and `source_id`. To analyse the "
-                "result, pass those to vision_analyze — snapshot does NOT analyse."
-            ),
+            description=load_tool_description(__file__, "vision_snapshot"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -472,7 +458,15 @@ class VisionPlugin:
             for u in urls[:10]:
                 p = url_to_file_path(u)
                 if p is None or not p.exists():
-                    return _err(f"image not found: {u}")
+                    # Häufigste Ursache: das LLM vertippt das Präfix
+                    # ("_upload/", "_/upload/") — der Hinweis gibt ihm die
+                    # Chance zur Selbstkorrektur im Retry (kein Auto-Fix,
+                    # bewusst kein Fallback).
+                    return _err(
+                        f"image not found: {u} — pass the url EXACTLY as "
+                        f"returned by vision_snapshot, it must start with "
+                        f"'/_upload/'. Check for typos in the prefix and retry."
+                    )
                 try:
                     data = p.read_bytes()
                 except OSError as e:  # noqa: BLE001
@@ -565,16 +559,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_analyze",
-            description=(
-                "Run the VLM on ALREADY-captured image(s) — does NOT take a "
-                "photo. Pass `image_urls`: the image_url(s) returned by "
-                "vision_snapshot, or an uploaded image. A list of urls is "
-                "analysed as a temporal sequence (motion/'film'). Also pass "
-                "`source_id` (from the snapshot result) so the per-camera "
-                "briefing is applied. VLM runs on Ollama, independent of the "
-                "chat model. Workflow: vision_snapshot first, then vision_analyze "
-                "on its image_url(s)."
-            ),
+            description=load_tool_description(__file__, "vision_analyze"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -582,9 +567,10 @@ class VisionPlugin:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "image_url(s) from vision_snapshot (or an upload). "
-                            "Multiple = temporal sequence. A single string is "
-                            "also accepted."
+                            "image_url(s) EXACTLY as returned by "
+                            "vision_snapshot or an upload — must start with "
+                            "'/_upload/'. Multiple = temporal sequence. A "
+                            "single string is also accepted."
                         ),
                     },
                     "prompt": {
@@ -662,13 +648,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_enroll_face",
-            description=(
-                "Take a snapshot of the source, detect the most prominent face, "
-                "and store its embedding under `name`. If `name` already exists, "
-                "an additional embedding is appended to the same person (useful "
-                "for multiple angles/lighting). Iterative enrollment is the "
-                "intended workflow — call this repeatedly with the same name."
-            ),
+            description=load_tool_description(__file__, "vision_enroll_face"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -711,13 +691,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_start_watch",
-            description=(
-                "Start a continuous background watch task on a source. The "
-                "task captures frames at the given fps, detects motion, and "
-                "(if enabled) runs face recognition against enrolled persons. "
-                "Events are logged in the vision DB and can be queried via "
-                "`vision_query_events`."
-            ),
+            description=load_tool_description(__file__, "vision_start_watch"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -750,10 +724,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_stop_watch",
-            description=(
-                "Stop a running watch task on a source. No-op if nothing was "
-                "running."
-            ),
+            description=load_tool_description(__file__, "vision_stop_watch"),
             parameters={
                 "type": "object",
                 "properties": {"source_id": {"type": "string"}},
@@ -791,7 +762,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_list_active_watches",
-            description="List currently-running vision watch tasks.",
+            description=load_tool_description(__file__, "vision_list_active_watches"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=_exec,
             tier=TIER_READONLY,
@@ -931,25 +902,7 @@ class VisionPlugin:
 
         return Tool(
             name="vision_query_events",
-            description=(
-                "Query past vision events. Filterable by source, event type, "
-                "and time window. Use when the user asks 'was war heute an der "
-                "Tür?', 'wer war zuletzt da?', etc. For 'was anyone seen?' set "
-                "event_type='presence' — it returns every happening that "
-                "actually contained a person or face (face_known/face_unknown/"
-                "face_unsure/person), motion-only triggers (rain, foliage) "
-                "excluded. Returns ONE row per happening: near-identical frames "
-                "are collapsed into one cluster represented by its MOST "
-                "significant event (a person/face always wins over motion), "
-                "`frames_in_cluster` = how many. Each row has `classification."
-                "description`, `image_url` and `id`. EMBED the `image_url` of "
-                "EVERY happening you mention as ![…](url) — not just the first. "
-                "The `limit` counts happenings, not raw frames. Motion/face "
-                "events carry only metadata until described; if descriptions are "
-                "empty and the user wants to know what happened, set "
-                "describe=true to generate them for the queried window first "
-                "(GPU work, bounded by clustering)."
-            ),
+            description=load_tool_description(__file__, "vision_query_events"),
             parameters={
                 "type": "object",
                 "properties": {

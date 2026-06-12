@@ -1,0 +1,1 @@
+Set playback speed multiplier. 1.0 = normal, 1.5 = 50% faster, 0.5 = half speed. Range 0.25–4.0.

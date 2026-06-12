@@ -172,7 +172,33 @@ class ToolKit:
                         # Tolerant fallback: treat unknown yields as the result.
                         result_str = json.dumps(item) if not isinstance(item, str) else item
             elif asyncio.iscoroutine(raw):
-                value = await raw
+                # Heartbeat während des Awaits: lange stille Tool-Calls
+                # (z. B. VLM-Analyse > 60 s) ließen die Antwort-Verbindung
+                # sonst byte-still werden — nginx kappte /_upload nach dem
+                # 60-s-Default-Read-Timeout und der ganze Turn starb per
+                # Cancel. Der Tick fließt als tool_progress bis zum Browser.
+                from .config import TOOL_HEARTBEAT_INTERVAL_SEC
+                fut = asyncio.ensure_future(raw)
+                try:
+                    waited = 0.0
+                    while True:
+                        done, _ = await asyncio.wait(
+                            {fut}, timeout=TOOL_HEARTBEAT_INTERVAL_SEC
+                        )
+                        if done:
+                            break
+                        waited += TOOL_HEARTBEAT_INTERVAL_SEC
+                        yield {
+                            "type": "tool_progress",
+                            "message": f"⏳ {name} running … ({waited:.0f}s)",
+                        }
+                except BaseException:
+                    # Konsument hat den Generator geschlossen (Cancel/
+                    # Disconnect) — das Tool nicht verwaist weiterlaufen
+                    # lassen.
+                    fut.cancel()
+                    raise
+                value = fut.result()
                 result_str = json.dumps(value) if not isinstance(value, str) else value
             else:
                 result_str = json.dumps(raw) if not isinstance(raw, str) else raw

@@ -13,7 +13,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_WRITE_DATA, TIER_READONLY
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import PluginContext, load_tool_description
 
 
 @dataclass
@@ -121,13 +121,7 @@ class SchedulerPlugin:
                 name="scheduler_create",
                 tier=TIER_WRITE_DATA,
                 description=(
-                    "Create a scheduled job. AIfred will execute the message at the scheduled time "
-                    "and deliver the result via the specified mode. "
-                    "Schedule types: 'cron' (e.g. '0 8 * * *' = daily 8am), "
-                    "'interval' (seconds, e.g. '3600' = every hour), "
-                    "'once' (ISO timestamp, e.g. '2026-03-30T10:00:00'). "
-                    "Delivery modes: 'log' (default), 'announce' (send to channel), "
-                    "'review' (show in UI), 'webhook' (HTTP POST)."
+                    load_tool_description(__file__, "scheduler_create")
                 ),
                 parameters={
                     "type": "object",
@@ -180,7 +174,7 @@ class SchedulerPlugin:
             Tool(
                 name="scheduler_list",
                 tier=TIER_READONLY,
-                description="List all scheduled jobs with their status, next run time, and delivery mode.",
+                description=load_tool_description(__file__, "scheduler_list"),
                 parameters={
                     "type": "object",
                     "properties": {},
@@ -190,7 +184,7 @@ class SchedulerPlugin:
             Tool(
                 name="scheduler_delete",
                 tier=TIER_WRITE_DATA,
-                description="Delete a scheduled job by its ID. Use scheduler_list to find the ID first.",
+                description=load_tool_description(__file__, "scheduler_delete"),
                 parameters={
                     "type": "object",
                     "properties": {

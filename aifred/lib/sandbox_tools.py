@@ -9,7 +9,7 @@ from typing import Optional
 from .function_calling import Tool
 from .security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from .logging_utils import log_message
-from .prompt_loader import load_tool_description
+from .prompt_loader import load_shared_tool_description
 
 
 def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
@@ -93,14 +93,14 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         Tool(
             name="execute_code",
             tier=TIER_WRITE_DATA,
-            description=load_tool_description("execute_code_tool.txt"),
+            description=load_shared_tool_description("execute_code_tool.txt"),
             parameters=params,
             executor=_execute_code,
         ),
         Tool(
             name="execute_code_write",
             tier=TIER_WRITE_SYSTEM,
-            description=load_tool_description("execute_code_write_tool.txt"),
+            description=load_shared_tool_description("execute_code_write_tool.txt"),
             parameters=params,
             executor=_execute_code_write,
         ),

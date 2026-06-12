@@ -1,0 +1,1 @@
+Evaluate a mathematical expression and return the exact result. Use this for any calculation instead of doing mental math. Supports: +, -, *, /, //, %, ** (power). Examples: '17.5 * 1.19', '2**10', '4832 * 0.17', '(100 - 15) / 3'.

@@ -1,0 +1,1 @@
+Send a message to a Telegram chat. Use this when the user asks to send a message via Telegram.

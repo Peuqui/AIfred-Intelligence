@@ -1,0 +1,1 @@
+Write or overwrite a text file in the documents directory. Only text formats allowed: .txt, .md, .csv, .json, .xml, .html. Use this to create new documents or edit existing ones.

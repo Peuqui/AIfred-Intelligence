@@ -1,0 +1,1 @@
+Skip forward (positive) or backward (negative) by N seconds relative to current position.

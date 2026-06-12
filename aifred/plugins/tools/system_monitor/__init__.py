@@ -7,7 +7,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.logging_utils import log_message
 
 
@@ -156,9 +156,7 @@ class SystemMonitorPlugin:
             name="system_status",
             tier=TIER_READONLY,
             description=(
-                "Get system hardware status: CPU load, RAM usage, GPU VRAM and temperature, "
-                "disk space, uptime. Use components parameter to query specific parts "
-                "(e.g. 'gpu', 'ram,cpu', 'disk') or 'all' for everything."
+                load_tool_description(__file__, "system_status")
             ),
             parameters={
                 "type": "object",

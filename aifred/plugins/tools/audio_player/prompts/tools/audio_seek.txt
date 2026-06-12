@@ -1,0 +1,1 @@
+Seek to an absolute position (in seconds) within the current audio.

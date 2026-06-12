@@ -1,0 +1,1 @@
+Take a snapshot of the source, detect the most prominent face, and store its embedding under `name`. If `name` already exists, an additional embedding is appended to the same person (useful for multiple angles/lighting). Iterative enrollment is the intended workflow — call this repeatedly with the same name.

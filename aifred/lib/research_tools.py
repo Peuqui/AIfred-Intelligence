@@ -12,6 +12,7 @@ import logging
 from typing import Any, AsyncGenerator, Optional, TYPE_CHECKING
 
 from .function_calling import Tool
+from .prompt_loader import load_shared_tool_description
 from .security import TIER_READONLY
 
 if TYPE_CHECKING:
@@ -523,16 +524,7 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", llm_
         Tool(
             name="web_search",
             tier=TIER_READONLY,
-            description=(
-                "Search the web for current, verified information. You MUST use this tool when: "
-                "(1) the user asks about specific products, software, models, versions, or releases, "
-                "(2) the user asks about events, news, or anything time-sensitive, "
-                "(3) the user asks about specific people, companies, or organizations, "
-                "(4) you are not 100% certain your knowledge is accurate and up-to-date. "
-                "Do NOT answer from memory when web search would give a better, verified answer. "
-                "Provide 1-3 search queries optimized for web search engines. "
-                "IMPORTANT: Before calling this tool, briefly tell the user what you are about to search for."
-            ),
+            description=load_shared_tool_description("web_search_tool.txt"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -551,15 +543,7 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", llm_
         Tool(
             name="web_fetch",
             tier=TIER_READONLY,
-            description=(
-                "Fetch and read the content of a specific URL. Use this when you know the exact URL "
-                "you need (e.g. a specific page on bibleserver.com, a documentation page, a Wikipedia article). "
-                "This is more precise than web_search when you already know WHERE the information is. "
-                "You can construct URLs from known patterns (e.g. bibleserver.com/HFA/Psalm139). "
-                "If a fetch fails, try simplifying the URL (remove verse ranges, query parameters, "
-                "special characters). Fetch the base page first to learn the site's URL pattern. "
-                "IMPORTANT: Before calling this tool, briefly tell the user what you are about to look up."
-            ),
+            description=load_shared_tool_description("web_fetch_tool.txt"),
             parameters={
                 "type": "object",
                 "properties": {

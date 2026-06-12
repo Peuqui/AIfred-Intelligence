@@ -1,0 +1,1 @@
+Clear ALL entries from a specific ChromaDB collection. Use chromadb_stats first to see available collections and their sizes. Common collections: 'research_cache', 'aifred_documents', 'agent_memory_<agent_id>'.

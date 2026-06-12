@@ -1,0 +1,1 @@
+Pause audio. Default (no 'target' given): pause the auto-target (= the source the request came from — FreeEcho.2 room, browser tab, etc.). Use 'all' to pause every active stream across local/browser/freeecho2. Use a specific id like 'freeecho2:wohnzimmer' for that one only. Position is saved.

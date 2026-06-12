@@ -8,7 +8,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY
-from ....lib.plugin_base import CredentialField, PluginContext
+from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description
 
 
 # DeepL supported languages (subset of most common ones for description)
@@ -146,10 +146,8 @@ class TranslatorPlugin:
             Tool(
                 name="translate",
                 tier=TIER_READONLY,
-                description=(
-                    "Translate text from one language to another using DeepL. "
-                    "The source language is auto-detected if not specified. "
-                    f"Supported languages: {lang_list}."
+                description=load_tool_description(__file__, "translate").format(
+                    languages=lang_list
                 ),
                 parameters={
                     "type": "object",

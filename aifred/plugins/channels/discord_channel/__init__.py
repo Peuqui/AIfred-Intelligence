@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from ....lib.plugin_base import BaseChannel, CredentialField
+from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description
 from ....lib.logging_utils import log_message
 
 if TYPE_CHECKING:
@@ -297,7 +297,7 @@ class DiscordChannel(BaseChannel):
             Tool(
                 name="discord_send",
                 tier=TIER_COMMUNICATE,
-                description="Send a message to a Discord channel. Use this when the user asks to send a message via Discord.",
+                description=load_tool_description(__file__, "discord_send"),
                 parameters={
                     "type": "object",
                     "properties": {

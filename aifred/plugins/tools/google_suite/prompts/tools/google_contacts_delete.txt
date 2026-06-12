@@ -1,0 +1,1 @@
+Löscht einen Kontakt. resource_name kommt aus google_contacts_search.

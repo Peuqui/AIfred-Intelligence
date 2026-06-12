@@ -1,0 +1,1 @@
+Speak a proactive announcement (chime + voice) on a FreeEcho.2 puck. Use when the user wants to say/announce something out loud in a room — e.g. 'tell the living room dinner is ready' or an urgent alert. The puck plays a chime then speaks the message; music is paused and resumed around it.

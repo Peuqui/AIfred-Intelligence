@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Coroutine, Optional
 
 from ....lib.config import get_tts_engine_channel_options
 from ....lib.formatting import format_number
-from ....lib.plugin_base import BaseChannel, CredentialField
+from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description
 
 
 def _fmt_mib(num_bytes: int) -> str:
@@ -1224,12 +1224,7 @@ class FreeEchoChannel(BaseChannel):
                 name="freeecho2_announce",
                 tier=TIER_COMMUNICATE,
                 description=(
-                    "Speak a proactive announcement (chime + voice) on a "
-                    "FreeEcho.2 puck. Use when the user wants to say/announce "
-                    "something out loud in a room — e.g. 'tell the living room "
-                    "dinner is ready' or an urgent alert. The puck plays a "
-                    "chime then speaks the message; music is paused and "
-                    "resumed around it."
+                    load_tool_description(__file__, "freeecho2_announce")
                 ),
                 parameters={
                     "type": "object",
