@@ -1033,7 +1033,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         vlm_active=vlm_active,
         vlm_key=vlm_key,
     )
-    return base_id + suffix
+    return str(base_id + suffix)
 
 
 # Docker-Compose paths for non-TTS services. TTS engines derive their

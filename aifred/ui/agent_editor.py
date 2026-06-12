@@ -1581,7 +1581,7 @@ def _plugins_view() -> rx.Component:
 
     # ── Build channel rows at build time (static) ──
     channel_rows: list[rx.Component] = []
-    for name, plugin in all_channels().items():
+    for name, channel_plugin in all_channels().items():
         enabled_var = AIState.channel_toggles[name]["monitor"].to(bool)
 
         # Build tier dropdown for middle column (if not browser)
@@ -1611,12 +1611,12 @@ def _plugins_view() -> rx.Component:
                 ),
             ]
 
-        ch_description = getattr(plugin, "description", "") or ""
+        ch_description = getattr(channel_plugin, "description", "") or ""
         header = rx.hstack(
             # Col 1: Icon + Name (fixed width for alignment)
             rx.hstack(
-                rx.icon(plugin.icon, size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
-                rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+                rx.icon(channel_plugin.icon, size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
+                rx.text(channel_plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
                 spacing="2", align="center", min_width="220px",
             ),
             # Col 1b: lightbulb description popover (aligned across rows)
@@ -1651,7 +1651,7 @@ def _plugins_view() -> rx.Component:
 
         children: list[rx.Component] = [header]
 
-        if not plugin.always_reply:
+        if not channel_plugin.always_reply:
             monitor_var = AIState.channel_toggles[name]["listener"].to(bool)
             auto_reply_var = AIState.channel_toggles[name]["auto_reply"].to(bool)
 

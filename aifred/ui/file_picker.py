@@ -106,7 +106,7 @@ def _toolbar() -> rx.Component:
                 variant="soft",
                 on_click=AIState.picker_create_folder_start,
                 cursor="pointer",
-                disabled=~AIState.picker_writable,
+                disabled=~AIState.picker_writable,  # type: ignore[arg-type]
                 title=rx.cond(
                     AIState.picker_writable,
                     "Neuen Ordner anlegen",
@@ -124,7 +124,7 @@ def _toolbar() -> rx.Component:
                 variant="soft",
                 on_click=AIState.picker_create_symlink_start,
                 cursor="pointer",
-                disabled=~AIState.picker_writable,
+                disabled=~AIState.picker_writable,  # type: ignore[arg-type]
                 title=rx.cond(
                     AIState.picker_writable,
                     "Symlink anlegen",

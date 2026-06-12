@@ -75,7 +75,7 @@ class PersonariumMixin(rx.State, mixin=True):
             rows = VisionStore().list_embeddings(fid)
             self.personarium_embeddings = [
                 {
-                    "id": int(r.get("id")),
+                    "id": int(r.get("id") or 0),
                     "quality": round(float(r.get("quality_score", 0.0) or 0.0), 2),
                     "created_at": str(r.get("created_at", "") or "")[:19].replace("T", " "),
                     "crop_url": str(r.get("crop_url", "") or ""),

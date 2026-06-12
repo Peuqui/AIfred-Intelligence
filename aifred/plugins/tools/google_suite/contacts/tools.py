@@ -60,10 +60,10 @@ async def _resolve_group_resource_name(token: str, group_name: str) -> str:
     # Exakter Name zuerst, dann case-insensitive
     for g in groups:
         if g.get("name") == group_name:
-            return g["resourceName"]
+            return str(g["resourceName"])
     for g in groups:
         if g.get("name", "").lower() == group_name.lower():
-            return g["resourceName"]
+            return str(g["resourceName"])
     raise ValueError(f"Gruppe '{group_name}' nicht gefunden.")
 
 

@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 import reflex as rx
+from reflex.event import EventSpec
 
 from ..lib import log_message
 from ..lib.config import DEBUG_MESSAGES_MAX
@@ -112,7 +113,7 @@ class ChatMixin(rx.State, mixin=True):
 
     def _llamaswap_base_url(self) -> str:
         """Get llama-swap base URL (without /v1 suffix)."""
-        return self.backend_url.rstrip("/").removesuffix("/v1")  # type: ignore[attr-defined]
+        return str(self.backend_url).rstrip("/").removesuffix("/v1")
 
     async def _llamaswap_running_models(self) -> list[str]:
         """Query llama-swap /running endpoint. Returns list of loaded model IDs, empty on error."""
@@ -833,7 +834,7 @@ class ChatMixin(rx.State, mixin=True):
             from ..lib.api import browser_queue_clear
             browser_queue_clear(self.session_id)  # type: ignore[attr-defined]
         # SSE stream (re)start — idempotent if already connected.
-        yield rx.call_script(  # type: ignore[attr-defined]
+        yield rx.call_script(  # type: ignore[misc]
             f"if(window.startBrowserStream) startBrowserStream('{self.session_id}');"
         )
 
@@ -1408,7 +1409,7 @@ class ChatMixin(rx.State, mixin=True):
                     yield
             else:
                 async for _ in run_generic_agent_direct_response(
-                    self,
+                    self,  # type: ignore[arg-type]  # Mixin ist zur Laufzeit der AIState
                     responding_agent,
                     user_msg,
                     detected_language,
@@ -1526,7 +1527,7 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Save Session Memory ──────────────────────────────────────────
 
-    async def save_session_memory(self) -> None:
+    async def save_session_memory(self) -> AsyncGenerator[EventSpec | None, None]:
         """Generate a session summary and store it for all participating agents."""
         import re
         import reflex as rx
@@ -1597,7 +1598,7 @@ class ChatMixin(rx.State, mixin=True):
             agent_names.append(cfg.display_name if cfg else aid.capitalize())
 
         self.add_debug(f"📌 Generating session summary ({len(history)} messages) for: {', '.join(agent_names)}")  # type: ignore[attr-defined]
-        yield
+        yield None
 
         try:
             summary = ""

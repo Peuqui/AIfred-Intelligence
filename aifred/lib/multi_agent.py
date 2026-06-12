@@ -727,10 +727,10 @@ async def _run_agent_direct_response(
         if agent in _default_agents:
             agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
             base_attr = "vision_model_id" if agent == "vision" else f"{agent}_model_id"
-            agent_base_id = getattr(state, base_attr, "") or state.aifred_model_id  # type: ignore[attr-defined]
+            agent_base_id = getattr(state, base_attr, "") or state.aifred_model_id  # type: ignore[attr-defined, has-type]
         else:
             agent_model_id = state._effective_model_id("aifred")
-            agent_base_id = state.aifred_model_id  # type: ignore[attr-defined]
+            agent_base_id = state.aifred_model_id  # type: ignore[attr-defined, has-type]
         state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_id} ({state.backend_type})")
 
         # Context limit — custom agents use AIfred's context
@@ -1517,10 +1517,10 @@ async def run_symposion(
                 if agent_id in default_agents:
                     model_id = state._effective_model_id(agent_id) or state._effective_model_id("aifred")
                     base_attr = "vision_model_id" if agent_id == "vision" else f"{agent_id}_model_id"
-                    base_id = getattr(state, base_attr, "") or state.aifred_model_id  # type: ignore[attr-defined]
+                    base_id = getattr(state, base_attr, "") or state.aifred_model_id  # type: ignore[attr-defined, has-type]
                 else:
                     model_id = state._effective_model_id("aifred")
-                    base_id = state.aifred_model_id  # type: ignore[attr-defined]
+                    base_id = state.aifred_model_id  # type: ignore[attr-defined, has-type]
 
                 state.add_debug(f"{emoji} {agent_label} (R{round_num})")
 

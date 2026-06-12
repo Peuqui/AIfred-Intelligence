@@ -1700,7 +1700,7 @@ _MJPEG_BOUNDARY = b"--frame"
 
 
 def _encode_mjpeg_chunk(frame: Any) -> bytes:
-    return (
+    return bytes(
         _MJPEG_BOUNDARY
         + b"\r\nContent-Type: image/"
         + frame.format.encode()

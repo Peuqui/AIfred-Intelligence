@@ -10,6 +10,7 @@ import os
 from typing import Any, Dict
 
 import reflex as rx
+from reflex.event import EventSpec
 
 from ..lib import TranslationManager, set_language
 from ..lib.settings import SETTINGS_FILE, load_settings, save_settings
@@ -501,7 +502,7 @@ class SettingsMixin(rx.State, mixin=True):
         toggles[channel] = ch
         self.channel_toggles = toggles
 
-    def toggle_channel_monitor(self, data: list) -> None:
+    def toggle_channel_monitor(self, data: list) -> EventSpec | None:
         """Toggle channel plugin on/off. Called from UI with [channel_name, value].
 
         For always_reply channels (Discord): also starts/stops the listener.
@@ -535,6 +536,7 @@ class SettingsMixin(rx.State, mixin=True):
                     asyncio.create_task(message_hub.start_all())
             else:
                 message_hub.unregister(channel_name)
+        return None
 
     def toggle_channel_listener(self, data: list) -> None:
         """Toggle background listener for a channel. Called from UI with [channel_name, value]."""
@@ -580,7 +582,7 @@ class SettingsMixin(rx.State, mixin=True):
     # (Settings-Accordion auf /, oder Plugin-Tab auf /agent-editor).
     _credentials_return_to: str = "/"
 
-    def open_channel_credentials(self, channel_name: str):
+    def open_channel_credentials(self, channel_name: str) -> EventSpec | None:
         """Open credentials page, pre-filled from .env (secrets) and settings.json (config)."""
         from ..lib.plugin_base import CredentialField
         from ..lib.plugin_registry import get_channel, get_tool_plugin
@@ -597,7 +599,7 @@ class SettingsMixin(rx.State, mixin=True):
                 fields = getattr(tool, "credential_fields", [])
 
         if not fields:
-            return
+            return None
 
         # Load plugin settings.json for non-secret fields — channels via
         # load_settings(), tool plugins via the private _load_settings

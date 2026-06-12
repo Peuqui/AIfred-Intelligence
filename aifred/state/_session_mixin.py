@@ -118,7 +118,7 @@ class SessionMixin(rx.State, mixin=True):
         # Clear stale debug messages from the previous session before
         # _restore_session merges saved ones with whatever is currently
         # in self.debug_messages.
-        self.debug_messages = []  # type: ignore[attr-defined]
+        self.debug_messages: list[str] = []
 
         self._restore_session(session)
         self.session_restored = True
@@ -426,7 +426,7 @@ class SessionMixin(rx.State, mixin=True):
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_user_message = ""  # type: ignore[attr-defined]
         self.tts_audio_path = ""  # type: ignore[attr-defined]
-        self.debug_messages = []  # type: ignore[attr-defined]
+        self.debug_messages = []
         self.pending_images = []  # type: ignore[attr-defined, var-annotated]
         self.image_upload_warning = ""  # type: ignore[attr-defined]
 

@@ -213,7 +213,7 @@ class CasusMixin(rx.State, mixin=True):
 
     # ── Bulk-VLM-Analyse ─────────────────────────────────────────
 
-    @rx.event(background=True)
+    @rx.event(background=True)  # type: ignore[operator]
     async def casus_bulk_start(self):
         """Bulk-Worker: alle Events ohne description durch pHash-Dedup
         clustern, pro Cluster einen VLM-Call, Beschreibung auf alle

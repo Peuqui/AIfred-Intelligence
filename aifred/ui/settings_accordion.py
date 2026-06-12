@@ -108,7 +108,7 @@ def _calibration_picker_button() -> rx.Component:
                                 rx.hstack(
                                     rx.checkbox(
                                         checked=cell["checked"].to(bool),
-                                        on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),
+                                        on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),  # type: ignore[arg-type]
                                         size="1",
                                         color_scheme="orange",
                                         variant="soft",

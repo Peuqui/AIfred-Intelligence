@@ -202,6 +202,9 @@ class EmailChannel(BaseChannel):
                     broker.get("email", "user"),
                     broker.get("email", "password"),
                 )
+                # Typverengung: die to_thread-Inferenz lässt mypy sonst beim
+                # deklarierten Optional (Cleanup in den except-Blöcken) stehen.
+                assert imap is not None
 
                 # ── Startup Recovery ─────────────────────────────
                 # Check for emails that arrived while we were down.

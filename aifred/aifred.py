@@ -770,7 +770,7 @@ console.log('✂️ Crop handler loaded');
         # the flag was missing on a fresh chat — Enter never sent.)
         rx.el.div(
             id="ui-flags",
-            **{
+            **{  # type: ignore[arg-type]  # dict-Invarianz vs. Var-Werte
                 "data-enter-sends": rx.cond(
                     AIState.enter_sends_message, "true", "false"
                 ),

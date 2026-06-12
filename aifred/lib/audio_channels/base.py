@@ -186,3 +186,12 @@ class AudioOutputChannel(Protocol):
         ihre interne Pump-Logik (z.B. Asyncio-Event clear/set).
         """
         return None
+
+    def get_stream_start_offset(self, target_id: str) -> float | None:
+        """Track-Position, bei der der aktuelle Stream startete.
+
+        Default: None (kein Stream-Konzept). Streaming-Sinks (FreeEcho2)
+        überschreiben dies — der WS-Layer rechnet damit ``consumed_ms``
+        auf eine absolute Track-Position um.
+        """
+        return None

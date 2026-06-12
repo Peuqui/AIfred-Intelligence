@@ -22,7 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from .base import AudioFormat, TargetInfo
+from .base import AudioFormat, AudioOutputChannel, TargetInfo
 
 if TYPE_CHECKING:
     from ..audio_sources import ResolvedSource
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BrowserChannel:
+class BrowserChannel(AudioOutputChannel):
     """HTML5 ``<audio>`` über Reflex-State + REST-Endpoint."""
 
     name = "browser"

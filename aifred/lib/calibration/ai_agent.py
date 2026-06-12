@@ -593,7 +593,7 @@ async def calibrate_with_ai(
         else:
             yield "🧠 AI is reasoning..."
         try:
-            response = await client.chat.completions.create(
+            response = await client.chat.completions.create(  # type: ignore[call-overload]
                 model=qwen_model,
                 messages=messages,
                 tools=CALIBRATION_TOOLS,

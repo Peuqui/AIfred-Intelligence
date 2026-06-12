@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .base import AudioFormat, TargetInfo
+from .base import AudioFormat, AudioOutputChannel, TargetInfo
 
 if TYPE_CHECKING:
     from ..audio_sources import ResolvedSource
     from ..plugin_base import PluginContext
 
 
-class LocalChannel:
+class LocalChannel(AudioOutputChannel):
     """mpv → ALSA/Pulse am AIfred-Server."""
 
     name = "local"

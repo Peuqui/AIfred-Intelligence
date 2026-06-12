@@ -138,7 +138,7 @@ class DiscordChannel(BaseChannel):
             if not interaction.channel or not interaction.guild:
                 await interaction.response.send_message("Only works in server channels.", ephemeral=True)
                 return
-            perms = interaction.channel.permissions_for(interaction.user)  # type: ignore[union-attr]
+            perms = interaction.channel.permissions_for(interaction.user)  # type: ignore[union-attr, arg-type]
             if not perms.manage_messages:
                 await interaction.response.send_message("No permission.", ephemeral=True)
                 return

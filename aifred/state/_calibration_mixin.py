@@ -235,10 +235,10 @@ class CalibrationMixin(rx.State, mixin=True):
         def _failed(variant_id: str) -> bool:
             return bool(model_id) and is_calibration_failed(variant_id)
 
-        rows: list[dict] = []
+        rows: list[CalibrationRow] = []
 
         # "Kein VLM" row — covers BASE + plain TTS variants.
-        no_vlm_cells: list[dict] = []
+        no_vlm_cells: list[CalibrationCell] = []
         no_vlm_cells.append({
             "key": "|",
             "checked": self.calibration_matrix.get("|", False),
@@ -261,7 +261,7 @@ class CalibrationMixin(rx.State, mixin=True):
         for choice in VLM_CALIBRATION_CHOICES:
             vlm_key = choice["key"]
             vlm_label = choice["label"]
-            cells: list[dict] = []
+            cells: list[CalibrationCell] = []
             vlm_only_done = (
                 bool(model_id) and is_vlm_variant_calibrated(model_id, vlm_key)
             )
@@ -903,8 +903,8 @@ class CalibrationMixin(rx.State, mixin=True):
             # Which engines / VLMs does the user's matrix selection reach?
             _engine_list = list(installed_gpu_engines())
             _needed_tts: set[str] = set()
-            for _e in _engine_list:
-                _ek = _e.key
+            for _eng in _engine_list:
+                _ek = _eng.key
                 if self.calibration_matrix.get(f"|{_ek}", False):
                     _needed_tts.add(_ek)
                 for _vc in VLM_CALIBRATION_CHOICES:
@@ -1333,7 +1333,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     # using the same start_fn / stop_fn naming it always
                     # did — minimises diff.
                     def start_fn(_e=tts_engine) -> bool:
-                        return _e.calibration_setup(self.add_debug)  # type: ignore[attr-defined]
+                        return bool(_e.calibration_setup(self.add_debug))  # type: ignore[attr-defined]
 
                     def stop_fn(_e=tts_engine) -> None:
                         _e.calibration_teardown(self.add_debug)  # type: ignore[attr-defined]
