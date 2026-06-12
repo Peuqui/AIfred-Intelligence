@@ -237,6 +237,15 @@ def _build_system_prompt(
     )
 
 
+def _apply_reserve(free: list[int], reserve_mb: tuple[int, ...]) -> list[int]:
+    """Side-Channel-Reserven (TTS/VLM) von gemessenen/projizierten
+    Frei-Werten abziehen — Probes laufen ohne residente Side-Channels,
+    deren Platz gehört aber nicht dem LLM (siehe Budget.gpu_reserve_mb)."""
+    if not reserve_mb or not any(reserve_mb):
+        return free
+    return [f - (reserve_mb[i] if i < len(reserve_mb) else 0) for i, f in enumerate(free)]
+
+
 async def _pre_search_max_ctx(
     full_cmd: str,
     gguf_path: Path,
@@ -244,6 +253,7 @@ async def _pre_search_max_ctx(
     safety_margin_mb: int,
     native_ctx: int,
     initial_split: list[float],
+    reserve_mb: tuple[int, ...] = (),
 ) -> tuple[int, list[float], str]:
     """Binary-search the largest math-projected ctx that fits, starting
     from the model's native context and shrinking down via fit-params.
@@ -269,7 +279,7 @@ async def _pre_search_max_ctx(
             cmd, gguf_path, native_ctx, ngl=99, n_gpus=n_gpus,
             gpu_total_mb=gpu_total_mb,
         )
-        free = list(point.per_gpu_free_mb)
+        free = _apply_reserve(list(point.per_gpu_free_mb), reserve_mb)
         if free and min(free) >= safety_margin_mb:
             return (native_ctx, initial_split,
                     f"native ctx={native_ctx} already fits (min free={min(free)} MB)")
@@ -290,7 +300,7 @@ async def _pre_search_max_ctx(
                 cmd, gguf_path, mid, ngl=99, n_gpus=n_gpus,
                 gpu_total_mb=gpu_total_mb,
             )
-            free = list(point.per_gpu_free_mb)
+            free = _apply_reserve(list(point.per_gpu_free_mb), reserve_mb)
         except Exception:
             free = []
 
@@ -365,6 +375,7 @@ async def _do_probe(
     gpus: list[GPU],
     safety_margin_mb: int,
     env: Optional[dict[str, str]],
+    reserve_mb: tuple[int, ...] = (),
 ) -> _ProbeOutcome:
     """Run a single physical probe and translate the result to a tool payload."""
     cmd = set_tensor_split(full_cmd, tensor_split)
@@ -375,6 +386,7 @@ async def _do_probe(
             port=port,
             gpus=gpus,
             safety_margin_mb=safety_margin_mb,
+            reserve_mb=reserve_mb,
             env=env,
             health_timeout=DEFAULT_HEALTH_TIMEOUT,
         )
@@ -449,6 +461,7 @@ async def calibrate_with_ai(
     native_ctx: Optional[int] = None,
     total_layers: Optional[int] = None,
     allow_hybrid: bool = False,
+    reserve_mb: tuple[int, ...] = (),
 ) -> AsyncIterator[str]:
     """AI-driven calibration loop. Yields progress strings.
 
@@ -515,6 +528,7 @@ async def calibrate_with_ai(
             gguf_path=gguf_path,
             gpus=gpus,
             safety_margin_mb=safety_margin_mb,
+            reserve_mb=reserve_mb,
             native_ctx=native_ctx,
             initial_split=seed_split,
         )
@@ -714,6 +728,7 @@ async def calibrate_with_ai(
 
                 outcome = await _do_probe(
                     full_cmd, ctx, split, port, gpus, safety_margin_mb, env,
+                    reserve_mb=reserve_mb,
                 )
                 last_outcome = outcome
                 last_ctx = ctx
@@ -747,6 +762,7 @@ async def calibrate_with_ai(
                         probe_count += 1
                         outcome = await _do_probe(
                             full_cmd, ctx, split, port, gpus, safety_margin_mb, env,
+                            reserve_mb=reserve_mb,
                         )
                         last_outcome = outcome
                         last_ctx = ctx

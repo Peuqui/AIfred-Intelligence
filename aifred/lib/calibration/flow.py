@@ -48,6 +48,42 @@ from .verifier import VerifyResult, kill_orphan_on_port, verify
 logger = logging.getLogger(__name__)
 
 
+def _calib_file_log(line: str) -> None:
+    """Eine Zeile ins persistente Kalibrier-Log schreiben.
+
+    Die Debug-Konsole rotiert bei jedem App-Neustart — die Diagnose-
+    Ausgaben einer stundenlangen Nacht-Kalibrierung waren danach weg
+    (so überlebte der Reserve-Blindheits-Bug unentdeckt eine komplette
+    Nacht). Diese Datei ist append-only und überlebt Neustarts."""
+    try:
+        from ..config import DATA_DIR
+        from datetime import datetime
+        path = DATA_DIR / "logs" / "calibration.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {line}\n")
+    except OSError as e:
+        logger.warning("calibration log write failed: %s", e)
+
+
+def _tee_calibration_log(gen_func):
+    """Decorator für die öffentlichen Kalibrier-Generatoren: jede
+    yield-Zeile wird zusätzlich ins File-Log geschrieben — der Consumer
+    (Debug-Konsole) bleibt unverändert."""
+    import functools
+
+    @functools.wraps(gen_func)
+    async def wrapper(*args, **kwargs):
+        _calib_file_log(f"━━━ {gen_func.__name__} start ━━━")
+        try:
+            async for msg in gen_func(*args, **kwargs):
+                _calib_file_log(str(msg))
+                yield msg
+        finally:
+            _calib_file_log(f"━━━ {gen_func.__name__} end ━━━")
+    return wrapper
+
+
 # KV-quant levels in order of quality (higher = better, larger VRAM).
 # Q4 is intentionally excluded from the default sweep: it sacrifices
 # too much quality for marginal VRAM savings.  A caller can opt in by
@@ -57,6 +93,7 @@ _DEFAULT_KV_LEVELS = ("f16", "q8_0")
 _ALL_KV_LEVELS = ("f16", "q8_0", "q4_0")
 
 
+@_tee_calibration_log
 async def calibrate_llamacpp_model(
     model_id: str,
     gguf_path: Path,
@@ -110,16 +147,22 @@ async def calibrate_llamacpp_model(
     # fast path applies — without it the fallback full calibration would
     # plan the TTS GPU full and the resulting profile would OOM once the
     # real TTS container is up.
+    # reserve_vec begleitet die Anpassung: pro GPU die Summe der Side-
+    # Channel-Reserven. Wandert ins Budget, damit verify() dieselben
+    # Reserven auch von den PROBE-Messwerten abzieht — sonst optimiert
+    # der Refine-Loop in den (physisch leeren) Reserve-Platz hinein.
+    reserve_vec = [0] * len(gpus)
     if tts_gpu_extra_reserve_mb > 0 and tts_gpu_uuid:
         from dataclasses import replace
         adjusted = []
-        for g in gpus:
+        for i, g in enumerate(gpus):
             if g.uuid == tts_gpu_uuid:
                 new_free = max(0, g.free_mb - tts_gpu_extra_reserve_mb)
                 yield (
                     f"TTS variant: reserving {tts_gpu_extra_reserve_mb} MB "
                     f"on {g.name} ({g.free_mb} → {new_free} MB free)"
                 )
+                reserve_vec[i] += tts_gpu_extra_reserve_mb
                 adjusted.append(replace(g, free_mb=new_free))
             else:
                 adjusted.append(g)
@@ -134,13 +177,14 @@ async def calibrate_llamacpp_model(
     if vlm_gpu_extra_reserve_mb > 0 and vlm_gpu_uuid:
         from dataclasses import replace
         adjusted = []
-        for g in gpus:
+        for i, g in enumerate(gpus):
             if g.uuid == vlm_gpu_uuid:
                 new_free = max(0, g.free_mb - vlm_gpu_extra_reserve_mb)
                 yield (
                     f"VLM reserve: holding {vlm_gpu_extra_reserve_mb} MB "
                     f"on {g.name} ({g.free_mb} → {new_free} MB free)"
                 )
+                reserve_vec[i] += vlm_gpu_extra_reserve_mb
                 adjusted.append(replace(g, free_mb=new_free))
             else:
                 adjusted.append(g)
@@ -155,6 +199,9 @@ async def calibrate_llamacpp_model(
         yield f"Vision model detected — safety margin +{LLAMACPP_VISION_VRAM_RESERVE} MB"
 
     budget = build_budget(gpus, safety_margin=safety_margin)
+    if any(reserve_vec):
+        from dataclasses import replace as _replace
+        budget = _replace(budget, gpu_reserve_mb=tuple(reserve_vec))
 
     yield (
         f"Model: {model.model_id} ({format_number(model.size_mb / 1024, 1)} GB), "
@@ -180,6 +227,7 @@ async def calibrate_llamacpp_model(
             total_layers=model.total_layers,
             config_path=config_path,
             gpus=gpus,
+            reserve_mb=budget.gpu_reserve_mb,
         ):
             if line == "__AI_FALLBACK__":
                 yield "🔄 Falling back to the classic algorithm..."
@@ -848,6 +896,7 @@ async def _verify_and_refine(
         ),
         context=current_ctx, port=port, gpus=gpus,
         safety_margin_mb=budget.safety_margin,
+        reserve_mb=budget.gpu_reserve_mb,
         ngl=candidate.ngl, env=env, probe_thinking=probe_thinking,
     )
     yield (_fmt_verify(
@@ -909,6 +958,7 @@ async def _verify_and_refine(
                 ),
                 context=current_ctx, port=port, gpus=gpus,
                 safety_margin_mb=budget.safety_margin,
+                reserve_mb=budget.gpu_reserve_mb,
                 ngl=candidate.ngl, env=env,
                 probe_thinking=probe_thinking and thinks_seen is None,
             )
@@ -1006,6 +1056,7 @@ async def _verify_and_refine(
                     ),
                     context=cand_ctx, port=port, gpus=gpus,
                     safety_margin_mb=budget.safety_margin,
+                    reserve_mb=budget.gpu_reserve_mb,
                     ngl=candidate.ngl, env=env,
                     probe_thinking=probe_thinking and thinks_seen is None,
                 )
@@ -1069,6 +1120,7 @@ async def _verify_and_refine(
                     ),
                     context=new_ctx, port=port, gpus=gpus,
                     safety_margin_mb=budget.safety_margin,
+                    reserve_mb=budget.gpu_reserve_mb,
                     ngl=candidate.ngl, env=env,
                     probe_thinking=probe_thinking and thinks_seen is None,
                 )
@@ -1118,6 +1170,7 @@ async def _verify_and_refine(
             ),
             context=current_ctx, port=port, gpus=gpus,
             safety_margin_mb=budget.safety_margin,
+            reserve_mb=budget.gpu_reserve_mb,
             ngl=candidate.ngl, env=env, probe_thinking=False,
         )
         yield (_fmt_verify(
@@ -1213,6 +1266,7 @@ async def _verify_and_refine(
                     ),
                     context=cand_ctx, port=port, gpus=gpus,
                     safety_margin_mb=budget.safety_margin,
+                    reserve_mb=budget.gpu_reserve_mb,
                     ngl=candidate.ngl, env=env, probe_thinking=False,
                 )
                 yield _fmt_verify(
@@ -1260,6 +1314,7 @@ async def _verify_and_refine(
                                 ),
                                 context=cand_ctx, port=port, gpus=gpus,
                                 safety_margin_mb=budget.safety_margin,
+                                reserve_mb=budget.gpu_reserve_mb,
                                 ngl=candidate.ngl, env=env, probe_thinking=False,
                             )
                             yield _fmt_verify(
@@ -1685,6 +1740,7 @@ async def _try_ai_calibration(
     total_layers: int,
     config_path: Optional[Path],
     gpus: list[GPU],
+    reserve_mb: tuple[int, ...] = (),
 ) -> AsyncIterator[str]:
     """Run the AI-agent calibration and translate its result protocol to
     the legacy ``__RESULT__:`` sentinel + on-disk config write.
@@ -1719,6 +1775,7 @@ async def _try_ai_calibration(
         native_ctx=native_ctx,
         total_layers=total_layers,
         allow_hybrid=_hybrid_allowed_in_settings(),
+        reserve_mb=reserve_mb,
     ):
         if line.startswith("__AI_RESULT__:"):
             payload = line.removeprefix("__AI_RESULT__:")
@@ -1963,6 +2020,7 @@ async def _calibrate_hybrid(
             port=port,
             gpus=gpus,
             safety_margin_mb=budget.safety_margin,
+            reserve_mb=budget.gpu_reserve_mb,
             ngl=ngl,
             env=env,
             probe_thinking=known_thinking is None,
@@ -2011,6 +2069,7 @@ async def _calibrate_hybrid(
 # TTS variant: derive from base + verify/refine (TTS-agnostic)
 # ═══════════════════════════════════════════════════════════════════
 
+@_tee_calibration_log
 async def calibrate_tts_variant_from_base(
     *,
     model_id: str,
@@ -2061,10 +2120,14 @@ async def calibrate_tts_variant_from_base(
     # dynamically during generate() (Qwen3-TTS grows from ~5 GB idle to
     # ~7 GB on a long bubble), so the LLM gets planned with a permanent
     # safety cushion instead of just the idle-measurement.
+    # reserve_vec: Side-Channel-Reserven pro GPU — wandert ins Budget,
+    # damit verify() sie auch von den Probe-Messwerten abzieht (die
+    # Side-Channels sind während der Probes per Vertrag entladen).
+    reserve_vec = [0] * len(gpus)
     if tts_gpu_extra_reserve_mb > 0:
         from dataclasses import replace
         adjusted = []
-        for g in gpus:
+        for i, g in enumerate(gpus):
             if g.uuid == tts_gpu_uuid:
                 old = g.free_mb
                 new_free = max(0, g.free_mb - tts_gpu_extra_reserve_mb)
@@ -2072,6 +2135,7 @@ async def calibrate_tts_variant_from_base(
                     f"TTS variant: reserving extra {tts_gpu_extra_reserve_mb} MB "
                     f"on {g.name} ({old} → {new_free} MB free) for TTS dynamic growth"
                 )
+                reserve_vec[i] += tts_gpu_extra_reserve_mb
                 adjusted.append(replace(g, free_mb=new_free))
             else:
                 adjusted.append(g)
@@ -2084,7 +2148,7 @@ async def calibrate_tts_variant_from_base(
     if vlm_gpu_extra_reserve_mb > 0 and vlm_gpu_uuid:
         from dataclasses import replace
         adjusted = []
-        for g in gpus:
+        for i, g in enumerate(gpus):
             if g.uuid == vlm_gpu_uuid:
                 old = g.free_mb
                 new_free = max(0, g.free_mb - vlm_gpu_extra_reserve_mb)
@@ -2092,6 +2156,7 @@ async def calibrate_tts_variant_from_base(
                     f"VLM reserve: holding {vlm_gpu_extra_reserve_mb} MB "
                     f"on {g.name} ({old} → {new_free} MB free)"
                 )
+                reserve_vec[i] += vlm_gpu_extra_reserve_mb
                 adjusted.append(replace(g, free_mb=new_free))
             else:
                 adjusted.append(g)
@@ -2107,6 +2172,9 @@ async def calibrate_tts_variant_from_base(
     if _is_vision_model(full_cmd):
         safety_margin += LLAMACPP_VISION_VRAM_RESERVE
     budget = build_budget(gpus, safety_margin=safety_margin)
+    if any(reserve_vec):
+        from dataclasses import replace as _replace
+        budget = _replace(budget, gpu_reserve_mb=tuple(reserve_vec))
 
     # Map TTS UUID to position in our compute-DESC enumeration. When
     # called for a VLM-only variant (no TTS side-channel), tts_gpu_uuid

@@ -170,6 +170,19 @@ async def analyze_sequence(
             "ollama python client not installed — should be in requirements.txt"
         ) from e
 
+    # Schutz der VRAM-Reserve-Tabelle: Der kalibrierte Peak des VLM wurde
+    # bei VLM_NUM_CTX gemessen — ein Call mit größerem Kontext lässt
+    # Ollama mehr KV-Cache allozieren als die Kalibrierung dem LLM
+    # abgezogen hat (Folge: Verdrängung/CPU-Offload). Clamp + Warnung.
+    from .config import VLM_NUM_CTX
+    if int(num_ctx) > VLM_NUM_CTX:
+        logger.warning(
+            "VLM num_ctx %d exceeds calibrated ceiling %d — clamping "
+            "(reserve table was measured at that ctx)",
+            int(num_ctx), VLM_NUM_CTX,
+        )
+        num_ctx = VLM_NUM_CTX
+
     options: dict[str, Any] = {"num_ctx": int(num_ctx)}
     if extra_options:
         options.update(extra_options)
