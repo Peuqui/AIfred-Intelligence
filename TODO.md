@@ -56,9 +56,12 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
 - [ ] YouTube-Plugin (yt-dlp Stream → mpv für target=local, Direkt-URL für target=browser)
 - [ ] Internet-Radio-Beispiele in default settings.json
 
-**Phase 3.0 — TODO**
-- [ ] Puck-Output-Adapter (mpv → FIFO PCM → FreeEcho2-WS audio_type=music)
-- [ ] Multi-Manager-Architektur (ein mpv pro Puck-Target, Registry statt Singleton)
+**Phase 3.0 — Puck-Output**
+- [x] ~~Puck-Output-Adapter~~ ✅ anders gelöst: der Audio-Player routet
+  `freeecho2:<room>`-Targets über die FreeEcho-Audio-Queue mit
+  `audio_type=music` (kein mpv→FIFO-PCM-Umweg)
+- [ ] Multi-Manager-Architektur (ein mpv pro Puck-Target, Registry statt
+  Singleton) — `AudioManager` ist weiterhin Singleton
 
 **Phase 4.0 — TODO**
 - [ ] Hörbuch-Modus mit Auto-Pause bei Wake-Word/Inferenz (analog zu TTS-Hook)
@@ -92,34 +95,13 @@ Audio-Phase 1.2/2.0/3.0.
 Separates Projekt: github.com/Peuqui/FreeEcho.2
 Firmware-TODOs dort in TODO.md, hier nur AIfred-seitige Punkte.
 
-### Wake-Word-basiertes Agent-Routing
+### Wake-Word-basiertes Agent-Routing ✅ (erledigt)
 
-**Status:** Firmware sendet bereits das Agent-Label (aus `[wakeword] label_N = agentname`),
-aber AIfred ignoriert es und lässt die Automatik-LLM den Agent aus dem Transkript raten.
-
-**Firmware (funktioniert):**
-Puck sendet `{"type":"wake","room":"...","agent":"sokrates"}` — siehe
-`FreeEchoDot2/firmware/src/freeecho2_client.c:901-916`.
-
-**AIfred (fehlt):**
-In `aifred/plugins/channels/freeecho2_channel/__init__.py:222-226` wird das
-`wake`-Event empfangen, aber der `agent`-Key nicht ausgelesen. Die InboundMessage
-erhält `target_agent="aifred"` als Default (Zeile 331-338), danach überschreibt
-`detect_target_agent_via_llm` in `message_processor.py:204` den Agent mit dem
-LLM-Rate-Ergebnis aus dem STT-Text.
-
-**Konkret umzusetzen:**
-- [ ] `_handle_text`: `agent` aus wake-Event auslesen, pro `room` in dict zwischenspeichern
-      (analog zu `_devices` dict, aber mit TTL oder reset beim nächsten `wake`)
-- [ ] `_handle_audio`: gecachten Agent in `InboundMessage.target_agent` setzen
-      (Feld existiert bereits in `aifred/lib/envelope.py:23`)
-- [ ] `message_processor.py`: wenn `target_agent` bereits gesetzt und nicht Default,
-      Addressee-Teil der Intent-Detection überspringen. **Aber**: Intent-Detection-Call
-      komplett laufen lassen (wegen Mode-Switches per Voice — siehe SSOT-Abschnitt unten).
-- [ ] Edge Case: Action-Button (kein Wake-Word) → fällt auf LLM-Detection zurück wie bisher.
-
-**Abhängigkeit:** Sinnvoll erst nach dem SSOT-Refactor (siehe unten), weil wir sonst
-zuerst den LLM-Call einsparen und dann doch wieder brauchen für Mode-Switches.
+Firmware sendet das Agent-Label (`{"type":"wake","agent":"sokrates"}`), AIfred
+nutzt es: `freeecho2_channel/__init__.py` cacht den Agent aus dem wake-Event
+pro Room (`_pending_wake_agent`) und setzt ihn beim zugehörigen Audio-Turn als
+`InboundMessage.target_agent`. Action-Button ohne Wake-Word fällt wie geplant
+auf die LLM-Detection zurück.
 
 ---
 
@@ -152,13 +134,17 @@ per Voice oder Multi-Agent-Diskussionen in nicht-Browser-Kanälen wollen.
 
 **Hub-Pfad** (`aifred/lib/message_processor.py`):
 - Stateless, lädt Session von Disk via `load_session(session_id)`
-- `detect_target_agent_via_llm()` ruft `detect_query_intent_and_addressee()`,
-  aber verwirft `_mode_switch` und `_remaining` (Zeile 124, Unterstrich-Prefix)
-- `_call_engine()` (Zeile 298-402) ruft direkt `call_llm()` mit Single-Agent —
-  KEINE Multi-Agent-Verzweigung, KEINE Research-Mode-Verzweigung
-- Hardcoded `detected_intent="ALLGEMEIN"` (Zeile 388)
-- Liest NICHT die Session-Config (`get_session_config(session_id)`) — weiß also gar
-  nicht, in welchem Modus die Session läuft
+- Mode-Switch wird inzwischen angewendet (`update_session_config`) und
+  `active_agent` aus der Session-Config gelesen (Phasen 5+6 ✅, siehe unten)
+- `_call_engine()` ruft weiterhin direkt `call_llm()` mit Single-Agent —
+  KEINE Multi-Agent-Verzweigung
+- Research: voller Toolkit ist da (`prepare_agent_toolkit` mit
+  `research_tools_enabled=True` → web_search etc.) — entspricht dem
+  Browser-Modus „automatik". Was fehlt: forced Research (`quick`/`deep`
+  mit vorgeschalteter 3/7-Websites-Pipeline); `research_mode` aus der
+  Session-Config wird nicht gelesen
+- Hardcoded `detected_intent="ALLGEMEIN"` (in `_call_engine`) — kein
+  intent-spezifisches Sampling-Preset
 
 **Session-Config** (`aifred/lib/session_storage.py:585-617`):
 - Ist bereits der natürliche SSOT-Kandidat
@@ -250,16 +236,13 @@ Diese Methoden in zwei Kategorien teilen:
 - [ ] `_chat_mixin.py` Inferenz-Code durch `run_inference` ersetzen
 - [ ] Mode-Switch-Anwendung (`update_session_config`) VOR `run_inference` im Hub-Pfad
 
-**Phase 5 — Mode-Switch im Hub aktivieren (kleine Session)**
-- [ ] `_mode_switch` in `message_processor.py:124` NICHT mehr mit `_` prefixen
-- [ ] `update_session_config(session_id, **mode_switch)` vor `run_inference`
-- [ ] Audit-Log-Eintrag für Mode-Switch via Voice/Email/etc.
-- [ ] Test: Puck sagt "Sokrates, starte ein Tribunal und recherchiere tief zu X"
-      → Session-Config wird aktualisiert, Tribunal läuft
+**Phase 5 — Mode-Switch im Hub aktivieren ✅ (vorab erledigt, ohne Phasen 1-4)**
+- [x] `process_inbound` wendet `mode_switch_updates` per `update_session_config`
+      an und bestätigt mit `format_mode_switch_summary`
+- Hinweis: Damit wird die Config GESETZT — das Tribunal LÄUFT im Hub aber
+  erst nach Phase 4, weil `_call_engine` bis dahin Single-Agent bleibt.
 
-**Phase 6 — Wake-Word-Routing (siehe oben)**
-- [ ] Erst nach Phase 5, damit Intent-Call für Mode-Switches bleibt und nur
-      der Addressee-Teil via Wake-Word überschrieben wird
+**Phase 6 — Wake-Word-Routing ✅ (erledigt, siehe FreeEcho-Abschnitt oben)**
 
 ### Stolperfallen / offene Fragen
 
@@ -282,8 +265,6 @@ Diese Methoden in zwei Kategorien teilen:
 
 - Duplizierung zwischen `_chat_mixin.py` Inferenz-Code und `_call_engine` in
   `message_processor.py`.
-- Kommentar "Mode-switch handling in the hub path is not yet supported"
-  (`message_processor.py:130-132`) kann entfernt werden.
 
 Nicht obsolet: `Settings Control Plugin` — das ist Vorläufer der
 Tool-Call-first-Migration (siehe nächster Abschnitt) und läuft parallel zur
@@ -413,13 +394,15 @@ oder entfernen — das ist die letzte Entscheidung, nicht die erste.
 
 ## Mode-Switch- & Routing-Lücken (Voice-Steuerung)
 
-**Stand 2026-04-25:** Browser-Pfad hat funktionierenden Mode-Switch via
-Automatik-LLM (siehe `_parse_mode_switch` in
-[`intent_detector.py`](aifred/lib/intent_detector.py)). Schon umgesetzt:
+**Stand 2026-06-12:** Mode-Switch via Automatik-LLM läuft in Browser UND Hub
+(siehe `_parse_mode_switch` in
+[`intent_detector.py`](aifred/lib/intent_detector.py)). Umgesetzt:
 
-- `agent=<id>` → setzt `active_agent` (Sticky)
-- `research=none|quick|deep|automatik`
+- `agent=<id|display_name|alias>` → setzt `active_agent` (Sticky)
 - `multi=standard|tribunal|symposion|critical_review|auto_consensus`
+- `research=*` wurde BEWUSST zurückgebaut: Research-Mode steuert der User
+  über die UI, der antwortende Agent entscheidet pro Query selbst über
+  Web-Tools (siehe Kommentar in `_parse_mode_switch`).
 
 ### Lücke 1: Symposion mit ad-hoc Agenten-Liste
 
@@ -441,107 +424,30 @@ Sprache ist nicht möglich.
       ergänzen: *"Start symposion with Codine, HAL and Rabbi"* →
       `multi=symposion,symposion_agents=codi,hal,rabbi`
 
-### Lücke 2: Hub-Pfad (Puck) ignoriert Mode-Switch komplett
+### Lücke 2: Hub-Pfad ignoriert Mode-Switch ✅ (erledigt)
 
-**Problem:** [`message_processor.py:124`](aifred/lib/message_processor.py#L124)
-verwirft den `mode_switch`-Output mit Underscore-Präfix:
-
-```python
-intent, addressee, lang, _mode_switch, _remaining, _raw = await detect_query_intent_and_addressee(...)
-# NOTE: Mode-switch handling in the hub path is not yet supported.
-```
-
-→ *"Hey AIfred, schalte um auf Tiefrecherche"* via Puck ändert nichts.
-
-**Lösung:** Im Zuge des SSOT-Refactors (siehe oben) den Mode-Switch
-auch im Hub-Pfad anwenden — über `update_session_config(session_id,
-**mode_switch_updates)`. Browser und Hub teilen dann denselben
+`process_inbound` wendet `mode_switch_updates` per
+`update_session_config(session_id, ...)` an und bestätigt den Switch dem
+User (`format_mode_switch_summary`). Browser und Hub teilen denselben
 Mechanismus.
 
-### Lücke 2b/2c/3: Universal Active-Agent Routing (vereinheitlicht)
+### Lücke 2b/2c/3: Universal Active-Agent Routing ✅ (erledigt)
 
-*Diese drei Lücken hängen zusammen — eine einheitliche Regel löst alle drei.*
+Leitidee umgesetzt: Jede explizite Adressierung (Wake-Word, Voice-Switch,
+UI-Klick, Inline-Anrede) schaltet `active_agent` persistent um; Folge-Turns
+ohne Anrede laufen über `active_agent` aus der Session-Config.
 
-**Leitidee (vom User):** *"Jede explizite Adressierung — Wake-Word,
-Voice-Switch, UI-Klick oder Inline-Anrede — schaltet `active_agent`
-persistent um. Folge-Turns ohne Anrede laufen automatisch über
-`active_agent`."*
+- `set_session_active_agent(session_id, agent_id)` in `session_storage.py`
+  ist die eine autorisierte Schreibstelle.
+- Routing-Priorität implementiert in `process_inbound`: Wake-Override →
+  Voice-Mode-Switch → LLM-Addressee → Session-`active_agent` → "aifred";
+  jede explizite Stufe persistiert sticky.
+- Browser persistiert `mode_switch_updates` in die Session-Config
+  (`_chat_mixin.py`, `update_session_config`).
+- Parser akzeptiert ID, Display-Name und Aliases (`resolve_agent_id` —
+  gleiche SSOT wie die Addressee-Erkennung).
 
-Damit entfällt der separate "Sticky Follow-up"-Mechanismus: jede
-Adressierung ist sticky, bis sie explizit wieder gewechselt wird.
-
-#### Aktuelle Bugs in dieser Logik
-
-**Bug A — Voice-Mode-Switch persistiert nicht**
-[`_chat_mixin.py:1039`](aifred/state/_chat_mixin.py#L1039) setzt
-`self.active_agent` im State, ruft aber **kein**
-`_persist_session_config()`. UI-Klick (`set_active_agent()`) macht
-das richtig — Voice-Switch ist inkonsistent.
-
-**Bug B — Inline-Anrede setzt active_agent nicht um**
-*"Hey Sokrates, was ist X?"* setzt `addressed_to=sokrates` für genau
-diesen Turn. `active_agent` bleibt unverändert. Folge-Turn ohne
-Anrede fällt auf `active_agent` zurück (typischerweise "aifred").
-
-**Bug C — Hub-Pfad ignoriert active_agent**
-[`message_processor.py:204`](aifred/lib/message_processor.py#L204):
-```python
-agent, intent, lang = await detect_target_agent_via_llm(text)
-# Default "aifred", Session-Config nicht gelesen.
-```
-Selbst wenn der Browser `active_agent=pater` korrekt persistiert
-hätte, würde der Puck es ignorieren.
-
-**Bug D — Mode-Switch-Parser matcht nur Agent-IDs**
-[`intent_detector.py:65-70`](aifred/lib/intent_detector.py#L65):
-*"Schalt auf HAL 9000"* → LLM produziert vermutlich `agent=hal 9000`
-oder `agent=HAL 9000` → matcht nicht gegen `agents.keys()` (die ID
-ist `hal`). Verworfen.
-
-Inkonsistent mit der **Addressee-Erkennung**
-([`intent_detector.py:219-221`](aifred/lib/intent_detector.py#L219)),
-die sowohl ID als auch `display_name.lower()` matcht.
-
-#### Einheitliche Lösung (SSOT-konform)
-
-- [ ] **Helper-Funktion `set_session_active_agent(session_id, agent_id)`**
-      in `session_storage.py` — schreibt `active_agent` per
-      `update_session_config(...)` und ist die einzige autorisierte
-      Stelle dafür. Wird von allen Routing-Pfaden gerufen.
-
-- [ ] **Routing-Priorität** klar definieren und an *einer* Stelle
-      implementieren (idealerweise im SSOT-Refactor von Lücke 2):
-      ```
-      1. Wake-Override (Plugin-Hint)         → schaltet active_agent
-      2. Voice-Mode-Switch (`agent=...`)     → schaltet active_agent
-      3. LLM-Addressee aus aktuellem Query   → schaltet active_agent
-      4. (kein Match) → use active_agent     → keine Änderung
-      5. (kein active_agent) → "aifred"      → keine Änderung
-      ```
-      Schritte 1-3 schreiben jeweils per `update_session_config`
-      durch. Browser-Reflex-State liest dieselbe Quelle.
-
-- [ ] **Voice-Mode-Switch im Browser** ergänzen:
-      `_persist_session_config()` muss bei Änderung an `active_agent`,
-      `multi_agent_mode`, `research_mode`, `symposion_agents` greifen.
-
-- [ ] **Inline-Anrede schaltet active_agent**: Wenn LLM-Addressee !=
-      heute-aktiver Agent → persistieren.
-
-- [ ] **Hub-Pfad nutzt Session-Config**: Wenn weder Wake-Override noch
-      Voice-Switch noch LLM-Addressee einen Agent liefern → Default
-      ist `active_agent` aus der Session-Config (statt "aifred"
-      hardgecodet).
-
-- [ ] **Parser akzeptiert Display-Name** beim `agent=`-Switch
-      (Konsistenz mit Addressee-Erkennung). Plus optional:
-      `aliases: [...]`-Feld in `agent_config` für Vosk-Phonetik
-      ("Hell 9000" → `hal`).
-
-- [ ] **Prompt-Hinweis ergänzen** in
-      [`intent_detection.txt`](prompts/en/automatik/intent_detection.txt):
-      *"For agent= mode-switch, ALWAYS use the lowercase ID
-      (e.g. `hal`), never the display name (e.g. `HAL 9000`)."*
+Die damals dokumentierten Bugs A-D sind damit alle behoben.
 
 #### Geklärte Design-Entscheidung: Sticky-only
 
@@ -722,32 +628,19 @@ respektieren statt f16 hartzucodieren.
 → MOSS-Variante zeigt deutlichen Headroom-Spielraum, der mit den oben
 genannten Optimierungen besser ausgenutzt werden könnte.
 
-### 4. „Vision-Ready"-Profil — VRAM-Reserve für Ollama-VLM
+### 4. „Vision-Ready"-Profil ✅ (anders gelöst)
 
-**Hintergrund:** Die Vision-Pipeline (Schicht 1+2 implementiert 2026-05-25)
-ruft das VLM als Side-Channel direkt über Ollama auf, parallel zum Haupt-
-LLM auf llama-swap. Das bedeutet: bei jedem Klingel-/Watch-Event oder
-on-demand Snapshot kann ein VLM-Call ankommen — der Hauptchat soll
-dabei nicht ausgeknockt werden.
+Statt eines eigenen Calibration-Profils existiert heute:
 
-**Vorschlag:** Neues Profil „Vision-Ready" (sollte Default werden,
-„Maximum" bleibt als explizites Opt-out für VLM-freie Setups):
-
-- Reserviert pro GPU einen konfigurierbaren VRAM-Block für Ollama-VLM.
-- **Default 5 GB**, weil das VLM mit ``num_ctx=4096`` (statt 128k) läuft —
-  damit passt Qwen2.5-VL-7B Q8_0 (~8.5 GB im Worst-Case bei 4k ctx,
-  typisch ~5 GB) komfortabel rein. Qwen3-VL-30B-A3B bräuchte ~15-18 GB
-  bei 4k ctx — wenn der User das nutzen will, manuell höher setzen.
-- Haupt-LLM-Kalibration rechnet mit ``(total - reservation)`` pro GPU.
-- Pre-Flight-VRAM-Check vor jedem ``ollama.generate(images=...)``-Call
-  in der Vision-Schicht (kommt mit Schicht 3, ``vision_analyzer.py``).
-  Bei Unterdeckung: Event in Audit-Log + Fallback auf reine Face-Match-
-  Ebene, kein OOM-Crash.
-
-**Code-Stellen, die zu erweitern sind:**
-- ``aifred/lib/calibration/flow.py`` — neues Profil neben Hybrid/Speed/Max
-- ``aifred/lib/calibration/`` — Reservation-Subtraktion vor GPU-Allokation
-- Settings-UI: VLM-Reserve-Slider (default 5 GB)
+- VLM-Reserve-Resolution mit gemessenem statt geschätztem VRAM-Bedarf
+  (`vlm_vram_cache.py`, `resolve_vlm_reserve` im Stress-Prewarm)
+- Pre-Flight-VRAM-Check vor VLM-Calls (`vision_vram_check.py`)
+- VLM-Koexistenz-Varianten in llama-swap (`add_llamaswap_vlm_variant`,
+  ``-tts-…-vlm-…``-Profile mit eingerechnetem Vision-Budget)
+- Seit 2026-06-12: native mmproj-Vision für Haupt-LLMs (Qwen3.5/3.6) —
+  Bild-Anfragen treffen das bereits geladene Hauptmodell; der Ollama-
+  Side-Channel bleibt für reine VLMs (z.B. Qwen3-VL, solange der
+  llama.cpp-Upstream-Bug #16960 offen ist).
 
 ---
 
@@ -802,43 +695,20 @@ dabei nicht ausgeknockt werden.
       Files automatisch transkribieren und als Text ablegen / in RAG indexieren.
 - [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhaengig von EPIM)
 
-### Google Suite (OAuth-basierte Plugins)
+### Google Suite ✅ (implementiert)
 
-**Architektur-Entscheidung (2026-04-19):**
-- **Google Orchestrator** als einzelner ToolPlugin-Eintrag (`plugins/tools/google/`)
-- Sub-Services in Unterordnern: `calendar/`, `contacts/`, `drive/`, `tasks/`
-- Jeder Sub-Service per Toggle aktivierbar (settings.json im Plugin-Verzeichnis)
-- **Ein OAuth-Flow** fuer alle Services — Scopes werden aus aktiven Sub-Services aggregiert
-- OAuth-Broker bereits implementiert: `aifred/lib/oauth/` (Fernet-verschluesselt, CSRF-State)
-- `ToolPlugin` hat keine Settings-UI → **Option B gewaehlt**:
-  - Google-Plugin implementiert `load_settings()`/`save_settings()` selbst
-  - Settings-Accordion bekommt neuen "Tool Plugins"-Block fuer Toggles + Credentials
-  - Dieses Muster dann auch fuer Home Assistant, RSS, etc. wiederverwendbar
+`aifred/plugins/tools/google_suite/` — Orchestrator-Plugin wie geplant:
+Sub-Services `calendar/`, `contacts/`, `drive/`, `tasks/` (per settings.json
+toggelbar), eigene `i18n.json` + `prompts/`, ein OAuth-Flow über den
+OAuth-Broker (`aifred/lib/oauth/`, Fernet-verschluesselt, CSRF-State).
 
-**Naechste Schritte:**
-- [ ] `plugins/tools/google/__init__.py` — Orchestrator mit Scope-Aggregation + settings.json
-- [ ] `plugins/tools/google/calendar/tools.py` — Calendar CRUD Tools
-- [ ] `plugins/tools/google/contacts/tools.py` — Contacts lesen/suchen
-- [ ] `plugins/tools/google/drive/tools.py` — Drive readonly (optional)
-- [ ] `plugins/tools/google/tasks/tools.py` — Tasks sync (optional)
-- [ ] `plugins/tools/google/i18n.json` — Labels fuer Credentials + Toggles
-- [ ] `plugins/tools/google/settings.json` — Default: calendar+contacts an, drive+tasks aus
-- [ ] Settings-Accordion: "Tool Plugins"-Block fuer ToolPlugins mit settings.json
+### KI-gestuetzte Kalibrierung ✅ (implementiert)
 
-**Noch offen:**
-- [ ] **Google Calendar Plugin**: Termine lesen, erstellen, aendern, loeschen;
-      Konfliktpruefung, Recurrence-Support. Wakeup vor Terminen an Puck.
-- [ ] **Google Contacts Plugin**: Kontakte durchsuchen, fuer Email/Telegram/
-      Discord-Empfaenger-Aufloesung ("schreib Max" → findet Email-Adresse).
-      Bidirektional: Neue Kontakte anlegen lassen.
-- [ ] **Google Drive Plugin** (optional): Dokumente durchsuchen/lesen in
-      Research-Pipeline; Upload von generierten Artefakten (Reports, Code).
-- [ ] **Google Tasks Plugin** (optional): Sync mit AIfred-Scheduler / Todo-Listen.
-
-### KI-gestuetzte Kalibrierung
-- [ ] LLM-basierte Schaetzung der optimalen Kalibrierungsparameter (Proof of Concept abgeschlossen)
-- [ ] Implementierung als Alternative zum Binary-Search-Algorithmus
-- [ ] Cloud-API oder CPU-only Modell fuer Schaetzung (kein VRAM-Verbrauch)
+`aifred/lib/calibration/ai_agent.py`: Qwen via DashScope-Function-Calling
+treibt die Such-Schleife (`probe_config`/`finalize`-Tools, 15-Probe-Cap,
+reagiert auf OOM/VRAM-Muster); bei Fehler/Timeout Fallback auf den
+algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
+(~10-60 ¢ pro Kalibrierung je nach Modell).
 
 ---
 
@@ -968,17 +838,13 @@ Iteration:
 
 ## Hardware (offen)
 
-- [ ] **V100 32GB testen** sobald die SXM2→PCIe-konvertierte Karte
-  geliefert ist. Vermutlich Mai 2026.
-  - Stress-Test (24h Volllast, < 85°C)
-  - cuBLAS-Stabilitaet (war Hauptgrund fuer OOM-Crashes mit MiniMax)
-  - Speed-Vergleich vs. P40 in derselben Pipeline (erwartet: 3-5×
-    schneller bei FP16-Quants wegen HBM2-Bandwidth)
-  - Tensor-Split-Anpassung in `llama-swap config.yaml` —
-    Speed-Klassen-Logik erkennt Volta-Tensor-Cores (Compute 7.0)
-    derzeit nicht als "schnell wie RTX 8000"
-  - Power-Connector pruefen (Custom-Konvertierung kann EPS-12V mit
-    abweichender Pin-Belegung haben)
+- [x] ~~V100 testen~~ ✅ V100 läuft produktiv im 5-GPU-Setup (176 GB
+  VRAM, Stand 2026-05-20), ECC enabled (HBM2 Inline-ECC ohne
+  VRAM-Verlust). Die Speed-Klassen-Logik sortiert nach compute_cap —
+  Volta (7.0) wird als schnellste Karte einsortiert (CUDA-Device 0).
+- [ ] **Sukzessive P40 → V100-Migration** — läuft: alle OCuLink-Adapter
+  sind da, die erste V100 ist bereits in Betrieb. Nach Abschluss: vLLM
+  als Haupt-Backend zurück (docs/vllm/ deshalb NICHT löschen).
 
 ---
 
