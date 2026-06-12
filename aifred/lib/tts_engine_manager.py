@@ -159,6 +159,15 @@ async def tts_keepalive_loop(
                         timeout=TTS_KEEPALIVE_HTTP_TIMEOUT,
                     ),
                 )
+            except requests.exceptions.ConnectionError:
+                # Nothing listening = container intentionally down (e.g.
+                # restart deferred until after the running inference) — an
+                # expected window, not a fault. File-log only, no console
+                # warning spam every interval.
+                log_message(
+                    f"TTS keep-alive: {engine} not listening — container "
+                    f"down (deferred restart?), ping skipped"
+                )
             except Exception as exc:
                 if callable(on_warn):
                     on_warn(f"TTS keep-alive ping for {engine} failed: {exc}")
