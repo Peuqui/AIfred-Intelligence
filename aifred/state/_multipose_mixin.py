@@ -372,7 +372,7 @@ class MultiposeMixin(rx.State, mixin=True):
         src = get_source(source_id)
         if src is None:
             raise RuntimeError(f"source '{source_id}' not found")
-        return await get_default_hub().snapshot(src, timeout=5.0)
+        return await get_default_hub().snapshot(src)
 
     async def _snapshot_jpeg(self, source_id: str) -> bytes:
         """Frisches JPEG der Source als Bytes (für die Live-Preview)."""
