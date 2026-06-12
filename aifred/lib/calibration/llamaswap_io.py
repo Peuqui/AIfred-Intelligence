@@ -535,6 +535,16 @@ def has_llamaswap_speed_variant(config_path: Path, model_id: str) -> bool:
     return bool(entry.get("cmd"))
 
 
+def model_has_speed_variant(model_id: str) -> bool:
+    """:func:`has_llamaswap_speed_variant` gegen die aktive llama-swap-Config.
+
+    Convenience für UI-/State-Code, der immer die konfigurierte Config meint —
+    erspart jedem Call-Site den LLAMASWAP_CONFIG_PATH-Import.
+    """
+    from ..config import LLAMASWAP_CONFIG_PATH
+    return has_llamaswap_speed_variant(LLAMASWAP_CONFIG_PATH, model_id)
+
+
 def has_llamaswap_tts_variant(
     config_path: Path, model_id: str, tts_backend: str,
     require_speed: bool = False,

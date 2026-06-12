@@ -329,11 +329,10 @@ class BackendMixin(rx.State, mixin=True):
             # gesetzt sein — der Variant-Resolver liest es. SSoT ist die config
             # (existiert ein -speed-Eintrag), NICHT das Cache-speed_split-Feld:
             # eine frische Multi-GPU-Kali lässt letzteres unbesetzt (397B-Bug).
-            from ..lib.calibration import has_llamaswap_speed_variant
-            from ..lib.config import LLAMASWAP_CONFIG_PATH as _LSC
+            from ..lib.calibration import model_has_speed_variant
             setattr(
                 self, f"{agent}_has_speed_variant",
-                has_llamaswap_speed_variant(_LSC, model_id),
+                model_has_speed_variant(model_id),
             )
             # max_context ist VARIANTEN-spezifisch: das aktive
             # ``-tts-<engine>-vlm-<vlm>``-Koexistenz-Profil hat weniger
@@ -1739,9 +1738,8 @@ class BackendMixin(rx.State, mixin=True):
         self._show_model_calibration_info(self.vision_model_id)  # type: ignore[attr-defined]
 
         if self.backend_type == "llamacpp":
-            from ..lib.calibration import has_llamaswap_speed_variant
-            from ..lib.config import LLAMASWAP_CONFIG_PATH as _LSC
-            self.vision_has_speed_variant = has_llamaswap_speed_variant(_LSC, self.vision_model_id)  # type: ignore[attr-defined, has-type]
+            from ..lib.calibration import model_has_speed_variant
+            self.vision_has_speed_variant = model_has_speed_variant(self.vision_model_id)  # type: ignore[attr-defined, has-type]
             if not self.vision_has_speed_variant:  # type: ignore[attr-defined, has-type]
                 self.vision_speed_mode = False  # type: ignore[attr-defined, has-type]
 
