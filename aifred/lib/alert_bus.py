@@ -40,7 +40,11 @@ class AlertEvent:
     # cooldown collapse to one alert. Vision uses the cluster_id (one alert
     # per happening); a scheduler would use the task id, etc.
     dedup_key: str = ""
-    media: str | None = None      # primary image (VLM describes this; single-image channels)
+    media: str | None = None      # primary image (subject; single-image channels)
+    # Optional second image FILE PATH for the VLM: the wide context view of the
+    # same moment. The VLM describes ``media`` (subject) + ``media_context``
+    # (scene) together. None when there is only one view.
+    media_context: str | None = None
     # Additional image URLs for the browser session (e.g. wide + zoom + crop).
     # ``media`` is the subject view; this is the full gallery shown in chat.
     media_gallery: list[str] = field(default_factory=list)
@@ -205,12 +209,19 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
         briefing = str((rec or {}).get("prompt_context") or "").strip()
         if briefing:
             prompt = f"{briefing}\n\n{prompt}"
-        frame = Frame(
-            source_id=ev.source_id or "",
-            timestamp=ev.timestamp or _dt.now(),
-            image_bytes=frame_file.read_bytes(),
-        )
-        result = await analyze_sequence([frame], prompt, model=str(model))
+        # Subjekt-Ansicht (Zoom) zuerst, dann die Weitwinkel-Kontext-Ansicht
+        # desselben Moments — das VLM sieht Nahaufnahme UND Szene. Der Crop
+        # entfällt bewusst (das Gesicht hat InsightFace bereits erkannt; das VLM
+        # macht Kontext-Beschreibung, keine Re-Identifikation).
+        ts_v = ev.timestamp or _dt.now()
+        frames = [Frame(source_id=ev.source_id or "", timestamp=ts_v,
+                        image_bytes=frame_file.read_bytes())]
+        if ev.media_context:
+            ctx_file = Path(ev.media_context)
+            if ctx_file.exists():
+                frames.append(Frame(source_id=ev.source_id or "", timestamp=ts_v,
+                                    image_bytes=ctx_file.read_bytes()))
+        result = await analyze_sequence(frames, prompt, model=str(model))
         desc = (result.text or "").strip()
         return desc or None
     except Exception as e:  # noqa: BLE001

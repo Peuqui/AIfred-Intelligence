@@ -136,6 +136,12 @@ async def _emit(
         from .vision_utils import get_image_url
 
         primary = zoom_frame_path or frame_path
+        # Wide-Kontext fürs VLM nur, wenn die Subjekt-Ansicht der Zoom ist —
+        # sonst IST primary bereits das Weitwinkel (kein separater Kontext).
+        context = (
+            frame_path if (zoom_frame_path and frame_path and frame_path != primary)
+            else None
+        )
         gallery: list[str] = []
         for p in (frame_path, zoom_frame_path):
             if p:
@@ -154,6 +160,7 @@ async def _emit(
             body=body,
             dedup_key=dedup_key,
             media=primary or None,
+            media_context=context,
             media_gallery=gallery,
             timestamp=timestamp,
         )
