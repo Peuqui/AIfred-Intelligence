@@ -1226,11 +1226,19 @@ from starlette.staticfiles import StaticFiles  # noqa: E402
 from .lib.authenticated_static import AuthenticatedStaticFiles  # noqa: E402
 from .lib.config import DATA_DIR  # noqa: E402
 
+# Regel für /_upload/*: ALLE Mounts sind cookie-pflichtig
+# (AuthenticatedStaticFiles) — einzige Ausnahme ist html_preview, dessen
+# Zweck das Teilen an Empfänger OHNE AIfred-Login ist (Share-Funktion).
+#
 # User uploads (mobile camera + file picker) live under data/upload/images/
 # and are served at /_upload/images/.
 upload_images_dir = DATA_DIR / "upload" / "images"
 upload_images_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/images", StaticFiles(directory=str(upload_images_dir)), name="uploaded_images")
+app._api.mount(
+    "/_upload/images",
+    AuthenticatedStaticFiles(directory=str(upload_images_dir)),
+    name="uploaded_images",
+)
 
 # Surveillance captures live under data/vigilantia/ — on-demand tool-call
 # snapshots (toolcall/<session>/) and background motion frames
@@ -1243,7 +1251,10 @@ app._api.mount(
     name="vigilantia_images",
 )
 
-# Mount html_preview directory for share_chat feature
+# Mount html_preview directory for share_chat feature.
+# BEWUSST OHNE Cookie-Pflicht: Share-Links sollen von Empfängern ohne
+# AIfred-Login geöffnet werden können; der Inhalt wird durch bewusste
+# User-Aktion publiziert. Von außen schützt weiterhin nginx-Basic-Auth.
 html_preview_dir = DATA_DIR / "html_preview"
 html_preview_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_dir)), name="html_preview")
@@ -1251,12 +1262,22 @@ app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_d
 # Mount sandbox_output directory for interactive code execution results
 sandbox_output_dir = DATA_DIR / "sandbox_output"
 sandbox_output_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/sandbox_output", StaticFiles(directory=str(sandbox_output_dir)), name="sandbox_output")
+app._api.mount(
+    "/_upload/sandbox_output",
+    AuthenticatedStaticFiles(directory=str(sandbox_output_dir)),
+    name="sandbox_output",
+)
 
-# Mount tts_audio directory for TTS playback (temporary chunks)
+# Mount tts_audio directory for TTS playback (temporary chunks).
+# Cookie-pflichtig ist OK: FreeEcho liest die WAVs direkt von Platte
+# (URL→Pfad-Konvertierung im Channel), nicht über diesen Mount.
 tts_audio_dir = DATA_DIR / "tts_audio"
 tts_audio_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/tts_audio", StaticFiles(directory=str(tts_audio_dir)), name="tts_audio")
+app._api.mount(
+    "/_upload/tts_audio",
+    AuthenticatedStaticFiles(directory=str(tts_audio_dir)),
+    name="tts_audio",
+)
 
 # Mount audio directory for permanent session audio (replay button)
 session_audio_dir = DATA_DIR / "audio"
@@ -1278,10 +1299,15 @@ app._api.mount(
     name="face_crops",
 )
 
-# Mount documents directory for document download
+# Mount documents directory for document download (RAG-Dokumente —
+# sensibelster Inhalt; Workspace-iframe ist same-origin, Cookie kommt mit)
 documents_dir = DATA_DIR / "documents"
 documents_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/documents", StaticFiles(directory=str(documents_dir)), name="uploaded_documents")
+app._api.mount(
+    "/_upload/documents",
+    AuthenticatedStaticFiles(directory=str(documents_dir)),
+    name="uploaded_documents",
+)
 
 # ---------------------------------------------------------------------------
 # Message Hub — background workers for channel listeners (email, discord, …)
