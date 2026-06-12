@@ -40,7 +40,10 @@ class AlertEvent:
     # cooldown collapse to one alert. Vision uses the cluster_id (one alert
     # per happening); a scheduler would use the task id, etc.
     dedup_key: str = ""
-    media: str | None = None      # optional image path / URL
+    media: str | None = None      # primary image (VLM describes this; single-image channels)
+    # Additional image URLs for the browser session (e.g. wide + zoom + crop).
+    # ``media`` is the subject view; this is the full gallery shown in chat.
+    media_gallery: list[str] = field(default_factory=list)
     timestamp: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -287,6 +290,7 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
             record_autonomous_turn(
                 ev.producer, ev.source_id or ev.producer,
                 ev.title or ev.category, text, media=ev.media,
+                media_gallery=ev.media_gallery,
             )
             recorded = True
         except Exception as e:  # noqa: BLE001

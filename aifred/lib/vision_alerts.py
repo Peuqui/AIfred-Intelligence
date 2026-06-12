@@ -117,12 +117,34 @@ async def _emit(
     body: str,
     dedup_key: str,
     frame_path: str,
+    zoom_frame_path: str = "",
+    crop_url: str = "",
     timestamp: datetime,
 ) -> None:
     """Build + dispatch one AlertEvent. Best-effort — never raises into the
-    watcher's hot path. The shared dispatcher's rules decide where it goes."""
+    watcher's hot path. The shared dispatcher's rules decide where it goes.
+
+    ``media`` (VLM description + single-image channels) is the ZOOM still when
+    available — it shows the subject, while the wide-angle latest frame often
+    misses it. ``media_gallery`` carries all three views (wide + zoom + crop)
+    as URLs for the browser session.
+    """
     try:
+        from pathlib import Path as _Path
+
         from .alert_bus import AlertEvent, get_default_dispatcher
+        from .vision_utils import get_image_url
+
+        primary = zoom_frame_path or frame_path
+        gallery: list[str] = []
+        for p in (frame_path, zoom_frame_path):
+            if p:
+                u = get_image_url(_Path(p))
+                if u and u not in gallery:
+                    gallery.append(u)
+        if crop_url and crop_url not in gallery:
+            gallery.append(crop_url)
+
         ev = AlertEvent(
             producer="vision",
             category=category,
@@ -131,7 +153,8 @@ async def _emit(
             title=title,
             body=body,
             dedup_key=dedup_key,
-            media=frame_path or None,
+            media=primary or None,
+            media_gallery=gallery,
             timestamp=timestamp,
         )
         await get_default_dispatcher().emit(ev)
@@ -144,6 +167,8 @@ async def emit_face_alert(
     source_id: str,
     event_type: str,
     frame_path: str,
+    zoom_frame_path: str = "",
+    crop_url: str = "",
     cluster_id: str,
     name: str = "",
     timestamp: datetime | None = None,
@@ -171,6 +196,8 @@ async def emit_face_alert(
         # One alert per happening; fall back to source+type if unclustered.
         dedup_key=cluster_id or f"{source_id}:{event_type}",
         frame_path=frame_path,
+        zoom_frame_path=zoom_frame_path,
+        crop_url=crop_url,
         timestamp=ts,
     )
 
@@ -179,6 +206,7 @@ async def emit_person_alert(
     *,
     source_id: str,
     frame_path: str,
+    zoom_frame_path: str = "",
     cluster_id: str,
     count: int = 1,
     timestamp: datetime | None = None,
@@ -206,6 +234,7 @@ async def emit_person_alert(
         # One alert per happening; fall back to source if unclustered.
         dedup_key=cluster_id or f"{source_id}:person",
         frame_path=frame_path,
+        zoom_frame_path=zoom_frame_path,
         timestamp=ts,
     )
 
@@ -222,6 +251,7 @@ async def emit_object_alert(
     source_id: str,
     object_type: str,
     frame_path: str,
+    zoom_frame_path: str = "",
     cluster_id: str,
     timestamp: datetime | None = None,
     store: Any = None,
@@ -249,5 +279,6 @@ async def emit_object_alert(
         body=f"{alias} · {when}",
         dedup_key=cluster_id or f"{source_id}:{object_type}",
         frame_path=frame_path,
+        zoom_frame_path=zoom_frame_path,
         timestamp=ts,
     )

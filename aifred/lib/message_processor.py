@@ -869,6 +869,7 @@ async def announce_to_channel(
 def record_autonomous_turn(
     channel: str, channel_id: str, title: str, text: str, *,
     media: str | None = None,
+    media_gallery: list[str] | None = None,
     owner: str = MESSAGE_HUB_OWNER,
 ) -> str:
     """SSoT for surfacing an autonomous event as a normal browser session.
@@ -888,7 +889,12 @@ def record_autonomous_turn(
         routing_table.set_route(channel, channel_id, session_id)
 
     content = text
-    if media:
+    if media_gallery:
+        # All views already as URLs (wide + zoom + crop) — embed each so the
+        # browser session shows the full picture, not just one frame.
+        imgs = "".join(f"\n\n![{title}]({u})" for u in media_gallery if u)
+        content = f"{text}{imgs}"
+    elif media:
         from pathlib import Path
         from .vision_utils import get_image_url
         url = get_image_url(Path(media))
