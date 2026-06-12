@@ -1222,6 +1222,8 @@ app._api.mount("/api", api_app)
 # Mount static file directories from data/
 # All user data is stored in data/ which is excluded from hot-reload
 from starlette.staticfiles import StaticFiles  # noqa: E402
+
+from .lib.authenticated_static import AuthenticatedStaticFiles  # noqa: E402
 from .lib.config import DATA_DIR  # noqa: E402
 
 # User uploads (mobile camera + file picker) live under data/upload/images/
@@ -1235,7 +1237,11 @@ app._api.mount("/_upload/images", StaticFiles(directory=str(upload_images_dir)),
 # (motion/<cam>/<date>/) — served at /_upload/vigilantia/.
 vigilantia_dir = DATA_DIR / "vigilantia"
 vigilantia_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/vigilantia", StaticFiles(directory=str(vigilantia_dir)), name="vigilantia_images")
+app._api.mount(
+    "/_upload/vigilantia",
+    AuthenticatedStaticFiles(directory=str(vigilantia_dir)),
+    name="vigilantia_images",
+)
 
 # Mount html_preview directory for share_chat feature
 html_preview_dir = DATA_DIR / "html_preview"
@@ -1255,7 +1261,11 @@ app._api.mount("/_upload/tts_audio", StaticFiles(directory=str(tts_audio_dir)), 
 # Mount audio directory for permanent session audio (replay button)
 session_audio_dir = DATA_DIR / "audio"
 session_audio_dir.mkdir(parents=True, exist_ok=True)
-app._api.mount("/_upload/audio", StaticFiles(directory=str(session_audio_dir)), name="session_audio")
+app._api.mount(
+    "/_upload/audio",
+    AuthenticatedStaticFiles(directory=str(session_audio_dir)),
+    name="session_audio",
+)
 
 # Face-Crops für die „Erkannte Personen"-Box im Live-Preview-Popup.
 # Pro Identity (face_id für known/unsure, Pseudo-Id für unknowns)
@@ -1264,7 +1274,7 @@ face_crops_dir = DATA_DIR / "vision" / "faces"
 face_crops_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount(
     "/_upload/face_crops",
-    StaticFiles(directory=str(face_crops_dir)),
+    AuthenticatedStaticFiles(directory=str(face_crops_dir)),
     name="face_crops",
 )
 

@@ -45,6 +45,18 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_FRAMES_DIR = DATA_DIR / "vigilantia" / "motion"
 
+# Edge-AI-Poll-Defaults — SSoT für autostart (baut das ``edge_ai``-Dict) UND
+# den Poll-Loop (Fallback, falls ein Key fehlt). Doppelte/abweichende Defaults
+# an zwei Stellen waren ein Bug (settle 1.5 vs 1.0).
+#
+# poll_interval: Abstand zwischen ``GetAiState``-Abfragen. Ein HTTP-GET auf
+#   persistenter Session — der frühere Session-Storm kam vom Re-Login, nicht
+#   vom State-Poll. 0.5 s ⇒ Detektions-Latenz max. 0.5 s (statt 1.5 s).
+# settle: Wartezeit nach der steigenden Flanke, bevor das Frame gezogen wird —
+#   gibt dem schwenkenden PTZ-Kopf Zeit, das Subjekt zu zentrieren/zoomen.
+EDGE_AI_POLL_INTERVAL_DEFAULT = 0.5
+EDGE_AI_SETTLE_DEFAULT = 1.0
+
 # Erster Call nach Watch-Start: noch keine History, also keine
 # „unverändert"-Option im Prompt — die VLM muss die Szene voll
 # beschreiben statt zu vermuten was sich „nicht" geändert haben
@@ -540,8 +552,8 @@ class VisionWatcher:
                 cred=str(ec.get("cred", "")),
                 channel=int(ec.get("channel", 0)),
             )
-            interval = float(ec.get("poll_interval_sec", 1.5))
-            settle = float(ec.get("settle_sec", 1.0))
+            interval = float(ec.get("poll_interval_sec", EDGE_AI_POLL_INTERVAL_DEFAULT))
+            settle = float(ec.get("settle_sec", EDGE_AI_SETTLE_DEFAULT))
             prev: dict[str, bool] = {}
             fails = 0
             # Zeitstempel des zuletzt befeuerten Frames — gegen eingefrorene
