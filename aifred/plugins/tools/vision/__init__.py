@@ -66,6 +66,62 @@ logger = logging.getLogger(__name__)
 _PLUGIN_DIR = Path(__file__).parent
 _SETTINGS_PATH = _PLUGIN_DIR / "settings.json"
 
+# Snap-API-Clients pro Source wiederverwenden (Token-Cache der Kamera —
+# ein Client pro Login statt Login-Sturm; vgl. _MULTIPOSE_SNAP_CLIENTS).
+_SNAP_CLIENTS: dict[str, Any] = {}
+
+
+async def _snap_frames(
+    source_id: str, n: int, interval: float
+) -> "list[Any] | None":
+    """Frames über die Kamera-Snap-API holen (volle Linsen-Auflösung,
+    on-demand — kein RTSP-Substream-Limit). Greift nur, wenn der
+    ``rtsp_cameras``-Eintrag der Source einen ``snap_channel`` hat.
+
+    ``None`` = Snap nicht konfiguriert ODER fehlgeschlagen (mit Warning
+    geloggt) — der Caller nimmt dann den Hub/RTSP-Frame. Bewusst weich:
+    die Kamera-API kann ausfallen (Session-Limit), während RTSP läuft;
+    ein Foto in Substream-Auflösung schlägt dann kein Foto."""
+    import asyncio
+
+    from ....lib.frame_sources.rtsp_source import find_camera_config
+    cam = find_camera_config(source_id)
+    if not cam or cam.get("snap_channel") is None or not cam.get("cred"):
+        return None
+    try:
+        from ....lib.frame_sources.base import Frame
+        from ....lib.reolink_ai import ReolinkAIClient
+        client = _SNAP_CLIENTS.get(source_id)
+        if client is None:
+            client = ReolinkAIClient(
+                host=str(cam.get("host", "")),
+                api_port=int(cam.get("api_port", 443)),
+                cred=str(cam.get("cred", "")),
+            )
+            _SNAP_CLIENTS[source_id] = client
+        ch = int(cam["snap_channel"])
+        frames: list[Any] = []
+        for i in range(n):
+            if i > 0 and interval > 0:
+                await asyncio.sleep(interval)
+            jpeg = await client.snap(ch)
+            frames.append(Frame(
+                source_id=source_id,
+                timestamp=datetime.now(),
+                image_bytes=jpeg,
+                format="jpeg",
+                width=0,
+                height=0,
+                metadata={"kind": "rgb", "via": "snap"},
+            ))
+        return frames
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "snapshot via Snap API failed for %s: %s — falling back to "
+            "RTSP/hub frame", source_id, e,
+        )
+        return None
+
 
 def _load_settings() -> dict[str, Any]:
     """Load plugin settings fresh on every access — file is small, not a hot path."""
@@ -326,6 +382,10 @@ class VisionPlugin:
         async def _exec(source_id: str, n_frames: int = 1, save: bool = True) -> str:
             import asyncio
             from dataclasses import replace
+            # LLMs übergeben gern den Anzeigenamen ("Büro") — auflösen wie
+            # in vision_analyze.
+            from ....lib.vision_utils import resolve_source_id
+            source_id = resolve_source_id(source_id)
             source = get_source(source_id)
             if source is None:
                 return _err(f"unknown source: {source_id}")
@@ -343,19 +403,23 @@ class VisionPlugin:
             # Spacing them by burst_interval_s turns the burst into a real
             # short sequence ("film") that vision_analyze can judge over time.
             interval = float(_load_settings().get("snapshot", {}).get("burst_interval_s", 0.5))
-            try:
-                # Über den FrameHub aufnehmen, nicht source.snapshot() direkt:
-                # ein laufender Watcher hält source._lock für die gesamte
-                # Stream-Dauer — ein direkter snapshot() liefe in den Deadlock.
-                # Der Hub teilt sich den Stream (Timeout 5 s).
-                hub = get_default_hub()
-                frames = []
-                for i in range(n):
-                    if i > 0 and interval > 0:
-                        await asyncio.sleep(interval)
-                    frames.append(await hub.snapshot(source, width=w, height=h))
-            except Exception as e:  # noqa: BLE001
-                return _err(f"snapshot failed: {e}")
+            # Bevorzugt die Kamera-Snap-API (volle Linsen-Auflösung statt
+            # RTSP-Substream) — None heißt: nicht konfiguriert/fehlgeschlagen.
+            frames = await _snap_frames(source_id, n, interval)
+            if frames is None:
+                try:
+                    # Über den FrameHub aufnehmen, nicht source.snapshot() direkt:
+                    # ein laufender Watcher hält source._lock für die gesamte
+                    # Stream-Dauer — ein direkter snapshot() liefe in den Deadlock.
+                    # Der Hub teilt sich den Stream (Timeout 5 s).
+                    hub = get_default_hub()
+                    frames = []
+                    for i in range(n):
+                        if i > 0 and interval > 0:
+                            await asyncio.sleep(interval)
+                        frames.append(await hub.snapshot(source, width=w, height=h))
+                except Exception as e:  # noqa: BLE001
+                    return _err(f"snapshot failed: {e}")
             # Burn the documentation overlay (name + location + capture time)
             # into every frame. The same stamped image is what the user sees
             # AND what vision_analyze later sends to the VLM (one artifact
@@ -366,13 +430,25 @@ class VisionPlugin:
                     f.image_bytes, label, timestamp=f.timestamp))
                 for f in frames
             ]
+            # Snap-API-Frames kennen ihre Maße nicht (width=0) — fürs
+            # Tool-Ergebnis einmal aus dem JPEG dekodieren.
+            rw, rh = frames[-1].width, frames[-1].height
+            if not rw:
+                import cv2
+                import numpy as np
+                img = cv2.imdecode(
+                    np.frombuffer(frames[-1].image_bytes, np.uint8),
+                    cv2.IMREAD_COLOR,
+                )
+                if img is not None:
+                    rh, rw = img.shape[:2]
             result: dict[str, Any] = {
                 "source_id": source_id,
                 "source_name": resolve_source_label(source_id),
                 "n_frames": len(frames),
                 "timestamp": frames[-1].timestamp.isoformat(timespec="seconds"),
-                "width": frames[-1].width,
-                "height": frames[-1].height,
+                "width": rw,
+                "height": rh,
             }
             if save and ctx.session_id:
                 # Filename: <kamera-alias>_<YYYY-MM-DD_HH-MM-SS_mmm>.jpg —
