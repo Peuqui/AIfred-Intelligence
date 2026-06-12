@@ -321,14 +321,20 @@ class BackendMixin(rx.State, mixin=True):
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
                 get_thinking_support_for_model,
-                get_llamacpp_speed_split,
             )
             setattr(self, f"{agent}_rope_factor", 1.0)
             setattr(self, f"{agent}_is_hybrid", False)
             setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
             # Reihenfolge: has_speed_variant MUSS vor _effective_model_id
-            # gesetzt sein — der Variant-Resolver liest es.
-            setattr(self, f"{agent}_has_speed_variant", get_llamacpp_speed_split(model_id)[0] > 0)
+            # gesetzt sein — der Variant-Resolver liest es. SSoT ist die config
+            # (existiert ein -speed-Eintrag), NICHT das Cache-speed_split-Feld:
+            # eine frische Multi-GPU-Kali lässt letzteres unbesetzt (397B-Bug).
+            from ..lib.calibration import has_llamaswap_speed_variant
+            from ..lib.config import LLAMASWAP_CONFIG_PATH as _LSC
+            setattr(
+                self, f"{agent}_has_speed_variant",
+                has_llamaswap_speed_variant(_LSC, model_id),
+            )
             # max_context ist VARIANTEN-spezifisch: das aktive
             # ``-tts-<engine>-vlm-<vlm>``-Koexistenz-Profil hat weniger
             # Kontext als die Basis (TTS belegt VRAM). Den Kalibrierungs-
@@ -1733,8 +1739,9 @@ class BackendMixin(rx.State, mixin=True):
         self._show_model_calibration_info(self.vision_model_id)  # type: ignore[attr-defined]
 
         if self.backend_type == "llamacpp":
-            from ..lib.model_vram_cache import get_llamacpp_speed_split
-            self.vision_has_speed_variant = get_llamacpp_speed_split(self.vision_model_id)[0] > 0  # type: ignore[attr-defined, has-type]
+            from ..lib.calibration import has_llamaswap_speed_variant
+            from ..lib.config import LLAMASWAP_CONFIG_PATH as _LSC
+            self.vision_has_speed_variant = has_llamaswap_speed_variant(_LSC, self.vision_model_id)  # type: ignore[attr-defined, has-type]
             if not self.vision_has_speed_variant:  # type: ignore[attr-defined, has-type]
                 self.vision_speed_mode = False  # type: ignore[attr-defined, has-type]
 
