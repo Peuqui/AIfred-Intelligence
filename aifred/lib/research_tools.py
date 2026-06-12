@@ -356,7 +356,7 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict], mode: str
 
         async for item in process_query_and_search(
             user_text=queries[0],
-            llm_history=None,
+            llm_history=[],
             automatik_model=automatik_model_id,
             automatik_llm_client=llm_client,
             llm_options={},

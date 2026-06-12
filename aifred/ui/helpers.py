@@ -281,6 +281,7 @@ def clickable_tip(trigger: rx.Component, content: str | rx.Component) -> rx.Comp
         trigger: The component that triggers the tooltip (e.g., icon button)
         content: Text string or rx.Component to show in the popup
     """
+    body: rx.Component
     if isinstance(content, str):
         body = rx.text(content, font_size="12px", color="#ddd")
     else:

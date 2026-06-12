@@ -819,12 +819,13 @@ class VisionWatcher:
             return base_frame, base_frame
         ec = config.edge_ai or {}
         wide_ch = int(ec.get("channel", 0))
-        face_ch = ec.get("face_channel")
-        has_zoom = face_ch is not None and int(face_ch) >= 0
+        raw_face_ch = ec.get("face_channel")
+        face_ch = int(raw_face_ch) if raw_face_ch is not None else -1
+        has_zoom = face_ch >= 0
 
         snaps: list[Any] = [ai_client.snap(wide_ch)]
         if has_zoom:
-            snaps.append(ai_client.snap(int(face_ch)))
+            snaps.append(ai_client.snap(face_ch))
         results = await asyncio.gather(*snaps, return_exceptions=True)
         # Gemeinsamer Zeitstempel → beide Bilder gelten explizit als "derselbe
         # Moment", auch in Dateinamen + Event.
@@ -850,7 +851,7 @@ class VisionWatcher:
                 zoom_frame = replace(
                     base_frame, image_bytes=zoom_jpeg, timestamp=ts,
                     metadata={**base_frame.metadata, "lens": "zoom",
-                              "face_channel": int(face_ch)},
+                              "face_channel": face_ch},
                 )
         return wide_frame, zoom_frame
 

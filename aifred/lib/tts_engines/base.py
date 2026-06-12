@@ -53,12 +53,14 @@ class TTSEngine(ABC):
     #: post-processing), so no equivalent flag exists for those.
     supports_language: bool = False
 
-    #: Permanent extra VRAM (MB) to subtract from the TTS GPU's free_mb
-    #: during TTS-variant LLM calibration. Used for engines that
-    #: allocate dynamically during generate() (Qwen3-TTS grows from
-    #: ~5 GB idle to ~7 GB on long bubbles, so a fixed 7.5 GB reserve
-    #: is safer than a one-shot peak measurement).
-    calibration_vram_reserve_mb: int = 0
+    @property
+    def calibration_vram_reserve_mb(self) -> int:
+        """Permanent extra VRAM (MB) to subtract from the TTS GPU's free_mb
+        during TTS-variant LLM calibration. Used for engines that
+        allocate dynamically during generate() (Qwen3-TTS grows from
+        ~5 GB idle to ~7 GB on long bubbles, so a fixed 7.5 GB reserve
+        is safer than a one-shot peak measurement). Default: no reserve."""
+        return 0
 
     #: True if this engine should appear in channel-plugin dropdowns
     #: (FreeEcho.2 etc.). Excludes engines that need extra credentials

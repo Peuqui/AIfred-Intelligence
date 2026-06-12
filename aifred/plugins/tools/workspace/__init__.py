@@ -153,10 +153,10 @@ class WorkspacePlugin:
                     ls = int(line_start)
                     le = int(line_end)
                     if ls > 0 or le > 0:
-                        start = max(0, ls - 1)  # 1-based to 0-based
-                        end = le if le > 0 else total_lines
-                        text = "\n".join(lines[start:end])
-                        range_info = f"lines {start + 1}-{min(end, total_lines)} of {total_lines}"
+                        start_idx = max(0, ls - 1)  # 1-based to 0-based
+                        end_idx = le if le > 0 else total_lines
+                        text = "\n".join(lines[start_idx:end_idx])
+                        range_info = f"lines {start_idx + 1}-{min(end_idx, total_lines)} of {total_lines}"
                     else:
                         text = all_text
                         range_info = f"all {total_lines} lines"

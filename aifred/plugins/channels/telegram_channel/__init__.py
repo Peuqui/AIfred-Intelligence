@@ -16,6 +16,8 @@ from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 
 if TYPE_CHECKING:
+    from telegram import Update
+
     from ....lib.envelope import InboundMessage, OutboundMessage
     from ....lib.function_calling import Tool
     from ....lib.plugin_base import PluginContext
@@ -87,7 +89,6 @@ class TelegramChannel(BaseChannel):
 
     async def listener_loop(self) -> None:
         """Telegram bot loop — long polling until cancelled."""
-        from telegram import Update
         from telegram.ext import (
             Application,
             CommandHandler,
@@ -107,19 +108,27 @@ class TelegramChannel(BaseChannel):
 
         # /clear command — reset conversation
         async def _cmd_clear(update: Update, context: object) -> None:
-            if not _is_user_allowed(update.effective_user.id):
+            user = update.effective_user
+            chat = update.effective_chat
+            msg = update.message
+            # Channel-Posts/Edits haben keinen User/keine Message — ignorieren.
+            if user is None or chat is None or msg is None:
                 return
-            chat_id = str(update.effective_chat.id)
+            if not _is_user_allowed(user.id):
+                return
+            chat_id = str(chat.id)
             from ....lib.routing_table import routing_table
             routing_table.delete_route("telegram", chat_id)
-            await update.message.reply_text("Conversation cleared.")
-            _log(f"Telegram Plugin: /clear by user {update.effective_user.id}")
+            await msg.reply_text("Conversation cleared.")
+            _log(f"Telegram Plugin: /clear by user {user.id}")
 
         # Message handler
         async def _on_message(update: Update, context: object) -> None:
             if not update.message or not update.message.text:
                 return
             user = update.effective_user
+            if user is None:
+                return
             if not _is_user_allowed(user.id):
                 _log(f"Telegram Plugin: blocked message from {user.id} (not in whitelist)")
                 return
@@ -131,6 +140,8 @@ class TelegramChannel(BaseChannel):
         app.add_handler(CommandHandler("clear", _cmd_clear))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_message))
 
+        # Application.builder() erstellt immer einen Updater — reine Typverengung.
+        assert app.updater is not None
         try:
             await app.initialize()
             await app.start()
@@ -291,13 +302,16 @@ def _is_user_allowed(user_id: int) -> bool:
     return user_id in allowed_ids
 
 
-def _build_inbound(update: object) -> "InboundMessage":
+def _build_inbound(update: "Update") -> "InboundMessage":
     """Convert a Telegram Update to InboundMessage."""
     from ....lib.envelope import InboundMessage
 
     user = update.effective_user
     chat = update.effective_chat
     msg = update.message
+    # Der Message-Handler filtert Updates ohne User/Message bereits vorab.
+    if user is None or chat is None or msg is None:
+        raise ValueError("Telegram update without user/chat/message")
 
     sender = user.first_name or str(user.id)
     if user.last_name:

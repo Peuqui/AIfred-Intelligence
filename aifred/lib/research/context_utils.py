@@ -58,7 +58,7 @@ def get_model_native_context(model_id: str, backend_type: str) -> int:
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         if model_id in config:
-            ctx = config[model_id].get("current_context", 0)
+            ctx = int(config[model_id].get("current_context", 0) or 0)
             if ctx > 0:
                 _current_native_context = ctx
                 _current_native_model = model_id

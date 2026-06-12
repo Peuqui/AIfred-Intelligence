@@ -59,7 +59,7 @@ def _research_pill(mode: str, label_de: str, label_en: str) -> rx.Component:
     is_active = AIState.research_mode == mode
     return rx.button(
         rx.cond(AIState.ui_language == "de", label_de, label_en),
-        on_click=AIState.set_research_mode(mode),
+        on_click=AIState.set_research_mode(mode),  # type: ignore[arg-type]
         size="2",
         variant=rx.cond(is_active, "solid", "soft"),
         color_scheme=rx.cond(is_active, "orange", "gray"),

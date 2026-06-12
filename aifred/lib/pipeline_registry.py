@@ -155,7 +155,7 @@ async def handle_stop_command(session_id: str) -> dict:
     audio_stopped = False
     try:
         from .audio_manager import audio_manager
-        audio_stopped = audio_manager.stop()
+        audio_stopped = await audio_manager.stop()
     except Exception as exc:
         log_message(f"Pipeline registry: audio_manager.stop() failed: {exc}", "warning")
 

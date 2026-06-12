@@ -390,10 +390,12 @@ class FreeEchoChannel(BaseChannel):
                         self._handle_audio(ws, msg.data, room)
                     )
                     _pipeline_tasks[room] = task
-                    task.add_done_callback(
-                        lambda t, r=room: _pipeline_tasks.pop(r, None)
-                        if _pipeline_tasks.get(r) is t else None
-                    )
+
+                    def _cleanup_pipeline(t: asyncio.Task, r: str = room) -> None:
+                        if _pipeline_tasks.get(r) is t:
+                            _pipeline_tasks.pop(r, None)
+
+                    task.add_done_callback(_cleanup_pipeline)
 
                 elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
                     break
@@ -403,9 +405,9 @@ class FreeEchoChannel(BaseChannel):
         finally:
             # Laufende Pipeline beim Disconnect canceln — sonst spielt
             # der Server noch TTS in einen toten Socket.
-            task = _pipeline_tasks.get(room)
-            if task is not None and not task.done():
-                task.cancel()
+            pending = _pipeline_tasks.get(room)
+            if pending is not None and not pending.done():
+                pending.cancel()
             if room in _devices and _devices[room] is ws:
                 del _devices[room]
             self.channel_log(f"FreeEcho.2 disconnected: room={room}")

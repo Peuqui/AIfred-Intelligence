@@ -59,7 +59,8 @@ def _load_settings() -> dict:
     if not SETTINGS_FILE.exists():
         return {}
     with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data: dict = json.load(f)
+        return data
 
 
 def _save_settings(settings: dict) -> None:
@@ -357,20 +358,20 @@ def import_bundle(
         for member in zf.namelist():
             if not member.startswith("voices/"):
                 continue
-            parts = Path(member).parts
-            if len(parts) != 3:
+            vparts = Path(member).parts
+            if len(vparts) != 3:
                 continue
-            bundle_dir, filename = parts[1], parts[2]
+            bundle_dir, filename = vparts[1], vparts[2]
             if not _BUNDLE_FILE_RE.match(filename):
                 warnings.append(f"Skipped unsafe voice filename: {member}")
                 continue
-            target_dir = _engine_voice_dir(bundle_dir)
-            if target_dir is None:
+            voice_engine_dir = _engine_voice_dir(bundle_dir)
+            if voice_engine_dir is None:
                 warnings.append(f"Unbekannter Voice-Engine-Pfad: {member}")
                 continue
-            target_dir.mkdir(parents=True, exist_ok=True)
-            voice_root = target_dir.resolve()
-            target = (target_dir / filename).resolve()
+            voice_engine_dir.mkdir(parents=True, exist_ok=True)
+            voice_root = voice_engine_dir.resolve()
+            target = (voice_engine_dir / filename).resolve()
             try:
                 target.relative_to(voice_root)
             except ValueError:

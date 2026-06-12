@@ -322,7 +322,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.agent_editor_mode = "plugins"
         return rx.redirect("/agent-editor")
 
-    @rx.event(background=True)
+    @rx.event(background=True)  # type: ignore[operator]
     async def audio_index_rebuild_source(self, source: str, force: bool = False):
         """Trigger an index rebuild for one source (background, non-blocking)."""
         from ..lib.audio_index import audio_index
@@ -543,7 +543,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
             return
         self.audio_settings_status = f"✅ Sandbox-Root → {new_root}"
 
-    @rx.event
+    @rx.event  # type: ignore[arg-type]
     def audio_on_source_picked(self, rel_path: str, **_: Any) -> None:
         """Picker callback — rel_path is relative to the picker's sandbox
         root (read from settings.json). Reconstruct the absolute target

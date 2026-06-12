@@ -5,7 +5,8 @@ Part of the AIfred State refactoring (aifred/state/ package).
 """
 
 import reflex as rx
-from typing import Any, Dict, List
+from reflex.event import EventSpec
+from typing import Any, AsyncGenerator, Dict, List
 
 
 class DocumentMixin(rx.State, mixin=True):
@@ -176,7 +177,7 @@ class DocumentMixin(rx.State, mixin=True):
     # UPLOAD
     # ================================================================
 
-    async def handle_document_upload(self, files: List[rx.UploadFile]) -> None:  # type: ignore[override]
+    async def handle_document_upload(self, files: List[rx.UploadFile]) -> AsyncGenerator[EventSpec | None, None]:  # type: ignore[override]
         """Handle document file upload — save to current folder."""
         from ..lib.config import DOCUMENT_ALLOWED_EXTENSIONS, DOCUMENT_MAX_FILE_SIZE_MB, DOCUMENTS_DIR
         from ..lib.i18n import t
@@ -334,7 +335,7 @@ class DocumentMixin(rx.State, mixin=True):
         self._refresh_file_list()
         yield rx.toast.success(final_msg, duration=7000, position="top-center")
 
-    async def doc_index_file(self, filename: str) -> None:
+    async def doc_index_file(self, filename: str) -> AsyncGenerator[EventSpec | None, None]:
         """Index a file into ChromaDB."""
         from ..lib import file_manager as fm
         from ..lib.i18n import t
@@ -370,7 +371,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.document_upload_status = ""
         yield  # type: ignore[misc]
 
-    async def doc_deindex_file(self, filename: str) -> None:
+    async def doc_deindex_file(self, filename: str) -> AsyncGenerator[EventSpec | None, None]:
         """Remove a file from ChromaDB index (file stays on disk)."""
         from ..lib import file_manager as fm
         from ..lib.i18n import t
@@ -412,7 +413,7 @@ class DocumentMixin(rx.State, mixin=True):
         """Toggle 'delete from index' checkbox."""
         self.doc_delete_from_index = not self.doc_delete_from_index
 
-    async def doc_confirm_delete(self) -> None:
+    async def doc_confirm_delete(self) -> AsyncGenerator[EventSpec | None, None]:
         """Execute delete with selected options (file or folder)."""
         from ..lib import file_manager as fm
         from ..lib.i18n import t

@@ -145,7 +145,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         override = str(agent_settings.get("language", "") or "").lower()
         if override and override != "auto":
             return override
-        return self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
+        return str(self._last_detected_language or self.ui_language)  # type: ignore[attr-defined]
 
     def _resolve_agent_tts(self, agent: str) -> tuple[str, float, float]:
         """SSOT for per-agent (voice, speed, pitch) at the active engine.

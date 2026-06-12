@@ -35,9 +35,9 @@ def phash_bytes(image_bytes: bytes) -> int:
         return 0
     resized = cv2.resize(img, (32, 32), interpolation=cv2.INTER_AREA)
     # DCT auf float32
-    dct = cv2.dct(np.float32(resized))
+    dct = cv2.dct(resized.astype(np.float32))
     # Obere 8×8 = low frequencies (= dominante Bild-Inhalte)
-    low = dct[:8, :8]
+    low = np.asarray(dct, dtype=np.float32)[:8, :8]
     # DC (oben links) rausnehmen → würde die Helligkeit dominieren
     flat = low.flatten()
     median = float(np.median(flat[1:]))

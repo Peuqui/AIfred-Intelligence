@@ -115,7 +115,7 @@ def _feed_row(event: rx.Var) -> rx.Component:
     )
 
 
-def _latest_event_card(event: rx.Var) -> rx.Component:
+def _latest_event_card(event) -> rx.Component:
     """Inline-Karte mit dem jüngsten Event. Sitzt als Popover-Trigger
     rechtsbündig in der Research-Modi-Zeile — der User sieht sofort,
     was die Hintergrund-Cams gerade gemeldet haben, ohne klicken zu

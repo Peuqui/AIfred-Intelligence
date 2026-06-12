@@ -467,9 +467,14 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
         # when called from an already running event loop and the error was
         # swallowed by the bare except → vLLM never stopped, VRAM leaked.
         try:
-            from .vllm_manager import vllm_manager
-            vllm_manager._stop_sync()
-            actions.append("vLLM stopped")
+            # Die Manager-Instanz lebt im prozessweiten Backend-State —
+            # ein Modul-Attribut ``vllm_manager`` gab es nie (der frühere
+            # Import warf immer ImportError und der Stop lief nie).
+            from ..state._base import _global_backend_state
+            manager = _global_backend_state.get("vllm_manager")
+            if manager is not None:
+                manager._stop_sync()
+                actions.append("vLLM stopped")
         except Exception as e:
             log_message(f"⚠️ vLLM stop failed: {e}", "warning")
     elif backend_type == "tabbyapi":

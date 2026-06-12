@@ -10,8 +10,10 @@ from .helpers import t, agent_emoji
 # Document Manager Header — gemeinsame Groessen fuer Icons + Buttons,
 # damit der Header als Ganzes skaliert (Radix hat keine Halbschritte
 # zwischen size="1" und size="2").
+from typing import Literal
+
 DOC_HEADER_ICON_SIZE = 16
-DOC_HEADER_BUTTON_SIZE = "2"
+DOC_HEADER_BUTTON_SIZE: Literal["1", "2", "3", "4"] = "2"
 
 
 def multi_agent_help_modal() -> rx.Component:
@@ -1404,14 +1406,14 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
                 AIState.channel_cred_show_password,
                 rx.input(
                     value=value,
-                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),
+                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),  # type: ignore[arg-type]
                     placeholder="••••••••",
                     size="2",
                     width="100%",
                 ),
                 rx.input(
                     value=value,
-                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),
+                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),  # type: ignore[arg-type]
                     type="password",
                     placeholder="••••••••",
                     size="2",
@@ -1458,7 +1460,7 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         rx.select(
             field["option_labels"].to(str).split(","),
             value=value,
-            on_change=lambda val: AIState.update_channel_credential([env_key, val]),
+            on_change=lambda val: AIState.update_channel_credential([env_key, val]),  # type: ignore[arg-type]
             size="2",
             width="100%",
         ),
@@ -1471,7 +1473,7 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         label_with_tooltip,
         rx.input(
             value=value,
-            on_change=lambda val: AIState.update_channel_credential([env_key, val]),
+            on_change=lambda val: AIState.update_channel_credential([env_key, val]),  # type: ignore[arg-type]
             placeholder=field["placeholder"].to(str),
             size="2",
             width="100%",
@@ -1957,7 +1959,7 @@ def bundle_import_modal() -> rx.Component:
             _hover={"border_color": "#d29922"},
         ),
         id="agent-bundle-upload",
-        on_drop=AIState.handle_bundle_upload(rx.upload_files(upload_id="agent-bundle-upload")),
+        on_drop=AIState.handle_bundle_upload(rx.upload_files(upload_id="agent-bundle-upload")),  # type: ignore[arg-type]
         accept={"application/zip": [".zip"]},
         multiple=False,
         border="none", padding="0", width="100%",

@@ -166,6 +166,7 @@ async def perform_agent_research(
             snippets=snippets,
             automatik_llm_client=automatik_llm_client,
             automatik_model=automatik_model,
+            llm_history=llm_history,
             top_n=top_n,
             llm_options=llm_options,
             automatik_num_ctx=automatik_num_ctx

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, ClassVar, Dict, List
 
 import reflex as rx
+from reflex.event import EventSpec
 
 from ..lib.config import (
     DEFAULT_MIN_P,
@@ -56,6 +57,20 @@ _FEATURE_EMOJI: dict[str, str] = {
     "reasoning": "\U0001f4ad",   # thought balloon
     "thinking": "\U0001f9e0",    # brain
 }
+
+
+def _meta_str(meta: Any, key: str, default: str = "") -> str:
+    """ChromaDB-Metadata-Wert als str — verengt die Union
+    ``str | int | float | SparseVector | None`` typsicher (SSOT für die
+    DB-/Memory-Browser-Schleifen)."""
+    value = (meta or {}).get(key)
+    return value if isinstance(value, str) else default
+
+
+def _meta_int(meta: Any, key: str, default: int = 0) -> int:
+    """ChromaDB-Metadata-Wert als int (siehe ``_meta_str``)."""
+    value = (meta or {}).get(key)
+    return value if isinstance(value, int) else default
 
 
 class AgentConfigMixin(rx.State, mixin=True):
@@ -1995,13 +2010,13 @@ class AgentConfigMixin(rx.State, mixin=True):
         if first_key:
             self._load_editor_prompt(first_key)
 
-    def _push_editor_dom(self):
+    def _push_editor_dom(self) -> EventSpec:
         """Push current editor state values into DOM fields via JS and store initial state."""
         import json as _json
         name_js = _json.dumps(self.editor_display_name)
         desc_js = _json.dumps(self._editor_description)
         prompt_js = _json.dumps(self._editor_prompt_content)
-        return rx.call_script(  # type: ignore[return-value]
+        return rx.call_script(
             "setTimeout(() => {"
             f" const n = document.getElementById('editor-name'); if (n) n.value = {name_js};"
             f" const d = document.getElementById('editor-description'); if (d) d.value = {desc_js};"
@@ -2114,7 +2129,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content, encoding="utf-8")
 
-    def save_agent_editor(self, dom_values: str = "{}") -> None:
+    def save_agent_editor(self, dom_values: str = "{}") -> EventSpec | None:
         """Save agent editor — receives DOM values JSON from UI call_script callback."""
         import json
         from ..lib.agent_config import update_agent, create_agent
@@ -2184,7 +2199,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             agent_id = vals.get("agent_id", "").strip().lower().replace(" ", "_")
             if not agent_id:
                 self.add_debug("\u26a0\ufe0f Agent-ID is required")  # type: ignore[attr-defined]
-                return
+                return None
 
             new_config = create_agent(
                 agent_id=agent_id,
@@ -2236,14 +2251,14 @@ class AgentConfigMixin(rx.State, mixin=True):
         if raw:
             self._select_agent_for_editor(next(iter(raw)))
 
-    def clear_agent_memory(self, agent_id: str) -> None:
+    def clear_agent_memory(self, agent_id: str) -> EventSpec | None:
         """Clear an agent's long-term memory (confirm on first click, delete on second)."""
         import reflex as rx
         from ..lib.agent_memory import get_agent_memory
 
         if self.editor_memory_confirm != agent_id:
             self.editor_memory_confirm = agent_id
-            return
+            return None
 
         self.editor_memory_confirm = ""
 
@@ -2275,21 +2290,16 @@ class AgentConfigMixin(rx.State, mixin=True):
         """First click on reset — show confirmation."""
         self.editor_reset_confirm = True
 
-    def confirm_reset_editor_prompt(self):
+    def confirm_reset_editor_prompt(self) -> EventSpec:
         """Second click — actually reset prompt to file on disk."""
         self.editor_reset_confirm = False
         self.editor_dirty = False
         import json as _json
         self._load_editor_prompt(self.editor_prompt_tab)
         prompt_js = _json.dumps(self._editor_prompt_content)
-        return rx.call_script(  # type: ignore[return-value]
+        return rx.call_script(
             f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
         )
-
-    def reset_editor_prompt(self) -> None:
-        """Legacy — direct reset (kept for compatibility)."""
-        self.editor_reset_confirm = False
-        return self.confirm_reset_editor_prompt()
 
     def start_new_agent(self) -> None:
         """Switch editor to 'create new agent' mode (empty form)."""
@@ -2401,21 +2411,21 @@ class AgentConfigMixin(rx.State, mixin=True):
 
             if self.db_browser_collection == "research_cache":
                 query_text = doc or ""
-                answer = meta.get("answer", "") if meta else ""
-                volatility = meta.get("volatility", "") if meta else ""
-                date = meta.get("timestamp", "")[:19] if meta else ""
+                answer = _meta_str(meta, "answer")
+                volatility = _meta_str(meta, "volatility")
+                date = _meta_str(meta, "timestamp")[:19]
                 entries.append({
                     "id": doc_id,
                     "date": date,
                     "type": volatility or "cache",
                     "summary": f"Query: {query_text}",
-                    "content": answer[:500] if answer else "",
+                    "content": answer[:500],
                 })
             elif self.db_browser_collection == "aifred_documents":
-                filename = meta.get("filename", "") if meta else ""
-                chunk_idx = meta.get("chunk_index", 0) if meta else 0
-                total = meta.get("total_chunks", 0) if meta else 0
-                date = meta.get("upload_date", "")[:19] if meta else ""
+                filename = _meta_str(meta, "filename")
+                chunk_idx = _meta_int(meta, "chunk_index")
+                total = _meta_int(meta, "total_chunks")
+                date = _meta_str(meta, "upload_date")[:19]
                 entries.append({
                     "id": doc_id,
                     "date": date,
@@ -2581,11 +2591,11 @@ class AgentConfigMixin(rx.State, mixin=True):
                 # Research cache stores query as document, answer in metadata
                 if agent_id == "research_cache":
                     query_text = doc or ""
-                    answer_text = meta.get("answer", "") if meta else ""
-                    sources = meta.get("source_urls", "") if meta else ""
-                    volatility = meta.get("volatility", "") if meta else ""
-                    expires = meta.get("expires_at", "") if meta else ""
-                    date = meta.get("timestamp", "")[:19] if meta else ""
+                    answer_text = _meta_str(meta, "answer")
+                    sources = _meta_str(meta, "source_urls")
+                    volatility = _meta_str(meta, "volatility")
+                    expires = _meta_str(meta, "expires_at")
+                    date = _meta_str(meta, "timestamp")[:19]
                     summary_text = f"Query: {query_text}"
                     content_parts = []
                     if answer_text:
@@ -2613,12 +2623,12 @@ class AgentConfigMixin(rx.State, mixin=True):
                 else:
                     entries.append({
                         "id": doc_id,
-                        "date": meta.get("date", "")[:19] if meta else "",
-                        "type": meta.get("type", "unknown"),
-                        "summary": meta.get("summary", doc[:120] if doc else ""),
-                        "content": meta.get("content", doc or ""),
+                        "date": _meta_str(meta, "date")[:19],
+                        "type": _meta_str(meta, "type", "unknown"),
+                        "summary": _meta_str(meta, "summary", doc[:120] if doc else ""),
+                        "content": _meta_str(meta, "content", doc or ""),
                         "sources": "",
-                        "session_id": meta.get("session_id", ""),
+                        "session_id": _meta_str(meta, "session_id"),
                     })
         except Exception as e:
             self.add_debug(f"❌ Memory browse error: {e}")  # type: ignore[attr-defined]

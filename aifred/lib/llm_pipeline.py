@@ -18,7 +18,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Callable, Optional
 
 from .context_manager import estimate_tokens, strip_thinking_blocks
 from .formatting import build_inference_metadata, format_thinking_process
@@ -198,6 +198,7 @@ async def run_llm_stream(
     event_descriptions: dict[str, tuple[str, str]] = {}
 
     # Select stream source: with or without retry
+    stream: AsyncIterator[dict[str, Any]]
     if retry:
         stream = chat_stream_with_retry(
             llm_client, model, messages, options, agent_label,

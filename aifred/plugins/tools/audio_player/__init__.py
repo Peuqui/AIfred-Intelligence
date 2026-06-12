@@ -873,7 +873,7 @@ class AudioPlayerPlugin:
                         f"or genre tag inside one of the available sources."
                     ),
                 })
-            src_info = next(
+            src_info: dict = next(
                 (s for s in resolver.list_sources() if s["label"] == source),
                 {},
             )
@@ -1025,11 +1025,10 @@ class AudioPlayerPlugin:
                 # (NFS scan can take minutes for large mounts)
                 import asyncio as _asyncio
                 loop = _asyncio.get_event_loop()
+                import functools
                 stats = await loop.run_in_executor(
                     None,
-                    lambda lbl=label, p=path: audio_index.scan_source(
-                        lbl, p, force=force
-                    ),
+                    functools.partial(audio_index.scan_source, label, path, force=force),
                 )
                 results.append({
                     "source": label,

@@ -69,19 +69,19 @@ def _extract_body(msg: email.message.Message) -> str:
             disposition = str(part.get("Content-Disposition", ""))
             if content_type == "text/plain" and "attachment" not in disposition:
                 payload = part.get_payload(decode=True)
-                if payload:
+                if isinstance(payload, bytes):
                     charset = part.get_content_charset() or "utf-8"
                     return payload.decode(charset, errors="replace")
         # Fallback: try text/html
         for part in msg.walk():
             if part.get_content_type() == "text/html":
                 payload = part.get_payload(decode=True)
-                if payload:
+                if isinstance(payload, bytes):
                     charset = part.get_content_charset() or "utf-8"
                     return f"[HTML]\n{payload.decode(charset, errors='replace')}"
     else:
         payload = msg.get_payload(decode=True)
-        if payload:
+        if isinstance(payload, bytes):
             charset = msg.get_content_charset() or "utf-8"
             return payload.decode(charset, errors="replace")
     return ""
@@ -173,7 +173,7 @@ def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
     with _imap_connect() as imap:
         imap.select(folder, readonly=True)
 
-        _, msg_data = imap.fetch(msg_id.encode(), "(RFC822)")
+        _, msg_data = imap.fetch(msg_id, "(RFC822)")
         if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
             raise ValueError(f"Email {msg_id} not found")
 
@@ -328,7 +328,7 @@ def delete_email(msg_id: str, folder: str = "INBOX") -> str:
     """Delete an email by message ID (moves to Trash)."""
     with _imap_connect() as imap:
         imap.select(folder)
-        imap.store(msg_id.encode(), '+FLAGS', '\\Deleted')
+        imap.store(msg_id, '+FLAGS', '\\Deleted')
         imap.expunge()
 
     log_message(f"📧 Email: deleted msg {msg_id} from {folder}")
@@ -340,10 +340,10 @@ def move_email(msg_id: str, target_folder: str, source_folder: str = "INBOX") ->
     with _imap_connect() as imap:
         imap.select(source_folder)
         # COPY to target, then delete from source
-        status, _ = imap.copy(msg_id.encode(), target_folder)
+        status, _ = imap.copy(msg_id, target_folder)
         if status != "OK":
             raise ValueError(f"COPY failed: {status}")
-        imap.store(msg_id.encode(), '+FLAGS', '\\Deleted')
+        imap.store(msg_id, '+FLAGS', '\\Deleted')
         imap.expunge()
 
     log_message(f"📧 Email: moved msg {msg_id} from {source_folder} to {target_folder}")
@@ -405,7 +405,7 @@ def mark_email(msg_id: str, flag: str, folder: str = "INBOX") -> str:
 
     with _imap_connect() as imap:
         imap.select(folder)
-        imap.store(msg_id.encode(), action, imap_flag)
+        imap.store(msg_id, action, imap_flag)
 
     log_message(f"📧 Email: marked msg {msg_id} as {flag}")
     return f"Email {msg_id} marked as {flag}"

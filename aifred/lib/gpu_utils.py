@@ -68,8 +68,8 @@ def total_actual_vram_gb(gpu_info) -> float:
     Single source of truth for VRAM total display.
     """
     if gpu_info.all_gpu_vram_mb:
-        return round(sum(gpu_info.all_gpu_vram_mb) / 1024, 1)
-    return round(gpu_info.vram_mb / 1024, 1)
+        return float(round(sum(gpu_info.all_gpu_vram_mb) / 1024, 1))
+    return float(round(gpu_info.vram_mb / 1024, 1))
 
 
 # NOTE: is_model_loaded() was moved to backends/base.py as abstractmethod

@@ -34,7 +34,7 @@ def _discover_engines() -> dict[str, TTSEngine]:
     # __subclasses__() returns direct subclasses only — fine because
     # engines inherit straight from TTSEngine. Sort by display_order so
     # the UI dropdown stays predictable; ties broken by key for stability.
-    instances = [cls() for cls in TTSEngine.__subclasses__()]
+    instances = [cls() for cls in TTSEngine.__subclasses__()]  # type: ignore[abstract]
     instances.sort(key=lambda e: (e.display_order, e.key))
     return {e.key: e for e in instances}
 

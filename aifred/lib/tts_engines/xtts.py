@@ -16,8 +16,7 @@ class XTTSEngine(TTSEngine):
     suitable_for_channels = True
 
     # XTTS allocates statically at model load — no dynamic peak above
-    # idle, so no extra reserve needed for LLM calibration.
-    calibration_vram_reserve_mb = 0
+    # idle, so the base default (no calibration VRAM reserve) applies.
     display_order = 20
 
     image_name = "xtts-rtx8000"

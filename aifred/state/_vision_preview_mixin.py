@@ -922,10 +922,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
             f"🎬 _refresh_sources done: {len(entries)} entries, "
             f"available={[e['id'] for e in entries if e['available']]}"
         )
-        for e in entries:
+        for entry in entries:
             log_message(
-                f"  entry id={e['id']} alias='{e.get('alias','')}' "
-                f"prompt_context='{e.get('prompt_context','')[:50]}'"
+                f"  entry id={entry['id']} alias='{entry.get('alias','')}' "
+                f"prompt_context='{entry.get('prompt_context','')[:50]}'"
             )
 
         # Sichtbare Quellen-Menge wiederherstellen:
