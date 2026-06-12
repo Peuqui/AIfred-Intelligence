@@ -1,9 +1,18 @@
-"""VLM-Analyzer — Bild → Beschreibungstext via Ollama als Side-Channel.
+"""VLM-Analyzer — Bild → Beschreibungstext.
 
-Architektur-Punkt: Vision-Calls gehen **nicht** über den Haupt-Backend
-(llama-swap) sondern direkt zu Ollama. Damit ist die Vision-Pipeline
-unabhängig vom aktuell aktiven Chat-LLM — kein Model-Swap, kein
-„Hauptchat wird verdrängt" bei jedem Klingel-Event.
+Zwei Backends, EIN Einstiegspunkt (``analyze_sequence``), Dispatch rein
+über das Modell:
+
+* Trägt das Modell in der llama-swap-Config ein natives ``--mmproj``
+  (SSOT: ``vision_utils.model_has_mmproj``), beschreibt das Haupt-LLM
+  die Bilder selbst — OpenAI-kompatibler Call an llama-swap. Das nutzt
+  der Chat (``vision_analyze``-Tool), wenn die geladene Hauptmodell-
+  Variante Vision kann: beste Qualität, kein Model-Swap, Ergebnis
+  bleibt reiner Text in der History.
+* Alle anderen Modelle (qwen3-vl:4b & Co.) laufen wie gehabt über den
+  Ollama-Side-Channel — die Überwachungs-Pipeline (Watcher, Alerts)
+  bleibt damit unabhängig vom Chat-LLM: kein Swap, kein „Hauptchat
+  wird verdrängt" bei jedem Klingel-Event.
 
 Ollama-Spezifika:
 
@@ -137,6 +146,23 @@ async def analyze_sequence(
     """
     if not frames:
         raise ValueError("analyze_sequence requires at least 1 frame")
+
+    # Frames vor dem VLM-Call auf max_pixels deckeln — spart Vision-Tokens
+    # (passt N Keyframes in num_ctx), ohne die Beschreibung zu verschlechtern.
+    from .config import VISION_VLM_MAX_PIXELS
+    images_b64 = [
+        _to_b64(downscale_for_vlm(f.image_bytes, VISION_VLM_MAX_PIXELS))
+        for f in frames
+    ]
+
+    # Dispatch (SSOT: model_has_mmproj): llama-swap-Modelle mit nativem
+    # Vision-Encoder beschreiben selbst, alles andere geht an Ollama.
+    from .vision_utils import model_has_mmproj
+    if model_has_mmproj(model):
+        return await _analyze_via_llamacpp(
+            model, prompt, images_b64, n_frames=len(frames)
+        )
+
     try:
         from ollama import AsyncClient
     except ImportError as e:
@@ -147,14 +173,6 @@ async def analyze_sequence(
     options: dict[str, Any] = {"num_ctx": int(num_ctx)}
     if extra_options:
         options.update(extra_options)
-
-    # Frames vor dem VLM-Call auf max_pixels deckeln — spart Vision-Tokens
-    # (passt N Keyframes in num_ctx), ohne die Beschreibung zu verschlechtern.
-    from .config import VISION_VLM_MAX_PIXELS
-    images_b64 = [
-        _to_b64(downscale_for_vlm(f.image_bytes, VISION_VLM_MAX_PIXELS))
-        for f in frames
-    ]
 
     # Resolve the Ollama endpoint dynamically: pinned VLM daemon if chat
     # uses a non-ollama backend (port 11436, V100), default daemon
@@ -210,11 +228,107 @@ async def analyze_sequence(
     stats = _compute_vlm_stats(resp_dict, duration_ms)
     metadata["stats"] = stats
 
-    # Metrics line: ALWAYS logged. The actual debug-console line + chat-
-    # bubble footer are built by llm_pipeline via build_inference_metadata()
-    # so the locale-aware formatting is shared with chat LLMs. Here we
-    # just log a compact dev-level info line — useful when the VLM is
-    # called outside the tool-pipeline (e.g. from the watcher directly).
+    _log_vlm_done(stats, model, text)
+
+    return VisionAnalysis(
+        text=text,
+        model=model,
+        prompt=prompt,
+        n_frames=len(frames),
+        duration_ms=duration_ms,
+        metadata=metadata,
+    )
+
+
+async def _analyze_via_llamacpp(
+    model: str,
+    prompt: str,
+    images_b64: list[str],
+    *,
+    n_frames: int,
+) -> VisionAnalysis:
+    """Native Vision über llama-swap: das Haupt-LLM mit ``--mmproj``
+    beschreibt die Bilder selbst (OpenAI-kompatibler Call mit
+    ``image_url``-Parts). ``num_ctx``/``keep_alive`` sind Ollama-Konzepte
+    und gelten hier nicht — der Kontext kommt aus der llama-swap-YAML."""
+    import httpx
+
+    from .config import BACKEND_URLS
+
+    content: list[dict[str, Any]] = [
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
+        for b in images_b64
+    ]
+    content.append({"type": "text", "text": prompt})
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "stream": False,
+        # Bildbeschreibung braucht keine Denk-Phase — Qwen3.x-Templates
+        # kennen den Schalter, andere Server ignorieren das Feld einfach.
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    # BACKEND_URLS["llamacpp"] ist bereits die OpenAI-Basis-URL (…/v1).
+    url = BACKEND_URLS["llamacpp"].rstrip("/") + "/chat/completions"
+
+    started = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:  # noqa: BLE001
+        duration_ms = (time.perf_counter() - started) * 1000.0
+        logger.warning(
+            "VLM call failed (llamacpp): model=%s n_frames=%d duration=%.0fms error=%s",
+            model, n_frames, duration_ms, e,
+        )
+        raise RuntimeError(f"VLM call failed: {e}") from e
+    duration_ms = (time.perf_counter() - started) * 1000.0
+
+    message = (data.get("choices") or [{}])[0].get("message") or {}
+    text = str(message.get("content") or "").strip()
+    usage = data.get("usage") or {}
+    # llama-server liefert ein eigenes timings-Objekt (prompt_ms,
+    # predicted_per_second, …) — daraus dieselben Stats-Felder bauen wie
+    # _compute_vlm_stats für Ollama, damit Footer/Logs identisch rendern.
+    timings = data.get("timings") or {}
+    prompt_ms = float(timings.get("prompt_ms") or 0.0)
+    predicted_ms = float(timings.get("predicted_ms") or 0.0)
+    stats = {
+        "ttft_s": prompt_ms / 1000.0,
+        "pp_tok_per_s": float(timings.get("prompt_per_second") or 0.0),
+        "inference_s": (
+            predicted_ms / 1000.0 if predicted_ms else duration_ms / 1000.0
+        ),
+        "eval_tok_per_s": float(timings.get("predicted_per_second") or 0.0),
+        "eval_tokens": float(
+            timings.get("predicted_n") or usage.get("completion_tokens") or 0
+        ),
+        "prompt_tokens": float(
+            timings.get("prompt_n") or usage.get("prompt_tokens") or 0
+        ),
+        "wall_clock_s": duration_ms / 1000.0,
+    }
+    metadata: dict[str, Any] = {"backend": "llamacpp", "usage": usage, "stats": stats}
+
+    _log_vlm_done(stats, model, text)
+
+    return VisionAnalysis(
+        text=text,
+        model=model,
+        prompt=prompt,
+        n_frames=n_frames,
+        duration_ms=duration_ms,
+        metadata=metadata,
+    )
+
+
+def _log_vlm_done(stats: dict[str, float], model: str, text: str) -> None:
+    """Gemeinsame Metrics-Zeile beider VLM-Backends. The actual debug-console
+    line + chat-bubble footer are built by llm_pipeline via
+    build_inference_metadata() — this is the compact dev-level info line,
+    useful when the VLM runs outside the tool-pipeline (watcher, alerts)."""
     from .formatting import format_number
     from .logging_utils import log_message
     log_message(
@@ -232,15 +346,6 @@ async def analyze_sequence(
     from .config import DEBUG_LOG_VLM_RAW
     if DEBUG_LOG_VLM_RAW:
         log_message(f"👁️ VLM raw response: {text}")
-
-    return VisionAnalysis(
-        text=text,
-        model=model,
-        prompt=prompt,
-        n_frames=len(frames),
-        duration_ms=duration_ms,
-        metadata=metadata,
-    )
 
 
 def _compute_vlm_stats(resp: dict[str, Any], wall_clock_ms: float) -> dict[str, float]:

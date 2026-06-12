@@ -162,3 +162,76 @@ class TestResponseParsing:
         result = run(analyze_frame(_make_frame(0), "hi"))
         assert result.text == "ok"
         assert result.metadata["eval_count"] == 5
+
+
+class TestLlamacppDispatch:
+    """Modelle mit nativem --mmproj (SSOT model_has_mmproj) laufen über
+    llama-swap (OpenAI-API) statt Ollama — das Haupt-LLM beschreibt selbst."""
+
+    def test_mmproj_model_routes_to_llamacpp(self, monkeypatch):
+        import aifred.lib.vision_utils as vu
+        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: m == "main-llm")
+
+        captured: dict = {}
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict:
+                return {
+                    "choices": [
+                        {"message": {"content": "Beschreibung vom Hauptmodell."}}
+                    ],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+                    "timings": {
+                        "prompt_ms": 500.0, "predicted_ms": 800.0,
+                        "prompt_n": 100, "predicted_n": 20,
+                        "prompt_per_second": 200.0,
+                        "predicted_per_second": 25.0,
+                    },
+                }
+
+        class FakeAsyncClient:
+            def __init__(self, **kwargs) -> None:
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, url, json=None):
+                captured["url"] = url
+                captured["payload"] = json
+                return FakeResponse()
+
+        import httpx
+        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+        result = run(analyze_sequence(
+            [_make_frame(0)], "Was ist zu sehen?", model="main-llm"
+        ))
+
+        assert result.text == "Beschreibung vom Hauptmodell."
+        # Regression: BACKEND_URLS["llamacpp"] enthält bereits /v1
+        assert captured["url"].endswith("/v1/chat/completions")
+        assert "/v1/v1/" not in captured["url"]
+        parts = captured["payload"]["messages"][0]["content"]
+        assert parts[0]["type"] == "image_url"
+        assert parts[-1] == {"type": "text", "text": "Was ist zu sehen?"}
+        assert result.metadata["stats"]["eval_tokens"] == 20.0
+
+    def test_non_mmproj_model_stays_on_ollama(self, monkeypatch):
+        import aifred.lib.vision_utils as vu
+        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: False)
+
+        async def fake_generate(self, **kwargs):
+            return {"response": "ollama-pfad", "eval_count": 3}
+
+        import ollama
+        monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
+
+        result = run(analyze_sequence([_make_frame(0)], "hi", model="qwen3-vl:4b"))
+        assert result.text == "ollama-pfad"
