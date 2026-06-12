@@ -759,16 +759,40 @@ console.log('✂️ Crop handler loaded');
         if (!img || img.closest('#aifred-lightbox')) return;
         var ov = document.createElement('div');
         ov.id = 'aifred-lightbox';
-        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;z-index:10000;cursor:zoom-out;';
         var big = document.createElement('img');
         big.src = img.src;
-        big.style.cssText = 'max-width:96vw;max-height:96vh;object-fit:contain;cursor:zoom-out;border-radius:6px;box-shadow:0 0 40px rgba(0,0,0,0.8);';
-        ov.appendChild(big);
+        var fitted = true;
+        // Zwei Modi: eingepasst (96vw/96vh, zentriert) und 1:1-Pixelansicht
+        // (Bild in nativer Größe, Overlay scrollt → Schwenken). Flex-Zentrierung
+        // muss im 1:1-Modus weg, sonst sind die linken/oberen Ränder nicht
+        // erreichbar (Flexbox-Overflow-Falle).
+        function applyMode() {
+            ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:10000;overflow:auto;cursor:zoom-out;'
+                + (fitted ? 'display:flex;align-items:center;justify-content:center;' : 'display:block;');
+            big.style.cssText = fitted
+                ? 'max-width:96vw;max-height:96vh;object-fit:contain;cursor:zoom-in;box-shadow:0 0 40px rgba(0,0,0,0.8);'
+                : 'width:' + big.naturalWidth + 'px;max-width:none;max-height:none;display:block;cursor:zoom-out;';
+        }
+        big.addEventListener('click', function(ev) {
+            var zoomable = big.naturalWidth > ov.clientWidth + 8 || big.naturalHeight > ov.clientHeight + 8;
+            if (fitted && !zoomable) { close(); return; }
+            ev.stopPropagation();
+            var rx = ev.offsetX / big.clientWidth, ry = ev.offsetY / big.clientHeight;
+            fitted = !fitted;
+            applyMode();
+            if (!fitted) {
+                // Klickstelle in die Bildschirmmitte scrollen
+                ov.scrollLeft = rx * big.naturalWidth - ov.clientWidth / 2;
+                ov.scrollTop = ry * big.naturalHeight - ov.clientHeight / 2;
+            }
+        });
         function esc(ev) { if (ev.key === 'Escape') close(); }
         function close() { ov.remove(); document.removeEventListener('keydown', esc); }
         ov.addEventListener('click', close);
         document.addEventListener('keydown', esc);
+        ov.appendChild(big);
         document.body.appendChild(ov);
+        applyMode();
     });
 })();
 """
