@@ -298,6 +298,7 @@ async def verify(
     env: Optional[dict[str, str]] = None,
     probe_thinking: bool = False,
     health_timeout: Optional[float] = None,
+    reserve_mb: tuple[int, ...] = (),
 ) -> VerifyResult:
     """Run one physical test: start → inference → measure → kill.
 
@@ -305,6 +306,15 @@ async def verify(
     ``health_timeout`` overrides the default health-check window — hybrid-mode
     callers should pass a large value because mlock + CPU-offload of a 100+ GB
     GGUF can take multiple minutes before the server is ready.
+
+    ``reserve_mb`` (per GPU, same order as ``gpus``): Side-Channel-Reserven
+    (TTS/VLM), die während der Probe physisch NICHT belegt sind, im Betrieb
+    aber zurückkehren. Wird direkt von den Messwerten abgezogen, BEVOR
+    irgendeine Entscheidung fällt — Fits-Check, Refine und Shrink sehen so
+    dieselbe Wahrheit wie die reserve-bewusste Planung. Ohne diesen Abzug
+    optimiert der Refine-Loop den Kontext in den (scheinbar freien)
+    Reserve-Platz hinein und das Profil OOMt im Betrieb, sobald TTS/VLM
+    ihren Platz zurückfordern.
     """
     from ...backends.ollama import wait_for_vram_stable
 
@@ -347,6 +357,16 @@ async def verify(
         # as the picture is stable instead of a fixed sleep.
         await wait_for_vram_stable(max_wait_seconds=8.0)
         measured = _measured_free(gpus)
+        reserve_applied = False
+        if measured and reserve_mb and any(reserve_mb):
+            # Effektives Frei = gemessen − Side-Channel-Reserve. Kann
+            # negativ werden (Probe hat den Reserve-Platz gefressen) —
+            # genau dann MUSS fits=False herauskommen.
+            measured = tuple(
+                f - (reserve_mb[i] if i < len(reserve_mb) else 0)
+                for i, f in enumerate(measured)
+            )
+            reserve_applied = True
         if not measured:
             fits = True
             detail = "VRAM unknown"
@@ -357,6 +377,8 @@ async def verify(
                 f"{g.name}: {measured[i]} MB"
                 for i, g in enumerate(gpus) if i < len(measured)
             )
+            if reserve_applied:
+                detail += " (eff., side-channel reserve deducted)"
 
         if probe_thinking and fits:
             thinks = await _probe_thinking(port)

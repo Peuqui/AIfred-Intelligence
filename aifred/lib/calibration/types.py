@@ -78,6 +78,15 @@ class Budget:
     per_gpu_free: tuple[int, ...]
     first_gpu_handicap: int
     safety_margin: int
+    # Side-Channel-Reserven (TTS/VLM) pro GPU in MiB, GPU-Reihenfolge wie
+    # ``per_gpu_free``. Bei der PLANUNG sind sie bereits aus dem freien
+    # VRAM herausgerechnet (gpus.free_mb wurde vor build_budget reduziert)
+    # — bei den PROBE-MESSUNGEN aber nicht: Die Side-Channels sind während
+    # der Probes per Vertrag entladen, das physisch gemessene "frei"
+    # enthält ihren Platz also noch. verify() zieht diesen Vektor von den
+    # Messwerten ab, damit Fits-Check und Refine dieselbe Wahrheit sehen
+    # wie die Planung. () = keine Reserven (Basis-Kalibrierung).
+    gpu_reserve_mb: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

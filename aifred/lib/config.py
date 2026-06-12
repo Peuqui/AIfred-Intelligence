@@ -958,6 +958,15 @@ LLAMACPP_VISION_VRAM_RESERVE = 768  # MB (~682 measured + margin)
 # before subtracting from the LLM's VRAM budget. Covers Ollama
 # compute-graph reallocation spikes and small drift between
 # calibration-time measurement and production-time peak.
+# Bewusst knapp (2026-06-12 geprüft): Der größte Varianz-Treiber —
+# abweichendes num_ctx des auslösenden Calls — ist seit dem Clamp in
+# analyze_sequence eliminiert; die gemessene Rest-Streuung der Ollama-
+# Allokation liegt bei ~100 MB (4B: 6,8 vs. 6,9 GB). Ein zu knapper
+# Puffer ist außerdem detektierbar statt fatal (VLM lädt degradiert →
+# langsam, sichtbar via /api/ps und calibration.log) — jedes MB mehr
+# wäre dauerhaft verlorenes Kontextfenster. Nach einem Ollama-Upgrade
+# den Stress-Prewarm neu messen lassen (vlm_vram_cache.json löschen),
+# die Peaks können sich versionsbedingt verschieben.
 LLAMACPP_VLM_HEADROOM_MB = 500
 
 # Extra headroom added on top of the stress-burn-in-measured TTS peak
