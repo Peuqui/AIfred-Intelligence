@@ -506,11 +506,25 @@ class VisionPlugin:
             keep_alive: Any = -1 if _vision_mode() == "live" else str(
                 vlm_cfg.get("keep_alive", DEFAULT_KEEP_ALIVE)
             )
+            # Modellwahl: Kann die aktuell effektive Haupt-LLM-Variante nativ
+            # sehen (--mmproj in der llama-swap-Config, SSOT model_has_mmproj),
+            # beschreibt SIE die Bilder — beste Qualität, Modell ist ohnehin
+            # geladen, Ergebnis bleibt wie bisher reiner Text in der History.
+            # Sonst wie gehabt das Side-Channel-VLM (Ollama) — das weiterhin
+            # exklusiv die Überwachungs-Pipeline (Watcher/Alerts) bedient.
+            vlm_model = str(vlm_cfg.get("model", DEFAULT_MODEL))
+            from ....lib.settings import load_settings as _global_settings
+            if (_global_settings() or {}).get("backend_type") == "llamacpp":
+                from ....lib.config import get_effective_model_from_settings
+                from ....lib.vision_utils import model_has_mmproj
+                main_model = get_effective_model_from_settings("aifred")
+                if main_model and model_has_mmproj(main_model):
+                    vlm_model = main_model
             try:
                 result = await analyze_sequence(
                     frames,
                     actual_prompt,
-                    model=str(vlm_cfg.get("model", DEFAULT_MODEL)),
+                    model=vlm_model,
                     num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
                     keep_alive=keep_alive,
                     host=vlm_cfg.get("host"),
