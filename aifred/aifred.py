@@ -742,6 +742,37 @@ console.log('✂️ Crop handler loaded');
 })();
 """
 
+    # Lightbox für Content-Bilder: in der Bubble verkleinert (CSS), Klick
+    # öffnet die VOLLE Auflösung als Overlay (Klick/Escape schließt).
+    # Greift nur auf /_upload/-Bilder (Kamera-Fotos, Uploads, Crops) —
+    # Emojis/Icons bleiben unberührt. window-Flag macht den Listener
+    # idempotent gegen React-Remounts (gleiche Falle wie beim custom_js).
+    lightbox_js = """
+(function() {
+    if (window.__aifredLightbox) return;
+    window.__aifredLightbox = true;
+    var st = document.createElement('style');
+    st.textContent = 'img[src*="/_upload/"]{max-height:320px;max-width:100%;width:auto;object-fit:contain;cursor:zoom-in;border-radius:8px;}';
+    document.head.appendChild(st);
+    document.addEventListener('click', function(e) {
+        var img = e.target.closest && e.target.closest('img[src*="/_upload/"]');
+        if (!img || img.closest('#aifred-lightbox')) return;
+        var ov = document.createElement('div');
+        ov.id = 'aifred-lightbox';
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;z-index:10000;cursor:zoom-out;';
+        var big = document.createElement('img');
+        big.src = img.src;
+        big.style.cssText = 'max-width:96vw;max-height:96vh;object-fit:contain;cursor:zoom-out;border-radius:6px;box-shadow:0 0 40px rgba(0,0,0,0.8);';
+        ov.appendChild(big);
+        function esc(ev) { if (ev.key === 'Escape') close(); }
+        function close() { ov.remove(); document.removeEventListener('keydown', esc); }
+        ov.addEventListener('click', close);
+        document.addEventListener('keydown', esc);
+        document.body.appendChild(ov);
+    });
+})();
+"""
+
     return rx.box(
         # Sperrt die UI, solange der Reflex-State-Socket (/_event/) getrennt
         # ist — z.B. direkt nach einem systemctl-Restart, wenn granian noch
@@ -754,6 +785,7 @@ console.log('✂️ Crop handler loaded');
         rx.script(autoscroll_js),
         rx.script(paste_handler_js),
         rx.script(crop_js),
+        rx.script(lightbox_js),
 
         # custom.js wird über den idempotenten Loader genau einmal geladen
         # (nicht via rx.script(src=…), das React bei jedem Remount neu
