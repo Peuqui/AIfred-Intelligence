@@ -732,8 +732,18 @@ class VisionWatcher:
         # Save, Face und Alert.
         frame = await asyncio.to_thread(self._stamp_frame, frame)
         frame_path = ""
+        zoom_frame_path = ""
         if config.save_event_frames:
             frame_path = await asyncio.to_thread(self._save_frame, frame)
+        # Dual-Lens: für JEDES Event ein frisches Zoom-Standbild holen. Die
+        # Kamera triggert im Erkennungs-Moment — das Weitwinkel-latest-Frame
+        # verpasst das Subjekt oft, das Zoom-Standbild zeigt es (und liefert
+        # mehr Pixel fürs Gesicht). Separat gestempelt + gespeichert; der Crop
+        # unten kommt aus dem ungestempelten face_frame.
+        face_frame = await self._edge_ai_face_frame(frame, config, ai_client)
+        if config.save_event_frames and face_frame is not frame:
+            stamped_zoom = await asyncio.to_thread(self._stamp_frame, face_frame)
+            zoom_frame_path = await asyncio.to_thread(self._save_frame, stamped_zoom)
         cid = self._cluster_id_for(frame)
         ts = frame.timestamp
         for cls in classes:
@@ -743,7 +753,7 @@ class VisionWatcher:
                 timestamp=ts,
                 frame_path=frame_path,
                 confidence=1.0,
-                classification={"detector": "edge_ai"},
+                classification={"detector": "edge_ai", "zoom_frame_path": zoom_frame_path},
                 metadata={"trigger": "edge_ai"},
                 cluster_id=cid,
             )
@@ -759,21 +769,23 @@ class VisionWatcher:
         # Das person-EVENT bleibt erhalten (Chronik), nur der ALERT entfällt.
         face_found = False
         if "person" in classes and config.run_face_detect_on_motion:
-            face_frame = await self._edge_ai_face_frame(frame, config, ai_client)
             face_found = await self._run_face_detection(
                 face_frame, config, motion_event_id=None,
-                frame_path=frame_path, trigger="edge_ai",
+                frame_path=frame_path, zoom_frame_path=zoom_frame_path,
+                trigger="edge_ai",
             )
         if "person" in classes and not face_found:
             await emit_person_alert(
-                source_id=source_id, frame_path=frame_path, cluster_id=cid,
+                source_id=source_id, frame_path=frame_path,
+                zoom_frame_path=zoom_frame_path, cluster_id=cid,
                 count=1, timestamp=ts, store=self._store,
             )
         for cls in ("vehicle", "animal"):
             if cls in classes:
                 await emit_object_alert(
                     source_id=source_id, object_type=cls, frame_path=frame_path,
-                    cluster_id=cid, timestamp=ts, store=self._store,
+                    zoom_frame_path=zoom_frame_path, cluster_id=cid,
+                    timestamp=ts, store=self._store,
                 )
 
     async def _edge_ai_face_frame(
@@ -864,6 +876,7 @@ class VisionWatcher:
         *,
         motion_event_id: int | None = None,
         frame_path: str = "",
+        zoom_frame_path: str = "",
         trigger: str | None = None,
     ) -> bool:
         """Eigentliche Face-Detection + Recognition + Event-Publishing.
@@ -930,6 +943,7 @@ class VisionWatcher:
                     "detection_score": det.detection_score,
                     "bbox": list(det.bbox),
                     "crop_url": crop_url,
+                    "zoom_frame_path": zoom_frame_path,
                 },
                 metadata={
                     "parent_event_id": motion_event_id,
@@ -965,6 +979,8 @@ class VisionWatcher:
                 source_id=source_id,
                 event_type=event_type,
                 frame_path=frame_path,
+                zoom_frame_path=zoom_frame_path,
+                crop_url=crop_url,
                 cluster_id=cid,
                 name=match.name or "",
                 timestamp=frame.timestamp,
