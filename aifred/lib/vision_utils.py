@@ -192,16 +192,7 @@ def is_vision_model_sync(model_name: str) -> bool:
     Returns:
         True if the model supports vision input
     """
-    if model_has_mmproj(model_name):
-        return True
-    vision_markers = [
-        'vision', 'vl', 'visual', 'vlm',
-        'qwen2-vl', 'qwen3-vl', 'llava', 'pixtral',
-        'deepseek-ocr', 'ocr', 'internvl', 'cogvlm',
-        'sam', 'minicpm-v'  # Segment Anything Model, MiniCPM-V
-    ]
-    model_lower = model_name.lower()
-    return any(marker in model_lower for marker in vision_markers)
+    return model_has_mmproj(model_name) or _is_vision_model_by_name(model_name)
 
 
 async def is_vision_model(state, model_name: str) -> bool:
@@ -466,7 +457,8 @@ def _is_vision_model_by_name(model_name: str) -> bool:
     is_vision = any(marker in model_lower for marker in vision_markers)
 
     if is_vision:
-        logger.info(f"⚠️ Vision model detected by name pattern (fallback): {model_name}")
+        # debug, not info: runs per-model in dropdown filter loops
+        logger.debug(f"Vision model detected by name pattern: {model_name}")
 
     return is_vision
 
