@@ -60,6 +60,8 @@ def _resolve_edge_ai(
     host = str(cam_cfg.get("host", "")).strip()
     if not host:
         return None
+    from .vision_watcher import EDGE_AI_POLL_INTERVAL_DEFAULT, EDGE_AI_SETTLE_DEFAULT
+
     watch = plugin_settings.get("watch") or {}
     face_channel = cam_cfg.get("face_channel")
     return {
@@ -67,11 +69,13 @@ def _resolve_edge_ai(
         "api_port": int(cam_cfg.get("api_port", 443)),
         "cred": str(cam_cfg.get("cred", "")).strip(),
         "channel": int(cam_cfg.get("channel", 0)),
-        "poll_interval_sec": float(watch.get("edge_ai_poll_interval_sec", 1.5)),
+        "poll_interval_sec": float(
+            watch.get("edge_ai_poll_interval_sec", EDGE_AI_POLL_INTERVAL_DEFAULT)
+        ),
         # Wartezeit nach der Erkennung, bevor das Frame gezogen wird — gibt
         # dem schwenkenden PTZ-Kopf Zeit, das Subjekt zu zentrieren/zoomen,
         # damit Gesicht + VLM ein scharfes, mittiges Bild bekommen.
-        "settle_sec": float(watch.get("edge_ai_settle_sec", 1.5)),
+        "settle_sec": float(watch.get("edge_ai_settle_sec", EDGE_AI_SETTLE_DEFAULT)),
         # Dual-Lens: Kanal des Zoom-/Tele-Objektivs für die Gesichts-
         # erkennung (mehr Pixel im Gesicht). None = Gesicht auf dem
         # Weitwinkel-Frame (kein separater Zoom-Snap).
