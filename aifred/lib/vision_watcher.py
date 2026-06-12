@@ -727,25 +727,27 @@ class VisionWatcher:
         Gesicht wird (Dual-Lens) das Zoom-Objektiv genutzt, sonst das
         Weitwinkel-Frame."""
         source_id = frame.source_id
-        frame = self._blackout_frame(frame)
-        # Wie im Motion-Pfad: einmal stempeln, dann fließt dasselbe Bild in
-        # Save, Face und Alert.
-        frame = await asyncio.to_thread(self._stamp_frame, frame)
+        # Synchronisierter Dual-Lens-Snap: Wide + Zoom FRISCH und parallel mit
+        # EINEM gemeinsamen Zeitstempel holen. Das stale RTSP-latest-Wide
+        # verpasst das Subjekt oft (zeitversetzt), während der Zoom frisch war —
+        # darum stimmten Wide und Crop nie überein. Ein paralleler Snap
+        # garantiert, dass beide Ansichten denselben Augenblick treffen.
+        wide_frame, face_frame = await self._edge_ai_synced_frames(
+            frame, config, ai_client
+        )
+        wide_frame = self._blackout_frame(wide_frame)
+        wide_frame = await asyncio.to_thread(self._stamp_frame, wide_frame)
         frame_path = ""
         zoom_frame_path = ""
         if config.save_event_frames:
-            frame_path = await asyncio.to_thread(self._save_frame, frame)
-        # Dual-Lens: für JEDES Event ein frisches Zoom-Standbild holen. Die
-        # Kamera triggert im Erkennungs-Moment — das Weitwinkel-latest-Frame
-        # verpasst das Subjekt oft, das Zoom-Standbild zeigt es (und liefert
-        # mehr Pixel fürs Gesicht). Separat gestempelt + gespeichert; der Crop
-        # unten kommt aus dem ungestempelten face_frame.
-        face_frame = await self._edge_ai_face_frame(frame, config, ai_client)
-        if config.save_event_frames and face_frame is not frame:
-            stamped_zoom = await asyncio.to_thread(self._stamp_frame, face_frame)
-            zoom_frame_path = await asyncio.to_thread(self._save_frame, stamped_zoom)
-        cid = self._cluster_id_for(frame)
-        ts = frame.timestamp
+            frame_path = await asyncio.to_thread(self._save_frame, wide_frame)
+            # Zoom separat stempeln + speichern; der Crop unten kommt aus dem
+            # ungestempelten face_frame (sauberes Gesicht).
+            if face_frame is not wide_frame:
+                stamped_zoom = await asyncio.to_thread(self._stamp_frame, face_frame)
+                zoom_frame_path = await asyncio.to_thread(self._save_frame, stamped_zoom)
+        cid = self._cluster_id_for(wide_frame)
+        ts = wide_frame.timestamp
         for cls in classes:
             self._store.add_event(
                 source_id=source_id,
@@ -788,31 +790,57 @@ class VisionWatcher:
                     timestamp=ts, store=self._store,
                 )
 
-    async def _edge_ai_face_frame(
-        self, wide_frame: "Frame", config: WatchConfig, ai_client: Any
-    ) -> "Frame":
-        """Frame für die Gesichtserkennung wählen. Dual-Lens: ein frisches
-        Zoom-Standbild (mehr Pixel im Gesicht), sonst das Weitwinkel-Frame.
-        Fällt bei fehlendem ``face_channel``/Client oder Snap-Fehler sauber
-        aufs Weitwinkel zurück — die Erkennung bricht nie ab."""
-        ec = config.edge_ai or {}
-        face_ch = ec.get("face_channel")
-        if ai_client is None or face_ch is None or int(face_ch) < 0:
-            return wide_frame
-        try:
-            jpeg = await ai_client.snap(int(face_ch))
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "edge-ai zoom snap failed for %s: %s — using wide frame",
-                wide_frame.source_id, e,
-            )
-            return wide_frame
+    async def _edge_ai_synced_frames(
+        self, base_frame: "Frame", config: WatchConfig, ai_client: Any
+    ) -> tuple["Frame", "Frame"]:
+        """Wide- + Zoom-Objektiv FRISCH und parallel snappen, mit EINEM
+        gemeinsamen Zeitstempel — so treffen beide Ansichten denselben Moment
+        (Dual-Lens). Gibt ``(wide_frame, zoom_frame)`` zurück.
+
+        Best-effort: Bei fehlendem Client fällt alles aufs übergebene Frame
+        zurück; schlägt der Wide-Snap fehl, bleibt das übergebene Frame; ohne
+        ``face_channel`` (oder bei Zoom-Snap-Fehler) ist der Zoom == Wide. Die
+        Pipeline bricht nie ab."""
         from dataclasses import replace
-        return replace(
-            wide_frame,
-            image_bytes=jpeg,
-            metadata={**wide_frame.metadata, "lens": "zoom", "face_channel": int(face_ch)},
+
+        if ai_client is None:
+            return base_frame, base_frame
+        ec = config.edge_ai or {}
+        wide_ch = int(ec.get("channel", 0))
+        face_ch = ec.get("face_channel")
+        has_zoom = face_ch is not None and int(face_ch) >= 0
+
+        snaps: list[Any] = [ai_client.snap(wide_ch)]
+        if has_zoom:
+            snaps.append(ai_client.snap(int(face_ch)))
+        results = await asyncio.gather(*snaps, return_exceptions=True)
+        # Gemeinsamer Zeitstempel → beide Bilder gelten explizit als "derselbe
+        # Moment", auch in Dateinamen + Event.
+        ts = datetime.now()
+
+        def _jpeg(r: Any) -> bytes | None:
+            if isinstance(r, BaseException):
+                logger.warning(
+                    "edge-ai snap failed for %s: %s", base_frame.source_id, r
+                )
+                return None
+            return bytes(r) if isinstance(r, (bytes, bytearray)) and len(r) >= 1000 else None
+
+        wide_jpeg = _jpeg(results[0])
+        wide_frame = (
+            replace(base_frame, image_bytes=wide_jpeg, timestamp=ts)
+            if wide_jpeg else base_frame
         )
+        zoom_frame = wide_frame
+        if has_zoom and len(results) > 1:
+            zoom_jpeg = _jpeg(results[1])
+            if zoom_jpeg:
+                zoom_frame = replace(
+                    base_frame, image_bytes=zoom_jpeg, timestamp=ts,
+                    metadata={**base_frame.metadata, "lens": "zoom",
+                              "face_channel": int(face_ch)},
+                )
+        return wide_frame, zoom_frame
 
     async def _run_person_detection(
         self,
