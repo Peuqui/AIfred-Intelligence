@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import PluginContext, load_tool_description
 
 
 @dataclass
@@ -83,10 +83,7 @@ class CalculatorPlugin:
                 name="calculate",
                 tier=TIER_READONLY,
                 description=(
-                    "Evaluate a mathematical expression and return the exact result. "
-                    "Use this for any calculation instead of doing mental math. "
-                    "Supports: +, -, *, /, //, %, ** (power). "
-                    "Examples: '17.5 * 1.19', '2**10', '4832 * 0.17', '(100 - 15) / 3'."
+                    load_tool_description(__file__, "calculate")
                 ),
                 parameters={
                     "type": "object",

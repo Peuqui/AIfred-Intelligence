@@ -11,7 +11,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from ....lib.plugin_base import BaseChannel, CredentialField
+from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 
@@ -243,7 +243,7 @@ class TelegramChannel(BaseChannel):
             Tool(
                 name="telegram_send",
                 tier=TIER_COMMUNICATE,
-                description="Send a message to a Telegram chat. Use this when the user asks to send a message via Telegram.",
+                description=load_tool_description(__file__, "telegram_send"),
                 parameters={
                     "type": "object",
                     "properties": {

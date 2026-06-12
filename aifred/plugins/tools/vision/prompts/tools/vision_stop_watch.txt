@@ -1,0 +1,1 @@
+Stop a running watch task on a source. No-op if nothing was running.

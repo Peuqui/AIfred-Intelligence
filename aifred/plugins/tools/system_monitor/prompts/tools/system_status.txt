@@ -1,0 +1,1 @@
+Get system hardware status: CPU load, RAM usage, GPU VRAM and temperature, disk space, uptime. Use components parameter to query specific parts (e.g. 'gpu', 'ram,cpu', 'disk') or 'all' for everything.

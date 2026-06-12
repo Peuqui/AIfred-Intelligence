@@ -1,0 +1,1 @@
+Start a continuous background watch task on a source. The task captures frames at the given fps, detects motion, and (if enabled) runs face recognition against enrolled persons. Events are logged in the vision DB and can be queried via `vision_query_events`.

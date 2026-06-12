@@ -1,0 +1,1 @@
+Read a file from the documents directory. For PDFs, specify pages (e.g. '1-5'). For text files, specify line_start/line_end to read a portion. IMPORTANT: For large files (>100 KB), ALWAYS use line_start/line_end to read in chunks!

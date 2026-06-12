@@ -1,0 +1,1 @@
+List all registered image sources (webcams, IP-cameras, etc.) with their availability, resolution and configured context.

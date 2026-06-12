@@ -31,16 +31,17 @@ def load_plugin_instructions(
     feingranular: das Modell sieht nur die Anleitung der Tools, die es auch
     aufrufen darf (sonst hält es ein nicht-freigeschaltetes Tool für nutzbar).
 
-    Struktur ``<plugin_dir>/prompts/<de|en>/<requirement>.md``:
+    Struktur ``<plugin_dir>/prompts/<de|en>/<requirement>.txt`` (durchgängig
+    ``.txt`` wie im globalen ``prompts/``-Baum — Markdown im INHALT ist ok):
       * Der Dateiname kodiert die benötigten Tools, mit ``+`` verknüpft (UND):
-          ``vision_snapshot.md``                 → nur wenn vision_snapshot erlaubt
-          ``vision_snapshot+vision_analyze.md``  → nur wenn BEIDE erlaubt (Workflow-Layer)
-      * ``_intro.md`` → Plugin-Übergreifendes, wird vorangestellt, sobald
+          ``vision_snapshot.txt``                 → nur wenn vision_snapshot erlaubt
+          ``vision_snapshot+vision_analyze.txt``  → nur wenn BEIDE erlaubt (Workflow-Layer)
+      * ``_intro.txt`` → Plugin-Übergreifendes, wird vorangestellt, sobald
         mindestens ein Tool-Fragment greift.
       * ``granted_tools=None`` → keine Whitelist → alle Fragmente.
 
     Fallback: Existiert (noch) kein per-Tool-Ordner, aber eine flache
-    ``<de|en>.md``, wird die als Ganzes geliefert — plugin-weit gegated über die
+    ``<de|en>.txt``, wird die als Ganzes geliefert — plugin-weit gegated über die
     Tool-Namen des Plugins (Übergangslösung für noch nicht aufgesplittete
     Plugins). Leerer String, wenn der Agent kein Tool des Plugins hat.
     """
@@ -56,7 +57,7 @@ def load_plugin_instructions(
     if per_tool_dir.is_dir():
         intro_text = ""
         fragments: list[str] = []
-        for f in sorted(per_tool_dir.glob("*.md")):
+        for f in sorted(per_tool_dir.glob("*.txt")):
             if f.stem == "_intro":
                 intro_text = f.read_text(encoding="utf-8").strip()
                 continue
@@ -78,7 +79,7 @@ def load_plugin_instructions(
         return "\n\n".join(out)  # "" wenn nichts greift
 
     # Übergangs-Fallback: flache Plugin-Datei, plugin-weit gegated.
-    flat = prompts_dir / f"{lang_code}.md"
+    flat = prompts_dir / f"{lang_code}.txt"
     if not flat.exists():
         return ""
     if granted_tools is not None:
@@ -86,6 +87,38 @@ def load_plugin_instructions(
         if names and not (names & granted_tools):
             return ""
     return flat.read_text(encoding="utf-8").strip()
+
+
+def load_tool_description(plugin_file: "str | Path", tool_name: str) -> str:
+    """Tool-Description aus ``<plugin_dir>/prompts/tools/<tool_name>.txt``.
+
+    Descriptions sind Prompt-Engineering-Material — sie steuern, WANN und
+    WIE das Modell ein Tool ruft — und leben deshalb als editierbare
+    Textdatei beim Plugin statt hartcodiert im ``Tool(...)``-Aufruf
+    (gleiche Grundregel wie bei :func:`load_plugin_instructions`). Nur
+    Englisch: Empfänger ist das Modell, nicht der User. Wird bei jedem
+    Toolkit-Build frisch gelesen — Datei editieren + nächster Turn reicht.
+
+    Fail-loud: fehlende oder leere Datei → RuntimeError beim Toolkit-Build.
+    Bewusst KEIN Fallback auf einen eingebauten Text — sonst gäbe es zwei
+    Wahrheiten.
+
+    Args:
+        plugin_file: ``__file__`` des Plugin-Moduls.
+        tool_name: Tool-Name = Dateiname ohne ``.txt``.
+    """
+    from pathlib import Path
+    base = Path(plugin_file)
+    if base.is_file():
+        base = base.parent
+    path = base / "prompts" / "tools" / f"{tool_name}.txt"
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        raise RuntimeError(f"tool description file missing: {path}") from e
+    if not text:
+        raise RuntimeError(f"tool description file is empty: {path}")
+    return text
 
 
 _plugin_tool_names_cache: "dict[str, set[str]]" = {}

@@ -1,0 +1,1 @@
+Return current playback state per target (running/playing/paused, position, etc.). Without 'target': returns all registered targets' status. With 'target': only that one.

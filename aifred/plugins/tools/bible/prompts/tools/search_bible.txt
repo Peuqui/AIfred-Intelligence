@@ -1,0 +1,1 @@
+Search the Bible. Two modes, chosen automatically from the query: (1) a named passage — 'Psalm 5', 'Joh 3,16', '1. Mose 1,1-5' — returns the exact verse text; (2) any other (topical) query runs a thematic search and returns related verses. Use this for anything Bible-related; use search_documents for other documents.

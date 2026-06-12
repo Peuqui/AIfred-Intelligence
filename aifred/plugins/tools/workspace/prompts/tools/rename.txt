@@ -1,0 +1,1 @@
+Rename a file or folder in the documents directory. If the file is indexed in ChromaDB, the index metadata is updated to keep the indexed document searchable under its new name (no re-indexing required).

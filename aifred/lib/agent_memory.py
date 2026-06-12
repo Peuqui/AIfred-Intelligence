@@ -23,7 +23,7 @@ from .config import (
 )
 from .function_calling import Tool, ToolKit
 from .logging_utils import log_message
-from .prompt_loader import load_tool_description
+from .prompt_loader import load_shared_tool_description
 
 # Reuse embedding config from vector_cache (same model, same Ollama instance)
 OLLAMA_EMBEDDING_MODEL = "bge-m3"
@@ -262,7 +262,7 @@ class AgentMemory:
             Tool(
                 name="store_memory",
                 tier=TIER_WRITE_DATA,
-                description=load_tool_description("store_memory_tool.txt"),
+                description=load_shared_tool_description("store_memory_tool.txt"),
                 parameters={
                     "type": "object",
                     "properties": {

@@ -1,0 +1,1 @@
+Liest den Inhalt einer Drive-Datei. Google Docs werden als Klartext exportiert, Sheets als CSV. Der Inhalt wird auf 50.000 Zeichen begrenzt.

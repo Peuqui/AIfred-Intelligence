@@ -10,7 +10,14 @@ from typing import Any
 import httpx
 
 from .....lib.function_calling import Tool
+from pathlib import Path
+
+from .....lib.plugin_base import load_tool_description
 from .....lib.security import TIER_READONLY, TIER_WRITE_DATA
+
+# Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
+# nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
+_PLUGIN_DIR = str(Path(__file__).resolve().parents[1])
 
 logger = logging.getLogger(__name__)
 
@@ -265,8 +272,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         Tool(
             name="google_drive_list_files",
             description=(
-                "Listet Dateien im Google Drive auf. "
-                "Optional nach Ordner filtern via folder_id."
+                load_tool_description(_PLUGIN_DIR, "google_drive_list_files")
             ),
             parameters={
                 "type": "object",
@@ -283,9 +289,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         Tool(
             name="google_drive_search",
             description=(
-                "Sucht Dateien im Google Drive. "
-                "Einfache Stichwortsuche (z.B. 'Projektplan') oder Drive Query Syntax "
-                "(z.B. \"name contains 'Bericht'\")."
+                load_tool_description(_PLUGIN_DIR, "google_drive_search")
             ),
             parameters={
                 "type": "object",
@@ -301,9 +305,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         Tool(
             name="google_drive_get_file",
             description=(
-                "Liest den Inhalt einer Drive-Datei. "
-                "Google Docs werden als Klartext exportiert, Sheets als CSV. "
-                "Der Inhalt wird auf 50.000 Zeichen begrenzt."
+                load_tool_description(_PLUGIN_DIR, "google_drive_get_file")
             ),
             parameters={
                 "type": "object",
@@ -317,7 +319,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_drive_create_file",
-            description="Erstellt eine neue Textdatei im Google Drive und befüllt sie mit Inhalt.",
+            description=load_tool_description(_PLUGIN_DIR, "google_drive_create_file"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -333,7 +335,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_drive_update_file",
-            description="Überschreibt den Inhalt einer bestehenden Drive-Datei.",
+            description=load_tool_description(_PLUGIN_DIR, "google_drive_update_file"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -348,7 +350,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_drive_delete_file",
-            description="Löscht eine Datei dauerhaft aus dem Google Drive.",
+            description=load_tool_description(_PLUGIN_DIR, "google_drive_delete_file"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -361,7 +363,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_drive_create_folder",
-            description="Erstellt einen neuen Ordner im Google Drive.",
+            description=load_tool_description(_PLUGIN_DIR, "google_drive_create_folder"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -375,7 +377,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_drive_move_file",
-            description="Verschiebt eine Datei in einen anderen Ordner.",
+            description=load_tool_description(_PLUGIN_DIR, "google_drive_move_file"),
             parameters={
                 "type": "object",
                 "properties": {

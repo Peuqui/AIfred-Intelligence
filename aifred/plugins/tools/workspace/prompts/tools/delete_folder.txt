@@ -1,0 +1,1 @@
+Delete a folder from the documents directory. By default the folder must be empty; pass recursive=true to wipe the entire tree (use sparingly — this is destructive).

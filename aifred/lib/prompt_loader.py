@@ -286,8 +286,11 @@ def get_language() -> str:
     return _current_language
 
 
-def load_tool_description(filename: str) -> str:
-    """Load a tool description from prompts/shared/.
+def load_shared_tool_description(filename: str) -> str:
+    """Load a tool description from prompts/shared/ — für Toolsets, die in
+    aifred/lib definiert sind (research, sandbox, memory) und daher keinen
+    Plugin-Ordner haben. Plugin-eigene Tools nutzen stattdessen
+    plugin_base.load_tool_description (plugin-lokal).
 
     Args:
         filename: File name (e.g. 'email_tool.txt')

@@ -9,7 +9,14 @@ from typing import Any
 import httpx
 
 from .....lib.function_calling import Tool
+from pathlib import Path
+
+from .....lib.plugin_base import load_tool_description
 from .....lib.security import TIER_READONLY, TIER_WRITE_DATA
+
+# Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
+# nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
+_PLUGIN_DIR = str(Path(__file__).resolve().parents[1])
 
 logger = logging.getLogger(__name__)
 
@@ -166,8 +173,7 @@ def get_calendar_tools(lang: str = "de") -> list[Tool]:
         Tool(
             name="google_calendar_list_events",
             description=(
-                "Listet Google-Kalender-Termine in einem Zeitraum auf. "
-                "start und end müssen RFC 3339 sein, z.B. 2026-04-22T00:00:00Z."
+                load_tool_description(_PLUGIN_DIR, "google_calendar_list_events")
             ),
             parameters={
                 "type": "object",
@@ -184,7 +190,7 @@ def get_calendar_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_calendar_create_event",
-            description="Erstellt einen neuen Termin im Google Kalender.",
+            description=load_tool_description(_PLUGIN_DIR, "google_calendar_create_event"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -203,7 +209,7 @@ def get_calendar_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_calendar_update_event",
-            description="Ändert einen bestehenden Termin. Nur angegebene Felder werden überschrieben.",
+            description=load_tool_description(_PLUGIN_DIR, "google_calendar_update_event"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -222,7 +228,7 @@ def get_calendar_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_calendar_delete_event",
-            description="Löscht einen Termin aus dem Google Kalender.",
+            description=load_tool_description(_PLUGIN_DIR, "google_calendar_delete_event"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -236,7 +242,7 @@ def get_calendar_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_calendar_list_calendars",
-            description="Listet alle verfügbaren Google-Kalender des Nutzers auf.",
+            description=load_tool_description(_PLUGIN_DIR, "google_calendar_list_calendars"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=list_calendars,
             tier=TIER_READONLY,

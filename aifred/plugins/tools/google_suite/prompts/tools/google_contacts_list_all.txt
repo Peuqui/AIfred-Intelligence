@@ -1,0 +1,1 @@
+Alle Google-Kontakte abrufen (paginiert). Nützlich zum Durchsuchen oder Aufräumen.

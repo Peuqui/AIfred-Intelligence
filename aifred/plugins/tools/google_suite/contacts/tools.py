@@ -8,7 +8,14 @@ import logging
 import httpx
 
 from .....lib.function_calling import Tool
+from pathlib import Path
+
+from .....lib.plugin_base import load_tool_description
 from .....lib.security import TIER_READONLY, TIER_WRITE_DATA
+
+# Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
+# nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
+_PLUGIN_DIR = str(Path(__file__).resolve().parents[1])
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +310,7 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
     return [
         Tool(
             name="google_contacts_list_all",
-            description="Alle Google-Kontakte abrufen (paginiert). Nützlich zum Durchsuchen oder Aufräumen.",
+            description=load_tool_description(_PLUGIN_DIR, "google_contacts_list_all"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -316,14 +323,14 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_contacts_list_groups",
-            description="Alle Kontaktgruppen/Labels auflisten.",
+            description=load_tool_description(_PLUGIN_DIR, "google_contacts_list_groups"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=list_groups,
             tier=TIER_READONLY,
         ),
         Tool(
             name="google_contacts_list_by_group",
-            description="Alle Kontakte einer bestimmten Gruppe/eines Labels abrufen.",
+            description=load_tool_description(_PLUGIN_DIR, "google_contacts_list_by_group"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -338,8 +345,7 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
         Tool(
             name="google_contacts_search",
             description=(
-                "Sucht Google-Kontakte nach Name oder E-Mail-Adresse. "
-                "Nützlich um Empfänger für E-Mails/Nachrichten aufzulösen."
+                load_tool_description(_PLUGIN_DIR, "google_contacts_search")
             ),
             parameters={
                 "type": "object",
@@ -354,7 +360,7 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_contacts_create",
-            description="Legt einen neuen Kontakt in Google Contacts an.",
+            description=load_tool_description(_PLUGIN_DIR, "google_contacts_create"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -372,7 +378,7 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_contacts_update",
-            description="Aktualisiert einen bestehenden Kontakt. Nur gesetzte Felder werden überschrieben.",
+            description=load_tool_description(_PLUGIN_DIR, "google_contacts_update"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -391,7 +397,7 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_contacts_delete",
-            description="Löscht einen Kontakt. resource_name kommt aus google_contacts_search.",
+            description=load_tool_description(_PLUGIN_DIR, "google_contacts_delete"),
             parameters={
                 "type": "object",
                 "properties": {

@@ -1,0 +1,1 @@
+Re-scan the system for newly attached/detached image sources (e.g. a webcam that was just plugged in). Use after the user reports having connected hardware.

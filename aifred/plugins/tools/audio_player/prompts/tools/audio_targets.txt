@@ -1,0 +1,1 @@
+List available audio output targets (local speakers, browser tab, FreeEcho.2 speakers, etc.).

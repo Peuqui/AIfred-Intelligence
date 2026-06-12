@@ -17,7 +17,7 @@ from ....lib.config import (
 from ....lib import file_manager as fm
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
 
@@ -77,8 +77,7 @@ class WorkspacePlugin:
             name="list_files",
             tier=TIER_READONLY,
             description=(
-                "List files and folders in the user's documents directory. "
-                "Shows filename, type, size, and extension for each entry."
+                load_tool_description(__file__, "list_files")
             ),
             parameters={
                 "type": "object",
@@ -178,10 +177,7 @@ class WorkspacePlugin:
             name="read_file",
             tier=TIER_READONLY,
             description=(
-                "Read a file from the documents directory. "
-                "For PDFs, specify pages (e.g. '1-5'). "
-                "For text files, specify line_start/line_end to read a portion. "
-                "IMPORTANT: For large files (>100 KB), ALWAYS use line_start/line_end to read in chunks!"
+                load_tool_description(__file__, "read_file")
             ),
             parameters={
                 "type": "object",
@@ -266,9 +262,7 @@ class WorkspacePlugin:
             name="write_file",
             tier=TIER_WRITE_DATA,
             description=(
-                "Write or overwrite a text file in the documents directory. "
-                "Only text formats allowed: .txt, .md, .csv, .json, .xml, .html. "
-                "Use this to create new documents or edit existing ones."
+                load_tool_description(__file__, "write_file")
             ),
             parameters={
                 "type": "object",
@@ -301,7 +295,7 @@ class WorkspacePlugin:
         tools.append(Tool(
             name="create_folder",
             tier=TIER_WRITE_DATA,
-            description="Create a subfolder in the documents directory.",
+            description=load_tool_description(__file__, "create_folder"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -334,7 +328,7 @@ class WorkspacePlugin:
         tools.append(Tool(
             name="delete_file",
             tier=TIER_WRITE_SYSTEM,
-            description="Delete a file from the documents directory. Cannot delete folders.",
+            description=load_tool_description(__file__, "delete_file"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -367,9 +361,7 @@ class WorkspacePlugin:
             name="delete_folder",
             tier=TIER_WRITE_SYSTEM,
             description=(
-                "Delete a folder from the documents directory. By default the "
-                "folder must be empty; pass recursive=true to wipe the entire "
-                "tree (use sparingly — this is destructive)."
+                load_tool_description(__file__, "delete_folder")
             ),
             parameters={
                 "type": "object",
@@ -406,10 +398,7 @@ class WorkspacePlugin:
             name="rename",
             tier=TIER_WRITE_DATA,
             description=(
-                "Rename a file or folder in the documents directory. "
-                "If the file is indexed in ChromaDB, the index metadata "
-                "is updated to keep the indexed document searchable under "
-                "its new name (no re-indexing required)."
+                load_tool_description(__file__, "rename")
             ),
             parameters={
                 "type": "object",
@@ -461,9 +450,7 @@ class WorkspacePlugin:
             name="index_document",
             tier=TIER_WRITE_DATA,
             description=(
-                "Index a document from the documents directory into the vector database (ChromaDB). "
-                "After indexing, the document can be searched semantically with search_documents. "
-                "Supported formats: PDF, TXT, MD, CSV, DOCX, XLSX, PPTX, ODT, ODS, ODP."
+                load_tool_description(__file__, "index_document")
             ),
             parameters={
                 "type": "object",
@@ -609,27 +596,7 @@ class WorkspacePlugin:
             name="search_documents",
             tier=TIER_READONLY,
             description=(
-                "Search indexed documents semantically in the vector database. "
-                "Only finds documents that have been indexed (uploaded via UI or via index_document). "
-                "Use list_files to see all files on disk, search_documents to search indexed content. "
-                "The folder parameter restricts the search and INCLUDES all nested sub-folders: "
-                "folder='bibel' covers everything under bibel/, "
-                "folder='judaica' covers everything under judaica/. "
-                "Use list_indexed to see which folders have content. "
-                "Omitting folder searches the WHOLE store (cross-corpus) — only do this when you "
-                "genuinely don't know which corpus is relevant. "
-                "Each result carries a relevance label: 'high' / 'medium' for "
-                "similarity hits, 'context' for the neighbor chunks added around "
-                "each hit so you see the full surrounding passage. "
-                "Results are MMR-diversified by default — instead of returning "
-                "many near-duplicate chunks from one dominant document, the result "
-                "spreads across files / vector regions automatically. "
-                "PAGINATION: only paginate when the response contains a "
-                "next_page_hint — call again with the SAME query and page=2, "
-                "page=3, ... (do NOT reformulate into synonyms; reformulations "
-                "land in the same vector region and return overlapping chunks). "
-                "If the response carries a pagination_note instead, STOP — "
-                "deeper pages only hold weaker matches."
+                load_tool_description(__file__, "search_documents")
             ),
             parameters={
                 "type": "object",
@@ -685,8 +652,7 @@ class WorkspacePlugin:
             name="list_indexed",
             tier=TIER_READONLY,
             description=(
-                "List all documents that have been indexed in the vector database. "
-                "Shows filename, chunk count, and upload date."
+                load_tool_description(__file__, "list_indexed")
             ),
             parameters={"type": "object", "properties": {}},
             executor=_list_indexed,
@@ -715,9 +681,7 @@ class WorkspacePlugin:
             name="list_orphaned",
             tier=TIER_READONLY,
             description=(
-                "List documents that are still indexed in the vector database "
-                "but whose source file is no longer on disk. Useful before "
-                "calling delete_document to clean up the index."
+                load_tool_description(__file__, "list_orphaned")
             ),
             parameters={"type": "object", "properties": {}},
             executor=_list_orphaned,
@@ -737,8 +701,7 @@ class WorkspacePlugin:
             name="delete_document",
             tier=TIER_WRITE_SYSTEM,
             description=(
-                "Delete a document from the vector database index. "
-                "This removes all indexed chunks. The file on disk is also removed."
+                load_tool_description(__file__, "delete_document")
             ),
             parameters={
                 "type": "object",
@@ -794,8 +757,7 @@ class WorkspacePlugin:
             name="chromadb_stats",
             tier=TIER_READONLY,
             description=(
-                "Show all ChromaDB vector database collections with entry counts. "
-                "Use this to get an overview of all stored data: documents, research cache, agent memories."
+                load_tool_description(__file__, "chromadb_stats")
             ),
             parameters={"type": "object", "properties": {}},
             executor=_chromadb_stats,
@@ -831,9 +793,7 @@ class WorkspacePlugin:
             name="chromadb_clear",
             tier=TIER_WRITE_SYSTEM,
             description=(
-                "Clear ALL entries from a specific ChromaDB collection. "
-                "Use chromadb_stats first to see available collections and their sizes. "
-                "Common collections: 'research_cache', 'aifred_documents', 'agent_memory_<agent_id>'."
+                load_tool_description(__file__, "chromadb_clear")
             ),
             parameters={
                 "type": "object",

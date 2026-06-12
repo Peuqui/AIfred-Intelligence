@@ -466,6 +466,13 @@ SESSION_TITLE_NUM_PREDICT = 2000
 # 120 s ist grosszuegig dimensioniert fuer langsame Thinking-Modelle.
 SESSION_TITLE_TIMEOUT_SECONDS = 120.0
 
+# Heartbeat-Intervall (s) fuer lang laufende Tool-Calls: solange ein Tool
+# awaited wird (z. B. VLM-Analyse > 60 s), sendet die Pipeline alle N s einen
+# tool_progress-Tick Richtung Browser. Ohne den Tick ist die Antwort-
+# Verbindung byte-still und Proxies mit Read-Timeout (nginx-Default 60 s)
+# kappen die Leitung — der ganze Turn stirbt dann per Task-Cancel.
+TOOL_HEARTBEAT_INTERVAL_SEC = 20.0
+
 # ============================================================
 # LOOKUP-CACHE GARBAGE COLLECTION
 # ============================================================

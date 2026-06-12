@@ -1,0 +1,1 @@
+Delete a scheduled job by its ID. Use scheduler_list to find the ID first.

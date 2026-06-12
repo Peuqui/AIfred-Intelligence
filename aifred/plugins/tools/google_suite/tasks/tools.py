@@ -9,7 +9,14 @@ from typing import Any
 import httpx
 
 from .....lib.function_calling import Tool
+from pathlib import Path
+
+from .....lib.plugin_base import load_tool_description
 from .....lib.security import TIER_READONLY, TIER_WRITE_DATA
+
+# Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
+# nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
+_PLUGIN_DIR = str(Path(__file__).resolve().parents[1])
 
 logger = logging.getLogger(__name__)
 
@@ -159,14 +166,14 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
     return [
         Tool(
             name="google_tasks_list_tasklists",
-            description="Listet alle Google Task-Listen des Nutzers auf.",
+            description=load_tool_description(_PLUGIN_DIR, "google_tasks_list_tasklists"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=list_tasklists,
             tier=TIER_READONLY,
         ),
         Tool(
             name="google_tasks_list",
-            description="Aufgaben einer Task-Liste abrufen.",
+            description=load_tool_description(_PLUGIN_DIR, "google_tasks_list"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -181,7 +188,7 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_tasks_create",
-            description="Neue Aufgabe in Google Tasks erstellen.",
+            description=load_tool_description(_PLUGIN_DIR, "google_tasks_create"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -197,7 +204,7 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_tasks_update",
-            description="Aufgabe aktualisieren. Nur angegebene Felder werden geändert.",
+            description=load_tool_description(_PLUGIN_DIR, "google_tasks_update"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -215,7 +222,7 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_tasks_complete",
-            description="Aufgabe als erledigt markieren.",
+            description=load_tool_description(_PLUGIN_DIR, "google_tasks_complete"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -229,7 +236,7 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_tasks_delete",
-            description="Aufgabe aus Google Tasks löschen.",
+            description=load_tool_description(_PLUGIN_DIR, "google_tasks_delete"),
             parameters={
                 "type": "object",
                 "properties": {

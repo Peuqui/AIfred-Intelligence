@@ -23,7 +23,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import CredentialField, PluginContext
+from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description
 from ....lib.security import TIER_READONLY
 from .reference import (
     TRANSLATION_ENV_KEY,
@@ -111,12 +111,7 @@ class BiblePlugin:
                 name="search_bible",
                 tier=TIER_READONLY,
                 description=(
-                    "Search the Bible. Two modes, chosen automatically from "
-                    "the query: (1) a named passage — 'Psalm 5', 'Joh 3,16', "
-                    "'1. Mose 1,1-5' — returns the exact verse text; "
-                    "(2) any other (topical) query runs a thematic search "
-                    "and returns related verses. Use this for anything "
-                    "Bible-related; use search_documents for other documents."
+                    load_tool_description(__file__, "search_bible")
                 ),
                 parameters={
                     "type": "object",

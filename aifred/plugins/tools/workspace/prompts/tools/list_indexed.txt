@@ -1,0 +1,1 @@
+List all documents that have been indexed in the vector database. Shows filename, chunk count, and upload date.

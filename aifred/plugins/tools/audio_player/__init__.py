@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 
 _PLUGIN_DIR = Path(__file__).parent
@@ -197,20 +197,7 @@ class AudioPlayerPlugin:
             # das Tool nicht aufrufen → Voice-Steuerung wäre kaputt.
             tier=TIER_READONLY,
             description=(
-                "Play an audio item from the BEGINNING (default). The 'item' "
-                "parameter is a label-prefixed identifier (e.g. "
-                "'hoerbuecher/Tolkien_HdR.mp3' for a file in the 'hoerbuecher' "
-                "source, or just 'swr3' for an HTTP stream). Use audio_list() "
-                "to see available labels and items. "
-                "Resume from saved position: set restart=false (or use the "
-                "audio_resume tool which is dedicated for that). "
-                "Use audio_play when the user says 'play X', 'spiele X', "
-                "'starte X' (start fresh). Use audio_resume / restart=false "
-                "when the user says 'continue X', 'spiele X weiter', "
-                "'mach X weiter', 'setze X fort'. "
-                "The 'target' parameter selects the output sink ('local', "
-                "'browser:<id>', 'freeecho2:<room>'); when omitted, audio is "
-                "routed to the channel where the request came from."
+                load_tool_description(__file__, "audio_play")
             ),
             parameters={
                 "type": "object",
@@ -392,14 +379,7 @@ class AudioPlayerPlugin:
             name="audio_play_folder",
             tier=TIER_READONLY,
             description=(
-                "Play ALL audio files in a folder sequentially in natural alphabetical "
-                "order (e.g. 'CD 1' < 'CD 2' < 'CD 10'). Use for audiobooks with "
-                "multiple parts or albums. The 'folder' parameter is a "
-                "label-prefixed path: 'hoerbuecher' for the entire source, or "
-                "'hoerbuecher/Tolkien_HdR' for a sub-folder. Resolution is "
-                "recursive — all audio files below the folder (including "
-                "sub-folders) are queued. Set 'shuffle=True' for random order. "
-                "Works on browser and FreeEcho.2 targets; local channel not yet."
+                load_tool_description(__file__, "audio_play_folder")
             ),
             parameters={
                 "type": "object",
@@ -504,11 +484,7 @@ class AudioPlayerPlugin:
             name="audio_pause",
             tier=TIER_READONLY,
             description=(
-                "Pause audio. Default (no 'target' given): pause the "
-                "auto-target (= the source the request came from — FreeEcho.2 "
-                "room, browser tab, etc.). Use 'all' to pause every active "
-                "stream across local/browser/freeecho2. Use a specific id "
-                "like 'freeecho2:wohnzimmer' for that one only. Position is saved."
+                load_tool_description(__file__, "audio_pause")
             ),
             parameters={
                 "type": "object",
@@ -630,18 +606,7 @@ class AudioPlayerPlugin:
             # kann der freeecho2-Channel das Tool nicht nutzen.
             tier=TIER_READONLY,
             description=(
-                "Resume audio playback. Three behaviors auto-selected:\n"
-                "  - If 'item' is given: resume that specific state_key from "
-                "its saved position (pre-roll for audiobooks).\n"
-                "  - If currently paused: simple unpause, no parameter needed.\n"
-                "  - If stopped/idle: resume the most recently unfinished "
-                "audio from saved position.\n"
-                "Use after 'audio_pause', 'audio_stop', or to continue an "
-                "audiobook. Pair with 'audio_list_unfinished()' to discover "
-                "specific state_keys. The 'target' parameter selects the "
-                "output sink ('browser:<id>', 'local', 'freeecho2:<room>'); when "
-                "omitted, audio is routed to the channel where the request "
-                "came from (same routing as audio_play)."
+                load_tool_description(__file__, "audio_resume")
             ),
             parameters={
                 "type": "object",
@@ -667,11 +632,7 @@ class AudioPlayerPlugin:
             name="audio_stop",
             tier=TIER_READONLY,
             description=(
-                "Stop playback. Default (no 'target' given): stop the "
-                "auto-target (= the source the request came from). Use "
-                "'all' to stop every active stream. Use a specific id "
-                "like 'freeecho2:wohnzimmer' for that one only. Position is "
-                "saved — audio_resume() can pick up later."
+                load_tool_description(__file__, "audio_stop")
             ),
             parameters={
                 "type": "object",
@@ -701,7 +662,7 @@ class AudioPlayerPlugin:
         return Tool(
             name="audio_seek",
             tier=TIER_READONLY,
-            description="Seek to an absolute position (in seconds) within the current audio.",
+            description=load_tool_description(__file__, "audio_seek"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -730,7 +691,7 @@ class AudioPlayerPlugin:
         return Tool(
             name="audio_skip",
             tier=TIER_READONLY,
-            description="Skip forward (positive) or backward (negative) by N seconds relative to current position.",
+            description=load_tool_description(__file__, "audio_skip"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -759,7 +720,7 @@ class AudioPlayerPlugin:
         return Tool(
             name="audio_speed",
             tier=TIER_READONLY,
-            description="Set playback speed multiplier. 1.0 = normal, 1.5 = 50% faster, 0.5 = half speed. Range 0.25–4.0.",
+            description=load_tool_description(__file__, "audio_speed"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -801,9 +762,7 @@ class AudioPlayerPlugin:
             name="audio_status",
             tier=TIER_READONLY,
             description=(
-                "Return current playback state per target (running/playing/"
-                "paused, position, etc.). Without 'target': returns all "
-                "registered targets' status. With 'target': only that one."
+                load_tool_description(__file__, "audio_status")
             ),
             parameters={
                 "type": "object",
@@ -917,13 +876,7 @@ class AudioPlayerPlugin:
             name="audio_list",
             tier=TIER_READONLY,
             description=(
-                "List configured audio sources (when 'source' is omitted) or items "
-                "in a specific source folder (with optional 'subdir' to scope deeper). "
-                "Uses the SQLite index when populated (fast, scales to 100k+ files); "
-                "falls back to filesystem walk if the source isn't indexed yet. "
-                "DOES NOT PLAY ANYTHING — only for discovery. To start playback, "
-                "call audio_play(item='label/file.mp3') after finding the right item. "
-                "For large sources, prefer audio_search() over listing everything."
+                load_tool_description(__file__, "audio_list")
             ),
             parameters={
                 "type": "object",
@@ -977,13 +930,7 @@ class AudioPlayerPlugin:
             name="audio_search",
             tier=TIER_READONLY,
             description=(
-                "Full-text search across the audio index (artist, album, title, "
-                "filename, path) ranked by BM25. Tokens are AND-combined as "
-                "prefixes. Use this instead of audio_list for large sources "
-                "(NAS, etc.) — sub-millisecond search even with 100k+ files. "
-                "Returns 'state_key' values that you can pass to audio_play. "
-                "Examples: query='lee dorsey', query='mozart sonate', "
-                "query='jazz misbehavin'."
+                load_tool_description(__file__, "audio_search")
             ),
             parameters={
                 "type": "object",
@@ -1046,13 +993,7 @@ class AudioPlayerPlugin:
             name="audio_index_rebuild",
             tier=TIER_WRITE_DATA,
             description=(
-                "Rebuild the audio index for one or all local_folder sources. "
-                "Walks the filesystem, reads ID3/FLAC/Vorbis tags via mutagen, "
-                "updates the SQLite/FTS5 index. By default incremental (only "
-                "new/changed/deleted files are touched, based on mtime). "
-                "Set force=true to re-read tags for every file even if mtime "
-                "hasn't changed (use after mass tag-edits or if you suspect "
-                "the index is stale). May take minutes for large NAS mounts."
+                load_tool_description(__file__, "audio_index_rebuild")
             ),
             parameters={
                 "type": "object",
@@ -1080,8 +1021,7 @@ class AudioPlayerPlugin:
             name="audio_list_unfinished",
             tier=TIER_READONLY,
             description=(
-                "List all audio items with a saved position that are not yet "
-                "completed (e.g. half-played audiobooks). Sorted by most recent."
+                load_tool_description(__file__, "audio_list_unfinished")
             ),
             parameters={"type": "object", "properties": {}},
             executor=_list_unfinished,
@@ -1104,7 +1044,7 @@ class AudioPlayerPlugin:
         return Tool(
             name="audio_targets",
             tier=TIER_READONLY,
-            description="List available audio output targets (local speakers, browser tab, FreeEcho.2 speakers, etc.).",
+            description=load_tool_description(__file__, "audio_targets"),
             parameters={"type": "object", "properties": {}},
             executor=_targets,
         )

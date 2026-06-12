@@ -8,7 +8,7 @@ import asyncio
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_COMMUNICATE
-from ....lib.prompt_loader import load_tool_description
+from ....lib.plugin_base import load_tool_description
 
 
 def get_email_tools(session_id: str = "") -> list[Tool]:
@@ -125,7 +125,7 @@ def get_email_tools(session_id: str = "") -> list[Tool]:
         Tool(
             name="email",
             tier=TIER_COMMUNICATE,
-            description=load_tool_description("email_tool.txt"),
+            description=load_tool_description(__file__, "email"),
             parameters={
                 "type": "object",
                 "properties": {

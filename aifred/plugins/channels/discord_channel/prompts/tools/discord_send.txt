@@ -1,0 +1,1 @@
+Send a message to a Discord channel. Use this when the user asks to send a message via Discord.

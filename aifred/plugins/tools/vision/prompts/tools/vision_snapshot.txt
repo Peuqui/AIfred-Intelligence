@@ -1,0 +1,1 @@
+Capture from a source and persist to the current session. `n_frames=1` (default) takes one photo; `n_frames>1` takes a short burst (a few hundred ms apart) for motion/'film'. Returns `image_url` (shown inline automatically — do NOT echo it) plus `image_urls` (the full burst) and `source_id`. To analyse the result, pass those to vision_analyze — snapshot does NOT analyse.

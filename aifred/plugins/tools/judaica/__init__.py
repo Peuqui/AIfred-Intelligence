@@ -23,7 +23,7 @@ from typing import Any
 from ....lib.config import DATA_DIR
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import PluginContext
+from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.security import TIER_READONLY
 from .reference import resolve
 
@@ -81,17 +81,7 @@ class JudaicaPlugin:
                 name="search_judaica",
                 tier=TIER_READONLY,
                 description=(
-                    "Search the Jewish source corpus (Judaica). Two modes, "
-                    "chosen automatically from the query: (1) a named "
-                    "passage — 'Berakhot 3', 'Pirkei Avot 1,1', 'Rashi zu "
-                    "Genesis 1,1' — returns the exact source text (Hebrew "
-                    "original + translation); (2) any other (topical) "
-                    "query runs a thematic search over the Tanakh, Talmud, "
-                    "Mishnah, Midrash, Halacha and the classic Torah "
-                    "commentaries (Rashi, Ramban, Ibn Ezra). Use this for "
-                    "anything from Jewish scripture or rabbinic literature; "
-                    "use search_bible for the Christian Bible and "
-                    "search_documents for other documents."
+                    load_tool_description(__file__, "search_judaica")
                 ),
                 parameters={
                     "type": "object",

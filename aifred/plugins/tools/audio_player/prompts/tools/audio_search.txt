@@ -1,0 +1,1 @@
+Full-text search across the audio index (artist, album, title, filename, path) ranked by BM25. Tokens are AND-combined as prefixes. Use this instead of audio_list for large sources (NAS, etc.) — sub-millisecond search even with 100k+ files. Returns 'state_key' values that you can pass to audio_play. Examples: query='lee dorsey', query='mozart sonate', query='jazz misbehavin'.

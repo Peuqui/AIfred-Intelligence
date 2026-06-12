@@ -1,0 +1,1 @@
+Stop playback. Default (no 'target' given): stop the auto-target (= the source the request came from). Use 'all' to stop every active stream. Use a specific id like 'freeecho2:wohnzimmer' for that one only. Position is saved — audio_resume() can pick up later.
