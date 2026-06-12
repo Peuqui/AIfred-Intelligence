@@ -242,14 +242,19 @@ class FrameHub:
         *,
         width: int = 0,
         height: int = 0,
-        timeout: float = 5.0,
+        timeout: float = 15.0,
     ) -> "Frame":
         """One-Shot: holt den nächsten Frame aus dem Hub-Stream und
         kehrt zurück. Wenn noch kein Reader läuft, wird einer mit der
         angeforderten Auflösung gestartet (und nach Grace-Period
         wieder beendet, falls keine weiteren Konsumenten kommen).
 
-        ``timeout``: wenn binnen N Sekunden kein Frame kommt, RuntimeError.
+        ``timeout``: wenn binnen N Sekunden kein Frame kommt, TimeoutError.
+        Default 15 s: muss den RTSP-KALTSTART abdecken — Open-Timeout (5 s)
+        + Warmup-Reads bis zum HEVC-Keyframe (GOP-Länge, Read-Timeout 5 s)
+        + 4K-Decode/JPEG-Encode. 5 s rissen beim ersten Zugriff auf eine
+        idle Reolink regelmäßig ("snapshot failed: " mit leerem
+        TimeoutError), obwohl die Kamera gesund war.
         """
         async def _first_frame() -> "Frame":
             async for frame in self.subscribe(
