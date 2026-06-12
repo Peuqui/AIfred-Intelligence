@@ -114,6 +114,38 @@ def resolve_source_label(source_id: str) -> str:
     return source_id
 
 
+def resolve_source_id(name_or_id: str) -> str:
+    """Echte ``source_id`` aus einer LLM-Angabe auflösen — Gegenrichtung zu
+    :func:`resolve_source_label`.
+
+    LLMs übergeben statt der technischen id (``cam/rtsp_reolink``) gern den
+    Anzeigenamen aus dem Tool-Ergebnis („Büro", „Hauseingang"). Ohne
+    Auflösung scheitern downstream-Lookups (Kamera-Briefing, Event-Logging)
+    still. Reihenfolge: exakte id > Alias > display_name (beides
+    case-insensitive). Kein Treffer → Eingabe unverändert zurück, der
+    Caller behält sein bisheriges Verhalten."""
+    if not name_or_id:
+        return name_or_id
+    try:
+        from .vision_store import VisionStore
+        store = VisionStore()
+        records = store.list_sources()
+    except Exception:  # noqa: BLE001
+        return name_or_id
+    wanted = name_or_id.strip().lower()
+    for rec in records:
+        if str(rec.get("source_id", "")).lower() == wanted:
+            return str(rec["source_id"])
+    for rec in records:
+        alias = ((rec.get("settings") or {}).get("alias") or "").strip().lower()
+        if alias and alias == wanted:
+            return str(rec["source_id"])
+    for rec in records:
+        if str(rec.get("display_name", "")).strip().lower() == wanted:
+            return str(rec["source_id"])
+    return name_or_id
+
+
 def _safe_session_dir(base_dir: Path, session_id: str) -> Optional[Path]:
     """Return ``base_dir/session_id`` if session_id is well-formed and the
     resolved path stays under ``base_dir``, else None (path-traversal-safe)."""
