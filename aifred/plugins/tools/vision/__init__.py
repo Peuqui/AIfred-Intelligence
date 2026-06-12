@@ -435,6 +435,12 @@ class VisionPlugin:
             prompt: str | None = None,
             source_id: str | None = None,
         ) -> str:
+            # LLMs übergeben gern den Anzeigenamen ("Büro") statt der
+            # technischen id — auflösen, sonst werden Kamera-Briefing und
+            # Event-Logging still übersprungen bzw. falsch verschlagwortet.
+            if source_id:
+                from ....lib.vision_utils import resolve_source_id
+                source_id = resolve_source_id(source_id)
             # Separated capture/analyze: this tool does NOT take a photo. It
             # runs the VLM on ALREADY-captured images (from vision_snapshot, an
             # upload, or any saved image_url). A single url or a list is
