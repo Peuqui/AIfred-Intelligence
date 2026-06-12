@@ -518,6 +518,23 @@ def has_llamaswap_base(config_path: Path, model_id: str) -> bool:
     return False
 
 
+def has_llamaswap_speed_variant(config_path: Path, model_id: str) -> bool:
+    """True if a ``<model_id>-speed`` entry exists in llama-swap.yaml.
+
+    SSoT for the speed toggle's visibility: the config is authoritative for
+    which variants llama-swap can actually load. The cache's ``speed_split``
+    field is NOT reliable — a fresh multi-GPU calibration may leave it unset
+    while still writing the -speed config entry (that mismatch hid the toggle
+    for the 397B model).
+    """
+    if not config_path.exists():
+        return False
+    config = _read_yaml(config_path)
+    models = config.get("models") or {}
+    entry = models.get(f"{model_id}-speed") or {}
+    return bool(entry.get("cmd"))
+
+
 def has_llamaswap_tts_variant(
     config_path: Path, model_id: str, tts_backend: str,
     require_speed: bool = False,

@@ -938,16 +938,17 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.sokrates_is_hybrid = params["is_hybrid"]
             self.sokrates_supports_thinking = params["supports_thinking"]
         elif self.backend_type == "llamacpp" and self.sokrates_model_id:  # type: ignore[attr-defined]
+            from ..lib.calibration import has_llamaswap_speed_variant
+            from ..lib.config import LLAMASWAP_CONFIG_PATH as _LSC
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
                 get_thinking_support_for_model,
-                get_llamacpp_speed_split,
             )
             self.sokrates_rope_factor = 1.0
             self.sokrates_max_context = get_llamacpp_calibration(self.sokrates_model_id) or 0
             self.sokrates_is_hybrid = False
             self.sokrates_supports_thinking = get_thinking_support_for_model(self.sokrates_model_id)
-            self.sokrates_has_speed_variant = get_llamacpp_speed_split(self.sokrates_model_id)[0] > 0
+            self.sokrates_has_speed_variant = has_llamaswap_speed_variant(_LSC, self.sokrates_model_id)
             if not self.sokrates_has_speed_variant:
                 self.sokrates_speed_mode = False
 
@@ -984,16 +985,17 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.salomo_is_hybrid = params["is_hybrid"]
             self.salomo_supports_thinking = params["supports_thinking"]
         elif self.backend_type == "llamacpp" and self.salomo_model_id:  # type: ignore[attr-defined]
+            from ..lib.calibration import has_llamaswap_speed_variant
+            from ..lib.config import LLAMASWAP_CONFIG_PATH as _LSC
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
                 get_thinking_support_for_model,
-                get_llamacpp_speed_split,
             )
             self.salomo_rope_factor = 1.0
             self.salomo_max_context = get_llamacpp_calibration(self.salomo_model_id) or 0
             self.salomo_is_hybrid = False
             self.salomo_supports_thinking = get_thinking_support_for_model(self.salomo_model_id)
-            self.salomo_has_speed_variant = get_llamacpp_speed_split(self.salomo_model_id)[0] > 0
+            self.salomo_has_speed_variant = has_llamaswap_speed_variant(_LSC, self.salomo_model_id)
             if not self.salomo_has_speed_variant:
                 self.salomo_speed_mode = False
 
