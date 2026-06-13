@@ -157,7 +157,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
         gerufen, damit das Modell-Dropdown im Popup-Header auch ohne
         vorheriges Öffnen des Settings-Modals befüllt ist."""
         settings = _load_settings()
-        self.vision_mode_value = str(settings.get("vision_mode", "on-demand"))
+        # vision_mode is now only on-demand/live — the on/off master is the
+        # Watcher (vigilantia_armed). Migrate any legacy "off" to on-demand.
+        _vm = str(settings.get("vision_mode", "on-demand")).lower().strip()
+        self.vision_mode_value = "on-demand" if _vm not in ("on-demand", "live") else _vm
         vlm = settings.get("vlm", {})
         self.vision_model_value = str(vlm.get("model", "qwen3-vl:4b-instruct-q8_0"))
         fr = settings.get("face_recognition", {}) or {}
@@ -201,7 +204,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
 
     @rx.event
     async def set_vision_mode_value(self, value: str) -> None:
-        if value not in ("off", "on-demand", "live"):
+        # "off" is gone — on/off is the Watcher (the eye). Mode is only the
+        # VLM residency choice while armed.
+        if value not in ("on-demand", "live"):
             return
         self.vision_mode_value = value
         settings = _load_settings()
@@ -285,6 +290,17 @@ class VisionSettingsMixin(rx.State, mixin=True):
             if c.get("auto_start"):
                 return True
         return False
+
+    # Recompute when a plugin toggle changes (the FS status can't be a dep, so
+    # tool_plugin_toggles is the proxy); explicit deps also avoid the lazy-import
+    # auto-dep warning.
+    @rx.var(deps=["tool_plugin_toggles"], auto_deps=False)
+    def vision_plugin_enabled(self) -> bool:
+        """True if the Vision plugin is enabled (present in tools/). The eye
+        toggle is greyed out when this is False — without the plugin the
+        Watcher can't run."""
+        from ..lib.plugin_registry import is_plugin_enabled
+        return is_plugin_enabled("vision")
 
     def _reload_vigilantia_sources(self) -> None:
         """Aktuelle Cam-Liste mit auto_start/min_area_ratio aus dem
@@ -857,6 +873,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
         (face_recognition.enabled / continuous). Beim Entschärfen wird
         alles gestoppt — auch Watcher die durch UI-Toggles im Vorschau-
         Popup laufen, weil ``armed`` als Master gilt."""
+        # Can't arm without the plugin — the Watcher needs it. The eye is
+        # greyed out in this case; guard here too against programmatic calls.
+        from ..lib.plugin_registry import is_plugin_enabled
+        if not is_plugin_enabled("vision"):
+            return
         new_value = not self.vigilantia_armed
         self.vigilantia_armed = new_value
         settings = _load_settings()
@@ -871,6 +892,23 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 await stop_all_background_watchers()
         except Exception as e:  # noqa: BLE001
             logger.warning("vigilantia armed toggle side-effect failed: %s", e)
+
+    async def force_disarm_vigilantia(self) -> None:
+        """Unconditionally disarm the Watcher + stop its background watchers.
+
+        Used when the Vision plugin is disabled: the Watcher can't run without
+        the plugin, so it must not stay armed. No-op when already disarmed."""
+        if not self.vigilantia_armed:
+            return
+        self.vigilantia_armed = False
+        settings = _load_settings()
+        settings["vigilantia_armed"] = False
+        _save_settings(settings)
+        try:
+            from ..lib.vision_autostart import stop_all_background_watchers
+            await stop_all_background_watchers()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("force_disarm_vigilantia side-effect failed: %s", e)
 
     @rx.event
     async def refresh_vlm_loaded(self) -> None:

@@ -1,4 +1,13 @@
-"""Tests für aifred.lib.vision_prewarm."""
+"""Tests für aifred.lib.vision_prewarm.
+
+New model (see is_vision_active docstring):
+* is_vision_active() == "Vision plugin enabled" (the override trigger),
+  NOT vision_mode. The plugin status is a filesystem fact (tools/ vs
+  disabled/), so we mock plugin_registry.is_plugin_enabled.
+* prewarm_vlm() only PRELOADS the VLM in ``live`` mode. ``on-demand`` keeps
+  the reserved slot empty (loads lazily on first request), so it's a no-op.
+  Plugin disabled → no-op too.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+import aifred.lib.plugin_registry as pr
 import aifred.lib.vision_prewarm as vpw
 
 
@@ -16,23 +26,26 @@ def run(coro):
 
 @pytest.fixture()
 def patched_settings(monkeypatch, tmp_path: Path):
-    """Provide a fake settings dict by monkeypatching _load_vision_settings."""
-    state: dict = {"settings": {}}
+    """Fake vision settings + plugin-enabled status.
 
-    def fake_load():
-        return state["settings"]
+    ``state["settings"]`` feeds _load_vision_settings (vision_mode/vlm),
+    ``state["plugin_enabled"]`` feeds is_plugin_enabled (the override trigger)."""
+    state: dict = {"settings": {}, "plugin_enabled": True}
 
-    monkeypatch.setattr(vpw, "_load_vision_settings", fake_load)
+    monkeypatch.setattr(vpw, "_load_vision_settings", lambda: state["settings"])
+    monkeypatch.setattr(pr, "is_plugin_enabled", lambda *a, **k: state["plugin_enabled"])
     return state
 
 
 class TestActiveCheck:
-    def test_off_mode(self, patched_settings):
-        patched_settings["settings"] = {"vision_mode": "off"}
+    def test_plugin_disabled(self, patched_settings):
+        # Override trigger is off when the plugin is disabled, regardless of mode.
+        patched_settings["plugin_enabled"] = False
+        patched_settings["settings"] = {"vision_mode": "live"}
         assert vpw.is_vision_active() is False
-        assert vpw.get_active_vlm_model() is None
 
-    def test_on_demand_mode(self, patched_settings):
+    def test_plugin_enabled_on_demand(self, patched_settings):
+        patched_settings["plugin_enabled"] = True
         patched_settings["settings"] = {
             "vision_mode": "on-demand",
             "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
@@ -40,39 +53,34 @@ class TestActiveCheck:
         assert vpw.is_vision_active() is True
         assert vpw.get_active_vlm_model() == "qwen3-vl:4b-instruct-q8_0"
 
-    def test_live_mode(self, patched_settings):
-        patched_settings["settings"] = {
-            "vision_mode": "live",
-            "vlm": {"model": "qwen3-vl:8b-instruct-q8_0"},
-        }
+    def test_plugin_enabled_live(self, patched_settings):
+        patched_settings["plugin_enabled"] = True
+        patched_settings["settings"] = {"vision_mode": "live"}
         assert vpw.is_vision_active() is True
 
 
 class TestPrewarm:
-    def test_off_mode_is_noop(self, patched_settings):
-        patched_settings["settings"] = {"vision_mode": "off"}
+    def test_plugin_disabled_is_noop(self, patched_settings):
+        patched_settings["plugin_enabled"] = False
+        patched_settings["settings"] = {"vision_mode": "live"}
         assert run(vpw.prewarm_vlm()) is True
 
-    def test_calls_ollama_with_correct_keep_alive_for_on_demand(
-        self, patched_settings, monkeypatch
-    ):
+    def test_on_demand_does_not_preload(self, patched_settings, monkeypatch):
+        # on-demand: slot reserved but empty → no Ollama call, just True.
         patched_settings["settings"] = {
             "vision_mode": "on-demand",
             "vlm": {"model": "qwen3-vl:4b-instruct-q8_0", "keep_alive": "30m"},
         }
-        captured: dict = {}
+        called: dict = {"hit": False}
 
         async def fake_generate(self, **kwargs):
-            captured.update(kwargs)
+            called["hit"] = True
             return {"done": True}
 
         import ollama
-
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
         assert run(vpw.prewarm_vlm()) is True
-        assert captured["model"] == "qwen3-vl:4b-instruct-q8_0"
-        assert captured["prompt"] == ""
-        assert captured["keep_alive"] == "30m"
+        assert called["hit"] is False  # on-demand must NOT preload
 
     def test_live_mode_forces_keep_alive_minus_one(
         self, patched_settings, monkeypatch
@@ -88,20 +96,21 @@ class TestPrewarm:
             return {"done": True}
 
         import ollama
-
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
         assert run(vpw.prewarm_vlm()) is True
-        # live mode → int -1, not the string "-1" (Ollama parses strings
-        # as a duration and would reject "-1")
+        assert captured["model"] == "qwen3-vl:4b-instruct-q8_0"
+        assert captured["prompt"] == ""
+        # live → int -1, not "-1" (Ollama parses strings as a duration)
         assert captured["keep_alive"] == -1
 
     def test_returns_false_when_no_model_configured(self, patched_settings):
-        patched_settings["settings"] = {"vision_mode": "on-demand", "vlm": {}}
+        # live mode reaches the model check (on-demand would no-op earlier).
+        patched_settings["settings"] = {"vision_mode": "live", "vlm": {}}
         assert run(vpw.prewarm_vlm()) is False
 
     def test_ollama_failure_returns_false(self, patched_settings, monkeypatch):
         patched_settings["settings"] = {
-            "vision_mode": "on-demand",
+            "vision_mode": "live",
             "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
         }
 
@@ -109,11 +118,11 @@ class TestPrewarm:
             raise ConnectionError("ollama unreachable")
 
         import ollama
-
         monkeypatch.setattr(ollama.AsyncClient, "generate", boom)
         assert run(vpw.prewarm_vlm()) is False
 
     def test_keep_alive_override_wins(self, patched_settings, monkeypatch):
+        # override bypasses the on-demand no-op and forces a load.
         patched_settings["settings"] = {
             "vision_mode": "on-demand",
             "vlm": {"model": "qwen3-vl:4b-instruct-q8_0", "keep_alive": "30m"},
@@ -125,7 +134,6 @@ class TestPrewarm:
             return {"done": True}
 
         import ollama
-
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
         run(vpw.prewarm_vlm(keep_alive_override="2h"))
         assert captured["keep_alive"] == "2h"
@@ -133,6 +141,6 @@ class TestPrewarm:
 
 class TestSyncWrapper:
     def test_sync_wrapper_runs(self, patched_settings):
-        patched_settings["settings"] = {"vision_mode": "off"}
-        # The off-mode branch is no-op + true — exercises the sync wrapper path
+        patched_settings["plugin_enabled"] = False
+        # plugin-disabled branch is no-op + true — exercises the sync wrapper
         assert vpw.prewarm_vlm_sync() is True

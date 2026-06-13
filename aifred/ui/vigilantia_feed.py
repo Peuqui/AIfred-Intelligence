@@ -679,11 +679,18 @@ def vigilantia_feed_popover() -> rx.Component:
                     color_scheme=rx.cond(
                         AIState.vigilantia_armed, "orange", "gray",
                     ),
+                    # Greyed out + unclickable when the Vision plugin is off —
+                    # the Watcher can't run without it (enable it in the menu).
+                    disabled=~AIState.vision_plugin_enabled,
                 ),
                 content=rx.cond(
-                    AIState.vigilantia_armed,
-                    t("vigilantia_disarm_tooltip"),
-                    t("vigilantia_arm_tooltip"),
+                    AIState.vision_plugin_enabled,
+                    rx.cond(
+                        AIState.vigilantia_armed,
+                        t("vigilantia_disarm_tooltip"),
+                        t("vigilantia_arm_tooltip"),
+                    ),
+                    t("vigilantia_plugin_disabled_tooltip"),
                 ),
             ),
             spacing="2",

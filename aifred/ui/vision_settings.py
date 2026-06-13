@@ -21,7 +21,8 @@ def _mode_section() -> rx.Component:
         rx.select.root(
             rx.select.trigger(width="100%"),
             rx.select.content(
-                rx.select.item(t("vision_settings_mode_off"), value="off"),
+                # No "off" — on/off is the Watcher (eye). This only picks
+                # VLM residency while armed: on-demand (load on need) vs live.
                 rx.select.item(t("vision_settings_mode_ondemand"), value="on-demand"),
                 rx.select.item(t("vision_settings_mode_live"), value="live"),
             ),

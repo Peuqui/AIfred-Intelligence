@@ -45,10 +45,25 @@ def _load_vision_settings() -> dict[str, Any]:
 
 
 def is_vision_active() -> bool:
-    """True if vision_mode is set to anything other than 'off'."""
-    cfg = _load_vision_settings()
-    mode = str(cfg.get("vision_mode", "on-demand")).lower().strip()
-    return mode != "off"
+    """True when the Vision plugin is enabled — the trigger for the permanent
+    VLM VRAM reserve (the calibration "Override").
+
+    Rationale: as long as the plugin is on, the model can be asked at any time
+    to snapshot/analyse a camera. That tool call happens *mid-answer*, so the
+    pinned VLM daemon (V100) and the main LLM must coexist — the V100 slot
+    must stay free, otherwise the big LLM would have to be swapped out (far
+    too slow). So the override hangs on the *plugin* being enabled, NOT on the
+    Watcher (vigilantia_armed) and NOT on vision_mode.
+
+    Independent paths, deliberately NOT counted here:
+    - The Watcher (vigilantia_armed) only decides if continuous monitoring
+      runs; it needs the same slot, which the plugin reserve already provides.
+    - vision_mode (on-demand/live) only decides whether the VLM sits
+      permanently in that reserved slot (live) or loads on demand.
+    - Chat image upload is a separate path (Vision Fast Path) and loads the
+      VLM on the fly, swapping if needed — no permanent reserve."""
+    from .plugin_registry import is_plugin_enabled
+    return is_plugin_enabled("vision")
 
 
 def get_vision_mode() -> str:
@@ -99,27 +114,33 @@ async def prewarm_vlm(
     """Trigger Ollama to load the configured VLM into VRAM, then wait until
     it's actually loaded (or timeout). Returns True on success, False otherwise.
 
-    No-op + ``True`` return when ``vision_mode=off``.
+    No-op + ``True`` return when the Watcher is disarmed OR the mode is
+    on-demand: only ``live`` (armed) actually preloads the VLM into VRAM.
+    On-demand keeps the reserved slot free and loads the VLM lazily on the
+    first real request, so there's nothing to prewarm.
 
     The "load" call is an empty ``/api/generate`` with ``prompt=""`` — Ollama
     treats this as a model-load request and the response carries ``"done": true``
     as soon as the weights are mapped. We use this as a synchronization point.
 
-    ``keep_alive_override`` is useful in tests and in ``live`` mode where the
-    caller wants ``"-1"`` (permanent) rather than the configured default.
+    ``keep_alive_override`` is useful in tests where the caller wants a
+    specific keep_alive regardless of mode.
     """
     if not is_vision_active():
-        logger.info("prewarm_vlm: vision_mode=off, skipping")
+        logger.info("prewarm_vlm: vision plugin disabled, skipping")
         return True
 
     cfg = _load_vision_settings()
+    mode = str(cfg.get("vision_mode", "on-demand")).lower().strip()
+    if mode != "live" and keep_alive_override is None:
+        logger.info("prewarm_vlm: on-demand → reserved slot stays empty, VLM loads on demand")
+        return True
+
     vlm_cfg = cfg.get("vlm", {})
     model = vlm_cfg.get("model")
     if not model:
         logger.warning("prewarm_vlm: no vlm.model configured")
         return False
-
-    mode = str(cfg.get("vision_mode", "on-demand")).lower().strip()
     # Ollama's keep_alive accepts a string with unit ("30m", "1h") OR an
     # integer (negative = permanent, positive = seconds). Plain "-1" as
     # a string fails with "missing unit in duration". For "live" we want
