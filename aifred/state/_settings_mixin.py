@@ -95,6 +95,10 @@ class SettingsMixin(rx.State, mixin=True):
         settings: Dict[str, Any] = {
             "backend_type": saved_backend_type,
             "cloud_api_provider": self.cloud_api_provider,  # type: ignore[attr-defined, has-type]
+            # Calibration mode (legacy/ai) — MUST be re-emitted here, else any
+            # unrelated settings save would drop the key and silently revert
+            # the AI calibration toggle to legacy on the next run.
+            "calibration_mode": self.calibration_mode or "legacy",  # type: ignore[attr-defined, has-type]
             # NOTE: research_mode, multi_agent_mode are per-session now (session_storage.DEFAULT_SESSION_CONFIG)
             "temperature": self.temperature,  # type: ignore[attr-defined, has-type]
             "temperature_mode": self.temperature_mode,  # type: ignore[attr-defined, has-type]
