@@ -235,3 +235,62 @@ class TestLlamacppDispatch:
 
         result = run(analyze_sequence([_make_frame(0)], "hi", model="qwen3-vl:4b"))
         assert result.text == "ollama-pfad"
+
+
+class TestEmptyResponseRetry:
+    """An empty VLM response (0 tokens) is a transient glitch under VRAM
+    contention, not a bad image — analyze_sequence retries once."""
+
+    def test_empty_then_success_retries(self, monkeypatch):
+        import aifred.lib.vision_utils as vu
+        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: False)
+
+        calls = {"n": 0}
+
+        async def fake_generate(self, **kwargs):
+            calls["n"] += 1
+            # First call: empty (the live glitch). Second: real text.
+            if calls["n"] == 1:
+                return {"response": "", "eval_count": 0}
+            return {"response": "Ein Hauseingang mit Tür.", "eval_count": 7}
+
+        import ollama
+        monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
+
+        result = run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?"))
+        assert calls["n"] == 2  # retried exactly once
+        assert result.text == "Ein Hauseingang mit Tür."
+
+    def test_success_first_try_no_retry(self, monkeypatch):
+        import aifred.lib.vision_utils as vu
+        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: False)
+
+        calls = {"n": 0}
+
+        async def fake_generate(self, **kwargs):
+            calls["n"] += 1
+            return {"response": "Sofort gut.", "eval_count": 3}
+
+        import ollama
+        monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
+
+        result = run(analyze_sequence([_make_frame(0)], "hi"))
+        assert calls["n"] == 1  # no needless retry
+        assert result.text == "Sofort gut."
+
+    def test_empty_twice_gives_up(self, monkeypatch):
+        import aifred.lib.vision_utils as vu
+        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: False)
+
+        calls = {"n": 0}
+
+        async def fake_generate(self, **kwargs):
+            calls["n"] += 1
+            return {"response": "", "eval_count": 0}
+
+        import ollama
+        monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
+
+        result = run(analyze_sequence([_make_frame(0)], "hi"))
+        assert calls["n"] == 2  # one retry, then give up
+        assert result.text == ""

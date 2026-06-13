@@ -158,11 +158,53 @@ async def analyze_sequence(
     # Dispatch (SSOT: model_has_mmproj): llama-swap-Modelle mit nativem
     # Vision-Encoder beschreiben selbst, alles andere geht an Ollama.
     from .vision_utils import model_has_mmproj
-    if model_has_mmproj(model):
-        return await _analyze_via_llamacpp(
-            model, prompt, images_b64, n_frames=len(frames)
+    use_llamacpp = model_has_mmproj(model)
+
+    async def _once() -> VisionAnalysis:
+        if use_llamacpp:
+            return await _analyze_via_llamacpp(
+                model, prompt, images_b64, n_frames=len(frames)
+            )
+        return await _analyze_via_ollama(
+            model, prompt, images_b64, num_ctx=num_ctx,
+            keep_alive=keep_alive, host=host, extra_options=extra_options,
+            n_frames=len(frames),
         )
 
+    # Empty response = transient VLM glitch, NOT a bad image. Observed live
+    # under VRAM contention (397B + TTS + VLM sharing GPUs): one of three
+    # back-to-back calls returned 0 tokens (TTFT 0.00s = instant empty
+    # response, no real inference). A reproduction with the SAME image and
+    # params succeeded on every retry. One retry is enough; a hard failure
+    # (RuntimeError) is NOT retried here — the caller handles those.
+    result = await _once()
+    if not result.text.strip():
+        logger.warning(
+            "VLM returned empty response (model=%s, n_frames=%d) — retrying once",
+            model, len(frames),
+        )
+        result = await _once()
+        if not result.text.strip():
+            logger.warning(
+                "VLM still empty after retry (model=%s) — giving up", model
+            )
+    return result
+
+
+async def _analyze_via_ollama(
+    model: str,
+    prompt: str,
+    images_b64: list[str],
+    *,
+    num_ctx: int,
+    keep_alive: str,
+    host: str | None,
+    extra_options: dict[str, Any] | None,
+    n_frames: int,
+) -> VisionAnalysis:
+    """Side-channel VLM via Ollama. Raises ``RuntimeError`` on a hard
+    failure (model missing, OOM, connection); an empty-but-successful
+    response is returned as-is so the caller's retry logic can act."""
     try:
         from ollama import AsyncClient
     except ImportError as e:
@@ -214,7 +256,7 @@ async def analyze_sequence(
         duration_ms = (time.perf_counter() - started) * 1000.0
         logger.warning(
             "VLM call failed: model=%s n_frames=%d duration=%.0fms error=%s",
-            model, len(frames), duration_ms, e,
+            model, n_frames, duration_ms, e,
         )
         raise RuntimeError(f"VLM call failed: {e}") from e
 
@@ -247,7 +289,7 @@ async def analyze_sequence(
         text=text,
         model=model,
         prompt=prompt,
-        n_frames=len(frames),
+        n_frames=n_frames,
         duration_ms=duration_ms,
         metadata=metadata,
     )
