@@ -164,18 +164,31 @@ def _format_split(split: list[float] | tuple[float, ...]) -> str:
     return ",".join(str(int(round(v))) for v in split)
 
 
-def _hardware_block(gpus: list[GPU]) -> str:
+def _hardware_block(gpus: list[GPU], reserve_mb: tuple[int, ...] = ()) -> str:
     """Format the GPU list for the AI calibration prompt.
 
     Position index = AIfred's compute-DESC enumeration index, identical
     to the CUDA index llama-server will see (UUIDs in CUDA_VISIBLE_DEVICES
     enforce that order).
+
+    When a GPU carries a side-channel reserve (TTS/VLM), the AI must see
+    the REDUCED usable VRAM — otherwise it plans against the full free_mb
+    and the probe OOMs on the reserved card without the AI understanding why.
     """
     lines = []
     for i, g in enumerate(gpus):
-        lines.append(
-            f"  CUDA{i}: {g.name} — {g.total_mb} MB total, {g.free_mb} MB free"
-        )
+        r = reserve_mb[i] if i < len(reserve_mb) else 0
+        if r > 0:
+            usable = g.free_mb - r
+            lines.append(
+                f"  CUDA{i}: {g.name} — {g.total_mb} MB total, {usable} MB USABLE "
+                f"({r} MB reserved for a TTS/VLM side-channel — treat it as gone, "
+                f"give this card proportionally fewer layers)"
+            )
+        else:
+            lines.append(
+                f"  CUDA{i}: {g.name} — {g.total_mb} MB total, {g.free_mb} MB free"
+            )
     return "\n".join(lines)
 
 
@@ -187,6 +200,7 @@ def _build_system_prompt(
     gpus: list[GPU],
     safety_margin_mb: int,
     extra_constraints: str = "",
+    reserve_mb: tuple[int, ...] = (),
 ) -> str:
     """Load the calibration agent's system prompt and fill in runtime
     placeholders. The path is resolved from ``agents.json`` (calibration
@@ -219,7 +233,7 @@ def _build_system_prompt(
         model_size_gb=f"{model_size_gb:.1f}",
         total_layers=total_layers,
         native_ctx=native_ctx,
-        hardware_block=_hardware_block(gpus),
+        hardware_block=_hardware_block(gpus, reserve_mb),
         max_probes=MAX_PROBES,
         seed_block="",
         extra_constraints=extra,
@@ -257,6 +271,19 @@ async def _pre_search_max_ctx(
 
     if native_ctx <= 0:
         return (0, initial_split, "native_ctx unknown — skipping pre-search")
+
+    # Reserve-aware seed: a GPU carrying a side-channel reserve (TTS/VLM)
+    # must hold proportionally FEWER layers. Without this the fixed base
+    # split overloads the reserved card no matter how low ctx goes — exactly
+    # why the TTS variant failed where the classic algorithm's re-balanced
+    # split fits at native ctx. Rebuild the seed from each GPU's
+    # reserve-reduced usable VRAM (capacity-proportional), so the projection
+    # spills the reserved card's layers onto the others instead of OOMing.
+    if reserve_mb and any(reserve_mb):
+        initial_split = [
+            float(max(0, g.free_mb - (reserve_mb[i] if i < len(reserve_mb) else 0)))
+            for i, g in enumerate(gpus)
+        ]
 
     cmd = set_tensor_split(full_cmd, initial_split)
     n_gpus = len(gpus)
@@ -626,6 +653,7 @@ async def calibrate_with_ai(
         gpus=gpus,
         safety_margin_mb=safety_margin_mb,
         extra_constraints=extra_constraints + pre_search_block + hybrid_constraint,
+        reserve_mb=reserve_mb,
     )
 
     messages: list[dict] = [
