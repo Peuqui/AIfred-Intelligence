@@ -1165,7 +1165,8 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.editor_model = value
             self.editor_dirty = True  # type: ignore[attr-defined]
 
-    @rx.var
+    # Static registry; explicit empty deps avoid the lazy-import auto-dep warning.
+    @rx.var(deps=[], auto_deps=False)
     def editor_cloud_provider_options(self) -> List[str]:
         """Provider display labels — the SAME labels the main backend dropdown
         shows ("Qwen (DashScope)", …), via the shared cloud_api SSOT."""
@@ -1384,11 +1385,14 @@ class AgentConfigMixin(rx.State, mixin=True):
             if self.db_browser_collection:
                 self._load_db_entries()
         elif tab == "plugins":
-            # Reuse logic from open_plugin_manager (without opening separate modal)
+            # Load tool toggles + channel allowlists for the plugins tab.
+            # list_all_plugins() (not discover_tools) so DISABLED tool plugins
+            # stay visible and can be re-enabled — enabled == in tools/.
             from ..lib.credential_broker import broker
-            from ..lib.plugin_registry import discover_tools, all_channels
+            from ..lib.plugin_registry import list_all_plugins, all_channels
             self.tool_plugin_toggles = {
-                p.name: ("1" if p.is_available() else "") for p in discover_tools()
+                p["name"]: p["enabled"]
+                for p in list_all_plugins() if p["type"] == "tool"
             }
             self.channel_allowlists = {
                 "email": broker.get("email", "allowed_senders") or "-",

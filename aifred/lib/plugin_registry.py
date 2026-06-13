@@ -230,21 +230,29 @@ def list_all_plugins() -> list[dict[str, str]]:
                 name = d.name
                 result.append({"name": name, "display": _display(name), "file": d.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(name)})
 
-    # Disabled (both types — filename encodes origin via prefix)
+    # Disabled (both types — file/dir name encodes origin via prefix).
+    def _split_prefix(stem: str) -> tuple[str, str]:
+        if stem.startswith("channel_"):
+            return "channel", stem.removeprefix("channel_")
+        if stem.startswith("tool_"):
+            return "tool", stem.removeprefix("tool_")
+        return "tool", stem
+
+    # Single-file disabled plugins
     for f in sorted(disabled.glob("*.py")):
         if f.name.startswith("_"):
             continue
-        # Determine type from prefix: channel_ or tool_
-        if f.name.startswith("channel_"):
-            ptype = "channel"
-            pname = f.stem.removeprefix("channel_")
-        elif f.name.startswith("tool_"):
-            ptype = "tool"
-            pname = f.stem.removeprefix("tool_")
-        else:
-            ptype = "tool"
-            pname = f.stem
+        ptype, pname = _split_prefix(f.stem)
         result.append({"name": pname, "display": _display(pname), "file": f.name, "type": ptype, "enabled": "", "has_credentials": ""})
+
+    # Package disabled plugins (directories) — e.g. the vision package.
+    # Without this a disabled package vanishes from the manager and can
+    # never be re-enabled via the UI.
+    if disabled.exists():
+        for d in sorted(disabled.iterdir()):
+            if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
+                ptype, pname = _split_prefix(d.name)
+                result.append({"name": pname, "display": _display(pname), "file": d.name, "type": ptype, "enabled": "", "has_credentials": ""})
 
     result.sort(key=lambda p: p["name"])
     return result
@@ -264,6 +272,17 @@ def _find_plugin_path(name: str, plugin_type: str) -> Path | None:
         if pkg.is_dir() and (pkg / "__init__.py").exists():
             return pkg
     return None
+
+
+def is_plugin_enabled(name: str, plugin_type: str = "tool") -> bool:
+    """True if the plugin lives in its active dir (tools/ or channels/),
+    i.e. it is NOT moved to disabled/.
+
+    Pure filesystem check (no plugin import) — safe to call from lib modules
+    like vision_prewarm without a circular import. Enable/disable is a
+    directory move, so presence in the active dir == enabled.
+    """
+    return _find_plugin_path(name, plugin_type) is not None
 
 
 def disable_plugin(name: str, plugin_type: str) -> bool:

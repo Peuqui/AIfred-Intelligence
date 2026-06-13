@@ -46,8 +46,7 @@ class SettingsMixin(rx.State, mixin=True):
     # damit der Browser-Pop-up-Blocker den Login-Tab nicht abblockt (echter User-Click).
     oauth_auth_url: str = ""
 
-    # ── Plugin Manager Modal ─────────────────────────────────────
-    plugin_manager_open: bool = False
+    # ── Plugin Manager (in the Agent-Editor "plugins" tab) ──────────
     tool_plugin_toggles: dict[str, str] = {}  # {"epim": "1", "calculator": "1", ...}
     channel_allowlists: dict[str, str] = {}  # {"email": "user@mail.de, @family.de", "telegram": "123456"}
 
@@ -937,66 +936,22 @@ class SettingsMixin(rx.State, mixin=True):
     # PLUGIN MANAGER MODAL
     # ================================================================
 
-    def open_plugin_manager(self) -> None:
-        """Open plugin manager modal and refresh plugin lists + allowlists.
+    async def toggle_tool_plugin(self, plugin_name: str):
+        """Toggle a tool plugin AND apply it on the filesystem immediately.
 
-        Toggle reflects ``is_available()`` — the plugin must be technically
-        ready to run (credentials set, OAuth connected, …) to show as ON.
-        Clicking a disabled toggle for an OAuth-capable plugin auto-starts
-        the OAuth flow (see ``toggle_tool_plugin``).
-        """
-        from ..lib.plugin_registry import discover_tools
-        from ..lib.credential_broker import broker
-        self.tool_plugin_toggles = {
-            p.name: ("1" if p.is_available() else "") for p in discover_tools()
-        }
-        # Load current allowlists for display
-        self.channel_allowlists = {
-            "email": broker.get("email", "allowed_senders") or "-",
-            "telegram": broker.get("telegram", "allowed_users") or "-",
-            "discord": broker.get("discord", "channel_ids") or "-",
-            "freeecho2": "",
-        }
-        # Ensure all channels have a tier entry (fill defaults for missing)
-        from ..lib.security import DEFAULT_TIER_BY_SOURCE, TIER_COMMUNICATE
-        from ..lib.plugin_registry import all_channels
-        tiers = dict(self.channel_security_tiers)
-        for ch_name in all_channels():
-            if ch_name not in tiers:
-                tiers[ch_name] = DEFAULT_TIER_BY_SOURCE.get(ch_name, TIER_COMMUNICATE)
-        self.channel_security_tiers = tiers
-        self.plugin_manager_open = True
-
-    def close_plugin_manager(self) -> None:
-        """Apply pending tool plugin changes and close modal.
-
-        Channel toggles apply immediately (running workers).
-        Tool toggles apply on OK (file movement, batch).
-        Currently only handles disabling (enabled plugins are discovered at build-time).
-        """
-        from ..lib.plugin_registry import discover_tools, disable_plugin
-
-        # All discovered plugins are currently enabled on the filesystem
-        discovered = {p.name for p in discover_tools()}
-
-        for name, ui_enabled_str in self.tool_plugin_toggles.items():
-            ui_enabled = bool(ui_enabled_str)
-            fs_enabled = name in discovered
-
-            if not ui_enabled and fs_enabled:
-                disable_plugin(name, "tool")
-                self.add_debug(f"🔌 {name} deaktiviert")  # type: ignore[attr-defined, has-type]
-
-        self.plugin_manager_open = False
-
-    def toggle_tool_plugin(self, plugin_name: str) -> None:
-        """Toggle a tool plugin.
+        Enable/disable is a directory move (tools/ ⇄ disabled/) — that's what
+        ``discover_tools`` / ``is_plugin_enabled`` read. Doing it here makes
+        the toggle actually take effect; the old batch-on-close apply path was
+        never wired up. Applies to ALL tool plugins generically; Vision
+        additionally disarms its Watcher.
 
         OAuth plugins that aren't connected yet are not toggleable from here —
         the user opens the credentials modal (gear icon) and uses the explicit
         "Connect" button there. We just leave a hint in the debug log.
         """
-        from ..lib.plugin_registry import get_tool_plugin
+        from ..lib.plugin_registry import (
+            disable_plugin, enable_plugin, get_tool_plugin, is_plugin_enabled,
+        )
         from ..lib.oauth import oauth_broker
 
         toggles = dict(self.tool_plugin_toggles)
@@ -1013,7 +968,27 @@ class SettingsMixin(rx.State, mixin=True):
                 )
                 return
 
-        toggles[plugin_name] = "" if current else "1"
+        new_enabled = not current
+        if new_enabled:
+            if not is_plugin_enabled(plugin_name):
+                enable_plugin(plugin_name, "tool")
+            # Re-fetch after enabling so the log shows the real display name
+            # (e.g. "Vigilantia"), as it appears in the plugin menu.
+            plugin = get_tool_plugin(plugin_name)
+            display = plugin.display_name if plugin else plugin_name
+            self.add_debug(f"🔌 {display} enabled")  # type: ignore[attr-defined]
+        else:
+            display = plugin.display_name if plugin else plugin_name
+            # Vision: disarm the Watcher FIRST — force_disarm writes the
+            # vision settings.json, which is gone once disable_plugin moves
+            # the package to disabled/ (that caused the FileNotFoundError).
+            if plugin_name == "vision":
+                await self.force_disarm_vigilantia()  # type: ignore[attr-defined]
+            if is_plugin_enabled(plugin_name):
+                disable_plugin(plugin_name, "tool")
+            self.add_debug(f"🔌 {display} disabled")  # type: ignore[attr-defined]
+
+        toggles[plugin_name] = "1" if new_enabled else ""
         self.tool_plugin_toggles = toggles
 
     # ================================================================

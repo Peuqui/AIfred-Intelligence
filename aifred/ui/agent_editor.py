@@ -1513,7 +1513,7 @@ def _plugin_description_popover(description: str) -> rx.Component:
 
 def _plugins_view() -> rx.Component:
     """Plugins tab: channel and tool plugin management."""
-    from ..lib.plugin_registry import all_channels, discover_tools
+    from ..lib.plugin_registry import all_channels
     from ..lib.security import TIER_I18N_KEYS
     from ..lib.i18n import TranslationManager as _TM
     # Build tier dropdown options per language (select needs static lists)
@@ -1524,18 +1524,26 @@ def _plugins_view() -> rx.Component:
     tier_options = rx.cond(AIState.ui_language == "de", _tier_opts["de"], _tier_opts["en"])
 
     # ── Build tool plugin rows at build time (static, like channels) ──
+    # list_all_plugins() (not discover_tools) so DISABLED plugins still show up and
+    # can be re-enabled. get_tool_plugin() is None for a disabled plugin — then
+    # we render a minimal row (name + toggle), without description/settings.
+    from ..lib.plugin_registry import list_all_plugins, get_tool_plugin
     tool_rows: list[rx.Component] = []
-    for plugin in discover_tools():
-        name = plugin.name
+    for _pmeta in list_all_plugins():
+        if _pmeta["type"] != "tool":
+            continue
+        name = _pmeta["name"]
+        plugin = get_tool_plugin(name)  # None if disabled
         enabled_var = AIState.tool_plugin_toggles[name].to(str) == "1"
-        has_creds = bool(getattr(plugin, "credential_fields", None))
-        description = getattr(plugin, "description", "") or ""
+        has_creds = bool(getattr(plugin, "credential_fields", None)) if plugin else False
+        description = (getattr(plugin, "description", "") or "") if plugin else ""
+        display_name = plugin.display_name if plugin else _pmeta.get("display", name)
 
         row_children: list[rx.Component] = [
             # Name column — fixed width keeps lightbulb column aligned across rows
             rx.hstack(
                 rx.icon("puzzle", size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
-                rx.text(plugin.display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+                rx.text(display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
                 spacing="2", align="center", min_width="220px",
             ),
             _plugin_description_popover(description),
