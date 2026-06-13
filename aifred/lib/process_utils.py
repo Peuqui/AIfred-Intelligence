@@ -387,6 +387,46 @@ def restart_llama_swap() -> bool:
         return False
 
 
+def gpu_compute_processes() -> list[str]:
+    """Human-readable list of processes currently holding GPU VRAM.
+
+    One entry per compute process: ``"<name> (PID <pid>, <mem> MiB)"``,
+    annotated with ``[docker]`` when the PID lives inside a container
+    cgroup. Used by the pre-calibration cleanup to name *what* is keeping
+    a GPU busy after AIfred's own consumers were shut down — so a leftover
+    foreign program is reported by name instead of just a residual-MB
+    number. Empty list when nothing is on the GPUs (or nvidia-smi is
+    unavailable). Read-only: this never kills anything.
+    """
+    from pathlib import Path
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return []
+    if out.returncode != 0:
+        return []
+
+    procs: list[str] = []
+    for line in out.stdout.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        pid, name, mem = parts[0], parts[1], parts[2]
+        tag = ""
+        try:
+            cgroup = Path(f"/proc/{pid}/cgroup").read_text()
+            if "docker" in cgroup or "containerd" in cgroup:
+                tag = " [docker]"
+        except OSError:
+            pass
+        procs.append(f"{name} (PID {pid}, {mem} MiB){tag}")
+    return procs
+
+
 def stop_all_installed_tts(keep: str = "") -> list[tuple[str, bool, str]]:
     """Stop every installed GPU-TTS container.
 

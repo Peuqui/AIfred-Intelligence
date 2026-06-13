@@ -901,15 +901,24 @@ class CalibrationMixin(rx.State, mixin=True):
                 busy = await _residual_gpus()
 
             if busy:
-                # Still occupied after the drain window — calibration would
-                # run on dirty GPUs and produce unreliable splits. Surface
-                # it loudly; the user decides whether to abort and free the
-                # cards (a runaway VLM/TTS process, another tenant).
+                # Still occupied after the drain window. AIfred's own
+                # consumers (TTS docker, Ollama, llama-swap) were already
+                # shut down above, so whatever is left is most likely a
+                # FOREIGN program — we must NOT kill it, only warn. Name
+                # the offending processes so the user can tell a foreign
+                # tenant from a stuck AIfred container.
+                from ..lib.process_utils import gpu_compute_processes
+                offenders = gpu_compute_processes()
                 self.add_debug(  # type: ignore[attr-defined]
                     f"   ⚠️ GPUs STILL occupied after {format_number(waited)}s: "
                     f"{', '.join(busy)} — calibration results may be "
-                    f"unreliable. Free these GPUs and recalibrate."
+                    f"unreliable. NOT killing foreign processes; free these "
+                    f"GPUs manually and recalibrate."
                 )
+                if offenders:
+                    self.add_debug(  # type: ignore[attr-defined]
+                        f"   ⚠️ GPU processes still running: {'; '.join(offenders)}"
+                    )
             else:
                 self.add_debug("   ✅ All GPUs empty — VRAM cleanup done")  # type: ignore[attr-defined]
             yield
