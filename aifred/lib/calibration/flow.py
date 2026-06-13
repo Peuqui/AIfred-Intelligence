@@ -2222,6 +2222,22 @@ async def calibrate_tts_variant_from_base(
         yield "__RESULT__:0:0:error"
         return
 
+    # ── Mode switch: AI vs. algorithm (no mixing — the toggle decides) ──
+    # In AI mode the KI optimizes ctx/split for this cell instead of the
+    # algorithmic _project_cell/_verify_and_refine below. The active set
+    # (base_split>0) IS the hard GPU lock: calibrate_with_ai only ever sees
+    # these cards, so a speed variant can't silently re-activate a slow one.
+    from ..settings import load_settings as _load_cal_settings
+    if str((_load_cal_settings() or {}).get("calibration_mode", "legacy")) == "ai":
+        async for line in _ai_variant_from_base(
+            model=model, gguf_path=gguf_path, full_cmd=full_cmd, gpus=gpus,
+            active=active, base_split=base_split, base_ctx=base_ctx,
+            base_kv=base_kv, budget=budget, port=port, env=env,
+            known_thinking=known_thinking,
+        ):
+            yield line
+        return
+
     if tts_position >= 0:
         yield (
             f"TTS variant from base: active GPUs {active}, target ctx "
@@ -2292,6 +2308,110 @@ async def calibrate_tts_variant_from_base(
 
     thinks = known_thinking if known_thinking is not None else result.thinks
     yield _result_sentinel(result, bool(thinks))
+
+
+async def _ai_variant_from_base(
+    *,
+    model: "Model",
+    gguf_path: Path,
+    full_cmd: str,
+    gpus: list[GPU],
+    active: list[int],
+    base_split: tuple[float, ...],
+    base_ctx: int,
+    base_kv: str,
+    budget: "Budget",
+    port: int,
+    env: Optional[dict[str, str]],
+    known_thinking: Optional[bool],
+) -> AsyncIterator[str]:
+    """AI calibration of one variant cell, restricted to the active GPU set.
+
+    The ``active`` set (base_split>0) is at once the hard speed lock:
+    ``calibrate_with_ai`` only ever sees ``gpus_active`` (reduced list +
+    matching CUDA_VISIBLE_DEVICES), so it can't re-activate a deactivated
+    card. Yields the same ``__RESULT__:``/progress sentinels as the
+    algorithmic path; on AI failure it yields ``__RESULT__:0:0:error``
+    (no algorithmic fallback — the toggle picked AI).
+
+    Index-safety: gpus/reserve/seed are all sliced by the same ``active``
+    indices, and the result split is reported as the active (>0) values in
+    that same order — identical to ``_result_sentinel``'s contract.
+    """
+    from .ai_agent import calibrate_with_ai
+    from .gpu import cuda_visible_devices
+
+    gpus_active = [gpus[i] for i in active]
+    reserve_active = (
+        tuple(budget.gpu_reserve_mb[i] for i in active)
+        if budget.gpu_reserve_mb else ()
+    )
+    seed_active = [base_split[i] for i in active]
+
+    # Speed/feasibility gate (cheap, no probes): does the model WEIGHT even
+    # fit on the active cards after subtracting the side-channel reserve?
+    # If not, the reduced (speed) set is too small — skip without burning a
+    # single AI probe. (KV-cache + compute come on top; the AI's own
+    # fit-params pre-search rejects those tighter cases.)
+    usable_mb = sum(g.free_mb for g in gpus_active) - sum(reserve_active)
+    if usable_mb < model.size_mb:
+        yield (
+            f"AI variant: model weight {format_number(model.size_mb)} MB "
+            f"exceeds usable VRAM on the active set "
+            f"({format_number(usable_mb)} MB) — not feasible, skipping"
+        )
+        yield "__RESULT__:0:0:error"
+        return
+    env_active = {
+        **(env or {}),
+        "CUDA_VISIBLE_DEVICES": cuda_visible_devices(gpus_active),
+    }
+
+    ai_ctx: Optional[int] = None
+    ai_split: Optional[list[float]] = None
+    async for line in calibrate_with_ai(
+        model_id=model.model_id,
+        full_cmd=full_cmd,
+        safety_margin_mb=budget.safety_margin,
+        gguf_path=gguf_path,
+        seed_ctx=base_ctx,
+        seed_split=seed_active,
+        port=port,
+        env=env_active,
+        model_size_mb=model.size_mb,
+        native_ctx=base_ctx,  # a variant never gets more ctx than the base
+        total_layers=model.total_layers,
+        reserve_mb=reserve_active,
+        gpus=gpus_active,
+    ):
+        if line.startswith("__AI_RESULT__:"):
+            payload = line.removeprefix("__AI_RESULT__:")
+            parts = payload.split(":", 2)
+            try:
+                ai_ctx = int(parts[0])
+                ai_split = [float(x) for x in parts[1].split(",") if x.strip()]
+            except (ValueError, IndexError):
+                yield f"AI variant: unparseable result {payload[:60]}"
+                yield "__RESULT__:0:0:error"
+                return
+            break
+        if line.startswith("__AI_ERROR__:"):
+            yield f"AI variant: {line.removeprefix('__AI_ERROR__:')}"
+            yield "__RESULT__:0:0:error"
+            return
+        yield line
+
+    if ai_ctx is None or not ai_split:
+        yield "__RESULT__:0:0:error"
+        return
+
+    # Same sentinel contract as _result_sentinel: only the active (>0)
+    # split values, in active-index order; num_gpus = their count. Variants
+    # run gpu-mode (ngl=99) and inherit thinking from the base.
+    ts_csv = ",".join(f"{x:g}" for x in ai_split if x > 0)
+    num_gpus = sum(1 for x in ai_split if x > 0)
+    thinks = "thinks" if known_thinking else "nothink"
+    yield f"__RESULT__:{ai_ctx}:99:gpu:{thinks}:{base_kv}:{ts_csv}:{num_gpus}"
 
 
 # ═══════════════════════════════════════════════════════════════════
