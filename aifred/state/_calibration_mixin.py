@@ -865,7 +865,53 @@ class CalibrationMixin(rx.State, mixin=True):
                     f"   ⚠️ Ollama unload skipped: {_e}"
                 )
 
-            self.add_debug("   VRAM cleanup done")  # type: ignore[attr-defined]
+            # Verify the GPUs are ACTUALLY empty before probing. The stops
+            # above return before the CUDA contexts finish tearing down
+            # (Ollama keep_alive=0 unload lags a few seconds), so without
+            # this guard the first probe can measure a still-warm VLM/TTS
+            # as "occupied" and the planner subtracts phantom MB — exactly
+            # what burned 64 min on the 397B (residual VLM on the V100).
+            import asyncio as _asyncio
+
+            from ..backends.ollama import wait_for_vram_stable as _wait_vram
+            from ..lib.calibration.gpu import enumerate_gpus as _enum_gpus
+            from ..lib.config import (
+                LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S as _DRAIN_TIMEOUT,
+                LLAMACPP_CALIBRATION_MAX_RESIDUAL_MB as _MAX_RESIDUAL,
+            )
+
+            async def _residual_gpus() -> list[str]:
+                """GPUs still holding more than the residual threshold."""
+                await _wait_vram(max_wait_seconds=10.0)
+                return [
+                    f"{g.name} ({format_number(g.total_mb - g.free_mb)} MB)"
+                    for g in _enum_gpus()
+                    if (g.total_mb - g.free_mb) > _MAX_RESIDUAL
+                ]
+
+            waited = 0.0
+            busy = await _residual_gpus()
+            while busy and waited < _DRAIN_TIMEOUT:
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"   ⏳ GPUs not empty yet ({', '.join(busy)}) — waiting…"
+                )
+                yield
+                await _asyncio.sleep(3.0)
+                waited += 3.0
+                busy = await _residual_gpus()
+
+            if busy:
+                # Still occupied after the drain window — calibration would
+                # run on dirty GPUs and produce unreliable splits. Surface
+                # it loudly; the user decides whether to abort and free the
+                # cards (a runaway VLM/TTS process, another tenant).
+                self.add_debug(  # type: ignore[attr-defined]
+                    f"   ⚠️ GPUs STILL occupied after {format_number(waited)}s: "
+                    f"{', '.join(busy)} — calibration results may be "
+                    f"unreliable. Free these GPUs and recalibrate."
+                )
+            else:
+                self.add_debug("   ✅ All GPUs empty — VRAM cleanup done")  # type: ignore[attr-defined]
             yield
 
             # Step 1: Stop llama-swap system service to free VRAM

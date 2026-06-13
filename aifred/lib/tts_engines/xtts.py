@@ -148,22 +148,16 @@ class XTTSEngine(TTSEngine):
             return None
 
     def calibration_setup(self, debug: Any) -> bool:
-        ok, msg, _device = self.ensure_ready(timeout=120)
-        if not ok:
-            return False
-        debug(f"   🔊 {msg}")
-        # XTTS responds to a short test inference to push its working
-        # set up to the steady-state peak (idle ~2 GB, peak ~4 GB).
-        import httpx
-        try:
-            debug("   🔊 Running test TTS for peak VRAM measurement...")
-            r = httpx.post(
-                f"{self.service_url}/tts",
-                json={"text": "Dies ist ein Kalibrierungstest für den Sprachspeicher.", "language": "de"},
-                timeout=60.0,
-            )
-            if r.is_success:
-                debug("   🔊 Peak VRAM reached after test inference")
-        except httpx.HTTPError:
-            debug("   ⚠️ Test TTS failed, using idle VRAM (may underestimate)")
+        # Do NOT load the container during calibration — same contract as
+        # qwen3local/fishspeech. The peak VRAM is the single source of
+        # truth from the stress burn-in cache (resolve_tts_reserve); the
+        # calibration plans the TTS GPU around that reserve while the
+        # container stays cold. Loading it here would double-count the
+        # idle footprint against the reserve and push LLM layers off the
+        # card. The burn-in itself starts/stops the container on a cache
+        # miss — calibration never needs the live service.
+        debug(
+            f"   🔊 {self.label_short}: reserving via stress burn-in cache "
+            f"(container not loaded)"
+        )
         return True

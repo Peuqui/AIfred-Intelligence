@@ -982,6 +982,24 @@ LLAMACPP_TTS_BURNIN_HEADROOM_MB = 512
 # steady-state. Raise this if a new engine shows late-arriving peaks.
 LLAMACPP_TTS_BURNIN_ITERATIONS = 2
 
+# Pre-calibration GPU-cleanliness guard. After Step 0 (stop TTS/VLM
+# containers, unload Ollama models) the calibration MUST run on empty
+# GPUs — every probe measures real nvidia-smi free VRAM, so a leftover
+# consumer (a warm VLM, a half-unloaded model) makes the planner subtract
+# phantom MB and discard valid configs (397B: a residual VLM on the V100
+# Dedicated inference GPUs must be COMPLETELY empty — an idle compute card
+# reads EXACTLY 0 MB used (no display/compositor on it), so the default is
+# strict 0: any byte still held after cleanup means a leftover consumer.
+# Raise this ONLY on setups where one of the calibrated GPUs also drives
+# the desktop (X-server/compositor permanently holds a few hundred MB to
+# ~2 GB that never frees) — set it just above that baseline. A GPU holding
+# more than this after cleanup → wait + retry, then warn.
+LLAMACPP_CALIBRATION_MAX_RESIDUAL_MB = 0
+# How long to keep polling for the GPUs to drain after cleanup before
+# giving up and warning (seconds). Ollama's keep_alive=0 unload returns
+# immediately but the CUDA context teardown lags a few seconds.
+LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S = 30.0
+
 # TTS VRAM reserve for tensor-split calculation (MB).
 # TTS models can spike during inference (e.g. MOSS-TTS: ~350 MB peak above idle).
 # Subtracted from the TTS GPU's free VRAM before computing tensor-split ratios.
