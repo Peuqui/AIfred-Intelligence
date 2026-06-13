@@ -882,62 +882,52 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("   Continuing anyway (VRAM may be limited)")  # type: ignore[attr-defined]
             yield
 
-            # Verify the GPUs are ACTUALLY empty before probing. The stops
-            # above return before the CUDA contexts finish tearing down
-            # (Ollama keep_alive=0 unload + llama-swap teardown lag a few
-            # seconds), so without this guard the first probe can measure a
-            # still-warm model as "occupied" and the planner subtracts
-            # phantom MB — exactly what burned 64 min on the 397B.
+            # Verify NO compute process is left on the GPUs before probing.
+            # Readiness is process-based, NOT memory-based: nvidia-smi
+            # memory.used keeps counting driver-reserved page-table memory
+            # (~750 MB/RTX, ~270 MB V100, ~140 MB P40 on this rig) AFTER a
+            # model unloads, with no process holding it — a used==0 check
+            # would wait out the full timeout on every run. Only a running
+            # compute process (a stop that hasn't completed, or a foreign
+            # program) actually blocks calibration; the reserved baseline is
+            # reclaimed by the first real probe's CUDA re-init.
             import asyncio as _asyncio
 
             from ..backends.ollama import wait_for_vram_stable as _wait_vram
-            from ..lib.calibration.gpu import enumerate_gpus as _enum_gpus
             from ..lib.config import (
                 LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S as _DRAIN_TIMEOUT,
-                LLAMACPP_CALIBRATION_MAX_RESIDUAL_MB as _MAX_RESIDUAL,
             )
+            from ..lib.process_utils import gpu_compute_processes
 
-            async def _residual_gpus() -> list[str]:
-                """GPUs still holding more than the residual threshold."""
+            async def _gpu_procs() -> list[str]:
+                """Running compute processes on the GPUs (empty = ready)."""
                 await _wait_vram(max_wait_seconds=10.0)
-                return [
-                    f"{g.name} ({format_number(g.total_mb - g.free_mb)} MB)"
-                    for g in _enum_gpus()
-                    if (g.total_mb - g.free_mb) > _MAX_RESIDUAL
-                ]
+                return gpu_compute_processes()
 
             waited = 0.0
-            busy = await _residual_gpus()
-            while busy and waited < _DRAIN_TIMEOUT:
+            procs = await _gpu_procs()
+            while procs and waited < _DRAIN_TIMEOUT:
                 self.add_debug(  # type: ignore[attr-defined]
-                    f"   ⏳ GPUs not empty yet ({', '.join(busy)}) — waiting…"
+                    f"   ⏳ GPU still busy ({'; '.join(procs)}) — waiting…"
                 )
                 yield
                 await _asyncio.sleep(3.0)
                 waited += 3.0
-                busy = await _residual_gpus()
+                procs = await _gpu_procs()
 
-            if busy:
-                # Still occupied after the drain window. AIfred's own
-                # consumers (TTS docker, Ollama, llama-swap) were already
-                # shut down above, so whatever is left is most likely a
-                # FOREIGN program — we must NOT kill it, only warn. Name
-                # the offending processes so the user can tell a foreign
-                # tenant from a stuck AIfred container.
-                from ..lib.process_utils import gpu_compute_processes
-                offenders = gpu_compute_processes()
+            if procs:
+                # A process survived the drain window. AIfred's own consumers
+                # (TTS docker, Ollama, llama-swap) were already shut down, so
+                # this is most likely a FOREIGN program — we must NOT kill it,
+                # only warn with its name so the user can free the GPU.
                 self.add_debug(  # type: ignore[attr-defined]
-                    f"   ⚠️ GPUs STILL occupied after {format_number(waited)}s: "
-                    f"{', '.join(busy)} — calibration results may be "
-                    f"unreliable. NOT killing foreign processes; free these "
-                    f"GPUs manually and recalibrate."
+                    f"   ⚠️ GPU STILL has running processes after "
+                    f"{format_number(waited)}s: {'; '.join(procs)} — AIfred's "
+                    f"own consumers were stopped, so this is likely a foreign "
+                    f"program. NOT killing it; free the GPU and recalibrate."
                 )
-                if offenders:
-                    self.add_debug(  # type: ignore[attr-defined]
-                        f"   ⚠️ GPU processes still running: {'; '.join(offenders)}"
-                    )
             else:
-                self.add_debug("   ✅ All GPUs empty — VRAM cleanup done")  # type: ignore[attr-defined]
+                self.add_debug("   ✅ No GPU processes running — VRAM ready")  # type: ignore[attr-defined]
             yield
 
             # Matrix-driven calibration: every variant the user wants
