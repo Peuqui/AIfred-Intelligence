@@ -452,7 +452,7 @@
       "emoji": "📐",
       "description": "",
       "role": "system",
-      "model": "qwen-max",
+      "model": "qwen3.7-max-2026-06-08",
       "prompts": {
         "system": "calibration/system.txt"
       },
@@ -461,7 +461,8 @@
         "reasoning": false,
         "thinking": false
       },
-      "tools": null
+      "tools": null,
+      "cloud_provider": "qwen"
     }
   }
 }

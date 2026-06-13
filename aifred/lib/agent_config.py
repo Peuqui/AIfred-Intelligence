@@ -51,9 +51,11 @@ class AgentConfig:
     # Tool whitelist — None means all tools allowed
     tools: Optional[list[str]] = None
 
-    # Cloud-API model identifier — only meaningful for system agents that
-    # call out to a Cloud LLM (e.g. calibration agent uses Qwen).
-    # Empty/None means "use the workflow's default".
+    # Cloud-API provider + model identifier — only meaningful for system
+    # agents that call out to a Cloud LLM (e.g. the calibration agent).
+    # Both resolve through the shared CLOUD_API_PROVIDERS SSOT; provider
+    # defaults to "qwen" (DashScope). Empty model means "not configured".
+    cloud_provider: str = "qwen"
     model: str = ""
 
     # STT phonetic aliases — names the agent should also respond to when
@@ -165,6 +167,7 @@ def _dict_to_config(data: dict) -> AgentConfig:
         prompts=data.get("prompts", {}),
         toggles=data.get("toggles", {}),
         tools=data.get("tools"),
+        cloud_provider=data.get("cloud_provider", "qwen"),
         model=data.get("model", ""),
         aliases=aliases,
     )
