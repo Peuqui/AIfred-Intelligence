@@ -282,6 +282,32 @@ class TestAnalyze:
         assert len(events) == 1
         assert events[0]["event_type"] == "vlm_analysis"
 
+    def test_analyze_empty_vlm_response_returns_error(
+        self, patched_plugin, ctx, monkeypatch, tmp_path: Path
+    ):
+        # VLM keeps returning empty (even after analyze_sequence's retry) →
+        # the tool must NOT hand the LLM a silent empty description, but an
+        # honest error with a retry hint.
+        self._patch_dirs(monkeypatch, tmp_path)
+
+        async def empty_generate(self, **kwargs):
+            return {"response": "", "eval_count": 0}
+
+        import ollama
+
+        monkeypatch.setattr(ollama.AsyncClient, "generate", empty_generate)
+
+        register(FakeSource("cam/test-empty"))
+        tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
+        snap = _exec_tool(tools["vision_snapshot"], source_id="cam/test-empty")
+        result = _exec_tool(
+            tools["vision_analyze"],
+            image_urls=[snap["image_url"]],
+            source_id="cam/test-empty",
+        )
+        assert result["success"] is False
+        assert "no description" in result["error"].lower()
+
     def test_analyze_rejects_missing_image_urls(self, patched_plugin, ctx):
         # analyze no longer captures — without image_urls it must error,
         # not silently grab a frame.

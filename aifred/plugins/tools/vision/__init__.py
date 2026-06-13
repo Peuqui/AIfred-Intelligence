@@ -616,6 +616,20 @@ class VisionPlugin:
             except RuntimeError as e:
                 return _err(f"VLM call failed: {e}")
 
+            # Empty description even after analyze_sequence's internal retry
+            # = the VLM produced no text (transient glitch under VRAM
+            # contention, observed live with the 397B + TTS + VLM sharing
+            # GPUs). Don't hand the main LLM a silent empty field — return an
+            # honest error so it can retry the call or tell the user that
+            # this camera couldn't be analysed.
+            if not (result.text or "").strip():
+                cam = resolve_source_label(source_id) if source_id else "image"
+                return _err(
+                    f"VLM returned no description for {cam} — likely a "
+                    f"transient overload. Try vision_analyze again for this "
+                    f"image; if it keeps failing, report it to the user."
+                )
+
             stats = result.metadata.get("stats", {}) if result.metadata else {}
             payload: dict[str, Any] = {
                 "source_id": source_id or "",
