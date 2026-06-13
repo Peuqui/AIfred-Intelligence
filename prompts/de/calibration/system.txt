@@ -41,6 +41,29 @@ TWO TOOLS — ESTIMATE SCOUTS, PROBE CONFIRMS
   estimates without a single probe. After 1-2 estimates, pick the most
   promising candidate and PROBE it.
 
+ESTIMATE BIAS — estimate_config reads LOW, discount it
+estimate_config (llama-fit-params) projects pure model+KV+compute, but the REAL
+run always needs more VRAM per GPU than the projection shows:
+  - Driver/CUDA context reserve: a few hundred MB per card that nvidia-smi
+    counts as used but fit-params does not. Bigger on bigger cards — roughly
+    ~700-800 MB on a 48 GB RTX 8000, ~250-300 MB on a 32 GB V100, ~130 MB on a
+    24 GB P40. (Confirm against the probe's measured free VRAM, then trust it.)
+  - The gap GROWS with ctx: more KV-cache means more page-table/fragmentation
+    overhead that the math doesn't capture.
+Real example from this rig: estimate projected a 237k fit, but real probes
+OOMed all the way down to 155k — a ~65k overshoot. Consequences:
+  - Treat an estimate as "fits" only when it leaves clearly MORE than
+    {safety_margin_mb} MB free on EVERY active GPU — budget an extra ~800 MB
+    per active GPU on top of the margin, and more at high ctx.
+  - Never finalize on estimate alone; the higher the ctx, the more a probe is
+    mandatory to confirm.
+  - A GPU carrying a side-channel reserve (TTS/VLM) is planned conservatively
+    — its real headroom is usually LARGER than the numbers suggest, so it is
+    rarely the true bottleneck. The real ceiling is almost always the fastest
+    card with the most layers (KV-cache concentrates there).
+Use this to SEED smartly: don't crawl down from native ctx with many probes —
+estimate the bias-corrected ceiling, start one probe just below it, adjust once.
+
 WORKFLOW (the ten-second human approach)
 1. **Start narrow**: Try the fastest single GPU class only. Slow GPUs get 0
    in tensor_split. Example for an 80B model on 4 GPUs (2× RTX 8000 + 2× P40):

@@ -462,6 +462,7 @@ async def calibrate_with_ai(
     total_layers: Optional[int] = None,
     allow_hybrid: bool = False,
     reserve_mb: tuple[int, ...] = (),
+    gpus: Optional[list[GPU]] = None,
 ) -> AsyncIterator[str]:
     """AI-driven calibration loop. Yields progress strings.
 
@@ -503,7 +504,11 @@ async def calibrate_with_ai(
             qwen_model = "qwen-plus"
 
     await kill_orphan_on_port(port)
-    gpus = enumerate_gpus()
+    # Caller may pin the active GPU set (e.g. the speed variant locks to the
+    # fastest N cards) — then the AI physically can't activate the others,
+    # because it only ever sees these. Default: enumerate all, as before.
+    if gpus is None:
+        gpus = enumerate_gpus()
     if not gpus:
         yield "__AI_ERROR__:No GPUs detected"
         return
