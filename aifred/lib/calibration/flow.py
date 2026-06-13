@@ -1831,6 +1831,45 @@ async def _try_ai_calibration(
         async for line in _write_base_config(config_path, model_id, result, gpus):
             yield line
 
+    # ── Speed variant (AI mode) ──────────────────────────────────────
+    # Without this the AI base returns early (caller returns on __RESULT__)
+    # and Phase E never runs → no speed_split, so no variant-speed either.
+    # _find_speed_candidate picks the smaller/faster GPU set deterministically
+    # ("loop decides what"), then the AI optimizes ctx/split on exactly that
+    # locked set ("AI decides how", as_speed=True → emits __SPEED__). Emitted
+    # BEFORE the base __RESULT__ so the caller still sees it. A failed speed
+    # variant must NEVER masquerade as / kill the base result.
+    if num_gpus > 1:
+        model_meta = _load_model_meta(model_id, gguf_path)
+        if model_meta is not None:
+            from dataclasses import replace as _replace
+            speed_budget = build_budget(gpus, safety_margin=safety_margin)
+            if reserve_mb and any(reserve_mb):
+                speed_budget = _replace(speed_budget, gpu_reserve_mb=reserve_mb)
+            speed_pick = await _find_speed_candidate(
+                model_meta, gpus, speed_budget, full_cmd, [], num_gpus, kv,
+            )
+            if speed_pick is not None:
+                speed_active = [
+                    i for i, r in enumerate(speed_pick.tensor_split) if r > 0
+                ]
+                yield (
+                    f"⚡ AI speed variant: {len(speed_active)} GPUs "
+                    f"(vs {num_gpus} base) — optimizing on the faster set"
+                )
+                async for line in _ai_variant_from_base(
+                    model=model_meta, gguf_path=gguf_path, full_cmd=full_cmd,
+                    gpus=gpus, active=speed_active,
+                    base_split=speed_pick.tensor_split,
+                    base_ctx=native_ctx, base_kv=kv, budget=speed_budget,
+                    port=port, env=env, known_thinking=True, as_speed=True,
+                ):
+                    if line.startswith("__RESULT__:"):
+                        # speed branch failed (gate/ai-error) — keep base only.
+                        yield "⚡ AI speed variant: no fit — keeping base only"
+                        break
+                    yield line
+
     yield f"__RESULT__:{ai_ctx}:{ngl}:gpu:thinks:{kv}:{ts_colon}:{num_gpus}"
 
 
@@ -2324,6 +2363,7 @@ async def _ai_variant_from_base(
     port: int,
     env: Optional[dict[str, str]],
     known_thinking: Optional[bool],
+    as_speed: bool = False,
 ) -> AsyncIterator[str]:
     """AI calibration of one variant cell, restricted to the active GPU set.
 
@@ -2405,11 +2445,21 @@ async def _ai_variant_from_base(
         yield "__RESULT__:0:0:error"
         return
 
+    num_gpus = sum(1 for x in ai_split if x > 0)
+    if as_speed:
+        # __SPEED__ wants the FULL split (all GPUs, colon-separated, 0 for
+        # inactive) like _split_str — map the active result back onto the
+        # full GPU list so the mixin's parser keeps the right CUDA order.
+        full_split = [0] * len(gpus)
+        for j, idx in enumerate(active):
+            full_split[idx] = int(round(ai_split[j])) if j < len(ai_split) else 0
+        split_colon = ":".join(str(x) for x in full_split)
+        yield f"__SPEED__:{split_colon},{ai_ctx},{num_gpus},{base_kv}"
+        return
     # Same sentinel contract as _result_sentinel: only the active (>0)
     # split values, in active-index order; num_gpus = their count. Variants
     # run gpu-mode (ngl=99) and inherit thinking from the base.
     ts_csv = ",".join(f"{x:g}" for x in ai_split if x > 0)
-    num_gpus = sum(1 for x in ai_split if x > 0)
     thinks = "thinks" if known_thinking else "nothink"
     yield f"__RESULT__:{ai_ctx}:99:gpu:{thinks}:{base_kv}:{ts_csv}:{num_gpus}"
 

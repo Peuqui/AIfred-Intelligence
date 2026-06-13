@@ -103,6 +103,25 @@ def test_infeasible_speed_set_skips_ai(monkeypatch):
     assert out[-1] == "__RESULT__:0:0:error"
 
 
+def test_as_speed_emits_full_split_sentinel(monkeypatch):
+    # Speed: 2 of 3 GPUs active. The AI returns a split for the 2 active
+    # cards ("20,20"); __SPEED__ must carry the FULL colon split with 0 for
+    # the inactive GPU, so the mixin's parser keeps the right CUDA order.
+    gpus = [_gpu("g0", "RTX 8000", 7.5, 49152), _gpu("g1", "RTX 8000", 7.5, 49152),
+            _gpu("g2", "V100", 7.0, 32768)]
+    cap: dict = {}
+    _mock_ai(monkeypatch, "20,20", cap)
+    out = _drain(flow._ai_variant_from_base(
+        model=_model(40000), gguf_path=Path("/x.gguf"), full_cmd="--model x --port 1",
+        gpus=gpus, active=[0, 1], base_split=(22.0, 22.0, 0.0), base_ctx=262144,
+        base_kv="f16", budget=_budget((0, 0, 0)), port=1, env={},
+        known_thinking=True, as_speed=True,
+    ))
+    speed = [ln for ln in out if ln.startswith("__SPEED__:")][-1]
+    assert speed == "__SPEED__:20:20:0,188000,2,f16"
+    assert not any(ln.startswith("__RESULT__:") for ln in out)  # speed, not base
+
+
 def test_ai_error_no_fallback(monkeypatch):
     gpus = [_gpu("g0", "RTX 8000", 7.5, 49152), _gpu("g1", "RTX 8000", 7.5, 49152)]
     async def fake(**kwargs):
