@@ -945,6 +945,19 @@ async def _verify_and_refine(
                         f"{status_prefix} no further layer shift possible at native ctx"
                     )
                 break
+            # Oszillations-Guard: measurement-based refine und blind shift
+            # können gegeneinander arbeiten (refine schiebt A→B, blind
+            # schiebt B→A), wenn die Zielkarte schon voll ist. Ohne diesen
+            # Check pendelt der Loop bis max_shifts zwischen zwei längst
+            # verworfenen Splits (397B: 64 min Leerlauf). Schon gesehener
+            # Split → Shift-Phase beenden, auf ctx-shrink umsteigen.
+            if shifted in seen_splits:
+                yield (
+                    f"{status_prefix} oscillation detected — "
+                    f"{_split_str(shifted)} already tried, ending shift loop"
+                )
+                break
+            seen_splits.add(shifted)
             shift_attempt += 1
             iteration += 1
             yield (
