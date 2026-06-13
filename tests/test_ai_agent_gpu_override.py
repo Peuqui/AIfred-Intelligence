@@ -34,8 +34,15 @@ def _drain(gen) -> list[str]:
 
 
 def _common_mocks(monkeypatch, enum_marker: dict):
-    # API key present so we get past the early guard to the GPU step.
-    monkeypatch.setattr(ai_agent.broker, "get", lambda *a, **k: "fake-key")
+    # Provider + model + key present so we get past the early guards to the
+    # GPU step. These resolve through the cloud_api SSOT now, not broker.
+    import aifred.lib.agent_config as agent_config
+    import aifred.backends.cloud_api as cloud_api
+    monkeypatch.setattr(
+        agent_config, "load_agents_raw",
+        lambda: {"calibration": {"cloud_provider": "qwen", "model": "qwen-plus"}},
+    )
+    monkeypatch.setattr(cloud_api, "get_cloud_api_key", lambda provider: "fake-key")
     monkeypatch.setattr(ai_agent, "kill_orphan_on_port",
                         lambda *a, **k: asyncio.sleep(0))
 

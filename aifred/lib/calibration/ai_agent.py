@@ -19,13 +19,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Optional
 
 from ..config import LLAMACPP_CALIBRATION_PORT
-from ..credential_broker import broker
 from .gpu import enumerate_gpus, find_min_gpus_for_weights
 from .llamaswap_io import parse_tensor_split, set_tensor_split
 from .types import GPU
@@ -34,7 +32,6 @@ from .verifier import kill_orphan_on_port, verify
 logger = logging.getLogger(__name__)
 
 
-DASHSCOPE_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 # Safety net — manual calibration of similar configs hits the optimum
 # in 3-6 probes, AI with OOM-recovery realistically lands in 8-12.
 # 25 leaves ample room for unexpected OOM streaks without burning
@@ -444,7 +441,7 @@ async def calibrate_with_ai(
     safety_margin_mb: int,
     gguf_path: Optional[Path] = None,
     seed_split: Optional[list[float]] = None,
-    qwen_model: Optional[str] = None,
+    cloud_model: Optional[str] = None,
     port: int = LLAMACPP_CALIBRATION_PORT,
     env: Optional[dict[str, str]] = None,
     extra_constraints: str = "",
@@ -457,9 +454,10 @@ async def calibrate_with_ai(
 ) -> AsyncIterator[str]:
     """AI-driven calibration loop. Yields progress strings.
 
-    The Qwen model is read from the ``calibration`` system agent in
-    ``agents.json`` when ``qwen_model`` is not given — that's where the
-    user can edit it via the Agent Editor.
+    The cloud provider + model are read from the ``calibration`` system
+    agent in ``agents.json`` when ``cloud_model`` is not given — that's
+    where the user edits them via the Agent Editor. Endpoint + key resolve
+    through the shared CLOUD_API_PROVIDERS / get_cloud_api_key SSOT.
 
     On success the last yielded line is
     ``__AI_RESULT__:{ctx}:{ts_csv}:{reasoning}``.
@@ -474,26 +472,41 @@ async def calibrate_with_ai(
         yield "__AI_ERROR__:openai package not installed"
         return
 
-    api_key = broker.get("cloud_qwen", "api_key") or os.environ.get("DASHSCOPE_API_KEY")
-    if not api_key:
-        yield "__AI_ERROR__:DashScope API key missing"
-        return
+    # Provider + model + reasoning come from the calibration system agent in
+    # agents.json (editable via the Agent Editor). The Cloud endpoint reuses
+    # the SAME SSOT as the main chat backend — CLOUD_API_PROVIDERS +
+    # get_cloud_api_key — so any configured provider (qwen / deepseek / kimi
+    # / …) works, not just DashScope. The model must support OpenAI-style
+    # tool-calling (this loop drives estimate/probe/finalize via tools).
+    from ..config import CLOUD_API_PROVIDERS
+    from ...backends.cloud_api import get_cloud_api_key
 
-    # Read model + reasoning toggle from the calibration system agent in
-    # agents.json (editable via the Agent Editor). Reasoning costs extra
-    # time per turn (30-120 s on Qwen-Plus) — for the focused decisions
-    # this loop makes ("more ctx" / "rebalance split"), it's often
-    # overkill, so the default is OFF.
+    provider = "qwen"
     enable_thinking = False
     try:
         from ..agent_config import load_agents_raw
         cal_cfg = load_agents_raw().get("calibration") or {}
-        if qwen_model is None:
-            qwen_model = cal_cfg.get("model") or "qwen-plus"
+        provider = str(cal_cfg.get("cloud_provider") or "qwen")
+        if cloud_model is None:
+            cloud_model = cal_cfg.get("model") or None
+        # Reasoning costs extra time per turn (30-120 s) — for the focused
+        # decisions this loop makes it's often overkill, so the default is OFF.
         enable_thinking = bool((cal_cfg.get("toggles") or {}).get("reasoning", False))
     except Exception:
-        if qwen_model is None:
-            qwen_model = "qwen-plus"
+        pass
+
+    provider_cfg = CLOUD_API_PROVIDERS.get(provider)
+    if not provider_cfg:
+        yield f"__AI_ERROR__:Unknown cloud provider '{provider}'"
+        return
+    if not cloud_model:
+        yield f"__AI_ERROR__:No calibration model configured for provider '{provider}'"
+        return
+    base_url = provider_cfg["base_url"]
+    api_key = get_cloud_api_key(provider)
+    if not api_key:
+        yield f"__AI_ERROR__:{provider_cfg['name']} API key missing ({provider_cfg['env_key']})"
+        return
 
     await kill_orphan_on_port(port)
     # Caller may pin the active GPU set (e.g. the speed variant locks to the
@@ -510,7 +523,10 @@ async def calibrate_with_ai(
         parsed = parse_tensor_split(full_cmd)
         seed_split = parsed if parsed else None
 
-    yield f"🤖 AI calibration with {qwen_model} (max {MAX_PROBES} probes, safety margin {safety_margin_mb} MB)"
+    yield (
+        f"🤖 AI calibration with {cloud_model} via {provider_cfg['name']} "
+        f"(max {MAX_PROBES} probes, safety margin {safety_margin_mb} MB)"
+    )
 
     # ─────────────────────────────────────────────────────────────────
     # Pre-search via fit-params: binary-search from native ctx down to
@@ -617,7 +633,7 @@ async def calibrate_with_ai(
         {"role": "user", "content": "Start the calibration."},
     ]
 
-    client = AsyncOpenAI(api_key=api_key, base_url=DASHSCOPE_BASE_URL)
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     last_outcome: Optional[_ProbeOutcome] = None
     last_ctx: Optional[int] = None
     last_split: Optional[list[float]] = None
@@ -632,7 +648,7 @@ async def calibrate_with_ai(
             yield "🧠 AI is reasoning..."
         try:
             response = await client.chat.completions.create(  # type: ignore[call-overload]
-                model=qwen_model,
+                model=cloud_model,
                 messages=messages,
                 tools=CALIBRATION_TOOLS,
                 tool_choice="auto",

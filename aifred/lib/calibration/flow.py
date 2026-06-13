@@ -1766,8 +1766,8 @@ async def _try_ai_calibration(
     """
     from .ai_agent import calibrate_with_ai
 
-    # qwen_model=None → ai_agent reads it from the calibration system
-    # agent in agents.json (editable via the Agent Editor). The starting
+    # cloud_model=None → ai_agent reads provider + model from the calibration
+    # system agent in agents.json (editable via the Agent Editor). The starting
     # ctx is found by the pre-search (fit-params from native ctx down), so
     # we don't seed a ctx here — only the capacity-based tensor split.
     seed_split = parse_tensor_split(full_cmd)
@@ -1781,7 +1781,7 @@ async def _try_ai_calibration(
         gguf_path=gguf_path,
         safety_margin_mb=safety_margin,
         seed_split=seed_split if seed_split else None,
-        qwen_model=None,
+        cloud_model=None,
         port=port,
         env=env,
         model_size_mb=model_size_mb,

@@ -539,6 +539,11 @@ class BackendMixin(rx.State, mixin=True):
                 if saved_provider in CLOUD_API_PROVIDERS:
                     self.cloud_api_provider = saved_provider
                     self.cloud_api_provider_label = CLOUD_API_PROVIDERS[saved_provider]["name"]
+                    # Resolve the key status here too — otherwise the button
+                    # shows "key missing" on startup until the user toggles the
+                    # backend, because the async model-load path (which sets it)
+                    # doesn't run during this synchronous settings restore.
+                    self.cloud_api_key_configured = is_cloud_api_configured(saved_provider)
 
                 # NOTE: research_mode is per-session now, loaded in _restore_session().
                 # Here we just keep the class default (DEFAULT_SESSION_CONFIG["research_mode"]).
@@ -1535,14 +1540,9 @@ class BackendMixin(rx.State, mixin=True):
     # ================================================================
 
     async def set_cloud_api_provider_by_label(self, label: str):
-        """Switch Cloud API provider using display label."""
-        label_to_id = {
-            "Claude (Anthropic)": "claude",
-            "Qwen (DashScope)": "qwen",
-            "DeepSeek": "deepseek",
-            "Kimi (Moonshot)": "kimi",
-        }
-        provider_id = label_to_id.get(label, "qwen")
+        """Switch Cloud API provider using display label (cloud_api SSOT)."""
+        from ..backends.cloud_api import cloud_provider_from_label
+        provider_id = cloud_provider_from_label(label)
         async for _ in self.set_cloud_api_provider(provider_id):
             yield
 

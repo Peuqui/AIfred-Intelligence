@@ -211,3 +211,27 @@ def is_cloud_api_configured(provider: str) -> bool:
         True if API key is set in environment
     """
     return get_cloud_api_key(provider) is not None
+
+
+# ── Provider label SSOT ──────────────────────────────────────────────────
+# One source for the display label <-> provider-id mapping, shared by the
+# main backend dropdown and the calibration agent editor so both show the
+# identical "Qwen (DashScope)" style labels instead of raw ids.
+
+def cloud_provider_labels() -> List[str]:
+    """All provider display labels in registry order."""
+    return [cfg["name"] for cfg in CLOUD_API_PROVIDERS.values()]
+
+
+def cloud_provider_label(provider: str) -> str:
+    """Display label for a provider id (falls back to the id itself)."""
+    cfg = CLOUD_API_PROVIDERS.get(provider)
+    return cfg["name"] if cfg else provider
+
+
+def cloud_provider_from_label(label: str) -> str:
+    """Reverse lookup: display label -> provider id (falls back to 'qwen')."""
+    for pid, cfg in CLOUD_API_PROVIDERS.items():
+        if cfg["name"] == label:
+            return pid
+    return "qwen"

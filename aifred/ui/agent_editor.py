@@ -577,14 +577,25 @@ def _config_view() -> rx.Component:
                 rx.cond(
                     is_system,
                     rx.vstack(
+                        # on_mount on the wrapper (fires reliably, unlike on a
+                        # Radix select) → fetch the live model list as soon as
+                        # the system-agent block is shown.
                         rx.hstack(
+                            rx.text(t("agent_editor_cloud_provider"), color="#aaa", font_size="12px"),
+                            rx.select(
+                                AIState.editor_cloud_provider_options,
+                                value=AIState.editor_cloud_provider_label,
+                                on_change=AIState.set_editor_cloud_provider,
+                                size="2",
+                                width="170px",
+                            ),
                             rx.text(t("agent_editor_cloud_model"), color="#aaa", font_size="12px"),
                             rx.select(
-                                ["qwen-plus", "qwen-max", "qwen3-coder-plus", "qwen-turbo"],
+                                AIState.editor_cloud_model_options,
                                 value=AIState.editor_model,
                                 on_change=AIState.set_editor_model,
                                 size="2",
-                                width="200px",
+                                width="280px",
                             ),
                             rx.tooltip(
                                 rx.hstack(
@@ -621,6 +632,7 @@ def _config_view() -> rx.Component:
                         width="100%",
                         spacing="2",
                         align="start",
+                        on_mount=AIState.refresh_editor_cloud_models,
                     ),
                 ),
 

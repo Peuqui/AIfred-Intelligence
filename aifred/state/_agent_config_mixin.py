@@ -1084,6 +1084,12 @@ class AgentConfigMixin(rx.State, mixin=True):
     _editor_description: str = ""
     editor_role: str = "custom"
     editor_model: str = ""  # Cloud model id, only used for system-role agents
+    # Cloud provider for system-role agents (calibration). One of
+    # CLOUD_API_PROVIDERS — drives which endpoint + key the model list and
+    # the calibration loop use (same SSOT as the main chat backend).
+    editor_cloud_provider: str = "qwen"
+    # Live model list fetched from the selected provider's /models endpoint.
+    editor_cloud_models: List[str] = []
     # Reasoning toggle for system-role agents (e.g. calibration). Mirrors
     # agents.json `toggles.reasoning`. Off by default — system workflows
     # typically don't benefit enough from chain-of-thought to justify the
@@ -1158,6 +1164,66 @@ class AgentConfigMixin(rx.State, mixin=True):
         if value:
             self.editor_model = value
             self.editor_dirty = True  # type: ignore[attr-defined]
+
+    @rx.var
+    def editor_cloud_provider_options(self) -> List[str]:
+        """Provider display labels — the SAME labels the main backend dropdown
+        shows ("Qwen (DashScope)", …), via the shared cloud_api SSOT."""
+        from ..backends.cloud_api import cloud_provider_labels
+        return cloud_provider_labels()
+
+    @rx.var(deps=["editor_cloud_provider"], auto_deps=False)
+    def editor_cloud_provider_label(self) -> str:
+        """Display label of the currently-selected provider (for the select)."""
+        from ..backends.cloud_api import cloud_provider_label
+        return cloud_provider_label(self.editor_cloud_provider)
+
+    @rx.var(deps=["editor_cloud_models", "editor_model"], auto_deps=False)
+    def editor_cloud_model_options(self) -> List[str]:
+        """Live model list, with the currently-saved model guaranteed present
+        so the select shows it even before the list has been fetched."""
+        models = list(self.editor_cloud_models)
+        if self.editor_model and self.editor_model not in models:
+            models = [self.editor_model] + models
+        return models
+
+    async def set_editor_cloud_provider(self, label: str):
+        """Switch provider (selected by display label) → reset model + reload
+        the live model list. Label→id resolves through the cloud_api SSOT."""
+        from ..backends.cloud_api import cloud_provider_from_label
+        provider = cloud_provider_from_label(label)
+        if provider != self.editor_cloud_provider:
+            self.editor_cloud_provider = provider
+            self.editor_model = ""  # different provider → old model invalid
+            self.editor_dirty = True  # type: ignore[attr-defined]
+            async for _ in self.refresh_editor_cloud_models():
+                yield
+
+    async def refresh_editor_cloud_models(self):
+        """Fetch the live /models list for the selected provider via the
+        shared cloud_api SSOT (CloudAPIBackend.list_models)."""
+        from ..backends.cloud_api import (
+            CloudAPIBackend, get_cloud_api_key, is_cloud_api_configured,
+        )
+        from ..lib.config import CLOUD_API_PROVIDERS
+        provider = self.editor_cloud_provider
+        cfg = CLOUD_API_PROVIDERS.get(provider)
+        if not cfg or not is_cloud_api_configured(provider):
+            self.editor_cloud_models = []
+            yield
+            return
+        try:
+            backend = CloudAPIBackend(
+                base_url=cfg["base_url"],
+                api_key=get_cloud_api_key(provider) or "",
+                provider=provider,
+            )
+            models = await backend.list_models()
+            await backend.close()
+            self.editor_cloud_models = sorted(models)
+        except Exception:  # noqa: BLE001 — network/SDK errors → empty list + hint
+            self.editor_cloud_models = []
+        yield
 
     def toggle_editor_system_reasoning(self) -> None:
         """Flip the reasoning toggle for a system-role agent."""
@@ -1938,6 +2004,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         self._editor_description = config.description
         self.editor_role = config.role
         self.editor_model = getattr(config, "model", "") or ""
+        self.editor_cloud_provider = getattr(config, "cloud_provider", "qwen") or "qwen"
+        self.editor_cloud_models = []  # refreshed lazily via the select's on_mount
         self.editor_system_reasoning = bool(config.toggles.get("reasoning", False))
         self.editor_prompt_keys = list(config.prompts.keys())
         # Pick a sensible initial prompt tab — "identity" if available,
@@ -2177,6 +2245,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             # plus their own reasoning toggle (off by default — see toggles spec).
             if self.editor_role == "system" and self.editor_agent_id != "automatik":
                 update_payload["model"] = self.editor_model
+                update_payload["cloud_provider"] = self.editor_cloud_provider
                 update_payload["toggles"] = {
                     "personality": False,
                     "reasoning": self.editor_system_reasoning,
