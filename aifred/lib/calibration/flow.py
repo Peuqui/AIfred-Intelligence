@@ -217,7 +217,9 @@ async def calibrate_llamacpp_model(
     # classic algorithm (CLAUDE.md: no fallbacks, no mixing).
     from ..settings import load_settings as _load_settings
     settings = _load_settings() or {}
-    cal_mode = str(settings.get("calibration_mode", "legacy"))
+    # `or "legacy"` so a missing OR null key both fall back cleanly
+    # (str(None) would be "None", not "legacy").
+    cal_mode = str(settings.get("calibration_mode") or "legacy")
     if cal_mode == "ai":
         async for line in _try_ai_calibration(
             model_id=model_id,
