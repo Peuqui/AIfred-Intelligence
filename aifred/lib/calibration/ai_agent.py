@@ -26,7 +26,7 @@ from typing import AsyncIterator, Optional
 
 from ..config import LLAMACPP_CALIBRATION_PORT
 from ..credential_broker import broker
-from .gpu import enumerate_gpus
+from .gpu import enumerate_gpus, find_min_gpus_for_weights
 from .llamaswap_io import parse_tensor_split, set_tensor_split
 from .types import GPU
 from .verifier import kill_orphan_on_port, verify
@@ -189,8 +189,6 @@ def _build_system_prompt(
     total_layers: int,
     gpus: list[GPU],
     safety_margin_mb: int,
-    seed_ctx: Optional[int],
-    seed_split: Optional[list[float]],
     extra_constraints: str = "",
 ) -> str:
     """Load the calibration agent's system prompt and fill in runtime
@@ -198,6 +196,10 @@ def _build_system_prompt(
     agent's ``prompts.system`` entry), so the user can edit the prompt
     file via the Agent Editor without code changes (CLAUDE.md rule: no
     hardcoded prompts in source).
+
+    The seed/strategy guidance is carried entirely by ``extra_constraints``
+    (the pre-search block) so there is a single source for it — no separate
+    seed_block that could contradict the pre-search advice.
     """
     from ..agent_config import load_agents_raw
     from ..prompt_loader import load_prompt
@@ -206,16 +208,6 @@ def _build_system_prompt(
     prompt_path = (cal_cfg.get("prompts") or {}).get("system") or "calibration/system.txt"
     # load_prompt strips the .txt suffix internally
     prompt_name = prompt_path.removesuffix(".txt")
-
-    seed_block = ""
-    if seed_ctx and seed_split:
-        seed_block = (
-            f"\n\nA conservative algorithm has already determined a working "
-            f"baseline: ctx={seed_ctx}, tensor_split={_format_split(seed_split)}. "
-            f"Your job is to push beyond this — that algorithm leaves much VRAM "
-            f"unused. Start by probing higher contexts and rebalancing the split "
-            f"to even out free VRAM across GPUs."
-        )
 
     extra = f"\n\n{extra_constraints}" if extra_constraints else ""
 
@@ -232,7 +224,7 @@ def _build_system_prompt(
         native_ctx=native_ctx,
         hardware_block=_hardware_block(gpus),
         max_probes=MAX_PROBES,
-        seed_block=seed_block,
+        seed_block="",
         extra_constraints=extra,
     )
 
@@ -451,7 +443,6 @@ async def calibrate_with_ai(
     full_cmd: str,
     safety_margin_mb: int,
     gguf_path: Optional[Path] = None,
-    seed_ctx: Optional[int] = None,
     seed_split: Optional[list[float]] = None,
     qwen_model: Optional[str] = None,
     port: int = LLAMACPP_CALIBRATION_PORT,
@@ -472,8 +463,9 @@ async def calibrate_with_ai(
 
     On success the last yielded line is
     ``__AI_RESULT__:{ctx}:{ts_csv}:{reasoning}``.
-    On failure ``__AI_ERROR__:{reason}`` — the caller is expected to fall
-    back to the legacy algorithm.
+    On failure ``__AI_ERROR__:{reason}`` — the caller translates this into
+    an honest failure (it does NOT fall back to the classic algorithm;
+    the calibration_mode toggle picks one path, not a hybrid).
     """
     try:
         from openai import AsyncOpenAI
@@ -539,20 +531,49 @@ async def calibrate_with_ai(
         )
         if searched_ctx > 0:
             yield f"   -> math projection suggests ctx={searched_ctx} ({search_log})"
-            seed_ctx = searched_ctx
-            seed_split = searched_split
-            pre_search_block = (
-                f"\n\nMATH PROJECTION (via llama-fit-params, no model load): "
-                f"the seed split {_format_split(searched_split)} fits at "
-                f"ctx={searched_ctx}. This seed activates all GPUs equally — "
-                f"that's NOT what we want. First try greedy variants with 0-entries: "
-                f"deactivate the slow GPUs (P40s) by setting their tensor_split "
-                f"to 0, push more layers onto the fast cards (RTX 8000s). "
-                f"Use estimate_config to scout greedy splits cheaply, then "
-                f"probe_config the most promising one. Goal: fewest active GPUs "
-                f"that fit ctx={native_ctx} (the model's native max — DO NOT "
-                f"probe higher)."
+            # How few GPUs can hold the weights alone? Drives whether
+            # "deactivate slow cards for speed" is even physically possible.
+            # Unknown size → assume all are needed (probe the safe full split,
+            # don't send the AI chasing impossible greedy splits).
+            min_w = (
+                find_min_gpus_for_weights(model_size_mb, gpus)
+                if model_size_mb else len(gpus)
             )
+            needs_all = min_w >= len(gpus) - 1
+            proportional = (
+                "tensor_split values are RELATIVE ratios but must stay roughly "
+                "PROPORTIONAL to each GPU's VRAM — never give a 32 GB V100 more "
+                "layers than a 48 GB RTX 8000, or a 24 GB P40 more than either. "
+                "Overloading the smallest card is the #1 cause of probe OOM."
+            )
+            if needs_all:
+                pre_search_block = (
+                    f"\n\nMATH PROJECTION (via llama-fit-params, no model load): "
+                    f"the split {_format_split(searched_split)} fits at "
+                    f"ctx={searched_ctx}. This model needs (nearly) all GPUs — "
+                    f"its weights alone require {min_w} of {len(gpus)} cards, so "
+                    f"running on fewer is physically impossible. Do NOT waste turns "
+                    f"deactivating GPUs or crawling up from an empty split. This "
+                    f"full split is your strongest starting point: PROBE IT FIRST. "
+                    f"If it passes and ctx < {native_ctx}, push ctx up. If a probe "
+                    f"OOMs, rebalance layers off the tightest card or trim ctx "
+                    f"slightly — keep all GPUs active. {proportional} The native "
+                    f"max is {native_ctx} — never probe higher."
+                )
+            else:
+                pre_search_block = (
+                    f"\n\nMATH PROJECTION (via llama-fit-params, no model load): "
+                    f"the full split {_format_split(searched_split)} fits at "
+                    f"ctx={searched_ctx} and is your SAFE fallback. This model also "
+                    f"fits on as few as {min_w} of {len(gpus)} GPUs, so for faster "
+                    f"inference you MAY first try a greedy split that deactivates the "
+                    f"slowest cards (0-entries). But seed such a greedy split "
+                    f"CAPACITY-PROPORTIONALLY on the fastest {min_w} cards — never "
+                    f"[1,1,...]. Scout greedy candidates with estimate_config, then "
+                    f"probe the best. If greedy can't hold a useful ctx, fall back to "
+                    f"probing the full split above. {proportional} The native max is "
+                    f"{native_ctx} — never probe higher."
+                )
         elif not allow_hybrid:
             # Pre-search found nothing AND hybrid is disabled: there's no
             # GPU-only solution. Fail fast instead of letting the AI burn
@@ -588,8 +609,6 @@ async def calibrate_with_ai(
         total_layers=total_layers or 0,
         gpus=gpus,
         safety_margin_mb=safety_margin_mb,
-        seed_ctx=seed_ctx,
-        seed_split=seed_split,
         extra_constraints=extra_constraints + pre_search_block + hybrid_constraint,
     )
 

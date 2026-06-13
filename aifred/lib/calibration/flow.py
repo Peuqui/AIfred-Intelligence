@@ -210,7 +210,11 @@ async def calibrate_llamacpp_model(
         f"{format_number(sum(gpu_total) / 1024, 1)} GB VRAM)"
     )
 
-    # ── AI-driven calibration (optional, falls back to legacy on error) ─
+    # ── AI-driven calibration (alternative path, NOT a legacy hybrid) ──
+    # The toggle picks ONE path: either the algorithm or the AI, never a
+    # mix. So when AI mode is on it is TERMINAL — on AI failure we emit an
+    # honest error sentinel and stop, we do NOT silently fall back to the
+    # classic algorithm (CLAUDE.md: no fallbacks, no mixing).
     from ..settings import load_settings as _load_settings
     settings = _load_settings() or {}
     cal_mode = str(settings.get("calibration_mode", "legacy"))
@@ -229,13 +233,10 @@ async def calibrate_llamacpp_model(
             gpus=gpus,
             reserve_mb=budget.gpu_reserve_mb,
         ):
-            if line == "__AI_FALLBACK__":
-                yield "🔄 Falling back to the classic algorithm..."
-                break
             yield line
             if line.startswith("__RESULT__:"):
                 return
-        # On fallback, drop into the legacy phase B/C below
+        return  # AI mode is terminal — never drop into the legacy phases
 
     yield (
         f"Free VRAM: {format_number(total_free_mb(gpus))} MB, "
@@ -1758,18 +1759,18 @@ async def _try_ai_calibration(
     """Run the AI-agent calibration and translate its result protocol to
     the legacy ``__RESULT__:`` sentinel + on-disk config write.
 
-    Yields progress lines. On error, yields ``__AI_FALLBACK__`` so the
-    caller can drop back to the legacy phase B/C.
+    Yields progress lines. AI mode is terminal: on error it yields the
+    honest failure sentinel ``__RESULT__:0:0:error`` (→ "Calibration
+    failed" in the mixin). It NEVER falls back to the classic algorithm —
+    the toggle picks one path, not a hybrid (CLAUDE.md: no fallbacks).
     """
     from .ai_agent import calibrate_with_ai
 
     # qwen_model=None → ai_agent reads it from the calibration system
-    # agent in agents.json (editable via the Agent Editor).
+    # agent in agents.json (editable via the Agent Editor). The starting
+    # ctx is found by the pre-search (fit-params from native ctx down), so
+    # we don't seed a ctx here — only the capacity-based tensor split.
     seed_split = parse_tensor_split(full_cmd)
-    # Use the current cmd ctx as seed so the AI starts from a known
-    # working baseline instead of guessing low (saves 1-2 probes).
-    seed_ctx_match = re.search(r"-c\s+(\d+)", full_cmd)
-    seed_ctx_val = int(seed_ctx_match.group(1)) if seed_ctx_match else None
 
     ai_ctx: Optional[int] = None
     ai_split: Optional[list[float]] = None
@@ -1779,7 +1780,6 @@ async def _try_ai_calibration(
         full_cmd=full_cmd,
         gguf_path=gguf_path,
         safety_margin_mb=safety_margin,
-        seed_ctx=seed_ctx_val,
         seed_split=seed_split if seed_split else None,
         qwen_model=None,
         port=port,
@@ -1799,17 +1799,17 @@ async def _try_ai_calibration(
                 ai_split = [float(x) for x in csv.split(",") if x.strip()]
             except (ValueError, IndexError):
                 yield f"⚠️ AI result unparseable: {payload[:80]}"
-                yield "__AI_FALLBACK__"
+                yield "__RESULT__:0:0:error"
                 return
             break
         if line.startswith("__AI_ERROR__:"):
             yield f"⚠️ {line.removeprefix('__AI_ERROR__:')}"
-            yield "__AI_FALLBACK__"
+            yield "__RESULT__:0:0:error"
             return
         yield line
 
     if ai_ctx is None or ai_split is None:
-        yield "__AI_FALLBACK__"
+        yield "__RESULT__:0:0:error"
         return
 
     ngl = _ngl_from_cmd(full_cmd)
@@ -2414,7 +2414,6 @@ async def _ai_variant_from_base(
         full_cmd=full_cmd,
         safety_margin_mb=budget.safety_margin,
         gguf_path=gguf_path,
-        seed_ctx=base_ctx,
         seed_split=seed_active,
         port=port,
         env=env_active,
