@@ -865,12 +865,29 @@ class CalibrationMixin(rx.State, mixin=True):
                     f"   ⚠️ Ollama unload skipped: {_e}"
                 )
 
+            # Stop llama-swap BEFORE the emptiness check — it holds the
+            # last chat model resident on the GPUs, so leaving it up makes
+            # the check wait out the full drain timeout (observed: 748 MB
+            # on each card until llama-swap was stopped). All AIfred GPU
+            # consumers (TTS docker, Ollama, llama-swap) are now down.
+            self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined]
+            yield
+            try:
+                from ..lib.process_utils import stop_llama_swap
+                stop_llama_swap()
+                llama_swap_stopped = True
+                self.add_debug("   llama-swap stopped")  # type: ignore[attr-defined]
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                self.add_debug(f"⚠️ Could not stop llama-swap: {e}")  # type: ignore[attr-defined]
+                self.add_debug("   Continuing anyway (VRAM may be limited)")  # type: ignore[attr-defined]
+            yield
+
             # Verify the GPUs are ACTUALLY empty before probing. The stops
             # above return before the CUDA contexts finish tearing down
-            # (Ollama keep_alive=0 unload lags a few seconds), so without
-            # this guard the first probe can measure a still-warm VLM/TTS
-            # as "occupied" and the planner subtracts phantom MB — exactly
-            # what burned 64 min on the 397B (residual VLM on the V100).
+            # (Ollama keep_alive=0 unload + llama-swap teardown lag a few
+            # seconds), so without this guard the first probe can measure a
+            # still-warm model as "occupied" and the planner subtracts
+            # phantom MB — exactly what burned 64 min on the 397B.
             import asyncio as _asyncio
 
             from ..backends.ollama import wait_for_vram_stable as _wait_vram
@@ -921,19 +938,6 @@ class CalibrationMixin(rx.State, mixin=True):
                     )
             else:
                 self.add_debug("   ✅ All GPUs empty — VRAM cleanup done")  # type: ignore[attr-defined]
-            yield
-
-            # Step 1: Stop llama-swap system service to free VRAM
-            self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined]
-            yield
-            try:
-                from ..lib.process_utils import stop_llama_swap
-                stop_llama_swap()
-                llama_swap_stopped = True
-                self.add_debug("   llama-swap stopped")  # type: ignore[attr-defined]
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                self.add_debug(f"⚠️ Could not stop llama-swap: {e}")  # type: ignore[attr-defined]
-                self.add_debug("   Continuing anyway (VRAM may be limited)")  # type: ignore[attr-defined]
             yield
 
             # Matrix-driven calibration: every variant the user wants
