@@ -758,29 +758,32 @@ class VisionWatcher:
             if face_frame is not wide_frame:
                 stamped_zoom = await asyncio.to_thread(self._stamp_frame, face_frame)
                 zoom_frame_path = await asyncio.to_thread(self._save_frame, stamped_zoom)
+        from .config import EDGE_AI_CONFIRM
+        from .vision_alerts import emit_object_alert, emit_person_alert
+
         cid = self._cluster_id_for(wide_frame)
         ts = wide_frame.timestamp
-        for cls in classes:
-            self._store.add_event(
-                source_id=source_id,
-                event_type=cls,  # "person" | "vehicle" | "animal"
-                timestamp=ts,
-                frame_path=frame_path,
-                confidence=1.0,
-                classification={"detector": "edge_ai", "zoom_frame_path": zoom_frame_path},
-                metadata={"trigger": "edge_ai"},
-                cluster_id=cid,
-            )
         self._statuses[source_id].motion_events += 1  # type: ignore[misc]
         self._statuses[source_id].last_event_at = ts  # type: ignore[misc]
 
-        from .vision_alerts import emit_object_alert, emit_person_alert
+        # Die Kamera ist nur der AUSLÖSER — entschieden wird nach UNSEREN
+        # Detektoren (wie beim Webcam-Motion-Pfad). Pro Klasse sagt
+        # EDGE_AI_CONFIRM, ob unser YOLO den Trigger bestätigen muss
+        # (True, gegen IR-Halluzinationen) oder ob wir der Kamera glauben
+        # (False, z.B. animal — Nano-YOLO ist da schwach). Alle zu
+        # bestätigenden Klassen prüfen wir in EINER YOLO-Inferenz.
+        confirm_needed = {c for c in classes if EDGE_AI_CONFIRM.get(c, True)}
+        confirmed = await self._confirm_categories(wide_frame, confirm_needed)
 
-        # Gesicht ZUERST (nur bei Person sinnvoll — Kamera kann kein „Wer"):
-        # eine erkannte Identität ist die informativere Meldung. Findet die
-        # Gesichtserkennung ein Gesicht, wird der generische Person-Alert
-        # unterdrückt — sonst zwei Telegram-Nachrichten mit demselben Bild.
-        # Das person-EVENT bleibt erhalten (Chronik), nur der ALERT entfällt.
+        def _ok(cls: str) -> bool:
+            # bestätigt = der Kamera vertraut (policy False) ODER eigenes
+            # YOLO hat die Klasse gesehen.
+            return cls not in confirm_needed or cls in confirmed
+
+        def _detector_label(cls: str) -> str:
+            return "yolo" if cls in confirm_needed else "edge_ai"
+
+        # ── person ── Gesicht ZUERST (informativere Meldung als „person").
         face_found = False
         if "person" in classes and config.run_face_detect_on_motion:
             face_found = await self._run_face_detection(
@@ -788,19 +791,80 @@ class VisionWatcher:
                 frame_path=frame_path, zoom_frame_path=zoom_frame_path,
                 trigger="edge_ai",
             )
-        if "person" in classes and not face_found:
-            await emit_person_alert(
-                source_id=source_id, frame_path=frame_path,
-                zoom_frame_path=zoom_frame_path, cluster_id=cid,
-                count=1, timestamp=ts, store=self._store,
-            )
-        for cls in ("vehicle", "animal"):
-            if cls in classes:
-                await emit_object_alert(
-                    source_id=source_id, object_type=cls, frame_path=frame_path,
-                    zoom_frame_path=zoom_frame_path, cluster_id=cid,
-                    timestamp=ts, store=self._store,
+        if "person" in classes:
+            if _ok("person"):
+                # Event aus UNSERER Erkennung — Chronik zeigt nur bestätigte
+                # Personen, keine Kamera-Phantome. Alert entfällt, wenn schon
+                # ein Gesicht erkannt wurde (sonst Doppel-Meldung).
+                self._store.add_event(
+                    source_id=source_id, event_type="person", timestamp=ts,
+                    frame_path=frame_path, confidence=1.0,
+                    classification={"detector": _detector_label("person"),
+                                    "zoom_frame_path": zoom_frame_path},
+                    metadata={"trigger": "edge_ai"}, cluster_id=cid,
                 )
+                if not face_found:
+                    await emit_person_alert(
+                        source_id=source_id, frame_path=frame_path,
+                        zoom_frame_path=zoom_frame_path, cluster_id=cid,
+                        count=1, timestamp=ts, store=self._store,
+                    )
+            elif not face_found:
+                logger.info(
+                    "edge-ai person NOT confirmed for %s — no event, no "
+                    "alert (camera false-positive)", source_id,
+                )
+
+        # ── vehicle / animal ── Event + Alert nur bei Bestätigung (oder wenn
+        # die Klasse der Kamera anvertraut ist, siehe EDGE_AI_CONFIRM).
+        for cls in ("vehicle", "animal"):
+            if cls not in classes:
+                continue
+            if not _ok(cls):
+                logger.info(
+                    "edge-ai %s NOT confirmed for %s — no event, no alert",
+                    cls, source_id,
+                )
+                continue
+            self._store.add_event(
+                source_id=source_id, event_type=cls, timestamp=ts,
+                frame_path=frame_path, confidence=1.0,
+                classification={"detector": _detector_label(cls),
+                                "zoom_frame_path": zoom_frame_path},
+                metadata={"trigger": "edge_ai"}, cluster_id=cid,
+            )
+            await emit_object_alert(
+                source_id=source_id, object_type=cls, frame_path=frame_path,
+                zoom_frame_path=zoom_frame_path, cluster_id=cid,
+                timestamp=ts, store=self._store,
+            )
+
+    async def _confirm_categories(
+        self, frame: "Frame", wanted: set[str],
+    ) -> set[str]:
+        """YOLO-Gegenprüfung der Edge-AI-Trigger in EINER Inferenz. Returnt
+        die Teilmenge von ``wanted``, die unser eigenes YOLO im Frame
+        bestätigt.
+
+        Best-effort: schlägt der Detektor INFRASTRUKTURELL fehl (Decode/
+        Inferenz wirft), geben wir ``wanted`` komplett zurück (im Zweifel
+        den Alarm NICHT verschlucken — ein verpasster echter Alarm wiegt
+        schwerer als ein Fehlalarm). Lief der Detektor sauber und sah
+        nichts, kommt eine leere Menge zurück → Trigger wird verworfen."""
+        if not wanted:
+            return set()
+        from .config import EDGE_AI_COCO_MAP
+        try:
+            detector = self._get_person_detector()
+            return await asyncio.to_thread(
+                detector.detect_present_categories, frame, EDGE_AI_COCO_MAP, wanted,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "category confirmation failed for %s: %s — allowing all",
+                frame.source_id, e,
+            )
+            return set(wanted)
 
     async def _edge_ai_synced_frames(
         self, base_frame: "Frame", config: WatchConfig, ai_client: Any

@@ -676,8 +676,12 @@ PERSON_DETECT_MODEL = "yolo11n.onnx"
 # COCO-Klassen-Index für "person". Standard-COCO: 0.
 PERSON_DETECT_CLASS_ID = 0
 # Eingangsgröße (quadratisch, letterbox). 320 = schnell (~10-25 ms CPU,
-# reicht für "Person ja/nein"), 640 = genauer bei kleinen/fernen Personen.
-PERSON_DETECT_INPUT_SIZE = 480
+# reicht für "Person ja/nein"), 640 = genauer bei kleinen/fernen Objekten.
+# 640 (statt früher 480): der Detektor bestätigt jetzt auch das Edge-AI-Gate
+# (Person/Fahrzeug/Tier), da zählt Trefferquote bei kleinen/fernen Objekten.
+# Läuft weiter auf CPU, nur motion-/trigger-gated → der Mehraufwand
+# (~480²→640² ≈ 1,8×, grob 20-45 ms statt 10-25 ms) fällt nicht ins Gewicht.
+PERSON_DETECT_INPUT_SIZE = 640
 # Mindest-Konfidenz, damit eine Box als Person zählt.
 PERSON_DETECT_CONFIDENCE = 0.35
 # IoU-Schwelle für Non-Maximum-Suppression überlappender Boxen.
@@ -685,6 +689,30 @@ PERSON_DETECT_NMS_IOU = 0.45
 # GPU analog zu FACE_DETECT — Default CPU, GPU bleibt frei für LLM/VLM/TTS.
 PERSON_DETECT_USE_GPU = False
 PERSON_DETECT_GPU_ID = 4
+
+# ── Edge-AI-Confirmation-Policy ───────────────────────────────────────
+# Pro Edge-AI-Klasse: muss UNSER YOLO den Kamera-Trigger bestätigen,
+# bevor Event + Alert entstehen? Die On-Device-KI der Reolink feuert
+# besonders im IR-Nachtbild massenhaft falsch-positive Personen.
+#   True  = bestätigen — YOLO muss die Klasse selbst sehen, sonst verworfen.
+#   False = vertrauen   — Kamera-Behauptung gilt direkt (kein eigener Check).
+# animal=False, weil das Nano-Modell kleine/ferne Tiere oft übersieht — ein
+# hartes Veto würde echte Tier-Events schlucken; lieber der Kamera glauben
+# (ein verpasstes Tier wiegt schwerer als ein seltener Tier-Fehlalarm).
+# Umschaltbar: bei größerem YOLO-Modell kann animal auf True gesetzt werden.
+EDGE_AI_CONFIRM = {
+    "person": True,
+    "vehicle": True,
+    "animal": False,
+}
+# Welche COCO-Klassen-Indizes zählen als unsere Kategorie (volles COCO-80
+# Modell liefert alle aus derselben Inferenz). vehicle: car/motorcycle/bus/
+# truck; animal: bird/cat/dog/horse/sheep/cow/elephant/bear/zebra/giraffe.
+EDGE_AI_COCO_MAP = {
+    "person": [0],
+    "vehicle": [2, 3, 5, 7],
+    "animal": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+}
 
 # ============================================================
 # VLM VRAM-BUDGET (gemessene Werte pro Modell)
