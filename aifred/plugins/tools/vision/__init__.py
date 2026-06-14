@@ -484,14 +484,14 @@ class VisionPlugin:
             for u in urls[:10]:
                 p = url_to_file_path(u)
                 if p is None or not p.exists():
-                    # Häufigste Ursache: das LLM vertippt das Präfix
-                    # ("_upload/", "_/upload/") — der Hinweis gibt ihm die
-                    # Chance zur Selbstkorrektur im Retry (kein Auto-Fix,
-                    # bewusst kein Fallback).
+                    # A missing leading slash ("_upload/…") is normalised in
+                    # url_to_file_path, so reaching here means the file really
+                    # is absent or the path is genuinely wrong — not a prefix
+                    # typo.
                     return _err(
-                        f"image not found: {u} — pass the url EXACTLY as "
-                        f"returned by vision_snapshot, it must start with "
-                        f"'/_upload/'. Check for typos in the prefix and retry."
+                        f"image not found: {u} — the file does not exist. "
+                        f"Pass an image_url under /_upload/ as returned by "
+                        f"vision_snapshot, check the path and retry."
                     )
                 try:
                     data = p.read_bytes()
@@ -556,6 +556,10 @@ class VisionPlugin:
                     num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
                     keep_alive=keep_alive,
                     host=vlm_cfg.get("host"),
+                    # Bewusster Tool-Call → volle Auflösung (kein Downscale).
+                    # Der Watcher/Alert-Pfad bleibt beim 0,8-MP-Default; hier
+                    # will der User echte Detailanalyse (kleiner Text, OCR).
+                    max_pixels=0,
                 )
             except RuntimeError as e:
                 return _err(f"VLM call failed: {e}")

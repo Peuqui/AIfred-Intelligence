@@ -45,7 +45,10 @@ logger = logging.getLogger(__name__)
 
 # Defaults — übersteuerbar pro Call oder via Plugin-Settings.
 DEFAULT_MODEL = "qwen2.5vl:7b-q8_0"
-from .config import VLM_NUM_CTX as DEFAULT_NUM_CTX  # noqa: E402  SSOT für VLM-Context
+from .config import (  # noqa: E402  SSOT für VLM-Context + Downscale-Ziel
+    VLM_NUM_CTX as DEFAULT_NUM_CTX,
+    VISION_VLM_MAX_PIXELS as DEFAULT_MAX_PIXELS,
+)
 DEFAULT_KEEP_ALIVE = "30m"
 DEFAULT_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
@@ -107,6 +110,7 @@ async def analyze_frame(
     keep_alive: str = DEFAULT_KEEP_ALIVE,
     host: str | None = None,
     extra_options: dict[str, Any] | None = None,
+    max_pixels: int = DEFAULT_MAX_PIXELS,
 ) -> VisionAnalysis:
     """VLM-Beschreibung für ein einzelnes Frame.
 
@@ -122,6 +126,7 @@ async def analyze_frame(
         keep_alive=keep_alive,
         host=host,
         extra_options=extra_options,
+        max_pixels=max_pixels,
     )
 
 
@@ -134,6 +139,7 @@ async def analyze_sequence(
     keep_alive: str = DEFAULT_KEEP_ALIVE,
     host: str | None = None,
     extra_options: dict[str, Any] | None = None,
+    max_pixels: int = DEFAULT_MAX_PIXELS,
 ) -> VisionAnalysis:
     """VLM-Beschreibung für eine zeitliche Sequenz mehrerer Frames.
 
@@ -143,15 +149,22 @@ async def analyze_sequence(
 
     Reihenfolge der Frames ist signifikant — sie werden in der gegebenen
     Reihenfolge ans VLM gegeben.
+
+    ``max_pixels`` deckelt jedes Frame auf diese Gesamtpixelzahl (SSOT:
+    ``downscale_for_vlm``). Default ist das Vigilantia-Ziel
+    (``VISION_VLM_MAX_PIXELS``, ~0,8 MP) — schnell, für Überwachung
+    ausreichend. ``max_pixels <= 0`` schaltet den Downscale ab (volle
+    Auflösung); das nutzt der bewusste ``vision_analyze``-Tool-Call, wenn
+    der User echte Detailanalyse will.
     """
     if not frames:
         raise ValueError("analyze_sequence requires at least 1 frame")
 
     # Frames vor dem VLM-Call auf max_pixels deckeln — spart Vision-Tokens
     # (passt N Keyframes in num_ctx), ohne die Beschreibung zu verschlechtern.
-    from .config import VISION_VLM_MAX_PIXELS
+    # max_pixels <= 0 → kein Downscale (downscale_for_vlm gibt Original zurück).
     images_b64 = [
-        _to_b64(downscale_for_vlm(f.image_bytes, VISION_VLM_MAX_PIXELS))
+        _to_b64(downscale_for_vlm(f.image_bytes, max_pixels))
         for f in frames
     ]
 
