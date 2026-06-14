@@ -26,6 +26,14 @@ import reflex as rx
 logger = logging.getLogger(__name__)
 
 
+def _hhmm(value: Any) -> str:
+    """Zeitfenster-Wert auf ``"HH:MM"`` normalisieren (Legacy-Stunden-Ints →
+    ``"HH:00"``). Nutzt die SSoT :func:`vision_autostart.schedule_minutes`."""
+    from ..lib.vision_autostart import schedule_minutes
+    mins = schedule_minutes(value)
+    return f"{mins // 60:02d}:{mins % 60:02d}"
+
+
 _VISION_SETTINGS_PATH = (
     Path(__file__).parent.parent / "plugins" / "tools" / "vision" / "settings.json"
 )
@@ -336,8 +344,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "quiet_start": str(s.get("quiet_start", 22)),
                     "quiet_end": str(s.get("quiet_end", 6)),
                     "schedule_enabled": bool(s.get("schedule_enabled", False)),
-                    "schedule_start": str(s.get("schedule_start", 18)),
-                    "schedule_end": str(s.get("schedule_end", 8)),
+                    # Auf "HH:MM" normalisieren (Legacy-Stunden-Ints werden zu
+                    # "HH:00") — der UI-time-Input erwartet dieses Format.
+                    "schedule_start": _hhmm(s.get("schedule_start", "18:00")),
+                    "schedule_end": _hhmm(s.get("schedule_end", "08:00")),
                     "resolution": str(s.get("resolution") or "default"),
                 })
             self.vigilantia_sources = cams
@@ -560,12 +570,13 @@ class VisionSettingsMixin(rx.State, mixin=True):
             stored_val: Any = bool(value)
             display_val: Any = bool(value)
         else:
-            try:
-                hour = max(0, min(23, int(str(value).strip())))
-            except (TypeError, ValueError):
-                hour = 0
-            stored_val = hour
-            display_val = str(hour)
+            # value = "HH:MM" (HTML-time-Input) oder Legacy-Stunde → über die
+            # SSoT auf Minuten normalisieren und als "HH:MM" speichern/anzeigen.
+            from ..lib.vision_autostart import schedule_minutes
+            mins = schedule_minutes(value)
+            norm = f"{mins // 60:02d}:{mins % 60:02d}"
+            stored_val = norm
+            display_val = norm
         try:
             self._persist_source_setting(source_id, field, stored_val)
         except Exception as e:  # noqa: BLE001
@@ -588,8 +599,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 )
                 settings = {
                     "schedule_enabled": bool(rec.get("schedule_enabled")) if rec else False,
-                    "schedule_start": int(rec.get("schedule_start", 0) or 0) if rec else 0,
-                    "schedule_end": int(rec.get("schedule_end", 0) or 0) if rec else 0,
+                    # Roh-Wert ("HH:MM" oder Legacy) durchreichen — _schedule_active_now
+                    # parst selbst über schedule_minutes.
+                    "schedule_start": rec.get("schedule_start", "00:00") if rec else "00:00",
+                    "schedule_end": rec.get("schedule_end", "00:00") if rec else "00:00",
                 }
                 active = _schedule_active_now(settings)
                 running = get_default_watcher().is_running(source_id)

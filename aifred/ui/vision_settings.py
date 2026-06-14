@@ -245,7 +245,7 @@ def _source_card(cam: rx.Var) -> rx.Component:
                             on_change=lambda v: AIState.set_vigilantia_schedule(
                                 sid, "schedule_start", v
                             ),
-                            type="number", size="1", style={"width": "3.5em"},
+                            type="time", size="1", style={"width": "6em"},
                         ),
                         rx.text("–", size="1", color="gray"),
                         rx.input(
@@ -253,7 +253,7 @@ def _source_card(cam: rx.Var) -> rx.Component:
                             on_change=lambda v: AIState.set_vigilantia_schedule(
                                 sid, "schedule_end", v
                             ),
-                            type="number", size="1", style={"width": "3.5em"},
+                            type="time", size="1", style={"width": "6em"},
                         ),
                         rx.text(t("vision_settings_quiet_oclock"), size="1", color="gray"),
                         align="center", spacing="1",
