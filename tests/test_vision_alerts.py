@@ -31,7 +31,7 @@ def _run(monkeypatch, *, armed: bool, event_type: str = "face_unknown") -> _Fake
     monkeypatch.setattr(ab, "get_default_dispatcher", lambda: disp)
     asyncio.run(va.emit_face_alert(
         source_id="cam/office", event_type=event_type, frame_path="/x/f.jpg",
-        cluster_id="cluster-1", name="", timestamp=_TS, store=None,
+        cluster_id="cluster-1", names=[], count=1, timestamp=_TS, store=None,
     ))
     return disp
 
@@ -66,7 +66,7 @@ def test_dedup_key_falls_back_without_cluster(monkeypatch):
     monkeypatch.setattr(ab, "get_default_dispatcher", lambda: disp)
     asyncio.run(va.emit_face_alert(
         source_id="cam/door", event_type="face_known", frame_path="", cluster_id="",
-        name="Peuqui", timestamp=_TS, store=None,
+        names=["Peuqui"], count=1, timestamp=_TS, store=None,
     ))
     assert disp.events[0].dedup_key == "cam/door:face_known"
     assert disp.events[0].severity == "info"

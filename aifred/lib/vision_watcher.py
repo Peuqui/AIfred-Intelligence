@@ -773,12 +773,17 @@ class VisionWatcher:
         # (False, z.B. animal — Nano-YOLO ist da schwach). Alle zu
         # bestätigenden Klassen prüfen wir in EINER YOLO-Inferenz.
         confirm_needed = {c for c in classes if EDGE_AI_CONFIRM.get(c, True)}
-        confirmed = await self._confirm_categories(wide_frame, confirm_needed)
+        counts = await self._count_categories(wide_frame, confirm_needed)
 
         def _ok(cls: str) -> bool:
             # bestätigt = der Kamera vertraut (policy False) ODER eigenes
-            # YOLO hat die Klasse gesehen.
-            return cls not in confirm_needed or cls in confirmed
+            # YOLO hat die Klasse gezählt (count > 0).
+            return cls not in confirm_needed or counts.get(cls, 0) > 0
+
+        def _count(cls: str) -> int:
+            # YOLO-Stückzahl bei bestätigten Klassen; bei vertrauten Klassen
+            # (z.B. animal) liefert die Kamera keine Zahl → 0 (= "kein Count").
+            return counts.get(cls, 0) if cls in confirm_needed else 0
 
         def _detector_label(cls: str) -> str:
             return "yolo" if cls in confirm_needed else "edge_ai"
@@ -796,10 +801,12 @@ class VisionWatcher:
                 # Event aus UNSERER Erkennung — Chronik zeigt nur bestätigte
                 # Personen, keine Kamera-Phantome. Alert entfällt, wenn schon
                 # ein Gesicht erkannt wurde (sonst Doppel-Meldung).
+                p_count = max(1, _count("person"))
                 self._store.add_event(
                     source_id=source_id, event_type="person", timestamp=ts,
                     frame_path=frame_path, confidence=1.0,
                     classification={"detector": _detector_label("person"),
+                                    "count": p_count,
                                     "zoom_frame_path": zoom_frame_path},
                     metadata={"trigger": "edge_ai"}, cluster_id=cid,
                 )
@@ -807,7 +814,7 @@ class VisionWatcher:
                     await emit_person_alert(
                         source_id=source_id, frame_path=frame_path,
                         zoom_frame_path=zoom_frame_path, cluster_id=cid,
-                        count=1, timestamp=ts, store=self._store,
+                        count=p_count, timestamp=ts, store=self._store,
                     )
             elif not face_found:
                 logger.info(
@@ -826,45 +833,47 @@ class VisionWatcher:
                     cls, source_id,
                 )
                 continue
+            # count > 0 nur bei YOLO-bestätigten Klassen; vertraute Klassen
+            # (animal) haben keine Stückzahl von der Kamera → 0 = "ohne Zahl".
+            obj_count = _count(cls)
             self._store.add_event(
                 source_id=source_id, event_type=cls, timestamp=ts,
                 frame_path=frame_path, confidence=1.0,
                 classification={"detector": _detector_label(cls),
+                                "count": obj_count,
                                 "zoom_frame_path": zoom_frame_path},
                 metadata={"trigger": "edge_ai"}, cluster_id=cid,
             )
             await emit_object_alert(
                 source_id=source_id, object_type=cls, frame_path=frame_path,
                 zoom_frame_path=zoom_frame_path, cluster_id=cid,
-                timestamp=ts, store=self._store,
+                count=obj_count, timestamp=ts, store=self._store,
             )
 
-    async def _confirm_categories(
+    async def _count_categories(
         self, frame: "Frame", wanted: set[str],
-    ) -> set[str]:
-        """YOLO-Gegenprüfung der Edge-AI-Trigger in EINER Inferenz. Returnt
-        die Teilmenge von ``wanted``, die unser eigenes YOLO im Frame
-        bestätigt.
+    ) -> dict[str, int]:
+        """YOLO-Zählung der Edge-AI-Trigger in EINER Inferenz. Returnt pro
+        Kategorie die Anzahl (0 = nicht bestätigt). Dient zugleich als Gate
+        (count > 0 = bestätigt) UND liefert die Stückzahl für den Alert.
 
         Best-effort: schlägt der Detektor INFRASTRUKTURELL fehl (Decode/
-        Inferenz wirft), geben wir ``wanted`` komplett zurück (im Zweifel
-        den Alarm NICHT verschlucken — ein verpasster echter Alarm wiegt
-        schwerer als ein Fehlalarm). Lief der Detektor sauber und sah
-        nichts, kommt eine leere Menge zurück → Trigger wird verworfen."""
+        Inferenz wirft), geben wir für alle ``wanted`` count=1 zurück (im
+        Zweifel den Alarm NICHT verschlucken). Sauberer Lauf ohne Treffer →
+        count=0 → Trigger wird verworfen."""
         if not wanted:
-            return set()
+            return {}
         from .config import EDGE_AI_COCO_MAP
         try:
             detector = self._get_person_detector()
             return await asyncio.to_thread(
-                detector.detect_present_categories, frame, EDGE_AI_COCO_MAP, wanted,
+                detector.detect_category_counts, frame, EDGE_AI_COCO_MAP, wanted,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(
-                "category confirmation failed for %s: %s — allowing all",
-                frame.source_id, e,
+                "category count failed for %s: %s — allowing all", frame.source_id, e,
             )
-            return set(wanted)
+            return {c: 1 for c in wanted}
 
     async def _edge_ai_synced_frames(
         self, base_frame: "Frame", config: WatchConfig, ai_client: Any
@@ -1009,6 +1018,15 @@ class VisionWatcher:
         from .vision_event_bus import publish_vlm_event
         import base64 as _base64
         crop_store = get_default_store()
+        # Pro Band aggregieren: ALLE Gesichter eines Vorkommnisses werden zu
+        # EINER Meldung je Band zusammengefasst (nicht pro Gesicht einzeln,
+        # sonst dedupliziert der Dispatcher gleichartige weg → nur ein Name).
+        # known_names listet jeden erkannten Namen (offen, ungedeckelt);
+        # die Counts speisen "N Personen". DB-Events bleiben pro Gesicht.
+        known_names: list[str] = []
+        unsure_names: list[str] = []
+        band_count = {"face_known": 0, "face_unknown": 0, "face_unsure": 0}
+        band_crop = {"face_known": "", "face_unknown": "", "face_unsure": ""}
         for det in detections:
             match = recognizer.match(det.embedding)
             event_type = (
@@ -1034,6 +1052,15 @@ class VisionWatcher:
             crop_url = crop_result.url if crop_result else ""
             identity_key = crop_result.identity_key if crop_result else ""
             session_id = crop_result.session_id if crop_result else ""
+            # Aggregation füllen (für die zusammengefasste Meldung nach der
+            # Schleife). Namen ohne Duplikate, Reihenfolge = Erkennungsfolge.
+            band_count[event_type] += 1
+            if not band_crop[event_type]:
+                band_crop[event_type] = crop_url
+            if event_type == "face_known" and match.name and match.name not in known_names:
+                known_names.append(match.name)
+            elif event_type == "face_unsure" and match.name and match.name not in unsure_names:
+                unsure_names.append(match.name)
             cid = self._cluster_id_for(frame)
             event_id = self._store.add_event(
                 source_id=source_id,
@@ -1078,16 +1105,28 @@ class VisionWatcher:
                 "embedding_b64": emb_b64,
             })
 
-            # Proactive alert (armed-gated, deduped per happening via cid).
-            from .vision_alerts import emit_face_alert
+        # Aggregierte Meldungen — eine pro Band, das im Vorkommnis vorkam.
+        # So werden ALLE bekannten Namen genannt (offen, ungedeckelt) und
+        # Unbekannte/Unsichere gezählt, statt dass die Dedup gleichartige
+        # Gesichter auf eine Meldung mit einem Namen zusammenstreicht.
+        from .vision_alerts import emit_face_alert
+        cid_final = self._cluster_id_for(frame)
+        for band, names in (
+            ("face_known", known_names),
+            ("face_unsure", unsure_names),
+            ("face_unknown", []),
+        ):
+            if band_count[band] <= 0:
+                continue
             await emit_face_alert(
                 source_id=source_id,
-                event_type=event_type,
+                event_type=band,
                 frame_path=frame_path,
                 zoom_frame_path=zoom_frame_path,
-                crop_url=crop_url,
-                cluster_id=cid,
-                name=match.name or "",
+                crop_url=band_crop[band],
+                cluster_id=cid_final,
+                names=names,
+                count=band_count[band],
                 timestamp=frame.timestamp,
                 store=self._store,
             )

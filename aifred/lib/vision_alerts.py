@@ -96,15 +96,31 @@ def _source_alias(source_id: str, store: Any) -> str:
     return source_id
 
 
-def _compose(event_type: str, alias: str, name: str, ts: datetime) -> tuple[str, str]:
-    """User-facing alert text (German — goes to the user's phone)."""
+def _compose(
+    event_type: str, alias: str, names: list[str], count: int, ts: datetime,
+) -> tuple[str, str]:
+    """User-facing alert text (German — goes to the user's phone).
+
+    ``names``: alle erkannten Namen des Bands (ungedeckelt, ein Vorkommnis
+    kann eine ganze Menschenmenge nennen). ``count``: Anzahl Gesichter des
+    Bands — bei Unbekannten/Unsicheren ohne Namen die einzige Information."""
     when = ts.strftime("%H:%M")
+    names_str = ", ".join(names)
     if event_type == "face_known":
-        title = f"👤 {name or 'Bekannte Person'} erkannt"
+        if names_str:
+            title = f"👤 {names_str} erkannt"
+        else:
+            title = (f"👤 {count} bekannte Personen erkannt" if count > 1
+                     else "👤 Bekannte Person erkannt")
     elif event_type == "face_unsure":
-        title = f"👤 Mögliche Person ({name})" if name else "👤 Unsichere Erkennung"
-    else:
-        title = "🚨 Unbekannte Person erkannt"
+        if names_str:
+            title = f"👤 Mögliche Person(en): {names_str}"
+        else:
+            title = (f"👤 {count} unsichere Erkennungen" if count > 1
+                     else "👤 Unsichere Erkennung")
+    else:  # face_unknown
+        title = (f"🚨 {count} unbekannte Personen erkannt" if count > 1
+                 else "🚨 Unbekannte Person erkannt")
     return title, f"{alias} · {when}"
 
 
@@ -179,11 +195,14 @@ async def emit_face_alert(
     zoom_frame_path: str = "",
     crop_url: str = "",
     cluster_id: str,
-    name: str = "",
+    names: list[str] | None = None,
+    count: int = 1,
     timestamp: datetime | None = None,
     store: Any = None,
 ) -> None:
-    """Emit a face detection as a proactive AlertEvent — but only while armed."""
+    """Emit an aggregated face-band detection as a proactive AlertEvent —
+    one per band per happening, only while armed. ``names`` = alle erkannten
+    Namen des Bands (ungedeckelt), ``count`` = Anzahl Gesichter des Bands."""
     if event_type not in _ALERT_EVENT_TYPES:
         return
     if not _vigilantia_armed():
@@ -192,18 +211,19 @@ async def emit_face_alert(
         return
     if not _alert_passes_filters(source_id, store, "face"):
         return
+    names = names or []
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
-    title, body = _compose(event_type, alias, name, ts)
+    title, body = _compose(event_type, alias, names, count, ts)
     severity = "warning" if event_type in ("face_unknown", "face_unsure") else "info"
-    # Personalisierung: NUR beim sicheren Match (face_known) den Namen
-    # an die VLM-Beschreibung durchreichen — dann sagt das VLM "Peuqui
-    # sitzt am Schreibtisch" statt "ein Mann mit Brille". Bei unsure/
+    # Personalisierung: NUR beim sicheren Match (face_known) ALLE Namen
+    # an die VLM-Beschreibung durchreichen — dann nennt das VLM jede
+    # erkannte Person beim Namen statt "ein Mann mit Brille". Bei unsure/
     # unknown bewusst NICHT: ein eingeflüsterter Name würde das VLM zu
     # einer Falschbehauptung verleiten (Suggestiv-Falle).
     meta = (
-        {"identity_name": name}
-        if event_type == "face_known" and name else None
+        {"identity_names": names}
+        if event_type == "face_known" and names else None
     )
     await _emit(
         source_id=source_id,
@@ -258,10 +278,12 @@ async def emit_person_alert(
     )
 
 
-# Anzeigetitel je Objektklasse (SSoT für die Edge-AI-Objekt-Alerts).
-_OBJECT_ALERT_TITLES = {
-    "vehicle": "🚗 Fahrzeug erkannt",
-    "animal": "🐾 Tier erkannt",
+# Emoji + Singular/Plural je Objektklasse (SSoT für die Edge-AI-Objekt-
+# Alerts). ``count`` > 0 (YOLO-bestätigt) → mit Zahl/Plural; count == 0
+# (vertraute Klasse wie animal, Kamera liefert keine Stückzahl) → Singular.
+_OBJECT_ALERT_WORDS = {
+    "vehicle": ("🚗", "Fahrzeug", "Fahrzeuge"),
+    "animal": ("🐾", "Tier", "Tiere"),
 }
 
 
@@ -272,21 +294,27 @@ async def emit_object_alert(
     frame_path: str,
     zoom_frame_path: str = "",
     cluster_id: str,
+    count: int = 0,
     timestamp: datetime | None = None,
     store: Any = None,
 ) -> None:
     """Emit an edge-AI object detection (vehicle/animal) as a proactive
-    AlertEvent — but only while armed. Diese Klassen liefert die On-Device-
-    KI der Kamera; AIfreds eigene YOLO-Pipeline klassifiziert sie nicht."""
+    AlertEvent — but only while armed. ``count`` > 0 = YOLO-bestätigte
+    Stückzahl (Plural/Zahl im Titel); 0 = der Kamera vertraut, keine Zahl."""
     if not _vigilantia_armed():
         return
     if not _alerts_enabled(source_id, store):
         return
     if not _alert_passes_filters(source_id, store, object_type):
         return
-    title = _OBJECT_ALERT_TITLES.get(object_type)
-    if title is None:
+    words = _OBJECT_ALERT_WORDS.get(object_type)
+    if words is None:
         return
+    emoji, singular, plural = words
+    if count > 1:
+        title = f"{emoji} {count} {plural} erkannt"
+    else:
+        title = f"{emoji} {singular} erkannt"
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
     when = ts.strftime("%H:%M")
