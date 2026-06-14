@@ -35,13 +35,6 @@ POSE_STEPS: list[dict[str, str]] = [
     {"key": "down", "label_key": "multipose_pose_down"},
 ]
 
-# Pro Quelle ein wiederverwendeter Reolink-Snap-Client für die Modal-Session
-# (Token-Cache → eine Anmeldung statt Login-Sturm beim Preview-Polling). Wird
-# beim Schließen des Modals geschlossen + geleert. Modul-Level, weil Reflex-
-# State keine Client-Objekte serialisieren kann.
-_MULTIPOSE_SNAP_CLIENTS: dict[str, Any] = {}
-
-
 class MultiposeMixin(rx.State, mixin=True):
     """UI state for the Multi-Pose enrollment modal."""
 
@@ -127,13 +120,9 @@ class MultiposeMixin(rx.State, mixin=True):
         self.multipose_captures = []
         self.multipose_preview_data_url = ""
         self.multipose_live_preview_url = ""
-        # Reolink-Snap-Clients der Session schließen.
-        for client in list(_MULTIPOSE_SNAP_CLIENTS.values()):
-            try:
-                await client.aclose()
-            except Exception:  # noqa: BLE001
-                pass
-        _MULTIPOSE_SNAP_CLIENTS.clear()
+        # Snap-Clients freigeben (Reolink-Session-Hygiene) — SSOT in vision_snap.
+        from ..lib.vision_snap import close_clients
+        await close_clients()
 
     @rx.event
     async def multipose_live_tick(self) -> None:
@@ -334,51 +323,15 @@ class MultiposeMixin(rx.State, mixin=True):
             self.multipose_live_preview_url = ""
 
     async def _fresh_frame(self, source_id: str) -> Any:
-        """Frischestes Frame der Quelle. Für Reolink (ai_camera) direkt über
-        die Snap-API — kein RTSP-Pufferlag, immer aktuell, und über das
-        Zoom-Objektiv (face_channel) mit mehr Gesichts-Pixeln. Der Snap-Client
-        wird pro Quelle wiederverwendet (Token-Cache → kein Login-Sturm).
-        Sonst Hub-Snapshot."""
-        from ..lib.frame_sources.rtsp_source import find_camera_config
-        cam = find_camera_config(source_id)
-        # Kanal-Wahl für die Snap-API (frisches Standbild OHNE RTSP-Pufferlag):
-        # face_channel (Zoom für Gesichtsdetail) > snap_channel (eigenes
-        # Objektiv der Quelle, z.B. die separate Zoom-Quelle) > channel bei
-        # ai_camera. Snap greift, sobald creds + EIN snapbarer Kanal da sind —
-        # nicht mehr nur bei profile=ai_camera, sonst lädt die Zoom-Quelle über
-        # den gepufferten RTSP-Hub (20 s Lag in der Live-Preview).
-        snap_ch: Any = None
-        if cam:
-            for key in ("face_channel", "snap_channel"):
-                if cam.get(key) is not None:
-                    snap_ch = cam.get(key)
-                    break
-            if snap_ch is None and str(cam.get("profile")) == "ai_camera":
-                snap_ch = cam.get("channel", 0)
-        if cam and cam.get("cred") and snap_ch is not None:
-            try:
-                from datetime import datetime
-
-                from ..lib.frame_sources.base import Frame
-                from ..lib.reolink_ai import ReolinkAIClient
-                client = _MULTIPOSE_SNAP_CLIENTS.get(source_id)
-                if client is None:
-                    client = ReolinkAIClient(
-                        host=str(cam.get("host", "")),
-                        api_port=int(cam.get("api_port", 443)),
-                        cred=str(cam.get("cred", "")),
-                    )
-                    _MULTIPOSE_SNAP_CLIENTS[source_id] = client
-                jpeg = await client.snap(int(snap_ch))
-                return Frame(
-                    source_id=source_id, timestamp=datetime.now(),
-                    image_bytes=jpeg, format="jpeg", width=0, height=0,
-                    metadata={"kind": "rgb", "via": "snap"},
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "multipose snap failed for %s: %s — hub fallback", source_id, e
-                )
+        """Frischestes Frame der Quelle. Für snap-fähige Kameras über die
+        Snap-API (SSOT vision_snap) — kein RTSP-Pufferlag, immer aktuell, und
+        mit ``prefer_face`` über das Zoom-/Tele-Objektiv für Gesichtsdetail.
+        Schlägt der Snap fehl oder ist die Quelle nicht snap-fähig:
+        Hub-Snapshot (gepuffert)."""
+        from ..lib.vision_snap import snap_frames
+        frames = await snap_frames(source_id, 1, prefer_face=True)
+        if frames:
+            return frames[0]
         from ..lib.frame_hub import get_default_hub
         from ..lib.frame_sources import get as get_source
         src = get_source(source_id)
