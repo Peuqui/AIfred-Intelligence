@@ -120,9 +120,11 @@ class MultiposeMixin(rx.State, mixin=True):
         self.multipose_captures = []
         self.multipose_preview_data_url = ""
         self.multipose_live_preview_url = ""
-        # Snap-Clients freigeben (Reolink-Session-Hygiene) — SSOT in vision_snap.
-        from ..lib.vision_snap import close_clients
-        await close_clients()
+        # Snap-Client NICHT schließen: er ist pro Kamera GETEILT (Watcher +
+        # Snapshot nutzen ihn auch) und lebt persistent — eine Session pro
+        # Kamera. Freigabe nur beim App-Shutdown (vision_snap.close_clients
+        # im Lifespan). Früher wurde hier geschlossen, was bei aktivem Watcher
+        # dessen Session mitgerissen hätte.
 
     @rx.event
     async def multipose_live_tick(self) -> None:

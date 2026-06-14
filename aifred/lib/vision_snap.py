@@ -27,9 +27,16 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Snap-Clients pro Source (Token-Cache). Geteilt von Snapshot-Tool und
-# Multipose; via close_clients() freigegeben (Reolink-Session-Hygiene).
+# Snap-Clients pro KAMERA (Schlüssel host:api_port), NICHT pro Source:
+# zwei Quellen desselben Geräts (Weitwinkel + Zoom) teilen sich EINEN
+# Client → EINE Reolink-Session statt zwei (Session-Limit) und kein
+# Login-Sturm beim Umschalten zwischen den Linsen. Geteilt von Snapshot-
+# Tool und Multipose; via close_clients() freigegeben.
 _clients: dict[str, Any] = {}
+
+
+def _client_key(cam: dict[str, Any]) -> str:
+    return f"{cam.get('host', '')}:{cam.get('api_port', 443)}"
 
 
 def frame_from_snap(
@@ -56,16 +63,19 @@ def resolve_snap_channel(
     """Snap-Kanal aus der Kamera-Config — oder ``None``, wenn die Quelle
     nicht snap-fähig ist (keine ``cred`` / kein snapbarer Kanal).
 
-    ``prefer_face=True`` (Gesichts-Enrollment, Multipose): bevorzugt das
-    Zoom-/Tele-Objektiv für Gesichtsdetail — ``face_channel`` >
-    ``snap_channel`` > ``channel`` (bei ``ai_camera``).
-    ``prefer_face=False`` (Quelle 1:1, Snapshot-Tool): das eigene Objektiv
-    der Quelle — ``snap_channel`` > ``channel`` (bei ``ai_camera``)."""
+    Das EIGENE ``snap_channel`` der Quelle hat IMMER Vorrang — bei zwei
+    Quellen desselben Geräts (Weitwinkel + separate Zoom-Quelle) zeigt damit
+    jede ihre eigene Linse; sonst snappten beide denselben Kanal.
+    ``prefer_face=True`` (Gesichts-Enrollment, Multipose) zieht ``face_channel``
+    nur als FALLBACK heran — für eine Single-Source-Dual-Lens-Kamera OHNE
+    eigenes ``snap_channel`` (dann Zoom-Objektiv fürs Gesichtsdetail).
+    Reihenfolge: ``snap_channel`` > (``face_channel`` bei prefer_face) >
+    ``channel`` (bei ``ai_camera``)."""
     from .frame_sources.rtsp_source import find_camera_config
     cam = find_camera_config(source_id)
     if not cam or not cam.get("cred"):
         return None
-    keys = ("face_channel", "snap_channel") if prefer_face else ("snap_channel",)
+    keys = ("snap_channel", "face_channel") if prefer_face else ("snap_channel",)
     for k in keys:
         if cam.get(k) is not None:
             return int(cam[k])
@@ -74,14 +84,26 @@ def resolve_snap_channel(
     return None
 
 
+def get_client(source_id: str) -> Any | None:
+    """Öffentlicher Zugriff auf den pro-Kamera GETEILTEN Snap-/AI-Client.
+
+    EINE Session pro physischer Kamera (host:api_port) für ALLE Konsumenten
+    — Snapshot-Tool, Multipose UND der Vigilantia-Watcher (Polling + Snap).
+    So entsteht nie mehr als ein Login pro Kamera (Token wird durch
+    Wiederverwendung refreshed); das verhindert das „max session"-Limit, das
+    bei separaten Clients pro Subsystem auftrat. ``None`` ohne creds."""
+    return _get_client(source_id)
+
+
 def _get_client(source_id: str) -> Any | None:
-    """Gecachten Snap-Client der Quelle (oder ``None``, wenn keine creds).
+    """Gecachten Snap-Client der Kamera (oder ``None``, wenn keine creds).
     Aktuell Reolink — hier wäre der Dispatch auf andere Marken."""
     from .frame_sources.rtsp_source import find_camera_config
     cam = find_camera_config(source_id)
     if not cam or not cam.get("cred"):
         return None
-    client = _clients.get(source_id)
+    key = _client_key(cam)
+    client = _clients.get(key)
     if client is None:
         from .reolink_ai import ReolinkAIClient
         client = ReolinkAIClient(
@@ -89,7 +111,7 @@ def _get_client(source_id: str) -> Any | None:
             api_port=int(cam.get("api_port", 443)),
             cred=str(cam.get("cred", "")),
         )
-        _clients[source_id] = client
+        _clients[key] = client
     return client
 
 
@@ -129,12 +151,17 @@ async def close_clients(source_id: Optional[str] = None) -> None:
     """Snap-Clients schließen (Reolink ``aclose`` → Logout, gibt die
     Session frei) und aus dem Cache nehmen. Ohne Argument: alle. Wird z.B.
     beim Schließen des Multipose-Modals gerufen."""
-    targets = [source_id] if source_id else list(_clients)
-    for sid in targets:
-        client = _clients.pop(sid, None)
+    if source_id:
+        from .frame_sources.rtsp_source import find_camera_config
+        cam = find_camera_config(source_id)
+        keys = [_client_key(cam)] if cam else []
+    else:
+        keys = list(_clients)
+    for key in keys:
+        client = _clients.pop(key, None)
         if client is None:
             continue
         try:
             await client.aclose()
         except Exception as e:  # noqa: BLE001
-            logger.warning("snap client close failed for %s: %s", sid, e)
+            logger.warning("snap client close failed for %s: %s", key, e)

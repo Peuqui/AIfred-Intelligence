@@ -544,14 +544,22 @@ class VisionWatcher:
             die Kamera selbst."""
             if not edge_ai_trigger:
                 return
-            from .reolink_ai import ReolinkAIClient, ReolinkAIError
+            from .reolink_ai import ReolinkAIError
+            from .vision_snap import get_client
             ec = config.edge_ai or {}
-            client = ReolinkAIClient(
-                host=str(ec.get("host", "")),
-                api_port=int(ec.get("api_port", 80)),
-                cred=str(ec.get("cred", "")),
-                channel=int(ec.get("channel", 0)),
-            )
+            # EINE Session pro Kamera: den GETEILTEN Client von vision_snap
+            # holen (auch Snapshot/Multipose nutzen ihn) statt einen eigenen
+            # zu erzeugen — sonst zwei Logins pro Kamera → „max session".
+            # Polling-Kanal wird explizit übergeben (der geteilte Client kennt
+            # keinen festen Kanal).
+            ai_channel = int(ec.get("channel", 0))
+            client = get_client(source_id)
+            if client is None:
+                logger.warning(
+                    "edge-ai: no snap/AI client for %s (no creds?) — "
+                    "edge-ai poll disabled", source_id,
+                )
+                return
             interval = float(ec.get("poll_interval_sec", EDGE_AI_POLL_INTERVAL_DEFAULT))
             settle = float(ec.get("settle_sec", EDGE_AI_SETTLE_DEFAULT))
             prev: dict[str, bool] = {}
@@ -562,60 +570,62 @@ class VisionWatcher:
             # IR-Bild weiter Person/Tier flackert. Ohne Guard würde AIfred
             # dasselbe Standbild dutzendfach speichern + Fehlalarme feuern.
             last_fired_ts: Any = None
-            try:
-                while True:
-                    try:
-                        state = await client.get_ai_state()
-                        fails = 0
-                    except ReolinkAIError as e:
-                        # Exponentielles Backoff: selbst wenn der Client-seitige
-                        # Re-Login mal nicht greift, hämmern wir die Kamera nicht
-                        # mit Logins zu (das war die Sturm-Ursache).
-                        fails += 1
-                        backoff = min(interval * (2 ** min(fails, 5)), 60.0)
-                        logger.warning(
-                            "edge-ai poll failed for %s (#%d, retry in %.0fs): %s",
-                            source_id, fails, backoff, e,
-                        )
-                        await asyncio.sleep(backoff)
-                        continue
-                    # Steigende Flanken: Klasse jetzt aktiv, vorher nicht.
-                    triggered = [
-                        cls for cls, active in state.items()
-                        if active and not prev.get(cls, False)
-                    ]
-                    prev = state
-                    if triggered:
-                        last_evt = self._statuses[source_id].last_event_at
-                        throttled = (
-                            last_evt is not None
-                            and (datetime.now() - last_evt).total_seconds()
-                            < config.min_event_interval_sec
-                        )
-                        if not throttled:
-                            # Settle: dem PTZ-Kopf Zeit geben, das Subjekt zu
-                            # zentrieren — dann das frischeste Frame ziehen
-                            # (der frame_consumer hält ``latest`` aktuell).
-                            if settle > 0:
-                                await asyncio.sleep(settle)
-                            frame = latest["frame"]
-                            if frame is None:
-                                pass
-                            elif frame.timestamp == last_fired_ts:
-                                # Eingefrorener Stream: derselbe Frame wie beim
-                                # letzten Feuern → kein echtes Ereignis, skip.
-                                logger.warning(
-                                    "edge-ai: eingefrorenes Frame für %s (Stream "
-                                    "steht?) — Trigger verworfen", source_id,
-                                )
-                            else:
-                                last_fired_ts = frame.timestamp
-                                await self._handle_edge_ai_event(
-                                    frame, triggered, config, client
-                                )
-                    await asyncio.sleep(interval)
-            finally:
-                await client.aclose()
+            # Kein try/finally-aclose mehr: Der Client ist pro Kamera GETEILT
+            # (vision_snap besitzt ihn). Watch-Stop/Disarm gibt ihn NICHT frei
+            # — eine persistente Session pro Kamera ist gewollt (Token wird
+            # durch Wiederverwendung refreshed). Sauberer Logout beim
+            # App-Shutdown über vision_snap.close_clients() (siehe Lifespan).
+            while True:
+                try:
+                    state = await client.get_ai_state(ai_channel)
+                    fails = 0
+                except ReolinkAIError as e:
+                    # Exponentielles Backoff: selbst wenn der Client-seitige
+                    # Re-Login mal nicht greift, hämmern wir die Kamera nicht
+                    # mit Logins zu (das war die Sturm-Ursache).
+                    fails += 1
+                    backoff = min(interval * (2 ** min(fails, 5)), 60.0)
+                    logger.warning(
+                        "edge-ai poll failed for %s (#%d, retry in %.0fs): %s",
+                        source_id, fails, backoff, e,
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                # Steigende Flanken: Klasse jetzt aktiv, vorher nicht.
+                triggered = [
+                    cls for cls, active in state.items()
+                    if active and not prev.get(cls, False)
+                ]
+                prev = state
+                if triggered:
+                    last_evt = self._statuses[source_id].last_event_at
+                    throttled = (
+                        last_evt is not None
+                        and (datetime.now() - last_evt).total_seconds()
+                        < config.min_event_interval_sec
+                    )
+                    if not throttled:
+                        # Settle: dem PTZ-Kopf Zeit geben, das Subjekt zu
+                        # zentrieren — dann das frischeste Frame ziehen
+                        # (der frame_consumer hält ``latest`` aktuell).
+                        if settle > 0:
+                            await asyncio.sleep(settle)
+                        frame = latest["frame"]
+                        if frame is None:
+                            pass
+                        elif frame.timestamp == last_fired_ts:
+                            # Eingefrorener Stream: derselbe Frame wie beim
+                            # letzten Feuern → kein echtes Ereignis, skip.
+                            logger.warning(
+                                "edge-ai: eingefrorenes Frame für %s (Stream "
+                                "steht?) — Trigger verworfen", source_id,
+                            )
+                        else:
+                            last_fired_ts = frame.timestamp
+                            await self._handle_edge_ai_event(
+                                frame, triggered, config, client
+                            )
+                await asyncio.sleep(interval)
 
         try:
             await asyncio.gather(
