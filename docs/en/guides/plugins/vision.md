@@ -94,6 +94,43 @@ webcam).
   display name. Without `cred` the connection is unauthenticated; on a secured
   camera that fails closed (no image).
 
+### Camera capabilities (optional `rtsp_cameras` fields)
+
+The core is **capability-driven, not model-driven**: what a camera can do is
+declared as a field in its `rtsp_cameras` entry — the code never branches on a
+model name, only on these fields. A new camera (different model or brand) is a
+config entry, not a code change.
+
+| Field | Meaning | Effect in the core |
+|-------|---------|--------------------|
+| `profile` | `webcam` (default) or `ai_camera` | `ai_camera` → on-device detection triggers (edge-AI poll instead of MOG2); see [AI cameras](#ai-cameras-edge-ai) |
+| `snap_channel` | channel index for the Snap API (fresh full frame, no RTSP buffer) | snapshot tool + multipose preview pull a lag-free still through it; absent → buffered RTSP hub |
+| `face_channel` | channel of the zoom/tele lens (dual-lens cameras) | face enrollment + recognition snap this channel (more face pixels) |
+| `api_port` | camera HTTP-API port (snap/edge-AI), e.g. `443` | connection for snap/AI calls |
+| `onvif_port` | ONVIF port (PTZ), e.g. `8000` | [PTZ control](#ptz-control-onvif) |
+| `ptz` | `true` if pan/tilt-capable | enables the PTZ path |
+
+Example of a dual-lens PTZ AI camera (wide + zoom on one head), modelled as
+**two sources** of the same device — wide for overview/VLM, zoom as its own
+source for detail shots:
+
+```json
+"rtsp_cameras": [
+  {"name": "Front Door", "host": "192.168.0.251", "port": 554,
+   "path": "h264Preview_01_sub", "cred": "reolink", "ptz": true,
+   "onvif_port": 8000, "profile": "ai_camera", "api_port": 443,
+   "face_channel": 1, "snap_channel": 0},
+  {"name": "Front Door Zoom", "host": "192.168.0.251", "port": 554,
+   "path": "h264Preview_02_main", "cred": "reolink",
+   "api_port": 443, "snap_channel": 1}
+]
+```
+
+The brand-specific snap/AI implementation (currently Reolink) is bundled in
+`lib/vision_snap.py` (on-demand snaps, SSOT) and `lib/reolink_ai.py` (edge-AI
+API) — the single dispatch point where a second brand would later plug in as
+an additional driver without touching the callers.
+
 ## Motion detection
 
 Motion detection uses OpenCV's `BackgroundSubtractorMOG2` (Mixture of
@@ -170,6 +207,50 @@ the vision database:
 `min_event_interval_sec` debounces events so a single passer-by does not flood
 the log. Event frames are saved to disk when `save_event_frames` is true, so the
 chronicle entries carry a thumbnail.
+
+## AI cameras (edge-AI) {#ai-cameras-edge-ai}
+
+Cameras with `profile: ai_camera` (see [capabilities](#camera-capabilities-optional-rtsp_cameras-fields))
+detect person/vehicle/animal **on-device**. AIfred polls that detection
+(`GetAiState`) instead of running MOG2/YOLO over the stream itself — the camera
+is the cheap pre-filter that only wakes us on a hit.
+
+**Trigger, not truth:** The on-device AI fires generously (it hallucinates
+people from a chair/laundry/shadows, especially in IR night mode). It is
+therefore treated only as a *trigger*; the decision is made by AIfred's **own**
+detectors — the same principle as the webcam motion path.
+
+**Confirmation policy** (`EDGE_AI_CONFIRM` in `config.py`, per class):
+
+| Class | Default | Meaning |
+|-------|---------|---------|
+| `person` | `True` (confirm) | own YOLO must see the class, else discarded |
+| `vehicle` | `True` (confirm) | ditto (YOLO is strong on large objects) |
+| `animal` | `False` (trust) | believe the camera — nano-YOLO is weak on small/distant animals; a missed animal outweighs a rare false alert |
+
+When `True`, ONE multi-class YOLO inference (`detect_category_counts`, NMS per
+class) serves both as the gate (count > 0) AND as the **count**. `person`/
+`vehicle` are counted exactly and the event is written from our own detection
+(`detector: yolo`), not the camera's claim — the chronicle shows only confirmed
+objects, no phantoms. `animal` stays camera-trusted, hence without a count. If
+the detector fails *infrastructurally*, the alert is let through (never swallow
+a real event); a clean run with no hit discards the phantom trigger.
+
+**Dual-lens snap:** On a trigger, wide + zoom (if `face_channel` is set) are
+pulled FRESH and in parallel via the Snap API with a shared timestamp, no RTSP
+buffer lag. A **settle time** precedes it (`edge_ai_settle_sec`, default 1.0 s,
+SSoT in `vision_watcher`) so the PTZ head can centre the subject before the
+frame is taken.
+
+**Aggregated alerts:** All faces of one happening are collapsed into ONE alert
+per band — `face_known` names ALL recognised people (uncapped), `face_unknown`/
+`face_unsure` count. On a confident match the VLM receives the names up front so
+it addresses each by name ("Peuqui and Anna at the desk") instead of "a man
+with glasses".
+
+**Schedule window:** Each camera can carry an active window (`schedule_enabled`
++ `schedule_start`/`schedule_end`, wraparound-correct). A `schedule_supervisor`
+(app lifespan) starts/stops the watchers at the window boundaries.
 
 ## Face recognition (InsightFace)
 
