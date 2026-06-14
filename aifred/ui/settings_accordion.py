@@ -542,6 +542,18 @@ def llm_parameters_accordion() -> rx.Component:
                         font_size="12px"
                     ),
 
+                    # Hint shown only when fields are disabled (non-Ollama backend):
+                    # the context is fixed by the loaded llama-swap/vLLM profile.
+                    rx.cond(
+                        AIState.backend_type != "ollama",
+                        rx.text(
+                            t("context_window_fixed_hint"),
+                            font_size="10px",
+                            color=COLORS["warning_text"],
+                            font_style="italic",
+                        ),
+                    ),
+
                     # Per-LLM Context Control - Four columns with toggle + input
                     # Chat-Agenten: num_ctx wird nur bei Ollama zur Request-
                     # Zeit \u00fcbernommen. Bei llama.cpp/vLLM/TabbyAPI ist die
