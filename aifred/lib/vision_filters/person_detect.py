@@ -153,46 +153,59 @@ class PersonDetector:
             return []
         return self._postprocess(outputs[0], img.shape[:2], scale, pad_x, pad_y)
 
-    def detect_present_categories(
+    def detect_category_counts(
         self, frame: "Frame", coco_map: dict[str, list[int]],
         wanted: set[str],
-    ) -> set[str]:
-        """Multi-Class-Präsenzcheck in EINER Inferenz. Returnt die Teilmenge
-        von ``wanted``, deren COCO-Klassen (aus ``coco_map``) im Bild über der
-        Konfidenz-Schwelle auftauchen.
+    ) -> dict[str, int]:
+        """Multi-Class-Zählung in EINER Inferenz. Returnt pro angefragter
+        Kategorie die Anzahl erkannter Objekte (0 = nicht präsent → für ein
+        Bestätigungs-Gate: count > 0). NMS pro Kategorie, damit überlappende
+        Anchor-Boxen nicht mehrfach zählen.
 
-        Für ein Bestätigungs-Gate genügt Präsenz (mind. eine Box über
-        Schwelle) — kein NMS nötig, das entfernt nur Duplikate, ändert die
-        Präsenz nicht. Das volle COCO-Modell liefert alle 80 Klassen aus
-        derselben Inferenz; wir lesen nur die angefragten Spalten."""
-        present: set[str] = set()
+        Das volle COCO-80-Modell liefert alle Klassen aus derselben Inferenz;
+        wir werten nur die angefragten Spalten aus. Infrastruktur-Fehler
+        (Decode/Inferenz) propagieren bewusst, damit der Caller sie von
+        "sauber gelaufen, nichts gesehen" unterscheiden kann."""
+        counts: dict[str, int] = {c: 0 for c in wanted}
         if not wanted:
-            return present
-        # Infrastruktur-Fehler (Decode/Inferenz) propagieren bewusst, damit
-        # der Caller sie von "sauber gelaufen, nichts gesehen" unterscheiden
-        # kann: ein Crash darf einen echten Alarm nicht still verschlucken
-        # (Best-Effort-Allow im Caller), eine leere Menge dagegen schon.
+            return counts
         img = self._decode(frame.image_bytes)
         if img is None:
             raise RuntimeError("frame decode failed")
         session = self._ensure_initialized()
-        blob, _scale, _px, _py = self._preprocess(img)
+        blob, scale, pad_x, pad_y = self._preprocess(img)
         outputs = session.run(None, {self._input_name: blob})
         arr = np.asarray(outputs[0])
         if arr.ndim == 3:
             arr = arr[0]
         if arr.ndim != 2:
-            return present
+            return counts
         if arr.shape[0] < arr.shape[1]:
             arr = arr.T
         n_cols = arr.shape[1]
+        h, w = img.shape[:2]
         for cat in wanted:
-            for cid in coco_map.get(cat, []):
-                col = 4 + cid
-                if col < n_cols and float(arr[:, col].max()) >= self._confidence:
-                    present.add(cat)
-                    break
-        return present
+            cols = [4 + cid for cid in coco_map.get(cat, []) if 4 + cid < n_cols]
+            if not cols:
+                continue
+            # Bester Score über alle COCO-Klassen dieser Kategorie je Anchor.
+            cat_scores = arr[:, cols].max(axis=1)
+            keep = cat_scores >= self._confidence
+            if not np.any(keep):
+                continue
+            rows = arr[keep]
+            sc = cat_scores[keep]
+            boxes: list[list[int]] = []
+            for cx, cy, bw, bh in rows[:, :4]:
+                x = (cx - bw / 2 - pad_x) / scale
+                y = (cy - bh / 2 - pad_y) / scale
+                boxes.append([int(max(0, x)), int(max(0, y)),
+                              int(min(w, bw / scale)), int(min(h, bh / scale))])
+            idxs = cv2.dnn.NMSBoxes(
+                boxes, sc.tolist(), self._confidence, self._nms_iou
+            )
+            counts[cat] = len(idxs.flatten() if hasattr(idxs, "flatten") else idxs)
+        return counts
 
     def _preprocess(
         self, img: np.ndarray

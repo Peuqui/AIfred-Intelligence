@@ -214,11 +214,15 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
         # bekommt das VLM den Namen — so wird aus "ein Mann mit Brille"
         # ein "Peuqui sitzt am Schreibtisch". Nur als Fakt vorangestellt,
         # nicht suggestiv ("prüfe ob…"), das Match steht ja schon fest.
-        identity = str(ev.metadata.get("identity_name") or "").strip()
-        if identity:
+        identities = ev.metadata.get("identity_names") or []
+        if isinstance(identities, str):  # Toleranz für Altformat
+            identities = [identities]
+        identities = [str(n).strip() for n in identities if str(n).strip()]
+        if identities:
+            who = ", ".join(identities)
             prompt = (
-                f"Die im Bild erkannte Person ist {identity}. "
-                f"Nenne sie beim Namen.\n\n{prompt}"
+                f"Die im Bild sicher erkannten Personen sind: {who}. "
+                f"Nenne jede beim Namen.\n\n{prompt}"
             )
         # Subjekt-Ansicht (Zoom) zuerst, dann die Weitwinkel-Kontext-Ansicht
         # desselben Moments — das VLM sieht Nahaufnahme UND Szene. Der Crop
