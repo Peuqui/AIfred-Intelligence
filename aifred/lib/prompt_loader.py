@@ -561,22 +561,6 @@ def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> 
     )
 
 
-def get_vl_relevance_check_prompt(
-    user_query: str,
-    image_context: str,
-    recent_context: str = "",
-    lang: Optional[str] = None,
-) -> str:
-    """Load VL relevance check prompt for image follow-up detection."""
-    return load_prompt(
-        'automatik/vl_relevance_check',
-        lang=lang,
-        user_query=user_query,
-        image_context=image_context,
-        recent_context=recent_context if recent_context else "(no prior messages)",
-    )
-
-
 def get_research_decision_prompt(
     user_text: str,
     has_images: bool = False,

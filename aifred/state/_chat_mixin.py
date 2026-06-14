@@ -435,7 +435,10 @@ class ChatMixin(rx.State, mixin=True):
     ) -> AsyncGenerator[None, None]:
         """Run VL inference via call_llm and process results.
 
-        Shared by VL Direct, VL Shortcut, and VL Follow-up paths.
+        Used by the VL Direct path (fresh image upload). Follow-up questions
+        about an already-uploaded image no longer re-present the image here —
+        the model re-examines it on demand via the vision_analyze tool, guided
+        by the /_upload/ URL anchored in the user turn of llm_history.
         Handles streaming, history update, cleanup, title generation and session save.
 
         The VL model acts as the currently active agent (with that agent's
@@ -993,80 +996,6 @@ class ChatMixin(rx.State, mixin=True):
             )
 
             # ============================================================
-            # VL SHORTCUT: If VL model is still loaded AND images in history,
-            # do relevance check with VL model directly → avoid double swap.
-            # Only for llamacpp (model swapping), only when user has text input.
-            # ============================================================
-            if (not has_pending_images
-                    and user_msg.strip()
-                    and self.backend_type == "llamacpp"  # type: ignore[attr-defined]
-                    and self.vision_model_id):  # type: ignore[attr-defined]
-                from ..lib.vision_utils import (
-                    collect_image_context_from_history,
-                    build_image_context_string,
-                    build_recent_context_string,
-                    resolve_image_path_by_index,
-                    load_image_as_base64,
-                )
-                _vl_image_list = collect_image_context_from_history(self._chat_sub().chat_history)
-
-                if _vl_image_list:
-                    # Check if VL model is currently loaded
-                    _vl_model_loaded = False
-                    try:
-                        _running = await self._llamaswap_running_models()
-                        _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
-                        _vl_model_loaded = _eff_vl in _running
-                    except Exception:
-                        pass
-
-                    if _vl_model_loaded:
-                        log_message("📷 VL Shortcut: VL model still loaded, checking relevance directly")
-                        _vl_ctx_str = build_image_context_string(_vl_image_list)
-                        _vl_recent_ctx = build_recent_context_string(self._chat_sub().chat_history)
-
-                        from ..lib.intent_detector import detect_vl_relevance
-                        _vl_idx = await detect_vl_relevance(
-                            user_query=user_msg,
-                            image_context=_vl_ctx_str,
-                            automatik_model=_eff_vl,
-                            llm_client=llm_client,
-                            recent_context=_vl_recent_ctx,
-                        )
-
-                        if _vl_idx is not None:
-                            _vl_path = resolve_image_path_by_index(_vl_image_list, _vl_idx)
-                            if _vl_path:
-                                self.add_debug(f"📷 VL Follow-up (shortcut): Image {_vl_idx} → {_vl_path.name}")
-                                yield
-
-                                # Use UI language (no Intent Detection needed)
-                                from ..lib.prompt_loader import get_language
-                                detected_language = get_language()
-                                self._last_detected_language = detected_language  # type: ignore[attr-defined]
-
-                                # Build multimodal content
-                                content_parts_sc: list[dict] = []
-                                if not self.vision_thinking:  # type: ignore[attr-defined]
-                                    content_parts_sc.append({"type": "text", "text": "/no_think"})
-
-                                base64_data = load_image_as_base64(_vl_path)
-                                content_parts_sc.append({
-                                    "type": "image_url",
-                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
-                                })
-                                content_parts_sc.append({"type": "text", "text": user_msg})
-
-                                async for _ in self._process_vision_request(
-                                    user_msg, content_parts_sc, "FAKTISCH", detected_language,
-                                ):
-                                    yield
-                                return  # VL shortcut complete — no Automatik swap needed
-
-                        # VL model loaded but question not image-related → normal flow
-                        log_message("📷 VL Shortcut: NONE — proceeding to normal flow")
-
-            # ============================================================
             # AUTOMATIK NUM_CTX CALCULATION (once, used for all Automatik calls)
             # ============================================================
             # When Automatik = AIfred (same model): don't set num_ctx → no model reload
@@ -1275,72 +1204,6 @@ class ChatMixin(rx.State, mixin=True):
             # PRE-MESSAGE: History Compression Check
             async for _ in self._phase_pre_message_compression(llm_client, detected_language):
                 yield
-
-            # ============================================================
-            # VL FOLLOW-UP PATH: No new images, but images in history?
-            # Check if the follow-up question relates to a previous image.
-            # ============================================================
-            if not has_pending_images:
-                from ..lib.vision_utils import (
-                    collect_image_context_from_history,
-                    build_image_context_string,
-                    build_recent_context_string,
-                    resolve_image_path_by_index,
-                    load_image_as_base64,
-                )
-
-                image_list = collect_image_context_from_history(self._chat_sub().chat_history)
-
-                if image_list:
-                    image_context_str = build_image_context_string(image_list)
-                    recent_ctx = build_recent_context_string(self._chat_sub().chat_history)
-
-                    from ..lib.intent_detector import detect_vl_relevance
-                    vl_image_idx = await detect_vl_relevance(
-                        user_query=user_msg,
-                        image_context=image_context_str,
-                        automatik_model=effective_auto,
-                        llm_client=llm_client,
-                        automatik_num_ctx=auto_num_ctx,
-                        recent_context=recent_ctx,
-                    )
-
-                    if vl_image_idx is not None:
-                        image_path = resolve_image_path_by_index(image_list, vl_image_idx)
-
-                        if image_path:
-                            self.add_debug(f"📷 VL Follow-up: Image {vl_image_idx} → {image_path.name}")
-                            yield
-
-                            # Cold start check for VL model
-                            if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
-                                try:
-                                    running = await self._llamaswap_running_models()
-                                    _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
-                                    if _eff_vl not in running:
-                                        self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
-                                        yield
-                                except Exception:
-                                    pass
-
-                            # Build multimodal content
-                            content_parts = []
-
-                            if not self.vision_thinking:  # type: ignore[attr-defined]
-                                content_parts.append({"type": "text", "text": "/no_think"})
-
-                            base64_data = load_image_as_base64(image_path)
-                            content_parts.append({
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
-                            })
-                            content_parts.append({"type": "text", "text": user_msg})
-
-                            async for _ in self._process_vision_request(
-                                user_msg, content_parts, detected_intent, detected_language,
-                            ):
-                                yield
-                            return  # VL follow-up complete
 
             # ============================================================
             # DIALOG ROUTING (uses intent/addressee from above)
