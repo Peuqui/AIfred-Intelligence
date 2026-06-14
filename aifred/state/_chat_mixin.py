@@ -466,7 +466,10 @@ class ChatMixin(rx.State, mixin=True):
         # VL acts as the active agent (memory, tools, personality)
         acting_agent = self.active_agent or "aifred"  # type: ignore[attr-defined]
         self._set_current_agent(acting_agent)
-        self.add_debug(f"📷 VL acting as: {acting_agent}")  # type: ignore[attr-defined]
+        from ..lib.agent_config import get_agent_config
+        _acting_cfg = get_agent_config(acting_agent)
+        _acting_name = _acting_cfg.display_name if _acting_cfg else acting_agent.capitalize()
+        self.add_debug(f"📷 VL acting as: {_acting_name}")  # type: ignore[attr-defined]
         yield
 
         result_data = None
