@@ -481,6 +481,7 @@ class VisionPlugin:
                 )
 
             frames: list[Frame] = []
+            resolved_paths: list[Path] = []
             for u in urls[:10]:
                 p = url_to_file_path(u)
                 if p is None or not p.exists():
@@ -502,6 +503,7 @@ class VisionPlugin:
                     timestamp=datetime.now(),
                     image_bytes=data,
                 ))
+                resolved_paths.append(p)
 
             vlm_cfg = _load_settings().get("vlm", {})
             actual_prompt = prompt or vlm_cfg.get(
@@ -592,9 +594,13 @@ class VisionPlugin:
                 "vlm_raw": result.text,
                 "vlm_stats": stats,
                 # The analysed image IS the already-saved image we were given —
-                # return the representative url so the pipeline pins exactly the
-                # image the VLM saw. No new file is written here (true SSOT).
-                "image_url": urls[-1],
+                # return the CANONICAL url (derived from the resolved path), not
+                # the raw model input. The model often drops the leading slash
+                # ("_upload/…"), which still resolves on disk but would render as
+                # a relative URL → broken image when the pipeline pins it. Deriving
+                # the url from the resolved path guarantees a loadable /_upload/…
+                # link (true SSOT: one url source = the resolved file).
+                "image_url": get_image_url(resolved_paths[-1]),
             }
             # Persist event for query_events
             try:
