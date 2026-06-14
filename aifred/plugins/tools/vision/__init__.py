@@ -66,63 +66,6 @@ logger = logging.getLogger(__name__)
 _PLUGIN_DIR = Path(__file__).parent
 _SETTINGS_PATH = _PLUGIN_DIR / "settings.json"
 
-# Snap-API-Clients pro Source wiederverwenden (Token-Cache der Kamera —
-# ein Client pro Login statt Login-Sturm; vgl. _MULTIPOSE_SNAP_CLIENTS).
-_SNAP_CLIENTS: dict[str, Any] = {}
-
-
-async def _snap_frames(
-    source_id: str, n: int, interval: float
-) -> "list[Any] | None":
-    """Frames über die Kamera-Snap-API holen (volle Linsen-Auflösung,
-    on-demand — kein RTSP-Substream-Limit). Greift nur, wenn der
-    ``rtsp_cameras``-Eintrag der Source einen ``snap_channel`` hat.
-
-    ``None`` = Snap nicht konfiguriert ODER fehlgeschlagen (mit Warning
-    geloggt) — der Caller nimmt dann den Hub/RTSP-Frame. Bewusst weich:
-    die Kamera-API kann ausfallen (Session-Limit), während RTSP läuft;
-    ein Foto in Substream-Auflösung schlägt dann kein Foto."""
-    import asyncio
-
-    from ....lib.frame_sources.rtsp_source import find_camera_config
-    cam = find_camera_config(source_id)
-    if not cam or cam.get("snap_channel") is None or not cam.get("cred"):
-        return None
-    try:
-        from ....lib.frame_sources.base import Frame
-        from ....lib.reolink_ai import ReolinkAIClient
-        client = _SNAP_CLIENTS.get(source_id)
-        if client is None:
-            client = ReolinkAIClient(
-                host=str(cam.get("host", "")),
-                api_port=int(cam.get("api_port", 443)),
-                cred=str(cam.get("cred", "")),
-            )
-            _SNAP_CLIENTS[source_id] = client
-        ch = int(cam["snap_channel"])
-        frames: list[Any] = []
-        for i in range(n):
-            if i > 0 and interval > 0:
-                await asyncio.sleep(interval)
-            jpeg = await client.snap(ch)
-            frames.append(Frame(
-                source_id=source_id,
-                timestamp=datetime.now(),
-                image_bytes=jpeg,
-                format="jpeg",
-                width=0,
-                height=0,
-                metadata={"kind": "rgb", "via": "snap"},
-            ))
-        return frames
-    except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "snapshot via Snap API failed for %s: %s — falling back to "
-            "RTSP/hub frame", source_id, e,
-        )
-        return None
-
-
 def _load_settings() -> dict[str, Any]:
     """Load plugin settings fresh on every access — file is small, not a hot path."""
     if not _SETTINGS_PATH.exists():
@@ -405,6 +348,7 @@ class VisionPlugin:
             interval = float(_load_settings().get("snapshot", {}).get("burst_interval_s", 0.5))
             # Bevorzugt die Kamera-Snap-API (volle Linsen-Auflösung statt
             # RTSP-Substream) — None heißt: nicht konfiguriert/fehlgeschlagen.
+            from ....lib.vision_snap import snap_frames as _snap_frames
             frames = await _snap_frames(source_id, n, interval)
             if frames is None:
                 try:

@@ -912,9 +912,13 @@ class VisionWatcher:
                 return None
             return bytes(r) if isinstance(r, (bytes, bytearray)) and len(r) >= 1000 else None
 
+        # Frame-Bau aus Snap-JPEG über die SSOT (vision_snap) — der Watcher
+        # hält bewusst seinen eigenen, session-gebundenen Client (Polling +
+        # paralleler Dual-Lens), teilt sich aber die Frame-Konstruktion.
+        from .vision_snap import frame_from_snap
         wide_jpeg = _jpeg(results[0])
         wide_frame = (
-            replace(base_frame, image_bytes=wide_jpeg, timestamp=ts)
+            frame_from_snap(base_frame.source_id, wide_jpeg, ts)
             if wide_jpeg else base_frame
         )
         zoom_frame = wide_frame
@@ -922,9 +926,9 @@ class VisionWatcher:
             zoom_jpeg = _jpeg(results[1])
             if zoom_jpeg:
                 zoom_frame = replace(
-                    base_frame, image_bytes=zoom_jpeg, timestamp=ts,
-                    metadata={**base_frame.metadata, "lens": "zoom",
-                              "face_channel": face_ch},
+                    frame_from_snap(base_frame.source_id, zoom_jpeg, ts),
+                    metadata={"kind": "rgb", "via": "snap",
+                              "lens": "zoom", "face_channel": face_ch},
                 )
         return wide_frame, zoom_frame
 
