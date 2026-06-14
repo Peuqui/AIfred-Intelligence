@@ -318,6 +318,25 @@ async def schedule_supervisor() -> None:
             logger.warning("schedule supervisor error: %s", e)
 
 
+_supervisor_task: "asyncio.Task[None] | None" = None
+
+
+def ensure_schedule_supervisor() -> None:
+    """Startet den :func:`schedule_supervisor` GENAU EINMAL pro Prozess.
+
+    Muss aus einem laufenden Event-Loop gerufen werden (App-Lifespan).
+    Idempotent über ein Modul-Task-Handle — ein zweiter Aufruf (z.B.
+    Granian-Worker-Respawn, der den Lifespan erneut durchläuft) ist ein
+    No-Op, solange der Task noch lebt. Ohne diesen Launcher lief der
+    Supervisor nie: der Boot-Pfad rief nur start_all_background_watchers,
+    sodass Kameras am Fenster-ENDE (z.B. 06:00) nie gestoppt wurden."""
+    global _supervisor_task
+    if _supervisor_task is not None and not _supervisor_task.done():
+        return
+    _supervisor_task = asyncio.create_task(schedule_supervisor())
+    logger.info("schedule supervisor launched")
+
+
 async def stop_all_background_watchers() -> int:
     """Entwaffnet die Alarmanlage — stoppt alle laufenden Watcher der
     Sources mit ``auto_start=True``. Lässt UI-getriggerte Watcher
