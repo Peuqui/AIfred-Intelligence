@@ -341,7 +341,21 @@ class MultiposeMixin(rx.State, mixin=True):
         Sonst Hub-Snapshot."""
         from ..lib.frame_sources.rtsp_source import find_camera_config
         cam = find_camera_config(source_id)
-        if cam and str(cam.get("profile")) == "ai_camera" and cam.get("cred"):
+        # Kanal-Wahl für die Snap-API (frisches Standbild OHNE RTSP-Pufferlag):
+        # face_channel (Zoom für Gesichtsdetail) > snap_channel (eigenes
+        # Objektiv der Quelle, z.B. die separate Zoom-Quelle) > channel bei
+        # ai_camera. Snap greift, sobald creds + EIN snapbarer Kanal da sind —
+        # nicht mehr nur bei profile=ai_camera, sonst lädt die Zoom-Quelle über
+        # den gepufferten RTSP-Hub (20 s Lag in der Live-Preview).
+        snap_ch: Any = None
+        if cam:
+            for key in ("face_channel", "snap_channel"):
+                if cam.get(key) is not None:
+                    snap_ch = cam.get(key)
+                    break
+            if snap_ch is None and str(cam.get("profile")) == "ai_camera":
+                snap_ch = cam.get("channel", 0)
+        if cam and cam.get("cred") and snap_ch is not None:
             try:
                 from datetime import datetime
 
@@ -355,9 +369,7 @@ class MultiposeMixin(rx.State, mixin=True):
                         cred=str(cam.get("cred", "")),
                     )
                     _MULTIPOSE_SNAP_CLIENTS[source_id] = client
-                fc = cam.get("face_channel")
-                ch = int(fc) if fc is not None else int(cam.get("channel", 0))
-                jpeg = await client.snap(ch)
+                jpeg = await client.snap(int(snap_ch))
                 return Frame(
                     source_id=source_id, timestamp=datetime.now(),
                     image_bytes=jpeg, format="jpeg", width=0, height=0,
