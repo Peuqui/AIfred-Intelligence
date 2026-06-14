@@ -120,6 +120,7 @@ async def _emit(
     zoom_frame_path: str = "",
     crop_url: str = "",
     timestamp: datetime,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Build + dispatch one AlertEvent. Best-effort — never raises into the
     watcher's hot path. The shared dispatcher's rules decide where it goes.
@@ -163,6 +164,7 @@ async def _emit(
             media_context=context,
             media_gallery=gallery,
             timestamp=timestamp,
+            metadata=metadata or {},
         )
         await get_default_dispatcher().emit(ev)
     except Exception as e:  # noqa: BLE001
@@ -194,6 +196,15 @@ async def emit_face_alert(
     alias = _source_alias(source_id, store)
     title, body = _compose(event_type, alias, name, ts)
     severity = "warning" if event_type in ("face_unknown", "face_unsure") else "info"
+    # Personalisierung: NUR beim sicheren Match (face_known) den Namen
+    # an die VLM-Beschreibung durchreichen — dann sagt das VLM "Peuqui
+    # sitzt am Schreibtisch" statt "ein Mann mit Brille". Bei unsure/
+    # unknown bewusst NICHT: ein eingeflüsterter Name würde das VLM zu
+    # einer Falschbehauptung verleiten (Suggestiv-Falle).
+    meta = (
+        {"identity_name": name}
+        if event_type == "face_known" and name else None
+    )
     await _emit(
         source_id=source_id,
         category=event_type,
@@ -206,6 +217,7 @@ async def emit_face_alert(
         zoom_frame_path=zoom_frame_path,
         crop_url=crop_url,
         timestamp=ts,
+        metadata=meta,
     )
 
 

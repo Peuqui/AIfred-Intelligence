@@ -209,6 +209,17 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
         briefing = str((rec or {}).get("prompt_context") or "").strip()
         if briefing:
             prompt = f"{briefing}\n\n{prompt}"
+        # Personalisierung: hat die Gesichtserkennung eine Person sicher
+        # identifiziert (emit_face_alert setzt das nur bei face_known),
+        # bekommt das VLM den Namen — so wird aus "ein Mann mit Brille"
+        # ein "Peuqui sitzt am Schreibtisch". Nur als Fakt vorangestellt,
+        # nicht suggestiv ("prüfe ob…"), das Match steht ja schon fest.
+        identity = str(ev.metadata.get("identity_name") or "").strip()
+        if identity:
+            prompt = (
+                f"Die im Bild erkannte Person ist {identity}. "
+                f"Nenne sie beim Namen.\n\n{prompt}"
+            )
         # Subjekt-Ansicht (Zoom) zuerst, dann die Weitwinkel-Kontext-Ansicht
         # desselben Moments — das VLM sieht Nahaufnahme UND Szene. Der Crop
         # entfällt bewusst (das Gesicht hat InsightFace bereits erkannt; das VLM
@@ -278,6 +289,24 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     vlm_desc: str | None = None
     if "vlm" in mode:
         vlm_desc = await _describe_media_via_vlm(ev)
+        # Beschreibung in die Vision-Events des Clusters zurückschreiben:
+        # der Alert hat das VLM ohnehin laufen lassen — so erscheint der
+        # Text sofort im Casus-Log UND der nächtliche bulk-describe
+        # überspringt diese Events (kein zweiter VLM-Lauf für dasselbe
+        # Vorkommnis). dedup_key IST der cluster_id (siehe vision_alerts).
+        if vlm_desc and ev.producer == "vision" and ev.dedup_key:
+            try:
+                from .vision_store import VisionStore
+                n = VisionStore().apply_cluster_description(
+                    ev.dedup_key, vlm_desc, "alert-vlm",
+                )
+                if n:
+                    logger.info(
+                        "alert: persisted VLM description to %d event(s) "
+                        "in cluster %s", n, ev.dedup_key,
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("alert: persist VLM description failed: %s", e)
 
     if mode in ("llm", "vlm+llm"):
         # AIfred-Pfad: formuliert den finalen Text, bei "vlm+llm" mit der
