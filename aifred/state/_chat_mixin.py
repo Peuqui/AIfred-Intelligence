@@ -778,15 +778,17 @@ class ChatMixin(rx.State, mixin=True):
 
         display_user_msg = user_msg
         if has_pending_images:
-            # Generate clickable image thumbnails as HTML
+            # Generate clickable image thumbnails as HTML. No <a> wrapper:
+            # the /_upload/ URL is picked up by the global lightbox handler
+            # (aifred.py lightbox_js) on click — a target="_blank" link would
+            # additionally open a redundant browser tab. Lightbox only.
             image_html_parts: list[str] = []
             for img in self.pending_images:  # type: ignore[attr-defined]
                 url = img.get('url', '')
                 if url:
                     image_html_parts.append(
-                        f'<a href="{url}" target="_blank" rel="noopener noreferrer">'
                         f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
-                        f'border-radius:4px;cursor:pointer;margin-right:4px;"></a>'
+                        f'border-radius:4px;cursor:zoom-in;margin-right:4px;">'
                     )
             image_html = "".join(image_html_parts)
 
