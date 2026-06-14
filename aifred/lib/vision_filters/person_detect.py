@@ -153,6 +153,47 @@ class PersonDetector:
             return []
         return self._postprocess(outputs[0], img.shape[:2], scale, pad_x, pad_y)
 
+    def detect_present_categories(
+        self, frame: "Frame", coco_map: dict[str, list[int]],
+        wanted: set[str],
+    ) -> set[str]:
+        """Multi-Class-Präsenzcheck in EINER Inferenz. Returnt die Teilmenge
+        von ``wanted``, deren COCO-Klassen (aus ``coco_map``) im Bild über der
+        Konfidenz-Schwelle auftauchen.
+
+        Für ein Bestätigungs-Gate genügt Präsenz (mind. eine Box über
+        Schwelle) — kein NMS nötig, das entfernt nur Duplikate, ändert die
+        Präsenz nicht. Das volle COCO-Modell liefert alle 80 Klassen aus
+        derselben Inferenz; wir lesen nur die angefragten Spalten."""
+        present: set[str] = set()
+        if not wanted:
+            return present
+        # Infrastruktur-Fehler (Decode/Inferenz) propagieren bewusst, damit
+        # der Caller sie von "sauber gelaufen, nichts gesehen" unterscheiden
+        # kann: ein Crash darf einen echten Alarm nicht still verschlucken
+        # (Best-Effort-Allow im Caller), eine leere Menge dagegen schon.
+        img = self._decode(frame.image_bytes)
+        if img is None:
+            raise RuntimeError("frame decode failed")
+        session = self._ensure_initialized()
+        blob, _scale, _px, _py = self._preprocess(img)
+        outputs = session.run(None, {self._input_name: blob})
+        arr = np.asarray(outputs[0])
+        if arr.ndim == 3:
+            arr = arr[0]
+        if arr.ndim != 2:
+            return present
+        if arr.shape[0] < arr.shape[1]:
+            arr = arr.T
+        n_cols = arr.shape[1]
+        for cat in wanted:
+            for cid in coco_map.get(cat, []):
+                col = 4 + cid
+                if col < n_cols and float(arr[:, col].max()) >= self._confidence:
+                    present.add(cat)
+                    break
+        return present
+
     def _preprocess(
         self, img: np.ndarray
     ) -> tuple[np.ndarray, float, float, float]:
