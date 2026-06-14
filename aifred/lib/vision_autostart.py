@@ -83,22 +83,38 @@ def _resolve_edge_ai(
     }
 
 
+def schedule_minutes(value: Any) -> int:
+    """Zeitangabe → Minuten seit Mitternacht (0–1439). SSoT-Parser für die
+    Pro-Kamera-Zeitfenster. Akzeptiert ``"HH:MM"`` (HTML-time-Input), eine
+    bare Stunde ``"HH"``/int (Legacy — wird als ``HH:00`` gelesen) und ist
+    defensiv: ungültig → 0."""
+    if value is None:
+        return 0
+    s = str(value).strip()
+    try:
+        if ":" in s:
+            h, m = s.split(":", 1)
+            return (int(h) % 24) * 60 + max(0, min(59, int(m or 0)))
+        return (int(float(s)) % 24) * 60
+    except (TypeError, ValueError):
+        return 0
+
+
 def _schedule_active_now(settings: dict[str, Any]) -> bool:
     """True, wenn die Kamera laut Pro-Quelle-Zeitplan JETZT aktiv (scharf)
     sein soll. Kein Zeitplan (``schedule_enabled`` False/fehlt) → immer aktiv.
-    Über Mitternacht (z.B. 18→8) korrekt; start==end → immer aktiv."""
+    Minuten-genau, über Mitternacht (z.B. 22:30→6:15) korrekt; start==end →
+    immer aktiv."""
     if not settings.get("schedule_enabled"):
         return True
-    try:
-        start = int(settings.get("schedule_start", 0)) % 24
-        end = int(settings.get("schedule_end", 0)) % 24
-    except (TypeError, ValueError):
-        return True
+    start = schedule_minutes(settings.get("schedule_start", 0))
+    end = schedule_minutes(settings.get("schedule_end", 0))
     if start == end:
         return True
     from datetime import datetime
-    hour = datetime.now().hour
-    return (start <= hour < end) if start < end else (hour >= start or hour < end)
+    now = datetime.now()
+    cur = now.hour * 60 + now.minute
+    return (start <= cur < end) if start < end else (cur >= start or cur < end)
 
 
 def _build_background_config(
