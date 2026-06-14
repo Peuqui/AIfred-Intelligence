@@ -984,11 +984,17 @@ def url_to_file_path(image_url: str) -> Optional[Path]:
     Returns:
         Path object if valid, None if URL format not recognized
     """
+    # Match the marker at string start OR after a slash. That tolerates a
+    # missing leading slash — a common LLM tic ("_upload/images/…" instead of
+    # "/_upload/images/…") that otherwise fails the lookup — while still
+    # accepting full URLs ("http://host/_upload/…"). The leading slash is
+    # semantically irrelevant for file identity; path traversal stays blocked
+    # by _contain_under, so a tolerant prefix match cannot escape the base.
     for marker, base in (
-        ("/_upload/vigilantia/", VIGILANTIA_DIR),
-        ("/_upload/images/", UPLOAD_IMAGES_DIR),
+        ("_upload/vigilantia/", VIGILANTIA_DIR),
+        ("_upload/images/", UPLOAD_IMAGES_DIR),
     ):
-        match = re.search(re.escape(marker) + r"(.+)$", image_url)
+        match = re.search(r"(?:^|/)" + re.escape(marker) + r"(.+)$", image_url)
         if not match:
             continue
         return _contain_under(base, str(match.group(1)))
@@ -1036,138 +1042,6 @@ def load_image_url_as_base64(image_url: str) -> Optional[str]:
     except Exception as e:
         logger.warning(f"⚠️ Failed to load image: {e}")
         return None
-
-
-def collect_image_context_from_history(chat_history: list[dict]) -> list[dict]:
-    """
-    Collect all images from chat_history with their AI descriptions.
-
-    Scans for user messages with metadata.images and pairs each with
-    the subsequent assistant response (truncated to ~150 chars).
-
-    Args:
-        chat_history: Full chat history from session
-
-    Returns:
-        List of dicts with keys: index, url, name, description, turn
-    """
-    import re as _re
-    from .context_manager import strip_thinking_blocks
-
-    images: list[dict] = []
-    image_counter = 0
-
-    for i, msg in enumerate(chat_history):
-        if msg.get("role") != "user":
-            continue
-
-        msg_images = msg.get("metadata", {}).get("images", [])
-        if not msg_images:
-            continue
-
-        # Find the next assistant response for the description
-        description = ""
-        for j in range(i + 1, len(chat_history)):
-            if chat_history[j].get("role") == "assistant":
-                raw = strip_thinking_blocks(chat_history[j].get("content", ""))
-                clean = _re.sub(r'<[^>]+>', '', raw).strip()
-                description = clean[:150] + ("..." if len(clean) > 150 else "")
-                break
-
-        for img in msg_images:
-            image_counter += 1
-            images.append({
-                "index": image_counter,
-                "url": img.get("url", ""),
-                "name": img.get("name", ""),
-                "description": description,
-                "turn": i,
-            })
-
-    return images
-
-
-def build_image_context_string(image_list: list[dict]) -> str:
-    """
-    Build a concise text summary of images for the VL relevance check prompt.
-
-    Args:
-        image_list: Output from collect_image_context_from_history()
-
-    Returns:
-        Formatted string for prompt injection
-    """
-    parts: list[str] = []
-    for img in image_list:
-        desc = img["description"] or img["name"] or "No description"
-        parts.append(f"- Image {img['index']}: \"{desc}\"")
-    return "\n".join(parts)
-
-
-def build_recent_context_string(
-    chat_history: list[dict],
-    max_messages: int = 4,
-) -> str:
-    """
-    Build a brief summary of recent conversation for VL relevance check.
-
-    Extracts the last N messages (before the current user message) so the
-    relevance check can detect topic changes.
-
-    Args:
-        chat_history: Full chat history from session
-        max_messages: Number of recent messages to include (default: 4 = 2 exchanges)
-
-    Returns:
-        Formatted string with recent messages, latest first
-    """
-    import re as _re
-    from .context_manager import strip_thinking_blocks
-
-    # Exclude the last message (current user query — already in user_query param)
-    history = chat_history[:-1] if chat_history else []
-
-    # Take the last N messages
-    recent = history[-max_messages:]
-
-    if not recent:
-        return ""
-
-    lines: list[str] = []
-    for msg in reversed(recent):
-        role = msg.get("role", "?").capitalize()
-        raw = msg.get("content", "")
-        # Strip HTML and thinking blocks
-        clean = strip_thinking_blocks(raw)
-        clean = _re.sub(r'<[^>]+>', '', clean).strip()
-        # Truncate
-        if len(clean) > 150:
-            clean = clean[:150] + "..."
-        lines.append(f"- {role}: {clean}")
-
-    return "\n".join(lines)
-
-
-def resolve_image_path_by_index(
-    image_list: list[dict],
-    image_index: int,
-) -> Optional[Path]:
-    """
-    Resolve a 1-based image index to a filesystem path.
-
-    Args:
-        image_list: Output from collect_image_context_from_history()
-        image_index: 1-based index from VL relevance check
-
-    Returns:
-        Path to image file, or None if not found/doesn't exist
-    """
-    for img in image_list:
-        if img["index"] == image_index:
-            file_path = url_to_file_path(img["url"])
-            if file_path and file_path.exists():
-                return file_path
-    return None
 
 
 def cleanup_session_images(session_id: str) -> int:
