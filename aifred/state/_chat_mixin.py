@@ -815,7 +815,31 @@ class ChatMixin(rx.State, mixin=True):
                 "audio_urls_json": "[]",
             },
         ]
-        ch.llm_history = [*ch.llm_history, {"role": "user", "content": user_msg}]
+        # Anchor the image location in the user turn of llm_history: the image
+        # itself only goes into the one-off multimodal call, never into the
+        # history. Without the URL the model "forgets" on a follow-up that an
+        # image ever existed and falsely accuses itself of hallucinating. With
+        # the /_upload/ URL it can re-examine the image via vision_analyze (on
+        # the big model when that is vision-capable).
+        llm_user_content = user_msg
+        if has_pending_images:
+            _img_urls = [img.get("url", "") for img in self.pending_images if img.get("url")]  # type: ignore[attr-defined]
+            if _img_urls:
+                from ..lib.prompt_loader import get_language
+                _de = get_language() == "de"
+                _label = (
+                    ("Angehängtes Bild" if len(_img_urls) == 1 else "Angehängte Bilder")
+                    if _de else
+                    ("Attached image" if len(_img_urls) == 1 else "Attached images")
+                )
+                _hint = (
+                    "mit dem vision_analyze-Tool erneut betrachtbar"
+                    if _de else
+                    "re-examine with the vision_analyze tool"
+                )
+                _marker = f"[{_label}: {', '.join(_img_urls)} — {_hint}]"
+                llm_user_content = f"{user_msg}\n\n{_marker}" if user_msg.strip() else _marker
+        ch.llm_history = [*ch.llm_history, {"role": "user", "content": llm_user_content}]
         self.add_debug("📨 User request received")
 
         # ============================================================
