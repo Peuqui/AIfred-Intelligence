@@ -1413,6 +1413,14 @@ async def _message_hub_lifespan():
             await get_default_watcher().shutdown()
         except Exception:  # noqa: BLE001
             pass
+        # Geteilte Kamera-Snap-/AI-Clients sauber abmelden (Reolink-Logout →
+        # gibt die Session frei). Gegen Token-Leaks bei Service-Neustarts,
+        # die sonst das „max session"-Kontingent der Kamera füllen.
+        try:
+            from .lib.vision_snap import close_clients
+            await close_clients()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _register_message_hub_workers(hub: object) -> None:

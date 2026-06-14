@@ -93,16 +93,20 @@ class ReolinkAIClient:
 
     # ── Public API ────────────────────────────────────────────────
 
-    async def get_ai_state(self) -> dict[str, bool]:
+    async def get_ai_state(self, channel: int | None = None) -> dict[str, bool]:
         """Aktuelle Erkennung der Kamera als ``{logische_klasse: alarm}``.
 
-        Nur Klassen mit ``support=1`` tauchen auf (Kamera-abhängig). Wirft
+        ``channel`` überschreibt den Konstruktor-Kanal (wie bei :meth:`snap`),
+        damit ein pro Kamera GETEILTER Client verschiedene Kanäle abfragen kann
+        — der Caller gibt den Edge-AI-Kanal explizit an. Nur Klassen mit
+        ``support=1`` tauchen auf (Kamera-abhängig). Wirft
         :class:`ReolinkAIError` bei Login-/Request-/Format-Fehlern — der
         Caller entscheidet, ob er das toleriert (Best-Effort-Poll)."""
+        ch = self._channel if channel is None else channel
         payload = [{
             "cmd": "GetAiState",
             "action": 0,
-            "param": {"channel": self._channel},
+            "param": {"channel": ch},
         }]
         data = await self._call_with_relogin("GetAiState", payload)
         value = data.get("value") or {}
