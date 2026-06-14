@@ -278,7 +278,11 @@ def multipose_modal() -> rx.Component:
                     # offen ist (der Handler no-opt sonst) → frisches Bild zum
                     # Pose-Prüfen.
                     rx.moment(
-                        interval=1500,
+                        # 800 ms: frische Snap-API-Frames (kein RTSP-Pufferlag)
+                        # vertragen ein flotteres Tick — responsiv genug zum
+                        # Posieren beim Einlernen. Der Handler no-opt bei
+                        # geschlossenem Modal / laufendem Capture.
+                        interval=800,
                         on_change=AIState.multipose_live_tick,
                         display="none",
                     ),
