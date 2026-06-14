@@ -1389,8 +1389,16 @@ async def _message_hub_lifespan():
     # Läuft unabhängig vom Browser-Tab — solange der AIfred-Service da
     # ist, ist die Detection scharf.
     try:
-        from .lib.vision_autostart import start_all_background_watchers
+        from .lib.vision_autostart import (
+            ensure_schedule_supervisor,
+            start_all_background_watchers,
+        )
         await start_all_background_watchers()
+        # Dauer-Supervisor: startet/stoppt die Watcher an den Pro-Kamera-
+        # Zeitfenster-Grenzen (z.B. Stopp um 06:00). Lief bisher nie, weil
+        # nur start_all aufgerufen wurde — Kameras blieben nach Fenster-Ende
+        # scharf. Idempotent (Granian-Respawn-sicher).
+        ensure_schedule_supervisor()
     except Exception as e:  # noqa: BLE001
         import logging
         logging.getLogger(__name__).warning(
