@@ -79,6 +79,7 @@ class TranslationManager:
             "temperature_info": "0.0 = deterministisch, 0.2 = fakten, 0.8 = ausgewogen, 1.5+ = kreativ",
             "context_window": "📦 Context Window",
             "context_window_info": "Auto-berechnet basierend auf Message-Größe",
+            "context_window_fixed_hint": "ℹ️ Bei llama.cpp/vLLM/TabbyAPI ist der Kontext durch das geladene Modell-Profil fixiert (llama-swap-YAML) — manuell nur bei Ollama einstellbar.",
             
             # Progress Banner
             "automatic_decision": "Automatik-Entscheidung ...",
@@ -880,6 +881,7 @@ class TranslationManager:
             "temperature_info": "0.0 = deterministic, 0.2 = factual, 0.8 = balanced, 1.5+ = creative",
             "context_window": "📦 Context Window",
             "context_window_info": "Auto-calculated based on message size",
+            "context_window_fixed_hint": "ℹ️ With llama.cpp/vLLM/TabbyAPI the context is fixed by the loaded model profile (llama-swap YAML) — adjustable manually only with Ollama.",
             
             # Progress Banner
             "automatic_decision": "Automatic decision ...",
