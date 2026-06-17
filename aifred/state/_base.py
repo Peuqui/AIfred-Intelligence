@@ -268,7 +268,7 @@ class AIState(  # type: ignore[misc]
         from ..lib.message_processor import read_and_clear_hub_notification
         from ..lib.i18n import t as _t
         notification = read_and_clear_hub_notification()
-        toast_event = None
+        toast_events: list = []
         if notification:
             channel = notification.get("channel", "?")
             sender = notification.get("sender", "")
@@ -286,21 +286,30 @@ class AIState(  # type: ignore[misc]
                 self.is_generating = False
                 self.is_generating_hub = False
 
-            # Phase-dependent toast (same id="hub" → replaces previous)
+            # Phase-dependent toast. received/processing share id="hub" so each
+            # replaces the previous one. The terminal states (done/error) MUST
+            # explicitly dismiss "hub": the "processing" toast is a Sonner
+            # loading toast, which ignores its duration and lives until it is
+            # *resolved* — a success/error toast carrying the same id does NOT
+            # reliably replace a loading toast, so without the dismiss the
+            # spinner lingers indefinitely (observed: "Generiere Antwort…"
+            # stuck after a silent music reply finished). The terminal toast
+            # then uses a fresh (auto) id so it shows cleanly after the dismiss.
             toast_style = {"width": "420px"}
-            toast_kwargs = dict(id="hub", position="top-center", style=toast_style)
+            hub_kwargs = dict(id="hub", position="top-center", style=toast_style)
+            final_kwargs = dict(position="top-center", style=toast_style)
             if status == "received":
                 toast_msg = _t("hub_toast_received", lang=self.ui_language, channel=channel, sender=sender)
-                toast_event = rx.toast.info(toast_msg, duration=120000, **toast_kwargs)
+                toast_events = [rx.toast.info(toast_msg, duration=120000, **hub_kwargs)]
             elif status == "processing":
                 toast_msg = _t("hub_toast_processing", lang=self.ui_language, channel=channel, sender=sender)
-                toast_event = rx.toast.loading(toast_msg, duration=120000, **toast_kwargs)
+                toast_events = [rx.toast.loading(toast_msg, duration=120000, **hub_kwargs)]
             elif status == "done":
                 toast_msg = _t("hub_toast_done", lang=self.ui_language, channel=channel, sender=sender)
-                toast_event = rx.toast.success(toast_msg, duration=5000, **toast_kwargs)
+                toast_events = [rx.toast.dismiss("hub"), rx.toast.success(toast_msg, duration=5000, **final_kwargs)]
             elif status == "error":
                 toast_msg = _t("hub_toast_error", lang=self.ui_language, channel=channel, sender=sender)
-                toast_event = rx.toast.error(toast_msg, duration=8000, **toast_kwargs)
+                toast_events = [rx.toast.dismiss("hub"), rx.toast.error(toast_msg, duration=8000, **final_kwargs)]
 
         # SSOT MTIME WATCH: Check if session file was modified externally
         # (other tab, API, channel, message_processor, debug_bus).
@@ -337,17 +346,18 @@ class AIState(  # type: ignore[misc]
                                 f"🔄 Session synced ({msg_count} messages)"
                             )
                         self._last_session_mtime = session_mtime
-                        # Force scroll + toast (if any) in one yield
-                        if toast_event:
-                            yield toast_event
+                        # Force scroll + toast(s) (if any) in one yield
+                        for _ev in toast_events:
+                            yield _ev
                         yield rx.call_script("forceScrollToBottom()")
                         return
             except (OSError, ValueError):
                 pass
 
         # Toast without session change (notification for a different session)
-        if toast_event:
-            yield toast_event
+        if toast_events:
+            for _ev in toast_events:
+                yield _ev
             return
 
         # Background create_tasks (TTS finalize, title generation) append to
