@@ -14,12 +14,13 @@ class ExportMixin(rx.State, mixin=True):
     # Public API
     # ------------------------------------------------------------------
 
-    def share_chat(self):
-        """Share chat history – export as HTML and open in a new browser tab.
+    def _build_and_save_export(self) -> tuple[str, str] | None:
+        """Build the standalone HTML export, save it, and return
+        ``(preview_url, download_filename)`` — or ``None`` if there is no chat.
 
-        Creates a standalone HTML file with embedded CSS that looks like
-        the AIfred UI.  Uses the existing html_preview infrastructure for
-        file management.
+        SSOT for both export paths: :meth:`share_chat` (open in a new tab,
+        for viewing / browser-PDF) and :meth:`download_chat` (download the
+        self-contained .html file, for sharing as a file).
         """
         from datetime import datetime
 
@@ -34,23 +35,26 @@ class ExportMixin(rx.State, mixin=True):
 
         _ch = self._chat_sub()
         if not _ch.chat_history:
-            self.add_debug("⚠️ No chat to share")  # type: ignore[attr-defined]
-            return
+            self.add_debug("⚠️ No chat to export")  # type: ignore[attr-defined]
+            return None
 
         # Build HTML document
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         chat_title: str = self.current_session_title or ""  # type: ignore[attr-defined]
-        html_parts: list[str] = [self._get_export_html_header(timestamp, chat_title)]
 
         # Get username for display
         display_name = self.user_name if self.user_name else "User"  # type: ignore[attr-defined]
 
-        # Import localization for failed sources
+        # Import localization for failed sources + export toolbar labels
         from ..lib.prompt_loader import get_language
 
         current_lang = get_language()
         if current_lang == "auto":
             current_lang = "de"
+
+        html_parts: list[str] = [
+            self._get_export_html_header(timestamp, chat_title, current_lang),
+        ]
 
         for msg in _ch.chat_history:
             role = msg.get("role", "")
@@ -76,13 +80,53 @@ class ExportMixin(rx.State, mixin=True):
         # Save HTML file and get URL (with chat title for filename)
         preview_url = _save_html_to_assets(html_content, chat_title)
 
+        # A clean ASCII download filename (the on-disk name carries an emoji +
+        # spaces, which URL-encode badly in a download attribute).
+        safe_title = re.sub(r'[^\w\- ]', '', chat_title).strip().replace(" ", "_")[:50]
+        download_filename = f"AIfred-Chat-{safe_title}.html" if safe_title else "AIfred-Chat.html"
+
         self.add_debug(  # type: ignore[attr-defined]
             f"📋 Chat exported as HTML ({len(_ch.chat_history)} messages)",
         )
+        return preview_url, download_filename
 
-        # Open in new browser tab via JavaScript
-        js_script = f'window.open("{preview_url}", "_blank");'
-        return rx.call_script(js_script)
+    def share_chat(self):
+        """Share chat history – export as HTML and open in a new browser tab.
+
+        For viewing and the browser's "Save as PDF" path. The exported HTML
+        carries a print stylesheet + a beforeprint hook that expand all
+        collapsibles, so the generated PDF includes the web-source URLs.
+        """
+        result = self._build_and_save_export()
+        if not result:
+            return
+        preview_url, _ = result
+        return rx.call_script(f'window.open("{preview_url}", "_blank");')
+
+    def download_chat(self):
+        """Download the chat as a self-contained .html file.
+
+        Fetches the saved export as a Blob and triggers a real file download
+        (instead of opening a tab). The file embeds images/audio as Base64 and
+        keeps the collapsibles interactive — ideal for sharing the file itself
+        (e.g. on mobile, where Firefox can only share a URL, not a page)."""
+        result = self._build_and_save_export()
+        if not result:
+            return
+        preview_url, download_filename = result
+        # fetch → Blob → <a download> is the most reliable cross-device way to
+        # force a real download (same-origin URL; works on Firefox mobile).
+        js = (
+            f'fetch("{preview_url}").then(function(r){{return r.blob();}})'
+            f'.then(function(b){{'
+            f'var a=document.createElement("a");'
+            f'a.href=URL.createObjectURL(b);'
+            f'a.download="{download_filename}";'
+            f'document.body.appendChild(a);a.click();a.remove();'
+            f'setTimeout(function(){{URL.revokeObjectURL(a.href);}},1000);'
+            f'}});'
+        )
+        return rx.call_script(js)
 
     # ------------------------------------------------------------------
     # Private helpers – message rendering
@@ -507,7 +551,7 @@ class ExportMixin(rx.State, mixin=True):
     # Private helpers – HTML template
     # ------------------------------------------------------------------
 
-    def _get_export_html_header(self, timestamp: str, title: str = "") -> str:
+    def _get_export_html_header(self, timestamp: str, title: str = "", lang: str = "de") -> str:
         """Generate HTML header with embedded CSS for chat export."""
         from ..lib.formatting import get_katex_inline_assets
 
@@ -521,6 +565,10 @@ class ExportMixin(rx.State, mixin=True):
             f"🎩 AIfred - {title}" if title
             else "🎩 AIfred Intelligence - Chat Export"
         )
+
+        # Localized labels for the screen-only expand/collapse toolbar.
+        expand_label = "📂 Alles aufklappen" if lang == "de" else "📂 Expand all"
+        collapse_label = "📁 Alles zuklappen" if lang == "de" else "📁 Collapse all"
 
         return f'''<!DOCTYPE html>
 <html lang="en">
@@ -880,12 +928,89 @@ class ExportMixin(rx.State, mixin=True):
         .katex-display {{
             margin: 0.5em 0;
         }}
+        /* Screen-only toolbar: expand/collapse all collapsibles. Handy before
+           a manual "Save as PDF" on browsers that don't fire beforeprint
+           (e.g. Firefox mobile). Hidden in the printed output. */
+        .export-toolbar {{
+            text-align: center;
+            margin-bottom: 16px;
+        }}
+        .export-toolbar button {{
+            background: #21262d;
+            color: #58a6ff;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 8px 14px;
+            margin: 0 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }}
+        .export-toolbar button:hover {{
+            background: #30363d;
+        }}
+        /* Print / PDF: light background (saves ink + readable on paper) and —
+           crucially — expand every <details> so the web-source URLs and
+           thinking blocks actually land in the generated PDF. A closed
+           <details> is otherwise omitted from print. The toolbar is dropped. */
+        @media print {{
+            body {{
+                background: #fff;
+                color: #111;
+            }}
+            .header, .footer {{
+                border-color: #ccc;
+            }}
+            .header h1 {{
+                color: #b45309;
+            }}
+            .message,
+            .aifred-message, .sokrates-message, .salomo-message,
+            .user-message, .summary-message {{
+                background: #fff !important;
+                border: 1px solid #ccc !important;
+            }}
+            details, summary,
+            .sources-collapsible, .sources-collapsible summary {{
+                background: #fff !important;
+                color: #333 !important;
+            }}
+            details > *:not(summary) {{
+                display: block !important;
+            }}
+            a, .sources-list a {{
+                color: #0a58ca !important;
+            }}
+            .export-toolbar {{
+                display: none !important;
+            }}
+        }}
     </style>
+    <script>
+        // Expand all collapsibles before printing so the web-source URLs and
+        // thinking blocks land in the PDF, then restore the previously-closed
+        // ones afterwards (keeps the on-screen view tidy). Browsers that don't
+        // fire beforeprint (e.g. Firefox mobile) fall back to the @media print
+        // CSS above and the manual toolbar buttons below.
+        window.addEventListener('beforeprint', function() {{
+            document.querySelectorAll('details').forEach(function(d) {{
+                if (!d.open) {{ d.setAttribute('data-was-closed', '1'); d.open = true; }}
+            }});
+        }});
+        window.addEventListener('afterprint', function() {{
+            document.querySelectorAll('details[data-was-closed]').forEach(function(d) {{
+                d.open = false; d.removeAttribute('data-was-closed');
+            }});
+        }});
+    </script>
 </head>
 <body>
     <div class="header">
         <h1>🎩 AIfred Intelligence</h1>
         <div class="timestamp">Chat Export • {timestamp}</div>
+    </div>
+    <div class="export-toolbar">
+        <button onclick="document.querySelectorAll('details').forEach(function(d){{d.open=true;}})">{expand_label}</button>
+        <button onclick="document.querySelectorAll('details').forEach(function(d){{d.open=false;}})">{collapse_label}</button>
     </div>
 '''
 
