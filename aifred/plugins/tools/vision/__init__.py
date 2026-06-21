@@ -834,7 +834,6 @@ class VisionPlugin:
             event_type: str | None = None,
             since_hours: float | None = None,
             limit: int = 50,
-            describe: bool = False,
         ) -> str:
             cfg = _load_settings().get("events", {})
             actual_limit = max(1, min(int(limit), 500))
@@ -865,21 +864,28 @@ class VisionPlugin:
             presence = (event_type or "").strip().lower() in ("presence", "people")
             store_event_type = None if presence else event_type
 
-            if describe:
-                try:
-                    from ....lib.vision_bulk import run_bulk_describe
-                    describe_types = (
-                        sorted(_PRESENCE) if presence
-                        else ([store_event_type] if store_event_type else None)
-                    )
-                    await run_bulk_describe(
-                        source_id=source_id,
-                        event_types=describe_types,
-                        since=since,
-                        check_vram=False,
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("on-demand describe failed: %s", e)
+            # Algorithmisch statt modell-gesteuert: IMMER die abgefragte Spanne
+            # nachbeschreiben, bevor wir antworten. run_bulk_describe ist
+            # idempotent (beschriebene Events werden übersprungen) und kehrt bei
+            # nichts-zu-tun nach einem günstigen Undescribed-Query sofort zurück.
+            # So ist die Chronik bei JEDER Abfrage vollständig, ohne dass das
+            # Modell vorher wissen müsste, ob Beschreibungen fehlen (Henne-Ei).
+            # Der nächtliche vision_cleanup-Lauf bleibt das Safety-Net für alles,
+            # was nie abgefragt wird.
+            try:
+                from ....lib.vision_bulk import run_bulk_describe
+                describe_types = (
+                    sorted(_PRESENCE) if presence
+                    else ([store_event_type] if store_event_type else None)
+                )
+                await run_bulk_describe(
+                    source_id=source_id,
+                    event_types=describe_types,
+                    since=since,
+                    check_vram=False,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("on-demand describe failed: %s", e)
 
             # Scan the WHOLE window (no cap) so dedup can collapse clusters that
             # span it without any happening slipping through an artificial
@@ -989,16 +995,6 @@ class VisionPlugin:
                         "description": "Only events newer than N hours.",
                     },
                     "limit": {"type": "integer", "default": 50},
-                    "describe": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": (
-                            "Generate missing VLM scene descriptions for the "
-                            "queried window before returning. Use only when the "
-                            "user wants the actual content of what happened and "
-                            "the events still lack a description."
-                        ),
-                    },
                 },
                 "required": [],
             },
