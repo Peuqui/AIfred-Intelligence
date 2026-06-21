@@ -117,6 +117,7 @@ from ._vision_settings_mixin import VisionSettingsMixin  # noqa: E402
 from ._vision_preview_mixin import VisionPreviewMixin  # noqa: E402
 from ._personarium_mixin import PersonariumMixin  # noqa: E402
 from ._casus_mixin import CasusMixin  # noqa: E402
+from ._storage_mixin import StorageMixin  # noqa: E402
 from ._multipose_mixin import MultiposeMixin  # noqa: E402
 from ._vigilantia_feed_mixin import VigilantiaFeedMixin  # noqa: E402
 from ._file_picker_mixin import FilePickerMixin  # noqa: E402
@@ -140,6 +141,7 @@ class AIState(  # type: ignore[misc]
     VisionPreviewMixin,
     PersonariumMixin,
     CasusMixin,
+    StorageMixin,
     MultiposeMixin,
     VigilantiaFeedMixin,
     FilePickerMixin,

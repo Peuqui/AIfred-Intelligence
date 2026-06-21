@@ -1384,6 +1384,9 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.db_clear_confirm = False
             if self.db_browser_collection:
                 self._load_db_entries()
+        elif tab == "storage":
+            # Speicher-Tab: lokale Datei-Stores (Exporte + Sandbox) laden.
+            self.load_storage_files()
         elif tab == "plugins":
             # Load tool toggles + channel allowlists for the plugins tab.
             # list_all_plugins() (not discover_tools) so DISABLED tool plugins
