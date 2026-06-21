@@ -1316,6 +1316,7 @@ EPIM_FB_DIR = PROJECT_ROOT / "lib" / "firebird25"
 # SECURITY CONFIGURATION
 # ============================================================
 SECURITY_AUDIT_DB = DATA_DIR / "security" / "audit.db"
+SECURITY_AUDIT_RETENTION_DAYS = 7       # tool_audit-Zeilen aelter als N Tage taeglich pruegen (sonst append-only unbegrenzt)
 SECURITY_MAX_TOOL_CHAIN_DEPTH = 10      # Max tool calls per single LLM request
 SECURITY_RATE_LIMIT_WINDOW_SEC = 60     # Rate limit window in seconds
 SECURITY_RATE_LIMITS: dict[str, int] = {

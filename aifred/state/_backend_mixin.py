@@ -448,6 +448,11 @@ class BackendMixin(rx.State, mixin=True):
                     from ..lib.vision_cleanup import cleanup_vision_task
                     _asyncio.create_task(cleanup_vision_task())
 
+                    # Audit-Log cleanup task — prunt die append-only tool_audit-
+                    # Tabelle (SECURITY_AUDIT_RETENTION_DAYS) am selben Slot.
+                    from ..lib.security import cleanup_audit_log_task
+                    _asyncio.create_task(cleanup_audit_log_task())
+
                     # Audio index incremental sync (only for sources already populated)
                     from ..lib.audio_index import sync_audio_index_task
                     _asyncio.create_task(sync_audio_index_task())

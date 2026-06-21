@@ -602,3 +602,56 @@ def audit_log(
             conn.commit()
     except Exception as exc:
         logger.warning("Audit log write failed: %s", exc)
+
+
+def prune_audit_log(retention_days: int | None = None) -> int:
+    """Löscht ``tool_audit``-Zeilen älter als ``retention_days``.
+
+    Die Tabelle ist sonst append-only und wächst unbegrenzt. Returnt die
+    Anzahl gelöschter Zeilen. Wird vom täglichen Cleanup-Slot aufgerufen
+    (siehe ``cleanup_audit_log_task``)."""
+    from datetime import datetime, timedelta
+    from .config import SECURITY_AUDIT_RETENTION_DAYS
+    days = SECURITY_AUDIT_RETENTION_DAYS if retention_days is None else retention_days
+    # cutoff im selben lokalen ISO-Format wie die timestamp-Spalte —
+    # lexikografischer Vergleich ist bei ISO-8601 korrekt.
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+    try:
+        db_path = _get_audit_db_path()
+        if not db_path.exists():
+            return 0
+        with sqlite3.connect(str(db_path), timeout=5) as conn:
+            cur = conn.execute(
+                "DELETE FROM tool_audit WHERE timestamp < ?", (cutoff,),
+            )
+            conn.commit()
+            return int(cur.rowcount)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Audit log prune failed: %s", exc)
+        return 0
+
+
+async def cleanup_audit_log_task() -> None:
+    """Background-Task: ``tool_audit`` täglich am Wartungs-Slot prunen.
+
+    Läuft am selben ``GARBAGE_COLLECTION_HOUR`` wie die übrigen Cleanups
+    (Vector-Cache, AudioState, Vision-Cleanup) — reiht sich also in die
+    nächtliche Aufräumung ein, kein eigener Mechanismus."""
+    import asyncio
+    from .config import GARBAGE_COLLECTION_HOUR, SECURITY_AUDIT_RETENTION_DAYS
+    from .cleanup_utils import seconds_until_next_run
+    from .logging_utils import log_message
+
+    log_message(
+        f"🗑️ Audit-Log cleanup task started "
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
+        f"retention: {SECURITY_AUDIT_RETENTION_DAYS}d)"
+    )
+    while True:
+        try:
+            await asyncio.sleep(seconds_until_next_run(GARBAGE_COLLECTION_HOUR))
+            removed = prune_audit_log()
+            if removed > 0:
+                log_message(f"🗑️ Audit-Log cleanup: {removed} alte Einträge entfernt")
+        except Exception as exc:  # noqa: BLE001
+            log_message(f"⚠️ Audit-Log cleanup task error: {exc}")
