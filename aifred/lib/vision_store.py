@@ -875,6 +875,48 @@ class VisionStore:
                 updated += 1
             return updated
 
+    @staticmethod
+    def _unlink_frame_files(rows: list[sqlite3.Row]) -> int:
+        """Löscht die zu Events gehörenden Bilddateien von der Platte:
+        ``frame_path`` (Vollbild) plus ``zoom_frame_path`` aus der
+        ``classification``. Nur Dateien UNTERHALB von ``DATA_DIR`` werden
+        angefasst (Schutz gegen Pfad-Ausbruch); fehlende Dateien werden
+        still übersprungen. Returnt die Anzahl gelöschter Dateien.
+
+        Wird von den Event-Löschpfaden aufgerufen, damit ein Casus-Delete
+        die Frames mitnimmt statt sie als verwaiste 3-GB-Reste liegen zu
+        lassen (DB-Zeile weg, Datei bleibt = sinnlos)."""
+        root = DATA_DIR.resolve()
+        paths: set[str] = set()
+        for r in rows:
+            keys = r.keys()
+            fp = (r["frame_path"] if "frame_path" in keys else "") or ""
+            if fp:
+                paths.add(str(fp))
+            cls = (r["classification"] if "classification" in keys else "") or ""
+            if cls:
+                try:
+                    zfp = json.loads(cls).get("zoom_frame_path")
+                    if zfp:
+                        paths.add(str(zfp))
+                except (json.JSONDecodeError, AttributeError, TypeError):
+                    pass
+        deleted = 0
+        for p in paths:
+            try:
+                fpath = Path(p).resolve()
+                fpath.relative_to(root)  # ValueError, wenn außerhalb DATA_DIR
+            except (ValueError, OSError):
+                continue
+            try:
+                fpath.unlink()
+                deleted += 1
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+        return deleted
+
     def delete_events_filtered(
         self,
         *,
@@ -886,8 +928,9 @@ class VisionStore:
         until: datetime | None = None,
     ) -> int:
         """Bulk-Delete mit denselben Filter-Parametern wie
-        ``list_events_with_summary`` / ``count_events``. Returnt die
-        Anzahl gelöschter Zeilen."""
+        ``list_events_with_summary`` / ``count_events``. Löscht die
+        zugehörigen Bilddateien (frame_path + zoom_frame_path) gleich mit.
+        Returnt die Anzahl gelöschter Zeilen."""
         clauses: list[str] = []
         params: list[Any] = []
         if source_id:
@@ -910,16 +953,31 @@ class VisionStore:
             params.append(until.isoformat(timespec="microseconds"))
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         with self._conn() as conn:
+            # Pfade VOR dem DELETE einsammeln, danach die Dateien löschen.
+            rows = conn.execute(
+                f"SELECT frame_path, classification FROM events{where}",
+                tuple(params),
+            ).fetchall()
             cur = conn.execute(f"DELETE FROM events{where}", tuple(params))
-            return int(cur.rowcount)
+            count = int(cur.rowcount)
+        self._unlink_frame_files(rows)
+        return count
 
     def delete_event(self, event_id: int) -> bool:
-        """Einzelnes Event löschen. Embeddings, die dieses Event als
+        """Einzelnes Event löschen — inkl. der zugehörigen Bilddateien
+        (frame_path + zoom_frame_path). Embeddings, die dieses Event als
         ``source_event_id`` referenzieren, bekommen NULL (ON DELETE SET
         NULL aus dem Schema)."""
         with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT frame_path, classification FROM events WHERE id = ?",
+                (event_id,),
+            ).fetchall()
             cur = conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
-            return cur.rowcount > 0
+            ok = cur.rowcount > 0
+        if ok:
+            self._unlink_frame_files(rows)
+        return ok
 
     def set_event_face_id(self, event_id: int, face_id: int | None) -> bool:
         """Tagging-Workflow: ein unknown-/unsure-Event nachträglich einer
