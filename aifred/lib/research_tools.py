@@ -282,6 +282,10 @@ async def execute_research(
         state.add_debug(f"✅ Research: {len(context)} chars, {len(used_sources)} sources")
         state._research_context = context  # type: ignore[attr-defined]
         state._research_sources_html = sources_html  # type: ignore[attr-defined]
+        # Tag this turn so _sync_to_llm_history records in llm_history that a
+        # web search happened — even if the model's synthesis degenerates, the
+        # follow-up turn then knows it DID research (no false "I didn't search").
+        state._research_source_count = len(used_sources)  # type: ignore[attr-defined]
 
         # ==============================================================
         # PHASE 6: Vector Cache Write (with TTL volatility)

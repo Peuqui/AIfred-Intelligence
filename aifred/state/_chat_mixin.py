@@ -58,6 +58,11 @@ class ChatMixin(rx.State, mixin=True):
     # Research context (set by forced research pipeline, read by agent response)
     _research_context: str = ""
     _research_sources_html: str = ""
+    # Source count of the last web research — consumed once by
+    # _sync_to_llm_history to tag that assistant turn with a research marker,
+    # so a follow-up turn knows the agent DID search (the tool_call/results
+    # themselves are not kept in llm_history).
+    _research_source_count: int = 0
 
     # ── Debug / Progress ─────────────────────────────────────────────
 
@@ -231,6 +236,20 @@ class ChatMixin(rx.State, mixin=True):
 
         if clean_content:
             ch = self._chat_sub()
+            # Append a compact research marker (llm_history only — not the UI)
+            # so a follow-up turn knows the agent DID search. Consumed-and-reset
+            # so it tags exactly the turn that researched and never carries over
+            # to a later non-search turn.
+            n = getattr(self, "_research_source_count", 0)
+            if n > 0:
+                lang = getattr(self, "ui_language", "de")
+                marker = (
+                    f"[Recherche: {n} Web-Quellen abgerufen und ausgewertet.]"
+                    if lang == "de"
+                    else f"[Research: {n} web sources retrieved and evaluated.]"
+                )
+                clean_content = f"{clean_content}\n\n{marker}"
+                self._research_source_count = 0  # type: ignore[attr-defined]
             ch.llm_history = [
                 *ch.llm_history,
                 {"role": "assistant", "content": f"[{label}]: {clean_content}"},
