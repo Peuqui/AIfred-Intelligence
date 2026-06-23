@@ -88,8 +88,10 @@ class AuthMixin(rx.State, mixin=True):
         self.close_login_dialog()
         self.refresh_session_list()  # type: ignore[attr-defined]
 
-        # Load most recent session or create new one
-        sessions = list_sessions(owner=self.logged_in_user)
+        # Load most recent *interactive* session or create new one. Channel
+        # sessions (scheduler/email) are skipped so the browser never adopts a
+        # background-worker session — see list_sessions(interactive_only).
+        sessions = list_sessions(owner=self.logged_in_user, interactive_only=True)
         if sessions:
             self._load_session_by_id(sessions[0]["session_id"])  # type: ignore[attr-defined]
             self.add_debug(f"✅ Logged in as: {self.logged_in_user}")  # type: ignore[attr-defined]
@@ -201,8 +203,9 @@ class AuthMixin(rx.State, mixin=True):
             self.login_dialog_open = False
             self.refresh_session_list()  # type: ignore[attr-defined]
 
-            # Load most recent session if available
-            sessions = list_sessions(owner=self.logged_in_user)
+            # Load most recent *interactive* session if available (channel
+            # sessions are skipped — see list_sessions(interactive_only)).
+            sessions = list_sessions(owner=self.logged_in_user, interactive_only=True)
             if sessions:
                 most_recent = sessions[0]
                 self._load_session_by_id(most_recent["session_id"])  # type: ignore[attr-defined]

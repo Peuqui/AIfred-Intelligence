@@ -486,7 +486,7 @@ def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
         return False
 
 
-def create_empty_session(session_id: str, owner: str) -> bool:
+def create_empty_session(session_id: str, owner: str, channel: str = "") -> bool:
     """
     Create an empty session file for a new device.
 
@@ -499,6 +499,11 @@ def create_empty_session(session_id: str, owner: str) -> bool:
     Args:
         session_id: Session identifier
         owner: Username who owns this session
+        channel: Origin channel ("" = interactive browser session, otherwise
+                 a background channel like "scheduler"/"email"). Channel-driven
+                 sessions are excluded from the auto-load picks at login so the
+                 browser never adopts a session a background worker is still
+                 processing — see list_sessions(interactive_only=True).
 
     Returns:
         True on success, False on error
@@ -508,6 +513,7 @@ def create_empty_session(session_id: str, owner: str) -> bool:
         {
             "data": {"config": dict(DEFAULT_SESSION_CONFIG)},
             "owner": owner.lower(),
+            "channel": channel,
         },
     )
 
@@ -842,12 +848,18 @@ def get_latest_session_file() -> Optional[Path]:
     return session_files[0]
 
 
-def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_sessions(
+    owner: Optional[str] = None, interactive_only: bool = False
+) -> List[Dict[str, Any]]:
     """
     List sessions with basic info, optionally filtered by owner.
 
     Args:
         owner: Username to filter by (case-insensitive). If None, returns empty list.
+        interactive_only: If True, skip channel-driven sessions (scheduler,
+                          email, …). Used by the login auto-load so the browser
+                          only ever adopts a genuine interactive session and
+                          never hijacks one a background worker is processing.
 
     Returns list of dicts with:
     - session_id: Session identifier
@@ -856,6 +868,7 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
     - created_at: Session creation timestamp
     - message_count: Number of chat messages
     - owner: Username who owns this session
+    - channel: Origin channel ("" = interactive browser session)
 
     Returns:
         List of session info dicts, sorted by last_seen (newest first)
@@ -875,6 +888,10 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
             if owner_lower and session_owner != owner_lower:
                 continue
 
+            session_channel = data.get("channel", "")
+            if interactive_only and session_channel:
+                continue
+
             chat_history = data.get("data", {}).get("chat_history", [])
             sessions.append({
                 "session_id": session_file.stem,
@@ -882,7 +899,8 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
                 "last_seen": data.get("last_seen", ""),
                 "created_at": data.get("created_at", ""),
                 "message_count": len(chat_history),
-                "owner": session_owner
+                "owner": session_owner,
+                "channel": session_channel,
             })
         except (json.JSONDecodeError, IOError):
             continue

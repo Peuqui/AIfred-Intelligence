@@ -279,7 +279,10 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         log_message(f"Message Processor: existing session {session_id[:8]}")
     else:
         session_id = secrets.token_hex(16)
-        create_empty_session(session_id, owner=MESSAGE_HUB_OWNER)
+        # Tag with the origin channel → the browser's login auto-load skips it
+        # (interactive_only), so a catch-up job's session is never adopted and
+        # then hijacked by the user's next message on the same session.
+        create_empty_session(session_id, owner=MESSAGE_HUB_OWNER, channel=message.channel)
         routing_table.set_route(message.channel, message.channel_id, session_id)
         log_message(f"Message Processor: new session {session_id[:8]} for {message.sender}")
 

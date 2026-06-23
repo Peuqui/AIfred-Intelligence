@@ -81,11 +81,13 @@ class SessionMixin(rx.State, mixin=True):
         session = load_session(session_id)
         if session is None:
             self.add_debug(f"Session {session_id[:8]}... not found, switching to newest")  # type: ignore[attr-defined]
-            # Session was deleted - switch to newest available or create new
+            # Session was deleted - switch to newest interactive session or
+            # create new (channel sessions are not auto-adopted).
+            from ..lib.session_storage import list_sessions
             self.refresh_session_list()
-            if self.available_sessions:
-                newest = self.available_sessions[0]
-                self._load_session_by_id(newest["session_id"])
+            interactive = list_sessions(owner=self.logged_in_user, interactive_only=True)  # type: ignore[attr-defined]
+            if interactive:
+                self._load_session_by_id(interactive[0]["session_id"])
             else:
                 self.new_session()
             return
