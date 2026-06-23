@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import socket
 import uuid
 from datetime import datetime
@@ -45,7 +46,22 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 from urllib.parse import quote
 
-import cv2
+# FFMPEG-Robustheit für RTSP — MUSS vor dem ersten cv2.VideoCapture gesetzt
+# sein (das FFMPEG-Backend liest die env-var beim Open):
+#   * rtsp_transport;tcp   — TCP statt UDP: kein Paketverlust → drastisch
+#     weniger H264-Korruption (die UDP-bedingten „missing picture / no frame /
+#     error while decoding MB"-Fehler).
+#   * fflags;discardcorrupt — korrupte Pakete verwerfen statt sie dem
+#     H264-Decoder zu füttern. Genau dieser Decode-an-kaputten-Daten-Pfad
+#     hat am 2026-06-23 einen opencv/ffmpeg-Segfault ausgelöst, der den
+#     ganzen granian-Worker mitriss. setdefault: eine bewusst gesetzte
+#     System-/User-Variable hat Vorrang.
+os.environ.setdefault(
+    "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+    "rtsp_transport;tcp|fflags;discardcorrupt",
+)
+
+import cv2  # noqa: E402  — nach dem env-Set, damit FFMPEG die Optionen sieht
 
 from ..credential_broker import broker
 from . import register, unregister_kind
