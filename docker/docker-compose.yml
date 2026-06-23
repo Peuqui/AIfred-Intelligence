@@ -39,7 +39,7 @@ services:
     networks:
       - aifred-network
 
-  # SearXNG Search Engine (Optional - for web research)
+  # SearXNG Search Engine (Primary web-research backend — always needed)
   searxng:
     image: searxng/searxng:latest
     container_name: aifred-searxng
@@ -60,8 +60,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    profiles:
-      - full  # Only start with: docker-compose --profile full up -d
 
 networks:
   aifred-network:
