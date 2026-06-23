@@ -201,6 +201,29 @@ path = path.removeprefix("/" + config.frontend_path)
 
 ---
 
+## ⚠️ Reflex Patch: Worker-Respawn nach Crash
+
+**Problem:** `reflex run` startet granian programmatisch (`exec.py`,
+`run_granian_backend`) mit `reload=True` + `reload_ignore_worker_failure=True`,
+aber OHNE `respawn_failed_workers`. Stirbt der Backend-Worker durch einen
+C-Level-Crash (z.B. opencv/ffmpeg-Segfault am korrupten RTSP-Stream), wird er
+NICHT respawnt — der granian-Master lebt weiter, also greift auch
+`systemd Restart=always` nicht (Main-PID = Master, der „läuft"). Folge:
+AIfred ist tot/unerreichbar bis zum manuellen Neustart (am 2026-06-23 ~1h43).
+
+- **Datei:** `venv/lib/python3.12/site-packages/reflex/utils/exec.py`, im
+  `Granian(...)`-Konstruktor in `run_granian_backend()` (~Zeile 545)
+- **Fix:** `respawn_failed_workers=True` + `respawn_interval=3.5` ergänzen.
+
+**Bei Reflex-Update:** Patch erneut anwenden (Konstruktor-Argumente ergänzen):
+```python
+# exec.py, run_granian_backend(), im Granian(...)-Aufruf:
+respawn_failed_workers=True,
+respawn_interval=3.5,
+```
+
+---
+
 ## AIfred Systemdienst
 
 AIfred läuft als PolKit Systemdienst (NICHT als root!):
