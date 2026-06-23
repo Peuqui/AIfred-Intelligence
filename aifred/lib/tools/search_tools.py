@@ -18,6 +18,26 @@ from .url_utils import deduplicate_urls, deduplicate_urls_with_metadata
 # Logging Setup
 logger = logging.getLogger(__name__)
 
+
+def classify_search_error(exc: BaseException) -> str:
+    """Classify a search-request failure so callers can tell 'offline' apart
+    from a server-side problem.
+
+    Returns ``'network'`` when the request never reached a server (DNS
+    resolution failure, connection refused, timeout) — i.e. the host is
+    effectively offline. Returns ``'http'`` for everything else (the server
+    answered, just with an error). This lets the aggregation distinguish a
+    genuine "nothing found" from "we couldn't even ask", so the agent never
+    mistakes a network outage for an empty result.
+    """
+    network_types = (
+        requests.exceptions.ConnectionError,  # incl. NameResolutionError (DNS)
+        requests.exceptions.Timeout,          # incl. ConnectTimeout/ReadTimeout
+        httpx.ConnectError,
+        httpx.TimeoutException,
+    )
+    return "network" if isinstance(exc, network_types) else "http"
+
 # ============================================================
 # BRAVE SEARCH API (Primary)
 # ============================================================
@@ -119,7 +139,8 @@ class BraveSearchTool(BaseTool):
                 'source': 'Brave Search',
                 'query': query,
                 'related_urls': [],
-                'error': str(e)
+                'error': str(e),
+                'error_type': classify_search_error(e)
             }
 
 
@@ -216,7 +237,8 @@ class TavilySearchTool(BaseTool):
                 'source': 'Tavily AI',
                 'query': query,
                 'related_urls': [],
-                'error': str(e)
+                'error': str(e),
+                'error_type': classify_search_error(e)
             }
 
 
@@ -298,7 +320,8 @@ class SearXNGSearchTool(BaseTool):
                 'source': 'SearXNG',
                 'query': query,
                 'related_urls': [],
-                'error': str(e)
+                'error': str(e),
+                'error_type': classify_search_error(e)
             }
 
 
@@ -353,6 +376,18 @@ class MultiAPISearchTool(BaseTool):
             except (APIKeyMissingError, ValueError, RuntimeError) as e:
                 logger.warning(f"⚠️ Brave Search API could not be initialized: {e}")
 
+    @staticmethod
+    def _outcome_kind(result: Dict) -> str:
+        """Classify a single API result dict for the network-vs-empty decision:
+        'urls' (usable hits), 'empty' (server answered but 0 results),
+        'network' (request never reached a server), or 'http' (server error).
+        """
+        if result.get("success") and result.get("related_urls"):
+            return "urls"
+        if result.get("success"):
+            return "empty"  # reached server, just no hits
+        return str(result.get("error_type", "http"))  # 'network' or 'http'
+
     def execute(self, query: str, **kwargs) -> Dict:
         """
         Execute search in PARALLEL - collect URLs from ALL APIs!
@@ -377,6 +412,8 @@ class MultiAPISearchTool(BaseTool):
         all_urls = []
         successful_apis = []
         failed_apis = []
+        network_failures = 0  # APIs that never reached a server (DNS/conn/timeout)
+        server_reached = 0    # APIs that got an answer (hits, empty, or HTTP error)
 
         with ThreadPoolExecutor(max_workers=len(self.apis)) as executor:
             # Start all APIs in parallel
@@ -390,36 +427,54 @@ class MultiAPISearchTool(BaseTool):
                 api = future_to_api[future]
                 try:
                     result = future.result(timeout=15)  # Max 15s per API
+                    kind = self._outcome_kind(result)
 
-                    # Successful response with URLs?
-                    if result.get('success') and result.get('related_urls'):
+                    if kind == "urls":
                         urls = result['related_urls']
                         logger.info(f"✅ {api.name}: {len(urls)} URLs found")
                         all_urls.extend(urls)
                         successful_apis.append(api.name)
-                    else:
+                        server_reached += 1
+                    elif kind == "network":
+                        logger.warning(f"⚠️ {api.name}: unreachable ({result.get('error')})")
+                        failed_apis.append((api.name, "network"))
+                        network_failures += 1
+                    else:  # 'empty' or 'http' — server answered
                         logger.warning(f"⚠️ {api.name}: No URLs found")
                         failed_apis.append((api.name, "No URLs"))
+                        server_reached += 1
 
-                except (RateLimitError, APIKeyMissingError) as e:
+                except RateLimitError as e:
                     logger.warning(f"⚠️ {api.name}: {e}")
                     failed_apis.append((api.name, str(e)))
+                    server_reached += 1  # 429 means the server did answer
+
+                except APIKeyMissingError as e:
+                    logger.warning(f"⚠️ {api.name}: {e}")
+                    failed_apis.append((api.name, str(e)))  # config issue, neither
 
                 except Exception as e:
                     logger.error(f"❌ {api.name}: {e}")
                     failed_apis.append((api.name, str(e)))
+                    network_failures += 1  # future timeout / never completed
 
         # At least one API successful?
         if not all_urls:
             logger.error("❌ All Search APIs failed!")
             error_summary = ", ".join([f"{name}: {err}" for name, err in failed_apis])
-            return {
+            response = {
                 'success': False,
                 'source': 'Multi-API Search',
                 'query': query,
                 'related_urls': [],
                 'error': f'All APIs failed. Details: {error_summary}'
             }
+            # Pure network outage: no server was ever reached, yet at least one
+            # API failed on the network. Flag it so callers report "offline"
+            # instead of "no results" (which the agent would treat as fact).
+            if network_failures > 0 and server_reached == 0:
+                response['error_type'] = 'network'
+            return response
 
         # Deduplication
         unique_urls = deduplicate_urls(all_urls)
@@ -497,6 +552,8 @@ class MultiAPISearchTool(BaseTool):
         successful_apis = []
         failed_apis = []
         query_results = []  # Detailed results per query
+        network_failures = 0  # queries whose API never reached a server
+        server_reached = 0    # queries whose API answered (hits, empty, or error)
 
         with ThreadPoolExecutor(max_workers=len(query_api_pairs)) as executor:
             # Start all Query-API combinations in parallel
@@ -510,8 +567,9 @@ class MultiAPISearchTool(BaseTool):
                 query, api = future_to_pair[future]
                 try:
                     result = future.result(timeout=15)
+                    kind = self._outcome_kind(result)
 
-                    if result.get('success') and result.get('related_urls'):
+                    if kind == "urls":
                         urls = result['related_urls']
                         titles = result.get('titles', [])
                         snippets = result.get('snippets', [])
@@ -520,6 +578,7 @@ class MultiAPISearchTool(BaseTool):
                         all_titles.extend(titles + [""] * (len(urls) - len(titles)))
                         all_snippets.extend(snippets + [""] * (len(urls) - len(snippets)))
                         successful_apis.append(api.name)
+                        server_reached += 1
                         query_results.append({
                             'query': query,
                             'api': api.name,
@@ -527,43 +586,54 @@ class MultiAPISearchTool(BaseTool):
                             'success': True
                         })
                     else:
-                        logger.warning(f"⚠️ {api.name} ({query[:30]}...): No URLs")
-                        failed_apis.append((api.name, "No URLs"))
+                        is_net = kind == "network"
+                        if is_net:
+                            logger.warning(f"⚠️ {api.name} ({query[:30]}...): unreachable")
+                            network_failures += 1
+                        else:  # 'empty' or 'http' — server answered
+                            logger.warning(f"⚠️ {api.name} ({query[:30]}...): No URLs")
+                            server_reached += 1
+                        failed_apis.append((api.name, "network" if is_net else "No URLs"))
                         query_results.append({
                             'query': query,
                             'api': api.name,
                             'urls_found': 0,
                             'success': False,
-                            'error': 'No URLs found'
+                            'error': result.get('error', 'No URLs found'),
+                            'error_type': result.get('error_type') if is_net else None
                         })
 
-                except (RateLimitError, APIKeyMissingError) as e:
+                except RateLimitError as e:
                     logger.warning(f"⚠️ {api.name}: {e}")
                     failed_apis.append((api.name, str(e)))
+                    server_reached += 1  # 429 means the server did answer
                     query_results.append({
-                        'query': query,
-                        'api': api.name,
-                        'urls_found': 0,
-                        'success': False,
-                        'error': str(e)
+                        'query': query, 'api': api.name, 'urls_found': 0,
+                        'success': False, 'error': str(e)
+                    })
+
+                except APIKeyMissingError as e:
+                    logger.warning(f"⚠️ {api.name}: {e}")
+                    failed_apis.append((api.name, str(e)))  # config issue, neither
+                    query_results.append({
+                        'query': query, 'api': api.name, 'urls_found': 0,
+                        'success': False, 'error': str(e)
                     })
 
                 except Exception as e:
                     logger.error(f"❌ {api.name}: {e}")
                     failed_apis.append((api.name, str(e)))
+                    network_failures += 1  # future timeout / never completed
                     query_results.append({
-                        'query': query,
-                        'api': api.name,
-                        'urls_found': 0,
-                        'success': False,
-                        'error': str(e)
+                        'query': query, 'api': api.name, 'urls_found': 0,
+                        'success': False, 'error': str(e)
                     })
 
         # At least one query successful?
         if not all_urls:
             logger.error("❌ All queries failed!")
             error_summary = ", ".join([f"{name}: {err}" for name, err in failed_apis])
-            return {
+            response = {
                 'success': False,
                 'source': 'Multi-API Search (Multi-Query)',
                 'queries': queries,
@@ -573,6 +643,10 @@ class MultiAPISearchTool(BaseTool):
                 'query_results': query_results,
                 'error': f'All queries failed. Details: {error_summary}'
             }
+            # Pure network outage: no server reached, at least one network fail.
+            if network_failures > 0 and server_reached == 0:
+                response['error_type'] = 'network'
+            return response
 
         # Deduplication (with metadata preservation)
         unique_urls, unique_titles, unique_snippets = deduplicate_urls_with_metadata(
