@@ -21,6 +21,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# SSOT for the tool result when the search layer could not reach ANY search
+# engine (DNS/connection/timeout). Crucially distinct from an empty result:
+# the agent must NOT treat this as "the topic doesn't exist" — it was offline.
+WEB_SEARCH_NETWORK_ERROR = json.dumps({
+    "error": "network_unavailable",
+    "message": (
+        "Web search could not reach any search engine (DNS or network "
+        "failure). This is NOT an empty result — do not conclude the topic "
+        "does not exist or draw any factual conclusion from it. Tell the user "
+        "the network/search is temporarily unavailable and offer to retry."
+    ),
+})
+
+
+def _is_network_outage(tool_results: list[dict[str, Any]]) -> bool:
+    """True if the web-search step failed purely because no search server was
+    reachable (``error_type == 'network'``), as opposed to returning zero hits.
+    Lets callers report an outage instead of a misleading 'no results'."""
+    return any(
+        isinstance(r, dict) and r.get("error_type") == "network"
+        for r in tool_results
+    )
+
+
 # ============================================================
 # Unified Research Pipeline (async generator for progress updates)
 # ============================================================
@@ -159,7 +183,11 @@ async def execute_research(
                 yield
 
         if not related_urls:
-            state.add_debug("⚠️ No URLs found")
+            if _is_network_outage(tool_results):
+                state.add_debug("⚠️ Search unreachable — network/DNS failure (not 'no results')")
+                state._research_context = WEB_SEARCH_NETWORK_ERROR  # type: ignore[attr-defined]
+            else:
+                state.add_debug("⚠️ No URLs found")
             yield
             return
 
@@ -370,6 +398,9 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict], mode: str
                 debug(item["message"])
 
         if not related_urls:
+            if _is_network_outage(tool_results):
+                debug("⚠️ Search unreachable — network/DNS failure (not 'no results')")
+                return WEB_SEARCH_NETWORK_ERROR
             debug("⚠️ No URLs found")
             return json.dumps({"error": "No results found"})
 
