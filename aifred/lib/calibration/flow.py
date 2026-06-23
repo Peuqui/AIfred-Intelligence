@@ -322,13 +322,26 @@ async def calibrate_llamacpp_model(
                 break
 
     # No candidate reached native context. Before giving up to hybrid,
-    # try a **best-effort GPU-only fit**: take the candidate with the
-    # highest projected max_context (across all (kv, gpu-set) cells we
-    # tried), and verify with that reduced context. The refine loop
-    # then applies layer shifts / ctx shrinks as needed. Native ctx is
-    # nice but not mandatory — a 152K-ctx Q8_0 config is still useful.
+    # try a **best-effort GPU-only fit**. Prefer the HIGHEST KV QUALITY
+    # (f16 > q8_0) whose best GPU-set still reaches a useful context —
+    # full-precision KV is faster on these GPUs (P40/V100/RTX8000 have no
+    # fast quantized-KV attention path) and higher quality. Only drop to a
+    # lower KV quality if the better one can't even reach a useful context.
+    # (Previously this just took max(max_context), which silently traded
+    # full-precision KV for ~20% more context — slower on this hardware.)
     if base_result_obj is None and all_tried:
-        best = max(all_tried, key=lambda c: c.max_context)
+        best = None
+        for kv in kv_levels:  # quality-ordered: f16 first
+            kv_best = max(
+                (c for c in all_tried if c.kv_quant == kv),
+                key=lambda c: c.max_context,
+                default=None,
+            )
+            if kv_best is not None and kv_best.max_context >= MIN_USEFUL_CONTEXT_TOKENS:
+                best = kv_best
+                break
+        if best is None:  # no KV level reached useful ctx → absolute best
+            best = max(all_tried, key=lambda c: c.max_context)
         if best.max_context >= MIN_USEFUL_CONTEXT_TOKENS:
             best_label = (
                 f"{best.n_gpus} GPUs / KV={best.kv_quant}"
