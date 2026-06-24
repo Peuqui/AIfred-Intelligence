@@ -1710,12 +1710,18 @@ class FreeEchoChannel(BaseChannel):
             pitch_str = str(user_cfg["pitch"])
         pitch = float(pitch_str)
 
-        self.channel_log(f"TTS: engine={engine}, agent={agent}, voice={voice}, speed={speed}, pitch={pitch}")
-
         try:
             from ....lib.audio_processing import generate_tts
             result: str | None = await generate_tts(text, voice, speed, engine, pitch=pitch, agent=agent)
             if not result:
+                # No fallback to another engine (project rule) — the device
+                # stays silent. The engine already logged the specific cause
+                # (e.g. network/internet unreachable) to debug.log; this line
+                # makes the failure visible in the session debug console.
+                self.channel_log(
+                    f"TTS engine '{engine}' produced no audio — device stays "
+                    f"silent (no fallback by design)", "error",
+                )
                 return None
             # Convert URL path (/_upload/tts_audio/xxx.wav) to absolute file path
             if result.startswith("/_upload/"):

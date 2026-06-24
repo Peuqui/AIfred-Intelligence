@@ -6,6 +6,22 @@ from typing import Optional
 from .base import TTSEngine
 
 
+def _network_error_types() -> tuple:
+    """Exception types that signal a network/internet outage — as opposed to
+    an API error where DashScope actually responded (auth, quota, bad voice).
+    Built lazily so a missing optional dep never breaks import. ConnectionError,
+    TimeoutError and socket.gaierror are OSError subclasses; requests wraps
+    low-level socket failures in its own ConnectionError/Timeout."""
+    import socket
+    types: tuple = (ConnectionError, TimeoutError, socket.gaierror)
+    try:
+        import requests.exceptions as _rexc
+        types += (_rexc.ConnectionError, _rexc.Timeout)
+    except Exception:
+        pass
+    return types
+
+
 # Display name → voice id. Cloned voices use the qwen-tts-vc-* IDs that
 # the VC model wants; built-in voices share name and id. The ★ prefix
 # marks cloned voices in the UI; the dispatcher strips it before
@@ -48,9 +64,6 @@ class DashScopeEngine(TTSEngine):
     needs_gpu = False
     needs_speed_postprocess = True
     supports_language = True
-    # Cloud engine needs an API key — channel devices don't always have
-    # that wired up, so we keep it out of the FreeEcho-style dropdowns.
-    suitable_for_channels = False
     display_order = 50
 
     # DashScope service endpoints + model identifiers.
@@ -67,6 +80,16 @@ class DashScopeEngine(TTSEngine):
         "it": "Italian",  "pt": "Portuguese", "ru": "Russian",
         "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
     }
+
+    @property
+    def suitable_for_channels(self) -> bool:  # type: ignore[override]
+        """Cloud engine — only offer it in channel dropdowns (FreeEcho.2)
+        when the DashScope API key is configured. Without a key every
+        synthesis fails, so a keyless setup hides the dead option instead
+        of letting a user pick an engine that cannot work. The TTS itself
+        runs server-side, so the channel device needs no key of its own."""
+        from ..credential_broker import broker
+        return bool(broker.get("cloud_qwen", "api_key"))
 
     @property
     def voices_fallback(self) -> dict[str, str]:
@@ -155,5 +178,15 @@ class DashScopeEngine(TTSEngine):
             log_message("❌ DashScope TTS: dashscope SDK not installed. Run: pip install dashscope>=1.24.6")
             return None
         except Exception as e:
-            log_message(f"❌ DashScope TTS Exception: {type(e).__name__}: {e}")
+            # No fallback to another TTS engine (project rule) — surface the
+            # cause instead. Distinguish a network/internet outage from a real
+            # API/usage error so the debug console + log say "offline" plainly.
+            # Both go to debug.log and the UI console via log_message.
+            if isinstance(e, _network_error_types()):
+                log_message(
+                    f"❌ DashScope TTS: network/internet unreachable — "
+                    f"{type(e).__name__}: {e}", "error",
+                )
+            else:
+                log_message(f"❌ DashScope TTS error: {type(e).__name__}: {e}", "error")
             return None
