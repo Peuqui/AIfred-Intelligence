@@ -11,12 +11,11 @@ prompts/
 │   ├── sokrates/          # Sokrates agent prompts
 │   ├── salomo/            # Salomo agent prompts
 │   └── *.txt              # Shared prompts (German)
-├── en/                    # English prompts
-│   ├── aifred/            # AIfred agent prompts
-│   ├── sokrates/          # Sokrates agent prompts
-│   ├── salomo/            # Salomo agent prompts
-│   └── *.txt              # Shared prompts (English)
-└── cache_volatile_keywords.txt  # Language-agnostic keywords
+└── en/                    # English prompts
+    ├── aifred/            # AIfred agent prompts
+    ├── sokrates/          # Sokrates agent prompts
+    ├── salomo/            # Salomo agent prompts
+    └── *.txt              # Shared prompts (English)
 ```
 
 ## 3-Layer Prompt System
