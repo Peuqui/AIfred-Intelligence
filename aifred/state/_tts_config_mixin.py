@@ -362,6 +362,24 @@ class TTSConfigMixin(rx.State, mixin=True):
         if key == "xtts":
             self._refresh_xtts_voices()
 
+        # DashScope: auto-enroll any NEW or CHANGED SSOT reference voice at full
+        # length now that the engine is live. Runs as visible generator steps —
+        # each line reaches the console immediately (incl. the final "done"
+        # summary), so the user always sees whether it's working and when it
+        # finished. Idempotent via WAV-hash → instant when nothing changed; only
+        # a freshly dropped/edited WAV actually contacts the cloud. This is the
+        # "drop a WAV in, it clones itself" path.
+        if key == "dashscope":
+            from ..lib.credential_broker import broker
+            from ..lib.dashscope_enroll import enroll_progress
+            api_key = broker.get("cloud_qwen", "api_key")
+            if not api_key:
+                self.add_debug("🔊 DashScope: no API key — auto-enrollment skipped")  # type: ignore[attr-defined]
+            else:
+                for line in enroll_progress(api_key):
+                    self.add_debug(f"🔊 {line}")  # type: ignore[attr-defined]
+                    yield
+
     # ── Voice / Speed / Pitch / Autoplay ──────────────────────────
 
     def set_tts_voice(self, voice: str):
