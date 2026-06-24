@@ -1231,7 +1231,7 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
     return deleted
 
 
-def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu") -> tuple[str, float]:
+def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu", log_result: bool = True) -> tuple[str, float]:
     """Transcribe audio to text via Whisper Docker service.
 
     Args:
@@ -1261,11 +1261,12 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu")
             data = resp.json()
             user_text = data.get("text", "").strip()
             stt_time = data.get("time", 0.0)
-            log_message(
-                f"✅ STT Transcription: {user_text[:100]}"
-                f"{'...' if len(user_text) > 100 else ''} "
-                f"(Time: {stt_time:.1f}s)"
-            )
+            if log_result:
+                log_message(
+                    f"✅ STT Transcription: {user_text[:100]}"
+                    f"{'...' if len(user_text) > 100 else ''} "
+                    f"(Time: {stt_time:.1f}s)"
+                )
             return user_text, stt_time
 
         log_message(f"❌ Whisper service error: {resp.status_code} {resp.text[:200]}", "error")
