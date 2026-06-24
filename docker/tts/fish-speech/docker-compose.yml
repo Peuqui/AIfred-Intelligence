@@ -44,7 +44,7 @@ services:
       - fish_speech_checkpoints:/app/checkpoints
       # Reference voices for cloning — same AIfred / HAL9000 / Salomo /
       # Sokrates set we use elsewhere. Read-only mount.
-      - ./voices:/app/references:ro
+      - ../voices:/app/references:ro
       # torch.compile / Triton kernel cache — persists across container
       # restarts so the compile cost is paid once, not every boot.
       - fish_speech_compile_cache:/app/compile-cache

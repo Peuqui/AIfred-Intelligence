@@ -74,6 +74,8 @@ KEEP_ALIVE_MINUTES = int(os.environ.get("QWEN3_KEEP_ALIVE", "30"))
 DEFAULT_SPEAKER = os.environ.get("QWEN3_DEFAULT_SPEAKER", "AIfred")
 DEFAULT_LANGUAGE = os.environ.get("QWEN3_DEFAULT_LANGUAGE", "German")
 
+# Shared SSOT voice layout (mounted from docker/tts/voices): one folder per
+# speaker, each holding <Name>.wav and an optional <Name>.txt transcript.
 VOICES_DIR = Path("/app/voices")
 
 # Languages Qwen3-TTS officially supports (see model card).
@@ -239,7 +241,7 @@ def _warm_clone_prompts() -> None:
     if not VOICES_DIR.exists():
         logger.warning(f"{VOICES_DIR} does not exist — no voices available")
         return
-    for wav in sorted(VOICES_DIR.glob("*.wav")):
+    for wav in sorted(VOICES_DIR.glob("*/*.wav")):
         name = wav.stem
         txt_path = wav.with_suffix(".txt")
         ref_text = txt_path.read_text(encoding="utf-8").strip() if txt_path.exists() else None
@@ -357,9 +359,9 @@ def voices():
         # Container started but model not loaded yet (lazy path) — fall back
         # to inspecting the on-disk voice directory so the UI dropdown still
         # populates before the first /tts triggers the load.
-        voice_list = [p.stem for p in sorted(VOICES_DIR.glob("*.wav"))]
+        voice_list = [p.stem for p in sorted(VOICES_DIR.glob("*/*.wav"))]
         voice_modes = {}
-        for p in sorted(VOICES_DIR.glob("*.wav")):
+        for p in sorted(VOICES_DIR.glob("*/*.wav")):
             modes = [CLONE_MODE_XVECTOR]
             if p.with_suffix(".txt").exists():
                 modes.append(CLONE_MODE_TRANSCRIPT)

@@ -55,9 +55,9 @@ services:
     volumes:
       # HuggingFace cache: persists the model + tokenizer between container restarts
       - qwen3_models:/root/.cache/huggingface
-      # Reference voices for cloning — each <name>.wav (plus optional <name>.txt
-      # for the transcript) becomes a /voices/<name> entry the API can address.
-      - ./voices:/app/voices:ro
+      # Shared SSOT voices: docker/tts/voices/<Name>/<Name>.wav (+ optional
+      # <Name>.txt transcript) becomes a /voices/<Name> entry the API addresses.
+      - ../voices:/app/voices:ro
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5052/health"]

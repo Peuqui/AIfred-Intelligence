@@ -87,6 +87,8 @@ _inference_lock = threading.Lock()
 
 # Paths
 CUSTOM_VOICES_DIR = Path("/app/custom_voices")  # Persistent storage for embeddings
+# Shared SSOT voice layout: one folder per speaker (<Name>/<Name>.wav). XTTS
+# reads only the reference WAV and derives a .pth embedding into CUSTOM_VOICES_DIR.
 REFERENCE_AUDIO_DIR = Path("/app/voices")  # Reference WAV files (mounted from host)
 CRASH_DUMP_DIR = Path("/app/crash_dumps")  # Diagnose: JSON-Dump pro Inferenz-Crash
 
@@ -861,7 +863,7 @@ def auto_generate_voice_embeddings():
         logger.info(f"Reference audio directory not found: {REFERENCE_AUDIO_DIR}")
         return
 
-    for wav_file in REFERENCE_AUDIO_DIR.glob("*.wav"):
+    for wav_file in REFERENCE_AUDIO_DIR.glob("*/*.wav"):
         voice_name = wav_file.stem
         embedding_file = CUSTOM_VOICES_DIR / f"{voice_name}.pth"
 

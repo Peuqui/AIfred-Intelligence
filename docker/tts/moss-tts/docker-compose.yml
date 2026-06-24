@@ -60,7 +60,7 @@ services:
       # Cache HuggingFace models persistently
       - moss_models:/root/.cache/huggingface
       # Reference audio files for voice cloning (from project)
-      - ./voices:/app/voices:ro
+      - ../voices:/app/voices:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5055/health"]
       interval: 30s

@@ -40,7 +40,7 @@ services:
     volumes:
       - xtts_models:/root/.local/share/tts
       - xtts_voices:/app/custom_voices
-      - ./voices:/app/voices:ro
+      - ../voices:/app/voices:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5051/health"]
       interval: 30s
