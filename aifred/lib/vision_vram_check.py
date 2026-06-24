@@ -35,6 +35,13 @@ class VRAMCheckResult:
     message: str = ""
 
 
+def _norm_model(name: str) -> str:
+    """Normalise a model name for comparison — Ollama sometimes appends
+    ``:latest`` and casing can vary, so trim that before matching."""
+    n = name.strip().lower()
+    return n[:-7] if n.endswith(":latest") else n
+
+
 def _query_free_vram_per_gpu() -> list[int]:
     """nvidia-smi memory.free pro GPU als MiB-Liste. Leere Liste wenn
     nvidia-smi nicht da oder fehlschlägt."""
@@ -136,6 +143,21 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     # gemessenen Werte hinaus, falls Context höher als üblich).
     headroom_mb = max(needed_mb + 500, 1000)
 
+    # Laufende Modelle einmal holen — für den "schon geladen"-Check UND
+    # später die Blocker-Liste.
+    running = await _query_ollama_running_models(resolve_vlm_host())
+
+    # 1) SCHON GELADEN? Dann braucht es keinen freien VRAM — das Modell
+    # liegt bereits auf seiner GPU. Ohne diese Prüfung meldet der Check
+    # fälschlich "passt nirgendwo" und schlägt sogar vor, genau das
+    # laufende Zielmodell zu entladen (sich selbst), sobald die GPUs von
+    # etwas anderem (z.B. einem großen LLM über alle Karten) voll sind.
+    if any(_norm_model(b["name"]) == _norm_model(target) for b in running):
+        return VRAMCheckResult(
+            fits=True, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
+            message=f"VLM '{target}' ist bereits geladen — kein VRAM-Check nötig.",
+        )
+
     free_per_gpu = _query_free_vram_per_gpu()
     if not free_per_gpu:
         # Ohne nvidia-smi können wir nicht prüfen → optimistisch starten.
@@ -144,34 +166,56 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
             message="nvidia-smi nicht verfügbar — Check übersprungen.",
         )
 
-    # Welche GPU hat genug? Wir nehmen die erste die passt.
+    blocker_str = ", ".join(
+        f"{b['name']} ({b['size_mb']} MiB)" for b in running
+    ) or "—"
+
+    # 2) Nur die DESIGNIERTE VLM-GPU prüfen — nicht irgendeine freie Karte.
+    # pick_vlm_gpu() ist die hardware-agnostische SSOT (dieselbe Auswahl,
+    # die der Prewarm-/Reserve-Pfad nutzt). Auf einer anderen Karte wäre
+    # evtl. Platz, aber dorthin soll das VLM gar nicht — es ist auf diese
+    # GPU festgenagelt.
+    from .vision_gpu_select import pick_vlm_gpu
+    try:
+        target_gpu: int | None = pick_vlm_gpu()
+    except RuntimeError:
+        target_gpu = None
+
+    if target_gpu is not None and 0 <= target_gpu < len(free_per_gpu):
+        free_on_target = free_per_gpu[target_gpu]
+        if free_on_target >= headroom_mb:
+            return VRAMCheckResult(
+                fits=True, needed_mb=needed_mb, free_mb=free_on_target,
+                gpu_index=target_gpu,
+            )
+        return VRAMCheckResult(
+            fits=False, needed_mb=needed_mb, free_mb=free_on_target,
+            gpu_index=target_gpu, blockers=running,
+            message=(
+                f"VLM-Modell '{target}' braucht ~{needed_mb} MiB (+ Reserve), "
+                f"aber nur {free_on_target} MiB frei auf der VLM-GPU "
+                f"{target_gpu}. Bitte mindestens eines entladen: {blocker_str}. "
+                f"VLM_NUM_CTX={VLM_NUM_CTX} ist fix in config.py."
+            ),
+        )
+
+    # Fallback: designierte GPU nicht auflösbar → alte Alle-GPUs-Heuristik.
     fitting = [
         (i, free) for i, free in enumerate(free_per_gpu) if free >= headroom_mb
     ]
     if fitting:
         gpu_index, free_mb = fitting[0]
         return VRAMCheckResult(
-            fits=True, needed_mb=needed_mb, free_mb=free_mb,
-            gpu_index=gpu_index,
+            fits=True, needed_mb=needed_mb, free_mb=free_mb, gpu_index=gpu_index,
         )
-
-    # Passt nirgendwo → die GPU mit dem meisten freien VRAM melden
-    # plus laufende Ollama-Modelle als Blocker-Liste.
     best_gpu = max(range(len(free_per_gpu)), key=lambda i: free_per_gpu[i])
-    best_free = free_per_gpu[best_gpu]
-    blockers = await _query_ollama_running_models(resolve_vlm_host())
-
-    blocker_str = ", ".join(
-        f"{b['name']} ({b['size_mb']} MiB)" for b in blockers
-    ) or "—"
     return VRAMCheckResult(
-        fits=False, needed_mb=needed_mb, free_mb=best_free, gpu_index=best_gpu,
-        blockers=blockers,
+        fits=False, needed_mb=needed_mb, free_mb=free_per_gpu[best_gpu],
+        gpu_index=best_gpu, blockers=running,
         message=(
-            f"VLM-Modell '{target}' braucht ~{needed_mb} MiB "
-            f"(+ Reserve), aber höchster freier VRAM: {best_free} MiB "
-            f"auf GPU {best_gpu}. Bitte mindestens eines der "
-            f"folgenden Modelle entladen: {blocker_str}. "
-            f"VLM_NUM_CTX={VLM_NUM_CTX} ist fix in config.py."
+            f"VLM-Modell '{target}' braucht ~{needed_mb} MiB (+ Reserve), aber "
+            f"höchster freier VRAM: {free_per_gpu[best_gpu]} MiB auf GPU "
+            f"{best_gpu}. Bitte mindestens eines der folgenden Modelle "
+            f"entladen: {blocker_str}. VLM_NUM_CTX={VLM_NUM_CTX} ist fix in config.py."
         ),
     )
