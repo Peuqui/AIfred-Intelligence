@@ -903,14 +903,23 @@ class FreeEchoChannel(BaseChannel):
             create_empty_session(session_id, owner=MESSAGE_HUB_OWNER)
             routing_table.set_route("freeecho2", room, session_id)
 
-        # Heartbeat task — sends heartbeat every 5s while processing
+        # Heartbeat task — sends heartbeat every 5s while processing. The device
+        # counts every silent ws_recv_timeout (200 ms) as a miss and gives up
+        # after heartbeat_misses_max (75) * 200 ms = 15 s without ANY frame. STT
+        # plus a cold model load can exceed that, so this lifeline must tick the
+        # whole time. A send error is logged (not swallowed) so a broken socket
+        # surfaces instead of the device silently timing out.
         heartbeat_running = True
 
         async def _heartbeat():
             while heartbeat_running:
                 try:
                     await ws.send_str(json.dumps({"type": "heartbeat"}))
-                except Exception:
+                except Exception as exc:  # noqa: BLE001
+                    self.channel_log(
+                        f"[FreeEcho.2 {room}] heartbeat send failed: "
+                        f"{type(exc).__name__}: {exc}", "warning",
+                    )
                     break
                 await asyncio.sleep(5)
 
@@ -922,6 +931,7 @@ class FreeEchoChannel(BaseChannel):
         # idle-timer doesn't trigger during long inference / web research.
         acquired_tts_engines: list[str] = []
         tts_keepalive_task: Optional[asyncio.Task] = None
+        heartbeat_task: Optional[asyncio.Task] = None
 
         try:
             # session_scope routes debug() messages to this session's UI.
@@ -938,6 +948,13 @@ class FreeEchoChannel(BaseChannel):
                 debug(f"📨 FreeEcho.2: Audio from {room} ({duration:.1f}s)")
                 debug("🎤 STT running...")
 
+                # Start the heartbeat BEFORE STT so the device's lifeline ticks
+                # from the moment we own the audio — covers a cold Whisper run
+                # AND the cold model load that follows. Send one "processing"
+                # frame first so the device immediately knows the server works.
+                await ws.send_str(json.dumps({"type": "processing"}))
+                heartbeat_task = asyncio.create_task(_heartbeat())
+
                 # Run STT
                 text = await self._run_stt(wav_path)
                 if not text:
@@ -947,7 +964,6 @@ class FreeEchoChannel(BaseChannel):
                     return  # hub scope writes "done" on exit → toast closes after 5 s
 
                 self.channel_log(f"[FreeEcho.2 {room}] STT ({_fe2_time.monotonic()-_fe2_t0:.1f}s): {text}")
-                debug(f"🎤 STT: \"{text}\" ({_fe2_time.monotonic()-_fe2_t0:.1f}s)")
 
                 # Flush user question to session immediately so browser shows it
                 # BEFORE TTS setup (which can take 25s+) and LLM inference.
@@ -959,10 +975,6 @@ class FreeEchoChannel(BaseChannel):
                     metadata={"room": room},
                 )
                 save_user_to_session(session_id, _early_msg)
-
-                # Start heartbeat BEFORE TTS check — TTS loading can take 30s+
-                await ws.send_str(json.dumps({"type": "processing"}))
-                heartbeat_task = asyncio.create_task(_heartbeat())
 
                 # Ensure TTS state (MOSS/XTTS loading, VRAM management).
                 # Messages go to UI via debug() (session context propagated to executor).
@@ -1020,10 +1032,6 @@ class FreeEchoChannel(BaseChannel):
             # User question already flushed to session above (early browser update)
             await process_inbound(inbound, user_saved=True)
 
-            # Stop heartbeat
-            heartbeat_running = False
-            heartbeat_task.cancel()
-
             total_time = _fe2_time.monotonic() - _fe2_t0
             self.channel_log(f"[FreeEcho.2 {room}] ← Pipeline complete ({total_time:.1f}s)")
 
@@ -1032,12 +1040,17 @@ class FreeEchoChannel(BaseChannel):
 
         except Exception as e:
             self.channel_log(f"[FreeEcho.2 {room}] Pipeline error: {e}", "error")
-            heartbeat_running = False
             try:
                 await self.send_done(room, reason="error")
             except Exception:
                 pass
         finally:
+            # Stop the heartbeat — single source of truth for ALL exit paths
+            # (empty-STT early return, clean finish, exception). Setting the
+            # flag stops the loop; cancel() ends the pending asyncio.sleep(5).
+            heartbeat_running = False
+            if heartbeat_task is not None and not heartbeat_task.done():
+                heartbeat_task.cancel()
             # Stop the TTS keep-alive task before releasing engine refcount.
             if tts_keepalive_task is not None and not tts_keepalive_task.done():
                 tts_keepalive_task.cancel()
@@ -1055,9 +1068,8 @@ class FreeEchoChannel(BaseChannel):
 
         loop = asyncio.get_event_loop()
         text, stt_time = await loop.run_in_executor(
-            None, transcribe_audio, wav_path, "de", "cpu",
+            None, transcribe_audio, wav_path, "de", "cpu", False,
         )
-        self.channel_log(f"STT: '{text[:80]}' ({stt_time:.1f}s)")
         return text or ""
 
     # ── Reply ─────────────────────────────────────────────────
