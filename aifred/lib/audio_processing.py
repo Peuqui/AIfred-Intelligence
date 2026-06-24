@@ -1321,6 +1321,16 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
         log_message(f"❌ TTS Error: unknown engine {tts_engine!r}")
         return None
 
+    # SSOT: name the engine that actually synthesises — on EVERY call, for
+    # every caller (browser, FreeEcho.2, proactive pushes). Goes to debug.log
+    # + the UI console and (in a session_scope) the live session console, so
+    # one can verify which engine really ran, not just trust the dropdown.
+    from .debug_bus import debug
+    debug(
+        f"🔊 TTS: engine={tts_engine}, voice={voice_choice}, agent={agent}, "
+        f"lang={language}, speed={speed_choice}, pitch={pitch}"
+    )
+
     try:
         audio_url = await eng.generate_speech_async(
             text, voice_choice, language, speed_choice, pitch,
