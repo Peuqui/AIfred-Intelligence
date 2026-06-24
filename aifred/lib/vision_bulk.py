@@ -21,10 +21,11 @@ and cancellation via the two optional callbacks.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable, Coroutine
 
 from .logging_utils import log_message
 
@@ -62,6 +63,37 @@ class BulkDescribeResult:
 # without a lock: asyncio doesn't preempt between the check and the set (no
 # await in between), and the flag is always cleared in a finally.
 _bulk_running = False
+
+# Sentinel returned by _await_or_cancel when the cancel flag fired mid-call.
+_CANCELLED = object()
+
+
+async def _await_or_cancel(
+    coro: Coroutine[Any, Any, str], cancel_cb: CancelCb | None
+) -> Any:
+    """Await ``coro`` but poll ``cancel_cb`` once per second; if it fires,
+    abort the in-flight call and return the ``_CANCELLED`` sentinel.
+
+    Without this the worker can only honour cancellation *between* clusters
+    (the for-loop's pre-check). A single VLM call stuck in CPU offload would
+    then block the whole run — and the cancel button — until it finishes.
+    Cancelling the task closes the HTTP connection, which tells Ollama to
+    stop generating.
+    """
+    task = asyncio.ensure_future(coro)
+    if cancel_cb is None:
+        return await task
+    while True:
+        done, _ = await asyncio.wait({task}, timeout=1.0)
+        if task in done:
+            return task.result()
+        if await cancel_cb():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            return _CANCELLED
 
 
 async def run_bulk_describe(
@@ -177,7 +209,15 @@ async def _bulk_describe_impl(
             # Analyse the whole happening as a time-ordered keyframe
             # sequence (door opens, people arrive) instead of a single
             # static frame; persisted on the representative (member_ids[0]).
-            text = await analyze_cluster_with_vlm(member_ids, store=store)  # type: ignore[arg-type]
+            # Wrapped so a cancel mid-call aborts the VLM request instead of
+            # waiting for it to finish (CPU-offload calls run for minutes).
+            text = await _await_or_cancel(
+                analyze_cluster_with_vlm(member_ids, store=store),  # type: ignore[arg-type]
+                cancel_cb,
+            )
+            if text is _CANCELLED:
+                cancelled = True
+                break
             # Real cluster (more than the representative): fan the
             # description out to all members. Solo-clusters stay single.
             if cluster_id and not cluster_id.startswith("solo-"):

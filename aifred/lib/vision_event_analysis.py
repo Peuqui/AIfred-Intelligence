@@ -64,7 +64,7 @@ async def analyze_event_with_vlm(
 
     # VLM-Call via Ollama
     from ollama import AsyncClient
-    from .config import VLM_NUM_CTX, resolve_vlm_host
+    from .config import VLM_CALL_TIMEOUT_S, VLM_NUM_CTX, resolve_vlm_host
     from .vision_prewarm import get_active_vlm_model
     import base64
     target_model = model or get_active_vlm_model()
@@ -77,7 +77,7 @@ async def analyze_event_with_vlm(
     image_b64 = base64.b64encode(
         downscale_for_vlm(image_bytes, VISION_VLM_MAX_PIXELS)
     ).decode("ascii")
-    client = AsyncClient(host=resolve_vlm_host())
+    client = AsyncClient(host=resolve_vlm_host(), timeout=VLM_CALL_TIMEOUT_S)
     response = await client.generate(
         model=str(target_model),
         prompt=target_prompt,

@@ -248,10 +248,13 @@ class CasusMixin(rx.State, mixin=True):
                 return self.casus_bulk_cancel
 
         try:
-            # check_vram=False: Ollama verwaltet den Side-Channel-VLM-VRAM
-            # selbst; ein Vorab-Check könnte fälschlich abbrechen.
+            # check_vram=True: refuse to start when the VLM fits on no GPU.
+            # Without free VRAM next to a large resident LLM Ollama silently
+            # falls back to CPU offload — each call then runs for minutes and
+            # the whole bulk run grinds (observed with the 397B loaded). The
+            # pre-check turns that into an upfront message instead.
             result = await run_bulk_describe(
-                progress_cb=_progress, cancel_cb=_cancel, check_vram=False,
+                progress_cb=_progress, cancel_cb=_cancel, check_vram=True,
             )
             async with self:
                 if result.skipped:
