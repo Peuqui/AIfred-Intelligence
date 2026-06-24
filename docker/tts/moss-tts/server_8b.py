@@ -63,6 +63,7 @@ REPETITION_PENALTY = float(os.environ.get("MOSS_REPETITION_PENALTY", "1.0"))
 TORCH_COMPILE = os.environ.get("MOSS_TORCH_COMPILE", "").lower() in ("1", "true", "yes")
 
 # Paths
+# Shared SSOT voice layout: one folder per speaker (<Name>/<Name>.wav).
 VOICES_DIR = Path("/app/voices")
 FP32_CACHE_DIR = Path("/root/.cache/huggingface/moss-tts-8b-fp32")
 
@@ -407,9 +408,9 @@ def generate_tts(text: str, speaker: str | None = None,
 
     # Build conversation with optional voice reference
     if speaker:
-        ref_audio = str(VOICES_DIR / f"{speaker}.wav")
+        ref_audio = str(VOICES_DIR / speaker / f"{speaker}.wav")
         if not Path(ref_audio).exists():
-            raise ValueError(f"Voice file not found: {speaker}.wav")
+            raise ValueError(f"Voice file not found: {speaker}/{speaker}.wav")
         conversation = [_processor.build_user_message(text=text, reference=[ref_audio])]
     else:
         conversation = [_processor.build_user_message(text=text)]
@@ -553,7 +554,7 @@ def index():
 @app.route("/health", methods=["GET"])
 def health():
     """Health check endpoint."""
-    voices = [f.stem for f in VOICES_DIR.glob("*.wav")] if VOICES_DIR.exists() else []
+    voices = [f.stem for f in VOICES_DIR.glob("*/*.wav")] if VOICES_DIR.exists() else []
     return jsonify({
         "status": "ok",
         "model": MODEL_NAME,
@@ -660,7 +661,7 @@ def tts():
 @app.route("/voices", methods=["GET"])
 def list_voices():
     """List available voice files."""
-    voices = sorted([f.stem for f in VOICES_DIR.glob("*.wav")]) if VOICES_DIR.exists() else []
+    voices = sorted([f.stem for f in VOICES_DIR.glob("*/*.wav")]) if VOICES_DIR.exists() else []
     return jsonify({
         "voices": voices,
         "default": voices[0] if voices else None,

@@ -49,7 +49,7 @@ services:
       # Separate cache for 8B model (~17GB download)
       - moss_models_8b:/root/.cache/huggingface
       # Reference audio files for voice cloning
-      - ./voices:/app/voices:ro
+      - ../voices:/app/voices:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5055/health"]
       interval: 30s
