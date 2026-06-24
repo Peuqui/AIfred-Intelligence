@@ -783,6 +783,14 @@ VISION_VLM_MAX_PIXELS = 800_000
 # max_pixels fährt, schraubt hier hoch (SSOT). Bei Änderung VLM neu kalibrieren.
 VLM_NUM_CTX = 9216
 
+# Hard wall-clock ceiling for a single Ollama VLM call (seconds). A VLM
+# request that lands on a GPU finishes in seconds; one that gets evicted
+# to CPU offload (no free VRAM next to a large resident LLM) runs for many
+# minutes with no upper bound — the ollama AsyncClient has no default
+# timeout, so the call would hang forever and the bulk worker with it.
+# This bound turns that hang into a clean error the caller can handle.
+VLM_CALL_TIMEOUT_S = 300
+
 # ============================================================
 # DEBUG LOG PERSISTENCE
 # ============================================================

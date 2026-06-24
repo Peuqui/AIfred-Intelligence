@@ -250,7 +250,8 @@ async def _analyze_via_ollama(
     else:
         from .config import resolve_vlm_host
         effective_host = resolve_vlm_host()
-    client = AsyncClient(host=effective_host)
+    from .config import VLM_CALL_TIMEOUT_S
+    client = AsyncClient(host=effective_host, timeout=VLM_CALL_TIMEOUT_S)
 
     started = time.perf_counter()
     try:
