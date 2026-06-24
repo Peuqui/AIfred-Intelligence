@@ -248,7 +248,16 @@ class AIState(  # type: ignore[misc]
             current_mtime = os.path.getmtime(SETTINGS_FILE)
             if current_mtime > self._last_settings_mtime:
                 self._reload_settings_from_file()
-                self._last_settings_mtime = current_mtime
+                # Re-read mtime AFTER the reload: the reload can rewrite
+                # settings.json itself (stale-voice cleanup persists to file),
+                # bumping the mtime above a pre-reload value. Tracking the
+                # pre-reload mtime would then re-trigger the reload on every
+                # poll — an endless loop flooding the console. Reading it post-
+                # reload absorbs our own write.
+                try:
+                    self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)
+                except OSError:
+                    self._last_settings_mtime = current_mtime
                 self.add_debug("⚙️ Settings reloaded")
                 yield
                 return
