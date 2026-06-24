@@ -22,16 +22,12 @@ def _network_error_types() -> tuple:
     return types
 
 
-# Display name → voice id. Cloned voices use the qwen-tts-vc-* IDs that
-# the VC model wants; built-in voices share name and id. The ★ prefix
-# marks cloned voices in the UI; the dispatcher strips it before
-# voice resolution.
-_VOICES_BATCH: dict[str, str] = {
-    # Custom cloned voices (enrolled via DashScope Voice Enrollment API)
-    "★ AIfred":   "qwen-tts-vc-aifred-voice-20260215200351981-1e03",
-    "★ Sokrates": "qwen-tts-vc-sokrates-voice-20260215200356508-96af",
-    "★ Salomo":   "qwen-tts-vc-salomo-voice-20260215200400827-48f6",
-    # Built-in voices (multilingual, all support German)
+# Display name → voice id for DashScope's BUILT-IN voices (name == id, no
+# enrollment needed). The CLONED voices are NOT hardcoded here anymore —
+# they come live from the enrollment mapping (data/tts/dashscope_voices.json,
+# see dashscope_enroll.py), so a freshly enrolled WAV shows up automatically
+# with a ★-prefixed display name and its real qwen-tts-vc-* id.
+_BUILTIN_VOICES: dict[str, str] = {
     "Cherry":    "Cherry",
     "Serena":    "Serena",
     "Ethan":     "Ethan",
@@ -55,6 +51,21 @@ _VOICES_BATCH: dict[str, str] = {
     "Andre":     "Andre",
     "Lenn":      "Lenn",
 }
+
+
+def _cloned_voices() -> dict[str, str]:
+    """Enrolled cloned voices from the mapping: '★ Name' → qwen-tts-vc-* id.
+    Read live (cheap JSON read) so a freshly enrolled WAV shows up without a
+    restart. Never raises — a broken/missing mapping just means no clones."""
+    try:
+        from ..dashscope_enroll import load_mapping
+        return {
+            f"★ {name}": entry["voice_id"]
+            for name, entry in load_mapping().items()
+            if entry.get("voice_id")
+        }
+    except Exception:  # noqa: BLE001 — voice list must never break the engine
+        return {}
 
 
 class DashScopeEngine(TTSEngine):
@@ -93,7 +104,8 @@ class DashScopeEngine(TTSEngine):
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        return dict(_VOICES_BATCH)
+        # Live: enrolled cloned voices (★ …) on top of DashScope's built-ins.
+        return {**_cloned_voices(), **_BUILTIN_VOICES}
 
     def get_voices(self) -> dict[str, str]:
         # DashScope has a fixed catalogue; no live discovery endpoint.
@@ -138,7 +150,8 @@ class DashScopeEngine(TTSEngine):
 
             # Voice resolution: display name → voice id. The ★ prefix is
             # stripped centrally before we get here, so check both forms.
-            voice_id = _VOICES_BATCH.get(voice) or _VOICES_BATCH.get(f"★ {voice}", voice)
+            _all = {**_cloned_voices(), **_BUILTIN_VOICES}
+            voice_id = _all.get(voice) or _all.get(f"★ {voice}", voice)
 
             # VC model for cloned voices, flash model for built-in ones.
             is_cloned = voice_id.startswith("qwen-tts-vc-")
