@@ -1432,6 +1432,9 @@ def _refine_split_from_measurement(
     if not verify_r.measured_free_mb:
         return None, "no measurement"
 
+    if vram_model is None:
+        return None, "no vram model"
+
     active = [i for i, r in enumerate(current_split) if r > 0]
     if len(active) < 2:
         return None, "only one active GPU"
@@ -1513,6 +1516,11 @@ def _math_predicts_fit(
     (predicted_free − measured_free) from a previous failed probe so the
     next math search picks a more conservative ctx.
     """
+    if candidate.vram_model is None:
+        # No VRAM model available (e.g. VLM-only candidate derived from
+        # base_split without a fresh fit-params run).  Math prediction is
+        # impossible — optimistically assume fit; the real probe decides.
+        return (True, budget.safety_margin)
     from .optimizer import _per_gpu_coefficients, _predicted_free
     base, slope = _per_gpu_coefficients(
         candidate.vram_model, model.total_layers, model.size_mb,
@@ -1682,7 +1690,7 @@ def _shrink_to_fit(
             if short > overshoot_mb:
                 overshoot_mb = short
                 bottleneck_idx = i
-        if overshoot_mb > 0 and bottleneck_idx >= 0:
+        if overshoot_mb > 0 and bottleneck_idx >= 0 and candidate.vram_model is not None:
             # Divide by the bottleneck GPU's slope, not the sum of all
             # slopes — the previous formula underestimated tokens_to_shed
             # by ~n_gpus×, so the next probe OOMed for the same reason.
@@ -2291,6 +2299,93 @@ async def calibrate_tts_variant_from_base(
         ):
             yield line
         return
+
+    # ── VLM variant: proportional derivation from base_split ─────────────
+    # _project_cell fails when an artificial VLM reserve reduces the VLM
+    # GPU's budget below the next integer-layer boundary.  The conservative
+    # optimizer (safety_margin + first_gpu_handicap) then assigns one fewer
+    # layer than the model can actually hold, leaving 2-4 layers unplaced
+    # at every context.  The binary search converges on an overshoot result
+    # with context=0 and reports "no split leaves room for even the minimum
+    # context" even though the model fits in practice.
+    #
+    # Fix: derive the tensor-split proportionally from the proven
+    # base_split.  The VLM GPU's layer share shrinks proportionally to its
+    # effective free VRAM vs. its physical total; the lost layers are
+    # redistributed to the remaining GPUs proportional to their free VRAM.
+    # This produces non-integer split values (e.g. 8.38 on V100) that
+    # llama.cpp handles natively via its ratio-based tensor_split — exactly
+    # what the manual working config does.
+    #
+    # Using total_mb (physical capacity) as the base reference makes this
+    # setup-agnostic: it correctly handles both VLM-only variants (where
+    # only the VLM reserve reduces the budget) and TTS×VLM variants (where
+    # TTS is running and has already reduced gpus[].free_mb, so
+    # free + vlm_reserve would undercount the base).
+    if vlm_gpu_uuid and vlm_gpu_extra_reserve_mb > 0:
+        _vlm_idx = next(
+            (i for i, g in enumerate(gpus) if g.uuid == vlm_gpu_uuid), -1
+        )
+        if (
+            _vlm_idx >= 0
+            and float(base_split[_vlm_idx]) > 0
+        ):
+            _base_ref = float(gpus[_vlm_idx].total_mb)
+            _ratio = gpus[_vlm_idx].free_mb / _base_ref
+            _new_vlm = float(base_split[_vlm_idx]) * _ratio
+            _lost = float(base_split[_vlm_idx]) - _new_vlm
+            _adj: list[float] = [float(x) for x in base_split]
+            _adj[_vlm_idx] = _new_vlm
+            _others = [(i, gpus[i].free_mb) for i in active if i != _vlm_idx]
+            _other_free_total = sum(f for _, f in _others)
+            if _other_free_total > 0:
+                for _gi, _gf in _others:
+                    _adj[_gi] += _lost * _gf / _other_free_total
+                _total_split = sum(_adj)
+                _pred_free = tuple(
+                    int(gpus[i].free_mb - (_adj[i] / _total_split) * model.size_mb)
+                    for i in range(len(gpus))
+                )
+                _vlm_cand = Candidate(
+                    mode="gpu",
+                    n_gpus=len(active),
+                    kv_quant=base_kv,
+                    ngl=99,
+                    tensor_split=tuple(_adj),
+                    max_context=base_ctx,
+                    predicted_free_mb=_pred_free,
+                    vram_model=None,
+                )
+                _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
+                yield (
+                    f"{_side} variant from base: active GPUs {active}, "
+                    f"target ctx {format_number(base_ctx)}, KV={base_kv}, "
+                    f"VLM ratio {_ratio:.3f} → GPU{_vlm_idx}: "
+                    f"{float(base_split[_vlm_idx]):.1f}→{_new_vlm:.1f} layers"
+                )
+                yield _format_candidate_line(_vlm_cand, gpus)
+                _vlm_result: Result | None = None
+                async for _item in _verify_and_refine(
+                    _vlm_cand, model, gpus, budget, full_cmd, port, env,
+                    probe_thinking=(known_thinking is None),
+                    status_prefix=f"[vlm/{base_kv}]",
+                    ctx_ceiling=base_ctx,
+                ):
+                    if isinstance(_item, _Done):
+                        _vlm_result = _item.result
+                    else:
+                        yield _item
+                if _vlm_result is None:
+                    yield f"{_side} variant: derived config does not fit"
+                    yield "__RESULT__:0:0:error"
+                    return
+                _thinks = (
+                    known_thinking
+                    if known_thinking is not None
+                    else _vlm_result.thinks
+                )
+                yield _result_sentinel(_vlm_result, bool(_thinks))
+                return
 
     if tts_position >= 0:
         yield (
