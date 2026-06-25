@@ -955,8 +955,14 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 await unload_vlm_model(model)
                 self.vlm_model_loaded = False
             else:
-                ok = await prewarm_vlm()
-                self.vlm_model_loaded = bool(ok)
+                # Explizites Laden über den Power-Button MUSS tatsächlich
+                # laden — auch im on-demand-Modus, wo prewarm_vlm() sonst ein
+                # No-op ist und irreführend True zurückgibt (stiller Fallback).
+                # keep_alive_override umgeht diesen Kurzschluss; danach fragen
+                # wir den ECHTEN Ollama-Zustand ab, statt dem Return zu trauen.
+                keep_alive = str(_load_settings().get("vlm", {}).get("keep_alive", "30m"))
+                await prewarm_vlm(keep_alive_override=keep_alive)
+                self.vlm_model_loaded = await is_vlm_loaded(model)
         except Exception as e:  # noqa: BLE001
             logger.warning("vlm toggle failed: %s", e)
         finally:
