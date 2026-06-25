@@ -463,8 +463,12 @@ SESSION_TITLE_NUM_PREDICT = 2000
 
 # Hard timeout fuer den Session-Title-Call. Muss zur SESSION_TITLE_NUM_PREDICT
 # passen: bei 30 tok/s und 2000 Tokens braucht das ~70 s, bei 100 tok/s nur 20 s.
-# 120 s ist grosszuegig dimensioniert fuer langsame Thinking-Modelle.
-SESSION_TITLE_TIMEOUT_SECONDS = 120.0
+# Obergrenze fuer die Titel-Generierung. Sehr grosse MoE-Modelle (z.B. das
+# 397B mit ~127 s TTFT allein) brauchen deutlich laenger, bis der Titel-Call
+# durchlaeuft — 120 s reichten da nicht. 300 s gibt auch den langsamsten
+# Modellen Raum. Nur eine Notbremse: ist der Titel frueher fertig, schliesst
+# der "processing"-Toast frueher.
+SESSION_TITLE_TIMEOUT_SECONDS = 300.0
 
 # Heartbeat-Intervall (s) fuer lang laufende Tool-Calls: solange ein Tool
 # awaited wird (z. B. VLM-Analyse > 60 s), sendet die Pipeline alle N s einen
