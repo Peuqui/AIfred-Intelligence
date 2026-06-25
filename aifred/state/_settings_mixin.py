@@ -886,10 +886,10 @@ class SettingsMixin(rx.State, mixin=True):
                         tool_saver(plugin_settings)
                     except Exception as exc:
                         self.add_debug(  # type: ignore[attr-defined]
-                            f"⚠️ {display}: Settings konnten nicht geschrieben werden: {exc}"
+                            f"⚠️ {display}: failed to write settings: {exc}"
                         )
 
-        self.add_debug(f"🔧 {display} Einstellungen gespeichert")  # type: ignore[attr-defined, has-type]
+        self.add_debug(f"🔧 {display} settings saved")  # type: ignore[attr-defined, has-type]
 
         # Prepare values for apply_credentials (all fields, regardless of storage)
         saved_values = {}
