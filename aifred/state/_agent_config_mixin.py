@@ -2733,9 +2733,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         except Exception as e:
             self.add_debug(f"❌ Delete failed: {e}")  # type: ignore[attr-defined]
 
-        # Refresh the view
-        self.browse_memory_agent(self.memory_browser_agent)
+        # Refresh collections first so browse_memory_agent reads the updated
+        # count — otherwise the display value mismatches the options list.
         self._load_memory_collections()
+        self.browse_memory_agent(self.memory_browser_agent)
 
     # ─────────────────────────────────────────────────────────
     # Agent Bundle Export
