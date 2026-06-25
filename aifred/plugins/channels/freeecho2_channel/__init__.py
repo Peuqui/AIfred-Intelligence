@@ -1104,6 +1104,21 @@ class FreeEchoChannel(BaseChannel):
         # now switch: unload LLM → load TTS engine → restart LLM with TTS profile.
         # Must happen BEFORE _run_tts() which needs the TTS engine running.
         if original and original.metadata.get("tts_deferred"):
+            # Vorab-Check: passt das gewünschte GPU-TTS überhaupt zum aktiven
+            # LLM? Bei einem GPU-füllenden Modell (z.B. dem 397B) steht die
+            # TTS-Kombo im vram-cache auf FAIL — ein Switch würde das LLM
+            # verdrängen, das Base-Profil neu laden und das TTS TROTZDEM ohne
+            # VRAM lassen ("produced no audio"). Statt 20s blind zu thrashen:
+            # erkennen, klar melden, Ansage überspringen.
+            if not self._gpu_tts_combo_fits():
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] GPU-TTS '{self._get_wanted_tts()}' has "
+                    f"no calibrated variant for the active model — skipping voice "
+                    f"output (a switch would evict the LLM and still fail for lack "
+                    f"of VRAM). Use a cloud TTS (DashScope) with large models.",
+                    "error",
+                )
+                return
             self.channel_log(f"[FreeEcho.2 {room}] Deferred TTS switch starting")
             await self._force_tts_switch()
 
@@ -1566,6 +1581,34 @@ class FreeEchoChannel(BaseChannel):
         """Get the current LLM backend type."""
         from ....state._base import _global_backend_state
         return _global_backend_state.get("backend_type") or "llamacpp"
+
+    def _gpu_tts_combo_fits(self) -> bool:
+        """True if the wanted GPU-TTS engine actually fits alongside the active
+        LLM — i.e. the model has a calibrated TTS variant in the vram cache.
+
+        Lightweight/cloud engines (Edge/Piper/DashScope) need no GPU, so they
+        always fit. Returns True optimistically when the model id is unknown
+        (don't block on missing info).
+
+        Guards the deferred TTS switch: for a GPU-filling model (e.g. the 397B)
+        the TTS combo is FAIL in the cache; switching anyway would evict the
+        LLM, reload its base profile and still leave the TTS without VRAM
+        ("produced no audio"). Better to detect + skip than to thrash for 20s.
+        """
+        from ....lib.tts_engine_manager import GPU_ENGINES
+        wanted = self._get_wanted_tts()
+        if wanted not in GPU_ENGINES:
+            return True
+        from ....lib.settings import load_settings
+        from ....lib.model_vram_cache import is_tts_variant_calibrated
+        settings = load_settings() or {}
+        backend = self._get_backend_type()
+        model_id = str(
+            settings.get("backend_models", {}).get(backend, {}).get("aifred_model", "")
+        )
+        if not model_id:
+            return True
+        return is_tts_variant_calibrated(model_id, wanted)
 
     async def _ensure_tts_state(self) -> bool:
         """Ensure TTS state before LLM inference (SSOT: ensure_tts_state).
