@@ -107,6 +107,12 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
             results = db.get_todolists()
         elif entity == "notetree":
             results = db.get_notetrees()
+        else:
+            # e.g. "note_tab" resolves via ENTITY_ALIASES but has no search path
+            # — return an explicit error instead of a confusing {results: null}.
+            return json.dumps({
+                "error": f"entity_type {entity_type!r} is not searchable. Use: {VALID_ENTITY_TYPES}"
+            })
 
         serialized = _serialize(results)
         count = len(serialized) if isinstance(serialized, list) else 1

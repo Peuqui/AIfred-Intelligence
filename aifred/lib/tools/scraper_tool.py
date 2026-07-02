@@ -72,18 +72,46 @@ class WebScraperTool(BaseTool):
         """
         kwargs.setdefault("timeout", 15)
         kwargs["allow_redirects"] = False
+        kwargs["stream"] = True  # don't buffer the body until we've capped it
         current = url
         for _ in range(self.SAFE_MAX_REDIRECTS + 1):
             validate_external_url(current)
             resp = requests.request(method, current, **kwargs)
             if resp.is_redirect or resp.is_permanent_redirect:
                 location = resp.headers.get("Location")
+                resp.close()
                 if not location:
                     return resp
                 current = requests.compat.urljoin(current, location)  # type: ignore[attr-defined]
                 continue
+            self._read_capped(resp)
             return resp
         raise UnsafeURLError(f"Too many redirects for {url!r}")
+
+    @staticmethod
+    def _read_capped(resp: requests.Response) -> None:
+        """Buffer the response body but abort past SCRAPER_MAX_RESPONSE_BYTES.
+
+        Populates ``resp._content`` so downstream ``.text``/``.content`` work
+        without re-reading. Raises :class:`UnsafeURLError` if the body (streamed
+        within the timeout) exceeds the cap — guards against OOM from a huge or
+        endless body (no reliable Content-Length required).
+        """
+        from ..config import SCRAPER_MAX_RESPONSE_BYTES
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_content(64 * 1024):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > SCRAPER_MAX_RESPONSE_BYTES:
+                resp.close()
+                raise UnsafeURLError(
+                    f"Response body exceeds {SCRAPER_MAX_RESPONSE_BYTES} bytes"
+                )
+            chunks.append(chunk)
+        resp._content = b"".join(chunks)
+        resp._content_consumed = True  # type: ignore[attr-defined]
 
     def execute(self, query: str, **kwargs) -> Dict:
         """

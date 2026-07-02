@@ -1294,7 +1294,11 @@ WORKSPACE_READ_MAX_BYTES = 25 * 1024 * 1024  # read_file tool: reject files larg
 # ChromaDB vector store endpoint (workspace ChromaDB tools + vector_cache default).
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8000"))
-EMBEDDING_USE_GPU = True            # True = GPU (~900MB VRAM, ~10× faster — needed for large docs), False = CPU
+# Web scraper: hard cap on a single fetched response body. Without it a
+# malicious/compromised URL could stream gigabytes within the timeout window
+# and OOM the worker (the body is buffered fully for trafilatura/PyMuPDF).
+SCRAPER_MAX_RESPONSE_BYTES = 25 * 1024 * 1024
+EMBEDDING_USE_GPU = True           # True = GPU (~900MB VRAM, ~10× faster — needed for large docs), False = CPU
 DOCUMENT_SEARCH_MAX_RESULTS = 100   # Hard cap for the search_documents tool's n_results parameter
 DOCUMENT_SEARCH_NEIGHBOR_WINDOW = 1 # ±N neighbor chunks returned per hit. Compensates for
                                      # mid-sentence chunk cuts: a hit at chunk K also returns

@@ -178,8 +178,14 @@ def lookup(ref: JudaicaReference) -> dict:
     elif ref.entry_to is None:
         wanted = [ref.entry_from]
     else:
-        wanted = [str(n) for n in range(int(ref.entry_from),
-                                        int(ref.entry_to) + 1)]
+        # Iterate the section's ACTUAL entries within the span — never
+        # range(from, to+1): an unbounded entry_to from the parser would
+        # materialize a giant list and OOM the worker.
+        lo, hi = int(ref.entry_from), int(ref.entry_to)
+        wanted = sorted(
+            (n for n in section if str(n).isdigit() and lo <= int(n) <= hi),
+            key=int,
+        )
 
     entries = [{"nr": n, "text": section[n]} for n in wanted if n in section]
     if not entries:
