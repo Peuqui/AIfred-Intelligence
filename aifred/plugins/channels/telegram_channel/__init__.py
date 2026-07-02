@@ -213,7 +213,7 @@ class TelegramChannel(BaseChannel):
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
         """Provide telegram_send tool for LLM function calling."""
         from ....lib.function_calling import Tool
-        from ....lib.security import TIER_COMMUNICATE
+        from ....lib.security import TIER_COMMUNICATE, sanitize_outbound
         import json
 
         async def _execute_telegram_send(message: str, chat_id: str = "") -> str:
@@ -226,15 +226,35 @@ class TelegramChannel(BaseChannel):
             if not chat_id:
                 return json.dumps({"error": "No chat_id provided"})
 
+            try:
+                target = int(chat_id)
+            except (TypeError, ValueError):
+                return json.dumps({"error": f"Invalid chat_id: {chat_id!r}"})
+
+            # Recipient allowlist gate: only the browser (user present) may send
+            # to a chat that is not on the allowlist. From an external channel an
+            # injected prompt could otherwise exfiltrate the conversation to an
+            # attacker's chat_id.
+            if ctx.source != "browser" and not _is_user_allowed(target):
+                return json.dumps({
+                    "error": (
+                        "refused: target chat is not on the allowlist "
+                        "(external-channel exfiltration guard). Do this from the web UI."
+                    )
+                })
+
             bot = Bot(token)
-            chunks = _split_message(message, _MAX_MESSAGE_LENGTH)
+            # Same rendering as the reply path (SSOT): strip Markdown and send
+            # plain text WITHOUT parse_mode. Telegram's legacy Markdown parser
+            # rejects unbalanced markers with HTTP 400, and a chunk split can
+            # cut an entity mid-token — both make the send fail on normal output.
+            # sanitize_outbound first: redact secrets / block image-exfil URLs on
+            # the tool path (the reply path already runs it, this one did not).
+            text = self.format_outbound(sanitize_outbound(message))["text"]
+            chunks = _split_message(text, _MAX_MESSAGE_LENGTH)
             async with bot:
                 for chunk in chunks:
-                    await bot.send_message(
-                        chat_id=int(chat_id),
-                        text=chunk,
-                        parse_mode="Markdown",
-                    )
+                    await bot.send_message(chat_id=target, text=chunk)
 
             log_message(f"Telegram Plugin: message sent to chat {chat_id}")
             return json.dumps({"success": True, "chat_id": chat_id})

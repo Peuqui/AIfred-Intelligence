@@ -272,7 +272,15 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         elif entity == "note_tab":
             ok = db.update_note_tab(entity_id, name=data.get("name"), text=data.get("text"))
         elif entity == "todo":
-            ok = db.update_todo(entity_id, **data)
+            # Same LLM→column mapping as task, otherwise 'start'/'end' etc. are
+            # silently dropped (the DB allowlist only knows STARTTIME/ENDTIME).
+            todo_field_map = {
+                "start": "STARTTIME", "end": "ENDTIME",
+                "title": "TITLE", "text": "TEXT",
+                "priority": "PRIORITY", "tags": "TAGS",
+            }
+            mapped = {todo_field_map.get(k, k): v for k, v in data.items()}
+            ok = db.update_todo(entity_id, **mapped)
         else:  # password
             ok = db.update_password(
                 entity_id,

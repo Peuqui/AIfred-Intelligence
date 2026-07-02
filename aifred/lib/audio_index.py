@@ -617,7 +617,7 @@ async def sync_audio_index_task() -> None:
                 path = src.get("path", "")
                 if not path:
                     continue
-                loop = _asyncio.get_event_loop()
+                loop = _asyncio.get_running_loop()
                 result = await loop.run_in_executor(
                     None, audio_index.scan_source, label, path
                 )

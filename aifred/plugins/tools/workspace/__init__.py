@@ -12,7 +12,8 @@ from typing import Any, Optional
 
 from ....lib.config import (
     DATA_DIR, DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
-    DOCUMENT_SEARCH_DISTANCE_STRONG,
+    DOCUMENT_SEARCH_DISTANCE_STRONG, WORKSPACE_READ_MAX_BYTES,
+    CHROMA_HOST, CHROMA_PORT,
 )
 from ....lib import file_manager as fm
 from ....lib.function_calling import Tool
@@ -100,6 +101,19 @@ class WorkspacePlugin:
             if not file_path or not file_path.exists():
                 return json.dumps({"error": f"File not found: {filename}"})
 
+            # Cap on file size: the whole file is loaded into RAM below, so a
+            # very large file would blow the worker's memory. Point the model at
+            # page/line ranges instead of failing opaquely.
+            file_size = file_path.stat().st_size
+            if file_size > WORKSPACE_READ_MAX_BYTES:
+                return json.dumps({
+                    "error": (
+                        f"File too large ({round(file_size / 1024 / 1024, 1)} MB, "
+                        f"limit {WORKSPACE_READ_MAX_BYTES // 1024 // 1024} MB). "
+                        "Use 'pages' (PDF) or 'line_start'/'line_end' (text) to read a range."
+                    )
+                })
+
             log_message(f"📄 read_file: {file_path.name}")
 
             try:
@@ -115,7 +129,12 @@ class WorkspacePlugin:
                             part = part.strip()
                             if "-" in part:
                                 start, end = part.split("-", 1)
-                                selected.extend(range(int(start) - 1, int(end)))
+                                # Clamp to the actual page count BEFORE building the
+                                # range — otherwise "1-2000000000" materializes a
+                                # two-billion-element list and OOMs the worker.
+                                start_i = max(1, int(start))
+                                end_i = min(int(end), total_pages)
+                                selected.extend(range(start_i - 1, end_i))
                             else:
                                 selected.append(int(part) - 1)
                         selected = [p for p in selected if 0 <= p < total_pages]
@@ -726,7 +745,7 @@ class WorkspacePlugin:
                 import chromadb
                 from chromadb.config import Settings
                 client = chromadb.HttpClient(
-                    host="localhost", port=8000,
+                    host=CHROMA_HOST, port=CHROMA_PORT,
                     settings=Settings(anonymized_telemetry=False),
                 )
                 client.heartbeat()
@@ -769,7 +788,7 @@ class WorkspacePlugin:
                 import chromadb
                 from chromadb.config import Settings
                 client = chromadb.HttpClient(
-                    host="localhost", port=8000,
+                    host=CHROMA_HOST, port=CHROMA_PORT,
                     settings=Settings(anonymized_telemetry=False),
                 )
                 col = client.get_collection(collection_name)

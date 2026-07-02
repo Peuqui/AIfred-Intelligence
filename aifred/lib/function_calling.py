@@ -23,6 +23,31 @@ from typing import Any, AsyncGenerator, Callable
 
 logger = logging.getLogger(__name__)
 
+# Arg keys whose values are secrets and must not reach the audit log verbatim
+# (e.g. EPIM password entries: data={"fields": {"Passwort": "..."}}).
+_SENSITIVE_ARG_KEY_RE = re.compile(
+    r"passwor|passwort|kennwort|secret|token|api[_-]?key|credential", re.IGNORECASE
+)
+
+
+def _redact_args_preview(value: Any) -> str:
+    """Build a log-safe preview of tool args, redacting sensitive values.
+
+    Recursively replaces the values of keys that look like secrets with '***'
+    so credentials passed through generic tools (epim_create/update password
+    fields, etc.) don't land in the audit log.
+    """
+    def _walk(v: Any) -> Any:
+        if isinstance(v, dict):
+            return {
+                k: ("***" if isinstance(k, str) and _SENSITIVE_ARG_KEY_RE.search(k) else _walk(val))
+                for k, val in v.items()
+            }
+        if isinstance(v, list):
+            return [_walk(x) for x in v]
+        return v
+    return str(_walk(value))
+
 
 @dataclass
 class Tool:
@@ -222,7 +247,7 @@ class ToolKit:
                     source=self._source,
                     tool_name=name,
                     tool_tier=tool.tier,
-                    tool_args_preview=str(args)[:200],
+                    tool_args_preview=_redact_args_preview(args)[:200],
                     result_preview=result_str[:200],
                     success=success,
                     duration_ms=(time.perf_counter() - t0) * 1000,

@@ -354,9 +354,15 @@ class EmailChannel(BaseChannel):
 
     @staticmethod
     def _update_checkpoint(uid: bytes) -> None:
-        """Advance checkpoint to this UID."""
-        uidvalidity = _load_checkpoint()[1]
-        _save_checkpoint(int(uid), uidvalidity)
+        """Advance checkpoint to this UID — monotonic, never moves backward.
+
+        The recovery path pre-advances the checkpoint to the highest known UID
+        so a second worker won't re-process the same mails. A per-UID write must
+        therefore not lower it again (that regression previously defeated the
+        parallel-worker guard).
+        """
+        last_uid, uidvalidity = _load_checkpoint()
+        _save_checkpoint(max(last_uid, int(uid)), uidvalidity)
 
     # ── Reply ─────────────────────────────────────────────────
 
@@ -416,11 +422,15 @@ class EmailChannel(BaseChannel):
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
         """Email tools for LLM function calling."""
         from .tools import get_email_tools
-        return get_email_tools(session_id=ctx.session_id)
+        return get_email_tools(session_id=ctx.session_id, source=ctx.source)
 
     def build_reply_metadata(self, message: "InboundMessage") -> dict:
         """Build email-specific reply headers (In-Reply-To, References)."""
         subject = message.metadata.get("subject", "")
+        # A crafted RFC2047 encoded-word can smuggle CR/LF into the decoded
+        # subject; carried verbatim into the reply header it raises in the
+        # SMTP flattener and breaks every reply. Strip control chars at the source.
+        subject = subject.replace("\r", " ").replace("\n", " ")
         if subject and not subject.lower().startswith("re:"):
             subject = f"Re: {subject}"
         return {
@@ -442,6 +452,7 @@ def _is_sender_allowed(sender: str) -> bool:
       - "@domain.de" matches any address at that domain
     """
     from ....lib.credential_broker import broker
+    from ....lib.security import extract_sender_email
     whitelist_raw = broker.get("email", "allowed_senders").strip()
 
     if not whitelist_raw:
@@ -450,11 +461,10 @@ def _is_sender_allowed(sender: str) -> bool:
     if whitelist_raw == "*":
         return True
 
-    # Extract email address from sender string like '"Lord Helmchen" <user@mail.de>'
-    sender_lower = sender.lower()
-    import re
-    match = re.search(r'[\w.+-]+@[\w.-]+', sender_lower)
-    sender_email = match.group(0) if match else sender_lower
+    # Extract the real address from '"Lord Helmchen" <user@mail.de>' via
+    # parseaddr — a display name that looks like a whitelisted address must
+    # NOT pass the allowlist (see extract_sender_email).
+    sender_email = extract_sender_email(sender)
 
     entries = [e.strip().lower() for e in whitelist_raw.split(",") if e.strip()]
     for entry in entries:

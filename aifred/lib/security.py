@@ -99,6 +99,20 @@ def resolve_tier_for_sender(
     return channel_default
 
 
+def extract_sender_email(sender: str) -> str:
+    """Extract the real address from a raw From-header value.
+
+    Uses :func:`email.utils.parseaddr` so a spoofed display name that merely
+    *looks* like a whitelisted address cannot bypass allowlist/owner checks:
+    for ``'"owner@x.de" <attacker@evil.com>'`` parseaddr returns the address
+    inside the angle brackets (``attacker@evil.com``), not the display name.
+    Falls back to the lowercased raw string if no address can be parsed.
+    """
+    from email.utils import parseaddr
+    addr = parseaddr(sender)[1].strip().lower()
+    return addr or sender.strip().lower()
+
+
 def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
     """Check if a sender is the owner for a given channel.
 
@@ -121,10 +135,9 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
         if not allowed or allowed == "*":
             return False
         first_entry = allowed.split(",")[0].strip().lower()
-        # Extract email from sender like '"Name" <user@mail.de>'
-        import re
-        match = re.search(r'[\w.+-]+@[\w.-]+', sender.lower())
-        sender_email = match.group(0) if match else sender.lower()
+        # Extract the real address from '"Name" <user@mail.de>' — parseaddr so
+        # a spoofed display name cannot masquerade as the owner address.
+        sender_email = extract_sender_email(sender)
         if sender_email == first_entry:
             return True
         # Domain whitelist: an entry written as "@example.com" matches any

@@ -20,7 +20,9 @@ from typing import Optional
 
 from .config import (
     DOCUMENTS_DIR,
+    SANDBOX_MAX_FILE_SIZE_MB,
     SANDBOX_MAX_OUTPUT_BYTES,
+    SANDBOX_MAX_PROCESSES,
     SANDBOX_MAX_RAM_MB,
     SANDBOX_TIMEOUT_SECONDS,
     SANDBOX_WORK_DIR,
@@ -184,7 +186,11 @@ def _collect_documents_changes(start_time: float) -> tuple[list[str], list[str]]
     html_urls: list[str] = []
     image_urls: list[str] = []
     for path in sorted(DOCUMENTS_DIR.iterdir()):
-        if not path.is_file():
+        # Skip symlinks: sandboxed code (execute_code_write) can create a symlink
+        # in documents/ pointing at an arbitrary host path. Following it here (or
+        # in the non-resolving document-browser layer) would expose files outside
+        # documents/. Only embed real files this run produced.
+        if path.is_symlink() or not path.is_file():
             continue
         try:
             mtime = path.stat().st_mtime
@@ -368,3 +374,10 @@ def _set_resource_limits() -> None:
     resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
     resource.setrlimit(resource.RLIMIT_CPU, (SANDBOX_TIMEOUT_SECONDS, SANDBOX_TIMEOUT_SECONDS))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    # RLIMIT_AS is per-process — a fork bomb multiplies past it. Cap the process
+    # count so N children can't each claim the full RAM limit.
+    resource.setrlimit(resource.RLIMIT_NPROC, (SANDBOX_MAX_PROCESSES, SANDBOX_MAX_PROCESSES))
+    # RLIMIT_FSIZE: cap single-file writes so sandboxed code can't fill the host
+    # disk / tmpfs (RAM) with a giant file (no disk quota exists otherwise).
+    max_file_bytes = SANDBOX_MAX_FILE_SIZE_MB * 1024 * 1024
+    resource.setrlimit(resource.RLIMIT_FSIZE, (max_file_bytes, max_file_bytes))

@@ -12,6 +12,7 @@ import email.utils
 import imaplib
 import smtplib
 import ssl
+from datetime import datetime
 from dataclasses import dataclass, field
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -47,6 +48,37 @@ class EmailMessage:
     attachments: list[str] = field(default_factory=list)  # Attachment filenames
 
 
+# IMAP socket timeout (seconds) for tool operations. Without it a hung/slow
+# server blocks a to_thread worker indefinitely and can exhaust the pool.
+_IMAP_TIMEOUT_SECONDS = 30
+
+
+def _safe_decode(payload: bytes, charset: Optional[str]) -> str:
+    """Decode bytes with a charset, tolerant of unknown/bogus charset names.
+
+    ``bytes.decode(errors="replace")`` only replaces undecodable *bytes* — an
+    unknown codec name (e.g. a crafted ``charset=nonsense``) still raises
+    ``LookupError``. We catch that and fall back to utf-8 so a single malformed
+    mail cannot crash the listener (which would retry the same UID forever).
+    """
+    try:
+        return payload.decode(charset or "utf-8", errors="replace")
+    except LookupError:
+        return payload.decode("utf-8", errors="replace")
+
+
+def _reject_imap_arg(value: str, field_name: str) -> str:
+    """Reject CR/LF in an IMAP command argument (msg_id, folder names).
+
+    imaplib appends arguments to the command line terminated by CRLF without
+    escaping, so an embedded ``\\r\\n`` from an LLM-generated tool arg would
+    inject raw IMAP commands into the stream. Fail loudly instead.
+    """
+    if any(ch in value for ch in "\r\n"):
+        raise ValueError(f"Illegal newline in IMAP argument {field_name!r}")
+    return value
+
+
 def _decode_header(raw: Optional[str]) -> str:
     """Decode RFC2047 encoded header."""
     if not raw:
@@ -55,7 +87,7 @@ def _decode_header(raw: Optional[str]) -> str:
     decoded = []
     for part, charset in parts:
         if isinstance(part, bytes):
-            decoded.append(part.decode(charset or "utf-8", errors="replace"))
+            decoded.append(_safe_decode(part, charset))
         else:
             decoded.append(part)
     return " ".join(decoded)
@@ -70,20 +102,17 @@ def _extract_body(msg: email.message.Message) -> str:
             if content_type == "text/plain" and "attachment" not in disposition:
                 payload = part.get_payload(decode=True)
                 if isinstance(payload, bytes):
-                    charset = part.get_content_charset() or "utf-8"
-                    return payload.decode(charset, errors="replace")
+                    return _safe_decode(payload, part.get_content_charset())
         # Fallback: try text/html
         for part in msg.walk():
             if part.get_content_type() == "text/html":
                 payload = part.get_payload(decode=True)
                 if isinstance(payload, bytes):
-                    charset = part.get_content_charset() or "utf-8"
-                    return f"[HTML]\n{payload.decode(charset, errors='replace')}"
+                    return f"[HTML]\n{_safe_decode(payload, part.get_content_charset())}"
     else:
         payload = msg.get_payload(decode=True)
         if isinstance(payload, bytes):
-            charset = msg.get_content_charset() or "utf-8"
-            return payload.decode(charset, errors="replace")
+            return _safe_decode(payload, msg.get_content_charset())
     return ""
 
 
@@ -100,18 +129,33 @@ def _get_attachments(msg: email.message.Message) -> list[str]:
     return attachments
 
 
+def _safe_parsedate(date_raw: str) -> Optional[datetime]:
+    """Parse an RFC 2822 Date header, tolerant of malformed values.
+
+    ``parsedate_to_datetime`` raises on a broken Date header; a crafted mail
+    must not abort a tool call. Returns None when unparseable.
+    """
+    if not date_raw:
+        return None
+    try:
+        return email.utils.parsedate_to_datetime(date_raw)
+    except (ValueError, TypeError):
+        return None
+
+
 def _imap_connect() -> imaplib.IMAP4_SSL:
     """Create authenticated IMAP connection via broker."""
     ctx = ssl.create_default_context()
     host = broker.get("email", "imap_host")
     port = int(broker.get("email", "imap_port") or "993")
-    imap = imaplib.IMAP4_SSL(host, port, ssl_context=ctx)
+    imap = imaplib.IMAP4_SSL(host, port, ssl_context=ctx, timeout=_IMAP_TIMEOUT_SECONDS)
     imap.login(broker.get("email", "user"), broker.get("email", "password"))
     return imap
 
 
 def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSummary]:
     """Fetch the N most recent emails from IMAP inbox."""
+    _reject_imap_arg(folder, "folder")
     results: list[EmailSummary] = []
 
     with _imap_connect() as imap:
@@ -150,7 +194,7 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
                 sender = _decode_header(msg.get("From", ""))
                 date = msg.get("Date", "")
                 # Parse date to readable format
-                parsed_date = email.utils.parsedate_to_datetime(date) if date else None
+                parsed_date = _safe_parsedate(date)
                 date_str = parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date
 
                 preview = preview_raw.decode("utf-8", errors="replace")[:200].strip()
@@ -170,6 +214,8 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
 
 def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
     """Read full email by message ID."""
+    _reject_imap_arg(msg_id, "msg_id")
+    _reject_imap_arg(folder, "folder")
     with _imap_connect() as imap:
         imap.select(folder, readonly=True)
 
@@ -182,7 +228,7 @@ def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
         attachments = _get_attachments(msg)
 
         date = msg.get("Date", "")
-        parsed_date = email.utils.parsedate_to_datetime(date) if date else None
+        parsed_date = _safe_parsedate(date)
         date_str = parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date
 
         log_message(f"📧 Email: read msg {msg_id}")
@@ -199,6 +245,8 @@ def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
 
 def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -> list[EmailSummary]:
     """Search emails via IMAP SEARCH."""
+    _reject_imap_arg(query, "query")
+    _reject_imap_arg(folder, "folder")
     results: list[EmailSummary] = []
 
     with _imap_connect() as imap:
@@ -206,7 +254,8 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
 
         # IMAP SEARCH: search in subject and from. Escape backslash/quote so a
         # crafted query (LLM tool arg) cannot break out of the quoted string and
-        # rewrite the search semantics.
+        # rewrite the search semantics. CRLF is rejected above (would inject a
+        # raw command since imaplib does not escape it).
         safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
         search_criteria = f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'
         _, data = imap.search(None, search_criteria)
@@ -222,7 +271,7 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
                 if isinstance(part, tuple) and b"HEADER" in part[0]:
                     msg = email.message_from_bytes(part[1])
                     date = msg.get("Date", "")
-                    parsed_date = email.utils.parsedate_to_datetime(date) if date else None
+                    parsed_date = _safe_parsedate(date)
 
                     results.append(EmailSummary(
                         msg_id=msg_id.decode(),
@@ -261,6 +310,10 @@ def send_email(
     for field_name, value in (("to", to), ("subject", subject)):
         if any(ch in value for ch in "\r\n"):
             raise ValueError(f"Illegal newline in email {field_name!r}")
+    # reply_to_id comes from an attacker-controlled inbound Message-ID; a CRLF
+    # would otherwise raise deep in the email flattener and abort the reply.
+    if reply_to_id and any(ch in reply_to_id for ch in "\r\n"):
+        raise ValueError("Illegal newline in reply_to_id")
 
     email_user = broker.get("email", "user")
     email_from = broker.get("email", "from") or email_user
@@ -326,6 +379,8 @@ def send_email(
 
 def delete_email(msg_id: str, folder: str = "INBOX") -> str:
     """Delete an email by message ID (moves to Trash)."""
+    _reject_imap_arg(msg_id, "msg_id")
+    _reject_imap_arg(folder, "folder")
     with _imap_connect() as imap:
         imap.select(folder)
         imap.store(msg_id, '+FLAGS', '\\Deleted')
@@ -337,6 +392,9 @@ def delete_email(msg_id: str, folder: str = "INBOX") -> str:
 
 def move_email(msg_id: str, target_folder: str, source_folder: str = "INBOX") -> str:
     """Move an email to a different folder via IMAP COPY + DELETE."""
+    _reject_imap_arg(msg_id, "msg_id")
+    _reject_imap_arg(target_folder, "target_folder")
+    _reject_imap_arg(source_folder, "source_folder")
     with _imap_connect() as imap:
         imap.select(source_folder)
         # COPY to target, then delete from source
@@ -378,6 +436,7 @@ def list_folders() -> list[str]:
 
 def create_folder(folder_name: str) -> str:
     """Create a new IMAP folder/mailbox."""
+    _reject_imap_arg(folder_name, "folder_name")
     with _imap_connect() as imap:
         status, response = imap.create(folder_name)
         if status != "OK":
@@ -403,6 +462,8 @@ def mark_email(msg_id: str, flag: str, folder: str = "INBOX") -> str:
 
     action, imap_flag = flag_map[flag]
 
+    _reject_imap_arg(msg_id, "msg_id")
+    _reject_imap_arg(folder, "folder")
     with _imap_connect() as imap:
         imap.select(folder)
         imap.store(msg_id, action, imap_flag)

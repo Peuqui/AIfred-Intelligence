@@ -347,6 +347,14 @@ class FreeEchoChannel(BaseChannel):
                         f"Error closing WebSocket for {room}: {e}", "warning",
                     )
             _devices.clear()
+            # Cancel all long-lived per-room alert workers so they don't
+            # survive the server (each is a `while True` on queue.get()).
+            for worker in _alert_workers.values():
+                if not worker.done():
+                    worker.cancel()
+            _alert_workers.clear()
+            _alert_queues.clear()
+            _playback_done.clear()
         finally:
             await runner.cleanup()
 
@@ -369,6 +377,22 @@ class FreeEchoChannel(BaseChannel):
                         data = json.loads(msg.data)
                         if data.get("type") == "register":
                             room = data.get("room", room)
+                            existing = _devices.get(room)
+                            if existing is not None and existing is not ws:
+                                # Another connection already owns this room slot.
+                                # Close the stale socket so it isn't silently
+                                # starved of replies (TTS would otherwise route to
+                                # the new socket). NOTE: without endpoint auth this
+                                # cannot distinguish a reconnect from a hijack — see
+                                # A6 in SECURITY_FINDINGS.md.
+                                self.channel_log(
+                                    f"FreeEcho.2 room '{room}' slot taken over — closing previous socket",
+                                    "warning",
+                                )
+                                try:
+                                    await existing.close(code=1001, message=b"room slot taken over")
+                                except Exception:
+                                    pass
                             _devices[room] = ws
                             self.channel_log(f"FreeEcho.2 registered: room={room}")
                     except json.JSONDecodeError:
@@ -408,8 +432,19 @@ class FreeEchoChannel(BaseChannel):
             pending = _pipeline_tasks.get(room)
             if pending is not None and not pending.done():
                 pending.cancel()
+            # Only tear down this room's per-room state if THIS socket still
+            # owns the slot (a takeover by a newer connection must not clobber it).
             if room in _devices and _devices[room] is ws:
                 del _devices[room]
+                # Cancel the long-lived alert worker (a `while True` blocked on
+                # queue.get() that is otherwise never stopped → one leaked task
+                # per room). It respawns on the next enqueue_alert if needed.
+                worker = _alert_workers.pop(room, None)
+                if worker is not None and not worker.done():
+                    worker.cancel()
+                _alert_queues.pop(room, None)
+                _playback_done.pop(room, None)
+                _pending_wake_agent.pop(room, None)
             self.channel_log(f"FreeEcho.2 disconnected: room={room}")
 
         return ws
@@ -879,13 +914,6 @@ class FreeEchoChannel(BaseChannel):
             wf.writeframes(audio_data)
         wav_bytes = wav_buffer.getvalue()
 
-        # Save temp WAV for STT
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir="/tmp") as f:
-            f.write(wav_bytes)
-            wav_path = f.name
-
-        self.channel_log(f"[FreeEcho.2 {room}] WAV prepared ({_fe2_time.monotonic()-_fe2_t0:.2f}s)")
-
         # Resolve session IMMEDIATELY so all debug messages (STT, TTS loading,
         # model switching) reach the browser UI via session_scope.
         from ....lib.routing_table import routing_table
@@ -932,8 +960,16 @@ class FreeEchoChannel(BaseChannel):
         acquired_tts_engines: list[str] = []
         tts_keepalive_task: Optional[asyncio.Task] = None
         heartbeat_task: Optional[asyncio.Task] = None
+        wav_path: Optional[str] = None
 
         try:
+            # Write the temp WAV INSIDE the try so the finally always unlinks it.
+            # (Session resolution above can raise; creating the file earlier would
+            # leak it on that path.)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir="/tmp") as f:
+                f.write(wav_bytes)
+                wav_path = f.name
+            self.channel_log(f"[FreeEcho.2 {room}] WAV prepared ({_fe2_time.monotonic()-_fe2_t0:.2f}s)")
             # session_scope routes debug() messages to this session's UI.
             # hub_notification_scope owns the toast lifecycle: writes "received"
             # on entry, "error" on any exception leaving the block, and "done"
@@ -1060,7 +1096,8 @@ class FreeEchoChannel(BaseChannel):
                 from ....lib.tts_engine_manager import release_tts
                 for _engine in acquired_tts_engines:
                     release_tts(_engine)
-            Path(wav_path).unlink(missing_ok=True)
+            if wav_path:
+                Path(wav_path).unlink(missing_ok=True)
 
     async def _run_stt(self, wav_path: str) -> str:
         """Run Speech-to-Text via Whisper Docker service."""

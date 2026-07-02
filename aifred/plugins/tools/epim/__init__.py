@@ -37,8 +37,12 @@ class EpimPlugin:
 
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        # Dynamische Platzhalter ({upcoming_week}, {epim_categories} …) auflösen,
+        # damit Datumsreferenz und Kategorienliste nie veralten.
         from ....lib.plugin_base import load_plugin_instructions
-        return load_plugin_instructions(self, lang, granted_tools)
+        from ....lib.prompt_loader import render_standard_placeholders
+        text = load_plugin_instructions(self, lang, granted_tools)
+        return render_standard_placeholders(text, "de" if str(lang).startswith("de") else "en")
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         if tool_name == "epim_search":

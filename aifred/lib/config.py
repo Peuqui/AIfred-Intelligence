@@ -1231,6 +1231,10 @@ AGENT_MEMORY_RECENT_COUNT = 10       # Always load N most recent memories
 SANDBOX_TIMEOUT_SECONDS = 30         # Max execution time per run
 SANDBOX_MAX_RAM_MB = 2048            # RLIMIT_AS for subprocess (numpy/pandas need ~1GB)
 SANDBOX_MAX_OUTPUT_BYTES = 1_000_000 # Truncate stdout/stderr beyond this
+SANDBOX_MAX_FILE_SIZE_MB = 512       # RLIMIT_FSIZE: single-file write cap inside the
+                                     # sandbox — stops code filling the host disk/tmpfs.
+SANDBOX_MAX_PROCESSES = 64           # RLIMIT_NPROC: cap child processes so a fork bomb
+                                     # can't multiply past the per-process RAM limit.
 SANDBOX_WORK_DIR = "/tmp/aifred_sandbox"
 SANDBOX_ALLOWED_IMPORTS: list[str] = [
     # stdlib
@@ -1283,6 +1287,13 @@ DOCUMENT_EMBED_BATCH_SIZE = 64      # Chunks pro Embed-API-Call beim Indexieren.
 EMBEDDING_MAX_INPUT_TOKENS = 8192   # Hard input limit of the active embedding model
                                      # (bge-m3). Keep in sync when switching models.
 DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
+WORKSPACE_READ_MAX_BYTES = 25 * 1024 * 1024  # read_file tool: reject files larger
+                                     # than this (the whole file is loaded into RAM;
+                                     # a huge file would blow the worker's memory).
+                                     # The model should page/line-range large files.
+# ChromaDB vector store endpoint (workspace ChromaDB tools + vector_cache default).
+CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
+CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8000"))
 EMBEDDING_USE_GPU = True            # True = GPU (~900MB VRAM, ~10× faster — needed for large docs), False = CPU
 DOCUMENT_SEARCH_MAX_RESULTS = 100   # Hard cap for the search_documents tool's n_results parameter
 DOCUMENT_SEARCH_NEIGHBOR_WINDOW = 1 # ±N neighbor chunks returned per hit. Compensates for

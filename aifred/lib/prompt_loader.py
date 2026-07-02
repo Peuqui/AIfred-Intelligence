@@ -304,6 +304,88 @@ def load_shared_tool_description(filename: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def _build_standard_placeholders(lang: str) -> dict:
+    """Build the always-available date/time/user/EPIM placeholder dict.
+
+    Single source of truth for both :func:`load_prompt` (prompt-tree files) and
+    :func:`render_standard_placeholders` (plugin instruction fragments), so a
+    plugin prompt like the EPIM intro can carry ``{upcoming_week}`` /
+    ``{epim_categories}`` instead of a hardcoded, quickly-stale snapshot.
+    """
+    from datetime import datetime, timedelta
+    now = datetime.now()
+
+    weekday_map = {
+        "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch",
+        "Thursday": "Donnerstag", "Friday": "Freitag",
+        "Saturday": "Samstag", "Sunday": "Sonntag"
+    }
+
+    if lang == "de":
+        weekday = weekday_map.get(now.strftime("%A"), now.strftime("%A"))
+        current_date = f"{weekday}, {now.strftime('%d.%m.%Y')}"
+    else:
+        weekday = now.strftime("%A")
+        current_date = f"{weekday}, {now.strftime('%Y-%m-%d')}"
+
+    # Build upcoming days reference (helps LLMs with date arithmetic)
+    upcoming_days: list[str] = []
+    for offset in range(1, 8):
+        d = now + timedelta(days=offset)
+        if lang == "de":
+            wd = weekday_map.get(d.strftime("%A"), d.strftime("%A"))
+            upcoming_days.append(f"{wd} {d.strftime('%d.%m.%Y')}")
+        else:
+            upcoming_days.append(f"{d.strftime('%A')} {d.strftime('%Y-%m-%d')}")
+    upcoming_week = ", ".join(upcoming_days)
+
+    # EPIM lookup data (loaded once, cached in DB singleton)
+    epim_categories = ""
+    epim_todolists = ""
+    epim_notetrees = ""
+    epim_calendars = ""
+    try:
+        from .config import EPIM_ENABLED
+        if EPIM_ENABLED:
+            from ..plugins.tools.epim.db import get_epim_db
+            _epim = get_epim_db()
+            if _epim:
+                epim_categories = ", ".join(str(c["name"]) for c in _epim.get_categories())
+                epim_todolists = ", ".join(str(t["name"]) for t in _epim.get_todolists())
+                epim_notetrees = ", ".join(str(n["name"]) for n in _epim.get_notetrees())
+                epim_calendars = ", ".join(str(c["name"]) for c in _epim.get_calendars())
+    except Exception:
+        pass  # EPIM not available — placeholders stay empty
+
+    current_year_int = now.year
+    return {
+        'current_year': str(current_year_int),
+        'current_date': current_date,
+        'current_time': now.strftime('%H:%M:%S'),
+        'current_weekday': weekday,
+        'upcoming_week': upcoming_week,
+        'epim_categories': epim_categories,
+        'epim_todolists': epim_todolists,
+        'epim_notetrees': epim_notetrees,
+        'epim_calendars': epim_calendars,
+        'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
+        'user_name': _current_user_name if _current_user_name else "",
+        'user_gender': ("männlich" if _current_user_gender == "male" else "weiblich") if lang == "de" else _current_user_gender,
+    }
+
+
+def render_standard_placeholders(text: str, lang: str) -> str:
+    """Substitute standard placeholders in free text (e.g. plugin instruction
+    fragments loaded outside the prompt tree).
+
+    Uses literal ``{key}`` replacement — NOT ``str.format`` — so stray braces in
+    the text can't raise. Unknown placeholders are left untouched.
+    """
+    for key, value in _build_standard_placeholders(lang).items():
+        text = text.replace("{" + key + "}", str(value))
+    return text
+
+
 def load_prompt(
     prompt_name: str,
     lang: Optional[str] = None,
@@ -333,8 +415,6 @@ def load_prompt(
         FileNotFoundError: If prompt file doesn't exist
         KeyError: If required placeholders are missing
     """
-    from datetime import datetime
-
     # Determine language
     if lang is None:
         lang = _current_language
@@ -356,68 +436,7 @@ def load_prompt(
     # ============================================================
     # BUILD STANDARD PLACEHOLDERS (date/time/user)
     # ============================================================
-    now = datetime.now()
-
-    # German weekday translation
-    weekday_map = {
-        "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch",
-        "Thursday": "Donnerstag", "Friday": "Freitag",
-        "Saturday": "Samstag", "Sunday": "Sonntag"
-    }
-
-    if lang == "de":
-        weekday = weekday_map.get(now.strftime("%A"), now.strftime("%A"))
-        current_date = f"{weekday}, {now.strftime('%d.%m.%Y')}"
-    else:
-        weekday = now.strftime("%A")
-        current_date = f"{weekday}, {now.strftime('%Y-%m-%d')}"
-
-    # Build upcoming days reference (helps LLMs with date arithmetic)
-    from datetime import timedelta
-    upcoming_days: list[str] = []
-    for offset in range(1, 8):
-        d = now + timedelta(days=offset)
-        if lang == "de":
-            wd = weekday_map.get(d.strftime("%A"), d.strftime("%A"))
-            upcoming_days.append(f"{wd} {d.strftime('%d.%m.%Y')}")
-        else:
-            upcoming_days.append(f"{d.strftime('%A')} {d.strftime('%Y-%m-%d')}")
-    upcoming_week = ", ".join(upcoming_days)
-
-    # EPIM lookup data (loaded once, cached in DB singleton)
-    epim_categories = ""
-    epim_todolists = ""
-    epim_notetrees = ""
-    epim_calendars = ""
-    try:
-        from .config import EPIM_ENABLED
-        if EPIM_ENABLED:
-            from ..plugins.tools.epim.db import get_epim_db
-            _epim = get_epim_db()
-            if _epim:
-                epim_categories = ", ".join(str(c["name"]) for c in _epim.get_categories())
-                epim_todolists = ", ".join(str(t["name"]) for t in _epim.get_todolists())
-                epim_notetrees = ", ".join(str(n["name"]) for n in _epim.get_notetrees())
-                epim_calendars = ", ".join(str(c["name"]) for c in _epim.get_calendars())
-    except Exception:
-        pass  # EPIM not available — placeholders stay empty
-
-    # Standard placeholders - always available
-    current_year_int = now.year
-    standard_placeholders = {
-        'current_year': str(current_year_int),
-        'current_date': current_date,
-        'current_time': now.strftime('%H:%M:%S'),
-        'current_weekday': weekday,
-        'upcoming_week': upcoming_week,
-        'epim_categories': epim_categories,
-        'epim_todolists': epim_todolists,
-        'epim_notetrees': epim_notetrees,
-        'epim_calendars': epim_calendars,
-        'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
-        'user_name': _current_user_name if _current_user_name else "",
-        'user_gender': ("männlich" if _current_user_gender == "male" else "weiblich") if lang == "de" else _current_user_gender,
-    }
+    standard_placeholders = _build_standard_placeholders(lang)
 
     # Merge standard placeholders with kwargs (kwargs override standard)
     all_placeholders = {**standard_placeholders, **kwargs}
