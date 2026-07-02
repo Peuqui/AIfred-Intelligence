@@ -27,6 +27,23 @@ _PLUGIN_DIR = Path(__file__).parent
 _SETTINGS_PATH = _PLUGIN_DIR / "settings.json"
 
 
+def _finite_seconds(value: Any, field_name: str) -> tuple[float, str | None]:
+    """Coerce an LLM-supplied seconds value to a finite float.
+
+    ``json.loads`` accepts ``NaN``/``Infinity`` by default and a non-numeric
+    string raises — both would reach mpv's seek unchecked. Returns (value, None)
+    on success or (0.0, error_message) on invalid/non-finite input.
+    """
+    import math
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return 0.0, f"Invalid {field_name}: {value!r}"
+    if not math.isfinite(f):
+        return 0.0, f"{field_name} must be a finite number"
+    return f, None
+
+
 def _load_settings() -> dict[str, Any]:
     """Read plugin settings.json fresh on every call (small file, not hot path)."""
     if not _SETTINGS_PATH.exists():
@@ -653,10 +670,13 @@ class AudioPlayerPlugin:
 
     def _tool_seek(self, ctx: PluginContext) -> Tool:
         async def _seek(position_sec: float, target: str | None = None) -> str:
+            pos, err = _finite_seconds(position_sec, "position_sec")
+            if err:
+                return json.dumps({"success": False, "error": err})
             result = await self._dispatch_action(
-                ctx, "seek", target, position_sec=float(position_sec), relative=False,
+                ctx, "seek", target, position_sec=pos, relative=False,
             )
-            result["position_sec"] = float(position_sec)
+            result["position_sec"] = pos
             return json.dumps(result)
 
         return Tool(
@@ -682,10 +702,13 @@ class AudioPlayerPlugin:
 
     def _tool_skip(self, ctx: PluginContext) -> Tool:
         async def _skip(delta_sec: float, target: str | None = None) -> str:
+            delta, err = _finite_seconds(delta_sec, "delta_sec")
+            if err:
+                return json.dumps({"success": False, "error": err})
             result = await self._dispatch_action(
-                ctx, "seek", target, position_sec=float(delta_sec), relative=True,
+                ctx, "seek", target, position_sec=delta, relative=True,
             )
-            result["delta_sec"] = float(delta_sec)
+            result["delta_sec"] = delta
             return json.dumps(result)
 
         return Tool(
@@ -846,9 +869,25 @@ class AudioPlayerPlugin:
                 })
             cfg = {"type": "local_folder", "path": src_info["target"]}
             from pathlib import Path as _Path
-            root = _Path(cfg.get("path", "")).expanduser().resolve()
+            source_root = _Path(cfg.get("path", "")).expanduser().resolve()
+            root = source_root
             if subdir:
-                root = (root / subdir).resolve()
+                # Same path-traversal guard as _play_folder: a '..' or an
+                # absolute subdir must not escape the source root (this FS
+                # fallback previously rglob'd wherever subdir pointed).
+                if ".." in _Path(subdir).parts:
+                    return json.dumps({
+                        "source": source, "items": [], "count": 0,
+                        "error": f"Path traversal denied: {subdir!r}",
+                    })
+                root = (source_root / subdir).resolve()
+                try:
+                    root.relative_to(source_root)
+                except ValueError:
+                    return json.dumps({
+                        "source": source, "items": [], "count": 0,
+                        "error": f"Path '{subdir}' escapes source folder",
+                    })
             if not root.is_dir():
                 return json.dumps({
                     "source": source, "items": [], "count": 0,
@@ -971,7 +1010,7 @@ class AudioPlayerPlugin:
                 # Run scan in thread to avoid blocking the event loop
                 # (NFS scan can take minutes for large mounts)
                 import asyncio as _asyncio
-                loop = _asyncio.get_event_loop()
+                loop = _asyncio.get_running_loop()
                 import functools
                 stats = await loop.run_in_executor(
                     None,
@@ -1070,7 +1109,13 @@ class AudioPlayerPlugin:
             return f"Springe zu {tool_args.get('position_sec', '?')}s"
         if tool_name == "audio_skip":
             d = tool_args.get("delta_sec", 0)
-            return f"Skip {'+' if float(d) >= 0 else ''}{d}s"
+            # d may be a non-numeric string from the LLM; float() would raise and
+            # break status rendering (the caller has no try/except). Fail soft.
+            try:
+                sign = "+" if float(d) >= 0 else ""
+            except (TypeError, ValueError):
+                sign = ""
+            return f"Skip {sign}{d}s"
         if tool_name == "audio_speed":
             return f"Geschwindigkeit: {tool_args.get('factor', '?')}×"
         return ""

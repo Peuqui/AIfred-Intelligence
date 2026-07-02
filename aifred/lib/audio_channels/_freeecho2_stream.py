@@ -198,6 +198,18 @@ class FreeEcho2Stream:
         self._flow_resumed: asyncio.Event = asyncio.Event()
         self._flow_resumed.set()
 
+        # Strong refs to fire-and-forget callback tasks. Without this the loop
+        # only keeps a weak ref and the GC can cancel a cleanup task (e.g.
+        # self.stop() from the heartbeat) before it finishes → leaked mpv/FIFO.
+        self._bg_tasks: set[asyncio.Task[None]] = set()
+
+    def _spawn_bg_task(self, coro: "Awaitable[Any]", name: str) -> None:
+        """Fire-and-forget a coroutine while holding a strong reference to the
+        task until it completes (see ``_bg_tasks``)."""
+        task: asyncio.Task = asyncio.create_task(coro, name=name)  # type: ignore[arg-type]
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
     @property
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
@@ -267,6 +279,9 @@ class FreeEcho2Stream:
                 args.append(f"--start={float(start_pos_sec)}")
             if audio_filters:
                 args.append(f"--af={','.join(audio_filters)}")
+            # `--` terminates option parsing: a URI starting with `--` must not
+            # be interpreted by mpv as an option (defense-in-depth).
+            args.append("--")
             args.append(uri)
 
             try:
@@ -288,23 +303,34 @@ class FreeEcho2Stream:
                     break
                 # mpv may exit early (bad URI etc.) — abort if so
                 if self._proc.returncode is not None:
+                    # mpv died (bad URI etc.): no process to keep, but reap it so
+                    # a defunct entry / half-open FIFO doesn't linger.
+                    await self._cleanup_unlocked()
                     raise FreeEcho2StreamError(
                         f"mpv exited rc={self._proc.returncode} before IPC socket"
                     )
                 await asyncio.sleep(0.05)
             if not socket_ready:
+                await self._cleanup_unlocked()
                 raise FreeEcho2StreamError(
                     f"mpv did not create IPC socket at {self._socket_path}"
                 )
 
-            self._ipc_reader, self._ipc_writer = await asyncio.open_unix_connection(
-                self._socket_path
-            )
-            self._reader_task = asyncio.create_task(
-                self._ipc_read_loop(),
-                name=f"freeecho2-{self.room}-ipc-reader",
-            )
-            await self._send({"command": ["observe_property", 1, "eof-reached"]})
+            # From here mpv is alive and writing PCM into the readerless FIFO;
+            # any failure before the pump task starts must terminate it (else it
+            # blocks on the pipe forever). Wrap the setup so it always cleans up.
+            try:
+                self._ipc_reader, self._ipc_writer = await asyncio.open_unix_connection(
+                    self._socket_path
+                )
+                self._reader_task = asyncio.create_task(
+                    self._ipc_read_loop(),
+                    name=f"freeecho2-{self.room}-ipc-reader",
+                )
+                await self._send({"command": ["observe_property", 1, "eof-reached"]})
+            except BaseException:
+                await self._cleanup_unlocked()
+                raise
 
             self._current_uri = uri
             self._current_state_key = state_key
@@ -341,31 +367,38 @@ class FreeEcho2Stream:
                 # (Voice-VU fuer Hoerbuecher/Podcasts), tts (Voice-VU
                 # fuer XTTS-Generator-Output). alarm/notification kommen
                 # ueber andere Pfade (kein FreeEcho2Stream).
+                await self._cleanup_unlocked()
                 raise ValueError(
                     f"FreeEcho2Stream.start: audio_type must be "
                     f"music|tts|speech, got {audio_type!r}"
                 )
-            flag_ok = await self._send_flag(self.room, audio_type)
-            log_message(
-                f"FreeEcho2Stream[{self.room}]: → audio_flag({audio_type}) "
-                f"sent ok={flag_ok}"
-            )
-            if not flag_ok:
-                # Wire ist down — kein Sinn weiter aufzubauen
-                raise FreeEcho2StreamError(
-                    f"audio_flag({audio_type}) send failed — abort start"
+            # The wire sends can fail (return False) or raise on a dead socket;
+            # either way mpv is already running and must be reaped on abort.
+            try:
+                flag_ok = await self._send_flag(self.room, audio_type)
+                log_message(
+                    f"FreeEcho2Stream[{self.room}]: → audio_flag({audio_type}) "
+                    f"sent ok={flag_ok}"
                 )
-            start_ok = await self._send_start(
-                self.room,
-                channels=fe2_channels_for_type(audio_type),
-            )
-            log_message(
-                f"FreeEcho2Stream[{self.room}]: → audio_start sent ok={start_ok}"
-            )
-            if not start_ok:
-                raise FreeEcho2StreamError(
-                    "audio_start send failed — abort start"
+                if not flag_ok:
+                    # Wire ist down — kein Sinn weiter aufzubauen
+                    raise FreeEcho2StreamError(
+                        f"audio_flag({audio_type}) send failed — abort start"
+                    )
+                start_ok = await self._send_start(
+                    self.room,
+                    channels=fe2_channels_for_type(audio_type),
                 )
+                log_message(
+                    f"FreeEcho2Stream[{self.room}]: → audio_start sent ok={start_ok}"
+                )
+                if not start_ok:
+                    raise FreeEcho2StreamError(
+                        "audio_start send failed — abort start"
+                    )
+            except BaseException:
+                await self._cleanup_unlocked()
+                raise
             self._fifo_pump_task = asyncio.create_task(
                 self._fifo_pump(),
                 name=f"freeecho2-{self.room}-fifo-pump",
@@ -680,9 +713,7 @@ class FreeEcho2Stream:
                     f"FreeEcho2Stream[{self.room}]: send-failed cb error: {exc}",
                     "warning",
                 )
-        asyncio.create_task(
-            _run(), name=f"freeecho2-{self.room}-send-failed-cb",
-        )
+        self._spawn_bg_task(_run(), name=f"freeecho2-{self.room}-send-failed-cb")
 
     def _fire_natural_end_cb(self) -> None:
         """Schedule den natural-end-Callback als unabhaengigen Task.
@@ -705,9 +736,7 @@ class FreeEcho2Stream:
                     f"FreeEcho2Stream[{self.room}]: natural-end cb error: {exc}",
                     "warning",
                 )
-        asyncio.create_task(
-            _run(), name=f"freeecho2-{self.room}-natural-end-cb",
-        )
+        self._spawn_bg_task(_run(), name=f"freeecho2-{self.room}-natural-end-cb")
 
     # ── FIFO-Pumpe: PCM von mpv → freeecho2 WS-Bridge ───────
 
@@ -942,8 +971,9 @@ class FreeEcho2Stream:
                     )
                     # Stream wird über stop() abgeräumt — das passiert in
                     # einem separaten Task um nicht aus dem heartbeat-loop
-                    # heraus selbst-cancellation zu triggern.
-                    asyncio.create_task(self.stop())
+                    # heraus selbst-cancellation zu triggern. Strong-ref über
+                    # _bg_tasks, sonst kann der GC den Cleanup-Task canceln.
+                    self._spawn_bg_task(self.stop(), name=f"freeecho2-{self.room}-hb-stop")
                     break
         except asyncio.CancelledError:
             return

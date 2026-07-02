@@ -122,6 +122,13 @@ def encode_fieldsdata(fields: dict[str, str], name_to_id: dict[str, int]) -> str
             continue
         field_id = name_to_id[name]
         str_value = str(value) if not isinstance(value, str) else value
+        # The length is a 4-hex-digit field: values longer than 0xFFFF chars
+        # would overflow to 5 digits and corrupt the format for ALL following
+        # fields. Fail loudly instead of silently writing garbage.
+        if len(str_value) > 0xFFFF:
+            raise ValueError(
+                f"EPIM field {name!r} too long ({len(str_value)} chars, max {0xFFFF})"
+            )
         parts.append(f"{field_id:08X}{len(str_value):04X}{str_value}")
     return "".join(parts)
 
@@ -199,6 +206,9 @@ class EpimDatabase:
         self._fb_dir = fb_dir
         self._con: Optional[fdb.Connection] = None
         self._custom_contact_fields: Optional[dict[int, str]] = None
+        # Set the Firebird env once at construction — not on every _connect()
+        # (that mutated process-global state repeatedly, racy across threads).
+        os.environ["FIREBIRD"] = self._fb_dir
 
     def _preload_libs(self) -> None:
         """Preload Firebird's ICU dependencies before fdb loads libfbembed.
@@ -226,7 +236,6 @@ class EpimDatabase:
             except Exception:
                 self._con = None
 
-        os.environ["FIREBIRD"] = self._fb_dir
         self._preload_libs()
 
         self._con = fdb.connect(
@@ -263,18 +272,27 @@ class EpimDatabase:
     # ID GENERATION
     # ============================================================
 
-    @staticmethod
-    def _generate_id() -> int:
+    _last_generated_id: int = 0
+
+    @classmethod
+    def _generate_id(cls) -> int:
         """Generate an EPIM-compatible entity ID.
 
         EPIM uses large 64-bit IDs based on timestamps. We replicate
         the pattern: millisecond timestamp shifted left with random bits.
+
+        Kept strictly monotonic within the process so two creates in the same
+        millisecond can't collide on the 10 random bits (p=1/1024) and raise a
+        PK violation.
         """
         import random
         import time
         ts_ms = int(time.time() * 1000)
-        # Shift left 10 bits + random low bits (similar to EPIM pattern)
-        return (ts_ms << 10) | random.randint(0, 1023)
+        candidate = (ts_ms << 10) | random.randint(0, 1023)
+        if candidate <= cls._last_generated_id:
+            candidate = cls._last_generated_id + 1
+        cls._last_generated_id = candidate
+        return candidate
 
     # ============================================================
     # NAME → ID RESOLUTION
@@ -307,6 +325,19 @@ class EpimDatabase:
             if str(nt["name"]).lower() == name.lower():
                 return int(nt["id"])
         return None
+
+    def _row_exists(self, table: str, id_col: str, entity_id: int) -> bool:
+        """True if a live (STATUS=0) row with the given id exists.
+
+        fdb does not reliably report rowcount for UPDATEs, so update/delete
+        tools check existence explicitly instead of blindly reporting success —
+        otherwise a hallucinated/truncated ID silently reports 'updated'/
+        'deleted'. ``table``/``id_col`` are internal constants, never LLM input.
+        """
+        con = self._connect()
+        cur = con.cursor()
+        cur.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? AND STATUS = 0", (entity_id,))
+        return cur.fetchone() is not None
 
     # ============================================================
     # TASKS / CALENDAR
@@ -411,6 +442,11 @@ class EpimDatabase:
         con = self._connect()
         cur = con.cursor()
 
+        # Empty date strings would hit Firebird as invalid TIMESTAMP literals
+        # (cryptic conversion error) — normalize to NULL.
+        start_ts: Optional[str] = start or None
+        end_ts: Optional[str] = end or None
+
         # Resolve names to IDs
         if category_name:
             category_id = self.resolve_category(category_name)
@@ -438,7 +474,7 @@ class EpimDatabase:
             "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
             "READACCESS, WRITEACCESS, COMPLETION, EXCLUSIVE, REPEATING) "
             "VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0, 0, 0)",
-            (new_id, title, start, end, location, 1 if allday else 0,
+            (new_id, title, start_ts, end_ts, location, 1 if allday else 0,
              calendar_id, category_id or 0, text, priority, tags,
              now, now),
         )
@@ -451,15 +487,22 @@ class EpimDatabase:
         if not fields:
             return False
 
-        # Resolve name-based fields to IDs
+        # Resolve name-based fields to IDs. Pop BOTH aliases unconditionally —
+        # a short-circuit (`pop(a) or pop(b)`) would leave the second key in
+        # `fields`, and "category"/"calendar" upper-case to allowed columns, so
+        # the raw name string would be written into the integer FK column.
         if "category" in fields or "category_name" in fields:
-            cat_name = fields.pop("category_name", None) or fields.pop("category", None)
+            _cat_a = fields.pop("category_name", None)
+            _cat_b = fields.pop("category", None)
+            cat_name = _cat_a if _cat_a else _cat_b
             if cat_name and isinstance(cat_name, str):
                 cat_id = self.resolve_category(str(cat_name))
                 if cat_id is not None:
                     fields["CATEGORY"] = cat_id
         if "calendar" in fields or "calendar_name" in fields:
-            cal_name = fields.pop("calendar_name", None) or fields.pop("calendar", None)
+            _cal_a = fields.pop("calendar_name", None)
+            _cal_b = fields.pop("calendar", None)
+            cal_name = _cal_a if _cal_a else _cal_b
             if cal_name and isinstance(cal_name, str):
                 cal_id = self.resolve_calendar(str(cal_name))
                 if cal_id is not None:
@@ -485,6 +528,9 @@ class EpimDatabase:
         if not updates:
             return False
 
+        if not self._row_exists("TASKS", "IDTASK", task_id):
+            return False
+
         updates.append("LASTCHANGED = ?")
         params.append(datetime.now())
         params.append(task_id)
@@ -497,6 +543,8 @@ class EpimDatabase:
 
     def delete_task(self, task_id: int) -> bool:
         """Soft-delete a task (set STATUS=1, DELETED=now)."""
+        if not self._row_exists("TASKS", "IDTASK", task_id):
+            return False
         con = self._connect()
         cur = con.cursor()
         now = datetime.now()
@@ -611,6 +659,8 @@ class EpimDatabase:
     def update_contact(self, contact_id: int, name: Optional[str] = None,
                        fields: Optional[dict[str, str]] = None, tags: Optional[str] = None) -> bool:
         """Update a contact."""
+        if not self._row_exists("CONTACTS", "IDCONTACT", contact_id):
+            return False
         con = self._connect()
         cur = con.cursor()
 
@@ -642,6 +692,8 @@ class EpimDatabase:
 
     def delete_contact(self, contact_id: int) -> bool:
         """Soft-delete a contact."""
+        if not self._row_exists("CONTACTS", "IDCONTACT", contact_id):
+            return False
         con = self._connect()
         cur = con.cursor()
         now = datetime.now()
@@ -663,30 +715,31 @@ class EpimDatabase:
         text: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
-        """Search notes by title or tab content."""
+        """Search notes by title OR tab content.
+
+        The search tool passes the same query as both ``title`` and ``text``;
+        a note must match if the term is in the title OR in the tab content/name
+        (not both — that AND semantics made content hits with a non-matching
+        title invisible).
+        """
         con = self._connect()
         cur = con.cursor()
 
+        conditions = ["n.STATUS = 0"]
+        params: list = []
+        match_terms: list[str] = []
+        if title:
+            match_terms.append("UPPER(n.TITLE) LIKE UPPER(?)")
+            params.append(f"%{title}%")
         if text:
-            # Search in note tab content
-            conditions = ["n.STATUS = 0"]
-            params: list = []
-            conditions.append(
+            match_terms.append(
                 "n.IDNOTE IN (SELECT IDNOTE FROM NOTETABS "
                 "WHERE UPPER(TEXT) LIKE UPPER(?) OR UPPER(NAME) LIKE UPPER(?))"
             )
             params.extend([f"%{text}%", f"%{text}%"])
-            if title:
-                conditions.append("UPPER(n.TITLE) LIKE UPPER(?)")
-                params.append(f"%{title}%")
-            where = " AND ".join(conditions)
-        else:
-            conditions = ["n.STATUS = 0"]
-            params = []
-            if title:
-                conditions.append("UPPER(n.TITLE) LIKE UPPER(?)")
-                params.append(f"%{title}%")
-            where = " AND ".join(conditions)
+        if match_terms:
+            conditions.append("(" + " OR ".join(match_terms) + ")")
+        where = " AND ".join(conditions)
 
         cur.execute(
             f"SELECT FIRST {_clamp_limit(limit)} n.IDNOTE, n.TITLE, n.TAGS, n.CREATED, "
@@ -756,24 +809,31 @@ class EpimDatabase:
         note_id = self._generate_id()
 
         now = datetime.now()
-        cur.execute(
-            "INSERT INTO NOTES (IDNOTE, IDPARENT, TITLE, IDNOTETREE, TAGS, "
-            "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
-            "READACCESS, WRITEACCESS, ICONINDEX) "
-            "VALUES (?, 0, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0)",
-            (note_id, title, tree_id, tags, now, now),
-        )
+        # Two inserts (note + its tab) form one unit. Roll back on failure so a
+        # half-written note (note row without its tab) can't be picked up by the
+        # next unrelated commit on this shared connection.
+        try:
+            cur.execute(
+                "INSERT INTO NOTES (IDNOTE, IDPARENT, TITLE, IDNOTETREE, TAGS, "
+                "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
+                "READACCESS, WRITEACCESS, ICONINDEX) "
+                "VALUES (?, 0, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0)",
+                (note_id, title, tree_id, tags, now, now),
+            )
 
-        # Create default tab
-        tab_id = self._generate_id()
-        cur.execute(
-            "INSERT INTO NOTETABS (IDNOTETAB, IDNOTE, NAME, TEXT, "
-            "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
-            "READACCESS, WRITEACCESS, COLOR, BACKCOLOR) "
-            "VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0, 0)",
-            (tab_id, note_id, tab_name, tab_text, now, now),
-        )
-        con.commit()
+            # Create default tab
+            tab_id = self._generate_id()
+            cur.execute(
+                "INSERT INTO NOTETABS (IDNOTETAB, IDNOTE, NAME, TEXT, "
+                "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
+                "READACCESS, WRITEACCESS, COLOR, BACKCOLOR) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0, 0)",
+                (tab_id, note_id, tab_name, tab_text, now, now),
+            )
+            con.commit()
+        except Exception:
+            con.rollback()
+            raise
         logger.info("EPIM: Created note %d: %s", note_id, title)
         return note_id
 
@@ -781,6 +841,8 @@ class EpimDatabase:
                     tags: Optional[str] = None) -> bool:
         """Update note metadata."""
         if title is None and tags is None:
+            return False
+        if not self._row_exists("NOTES", "IDNOTE", note_id):
             return False
         con = self._connect()
         cur = con.cursor()
@@ -804,6 +866,8 @@ class EpimDatabase:
         """Update a note tab's content."""
         if name is None and text is None:
             return False
+        if not self._row_exists("NOTETABS", "IDNOTETAB", tab_id):
+            return False
         con = self._connect()
         cur = con.cursor()
         updates = []
@@ -823,20 +887,28 @@ class EpimDatabase:
 
     def delete_note(self, note_id: int) -> bool:
         """Soft-delete a note and its tabs."""
+        if not self._row_exists("NOTES", "IDNOTE", note_id):
+            return False
         con = self._connect()
         cur = con.cursor()
         now = datetime.now()
-        cur.execute(
-            "UPDATE NOTETABS SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-            "WHERE IDNOTE = ?",
-            (now, now, note_id),
-        )
-        cur.execute(
-            "UPDATE NOTES SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-            "WHERE IDNOTE = ?",
-            (now, now, note_id),
-        )
-        con.commit()
+        # Two updates form one unit — roll back on failure to avoid a
+        # half-deleted note (tabs gone, note still visible or vice versa).
+        try:
+            cur.execute(
+                "UPDATE NOTETABS SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
+                "WHERE IDNOTE = ?",
+                (now, now, note_id),
+            )
+            cur.execute(
+                "UPDATE NOTES SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
+                "WHERE IDNOTE = ?",
+                (now, now, note_id),
+            )
+            con.commit()
+        except Exception:
+            con.rollback()
+            raise
         return True
 
     # ============================================================
@@ -900,6 +972,10 @@ class EpimDatabase:
         con = self._connect()
         cur = con.cursor()
 
+        # Empty date strings → NULL (invalid TIMESTAMP literal otherwise).
+        start = start or None
+        end = end or None
+
         # Resolve name to ID
         if list_name:
             list_id = self.resolve_todolist(list_name)
@@ -956,6 +1032,9 @@ class EpimDatabase:
         if not updates:
             return False
 
+        if not self._row_exists("TODOS", "IDTODO", todo_id):
+            return False
+
         updates.append("LASTCHANGED = ?")
         params.append(datetime.now())
         params.append(todo_id)
@@ -965,6 +1044,8 @@ class EpimDatabase:
 
     def delete_todo(self, todo_id: int) -> bool:
         """Soft-delete a todo."""
+        if not self._row_exists("TODOS", "IDTODO", todo_id):
+            return False
         con = self._connect()
         cur = con.cursor()
         now = datetime.now()
@@ -1071,6 +1152,8 @@ class EpimDatabase:
                         fields: Optional[dict[str, str]] = None,
                         tags: Optional[str] = None) -> bool:
         """Update a password entry."""
+        if not self._row_exists("PASSENTRIES", "IDPASSENTRY", entry_id):
+            return False
         con = self._connect()
         cur = con.cursor()
         updates = []
@@ -1097,6 +1180,8 @@ class EpimDatabase:
 
     def delete_password(self, entry_id: int) -> bool:
         """Soft-delete a password entry."""
+        if not self._row_exists("PASSENTRIES", "IDPASSENTRY", entry_id):
+            return False
         con = self._connect()
         cur = con.cursor()
         now = datetime.now()

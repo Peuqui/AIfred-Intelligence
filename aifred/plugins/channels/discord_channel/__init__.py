@@ -20,9 +20,6 @@ if TYPE_CHECKING:
     from ....lib.function_calling import Tool
     from ....lib.plugin_base import PluginContext
 
-# After a connection error, wait before reconnecting
-_RECONNECT_DELAY_SECONDS = 30
-
 # Module-level reference to the running Discord client.
 # Needed so the reply path can send messages back.
 _discord_client: discord.Client | None = None
@@ -196,11 +193,20 @@ class DiscordChannel(BaseChannel):
             await client.close()
             _discord_client = None
         except discord.LoginFailure:
+            # Config error — retrying won't help, so exit normally (no restart).
             _log("Discord Plugin: invalid bot token", "error")
             _discord_client = None
         except Exception as exc:
-            _log(f"Discord Plugin: error — {exc}", "error")
+            # Any other error: clean up and RE-RAISE so the message hub's
+            # auto-restart (exponential backoff, capped) brings the bot back.
+            # Swallowing it here would look like a normal exit → worker stays dead.
+            _log(f"Discord Plugin: error — {exc}, will be restarted by hub", "error")
+            try:
+                await client.close()
+            except Exception:
+                pass
             _discord_client = None
+            raise
 
     # ── Reply ─────────────────────────────────────────────────
 
@@ -256,7 +262,7 @@ class DiscordChannel(BaseChannel):
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
         """Provide discord_send tool for LLM function calling."""
         from ....lib.function_calling import Tool
-        from ....lib.security import TIER_COMMUNICATE
+        from ....lib.security import TIER_COMMUNICATE, sanitize_outbound
         from ....lib.credential_broker import broker
         import json
 
@@ -274,7 +280,24 @@ class DiscordChannel(BaseChannel):
                 else:
                     return json.dumps({"error": "No Discord channel configured"})
 
+            # Redact secrets / block image-exfil URLs on the tool path.
+            message = sanitize_outbound(message)
+
             try:
+                # Recipient allowlist gate: only the browser (user present) may
+                # target a channel that is not on the configured allowlist. From
+                # an external channel an injected prompt could otherwise exfiltrate
+                # the conversation to an arbitrary channel the bot can reach.
+                if ctx.source != "browser":
+                    allowed = _parse_channel_ids(broker.get("discord", "channel_ids"))
+                    if not allowed or int(target_id) not in allowed:
+                        return json.dumps({
+                            "error": (
+                                "refused: target channel is not on the allowlist "
+                                "(external-channel exfiltration guard). Do this from the web UI."
+                            )
+                        })
+
                 ch = _discord_client.get_channel(int(target_id))
                 if not ch:
                     ch = await _discord_client.fetch_channel(int(target_id))

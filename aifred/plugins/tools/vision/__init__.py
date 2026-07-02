@@ -369,23 +369,26 @@ class VisionPlugin:
             # AND what vision_analyze later sends to the VLM (one artifact
             # everywhere — SSOT).
             label = source_overlay_label(source_id)
-            frames = [
-                replace(f, image_bytes=annotate_frame(
-                    f.image_bytes, label, timestamp=f.timestamp))
-                for f in frames
-            ]
+            # PIL decode → composite → JPEG re-encode is CPU-heavy (up to N
+            # full-res / 4K frames); run it off the event loop so it doesn't
+            # freeze the single granian worker (all sessions) for seconds.
+            def _annotate_all(fs: list) -> list:
+                return [
+                    replace(f, image_bytes=annotate_frame(
+                        f.image_bytes, label, timestamp=f.timestamp))
+                    for f in fs
+                ]
+            frames = await asyncio.to_thread(_annotate_all, frames)
             # Snap-API-Frames kennen ihre Maße nicht (width=0) — fürs
-            # Tool-Ergebnis einmal aus dem JPEG dekodieren.
+            # Tool-Ergebnis einmal aus dem JPEG dekodieren (ebenfalls off-loop).
             rw, rh = frames[-1].width, frames[-1].height
             if not rw:
-                import cv2
-                import numpy as np
-                img = cv2.imdecode(
-                    np.frombuffer(frames[-1].image_bytes, np.uint8),
-                    cv2.IMREAD_COLOR,
-                )
-                if img is not None:
-                    rh, rw = img.shape[:2]
+                def _decode_dims(buf: bytes) -> tuple[int, int]:
+                    import cv2
+                    import numpy as np
+                    img = cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR)
+                    return (img.shape[1], img.shape[0]) if img is not None else (rw, rh)
+                rw, rh = await asyncio.to_thread(_decode_dims, frames[-1].image_bytes)
             result: dict[str, Any] = {
                 "source_id": source_id,
                 "source_name": resolve_source_label(source_id),
@@ -495,7 +498,10 @@ class VisionPlugin:
                         f"vision_snapshot, check the path and retry."
                     )
                 try:
-                    data = p.read_bytes()
+                    # Off the event loop — images live on disk/NAS and can be
+                    # several MB each; a sync read would stall the worker.
+                    import asyncio
+                    data = await asyncio.to_thread(p.read_bytes)
                 except OSError as e:  # noqa: BLE001
                     return _err(f"cannot read image {u}: {e}")
                 frames.append(Frame(
@@ -659,6 +665,8 @@ class VisionPlugin:
             name = name.strip()
             if not name:
                 return _err("name must not be empty")
+            from ....lib.vision_utils import resolve_source_id
+            source_id = resolve_source_id(source_id)
             source = get_source(source_id)
             if source is None:
                 return _err(f"unknown source: {source_id}")
@@ -728,9 +736,13 @@ class VisionPlugin:
             fps: float | None = None,
             run_face_detect: bool | None = None,
         ) -> str:
+            from ....lib.vision_utils import resolve_source_id
+            source_id = resolve_source_id(source_id)
             overrides: dict[str, Any] = {}
             if fps is not None:
-                overrides["fps"] = float(fps)
+                # Clamp: an unbounded fps (e.g. 1000) becomes a ~1ms decode
+                # busy-loop that pins CPU/GPU. Cap to a sane surveillance range.
+                overrides["fps"] = max(0.1, min(float(fps), 15.0))
             if run_face_detect is not None:
                 overrides["run_face_detect_on_motion"] = bool(run_face_detect)
             cfg = _watch_config_from_settings(overrides)
@@ -773,6 +785,11 @@ class VisionPlugin:
 
     def _tool_stop_watch(self, ctx: PluginContext) -> Tool:
         async def _exec(source_id: str) -> str:
+            # Resolve display names ("Büro") to the real source_id — otherwise
+            # stop() silently no-ops and reports success while the watch (and
+            # its recording) keeps running (privacy-relevant silent fail).
+            from ....lib.vision_utils import resolve_source_id
+            source_id = resolve_source_id(source_id)
             stopped = await _watcher().stop(source_id)
             return _ok(
                 source_id=source_id,
@@ -878,10 +895,20 @@ class VisionPlugin:
                     sorted(_PRESENCE) if presence
                     else ([store_event_type] if store_event_type else None)
                 )
+                # Bound the synchronous VLM work: without an explicit window a
+                # windowless query would describe the ENTIRE undescribed backlog
+                # inline (minutes of VLM, GPU-bound), blocking the turn. Cap the
+                # on-demand describe to a recent window (configurable); the query
+                # itself still scans full history (reading descriptions is cheap),
+                # and the nightly cleanup covers older undescribed events.
+                describe_since = since
+                if describe_since is None:
+                    _win_h = float(cfg.get("ondemand_describe_hours", 24))
+                    describe_since = datetime.now() - timedelta(hours=_win_h)
                 await run_bulk_describe(
                     source_id=source_id,
                     event_types=describe_types,
-                    since=since,
+                    since=describe_since,
                     check_vram=False,
                 )
             except Exception as e:  # noqa: BLE001
