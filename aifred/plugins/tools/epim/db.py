@@ -184,6 +184,18 @@ _CONTACT_NAME_TO_ID = {v: k for k, v in DEFAULT_CONTACT_FIELDS.items()}
 _LIMIT_MAX = 500
 
 
+def _as_bool(value: object) -> bool:
+    """Coerce an LLM-supplied boolean-ish value.
+
+    The model sometimes sends the STRINGS "false"/"0"/"no" instead of a JSON
+    boolean; ``bool("false")`` is True, which would e.g. mark a timed event as
+    all-day. Treat the common falsey strings as False.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "false", "0", "no", "none", "nein")
+    return bool(value)
+
+
 def _clamp_limit(limit: int) -> int:
     """Coerce a tool-supplied ``limit`` to a safe integer for ``SELECT FIRST``.
 
@@ -474,7 +486,7 @@ class EpimDatabase:
             "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
             "READACCESS, WRITEACCESS, COMPLETION, EXCLUSIVE, REPEATING) "
             "VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0, 0, 0)",
-            (new_id, title, start_ts, end_ts, location, 1 if allday else 0,
+            (new_id, title, start_ts, end_ts, location, 1 if _as_bool(allday) else 0,
              calendar_id, category_id or 0, text, priority, tags,
              now, now),
         )
@@ -933,7 +945,7 @@ class EpimDatabase:
             conditions.append("UPPER(t.TITLE) LIKE UPPER(?)")
             params.append(f"%{title}%")
         if completed is not None:
-            if completed:
+            if _as_bool(completed):
                 conditions.append("t.COMPLETION = 100")
             else:
                 conditions.append("(t.COMPLETION < 100 OR t.COMPLETION IS NULL)")

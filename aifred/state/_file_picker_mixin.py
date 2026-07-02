@@ -29,7 +29,7 @@ class FilePickerMixin(rx.State, mixin=True):
     picker_current: str = ""            # rel_path inside root
     picker_entries: List[Dict[str, Any]] = []  # serialized BrowseEntry list
     picker_caps: Dict[str, bool] = {}   # can_create_folder/delete/rename/upload/can_create_symlink
-    picker_symlink_target_must_be_under_root: bool = False  # for sandbox-escape protection
+    picker_symlink_target_must_be_under_root: bool = True  # fail-closed sandbox-escape protection
     picker_file_filter: List[str] = []
     picker_show_files: bool = True
     picker_show_hidden: bool = False
@@ -102,7 +102,7 @@ class FilePickerMixin(rx.State, mixin=True):
         show_files: bool = True,
         callback_event: str = "",
         callback_args: Dict[str, str] | None = None,
-        symlink_target_must_be_under_root: bool = False,
+        symlink_target_must_be_under_root: bool = True,
     ) -> None:
         """Initialize and open the picker modal.
 

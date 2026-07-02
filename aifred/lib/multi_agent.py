@@ -789,9 +789,13 @@ async def _run_agent_direct_response(
             detected_language=detected_lang
         )
 
-        # Inject research context into system prompt (forced web search results)
+        # Inject research context into system prompt (forced web search results).
+        # Fence it as untrusted data — the scraped page content is fully
+        # attacker-controllable and would otherwise sit at system-prompt authority
+        # (indirect prompt-injection vector).
         if research_context:
-            system_prompt = f"{system_prompt}\n\n{research_context}"
+            from .security import wrap_untrusted_data
+            system_prompt = f"{system_prompt}\n\n{wrap_untrusted_data(research_context, 'web_research')}"
 
         messages.insert(0, {"role": "system", "content": system_prompt})
 

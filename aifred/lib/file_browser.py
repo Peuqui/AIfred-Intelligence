@@ -267,7 +267,7 @@ def create_symlink(
     rel_path: str,
     name: str,
     target_abs: str,
-    target_must_be_under_root: bool = False,
+    target_must_be_under_root: bool = True,
 ) -> tuple[bool, str]:
     """Create a symlink under (root/rel_path) pointing to target_abs.
 
@@ -276,9 +276,12 @@ def create_symlink(
         rel_path: relative path inside root where the symlink is placed.
         name: filename of the symlink (no slashes, no dot-prefix).
         target_abs: absolute path the symlink points at.
-        target_must_be_under_root: if True, refuse targets that resolve
-            outside the sandbox root. Use for callers that must prevent
-            sandbox escape via symlink (e.g. audio-source picker).
+        target_must_be_under_root: if True (default, fail-closed), refuse
+            targets that resolve outside the sandbox root. Callers that
+            legitimately need to link out (e.g. an admin NAS-mount picker)
+            must opt out explicitly by passing False — because the browse
+            layer does NOT resolve symlinks, a link to an arbitrary absolute
+            path would otherwise expose the whole filesystem.
 
     Returns:
         (success, message_or_relpath)

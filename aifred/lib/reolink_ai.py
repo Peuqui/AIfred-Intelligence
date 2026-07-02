@@ -28,6 +28,7 @@ Gesichts-Identität bleibt AIfreds Aufgabe (InsightFace).
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -36,6 +37,15 @@ import httpx
 from .credential_broker import broker
 
 logger = logging.getLogger(__name__)
+
+# httpx status errors embed the full request URL, which carries ?token=<secret>
+# as a query param. That URL flows into ReolinkAIError → logs / tool errors, so
+# redact the token (and password, defensively) before it is ever formatted in.
+_URL_SECRET_RE = re.compile(r"(?i)\b(token|password)=[^&\s'\"]+")
+
+
+def _redact(text: object) -> str:
+    return _URL_SECRET_RE.sub(r"\1=***", str(text))
 
 # Reolink-API-Klasse → AIfred-Eventtyp. ``face`` fehlt absichtlich.
 _CLASS_MAP = {
@@ -137,7 +147,7 @@ class ReolinkAIClient:
                 resp = await self._http().get(self._base, params=params)
                 resp.raise_for_status()
             except httpx.HTTPError as e:
-                raise ReolinkAIError(f"Snap ch{ch} to {self._host} failed: {e}") from e
+                raise ReolinkAIError(f"Snap ch{ch} to {self._host} failed: {_redact(e)}") from e
             ct = resp.headers.get("content-type", "")
             if "image" in ct and len(resp.content) >= 1000:
                 return resp.content
@@ -217,7 +227,7 @@ class ReolinkAIClient:
             resp.raise_for_status()
             body = resp.json()
         except (httpx.HTTPError, ValueError) as e:
-            raise ReolinkAIError(f"{cmd} request to {self._host} failed: {e}") from e
+            raise ReolinkAIError(f"{cmd} request to {self._host} failed: {_redact(e)}") from e
         if not isinstance(body, list) or not body:
             raise ReolinkAIError(f"{cmd}: unexpected response shape from {self._host}")
         block: dict[str, Any] = body[0]

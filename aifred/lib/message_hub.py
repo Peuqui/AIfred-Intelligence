@@ -13,6 +13,7 @@ Workers auto-restart on crash with exponential backoff (max 5 retries).
 import asyncio
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable, Coroutine
 
@@ -28,6 +29,10 @@ def _hub_log(msg: str, level: str = "info") -> None:
 _MAX_RESTART_ATTEMPTS = 5
 _INITIAL_BACKOFF_SECONDS = 5
 _MAX_BACKOFF_SECONDS = 300  # 5 minutes
+# A worker that ran at least this long before crashing counts as "was stable" —
+# its crash counter is reset. A faster crash keeps incrementing so the
+# permanent-dead cap is actually reached (crash-on-start won't retry forever).
+_STABLE_RUN_SECONDS = 60
 
 
 @dataclass
@@ -229,8 +234,8 @@ class MessageHub:
     async def _run_worker(self, worker: _Worker) -> None:
         """Wrapper with auto-restart on crash (exponential backoff)."""
         while True:
+            started = time.monotonic()
             try:
-                worker.restart_count = 0  # Reset on successful start
                 await worker.factory()
                 # factory returned normally — don't restart
                 _hub_log(f"Message Hub: worker '{worker.name}' exited normally")
@@ -239,6 +244,12 @@ class MessageHub:
                 _hub_log(f"Message Hub: worker '{worker.name}' stopped")
                 return
             except Exception as exc:
+                # Reset the counter ONLY if the worker had been running stably
+                # before this crash — otherwise a crash-on-start increments every
+                # round and the permanent-dead cap below is actually reached
+                # (previously the reset sat at the loop head and made it dead code).
+                if time.monotonic() - started >= _STABLE_RUN_SECONDS:
+                    worker.restart_count = 0
                 worker.restart_count += 1
                 if worker.restart_count > _MAX_RESTART_ATTEMPTS:
                     error_msg = (

@@ -236,7 +236,12 @@ def lookup(ref: BibleReference) -> dict:
     elif ref.verse_to is None:
         wanted = [ref.verse_from]
     else:
-        wanted = list(range(ref.verse_from, ref.verse_to + 1))
+        # Iterate the chapter's ACTUAL verses within the span — never
+        # range(from, to+1): an unbounded verse_to from the parser (e.g.
+        # "Johannes 3,1-9999999999") would materialize a multi-billion-element
+        # list and OOM the worker before the membership filter below runs.
+        lo, hi = ref.verse_from, ref.verse_to
+        wanted = sorted(v for v in chapter if lo <= v <= hi)
 
     verses = [{"verse": v, "text": chapter[v]} for v in wanted if v in chapter]
     if not verses:

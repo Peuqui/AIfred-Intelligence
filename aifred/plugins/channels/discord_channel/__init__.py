@@ -37,6 +37,21 @@ def _parse_channel_ids(ids_str: str) -> set[int]:
     return ids
 
 
+def _is_discord_user_allowed(user_id: int) -> bool:
+    """Check a Discord user ID against the allowlist (same model as Telegram).
+
+    Empty allowlist = nobody (safe default — Discord had NO sender filter before,
+    so DMs let any user drive the agent). "*" = everyone. Otherwise numeric IDs.
+    """
+    from ....lib.credential_broker import broker
+    raw = broker.get("discord", "allowed_users").strip()
+    if not raw:
+        return False
+    if raw == "*":
+        return True
+    return any(p.strip().isdigit() and int(p.strip()) == user_id for p in raw.split(","))
+
+
 class DiscordChannel(BaseChannel):
     """Discord channel via discord.py bot."""
 
@@ -78,6 +93,11 @@ class DiscordChannel(BaseChannel):
                 label_key="discord_cred_channel_ids",
                 placeholder="123456789,987654321",
             ),
+            CredentialField(
+                env_key="DISCORD_ALLOWED_USERS",
+                label_key="discord_cred_allowed_users",
+                placeholder="123456789012345678, * für alle",
+            ),
         ]
 
     def is_configured(self) -> bool:
@@ -99,6 +119,9 @@ class DiscordChannel(BaseChannel):
 
         channel_ids = values.get("DISCORD_CHANNEL_IDS", "")
         broker.set_runtime("discord", "channel_ids", channel_ids)
+
+        allowed_users = values.get("DISCORD_ALLOWED_USERS", "")
+        broker.set_runtime("discord", "allowed_users", allowed_users)
 
     # ── Listener ──────────────────────────────────────────────
 
@@ -152,6 +175,14 @@ class DiscordChannel(BaseChannel):
         async def on_message(message: discord.Message) -> None:
             # Ignore own messages and other bots
             if message.author == client.user or message.author.bot:
+                return
+
+            # Sender allowlist FIRST — applies to DMs and guild channels alike.
+            # Without it (the previous behaviour) any user who could DM the bot
+            # drove the full pipeline at COMMUNICATE tier. Fail-closed: empty
+            # allowlist = nobody (configure DISCORD_ALLOWED_USERS, or "*").
+            if not _is_discord_user_allowed(message.author.id):
+                _log(f"Discord Plugin: blocked message from user {message.author.id} (not in allowlist)")
                 return
 
             # Filter by configured channels (empty = all)

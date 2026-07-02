@@ -522,12 +522,18 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", llm_
             ):
                 yield {"progress": ""}
             result = getattr(state, "_research_context", "")
+            if result:
+                from .security import wrap_untrusted_data
+                result = wrap_untrusted_data(result, "web_research")
             yield {"result": result if result else json.dumps({"error": "No results found"})}
             return
 
         # Hub path (Discord, Email) — history passed from PluginContext.
         # No state-mutation pipeline; we just await and emit the final result.
         result = await _hub_web_search(queries, _llm_history)
+        if result:
+            from .security import wrap_untrusted_data
+            result = wrap_untrusted_data(result, "web_research")
         yield {"result": result}
 
     async def _execute_web_fetch(url: str) -> str:
@@ -549,7 +555,8 @@ def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", llm_
             content = result["content"]
             word_count = result.get("word_count", 0)
             log_message(f"✅ web_fetch: {word_count} words from {url}")
-            return f"# Content from {url}\n\n{content}"
+            from .security import wrap_untrusted_data
+            return wrap_untrusted_data(f"# Content from {url}\n\n{content}", url)
         else:
             error = result.get("error", "Failed to fetch URL")
             log_message(f"❌ web_fetch failed: {error}")

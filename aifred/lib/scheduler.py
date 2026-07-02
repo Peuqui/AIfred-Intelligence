@@ -460,7 +460,14 @@ async def _deliver_webhook(job: Job, response_text: str) -> None:
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            # allow_redirects=False: validate_external_url only vetted THIS url.
+            # Following a 302 would let a public host redirect us to an internal
+            # address (cloud metadata, llama-swap, ChromaDB) — SSRF. The webhook
+            # is fire-and-forget, so there's no need to follow redirects anyway.
+            async with session.post(
+                url, json=payload, allow_redirects=False,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
                 log_message(f"Scheduler: webhook POST to {url} → {resp.status}")
     except Exception as exc:
         log_message(f"Scheduler: webhook POST to {url} failed: {exc}", "error")
