@@ -12,7 +12,7 @@ from .....lib.function_calling import Tool
 from pathlib import Path
 
 from .....lib.plugin_base import load_tool_description
-from .....lib.security import TIER_READONLY, TIER_WRITE_DATA
+from .....lib.security import TIER_WRITE_DATA
 
 # Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
 # nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
@@ -186,7 +186,7 @@ def get_calendar_tools(lang: str = "de") -> list[Tool]:
                 "required": ["start", "end"],
             },
             executor=list_events,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private calendar data → block external channels
         ),
         Tool(
             name="google_calendar_create_event",
@@ -245,6 +245,6 @@ def get_calendar_tools(lang: str = "de") -> list[Tool]:
             description=load_tool_description(_PLUGIN_DIR, "google_calendar_list_calendars"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=list_calendars,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private calendar data → block external channels
         ),
     ]

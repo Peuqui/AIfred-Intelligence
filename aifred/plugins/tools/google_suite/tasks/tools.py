@@ -12,7 +12,7 @@ from .....lib.function_calling import Tool
 from pathlib import Path
 
 from .....lib.plugin_base import load_tool_description
-from .....lib.security import TIER_READONLY, TIER_WRITE_DATA
+from .....lib.security import TIER_WRITE_DATA
 
 # Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
 # nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
@@ -169,7 +169,7 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
             description=load_tool_description(_PLUGIN_DIR, "google_tasks_list_tasklists"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=list_tasklists,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private task data → block external channels
         ),
         Tool(
             name="google_tasks_list",
@@ -184,7 +184,7 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
                 "required": [],
             },
             executor=list_tasks,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private task data → block external channels
         ),
         Tool(
             name="google_tasks_create",

@@ -13,7 +13,7 @@ from .....lib.function_calling import Tool
 from pathlib import Path
 
 from .....lib.plugin_base import load_tool_description
-from .....lib.security import TIER_READONLY, TIER_WRITE_DATA
+from .....lib.security import TIER_WRITE_DATA
 
 # Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
 # nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
@@ -284,7 +284,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
                 "required": [],
             },
             executor=list_files,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private Drive data/content → block external channels
         ),
         Tool(
             name="google_drive_search",
@@ -300,7 +300,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
                 "required": ["query"],
             },
             executor=search_files,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private Drive data/content → block external channels
         ),
         Tool(
             name="google_drive_get_file",
@@ -315,7 +315,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
                 "required": ["file_id"],
             },
             executor=get_file,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private Drive data/content → block external channels
         ),
         Tool(
             name="google_drive_create_file",
