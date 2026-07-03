@@ -447,7 +447,10 @@ class VisionPlugin:
                 "required": ["source_id"],
             },
             executor=_exec,
-            tier=TIER_READONLY,
+            # Live camera capture → surveillance/exfil vector from external
+            # channels. WRITE_DATA keeps it out of email/telegram/discord
+            # (browser + local Puck keep it).
+            tier=TIER_WRITE_DATA,
         )
 
     # ── analyze ──────────────────────────────────────────────────
@@ -655,7 +658,9 @@ class VisionPlugin:
                 "required": ["image_urls"],
             },
             executor=_exec,
-            tier=TIER_READONLY,
+            # VLM description of camera imagery → exfil vector from external
+            # channels. WRITE_DATA blocks email/telegram/discord.
+            tier=TIER_WRITE_DATA,
         )
 
     # ── enroll_face ──────────────────────────────────────────────
@@ -1026,7 +1031,9 @@ class VisionPlugin:
                 "required": [],
             },
             executor=_exec,
-            tier=TIER_READONLY,
+            # Event history incl. VLM "who was home when" descriptions →
+            # exfil vector from external channels. WRITE_DATA blocks them.
+            tier=TIER_WRITE_DATA,
         )
 
 

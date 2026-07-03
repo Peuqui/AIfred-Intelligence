@@ -33,6 +33,12 @@ ENTITY_ALIASES: dict[str, str] = {
 
 VALID_ENTITY_TYPES = "tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees"
 
+_PASSWORD_WRITE_REFUSED = (
+    "Error: refused to create/update a password entry from an external "
+    "channel (credential-safety guard). Password entries can only be "
+    "modified from the web UI."
+)
+
 
 def _resolve_entity(entity_type: str) -> str | None:
     """Resolve entity type alias to canonical name. Returns None if unknown."""
@@ -57,10 +63,16 @@ def _serialize(obj: Any, key: str = "") -> Any:
     return obj
 
 
-def get_epim_tools(lang: str = "de") -> list[Tool]:
+def get_epim_tools(lang: str = "de", source: str = "browser") -> list[Tool]:
     """Create EPIM database tools for LLM function calling.
 
     Returns empty list if EPIM is not available.
+
+    ``source`` is the channel origin (browser/email/discord/…). Password
+    entries hold plaintext credentials, so create/update on ``password`` is
+    restricted to the browser (user present, driving) — an injected prompt
+    arriving through any external channel must not plant or overwrite a
+    credential entry. Non-password EPIM writes stay at their tool tier.
     """
     from .db import get_epim_db
 
@@ -137,6 +149,9 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         entity = _resolve_entity(entity_type)
         if entity not in ("task", "contact", "note", "todo", "password"):
             return json.dumps({"error": f"Unknown entity_type for create: {entity_type}. Use: task, contact, note, todo, password"})
+
+        if entity == "password" and source != "browser":
+            return json.dumps({"error": _PASSWORD_WRITE_REFUSED})
 
         if entity == "task":
             title = data.get("title", "Neuer Termin")
@@ -255,6 +270,9 @@ def get_epim_tools(lang: str = "de") -> list[Tool]:
         entity = _resolve_entity(entity_type)
         if entity not in ("task", "contact", "note", "note_tab", "todo", "password"):
             return json.dumps({"error": f"Unknown entity_type for update: {entity_type}. Use: task, contact, note, note_tab, todo, password"})
+
+        if entity == "password" and source != "browser":
+            return json.dumps({"error": _PASSWORD_WRITE_REFUSED})
 
         if entity == "task":
             # Map LLM-friendly field names to DB column names
