@@ -135,8 +135,8 @@ def _build_background_config(
     Gesichtserkennung folgt weiter den ``face_recognition``-Settings und
     gilt für BEIDE Profile.
     """
-    from .frame_sources.rtsp_source import find_camera_config
-    from .vision_profiles import TRIGGER_MOTION, resolve_profile
+    import dataclasses
+
     from .vision_watcher import WatchConfig
 
     source_id = str(source_record.get("source_id") or "")
@@ -149,38 +149,58 @@ def _build_background_config(
     face_enabled = bool(fr.get("enabled", True))
     face_continuous = bool(fr.get("continuous", False))
 
-    # Profil: rtsp_cameras-Eintrag > per-Source-Settings > Default (webcam).
-    cam_cfg = find_camera_config(source_id) if source_id else None
-    profile_name = (cam_cfg or {}).get("profile") or settings.get("profile") or ""
-    profile = resolve_profile(str(profile_name))
-
     watch = plugin_settings.get("watch") or {}
-    if profile.allow_local_detection:
-        # Dumme Webcam: lokale Roh-Erkennung wie bisher.
-        person_enabled = bool(watch.get("run_person_detect_on_motion", False))
-        motion_gated = bool(settings.get("motion_gated", True))
-        edge_ai = None
-    else:
-        # Intelligente Kamera: Roh-Erkennung macht die Kamera.
-        person_enabled = False
-        motion_gated = False
-        edge_ai = _resolve_edge_ai(source_id, cam_cfg, plugin_settings)
-
-    return WatchConfig(
+    base = WatchConfig(
         fps=2.0,  # Hintergrund-Default — niedrig, GPU-schonend
         motion_min_area_ratio=float(mma),
         save_event_frames=True,
         run_face_detect_on_motion=face_enabled,
-        run_person_detect_on_motion=person_enabled,
-        motion_gated=motion_gated,
+        run_person_detect_on_motion=bool(watch.get("run_person_detect_on_motion", False)),
+        motion_gated=bool(settings.get("motion_gated", True)),
         face_recognition_continuous=face_continuous and face_enabled,
         # VLM bleibt im Hintergrund AUS — opt-in nur über Live-Popup.
         run_vlm_on_motion=False,
         run_vlm_continuous=False,
         min_event_interval_sec=1.0,
-        trigger_mode=profile.trigger_mode if edge_ai else TRIGGER_MOTION,
-        edge_ai=edge_ai,
     )
+    overrides = profile_watch_overrides(source_id, settings, plugin_settings)
+    return dataclasses.replace(base, **overrides) if overrides else base
+
+
+def profile_watch_overrides(
+    source_id: str,
+    source_settings: dict[str, Any],
+    plugin_settings: dict[str, Any],
+) -> dict[str, Any]:
+    """``WatchConfig``-Overrides aus dem Kamera-Profil (SSoT).
+
+    Wird von Autostart UND ``vision_start_watch`` genutzt, damit der Tool-Pfad
+    die Profil-Logik nicht umgeht:
+
+    * **webcam** (``allow_local_detection``) — ``{}``: MOG2/YOLO wie
+      konfiguriert.
+    * **ai_camera** — Kamera erkennt on-device: MOG2-Gating + YOLO aus,
+      Edge-AI-Poll als Trigger.
+    """
+    from .frame_sources.rtsp_source import find_camera_config
+    from .vision_profiles import resolve_profile
+
+    # Profil: rtsp_cameras-Eintrag > per-Source-Settings > Default (webcam).
+    cam_cfg = find_camera_config(source_id) if source_id else None
+    profile_name = (cam_cfg or {}).get("profile") or source_settings.get("profile") or ""
+    profile = resolve_profile(str(profile_name))
+    if profile.allow_local_detection:
+        return {}
+
+    overrides: dict[str, Any] = {
+        "run_person_detect_on_motion": False,
+        "motion_gated": False,
+    }
+    edge_ai = _resolve_edge_ai(source_id, cam_cfg, plugin_settings)
+    if edge_ai:
+        overrides["edge_ai"] = edge_ai
+        overrides["trigger_mode"] = profile.trigger_mode
+    return overrides
 
 
 async def start_background_watcher(source_id: str) -> bool:

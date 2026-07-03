@@ -60,6 +60,12 @@ os.environ.setdefault(
     "OPENCV_FFMPEG_CAPTURE_OPTIONS",
     "rtsp_transport;tcp|fflags;discardcorrupt",
 )
+# FFmpeg loggt Verbindungs-/Protokollfehler nach stderr INKLUSIVE der
+# kompletten RTSP-URL — also mit user:password (landet im journal).
+# AV_LOG_QUIET (-8) unterbindet das; unsere eigenen Fehlerpfade loggen
+# bewusst nur die source_id. setdefault: per Umgebung übersteuerbar
+# (z.B. fürs Debuggen von Kamera-Verbindungen).
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
 
 import cv2  # noqa: E402  — nach dem env-Set, damit FFMPEG die Optionen sieht
 

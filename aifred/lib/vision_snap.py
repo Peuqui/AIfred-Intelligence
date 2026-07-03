@@ -32,7 +32,17 @@ logger = logging.getLogger(__name__)
 # Client → EINE Reolink-Session statt zwei (Session-Limit) und kein
 # Login-Sturm beim Umschalten zwischen den Linsen. Geteilt von Snapshot-
 # Tool und Multipose; via close_clients() freigegeben.
+#
+# Use-after-close-Schutz: ``snap_frames`` awaited mitten im Snap — ein
+# paralleles ``close_clients`` (Multipose-Modal zu) würde den Client unterm
+# laufenden Snap wegschließen; der Snap re-loggt sich dann ein und die
+# Session leakt (Reolink-Session-Limit!). Darum zählt ``_in_use`` aktive
+# Snap-Läufe pro Key; ``close_clients`` schiebt das Schließen bei aktiver
+# Nutzung auf (``_close_pending``), der letzte Nutzer schließt. Alles läuft
+# auf DEM Event-Loop (keine Threads) — plain dict/set reichen, kein Lock.
 _clients: dict[str, Any] = {}
+_in_use: dict[str, int] = {}
+_close_pending: set[str] = set()
 
 
 def _client_key(cam: dict[str, Any]) -> str:
@@ -96,7 +106,13 @@ def get_client(source_id: str) -> Any | None:
 
 
 def _get_client(source_id: str) -> Any | None:
-    """Gecachten Snap-Client der Kamera (oder ``None``, wenn keine creds).
+    """Gecachten Snap-Client der Kamera (oder ``None``, wenn keine creds)."""
+    entry = _get_client_with_key(source_id)
+    return entry[1] if entry else None
+
+
+def _get_client_with_key(source_id: str) -> tuple[str, Any] | None:
+    """Wie ``_get_client``, zusätzlich mit dem Cache-Key (für ``_in_use``).
     Aktuell Reolink — hier wäre der Dispatch auf andere Marken."""
     from .frame_sources.rtsp_source import find_camera_config
     cam = find_camera_config(source_id)
@@ -112,7 +128,7 @@ def _get_client(source_id: str) -> Any | None:
             cred=str(cam.get("cred", "")),
         )
         _clients[key] = client
-    return client
+    return key, client
 
 
 async def snap_frames(
@@ -128,9 +144,11 @@ async def snap_frames(
     ch = resolve_snap_channel(source_id, prefer_face=prefer_face)
     if ch is None:
         return None
-    client = _get_client(source_id)
-    if client is None:
+    entry = _get_client_with_key(source_id)
+    if entry is None:
         return None
+    key, client = entry
+    _in_use[key] = _in_use.get(key, 0) + 1
     try:
         frames: list[Any] = []
         for i in range(max(1, n)):
@@ -145,12 +163,34 @@ async def snap_frames(
             source_id, e,
         )
         return None
+    finally:
+        _in_use[key] -= 1
+        if _in_use[key] <= 0:
+            del _in_use[key]
+            if key in _close_pending:
+                # close_clients kam während des Snaps — jetzt nachholen.
+                _close_pending.discard(key)
+                await _close_key(key)
+
+
+async def _close_key(key: str) -> None:
+    client = _clients.pop(key, None)
+    if client is None:
+        return
+    try:
+        await client.aclose()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("snap client close failed for %s: %s", key, e)
 
 
 async def close_clients(source_id: Optional[str] = None) -> None:
     """Snap-Clients schließen (Reolink ``aclose`` → Logout, gibt die
     Session frei) und aus dem Cache nehmen. Ohne Argument: alle. Wird z.B.
-    beim Schließen des Multipose-Modals gerufen."""
+    beim Schließen des Multipose-Modals gerufen.
+
+    Läuft gerade ein Snap auf dem Client, wird das Schließen aufgeschoben
+    (der letzte Snap-Nutzer schließt) — sonst re-loggt sich der laufende
+    Snap auf dem geschlossenen Client ein und die Session leakt."""
     if source_id:
         from .frame_sources.rtsp_source import find_camera_config
         cam = find_camera_config(source_id)
@@ -158,10 +198,7 @@ async def close_clients(source_id: Optional[str] = None) -> None:
     else:
         keys = list(_clients)
     for key in keys:
-        client = _clients.pop(key, None)
-        if client is None:
+        if _in_use.get(key, 0) > 0:
+            _close_pending.add(key)
             continue
-        try:
-            await client.aclose()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("snap client close failed for %s: %s", key, e)
+        await _close_key(key)

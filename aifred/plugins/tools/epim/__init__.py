@@ -1,4 +1,4 @@
-"""EPIM database plugin (epim_search, epim_create, epim_update, epim_delete)."""
+"""EPIM database plugin (epim_search, epim_get, epim_create, epim_update, epim_delete)."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -51,6 +51,8 @@ class EpimPlugin:
             if query:
                 return t("tool_epim_search", lang=lang, entity=entity, query=query[:40])
             return t("tool_epim_search_bare", lang=lang, entity=entity) if entity else "📅 EPIM..."
+        elif tool_name == "epim_get":
+            return t("tool_epim_get", lang=lang, entity=tool_args.get("entity_type", ""))
         elif tool_name == "epim_create":
             return t("tool_epim_create", lang=lang, entity=tool_args.get("entity_type", ""))
         elif tool_name == "epim_update":

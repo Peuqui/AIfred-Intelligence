@@ -235,11 +235,7 @@ class MultiposeMixin(rx.State, mixin=True):
                 if not name:
                     self.multipose_status = "⚠️ Bitte Namen eingeben."
                     return
-                existing = store.get_face_by_name(name)
-                if existing:
-                    face_id = int(existing["id"])
-                else:
-                    face_id = store.add_face(name=name, enrolled_by="multipose")
+                face_id = store.get_or_create_face(name, enrolled_by="multipose")
             from ..lib.face_crop_store import get_default_store
             crop_store = get_default_store()
             for cap in self.multipose_captures:
@@ -264,12 +260,8 @@ class MultiposeMixin(rx.State, mixin=True):
             logger.warning("multipose finish failed: %s", e)
             self.multipose_status = f"⚠️ {e}"
             return
-        try:
-            from ..lib.vision_filters.face_recognize import FaceRecognizer
-            from ..lib.vision_store import VisionStore
-            FaceRecognizer(VisionStore()).invalidate()
-        except Exception:  # noqa: BLE001
-            pass
+        from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
+        bump_enrollment_epoch()
         count = len(self.multipose_captures)
         self.multipose_status = f"✓ {count} Pose(n) gespeichert."
         self.multipose_open = False

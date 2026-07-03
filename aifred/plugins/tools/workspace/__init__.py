@@ -784,8 +784,20 @@ class WorkspacePlugin:
             executor=_chromadb_stats,
         ))
 
-        async def _chromadb_clear(collection_name: str) -> str:
+        async def _chromadb_clear(collection_name: str, confirm: bool = False) -> str:
             """Clear all entries from a ChromaDB collection."""
+            if not confirm:
+                # Destructive, irreversible bulk delete — require an explicit
+                # confirm flag so a hallucinated/injected call can't wipe a
+                # collection in one step. The model must ask the user first.
+                return json.dumps({
+                    "error": "confirmation required",
+                    "hint": (
+                        "This irreversibly deletes ALL entries of "
+                        f"'{collection_name}'. Ask the user for confirmation, "
+                        "then call again with confirm=true."
+                    ),
+                })
             try:
                 import chromadb
                 from chromadb.config import Settings
@@ -823,8 +835,12 @@ class WorkspacePlugin:
                         "type": "string",
                         "description": "Exact collection name (e.g. 'research_cache', 'aifred_documents')",
                     },
+                    "confirm": {
+                        "type": "boolean",
+                        "description": "Must be true. Only set after the user explicitly confirmed the irreversible deletion.",
+                    },
                 },
-                "required": ["collection_name"],
+                "required": ["collection_name", "confirm"],
             },
             executor=_chromadb_clear,
         ))

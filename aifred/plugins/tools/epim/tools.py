@@ -1,7 +1,8 @@
 """EPIM database tools for LLM function calling.
 
-Provides 4 tools for full CRUD on EPIM entities:
+Provides 5 tools for full CRUD on EPIM entities:
 - epim_search: Search/read tasks, contacts, notes, todos, passwords
+- epim_get: Read one entry with full details (note tabs, contact fields)
 - epim_create: Create new entries
 - epim_update: Update existing entries
 - epim_delete: Soft-delete entries
@@ -137,6 +138,49 @@ def get_epim_tools(lang: str = "de", source: str = "browser") -> list[Tool]:
                     item["_index"] = i
 
         return json.dumps({"total_count": count, "results": serialized}, ensure_ascii=False, default=str)
+
+    # ----------------------------------------------------------
+    # epim_get
+    # ----------------------------------------------------------
+    async def _epim_get(entity_type: str, entity_id: int | str) -> str:
+        """Read one EPIM entry with full details."""
+        from ....lib.logging_utils import log_message
+        entity_id = int(entity_id)  # Accept string IDs from LLM
+        log_message(f"🗓️ epim_get: {entity_type} id={entity_id}")
+
+        entity = _resolve_entity(entity_type)
+        if entity == "password":
+            # search_passwords deliberately returns subjects only; a detail
+            # read would hand plaintext credentials to whatever channel is
+            # driving the LLM. Password contents stay out of the tool surface.
+            return json.dumps({
+                "error": "password entries cannot be read via epim_get "
+                "(credential safety) — only searched by subject."
+            })
+        if entity not in ("task", "contact", "note"):
+            return json.dumps({
+                "error": f"Unknown entity_type for get: {entity_type}. "
+                "Use: task, contact, note (todos already include their text in epim_search)"
+            })
+
+        result: Optional[dict]
+        if entity == "task":
+            result = db.get_task(entity_id)
+            if result is not None:
+                # Raw hex-encoded custom-field blob — meaningless to the LLM
+                result.pop("FIELDSDATA", None)
+                result.pop("FIELDSDATA2", None)
+        elif entity == "contact":
+            result = db.get_contact(entity_id)
+        else:
+            result = db.get_note(entity_id)
+
+        if result is None:
+            log_message(f"❌ epim_get: {entity} {entity_id} not found")
+            return json.dumps({"error": f"{entity} {entity_id} not found"})
+
+        log_message(f"✅ epim_get: {entity} {entity_id}")
+        return json.dumps({"result": _serialize(result)}, ensure_ascii=False, default=str)
 
     # ----------------------------------------------------------
     # epim_create
@@ -350,6 +394,7 @@ def get_epim_tools(lang: str = "de", source: str = "browser") -> list[Tool]:
     # ----------------------------------------------------------
     from ....lib.prompt_loader import load_prompt
     search_desc = load_prompt("shared/epim_tool_search", lang=lang)
+    get_desc = load_prompt("shared/epim_tool_get", lang=lang)
     create_desc = load_prompt("shared/epim_tool_create", lang=lang)
     update_desc = load_prompt("shared/epim_tool_update", lang=lang)
     delete_desc = load_prompt("shared/epim_tool_delete", lang=lang)
@@ -390,6 +435,26 @@ def get_epim_tools(lang: str = "de", source: str = "browser") -> list[Tool]:
                 "required": ["entity_type"],
             },
             executor=_epim_search,
+        ),
+        Tool(
+            name="epim_get",
+            tier=TIER_READONLY,
+            description=get_desc,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "entity_type": {
+                        "type": "string",
+                        "description": "Entity type: task, contact, note",
+                    },
+                    "entity_id": {
+                        "type": "string",
+                        "description": "IDTASK/IDCONTACT/IDNOTE from epim_search results. IMPORTANT: Copy the FULL ID string exactly as returned — do not shorten or round it!",
+                    },
+                },
+                "required": ["entity_type", "entity_id"],
+            },
+            executor=_epim_get,
         ),
         Tool(
             name="epim_create",

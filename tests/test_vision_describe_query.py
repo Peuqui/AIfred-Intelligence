@@ -98,12 +98,20 @@ class TestQueryEventsDedup:
 
     def _run(self, store: VisionStore, monkeypatch) -> dict:
         from aifred.lib.plugin_base import PluginContext
+        from aifred.lib import vision_bulk
         from aifred.plugins.tools import vision as vision_plugin
 
         monkeypatch.setattr(vision_plugin, "_store", lambda: store)
+
+        # Der Tool-Pfad ruft immer run_bulk_describe (VLM) — hier stubben,
+        # der Test prüft nur die Cluster-Dedup-Logik.
+        async def _no_describe(**kwargs):
+            return None
+
+        monkeypatch.setattr(vision_bulk, "run_bulk_describe", _no_describe)
         ctx = PluginContext(agent_id="aifred", lang="de", session_id="t")
         tool = vision_plugin.plugin._tool_query_events(ctx)
-        return json.loads(asyncio.run(tool.executor(describe=False)))
+        return json.loads(asyncio.run(tool.executor()))
 
     def test_cluster_collapses_to_one_row(self, store: VisionStore, monkeypatch):
         frame = str(VIGILANTIA_DIR / "motion" / "cam_test" / "2026-06-03" / "a.jpg")

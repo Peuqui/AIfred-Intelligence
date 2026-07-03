@@ -1541,15 +1541,24 @@ async def audio_file(request: Request, key: str):
         length = end - start + 1
 
         async def iter_range():  # type: ignore[no-untyped-def]
-            remaining = length
-            with open(file_path, "rb") as f:
+            # File I/O via to_thread — a stalling medium (NFS, USB) must not
+            # block the whole event loop.
+            def _open_seeked():  # type: ignore[no-untyped-def]
+                f = open(file_path, "rb")
                 f.seek(start)
+                return f
+
+            f = await asyncio.to_thread(_open_seeked)
+            try:
+                remaining = length
                 while remaining > 0:
-                    data = f.read(min(chunk_size, remaining))
+                    data = await asyncio.to_thread(f.read, min(chunk_size, remaining))
                     if not data:
                         break
                     remaining -= len(data)
                     yield data
+            finally:
+                await asyncio.to_thread(f.close)
 
         headers = {
             "Content-Range": f"bytes {start}-{end}/{file_size}",
@@ -1561,12 +1570,15 @@ async def audio_file(request: Request, key: str):
 
     # Full file response (with Accept-Ranges so the browser can seek later)
     async def iter_full():  # type: ignore[no-untyped-def]
-        with open(file_path, "rb") as f:
+        f = await asyncio.to_thread(open, file_path, "rb")
+        try:
             while True:
-                data = f.read(chunk_size)
+                data = await asyncio.to_thread(f.read, chunk_size)
                 if not data:
                     break
                 yield data
+        finally:
+            await asyncio.to_thread(f.close)
 
     headers = {
         "Accept-Ranges": "bytes",
@@ -1962,13 +1974,8 @@ async def vision_face_enroll(request: FaceEnrollRequest) -> FaceEnrollResponse:
         ) from e
 
     store = VisionStore()
-    existing = store.get_face_by_name(name)
-    if existing:
-        face_id = int(existing["id"])
-        is_new = False
-    else:
-        face_id = store.add_face(name=name, enrolled_by="popup")
-        is_new = True
+    is_new = store.get_face_by_name(name) is None
+    face_id = store.get_or_create_face(name, enrolled_by="popup")
 
     try:
         store.add_embedding(face_id, embedding, quality_score=1.0)
@@ -1980,14 +1987,11 @@ async def vision_face_enroll(request: FaceEnrollRequest) -> FaceEnrollResponse:
         f"source={request.source_id}"
     )
 
-    # Recognizer-Cache invalidieren, damit der nächste Frame die neue
-    # Identity sofort erkennt (sonst läuft das alte Cache-Mapping bis
-    # zum nächsten Watcher-Restart).
-    try:
-        from .vision_filters.face_recognize import FaceRecognizer
-        FaceRecognizer(store).invalidate()
-    except Exception as e:  # noqa: BLE001
-        log_message(f"⚠️ recognizer invalidate after enroll failed: {e}")
+    # Alle lebenden Recognizer im Prozess informieren, damit der nächste
+    # Frame die neue Identity sofort erkennt (eine frische Instanz zu
+    # invalidieren wäre wirkungslos — siehe bump_enrollment_epoch).
+    from .vision_filters.face_recognize import bump_enrollment_epoch
+    bump_enrollment_epoch()
 
     return FaceEnrollResponse(
         success=True, face_id=face_id, name=name, is_new=is_new,
@@ -2100,12 +2104,9 @@ async def vision_face_delete(face_id: int) -> SystemActionResponse:
     if not face:
         raise HTTPException(status_code=404, detail=f"face {face_id} not found")
     info = store.delete_face_with_assets(face_id)
-    # Recognizer-Cache invalidieren, damit die Identity verschwindet
-    try:
-        from .vision_filters.face_recognize import FaceRecognizer
-        FaceRecognizer(store).invalidate()
-    except Exception as e:  # noqa: BLE001
-        log_message(f"⚠️ recognizer invalidate after delete failed: {e}")
+    # Alle lebenden Recognizer neu laden lassen, damit die Identity verschwindet
+    from .vision_filters.face_recognize import bump_enrollment_epoch
+    bump_enrollment_epoch()
     return SystemActionResponse(
         success=True,
         message=f"deleted face {face_id} ({info['embeddings_deleted']} embeddings)",
@@ -2126,11 +2127,8 @@ async def vision_embedding_delete(embedding_id: int) -> SystemActionResponse:
     ok = store.delete_embedding(embedding_id)
     if not ok:
         raise HTTPException(status_code=404, detail=f"embedding {embedding_id} not found")
-    try:
-        from .vision_filters.face_recognize import FaceRecognizer
-        FaceRecognizer(store).invalidate()
-    except Exception as e:  # noqa: BLE001
-        log_message(f"⚠️ recognizer invalidate after embedding delete failed: {e}")
+    from .vision_filters.face_recognize import bump_enrollment_epoch
+    bump_enrollment_epoch()
     return SystemActionResponse(success=True, message="embedding deleted")
 
 

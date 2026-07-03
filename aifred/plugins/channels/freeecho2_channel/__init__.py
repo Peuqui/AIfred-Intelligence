@@ -167,14 +167,20 @@ async def _alert_worker(room: str) -> None:
                     "warning",
                 )
                 continue
-            evt = _playback_done_event(room)
-            evt.clear()
             with_tts = tts_pcm is not None
             # play_* wartet jetzt bis der Tail-Pump durch ist (audio_end raus).
             if audio_type == "alarm":
                 await orc.play_alarm(with_tts=with_tts, tts_pcm=tts_pcm)
             else:
                 await orc.play_notification(with_tts=with_tts, tts_pcm=tts_pcm)
+            # FRISCHES Event pro Item, publiziert erst NACH der Wiedergabe und
+            # direkt vor send_done: Das frühere clear-then-wait auf dem
+            # wiederverwendeten per-Room-Event konnte während der gesamten
+            # Abspieldauer von einem verspäteten _done eines FRÜHEREN Turns
+            # geweckt werden. Ein stale _done setzt jetzt das alte
+            # Event-Objekt — nicht dieses.
+            evt = asyncio.Event()
+            _playback_done[room] = evt
             # Design A: kanonische Turn-Grenze. done sagt dem Puck "geh auf
             # IDLE + quittiere mit _done". Symmetrisch zum reaktiven Pfad
             # (audio_end + done in jedem Pfad).
@@ -355,6 +361,11 @@ class FreeEchoChannel(BaseChannel):
             _alert_workers.clear()
             _alert_queues.clear()
             _playback_done.clear()
+            # Loop-Referenz zurücksetzen: Nach einem Worker-Respawn würde
+            # run_on_ws_loop sonst run_coroutine_threadsafe auf den TOTEN
+            # Loop schedulen (Coroutine hängt für immer). None → direktes
+            # await beim Aufrufer, bis start() wieder läuft.
+            _ws_loop = None
         finally:
             await runner.cleanup()
 
@@ -365,40 +376,59 @@ class FreeEchoChannel(BaseChannel):
         ws = web.WebSocketResponse()
         await ws.prepare(request)
 
-        room = "unknown"
+        # Kein Frame-Processing vor dem Register-Frame: Der Puck registriert
+        # als Erstes nach dem Connect. Vorher liefen Text-/Audio-Frames unter
+        # dem GETEILTEN Platzhalter room="unknown" — zwei unregistrierte
+        # Verbindungen kollidierten auf demselben Pipeline-/Device-Slot
+        # (Pipeline-Supersession, TTS-Fehlrouting). Jetzt: bis zum Register
+        # werden Frames verworfen (geloggt).
+        room: "str | None" = None
         self.channel_log(f"FreeEcho.2 connection from {request.remote}")
 
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
-                    await self._handle_text(ws, msg.data, room)
-                    # Update room from register message
+                    # Register-Frame zuerst auswerten, damit room gesetzt ist.
                     try:
                         data = json.loads(msg.data)
-                        if data.get("type") == "register":
-                            room = data.get("room", room)
-                            existing = _devices.get(room)
-                            if existing is not None and existing is not ws:
-                                # Another connection already owns this room slot.
-                                # Close the stale socket so it isn't silently
-                                # starved of replies (TTS would otherwise route to
-                                # the new socket). NOTE: without endpoint auth this
-                                # cannot distinguish a reconnect from a hijack — see
-                                # A6 in SECURITY_FINDINGS.md.
-                                self.channel_log(
-                                    f"FreeEcho.2 room '{room}' slot taken over — closing previous socket",
-                                    "warning",
-                                )
-                                try:
-                                    await existing.close(code=1001, message=b"room slot taken over")
-                                except Exception:
-                                    pass
-                            _devices[room] = ws
-                            self.channel_log(f"FreeEcho.2 registered: room={room}")
                     except json.JSONDecodeError:
-                        pass
+                        data = None
+                    if isinstance(data, dict) and data.get("type") == "register":
+                        room = str(data.get("room") or "unknown")
+                        existing = _devices.get(room)
+                        if existing is not None and existing is not ws:
+                            # Another connection already owns this room slot.
+                            # Close the stale socket so it isn't silently
+                            # starved of replies (TTS would otherwise route to
+                            # the new socket). NOTE: without endpoint auth this
+                            # cannot distinguish a reconnect from a hijack — see
+                            # A6 in SECURITY_FINDINGS.md.
+                            self.channel_log(
+                                f"FreeEcho.2 room '{room}' slot taken over — closing previous socket",
+                                "warning",
+                            )
+                            try:
+                                await existing.close(code=1001, message=b"room slot taken over")
+                            except Exception:
+                                pass
+                        _devices[room] = ws
+                        self.channel_log(f"FreeEcho.2 registered: room={room}")
+                    if room is None:
+                        self.channel_log(
+                            f"FreeEcho.2 text frame before register from {request.remote} — dropped",
+                            "warning",
+                        )
+                        continue
+                    await self._handle_text(ws, msg.data, room)
 
                 elif msg.type == WSMsgType.BINARY:
+                    if room is None:
+                        self.channel_log(
+                            f"FreeEcho.2 audio frame before register from {request.remote} — dropped",
+                            "warning",
+                        )
+                        continue
+                    bin_room: str = room
                     # Audio-Pipeline in eigene Task auslagern, sonst blockiert
                     # der lange STT/LLM/TTS-Lauf den async-for-Reader und
                     # ein nachfolgender "wake _stop"-Frame liegt im aiohttp-
@@ -407,15 +437,15 @@ class FreeEchoChannel(BaseChannel):
                     # newest-wins-Supersession: falls noch eine alte Pipeline
                     # laeuft (sollte nicht, der Puck schickt sequenziell)
                     # wird die zuerst gecancelt.
-                    previous = _pipeline_tasks.get(room)
+                    previous = _pipeline_tasks.get(bin_room)
                     if previous is not None and not previous.done():
                         previous.cancel()
                     task = asyncio.create_task(
-                        self._handle_audio(ws, msg.data, room)
+                        self._handle_audio(ws, msg.data, bin_room)
                     )
-                    _pipeline_tasks[room] = task
+                    _pipeline_tasks[bin_room] = task
 
-                    def _cleanup_pipeline(t: asyncio.Task, r: str = room) -> None:
+                    def _cleanup_pipeline(t: asyncio.Task, r: str = bin_room) -> None:
                         if _pipeline_tasks.get(r) is t:
                             _pipeline_tasks.pop(r, None)
 
@@ -427,25 +457,28 @@ class FreeEchoChannel(BaseChannel):
         except Exception as e:
             self.channel_log(f"WebSocket error ({room}): {e}", "error")
         finally:
-            # Laufende Pipeline beim Disconnect canceln — sonst spielt
-            # der Server noch TTS in einen toten Socket.
-            pending = _pipeline_tasks.get(room)
-            if pending is not None and not pending.done():
-                pending.cancel()
-            # Only tear down this room's per-room state if THIS socket still
-            # owns the slot (a takeover by a newer connection must not clobber it).
-            if room in _devices and _devices[room] is ws:
-                del _devices[room]
-                # Cancel the long-lived alert worker (a `while True` blocked on
-                # queue.get() that is otherwise never stopped → one leaked task
-                # per room). It respawns on the next enqueue_alert if needed.
-                worker = _alert_workers.pop(room, None)
-                if worker is not None and not worker.done():
-                    worker.cancel()
-                _alert_queues.pop(room, None)
-                _playback_done.pop(room, None)
-                _pending_wake_agent.pop(room, None)
-            self.channel_log(f"FreeEcho.2 disconnected: room={room}")
+            if room is not None:
+                # Laufende Pipeline beim Disconnect canceln — sonst spielt
+                # der Server noch TTS in einen toten Socket.
+                pending = _pipeline_tasks.get(room)
+                if pending is not None and not pending.done():
+                    pending.cancel()
+                # Only tear down this room's per-room state if THIS socket still
+                # owns the slot (a takeover by a newer connection must not clobber it).
+                if _devices.get(room) is ws:
+                    del _devices[room]
+                    # Cancel the long-lived alert worker (a `while True` blocked on
+                    # queue.get() that is otherwise never stopped → one leaked task
+                    # per room). It respawns on the next enqueue_alert if needed.
+                    worker = _alert_workers.pop(room, None)
+                    if worker is not None and not worker.done():
+                        worker.cancel()
+                    _alert_queues.pop(room, None)
+                    _playback_done.pop(room, None)
+                    _pending_wake_agent.pop(room, None)
+            self.channel_log(
+                f"FreeEcho.2 disconnected: room={room if room is not None else '(unregistered)'}"
+            )
 
         return ws
 

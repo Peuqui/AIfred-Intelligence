@@ -102,11 +102,11 @@ class PersonariumMixin(rx.State, mixin=True):
         """Ein einzelnes Embedding löschen (Crop bleibt auf Disk, wird vom
         Cleanup-TTL erfasst). Aktualisiert Liste + Identity-Count."""
         try:
-            from ..lib.vision_filters.face_recognize import FaceRecognizer
+            from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
             from ..lib.vision_store import VisionStore
             store = VisionStore()
             store.delete_embedding(int(embedding_id))
-            FaceRecognizer(store).invalidate()  # frisch erkennen
+            bump_enrollment_epoch()  # frisch erkennen
         except Exception as e:  # noqa: BLE001
             logger.warning("delete embedding failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
@@ -152,13 +152,10 @@ class PersonariumMixin(rx.State, mixin=True):
         self.personarium_edit_face_id = 0
         self.personarium_edit_name = ""
         self._refresh_personarium_faces()
-        # Recognizer-Cache invalidieren, damit der nächste Frame den
-        # neuen Namen anzeigt.
-        try:
-            from ..lib.vision_filters.face_recognize import FaceRecognizer
-            FaceRecognizer(store).invalidate()
-        except Exception:  # noqa: BLE001
-            pass
+        # Alle lebenden Recognizer neu laden lassen, damit der nächste
+        # Frame den neuen Namen anzeigt.
+        from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
+        bump_enrollment_epoch()
 
     @rx.event
     def personarium_delete_face(self, face_id: int) -> None:
@@ -181,8 +178,5 @@ class PersonariumMixin(rx.State, mixin=True):
             self.personarium_status = f"⚠️ {e}"
             return
         self._refresh_personarium_faces()
-        try:
-            from ..lib.vision_filters.face_recognize import FaceRecognizer
-            FaceRecognizer(store).invalidate()
-        except Exception:  # noqa: BLE001
-            pass
+        from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
+        bump_enrollment_epoch()
