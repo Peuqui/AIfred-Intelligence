@@ -267,7 +267,9 @@ class WorkspacePlugin:
             # ein iframe. URL geht über den vorhandenen /_upload/documents/
             # static mount, kein Kopiervorgang nötig.
             if file_path.suffix.lower() in {".html", ".htm"}:
-                rel = file_path.relative_to(_DOCUMENTS_DIR).as_posix()
+                # file_path is resolved (via _safe_resolve); use the resolved
+                # base too, else a symlink in DATA_DIR makes relative_to raise.
+                rel = file_path.relative_to(_DOCUMENTS_DIR.resolve()).as_posix()
                 return (
                     f"{result_json}\n\n"
                     f"SANDBOX_HTML_URL: /_upload/documents/{rel}\n\n"
