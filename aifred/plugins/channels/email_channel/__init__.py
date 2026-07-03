@@ -348,6 +348,16 @@ class EmailChannel(BaseChannel):
             self.channel_log(f"Email Plugin: blocked mail from {inbound.sender} (not in whitelist)")
             self._update_checkpoint(uid)
             return
+        # Mail-Loop-Schutz (RFC 3834): maschinell erzeugte Post (Autoresponder,
+        # Bounces, Listen) nie automatisch beantworten — Checkpoint trotzdem
+        # setzen, damit die UID nicht erneut ansteht.
+        auto_marker = inbound.metadata.get("auto_response_marker")
+        if auto_marker:
+            self.channel_log(
+                f"Email Plugin: skipped auto-generated mail from {inbound.sender} ({auto_marker})"
+            )
+            self._update_checkpoint(uid)
+            return
         self.channel_log(f"Email Plugin: new mail from {inbound.sender} — {inbound.metadata.get('subject', '?')}")
         await _dispatch_inbound(inbound)
         self._update_checkpoint(uid)
@@ -515,6 +525,26 @@ def _get_existing_uids(imap: imaplib.IMAP4_SSL) -> set[bytes]:
     return set()
 
 
+def _auto_response_marker(msg: "email_lib.message.Message") -> str | None:
+    """Grund-String, wenn die Mail maschinell erzeugt/Massenpost ist, sonst None.
+
+    RFC-3834-Loop-Schutz: Auf Autoresponder (Out-of-Office, Bounces,
+    Newsletter, Listen) darf AIfred nie automatisch antworten — sonst
+    entsteht eine Reply-Endlosschleife zwischen zwei Automaten.
+    """
+    auto_submitted = str(msg.get("Auto-Submitted", "")).strip().lower()
+    if auto_submitted and auto_submitted != "no":
+        return f"Auto-Submitted: {auto_submitted}"
+    precedence = str(msg.get("Precedence", "")).strip().lower()
+    if precedence in ("bulk", "junk", "list"):
+        return f"Precedence: {precedence}"
+    if msg.get("List-Id"):
+        return "List-Id header (mailing list)"
+    if msg.get("X-Auto-Response-Suppress"):
+        return "X-Auto-Response-Suppress header"
+    return None
+
+
 def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> "InboundMessage | None":
     """Fetch a single email by UID and convert to InboundMessage."""
     from .client import _decode_header, _extract_body
@@ -556,6 +586,7 @@ def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> "InboundMess
             "in_reply_to": in_reply_to,
             "references": references,
             "uid": uid.decode(),
+            "auto_response_marker": _auto_response_marker(msg),
         },
     )
 

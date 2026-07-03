@@ -247,6 +247,15 @@ class VisionPlugin:
         de_msg, en_msg = mapping.get(tool_name, ("", ""))
         return de_msg if is_de else en_msg
 
+    # Quellen, die Kamera-Bilder sehen dürfen (Snapshot/Analyze/Event-
+    # Chronik): User am Bildschirm + Voice-Puck ("was siehst du auf der
+    # Kamera?"). Externe Message-Kanäle bekommen die Capture-Tools gar
+    # nicht gelistet — Prompt-Injection aus einer Mail darf kein Fernauge
+    # bekommen (A2). Source-Gate statt WRITE_DATA-Tier, weil der Puck auf
+    # TIER_COMMUNICATE läuft und sonst mit ausgesperrt wäre (Muster A7).
+    # Watch-/Enroll-Steuerung bleibt WRITE_DATA (nur Browser).
+    _CAPTURE_SOURCES = ("browser", "freeecho2")
+
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         # Globaler Toggle: bei vision_mode=off präsentiert das Plugin gar keine
         # Tools — der LLM sieht das Plugin damit als „nicht verfügbar" und
@@ -254,17 +263,23 @@ class VisionPlugin:
         if _vision_mode() == "off":
             return []
         _apply_face_detector_settings()
-        return [
+        tools = [
             self._tool_list_sources(ctx),
             self._tool_rescan_sources(ctx),
-            self._tool_snapshot(ctx),
-            self._tool_analyze(ctx),
+        ]
+        if ctx.source in self._CAPTURE_SOURCES:
+            tools += [
+                self._tool_snapshot(ctx),
+                self._tool_analyze(ctx),
+                self._tool_query_events(ctx),
+            ]
+        tools += [
             self._tool_enroll_face(ctx),
             self._tool_start_watch(ctx),
             self._tool_stop_watch(ctx),
             self._tool_list_active_watches(ctx),
-            self._tool_query_events(ctx),
         ]
+        return tools
 
     # ── list_sources ─────────────────────────────────────────────
 
@@ -448,9 +463,9 @@ class VisionPlugin:
             },
             executor=_exec,
             # Live camera capture → surveillance/exfil vector from external
-            # channels. WRITE_DATA keeps it out of email/telegram/discord
-            # (browser + local Puck keep it).
-            tier=TIER_WRITE_DATA,
+            # channels. Gated by SOURCE in get_tools (browser + Puck only) —
+            # WRITE_DATA would also lock out the Puck (TIER_COMMUNICATE).
+            tier=TIER_READONLY,
         )
 
     # ── analyze ──────────────────────────────────────────────────
@@ -659,8 +674,8 @@ class VisionPlugin:
             },
             executor=_exec,
             # VLM description of camera imagery → exfil vector from external
-            # channels. WRITE_DATA blocks email/telegram/discord.
-            tier=TIER_WRITE_DATA,
+            # channels. Gated by SOURCE in get_tools (browser + Puck only).
+            tier=TIER_READONLY,
         )
 
     # ── enroll_face ──────────────────────────────────────────────
@@ -1042,8 +1057,9 @@ class VisionPlugin:
             },
             executor=_exec,
             # Event history incl. VLM "who was home when" descriptions →
-            # exfil vector from external channels. WRITE_DATA blocks them.
-            tier=TIER_WRITE_DATA,
+            # exfil vector from external channels. Gated by SOURCE in
+            # get_tools (browser + Puck only).
+            tier=TIER_READONLY,
         )
 
 
