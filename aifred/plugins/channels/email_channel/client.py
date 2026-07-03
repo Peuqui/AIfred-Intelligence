@@ -344,12 +344,25 @@ def send_email(
     if reply_to_id:
         msg["In-Reply-To"] = reply_to_id
         msg["References"] = reply_to_id
+    # RFC 3834: AIfred-Mails sind maschinell erzeugt — der Header hält
+    # wohlerzogene Autoresponder (Out-of-Office etc.) davon ab, auf unsere
+    # Antworten wieder zu antworten (Loop-Schutz, Gegenstück zum
+    # Inbound-Skip in _process_uid).
+    msg["Auto-Submitted"] = "auto-replied" if reply_to_id else "auto-generated"
 
     smtp_host = broker.get("email", "smtp_host")
     smtp_port = int(broker.get("email", "smtp_port") or "587")
     ctx = ssl.create_default_context()
-    with smtplib.SMTP(smtp_host, smtp_port) as smtp:
-        smtp.starttls(context=ctx)
+    # Port 465 = implizites TLS (SMTPS). Sonst STARTTLS — smtplib wirft
+    # SMTPNotSupportedError, wenn ein MITM die STARTTLS-Capability strippt;
+    # es gibt keinen stillen Klartext-Fallback (Login erst nach TLS).
+    with (
+        smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx)
+        if smtp_port == 465
+        else smtplib.SMTP(smtp_host, smtp_port)
+    ) as smtp:
+        if smtp_port != 465:
+            smtp.starttls(context=ctx)
         smtp.login(email_user, broker.get("email", "password"))
         smtp.send_message(msg)
 

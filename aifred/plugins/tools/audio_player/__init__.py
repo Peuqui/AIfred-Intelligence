@@ -121,7 +121,28 @@ class AudioPlayerPlugin:
     def is_available(self) -> bool:
         return True
 
+    # Quellen, die Audio STEUERN dürfen: User am Bildschirm + Voice-Puck
+    # (Kern-Use-Case "spiel Musik im Wohnzimmer"). Externe Message-Kanäle
+    # (email/telegram/discord) und unbeaufsichtigte Trigger (scheduler/
+    # webhook/cron) bekommen die Steuer-Tools gar nicht erst gelistet —
+    # eine Prompt-Injection aus einer Mail darf kein nächtliches
+    # Audio-Blasting oder Stop-all auf beliebigen Speakern auslösen (A7).
+    # Die Tools bleiben bewusst TIER_READONLY (sonst wäre der Puck auf
+    # TIER_COMMUNICATE raus) — das Gate läuft über die Source, wie bei den
+    # EPIM-Passwort-Writes (A8). Lese-Tools (status/list/search/targets)
+    # bleiben für alle Quellen verfügbar.
+    _CONTROL_SOURCES = ("browser", "freeecho2")
+
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
+        read_tools = [
+            self._tool_status(ctx),
+            self._tool_list(),
+            self._tool_list_unfinished(),
+            self._tool_targets(ctx),
+            self._tool_search(),
+        ]
+        if ctx.source not in self._CONTROL_SOURCES:
+            return read_tools
         return [
             self._tool_play(ctx),
             self._tool_play_folder(ctx),
@@ -131,13 +152,8 @@ class AudioPlayerPlugin:
             self._tool_seek(ctx),
             self._tool_skip(ctx),
             self._tool_speed(ctx),
-            self._tool_status(ctx),
-            self._tool_list(),
-            self._tool_list_unfinished(),
-            self._tool_targets(ctx),
-            self._tool_search(),
             self._tool_index_rebuild(),
-        ]
+        ] + read_tools
 
     # ── Tool factories ───────────────────────────────────
 

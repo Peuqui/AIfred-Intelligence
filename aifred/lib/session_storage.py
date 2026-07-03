@@ -197,6 +197,9 @@ def _save_accounts(accounts: Dict[str, str]) -> bool:
         tmp_path = ACCOUNTS_FILE.with_suffix(".json.tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(accounts, f, ensure_ascii=False, indent=2)
+        # Passwort-Hashes: nur der Service-User darf lesen (0600). Auf der
+        # tmp-Datei gesetzt, damit die Rechte das os.replace atomar überleben.
+        os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, ACCOUNTS_FILE)
         return True
     except IOError:
