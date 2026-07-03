@@ -11,7 +11,7 @@ from .....lib.function_calling import Tool
 from pathlib import Path
 
 from .....lib.plugin_base import load_tool_description
-from .....lib.security import TIER_READONLY, TIER_WRITE_DATA
+from .....lib.security import TIER_WRITE_DATA
 
 # Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
 # nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
@@ -319,14 +319,14 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
                 "required": [],
             },
             executor=list_all_contacts,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private contact data → block external channels
         ),
         Tool(
             name="google_contacts_list_groups",
             description=load_tool_description(_PLUGIN_DIR, "google_contacts_list_groups"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=list_groups,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private contact data → block external channels
         ),
         Tool(
             name="google_contacts_list_by_group",
@@ -340,7 +340,7 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
                 "required": ["group_name"],
             },
             executor=list_by_group,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private contact data → block external channels
         ),
         Tool(
             name="google_contacts_search",
@@ -356,7 +356,7 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
                 "required": ["query"],
             },
             executor=search_contacts,
-            tier=TIER_READONLY,
+            tier=TIER_WRITE_DATA,  # reads private contact data → block external channels
         ),
         Tool(
             name="google_contacts_create",
