@@ -235,10 +235,18 @@ DEFAULT_CONTACT_FIELDS: dict[int, str] = {
     63: "PLZ 2",
 }
 
-# Reverse map for encoding
-_CONTACT_NAME_TO_ID = {v: k for k, v in DEFAULT_CONTACT_FIELDS.items()}
-
 _LIMIT_MAX = 500
+
+
+def _like_pattern(term: str) -> str:
+    """Wrap a user-supplied search term in ``%…%`` with LIKE wildcards escaped.
+
+    ``%``/``_`` in the term would otherwise act as wildcards (a query for
+    ``100%`` matches everything). Every LIKE condition using this pattern must
+    carry ``ESCAPE '\\'``.
+    """
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def _as_bool(value: object) -> bool:
@@ -274,7 +282,6 @@ class EpimDatabase:
         self._fb_lib = fb_lib
         self._fb_dir = fb_dir
         self._con: Optional[fdb.Connection] = None
-        self._custom_contact_fields: Optional[dict[int, str]] = None
         # Set the Firebird env once at construction — not on every _connect()
         # (that mutated process-global state repeatedly, racy across threads).
         os.environ["FIREBIRD"] = self._fb_dir
@@ -324,18 +331,22 @@ class EpimDatabase:
             self._con = None
 
     def _get_contact_field_map(self) -> dict[int, str]:
-        """Get combined default + custom contact field mapping."""
-        if self._custom_contact_fields is None:
-            self._custom_contact_fields = dict(DEFAULT_CONTACT_FIELDS)
-            con = self._connect()
-            cur = con.cursor()
-            cur.execute(
-                "SELECT IDFIELD, NAME FROM CONTACTFIELDS "
-                "WHERE ENABLED = 1 AND NAME IS NOT NULL"
-            )
-            for row in cur.fetchall():
-                self._custom_contact_fields[row[0]] = row[1].strip()
-        return self._custom_contact_fields
+        """Get combined default + custom contact field mapping.
+
+        Read fresh on every call — CONTACTFIELDS is tiny and can change while
+        AIfred runs (user adds a custom field in EPIM); a forever-cache would
+        decode/encode against a stale map.
+        """
+        field_map = dict(DEFAULT_CONTACT_FIELDS)
+        con = self._connect()
+        cur = con.cursor()
+        cur.execute(
+            "SELECT IDFIELD, NAME FROM CONTACTFIELDS "
+            "WHERE ENABLED = 1 AND NAME IS NOT NULL"
+        )
+        for row in cur.fetchall():
+            field_map[row[0]] = row[1].strip()
+        return field_map
 
     # ============================================================
     # ID GENERATION
@@ -453,11 +464,18 @@ class EpimDatabase:
         params: list = []
 
         if title:
-            conditions.append("UPPER(t.TITLE) LIKE UPPER(?)")
-            params.append(f"%{title}%")
+            conditions.append("UPPER(t.TITLE) LIKE UPPER(?) ESCAPE '\\'")
+            params.append(_like_pattern(title))
         if date_from:
-            conditions.append("t.STARTTIME >= ?")
-            params.append(date_from)
+            # Overlap semantics: an event that STARTS before date_from but
+            # reaches into the window (multi-day event) must match too, so the
+            # lower bound checks ENDTIME. Recurring events need no expansion —
+            # EPIM materializes every occurrence as its own TASKS row
+            # (empirically verified: e.g. one weekly series = 552 rows).
+            conditions.append(
+                "(t.ENDTIME >= ? OR (t.ENDTIME IS NULL AND t.STARTTIME >= ?))"
+            )
+            params.extend([date_from, date_from])
         if date_to:
             # "2026-04-01" → "2026-04-01 23:59:59" (Firebird treats bare dates as 00:00:00)
             dt = date_to.strip()
@@ -466,17 +484,17 @@ class EpimDatabase:
             conditions.append("t.STARTTIME <= ?")
             params.append(dt)
         if location:
-            conditions.append("UPPER(t.LOCATION) LIKE UPPER(?)")
-            params.append(f"%{location}%")
+            conditions.append("UPPER(t.LOCATION) LIKE UPPER(?) ESCAPE '\\'")
+            params.append(_like_pattern(location))
         if tags:
-            conditions.append("UPPER(t.TAGS) LIKE UPPER(?)")
-            params.append(f"%{tags}%")
+            conditions.append("UPPER(t.TAGS) LIKE UPPER(?) ESCAPE '\\'")
+            params.append(_like_pattern(tags))
         if category:
             conditions.append(
                 "t.CATEGORY IN (SELECT IDCATEGORY FROM CATEGORIES "
-                "WHERE UPPER(NAME) LIKE UPPER(?))"
+                "WHERE UPPER(NAME) LIKE UPPER(?) ESCAPE '\\')"
             )
-            params.append(f"%{category}%")
+            params.append(_like_pattern(category))
 
         where = " AND ".join(conditions)
         sql = (
@@ -666,11 +684,11 @@ class EpimDatabase:
         params: list = []
 
         if name:
-            conditions.append("UPPER(SUBJECT) LIKE UPPER(?)")
-            params.append(f"%{name}%")
+            conditions.append("UPPER(SUBJECT) LIKE UPPER(?) ESCAPE '\\'")
+            params.append(_like_pattern(name))
         if tags:
-            conditions.append("UPPER(TAGS) LIKE UPPER(?)")
-            params.append(f"%{tags}%")
+            conditions.append("UPPER(TAGS) LIKE UPPER(?) ESCAPE '\\'")
+            params.append(_like_pattern(tags))
 
         where = " AND ".join(conditions)
         cur.execute(
@@ -824,14 +842,15 @@ class EpimDatabase:
         params: list = []
         match_terms: list[str] = []
         if title:
-            match_terms.append("UPPER(n.TITLE) LIKE UPPER(?)")
-            params.append(f"%{title}%")
+            match_terms.append("UPPER(n.TITLE) LIKE UPPER(?) ESCAPE '\\'")
+            params.append(_like_pattern(title))
         if text:
             match_terms.append(
                 "n.IDNOTE IN (SELECT IDNOTE FROM NOTETABS "
-                "WHERE UPPER(TEXT) LIKE UPPER(?) OR UPPER(NAME) LIKE UPPER(?))"
+                "WHERE UPPER(TEXT) LIKE UPPER(?) ESCAPE '\\' "
+                "OR UPPER(NAME) LIKE UPPER(?) ESCAPE '\\')"
             )
-            params.extend([f"%{text}%", f"%{text}%"])
+            params.extend([_like_pattern(text), _like_pattern(text)])
         if match_terms:
             conditions.append("(" + " OR ".join(match_terms) + ")")
         where = " AND ".join(conditions)
@@ -1025,8 +1044,8 @@ class EpimDatabase:
         params: list = []
 
         if title:
-            conditions.append("UPPER(t.TITLE) LIKE UPPER(?)")
-            params.append(f"%{title}%")
+            conditions.append("UPPER(t.TITLE) LIKE UPPER(?) ESCAPE '\\'")
+            params.append(_like_pattern(title))
         if completed is not None:
             if _as_bool(completed):
                 conditions.append("t.COMPLETION = 100")
@@ -1035,9 +1054,9 @@ class EpimDatabase:
         if list_name:
             conditions.append(
                 "t.IDLIST IN (SELECT IDTODOLIST FROM TODOLISTS "
-                "WHERE UPPER(NAME) LIKE UPPER(?))"
+                "WHERE UPPER(NAME) LIKE UPPER(?) ESCAPE '\\')"
             )
-            params.append(f"%{list_name}%")
+            params.append(_like_pattern(list_name))
 
         where = " AND ".join(conditions)
         cur.execute(
@@ -1164,8 +1183,8 @@ class EpimDatabase:
         conditions = ["pe.STATUS = 0"]
         params: list = []
         if subject:
-            conditions.append("UPPER(pe.SUBJECT) LIKE UPPER(?)")
-            params.append(f"%{subject}%")
+            conditions.append("UPPER(pe.SUBJECT) LIKE UPPER(?) ESCAPE '\\'")
+            params.append(_like_pattern(subject))
 
         where = " AND ".join(conditions)
         cur.execute(

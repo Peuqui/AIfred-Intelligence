@@ -11,6 +11,7 @@ session-scoped cleanup (like images in data/upload/images/{session_id}/).
 """
 
 import asyncio
+import os
 import re
 import shutil
 import uuid
@@ -265,7 +266,20 @@ async def execute_sandboxed_code(
         "--dev", "/dev",
         "--tmpfs", "/tmp",
         "--ro-bind", "/usr", "/usr",
-        "--ro-bind", "/etc", "/etc",
+        # /etc NICHT komplett binden (Info-Disclosure: /etc/ssh, Server-
+        # Configs, Hostnamen …) — nur was Python/matplotlib tatsächlich
+        # brauchen. Netz ist eh unshared, CA-Pfade sind Defense-in-Depth.
+        # *-try: fehlende Pfade (andere Distros) sind kein Fehler.
+        "--ro-bind-try", "/etc/ld.so.cache", "/etc/ld.so.cache",
+        "--ro-bind-try", "/etc/alternatives", "/etc/alternatives",
+        "--ro-bind-try", "/etc/localtime", "/etc/localtime",
+        "--ro-bind-try", "/etc/timezone", "/etc/timezone",
+        "--ro-bind-try", "/etc/passwd", "/etc/passwd",
+        "--ro-bind-try", "/etc/group", "/etc/group",
+        "--ro-bind-try", "/etc/nsswitch.conf", "/etc/nsswitch.conf",
+        "--ro-bind-try", "/etc/fonts", "/etc/fonts",
+        "--ro-bind-try", "/etc/ssl", "/etc/ssl",
+        "--ro-bind-try", "/etc/ca-certificates", "/etc/ca-certificates",
         "--symlink", "usr/bin", "/bin",
         "--symlink", "usr/lib", "/lib",
     ]
@@ -305,11 +319,14 @@ async def execute_sandboxed_code(
     docs_snapshot_time = _time.time()
 
     try:
+        # NPROC-Budget: aktuelle Tasks der UID + erlaubte Sandbox-Kinder
+        # (RLIMIT_NPROC zählt Tasks pro UID — siehe _set_resource_limits).
+        nproc_limit = _count_user_tasks() + SANDBOX_MAX_PROCESSES
         proc = await asyncio.create_subprocess_exec(
             *bwrap_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            preexec_fn=_set_resource_limits,
+            preexec_fn=lambda: _set_resource_limits(nproc_limit),
         )
 
         try:
@@ -366,7 +383,27 @@ def cleanup_session_sandbox(session_id: str) -> int:
     return count
 
 
-def _set_resource_limits() -> None:
+def _count_user_tasks() -> int:
+    """Anzahl laufender Tasks (Threads!) der eigenen UID.
+
+    RLIMIT_NPROC zählt im Kernel Tasks, nicht Prozesse — der AIfred-User hat
+    typischerweise einige hundert Threads (Reflex-Worker, Torch, …). Ein
+    Budget auf Prozessbasis läge weit darunter und ließe bwraps clone() mit
+    EAGAIN scheitern."""
+    uid = os.getuid()
+    count = 0
+    for p in Path("/proc").iterdir():
+        if not p.name.isdigit():
+            continue
+        try:
+            if p.stat().st_uid == uid:
+                count += len(os.listdir(p / "task"))
+        except OSError:
+            continue
+    return count
+
+
+def _set_resource_limits(nproc_limit: int) -> None:
     """Set resource limits for the subprocess (called via preexec_fn)."""
     import resource
 
@@ -376,7 +413,12 @@ def _set_resource_limits() -> None:
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     # RLIMIT_AS is per-process — a fork bomb multiplies past it. Cap the process
     # count so N children can't each claim the full RAM limit.
-    resource.setrlimit(resource.RLIMIT_NPROC, (SANDBOX_MAX_PROCESSES, SANDBOX_MAX_PROCESSES))
+    # ACHTUNG: RLIMIT_NPROC zählt TASKS (Threads) systemweit pro UID, nicht
+    # pro Prozessbaum — ein absolutes Limit unterhalb der aktuellen Task-Zahl
+    # des Users lässt schon bwraps clone() mit EAGAIN scheitern (Sandbox
+    # komplett tot; genau so war der ursprüngliche WS2-Fix kaputt). Der
+    # Caller übergibt daher aktuelle Task-Zahl + SANDBOX_MAX_PROCESSES.
+    resource.setrlimit(resource.RLIMIT_NPROC, (nproc_limit, nproc_limit))
     # RLIMIT_FSIZE: cap single-file writes so sandboxed code can't fill the host
     # disk / tmpfs (RAM) with a giant file (no disk quota exists otherwise).
     max_file_bytes = SANDBOX_MAX_FILE_SIZE_MB * 1024 * 1024

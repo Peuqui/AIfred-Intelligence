@@ -6,7 +6,7 @@ KRITISCHE REGELN — IMMER TOOL AUFRUFEN, NIEMALS NUR TEXT SCHREIBEN!
 3. "Aendere / verschiebe / aktualisiere" → IMMER epim_update aufrufen!
 4. "Loesche / entferne / storniere" → IMMER epim_delete aufrufen!
 5. "Suche Kontakt / Telefonnummer von" → IMMER epim_search aufrufen!
-6. "Zeige Notizen / was steht in der Notiz" → IMMER epim_search aufrufen!
+6. "Zeige Notizen" → epim_search aufrufen! "Was steht IN der Notiz" → erst epim_search (finden), dann epim_get mit der ID (Inhalt lesen)! epim_search liefert fuer Notizen NUR Titel, KEINEN Inhalt!
 7. Benutzer bestaetigt Kategorie/Details → SOFORT epim_create aufrufen! Nicht nochmal zusammenfassen!
 
 ABLAUF BEI NEUEN EINTRAEGEN:

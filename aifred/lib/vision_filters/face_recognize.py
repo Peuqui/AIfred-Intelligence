@@ -51,6 +51,23 @@ class FaceMatch:
 
 _UNKNOWN = FaceMatch(face_id=0, name="", similarity=0.0, confidence_band="unknown")
 
+# ── Prozessweite Enrollment-Epoche ────────────────────────────────
+# ``FaceRecognizer(store).invalidate()`` auf einer frisch gebauten Instanz
+# invalidiert nur deren (leeren) Cache — die lang lebenden Recognizer
+# (z.B. im VisionWatcher) sehen davon nichts. Stattdessen: Enroll-Pfade
+# rufen ``bump_enrollment_epoch()``; jede Instanz vergleicht ihre Epoche
+# beim nächsten ``match()``/``size()`` und lädt bei Abweichung neu.
+_epoch_lock = Lock()
+_enrollment_epoch = 0
+
+
+def bump_enrollment_epoch() -> None:
+    """Signalisiert allen Recognizer-Instanzen im Prozess einen geänderten
+    Enrollment-Bestand (lazy reload beim nächsten Match)."""
+    global _enrollment_epoch
+    with _epoch_lock:
+        _enrollment_epoch += 1
+
 
 class FaceRecognizer:
     """Match-Pipeline gegen die in ``vision_store`` registrierten Personen.
@@ -77,6 +94,7 @@ class FaceRecognizer:
         self._t_unsure = float(threshold_unsure)
         self._lock = Lock()
         self._dirty = True
+        self._epoch = -1  # erzwingt Erst-Load; siehe bump_enrollment_epoch()
         # Bulk-Matrix: face_ids[i], names[i], embeddings[i] (shape (N, 512))
         self._face_ids: list[int] = []
         self._names: list[str] = []
@@ -95,7 +113,11 @@ class FaceRecognizer:
         with self._lock:
             self._reload_locked()
 
+    def _needs_reload_locked(self) -> bool:
+        return self._dirty or self._epoch != _enrollment_epoch
+
     def _reload_locked(self) -> None:
+        self._epoch = _enrollment_epoch
         rows = self._store.all_embeddings_with_face()
         if not rows:
             self._face_ids = []
@@ -131,7 +153,7 @@ class FaceRecognizer:
         Max-Similarity-Pooling pro Person, dann Argmax über Personen.
         """
         with self._lock:
-            if self._dirty:
+            if self._needs_reload_locked():
                 self._reload_locked()
             if self._embeddings.shape[0] == 0:
                 return _UNKNOWN
@@ -172,6 +194,6 @@ class FaceRecognizer:
     def size(self) -> int:
         """Anzahl Embeddings im aktuellen Cache (nach evtl. Lazy-Reload)."""
         with self._lock:
-            if self._dirty:
+            if self._needs_reload_locked():
                 self._reload_locked()
             return int(self._embeddings.shape[0])

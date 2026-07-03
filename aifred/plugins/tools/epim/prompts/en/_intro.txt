@@ -6,7 +6,7 @@ CRITICAL RULES — ALWAYS CALL TOOL, NEVER JUST WRITE TEXT!
 3. "Change / move / update" → ALWAYS call epim_update!
 4. "Delete / remove / cancel" → ALWAYS call epim_delete!
 5. "Find contact / phone number of" → ALWAYS call epim_search!
-6. "Show notes / what's in the note" → ALWAYS call epim_search!
+6. "Show notes" → call epim_search! "What's IN the note" → first epim_search (find), then epim_get with the ID (read content)! epim_search returns ONLY titles for notes, NO content!
 7. User confirms category/details → Call epim_create IMMEDIATELY! Do not summarize again!
 
 WORKFLOW FOR NEW ENTRIES:

@@ -268,6 +268,27 @@ class VisionStore:
             )
             return int(cur.lastrowid or 0)
 
+    def get_or_create_face(self, name: str, *, notes: str = "", enrolled_by: str = "") -> int:
+        """face_id zu ``name`` — legt die Identity an, falls sie fehlt.
+
+        SSoT für alle Enroll-Pfade (Tool, Popup-API, Multipose). Das frühere
+        check-then-insert an den Call-Sites hatte ein TOCTOU-Fenster: zwei
+        parallele Enrolls desselben Namens → UNIQUE-Verletzung. Hier erledigt
+        ``ON CONFLICT(name) DO NOTHING`` + Re-Select beides in EINER
+        Transaktion. Bei bestehender Identity bleiben notes/enrolled_by
+        unverändert (wie bisher)."""
+        now = _now_iso()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO faces (name, notes, enrolled_by, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT(name) DO NOTHING",
+                (name, notes, enrolled_by, now, now),
+            )
+            row = conn.execute(
+                "SELECT id FROM faces WHERE name = ?", (name,)
+            ).fetchone()
+            return int(row["id"])
+
     def get_face_by_id(self, face_id: int) -> dict[str, Any] | None:
         with self._conn() as conn:
             row = conn.execute(

@@ -695,20 +695,19 @@ class VisionPlugin:
             # Pick the highest-scoring detection
             best = max(detections, key=lambda d: d.detection_score)
             store = _store()
-            existing = store.get_face_by_name(name)
-            if existing is not None:
-                face_id = int(existing["id"])
-            else:
-                face_id = store.add_face(
-                    name, notes=notes, enrolled_by=ctx.session_id or "unknown"
-                )
+            # Race-free (TOCTOU): check+insert in one transaction in the store
+            face_id = store.get_or_create_face(
+                name, notes=notes, enrolled_by=ctx.session_id or "unknown"
+            )
             emb_id = store.add_embedding(
                 face_id,
                 best.embedding,
                 quality_score=float(best.detection_score),
             )
-            # Invalidate any cached recognizer
-            _recognizer(store).invalidate()
+            # Signal ALL live recognizers in the process (invalidating a
+            # fresh instance would be a no-op — see bump_enrollment_epoch).
+            from ....lib.vision_filters.face_recognize import bump_enrollment_epoch
+            bump_enrollment_epoch()
             return _ok(
                 face_id=face_id,
                 name=name,
@@ -751,6 +750,17 @@ class VisionPlugin:
             if run_face_detect is not None:
                 overrides["run_face_detect_on_motion"] = bool(run_face_detect)
             cfg = _watch_config_from_settings(overrides)
+            # Camera-profile constraints (SSoT with autostart): an ai_camera
+            # detects on-device — MOG2 gating/YOLO off, edge-AI poll triggers.
+            # Without this the tool path silently bypassed the profile logic.
+            from ....lib.vision_autostart import profile_watch_overrides
+            record = _store().get_source(source_id) or {}
+            profile_overrides = profile_watch_overrides(
+                source_id, record.get("settings") or {}, _load_settings()
+            )
+            if profile_overrides:
+                import dataclasses
+                cfg = dataclasses.replace(cfg, **profile_overrides)
             try:
                 status = await _watcher().start(source_id, cfg)
             except (ValueError, RuntimeError) as e:
