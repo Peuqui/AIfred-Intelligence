@@ -1055,7 +1055,7 @@ def build_sandbox_iframe(url: str) -> str:
         f'style="width: 100%; height: {SANDBOX_IFRAME_HEIGHT}; '
         f'border: 1px solid #444; border-radius: 8px; '
         f'background: #000; margin-top: 0.4em;" '
-        f'sandbox="allow-scripts allow-same-origin" '
+        f'sandbox="allow-scripts" '
         f'scrolling="no" '
         f'loading="lazy"></iframe>'
         f'</details>'
