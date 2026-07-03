@@ -15,7 +15,7 @@ import os
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import fdb
 
@@ -64,73 +64,130 @@ def get_epim_db() -> Optional["EpimDatabase"]:
 # ============================================================
 # FIELDSDATA codec
 # ============================================================
-# Format: [field_id (8 hex)][length (4 hex)][data (UTF-8 bytes)]...
+# Format: [field_id (8 hex)][length (4 hex)][value]...
 # Example: "000000010006Stefan" → field_id=1, length=6, value="Stefan"
+#
+# CRITICAL: `length` is the number of UTF-8 *bytes* of the value, NOT the
+# character count. For ASCII the two are equal, but any value with an umlaut
+# (ä/ö/ü/ß …) has more bytes than characters. Empirically verified against the
+# real database: byte-length reproduces 398/399 contacts exactly, char-length
+# only 298/399 — and a char-based decoder corrupts/drops every field that
+# follows a multibyte character. Therefore the codec works on the UTF-8 byte
+# stream and slices values by byte offset. The 8+4 hex header is pure ASCII, so
+# header byte offsets and char offsets coincide.
+
+
+def _decode_fieldsdata_items(raw: str) -> list[tuple[int, str]]:
+    """Low-level decode: raw hex string → ordered ``[(field_id, value)]``.
+
+    Preserves EVERY field including unknown/custom field ids (no name mapping,
+    no dropping). This is the basis for a lossless read-modify-write merge.
+    """
+    if not raw:
+        return []
+    data = raw.encode("utf-8")
+    out: list[tuple[int, str]] = []
+    pos = 0
+    n = len(data)
+    while pos + 12 <= n:  # 8 (id) + 4 (length) header bytes
+        try:
+            field_id = int(data[pos:pos + 8], 16)
+            length = int(data[pos + 8:pos + 12], 16)
+            pos += 12
+            if pos + length > n:
+                break
+            value = data[pos:pos + length].decode("utf-8", "replace")
+            pos += length
+            out.append((field_id, value))
+        except (ValueError, IndexError):
+            break
+    return out
+
+
+def _encode_fieldsdata_items(items: list[tuple[int, str]]) -> str:
+    """Low-level encode: ordered ``[(field_id, value)]`` → raw hex string.
+
+    The length header is the UTF-8 *byte* count of the value (see module note).
+    """
+    parts: list[str] = []
+    for field_id, value in items:
+        str_value = value if isinstance(value, str) else str(value)
+        byte_len = len(str_value.encode("utf-8"))
+        # The length is a 4-hex-digit field: values longer than 0xFFFF bytes
+        # would overflow to 5 digits and corrupt the format for ALL following
+        # fields. Fail loudly instead of silently writing garbage.
+        if byte_len > 0xFFFF:
+            raise ValueError(
+                f"EPIM field {field_id} too long ({byte_len} bytes, max {0xFFFF})"
+            )
+        parts.append(f"{field_id:08X}{byte_len:04X}{str_value}")
+    return "".join(parts)
+
+
+def _resolve_field_id(name: str, name_to_id: dict[str, int]) -> int | None:
+    """Map a field name to its id. Accepts the ``field_<id>`` form used by the
+    decoder for ids without a known name, so custom fields survive a round-trip."""
+    if name in name_to_id:
+        return name_to_id[name]
+    if name.startswith("field_") and name[6:].isdigit():
+        return int(name[6:])
+    return None
+
 
 def decode_fieldsdata(raw: str, field_map: Optional[dict[int, str]] = None) -> dict[str, str]:
-    """Decode EPIM hex-encoded FIELDSDATA to a dict.
+    """Decode EPIM hex-encoded FIELDSDATA to a ``{field_name: value}`` dict.
 
     Args:
         raw: Hex-encoded field string from database.
         field_map: Optional mapping of field_id → human-readable name.
-
-    Returns:
-        Dict of field_name → value.
     """
-    if not raw:
-        return {}
-
     result: dict[str, str] = {}
-    pos = 0
-    while pos + 12 <= len(raw):  # Need at least 8 (id) + 4 (length)
-        try:
-            field_id = int(raw[pos:pos + 8], 16)
-            length = int(raw[pos + 8:pos + 12], 16)
-            pos += 12
-            if pos + length > len(raw):
-                break
-            value = raw[pos:pos + length]
-            pos += length
-
-            if field_map and field_id in field_map:
-                key = field_map[field_id]
-            else:
-                key = f"field_{field_id}"
-            result[key] = value
-        except (ValueError, IndexError):
-            break
-
+    for field_id, value in _decode_fieldsdata_items(raw):
+        if field_map and field_id in field_map:
+            key = field_map[field_id]
+        else:
+            key = f"field_{field_id}"
+        result[key] = value
     return result
 
 
 def encode_fieldsdata(fields: dict[str, str], name_to_id: dict[str, int]) -> str:
-    """Encode a dict back to EPIM hex-encoded FIELDSDATA.
+    """Encode a ``{field_name: value}`` dict back to EPIM FIELDSDATA.
 
-    Format per field: 8-char hex field_id + 4-char hex string_length + raw value.
-    Length is CHARACTER count (not byte count) — matching EPIM's native format.
-
-    Args:
-        fields: Dict of field_name → value.
-        name_to_id: Mapping of human-readable name → field_id.
-
-    Returns:
-        Hex-encoded field string for database.
+    Names that resolve to no field id are skipped; the ``field_<id>`` form is
+    accepted so custom fields keep their id.
     """
-    parts: list[str] = []
+    items: list[tuple[int, str]] = []
     for name, value in fields.items():
-        if name not in name_to_id:
-            continue
-        field_id = name_to_id[name]
-        str_value = str(value) if not isinstance(value, str) else value
-        # The length is a 4-hex-digit field: values longer than 0xFFFF chars
-        # would overflow to 5 digits and corrupt the format for ALL following
-        # fields. Fail loudly instead of silently writing garbage.
-        if len(str_value) > 0xFFFF:
-            raise ValueError(
-                f"EPIM field {name!r} too long ({len(str_value)} chars, max {0xFFFF})"
-            )
-        parts.append(f"{field_id:08X}{len(str_value):04X}{str_value}")
-    return "".join(parts)
+        field_id = _resolve_field_id(name, name_to_id)
+        if field_id is not None:
+            items.append((field_id, value))
+    return _encode_fieldsdata_items(items)
+
+
+def merge_fieldsdata(
+    existing_raw: str, new_fields: dict[str, str], name_to_id: dict[str, int]
+) -> str:
+    """Read-modify-write merge: keep every existing field, overlay ``new_fields``.
+
+    EPIM stores all of a record's fields concatenated in ONE column. A partial
+    update must therefore re-encode the FULL set — writing only the changed
+    fields (as the old code did) wipes everything else. Merging at the raw
+    field-id level preserves fields whose id has no human-readable name
+    (custom fields decoded as ``field_<id>``), which a name-level merge drops.
+    """
+    items = _decode_fieldsdata_items(existing_raw)
+    index = {field_id: i for i, (field_id, _) in enumerate(items)}
+    for name, value in new_fields.items():
+        field_id = _resolve_field_id(name, name_to_id)
+        if field_id is None:
+            continue  # unmappable new field name — cannot assign an id
+        if field_id in index:
+            items[index[field_id]] = (field_id, value)
+        else:
+            items.append((field_id, value))
+            index[field_id] = len(items) - 1
+    return _encode_fieldsdata_items(items)
 
 
 # ============================================================
@@ -350,6 +407,29 @@ class EpimDatabase:
         cur = con.cursor()
         cur.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? AND STATUS = 0", (entity_id,))
         return cur.fetchone() is not None
+
+    def _read_fieldsdata_for_update(self, cur: Any, table: str, id_col: str, entity_id: int) -> str:
+        """Return the existing FIELDSDATA of a row, for a read-modify-write merge.
+
+        Raises if FIELDSDATA2 (the BLOB variant) is populated: reads prefer that
+        column, but EPIM's semantics for it are undocumented/reverse-engineered
+        and it is unused in the current database (0/399 contacts). Rather than
+        guess and risk silent corruption, refuse the update loudly.
+        ``table``/``id_col`` are internal constants, never LLM input.
+        """
+        cur.execute(
+            f"SELECT FIELDSDATA, FIELDSDATA2 FROM {table} WHERE {id_col} = ?",
+            (entity_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return ""
+        if row[1] is not None:
+            raise ValueError(
+                f"{table} row {entity_id} uses FIELDSDATA2 (BLOB) storage — "
+                "update refused to avoid corrupting an unsupported format."
+            )
+        return row[0] or ""
 
     # ============================================================
     # TASKS / CALENDAR
@@ -683,9 +763,12 @@ class EpimDatabase:
             updates.append("SUBJECT = ?")
             params.append(name)
         if fields is not None:
+            existing_raw = self._read_fieldsdata_for_update(
+                cur, "CONTACTS", "IDCONTACT", contact_id
+            )
             name_to_id = {v: k for k, v in self._get_contact_field_map().items()}
             updates.append("FIELDSDATA = ?")
-            params.append(encode_fieldsdata(fields, name_to_id))
+            params.append(merge_fieldsdata(existing_raw, fields, name_to_id))
         if tags is not None:
             updates.append("TAGS = ?")
             params.append(tags)
@@ -1174,10 +1257,13 @@ class EpimDatabase:
             updates.append("SUBJECT = ?")
             params.append(subject)
         if fields is not None:
+            existing_raw = self._read_fieldsdata_for_update(
+                cur, "PASSENTRIES", "IDPASSENTRY", entry_id
+            )
             cur.execute("SELECT IDFIELD, NAME FROM PASSENTRYFIELDS WHERE ENABLED = 1")
             pw_name_to_id = {r[1].strip(): r[0] for r in cur.fetchall() if r[1]}
             updates.append("FIELDSDATA = ?")
-            params.append(encode_fieldsdata(fields, pw_name_to_id))
+            params.append(merge_fieldsdata(existing_raw, fields, pw_name_to_id))
         if tags is not None:
             updates.append("TAGS = ?")
             params.append(tags)
