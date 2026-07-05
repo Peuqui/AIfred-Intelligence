@@ -99,8 +99,11 @@ Server antwortet mit `Content-Type: audio/wav` (oder `audio/ogg`),
 Body ist die Audio-Datei. Kein JSON-Wrapping um die Bytes — wir sparen
 uns das base64-Decodieren auf der AIfred-Seite.
 
-Implementierung pro Engine: [`aifred/lib/audio_processing.py`](../../../aifred/lib/audio_processing.py)
-in `generate_speech_<engine>()`.
+Implementierung pro Engine: die `generate_speech()`-Methode der jeweiligen
+`TTSEngine`-Subklasse unter
+[`aifred/lib/tts_engines/<engine>.py`](../../../aifred/lib/tts_engines/)
+(z.B. `xtts.py`). `audio_processing.py` dispatcht nur noch auf
+`eng.generate_speech_async(...)`.
 
 ---
 
@@ -204,9 +207,9 @@ Bubble, plus ~1–2 GB Headroom. Tunable via Env-Var (siehe Kommentare).
 3. **Idle-Watchdog** mit `<ENGINE>_KEEP_ALIVE` ergänzen.
 4. **Vorwärmung im Server-Code**, wenn möglich (Voice-Embeddings in
    `_clone_prompts`/`_custom_voices` o.ä. beim Startup).
-5. **`generate_speech_<engine>()`** in `aifred/lib/audio_processing.py` —
-   nur Text + Speaker-Name + Sprache senden. Antwort als Audio-Body
-   schreiben, niemals base64.
+5. **`generate_speech()`-Methode** in der neuen `TTSEngine`-Subklasse
+   unter `aifred/lib/tts_engines/<engine>.py` — nur Text + Speaker-Name +
+   Sprache senden. Antwort als Audio-Body schreiben, niemals base64.
 6. **Engine-Registrierung** in `aifred/lib/tts_engines/` als
    `TTSEngine`-Subklasse + Eintrag in `TTS_ENGINES`-Dict.
 7. **`<ENGINE>_VRAM_RESERVE_MB`** in `aifred/lib/config.py`.

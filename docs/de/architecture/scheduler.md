@@ -30,7 +30,7 @@ Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
                     ┌──────────▼──────────┐
                     │   AIfred Engine     │
                     │   (mit max_tier +   │
-                    │    source="cron")   │
+                    │  channel="scheduler")│
                     └──────────┬──────────┘
                                │
                     ┌──────────▼──────────┐

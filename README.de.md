@@ -1725,18 +1725,22 @@ Für produktiven Betrieb als Service sind vorkonfigurierte Service-Dateien im `s
 #### Schnellinstallation
 
 ```bash
-# 1. Service-Dateien kopieren
-sudo cp systemd/aifred-chromadb.service /etc/systemd/system/
-sudo cp systemd/aifred-intelligence.service /etc/systemd/system/
+# 1. Services installieren (die Unit-Dateien NICHT von Hand kopieren!)
+#    Die Unit-Dateien enthalten Platzhalter __PROJECT_DIR__/__USER__, die
+#    nur dieses Skript (per sed) ersetzt. Es rendert + kopiert die Units
+#    und Drop-ins, macht daemon-reload, aktiviert + startet sie und legt
+#    den llama-swap-restart-Symlink in ~/bin an. Ein einfaches `cp` würde
+#    die Platzhalter stehen lassen — der Service startet dann nie.
+sudo ./scripts/install-services.sh
 
-# 2. Services aktivieren und starten
-sudo systemctl daemon-reload
-sudo systemctl enable aifred-chromadb.service aifred-intelligence.service
-sudo systemctl start aifred-chromadb.service aifred-intelligence.service
-
-# 3. Status prüfen
+# 2. Status prüfen
 systemctl status aifred-chromadb.service
 systemctl status aifred-intelligence.service
+
+# 3. Ersten User anlegen (für Login erforderlich)
+#    Ohne Whitelist-Eintrag wird JEDE Registrierung in der Web-UI abgelehnt.
+./aifred-admin add deinusername
+# Danach in der Web-UI mit Username + Passwort registrieren
 ```
 
 Siehe [systemd/README.md](systemd/README.md) für Details, Troubleshooting und Monitoring.
@@ -1775,6 +1779,27 @@ llama-swap-restart  # Autoscan erkennt das neue Modell, fügt YAML-Eintrag hinzu
 7. Rechtsklick auf den Kanal → "Kanal-ID kopieren" (Entwicklermodus: Discord Einstellungen → Erweitert → Entwicklermodus)
 8. In AIfred: Plugin Manager → Discord → Zahnrad → Bot-Token + Channel-ID eintragen → Speichern & Aktivieren
 
+#### Benutzerverwaltung (aifred-admin CLI)
+
+AIfred erfordert eine Benutzer-Authentifizierung. User werden über die Admin-CLI verwaltet:
+
+```bash
+./aifred-admin users              # Whitelist anzeigen (wer sich registrieren darf)
+./aifred-admin add <username>     # User zur Whitelist hinzufügen
+./aifred-admin remove <username>  # Aus der Whitelist entfernen
+./aifred-admin accounts           # Registrierte Accounts anzeigen
+./aifred-admin create <username> [password]   # Account + Whitelist in einem Schritt (fragt PW ab, wenn ausgelassen)
+./aifred-admin delete <username>  # Account löschen (mit Bestätigung)
+./aifred-admin delete <username> --sessions  # Auch die Sessions des Users löschen
+```
+
+**Ablauf:**
+1. Admin trägt den Username in die Whitelist ein: `./aifred-admin add alice`
+2. User registriert sich in der Web-UI mit Username + Passwort
+3. User kann sich nun von jedem Gerät mit seinen Zugangsdaten anmelden
+
+**⚠️ Wichtig:** Ohne Whitelist-Eintrag wird jede Registrierung in der Web-UI abgelehnt.
+
 #### Service-Dateien (Referenz)
 
 **1. ChromaDB Service** (`systemd/aifred-chromadb.service`):
@@ -1793,21 +1818,33 @@ ExecStop=/usr/bin/docker compose stop chromadb
 ```
 
 **2. AIfred Intelligence Service** (`systemd/aifred-intelligence.service`):
+
+> ℹ️ Vereinfachter/illustrativer Auszug — die ausgelieferte Unit-Datei
+> enthält mehr (Drop-ins, einen `ExecStartPre`-Reflex-Patch, zusätzliche
+> Environment-Variablen). Deploye immer die echte Datei via
+> `sudo ./scripts/install-services.sh`, das ersetzt die
+> `__USER__`/`__PROJECT_DIR__`-Platzhalter für dich.
+
 ```ini
 [Unit]
 Description=AIfred Intelligence Voice Assistant (Reflex Version)
 After=network.target ollama.service aifred-chromadb.service
-Wants=ollama.service
-Requires=aifred-chromadb.service
+Wants=ollama.service aifred-chromadb.service
 
 [Service]
 Type=simple
+# Optionale .env-Datei (Secrets, machine-spezifische Overrides). Das
+# `-`-Präfix bedeutet "kein Fehler, wenn die Datei fehlt". Der
+# Produktionsmodus wird hier über AIFRED_ENV=prod in der .env gesetzt —
+# es gibt KEIN `--env prod`-Flag auf der ExecStart-Zeile (rxconfig.py
+# liest AIFRED_ENV aus der Umgebung).
+EnvironmentFile=-__PROJECT_DIR__/.env
 User=__USER__
 Group=__USER__
 WorkingDirectory=__PROJECT_DIR__
 Environment="PATH=__PROJECT_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --env prod --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
 KillMode=control-group
 RestartSec=10
@@ -1818,7 +1855,9 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-**⚠️ Wichtig: Ersetze die Platzhalter** `__USER__` und `__PROJECT_DIR__` mit deinen tatsächlichen Werten!
+**⚠️ Wichtig:** Bearbeite `/etc/systemd/system/` nicht von Hand — führe
+`sudo ./scripts/install-services.sh` aus, das die Platzhalter `__USER__`
+und `__PROJECT_DIR__` für dich ersetzt.
 
 #### Umgebungskonfiguration (.env)
 

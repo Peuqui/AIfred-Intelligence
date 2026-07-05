@@ -31,7 +31,7 @@ Rate Limit Check ────── Max tool calls per time window per channel
 Chain Depth Check ───── Max 10 tool calls per request
     |
     v
-Rule of Two ─────────── Write-tier tools from external channels blocked
+Rule of Two ─────────── Write-tier tools from external channels need confirmation
     |
     v
 Tool Execution ──────── Plugin code runs
@@ -69,10 +69,28 @@ TIER_ADMIN = 4          # Shell, unrestricted code execution (future)
 |---------|----------|-----------|
 | Browser | 4 (Admin) | User is present |
 | Email/Discord/Telegram | 1 (Communicate) | External message, untrusted |
-| Cron Job | 1 (Communicate) | Unattended |
+| FreeEcho.2 | 1 (Communicate) | Voice terminal, configurable via Plugin Manager |
+| Scheduler | 0 (Read-only) | Internal cron trigger, per-job override via `metadata["max_tier"]` |
 | Webhook | 0 (Read-only) | Externally triggered |
+| Cron | 1 (Communicate) | **Legacy** — kept for compat only, replaced by `scheduler` |
 
 Defined in `security.py: DEFAULT_TIER_BY_SOURCE`.
+
+### Owner Elevation & User Override
+
+The tier for a concrete message is not read straight from the table but
+resolved by `security.py: resolve_tier_for_sender()`. Priority:
+
+1. **Internal-trigger override** — `scheduler`/`webhook` pin their tier via
+   `metadata["max_tier"]` (the job/webhook config is authoritative).
+2. **User override** — configurable per channel via
+   `settings.json → channel_security_tiers` (Plugin Manager).
+3. **Channel default** from `DEFAULT_TIER_BY_SOURCE`.
+
+If the sender is the **owner** (first entry in the channel whitelist, checked
+via `_is_owner()`), the tier is raised to `max(channel_default, OWNER_TIER)`.
+`OWNER_TIER = TIER_WRITE_DATA (2)` — so the owner may create/update data over
+external channels, but not delete system files (no `WRITE_SYSTEM`/`ADMIN`).
 
 ### Enforcement
 
@@ -106,10 +124,15 @@ Design principle: An agent may have at most 2 of 3 simultaneously:
 - **(B)** Access to sensitive systems
 - **(C)** Can change state
 
-If all 3 apply -> action is blocked.
+If all 3 apply -> action requires confirmation (human-in-the-loop); it is not
+hard-blocked.
 
-Implemented in `security.py: needs_confirmation()`:
-If `source != "browser"` AND `tool.tier >= TIER_WRITE_DATA` -> block.
+Implemented in `security.py: needs_confirmation(source, tool_tier, max_tier)`:
+If `source != "browser"` AND `tool.tier >= TIER_WRITE_DATA` -> confirmation needed.
+
+**Exception (owner override):** If the tier was already granted for the sender
+by `resolve_tier_for_sender()` — i.e. `tool_tier <= max_tier` (e.g. owner
+sending via Telegram) — no confirmation is required.
 
 ---
 
@@ -212,7 +235,7 @@ Every tool call is recorded in `data/security/audit.db`:
 |-------|-------------|
 | timestamp | When |
 | session_id | Session |
-| source | browser/email/discord/cron/webhook |
+| source | browser/email/discord/telegram/freeecho2/scheduler/webhook (cron = legacy) |
 | tool_name | Tool name |
 | tool_tier | Security tier |
 | tool_args_preview | First 500 chars of arguments |

@@ -74,7 +74,7 @@ und gibt Text raus. Die Kanal-Plugins kuemmern sich um den Rest.
 ```python
 @dataclass
 class InboundMessage:
-    channel: str            # "email", "discord", "telegram", "signal"
+    channel: str            # "email", "discord", "telegram", "freeecho2", "scheduler"
     channel_id: str         # Thread-ID, Channel-ID, Conversation-ID
     sender: str             # E-Mail-Adresse, Discord-User, Telegram-User
     text: str               # Der eigentliche Nachrichteninhalt
@@ -124,7 +124,10 @@ Wenn eine Nachricht an einen bestimmten Agenten gerichtet ist, wird dieser aufge
 - "@Salomo ..." → `run_salomo_direct_response()`
 - Custom Agents → entsprechende Funktion
 
-Erkennung ueber einfache Namens-Suche im Text. Die Funktionen existieren bereits.
+Die Ziel-Agent-Erkennung laeuft LLM-basiert in `message_processor.py:
+process_inbound()`. Interne Trigger koennen den Agenten hart pinnen, indem sie
+`metadata["wake_agent"]` setzen (z.B. der Scheduler, siehe `scheduler.py`) —
+dann greift kein Rerouting durch die Intent-Erkennung.
 
 ---
 
@@ -199,9 +202,10 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
 - [ ] Allowlist-Konfiguration
 
 ### Paket 6: Weitere Kanaele
-- [ ] Discord Bot Plugin
-- [ ] Telegram Bot Plugin
-- [ ] Signal Plugin
+- [x] Discord Bot Plugin (`plugins/channels/discord_channel/`)
+- [x] Telegram Bot Plugin (`plugins/channels/telegram_channel/`)
+- [x] FreeEcho.2 Voice-Kanal (`plugins/channels/freeecho2_channel/`)
+- [x] Auto-Discovery + Registrierung via `message_hub.py: register_channel_workers()`
 - [ ] Kanaluebergreifendes Routing
 
 ---

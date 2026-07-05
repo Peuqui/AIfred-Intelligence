@@ -66,7 +66,7 @@ Updated when hardware changes or new llama.cpp releases introduce relevant chang
 ### Environment Variables
 
 ```bash
-export CUDA_DEVICE_ORDER=PCI_BUS_ID    # Consistent GPU ordering
+export CUDA_DEVICE_ORDER=FASTEST_FIRST # Fastest GPU becomes CUDA0 (see tensor-split section)
 export GGML_CUDA_GRAPH_OPT=1           # 10-15% faster token generation
 ```
 
@@ -407,7 +407,7 @@ da keine Dequantisierung noetig ist. Daher startet jede KV-Chain mit f16.
 ### Handlungsanleitung: Neue lokale GPU hinzufuegen
 
 1. **Physisch installieren**, Treiber pruefen: `nvidia-smi` muss alle GPUs zeigen
-2. **llama-swap neustarten**: `systemctl --user restart llama-swap`
+2. **llama-swap neustarten**: `sudo systemctl restart llama-swap`
    - Autoscan erkennt die neue GPU via Fingerprint-Vergleich
    - **Alle Profile** (manuell + autoscan) bekommen automatisch den neuen Tensor-Split
 3. **Kalibrierung ausfuehren**: In AIfred UI "Context kalibrieren" fuer wichtige Modelle
@@ -533,37 +533,42 @@ models:
 
 ```bash
 # llama-swap on port 11435 (next to Ollama's 11434)
-CUDA_DEVICE_ORDER=PCI_BUS_ID GGML_CUDA_GRAPH_OPT=1 \
-  llama-swap --config ~/.config/llama-swap/config.yaml --listen :11435
+CUDA_DEVICE_ORDER=FASTEST_FIRST GGML_CUDA_GRAPH_OPT=1 \
+  ~/bin/llama-swap --config ~/.config/llama-swap/config.yaml --listen :11435 --watch-config
 ```
 
 ### Systemd Service
 
 ```ini
-# ~/.config/systemd/user/llama-swap.service
+# /etc/systemd/system/llama-swap.service  (system-level service)
 [Unit]
 Description=llama-swap - LLM Model Proxy for llama.cpp
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+User=mp
+Group=mp
 ExecStartPre=/path/to/venv/bin/python /path/to/scripts/llama-swap-autoscan.py
-ExecStart=/home/mp/llama-swap --config /home/mp/.config/llama-swap/config.yaml --listen :11435
+ExecStart=/home/mp/bin/llama-swap --config /home/mp/.config/llama-swap/config.yaml --listen :11435 --watch-config
 Restart=on-failure
 RestartSec=5
 Environment=PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
 Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
+Environment=CUDA_DEVICE_ORDER=FASTEST_FIRST
+Environment=GGML_CUDA_GRAPH_OPT=1
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 ```
 
 ```bash
-# Service management
-systemctl --user enable llama-swap
-systemctl --user start llama-swap
-systemctl --user status llama-swap
-journalctl --user -u llama-swap -f
+# Service management (system-level → sudo)
+sudo systemctl enable llama-swap
+sudo systemctl start llama-swap
+sudo systemctl status llama-swap
+sudo journalctl -u llama-swap -f
 ```
 
 ### API Endpoints

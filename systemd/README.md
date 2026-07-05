@@ -201,7 +201,11 @@ After applying, **recalibrate your models** in the AIfred UI to take advantage o
 
 ## Notes
 
-- ChromaDB must start before AIfred (ensured via `Requires=`)
+- AIfred prefers ChromaDB to start first — expressed via `Wants=` (a soft
+  dependency, not `Requires=`). This is deliberate: a ChromaDB recreate
+  (e.g. the nightly docker auto-update) would otherwise cascade-stop AIfred
+  and kill running indexing jobs. AIfred starting without ChromaDB is less
+  ideal than that cascade-restart, hence `Wants=`.
 - AIfred restarts automatically on failure (`Restart=always`)
 - Logs are persistently stored in journald
 - Services start automatically on system boot (when enabled)
