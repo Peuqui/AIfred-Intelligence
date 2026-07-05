@@ -14,6 +14,9 @@ from typing import Any, TypedDict
 
 import reflex as rx
 
+from datetime import datetime
+
+from ..lib.config import DEBUG_MESSAGES_MAX
 from ..lib.logging_utils import CONSOLE_SEPARATOR, log_message
 
 # Meldungs-Puffer des Kalibrier-Background-Tasks. Der Wrapper
@@ -444,7 +447,7 @@ class CalibrationMixin(rx.State, mixin=True):
     # ------------------------------------------------------------------
 
     def _cal_debug(self, msg: str) -> None:
-        """Debug-Ausgabe der Kalibrier-Pfade — Logfile + Prozess-Puffer.
+        """Debug-Ausgabe der Kalibrier-Pfade — Logfile (sofort) + Konsolen-Puffer.
 
         Der Kalibrierlauf ist ein Background-Task: add_debug würde den
         State außerhalb des Locks mutieren (ImmutableStateError). Der
@@ -452,11 +455,14 @@ class CalibrationMixin(rx.State, mixin=True):
         Hub-Owner auf die AKTIVE Browser-Session lösen dort den
         mtime-Sync aus — der lud die Session im Sekundentakt neu und zog
         dem User beim Senden den Eingabe-State weg (beobachtet
-        2026-07-05 17:38). Stattdessen: Puffer, den der Wrapper in
-        seinem 2-s-Cancel-Check-Lock in die State-Konsole flusht.
-        Ein Schreiber + ein Leser im selben Event-Loop → plain list."""
+        2026-07-05 17:38). Stattdessen: sofort ins Logfile, dazu eine
+        emit-zeit-gestempelte Zeile in den Puffer, den der Wrapper unter
+        Lock direkt in ``debug_messages`` flusht — NICHT über add_debug,
+        sonst landete die Meldung ein ZWEITES Mal im Logfile (Doppler
+        beobachtet 2026-07-05 18:xx). Ein Schreiber + ein Leser im selben
+        Event-Loop → plain list."""
         log_message(msg)
-        _cal_debug_buffer.append(msg)
+        _cal_debug_buffer.append(f"{datetime.now().strftime('%H:%M:%S')} | {msg}")
 
     @rx.event
     def cancel_calibration(self):
@@ -523,10 +529,10 @@ class CalibrationMixin(rx.State, mixin=True):
                 if now - last_drain >= 2.0:
                     last_drain = now
                     async with self:
-                        # Meldungen des Laufs in die Konsole flushen +
-                        # Cancel-Flag im selben Lock lesen.
-                        while _cal_debug_buffer:
-                            self.add_debug(_cal_debug_buffer.pop(0))  # type: ignore[attr-defined]
+                        # Gepufferte Zeilen DIREKT in die Konsole (schon
+                        # zeitgestempelt) — nicht über add_debug, das würde
+                        # sie ein zweites Mal ins Logfile schreiben.
+                        self._flush_cal_console()
                         cancelled = self.calibration_cancel
                     if cancelled:
                         was_cancelled = True
@@ -546,10 +552,20 @@ class CalibrationMixin(rx.State, mixin=True):
             async with self:
                 # Finaler Drain — auch die Meldungen der finally-Blöcke
                 # und der Abbruch-Warnung müssen noch in die Konsole.
-                while _cal_debug_buffer:
-                    self.add_debug(_cal_debug_buffer.pop(0))  # type: ignore[attr-defined]
+                self._flush_cal_console()
                 self.is_calibrating = False
                 self.calibration_cancel = False
+
+    def _flush_cal_console(self) -> None:
+        """Gepufferte, bereits zeitgestempelte Kalibrier-Zeilen in die
+        Reflex-Konsole schieben. NUR unter ``async with self`` aufrufen.
+        Reassign statt append — Reflex reagiert nur auf Identitätswechsel."""
+        if not _cal_debug_buffer:
+            return
+        self.debug_messages = [  # type: ignore[attr-defined]
+            *self.debug_messages, *_cal_debug_buffer,  # type: ignore[attr-defined]
+        ][-DEBUG_MESSAGES_MAX:]
+        _cal_debug_buffer.clear()
 
     def _warn_if_calibration_incomplete(self) -> None:
         """Nach einem User-Abbruch laut sagen, wenn das aktive Modell keine

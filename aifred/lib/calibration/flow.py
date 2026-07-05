@@ -18,6 +18,7 @@ from ..config import (
     LLAMACPP_CALIBRATION_PORT,
     LLAMACPP_CALIBRATION_PRECISION,
     LLAMACPP_HYBRID_HEALTH_TIMEOUT,
+    LLAMACPP_MMPROJ_PREPROCESS_MARGIN_MB,
     LLAMACPP_VISION_VRAM_RESERVE,
     LLAMACPP_VRAM_SAFETY_MARGIN,
     MIN_FREE_RAM_MB,
@@ -195,8 +196,12 @@ async def calibrate_llamacpp_model(
     # Vision models keep extra reserve for image-preprocessing buffers.
     safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN
     if _is_vision_model(full_cmd):
-        safety_margin += LLAMACPP_VISION_VRAM_RESERVE
-        yield f"Vision model detected — safety margin +{LLAMACPP_VISION_VRAM_RESERVE} MB"
+        vision_reserve = _vision_reserve_mb(full_cmd)
+        safety_margin += vision_reserve
+        yield (
+            f"Vision model detected — safety margin +{vision_reserve} MB "
+            f"(mmproj weights + preprocessing)"
+        )
 
     budget = build_budget(gpus, safety_margin=safety_margin)
     if any(reserve_vec):
@@ -324,11 +329,9 @@ async def calibrate_llamacpp_model(
                         failed_solo_free, failed_solo_ctx,
                         gpus[active[0]].free_mb, c.max_context,
                     )
-                yield (
-                    f"  [{label} / KV={kv}] math max_ctx="
-                    f"{format_number(c.max_context)} < native — "
-                    f"try next config"
-                )
+                # max_ctx steht schon in der Kandidatenzeile darüber —
+                # hier nur noch das Urteil.
+                yield f"  [{label} / KV={kv}] < native — try next config"
                 continue
 
             # Math says fit at native → real probe + shift loop
@@ -437,12 +440,9 @@ async def calibrate_llamacpp_model(
             base_kv=final.kv_quant,
         )
         if speed_pick is not None:
-            yield (
-                f"Phase E: speed variant — {speed_pick.n_gpus} GPUs, "
-                f"KV={speed_pick.kv_quant}, "
-                f"split={_split_str(speed_pick.tensor_split)}, "
-                f"target ctx={format_number(speed_pick.max_context)}"
-            )
+            # Nur der Phasen-Marker — Split/ctx/Frei-MB stehen in der
+            # folgenden Kandidatenzeile (sonst dieselben Zahlen doppelt).
+            yield "Phase E: speed variant (fewer GPUs, fastest class)"
             yield _format_candidate_line(speed_pick, gpus)
             # lock_active_gpus=True: speed must use FEWER GPUs than base.
             # If shifts can't fit at target ctx, ctx-shrink iteratively
@@ -566,6 +566,30 @@ def _enumerate_gpu_configs(
             configs.append(mixed)
 
     return configs
+
+
+def _vision_reserve_mb(full_cmd: str) -> int:
+    """Vision-Reserve aus der ECHTEN mmproj-Dateigröße statt Pauschale.
+
+    fit-params kennt ``--mmproj`` nicht (das Flag sprengt das Tool, es
+    wird ihm deshalb nie übergeben) — die Projektor-Gewichte sind für
+    die gesamte Prognose unsichtbar und müssen als Aufschlag rein. Der
+    fixe 768-MB-Puffer war z.B. beim 27B bereits unterdeckt (mmproj-F16
+    = 927 MB). Jetzt: Dateigröße + 256 MB Preprocessing-Marge, mindestens
+    der bisherige messwertbasierte Puffer. Der MTP-Drafter braucht
+    keinen eigenen Term: seine Gewichte stecken im Haupt-GGUF (in
+    model.size_mb enthalten), sein Draft-KV (n_max=3) ist vernachlässigbar.
+    """
+    m = re.search(r"--mmproj\s+(\S+)", full_cmd)
+    if m:
+        p = Path(m.group(1))
+        if p.exists():
+            size_mb = int(p.stat().st_size / (1024 ** 2))
+            return max(
+                LLAMACPP_VISION_VRAM_RESERVE,
+                size_mb + LLAMACPP_MMPROJ_PREPROCESS_MARGIN_MB,
+            )
+    return LLAMACPP_VISION_VRAM_RESERVE
 
 
 def _is_vision_model(cmd: str) -> bool:
@@ -2365,7 +2389,10 @@ async def calibrate_tts_variant_from_base(
 
     safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN
     if _is_vision_model(full_cmd):
-        safety_margin += LLAMACPP_VISION_VRAM_RESERVE
+        # Gleiche mmproj-echte Reserve wie im Basis-Pfad — sonst rechnet
+        # die Varianten-Kalibrierung mit einer anderen (kleineren) Marge
+        # als die Basis, deren Split sie erbt.
+        safety_margin += _vision_reserve_mb(full_cmd)
     budget = build_budget(gpus, safety_margin=safety_margin)
     if any(reserve_vec):
         from dataclasses import replace as _replace
@@ -2493,6 +2520,24 @@ async def calibrate_tts_variant_from_base(
                     for i in range(len(gpus))
                 )
                 _active_adj = [i for i, x in enumerate(_adj) if x > 0]
+                # vram_model nachrüsten: Ohne Kostenmodell sind der
+                # messungsbasierte Smart-Refine und der Math-Vorfilter im
+                # Verify tot — bei OOM blieben nur Blind-Shifts (je Versuch
+                # ein Minuten-Modell-Load). _project_cell läuft hier NUR als
+                # Modell-Lieferant; sein Integer-Split wird bewusst
+                # verworfen (die Projektion selbst scheitert an der
+                # VLM-Reserve-Grenze — der Grund für diese proportionale
+                # Ableitung, siehe Kommentar oben). Liefert die Projektion
+                # nichts, läuft der Verify wie bisher ohne Modell — das
+                # wird geloggt, nicht verschluckt.
+                _model_cell, _model_reason = await _project_cell(
+                    model, gpus, budget, full_cmd, base_kv, _active_adj,
+                )
+                if _model_cell is None:
+                    yield (
+                        f"  cost-model projection unavailable ({_model_reason}) "
+                        f"— refine falls back to blind shifts"
+                    )
                 _vlm_cand = Candidate(
                     mode="gpu",
                     n_gpus=len(_active_adj),
@@ -2501,7 +2546,7 @@ async def calibrate_tts_variant_from_base(
                     tensor_split=tuple(_adj),
                     max_context=base_ctx,
                     predicted_free_mb=_pred_free,
-                    vram_model=None,
+                    vram_model=_model_cell.vram_model if _model_cell else None,
                 )
                 _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
                 _newly_active = [i for i in _active_adj if i not in active]

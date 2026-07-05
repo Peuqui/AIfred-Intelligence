@@ -994,6 +994,16 @@ RESEARCH_DEEP_URLS = 7
 # cause cudaMalloc OOM → GGML_ASSERT crash during ggml_gallocr reallocation.
 LLAMACPP_VISION_VRAM_RESERVE = 768  # MB (~682 measured + margin)
 
+# Preprocessing-Marge, die bei der Kalibrierung auf die ECHTE
+# mmproj-Dateigröße aufgeschlagen wird (Bild-Preprocessing-Buffer neben
+# den Projektor-Gewichten). Die Vision-Reserve ist dann
+# max(LLAMACPP_VISION_VRAM_RESERVE, mmproj_size + diese Marge) —
+# fit-params kennt --mmproj nicht, daher läuft der Projektor komplett
+# über diesen Aufschlag statt über die Tool-Prognose.
+LLAMACPP_MMPROJ_PREPROCESS_MARGIN_MB = 256
+
+# Preprocessing-Marge OB
+
 # Extra headroom added on top of the stress-prewarm-measured VLM peak
 # before subtracting from the LLM's VRAM budget. Covers Ollama
 # compute-graph reallocation spikes and small drift between
