@@ -610,13 +610,22 @@ class ChatMixin(rx.State, mixin=True):
             backend_type=self.backend_type,  # type: ignore[attr-defined]
             xtts_force_cpu=self.xtts_force_cpu,  # type: ignore[attr-defined]
         )
-        try:
-            while True:
-                msg = next(gen)
-                self.add_debug(f"🔊 {msg}")  # type: ignore[attr-defined]
-                yield
-        except StopIteration:
-            pass
+        # Jeder next()-Schritt des Generators ist ein KOMPLETTER blockierender
+        # Brocken (Container-Start + Model-Load: bis zu Minuten). Ein nacktes
+        # next(gen) fror hier den ganzen Event-Loop ein — granian hielt den
+        # Worker für tot und killte ihn mitten in der Inferenz (Browser:
+        # "Connection Timeout", Antwort verloren). to_thread hält den Loop
+        # frei; next(gen, sentinel) statt StopIteration-Fangen, weil eine aus
+        # to_thread propagierende StopIteration im async-Kontext zum
+        # RuntimeError wird. Der FreeEcho2-Pfad konsumiert denselben
+        # Generator bereits per Executor-Thread.
+        _done = object()
+        while True:
+            msg = await asyncio.to_thread(next, gen, _done)
+            if msg is _done:
+                break
+            self.add_debug(f"🔊 {msg}")  # type: ignore[attr-defined]
+            yield
 
     async def _phase_pre_message_compression(
         self, llm_client: Any, detected_language: str,
