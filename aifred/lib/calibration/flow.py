@@ -1078,6 +1078,7 @@ async def _verify_and_refine(
                     total_layers=model.total_layers,
                     model_size_mb=model.size_mb,
                     current_context=current_ctx,
+                    keep_active_set=lock_active_gpus,
                 )
                 if refined is not None:
                     shifted = refined
@@ -1599,21 +1600,23 @@ def _refine_split_from_measurement(
     total_layers: int,
     model_size_mb: float,
     current_context: int,
+    keep_active_set: bool = False,
 ) -> tuple[tuple[float, ...] | None, str]:
-    """Propose a layer swap when an active GPU is near OOM.
+    """Propose a whole-layer shift when an active GPU is near OOM.
 
     Returns ``(new_split, reason)``.  ``new_split`` is ``None`` when no
-    swap would improve the balance; ``reason`` is a short human string
-    the caller can log so it's visible that a swap was considered.
+    downstream card can take the layer within the reserve; ``reason`` is a
+    short human string the caller logs.
 
-    Rule 1: refine only when the tightest active GPU has less than
-            ``2 × safety_margin`` free — otherwise nothing to fix.
-    Rule 2: each candidate swap (bottleneck → dest) is accepted only
-            if the predicted post-swap minimum free VRAM exceeds the
-            current minimum by more than ``safety_margin``.  Cross-
-            class swaps (RTX ↔ P40) are allowed — the math is the
-            single arbiter, since slow-class GPUs often have more
-            headroom and can rescue a tight fastest-class GPU.
+    Läuft, wenn der Server LÄDT, aber die knappste Karte < ``2 ×
+    safety_margin`` frei hat. Die Zielwahl nutzt DIESELBE Glas-Kaskade wie
+    der Blind-Shift (``_cascade_destination``, SSOT) — die nächste Karte
+    nach dem Engpass, die den Layer samt KV noch ≥ ``safety_margin`` frei
+    hält, sonst die übernächste bis ans Ende. FRÜHER wählte dieser Pfad
+    statt der Kaskade das Ziel mit der "besten Balance" (höchstes Minimum
+    über alle Karten) — eine zweite, widersprüchliche Verteil-Strategie im
+    selben Kalibrierer, die Last auf langsame Karten legte und nicht
+    randvoll packte. Jetzt fahren beide Pfade die Kaskade.
     """
     from .optimizer import _per_gpu_coefficients
 
@@ -1663,38 +1666,31 @@ def _refine_split_from_measurement(
     if step < 1.0:
         return None, f"CUDA{bottleneck} has no whole layer left to shift"
 
-    save_on_bottleneck = step * save_per_layer
-    best_dest: int | None = None
-    best_new_min_free: float = float(b_free)
-    rejected_reasons: list[str] = []
-    for dest, d_free in active_free[1:]:
-        cost_on_dest = step * (mb_per_layer + slope_per_layer[dest] * current_context)
-        new_b = b_free + save_on_bottleneck
-        new_d = d_free - cost_on_dest
-        new_min = min(new_b, new_d)
-        if new_min > best_new_min_free + budget.safety_margin:
-            best_new_min_free = new_min
-            best_dest = dest
-        else:
-            rejected_reasons.append(
-                f"CUDA{bottleneck}→CUDA{dest}: new min would be "
-                f"{int(new_min)} MB"
-            )
-
-    if best_dest is None:
-        rejected_summary = "; ".join(rejected_reasons) or "no candidates"
+    # Zielwahl über die gemeinsame Glas-Kaskade (SSOT, identisch zum
+    # Blind-Shift): nächste Karte nach dem Engpass, die den/die Layer samt
+    # KV noch ≥ safety_margin frei hält. measured_free_mb ist in verify()
+    # bereits reserve-bereinigt; die Layer-Kosten enthalten Gewicht + KV
+    # bei diesem ctx (per-Karte-Slope aus dem vram_model).
+    layer_cost = tuple(
+        mb_per_layer + slope_per_layer[i] * current_context
+        for i in range(len(gpus))
+    )
+    dest = _cascade_destination(
+        bottleneck, list(current_split), verify_r.measured_free_mb,
+        layer_cost, budget.safety_margin, step, keep_active_set,
+    )
+    if dest is None:
         return None, (
-            f"CUDA{bottleneck} tight at {b_free} MB but no swap improves "
-            f"balance ({rejected_summary})"
+            f"CUDA{bottleneck} tight at {b_free} MB — no downstream card "
+            f"holds {step:g} more layer(s) within reserve"
         )
 
     new_split = list(current_split)
     new_split[bottleneck] -= step
-    new_split[best_dest] += step
+    new_split[dest] += step
     return (
         tuple(new_split),
-        f"CUDA{bottleneck} ({b_free} MB) → CUDA{best_dest} ({step:g} layer): "
-        f"predicted new min {int(best_new_min_free)} MB",
+        f"CUDA{bottleneck} ({b_free} MB) → CUDA{dest} ({step:g} layer, cascade)",
     )
 
 
@@ -1803,6 +1799,46 @@ def _math_max_fitting_ctx(
     return best_ctx, best_free
 
 
+def _cascade_destination(
+    src: int,
+    layers: list[float],
+    free_estimate: tuple[int, ...],
+    layer_cost_per_gpu: tuple[float, ...],
+    min_free_mb: int,
+    step: float,
+    keep_active_set: bool,
+) -> int | None:
+    """Glas-Kaskade: die NÄCHSTE Karte nach ``src`` (in GPU-Listenreihenfolge
+    = compute_cap DESC, total_mb DESC), die nach ``+step`` Layern noch
+    ≥ ``min_free_mb`` frei bleibt — sonst die übernächste, bis ans Ende.
+    ``None`` wenn keine Karte die Reserve hält.
+
+    SSOT der Zielwahl für BEIDE Shift-Pfade — den Blind-Shift (Load-OOM,
+    Frei aus Load-Sampling) UND den Smart-Refine (geladen-aber-knapp, Frei
+    aus Steady-State-Messung). Damit fahren beide dieselbe Kaskaden-
+    Strategie (schnelle Karten randvoll bis zur Reserve, langsame erst bei
+    Überlauf), egal welche Datenquelle das reserve-bereinigte Frei-Estimate
+    liefert. Kosten pro Layer = Gewicht + KV bei diesem ctx
+    (``layer_cost_per_gpu``), nicht nur Gewicht.
+
+    ``keep_active_set``: idle Karten NICHT aktivieren (Speed-Variante).
+    Ohne ``free_estimate``: Rückfall auf 'erste nachgelagerte (aktive) Karte'.
+    """
+    for i in range(src + 1, len(layers)):
+        if keep_active_set and layers[i] <= 0:
+            continue
+        if free_estimate and i < len(free_estimate):
+            cost = step * (
+                layer_cost_per_gpu[i] if i < len(layer_cost_per_gpu) else 0.0
+            )
+            if free_estimate[i] - cost >= min_free_mb:
+                return i
+        elif layers[i] > 0 or not keep_active_set:
+            # Keine Frei-Schätzung → erste nachgelagerte (aktive) Karte.
+            return i
+    return None
+
+
 def _shift_one_layer_blind(
     split: tuple[float, ...],
     gpus: list[GPU],
@@ -1863,28 +1899,11 @@ def _shift_one_layer_blind(
     if layers[src] <= _STEP:
         return None  # can't shift further
 
-    # Kandidaten in Kaskaden-Reihenfolge: alle Karten nach src (aktiv wie
-    # idle), bei keep_active_set nur die schon aktiven. Erste nehmen, die
-    # nach +STEP die Reserve hält. Kosten pro Karte = Gewicht + KV eines
-    # Layers (layer_cost_per_gpu, aus dem vram_model) — NICHT nur Gewicht,
-    # sonst gilt eine Karte fälschlich als aufnahmefähig und OOMt am KV.
-    dest: int | None = None
-    for i in range(src + 1, len(layers)):
-        if keep_active_set and layers[i] <= 0:
-            continue
-        if free_estimate and i < len(free_estimate):
-            cost = _STEP * (
-                layer_cost_per_gpu[i] if i < len(layer_cost_per_gpu) else 0.0
-            )
-            if free_estimate[i] - cost >= min_free_mb:
-                dest = i
-                break
-        else:
-            # Keine Frei-Schätzung → alte Heuristik: erste nachgelagerte
-            # aktive Karte, sonst erste idle.
-            if layers[i] > 0 or not keep_active_set:
-                dest = i
-                break
+    # Zielwahl über die gemeinsame Kaskaden-SSOT (identisch zum Smart-Refine).
+    dest = _cascade_destination(
+        src, layers, free_estimate, layer_cost_per_gpu,
+        min_free_mb, _STEP, keep_active_set,
+    )
     if dest is None:
         return None
 
