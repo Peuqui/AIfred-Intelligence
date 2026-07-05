@@ -1099,7 +1099,29 @@ class FreeEchoChannel(BaseChannel):
 
             # process_inbound calls send_reply automatically (via auto_reply)
             # User question already flushed to session above (early browser update)
-            await process_inbound(inbound, user_saved=True)
+            outbound = await process_inbound(inbound, user_saved=True)
+
+            # Kalibrier-Gate: process_inbound hat abgelehnt (GPUs gehören der
+            # Messung). Kein TTS möglich/erwünscht — stattdessen den LOKALEN
+            # Notification-Sound des Pucks triggern (audio_flag ohne TTS),
+            # damit der User hört, dass der Service gerade nicht kann,
+            # statt vor einem stummen Puck zu stehen.
+            if outbound is not None and outbound.metadata.get("calibration_gate"):
+                try:
+                    from ....lib import audio_channels
+                    ch = audio_channels.resolve(f"freeecho2:{room}")
+                    orc = (
+                        ch.get_orchestrator(room)
+                        if ch is not None and hasattr(ch, "get_orchestrator")
+                        else None
+                    )
+                    if orc is not None:
+                        await orc.play_notification(with_tts=False)
+                except Exception as e:  # noqa: BLE001
+                    self.channel_log(
+                        f"[FreeEcho.2 {room}] calibration-gate notification failed: {e}",
+                        "warning",
+                    )
 
             total_time = _fe2_time.monotonic() - _fe2_t0
             self.channel_log(f"[FreeEcho.2 {room}] ← Pipeline complete ({total_time:.1f}s)")

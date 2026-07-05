@@ -740,6 +740,19 @@ class ChatMixin(rx.State, mixin=True):
             self.add_debug("⚠️ Already generating, please wait...")
             return
 
+        # Hartes Kalibrier-Gate: Die GPUs gehören während einer Kalibrierung
+        # exklusiv der Messung. Früher blockierte der Foreground-State-Lock
+        # Requests zufällig mit; seit die Kalibrierung ein Background-Event
+        # ist, würde ein Send hier llama-swap mitten im Verify neu starten
+        # und die Messwerte verderben (beobachtet 2026-07-05 17:17).
+        from ..lib.calibration_gate import is_calibration_active
+        if is_calibration_active():
+            self.add_debug(
+                "🛑 Inference blocked: calibration in progress — "
+                "wait for it to finish or press the stop button"
+            )
+            return
+
         await self._ensure_backend_initialized()  # type: ignore[attr-defined]
 
         # No main model selected — e.g. the configured one was deleted and

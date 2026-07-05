@@ -254,6 +254,44 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
     from .session_storage import get_session_title
     from .plugin_registry import get_channel
 
+    # Kalibrier-Gate: Während einer GPU-Kalibrierung gehört das VRAM
+    # exklusiv der Messung — eine Inferenz würde llama-swap neu starten
+    # und die Messwerte verderben. Die Hub-Kanäle laufen an Reflex vorbei,
+    # deshalb das prozessweite Flag statt is_calibrating (Session-State).
+    # Höfliche Text-Absage statt stillem Verschlucken (der Rückgabewert
+    # wird von den Aufrufern nur geloggt — gesendet wird hier). Ausnahme
+    # freeecho2: eine Voice-Reply würde die TTS-Synthese anwerfen — genau
+    # die GPU-Kollision, die das Gate verhindert; dort bleibt es beim Log.
+    from .calibration_gate import is_calibration_active
+    if is_calibration_active():
+        log_message(
+            f"🛑 Inbound via {message.channel} rejected: calibration in progress"
+        )
+        gate_reply = OutboundMessage(
+            channel=message.channel,
+            channel_id=message.channel_id,
+            recipient=message.sender,
+            text=(
+                "AIfred is currently calibrating GPU profiles and cannot "
+                "process requests. Please try again in a few minutes."
+            ),
+            # Marker für Kanäle mit eigenem Absage-Signal: der Puck spielt
+            # darauf seinen LOKALEN Notification-Sound (kein TTS nötig).
+            metadata={"calibration_gate": True},
+        )
+        gate_plugin = get_channel(message.channel)
+        if gate_plugin is not None and message.channel != "freeecho2":
+            if hasattr(gate_plugin, "build_reply_metadata"):
+                gate_reply.metadata.update(gate_plugin.build_reply_metadata(message))
+            try:
+                await gate_plugin.send_reply(gate_reply, message)
+                gate_reply.metadata["sent"] = True
+            except Exception as e:  # noqa: BLE001
+                log_message(
+                    f"⚠️ Calibration-gate reply via {message.channel} failed: {e}"
+                )
+        return gate_reply
+
     # 0. Determine security tier for this channel
     from .security import resolve_tier_for_sender
     max_tier = resolve_tier_for_sender(message.channel, message.sender, message.metadata)
