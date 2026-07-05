@@ -166,6 +166,51 @@ bekam und sich beide am Ende **gleich knapp** an der Safety-Margin treffen.
 
 ## Algorithmus
 
+### Layer-Shift: Glas-Kaskade (SSOT)
+
+Wenn ein Probe OOMt, wird umverteilt — genau **ein ganzer Layer** von der
+überladenen GPU weg. Sowohl der Blind-Shift in Phase 1
+([`_shift_one_layer_blind()`](../../aifred/lib/calibration/flow.py)) als auch
+das messgestützte Refinement
+([`_refine_split_from_measurement()`](../../aifred/lib/calibration/flow.py))
+wählen das Ziel über **dieselbe** SSOT-Funktion
+[`_cascade_destination()`](../../aifred/lib/calibration/flow.py). Zwei
+verschiedene Verteil-Philosophien für dasselbe Problem sind verboten
+(siehe [First-GPU-Handicap](#first-gpu-handicap) und die
+Projektregel „einmal getroffene Architekturentscheidungen strikt
+durchhalten").
+
+**Kaskade statt „leerste GPU":** Der Layer läuft nicht zur global leersten
+Karte, sondern **über** zur nächsten Karte in Fastest-First-Reihenfolge, die
+ihn noch trägt. `_cascade_destination()` iteriert `src+1 … len(gpus)-1` und
+nimmt die **erste** GPU `i` mit
+`reserve_adjusted_free[i] − step × layer_cost[i] ≥ min_free`. Findet keine
+nachfolgende Karte Platz, gibt es kein Ziel (→ ctx-Shrink als Notausgang).
+So bleibt die schnellste Klasse randvoll und der Spillover fließt geordnet
+nach unten — die Glas-Kaskade aus den [User-Präferenzen](#user-präferenzen-verbindlich).
+
+**Ganze Layer, nie Bruchteile (`_STEP = 1.0`):** llama.cpp mit `-sm layer`
+platziert ausschließlich **ganze** Layer; ein fraktionaler `--tensor-split`
+wird intern auf ganze Layer gerundet. Ein 0,5er-Shift bewegt darum physisch
+oft **gar nichts**, kostet aber einen vollen Modell-Reload (bei einem 122B-
+Modell ~125 GB Lesen). Deshalb bewegt ein Shift immer genau einen ganzen
+Layer, und der finale fraktionale Split wird per
+[`_quantize_split_to_layers()`](../../aifred/lib/calibration/flow.py)
+(Largest-Remainder-Rundung) auf ganze Layer gerundet, die exakt
+`total_layers` summieren.
+
+**Reserve-adjusted free:** Geprüft wird nicht der rohe nvidia-smi-Free-Wert,
+sondern der um Side-Channel-Reserven (residente TTS-/VLM-Container)
+bereinigte `load_min_free`. Eine V100, die 14 GB „frei" meldet, aber 14 GB
+für einen laufenden TTS-Container reserviert, gilt als **voll** → der Shift
+überspringt sie. Ohne diese Bereinigung würde ein Layer auf eine nur nominal
+freie Karte gedumpt und der nächste Probe OOMt erneut.
+
+**Idle-Skip bei gelocktem Active-Set:** Trägt der Aufrufer `keep_active_set`
+(Speed-Variante, konstante GPU-Zahl), überspringt die Kaskade idle GPUs
+(`split[i] == 0`) — sonst würde ein Shift die Speed-Variante heimlich zur
+Base-Konfig aufblähen.
+
 ### Phase 1: Min-GPUs für native ctx
 
 ```
@@ -180,8 +225,8 @@ für n in 1..len(gpus):                          // sortiert fastest-first
     // Probe schlug fehl trotz Math-OK
     // SHIFT-LOOP läuft bei NATIVE ctx (nicht shrunk!) — Ziel: max ctx halten
     bis 15 Layer-Shifts:
-        shift 1 Layer von voller zu leerster ACTIVE GPU
-        // (idle GPU NICHT aktivieren — hält n GPUs konstant)
+        shift 1 GANZEN Layer via _cascade_destination (fastest-first,
+          reserve-adjusted, idle NICHT aktivieren — hält n GPUs konstant)
         real_probe(shifted_split, native_ctx)
         wenn passt: BASE = candidate mit shifted_split; BREAK
     
@@ -218,7 +263,8 @@ für n_speed in (n_base - 1) downto 1:
     wenn ctx >= MIN_USEFUL_CONTEXT_TOKENS: real_probe(candidate.split, target_ctx)
     
     bei OOM, in dieser Reihenfolge:
-      1. Shifts bei target_ctx (max 15) — KEIN Aktivieren idle GPUs
+      1. Shifts bei target_ctx (max 15) via _cascade_destination
+         mit keep_active_set=True — KEIN Aktivieren idle GPUs
       2. Wenn alle Shifts fail: BINARY SEARCH ctx runter
          lo = MIN_USEFUL_CONTEXT_TOKENS (32768 aus config.py)
          hi = target_ctx
@@ -311,6 +357,31 @@ ermittelt und als `extra_safety_margin` für die nächste Math-Suche
 durchgereicht. Math wählt damit direkt einen realistischen ctx weiter
 unten (nur 3–5 Probes statt 25+).
 
+## Betrieb: Gate, Cancel, Timeout
+
+Die Kalibration läuft als Reflex-Background-Event
+([`calibrate_context`](../../aifred/state/_calibration_mixin.py), `@rx.event(background=True)`),
+damit die UI während der minutenlangen Probes bedienbar bleibt (Abbrechen-
+Button, Debug-Konsole). Progress-Meldungen laufen über einen modulweiten
+Puffer, der unter dem State-Lock geleert wird — so triggert das Debugging
+keinen Session-Sync-Sturm.
+
+- **Prozessweites Inferenz-Gate**
+  ([`calibration_gate.py`](../../aifred/lib/calibration_gate.py)): Während
+  einer laufenden Kalibration wird die reguläre Chat-Inferenz geblockt —
+  ein zweiter llama-server auf denselben GPUs würde die VRAM-Messung
+  verfälschen. `set_calibration_active()` / `is_calibration_active()`.
+- **Sofort-Abbruch:** Der Abbrechen-Button setzt `request_cancel()`; die
+  Verify-Schleife
+  ([`verifier.py`](../../aifred/lib/calibration/verifier.py)) prüft
+  `is_cancel_requested()` beim Server-Warten und vor jedem Spawn und beendet
+  Test-Server sauber.
+- **Größen-skalierter Health-Timeout:** Der Ladetimeout wächst mit der
+  Modellgröße (`LLAMACPP_HEALTH_TIMEOUT_PER_GB` in config.py, Summe über
+  Multi-Part-GGUF). Ein 122B-Modell braucht ~750 s zum Laden — ein fixer
+  360-s-Timeout meldete früher fälschlich „Fehlschlag", obwohl der Server
+  noch lud.
+
 ## KI-Calibration (Alternative)
 
 Bei `calibration_mode = "ai"`: ein DashScope-Qwen-Agent steuert den Loop
@@ -327,6 +398,11 @@ handhaben als der deterministische Algorithmus.
 - ctx über `native_context` pushen — physikalisch unmöglich, llama.cpp clampt.
 - Mehr GPUs aktivieren als nötig "weil's etwas mehr ctx geben würde".
 - ctx reduzieren wenn der Layer-Shift-Loop noch nicht ausgeschöpft ist.
+- Bruchteile eines Layers shiften — llama.cpp rundet ohnehin auf ganze
+  Layer, ein Sub-Layer-Shift bewegt physisch oft nichts und verbrennt nur
+  einen vollen Modell-Reload.
+- Einen Layer auf eine GPU dumpen, deren freier VRAM nur nominal frei ist
+  (Side-Channel-Reserve) — immer reserve-adjusted prüfen.
 
 ## Wichtige Invarianten
 
@@ -342,7 +418,10 @@ handhaben als der deterministische Algorithmus.
 - Algorithmus: [`aifred/lib/calibration/flow.py`](../../aifred/lib/calibration/flow.py)
   - `calibrate_llamacpp_model()` — Entry Point
   - `_verify_and_refine()` — Verify + Shift + Native-Push
-  - `_shift_one_layer_blind()` — Layer-Shift-Logik
+  - `_shift_one_layer_blind()` — Blind-Shift (Phase 1)
+  - `_refine_split_from_measurement()` — messgestütztes Refinement
+  - `_cascade_destination()` — SSOT Ziel-Wahl (Kaskade, reserve-adjusted, idle-skip)
+  - `_quantize_split_to_layers()` — fraktionalen Split auf ganze Layer runden
 - Optimizer: [`aifred/lib/calibration/optimizer.py`](../../aifred/lib/calibration/optimizer.py)
   - `fill_fastest_first()` — greedy fill nach Speed-Klasse
 - Hardware: [`aifred/lib/process_utils.py`](../../aifred/lib/process_utils.py)

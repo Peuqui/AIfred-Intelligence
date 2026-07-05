@@ -7,7 +7,8 @@ Alles bleibt geladen bis die nächste Anforderung etwas anderes braucht.
 
 ## GPU-TTS Engines
 
-Nur **XTTS** und **MOSS-TTS** belegen VRAM (Docker-Container mit GPU).
+Die vier GPU-Engines **XTTS**, **MOSS-TTS**, **Qwen3-TTS** und **Fish-Speech**
+belegen VRAM (jeweils Docker-Container mit GPU).
 Piper, Edge, eSpeak, DashScope brauchen kein VRAM.
 
 ## FreeEcho.2 — Fälle

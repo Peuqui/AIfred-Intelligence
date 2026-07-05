@@ -60,10 +60,11 @@ ls ~/llama.cpp/build/bin/llama-server
 ## 3. Install llama-swap
 
 ```bash
-# Download the binary from GitHub Releases
+# Download the binary from GitHub Releases into ~/bin/
 # https://github.com/mostlygeek/llama-swap/releases
-wget -O ~/llama-swap https://github.com/mostlygeek/llama-swap/releases/latest/download/llama-swap-linux-amd64
-chmod +x ~/llama-swap
+mkdir -p ~/bin
+wget -O ~/bin/llama-swap https://github.com/mostlygeek/llama-swap/releases/latest/download/llama-swap-linux-amd64
+chmod +x ~/bin/llama-swap
 
 # Create the config directory
 mkdir -p ~/.config/llama-swap
@@ -113,23 +114,49 @@ The script reports `= Unverändert`, `♻️ Aktualisiert`, `✅ Neu installiert
 or `🛡 Behalten` per file. `daemon-reload` and `restart` only fire when
 a unit actually changed — re-runs on a clean system are no-ops.
 
+The installer renders `systemd/aifred-intelligence.service` (and the
+chromadb / corpus units) into `/etc/systemd/system/`, substitutes the
+real user + project paths, reloads systemd and enables the units. These
+are **system-level services** (`WantedBy=multi-user.target`, running as
+`User=<you>`) — manage them with `sudo systemctl`, not `systemctl --user`.
+
+> **Tip:** `enable`/`disable` and editing units always need `sudo` (they
+> write to `/etc/systemd/system/`). The runtime operations `restart`,
+> `stop` and `status` can be run **without** `sudo` if you add a PolKit rule
+> allowing your user to manage these specific units — handy for the
+> frequent `restart llama-swap` / `restart aifred-intelligence` during
+> tuning. Without such a rule, prefix them with `sudo`.
+
+The AIfred unit runs Reflex directly via the venv Python:
+
+```
+ExecStartPre=/bin/bash <project>/scripts/patch-vite-config.sh
+ExecStart=<project>/venv/bin/python -m reflex run \
+    --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+```
+
 ### llama-swap service (with autoscan)
 
-```bash
-mkdir -p ~/.config/systemd/user
+llama-swap is **not** part of `install-services.sh` — it is a separate
+system-level unit you create once under `/etc/systemd/system/`. The
+binary lives in `~/bin/llama-swap` (from Section 3):
 
-cat > ~/.config/systemd/user/llama-swap.service << 'EOF'
+```bash
+sudo tee /etc/systemd/system/llama-swap.service > /dev/null << EOF
 [Unit]
 Description=llama-swap - LLM Model Proxy
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStartPre=/home/YOUR_USER/Projekte/AIfred-Intelligence/venv/bin/python \
-    /home/YOUR_USER/Projekte/AIfred-Intelligence/scripts/llama-swap-autoscan.py
-ExecStart=/home/YOUR_USER/llama-swap \
-    --config /home/YOUR_USER/.config/llama-swap/config.yaml \
-    --listen :11435
+User=$USER
+Group=$USER
+ExecStartPre=$HOME/Projekte/AIfred-Intelligence/venv/bin/python \
+    $HOME/Projekte/AIfred-Intelligence/scripts/llama-swap-autoscan.py
+ExecStart=$HOME/bin/llama-swap \
+    --config $HOME/.config/llama-swap/config.yaml \
+    --listen :11435 --watch-config
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=300
@@ -139,40 +166,11 @@ Environment=CUDA_DEVICE_ORDER=FASTEST_FIRST
 Environment=GGML_CUDA_GRAPH_OPT=1
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 EOF
 
-# Replace YOUR_USER with your actual username
-sed -i "s/YOUR_USER/$USER/g" ~/.config/systemd/user/llama-swap.service
-
-systemctl --user daemon-reload
-systemctl --user enable llama-swap
-```
-
-### AIfred service
-
-```bash
-cat > ~/.config/systemd/user/aifred-intelligence.service << 'EOF'
-[Unit]
-Description=AIfred Intelligence
-After=network.target llama-swap.service
-
-[Service]
-Type=simple
-WorkingDirectory=/home/YOUR_USER/Projekte/AIfred-Intelligence
-ExecStart=/home/YOUR_USER/Projekte/AIfred-Intelligence/venv/bin/reflex run \
-    --env prod --loglevel warning
-Restart=on-failure
-RestartSec=5
-Environment=LLAMACPP_URL=http://localhost:11435/v1
-
-[Install]
-WantedBy=default.target
-EOF
-
-sed -i "s/YOUR_USER/$USER/g" ~/.config/systemd/user/aifred-intelligence.service
-systemctl --user daemon-reload
-systemctl --user enable aifred-intelligence
+sudo systemctl daemon-reload
+sudo systemctl enable llama-swap
 ```
 
 ---
@@ -183,14 +181,14 @@ The autoscan detects models from three sources automatically. After adding a mod
 restart llama-swap and it will be configured and ready.
 
 ```bash
-systemctl --user restart llama-swap
+sudo systemctl restart llama-swap
 ```
 
 ### Option A: Ollama
 
 ```bash
 ollama pull qwen3:14b
-systemctl --user restart llama-swap
+sudo systemctl restart llama-swap
 ```
 
 The autoscan will:
@@ -201,9 +199,13 @@ The autoscan will:
 5. Update the `groups.main.members` list in the config
 
 > **Limitation:** Vision-Language (VL) models pulled via Ollama (e.g. `qwen3-vl`)
-> are not compatible with llama-server. Ollama's GGUF blobs omit the MRoPE
-> metadata key that llama.cpp requires. The autoscan detects this automatically
-> and adds the model to the skip list with a hint. Use Option B for VL models.
+> are not compatible with llama-server as a **vision** model. Ollama's GGUF
+> blobs omit the MRoPE metadata key that llama.cpp requires, and the
+> llama.cpp `--mmproj` path is currently unreliable for Qwen3-VL anyway.
+> The autoscan detects this automatically and adds the model to the skip
+> list with a hint. **Vision inference runs on a dedicated Ollama VLM
+> service** (`ollama-vlm.service`) — see Section 10. llama-swap only ever
+> serves such models as plain text LLMs.
 
 ### Option B: HuggingFace
 
@@ -218,7 +220,7 @@ hf download Qwen/Qwen3-14B-GGUF --include "Qwen3-14B-Q8_0.gguf"
 hf download Qwen/Qwen3-VL-8B-Instruct-GGUF \
     --include "Qwen3-VL-8B-Instruct-Q4_K_M.gguf" "mmproj-Qwen3-VL-8B-Instruct-F16.gguf"
 
-systemctl --user restart llama-swap
+sudo systemctl restart llama-swap
 ```
 
 The autoscan will:
@@ -227,8 +229,10 @@ The autoscan will:
 3. Run the compatibility test and write the YAML entry
 4. Update the `groups.main.members` list in the config
 
-VL models are detected automatically when a matching `mmproj-*.gguf` file is
-present in the same HF snapshot. The YAML entry will include `--mmproj` automatically.
+When a matching `mmproj-*.gguf` file is present in the same HF snapshot, the
+YAML entry can include `--mmproj` automatically. Note, however, that the
+llama-server vision path is unreliable for current Qwen3-VL builds — the
+supported vision path is the dedicated Ollama VLM service (see Section 10).
 
 ### Option C: Manual GGUF
 
@@ -239,7 +243,7 @@ cp /path/to/Model.gguf ~/models/
 # Or create a symlink
 ln -s /path/to/Model.gguf ~/models/Model.gguf
 
-systemctl --user restart llama-swap
+sudo systemctl restart llama-swap
 ```
 
 ### Why ~/models/?
@@ -260,16 +264,16 @@ YAML. All three sources flow through this namespace via symlinks.
 
 ```bash
 # Start llama-swap (autoscan runs as part of startup)
-systemctl --user start llama-swap
+sudo systemctl start llama-swap
 
 # Watch the autoscan output
-journalctl --user -u llama-swap -b | head -60
+sudo journalctl -u llama-swap -b | head -60
 
 # Check available models
 curl -s http://localhost:11435/v1/models | python3 -m json.tool
 
 # Start AIfred
-systemctl --user start aifred-intelligence
+sudo systemctl start aifred-intelligence
 ```
 
 Typical autoscan output:
@@ -315,7 +319,7 @@ llama-swap restart:
 
 ```bash
 ollama rm qwen3:8b
-systemctl --user restart llama-swap
+sudo systemctl restart llama-swap
 ```
 
 The autoscan will:
@@ -356,7 +360,7 @@ To calibrate in the AIfred UI:
 2. Click **"Calibrate"** next to the model selector
 3. Pick the variants you want via the **2D matrix picker**:
    - Rows = VLM choices (No VLM / Vigilantia 4B / Vigilantia 8B)
-   - Columns = TTS engines (No TTS / Qwen3-TTS / XTTS / Fish-Speech)
+   - Columns = TTS engines (No TTS / Qwen3-TTS / XTTS / MOSS-TTS / Fish-Speech)
    - Each ticked cell becomes a separate `<base>-vlm-<key>-tts-<engine>`
      llama-swap profile that the chat-path resolver picks up automatically
 4. Click **"Kalibrierung starten"**. The matrix shows three states per cell:
@@ -527,7 +531,7 @@ The **Casus** modal is the central event review tool:
 cat ~/.config/llama-swap/config.yaml
 
 # Check autoscan output
-journalctl --user -u llama-swap -b | grep -A5 "Autoscan"
+sudo journalctl -u llama-swap -b | grep -A5 "Autoscan"
 
 # Run autoscan manually
 source ~/Projekte/AIfred-Intelligence/venv/bin/activate
@@ -540,7 +544,7 @@ python ~/Projekte/AIfred-Intelligence/scripts/llama-swap-autoscan.py
 cat ~/.config/llama-swap/autoscan-skip.json
 # Remove the entry to re-test after a llama.cpp update:
 nano ~/.config/llama-swap/autoscan-skip.json
-systemctl --user restart llama-swap
+sudo systemctl restart llama-swap
 ```
 
 ### llama-server binary not found
@@ -565,7 +569,7 @@ Run autoscan once, then remove the `_dummy` entry.
 # Run calibration in AIfred UI, or reduce the context manually:
 nano ~/.config/llama-swap/config.yaml
 # Adjust the -c parameter for the affected model
-systemctl --user restart llama-swap
+sudo systemctl restart llama-swap
 ```
 
 ---

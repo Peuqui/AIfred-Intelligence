@@ -1833,20 +1833,19 @@ For production operation as a service, pre-configured service files are availabl
 #### Quick Installation
 
 ```bash
-# 1. Copy service files
-sudo cp systemd/aifred-chromadb.service /etc/systemd/system/
-sudo cp systemd/aifred-intelligence.service /etc/systemd/system/
+# 1. Install services (do NOT copy the unit files by hand!)
+#    The unit files contain __PROJECT_DIR__/__USER__ placeholders that
+#    only this script substitutes (via sed). It renders + copies the
+#    units and drop-ins, runs daemon-reload, enables + starts them, and
+#    creates the llama-swap-restart symlink in ~/bin. A plain `cp` would
+#    leave the placeholders in place and the service would never start.
+sudo ./scripts/install-services.sh
 
-# 2. Enable and start services
-sudo systemctl daemon-reload
-sudo systemctl enable aifred-chromadb.service aifred-intelligence.service
-sudo systemctl start aifred-chromadb.service aifred-intelligence.service
-
-# 3. Check status
+# 2. Check status
 systemctl status aifred-chromadb.service
 systemctl status aifred-intelligence.service
 
-# 4. Create first user (required for login)
+# 3. Create first user (required for login)
 ./aifred-admin add yourusername
 # Then register in the web UI with username + password
 ```
@@ -1896,6 +1895,7 @@ AIfred requires user authentication. Manage users via the admin CLI:
 ./aifred-admin add <username>     # Add user to whitelist
 ./aifred-admin remove <username>  # Remove from whitelist
 ./aifred-admin accounts           # List registered accounts
+./aifred-admin create <username> [password]   # Account + whitelist in one step (prompts for PW if omitted)
 ./aifred-admin delete <username>  # Delete account (with confirmation)
 ./aifred-admin delete <username> --sessions  # Also delete user's sessions
 ```
@@ -1923,21 +1923,31 @@ ExecStop=/usr/bin/docker compose stop chromadb
 ```
 
 **2. AIfred Intelligence Service** (`systemd/aifred-intelligence.service`):
+
+> ℹ️ Simplified/illustrative excerpt — the shipped unit file has more
+> (drop-ins, an `ExecStartPre` Reflex patch, extra environment). Always
+> deploy the real file via `sudo ./scripts/install-services.sh`, which
+> substitutes the `__USER__`/`__PROJECT_DIR__` placeholders for you.
+
 ```ini
 [Unit]
 Description=AIfred Intelligence Voice Assistant (Reflex Version)
 After=network.target ollama.service aifred-chromadb.service
-Wants=ollama.service
-Requires=aifred-chromadb.service
+Wants=ollama.service aifred-chromadb.service
 
 [Service]
 Type=simple
+# Optional .env file (Secrets, machine-specific overrides). The `-`
+# prefix means "no error if the file is missing". Production mode is
+# set here via AIFRED_ENV=prod in .env — there is NO `--env prod` flag
+# on the ExecStart line (rxconfig.py reads AIFRED_ENV from the env).
+EnvironmentFile=-__PROJECT_DIR__/.env
 User=__USER__
 Group=__USER__
 WorkingDirectory=__PROJECT_DIR__
 Environment="PATH=__PROJECT_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --env prod --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
 KillMode=control-group
 RestartSec=10
@@ -1948,7 +1958,9 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-**⚠️ Important: Replace placeholders** `__USER__` and `__PROJECT_DIR__` with your actual values!
+**⚠️ Important:** Don't edit `/etc/systemd/system/` by hand — run
+`sudo ./scripts/install-services.sh`, which substitutes the `__USER__`
+and `__PROJECT_DIR__` placeholders for you.
 
 #### Environment Configuration (.env)
 

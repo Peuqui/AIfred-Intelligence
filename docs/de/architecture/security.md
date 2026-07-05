@@ -31,7 +31,7 @@ Rate Limit Check ────── Max Tool-Calls pro Zeitfenster pro Channel
 Chain Depth Check ───── Max 10 Tool-Calls pro Request
     │
     ▼
-Rule of Two ─────────── Write-Tier Tools von externen Channels blockiert
+Rule of Two ─────────── Write-Tier Tools von externen Channels erfordern Bestaetigung
     │
     ▼
 Tool Execution ──────── Plugin-Code laeuft
@@ -69,10 +69,30 @@ TIER_ADMIN = 4          # Shell, unrestricted code execution (Zukunft)
 |---------|----------|-------------|
 | Browser | 4 (Admin) | User sitzt davor |
 | Email/Discord/Telegram | 1 (Communicate) | Externe Nachricht, untrusted |
-| Cron-Job | 1 (Communicate) | Unbeaufsichtigt |
+| FreeEcho.2 | 1 (Communicate) | Voice-Terminal, ueber Plugin Manager konfigurierbar |
+| Scheduler | 0 (Read-only) | Interner Cron-Trigger, per-Job-Override via `metadata["max_tier"]` |
 | Webhook | 0 (Read-only) | Extern getriggert |
+| Cron | 1 (Communicate) | **Legacy** — nur noch fuer Alt-Kompatibilitaet, ersetzt durch `scheduler` |
 
 Definiert in `security.py: DEFAULT_TIER_BY_SOURCE`.
+
+### Owner-Anhebung & User-Override
+
+Der Tier fuer eine konkrete Nachricht wird nicht direkt aus der Tabelle
+gelesen, sondern von `security.py: resolve_tier_for_sender()` aufgeloest.
+Prioritaet:
+
+1. **Interner-Trigger-Override** — `scheduler`/`webhook` pinnen ihren Tier
+   ueber `metadata["max_tier"]` (Job- bzw. Webhook-Config ist autoritativ).
+2. **User-Override** — pro Kanal konfigurierbar via
+   `settings.json → channel_security_tiers` (Plugin Manager).
+3. **Kanal-Default** aus `DEFAULT_TIER_BY_SOURCE`.
+
+Ist der Sender der **Owner** (erster Eintrag der Kanal-Whitelist, geprueft
+via `_is_owner()`), wird der Tier auf `max(kanal_default, OWNER_TIER)`
+angehoben. `OWNER_TIER = TIER_WRITE_DATA (2)` — der Owner darf ueber externe
+Kanaele also Daten anlegen/aendern, aber keine System-Loeschungen (kein
+`WRITE_SYSTEM`/`ADMIN`).
 
 ### Durchsetzung
 
@@ -104,10 +124,15 @@ Design-Prinzip: Ein Agent darf maximal 2 von 3 gleichzeitig haben:
 - **(B)** Zugriff auf sensitive Systeme
 - **(C)** Kann Zustand aendern
 
-Wenn alle 3 zutreffen → Aktion wird blockiert.
+Wenn alle 3 zutreffen → Aktion erfordert eine Bestaetigung (Human-in-the-loop),
+sie wird nicht hart blockiert.
 
-Implementiert in `security.py: needs_confirmation()`:
-Wenn `source != "browser"` UND `tool.tier >= TIER_WRITE_DATA` → Block.
+Implementiert in `security.py: needs_confirmation(source, tool_tier, max_tier)`:
+Wenn `source != "browser"` UND `tool.tier >= TIER_WRITE_DATA` → Bestaetigung noetig.
+
+**Ausnahme (Owner-Override):** Wurde der Tier fuer den Sender bereits durch
+`resolve_tier_for_sender()` freigegeben — d.h. `tool_tier <= max_tier` (z.B.
+Owner schreibt via Telegram) — entfaellt die Bestaetigung.
 
 ---
 
@@ -210,7 +235,7 @@ Jeder Tool-Call wird in `data/security/audit.db` protokolliert:
 |------|-------------|
 | timestamp | Zeitpunkt |
 | session_id | Session |
-| source | browser/email/discord/cron/webhook |
+| source | browser/email/discord/telegram/freeecho2/scheduler/webhook (cron = Legacy) |
 | tool_name | Name des Tools |
 | tool_tier | Security-Tier |
 | tool_args_preview | Erste 500 Zeichen der Argumente |
