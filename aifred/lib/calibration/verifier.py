@@ -24,7 +24,13 @@ from typing import Optional
 
 import httpx
 
-from ..config import LLAMACPP_HEALTH_TIMEOUT, THINKING_PROBE_TEMPERATURE
+from pathlib import Path
+
+from ..config import (
+    LLAMACPP_HEALTH_TIMEOUT,
+    LLAMACPP_HEALTH_TIMEOUT_PER_GB,
+    THINKING_PROBE_TEMPERATURE,
+)
 from ..formatting import format_number
 from ..gpu_utils import get_all_gpus_memory_info
 from ..logging_utils import log_message
@@ -32,6 +38,26 @@ from .llamaswap_io import set_context, set_ngl
 from .types import GPU
 
 logger = logging.getLogger(__name__)
+
+
+def _model_size_gb(full_cmd: str) -> float:
+    """Gesamtgröße des GGUF-Modells in GB aus der ``--model``-Angabe.
+
+    Multi-Part-Modelle (``…-00001-of-00004.gguf``) werden über alle Parts
+    summiert — ``--model`` zeigt nur auf Part 1, dessen Größe allein den
+    Timeout massiv unterschätzen würde. Fehlt die Datei, 0.0 → der Caller
+    fällt auf den festen Floor zurück."""
+    m = re.search(r"--model\s+(\S+)", full_cmd)
+    if not m:
+        return 0.0
+    p = Path(m.group(1))
+    part = re.match(r"(.*)-(\d{5})-of-(\d{5})\.gguf$", p.name)
+    if part:
+        files = sorted(p.parent.glob(f"{part.group(1)}-*-of-{part.group(3)}.gguf"))
+    else:
+        files = [p] if p.exists() else []
+    total = sum(f.stat().st_size for f in files if f.exists())
+    return total / (1024 ** 3)
 
 
 @dataclass(frozen=True)
@@ -371,7 +397,17 @@ async def verify(
 
     thinks: Optional[bool] = None
     try:
-        effective_timeout = health_timeout if health_timeout is not None else LLAMACPP_HEALTH_TIMEOUT
+        if health_timeout is not None:
+            effective_timeout = health_timeout
+        else:
+            # Größen-skaliert: der feste 360-s-Floor riss beim 122B, sobald
+            # der Split mehr Layer auf die langsame P40 legte (Load > 360 s →
+            # falscher Timeout, als Fit-Fehler fehlgedeutet). Skaliert mit der
+            # echten Modellgröße (Summe aller GGUF-Parts), Floor bleibt.
+            effective_timeout = float(max(
+                LLAMACPP_HEALTH_TIMEOUT,
+                int(_model_size_gb(full_cmd) * LLAMACPP_HEALTH_TIMEOUT_PER_GB),
+            ))
         ready, reason, load_min_free = await _wait_ready(
             port, effective_timeout, process, gpus=gpus,
         )

@@ -217,8 +217,15 @@ LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
 # Polling-based — small models get ready in seconds and don't burn the budget.
 # 360 s (6 min) fits a Q8 80B+ model loading from NVMe across multiple GPUs
 # over PCIe/OCuLink/USB4 (measured: 86.7 GB takes ~3 min).
-LLAMACPP_HEALTH_TIMEOUT = 360          # Seconds (6 minutes)
+LLAMACPP_HEALTH_TIMEOUT = 360          # Seconds (6 minutes) — floor for small models
 LLAMACPP_HYBRID_HEALTH_TIMEOUT = 900   # Hybrid mode: CPU offload + mlock — extra slack
+# Health-Timeout skaliert mit der Modell-Dateigröße: der 360-s-Floor reichte
+# beim 122B (125 GB) nur hauchknapp (Basis-Load 317 s), Varianten mit mehr
+# Layern auf der langsamen P40 rissen ihn → falscher "server not ready"-Timeout,
+# der als Fit-Fehler fehlgedeutet wurde (2026-07-05). 125 GB von der USB-NVMe
+# (~750 MB/s) sind allein ~170 s reines Lesen + mlock-Double-Touch + Layer-Init.
+# 6 s/GB = ~2.4× der gemessenen Basis-Ladezeit, komfortabler Puffer.
+LLAMACPP_HEALTH_TIMEOUT_PER_GB = 6     # Seconds per GB model size (added to floor logic)
 LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
 
 BACKEND_URLS = {
