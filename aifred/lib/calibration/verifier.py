@@ -25,6 +25,7 @@ from typing import Optional
 import httpx
 
 from ..config import LLAMACPP_HEALTH_TIMEOUT, THINKING_PROBE_TEMPERATURE
+from ..formatting import format_number
 from ..gpu_utils import get_all_gpus_memory_info
 from ..logging_utils import log_message
 from .llamaswap_io import set_context, set_ngl
@@ -135,28 +136,59 @@ async def _start_server(
 
 async def _wait_ready(
     port: int, timeout: float, process: subprocess.Popen,
-) -> tuple[bool, str]:
+    gpus: Optional[list[GPU]] = None,
+) -> tuple[bool, str, tuple[int, ...]]:
     """Block until ``/health`` returns 200 or the process dies.
 
-    Returns (ready, reason) so callers can distinguish a true polling
-    timeout from a process death (which is almost always real OOM).
+    Returns (ready, reason, load_min_free) so callers can distinguish a
+    true polling timeout from a process death (which is almost always
+    real OOM).
+
+    ``load_min_free``: tiefster beobachteter Frei-Stand pro GPU während
+    der Load-Phase (Reihenfolge wie ``gpus``; () wenn ``gpus`` fehlt oder
+    keine Messung gelang). Stirbt der Server mit OOM, ist das die EINZIGE
+    Messung, die es je gab — ohne sie zeigt das Kalibrier-Log nur die
+    Split-Schieberei, aber nie, wie eng es auf welcher Karte real wurde.
+    NUR fürs Reporting gedacht: Die Werte sind ein Lade-Zwischenstand
+    (Karten, die noch gar nicht befüllt waren, wirken leer) und dürfen
+    nicht als Steady-State in Refine-Entscheidungen einfließen.
     """
     url = f"http://localhost:{port}/health"
     start = asyncio.get_event_loop().time()
+    min_free: dict[int, int] = {}
+
+    def _sample() -> None:
+        if not gpus:
+            return
+        measured = _measured_free(gpus)
+        for i, v in enumerate(measured):
+            if i not in min_free or v < min_free[i]:
+                min_free[i] = v
+
+    def _collected() -> tuple[int, ...]:
+        if not gpus or len(min_free) != len(gpus):
+            return ()
+        return tuple(min_free[i] for i in range(len(gpus)))
+
     while (asyncio.get_event_loop().time() - start) < timeout:
         rc = process.poll()
         if rc is not None:
             elapsed = int(asyncio.get_event_loop().time() - start)
-            return False, f"server died after {elapsed}s (exit {rc})"
+            return (
+                False,
+                f"server died after {elapsed}s (exit {rc})",
+                _collected(),
+            )
         try:
             async with httpx.AsyncClient() as client:
                 r = await client.get(url, timeout=2.0)
                 if r.status_code == 200:
-                    return True, ""
+                    return True, "", _collected()
         except (httpx.RequestError, httpx.TimeoutException):
             pass
+        await asyncio.to_thread(_sample)
         await asyncio.sleep(1.0)
-    return False, f"polling timeout ({int(timeout)}s, server not ready)"
+    return False, f"polling timeout ({int(timeout)}s, server not ready)", _collected()
 
 
 async def _test_inference(port: int, timeout: float = 120.0) -> bool:
@@ -325,7 +357,9 @@ async def verify(
     thinks: Optional[bool] = None
     try:
         effective_timeout = health_timeout if health_timeout is not None else LLAMACPP_HEALTH_TIMEOUT
-        ready, reason = await _wait_ready(port, effective_timeout, process)
+        ready, reason, load_min_free = await _wait_ready(
+            port, effective_timeout, process, gpus=gpus,
+        )
         if not ready:
             output = _read_log(process)
             _kill(process)
@@ -342,6 +376,17 @@ async def verify(
                     oom_cuda_id = _parse_oom_cuda_id(tail)
                     if oom_cuda_id is not None:
                         reason += f" — CUDA{oom_cuda_id}"
+            # Load-Phase-Messwerte ins Reporting: Ohne sie zeigt das Log bei
+            # einem Load-OOM nur die Split-Schieberei, aber nie, wie eng es
+            # auf welcher Karte real wurde. Bewusst NUR im detail-Text —
+            # als measured_free_mb würden diese Lade-Zwischenstände den
+            # measurement-based Refine fehlleiten (noch unbefüllte Karten
+            # wirken leer).
+            if load_min_free:
+                reason += " | min free during load: " + ", ".join(
+                    f"{g.name}: {format_number(load_min_free[i])} MB"
+                    for i, g in enumerate(gpus) if i < len(load_min_free)
+                )
             return VerifyResult(False, (), None, reason, oom_cuda_id=oom_cuda_id)
 
         if not await _test_inference(port):
