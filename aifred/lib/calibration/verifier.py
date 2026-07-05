@@ -71,6 +71,12 @@ class VerifyResult:
     # might be True, or the server died for a non-OOM reason, or the
     # log tail didn't contain a parseable CUDA-OOM line.
     oom_cuda_id: Optional[int] = None
+    # Tiefster Frei-Stand pro GPU während der Load-Phase (CUDA-Order; ()
+    # wenn nicht gesammelt). Bei einem Load-OOM (server died, exit -11) ist
+    # ``measured_free_mb`` leer — DAS hier ist dann die einzige per-Karte-
+    # Info, mit der der Blind-Shift ein Ziel mit echtem Platz finden kann,
+    # statt blind auf die volle Nachbarkarte zu schieben.
+    load_min_free_mb: tuple[int, ...] = ()
 
 
 _OOM_DEVICE_PATTERNS = (
@@ -438,7 +444,10 @@ async def verify(
                     f"{g.name}: {format_number(load_min_free[i])} MB"
                     for i, g in enumerate(gpus) if i < len(load_min_free)
                 )
-            return VerifyResult(False, (), None, reason, oom_cuda_id=oom_cuda_id)
+            return VerifyResult(
+                False, (), None, reason, oom_cuda_id=oom_cuda_id,
+                load_min_free_mb=load_min_free,
+            )
 
         if not await _test_inference(port):
             _kill(process)
