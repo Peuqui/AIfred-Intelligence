@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict
@@ -32,11 +33,18 @@ def _read_yaml(config_path: Path) -> dict:
 
 
 def _write_yaml(config_path: Path, config: dict) -> None:
-    with open(config_path, "w", encoding="utf-8") as f:
+    # Atomar (tmp + os.replace): Ein Kill/Crash mitten im dump truncatet
+    # sonst die config.yaml — und damit ALLE llama-swap-Profile, auch die
+    # handgepflegten anderer Modelle. Eine Kalibrierung schreibt dutzende
+    # Male; jeder Write ist ein Full-Rewrite der Datei. Gleiche Mechanik
+    # wie model_vram_cache.save_cache.
+    tmp_path = config_path.with_suffix(config_path.suffix + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         yaml.dump(
             config, f, default_flow_style=False,
             allow_unicode=True, sort_keys=False,
         )
+    os.replace(tmp_path, config_path)
 
 
 def _get_cmd(config: dict, model_id: str) -> str | None:

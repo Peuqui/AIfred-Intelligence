@@ -553,7 +553,14 @@ def _kv_levels_from(min_kv: str) -> list[str]:
 
 
 def _split_str(ratios: tuple[float, ...]) -> str:
-    return ":".join(str(int(r)) for r in ratios)
+    """Anzeige-Format eines Splits — erhält Bruchanteile (17.18:…:1.13).
+
+    Splits sind seit der proportionalen Varianten-Ableitung und den
+    0.5er-Shifts NICHT mehr ganzzahlig; ein int()-Format würde z.B. einen
+    0.32-Anteil als "0" (= idle) anzeigen. NUR für Logs/Meldungen — das
+    __SPEED__-Sentinel behält sein eigenes int-Format (Parser-Grammatik).
+    """
+    return ":".join(f"{round(r, 2):g}" for r in ratios)
 
 
 def _format_candidate_line(c: Candidate, gpus: list[GPU]) -> str:
@@ -586,6 +593,27 @@ def _format_candidate_line(c: Candidate, gpus: list[GPU]) -> str:
         f"split={_split_str(c.tensor_split)}\n"
         f"    {', '.join(parts)}"
     )
+
+
+def _planned_free_line(
+    split: tuple[float, ...], gpus: list[GPU], model_size_mb: float,
+) -> str:
+    """Per-GPU-Frei-Prognose für einen Split — NUR Gewichtsverteilung.
+
+    Für die Shift-Meldungen im Refine-Loop: dort gibt es kein vram_model
+    (KV/Buffer unbekannt), aber die reine Gewichts-Rechnung zeigt bereits,
+    welche Karte ein Shift wie eng macht. Ehrlich gelabelt, damit niemand
+    die Zahl für den echten Reststand hält (KV + Compute-Buffer + CUDA-
+    Context kommen oben drauf)."""
+    total = sum(split) or 1.0
+    parts: list[str] = []
+    for i, g in enumerate(gpus):
+        if i >= len(split) or split[i] <= 0:
+            parts.append(f"GPU{i} {g.name}: idle")
+            continue
+        free = int(g.free_mb - (split[i] / total) * model_size_mb)
+        parts.append(f"GPU{i} {g.name}: {format_number(free)} MB")
+    return "    plan after weights (excl. KV/buffers): " + ", ".join(parts)
 
 
 def _load_model_meta(model_id: str, gguf_path: Path) -> Model | None:
@@ -956,6 +984,15 @@ async def _verify_and_refine(
                         f"{status_prefix} active set locked — no further "
                         f"layer shift possible without activating idle GPU"
                     )
+                elif r.oom_cuda_id is None:
+                    # Ohne geparste OOM-Karte shiftet der Blind-Shift bewusst
+                    # nicht (falsche Quell-Karte wäre schlimmer als keine) —
+                    # das ist KEIN "alle Ziele voll", sondern fehlende Info
+                    # (z.B. Segfault exit -11 ohne OOM-Zeile im stderr).
+                    yield (
+                        f"{status_prefix} OOM GPU not identifiable from server "
+                        f"log — cannot shift, falling back to ctx handling"
+                    )
                 else:
                     yield (
                         f"{status_prefix} no further layer shift possible at native ctx"
@@ -980,6 +1017,9 @@ async def _verify_and_refine(
                 f"{status_prefix} OOM at native — shift {shift_attempt}/{max_shifts}: "
                 f"{_split_str(current_split)} → {_split_str(shifted)}"
             )
+            # Pro Shift die Frei-Prognose je Karte zeigen — vorher sah man
+            # nur die Split-Schieberei und nie, welche Karte wie eng wird.
+            yield _planned_free_line(shifted, gpus, model.size_mb)
             current_split = shifted
             r = await verify(
                 full_cmd=proj.adjust_cmd_for_projection(
@@ -1452,20 +1492,35 @@ def _refine_split_from_measurement(
             f"no OOM danger"
         )
 
-    if current_split[bottleneck] <= 1:
-        return None, f"CUDA{bottleneck} already down to 1 layer"
-
     base_overhead, slope_per_layer = _per_gpu_coefficients(
         vram_model, total_layers, model_size_mb,
     )
     mb_per_layer = model_size_mb / total_layers if total_layers else 0.0
 
-    save_on_bottleneck = mb_per_layer + slope_per_layer[bottleneck] * current_context
+    # Bedarfsgenaue Schrittweite im 0.5er-Raster: so viel verschieben, dass
+    # der Engpass über die 2×margin-Ruheschwelle kommt — aber höchstens
+    # einen ganzen Layer pro Runde. Pauschal 1.0 riss auf der Zielkarte
+    # oft ein neues Loch; Kontext-Shrink bleibt das LETZTE Mittel, also
+    # erst die Verteilung so fein wie möglich ausreizen.
+    save_per_layer = mb_per_layer + slope_per_layer[bottleneck] * current_context
+    deficit = 2 * budget.safety_margin - b_free
+    if save_per_layer > 0:
+        import math as _math
+        step = min(1.0, max(0.5, _math.ceil((deficit / save_per_layer) * 2) / 2))
+    else:
+        step = 1.0
+
+    if current_split[bottleneck] - step < 0.5:
+        return None, (
+            f"CUDA{bottleneck} has too few layer shares left to shift {step:g}"
+        )
+
+    save_on_bottleneck = step * save_per_layer
     best_dest: int | None = None
     best_new_min_free: float = float(b_free)
     rejected_reasons: list[str] = []
     for dest, d_free in active_free[1:]:
-        cost_on_dest = mb_per_layer + slope_per_layer[dest] * current_context
+        cost_on_dest = step * (mb_per_layer + slope_per_layer[dest] * current_context)
         new_b = b_free + save_on_bottleneck
         new_d = d_free - cost_on_dest
         new_min = min(new_b, new_d)
@@ -1486,11 +1541,11 @@ def _refine_split_from_measurement(
         )
 
     new_split = list(current_split)
-    new_split[bottleneck] -= 1
-    new_split[best_dest] += 1
+    new_split[bottleneck] -= step
+    new_split[best_dest] += step
     return (
         tuple(new_split),
-        f"CUDA{bottleneck} ({b_free} MB) → CUDA{best_dest}: "
+        f"CUDA{bottleneck} ({b_free} MB) → CUDA{best_dest} ({step:g} layer): "
         f"predicted new min {int(best_new_min_free)} MB",
     )
 
@@ -1625,7 +1680,14 @@ def _shift_one_layer_blind(
 
     Returns ``None`` when no further shift is possible.
     """
-    layers = [int(x) for x in split]
+    # Float-erhaltend: Splits sind seit der proportionalen Varianten-
+    # Ableitung fraktional (z.B. 17.18:18.06:6.1:5.53:1.13) — ein
+    # int()-Cast würde kleine Anteile auf 0 runden und Karten aus dem
+    # aktiven Set werfen. Schrittweite 0.5 statt 1.0: bei 100+-GB-Modellen
+    # ist ein ganzer Layer-Anteil ~1-3 GB; der halbe Schritt korrigiert
+    # feiner, bevor als letztes Mittel der Kontext beschnitten wird.
+    _STEP = 0.5
+    layers = [float(x) for x in split]
     active_idx = [i for i, layers_i in enumerate(layers) if layers_i > 0]
     if not active_idx:
         return None
@@ -1642,7 +1704,7 @@ def _shift_one_layer_blind(
     else:
         return None
 
-    if layers[src] <= 1:
+    if layers[src] <= _STEP:
         return None  # can't shift further
 
     # Greedy: prefer destinations AFTER src in the GPU list order
@@ -1661,9 +1723,9 @@ def _shift_one_layer_blind(
             return None
         dest = later_idle[0]
 
-    layers[src] -= 1
-    layers[dest] += 1
-    return tuple(float(layers_i) for layers_i in layers)
+    layers[src] -= _STEP
+    layers[dest] += _STEP
+    return tuple(layers)
 
 
 def _shrink_to_fit(
@@ -2336,7 +2398,33 @@ async def calibrate_tts_variant_from_base(
             _lost = float(base_split[_vlm_idx]) - _new_vlm
             _adj: list[float] = [float(x) for x in base_split]
             _adj[_vlm_idx] = _new_vlm
-            _others = [(i, gpus[i].free_mb) for i in active if i != _vlm_idx]
+            # Spill-Ziele für die der VLM-GPU weggenommenen Layer: ALLE
+            # Karten — auch in der Basis idle gebliebene. Die Basis brauchte
+            # die letzte Kaskaden-Karte nicht, aber die VLM-Reserve
+            # verkleinert das Budget; die Glas-Kaskade muss dann in die
+            # nächste Karte überlaufen dürfen. Vorher waren nur die
+            # base-aktiven Karten Ziele: die verbleibenden vier wurden
+            # überladen (Restpuffer < 1 GB → OOM-Shift-Schleifen, je
+            # Versuch ein 3-5-min-Modell-Load), während eine leere P40 mit
+            # 24 GB daneben stand — und der Blind-Shift kann sie erst
+            # aktivieren, wenn ALLE nachgelagerten aktiven Karten selbst
+            # ge-OOMt haben.
+            #
+            # Gewichtung: HEADROOM nach bestehender Gewichts-Zuteilung
+            # (free − Gewichtsanteil des base_split), NICHT rohes free_mb —
+            # eine Karte mit viel free, die schon viele Layer trägt (RTX
+            # 8000 mit 18/48 Anteilen), ist praktisch voll und darf nicht
+            # auch noch den Spill schlucken; die idle Karte hat den
+            # größten Headroom und fängt ihn ab.
+            _total_base = sum(float(x) for x in base_split) or 1.0
+            _others = []
+            for _i in range(len(gpus)):
+                if _i == _vlm_idx:
+                    continue
+                _weights_mb = (float(base_split[_i]) / _total_base) * model.size_mb
+                _headroom = gpus[_i].free_mb - _weights_mb
+                if _headroom > 0:
+                    _others.append((_i, _headroom))
             _other_free_total = sum(f for _, f in _others)
             if _other_free_total > 0:
                 for _gi, _gf in _others:
@@ -2346,9 +2434,10 @@ async def calibrate_tts_variant_from_base(
                     int(gpus[i].free_mb - (_adj[i] / _total_split) * model.size_mb)
                     for i in range(len(gpus))
                 )
+                _active_adj = [i for i, x in enumerate(_adj) if x > 0]
                 _vlm_cand = Candidate(
                     mode="gpu",
-                    n_gpus=len(active),
+                    n_gpus=len(_active_adj),
                     kv_quant=base_kv,
                     ngl=99,
                     tensor_split=tuple(_adj),
@@ -2357,9 +2446,11 @@ async def calibrate_tts_variant_from_base(
                     vram_model=None,
                 )
                 _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
+                _newly_active = [i for i in _active_adj if i not in active]
                 yield (
-                    f"{_side} variant from base: active GPUs {active}, "
-                    f"target ctx {format_number(base_ctx)}, KV={base_kv}, "
+                    f"{_side} variant from base: active GPUs {_active_adj}"
+                    + (f" (idle spill → {_newly_active})" if _newly_active else "")
+                    + f", target ctx {format_number(base_ctx)}, KV={base_kv}, "
                     f"VLM ratio {_ratio:.3f} → GPU{_vlm_idx}: "
                     f"{float(base_split[_vlm_idx]):.1f}→{_new_vlm:.1f} layers"
                 )
@@ -2601,8 +2692,11 @@ def _result_sentinel(r: Result, thinks: bool) -> str:
 
 
 def _speed_sentinel(r: Result) -> str:
-    split_colon = _split_str(r.tensor_split)
-    # Preserve legacy __SPEED__ grammar used by _parse_calibration_result.
+    # Preserve legacy __SPEED__ grammar: the mixin parser does int(x) on
+    # every split part, so this sentinel must stay integer-formatted
+    # (speed splits are integer anyway) — do NOT reuse the fractional
+    # display formatter _split_str here.
+    split_colon = ":".join(str(int(x)) for x in r.tensor_split)
     return f"__SPEED__:{split_colon},{r.context},{r.num_gpus},{r.kv_quant}"
 
 
