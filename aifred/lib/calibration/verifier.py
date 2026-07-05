@@ -170,7 +170,15 @@ async def _wait_ready(
             return ()
         return tuple(min_free[i] for i in range(len(gpus)))
 
+    from ..calibration_gate import is_cancel_requested
+
     while (asyncio.get_event_loop().time() - start) < timeout:
+        # User-Abbruch reicht bis in den Minuten-Load hinein: Der Aufrufer
+        # (verify) killt den Test-Server im not-ready-Pfad sofort — ohne
+        # diesen Check würde "cancel" erst nach dem fertigen Modell-Load
+        # greifen (2-5 min bei 100+-GB-Modellen).
+        if is_cancel_requested():
+            return False, "cancelled by user", _collected()
         rc = process.poll()
         if rc is not None:
             elapsed = int(asyncio.get_event_loop().time() - start)
@@ -349,6 +357,13 @@ async def verify(
     ihren Platz zurückfordern.
     """
     from ...backends.ollama import wait_for_vram_stable
+    from ..calibration_gate import is_cancel_requested
+
+    # Cancel-Gate VOR dem Server-Spawn: Nach einem abgebrochenen Schritt
+    # würde der Refine-Loop sonst noch einen Shift + neuen Minuten-Load
+    # starten, bevor der äußere 2-s-Check den Lauf beendet.
+    if is_cancel_requested():
+        return VerifyResult(False, (), None, "cancelled by user")
 
     process = await _start_server(full_cmd, context, port, ngl, env)
     if not process:
@@ -366,7 +381,7 @@ async def verify(
             _cleanup_log(process)
             await wait_for_vram_stable(max_wait_seconds=10.0)
             oom_cuda_id: Optional[int] = None
-            if output:
+            if output and not reason.startswith("cancelled"):
                 logger.error(f"llama-server not ready. Log tail:\n{output[-2000:]}")
                 # Distinguish OOM vs other crashes by scanning the log tail.
                 tail = output[-4000:]

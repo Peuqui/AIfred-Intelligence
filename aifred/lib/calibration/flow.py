@@ -269,10 +269,36 @@ async def calibrate_llamacpp_model(
     for kv in kv_levels:
         if base_pick is not None:
             break
+        # Dominanz-Abkürzung für den 1-GPU-Sweep: Scheitert eine Karte
+        # (an Kapazität ODER Kontext), ist jede Karte mit kleinerem
+        # effektivem Budget chancenlos — deren fit-params-Läufe (2 Stück
+        # à 3-13 s je nach Modellgröße) sind reine Zeitverschwendung.
+        # GLEICH große Karten werden nur getestet, wenn die gescheiterte
+        # KNAPP dran war: Das Display-Handicap (256 MB ≈ wenige tausend
+        # Tokens) ist der einzige Unterschied zwischen Schwesterkarten —
+        # es kann einen 2%-Fehlbetrag wettmachen, aber keine 25 %.
+        failed_solo_free = -1.0
+        failed_solo_ctx = 0
         for active in configs:
             n = len(active)
             if n == 1:
                 label = f"GPU{active[0]} ({gpus[active[0]].name})"
+                _free_i = gpus[active[0]].free_mb
+                _clearly_smaller = _free_i <= failed_solo_free - budget.first_gpu_handicap
+                _same_size_hopeless = (
+                    _free_i <= failed_solo_free
+                    and failed_solo_ctx
+                    < model.native_context * (1 - _SOLO_NEAR_MISS_RATIO)
+                )
+                if _clearly_smaller or _same_size_hopeless:
+                    yield (
+                        f"  [{label} / KV={kv}] skipped — "
+                        f"{format_number(int(_free_i))} MB free "
+                        f"≤ already-failed card"
+                        + ("" if _clearly_smaller else
+                           f" (its {format_number(failed_solo_ctx)} ctx is not a near miss)")
+                    )
+                    continue
             else:
                 # Show position+name, not raw indices — matches the
                 # GPU0/GPU1/... convention used elsewhere in the log
@@ -283,11 +309,21 @@ async def calibrate_llamacpp_model(
                 model, gpus, budget, full_cmd, kv, active,
             )
             if c is None:
+                if n == 1:
+                    failed_solo_free, failed_solo_ctx = _track_failed_solo(
+                        failed_solo_free, failed_solo_ctx,
+                        gpus[active[0]].free_mb, 0,
+                    )
                 yield f"  [{label} / KV={kv}] estimate: {reason}"
                 continue
             all_tried.append(c)
             yield _format_candidate_line(c, gpus)
             if c.max_context < model.native_context:
+                if n == 1:
+                    failed_solo_free, failed_solo_ctx = _track_failed_solo(
+                        failed_solo_free, failed_solo_ctx,
+                        gpus[active[0]].free_mb, c.max_context,
+                    )
                 yield (
                     f"  [{label} / KV={kv}] math max_ctx="
                     f"{format_number(c.max_context)} < native — "
@@ -550,6 +586,28 @@ def _kv_levels_from(min_kv: str) -> list[str]:
     if min_kv == "q4_0":
         return list(_ALL_KV_LEVELS)  # f16, q8_0, q4_0
     return list(_DEFAULT_KV_LEVELS)  # f16, q8_0
+
+
+# 1-GPU-Sweep-Dominanz: Eine gleich große Schwesterkarte unterscheidet sich
+# nur ums Display-Handicap (~256 MB ≈ wenige tausend Tokens). Sie wird nur
+# noch getestet, wenn die gescheiterte Karte den nativen Kontext um weniger
+# als diesen Anteil verfehlt hat — ein 25%-Fehlbetrag ist damit nie aufholbar.
+_SOLO_NEAR_MISS_RATIO = 0.05
+
+
+def _track_failed_solo(
+    best_free: float, best_ctx: int, free_mb: float, max_ctx: int,
+) -> tuple[float, int]:
+    """Stärkste gescheiterte Solo-Karte mitführen (free_mb, deren max_ctx).
+
+    Bei gleich großem free zählt der BESSERE Kontext (Schwesterkarte ohne
+    Handicap schafft mehr) — die Skip-Entscheidung vergleicht dann gegen
+    das Beste, was diese Kartengröße erreicht hat."""
+    if free_mb > best_free:
+        return free_mb, max_ctx
+    if free_mb == best_free:
+        return best_free, max(best_ctx, max_ctx)
+    return best_free, best_ctx
 
 
 def _split_str(ratios: tuple[float, ...]) -> str:

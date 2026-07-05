@@ -14,7 +14,16 @@ from typing import Any, TypedDict
 
 import reflex as rx
 
-from ..lib.logging_utils import CONSOLE_SEPARATOR
+from ..lib.logging_utils import CONSOLE_SEPARATOR, log_message
+
+# Meldungs-Puffer des Kalibrier-Background-Tasks. Der Wrapper
+# (calibrate_context) drainiert ihn alle ~2 s in seinem
+# Cancel-Check-Lock in die State-Konsole (add_debug). Bewusst KEINE
+# Session-Datei/debug_bus: Hub-Owner-Writes auf die aktive
+# Browser-Session lösen deren mtime-Sync aus (Sync-Sturm, Eingabe-State
+# wird überschrieben). Ein Schreiber + ein Leser im selben Event-Loop →
+# plain list ohne Lock.
+_cal_debug_buffer: list[str] = []
 
 
 class CalibrationCell(TypedDict):
@@ -435,22 +444,33 @@ class CalibrationMixin(rx.State, mixin=True):
     # ------------------------------------------------------------------
 
     def _cal_debug(self, msg: str) -> None:
-        """Debug-Ausgabe der Kalibrier-Pfade — über den debug_bus statt
-        add_debug. Der Kalibrierlauf ist ein Background-Task: add_debug
-        würde den State mutieren (ImmutableStateError außerhalb des
-        Locks); der debug_bus schreibt Reflex-frei in die Session-Datei,
-        die der Browser ohnehin pollt — die Konsole scrollt weiter live,
-        ganz ohne State-Lock. (Entkoppelt die Kalibrierung nebenbei ein
-        Stück weiter von Reflex.)"""
-        from ..lib.debug_bus import debug
-        debug(msg)
+        """Debug-Ausgabe der Kalibrier-Pfade — Logfile + Prozess-Puffer.
+
+        Der Kalibrierlauf ist ein Background-Task: add_debug würde den
+        State außerhalb des Locks mutieren (ImmutableStateError). Der
+        debug_bus (Session-Datei) fällt ebenfalls aus: Writes mit
+        Hub-Owner auf die AKTIVE Browser-Session lösen dort den
+        mtime-Sync aus — der lud die Session im Sekundentakt neu und zog
+        dem User beim Senden den Eingabe-State weg (beobachtet
+        2026-07-05 17:38). Stattdessen: Puffer, den der Wrapper in
+        seinem 2-s-Cancel-Check-Lock in die State-Konsole flusht.
+        Ein Schreiber + ein Leser im selben Event-Loop → plain list."""
+        log_message(msg)
+        _cal_debug_buffer.append(msg)
 
     @rx.event
     def cancel_calibration(self):
         """User-Abbruch: Flag setzen — der Background-Lauf beendet sich
-        am nächsten Schritt sauber (innere finally-Blöcke räumen auf)."""
+        am nächsten Schritt sauber (innere finally-Blöcke räumen auf).
+
+        Zusätzlich das prozessweite Cancel im calibration_gate: Das reicht
+        bis in einen LAUFENDEN Verify hinein (Lade-Warteschleife killt den
+        Test-Server) — sonst greift der Abbruch erst nach dem aktuellen
+        Minuten-Modell-Load."""
         if self.is_calibrating:
+            from ..lib.calibration_gate import request_cancel
             self.calibration_cancel = True
+            request_cancel()
             self.add_debug("🛑 Calibration cancel requested...")  # type: ignore[attr-defined]
 
     @rx.event(background=True)  # type: ignore[operator]
@@ -489,27 +509,29 @@ class CalibrationMixin(rx.State, mixin=True):
             self.is_calibrating = True
             self.calibration_cancel = False
             self.add_debug(f"🔧 Starting calibration for {self.aifred_model_id}...")  # type: ignore[attr-defined]
-            sid = str(self.session_id)  # type: ignore[attr-defined]
 
         from ..lib.calibration_gate import set_calibration_active
-        from ..lib.debug_bus import session_scope
 
+        _cal_debug_buffer.clear()  # Reste eines Vorlaufs verwerfen
         gen = self._calibrate_context_impl()
-        last_cancel_check = 0.0
+        last_drain = 0.0
         was_cancelled = False
         try:
             set_calibration_active(True)
-            with session_scope(sid):
-                async for _ in gen:
-                    now = _time.monotonic()
-                    if now - last_cancel_check >= 2.0:
-                        last_cancel_check = now
-                        async with self:
-                            cancelled = self.calibration_cancel
-                        if cancelled:
-                            was_cancelled = True
-                            self._cal_debug("🛑 Calibration cancelled by user — cleaning up")
-                            break
+            async for _ in gen:
+                now = _time.monotonic()
+                if now - last_drain >= 2.0:
+                    last_drain = now
+                    async with self:
+                        # Meldungen des Laufs in die Konsole flushen +
+                        # Cancel-Flag im selben Lock lesen.
+                        while _cal_debug_buffer:
+                            self.add_debug(_cal_debug_buffer.pop(0))  # type: ignore[attr-defined]
+                        cancelled = self.calibration_cancel
+                    if cancelled:
+                        was_cancelled = True
+                        self._cal_debug("🛑 Calibration cancelled by user — cleaning up")
+                        break
         finally:
             # aclose() explizit: Bei break/Exception müssen die inneren
             # finally-Blöcke (llama-swap-Restart, Revision-Bump) sicher
@@ -520,9 +542,12 @@ class CalibrationMixin(rx.State, mixin=True):
             # Kalibrierung? Ohne die startet das Profil nicht — das darf
             # keine stille Überraschung beim nächsten Chat sein.
             if was_cancelled:
-                with session_scope(sid):
-                    self._warn_if_calibration_incomplete()
+                self._warn_if_calibration_incomplete()
             async with self:
+                # Finaler Drain — auch die Meldungen der finally-Blöcke
+                # und der Abbruch-Warnung müssen noch in die Konsole.
+                while _cal_debug_buffer:
+                    self.add_debug(_cal_debug_buffer.pop(0))  # type: ignore[attr-defined]
                 self.is_calibrating = False
                 self.calibration_cancel = False
 
