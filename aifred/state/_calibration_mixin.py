@@ -1129,13 +1129,13 @@ class CalibrationMixin(rx.State, mixin=True):
             # Better to abort here than silently calibrate a profile that
             # OOMs on the first production call.
             #
-            # Use the debug bus the same way FreeEcho2 / Telegram /
-            # Discord channels do: ``session_scope`` binds the current
-            # session ID, then progress callbacks call ``debug(msg)``
-            # **directly** (not through ``self.add_debug``). The bus
-            # writes each message straight to the session file; the
-            # UI's mtime-watcher picks it up on the next 500 ms tick.
-            # No State mutation, backend-agnostic, works post-Reflex.
+            # Progress-Callbacks laufen über ``self._cal_debug`` (Logfile +
+            # Puffer, KEIN State-Zugriff) — der Background-Wrapper drainiert
+            # den Puffer unter Lock in die Konsole. ``self.add_debug`` als
+            # Callback würde hier (außerhalb ``async with self``) mit
+            # ImmutableStateError crashen (beobachtet 2026-07-05 19:00 beim
+            # Start der TTS-Varianten-Kalibrierung). session_scope bleibt für
+            # etwaige direkte bus-``debug()``-Aufrufe tieferer Ebenen.
             from ..lib.debug_bus import session_scope as _debug_session_scope
             _session_id = getattr(self, "session_id", "") or ""
             _burnin_failures: list[str] = []
@@ -1155,15 +1155,11 @@ class CalibrationMixin(rx.State, mixin=True):
                         # main coroutine so periodic yields can push
                         # any state-bound updates concurrently.
                         with _debug_session_scope(_session_id):
-                            # Use ``self.add_debug`` so each progress
-                            # line mutates the Reflex state list AND
-                            # (because we're inside session_scope) gets
-                            # flushed to the session file. The state
-                            # path reaches the browser at the next
-                            # yield from the outer while loop; the file
-                            # path is the post-Reflex fallback.
+                            # _cal_debug: Logfile + Puffer (kein State-Zugriff)
+                            # — der Wrapper flusht den Puffer beim nächsten
+                            # yield unter Lock in die Konsole.
                             _t_task = asyncio.create_task(
-                                stress_burnin_tts(_ek, debug=self.add_debug)  # type: ignore[attr-defined]
+                                stress_burnin_tts(_ek, debug=self._cal_debug)  # type: ignore[attr-defined]
                             )
                             try:
                                 while not _t_task.done():
@@ -1538,10 +1534,10 @@ class CalibrationMixin(rx.State, mixin=True):
                     # using the same start_fn / stop_fn naming it always
                     # did — minimises diff.
                     def start_fn(_e=tts_engine) -> bool:
-                        return bool(_e.calibration_setup(self.add_debug))  # type: ignore[attr-defined]
+                        return bool(_e.calibration_setup(self._cal_debug))  # type: ignore[attr-defined]
 
                     def stop_fn(_e=tts_engine) -> None:
-                        _e.calibration_teardown(self.add_debug)  # type: ignore[attr-defined]
+                        _e.calibration_teardown(self._cal_debug)  # type: ignore[attr-defined]
 
                     self._cal_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
                     yield
@@ -1744,7 +1740,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 resolve_tts_reserve,
                             )
                             _tts_extra_reserve_mb = await resolve_tts_reserve(
-                                tts_backend, debug=self.add_debug,  # type: ignore[attr-defined]
+                                tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
                             )
                             async for _msg in calibrate_tts_variant_from_base(
                                 model_id=calibration_model_id,
@@ -1956,7 +1952,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     _fallback_tts_uuid = _get_tts_uuid()
                     from ..lib.tts_stress_burnin import resolve_tts_reserve
                     _fallback_reserve_mb = await resolve_tts_reserve(
-                        tts_backend, debug=self.add_debug,  # type: ignore[attr-defined]
+                        tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
                     )
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
@@ -2372,7 +2368,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     tts_label_c = tts_engine_c.label_short
                     from ..lib.tts_stress_burnin import resolve_tts_reserve
                     tts_reserve_c = await resolve_tts_reserve(
-                        tts_backend_c, debug=self.add_debug,  # type: ignore[attr-defined]
+                        tts_backend_c, debug=self._cal_debug,  # type: ignore[attr-defined]
                     )
                     _tts_uuid_c = get_tts_gpu_uuid()
 
