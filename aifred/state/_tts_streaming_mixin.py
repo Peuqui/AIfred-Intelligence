@@ -942,17 +942,18 @@ class TTSStreamingMixin(rx.State, mixin=True):
     # TTS Regeneration
     # ============================================================
 
-    async def _regenerate_bubble_tts_core(self, bubble_index: int, save_session: bool = True) -> bool:
-        """Core TTS regeneration logic for a single bubble.
+    # ── Re-Synth in drei Phasen ──────────────────────────────────────
+    # Die Re-Synth-Handler sind Background-Events: der State-Lock darf nur
+    # für die kurzen Lese-/Schreib-Phasen gehalten werden, die minutenlange
+    # Synthese läuft dazwischen lock-frei. Deshalb ist der frühere
+    # _regenerate_bubble_tts_core in extract (READ) / synthesize (SLOW) /
+    # apply (WRITE) zerlegt.
 
-        Args:
-            bubble_index: Index of the bubble in chat_history
-            save_session: Whether to save session after regeneration (False when called from resynthesize_all)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        from ..lib.audio_processing import clean_text_for_tts, generate_tts, set_tts_agent, save_audio_to_session
+    def _extract_bubble_tts_request(self, bubble_index: int) -> dict[str, Any] | None:
+        """Phase 1 (State-READS — im Background-Event nur unter ``async with
+        self`` aufrufen): Text, Stimme und Engine als reine Werte einsammeln.
+        ``None`` wenn die Bubble nichts Synthetisierbares hergibt."""
+        from ..lib.audio_processing import clean_text_for_tts
 
         _ch = self._chat_sub()
         msg = _ch.chat_history[bubble_index]
@@ -982,16 +983,15 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         if not llm_content or not llm_content.strip():
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} content is empty")
-            return False
+            return None
 
-        set_tts_agent(agent)
         # llm_history has format "[AGENT]: content" - remove the label
         content_without_label = re.sub(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', '', llm_content, flags=re.IGNORECASE)
         clean_text = clean_text_for_tts(content_without_label)
 
         if not clean_text or len(clean_text.strip()) < 5:
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} text too short after cleanup")
-            return False
+            return None
 
         # Voice/speed/pitch via the SSOT resolver. This is the bug the
         # whole resolver exists for: re-synthing a HAL bubble after an
@@ -1011,32 +1011,81 @@ class TTSStreamingMixin(rx.State, mixin=True):
             f"speed={speed_value} pitch={pitch_value}"
         )
 
-        # Generate TTS (complete bubble at once for best quality)
-        tts_language = self._last_detected_language or self.ui_language  # type: ignore[attr-defined]
-        audio_url = await generate_tts(
-            text=clean_text,
-            voice_choice=voice_choice,
-            speed_choice=speed_value,
-            tts_engine=self.tts_engine,  # type: ignore[attr-defined]
-            pitch=pitch_value,
-            language=tts_language
-        )
+        return {
+            "bubble_index": bubble_index,
+            # Timestamp der Bubble: Während der lock-freien Synthese kann
+            # sich die History ändern (neuer Turn, Löschung) — beim Patchen
+            # wird die Bubble darüber wiedergefunden statt blind per Index.
+            "timestamp": msg.get("timestamp", ""),
+            "agent": agent,
+            "clean_text": clean_text,
+            "voice": voice_choice,
+            "speed": speed_value,
+            "pitch": pitch_value,
+            "engine": str(self.tts_engine),  # type: ignore[attr-defined]
+            "language": self._last_detected_language or self.ui_language,  # type: ignore[attr-defined]
+            "session_id": str(self.session_id),  # type: ignore[attr-defined]
+        }
 
+    @staticmethod
+    async def _synthesize_bubble_audio(request: dict[str, Any]) -> str | None:
+        """Phase 2 (LANGSAM — läuft OHNE State-Lock): Synthese + Ablage im
+        Session-Verzeichnis. Bewusst ohne jeden ``self``-State-Zugriff."""
+        from ..lib.audio_processing import generate_tts, save_audio_to_session, set_tts_agent
+
+        bubble_index = request["bubble_index"]
+        set_tts_agent(request["agent"])
+        # Generate TTS (complete bubble at once for best quality)
+        audio_url = await generate_tts(
+            text=request["clean_text"],
+            voice_choice=request["voice"],
+            speed_choice=request["speed"],
+            tts_engine=request["engine"],
+            pitch=request["pitch"],
+            language=request["language"],
+        )
         if not audio_url:
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} audio generation failed")
-            return False
+            return None
 
         # Save to session directory for permanent storage
-        session_audio_url = save_audio_to_session([audio_url], self.session_id)  # type: ignore[attr-defined]
+        session_audio_url = save_audio_to_session([audio_url], request["session_id"])
         if not session_audio_url:
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} failed to save to session")
-            return False
+            return None
 
         log_message(f"🔊 TTS: Bubble {bubble_index} saved → {session_audio_url}")
+        return session_audio_url
 
-        # Update message with new audio URL — rebuild the bubble entry deep
-        # so Reflex registers the change at the list level.
+    def _apply_bubble_audio(
+        self, bubble_index: int, timestamp: str, session_audio_url: str,
+        save_session: bool,
+    ) -> bool:
+        """Phase 3 (State-WRITE — nur unter ``async with self``): URL an die
+        Bubble patchen. Deep-rebuild, damit Reflex die Änderung auf
+        Listen-Ebene registriert. Verifiziert den Index per Timestamp —
+        die History kann sich während der lock-freien Synthese verschoben
+        haben."""
+        _ch = self._chat_sub()
         new_history = list(_ch.chat_history)
+
+        if not (
+            0 <= bubble_index < len(new_history)
+            and new_history[bubble_index].get("timestamp") == timestamp
+        ):
+            # Index verrutscht (Nachricht gelöscht/History geändert) —
+            # Bubble über ihren Timestamp wiederfinden.
+            bubble_index = next(
+                (i for i, m in enumerate(new_history) if m.get("timestamp") == timestamp),
+                -1,
+            )
+            if bubble_index < 0:
+                log_message(
+                    f"⚠️ TTS Re-Synth: Bubble (timestamp={timestamp}) vanished "
+                    "during synthesis — audio not attached"
+                )
+                return False
+
         prev = new_history[bubble_index]
         new_metadata = dict(prev.get("metadata") or {})
         new_metadata["audio_urls"] = [session_audio_url]
@@ -1053,130 +1102,188 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         return True
 
+    @rx.event(background=True)  # type: ignore[operator]
     async def resynthesize_bubble_tts(self, timestamp: str):
-        """Re-synthesize TTS for a specific chat bubble.
+        """Re-synthesize TTS for a specific chat bubble (background event).
+
+        Als normaler Handler hielt das den State-Lock über die GESAMTE
+        Synthese (Minuten bei langen Bubbles) und rief ensure_engine_ready
+        synchron im Event-Loop — der Container-Start (bis 240 s) fror die
+        komplette App ein, und starb währenddessen die Verbindung, ging das
+        finale Delta verloren (Audio erst nach F5 sichtbar). Jetzt: Lock nur
+        für kurze Lese-/Schreib-Phasen, Engine-Start via to_thread, Synthese
+        lock-frei — die UI bleibt bedienbar, der nächste Prompt kann parallel
+        laufen.
 
         Args:
             timestamp: Timestamp of the message to regenerate
         """
-        if self.tts_regenerating:
-            return
+        from ..lib.tts_engine_manager import GPU_ENGINES, ensure_engine_ready
 
-        # Find message by timestamp
-        _ch = self._chat_sub()
-        bubble_index = None
-        for i, msg in enumerate(_ch.chat_history):
-            if msg.get("timestamp") == timestamp:
-                bubble_index = i
-                break
+        engine = ""
+        target_index = -1
+        async with self:
+            if self.tts_regenerating:
+                return
 
-        if bubble_index is None:
-            self.add_debug(f"⚠️ TTS Re-Synth: Message not found (timestamp: {timestamp})")  # type: ignore[attr-defined]
-            return
+            # Find message by timestamp
+            _ch = self._chat_sub()
+            bubble_index = None
+            for i, msg in enumerate(_ch.chat_history):
+                if msg.get("timestamp") == timestamp:
+                    bubble_index = i
+                    break
 
-        if _ch.chat_history[bubble_index].get("role") != "assistant":
-            self.add_debug("⚠️ TTS Re-Synth: Message is not an assistant response")  # type: ignore[attr-defined]
-            return
+            if bubble_index is None:
+                self.add_debug(f"⚠️ TTS Re-Synth: Message not found (timestamp: {timestamp})")  # type: ignore[attr-defined]
+                return
 
-        self.tts_regenerating = True
-        yield rx.call_script("stopTts()")  # type: ignore[misc]
+            if _ch.chat_history[bubble_index].get("role") != "assistant":
+                self.add_debug("⚠️ TTS Re-Synth: Message is not an assistant response")  # type: ignore[attr-defined]
+                return
+
+            self.tts_regenerating = True
+            target_index = bubble_index
+            engine = str(self.tts_engine)  # type: ignore[attr-defined]
+            yield rx.call_script("stopTts()")  # type: ignore[misc]
+            if engine in GPU_ENGINES:
+                self.add_debug(f"🔄 TTS Re-Synth: Starte {engine.upper()} Backend...")  # type: ignore[attr-defined]
 
         # Auto-start TTS backend if not running — single dispatch via SSOT.
-        from ..lib.tts_engine_manager import GPU_ENGINES, ensure_engine_ready
-        if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-            self.add_debug(  # type: ignore[attr-defined]
-                f"🔄 TTS Re-Synth: Starte {self.tts_engine.upper()} Backend..."  # type: ignore[attr-defined]
-            )
-            yield  # type: ignore[misc]
-            ok, tts_msg, _device = ensure_engine_ready(self.tts_engine)  # type: ignore[attr-defined]
+        # to_thread: Container-Start + Model-Load dürfen weder Event-Loop
+        # noch State-Lock halten.
+        if engine in GPU_ENGINES:
+            ok, tts_msg, _device = await asyncio.to_thread(ensure_engine_ready, engine)
         else:
             ok, tts_msg = True, "OK"
 
         if not ok:
-            self.add_debug(f"❌ TTS Re-Synth: {tts_msg}")  # type: ignore[attr-defined]
-            self.tts_regenerating = False
+            async with self:
+                self.add_debug(f"❌ TTS Re-Synth: {tts_msg}")  # type: ignore[attr-defined]
+                self.tts_regenerating = False
             return
-
-        agent = _ch.chat_history[bubble_index].get("agent", "aifred")
-        self.add_debug(f"🔄 TTS Re-Synth: Regenerating bubble {bubble_index} ({agent})...")  # type: ignore[attr-defined]
-        yield  # type: ignore[misc]
 
         try:
-            success = await self._regenerate_bubble_tts_core(bubble_index, save_session=True)
-            if success:
-                self.add_debug(f"✅ TTS: Bubble {bubble_index} regenerated")  # type: ignore[attr-defined]
-            else:
-                self.add_debug(f"⚠️ TTS: Bubble {bubble_index} regeneration failed")  # type: ignore[attr-defined]
+            async with self:
+                request = self._extract_bubble_tts_request(target_index)
+                if request is not None:
+                    self.add_debug(  # type: ignore[attr-defined]
+                        f"🔄 TTS Re-Synth: Regenerating bubble {target_index} ({request['agent']})..."
+                    )
+
+            success = False
+            if request is not None:
+                session_audio_url = await self._synthesize_bubble_audio(request)
+                if session_audio_url:
+                    async with self:
+                        success = self._apply_bubble_audio(
+                            target_index, request["timestamp"],
+                            session_audio_url, save_session=True,
+                        )
+
+            async with self:
+                if success:
+                    self.add_debug(f"✅ TTS: Bubble {target_index} regenerated")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug(f"⚠️ TTS: Bubble {target_index} regeneration failed")  # type: ignore[attr-defined]
         except (FileNotFoundError, ValueError, RuntimeError) as e:
-            self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
+            async with self:
+                self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS regeneration error: {e}")
         finally:
-            self.tts_regenerating = False
+            async with self:
+                self.tts_regenerating = False
 
+    @rx.event(background=True)  # type: ignore[operator]
     async def resynthesize_all_tts(self):
-        """Re-synthesize TTS for all assistant messages in chat history."""
-        if self.tts_regenerating:
-            return
+        """Re-synthesize TTS for all assistant messages (background event —
+        gleiche Struktur wie resynthesize_bubble_tts: Lock nur für kurze
+        Lese-/Schreib-Phasen, Synthesen lock-frei, Fortschritt pro Bubble
+        fließt live in die Debug-Messages)."""
+        from ..lib.tts_engine_manager import GPU_ENGINES, ensure_engine_ready
 
-        _ch = self._chat_sub()
-        if not _ch.chat_history:
-            self.add_debug("⚠️ TTS Re-Synth: No chat history available")  # type: ignore[attr-defined]
-            return
+        engine = ""
+        assistant_indices: list[int] = []
+        async with self:
+            if self.tts_regenerating:
+                return
 
-        assistant_indices = [i for i, msg in enumerate(_ch.chat_history) if msg.get("role") == "assistant"]
-        if not assistant_indices:
-            self.add_debug("⚠️ TTS Re-Synth: No assistant messages found")  # type: ignore[attr-defined]
-            return
+            _ch = self._chat_sub()
+            if not _ch.chat_history:
+                self.add_debug("⚠️ TTS Re-Synth: No chat history available")  # type: ignore[attr-defined]
+                return
 
-        self.tts_regenerating = True
-        yield rx.call_script("stopTts()")  # type: ignore[misc]
+            assistant_indices = [
+                i for i, msg in enumerate(_ch.chat_history)
+                if msg.get("role") == "assistant"
+            ]
+            if not assistant_indices:
+                self.add_debug("⚠️ TTS Re-Synth: No assistant messages found")  # type: ignore[attr-defined]
+                return
+
+            self.tts_regenerating = True
+            engine = str(self.tts_engine)  # type: ignore[attr-defined]
+            yield rx.call_script("stopTts()")  # type: ignore[misc]
+            if engine in GPU_ENGINES:
+                self.add_debug(f"🔄 TTS Re-Synth (alle): Starte {engine.upper()} Backend...")  # type: ignore[attr-defined]
 
         # Auto-start TTS backend if not running — single dispatch via SSOT.
-        from ..lib.tts_engine_manager import GPU_ENGINES, ensure_engine_ready
-        if self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-            self.add_debug(  # type: ignore[attr-defined]
-                f"🔄 TTS Re-Synth (alle): Starte {self.tts_engine.upper()} Backend..."  # type: ignore[attr-defined]
-            )
-            yield  # type: ignore[misc]
-            ok, msg, _device = ensure_engine_ready(self.tts_engine)  # type: ignore[attr-defined]
+        # to_thread: siehe resynthesize_bubble_tts.
+        if engine in GPU_ENGINES:
+            ok, msg_txt, _device = await asyncio.to_thread(ensure_engine_ready, engine)
         else:
-            ok, msg = True, "OK"
+            ok, msg_txt = True, "OK"
 
         if not ok:
-            self.add_debug(f"❌ TTS Re-Synth: {msg}")  # type: ignore[attr-defined]
-            self.tts_regenerating = False
+            async with self:
+                self.add_debug(f"❌ TTS Re-Synth: {msg_txt}")  # type: ignore[attr-defined]
+                self.tts_regenerating = False
             return
 
-        self.add_debug(f"🔄 TTS Re-Synth: Regenerating all {len(assistant_indices)} bubbles...")  # type: ignore[attr-defined]
-        yield  # type: ignore[misc]
+        total = len(assistant_indices)
+        async with self:
+            self.add_debug(f"🔄 TTS Re-Synth: Regenerating all {total} bubbles...")  # type: ignore[attr-defined]
 
         try:
             success_count = 0
             failed_bubbles = []
             for i, bubble_idx in enumerate(assistant_indices):
-                self.add_debug(f"🔄 Processing bubble {i+1}/{len(assistant_indices)}...")  # type: ignore[attr-defined]
-                yield  # type: ignore[misc]
+                async with self:
+                    self.add_debug(f"🔄 Processing bubble {i+1}/{total}...")  # type: ignore[attr-defined]
+                    request = self._extract_bubble_tts_request(bubble_idx)
 
-                # Use core method (don't save session after each - save once at end)
-                success = await self._regenerate_bubble_tts_core(bubble_idx, save_session=False)
-                if success:
+                session_audio_url = (
+                    await self._synthesize_bubble_audio(request)
+                    if request is not None else None
+                )
+
+                applied = False
+                if session_audio_url and request is not None:
+                    async with self:
+                        # Session erst am Ende EINMAL speichern (wie zuvor).
+                        applied = self._apply_bubble_audio(
+                            bubble_idx, request["timestamp"],
+                            session_audio_url, save_session=False,
+                        )
+                if applied:
                     success_count += 1
                 else:
                     failed_bubbles.append(i + 1)
-                    self.add_debug(f"⚠️ Bubble {i+1}/{len(assistant_indices)} failed (chat index {bubble_idx})")  # type: ignore[attr-defined]
+                    async with self:
+                        self.add_debug(f"⚠️ Bubble {i+1}/{total} failed (chat index {bubble_idx})")  # type: ignore[attr-defined]
 
-            # Save session once after all regenerations.
-            # Each _regenerate_bubble_tts_core() already reassigned chat_history,
-            # so no extra trigger needed here.
-            self._save_current_session()  # type: ignore[attr-defined]
-
-            if failed_bubbles:
-                self.add_debug(f"⚠️ TTS: {success_count}/{len(assistant_indices)} bubbles regenerated — failed: {failed_bubbles}")  # type: ignore[attr-defined]
-            else:
-                self.add_debug(f"✅ TTS: {success_count}/{len(assistant_indices)} bubbles regenerated")  # type: ignore[attr-defined]
+            async with self:
+                # Save session once after all regenerations.
+                self._save_current_session()  # type: ignore[attr-defined]
+                if failed_bubbles:
+                    self.add_debug(f"⚠️ TTS: {success_count}/{total} bubbles regenerated — failed: {failed_bubbles}")  # type: ignore[attr-defined]
+                else:
+                    self.add_debug(f"✅ TTS: {success_count}/{total} bubbles regenerated")  # type: ignore[attr-defined]
 
         except (FileNotFoundError, ValueError, RuntimeError) as e:
-            self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
+            async with self:
+                self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS regeneration error: {e}")
         finally:
-            self.tts_regenerating = False
+            async with self:
+                self.tts_regenerating = False
