@@ -1055,10 +1055,32 @@ async def _verify_and_refine(
                 if refined is not None:
                     shifted = refined
             if shifted is None:
+                # Load-Frei um Side-Channel-Reserven bereinigen: die V100
+                # zeigt beim Kalibrieren z.B. 14 GB "frei", die aber der
+                # TTS-/VLM-Container später beansprucht (Reserve, hier noch
+                # nicht physisch belegt). Ohne Abzug hielte der Shift die
+                # Karte fälschlich für offen und schöbe immer wieder dorthin
+                # (das "V100 -466 MB" im 122B-Combo-Log).
+                _reserve = budget.gpu_reserve_mb
+                _adj_free = tuple(
+                    max(0, r.load_min_free_mb[i] - (_reserve[i] if i < len(_reserve) else 0))
+                    for i in range(len(r.load_min_free_mb))
+                )
                 shifted = _shift_one_layer_blind(
                     current_split, gpus,
                     oom_cuda_id=r.oom_cuda_id,
                     keep_active_set=lock_active_gpus,
+                    # Reserve-bereinigte Load-Messwerte + config-Mindest-
+                    # reserve als Untergrenze: Der Layer geht auf die nächste
+                    # Karte, die danach noch ≥ safety_margin frei hat — sonst
+                    # die übernächste, bis ans Ende (Glas voll bis zur
+                    # Reserve, nicht mehr).
+                    free_estimate=_adj_free,
+                    min_free_mb=budget.safety_margin,
+                    mb_per_layer=(
+                        model.size_mb / model.total_layers
+                        if model.total_layers else 0.0
+                    ),
                 )
             if shifted is None:
                 if lock_active_gpus:
@@ -1742,25 +1764,34 @@ def _shift_one_layer_blind(
     gpus: list[GPU],
     oom_cuda_id: int | None = None,
     keep_active_set: bool = False,
+    free_estimate: tuple[int, ...] = (),
+    min_free_mb: int = 0,
+    mb_per_layer: float = 0.0,
 ) -> tuple[float, ...] | None:
-    """Strict-greedy spill: take one layer off the OOM GPU, give it to
-    the next GPU downstream in the cascade.
+    """Kaskaden-Spill: einen Layer-Anteil von der OOM-Karte nehmen und auf
+    die NÄCHSTE nachgelagerte Karte legen, die danach noch über der
+    config-Mindestreserve bleibt — sonst die übernächste, bis ans Ende
+    (Glas-Kaskade: nächste Karte füllen, erst überlaufen lassen wenn sie
+    die Reserve nicht mehr hält).
 
-    Source selection:
-    - If ``oom_cuda_id`` is provided (parsed from llama-server's stderr)
-      AND that GPU is active: use it. This is the truthful answer — we
-      know exactly which GPU ran out of VRAM.
-    - Otherwise: fall back to ``argmax(layers)`` as a best guess. Not
-      always correct (a smaller-VRAM GPU can OOM with fewer layers than
-      a larger one) but better than nothing when stderr parsing failed.
+    Source: die tatsächliche OOM-Karte (``oom_cuda_id`` aus dem
+    llama-server-stderr). Ohne diese Info kein Rateschluss → ``None``, der
+    Caller geht auf ctx-Shrink.
 
-    Destination: the **next active GPU after src in the GPU list order**
-    (which is compute_cap DESC, total_mb DESC). No later active GPU →
-    activate the next idle in list order. ``keep_active_set=True``
-    (speed-variant calibration) suppresses idle activation so the
-    caller falls back to ctx-shrink instead.
+    Destination (der eigentliche Fix): früher stur ``min(later_active)`` —
+    die direkte Nachbarkarte, ungeachtet ob sie Platz hat. Beim 122B-Combo
+    landete der Layer so auf der ebenfalls vollen GPU1, während die fast
+    leere P40#4 (20 GB frei) danebenlag → OOM-Schleife ohne Konvergenz.
+    Jetzt: die nächste Karte nach src, deren geschätzter Frei-Stand nach
+    +STEP noch ≥ ``min_free_mb`` bleibt. ``free_estimate`` ist der tiefste
+    Load-Frei-Stand pro Karte (aus dem Load-Sampling) — die einzige echte
+    per-Karte-Info bei einem Load-OOM. Fehlt sie, Rückfall auf die alte
+    Nachbar-Heuristik.
 
-    Returns ``None`` when no further shift is possible.
+    ``keep_active_set=True`` (Speed-Variante) unterdrückt das Aktivieren
+    bisher idler Karten.
+
+    Returns ``None`` wenn kein Ziel die Reserve hält.
     """
     # Float-erhaltend: Splits sind seit der proportionalen Varianten-
     # Ableitung fraktional (z.B. 17.18:18.06:6.1:5.53:1.13) — ein
@@ -1789,21 +1820,26 @@ def _shift_one_layer_blind(
     if layers[src] <= _STEP:
         return None  # can't shift further
 
-    # Greedy: prefer destinations AFTER src in the GPU list order
-    # (= slower / smaller in compute-DESC, total_mb-DESC order). Never
-    # spill back to a GPU upstream of src — that would defeat the cascade.
-    later_active = [i for i in active_idx if i > src]
-    if later_active:
-        # Closest active downstream GPU — keeps load concentrated.
-        dest = min(later_active)
-    elif keep_active_set:
+    # Kandidaten in Kaskaden-Reihenfolge: alle Karten nach src (aktiv wie
+    # idle), bei keep_active_set nur die schon aktiven. Erste nehmen, die
+    # nach +STEP die Reserve hält.
+    cost = _STEP * mb_per_layer
+    dest: int | None = None
+    for i in range(src + 1, len(layers)):
+        if keep_active_set and layers[i] <= 0:
+            continue
+        if free_estimate and i < len(free_estimate):
+            if free_estimate[i] - cost >= min_free_mb:
+                dest = i
+                break
+        else:
+            # Keine Frei-Schätzung → alte Heuristik: erste nachgelagerte
+            # aktive Karte, sonst erste idle.
+            if layers[i] > 0 or not keep_active_set:
+                dest = i
+                break
+    if dest is None:
         return None
-    else:
-        # No active GPU after src → activate the next idle in list order.
-        later_idle = [i for i in range(src + 1, len(layers)) if layers[i] == 0]
-        if not later_idle:
-            return None
-        dest = later_idle[0]
 
     layers[src] -= _STEP
     layers[dest] += _STEP
