@@ -619,6 +619,33 @@ def _kv_levels_from(min_kv: str) -> list[str]:
 _SOLO_NEAR_MISS_RATIO = 0.05
 
 
+def _quantize_split_to_layers(
+    split: tuple[float, ...], total_layers: int
+) -> tuple[float, ...]:
+    """Fraktionalen Split auf ganze Layer runden (Summe = total_layers).
+
+    llama.cpp platziert im ``-sm layer``-Modus nur GANZE Layer — ein Split
+    wie ``16.68:17.4:6.12:…`` ist physikalisch nicht darstellbar und wird
+    intern gerundet. Empirisch belegt: ein Shift ``V100 2 → 1.5`` bewegte
+    physisch nichts (identische Messwerte), erst ``2 → 1`` schob einen
+    echten Layer. Wir runden deshalb SELBST (Largest-Remainder, Summe bleibt
+    total_layers), damit der getestete + geloggte Split GENAU dem entspricht,
+    was llama.cpp lädt — statt eine Feinkörnigkeit vorzugaukeln, die es nicht
+    gibt (und die nur No-Op-Reloads kostet). Nullen (idle) bleiben null."""
+    floors = [int(x) for x in split]
+    remainder = total_layers - sum(floors)
+    if remainder <= 0:
+        return tuple(float(x) for x in floors)
+    # Rest-Layer an die Karten mit größtem Nachkomma-Anteil (Largest-Remainder).
+    order = sorted(
+        range(len(split)), key=lambda i: split[i] - floors[i], reverse=True
+    )
+    result = list(floors)
+    for k in range(remainder):
+        result[order[k % len(order)]] += 1
+    return tuple(float(x) for x in result)
+
+
 def _track_failed_solo(
     best_free: float, best_ctx: int, free_mb: float, max_ctx: int,
 ) -> tuple[float, int]:
@@ -1066,6 +1093,26 @@ async def _verify_and_refine(
                     max(0, r.load_min_free_mb[i] - (_reserve[i] if i < len(_reserve) else 0))
                     for i in range(len(r.load_min_free_mb))
                 )
+                # Per-GPU-Kosten EINES Layers = Gewicht + KV bei diesem ctx.
+                # Aus dem vram_model (falls vorhanden), sonst nur Gewicht.
+                # Ohne den KV-Anteil hielte der Shift eine Karte mit z.B.
+                # 4,9 GB frei für aufnahmefähig, die dann am KV eines ganzen
+                # Layers (mehrere GB bei 262k) OOMt.
+                _mb_per_layer = (
+                    model.size_mb / model.total_layers
+                    if model.total_layers else 0.0
+                )
+                if candidate.vram_model is not None:
+                    from .optimizer import _per_gpu_coefficients
+                    _, _slope = _per_gpu_coefficients(
+                        candidate.vram_model, model.total_layers, model.size_mb,
+                    )
+                    _layer_cost = tuple(
+                        _mb_per_layer + _slope[i] * current_ctx
+                        for i in range(len(_slope))
+                    )
+                else:
+                    _layer_cost = tuple(_mb_per_layer for _ in gpus)
                 shifted = _shift_one_layer_blind(
                     current_split, gpus,
                     oom_cuda_id=r.oom_cuda_id,
@@ -1077,10 +1124,7 @@ async def _verify_and_refine(
                     # Reserve, nicht mehr).
                     free_estimate=_adj_free,
                     min_free_mb=budget.safety_margin,
-                    mb_per_layer=(
-                        model.size_mb / model.total_layers
-                        if model.total_layers else 0.0
-                    ),
+                    layer_cost_per_gpu=_layer_cost,
                 )
             if shifted is None:
                 if lock_active_gpus:
@@ -1601,23 +1645,23 @@ def _refine_split_from_measurement(
     )
     mb_per_layer = model_size_mb / total_layers if total_layers else 0.0
 
-    # Bedarfsgenaue Schrittweite im 0.5er-Raster: so viel verschieben, dass
-    # der Engpass über die 2×margin-Ruheschwelle kommt — aber höchstens
-    # einen ganzen Layer pro Runde. Pauschal 1.0 riss auf der Zielkarte
-    # oft ein neues Loch; Kontext-Shrink bleibt das LETZTE Mittel, also
-    # erst die Verteilung so fein wie möglich ausreizen.
+    # GANZE Layer (llama.cpp platziert nichts Feineres). Bedarfsgenau: so
+    # viele ganze Layer, dass der Engpass über die 2×margin-Ruheschwelle
+    # kommt — mindestens 1. Ein Layer trägt ~2,5 GB, ceil rundet höchstens
+    # <1 Layer auf, überkorrigiert also nicht dramatisch; Kontext-Shrink
+    # bleibt das LETZTE Mittel.
+    import math as _math
     save_per_layer = mb_per_layer + slope_per_layer[bottleneck] * current_context
     deficit = 2 * budget.safety_margin - b_free
     if save_per_layer > 0:
-        import math as _math
-        step = min(1.0, max(0.5, _math.ceil((deficit / save_per_layer) * 2) / 2))
+        step = max(1.0, float(_math.ceil(deficit / save_per_layer)))
     else:
         step = 1.0
-
-    if current_split[bottleneck] - step < 0.5:
-        return None, (
-            f"CUDA{bottleneck} has too few layer shares left to shift {step:g}"
-        )
+    # Nicht mehr verschieben als die Karte an ganzen Layern hat (sie darf
+    # auf 0 = idle fallen, aber nicht negativ werden).
+    step = min(step, float(int(current_split[bottleneck])))
+    if step < 1.0:
+        return None, f"CUDA{bottleneck} has no whole layer left to shift"
 
     save_on_bottleneck = step * save_per_layer
     best_dest: int | None = None
@@ -1766,7 +1810,7 @@ def _shift_one_layer_blind(
     keep_active_set: bool = False,
     free_estimate: tuple[int, ...] = (),
     min_free_mb: int = 0,
-    mb_per_layer: float = 0.0,
+    layer_cost_per_gpu: tuple[float, ...] = (),
 ) -> tuple[float, ...] | None:
     """Kaskaden-Spill: einen Layer-Anteil von der OOM-Karte nehmen und auf
     die NÄCHSTE nachgelagerte Karte legen, die danach noch über der
@@ -1793,13 +1837,12 @@ def _shift_one_layer_blind(
 
     Returns ``None`` wenn kein Ziel die Reserve hält.
     """
-    # Float-erhaltend: Splits sind seit der proportionalen Varianten-
-    # Ableitung fraktional (z.B. 17.18:18.06:6.1:5.53:1.13) — ein
-    # int()-Cast würde kleine Anteile auf 0 runden und Karten aus dem
-    # aktiven Set werfen. Schrittweite 0.5 statt 1.0: bei 100+-GB-Modellen
-    # ist ein ganzer Layer-Anteil ~1-3 GB; der halbe Schritt korrigiert
-    # feiner, bevor als letztes Mittel der Kontext beschnitten wird.
-    _STEP = 0.5
+    # GANZE Layer: llama.cpp platziert nur ganze Layer, ein halber Schritt
+    # ist oft ein No-Op (rundet auf dieselbe Ganzzahl) und kostet nur einen
+    # 125-GB-Reload. Ein ganzer Layer bewegt garantiert eine physische
+    # Umverteilung. Splits sind ab hier ganzzahlig (die Ableitung
+    # quantisiert), float nur zur Sicherheit erhalten.
+    _STEP = 1.0
     layers = [float(x) for x in split]
     active_idx = [i for i, layers_i in enumerate(layers) if layers_i > 0]
     if not active_idx:
@@ -1822,13 +1865,17 @@ def _shift_one_layer_blind(
 
     # Kandidaten in Kaskaden-Reihenfolge: alle Karten nach src (aktiv wie
     # idle), bei keep_active_set nur die schon aktiven. Erste nehmen, die
-    # nach +STEP die Reserve hält.
-    cost = _STEP * mb_per_layer
+    # nach +STEP die Reserve hält. Kosten pro Karte = Gewicht + KV eines
+    # Layers (layer_cost_per_gpu, aus dem vram_model) — NICHT nur Gewicht,
+    # sonst gilt eine Karte fälschlich als aufnahmefähig und OOMt am KV.
     dest: int | None = None
     for i in range(src + 1, len(layers)):
         if keep_active_set and layers[i] <= 0:
             continue
         if free_estimate and i < len(free_estimate):
+            cost = _STEP * (
+                layer_cost_per_gpu[i] if i < len(layer_cost_per_gpu) else 0.0
+            )
             if free_estimate[i] - cost >= min_free_mb:
                 dest = i
                 break
@@ -2496,9 +2543,10 @@ async def calibrate_tts_variant_from_base(
     # base_split.  The VLM GPU's layer share shrinks proportionally to its
     # effective free VRAM vs. its physical total; the lost layers are
     # redistributed to the remaining GPUs proportional to their free VRAM.
-    # This produces non-integer split values (e.g. 8.38 on V100) that
-    # llama.cpp handles natively via its ratio-based tensor_split — exactly
-    # what the manual working config does.
+    # The proportional step produces non-integer values (e.g. 8.38 on
+    # V100) — those are then quantized to whole layers below, because
+    # llama.cpp only places WHOLE layers (a fractional -ts value is silently
+    # rounded; passing 1.5 vs 2 changed nothing empirically).
     #
     # Using total_mb (physical capacity) as the base reference makes this
     # setup-agnostic: it correctly handles both VLM-only variants (where
@@ -2550,7 +2598,16 @@ async def calibrate_tts_variant_from_base(
             if _other_free_total > 0:
                 for _gi, _gf in _others:
                     _adj[_gi] += _lost * _gf / _other_free_total
-                _total_split = sum(_adj)
+                # Auf GANZE Layer quantisieren: der proportionale _adj
+                # (z.B. 16.68:17.4:6.12:6.2:2.6) ist physikalisch nicht
+                # platzierbar — llama.cpp rundet ihn ohnehin. Wir runden
+                # selbst, damit getesteter/geloggter Split = geladener Split
+                # und die Shifts sauber auf Layer-Ebene arbeiten.
+                _adj_q = list(_quantize_split_to_layers(
+                    tuple(_adj), model.total_layers
+                ))
+                _adj = _adj_q
+                _total_split = sum(_adj) or 1.0
                 _pred_free = tuple(
                     int(gpus[i].free_mb - (_adj[i] / _total_split) * model.size_mb)
                     for i in range(len(gpus))
