@@ -278,11 +278,21 @@ def wrap_untrusted_data(text: str, source: str = "web") -> str:
 # OUTBOUND SANITIZATION
 # ============================================================
 
-# Markdown image syntax: ![alt](url) — blocks external URLs
+# Markdown image syntax: ![alt](url) — blocks any absolute target, not just
+# http(s): protocol-relative "//host/…" resolves to https in mail clients,
+# data:/cid:/ftp: smuggle payloads, and every other scheme is equally
+# uncontrolled. Relative paths stay allowed (they cannot reach an external
+# host from a mail/chat client).
 _MD_IMAGE_EXTERNAL = re.compile(
-    r"!\[([^\]]*)\]\(https?://[^)]+\)",
+    r"!\[([^\]]*)\]\(\s*(?:[a-z][a-z0-9+.-]*:|//)[^)]*\)",
     re.IGNORECASE,
 )
+
+# Reference-style image: ![alt][ref] with a separate "[ref]: url" definition.
+# Rendered by the Markdown-to-HTML mail path just like inline images, so an
+# injected reply could exfiltrate via the reference indirection. Blocking the
+# image use is enough — the bare "[ref]: url" line loads nothing by itself.
+_MD_IMAGE_REFERENCE = re.compile(r"!\[([^\]]*)\]\[[^\]]*\]")
 
 # Common secret patterns (API keys, tokens, etc.)
 _SECRET_PATTERNS = re.compile(
@@ -308,6 +318,7 @@ def sanitize_outbound(text: str) -> str:
     - Redact detected secret patterns
     """
     text = _MD_IMAGE_EXTERNAL.sub(r"![image blocked by security policy]", text)
+    text = _MD_IMAGE_REFERENCE.sub(r"![image blocked by security policy]", text)
     text = _SECRET_PATTERNS.sub("[REDACTED]", text)
     return text
 
