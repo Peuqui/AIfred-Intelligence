@@ -17,18 +17,53 @@ Usage:
 import sys
 import os
 import json
-import hashlib
-import secrets
 import getpass
 from pathlib import Path
 
+# Passwort-Hashing mit bcrypt — MUSS Format + Rounds von
+# aifred/lib/session_storage.py spiegeln (Präfix "bcrypt:", Rounds 12), damit
+# per CLI erzeugte Accounts sich einloggen können. bcrypt liegt in der venv,
+# darum mit venv-python re-exec'en, damit ./aifred-admin direkt aufrufbar
+# bleibt. Bewusst KEIN Import von session_storage: das zöge config.py mit
+# seinen Import-Seiteneffekten (API-Keys laden, Debug-Log) in jeden
+# CLI-Aufruf — nur um eine Zwei-Zeilen-Hashfunktion zu teilen.
+PROJECT_ROOT = Path(__file__).resolve().parent
+_VENV_PY = PROJECT_ROOT / "venv" / "bin" / "python3"
+if _VENV_PY.exists() and Path(sys.executable).resolve() != _VENV_PY.resolve():
+    os.execv(str(_VENV_PY), [str(_VENV_PY), str(Path(__file__).resolve()), *sys.argv[1:]])
+
+import bcrypt  # noqa: E402 — nach dem venv-re-exec, sonst evtl. nicht im Pfad
+
+_BCRYPT_PREFIX = "bcrypt:"       # spiegelt session_storage._BCRYPT_PREFIX
+_BCRYPT_ROUNDS = 12              # spiegelt session_storage._BCRYPT_ROUNDS
+
 # Paths MUST match aifred/lib/config.py DATA_DIR = PROJECT_ROOT / "data"
 # (not ~/.config/aifred which never existed)
-PROJECT_ROOT = Path(__file__).resolve().parent
 SETTINGS_DIR = PROJECT_ROOT / "data"
 WHITELIST_FILE = SETTINGS_DIR / "allowed_users.json"
 ACCOUNTS_FILE = SETTINGS_DIR / "accounts.json"
 SESSION_DIR = SETTINGS_DIR / "sessions"
+
+
+def hash_password(password: str) -> str:
+    """bcrypt-Hash im selben Format wie session_storage.hash_password."""
+    digest = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(_BCRYPT_ROUNDS))
+    return f"{_BCRYPT_PREFIX}{digest.decode('ascii')}"
+
+
+def _save_accounts(accounts: dict) -> bool:
+    """Accounts atomar + 0600 speichern (Passwort-Hashes → nicht world-readable).
+    Spiegelt session_storage._save_accounts (tmp + chmod + os.replace)."""
+    try:
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = ACCOUNTS_FILE.with_suffix(".json.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(accounts, f, ensure_ascii=False, indent=2)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, ACCOUNTS_FILE)
+        return True
+    except OSError:
+        return False
 
 
 def _load_whitelist() -> list:
@@ -63,17 +98,6 @@ def _load_accounts() -> dict:
             return json.load(f)
     except (json.JSONDecodeError, IOError):
         return {}
-
-
-def _save_accounts(accounts: dict) -> bool:
-    """Save accounts to file."""
-    try:
-        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(accounts, f, ensure_ascii=False, indent=2)
-        return True
-    except IOError:
-        return False
 
 
 def get_whitelist() -> list:
@@ -148,7 +172,7 @@ def cmd_users() -> None:
     """List whitelist users."""
     users = get_whitelist()
     if not users:
-        print(f"Whitelist ist leer.")
+        print("Whitelist ist leer.")
         print(f"Datei: {WHITELIST_FILE}")
         return
 
@@ -203,11 +227,6 @@ def cmd_accounts() -> None:
     print(f"\nDatei: {ACCOUNTS_FILE}")
 
 
-def hash_password(password: str) -> str:
-    """Hash password with SHA-256 — matches aifred/lib/session_storage.py."""
-    return f"sha256:{hashlib.sha256(password.encode()).hexdigest()}"
-
-
 def cmd_create(username: str, password: str = "") -> None:
     """Create new account (or fail if exists).
 
@@ -234,7 +253,7 @@ def cmd_create(username: str, password: str = "") -> None:
         if _save_whitelist(whitelist):
             print(f"✓ '{username}' zur Whitelist hinzugefügt")
         else:
-            print(f"✗ Konnte Whitelist nicht speichern")
+            print("✗ Konnte Whitelist nicht speichern")
             sys.exit(1)
 
     # Get password — either from CLI arg or interactive prompt
@@ -254,7 +273,7 @@ def cmd_create(username: str, password: str = "") -> None:
         print(f"✓ Account '{username}' erstellt")
         print(f"  Datei: {ACCOUNTS_FILE}")
     else:
-        print(f"✗ Fehler beim Speichern")
+        print("✗ Fehler beim Speichern")
         sys.exit(1)
 
 
