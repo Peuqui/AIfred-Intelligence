@@ -35,7 +35,32 @@ def _calibration_picker_button() -> rx.Component:
     ticks exactly the combinations they want. A green dot on a cell
     means that profile already has a real (non-preliminary) entry in
     the VRAM cache.
+
+    While a calibration is running the picker button turns into a
+    spinner and a red stop button appears next to it — calibration is a
+    background task now, so the cancel event gets through immediately
+    (the run ends cleanly at its next step instead of requiring a
+    service restart).
     """
+    return rx.hstack(
+        _calibration_picker_popover(),
+        rx.cond(
+            AIState.is_calibrating,
+            rx.button(
+                rx.icon("circle-stop", size=14),
+                on_click=AIState.cancel_calibration,
+                size="1",
+                variant="soft",
+                color_scheme="red",
+                title=t("calibration_cancel"),
+            ),
+        ),
+        spacing="1",
+        align="center",
+    )
+
+
+def _calibration_picker_popover() -> rx.Component:
     return rx.popover.root(
         rx.popover.trigger(
             rx.button(
@@ -913,27 +938,42 @@ def settings_accordion() -> rx.Component:
                             # can deselect TTS variants for big models.
                             _calibration_picker_button(),
                             # Ollama: no TTS-variant phase → direct click.
-                            rx.button(
+                            rx.hstack(
+                                rx.button(
+                                    rx.cond(
+                                        AIState.is_calibrating,
+                                        rx.hstack(
+                                            rx.spinner(size="1"),
+                                            rx.text(t("calibrating"), font_size="11px"),
+                                            spacing="2",
+                                            align="center",
+                                        ),
+                                        rx.hstack(
+                                            rx.icon("gauge", size=14),
+                                            rx.text(t("calibrate_context"), font_size="11px"),
+                                            spacing="2",
+                                            align="center",
+                                        ),
+                                    ),
+                                    on_click=AIState.calibrate_context,
+                                    disabled=AIState.is_calibrating | AIState.backend_switching,
+                                    size="1",
+                                    variant="outline",
+                                    color_scheme="orange",
+                                ),
                                 rx.cond(
                                     AIState.is_calibrating,
-                                    rx.hstack(
-                                        rx.spinner(size="1"),
-                                        rx.text(t("calibrating"), font_size="11px"),
-                                        spacing="2",
-                                        align="center",
-                                    ),
-                                    rx.hstack(
-                                        rx.icon("gauge", size=14),
-                                        rx.text(t("calibrate_context"), font_size="11px"),
-                                        spacing="2",
-                                        align="center",
+                                    rx.button(
+                                        rx.icon("circle-stop", size=14),
+                                        on_click=AIState.cancel_calibration,
+                                        size="1",
+                                        variant="soft",
+                                        color_scheme="red",
+                                        title=t("calibration_cancel"),
                                     ),
                                 ),
-                                on_click=AIState.calibrate_context,
-                                disabled=AIState.is_calibrating | AIState.backend_switching,
-                                size="1",
-                                variant="outline",
-                                color_scheme="orange",
+                                spacing="1",
+                                align="center",
                             ),
                         ),
                         # Calibration-Mode dropdown — only for llama.cpp.
