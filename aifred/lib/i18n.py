@@ -642,6 +642,7 @@ class TranslationManager:
             "calibration_reset_vlm_cache_tooltip": "VLM-Burn-In-Tabelle löschen. Bei der nächsten Kalibrierung wird die VRAM-Belegung jeder VLM neu gemessen.",
             "calibration_reset_tts_cache_tooltip": "TTS-Burn-In-Tabelle löschen. Bei der nächsten Kalibrierung wird die VRAM-Belegung jeder TTS-Engine neu gemessen.",
             "calibration_start": "Kalibrierung starten",
+            "calibration_cancel": "Kalibrierung abbrechen",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Denkprozess",
             "collapsible_data": "Strukturierte Daten",
@@ -1460,6 +1461,7 @@ class TranslationManager:
             "calibration_reset_vlm_cache_tooltip": "Clear the VLM burn-in table. Next calibration re-measures each VLM's VRAM footprint.",
             "calibration_reset_tts_cache_tooltip": "Clear the TTS burn-in table. Next calibration re-measures each TTS engine's VRAM footprint.",
             "calibration_start": "Start calibration",
+            "calibration_cancel": "Cancel calibration",
             # Collapsible Labels (XML tags, debug accordion)
             "collapsible_thinking": "Thinking Process",
             "collapsible_data": "Structured Data",
