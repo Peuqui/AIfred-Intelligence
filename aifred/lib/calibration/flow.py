@@ -247,7 +247,8 @@ async def calibrate_llamacpp_model(
 
     yield (
         f"Free VRAM: {format_number(total_free_mb(gpus))} MB, "
-        f"first-GPU handicap: {budget.first_gpu_handicap} MB"
+        f"first-GPU handicap (idle floor): {budget.first_gpu_handicap} MB "
+        f"— model-derived per cell once fit-params ran"
     )
 
     # ── Phase 1: estimate-first + immediate probe per candidate ─────
@@ -1720,13 +1721,21 @@ def _math_predicts_fit(
         # base_split without a fresh fit-params run).  Math prediction is
         # impossible — optimistically assume fit; the real probe decides.
         return (True, budget.safety_margin)
-    from .optimizer import _per_gpu_coefficients, _predicted_free
+    from .optimizer import (
+        _per_gpu_coefficients, _predicted_free, first_gpu_handicap_mb,
+    )
     base, slope = _per_gpu_coefficients(
         candidate.vram_model, model.total_layers, model.size_mb,
     )
     mb_per_layer = model.size_mb / model.total_layers if model.total_layers else 0.0
+    # Same model-derived handicap as fill_fastest_first (SSOT) — the math
+    # filter must see the same number as the projection, or it green-lights
+    # ctx values the optimizer already rejected (and vice versa).
+    handicap = first_gpu_handicap_mb(
+        candidate.vram_model, gpus, model.total_layers, model.size_mb, ctx,
+    )
     extra_handicap = tuple(
-        budget.first_gpu_handicap if gpus[i].first_in_class else 0
+        handicap if gpus[i].first_in_class else 0
         for i in range(len(gpus))
     )
     layers = [int(x) for x in split]

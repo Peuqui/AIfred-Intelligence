@@ -81,6 +81,67 @@ def _per_gpu_coefficients(
     return base_overhead, slope_per_layer
 
 
+def first_gpu_handicap_mb(
+    vmodel: VRamModel,
+    gpus: list[GPU],
+    total_layers: int,
+    model_size_mb: float,
+    target_context: int,
+) -> int:
+    """Model-measured handicap for the first-in-class GPU (load-peak proxy).
+
+    The idle-delta measurement in ``measure_first_gpu_handicap`` only sees
+    display/compositor overhead — NOT the transient load peak of the first
+    CUDA device (output/logits tensor, compute/flash-attn workspace, MTP
+    draft buffers).  Those special buffers do show up in fit-params as a
+    steady-state asymmetry against the identical siblings, so we derive
+    the handicap from the measured model instead:
+
+        handicap = (base_overhead[first] − mean(base_overhead[siblings]))
+                 + max(0, slope_per_layer asymmetry) × layers[first] × ctx
+
+    Measured on THIS hardware with THIS model, scales with the target
+    context (larger at 262k than at 8k) — no hand-tuned constants.  The
+    idle floor stays as the lower bound; callers without a vram_model
+    keep using ``budget.first_gpu_handicap`` (first projection run,
+    documented order in TODO.md).
+    """
+    from .gpu import _MIN_FIRST_GPU_HANDICAP_MB
+
+    fastest = [i for i, g in enumerate(gpus) if g.speed_class == 0]
+    first = next((i for i in fastest if gpus[i].first_in_class), None)
+    ts = list(vmodel.tensor_split)
+    if (
+        first is None
+        or first >= len(ts)
+        or ts[first] <= 0
+        or sum(ts) <= 0
+    ):
+        return _MIN_FIRST_GPU_HANDICAP_MB
+    # Only siblings that were ACTIVE in the fit measurement carry a real
+    # overhead reading — an idle sibling's intercept is just its idle
+    # occupancy and would inflate the delta.
+    siblings = [
+        i for i in fastest
+        if i != first and i < len(ts) and ts[i] > 0
+    ]
+    if not siblings:
+        return _MIN_FIRST_GPU_HANDICAP_MB
+
+    base_overhead, slope_per_layer = _per_gpu_coefficients(
+        vmodel, total_layers, model_size_mb,
+    )
+    delta_base = base_overhead[first] - (
+        sum(base_overhead[i] for i in siblings) / len(siblings)
+    )
+    delta_slope = slope_per_layer[first] - (
+        sum(slope_per_layer[i] for i in siblings) / len(siblings)
+    )
+    layers_first = ts[first] / sum(ts) * total_layers
+    ctx_part = max(0.0, delta_slope) * layers_first * target_context
+    return max(_MIN_FIRST_GPU_HANDICAP_MB, int(delta_base + ctx_part))
+
+
 def _max_layers_on_gpu(
     gpu_idx: int,
     target_context: int,
@@ -196,8 +257,15 @@ def fill_fastest_first(
     )
     mb_per_layer = model_size_mb / total_layers if total_layers else 0.0
 
+    # Handicap from the measured vram_model (load-peak proxy), NOT the
+    # idle delta in budget.first_gpu_handicap — here the fit-params run
+    # has already happened, so the better number is available (TODO.md:
+    # "Handicap NACH dem fit-params-Aufruf berechnen").
+    handicap = first_gpu_handicap_mb(
+        model, gpus, total_layers, model_size_mb, target_context,
+    )
     extra_handicap = tuple(
-        budget.first_gpu_handicap if gpus[i].first_in_class else 0
+        handicap if gpus[i].first_in_class else 0
         for i in range(len(gpus))
     )
 
