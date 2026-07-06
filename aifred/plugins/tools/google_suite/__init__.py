@@ -29,7 +29,11 @@ _SCOPES: dict[str, str] = {
 
 @dataclass
 class GooglePlugin:
-    name: str = "google"
+    # MUST equal the folder name — the registry, enable/disable (directory
+    # move), toggles and the Plugin-Manager UI all key on the folder name
+    # (get_tool_plugin matches plugin.name against it). A mismatch makes the
+    # plugin invisible to the UI (no gear/lightbulb, OAuth connect unreachable).
+    name: str = "google_suite"
     display_name: str = "Google Suite"
     description: str = "Zugriff auf Google Calendar, Drive und Gmail (Lesen und Schreiben — OAuth-2.0-authentifiziert)."
     oauth_provider: str = "google"

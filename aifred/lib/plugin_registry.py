@@ -131,6 +131,16 @@ def discover_tools() -> list[ToolPlugin]:
 
         plugin = getattr(mod, "plugin", None)
         if plugin is not None and isinstance(plugin, ToolPlugin):
+            # Invariant: plugin.name MUST equal the folder name — the UI,
+            # toggles and enable/disable all key on the folder, get_tool_plugin
+            # matches plugin.name against it. A mismatch silently hides the
+            # plugin from the Plugin-Manager (no gear/lightbulb). Warn loudly.
+            if plugin.name != module_info.name:
+                log_message(
+                    f"Plugin Registry: tool '{module_info.name}' declares "
+                    f"name='{plugin.name}' — MUST match the folder name, else "
+                    f"it is invisible to the Plugin-Manager UI.", "warning"
+                )
             _tools.append(plugin)
 
     log_message(f"Plugin Registry: {len(_tools)} tool plugins: {[p.name for p in _tools]}")
