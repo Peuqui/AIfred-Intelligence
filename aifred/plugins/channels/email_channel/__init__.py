@@ -33,6 +33,13 @@ _RECONNECT_DELAY_SECONDS = 30
 # Persistent tracking: last processed UID (survives worker restarts)
 _CHECKPOINT_FILE = None  # Initialized lazily
 
+# E3: per-UID failure counter (in-memory, keyed by UID string). Survives
+# reconnects within the process so retries actually accumulate; a process
+# restart resets it (then the UID gets a fresh set of attempts — harmless,
+# it's rare). Not persisted on purpose: a restart is itself a state change
+# that may fix the poison (e.g. new code).
+_uid_failures: dict[str, int] = {}
+
 
 def _get_checkpoint_file() -> pathlib.Path:
     """Get path to the IMAP checkpoint file."""
@@ -336,10 +343,49 @@ class EmailChannel(BaseChannel):
     # ── Single-mail processing ─────────────────────────────────
 
     async def _process_uid(self, imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
+        """Bounded-retry wrapper around :meth:`_process_uid_once` (E3).
+
+        A UID whose processing raises is retried on the next reconnect
+        cycle. After ``EMAIL_MAX_PROCESS_ATTEMPTS`` failures the mail is
+        quarantined (server-side ``\\Flagged``) and skipped (checkpoint
+        advances) so a single poison message can never block the queue
+        forever. Transient errors (LLM backend down) simply retry and
+        succeed later.
+        """
+        from .config import EMAIL_MAX_PROCESS_ATTEMPTS
+
+        try:
+            await self._process_uid_once(imap, uid)
+            _uid_failures.pop(uid.decode(), None)  # success → clear counter
+            return
+        except Exception as exc:
+            key = uid.decode()
+            attempts = _uid_failures.get(key, 0) + 1
+            _uid_failures[key] = attempts
+            if attempts < EMAIL_MAX_PROCESS_ATTEMPTS:
+                self.channel_log(
+                    f"Email Plugin: processing UID {key} failed "
+                    f"(attempt {attempts}/{EMAIL_MAX_PROCESS_ATTEMPTS}), "
+                    f"will retry — {exc}",
+                    "warning",
+                )
+                raise  # let the outer loop reconnect + retry (30s backoff)
+            # Give up: quarantine + skip so the queue unblocks.
+            self.channel_log(
+                f"Email Plugin: UID {key} failed {attempts}× — quarantining "
+                f"(flagged on server) and skipping. Last error: {exc}",
+                "error",
+            )
+            self._quarantine_uid(imap, uid)
+            self._update_checkpoint(uid)
+            _uid_failures.pop(key, None)
+
+    async def _process_uid_once(self, imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
         """Fetch, validate, and dispatch a single email by UID.
 
         Writes checkpoint after processing (including blocked mails)
-        so no UID is retried endlessly.
+        so no UID is retried endlessly. May raise on fetch/dispatch
+        errors — the caller (:meth:`_process_uid`) applies bounded retry.
         """
         inbound = await asyncio.to_thread(_fetch_email_as_inbound, imap, uid)
         if not inbound:
@@ -375,6 +421,21 @@ class EmailChannel(BaseChannel):
         self.channel_log(f"Email Plugin: new mail from {inbound.sender} — {inbound.metadata.get('subject', '?')}")
         await _dispatch_inbound(inbound)
         self._update_checkpoint(uid)
+
+    def _quarantine_uid(self, imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
+        """Flag a poison mail on the server so the user can spot it (E3).
+
+        Uses the standard ``\\Flagged`` marker — visible as a star/flag in
+        every mail client. Best-effort: a failing STORE must not itself
+        break the loop (the checkpoint advances regardless, so the mail is
+        skipped either way)."""
+        try:
+            imap.uid("STORE", uid, "+FLAGS", r"(\Flagged)")  # type: ignore[arg-type]
+        except Exception as exc:
+            self.channel_log(
+                f"Email Plugin: could not flag quarantined UID {uid.decode()}: {exc}",
+                "warning",
+            )
 
     @staticmethod
     def _update_checkpoint(uid: bytes) -> None:
@@ -588,7 +649,7 @@ def _auto_response_marker(msg: "email_lib.message.Message") -> str | None:
 def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> "InboundMessage | None":
     """Fetch a single email by UID and convert to InboundMessage."""
     from .client import _decode_header, _extract_body
-    from ....lib.config import EMAIL_MAX_BODY_CHARS
+    from .config import EMAIL_MAX_BODY_CHARS
     from ....lib.envelope import InboundMessage
 
     _, msg_data = imap.uid("FETCH", uid, "(RFC822)")  # type: ignore[arg-type]

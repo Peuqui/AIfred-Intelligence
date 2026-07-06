@@ -18,7 +18,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
-from ....lib.config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH
+from .config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 
