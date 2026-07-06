@@ -507,9 +507,9 @@ async def calibrate_llamacpp_model(
                 yield msg
 
     # ── Emit sentinels ─────────────────────────────────────────────
-    yield _result_sentinel(final, thinks=thinks)
+    yield _result_sentinel(final, thinks=thinks, gpus=gpus)
     if speed_result:
-        yield _speed_sentinel(speed_result)
+        yield _speed_sentinel(speed_result, gpus)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2139,7 +2139,10 @@ async def _try_ai_calibration(
                         break
                     yield line
 
-    yield f"__RESULT__:{ai_ctx}:{ngl}:gpu:thinks:{kv}:{ts_colon}:{num_gpus}"
+    yield (
+        f"__RESULT__:{ai_ctx}:{ngl}:gpu:thinks:{kv}:{ts_colon}:{num_gpus}:"
+        f"{_active_uuid_csv(tuple(ai_split), gpus)}"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2690,7 +2693,7 @@ async def calibrate_tts_variant_from_base(
                     if known_thinking is not None
                     else _vlm_result.thinks
                 )
-                yield _result_sentinel(_vlm_result, bool(_thinks))
+                yield _result_sentinel(_vlm_result, bool(_thinks), gpus)
                 return
 
     if tts_position >= 0:
@@ -2762,7 +2765,7 @@ async def calibrate_tts_variant_from_base(
         return
 
     thinks = known_thinking if known_thinking is not None else result.thinks
-    yield _result_sentinel(result, bool(thinks))
+    yield _result_sentinel(result, bool(thinks), gpus)
 
 
 async def _ai_variant_from_base(
@@ -2861,6 +2864,12 @@ async def _ai_variant_from_base(
         return
 
     num_gpus = sum(1 for x in ai_split if x > 0)
+    # UUID companion field — same contract as _active_uuid_csv: the UUIDs
+    # of the GPUs that actually carry layers, in enumeration order.
+    uuid_csv = ",".join(
+        gpus[idx].uuid for j, idx in enumerate(active)
+        if j < len(ai_split) and ai_split[j] > 0
+    )
     if as_speed:
         # __SPEED__ wants the FULL split (all GPUs, colon-separated, 0 for
         # inactive) like _split_str — map the active result back onto the
@@ -2869,14 +2878,14 @@ async def _ai_variant_from_base(
         for j, idx in enumerate(active):
             full_split[idx] = int(round(ai_split[j])) if j < len(ai_split) else 0
         split_colon = ":".join(str(x) for x in full_split)
-        yield f"__SPEED__:{split_colon},{ai_ctx},{num_gpus},{base_kv}"
+        yield f"__SPEED__:{split_colon},{ai_ctx},{num_gpus},{base_kv},{uuid_csv}"
         return
     # Same sentinel contract as _result_sentinel: only the active (>0)
     # split values, in active-index order; num_gpus = their count. Variants
     # run gpu-mode (ngl=99) and inherit thinking from the base.
     ts_csv = ",".join(f"{x:g}" for x in ai_split if x > 0)
     thinks = "thinks" if known_thinking else "nothink"
-    yield f"__RESULT__:{ai_ctx}:99:gpu:{thinks}:{base_kv}:{ts_csv}:{num_gpus}"
+    yield f"__RESULT__:{ai_ctx}:99:gpu:{thinks}:{base_kv}:{ts_csv}:{num_gpus}:{uuid_csv}"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2897,21 +2906,42 @@ def _fmt_verify(
     return head
 
 
-def _result_sentinel(r: Result, thinks: bool) -> str:
+def _active_uuid_csv(split: tuple[float, ...], gpus: list[GPU]) -> str:
+    """UUIDs of the active (>0) split positions, in enumeration order.
+
+    The sentinel's tensor-split CSV lists only the ACTIVE values — the
+    position info (which physical GPU each value belongs to) is lost.
+    This companion field restores it: the mixin passes it 1:1 as
+    CUDA_VISIBLE_DEVICES to the YAML variant writers, so env and
+    tensor-split can never desync again. (A 5-value split with a 4-UUID
+    env inherited from a 4-GPU base made llama.cpp re-normalize onto 4
+    GPUs → KV-cache OOM at load, 2026-07-06.)
+    """
+    return ",".join(
+        gpus[i].uuid for i, v in enumerate(split)
+        if v > 0 and i < len(gpus)
+    )
+
+
+def _result_sentinel(r: Result, thinks: bool, gpus: list[GPU]) -> str:
     ts_csv = ",".join(f"{x:g}" for x in r.tensor_split if x > 0)
     return (
         f"__RESULT__:{r.context}:{r.ngl}:{r.mode}:"
         f"{'thinks' if thinks else 'nothink'}:{r.kv_quant}:"
-        f"{ts_csv}:{r.num_gpus}"
+        f"{ts_csv}:{r.num_gpus}:{_active_uuid_csv(r.tensor_split, gpus)}"
     )
 
 
-def _speed_sentinel(r: Result) -> str:
+def _speed_sentinel(r: Result, gpus: list[GPU]) -> str:
     # Preserve legacy __SPEED__ grammar: the mixin parser does int(x) on
     # every split part, so this sentinel must stay integer-formatted
     # (speed splits are integer anyway) — do NOT reuse the fractional
-    # display formatter _split_str here.
+    # display formatter _split_str here. The UUID csv is appended as the
+    # 5th comma-element; consumers parse with maxsplit=4.
     split_colon = ":".join(str(int(x)) for x in r.tensor_split)
-    return f"__SPEED__:{split_colon},{r.context},{r.num_gpus},{r.kv_quant}"
+    return (
+        f"__SPEED__:{split_colon},{r.context},{r.num_gpus},{r.kv_quant},"
+        f"{_active_uuid_csv(r.tensor_split, gpus)}"
+    )
 
 

@@ -59,7 +59,9 @@ def test_normal_variant_all_gpus(monkeypatch):
         known_thinking=True,
     ))
     result = [ln for ln in out if ln.startswith("__RESULT__:")][-1]
-    assert result == "__RESULT__:188000:99:gpu:thinks:f16:20,20,18:3"
+    # 8th field: active-GPU UUIDs, parallel to the split values (the mixin
+    # passes them 1:1 as CUDA_VISIBLE_DEVICES to the YAML variant writers).
+    assert result == "__RESULT__:188000:99:gpu:thinks:f16:20,20,18:3:g0,g1,g2"
     assert len(cap["gpus"]) == 3  # all cards handed to the AI
     assert cap["reserve_mb"] == (0, 0, 6000)
 
@@ -77,7 +79,7 @@ def test_speed_variant_locks_to_active_subset(monkeypatch):
         known_thinking=False,
     ))
     result = [ln for ln in out if ln.startswith("__RESULT__:")][-1]
-    assert result == "__RESULT__:188000:99:gpu:nothink:f16:22,22:2"
+    assert result == "__RESULT__:188000:99:gpu:nothink:f16:22,22:2:g0,g1"
     # Hard lock: only the 2 active GPUs reach the AI, reserve sliced to match.
     assert [g.uuid for g in cap["gpus"]] == ["g0", "g1"]
     assert cap["reserve_mb"] == (0, 0)
@@ -118,7 +120,10 @@ def test_as_speed_emits_full_split_sentinel(monkeypatch):
         known_thinking=True, as_speed=True,
     ))
     speed = [ln for ln in out if ln.startswith("__SPEED__:")][-1]
-    assert speed == "__SPEED__:20:20:0,188000,2,f16"
+    # 5th comma-element: UUIDs of the ACTIVE GPUs (parallel to the split) —
+    # the mixin passes them as CUDA_VISIBLE_DEVICES so env and tensor-split
+    # can never desync in the YAML variant writers.
+    assert speed == "__SPEED__:20:20:0,188000,2,f16,g0,g1"
     assert not any(ln.startswith("__RESULT__:") for ln in out)  # speed, not base
 
 
