@@ -1082,15 +1082,24 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     settings = load_settings() or {}
     backend_type = settings.get("backend_type", "llamacpp")
 
-    # Base model
+    # Base model. ``speed_agent`` tracks whose Speed toggle applies:
+    # an agent that shares AIfred's LLM must also share AIfred's Speed
+    # toggle, otherwise Hub and browser resolve different variants and
+    # llama-swap double-loads (base ↔ -speed) on every channel request.
     saved = settings.get("backend_models", {}).get(backend_type, {})
     model_key = f"{agent}_model" if agent != "aifred" else "aifred_model"
     base_id = saved.get(model_key, "")
+    speed_agent = agent
     if not base_id:
         # Fall back to AIfred's model (other agents share the same LLM)
         base_id = saved.get("aifred_model", "")
+        speed_agent = "aifred"
     if not base_id:
         return str(base_id)
+    # The Automatik has no independent Speed toggle — it mirrors AIfred's
+    # (same rule as State._effective_automatik_id in the browser path).
+    if agent == "automatik":
+        speed_agent = "aifred"
 
     if backend_type != "llamacpp":
         # Other backends don't have llama-swap variants
@@ -1113,7 +1122,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     suffix = resolve_variant_suffix(
         Path(LLAMASWAP_CONFIG_PATH),
         base_id,
-        speed_on=settings.get(f"{agent}_speed_mode", False),
+        speed_on=settings.get(f"{speed_agent}_speed_mode", False),
         has_speed_variant=has_speed_variant,
         tts_active=settings.get("enable_tts", False),
         tts_engine=settings.get("tts_engine", ""),
