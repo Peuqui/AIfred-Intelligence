@@ -10,6 +10,7 @@ Provides CRUD operations for all EPIM entities:
 Connection: Firebird 2.5 embedded via fdb library.
 """
 
+import functools
 import logging
 import os
 import threading
@@ -274,14 +275,40 @@ def _clamp_limit(limit: int) -> int:
     return max(1, min(value, _LIMIT_MAX))
 
 
+def _serialized(method):
+    """EP6: serialize all DB access through the instance RLock.
+
+    Firebird connections are not thread-safe (see class docstring); this
+    decorator is applied to every method that touches ``self._connect()``
+    or the connection. New DB methods MUST carry it too.
+    """
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 class EpimDatabase:
-    """Firebird 2.5 embedded database access for EPIM."""
+    """Firebird 2.5 embedded database access for EPIM.
+
+    EP6: every DB method is wrapped in ``@_serialized`` — one process-wide
+    RLock serializes ALL database work. The singleton fdb connection is
+    shared between the Reflex backend loop and the Message-Hub worker
+    thread, and Firebird connections are not thread-safe; two concurrent
+    cursors can corrupt each other, and with the embedded C library the
+    worst case is a segfault of the whole worker. EPIM queries take
+    milliseconds, so strictly serial access costs nothing (decided with
+    user 2026-07-06 — same philosophy as the single inference slot).
+    RLock (not Lock) because methods call each other (resolve_* → get_*).
+    """
 
     def __init__(self, db_path: str, fb_lib: str, fb_dir: str) -> None:
         self._db_path = db_path
         self._fb_lib = fb_lib
         self._fb_dir = fb_dir
         self._con: Optional[fdb.Connection] = None
+        self._lock = threading.RLock()
         # Set the Firebird env once at construction — not on every _connect()
         # (that mutated process-global state repeatedly, racy across threads).
         os.environ["FIREBIRD"] = self._fb_dir
@@ -324,12 +351,14 @@ class EpimDatabase:
         logger.info("EPIM database connected: %s", self._db_path)
         return self._con
 
+    @_serialized
     def close(self) -> None:
         """Close database connection."""
         if self._con is not None:
             self._con.close()
             self._con = None
 
+    @_serialized
     def _get_contact_field_map(self) -> dict[int, str]:
         """Get combined default + custom contact field mapping.
 
@@ -406,6 +435,7 @@ class EpimDatabase:
                 return int(nt["id"])
         return None
 
+    @_serialized
     def _row_exists(self, table: str, id_col: str, entity_id: int) -> bool:
         """True if a live (STATUS=0) row with the given id exists.
 
@@ -446,6 +476,7 @@ class EpimDatabase:
     # TASKS / CALENDAR
     # ============================================================
 
+    @_serialized
     def search_tasks(
         self,
         title: Optional[str] = None,
@@ -512,6 +543,7 @@ class EpimDatabase:
         columns = [desc[0].strip() for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
+    @_serialized
     def get_task(self, task_id: int) -> Optional[dict]:
         """Get a single task by ID with full details."""
         con = self._connect()
@@ -530,6 +562,7 @@ class EpimDatabase:
         columns = [desc[0].strip() for desc in cur.description]
         return dict(zip(columns, row))
 
+    @_serialized
     def create_task(
         self,
         title: str,
@@ -592,6 +625,7 @@ class EpimDatabase:
         logger.info("EPIM: Created task %d: %s", new_id, title)
         return new_id
 
+    @_serialized
     def update_task(self, task_id: int, **fields: object) -> bool:
         """Update fields on an existing task."""
         if not fields:
@@ -651,6 +685,7 @@ class EpimDatabase:
         # Note: Firebird fdb driver does not reliably report rowcount for UPDATEs
         return True
 
+    @_serialized
     def delete_task(self, task_id: int) -> bool:
         """Soft-delete a task (set STATUS=1, DELETED=now)."""
         if not self._row_exists("TASKS", "IDTASK", task_id):
@@ -670,6 +705,7 @@ class EpimDatabase:
     # CONTACTS
     # ============================================================
 
+    @_serialized
     def search_contacts(
         self,
         name: Optional[str] = None,
@@ -716,6 +752,7 @@ class EpimDatabase:
             results.append(contact)
         return results
 
+    @_serialized
     def get_contact(self, contact_id: int) -> Optional[dict]:
         """Get a single contact by ID with decoded fields."""
         con = self._connect()
@@ -742,6 +779,7 @@ class EpimDatabase:
             "fields": decode_fieldsdata(raw, field_map),
         }
 
+    @_serialized
     def create_contact(self, name: str, fields: Optional[dict[str, str]] = None, tags: Optional[str] = None) -> int:
         """Create a new contact. Returns the new contact ID."""
         con = self._connect()
@@ -766,6 +804,7 @@ class EpimDatabase:
         logger.info("EPIM: Created contact %d: %s", new_id, name)
         return new_id
 
+    @_serialized
     def update_contact(self, contact_id: int, name: Optional[str] = None,
                        fields: Optional[dict[str, str]] = None, tags: Optional[str] = None) -> bool:
         """Update a contact."""
@@ -803,6 +842,7 @@ class EpimDatabase:
         con.commit()
         return True
 
+    @_serialized
     def delete_contact(self, contact_id: int) -> bool:
         """Soft-delete a contact."""
         if not self._row_exists("CONTACTS", "IDCONTACT", contact_id):
@@ -822,6 +862,7 @@ class EpimDatabase:
     # NOTES
     # ============================================================
 
+    @_serialized
     def search_notes(
         self,
         title: Optional[str] = None,
@@ -866,6 +907,7 @@ class EpimDatabase:
         columns = [desc[0].strip() for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
+    @_serialized
     def get_note(self, note_id: int) -> Optional[dict]:
         """Get a note with all its tabs."""
         con = self._connect()
@@ -902,6 +944,7 @@ class EpimDatabase:
         note["tabs"] = tabs
         return note
 
+    @_serialized
     def create_note(self, title: str, tree_id: Optional[int] = None,
                     tree_name: Optional[str] = None,
                     tab_name: str = "Tab 1", tab_text: str = "",
@@ -951,6 +994,7 @@ class EpimDatabase:
         logger.info("EPIM: Created note %d: %s", note_id, title)
         return note_id
 
+    @_serialized
     def update_note(self, note_id: int, title: Optional[str] = None,
                     tags: Optional[str] = None) -> bool:
         """Update note metadata."""
@@ -975,6 +1019,7 @@ class EpimDatabase:
         con.commit()
         return True
 
+    @_serialized
     def update_note_tab(self, tab_id: int, name: Optional[str] = None,
                         text: Optional[str] = None) -> bool:
         """Update a note tab's content."""
@@ -999,6 +1044,7 @@ class EpimDatabase:
         con.commit()
         return True
 
+    @_serialized
     def delete_note(self, note_id: int) -> bool:
         """Soft-delete a note and its tabs."""
         if not self._row_exists("NOTES", "IDNOTE", note_id):
@@ -1029,6 +1075,7 @@ class EpimDatabase:
     # TODOS
     # ============================================================
 
+    @_serialized
     def search_todos(
         self,
         title: Optional[str] = None,
@@ -1071,6 +1118,7 @@ class EpimDatabase:
         columns = [desc[0].strip() for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
+    @_serialized
     def create_todo(
         self,
         title: str,
@@ -1114,6 +1162,7 @@ class EpimDatabase:
         logger.info("EPIM: Created todo %d: %s", new_id, title)
         return new_id
 
+    @_serialized
     def update_todo(self, todo_id: int, **fields: object) -> bool:
         """Update a todo item."""
         if not fields:
@@ -1156,6 +1205,7 @@ class EpimDatabase:
         con.commit()
         return True
 
+    @_serialized
     def delete_todo(self, todo_id: int) -> bool:
         """Soft-delete a todo."""
         if not self._row_exists("TODOS", "IDTODO", todo_id):
@@ -1175,6 +1225,7 @@ class EpimDatabase:
     # PASSWORD ENTRIES
     # ============================================================
 
+    @_serialized
     def search_passwords(self, subject: Optional[str] = None, limit: int = 50) -> list[dict]:
         """Search password entries (returns subjects only, no credentials)."""
         con = self._connect()
@@ -1203,6 +1254,7 @@ class EpimDatabase:
         columns = [desc[0].strip() for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
+    @_serialized
     def get_password(self, entry_id: int) -> Optional[dict]:
         """Get a password entry with decoded fields."""
         con = self._connect()
@@ -1235,6 +1287,7 @@ class EpimDatabase:
             "fields": decode_fieldsdata(raw, pw_field_map),
         }
 
+    @_serialized
     def create_password(self, subject: str, fields: Optional[dict[str, str]] = None,
                         group_id: Optional[int] = None, tags: Optional[str] = None) -> int:
         """Create a new password entry."""
@@ -1262,6 +1315,7 @@ class EpimDatabase:
         logger.info("EPIM: Created password entry %d: %s", new_id, subject)
         return new_id
 
+    @_serialized
     def update_password(self, entry_id: int, subject: Optional[str] = None,
                         fields: Optional[dict[str, str]] = None,
                         tags: Optional[str] = None) -> bool:
@@ -1295,6 +1349,7 @@ class EpimDatabase:
         con.commit()
         return True
 
+    @_serialized
     def delete_password(self, entry_id: int) -> bool:
         """Soft-delete a password entry."""
         if not self._row_exists("PASSENTRIES", "IDPASSENTRY", entry_id):
@@ -1314,6 +1369,7 @@ class EpimDatabase:
     # LOOKUP TABLES
     # ============================================================
 
+    @_serialized
     def get_categories(self) -> list[dict[str, int | str]]:
         """Get all categories."""
         con = self._connect()
@@ -1321,6 +1377,7 @@ class EpimDatabase:
         cur.execute("SELECT IDCATEGORY, NAME FROM CATEGORIES WHERE NAME IS NOT NULL ORDER BY CATEGORYINDEX")
         return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
 
+    @_serialized
     def get_calendars(self) -> list[dict[str, int | str]]:
         """Get all calendars."""
         con = self._connect()
@@ -1328,6 +1385,7 @@ class EpimDatabase:
         cur.execute("SELECT IDCALENDAR, NAME FROM CALENDARS WHERE NAME IS NOT NULL")
         return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
 
+    @_serialized
     def get_todolists(self) -> list[dict[str, int | str]]:
         """Get all todo lists."""
         con = self._connect()
@@ -1335,6 +1393,7 @@ class EpimDatabase:
         cur.execute("SELECT IDTODOLIST, NAME FROM TODOLISTS")
         return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
 
+    @_serialized
     def get_notetrees(self) -> list[dict[str, int | str]]:
         """Get all note trees."""
         con = self._connect()

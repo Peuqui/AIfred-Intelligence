@@ -153,7 +153,7 @@ class ExportMixin(rx.State, mixin=True):
         img_src_pattern = r'<img\s+src="([^"]*/_upload/[^"]+)"'
         img_matches = re.findall(img_src_pattern, user_msg_html)
         for img_url in img_matches:
-            base64_uri = load_image_url_as_base64(img_url)
+            base64_uri = load_image_url_as_base64(img_url, self.session_id)
             if base64_uri:
                 user_msg_html = user_msg_html.replace(
                     f'src="{img_url}"', f'src="{base64_uri}"',
