@@ -52,7 +52,11 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
   per-Folder-mtime, `walk()`-Fast-Path ueberspringt unveraenderte Subtrees
   komplett (`skipped_folders`-Statistik), Tag-only-Edits brauchen
   `force=True` (dokumentiert im Docstring).
-- [ ] Auto-Pause-fuer-TTS End-to-End-Test (Hörbuch → Frage stellen → Resume mit Pre-Roll verifizieren)
+- [x] ~~Auto-Pause-fuer-TTS End-to-End-Test~~ ✅ Puck-Live-Test 2026-07-06:
+  Hörbuch → Voice-Pause → Zwischenfrage (TTS-Antwort) → "weiter" → Resume
+  an korrekter Position → "stopp". User-Pause blockiert Auto-Resume wie
+  designt. Noch ungetestet: Auto-Pause-Variante OHNE explizite Pause
+  (Wake mitten in laufende Wiedergabe → Auto-Resume mit Pre-Roll).
 - [x] ~~Generischer Folder-Picker (eigene Lib + Reflex-Component)~~ ✅ implementiert
   in `aifred/lib/file_browser.py` + `aifred/state/_file_picker_mixin.py` +
   `aifred/ui/file_picker.py`. Capability-Flags fuer create_folder/delete/
@@ -773,8 +777,12 @@ algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
 Seit BGE-M3-Migration und Token-Chunker — folgende Punkte fuer die naechste
 Iteration:
 
-- [ ] **README + zentrale Docs auf den heutigen Stand bringen.** Viele
-  Aenderungen sind unkommunziert, betrifft mindestens:
+- [x] ~~README + zentrale Docs auf den heutigen Stand bringen~~ ✅ war
+  bereits am 2026-05-03 erledigt (commit `14555dca` "Komplett-Sweep auf
+  2026-05-Stand") — BGE-M3, Token-Chunker, Mode-Switch, delete+upsert,
+  Folder-Filter, Nachbar-Retrieval, Bulk-Index, Orphan-Cleanup, Toasts
+  stehen in beiden READMEs. Sefaria-Downloader-Skripte bewusst nicht im
+  README (private Korpora). Ursprüngliche Checkliste:
   - BGE-M3-Embedding (statt nomic-embed-text-v2-moe) — 8192 Token Context,
     1024-dim, multilingual; ChromaDB-Collections sind dimension-spezifisch
     inkompatibel zwischen Modellen
