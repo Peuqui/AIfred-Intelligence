@@ -969,7 +969,7 @@ def load_image_as_base64(image_path: Path) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-def url_to_file_path(image_url: str) -> Optional[Path]:
+def url_to_file_path(image_url: str, session_id: str) -> Optional[Path]:
     """
     Convert an image URL back to filesystem path.
 
@@ -980,9 +980,15 @@ def url_to_file_path(image_url: str) -> Optional[Path]:
 
     Args:
         image_url: URL from get_image_url() or stored in chat
+        session_id: the caller's own session id. User uploads live under
+            ``upload/images/{session_id}/`` — VI7: a URL pointing at ANOTHER
+            session's folder is rejected, so a session can only resolve its
+            own uploads. Vigilantia frames are system-wide camera captures
+            (not session-bound), so the check does not apply to them.
 
     Returns:
-        Path object if valid, None if URL format not recognized
+        Path object if valid, None if URL format not recognized or the
+        upload belongs to a different session.
     """
     # Match the marker at string start OR after a slash. That tolerates a
     # missing leading slash — a common LLM tic ("_upload/images/…" instead of
@@ -990,14 +996,25 @@ def url_to_file_path(image_url: str) -> Optional[Path]:
     # accepting full URLs ("http://host/_upload/…"). The leading slash is
     # semantically irrelevant for file identity; path traversal stays blocked
     # by _contain_under, so a tolerant prefix match cannot escape the base.
-    for marker, base in (
-        ("_upload/vigilantia/", VIGILANTIA_DIR),
-        ("_upload/images/", UPLOAD_IMAGES_DIR),
+    for marker, base, session_scoped in (
+        ("_upload/vigilantia/", VIGILANTIA_DIR, False),
+        ("_upload/images/", UPLOAD_IMAGES_DIR, True),
     ):
         match = re.search(r"(?:^|/)" + re.escape(marker) + r"(.+)$", image_url)
         if not match:
             continue
-        return _contain_under(base, str(match.group(1)))
+        relative = str(match.group(1))
+        if session_scoped:
+            # VI7: the first path segment IS the owning session id. Reject a
+            # URL that names a different session (cross-session upload access).
+            first_seg = relative.split("/", 1)[0]
+            if first_seg != session_id:
+                logger.warning(
+                    f"⚠️ Rejected cross-session image access: URL names "
+                    f"session {first_seg!r}, caller is {session_id!r}"
+                )
+                return None
+        return _contain_under(base, relative)
 
     return None
 
@@ -1018,7 +1035,7 @@ def _contain_under(base: Path, relative: str) -> Optional[Path]:
     return candidate
 
 
-def load_image_url_as_base64(image_url: str) -> Optional[str]:
+def load_image_url_as_base64(image_url: str, session_id: str) -> Optional[str]:
     """
     Load image from URL and return as Base64 data URI.
 
@@ -1027,11 +1044,13 @@ def load_image_url_as_base64(image_url: str) -> Optional[str]:
 
     Args:
         image_url: Internal image URL
+        session_id: caller's session id — forwarded to url_to_file_path so
+            the HTML export can only embed its own session's uploads (VI7).
 
     Returns:
         Data URI string (data:image/jpeg;base64,...) or None if failed
     """
-    file_path = url_to_file_path(image_url)
+    file_path = url_to_file_path(image_url, session_id)
     if not file_path or not file_path.exists():
         logger.warning(f"⚠️ Image not found for URL: {image_url}")
         return None

@@ -504,7 +504,7 @@ class VisionPlugin:
             frames: list[Frame] = []
             resolved_paths: list[Path] = []
             for u in urls[:10]:
-                p = url_to_file_path(u)
+                p = url_to_file_path(u, ctx.session_id or "")
                 if p is None or not p.exists():
                     # A missing leading slash ("_upload/…") is normalised in
                     # url_to_file_path, so reaching here means the file really
