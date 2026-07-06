@@ -1,0 +1,9 @@
+[SPRACHNACHRICHT von FreeEcho.2 Gerät im Raum '{room}']
+
+INSTRUKTIONEN:
+Der User hat gesprochen und die Sprache wurde per STT transkribiert.
+Antworte kurz und prägnant — die Antwort wird per TTS vorgelesen.
+Keine Markdown-Formatierung, keine Listen, keine Code-Blöcke — nur
+vorlesbarer Fließtext.
+
+{text}

@@ -463,7 +463,13 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         debug(f"✅ Response generated ({len(response_text)} chars)")
 
         # ── Phase 3: Save response to session ─────────────────
-        _append_response(session_id, response_text, metadata=result_metadata, agent=message.target_agent)
+        # M3: the user turn goes into llm_history HERE (wrapped) — see
+        # _append_response/save_user_to_session docstrings.
+        _append_response(
+            session_id, response_text,
+            metadata=result_metadata, agent=message.target_agent,
+            user_llm_text=llm_context,
+        )
 
         # ── Phase 3b: Sanitize output for external channels ───
         from .security import sanitize_outbound
@@ -661,11 +667,18 @@ def build_user_chat_content(message: InboundMessage) -> str:
 
 
 def save_user_to_session(session_id: str, message: InboundMessage) -> None:
-    """Save user message to session (chat + llm history) and set update flag.
+    """Save user message to the session CHAT history (UI) and set update flag.
 
     Single source of truth for persisting inbound user messages.
     Called by process_inbound (normal path) or directly by channels
     that need early browser flush (FreeEcho.2 after STT).
+
+    M3: Deliberately does NOT touch llm_history. The LLM-facing entry is
+    appended WRAPPED (<external_message> fence) together with the response
+    after the engine call (_append_response) — the fence must persist
+    across turns, and saving it before the call would put the current
+    message twice into the prompt (raw from history + wrapped as
+    current_user_text).
     """
     from .session_storage import load_session, session_rmw_lock
 
@@ -675,16 +688,13 @@ def save_user_to_session(session_id: str, message: InboundMessage) -> None:
         session = load_session(session_id)
         data = session.get("data", {}) if session else {}
         existing_chat = data.get("chat_history", [])
-        existing_llm = data.get("llm_history", [])
 
         existing_chat.append({"role": "user", "content": build_user_chat_content(message)})
-        existing_llm.append({"role": "user", "content": message.text})
 
         # Browser detects via session file mtime-watch (SSOT)
         update_chat_data(
             session_id=session_id,
             chat_history=existing_chat,
-            llm_history=existing_llm,
             debug_messages=data.get("debug_messages", []),
             owner=MESSAGE_HUB_OWNER,
         )
@@ -695,11 +705,20 @@ def _append_response(
     response_text: str,
     metadata: dict | None = None,
     agent: str = "aifred",
+    user_llm_text: str | None = None,
 ) -> None:
     """Append the assistant response to an existing session.
 
     If metadata is provided, appends a performance footer (TTFT, tok/s, etc.)
     to the chat content — same format as browser-path add_agent_panel.
+
+    M3: ``user_llm_text`` is the LLM-facing user message (wrapped in
+    <external_message> security delimiters), appended to llm_history right
+    before the response. Persisting the WRAPPED form keeps the injection
+    fence around external content in every future turn; appending it only
+    after the engine call keeps the current message from appearing twice
+    in the prompt. On engine failure neither entry is written — the LLM
+    never saw an answer, so the exchange stays out of its history.
     """
     from .session_storage import load_session, session_rmw_lock
     from .formatting import format_performance_footer, build_assistant_chat_entry
@@ -717,6 +736,9 @@ def _append_response(
         data = session.get("data", {}) if session else {}
         existing_chat = data.get("chat_history", [])
         existing_llm = data.get("llm_history", [])
+
+        if user_llm_text:
+            existing_llm.append({"role": "user", "content": user_llm_text})
 
         # SSOT: same dict shape as browser-path add_agent_panel
         existing_chat.append(build_assistant_chat_entry(display_content, agent, metadata))
