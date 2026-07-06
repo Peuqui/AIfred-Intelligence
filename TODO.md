@@ -1,37 +1,21 @@
 # AIfred TODO
 
-## Kalibrierung: First-GPU-Handicap aus vram_model statt Idle-Differenz
+## ✅ Kalibrierung: First-GPU-Handicap aus vram_model (erledigt 2026-07-06)
 
-**Problem:** `measure_first_gpu_handicap()` (`aifred/lib/calibration/gpu.py`)
-misst nur die Idle-Differenz (`max_sibling_free − first.free_mb`, Floor
-256 MB) — also Display-/Compositor-Overhead im Leerlauf. Der **transiente
-Lade-Peak** der ersten CUDA-Karte (Output-/Logits-Tensor, Compute-/
-Flash-Attn-Workspace, MTP-Draft-Buffer) wird NICHT erfasst. Folge: Bei
-jeder VLM-/Combo-Variante des 122B OOMt zuerst GPU0 beim Laden
-(`exit -11` auf CUDA0), obwohl die Steady-State-Prognose dort noch 3–4 GB
-frei sieht. Die Kaskade heilt es reaktiv in ~2 Shifts, kostet aber pro
-Variante ~5 min + zwei 125-GB-Reloads von der USB-NVMe (2026-07-05).
+Umgesetzt: `first_gpu_handicap_mb()` in
+`aifred/lib/calibration/optimizer.py` leitet das Handicap aus dem
+fit-params-`vram_model` ab (Basis-Overhead-Asymmetrie der first-in-class
+GPU vs. aktive Siblings + Slope-Asymmetrie × ctx, 256-MB-Floor bleibt
+Untergrenze). Konsumiert von `fill_fastest_first` und
+`_math_predicts_fit` (beide sehen dieselbe Zahl, SSOT). Pfade ohne
+vram_model (Erstlauf-Heuristiken) behalten den Idle-Wert aus
+`budget.first_gpu_handicap`.
 
-**Lösung (generisch, hardware-agnostisch, keine hartkodierten GB):**
-Handicap aus dem fit-params-`vram_model` ableiten statt aus der
-Idle-Differenz — die gemessene GPU0-Overhead-Asymmetrie:
-`base_overhead[0] − mean(base_overhead[others])` PLUS der kontext-
-abhängige Teil (Slope-Asymmetrie × ctx). Misst den realen Effekt auf
-dieser Hardware/diesem Modell, skaliert automatisch mit dem Kontext
-(bei 262k größer als bei 8k), 256-MB-Floor bleibt nur Untergrenze.
-
-**Henne-Ei:** Beim Erst-Projektionslauf gibt es noch kein vram_model.
-Aber fit-params läuft VOR dem teuren llama-server-Probe → Handicap NACH
-dem fit-params-Aufruf berechnen, nicht ganz am Anfang aus der
-Idle-Messung. Reihenfolge-Umstellung, kein neues Tool.
-
-**Optionales Sicherheitsnetz (KISS):** Bei Load-OOM auf GPU0 den via
-`load_min_free` beobachteten Peak (`free_at_start − load_min_free[0]`)
-in den Handicap des nächsten Versuchs einspeisen.
-
-**Netto:** Erst-Split packt GPU0 lockerer → Combo lädt beim ersten
-Versuch durch statt nach 2 Shifts → weniger Plattenlast. Kaskade bleibt
-Sicherheitsnetz, greift seltener.
+**Bewusst NICHT umgesetzt** (war als optional markiert, KISS): das
+Load-OOM-Sicherheitsnetz, das den via `load_min_free` beobachteten Peak
+in den nächsten Versuch einspeist — die Glas-Kaskade bleibt das
+Sicherheitsnetz. Nachrüsten, falls VLM-/Combo-Varianten trotz
+Modell-Handicap weiterhin beim Erst-Load auf GPU0 OOMen.
 
 ---
 
