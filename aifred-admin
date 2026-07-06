@@ -20,22 +20,27 @@ import json
 import getpass
 from pathlib import Path
 
-# Passwort-Hashing mit bcrypt — MUSS Format + Rounds von
-# aifred/lib/session_storage.py spiegeln (Präfix "bcrypt:", Rounds 12), damit
-# per CLI erzeugte Accounts sich einloggen können. bcrypt liegt in der venv,
-# darum mit venv-python re-exec'en, damit ./aifred-admin direkt aufrufbar
-# bleibt. Bewusst KEIN Import von session_storage: das zöge config.py mit
-# seinen Import-Seiteneffekten (API-Keys laden, Debug-Log) in jeden
-# CLI-Aufruf — nur um eine Zwei-Zeilen-Hashfunktion zu teilen.
+# Password hashing with bcrypt — MUST mirror the format + rounds of
+# aifred/lib/session_storage.py (prefix "bcrypt:", rounds 12) so accounts
+# created via the CLI can log in. bcrypt lives in the venv, so re-exec with
+# the venv Python to keep ./aifred-admin directly runnable. Deliberately NO
+# import of session_storage: that would drag config.py with its import-time
+# side effects (loading API keys, initializing the debug log) into every CLI
+# invocation — just to share a two-line hash function.
 PROJECT_ROOT = Path(__file__).resolve().parent
-_VENV_PY = PROJECT_ROOT / "venv" / "bin" / "python3"
-if _VENV_PY.exists() and Path(sys.executable).resolve() != _VENV_PY.resolve():
+_VENV = PROJECT_ROOT / "venv"
+_VENV_PY = _VENV / "bin" / "python3"
+# Loop guard via sys.prefix, NOT via the interpreter binary: venv/bin/python3
+# is a symlink to the system python, so comparing resolved binaries would
+# never detect "already inside the venv" (the venv works through pyvenv.cfg
+# → sys.prefix, not through a distinct binary).
+if _VENV_PY.exists() and Path(sys.prefix).resolve() != _VENV.resolve():
     os.execv(str(_VENV_PY), [str(_VENV_PY), str(Path(__file__).resolve()), *sys.argv[1:]])
 
-import bcrypt  # noqa: E402 — nach dem venv-re-exec, sonst evtl. nicht im Pfad
+import bcrypt  # noqa: E402 — after the venv re-exec, else possibly not on path
 
-_BCRYPT_PREFIX = "bcrypt:"       # spiegelt session_storage._BCRYPT_PREFIX
-_BCRYPT_ROUNDS = 12              # spiegelt session_storage._BCRYPT_ROUNDS
+_BCRYPT_PREFIX = "bcrypt:"       # mirrors session_storage._BCRYPT_PREFIX
+_BCRYPT_ROUNDS = 12              # mirrors session_storage._BCRYPT_ROUNDS
 
 # Paths MUST match aifred/lib/config.py DATA_DIR = PROJECT_ROOT / "data"
 # (not ~/.config/aifred which never existed)
@@ -46,14 +51,14 @@ SESSION_DIR = SETTINGS_DIR / "sessions"
 
 
 def hash_password(password: str) -> str:
-    """bcrypt-Hash im selben Format wie session_storage.hash_password."""
+    """bcrypt hash in the same format as session_storage.hash_password."""
     digest = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(_BCRYPT_ROUNDS))
     return f"{_BCRYPT_PREFIX}{digest.decode('ascii')}"
 
 
 def _save_accounts(accounts: dict) -> bool:
-    """Accounts atomar + 0600 speichern (Passwort-Hashes → nicht world-readable).
-    Spiegelt session_storage._save_accounts (tmp + chmod + os.replace)."""
+    """Save accounts atomically + 0600 (password hashes must not be world-readable).
+    Mirrors session_storage._save_accounts (tmp + chmod + os.replace)."""
     try:
         SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
         tmp_path = ACCOUNTS_FILE.with_suffix(".json.tmp")
@@ -172,38 +177,38 @@ def cmd_users() -> None:
     """List whitelist users."""
     users = get_whitelist()
     if not users:
-        print("Whitelist ist leer.")
-        print(f"Datei: {WHITELIST_FILE}")
+        print("Whitelist is empty.")
+        print(f"File: {WHITELIST_FILE}")
         return
 
-    print(f"Erlaubte User ({len(users)}):")
+    print(f"Allowed users ({len(users)}):")
     for user in sorted(users):
         print(f"  • {user}")
-    print(f"\nDatei: {WHITELIST_FILE}")
+    print(f"\nFile: {WHITELIST_FILE}")
 
 
 def cmd_add(username: str) -> None:
     """Add user to whitelist."""
     if not username:
-        print("Fehler: Username erforderlich")
+        print("Error: username required")
         sys.exit(1)
 
     if add_to_whitelist(username):
-        print(f"✓ '{username}' zur Whitelist hinzugefügt")
+        print(f"✓ '{username}' added to whitelist")
     else:
-        print(f"✗ '{username}' ist bereits auf der Whitelist")
+        print(f"✗ '{username}' is already on the whitelist")
 
 
 def cmd_remove(username: str) -> None:
     """Remove user from whitelist."""
     if not username:
-        print("Fehler: Username erforderlich")
+        print("Error: username required")
         sys.exit(1)
 
     if remove_from_whitelist(username):
-        print(f"✓ '{username}' von Whitelist entfernt")
+        print(f"✓ '{username}' removed from whitelist")
     else:
-        print(f"✗ '{username}' nicht auf Whitelist gefunden")
+        print(f"✗ '{username}' not found on whitelist")
 
 
 def cmd_accounts() -> None:
@@ -212,19 +217,19 @@ def cmd_accounts() -> None:
     whitelist = get_whitelist()
 
     if not accounts:
-        print("Keine registrierten Accounts.")
-        print(f"Datei: {ACCOUNTS_FILE}")
+        print("No registered accounts.")
+        print(f"File: {ACCOUNTS_FILE}")
         return
 
-    print(f"Registrierte Accounts ({len(accounts)}):")
+    print(f"Registered accounts ({len(accounts)}):")
     for acc in sorted(accounts):
         # Count sessions for this user
         sessions = list_sessions(owner=acc)
         session_count = len(sessions)
         on_whitelist = "✓" if acc in whitelist else "✗"
-        print(f"  • {acc} (Whitelist: {on_whitelist}, Sessions: {session_count})")
+        print(f"  • {acc} (whitelist: {on_whitelist}, sessions: {session_count})")
 
-    print(f"\nDatei: {ACCOUNTS_FILE}")
+    print(f"\nFile: {ACCOUNTS_FILE}")
 
 
 def cmd_create(username: str, password: str = "") -> None:
@@ -235,15 +240,15 @@ def cmd_create(username: str, password: str = "") -> None:
     for the password if omitted.
     """
     if not username:
-        print("Fehler: Username erforderlich")
+        print("Error: username required")
         sys.exit(1)
 
     username_lower = username.lower()
     accounts = _load_accounts()
 
     if username_lower in accounts:
-        print(f"✗ Account '{username}' existiert bereits")
-        print(f"  Zum Überschreiben: ./aifred-admin delete {username} && ./aifred-admin create {username}")
+        print(f"✗ Account '{username}' already exists")
+        print(f"  To replace it: ./aifred-admin delete {username} && ./aifred-admin create {username}")
         sys.exit(1)
 
     # Ensure whitelist entry exists (create_account() in the app requires it)
@@ -251,42 +256,42 @@ def cmd_create(username: str, password: str = "") -> None:
     if username_lower not in whitelist:
         whitelist.append(username_lower)
         if _save_whitelist(whitelist):
-            print(f"✓ '{username}' zur Whitelist hinzugefügt")
+            print(f"✓ '{username}' added to whitelist")
         else:
-            print("✗ Konnte Whitelist nicht speichern")
+            print("✗ Could not save whitelist")
             sys.exit(1)
 
     # Get password — either from CLI arg or interactive prompt
     if not password:
-        password = getpass.getpass(f"Passwort für '{username}': ")
-        password_confirm = getpass.getpass("Passwort wiederholen: ")
+        password = getpass.getpass(f"Password for '{username}': ")
+        password_confirm = getpass.getpass("Repeat password: ")
         if password != password_confirm:
-            print("✗ Passwörter stimmen nicht überein")
+            print("✗ Passwords do not match")
             sys.exit(1)
 
     if len(password) < 6:
-        print("✗ Passwort muss mindestens 6 Zeichen lang sein")
+        print("✗ Password must be at least 6 characters long")
         sys.exit(1)
 
     accounts[username_lower] = hash_password(password)
     if _save_accounts(accounts):
-        print(f"✓ Account '{username}' erstellt")
-        print(f"  Datei: {ACCOUNTS_FILE}")
+        print(f"✓ Account '{username}' created")
+        print(f"  File: {ACCOUNTS_FILE}")
     else:
-        print("✗ Fehler beim Speichern")
+        print("✗ Error saving accounts")
         sys.exit(1)
 
 
 def cmd_delete(username: str, with_sessions: bool = False) -> None:
     """Delete account."""
     if not username:
-        print("Fehler: Username erforderlich")
+        print("Error: username required")
         sys.exit(1)
 
     # Check if account exists
     accounts = list_accounts()
     if username.lower() not in accounts:
-        print(f"✗ Account '{username}' nicht gefunden")
+        print(f"✗ Account '{username}' not found")
         sys.exit(1)
 
     # Count sessions
@@ -295,22 +300,22 @@ def cmd_delete(username: str, with_sessions: bool = False) -> None:
 
     # Confirmation
     if with_sessions and session_count > 0:
-        print(f"WARNUNG: Account '{username}' mit {session_count} Sessions löschen?")
+        print(f"WARNING: delete account '{username}' with {session_count} sessions?")
     else:
-        print(f"Account '{username}' löschen?")
+        print(f"Delete account '{username}'?")
 
-    confirm = input("Bestätigen mit 'ja': ")
-    if confirm.lower() != "ja":
-        print("Abgebrochen.")
+    confirm = input("Confirm with 'yes': ")
+    if confirm.lower() != "yes":
+        print("Aborted.")
         return
 
     if delete_account(username, delete_sessions=with_sessions):
-        msg = f"✓ Account '{username}' gelöscht"
+        msg = f"✓ Account '{username}' deleted"
         if with_sessions:
-            msg += f" (inkl. {session_count} Sessions)"
+            msg += f" (incl. {session_count} sessions)"
         print(msg)
     else:
-        print(f"✗ Fehler beim Löschen von '{username}'")
+        print(f"✗ Error deleting '{username}'")
 
 
 def print_help() -> None:
@@ -347,7 +352,7 @@ def main() -> None:
         with_sessions = "--sessions" in sys.argv
         cmd_delete(username, with_sessions)
     else:
-        print(f"Unbekannter Befehl: {cmd}")
+        print(f"Unknown command: {cmd}")
         print_help()
         sys.exit(1)
 
