@@ -185,11 +185,19 @@ class TelegramChannel(BaseChannel):
         url = _photo_url(outbound.media)
 
         async with bot:
-            if local:
-                with open(local, "rb") as fh:
-                    await bot.send_photo(chat_id=int(chat_id), photo=fh, caption=text[:1024])
-            elif url:
-                await bot.send_photo(chat_id=int(chat_id), photo=url, caption=text[:1024])
+            if local or url:
+                # Telegram hard-caps photo captions at 1024 chars. Send the
+                # overflow as follow-up text messages instead of silently
+                # dropping it (TD7).
+                caption, overflow = text[:1024], text[1024:]
+                if local:
+                    with open(local, "rb") as fh:
+                        await bot.send_photo(chat_id=int(chat_id), photo=fh, caption=caption)
+                elif url:
+                    await bot.send_photo(chat_id=int(chat_id), photo=url, caption=caption)
+                if overflow:
+                    for chunk in _split_message(overflow, _MAX_MESSAGE_LENGTH):
+                        await bot.send_message(chat_id=int(chat_id), text=chunk)
             else:
                 for chunk in _split_message(text, _MAX_MESSAGE_LENGTH):
                     await bot.send_message(chat_id=int(chat_id), text=chunk)
