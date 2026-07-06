@@ -79,8 +79,14 @@ def _calib_line(progress_msg: str) -> str:
 def _parse_calibration_result(msg: str) -> dict:
     """Parse __RESULT__ protocol message. Single source of truth.
 
-    Format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}:{kv}:{tensor_split}:{num_gpus}
-    Returns dict with keys: ctx, ngl, mode, thinks, kv, tensor_split, num_gpus
+    Format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}:{kv}:{tensor_split}:{num_gpus}:{uuids}
+    Returns dict with keys: ctx, ngl, mode, thinks, kv, tensor_split, num_gpus, uuids
+
+    ``uuids`` is the comma-separated list of the ACTIVE GPUs' UUIDs, parallel
+    to the tensor_split values. Callers MUST pass it as cuda_visible_devices
+    to the YAML variant writers — inheriting the env from the source profile
+    desyncs when the variant uses more GPUs than its source (5-value split
+    with a 4-UUID env → llama.cpp re-normalizes onto 4 GPUs → OOM at load).
     """
     parts = msg.removeprefix("__RESULT__:").split(":")
     return {
@@ -92,6 +98,7 @@ def _parse_calibration_result(msg: str) -> dict:
         "kv": parts[4] if len(parts) > 4 else "f16",
         "tensor_split": parts[5] if len(parts) > 5 else "",
         "num_gpus": int(parts[6]) if len(parts) > 6 else 0,
+        "uuids": parts[7] if len(parts) > 7 else "",
     }
 
 
@@ -829,6 +836,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
         vs_ok = False
         vs_ctx = 0
+        vs_uuids = ""
         vs_kv = speed_kv
         vs_split = ""
         vs_num_gpus = 0
@@ -855,6 +863,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     vs_kv = r["kv"]
                     vs_split = r["tensor_split"]
                     vs_num_gpus = r["num_gpus"]
+                    vs_uuids = r["uuids"]
             else:
                 self._cal_debug(f"   {_calib_line(msg)}")  # type: ignore[attr-defined]
                 yield
@@ -890,6 +899,7 @@ class CalibrationMixin(rx.State, mixin=True):
             kv_quant=vs_kv,
             tensor_split=vs_split,
             num_gpus=vs_num_gpus,
+            cuda_visible_devices=vs_uuids,
             tts_backend=tts_backend,
             speed=True,
         ):
@@ -1685,6 +1695,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     # if the projection or verify can't find a fit.
                     approx_ok = False
                     approx_ctx = 0
+                    approx_uuids = ""
                     approx_kv = calibration_kv
                     approx_split = ""
                     approx_num_gpus = 0
@@ -1767,6 +1778,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                         approx_kv = _r["kv"]
                                         approx_split = _r["tensor_split"]
                                         approx_num_gpus = _r["num_gpus"]
+                                        approx_uuids = _r["uuids"]
                                 else:
                                     self._cal_debug(f"   {_calib_line(_msg)}")  # type: ignore[attr-defined]
                                     yield
@@ -1790,6 +1802,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             kv_quant=approx_kv,
                             tensor_split=_split_colon,
                             num_gpus=approx_num_gpus,
+                            cuda_visible_devices=approx_uuids,
                         )
                         if added:
                             self._cal_debug(  # type: ignore[attr-defined]
@@ -1836,6 +1849,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                         for i in range(len(_all_gpus))
                                     )
                                     _approx_sp_ok = False
+                                    _approx_sp_uuids = ""
                                     _approx_sp_ctx = 0
                                     _approx_sp_split = ""
                                     _approx_sp_num_gpus = 0
@@ -1863,6 +1877,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                                 _approx_sp_ctx = _r2["ctx"]
                                                 _approx_sp_split = _r2["tensor_split"]
                                                 _approx_sp_num_gpus = _r2["num_gpus"]
+                                                _approx_sp_uuids = _r2["uuids"]
                                         else:
                                             self._cal_debug(f"   {_calib_line(_msg2)}")  # type: ignore[attr-defined]
                                             yield
@@ -1875,6 +1890,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                             kv_quant=speed_kv_quant,
                                             tensor_split=_approx_sp_split,
                                             num_gpus=_approx_sp_num_gpus,
+                                            cuda_visible_devices=_approx_sp_uuids,
                                         )
                                         if speed_added:
                                             self._cal_debug(  # type: ignore[attr-defined]
@@ -1934,6 +1950,8 @@ class CalibrationMixin(rx.State, mixin=True):
                     tts_kv = calibration_kv
                     tts_tensor_split = ""
                     tts_num_gpus = 0
+                    tts_uuids = ""
+                    tts_speed_uuids = ""
                     tts_speed_ctx: int | None = None
                     tts_speed_kv = calibration_kv
                     tts_speed_split = ""
@@ -1966,15 +1984,18 @@ class CalibrationMixin(rx.State, mixin=True):
                             tts_kv = r["kv"]
                             tts_tensor_split = r["tensor_split"]
                             tts_num_gpus = r["num_gpus"]
+                            tts_uuids = r["uuids"]
                         elif progress_msg.startswith("__SPEED__:"):
-                            # Format: __SPEED__:{split},{ctx},{num_gpus},{kv}
+                            # Format: __SPEED__:{split},{ctx},{num_gpus},{kv},{uuids}
+                            # The uuids tail itself contains commas → maxsplit=4.
                             payload = progress_msg.removeprefix("__SPEED__:")
                             try:
-                                split_part, ctx_part, ngpu_part, kv_part = payload.split(",", 3)
+                                split_part, ctx_part, ngpu_part, kv_part, uuid_part = payload.split(",", 4)
                                 tts_speed_split = split_part
                                 tts_speed_ctx = int(ctx_part)
                                 tts_speed_num_gpus = int(ngpu_part)
                                 tts_speed_kv = kv_part
+                                tts_speed_uuids = uuid_part
                             except (ValueError, IndexError):
                                 self._cal_debug(f"   ⚠️ Could not parse {tts_label} speed payload: {payload[:80]}")  # type: ignore[attr-defined]
                         else:
@@ -1992,6 +2013,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             kv_quant=tts_kv,
                             tensor_split=tts_tensor_split,
                             num_gpus=tts_num_gpus,
+                            cuda_visible_devices=tts_uuids,
                         )
                         if added:
                             self._cal_debug(  # type: ignore[attr-defined]
@@ -2040,14 +2062,24 @@ class CalibrationMixin(rx.State, mixin=True):
                         # Also persist the speed variant for this TTS backend if found.
                         # Result key: <model>-tts-<backend>-speed (e.g. ...-tts-xtts-speed)
                         if tts_speed_ctx and tts_speed_ctx > 0 and tts_speed_split != tts_tensor_split:
+                            # __SPEED__ carries the FULL split incl. zeros for
+                            # idle GPUs ("26:27:0:0:0"); the uuids field lists
+                            # only the ACTIVE GPUs. Write only the active
+                            # values so split and CUDA_VISIBLE_DEVICES stay
+                            # parallel (same contract as the __RESULT__ path).
+                            _sp_active_split = ":".join(
+                                v for v in tts_speed_split.split(":")
+                                if v.strip() and float(v) > 0
+                            )
                             speed_added = add_llamaswap_tts_variant(
                                 LLAMASWAP_CONFIG_PATH,
                                 calibration_model_id,
                                 tts_speed_ctx,
                                 f"{tts_backend}-speed",
                                 kv_quant=tts_speed_kv,
-                                tensor_split=tts_speed_split,
+                                tensor_split=_sp_active_split,
                                 num_gpus=tts_speed_num_gpus,
+                                cuda_visible_devices=tts_speed_uuids,
                             )
                             if speed_added:
                                 self._cal_debug(  # type: ignore[attr-defined]
@@ -2222,6 +2254,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         continue
 
                     _vlm_ok = False
+                    _vlm_uuids = ""
                     _vlm_ctx = 0
                     _vlm_kv = calibration_kv
                     _vlm_split = ""
@@ -2249,6 +2282,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 _vlm_kv = _r_v["kv"]
                                 _vlm_split = _r_v["tensor_split"]
                                 _vlm_num_gpus = _r_v["num_gpus"]
+                                _vlm_uuids = _r_v["uuids"]
                         else:
                             self._cal_debug(f"   {_calib_line(_msg_v)}")  # type: ignore[attr-defined]
                             yield
@@ -2262,6 +2296,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             kv_quant=_vlm_kv,
                             tensor_split=_vlm_split,
                             num_gpus=_vlm_num_gpus,
+                            cuda_visible_devices=_vlm_uuids,
                         )
                         if added_v:
                             self._cal_debug(  # type: ignore[attr-defined]
@@ -2479,6 +2514,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         _c_kv = calibration_kv
                         _c_split = ""
                         _c_num_gpus = 0
+                        _c_uuids = ""
                         async for _msg_c in calibrate_tts_variant_from_base(
                             model_id=calibration_model_id,
                             gguf_path=_gguf_path_v,
@@ -2502,6 +2538,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                     _c_kv = _r_c["kv"]
                                     _c_split = _r_c["tensor_split"]
                                     _c_num_gpus = _r_c["num_gpus"]
+                                    _c_uuids = _r_c["uuids"]
                             else:
                                 self._cal_debug(f"   {_calib_line(_msg_c)}")  # type: ignore[attr-defined]
                                 yield
@@ -2515,6 +2552,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 kv_quant=_c_kv,
                                 tensor_split=_c_split,
                                 num_gpus=_c_num_gpus,
+                                cuda_visible_devices=_c_uuids,
                                 tts_backend=tts_backend_c,
                             )
                             if added_c:
