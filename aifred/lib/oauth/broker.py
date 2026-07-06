@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from typing import Optional
 
+import httpx
 from cryptography.fernet import Fernet
 
 from ..config import DATA_DIR
@@ -154,6 +155,37 @@ class OAuthBroker:
 
     def is_connected(self, provider_name: str) -> bool:
         return _load_token(provider_name) is not None
+
+    async def verify_connection(self, provider_name: str) -> bool:
+        """Prove the stored grant is still valid via a forced refresh roundtrip.
+
+        ``is_connected`` only checks that a token file exists — a grant the
+        user revoked at the provider (e.g. Google security settings) still
+        looks "connected". This forces a refresh-token exchange: the provider
+        either issues a fresh access token (grant valid → tokens saved,
+        True) or definitively rejects it (invalid_grant → False).
+
+        Transport errors (provider unreachable) propagate to the caller —
+        "could not verify" is not the same as "revoked" and must not be
+        presented as disconnected.
+        """
+        async with self._token_lock:
+            token_set = _load_token(provider_name)
+            if token_set is None:
+                return False
+            if provider_name not in self._providers:
+                raise RuntimeError(f"Provider {provider_name} not registered")
+            try:
+                refreshed = await self._providers[provider_name].refresh(token_set)
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "OAuth verify: provider %s rejected refresh (%s) — grant revoked?",
+                    provider_name, exc.response.status_code,
+                )
+                return False
+            _save_token(provider_name, refreshed)
+            logger.debug("OAuth verify OK for provider: %s", provider_name)
+            return True
 
     async def disconnect(self, provider_name: str) -> None:
         async with self._token_lock:

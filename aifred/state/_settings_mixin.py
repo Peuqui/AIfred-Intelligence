@@ -505,7 +505,7 @@ class SettingsMixin(rx.State, mixin=True):
         toggles[channel] = ch
         self.channel_toggles = toggles
 
-    def toggle_channel_monitor(self, data: list) -> EventSpec | None:
+    def toggle_channel_monitor(self, data: list) -> EventSpec | list | None:
         """Toggle channel plugin on/off. Called from UI with [channel_name, value].
 
         For always_reply channels (Discord): also starts/stops the listener.
@@ -585,7 +585,7 @@ class SettingsMixin(rx.State, mixin=True):
     # (Settings-Accordion auf /, oder Plugin-Tab auf /agent-editor).
     _credentials_return_to: str = "/"
 
-    def open_channel_credentials(self, channel_name: str) -> EventSpec | None:
+    def open_channel_credentials(self, channel_name: str) -> EventSpec | list | None:
         """Open credentials page, pre-filled from .env (secrets) and settings.json (config)."""
         from ..lib.plugin_base import CredentialField
         from ..lib.plugin_registry import get_channel, get_tool_plugin
@@ -675,8 +675,12 @@ class SettingsMixin(rx.State, mixin=True):
             if tool is not None:
                 oauth_provider = getattr(tool, "oauth_provider", None) or ""
         self.oauth_connect_provider = oauth_provider
+        connected = False
         if oauth_provider:
             from ..lib.oauth import oauth_broker
+            # Optimistisch aus der Token-Datei — die Echt-Prüfung (Refresh-
+            # Roundtrip) läuft als nachgekettetes Event, damit ein Provider-
+            # Timeout das Modal-Öffnen nie blockiert.
             connected = oauth_broker.is_connected(oauth_provider)
             self.oauth_connect_status = "connected" if connected else "idle"
             # Auth-URL vorab generieren — der Modal-Connect-Link nutzt sie
@@ -697,6 +701,8 @@ class SettingsMixin(rx.State, mixin=True):
         except Exception:  # noqa: BLE001
             current_path = "/"
         self._credentials_return_to = current_path
+        if connected:
+            return [rx.redirect("/credentials"), type(self).verify_oauth_connection]
         return rx.redirect("/credentials")
 
     def close_channel_credentials(self):
@@ -755,6 +761,41 @@ class SettingsMixin(rx.State, mixin=True):
             return str(oauth_broker.get_auth_url(provider, scope_list, redirect_uri))
         except Exception:
             return ""
+
+    async def verify_oauth_connection(self) -> None:
+        """Echt-Prüfung des angezeigten „Verbunden"-Status (Refresh-Roundtrip).
+
+        Läuft nachgekettet an das Modal-Open: der Status wurde dort
+        optimistisch aus der Token-Datei gesetzt. Hier erzwingt der Broker
+        einen Token-Refresh — ein beim Provider widerrufener Zugriff
+        (invalid_grant) stuft auf ``idle`` zurück und generiert die
+        Auth-URL, sodass der User direkt neu verbinden kann. Ist der
+        Provider nicht erreichbar, bleibt der Status stehen — „konnte
+        nicht prüfen" ist nicht „getrennt".
+        """
+        import httpx
+        from ..lib.oauth import oauth_broker
+        from ..lib.plugin_registry import get_channel, get_tool_plugin
+
+        provider = self.oauth_connect_provider
+        if not provider or self.oauth_connect_status != "connected":
+            return
+        try:
+            valid = await oauth_broker.verify_connection(provider)
+        except httpx.HTTPError as exc:
+            self.add_debug(  # type: ignore[attr-defined]
+                f"⚠️ OAuth verify skipped for {provider} (provider unreachable): {exc}"
+            )
+            return
+        if valid:
+            return
+        self.oauth_connect_status = "idle"
+        plugin_key = self.channel_credentials_editing
+        plugin = get_channel(plugin_key) or get_tool_plugin(plugin_key)
+        self.oauth_auth_url = self._build_oauth_auth_url(provider, plugin)
+        self.add_debug(  # type: ignore[attr-defined]
+            f"⚠️ OAuth grant for {provider} was revoked at the provider — reconnect required"
+        )
 
     async def start_oauth_connection(self):  # type: ignore[no-untyped-def]
         """Set status to ``connecting`` and poll ``is_connected`` for up to 5 min.
