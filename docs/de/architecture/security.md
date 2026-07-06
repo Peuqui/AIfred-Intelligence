@@ -94,6 +94,15 @@ angehoben. `OWNER_TIER = TIER_WRITE_DATA (2)` — der Owner darf ueber externe
 Kanaele also Daten anlegen/aendern, aber keine System-Loeschungen (kein
 `WRITE_SYSTEM`/`ADMIN`).
 
+**E-Mail-Sonderfall (A9):** Der From-Header ist trivial faelschbar. Die
+Owner-Anhebung setzt deshalb zusaetzlich voraus, dass der empfangende
+Mail-Provider die Echtheit bestaetigt hat: Der E-Mail-Channel wertet den
+obersten `Authentication-Results`-Header aus (SPF/DKIM/DMARC, RFC 8601)
+und legt das Verdict als `metadata["auth_results"]` ab
+(`"pass"`/`"fail"`/`"none"`). Nur bei `"pass"` elevatet `_is_owner()`;
+Mails mit `"fail"` werden bereits vor der Pipeline verworfen. `"none"`
+(Provider ohne AR-Header) laeuft normal, bekommt aber nie Owner-Rechte.
+
 ### Durchsetzung
 
 ```
