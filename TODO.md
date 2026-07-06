@@ -47,10 +47,11 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
   bei finalem Round (parking-Patch in `aifred/backends/base.py:570-585`)
 
 **Phase 1.2 — TODO offen**
-- [ ] **Folder-mtime-Tracking** fuer audio_index.scan_source — bei "nichts
-  geaendert" Sub-Sekunde-Sync statt 30-60s. Pro Folder last-scan-mtime
-  in DB-Spalte, beim naechsten Sync nur Folders mit veraenderter mtime
-  anfassen. Aufwand ~30 Min. Heute: kompletter rglob walk pro Sync.
+- [x] ~~Folder-mtime-Tracking fuer audio_index.scan_source~~ ✅ war bereits
+  am 2026-05-03 umgesetzt (commit `dae8dc89`): `folders`-Tabelle mit
+  per-Folder-mtime, `walk()`-Fast-Path ueberspringt unveraenderte Subtrees
+  komplett (`skipped_folders`-Statistik), Tag-only-Edits brauchen
+  `force=True` (dokumentiert im Docstring).
 - [ ] Auto-Pause-fuer-TTS End-to-End-Test (Hörbuch → Frage stellen → Resume mit Pre-Roll verifizieren)
 - [x] ~~Generischer Folder-Picker (eigene Lib + Reflex-Component)~~ ✅ implementiert
   in `aifred/lib/file_browser.py` + `aifred/state/_file_picker_mixin.py` +
@@ -423,25 +424,21 @@ oder entfernen — das ist die letzte Entscheidung, nicht die erste.
   über die UI, der antwortende Agent entscheidet pro Query selbst über
   Web-Tools (siehe Kommentar in `_parse_mode_switch`).
 
-### Lücke 1: Symposion mit ad-hoc Agenten-Liste
+### Lücke 1: Symposion mit ad-hoc Agenten-Liste ✅ (erledigt 2026-07-06)
 
-**Problem:** *"Starte Symposion mit Codine, HAL und Rabbi"* → wird zu
-`multi=symposion` geparsed, aber die teilnehmenden Agenten kommen aus
-der UI-Konfig, nicht aus dem Voice-Befehl. Eine ad-hoc Auswahl per
-Sprache ist nicht möglich.
+*"Starte Symposion mit Codine, HAL und Rabbi"* funktioniert jetzt per Voice:
 
-**Lösung:**
-- [ ] Neuen Schlüssel `symposion_agents=<id1>,<id2>,...` im
-      Mode-Switch-Format ergänzen
-- [ ] `_parse_mode_switch` erweitern: kommagetrennte Agent-IDs
-      validieren gegen `agent_config`, ungültige verwerfen
-- [ ] Im Browser-Pfad ([`_chat_mixin.py`](aifred/state/_chat_mixin.py))
-      `symposion_agents` aus `mode_switch_updates` in die Session-Config
-      übernehmen
-- [ ] Prompt-Beispiele in
-      [`intent_detection.txt`](prompts/en/automatik/intent_detection.txt)
-      ergänzen: *"Start symposion with Codine, HAL and Rabbi"* →
-      `multi=symposion,symposion_agents=codi,hal,rabbi`
+- `symposion_agents=<id1>,<id2>,...` im Mode-Switch-Format —
+  `_parse_mode_switch` behandelt die kommagetrennten Werte als
+  Listen-Fortsetzung (Tokens ohne `=` nach dem Key), validiert jede ID
+  über `resolve_agent_id` (IDs, Display-Namen, STT-Aliases), verwirft
+  Ungültige und dedupliziert. Komplett leere Liste → Key wird verworfen
+  (kein Symposion mit 0 Teilnehmern).
+- Browser-Pfad übernimmt `symposion_agents` in State + Session-Config;
+  Hub-Pfad persistiert generisch über `update_session_config`.
+- Prompt-Beispiele in `intent_detection.txt` ergänzt,
+  `format_mode_switch_summary` zeigt die Teilnehmer an.
+- Tests: `tests/test_mode_switch_parser.py`.
 
 ### Lücke 2: Hub-Pfad ignoriert Mode-Switch ✅ (erledigt)
 
@@ -734,12 +731,11 @@ algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
 ### UI Verbesserungen
 - [ ] Tages-Separatoren bei Datumswechsel in Chat (Messenger-Stil)
 - [ ] Clickable Tooltips: Hilfe-Modale fuer alle UI-Bereiche (Agenten-Editor, etc.)
-- [ ] **Scheduler UI: Benutzerfreundliche Zeiteingabe** (statt rohem Cron-Textfeld)
-  - Cron: 5 separate Inputs (Minute, Stunde, Tag, Monat, Wochentag) mit Presets
-    ("Jeden Tag um 8", "Werktags um 9", "Jede Stunde", "Jeden Montag")
-  - Interval: Zahleneingabe + Einheit-Dropdown (Minuten/Stunden/Tage)
-  - Once: Datum+Uhrzeit-Picker
-  - Bug: Schedule-Feld aendert sich nicht beim Typ-Wechsel (cron/interval/once)
+- [x] ~~Scheduler UI: Benutzerfreundliche Zeiteingabe~~ ✅ war bereits am
+  2026-04-12 umgesetzt (commit `fc2fcc3a`, gleicher Tag wie der TODO-Eintrag):
+  strukturierte Cron-Felder + Presets, Interval Zahl+Einheit, Once
+  Datum+Zeit-Picker, i18n. Der Typ-Wechsel-Bug betraf das alte rohe
+  Cron-Textfeld — heute schaltet `rx.cond` auf `scheduler_edit_type` reaktiv um.
 
 ## Offene Verbesserungen
 
