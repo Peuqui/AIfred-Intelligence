@@ -153,18 +153,35 @@ class DiscordChannel(BaseChannel):
         tree = discord.app_commands.CommandTree(client)
         _discord_client = client
 
-        @tree.command(name="clear", description="Delete all messages in this channel")
+        @tree.command(name="clear", description="Reset the conversation and delete all messages in this channel")
         async def slash_clear(interaction: discord.Interaction) -> None:
-            if not interaction.channel or not interaction.guild:
-                await interaction.response.send_message("Only works in server channels.", ephemeral=True)
+            # TD6: clear is clear — delete everything that CAN be deleted.
+            # Always resets AIfred's conversation (route); in server channels
+            # additionally purges all messages (needs manage_messages). In
+            # DMs Discord bots cannot bulk-delete → context reset only.
+            if not interaction.channel:
+                await interaction.response.send_message("No channel context.", ephemeral=True)
+                return
+            from ....lib.routing_table import routing_table
+            routing_table.delete_route("discord", str(interaction.channel.id))
+            if not interaction.guild:
+                await interaction.response.send_message(
+                    "Conversation context reset. (Messages in DMs can't be bulk-deleted by bots.)",
+                    ephemeral=True,
+                )
+                _log("Discord Plugin: /clear in DM — context reset only")
                 return
             perms = interaction.channel.permissions_for(interaction.user)  # type: ignore[union-attr, arg-type]
             if not perms.manage_messages:
-                await interaction.response.send_message("No permission.", ephemeral=True)
+                await interaction.response.send_message(
+                    "Conversation context reset. (No manage_messages permission — messages not deleted.)",
+                    ephemeral=True,
+                )
+                _log("Discord Plugin: /clear — context reset, purge skipped (no permission)")
                 return
-            await interaction.response.send_message("Deleting messages...", ephemeral=True)
+            await interaction.response.send_message("Clearing conversation and deleting messages...", ephemeral=True)
             deleted = await interaction.channel.purge()  # type: ignore[union-attr]
-            _log(f"Discord Plugin: /clear — purged {len(deleted)} messages in #{getattr(interaction.channel, 'name', '?')}")
+            _log(f"Discord Plugin: /clear — context reset + purged {len(deleted)} messages in #{getattr(interaction.channel, 'name', '?')}")
 
         @client.event
         async def on_ready() -> None:

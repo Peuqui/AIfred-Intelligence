@@ -8,6 +8,9 @@ sends replies back. Credentials via credential broker.
 from __future__ import annotations
 
 import asyncio
+import json
+import pathlib
+import threading
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -24,6 +27,55 @@ if TYPE_CHECKING:
 
 # Telegram message length limit
 _MAX_MESSAGE_LENGTH = 4096
+
+# ── /clear message log (TD6) ─────────────────────────────────
+# The Bot API has no way to LIST a chat's history — a bot can only delete
+# messages whose ids it knows. So we track every message id we see or send,
+# and /clear bulk-deletes them (deleteMessages skips ids it can't delete,
+# e.g. older than Telegram's hard 48h limit). Persisted as JSON so a worker
+# restart doesn't orphan the log; a small lock guards the read-modify-write
+# because the PTB handler loop and the hub's send_reply run concurrently.
+_MSGLOG_CAP = 500  # per chat — older ids are past the 48h limit anyway
+_msglog_lock = threading.Lock()
+_MSGLOG_FILE: "pathlib.Path | None" = None
+
+
+def _msglog_file() -> pathlib.Path:
+    global _MSGLOG_FILE
+    if _MSGLOG_FILE is None:
+        from ....lib.config import DATA_DIR
+        _MSGLOG_FILE = DATA_DIR / "message_hub" / "telegram_msglog.json"
+        _MSGLOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    return _MSGLOG_FILE
+
+
+def _msglog_load() -> dict[str, list[int]]:
+    try:
+        data = json.loads(_msglog_file().read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _msglog_add(chat_id: "str | int", *message_ids: int) -> None:
+    """Track message ids for a chat (bounded to _MSGLOG_CAP per chat)."""
+    if not message_ids:
+        return
+    with _msglog_lock:
+        log = _msglog_load()
+        ids = log.setdefault(str(chat_id), [])
+        ids.extend(int(m) for m in message_ids)
+        del ids[:-_MSGLOG_CAP]
+        _msglog_file().write_text(json.dumps(log))
+
+
+def _msglog_take(chat_id: "str | int") -> list[int]:
+    """Return and remove all tracked ids for a chat."""
+    with _msglog_lock:
+        log = _msglog_load()
+        ids = log.pop(str(chat_id), [])
+        _msglog_file().write_text(json.dumps(log))
+        return ids
 
 
 class TelegramChannel(BaseChannel):
@@ -106,7 +158,11 @@ class TelegramChannel(BaseChannel):
 
         app = Application.builder().token(token).build()
 
-        # /clear command — reset conversation
+        # /clear command — clear is clear (TD6): delete everything that CAN
+        # be deleted. Resets AIfred's conversation (route) AND bulk-deletes
+        # all tracked chat messages. Telegram's hard limits stay: only ids
+        # we tracked, only messages younger than 48h, in groups only with
+        # delete permission — deleteMessages silently skips the rest.
         async def _cmd_clear(update: Update, context: object) -> None:
             user = update.effective_user
             chat = update.effective_chat
@@ -119,8 +175,26 @@ class TelegramChannel(BaseChannel):
             chat_id = str(chat.id)
             from ....lib.routing_table import routing_table
             routing_table.delete_route("telegram", chat_id)
-            await msg.reply_text("Conversation cleared.")
-            _log(f"Telegram Plugin: /clear by user {user.id}")
+
+            ids = _msglog_take(chat_id)
+            ids.append(msg.message_id)  # the /clear command message itself
+            bot = msg.get_bot()
+            deleted = 0
+            for i in range(0, len(ids), 100):  # API cap: 100 ids per call
+                batch = ids[i:i + 100]
+                try:
+                    await bot.delete_messages(chat_id=chat.id, message_ids=batch)
+                    deleted += len(batch)
+                except Exception as exc:
+                    _log(f"Telegram Plugin: /clear delete batch failed: {exc}")
+
+            conf = await bot.send_message(
+                chat_id=chat.id,
+                text=f"Conversation cleared — context reset, {deleted} messages deleted.",
+            )
+            # Track the confirmation too, so the NEXT /clear removes it.
+            _msglog_add(chat_id, conf.message_id)
+            _log(f"Telegram Plugin: /clear by user {user.id} — {deleted} messages deleted")
 
         # Message handler
         async def _on_message(update: Update, context: object) -> None:
@@ -134,6 +208,9 @@ class TelegramChannel(BaseChannel):
                 return
 
             inbound = _build_inbound(update)
+            # TD6: track the incoming message id so /clear can delete it.
+            if update.effective_chat is not None:
+                _msglog_add(update.effective_chat.id, update.message.message_id)
             _log(f"Telegram Plugin: message from {user.first_name} ({user.id})")
             await _dispatch_inbound(inbound)
 
@@ -184,6 +261,7 @@ class TelegramChannel(BaseChannel):
         local = _local_photo_path(outbound.media)
         url = _photo_url(outbound.media)
 
+        sent_ids: list[int] = []
         async with bot:
             if local or url:
                 # Telegram hard-caps photo captions at 1024 chars. Send the
@@ -192,15 +270,21 @@ class TelegramChannel(BaseChannel):
                 caption, overflow = text[:1024], text[1024:]
                 if local:
                     with open(local, "rb") as fh:
-                        await bot.send_photo(chat_id=int(chat_id), photo=fh, caption=caption)
+                        m = await bot.send_photo(chat_id=int(chat_id), photo=fh, caption=caption)
+                        sent_ids.append(m.message_id)
                 elif url:
-                    await bot.send_photo(chat_id=int(chat_id), photo=url, caption=caption)
+                    m = await bot.send_photo(chat_id=int(chat_id), photo=url, caption=caption)
+                    sent_ids.append(m.message_id)
                 if overflow:
                     for chunk in _split_message(overflow, _MAX_MESSAGE_LENGTH):
-                        await bot.send_message(chat_id=int(chat_id), text=chunk)
+                        m = await bot.send_message(chat_id=int(chat_id), text=chunk)
+                        sent_ids.append(m.message_id)
             else:
                 for chunk in _split_message(text, _MAX_MESSAGE_LENGTH):
-                    await bot.send_message(chat_id=int(chat_id), text=chunk)
+                    m = await bot.send_message(chat_id=int(chat_id), text=chunk)
+                    sent_ids.append(m.message_id)
+        # TD6: track sent ids so /clear can delete our own replies too.
+        _msglog_add(chat_id, *sent_ids)
 
         from ....lib.debug_bus import debug
         debug(f"Reply sent to Telegram chat {chat_id}")
@@ -260,9 +344,13 @@ class TelegramChannel(BaseChannel):
             # the tool path (the reply path already runs it, this one did not).
             text = self.format_outbound(sanitize_outbound(message))["text"]
             chunks = _split_message(text, _MAX_MESSAGE_LENGTH)
+            sent_ids: list[int] = []
             async with bot:
                 for chunk in chunks:
-                    await bot.send_message(chat_id=target, text=chunk)
+                    m = await bot.send_message(chat_id=target, text=chunk)
+                    sent_ids.append(m.message_id)
+            # TD6: tool-path sends are part of the conversation too.
+            _msglog_add(target, *sent_ids)
 
             log_message(f"Telegram Plugin: message sent to chat {chat_id}")
             return json.dumps({"success": True, "chat_id": chat_id})
