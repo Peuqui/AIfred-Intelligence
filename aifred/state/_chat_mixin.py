@@ -494,6 +494,23 @@ class ChatMixin(rx.State, mixin=True):
         self.add_debug(f"📷 VL acting as: {_acting_name}")  # type: ignore[attr-defined]
         yield
 
+        # Full toolkit like the text path — without this, call_llm falls back
+        # to its memory-only toolkit (store_memory) and the model CANNOT act
+        # on image content ("save contact to Google" ended as a hallucinated
+        # completion note in agent memory + a store_memory retry loop).
+        from ..lib.agent_memory import prepare_agent_toolkit
+        memory_ctx, vl_toolkit = await prepare_agent_toolkit(
+            acting_agent, user_msg,
+            lang=detected_language,
+            memory_enabled=self.agent_memory_enabled,  # type: ignore[attr-defined]
+            research_tools_enabled=True,
+            state=self,
+            session_id=self.session_id,  # type: ignore[attr-defined]
+        )
+        if vl_toolkit:
+            self.add_debug(f"🔧 Toolkit: {[t.name for t in vl_toolkit.tools]} for {_acting_name}")  # type: ignore[attr-defined]
+            yield
+
         result_data = None
         async for item in call_llm(
             user_text=user_msg,
@@ -512,6 +529,8 @@ class ChatMixin(rx.State, mixin=True):
             vision_prompt_key=vision_prompt_key,
             provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
             agent=acting_agent,
+            external_toolkit=vl_toolkit,
+            memory_ctx=memory_ctx if memory_ctx else None,
         ):
             if item["type"] == "debug":
                 self.add_debug(item["message"])
