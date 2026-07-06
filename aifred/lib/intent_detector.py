@@ -38,6 +38,12 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
     Format: comma-separated key=value pairs, e.g. "multi=tribunal" or
     "agent=sokrates,multi=standard".
 
+    ``symposion_agents`` takes a comma-separated agent list — its values
+    therefore look like bare tokens to the pair-splitter
+    ("multi=symposion,symposion_agents=codi,hal,rabbi"). Bare tokens
+    directly following a ``symposion_agents=`` key are treated as
+    continuation of that list; anywhere else they are ignored as before.
+
     Defensive parsing: unknown keys/values are ignored, never raises.
     ``research=*`` keys are explicitly ignored — see module-level note.
 
@@ -46,15 +52,26 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
 
     Returns:
         Dict with validated config updates (keys: multi_agent_mode,
-        active_agent). Empty dict if nothing valid.
+        active_agent, symposion_agents). Empty dict if nothing valid.
     """
+    from .agent_config import resolve_agent_id
+
     updates: Dict[str, Any] = {}
     if not mode_field or not mode_field.strip():
         return updates
 
+    # Set while consuming a symposion_agents list — bare tokens append to it.
+    collecting_agents: List[str] | None = None
+
     for pair in mode_field.split(","):
         if "=" not in pair:
+            token = pair.strip().lower()
+            if collecting_agents is not None and token:
+                resolved = resolve_agent_id(token)
+                if resolved is not None and resolved not in collecting_agents:
+                    collecting_agents.append(resolved)
             continue
+        collecting_agents = None
         key, _, value = pair.partition("=")
         key = key.strip().lower()
         value = value.strip().lower()
@@ -68,13 +85,27 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
             # Resolve through ID, display_name and aliases (single source of
             # truth — same logic as the addressee parser). Absorbs LLM hiccups
             # like ``agent=HAL 9000`` and STT variants like ``agent=alfred``.
-            from .agent_config import resolve_agent_id
             resolved = resolve_agent_id(value)
             if resolved is not None:
                 updates["active_agent"] = resolved
+        elif key == "symposion_agents":
+            # Ad-hoc participant list for symposion mode ("Starte Symposion
+            # mit Codi, HAL und Rabbi"). Same resolver as agent= — IDs,
+            # display names and STT aliases all work; invalid names are
+            # dropped silently (defensive parsing, consistent with agent=).
+            collecting_agents = []
+            resolved = resolve_agent_id(value)
+            if resolved is not None:
+                collecting_agents.append(resolved)
+            updates["symposion_agents"] = collecting_agents
         # ``research=*`` is intentionally not handled — user controls
         # research mode via UI, and the answering agent decides per
         # query whether it needs web tools.
+
+    # All named agents failed to resolve → no usable list, drop the key
+    # (an empty list would start a symposion with zero participants).
+    if not updates.get("symposion_agents", True):
+        del updates["symposion_agents"]
     return updates
 
 
@@ -108,6 +139,14 @@ def format_mode_switch_summary(updates: Dict[str, Any], lang: str = "de") -> str
         _cfg = get_agent_config(updates["active_agent"])
         _name = _cfg.display_name if _cfg else updates["active_agent"].capitalize()
         parts.append(f"Agent: {_name}")
+    if "symposion_agents" in updates:
+        from .agent_config import get_agent_config
+        names = []
+        for agent_id in updates["symposion_agents"]:
+            cfg = get_agent_config(agent_id)
+            names.append(cfg.display_name if cfg else agent_id.capitalize())
+        label = "Teilnehmer" if lang == "de" else "Participants"
+        parts.append(f"{label}: {', '.join(names)}")
     return " · ".join(parts)
 
 

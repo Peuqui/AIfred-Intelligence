@@ -48,6 +48,9 @@ comma-separated key=value pairs:
 - `agent=<id>`       → set a specific agent as responder. **MUST be the
   lowercase agent ID** from the list in section 2 above (e.g. `hal`,
   `pater`, `codine`) — NEVER the display name (NOT `HAL 9000`, NOT `Pater Tuck`).
+- `symposion_agents=<id>,<id>,...` → ad-hoc participant list when the user
+  names WHO should join the symposion. Lowercase agent IDs, comma-separated.
+  Only together with `multi=symposion`; omit when no participants are named.
 
 Examples of mode switch detection (works in ALL languages):
 - "Start tribunal"                          → multi=tribunal
@@ -58,6 +61,9 @@ Examples of mode switch detection (works in ALL languages):
 - "I want to keep talking to HAL"           → agent=hal      (lowercase id, NOT "HAL 9000")
 - "Schalt um auf HAL 9000"                  → agent=hal      (lowercase id, NOT "hal 9000")
 - "Bleib bei Pater Tuck"                    → agent=pater    (lowercase id, NOT "Pater Tuck")
+- "Starte Symposion mit Codi, HAL und Rabbi" → multi=symposion,symposion_agents=codi,hal,rabbi
+- "Start a symposion with Sokrates and Pater Tuck" → multi=symposion,symposion_agents=sokrates,pater
+- "Starte Symposion"                        → multi=symposion (no participants named)
 - "Wie geht's?"                             → EMPTY (no mode switch)
 
 Detecting persistent agent switch:
