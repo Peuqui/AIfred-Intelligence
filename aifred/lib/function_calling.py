@@ -88,6 +88,12 @@ class ToolKit:
 
     def __post_init__(self) -> None:
         self._by_name: dict[str, Tool] = {t.name: t for t in self.tools}
+        # Loop breaker: how often each (tool, exact-args) pair was seen this
+        # LLM request. A small model that can't make progress tends to re-emit
+        # the SAME call byte-for-byte; that can never yield a new result, so we
+        # refuse it after N repeats instead of burning a full inference round
+        # each time (see SECURITY_MAX_IDENTICAL_TOOL_CALLS).
+        self._identical_calls: dict[str, int] = {}
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
@@ -143,7 +149,10 @@ class ToolKit:
 
         # Chain depth limit
         from .security import check_rate_limit, RateLimitReached, CircuitBreakerTripped
-        from .config import SECURITY_MAX_TOOL_CHAIN_DEPTH
+        from .config import (
+            SECURITY_MAX_TOOL_CHAIN_DEPTH,
+            SECURITY_MAX_IDENTICAL_TOOL_CALLS,
+        )
 
         self._call_count += 1
         if SECURITY_MAX_TOOL_CHAIN_DEPTH > 0 and self._call_count > SECURITY_MAX_TOOL_CHAIN_DEPTH:
@@ -151,6 +160,25 @@ class ToolKit:
             logger.warning(msg)
             yield {"type": "tool_result", "result": json.dumps({"error": msg})}
             return
+
+        # Identical-call loop breaker. Key on tool name + canonicalised args
+        # (sorted keys) so a trivially different serialisation of the SAME call
+        # still collides, while genuinely different arguments do not.
+        if SECURITY_MAX_IDENTICAL_TOOL_CALLS > 0:
+            call_key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+            seen = self._identical_calls.get(call_key, 0) + 1
+            self._identical_calls[call_key] = seen
+            if seen > SECURITY_MAX_IDENTICAL_TOOL_CALLS:
+                msg = (
+                    f"Refused: '{name}' was already called {seen - 1}× with these "
+                    f"exact arguments and returned the same result each time. "
+                    f"Do NOT repeat it — use the previous result, or if the task "
+                    f"needs a different tool or different arguments, do that instead. "
+                    f"Otherwise stop calling tools and answer the user now."
+                )
+                logger.warning("Identical-call breaker: %s (seen %d×)", name, seen)
+                yield {"type": "tool_result", "result": json.dumps({"error": msg})}
+                return
 
         # Rate limit check
         try:
