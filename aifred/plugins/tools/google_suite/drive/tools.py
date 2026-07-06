@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import uuid
 from typing import Any
 
@@ -33,6 +35,26 @@ _GOOGLE_EXPORT_MIME: dict[str, str] = {
 
 _FILE_FIELDS = "id,name,mimeType,modifiedTime,size,parents,webViewLink"
 
+# Download-Cap für get_file: Der Inhalt geht 1:1 in den LLM-Kontext — mehr
+# als ein paar MB Text sind nie sinnvoll, und ohne Cap zieht ein grosses
+# Drive-File den ganzen Prozess in den OOM.
+DRIVE_MAX_DOWNLOAD_BYTES = int(os.environ.get("DRIVE_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
+
+# Erkennt eine rohe Drive-Query (Operator-Syntax) — als WORT, nicht als
+# Substring: das frühere `"in" in query` hielt jede Suche nach z.B.
+# "Einladung" für eine Drive-Query und schickte sie unescaped an die API.
+_DRIVE_QUERY_OPERATOR = re.compile(r"=|\bcontains\b|\bin\s+parents\b")
+
+
+def _escape_drive_term(term: str) -> str:
+    r"""Escape a user/LLM-supplied term for use inside '...' in a Drive query.
+
+    Drive query strings escape backslash and single quote with a backslash —
+    without this, a term like ``L'atelier`` breaks the query and a crafted
+    term can inject arbitrary query operators.
+    """
+    return term.replace("\\", "\\\\").replace("'", "\\'")
+
 
 async def _get_token() -> str:
     from .....lib.oauth.broker import oauth_broker
@@ -40,6 +62,22 @@ async def _get_token() -> str:
     if not token:
         raise RuntimeError("Google nicht verbunden. Bitte erst in den Einstellungen autorisieren.")
     return token
+
+
+async def _read_capped(response: httpx.Response) -> str:
+    """Read a streamed download, aborting past DRIVE_MAX_DOWNLOAD_BYTES."""
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes(64 * 1024):
+        total += len(chunk)
+        if total > DRIVE_MAX_DOWNLOAD_BYTES:
+            raise RuntimeError(
+                f"Datei größer als {DRIVE_MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB "
+                "— Download abgebrochen (DRIVE_MAX_DOWNLOAD_BYTES)."
+            )
+        chunks.append(chunk)
+    encoding = response.charset_encoding or "utf-8"
+    return b"".join(chunks).decode(encoding, errors="replace")
 
 
 def get_drive_tools(lang: str = "de") -> list[Tool]:
@@ -53,7 +91,7 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         token = await _get_token()
         query = "trashed=false"
         if folder_id:
-            query += f" and '{folder_id}' in parents"
+            query += f" and '{_escape_drive_term(folder_id)}' in parents"
         async with httpx.AsyncClient() as client:
             r = await client.get(
                 f"{DRIVE_API}/files",
@@ -85,8 +123,9 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
         """Dateien nach Name oder Inhalt suchen (Drive Query Syntax)."""
         token = await _get_token()
         # Nutze fullText-Suche falls query kein Drive-Operator enthält
-        if "=" not in query and "in" not in query:
-            drive_query = f"fullText contains '{query}' and trashed=false"
+        # (Wort-genaue Erkennung + Escaping: siehe _DRIVE_QUERY_OPERATOR)
+        if not _DRIVE_QUERY_OPERATOR.search(query):
+            drive_query = f"fullText contains '{_escape_drive_term(query)}' and trashed=false"
         else:
             drive_query = query + " and trashed=false"
         async with httpx.AsyncClient() as client:
@@ -133,23 +172,22 @@ def get_drive_tools(lang: str = "de") -> list[Tool]:
             export_mime = _GOOGLE_EXPORT_MIME.get(mime)
             if export_mime:
                 # Google-natives Format → Export
-                r = await client.get(
-                    f"{DRIVE_API}/files/{file_id}/export",
-                    headers=headers,
-                    params={"mimeType": export_mime},
-                    timeout=30,
-                )
+                download_url = f"{DRIVE_API}/files/{file_id}/export"
+                params = {"mimeType": export_mime}
             else:
                 # Binär- oder Text-Datei → direkt herunterladen
-                r = await client.get(
-                    f"{DRIVE_API}/files/{file_id}",
-                    headers=headers,
-                    params={"alt": "media"},
-                    timeout=30,
-                )
-            r.raise_for_status()
+                download_url = f"{DRIVE_API}/files/{file_id}"
+                params = {"alt": "media"}
 
-        return json.dumps({"id": file_id, "name": name, "content": r.text}, ensure_ascii=False)
+            # Gestreamt + Byte-Cap: der Inhalt landet im LLM-Kontext, ein
+            # unbegrenztes r.text auf einem grossen Drive-File waere ein OOM.
+            async with client.stream(
+                "GET", download_url, headers=headers, params=params, timeout=30
+            ) as r:
+                r.raise_for_status()
+                content = await _read_capped(r)
+
+        return json.dumps({"id": file_id, "name": name, "content": content}, ensure_ascii=False)
 
     async def create_file(
         name: str,

@@ -13,7 +13,9 @@ import trafilatura
 from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
 from typing import Dict
+from urllib.parse import urlparse, urlunparse
 import requests
+from requests.adapters import HTTPAdapter
 
 from .base import BaseTool
 from ..logging_utils import log_message
@@ -30,6 +32,24 @@ except ImportError:
 
 # Logging Setup
 logger = logging.getLogger(__name__)
+
+
+class _PinnedHostAdapter(HTTPAdapter):
+    """TLS to a pinned IP with SNI + cert check against the real hostname.
+
+    Used to connect to the DNS-validated address instead of re-resolving:
+    urllib3 2.x uses ``server_hostname`` both for SNI and for certificate
+    hostname verification, so ``https://<ip>/...`` still validates against
+    the original host's certificate.
+    """
+
+    def __init__(self, server_hostname: str):
+        self._server_hostname = server_hostname
+        super().__init__()
+
+    def init_poolmanager(self, connections, maxsize, block=False, **kwargs):
+        kwargs["server_hostname"] = self._server_hostname
+        super().init_poolmanager(connections, maxsize, block=block, **kwargs)
 
 # ============================================================
 # WEB SCRAPER TOOL
@@ -69,14 +89,20 @@ class WebScraperTool(BaseTool):
         re-validating each ``Location`` before connecting. Raises
         :class:`UnsafeURLError` if any hop resolves to a private/reserved
         address — the caller decides how to surface it (no silent pass-through).
+
+        DNS-Rebind-Pin: the connection goes to the ADDRESS the validation
+        resolved (host swapped for IP in the URL, original host in the Host
+        header, TLS via _PinnedHostAdapter) — a second DNS resolution inside
+        requests would otherwise let a rebinding resolver answer public for
+        the check and 127.0.0.1 for the connect.
         """
         kwargs.setdefault("timeout", 15)
         kwargs["allow_redirects"] = False
         kwargs["stream"] = True  # don't buffer the body until we've capped it
         current = url
         for _ in range(self.SAFE_MAX_REDIRECTS + 1):
-            validate_external_url(current)
-            resp = requests.request(method, current, **kwargs)
+            pinned_ip = validate_external_url(current)
+            resp = self._pinned_request(method, current, pinned_ip, **kwargs)
             if resp.is_redirect or resp.is_permanent_redirect:
                 location = resp.headers.get("Location")
                 resp.close()
@@ -87,6 +113,40 @@ class WebScraperTool(BaseTool):
             self._read_capped(resp)
             return resp
         raise UnsafeURLError(f"Too many redirects for {url!r}")
+
+    @staticmethod
+    def _pin_url(url: str, ip: str) -> tuple[str, str]:
+        """Swap the URL's host for the validated IP.
+
+        Returns ``(pinned_url, host_header)`` — the Host header carries the
+        original ``host[:port]`` so virtual hosting keeps working.
+        ``validate_external_url`` already rejected userinfo-URLs, so netloc
+        is plain ``host[:port]``.
+        """
+        parsed = urlparse(url)
+        ip_host = f"[{ip}]" if ":" in ip else ip
+        netloc = ip_host if parsed.port is None else f"{ip_host}:{parsed.port}"
+        return urlunparse(parsed._replace(netloc=netloc)), parsed.netloc
+
+    def _pinned_request(
+        self, method: str, url: str, ip: str, **kwargs
+    ) -> requests.Response:
+        """Issue the request against the pinned IP (no second DNS resolution)."""
+        pinned_url, host_header = self._pin_url(url, ip)
+        headers = dict(kwargs.pop("headers", None) or {})
+        headers["Host"] = host_header
+
+        session = requests.Session()
+        try:
+            if urlparse(url).scheme == "https":
+                hostname = urlparse(url).hostname or host_header
+                session.mount("https://", _PinnedHostAdapter(hostname))
+            return session.request(method, pinned_url, headers=headers, **kwargs)
+        finally:
+            # close() schliesst nur IDLE-Pool-Connections; die in-flight
+            # Streaming-Response haelt ihre Connection selbst und bleibt
+            # lesbar (Caller liest via _read_capped und schliesst dann).
+            session.close()
 
     @staticmethod
     def _read_capped(resp: requests.Response) -> None:
