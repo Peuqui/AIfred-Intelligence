@@ -17,6 +17,7 @@ Protocol:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import wave
 import io
@@ -48,6 +49,26 @@ if TYPE_CHECKING:
 
 # Connected FreeEcho.2 devices: room_name → WebSocketResponse
 _devices: dict[str, WebSocketResponse] = {}
+# A6 reject-log rate limit: remote-IP → monotonic timestamp of the last
+# logged rejection. A puck with a wrong/missing token reconnects in a loop
+# (old firmware retried instantly); without this cap every attempt writes a
+# log line — flooding the debug log is itself a DoS vector.
+_reject_log_last: dict[str, float] = {}
+_REJECT_LOG_INTERVAL_SEC = 60.0
+
+
+def _required_auth_token() -> str:
+    """SSOT for the A6 auth decision: the expected register token, or ""
+    when authentication is off.
+
+    Auth is active when a token is configured AND the explicit switch
+    FREEECHO2_AUTH_REQUIRED is not the literal "false" (fail-safe towards
+    ON: unset/any other value keeps the check active)."""
+    from ....lib.credential_broker import broker
+
+    if (broker.get("freeecho2", "auth_required") or "").strip().lower() == "false":
+        return ""
+    return broker.get("freeecho2", "auth_token") or ""
 # Pending TTS responses: room_name → asyncio.Future
 _pending_responses: dict[str, asyncio.Future] = {}
 # Wake-Word → Agent-Hint: room_name → agent_id
@@ -259,6 +280,24 @@ class FreeEchoChannel(BaseChannel):
                 placeholder="9777",
             ),
             CredentialField(
+                env_key="FREEECHO2_AUTH_TOKEN",
+                label_key="freeecho2_cred_auth_token",
+                placeholder="shared secret",
+                # Masked in the UI; empty field = keep stored value
+                # (password semantics). Disabling auth is NOT done by
+                # clearing the token but via the explicit toggle below.
+                is_password=True,
+            ),
+            CredentialField(
+                env_key="FREEECHO2_AUTH_REQUIRED",
+                label_key="freeecho2_cred_auth_required",
+                placeholder="true",
+                # Explicit auth switch — only the literal "false" disables
+                # the register-token check (fail-safe towards ON). Lives in
+                # the plugin's settings.json (not a secret).
+                options=[("true", "On"), ("false", "Off")],
+            ),
+            CredentialField(
                 env_key="FREEECHO2_TTS_ENGINE",
                 label_key="freeecho2_cred_tts_engine",
                 placeholder="piper",
@@ -277,6 +316,18 @@ class FreeEchoChannel(BaseChannel):
         broker.set_runtime("freeecho2", "enabled", "true")
         port = values.get("FREEECHO2_PORT", str(_DEFAULT_PORT))
         broker.set_runtime("freeecho2", "port", port)
+
+        # A6: shared secret checked against the register frame's "token"
+        # field. Password semantics: empty = keep the stored token (the
+        # .env writer skips empty password values too). Auth on/off is the
+        # explicit FREEECHO2_AUTH_REQUIRED switch, not "empty token".
+        token_val = values.get("FREEECHO2_AUTH_TOKEN", "")
+        if token_val:
+            broker.set_runtime("freeecho2", "auth_token", token_val)
+        broker.set_runtime(
+            "freeecho2", "auth_required",
+            values.get("FREEECHO2_AUTH_REQUIRED", ""),
+        )
 
         ssl_cert = values.get("FREEECHO2_SSL_CERT", "")
         ssl_key = values.get("FREEECHO2_SSL_KEY", "")
@@ -333,6 +384,15 @@ class FreeEchoChannel(BaseChannel):
         _ws_loop = asyncio.get_running_loop()
         proto = "wss" if ssl_ctx else "ws"
         self.channel_log(f"WebSocket server listening on {proto}://0.0.0.0:{port}{_DEFAULT_PATH}")
+        if not _required_auth_token():
+            # A6: without an enforced token every reachable host can register
+            # as a device and drive the voice pipeline + COMMUNICATE tools.
+            self.channel_log(
+                "register auth is OFF (no token set, or auth_required=false) "
+                "— accepting UNAUTHENTICATED registrations (A6). Set the auth "
+                "token in the FreeEcho.2 channel settings and the Puck web UI.",
+                "warning",
+            )
 
         try:
             # Keep running until cancelled
@@ -394,6 +454,32 @@ class FreeEchoChannel(BaseChannel):
                     except json.JSONDecodeError:
                         data = None
                     if isinstance(data, dict) and data.get("type") == "register":
+                        # A6: when an auth token is configured, the register
+                        # frame must carry a matching "token" field — otherwise
+                        # the connection is closed before it can claim a room
+                        # slot or drive the STT→LLM→TTS pipeline. Constant-time
+                        # compare; app close code 4401 (unauthorized).
+                        expected_token = _required_auth_token()
+                        if expected_token:
+                            supplied = str(data.get("token") or "")
+                            if not hmac.compare_digest(supplied, expected_token):
+                                # Rate-limit the warning per remote — a
+                                # reject-reconnect loop must not flood the log.
+                                remote = str(request.remote)
+                                now = asyncio.get_running_loop().time()
+                                last = _reject_log_last.get(remote, 0.0)
+                                if now - last >= _REJECT_LOG_INTERVAL_SEC:
+                                    _reject_log_last[remote] = now
+                                    self.channel_log(
+                                        f"FreeEcho.2 register from {remote} "
+                                        f"rejected: invalid or missing auth token "
+                                        f"(further rejects from this host "
+                                        f"suppressed for "
+                                        f"{int(_REJECT_LOG_INTERVAL_SEC)}s)",
+                                        "warning",
+                                    )
+                                await ws.close(code=4401, message=b"invalid token")
+                                return ws
                         room = str(data.get("room") or "unknown")
                         existing = _devices.get(room)
                         if existing is not None and existing is not ws:
@@ -492,7 +578,11 @@ class FreeEchoChannel(BaseChannel):
         msg_type = msg.get("type")
 
         if msg_type == "register":
-            self.channel_log(f"[FreeEcho.2 {room}] Register: {msg}")
+            # Never log the auth token in plain text — mask it (A6).
+            log_msg = dict(msg)
+            if log_msg.get("token"):
+                log_msg["token"] = "*" * 8
+            self.channel_log(f"[FreeEcho.2 {room}] Register: {log_msg}")
 
         elif msg_type == "flow":
             # Backpressure-Frame vom FreeEcho.2. State = "pause" wenn der Ring-
