@@ -18,9 +18,11 @@ class TestIsUserAllowed:
         with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": ""}):
             assert _is_user_allowed(123456) is False
 
-    def test_star_allows_all(self):
+    def test_star_wildcard_blocks_everyone(self):
+        # TD8: die "*"-Wildcard (weltoffener Bot) wird nicht mehr
+        # unterstützt — fail-closed, explizite IDs sind Pflicht.
         with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "*"}):
-            assert _is_user_allowed(123456) is True
+            assert _is_user_allowed(123456) is False
 
     def test_specific_id_allowed(self):
         with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "111, 222, 333"}):

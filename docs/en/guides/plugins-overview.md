@@ -292,8 +292,18 @@ Discord bot with channel and DM support.
 
 **Features:**
 - WebSocket/Gateway connection
-- `/clear` slash command
+- Sender allowlist (mandatory — see below)
+- `/clear` slash command (resets the conversation AND purges channel
+  messages where permissions allow)
 - Channel and DM messages
+
+**Allowlist (mandatory):** The bot only responds to user IDs listed in
+the plugin settings (gear icon → *Allowed user IDs*, comma-separated).
+An empty list means **nobody**; the `*` wildcard is **not** supported —
+a world-open bot would let anyone drive your LLM. **Onboarding a new
+user:** have them message the bot once — the attempt is rejected, but
+their numeric user ID appears in the log
+(`blocked message from user <ID>`); add that ID to the allowlist field.
 
 > **Details:** [Discord Plugin](plugins/discord.md)
 
@@ -306,9 +316,20 @@ Discord bot with channel and DM support.
 Telegram bot via long polling.
 
 **Features:**
-- Whitelist-based access
+- Sender allowlist (mandatory — see below)
+- `/clear` deletes the conversation: context reset + bulk-delete of all
+  tracked chat messages (Telegram limits apply: only messages the bot
+  has seen/sent, younger than 48 h)
+- Messages received while AIfred was down are caught up on start
+  (Telegram buffers up to 24 h)
 - Auto-reply configurable
 - Setup guide: [Telegram Setup](telegram-setup.md)
+
+**Allowlist (mandatory):** Same model as Discord — the bot only responds
+to user IDs listed in the plugin settings (gear icon → *Allowed user
+IDs*). Empty = nobody, `*` is **not** supported. **Onboarding a new
+user:** have them message the bot once; their numeric user ID appears in
+the log (`blocked message from <ID>`) — add it to the allowlist field.
 
 > **Details:** [Telegram Plugin](plugins/telegram.md)
 

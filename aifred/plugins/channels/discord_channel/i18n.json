@@ -8,15 +8,15 @@
     "en": "Channel IDs"
   },
   "discord_cred_channel_ids_tooltip": {
-    "de": "Kommagetrennte Discord Channel-IDs.\nChannel-ID herausfinden: Rechtsklick auf Channel \u2192 'ID kopieren'\n(Entwicklermodus muss in Discord aktiviert sein).",
-    "en": "Comma-separated Discord channel IDs.\nFind ID: right-click channel \u2192 'Copy ID'\n(Developer mode must be enabled in Discord)."
+    "de": "Kommagetrennte Discord Channel-IDs.\nChannel-ID herausfinden: Rechtsklick auf Channel → 'ID kopieren'\n(Entwicklermodus muss in Discord aktiviert sein).",
+    "en": "Comma-separated Discord channel IDs.\nFind ID: right-click channel → 'Copy ID'\n(Developer mode must be enabled in Discord)."
   },
   "discord_cred_allowed_users": {
-    "de": "Erlaubte User-IDs",
-    "en": "Allowed User IDs"
+    "de": "Erlaubte User-IDs (Komma-getrennt; kein '*' — ID geblockter Absender steht im Log)",
+    "en": "Allowed user IDs (comma-separated; no '*' — blocked senders' IDs appear in the log)"
   },
   "discord_cred_allowed_users_tooltip": {
-    "de": "Kommagetrennte Discord User-IDs, die den Bot steuern d\u00fcrfen (gilt auch f\u00fcr DMs).\nUser-ID herausfinden: Rechtsklick auf User \u2192 'ID kopieren' (Entwicklermodus).\n* = alle erlaubt, leer = niemand erlaubt (Standard, fail-closed).",
-    "en": "Comma-separated Discord user IDs allowed to drive the bot (applies to DMs too).\nFind ID: right-click user \u2192 'Copy ID' (developer mode).\n* = allow all, empty = allow none (default, fail-closed)."
+    "de": "Kommagetrennte Discord User-IDs, die den Bot steuern dürfen (gilt auch für DMs).\nUser-ID herausfinden: Rechtsklick auf User → 'ID kopieren' (Entwicklermodus).\n* = alle erlaubt, leer = niemand erlaubt (Standard, fail-closed).",
+    "en": "Comma-separated Discord user IDs allowed to drive the bot (applies to DMs too).\nFind ID: right-click user → 'Copy ID' (developer mode).\n* = allow all, empty = allow none (default, fail-closed)."
   }
 }

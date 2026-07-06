@@ -4,8 +4,8 @@
     "en": "Bot Token"
   },
   "telegram_cred_allowed_users": {
-    "de": "Erlaubte User-IDs",
-    "en": "Allowed User IDs"
+    "de": "Erlaubte User-IDs (Komma-getrennt; kein '*' — ID geblockter Absender steht im Log)",
+    "en": "Allowed user IDs (comma-separated; no '*' — blocked senders' IDs appear in the log)"
   },
   "telegram_cred_allowed_users_tooltip": {
     "de": "Kommagetrennte Telegram User-IDs.\nUser-ID herausfinden: @userinfobot in Telegram anschreiben.\nBeispiel: 123456789, 987654321\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",

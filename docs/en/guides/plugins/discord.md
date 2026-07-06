@@ -25,11 +25,12 @@ Messages longer than Discord's 2000-character limit are automatically split into
 ## Features
 
 - **WebSocket/Gateway:** Permanent connection via the Discord Gateway API
-- **Channel + DM:** Receives messages from server channels and direct messages. DMs are
-  always accepted; server channels are filtered against the configured channel IDs (empty
-  list = all channels)
-- **`/clear` slash command:** Purges all messages in the current channel. Only works in
-  server channels and requires the invoking user to have the `Manage Messages` permission
+- **Channel + DM:** Receives messages from server channels and direct messages. Every
+  sender is checked against the mandatory allowlist first (see below); server channels
+  are additionally filtered against the configured channel IDs (empty list = all channels)
+- **`/clear` slash command:** Clears the conversation — always resets AIfred's context
+  (route); in server channels it additionally purges all messages (requires the invoking
+  user to have the `Manage Messages` permission; in DMs bots cannot bulk-delete)
 - **Markdown:** Outbound text is passed through unchanged — Discord renders Markdown
   (bold/italic/code/links) natively
 
@@ -42,6 +43,7 @@ or via `.env`):
 |------------|-------------|
 | `DISCORD_BOT_TOKEN` | Bot token from the Discord Developer Portal (secret) |
 | `DISCORD_CHANNEL_IDS` | Comma-separated channel IDs to watch (empty = all channels) |
+| `DISCORD_ALLOWED_USERS` | **Mandatory** sender allowlist: comma-separated numeric user IDs. Empty = nobody; the `*` wildcard is **not** supported. **Adding a user:** have them message the bot once — their user ID appears in the AIfred log (`blocked message from user <ID>`); add it via the plugin's gear icon → *Allowed user IDs* |
 
 Setup:
 
