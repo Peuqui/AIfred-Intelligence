@@ -785,15 +785,13 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Agent list for the active-agent toggle row (id, display_name, emoji).
 
         Excludes:
-        - vision (image analysis only, triggered automatically)
-        - any agent with role=system (calibration, etc. — internal workflows)
+        - any agent with role=system (calibration, vision, etc. — internal
+          workflows that never appear as a user-selectable chat agent)
         """
         from ..lib.agent_config import load_agents_raw
         agents = load_agents_raw()
         result: list[dict[str, str]] = []
         for aid, adata in agents.items():
-            if aid == "vision":
-                continue
             if adata.get("role") == "system":
                 continue
             result.append({
