@@ -346,6 +346,16 @@ Voice channel for the FreeEcho.2 device (see the voice-control note above). Inco
 - Always-reply channel (voice terminal)
 - i18n + agent-specific prompts
 
+**Auth token (recommended):** The plugin runs a WebSocket server the
+device connects to. Set a shared secret in the channel settings (gear
+icon → *Auth token*) **and** the same value in the Puck's web UI
+(Server → *Auth token*): registrations without a matching token are
+rejected before they can claim a device slot or drive the
+STT→LLM→TTS pipeline. Without a token the server accepts any host that
+can reach the port (a warning is logged on start). The explicit
+*Authentication* switch next to the token field can disable the check;
+only the literal "Off" does — fail-safe towards on.
+
 ---
 
 ## Plugin Architecture

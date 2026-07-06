@@ -92,6 +92,14 @@ via `_is_owner()`), the tier is raised to `max(channel_default, OWNER_TIER)`.
 `OWNER_TIER = TIER_WRITE_DATA (2)` — so the owner may create/update data over
 external channels, but not delete system files (no `WRITE_SYSTEM`/`ADMIN`).
 
+**Email special case (A9):** The From header is trivially forgeable, so owner
+elevation additionally requires the receiving mail provider to have verified
+authenticity: the email channel parses the topmost `Authentication-Results`
+header (SPF/DKIM/DMARC, RFC 8601) into `metadata["auth_results"]`
+(`"pass"`/`"fail"`/`"none"`). Only `"pass"` elevates in `_is_owner()`; mails
+with `"fail"` are dropped before they reach the pipeline. `"none"` (provider
+without AR headers) is processed normally but never gains owner rights.
+
 ### Enforcement
 
 ```

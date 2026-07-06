@@ -114,6 +114,29 @@ Outgoing emails can be sent to any address.
   - `@domain.de` matches any address at that domain
   - a bare address matches exactly
 
+### Sender Authentication (SPF/DKIM/DMARC)
+
+The From header is trivially forgeable, so the listener additionally reads the
+verdict your mail provider stamps into the topmost `Authentication-Results`
+header (RFC 8601) when the mail arrives:
+
+- **`fail`** (provider says SPF/DKIM/DMARC failed → likely spoofed): the mail
+  is dropped before it reaches the pipeline, with a log warning
+- **`pass`**: required for **owner elevation** — only then does the first
+  allowlist entry get `OWNER_TIER` (see the security architecture doc)
+- **`none`** (provider does not stamp such headers): the mail is processed
+  normally, but never gains owner rights
+
+### Poison-Message Handling (Bounded Retry)
+
+If processing a mail keeps throwing (fetch/dispatch error), the UID is retried
+once per reconnect cycle (~30 s) — transient errors like a briefly-down LLM
+backend recover on their own. After `EMAIL_MAX_PROCESS_ATTEMPTS` failures
+(plugin config, default 5, env-overridable) the mail is **flagged on the
+server** (`\Flagged` — shows as a star in your mail client, so you can see
+what got stuck) and skipped, so a single poison message can never block the
+queue. The mail itself stays in the mailbox.
+
 ## User Mapping and Email Routing
 
 AIfred distinguishes between **incoming** and **outgoing** email addresses per user.
