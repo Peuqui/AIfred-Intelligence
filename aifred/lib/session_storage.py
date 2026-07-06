@@ -17,6 +17,7 @@ import json
 import hashlib
 import hmac
 import secrets
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -28,6 +29,24 @@ from .config import DATA_DIR
 
 # Session directory (subdirectory of data/)
 SESSION_DIR = DATA_DIR / "sessions"
+
+# M4: Session files are written from MULTIPLE threads — the Reflex main
+# loop (browser autosave), the message-hub worker thread (its own event
+# loop), and the debug bus. Every read-modify-write on a session file
+# MUST hold this lock for the WHOLE load→mutate→save sequence, otherwise
+# the later writer silently overwrites the earlier one (lost update).
+# One global RLock, deliberately not per-session: session ops are
+# ms-scale file I/O, strictly serial is the simplest correct model
+# (same decision as the EPIM DB serialization, EP6). RLock because the
+# multi-step writers (save_user_to_session etc.) nest into the locked
+# helpers here. New RMW functions MUST take this lock.
+#
+# Known limit (fixed by the Unified Inference Pipeline, not by locking):
+# the browser's _save_current_session writes its full in-memory history —
+# if the hub appended after the browser's last mtime-sync, that append
+# is overwritten regardless of the lock (stale-state overwrite, not an
+# RMW race).
+session_rmw_lock = threading.RLock()
 
 # Accounts file (username → password_hash mapping)
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
@@ -544,18 +563,19 @@ def save_session(
     except ValueError:
         return False
 
-    # Ensure timestamps
-    now = datetime.now().isoformat()
-    if "created_at" not in session_data:
-        session_data["created_at"] = now
-    session_data["last_seen"] = now
-    session_data["session_id"] = session_id
+    with session_rmw_lock:
+        # Ensure timestamps
+        now = datetime.now().isoformat()
+        if "created_at" not in session_data:
+            session_data["created_at"] = now
+        session_data["last_seen"] = now
+        session_data["session_id"] = session_id
 
-    # Set owner (only on creation, don't overwrite existing)
-    if owner and "owner" not in session_data:
-        session_data["owner"] = owner.lower()
+        # Set owner (only on creation, don't overwrite existing)
+        if owner and "owner" not in session_data:
+            session_data["owner"] = owner.lower()
 
-    return _write_session_file(session_path, session_data)
+        return _write_session_file(session_path, session_data)
 
 
 def update_chat_data(
@@ -585,38 +605,39 @@ def update_chat_data(
     Returns:
         True on success
     """
-    # Load existing session or create new one
-    session = load_session(session_id)
+    with session_rmw_lock:
+        # Load existing session or create new one
+        session = load_session(session_id)
 
-    if session is None:
-        # Session doesn't exist - create with owner (owner is REQUIRED)
-        if not owner:
-            raise ValueError(f"Cannot create session {session_id}: owner is required")
-        session = {
-            "created_at": datetime.now().isoformat(),
-            "data": {"config": dict(DEFAULT_SESSION_CONFIG)},
-            "owner": owner.lower()
-        }
+        if session is None:
+            # Session doesn't exist - create with owner (owner is REQUIRED)
+            if not owner:
+                raise ValueError(f"Cannot create session {session_id}: owner is required")
+            session = {
+                "created_at": datetime.now().isoformat(),
+                "data": {"config": dict(DEFAULT_SESSION_CONFIG)},
+                "owner": owner.lower()
+            }
 
-    # Update chat data (Dict-based format - no conversion needed)
-    session["data"]["chat_history"] = chat_history
+        # Update chat data (Dict-based format - no conversion needed)
+        session["data"]["chat_history"] = chat_history
 
-    if chat_summaries is not None:
-        session["data"]["chat_summaries"] = list(chat_summaries)
+        if chat_summaries is not None:
+            session["data"]["chat_summaries"] = list(chat_summaries)
 
-    # DUAL-HISTORY (v2.13.0+): Store llm_history separately
-    if llm_history is not None:
-        session["data"]["llm_history"] = llm_history
+        # DUAL-HISTORY (v2.13.0+): Store llm_history separately
+        if llm_history is not None:
+            session["data"]["llm_history"] = llm_history
 
-    # DEBUG-PERSISTENCE (v2.14.0+): Store last N debug entries
-    if debug_messages is not None:
-        session["data"]["debug_messages"] = debug_messages
+        # DEBUG-PERSISTENCE (v2.14.0+): Store last N debug entries
+        if debug_messages is not None:
+            session["data"]["debug_messages"] = debug_messages
 
-    # API STATUS (v2.15.9+): Store is_generating for API polling
-    if is_generating is not None:
-        session["data"]["is_generating"] = is_generating
+        # API STATUS (v2.15.9+): Store is_generating for API polling
+        if is_generating is not None:
+            session["data"]["is_generating"] = is_generating
 
-    return save_session(session_id, session)
+        return save_session(session_id, session)
 
 
 # ============================================================
@@ -678,14 +699,15 @@ def update_session_config(session_id: str, **config_updates: Any) -> bool:
     if not config_updates:
         return True
 
-    session = load_session(session_id)
-    if session is None:
-        return False
+    with session_rmw_lock:
+        session = load_session(session_id)
+        if session is None:
+            return False
 
-    data = session.setdefault("data", {})
-    config = data.setdefault("config", dict(DEFAULT_SESSION_CONFIG))
-    config.update(config_updates)
-    return save_session(session_id, session)
+        data = session.setdefault("data", {})
+        config = data.setdefault("config", dict(DEFAULT_SESSION_CONFIG))
+        config.update(config_updates)
+        return save_session(session_id, session)
 
 
 def set_session_active_agent(session_id: str, agent_id: str) -> bool:
@@ -926,15 +948,16 @@ def update_session_title(session_id: str, title: str) -> bool:
     Returns:
         True on success, False on error
     """
-    session = load_session(session_id)
-    if session is None:
-        return False
+    with session_rmw_lock:
+        session = load_session(session_id)
+        if session is None:
+            return False
 
-    if "data" not in session:
-        session["data"] = {}
+        if "data" not in session:
+            session["data"] = {}
 
-    session["data"]["title"] = title
-    return save_session(session_id, session)
+        session["data"]["title"] = title
+        return save_session(session_id, session)
 
 
 def get_session_title(session_id: str) -> Optional[str]:
