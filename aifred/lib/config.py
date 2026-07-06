@@ -1268,9 +1268,10 @@ SANDBOX_ALLOWED_IMPORTS: list[str] = [
 # EMAIL CONFIGURATION
 # ============================================================
 # Credentials managed by credential_broker.py (not as global variables!)
-# Non-secret config values that don't need the broker:
-EMAIL_MAX_FETCH = 20                 # Max emails per inbox check
-EMAIL_MAX_BODY_CHARS = 10_000        # Truncate email body for LLM context
+# Non-secret tuning values live plugin-local in
+# aifred/plugins/channels/email_channel/config.py (each plugin owns its
+# own configuration) — EMAIL_MAX_FETCH / EMAIL_MAX_BODY_CHARS /
+# EMAIL_MAX_PROCESS_ATTEMPTS moved there 2026-07-06.
 
 # ============================================================
 # DISCORD CONFIGURATION
