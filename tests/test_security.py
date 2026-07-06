@@ -258,17 +258,33 @@ class TestResolveTierForSender:
     def test_email_owner_gets_elevated(self):
         # Mock load_settings so user-configured channel_security_tiers don't
         # interfere with the test (the real settings.json may have a higher
-        # email tier configured by the user).
+        # email tier configured by the user). A9: owner elevation now
+        # requires a provider "pass" verdict in the metadata.
         with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}), \
              patch("aifred.lib.settings.load_settings", return_value={}):
-            tier = resolve_tier_for_sender("email", '"Owner" <owner@mail.de>')
+            tier = resolve_tier_for_sender(
+                "email", '"Owner" <owner@mail.de>', {"auth_results": "pass"}
+            )
             assert tier == OWNER_TIER
 
     def test_email_non_owner_gets_default(self):
         with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}), \
              patch("aifred.lib.settings.load_settings", return_value={}):
-            tier = resolve_tier_for_sender("email", '"Friend" <friend@mail.de>')
+            tier = resolve_tier_for_sender(
+                "email", '"Friend" <friend@mail.de>', {"auth_results": "pass"}
+            )
             assert tier == TIER_COMMUNICATE
+
+    def test_email_owner_without_auth_pass_not_elevated(self):
+        # A9: even the correct owner address must NOT be elevated when the
+        # provider verdict is missing/failed — the From header is forgeable.
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}), \
+             patch("aifred.lib.settings.load_settings", return_value={}):
+            for verdict in ({"auth_results": "fail"}, {"auth_results": "none"}, {}, None):
+                tier = resolve_tier_for_sender(
+                    "email", '"Owner" <owner@mail.de>', verdict
+                )
+                assert tier == TIER_COMMUNICATE, f"verdict={verdict} must not elevate"
 
     def test_empty_whitelist_no_owner(self):
         with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": ""}):

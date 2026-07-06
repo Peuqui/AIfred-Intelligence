@@ -11,6 +11,7 @@ import email as email_lib
 import email.utils
 import imaplib
 import pathlib
+import re
 import ssl
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -348,6 +349,19 @@ class EmailChannel(BaseChannel):
             self.channel_log(f"Email Plugin: blocked mail from {inbound.sender} (not in whitelist)")
             self._update_checkpoint(uid)
             return
+        # A9: the From header is trivially forgeable — when the receiving
+        # provider's own SPF/DKIM/DMARC check FAILED, drop the mail before
+        # it reaches the pipeline. "none" (provider without AR headers)
+        # passes through, but never grants owner elevation (security.py).
+        if inbound.metadata.get("auth_results") == "fail":
+            self.channel_log(
+                f"Email Plugin: dropped mail from {inbound.sender} — "
+                f"provider authentication check failed (SPF/DKIM/DMARC), "
+                f"sender is likely spoofed (A9)",
+                "warning",
+            )
+            self._update_checkpoint(uid)
+            return
         # Mail-Loop-Schutz (RFC 3834): maschinell erzeugte Post (Autoresponder,
         # Bounces, Listen) nie automatisch beantworten — Checkpoint trotzdem
         # setzen, damit die UID nicht erneut ansteht.
@@ -490,6 +504,32 @@ def _is_sender_allowed(sender: str) -> bool:
     return False
 
 
+def _parse_auth_results(msg) -> str:
+    """Verdict from the receiving provider's Authentication-Results header.
+
+    Returns ``"pass"`` / ``"fail"`` / ``"none"`` (A9):
+
+    - Only the TOPMOST Authentication-Results header counts — per RFC 8601
+      the local MX prepends its own header, anything below it may have been
+      supplied by the sender (an attacker can attach fake AR headers).
+    - ``dmarc=pass`` wins: DMARC binds the verdict to the From-header
+      domain, which is exactly what the owner/allowlist checks compare.
+      Without a dmarc result, ``dkim=pass`` or ``spf=pass`` counts.
+    - ``none``: provider does not stamp AR headers at all — callers must
+      not treat this as failure (channel would break on such providers),
+      but owner elevation requires an explicit ``pass``.
+    """
+    headers = msg.get_all("Authentication-Results") or []
+    if not headers:
+        return "none"
+    top = " ".join(str(headers[0]).split()).lower()
+    if re.search(r"\bdmarc=pass\b", top):
+        return "pass"
+    if re.search(r"\b(dkim|spf)=pass\b", top):
+        return "pass"
+    return "fail"
+
+
 # ── IMAP helpers (moved from imap_listener.py) ───────────────
 
 
@@ -587,6 +627,9 @@ def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> "InboundMess
             "references": references,
             "uid": uid.decode(),
             "auto_response_marker": _auto_response_marker(msg),
+            # A9: provider-stamped SPF/DKIM/DMARC verdict — consumed by the
+            # allowlist gate (fail → drop) and _is_owner (pass required).
+            "auth_results": _parse_auth_results(msg),
         },
     )
 

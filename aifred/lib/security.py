@@ -131,6 +131,13 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
         return user_id == first_id
 
     if channel == "email":
+        # A9: owner elevation grants WRITE_DATA — require the receiving
+        # provider's explicit SPF/DKIM/DMARC "pass" verdict (stamped into
+        # Authentication-Results, parsed by the email channel into
+        # metadata["auth_results"]). "none" (provider without AR headers)
+        # and "fail" never elevate: the From header alone is forgeable.
+        if metadata.get("auth_results") != "pass":
+            return False
         allowed = broker.get("email", "allowed_senders").strip()
         if not allowed or allowed == "*":
             return False
