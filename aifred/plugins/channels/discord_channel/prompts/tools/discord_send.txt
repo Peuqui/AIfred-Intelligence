@@ -1,1 +1,1 @@
-Send a message to a Discord channel. Use this when the user asks to send a message via Discord.
+Send a message to a Discord channel. Use this when the user asks to send a message via Discord. To attach a file from the current conversation (an uploaded image, or generated sandbox output like a PDF), pass its /_upload/... URL as `attachment`.

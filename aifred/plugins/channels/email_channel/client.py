@@ -16,6 +16,7 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 from typing import Optional
 
 from .config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH
@@ -292,6 +293,7 @@ def send_email(
     reply_to_id: Optional[str] = None,
     session_id: Optional[str] = None,
     html: Optional[str] = None,
+    attachment: Optional[str] = None,
 ) -> str:
     """Send an email via SMTP. Returns confirmation string.
 
@@ -303,6 +305,11 @@ def send_email(
     rich-text mail clients render the HTML and lite clients fall back
     to the plain version. Without ``html``, a plain-text-only message
     is sent (no multipart wrapping).
+
+    When ``attachment`` (a local file path) is given, the message above
+    becomes the body part of a multipart/mixed container with the file
+    attached. The caller is responsible for resolving/validating the path
+    (see resolve_outbound_attachment).
     """
     # Reject control characters in header values (CR/LF would otherwise raise
     # an opaque HeaderParseError deep in smtplib). to/subject come from
@@ -324,16 +331,43 @@ def send_email(
     else:
         sender = email_from
 
-    msg: email.message.Message
+    body_part: email.message.Message
     if html:
         # multipart/alternative: text first, then html — RFC 2046 says
         # the most-faithful representation comes last, so the mail client
         # picks html when it can render it, falls back to text otherwise.
-        msg = MIMEMultipart("alternative")
-        msg.attach(MIMEText(body, "plain", "utf-8"))
-        msg.attach(MIMEText(html, "html", "utf-8"))
+        body_part = MIMEMultipart("alternative")
+        body_part.attach(MIMEText(body, "plain", "utf-8"))
+        body_part.attach(MIMEText(html, "html", "utf-8"))
     else:
-        msg = MIMEText(body, "plain", "utf-8")
+        body_part = MIMEText(body, "plain", "utf-8")
+
+    msg: email.message.Message
+    if attachment:
+        # multipart/mixed: the body (text or alternative) as the first part,
+        # the file as an attachment part.
+        import mimetypes
+        from email.mime.base import MIMEBase
+        from email import encoders as _encoders
+
+        mixed = MIMEMultipart("mixed")
+        mixed.attach(body_part)
+        ctype, _enc = mimetypes.guess_type(attachment)
+        maintype, _, subtype = (ctype or "application/octet-stream").partition("/")
+        part = MIMEBase(maintype, subtype or "octet-stream")
+        with open(attachment, "rb") as fh:
+            part.set_payload(fh.read())
+        _encoders.encode_base64(part)
+        # Path(...).name strips any directory — the recipient sees just the
+        # filename, never a server path.
+        part.add_header(
+            "Content-Disposition", "attachment",
+            filename=Path(attachment).name,
+        )
+        mixed.attach(part)
+        msg = mixed
+    else:
+        msg = body_part
     msg["From"] = sender
     msg["To"] = to
     msg["Subject"] = subject

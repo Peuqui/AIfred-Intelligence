@@ -1041,6 +1041,22 @@ class ChatMixin(rx.State, mixin=True):
                     "Beschreibe und analysiere dieses Bild." if detected_language == "de"
                     else "Describe and analyze this image."
                 )
+                # File-URL reference for the CURRENT turn: the image itself is
+                # only base64 in this call — without its /_upload/ URL the
+                # model cannot hand the file to a tool (e.g. telegram_send
+                # attachment). Follow-up turns get the URL via the llm_history
+                # anchor; this line is the first-turn equivalent. MERGED into
+                # the single text part — a SECOND text part in the multimodal
+                # content breaks the VL chat-template/mmproj alignment (the
+                # model then only thinks and stops without tool calls).
+                _img_urls = [img.get("url", "") for img in local_images if img.get("url")]
+                if _img_urls:
+                    _ref = (
+                        "Datei-URL des Bildes — für Tool-Aufrufe verwenden, z.B. als attachment"
+                        if detected_language == "de"
+                        else "File URL of the image — use in tool calls, e.g. as attachment"
+                    )
+                    prompt_text = f"{prompt_text}\n\n[{_ref}: {', '.join(_img_urls)}]"
                 content_parts.append({"type": "text", "text": prompt_text})
                 vision_prompt_key = "task_qa" if has_user_text else "task"
 

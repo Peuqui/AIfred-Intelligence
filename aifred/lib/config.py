@@ -1388,6 +1388,10 @@ SECURITY_RATE_LIMITS: dict[str, int] = {
 # ============================================================
 HTML_PREVIEW_MAX_FILES = 200         # LRU cache limit for data/html_preview/
 SANDBOX_OUTPUT_DIR = DATA_DIR / "sandbox_output"
+# Max size of a file a channel *_send tool may attach. Guards against a
+# huge sandbox/upload file stalling the send or hitting provider limits
+# (Telegram bot API: 50 MB, most SMTP: ~25 MB). env-overridable.
+OUTBOUND_ATTACHMENT_MAX_BYTES = int(os.environ.get("OUTBOUND_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024)))
 SANDBOX_OUTPUT_MAX_FILES = 200       # LRU cache limit for data/sandbox_output/
 
 # ============================================================

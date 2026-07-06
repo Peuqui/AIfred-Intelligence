@@ -1,1 +1,1 @@
-Send a message to a Telegram chat. Use this when the user asks to send a message via Telegram.
+Send a message to a Telegram chat. Use this when the user asks to send a message via Telegram. To send to the USER themselves ("schick mir das per Telegram"), simply leave chat_id empty — it defaults to the owner, you do NOT need to ask for a chat id. To attach a file from the current conversation (an uploaded image, or generated sandbox output like a PDF), pass its /_upload/... URL as `attachment` — the message text becomes the caption.

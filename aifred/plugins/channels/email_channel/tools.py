@@ -112,9 +112,21 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
             # the send tool is exactly the vector an injected prompt would use.
             subject = sanitize_outbound(subject)
             body = sanitize_outbound(body)
+            # Optional attachment via the cross-channel SSOT (session-isolated,
+            # path-traversal safe, size-capped); the allowlist gate above is the
+            # exfiltration guard.
+            attachment_path: str | None = None
+            attachment = kwargs.get("attachment", "")
+            if attachment:
+                from ....lib.vision_utils import resolve_outbound_attachment
+                path, err = resolve_outbound_attachment(attachment, session_id, source)
+                if err:
+                    return f"Error: {err}"
+                attachment_path = str(path)
             # session_id passed to send_email for route registration (single source of truth)
             result = await asyncio.to_thread(
                 send_email, to=to, subject=subject, body=body, session_id=session_id,
+                attachment=attachment_path,
             )
             return result
 
@@ -192,6 +204,14 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
                     "to": {"type": "string", "description": "Recipient email address (for send)"},
                     "subject": {"type": "string", "description": "Email subject (for send)"},
                     "body": {"type": "string", "description": "Email body (for send)"},
+                    "attachment": {
+                        "type": "string",
+                        "description": (
+                            "Optional (for send): URL of a file from THIS conversation to "
+                            "attach (an uploaded image, or generated sandbox output like a "
+                            "PDF — its /_upload/... URL)."
+                        ),
+                    },
                     "folder": {"type": "string", "description": "IMAP folder (default INBOX)"},
                     "flag": {
                         "type": "string",
