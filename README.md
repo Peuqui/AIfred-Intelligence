@@ -16,6 +16,29 @@ AIfred Intelligence is a fully-featured AI assistant running locally on your own
 
 ---
 
+## 🔗 Complex Workflows (Tool Chains)
+
+The real value doesn't come from individual tools, but from **chains** that AIfred works through autonomously across multiple plugins — from **any channel**: browser, voice terminal (FreeEcho.2), Telegram, Discord, email.
+
+**Example (real, tested end-to-end):** You photograph a business card with your phone and say — typed or by voice:
+
+> *"Analyze this business card, extract all the data, create the contact in Google, check next week for a free morning, book a two-hour appointment, and send me the photo along with the contact details via Telegram."*
+
+AIfred runs this as one continuous chain:
+
+1. **👁️ Vision** — the VLM reads the card (name, phone, email, address, web) directly from the image
+2. **📇 Google Contacts** — creates the contact in structured form (`google_contacts_create`)
+3. **📅 Google Calendar** — **first** checks the time window for free slots (`list_events`) and **only then** books the appointment — it also recognizes an already-existing appointment and asks back instead of creating a duplicate
+4. **📤 Telegram with attachment** — sends you the **photo of the card** as an attachment plus the contact details as text — without knowing your chat ID (owner default)
+
+All local, a single prompt, no intermediate click. Files from the conversation (uploaded images, PDFs/plots generated in the sandbox) can be sent as attachments over **any** channel, session-isolated.
+
+**Prerequisites & knobs:**
+- **Security tier:** Creating tools (create contact/appointment, run code) require `WRITE_DATA` and up. In the browser you always have this; external channels are raised as needed in the **Plugin Manager** (the elevation is deliberately only possible there — no sender can grant itself rights). See [Security Architecture](#-security-architecture)
+- **Vision + tool chains:** For reliable tool calls on the image path, **turn off thinking mode for vision** (the 🧠 icon on the vision LLM; the 💭 icon → reasoning-prompt injection may stay enabled). Otherwise reasoning models with speculative decoding (MoE/MTP) swallow tool calls after thinking
+
+---
+
 ## ✨ Features
 
 ### 🧠 Autonomous Capabilities (Function Calling / Tool Use)

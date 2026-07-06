@@ -16,6 +16,29 @@ AIfred Intelligence ist ein vollwertiger KI-Assistent der lokal auf eigener Hard
 
 ---
 
+## 🔗 Komplexe Abläufe (Tool-Ketten)
+
+Der eigentliche Wert entsteht nicht aus einzelnen Tools, sondern aus **Ketten**, die AIfred autonom über mehrere Plugins hinweg abarbeitet — aus **jedem Kanal**: Browser, Sprach-Terminal (FreeEcho.2), Telegram, Discord, E-Mail.
+
+**Beispiel (real, end-to-end getestet):** Du fotografierst mit dem Handy eine Visitenkarte und sagst — getippt oder per Sprache:
+
+> *„Analysiere diese Visitenkarte, extrahiere alle Daten, leg den Kontakt in Google an, prüf nächste Woche einen freien Vormittag und trag einen zweistündigen Termin ein, und schick mir das Foto samt Kontaktdaten per Telegram."*
+
+AIfred führt das in einer durchgehenden Kette aus:
+
+1. **👁️ Vision** — das VLM liest die Karte (Name, Telefon, E-Mail, Adresse, Web) direkt aus dem Bild
+2. **📇 Google Kontakte** — legt den Kontakt strukturiert an (`google_contacts_create`)
+3. **📅 Google Kalender** — prüft **zuerst** den Zeitraum auf freie Slots (`list_events`) und trägt **erst dann** den Termin ein — erkennt auch einen bereits bestehenden Termin und fragt nach, statt ein Duplikat zu erzeugen
+4. **📤 Telegram mit Anhang** — schickt dir das **Foto der Karte** als Anhang plus die Kontaktdaten als Text — ohne deine Chat-ID zu kennen (Owner-Default)
+
+Alles lokal, ein einziger Prompt, kein Zwischen-Klick. Dateien aus der Konversation (hochgeladene Bilder, in der Sandbox generierte PDFs/Plots) lassen sich session-isoliert über **jeden** Kanal als Anhang versenden.
+
+**Voraussetzungen & Stellschrauben:**
+- **Sicherheits-Tier:** Erstellende Tools (Kontakt/Termin anlegen, Code ausführen) laufen ab `WRITE_DATA`. Im Browser hast du das immer; externe Kanäle stellst du bei Bedarf im **Plugin Manager** höher (die Anhebung ist bewusst nur dort möglich — kein Absender kann sich selbst Rechte geben). Siehe [Security-Architektur](#-security-architektur)
+- **Vision + Tool-Ketten:** Für zuverlässige Tool-Aufrufe im Bild-Pfad den **Denkmodus für Vision ausschalten** (das 🧠-Icon am Vision-LLM, 💭-Icon -> Reasoning-Prompt-Injektion darf gesetzt bleiben). Reasoning-Modelle mit spekulativer Dekodierung (MoE/MTP) verschlucken sonst Tool-Calls nach dem Denken
+
+---
+
 ## ✨ Features
 
 ### 🧠 Autonome Fähigkeiten (Function Calling / Tool Use)
