@@ -252,6 +252,47 @@ class TelegramChannel(BaseChannel):
         from ....lib.markdown_render import md_to_plain
         return {"text": md_to_plain(text)}
 
+    async def _deliver(self, bot, chat_id: int, text: str, media: "str | None") -> None:
+        """SSOT for the actual Telegram send: attachment+caption when ``media``
+        is set (photo for images, document otherwise), else chunked text. Used
+        by both the reply path and the telegram_send tool so attachment
+        delivery + caption overflow (TD7) + msglog tracking (TD6) live in
+        exactly one place. ``text`` is already formatted by the caller."""
+        from ....lib.vision_utils import is_image_file
+
+        local = _local_photo_path(media)
+        url = _photo_url(media)
+        sent_ids: list[int] = []
+        async with bot:
+            if local or url:
+                # Telegram hard-caps photo/document captions at 1024 chars.
+                # Send the overflow as follow-up text messages instead of
+                # silently dropping it (TD7).
+                caption, overflow = text[:1024], text[1024:]
+                if local:
+                    is_img = is_image_file(pathlib.Path(local))
+                    with open(local, "rb") as fh:
+                        if is_img:
+                            m = await bot.send_photo(chat_id=chat_id, photo=fh, caption=caption)
+                        else:
+                            m = await bot.send_document(chat_id=chat_id, document=fh, caption=caption)
+                        sent_ids.append(m.message_id)
+                elif url:
+                    # Remote URL (reply path only) — Telegram fetches it; treat
+                    # as photo (the reply path only ever sets image URLs).
+                    m = await bot.send_photo(chat_id=chat_id, photo=url, caption=caption)
+                    sent_ids.append(m.message_id)
+                if overflow:
+                    for chunk in _split_message(overflow, _MAX_MESSAGE_LENGTH):
+                        m = await bot.send_message(chat_id=chat_id, text=chunk)
+                        sent_ids.append(m.message_id)
+            else:
+                for chunk in _split_message(text, _MAX_MESSAGE_LENGTH):
+                    m = await bot.send_message(chat_id=chat_id, text=chunk)
+                    sent_ids.append(m.message_id)
+        # TD6: track sent ids so /clear can delete our own sends too.
+        _msglog_add(chat_id, *sent_ids)
+
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send a reply via Telegram Bot API. If ``outbound.media`` is set
         (local path or URL), send it as a photo with the text as caption;
@@ -261,35 +302,9 @@ class TelegramChannel(BaseChannel):
         token = broker.get("telegram", "bot_token")
         bot = Bot(token)
 
-        chat_id = outbound.channel_id or original.channel_id
+        chat_id = int(outbound.channel_id or original.channel_id)
         text = self.format_outbound(outbound.text)["text"]
-        local = _local_photo_path(outbound.media)
-        url = _photo_url(outbound.media)
-
-        sent_ids: list[int] = []
-        async with bot:
-            if local or url:
-                # Telegram hard-caps photo captions at 1024 chars. Send the
-                # overflow as follow-up text messages instead of silently
-                # dropping it (TD7).
-                caption, overflow = text[:1024], text[1024:]
-                if local:
-                    with open(local, "rb") as fh:
-                        m = await bot.send_photo(chat_id=int(chat_id), photo=fh, caption=caption)
-                        sent_ids.append(m.message_id)
-                elif url:
-                    m = await bot.send_photo(chat_id=int(chat_id), photo=url, caption=caption)
-                    sent_ids.append(m.message_id)
-                if overflow:
-                    for chunk in _split_message(overflow, _MAX_MESSAGE_LENGTH):
-                        m = await bot.send_message(chat_id=int(chat_id), text=chunk)
-                        sent_ids.append(m.message_id)
-            else:
-                for chunk in _split_message(text, _MAX_MESSAGE_LENGTH):
-                    m = await bot.send_message(chat_id=int(chat_id), text=chunk)
-                    sent_ids.append(m.message_id)
-        # TD6: track sent ids so /clear can delete our own replies too.
-        _msglog_add(chat_id, *sent_ids)
+        await self._deliver(bot, chat_id, text, outbound.media)
 
         from ....lib.debug_bus import debug
         debug(f"Reply sent to Telegram chat {chat_id}")
@@ -313,7 +328,7 @@ class TelegramChannel(BaseChannel):
         from ....lib.security import TIER_COMMUNICATE, sanitize_outbound
         import json
 
-        async def _execute_telegram_send(message: str, chat_id: str = "") -> str:
+        async def _execute_telegram_send(message: str, chat_id: str = "", attachment: str = "") -> str:
             from telegram import Bot
 
             token = broker.get("telegram", "bot_token")
@@ -321,12 +336,21 @@ class TelegramChannel(BaseChannel):
                 return json.dumps({"error": "Telegram not configured"})
 
             if not chat_id:
-                return json.dumps({"error": "No chat_id provided"})
-
-            try:
-                target = int(chat_id)
-            except (TypeError, ValueError):
-                return json.dumps({"error": f"Invalid chat_id: {chat_id!r}"})
+                # Default to the owner (first allowlist entry) — "send me
+                # this via Telegram" must work without the model knowing a
+                # chat id (mirrors discord_send's default-channel behavior).
+                owner = _owner_chat_id()
+                if owner is None:
+                    return json.dumps({"error": (
+                        "No chat_id provided and no owner configured "
+                        "(allowed_users allowlist is empty)"
+                    )})
+                target = owner
+            else:
+                try:
+                    target = int(chat_id)
+                except (TypeError, ValueError):
+                    return json.dumps({"error": f"Invalid chat_id: {chat_id!r}"})
 
             # Recipient allowlist gate: only the browser (user present) may send
             # to a chat that is not on the allowlist. From an external channel an
@@ -340,25 +364,26 @@ class TelegramChannel(BaseChannel):
                     )
                 })
 
+            # Optional attachment. Resolved via the cross-channel SSOT
+            # (session-isolated, path-traversal safe, size-capped); the
+            # allowlist gate above is the exfiltration guard.
+            media: str | None = None
+            if attachment:
+                from ....lib.vision_utils import resolve_outbound_attachment
+                path, err = resolve_outbound_attachment(attachment, ctx.session_id, ctx.source)
+                if err:
+                    return json.dumps({"error": err})
+                media = str(path)
+
             bot = Bot(token)
             # Same rendering as the reply path (SSOT): strip Markdown and send
-            # plain text WITHOUT parse_mode. Telegram's legacy Markdown parser
-            # rejects unbalanced markers with HTTP 400, and a chunk split can
-            # cut an entity mid-token — both make the send fail on normal output.
-            # sanitize_outbound first: redact secrets / block image-exfil URLs on
-            # the tool path (the reply path already runs it, this one did not).
+            # plain text WITHOUT parse_mode. sanitize_outbound first: redact
+            # secrets / block image-exfil URLs on the tool path.
             text = self.format_outbound(sanitize_outbound(message))["text"]
-            chunks = _split_message(text, _MAX_MESSAGE_LENGTH)
-            sent_ids: list[int] = []
-            async with bot:
-                for chunk in chunks:
-                    m = await bot.send_message(chat_id=target, text=chunk)
-                    sent_ids.append(m.message_id)
-            # TD6: tool-path sends are part of the conversation too.
-            _msglog_add(target, *sent_ids)
+            await self._deliver(bot, target, text, media)
 
             log_message(f"Telegram Plugin: message sent to chat {chat_id}")
-            return json.dumps({"success": True, "chat_id": chat_id})
+            return json.dumps({"success": True, "chat_id": chat_id, "attachment_sent": bool(media)})
 
         return [
             Tool(
@@ -374,10 +399,22 @@ class TelegramChannel(BaseChannel):
                         },
                         "chat_id": {
                             "type": "string",
-                            "description": "Telegram chat ID to send to",
+                            "description": (
+                                "Optional: Telegram chat ID to send to. Leave EMPTY to send "
+                                "to the user/owner — you do NOT need to know their chat id."
+                            ),
+                        },
+                        "attachment": {
+                            "type": "string",
+                            "description": (
+                                "Optional: URL of a file from THIS conversation to attach "
+                                "(an uploaded image, or generated sandbox output like a PDF — "
+                                "its /_upload/... URL). Images send as photo, other files as "
+                                "document. The message text becomes the caption."
+                            ),
                         },
                     },
-                    "required": ["message", "chat_id"],
+                    "required": ["message"],
                 },
                 executor=_execute_telegram_send,
             ),
@@ -400,6 +437,18 @@ def _local_photo_path(media: "str | None") -> "str | None":
 def _photo_url(media: "str | None") -> "str | None":
     """``media`` if it is an http(s) URL Telegram can fetch, else None."""
     return media if media and media.startswith(("http://", "https://")) else None
+
+
+def _owner_chat_id() -> "int | None":
+    """The owner's chat id = FIRST allowlist entry (same convention as
+    security._is_owner). Default target for telegram_send when the model
+    doesn't know a chat id ("schick mir das per Telegram"). None if the
+    allowlist is empty/unusable."""
+    whitelist_raw = broker.get("telegram", "allowed_users").strip()
+    if not whitelist_raw or whitelist_raw == "*":
+        return None
+    first = whitelist_raw.split(",")[0].strip()
+    return int(first) if first.isdigit() else None
 
 
 def _is_user_allowed(user_id: int) -> bool:

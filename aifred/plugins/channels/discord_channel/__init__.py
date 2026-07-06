@@ -37,6 +37,16 @@ def _parse_channel_ids(ids_str: str) -> set[int]:
     return ids
 
 
+def _local_file_path(media: "str | None") -> "str | None":
+    """Local file path if ``media`` points at an existing file, else None.
+    Discord attaches via discord.File, which needs a local path (it cannot
+    fetch a remote URL like Telegram's send_photo can)."""
+    from pathlib import Path
+    if not media or media.startswith(("http://", "https://")):
+        return None
+    return media if Path(media).exists() else None
+
+
 def _is_discord_user_allowed(user_id: int) -> bool:
     """Check a Discord user ID against the allowlist (same model as Telegram).
 
@@ -284,18 +294,24 @@ class DiscordChannel(BaseChannel):
         # Discord renders Markdown natively (bold/italic/code/links) —
         # the default format_outbound() passthrough is exactly right.
         text = self.format_outbound(outbound.text)["text"]
-        # Discord has a 2000 char limit per message
-        if len(text) > 2000:
-            # Split into chunks
-            chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)]
-            for chunk in chunks:
-                await channel.send(chunk)  # type: ignore[union-attr]
-        else:
-            await channel.send(text)  # type: ignore[union-attr]
+        await self._deliver(channel, text, _local_file_path(outbound.media))
 
         from ....lib.debug_bus import debug
         channel_name = getattr(channel, 'name', channel_id)
         debug(f"📤 Reply sent to {outbound.recipient} (#{channel_name})")
+
+    async def _deliver(self, channel, text: str, media: "str | None") -> None:
+        """SSOT for the actual Discord send: text in 2000-char chunks plus an
+        optional file attachment on the first message. Used by both the reply
+        path and the discord_send tool. Discord renders any file type as an
+        attachment, so no photo/document distinction is needed."""
+        import discord
+
+        file = discord.File(media) if media else None
+        chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)] or [""]
+        for i, chunk in enumerate(chunks):
+            kwargs = {"file": file} if (i == 0 and file) else {}
+            await channel.send(chunk or None, **kwargs)  # type: ignore[union-attr]
 
     # ── Context ───────────────────────────────────────────────
 
@@ -321,7 +337,7 @@ class DiscordChannel(BaseChannel):
         from ....lib.credential_broker import broker
         import json
 
-        async def _execute_discord_send(message: str, channel_id: str = "") -> str:
+        async def _execute_discord_send(message: str, channel_id: str = "", attachment: str = "") -> str:
             """Send a message to a Discord channel."""
             if not _discord_client:
                 return json.dumps({"error": "Discord not connected"})
@@ -337,6 +353,17 @@ class DiscordChannel(BaseChannel):
 
             # Redact secrets / block image-exfil URLs on the tool path.
             message = sanitize_outbound(message)
+
+            # Optional attachment. Resolved via the cross-channel SSOT
+            # (session-isolated, path-traversal safe, size-capped); the
+            # allowlist gate below is the exfiltration guard.
+            media: str | None = None
+            if attachment:
+                from ....lib.vision_utils import resolve_outbound_attachment
+                path, err = resolve_outbound_attachment(attachment, ctx.session_id, ctx.source)
+                if err:
+                    return json.dumps({"error": err})
+                media = str(path)
 
             try:
                 # Recipient allowlist gate: only the browser (user present) may
@@ -357,17 +384,11 @@ class DiscordChannel(BaseChannel):
                 if not ch:
                     ch = await _discord_client.fetch_channel(int(target_id))
 
-                # Discord 2000 char limit
-                if len(message) > 2000:
-                    chunks = [message[i:i + 2000] for i in range(0, len(message), 2000)]
-                    for chunk in chunks:
-                        await ch.send(chunk)  # type: ignore[union-attr]
-                else:
-                    await ch.send(message)  # type: ignore[union-attr]
+                await self._deliver(ch, message, media)
 
                 channel_name = getattr(ch, 'name', target_id)
                 log_message(f"Discord Plugin: message sent to #{channel_name}")
-                return json.dumps({"success": True, "channel": channel_name})
+                return json.dumps({"success": True, "channel": channel_name, "attachment_sent": bool(media)})
             except Exception as exc:
                 return json.dumps({"error": str(exc)})
 
@@ -386,6 +407,14 @@ class DiscordChannel(BaseChannel):
                         "channel_id": {
                             "type": "string",
                             "description": "Discord channel ID (optional, uses default channel if empty)",
+                        },
+                        "attachment": {
+                            "type": "string",
+                            "description": (
+                                "Optional: URL of a file from THIS conversation to attach "
+                                "(an uploaded image, or generated sandbox output like a PDF — "
+                                "its /_upload/... URL)."
+                            ),
                         },
                     },
                     "required": ["message"],

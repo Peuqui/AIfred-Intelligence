@@ -7,6 +7,7 @@ from unittest.mock import patch
 from aifred.plugins.channels.telegram_channel import (
     TelegramChannel,
     _is_user_allowed,
+    _owner_chat_id,
     _split_message,
 )
 
@@ -42,6 +43,26 @@ class TestIsUserAllowed:
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("TELEGRAM_ALLOWED_USERS", None)
             assert _is_user_allowed(123) is False
+
+
+class TestOwnerChatId:
+    """Owner = FIRST allowlist entry (default target for telegram_send)."""
+
+    def test_first_entry_is_owner(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "111, 222, 333"}):
+            assert _owner_chat_id() == 111
+
+    def test_empty_allowlist_no_owner(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": ""}):
+            assert _owner_chat_id() is None
+
+    def test_star_no_owner(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "*"}):
+            assert _owner_chat_id() is None
+
+    def test_garbage_entry_no_owner(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "nicht-numerisch, 222"}):
+            assert _owner_chat_id() is None
 
 
 # ── Message Splitting ─────────────────────────────────────────

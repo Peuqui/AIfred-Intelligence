@@ -990,33 +990,105 @@ def url_to_file_path(image_url: str, session_id: str) -> Optional[Path]:
         Path object if valid, None if URL format not recognized or the
         upload belongs to a different session.
     """
-    # Match the marker at string start OR after a slash. That tolerates a
-    # missing leading slash — a common LLM tic ("_upload/images/…" instead of
-    # "/_upload/images/…") that otherwise fails the lookup — while still
-    # accepting full URLs ("http://host/_upload/…"). The leading slash is
-    # semantically irrelevant for file identity; path traversal stays blocked
-    # by _contain_under, so a tolerant prefix match cannot escape the base.
-    for marker, base, session_scoped in (
+    # Markers built at call time (not a frozen module constant) so the dir
+    # globals stay monkeypatchable in tests. Table entry: (url_marker,
+    # base_dir, session_scoped) — session_scoped means the first path segment
+    # after the marker IS the owning session id (VI7).
+    return _resolve_upload_marker(image_url, session_id, (
         ("_upload/vigilantia/", VIGILANTIA_DIR, False),
         ("_upload/images/", UPLOAD_IMAGES_DIR, True),
-    ):
-        match = re.search(r"(?:^|/)" + re.escape(marker) + r"(.+)$", image_url)
+    ))
+
+
+def _resolve_upload_marker(
+    url: str, session_id: str, markers: tuple[tuple[str, Path, bool], ...]
+) -> Optional[Path]:
+    """Resolve a ``/_upload/<marker>/...`` URL to a filesystem path.
+
+    SSOT for URL→path resolution, shared by url_to_file_path (images) and
+    resolve_outbound_attachment (any attachment) — only the marker table
+    differs. Matches the marker at string start OR after a slash: tolerates a
+    missing leading slash (a common LLM tic, "_upload/images/…") and full URLs
+    ("http://host/_upload/…") alike. Path traversal stays blocked by
+    _contain_under, so the tolerant prefix match cannot escape the base.
+    """
+    for marker, base, session_scoped in markers:
+        match = re.search(r"(?:^|/)" + re.escape(marker) + r"(.+)$", url)
         if not match:
             continue
         relative = str(match.group(1))
         if session_scoped:
             # VI7: the first path segment IS the owning session id. Reject a
-            # URL that names a different session (cross-session upload access).
+            # URL that names a different session (cross-session access).
             first_seg = relative.split("/", 1)[0]
             if first_seg != session_id:
                 logger.warning(
-                    f"⚠️ Rejected cross-session image access: URL names "
+                    f"⚠️ Rejected cross-session upload access: URL names "
                     f"session {first_seg!r}, caller is {session_id!r}"
                 )
                 return None
         return _contain_under(base, relative)
 
     return None
+
+
+def is_image_file(path: Path) -> bool:
+    """True if ``path`` looks like an image (by extension). Channels use this
+    to choose photo-send vs generic document/file-send."""
+    return path.suffix.lower() in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
+
+
+def resolve_outbound_attachment(
+    attachment: str, session_id: str, source: str
+) -> tuple[Optional[Path], Optional[str]]:
+    """Resolve an attachment reference for a channel ``*_send`` tool → file.
+
+    SSOT for the outbound-attachment path across ALL channel plugins
+    (telegram, discord, email, …): the plugin only decides HOW to attach the
+    resulting file to its protocol (photo vs document vs MIME part). Returns
+    ``(path, None)`` on success or ``(None, error_message)`` — the message is
+    handed back to the LLM verbatim so it understands why the attach failed.
+
+    Allowed sources (marker table):
+    - uploaded images + sandbox output are session-scoped (VI7): a caller can
+      only attach files from its OWN conversation.
+    - vigilantia frames are system-wide (already tier-gated for external).
+    - the shared documents/ folder is browser-only: it has no per-session
+      ownership, so an external channel must not attach from it (a
+      write_file needs WRITE_DATA anyway, which external channels lack).
+
+    The recipient allowlist gate in each tool stays the exfiltration guard —
+    combined, an injected external prompt can at most re-send a file already
+    in its own session to an allowlisted recipient.
+    """
+    from .config import SANDBOX_OUTPUT_DIR, DOCUMENTS_DIR, OUTBOUND_ATTACHMENT_MAX_BYTES
+
+    if not attachment or not attachment.strip():
+        return None, "No attachment reference provided."
+
+    markers: list[tuple[str, Path, bool]] = [
+        ("_upload/vigilantia/", VIGILANTIA_DIR, False),
+        ("_upload/images/", UPLOAD_IMAGES_DIR, True),
+        ("_upload/sandbox_output/", SANDBOX_OUTPUT_DIR, True),
+    ]
+    if source == "browser":
+        markers.append(("_upload/documents/", DOCUMENTS_DIR, False))
+
+    path = _resolve_upload_marker(attachment.strip(), session_id, tuple(markers))
+    if path is None:
+        return None, (
+            f"Could not resolve attachment {attachment!r} — it is not a valid file "
+            "URL for this session. Only files from the current conversation "
+            "(uploads, generated sandbox output) can be sent; shared documents "
+            "can only be attached from the web UI."
+        )
+    if not path.exists():
+        return None, f"Attachment file for {attachment!r} no longer exists on disk."
+    size = path.stat().st_size
+    if size > OUTBOUND_ATTACHMENT_MAX_BYTES:
+        mb = OUTBOUND_ATTACHMENT_MAX_BYTES // (1024 * 1024)
+        return None, f"Attachment is too large ({size} bytes) — limit is {mb} MB."
+    return path, None
 
 
 def _contain_under(base: Path, relative: str) -> Optional[Path]:
