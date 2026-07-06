@@ -41,7 +41,9 @@ def _run(coro):
 
 class TestSchedulerPlugin:
     def test_name(self, plugin):
-        assert plugin.name == "scheduler"
+        # MUST equal the folder name (plugin_registry invariant) — a mismatch
+        # hides the plugin from the Plugin-Manager UI.
+        assert plugin.name == "scheduler_tool"
         assert plugin.display_name == "Scheduler"
 
     def test_is_available(self, plugin):
