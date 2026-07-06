@@ -1285,6 +1285,15 @@ MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "mp")  # Sessions create
 EMAIL_MONITOR_AUTO_REPLY = os.environ.get("EMAIL_MONITOR_AUTO_REPLY", "false").lower() == "true"
 
 # ============================================================
+# AUTH CONFIGURATION
+# ============================================================
+# Server-side lifetime of the signed login cookie. The expiry timestamp is
+# PART of the HMAC signature (lib/auth) — after expiry the cookie is invalid
+# on the server, no matter what the browser has stored. The browser-side
+# max-age (browser_storage) uses the same value so both layers agree.
+AUTH_COOKIE_MAX_AGE_DAYS = int(os.environ.get("AUTH_COOKIE_MAX_AGE_DAYS", "30"))
+
+# ============================================================
 # DOCUMENT UPLOAD & RAG CONFIGURATION
 # ============================================================
 DOCUMENTS_DIR = DATA_DIR / "documents"

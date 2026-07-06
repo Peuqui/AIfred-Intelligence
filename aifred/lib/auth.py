@@ -21,9 +21,10 @@ import hmac
 import logging
 import os
 import secrets
+import time
 from hashlib import sha256
 
-from .config import DATA_DIR
+from .config import DATA_DIR, AUTH_COOKIE_MAX_AGE_DAYS
 from .credential_broker import broker
 
 logger = logging.getLogger(__name__)
@@ -100,23 +101,36 @@ def require_service_token(service: str, provided: str | None) -> None:
 
 
 def sign_username(username: str) -> str:
-    """Return ``username.<hmac>`` — an integrity-protected cookie value."""
-    mac = hmac.new(_session_secret(), username.encode(), sha256).hexdigest()
-    return f"{username}.{mac}"
+    """Return ``username.<expires>.<hmac>`` — integrity-protected and expiring.
+
+    The expiry timestamp (unix seconds) is part of the signed payload, so a
+    client can neither forge the name nor extend the lifetime. Lifetime:
+    AUTH_COOKIE_MAX_AGE_DAYS (config.py, env-overridable).
+    """
+    expires = int(time.time()) + AUTH_COOKIE_MAX_AGE_DAYS * 86400
+    payload = f"{username}.{expires}"
+    mac = hmac.new(_session_secret(), payload.encode(), sha256).hexdigest()
+    return f"{payload}.{mac}"
 
 
 def verify_signed_username(value: str) -> str | None:
-    """Verify a signed username cookie. Return the username, or None if invalid.
+    """Verify a signed username cookie. Return the username, or None if
+    invalid, malformed or expired.
 
     Returns None (caller falls back to the login dialog) on any mismatch — no
-    exception, because a malformed/forged cookie is an expected, non-fatal case.
+    exception, because a malformed/forged/expired cookie is an expected,
+    non-fatal case. Cookies in the pre-expiry format (``username.<mac>``)
+    verify as invalid — those users simply log in once.
     """
-    if not value or "." not in value:
+    if not value or value.count(".") < 2:
         return None
-    username, _, mac = value.rpartition(".")
-    if not username or not mac:
+    payload, _, mac = value.rpartition(".")
+    username, _, expires_str = payload.rpartition(".")
+    if not username or not mac or not expires_str.isdigit():
         return None
-    expected = hmac.new(_session_secret(), username.encode(), sha256).hexdigest()
+    expected = hmac.new(_session_secret(), payload.encode(), sha256).hexdigest()
     if not hmac.compare_digest(mac, expected):
+        return None
+    if time.time() >= int(expires_str):
         return None
     return username

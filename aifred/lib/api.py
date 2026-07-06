@@ -24,7 +24,7 @@ Endpoints (all prefixed with /api):
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, UploadFile, File, Form
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from pathlib import Path
@@ -187,6 +187,46 @@ api_app = FastAPI(
 # Reflex handles CORS via its own middleware when using api_transformer.
 # Adding CORSMiddleware here causes "ASGI flow error: Connection already upgraded"
 # because it conflicts with Reflex's WebSocket upgrade handling.
+
+
+# ============================================================
+# App-Level Auth (login cookie required)
+# ============================================================
+# Defense in depth below nginx basic-auth: the backend binds 127.0.0.1, but
+# without this gate every local process (or an SSRF from a scraped page)
+# could hit /system/restart-*, /vision/snapshot, /chat/history etc. Same
+# cookie the web login sets (see AuthenticatedStaticFiles for the static
+# twin) — browser calls are same-origin and carry it automatically.
+#
+# Exempt: inject + webhook (enforce their own service token via
+# require_service_token) and the OAuth callback (arrives as a redirect
+# from the provider, cookie not guaranteed).
+
+_COOKIE_EXEMPT_PATHS = ("/chat/inject", "/agent/trigger")
+
+
+@api_app.middleware("http")
+async def _require_login_cookie(request: Request, call_next):
+    from .browser_storage import USERNAME_COOKIE_NAME
+    from .auth import verify_signed_username
+
+    # Mounted under /api (aifred.py) — scope path is mount-relative, but be
+    # tolerant if the app ever runs unmounted (tests, standalone).
+    path = request.scope.get("path", "")
+    if path.startswith("/api/"):
+        path = path[4:]
+
+    exempt = (
+        path in _COOKIE_EXEMPT_PATHS
+        or (path.startswith("/oauth/") and path.endswith("/callback"))
+    )
+    if not exempt:
+        cookie = request.cookies.get(USERNAME_COOKIE_NAME, "")
+        if verify_signed_username(cookie) is None:
+            return JSONResponse(
+                {"detail": "Login cookie required"}, status_code=403
+            )
+    return await call_next(request)
 
 
 # ============================================================
