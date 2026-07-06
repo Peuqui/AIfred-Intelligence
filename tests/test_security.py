@@ -20,6 +20,7 @@ from aifred.lib.security import (
     filter_tools_by_tier,
     needs_confirmation,
     resolve_tier_for_sender,
+    resolve_trust_label,
     sanitize_inbound,
     sanitize_outbound,
     sanitize_tool_output,
@@ -293,6 +294,53 @@ class TestResolveTierForSender:
     def test_star_whitelist_no_owner(self):
         with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "*"}):
             assert resolve_tier_for_sender("telegram", "Anyone", {"user_id": 111}) == TIER_COMMUNICATE
+
+
+# ── Trust Label (N5) ──────────────────────────────────────────
+
+class TestResolveTrustLabel:
+    """The wrap_external_message trust attribute must come from the same
+    authenticated owner verdict as the tier decision — never from a
+    forgeable sender string."""
+
+    def test_email_owner_with_auth_pass(self):
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}):
+            label = resolve_trust_label(
+                "email", '"Owner" <owner@mail.de>', {"auth_results": "pass"}
+            )
+            assert label == "owner"
+
+    def test_email_spoofed_owner_stays_external(self):
+        # The core N5 case: correct owner address in From, but no provider
+        # "pass" verdict — a forged header must never buy the owner label.
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}):
+            for verdict in ({"auth_results": "fail"}, {"auth_results": "none"}, {}, None):
+                label = resolve_trust_label("email", '"Owner" <owner@mail.de>', verdict)
+                assert label == "external", f"verdict={verdict} must not grant owner"
+
+    def test_email_non_owner_external(self):
+        with patch.dict(os.environ, {"EMAIL_ALLOWED_SENDERS": "owner@mail.de, friend@mail.de"}):
+            label = resolve_trust_label(
+                "email", '"Friend" <friend@mail.de>', {"auth_results": "pass"}
+            )
+            assert label == "external"
+
+    def test_telegram_owner_by_user_id(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USERS": "111, 222"}):
+            assert resolve_trust_label("telegram", "OwnerName", {"user_id": 111}) == "owner"
+            assert resolve_trust_label("telegram", "OwnerName", {"user_id": 333}) == "external"
+
+    def test_internal_triggers_use_code_set_sender(self):
+        from aifred.lib.config import MESSAGE_HUB_OWNER
+        assert resolve_trust_label("scheduler", MESSAGE_HUB_OWNER, {}) == "owner"
+        assert resolve_trust_label("webhook", MESSAGE_HUB_OWNER, {}) == "owner"
+        assert resolve_trust_label("scheduler", "somebody_else", {}) == "external"
+
+    def test_channels_without_owner_concept_external(self):
+        # freeecho2 rooms and discord senders have no owner verdict — the
+        # label stays external (tools are governed by the tier, not this).
+        assert resolve_trust_label("freeecho2", "wohnzimmer", {"room": "wohnzimmer"}) == "external"
+        assert resolve_trust_label("discord", "SomeUser#1234", {}) == "external"
 
 
 # ── Rate Limiting ─────────────────────────────────────────────

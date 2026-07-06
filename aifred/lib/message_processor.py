@@ -436,9 +436,11 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
                 sender_info = f"{message.sender} (via {original_sender})"
             llm_context = f"[{channel_label} from {sender_info}]\n\n{message.text}"
 
-        # Wrap external messages in security delimiters
-        from .security import wrap_external_message
-        trust = "owner" if message.sender == MESSAGE_HUB_OWNER else "external"
+        # Wrap external messages in security delimiters. Trust label from
+        # the authenticated owner verdict (N5) — the raw sender string is
+        # forgeable (email From), the mapped name is derived from it.
+        from .security import wrap_external_message, resolve_trust_label
+        trust = resolve_trust_label(message.channel, original_sender, message.metadata)
         llm_context = wrap_external_message(
             llm_context, message.sender, message.channel, trust,
         )

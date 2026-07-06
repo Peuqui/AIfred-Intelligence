@@ -163,6 +163,26 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
     return False
 
 
+def resolve_trust_label(channel: str, sender: str, metadata: dict | None = None) -> str:
+    """Resolve the trust attribute for :func:`wrap_external_message`.
+
+    Returns "owner" or "external". This is an LLM-visible signal only —
+    tool permissions are enforced by the tier (resolve_tier_for_sender),
+    never by this label. It uses the SAME owner verdict as the tier
+    decision (_is_owner: telegram user-id, email SPF/DKIM/DMARC per A9),
+    so a forged From header cannot buy the "owner" label.
+
+    scheduler/webhook are internal triggers: their sender is set by our
+    own code (webhook behind require_service_token), there is no channel
+    identity to verify — the plain owner-name check is authoritative there.
+    """
+    metadata = metadata or {}
+    if channel in ("scheduler", "webhook"):
+        from .config import MESSAGE_HUB_OWNER
+        return "owner" if sender == MESSAGE_HUB_OWNER else "external"
+    return "owner" if _is_owner(channel, sender, metadata) else "external"
+
+
 # ============================================================
 # TIER FILTERING
 # ============================================================
