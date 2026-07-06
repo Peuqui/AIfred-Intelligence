@@ -222,8 +222,13 @@ class TelegramChannel(BaseChannel):
         try:
             await app.initialize()
             await app.start()
-            await app.updater.start_polling(drop_pending_updates=True)
-            _log("Telegram Plugin: bot started, polling for messages")
+            # TD9: catch up on messages received while AIfred was down —
+            # the typical downtime here is a short dev/deploy restart, and a
+            # silently dropped message is worse than a late answer. Telegram
+            # buffers pending updates for max 24 h, and the sender allowlist
+            # (TD8) caps who can queue anything at all.
+            await app.updater.start_polling(drop_pending_updates=False)
+            _log("Telegram Plugin: bot started, polling for messages (catching up on pending updates)")
 
             # Keep alive until cancelled
             while True:
@@ -401,14 +406,21 @@ def _is_user_allowed(user_id: int) -> bool:
     """Check if a Telegram user ID is in the whitelist.
 
     Empty whitelist = nobody allowed (safe default).
-    "*" = everyone allowed.
+    TD8: the "*" wildcard is NOT supported (anymore) — a world-open bot
+    lets anyone burn GPU inference. Explicit user ids only; the id of a
+    blocked sender shows up in the log, so onboarding someone is
+    "let them message the bot once, copy the id from the log".
     """
     whitelist_raw = broker.get("telegram", "allowed_users").strip()
 
     if not whitelist_raw:
         return False
     if whitelist_raw == "*":
-        return True
+        log_message(
+            "Telegram Plugin: '*' wildcard in allowed_users is no longer "
+            "supported (TD8) — list explicit user ids. Blocking everyone."
+        )
+        return False
 
     allowed_ids = set()
     for entry in whitelist_raw.split(","):

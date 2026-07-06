@@ -41,14 +41,21 @@ def _is_discord_user_allowed(user_id: int) -> bool:
     """Check a Discord user ID against the allowlist (same model as Telegram).
 
     Empty allowlist = nobody (safe default — Discord had NO sender filter before,
-    so DMs let any user drive the agent). "*" = everyone. Otherwise numeric IDs.
+    so DMs let any user drive the agent). TD8: the "*" wildcard is NOT
+    supported (anymore) — same decision as Telegram; a world-open bot lets
+    anyone on a shared server burn GPU inference. Explicit numeric IDs only;
+    blocked senders' ids appear in the log for easy onboarding.
     """
     from ....lib.credential_broker import broker
     raw = broker.get("discord", "allowed_users").strip()
     if not raw:
         return False
     if raw == "*":
-        return True
+        log_message(
+            "Discord Plugin: '*' wildcard in allowed_users is no longer "
+            "supported (TD8) — list explicit user ids. Blocking everyone."
+        )
+        return False
     return any(p.strip().isdigit() and int(p.strip()) == user_id for p in raw.split(","))
 
 
@@ -197,7 +204,7 @@ class DiscordChannel(BaseChannel):
             # Sender allowlist FIRST — applies to DMs and guild channels alike.
             # Without it (the previous behaviour) any user who could DM the bot
             # drove the full pipeline at COMMUNICATE tier. Fail-closed: empty
-            # allowlist = nobody (configure DISCORD_ALLOWED_USERS, or "*").
+            # allowlist = nobody; explicit ids only (no "*" wildcard, TD8).
             if not _is_discord_user_allowed(message.author.id):
                 _log(f"Discord Plugin: blocked message from user {message.author.id} (not in allowlist)")
                 return
