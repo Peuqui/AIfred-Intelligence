@@ -3,6 +3,14 @@
     "de": "WebSocket Port",
     "en": "WebSocket Port"
   },
+  "freeecho2_cred_auth_token": {
+    "de": "Auth-Token (leer = gespeichertes behalten)",
+    "en": "Auth token (empty = keep stored)"
+  },
+  "freeecho2_cred_auth_required": {
+    "de": "Authentifizierung (Off = offener Server!)",
+    "en": "Authentication (Off = open server!)"
+  },
   "freeecho2_cred_tts_engine": {
     "de": "TTS Engine",
     "en": "TTS Engine"
