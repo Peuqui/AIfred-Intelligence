@@ -66,7 +66,9 @@ class TestConcurrentSessionWrites:
         session = session_storage.load_session(sid)
         expected = self.N_THREADS * self.N_ITER
         assert len(session["data"]["chat_history"]) == expected
-        assert len(session["data"]["llm_history"]) == expected
+        # M3: save_user_to_session writes the CHAT history only — the
+        # llm_history entry is appended (wrapped) via _append_response.
+        assert "llm_history" not in session["data"]
 
     def test_chat_and_debug_writers_do_not_clobber_each_other(self, session_dir):
         """Hub response appends and debug-bus flushes hit the same file:
@@ -80,7 +82,10 @@ class TestConcurrentSessionWrites:
 
         def chat_worker(worker_id: int):
             for i in range(self.N_ITER):
-                _append_response(sid, f"response w{worker_id}-{i}")
+                _append_response(
+                    sid, f"response w{worker_id}-{i}",
+                    user_llm_text=f"<external_message>q w{worker_id}-{i}</external_message>",
+                )
 
         def debug_worker(worker_id: int):
             for i in range(self.N_ITER):
@@ -94,6 +99,8 @@ class TestConcurrentSessionWrites:
         session = session_storage.load_session(sid)
         assert len(session["data"]["chat_history"]) == 2 * self.N_ITER
         assert len(session["data"]["debug_messages"]) == 2 * self.N_ITER
+        # user + assistant pair per _append_response call
+        assert len(session["data"]["llm_history"]) == 2 * 2 * self.N_ITER
 
     def test_rmw_lock_is_reentrant(self, session_dir):
         """The multi-step writers hold the lock and nest into the locked

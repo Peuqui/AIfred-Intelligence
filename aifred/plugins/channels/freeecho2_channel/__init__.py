@@ -1984,12 +1984,19 @@ class FreeEchoChannel(BaseChannel):
     # ── Context ───────────────────────────────────────────────
 
     def build_context(self, message: "InboundMessage") -> str:
-        """Format message for LLM context."""
-        room = message.metadata.get("room", "unknown")
-        return (
-            f"Sprachnachricht von FreeEcho.2 Gerät im Raum '{room}'. "
-            f"Der User hat gesprochen und die Sprache wurde per STT transkribiert. "
-            f"Antworte kurz und prägnant — die Antwort wird per TTS vorgelesen."
+        """Format message for LLM context (preamble + transcribed text).
+
+        message.text MUST be part of the context: since M3 the llm_history
+        entry is exactly this string — there is no separate raw copy of the
+        question in the prompt anymore (the old missing-{text} version only
+        worked because the pre-M3 duplication smuggled the question in via
+        the raw history entry).
+        """
+        from ....lib.prompt_loader import load_prompt
+        return load_prompt(
+            "shared/channel_freeecho2",
+            room=message.metadata.get("room", "unknown"),
+            text=message.text,
         )
 
 

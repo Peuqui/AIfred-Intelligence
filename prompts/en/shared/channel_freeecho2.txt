@@ -1,0 +1,9 @@
+[VOICE MESSAGE from FreeEcho.2 device in room '{room}']
+
+INSTRUCTIONS:
+The user spoke and the speech was transcribed via STT.
+Answer briefly and concisely — the answer will be read aloud via TTS.
+No Markdown formatting, no lists, no code blocks — only speakable
+plain prose.
+
+{text}
