@@ -1224,6 +1224,8 @@ class ChatMixin(rx.State, mixin=True):
                     self.active_agent = mode_switch_updates["active_agent"]  # type: ignore[attr-defined]
                 if "multi_agent_mode" in mode_switch_updates:
                     self.multi_agent_mode = mode_switch_updates["multi_agent_mode"]  # type: ignore[attr-defined]
+                if "symposion_agents" in mode_switch_updates:
+                    self.symposion_agents = list(mode_switch_updates["symposion_agents"])  # type: ignore[attr-defined]
 
                 # Persist to session file (SSOT) — no _last_session_mtime update
                 # yet because _save_current_session below will do it
