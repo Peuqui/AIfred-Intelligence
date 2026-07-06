@@ -72,18 +72,21 @@ def debug(msg: str) -> None:
 
 def _flush_to_session(session_id: str, messages: list[str]) -> None:
     """Write buffered debug messages to the session file."""
-    from .session_storage import load_session, update_chat_data
+    from .session_storage import load_session, update_chat_data, session_rmw_lock
     from .config import MESSAGE_HUB_OWNER
 
-    session = load_session(session_id)
-    data = session.get("data", {}) if session else {}
-    existing = data.get("debug_messages", [])
-    existing.extend(messages)
+    # M4: load→append→save as ONE unit — debug flushes run concurrently
+    # with hub/browser chat writes on the same file (see session_rmw_lock).
+    with session_rmw_lock:
+        session = load_session(session_id)
+        data = session.get("data", {}) if session else {}
+        existing = data.get("debug_messages", [])
+        existing.extend(messages)
 
-    # Browser detects via session file mtime-watch (SSOT)
-    update_chat_data(
-        session_id=session_id,
-        chat_history=data.get("chat_history", []),
-        debug_messages=existing,
-        owner=MESSAGE_HUB_OWNER,
-    )
+        # Browser detects via session file mtime-watch (SSOT)
+        update_chat_data(
+            session_id=session_id,
+            chat_history=data.get("chat_history", []),
+            debug_messages=existing,
+            owner=MESSAGE_HUB_OWNER,
+        )

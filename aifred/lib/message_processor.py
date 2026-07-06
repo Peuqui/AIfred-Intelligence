@@ -667,24 +667,27 @@ def save_user_to_session(session_id: str, message: InboundMessage) -> None:
     Called by process_inbound (normal path) or directly by channels
     that need early browser flush (FreeEcho.2 after STT).
     """
-    from .session_storage import load_session
+    from .session_storage import load_session, session_rmw_lock
 
-    session = load_session(session_id)
-    data = session.get("data", {}) if session else {}
-    existing_chat = data.get("chat_history", [])
-    existing_llm = data.get("llm_history", [])
+    # M4: load→append→save as ONE unit — the browser thread writes the
+    # same file (see session_rmw_lock in session_storage).
+    with session_rmw_lock:
+        session = load_session(session_id)
+        data = session.get("data", {}) if session else {}
+        existing_chat = data.get("chat_history", [])
+        existing_llm = data.get("llm_history", [])
 
-    existing_chat.append({"role": "user", "content": build_user_chat_content(message)})
-    existing_llm.append({"role": "user", "content": message.text})
+        existing_chat.append({"role": "user", "content": build_user_chat_content(message)})
+        existing_llm.append({"role": "user", "content": message.text})
 
-    # Browser detects via session file mtime-watch (SSOT)
-    update_chat_data(
-        session_id=session_id,
-        chat_history=existing_chat,
-        llm_history=existing_llm,
-        debug_messages=data.get("debug_messages", []),
-        owner=MESSAGE_HUB_OWNER,
-    )
+        # Browser detects via session file mtime-watch (SSOT)
+        update_chat_data(
+            session_id=session_id,
+            chat_history=existing_chat,
+            llm_history=existing_llm,
+            debug_messages=data.get("debug_messages", []),
+            owner=MESSAGE_HUB_OWNER,
+        )
 
 
 def _append_response(
@@ -698,13 +701,8 @@ def _append_response(
     If metadata is provided, appends a performance footer (TTFT, tok/s, etc.)
     to the chat content — same format as browser-path add_agent_panel.
     """
-    from .session_storage import load_session
+    from .session_storage import load_session, session_rmw_lock
     from .formatting import format_performance_footer, build_assistant_chat_entry
-
-    session = load_session(session_id)
-    data = session.get("data", {}) if session else {}
-    existing_chat = data.get("chat_history", [])
-    existing_llm = data.get("llm_history", [])
 
     # Build metadata footer (shared with browser-path add_agent_panel)
     display_content = response_text
@@ -713,17 +711,24 @@ def _append_response(
         if meta_footer:
             display_content = f"{response_text}\n\n{meta_footer}"
 
-    # SSOT: same dict shape as browser-path add_agent_panel
-    existing_chat.append(build_assistant_chat_entry(display_content, agent, metadata))
-    existing_llm.append({"role": "assistant", "content": response_text})
+    # M4: load→append→save as ONE unit (see session_rmw_lock).
+    with session_rmw_lock:
+        session = load_session(session_id)
+        data = session.get("data", {}) if session else {}
+        existing_chat = data.get("chat_history", [])
+        existing_llm = data.get("llm_history", [])
 
-    # Browser detects via session file mtime-watch (SSOT)
-    update_chat_data(
-        session_id=session_id,
-        chat_history=existing_chat,
-        llm_history=existing_llm,
-        owner=MESSAGE_HUB_OWNER,
-    )
+        # SSOT: same dict shape as browser-path add_agent_panel
+        existing_chat.append(build_assistant_chat_entry(display_content, agent, metadata))
+        existing_llm.append({"role": "assistant", "content": response_text})
+
+        # Browser detects via session file mtime-watch (SSOT)
+        update_chat_data(
+            session_id=session_id,
+            chat_history=existing_chat,
+            llm_history=existing_llm,
+            owner=MESSAGE_HUB_OWNER,
+        )
 
 
 
@@ -944,10 +949,13 @@ def record_autonomous_turn(
         if url:
             content = f"{text}\n\n![{title}]({url})"
 
-    session = load_session(session_id)
-    chat_history = list((session or {}).get("data", {}).get("chat_history", []))
-    chat_history.append({"role": "assistant", "content": content})
-    update_chat_data(session_id, chat_history, owner=owner)
+    # M4: load→append→save as ONE unit (see session_rmw_lock).
+    from .session_storage import session_rmw_lock
+    with session_rmw_lock:
+        session = load_session(session_id)
+        chat_history = list((session or {}).get("data", {}).get("chat_history", []))
+        chat_history.append({"role": "assistant", "content": content})
+        update_chat_data(session_id, chat_history, owner=owner)
 
     write_hub_notification(session_id, title, channel, "system", status="done")
     return session_id
