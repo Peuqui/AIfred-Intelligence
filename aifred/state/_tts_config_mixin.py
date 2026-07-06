@@ -642,16 +642,14 @@ class TTSConfigMixin(rx.State, mixin=True):
             load_agents_raw,
         )
 
-        # System-Agents (role="system", e.g. calibration) and the vision
-        # agent never appear in chat → keep them out of TTS settings so
-        # they don't show up in restore/save logs and the agent-editor
-        # voice list.
+        # System-Agents (role="system", e.g. calibration and vision) never
+        # appear in chat → keep them out of TTS settings so they don't show
+        # up in restore/save logs and the agent-editor voice list.
         agents_raw = load_agents_raw()
         excluded = {
             agent_id for agent_id, cfg in agents_raw.items()
             if cfg.get("role") == "system"
         }
-        excluded.add("vision")
 
         registered = set(get_agent_ids()) - excluded
         current = set(self.tts_agent_voices.keys())

@@ -234,7 +234,7 @@
       "display_name": "Vision",
       "emoji": "📷",
       "description": "Vision Language Model fuer Bildanalyse",
-      "role": "main",
+      "role": "system",
       "prompts": {
         "identity": "vision/identity.txt",
         "personality": "aifred/personality.txt",
