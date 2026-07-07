@@ -958,7 +958,14 @@ def _max_ctx_where_all_layers_fit(
             total_layers=total_layers, model_size_mb=model_size_mb,
             target_context=mid,
         )
-        if trial.reached_target:
+        # reached_target alone is NOT enough: the overshoot fallback in
+        # fill_fastest_first can cram the last 1-2 layers onto an already
+        # tight GPU — all layers "placed", but the split's real context
+        # ceiling collapses (e.g. 3072 at a probed mid of 131k).  Without
+        # the ceiling check the search keeps walking UP on such degenerate
+        # trials and returns one of them as "best", failing models that
+        # fit fine at lower contexts.
+        if trial.reached_target and trial.context >= mid:
             best = trial
             lo = mid + precision
         else:
