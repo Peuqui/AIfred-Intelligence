@@ -72,6 +72,54 @@ def find_ollama_equivalent(
     return None
 
 
+def vision_swap_status(
+    vision_model: str,
+    backend_type: str,
+    *,
+    host: str | None = None,
+    ollama_names: list[str] | None = None,
+) -> bool:
+    """True wenn eine Bildanfrage mit diesem Vision-Modell OHNE Modell-Swap läuft.
+
+    „No Swap" heißt: der Vision-Call geht über den Ollama-Side-Channel
+    (parallel, das llama-swap-Chat-Modell bleibt geladen) statt das
+    Chat-Modell für die Dauer der Bildanalyse aus dem VRAM zu verdrängen.
+    Das ist genau dann der Fall, wenn das gewählte Modell über
+    :func:`maybe_route_to_ollama` umgeleitet würde — also wenn der aktive
+    Backend routbar ist (llama-swap/vLLM/TabbyAPI) UND ein Ollama-Pendant
+    existiert. Ist der Backend bereits Ollama, läuft es ohnehin ohne Swap.
+
+    ``ollama_names`` erlaubt dem Caller, die (teure) Ollama-VLM-Liste
+    einmal zu holen und für viele Modelle wiederzuverwenden — dann fällt
+    kein API-Call pro Modell an.
+    """
+    if backend_type == "ollama":
+        return True
+    if backend_type not in _ROUTABLE_BACKENDS:
+        return False
+    if ollama_names is not None:
+        target = _normalize(vision_model)
+        return any(_normalize(n) == target for n in ollama_names)
+    return find_ollama_equivalent(vision_model, host=host) is not None
+
+
+def vlm_key_for_model(name: str) -> str:
+    """Kalibrier-Key (z.B. ``qwen3vl8b``) für ein Vision-Modell, oder ``""``.
+
+    Matcht ``name`` (jede Backend-Konvention) namens-normalisiert gegen die
+    ``VLM_CALIBRATION_CHOICES``-Tabelle. Der Key benennt das llama-swap-
+    Profil ``<base>-vlm-<key>``, das die VRAM-Reserve für den parallelen
+    Ollama-Side-Channel hält — nur wenn dieses Profil kalibriert ist, läuft
+    eine Bildanfrage wirklich ohne Chat-Modell-Swap.
+    """
+    from .config import VLM_CALIBRATION_CHOICES
+    target = _normalize(name)
+    for choice in VLM_CALIBRATION_CHOICES:
+        if _normalize(choice.get("model_id", "")) == target:
+            return choice.get("key", "")
+    return ""
+
+
 # Local on-prem backends where re-routing to Ollama makes sense. Cloud-API
 # is excluded — the user explicitly chose a cloud provider and we don't
 # silently fall back to a local Ollama model with the same name.
