@@ -63,6 +63,13 @@ class BackendMixin(rx.State, mixin=True):
     available_models_dict: Dict[str, str] = {}
     vision_models_cache: List[str] = []
     available_vision_models_list: List[str] = []
+    # Fertig gerenderte Vision-Modell-Zeilen fürs Dropdown: je ein Dict mit
+    # ``name`` (Display-Name = Select-value), ``badge`` (⚡ No Swap / 🔄 Swap
+    # / "") und ``color``. "No Swap" heißt: Bildanfrage läuft über den
+    # Ollama-Side-Channel parallel, das Chat-Modell bleibt geladen; "Swap":
+    # llama-swap verdrängt es. Einmal beim Discovery bestimmt (Ollama-VLM-
+    # Liste wird dort ohnehin geholt) — kein API-Call im Render.
+    available_vision_models_rich: List[Dict[str, str]] = []
 
     automatik_model: str = ""
     automatik_model_id: str = ""
@@ -370,6 +377,7 @@ class BackendMixin(rx.State, mixin=True):
         if include_vision:
             self.vision_models_cache = []
             self.available_vision_models_list = []
+            self.available_vision_models_rich = []
 
     # ================================================================
     # ON_LOAD
@@ -867,6 +875,7 @@ class BackendMixin(rx.State, mixin=True):
             self.available_models_dict = _global_backend_state.get("available_models_dict", {})
             self.vision_models_cache = _global_backend_state.get("vision_models_cache", [])
             self.available_vision_models_list = _global_backend_state.get("available_vision_models_list", [])
+            self.available_vision_models_rich = _global_backend_state.get("available_vision_models_rich", [])
 
             self.available_backends = _global_backend_state.get("available_backends", self.available_backends)
             self.available_backends_list = _global_backend_state.get("available_backends_list", self.available_backends_list)
@@ -1206,6 +1215,61 @@ class BackendMixin(rx.State, mixin=True):
     # VISION MODEL DETECTION
     # ================================================================
 
+    def _build_vision_rich(
+        self, vision_model_ids: List[str]
+    ) -> List[Dict[str, str]]:
+        """Dropdown-Zeilen (Name + Swap-Badge + Farbe) für die Vision-Modelle.
+
+        Die Ollama-VLM-Liste wird EINmal geholt und für alle Modelle
+        wiederverwendet — kein API-Call pro Modell. ``⚡ No Swap`` (grün):
+        läuft über den Ollama-Side-Channel parallel; ``🔄 Swap`` (amber):
+        llama-swap verdrängt das Chat-Modell für die Bildanalyse.
+        """
+        from ..lib.vision_routing import (
+            vision_swap_status, vlm_key_for_model,
+        )
+        from ..lib.ollama_models import list_ollama_vlm_models
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.calibration.llamaswap_io import parse_llamaswap_config
+        try:
+            oll_names = [m.name for m in list_ollama_vlm_models()]
+        except (RuntimeError, OSError):
+            oll_names = []
+        # llama-swap-Profile EINmal laden — ein kalibriertes -vlm-Profil
+        # landet nur bei Erfolg in der config (FAIL schreibt nichts).
+        try:
+            swap_models = set(parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).keys())
+        except (OSError, ValueError):
+            swap_models = set()
+        aifred_base = self.aifred_model_id or ""
+
+        rows: List[Dict[str, str]] = []
+        for mid in vision_model_ids:
+            if mid not in self.available_models_dict:
+                continue
+            display = self.available_models_dict.get(mid, mid)
+            # "No Swap" braucht BEIDES: (1) das Modell läuft über den
+            # Ollama-Side-Channel und (2) das -vlm-Profil für das aktuelle
+            # Chat-LLM ist kalibriert (sonst fällt AIfred aufs Base-Profil
+            # ohne V100-Reserve zurück → der Side-Channel findet keinen
+            # Platz → doch ein Swap). Fehlt (2) — z.B. Vigilantia 8B nicht
+            # kalibriert — zeigen wir ehrlich 🔄 Swap.
+            has_ollama = vision_swap_status(
+                mid, self.backend_id, ollama_names=oll_names
+            )
+            key = vlm_key_for_model(mid)
+            profile_ok = bool(key) and (
+                f"{aifred_base}-vlm-{key}" in swap_models
+                or f"{aifred_base}-vlm-{key}-speed" in swap_models
+            )
+            no_swap = has_ollama and profile_ok
+            rows.append({
+                "name": display,
+                "badge": "⚡ No Swap" if no_swap else "🔄 Swap",
+                "color": "green" if no_swap else "orange",
+            })
+        return rows
+
     async def _detect_vision_models(self) -> None:
         """Detect vision-capable models using backend-specific metadata."""
         from . import _global_backend_state
@@ -1233,6 +1297,15 @@ class BackendMixin(rx.State, mixin=True):
             if mid in self.available_models_dict
         ]
         _global_backend_state["available_vision_models_list"] = self.available_vision_models_list
+
+        # Swap-Status pro Modell einmal bestimmen (Ollama-VLM-Liste nur EINmal
+        # holen und für alle Modelle wiederverwenden — kein Call pro Modell).
+        self.available_vision_models_rich = self._build_vision_rich(
+            vision_model_ids
+        )
+        _global_backend_state["available_vision_models_rich"] = (
+            self.available_vision_models_rich
+        )
 
         self.add_debug(f"✅ Found {len(vision_model_ids)} vision-capable models")  # type: ignore[attr-defined, has-type]
 
@@ -1587,6 +1660,10 @@ class BackendMixin(rx.State, mixin=True):
                     vl_models = [m for m in models if is_vision_model_sync(m)]
                     self.vision_models_cache = vl_models
                     self.available_vision_models_list = vl_models
+                    # Cloud-API kennt kein lokales VRAM-Swap — kein Badge.
+                    self.available_vision_models_rich = [
+                        {"name": m, "badge": "", "color": ""} for m in vl_models
+                    ]
                     if vl_models:
                         self.add_debug(f"📷 {len(vl_models)} vision models")  # type: ignore[attr-defined, has-type]
 
@@ -1627,6 +1704,18 @@ class BackendMixin(rx.State, mixin=True):
         self.aifred_model = model
         self.aifred_model_id = self._resolve_model_id(model)
         self.add_debug(f"📝 AIfred-LLM: {model}")  # type: ignore[attr-defined, has-type]
+
+        # Die Vision-Swap-Badges hängen vom Chat-LLM ab (welche -vlm-Profile
+        # kalibriert sind) → nach dem LLM-Wechsel neu berechnen, sonst zeigt
+        # das Dropdown einen stale Swap-Status aus dem alten Chat-Modell.
+        if self.vision_models_cache:
+            from . import _global_backend_state
+            self.available_vision_models_rich = self._build_vision_rich(
+                self.vision_models_cache
+            )
+            _global_backend_state["available_vision_models_rich"] = (
+                self.available_vision_models_rich
+            )
 
         # Load model parameters from cache
         self._load_agent_model_params("aifred", self.aifred_model_id)

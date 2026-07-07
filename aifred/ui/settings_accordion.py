@@ -1322,15 +1322,43 @@ def settings_accordion() -> rx.Component:
                                 AIState.backend_switching,
                                 AIState.available_vision_models_list,  # Vision models list (state var, not computed)
                             ),
-                            # DESKTOP: Radix UI Select
-                            rx.select(
-                                AIState.available_vision_models_list,  # State var instead of computed property
+                            # DESKTOP: Radix UI Select mit Swap-Badge pro Zeile.
+                            # Custom-Items (value = reiner Name, Anzeige =
+                            # Name + gefärbtes ⚡ No Swap / 🔄 Swap-Badge), damit
+                            # der Auswahl-Wert sauber bleibt und trotzdem sichtbar
+                            # ist, ob eine Bildanfrage das Chat-Modell swappt.
+                            rx.select.root(
+                                rx.select.trigger(
+                                    placeholder="Select vision model...",
+                                    disabled=AIState.backend_switching,
+                                ),
+                                rx.select.content(
+                                    rx.foreach(
+                                        AIState.available_vision_models_rich,
+                                        lambda row: rx.select.item(
+                                            rx.hstack(
+                                                rx.text(row["name"]),
+                                                rx.cond(
+                                                    row["badge"] != "",
+                                                    rx.text(
+                                                        row["badge"],
+                                                        color=row["color"],
+                                                        font_size="11px",
+                                                        weight="medium",
+                                                    ),
+                                                ),
+                                                spacing="2",
+                                                align="center",
+                                            ),
+                                            value=row["name"],
+                                        ),
+                                    ),
+                                ),
                                 value=AIState.vision_model,
                                 on_change=AIState.set_vision_model,
                                 size="2",
-                                position="popper",  # Better mobile positioning (adapts to viewport)
-                                disabled=AIState.backend_switching,  # Disable during backend switch
-                                placeholder="Select vision model..."
+                                position="popper",
+                                disabled=AIState.backend_switching,
                             ),
                         ),
                         spacing="3",
