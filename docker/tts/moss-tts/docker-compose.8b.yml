@@ -44,7 +44,7 @@ services:
       # ============================================================
       # Auto-Shutdown
       # ============================================================
-      - MOSS_KEEP_ALIVE=${MOSS_KEEP_ALIVE:-15}
+      - MOSS_KEEP_ALIVE=${MOSS_KEEP_ALIVE:-45}
     volumes:
       # Separate cache for 8B model (~17GB download)
       - moss_models_8b:/root/.cache/huggingface

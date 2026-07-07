@@ -44,7 +44,7 @@ services:
       # ============================================================
       # Auto-Shutdown
       # ============================================================
-      - MOSS_KEEP_ALIVE=${MOSS_KEEP_ALIVE:-15}
+      - MOSS_KEEP_ALIVE=${MOSS_KEEP_ALIVE:-45}
     volumes:
       # Cache HuggingFace models persistently
       - moss_models_p40:/root/.cache/huggingface

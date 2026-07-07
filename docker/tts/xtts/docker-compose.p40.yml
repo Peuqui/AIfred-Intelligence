@@ -36,7 +36,7 @@ services:
       # ============================================================
       # Auto-Shutdown
       # ============================================================
-      - XTTS_KEEP_ALIVE=${XTTS_KEEP_ALIVE:-15}
+      - XTTS_KEEP_ALIVE=${XTTS_KEEP_ALIVE:-45}
     volumes:
       - xtts_models:/root/.local/share/tts
       - xtts_voices:/app/custom_voices
