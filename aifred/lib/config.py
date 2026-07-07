@@ -994,22 +994,14 @@ MAX_TOOL_ROUNDS = 10
 RESEARCH_QUICK_URLS = 3
 RESEARCH_DEEP_URLS = 7
 
-# Extra VRAM reserve for vision-language models (MB)
-# VL models (--mmproj) need a CLIP compute buffer that scales with image token count.
-# Measured: Qwen3-VL with 4096 max image tokens needs ~682 MiB compute buffer on the
-# GPU holding the CLIP model. Without this reserve, large camera photos (3000+ tokens)
-# cause cudaMalloc OOM → GGML_ASSERT crash during ggml_gallocr reallocation.
-LLAMACPP_VISION_VRAM_RESERVE = 768  # MB (~682 measured + margin)
-
-# Preprocessing-Marge, die bei der Kalibrierung auf die ECHTE
-# mmproj-Dateigröße aufgeschlagen wird (Bild-Preprocessing-Buffer neben
-# den Projektor-Gewichten). Die Vision-Reserve ist dann
-# max(LLAMACPP_VISION_VRAM_RESERVE, mmproj_size + diese Marge) —
-# fit-params kennt --mmproj nicht, daher läuft der Projektor komplett
-# über diesen Aufschlag statt über die Tool-Prognose.
-LLAMACPP_MMPROJ_PREPROCESS_MARGIN_MB = 256
-
-# Preprocessing-Marge OB
+# Referenz-Auflösung für die Vision-Probe der Kalibrierung (Breite, Höhe).
+# Vision-Modelle (--mmproj) allozieren ihren CLIP-Compute-Buffer erst bei
+# der ersten Bildanalyse, skalierend mit der Bild-Token-Anzahl. Statt
+# eines pauschalen VRAM-Zuschlags (früher LLAMACPP_VISION_VRAM_RESERVE)
+# schickt die Verify-Probe ein synthetisches Testbild in dieser Auflösung
+# — der Vision-Bedarf ist damit real gemessen (Probe-first, 2026-07-07).
+# 4K = Worst Case der Kamera-Frames (Vigilantia/Reolink).
+LLAMACPP_VISION_PROBE_RESOLUTION = (3840, 2160)
 
 # Extra headroom added on top of the stress-prewarm-measured VLM peak
 # before subtracting from the LLM's VRAM budget. Covers Ollama
