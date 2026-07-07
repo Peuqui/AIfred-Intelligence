@@ -972,6 +972,50 @@ async def _project_cell(
     ), "ok"
 
 
+async def _vram_model_for_fixed_split(
+    model: Model,
+    gpus: list[GPU],
+    full_cmd: str,
+    kv: str,
+    split: tuple[float, ...],
+):
+    """fit-params-Kostenmodell für einen KONKRETEN, bereits festgelegten Split.
+
+    Anders als ``_project_cell`` (das den Split per fill_fastest_first neu
+    optimiert und bei zu großem Modell aufgibt) misst dies GENAU den
+    übergebenen Split — gebraucht von der proportionalen VLM-Ableitung,
+    deren Split fest steht (17:18:8:9:9) und deren einzige freie Variable
+    der Kontext ist. Mit dem Modell findet ``max_context_for_budget`` den
+    passenden ctx analytisch, statt sich über Minuten-Load-Proben blind
+    runterzutasten. Gibt ``None`` bei fit-params-Fehler zurück (Caller
+    probt dann konservativ bei base_ctx mit ctx-shrink)."""
+    cmd = proj.adjust_cmd_for_projection(full_cmd, split, kv)
+    fit_env = {"CUDA_VISIBLE_DEVICES": cuda_visible_devices(gpus)}
+    gpu_total_mb = tuple(g.total_mb for g in gpus)
+    ctx_low = min(CALIBRATION_MIN_CONTEXT, model.native_context // 2) or 2048
+    try:
+        low = await proj.project(
+            cmd, model.gguf_path, ctx_low, ngl=99, n_gpus=len(gpus),
+            env_override=fit_env, gpu_total_mb=gpu_total_mb,
+        )
+        high = await proj.project(
+            cmd, model.gguf_path, model.native_context, ngl=99,
+            n_gpus=len(gpus), env_override=fit_env, gpu_total_mb=gpu_total_mb,
+        )
+    except proj.FitParamsError as e:
+        logger.warning("VLM fixed-split fit-params failed: %s", e)
+        return None
+    try:
+        return proj.fit_linear_model(
+            low=low, high=high,
+            n_gpus=len([x for x in split if x > 0]),
+            kv_quant=kv, ngl=99, tensor_split=split,
+        )
+    except ValueError as e:
+        logger.warning("VLM fixed-split model fit failed: %s", e)
+        return None
+
+
 def _max_ctx_where_all_layers_fit(
     vmodel,
     budget: Budget,
@@ -1076,6 +1120,7 @@ async def _verify_and_refine(
     status_prefix: str,
     lock_active_gpus: bool = False,
     ctx_ceiling: Optional[int] = None,
+    lock_split: bool = False,
 ):
     """Verify ``candidate``; refine split from measured VRAM if needed.
 
@@ -1117,7 +1162,14 @@ async def _verify_and_refine(
         # attempts at native_ctx have been exhausted. Rationale: we want
         # max ctx with the fewest GPUs — redistributing layers preserves
         # both, while shrinking ctx loses the primary goal.
-        max_shifts = 15
+        #
+        # lock_split: the VLM variant's split is already proportionally
+        # derived and optimal (17:18:8:9:9) — a shift would only move a
+        # layer ONTO the reserve-loaded VLM GPU and make things worse
+        # (observed 2026-07-07: 17:18:8:9:9 → 17:17:9:9:9 degradation).
+        # Skip shifts entirely and go straight to the ctx search; the
+        # split stays fixed, only the context is tuned down.
+        max_shifts = 0 if lock_split else 15
         shift_attempt = 0
         while not r.fits and shift_attempt < max_shifts:
             # Smart shift if we have measurement data (server lived through
@@ -1245,7 +1297,7 @@ async def _verify_and_refine(
         # search to find the highest fitting ctx; base mode does at most
         # 5 conservative 10%-shrinks (base usually fits via shifts; an
         # aggressive shrink would lose context unnecessarily).
-        if lock_active_gpus:
+        if lock_active_gpus or lock_split:
             # Math-guided binary search down. Math (~ms, free) picks the
             # smartest ctx to probe; bias tracking keeps math honest by
             # adding the observed math-vs-real gap as an extra safety
@@ -2733,40 +2785,62 @@ async def calibrate_tts_variant_from_base(
                 # Ableitung, siehe Kommentar oben). Liefert die Projektion
                 # nichts, läuft der Verify wie bisher ohne Modell — das
                 # wird geloggt, nicht verschluckt.
-                _model_cell, _model_reason = await _project_cell(
-                    model, gpus, budget, full_cmd, base_kv, _active_adj,
-                )
                 _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
-                if _model_cell is None and _REASON_TOO_BIG in _model_reason:
-                    # ``_project_cell`` uses fill_fastest_first, which stacks
-                    # fastest-GPU-first and is pessimistic vs. the
-                    # proportionally derived split — it can report "model too
-                    # big" for a split that actually fits once the KV is
-                    # right-sized. Distinguish the two cases by the derived
-                    # split's RAW WEIGHTS: only genuinely infeasible when even
-                    # the weights don't fit (the segfault-load case). If the
-                    # weights fit and only the inherited base_ctx's KV
-                    # overflows, PROBE — the ctx-shrink finds the fitting ctx
-                    # and the upward push maximizes back to the safety floor.
-                    _wfit, _wreason = _weights_fit(
-                        tuple(_adj), gpus, budget, model,
+                # Der proportional abgeleitete Split (_adj) steht fest und
+                # ist optimal — er darf NICHT durch den Shift-Loop
+                # verschlechtert werden (der würde einen Layer auf die
+                # reserve-belastete VLM-GPU schieben). Nur der Kontext ist
+                # die freie Variable. Zwei Gates:
+                #   1. Gewichts-Check: passt schon das reine Gewicht nicht,
+                #      ist der Split physikalisch unmöglich → skip.
+                #   2. Kostenmodell für GENAU diesen Split (fit-params) →
+                #      analytischer max ctx. Startet die Probe realistisch
+                #      (z.B. 171k) statt an der geerbten Base (256k), wo der
+                #      Load-KV die Karten schon beim Start sprengt.
+                _wfit, _wreason = _weights_fit(tuple(_adj), gpus, budget, model)
+                if not _wfit:
+                    yield (
+                        f"{_side} variant infeasible ({_wreason}) — "
+                        f"skipping probes"
                     )
-                    if not _wfit:
+                    yield "__RESULT__:0:0:error"
+                    return
+                _vm = await _vram_model_for_fixed_split(
+                    model, gpus, full_cmd, base_kv, tuple(_adj),
+                )
+                _start_ctx = base_ctx
+                if _vm is not None:
+                    _gpu_total = tuple(g.total_mb for g in gpus)
+                    _baseline = tuple(
+                        _gpu_total[i] - gpus[i].free_mb for i in range(len(gpus))
+                    )
+                    _handi = tuple(
+                        budget.first_gpu_handicap if gpus[i].first_in_class else 0
+                        for i in range(len(gpus))
+                    )
+                    _fit_ctx, _pred_min = proj.max_context_for_budget(
+                        _vm, _gpu_total, _baseline, _handi,
+                        budget.safety_margin, ceiling=base_ctx,
+                    )
+                    if _fit_ctx < CALIBRATION_MIN_CONTEXT:
                         yield (
-                            f"{_side} variant infeasible ({_wreason}) — "
-                            f"skipping probes"
+                            f"{_side} variant infeasible: derived split "
+                            f"{_split_str(tuple(_adj))} max ctx {_fit_ctx} "
+                            f"< minimum — skipping probes"
                         )
                         yield "__RESULT__:0:0:error"
                         return
+                    _start_ctx = _fit_ctx
                     yield (
-                        f"{_side} cost model pessimistic ({_model_reason}), "
-                        f"but derived split {_split_str(tuple(_adj))} fits by "
-                        f"weight — probing with ctx-shrink"
+                        f"{_side} derived split {_split_str(tuple(_adj))} → "
+                        f"cost-model max ctx {format_number(_fit_ctx)} "
+                        f"(pred. {_pred_min} MB free on tightest) — probing "
+                        f"split-locked"
                     )
-                elif _model_cell is None:
+                else:
                     yield (
-                        f"  cost-model projection unavailable ({_model_reason}) "
-                        f"— refine falls back to blind shifts"
+                        f"{_side} derived split {_split_str(tuple(_adj))} — "
+                        f"no cost model, probing at base ctx with ctx-shrink"
                     )
                 _vlm_cand = Candidate(
                     mode="gpu",
@@ -2774,15 +2848,15 @@ async def calibrate_tts_variant_from_base(
                     kv_quant=base_kv,
                     ngl=99,
                     tensor_split=tuple(_adj),
-                    max_context=base_ctx,
+                    max_context=_start_ctx,
                     predicted_free_mb=_pred_free,
-                    vram_model=_model_cell.vram_model if _model_cell else None,
+                    vram_model=_vm,
                 )
                 _newly_active = [i for i in _active_adj if i not in active]
                 yield (
                     f"{_side} variant from base: active GPUs {_active_adj}"
                     + (f" (idle spill → {_newly_active})" if _newly_active else "")
-                    + f", target ctx {format_number(base_ctx)}, KV={base_kv}, "
+                    + f", start ctx {format_number(_start_ctx)}, KV={base_kv}, "
                     f"VLM ratio {_ratio:.3f} → GPU{_vlm_idx}: "
                     f"{float(base_split[_vlm_idx]):.1f}→{_new_vlm:.1f} layers"
                 )
@@ -2793,6 +2867,7 @@ async def calibrate_tts_variant_from_base(
                     probe_thinking=(known_thinking is None),
                     status_prefix=f"[vlm/{base_kv}]",
                     ctx_ceiling=base_ctx,
+                    lock_split=True,
                 ):
                     if isinstance(_item, _Done):
                         _vlm_result = _item.result
