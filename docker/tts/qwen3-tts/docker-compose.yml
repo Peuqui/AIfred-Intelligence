@@ -50,7 +50,7 @@ services:
       # ── Auto-shutdown (matches XTTS / MOSS keep-alive pattern) ───
       # After X minutes of inactivity, container exits to free VRAM.
       # 0 disables auto-shutdown. Override per-host via env if needed.
-      - QWEN3_KEEP_ALIVE=${QWEN3_KEEP_ALIVE:-30}
+      - QWEN3_KEEP_ALIVE=${QWEN3_KEEP_ALIVE:-45}
 
     volumes:
       # HuggingFace cache: persists the model + tokenizer between container restarts

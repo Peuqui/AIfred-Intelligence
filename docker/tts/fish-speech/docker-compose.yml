@@ -36,7 +36,7 @@ services:
       # ── Auto-shutdown after N minutes idle (parity with XTTS / MOSS /
       # Qwen3-TTS). aifred_idle_server.py runs the watchdog: it frees the
       # ~20 GB GPU VRAM when Fish-Speech sits unused. 0 disables it.
-      - FISH_SPEECH_KEEP_ALIVE=${FISH_SPEECH_KEEP_ALIVE:-30}
+      - FISH_SPEECH_KEEP_ALIVE=${FISH_SPEECH_KEEP_ALIVE:-45}
 
     volumes:
       # Model weights — persistent named volume so the ~8 GB download
