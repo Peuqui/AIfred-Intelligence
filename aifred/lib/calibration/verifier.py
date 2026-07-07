@@ -264,6 +264,72 @@ async def _test_inference(port: int, timeout: float = 120.0) -> bool:
         return False
 
 
+def _vision_probe_image_b64() -> str:
+    """Synthetic test image at the configured probe resolution, base64-JPEG.
+
+    A gradient (not a flat color) so the JPEG has realistic structure.
+    The CLIP compute buffer scales with image resolution, not content —
+    probing at the worst-case camera resolution allocates the same
+    buffers a real 4K Vigilantia frame would.
+    """
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    from ..config import LLAMACPP_VISION_PROBE_RESOLUTION
+
+    width, height = LLAMACPP_VISION_PROBE_RESOLUTION
+    # Small gradient upscaled to target size — pixel loops at 4K are
+    # seconds-slow in Python, and only the RESOLUTION drives the buffers.
+    small = Image.new("RGB", (64, 36))
+    for y in range(36):
+        for x in range(64):
+            small.putpixel(
+                (x, y), (x * 255 // 63, y * 255 // 35, (x * 4 + y * 7) % 256),
+            )
+    img = small.resize((width, height), Image.Resampling.BILINEAR)
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=80)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+async def _test_vision_inference(port: int, timeout: float = 300.0) -> bool:
+    """Analyze a full-resolution test image — allocates the CLIP buffers.
+
+    Vision models allocate their image-encoder compute buffers only on
+    the first image request; a text-only probe leaves that VRAM demand
+    invisible and the profile OOMs later on the first real photo. The
+    answer length is irrelevant for the peak (decode reuses existing
+    buffers), so one sentence keeps the probe fast.
+    """
+    url = f"http://localhost:{port}/v1/chat/completions"
+    payload = {
+        "model": "test",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text",
+                 "text": "Describe this image in one sentence."},
+                {"type": "image_url", "image_url": {
+                    "url": f"data:image/jpeg;base64,{_vision_probe_image_b64()}",
+                }},
+            ],
+        }],
+        "max_tokens": 48,
+        "temperature": 0.7,
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, json=payload, timeout=timeout)
+            if r.status_code != 200:
+                return False
+            msg = r.json().get("choices", [{}])[0].get("message", {})
+            return bool(msg.get("content") or msg.get("reasoning_content"))
+    except (httpx.HTTPError, ValueError, KeyError):
+        return False
+
+
 async def _probe_thinking(port: int) -> bool:
     """Ask a math question and check for reasoning_content / <think>."""
     url = f"http://localhost:{port}/v1/chat/completions"
@@ -374,7 +440,12 @@ async def verify(
 ) -> VerifyResult:
     """Run one physical test: start → inference → measure → kill.
 
-    ``fits`` is True iff every GPU kept >= ``safety_margin_mb`` free.
+    ``fits`` is True iff the server got ready, answered a real inference
+    (for --mmproj models including a 4K image analysis) and every GPU
+    kept >= ``safety_margin_mb`` free after the side-channel reserve.
+    Callers pass the plain LLAMACPP_VRAM_SAFETY_MARGIN here — the former
+    vision surcharge is replaced by the real image probe (probe-first
+    policy, 2026-07-07).
     ``health_timeout`` overrides the default health-check window — hybrid-mode
     callers should pass a large value because mlock + CPU-offload of a 100+ GB
     GGUF can take multiple minutes before the server is ready.
@@ -455,6 +526,17 @@ async def verify(
             await wait_for_vram_stable(max_wait_seconds=10.0)
             return VerifyResult(False, (), None, "OOM (inference crash)")
 
+        # Vision-Probe (probe-first, 2026-07-07): --mmproj-Modelle
+        # allozieren ihre CLIP-Buffer erst bei der ersten Bildanalyse.
+        # Eine 4K-Analyse in der Probe ersetzt den früheren pauschalen
+        # Vision-VRAM-Zuschlag — der Bedarf steckt danach real in der
+        # Messung, und ein Profil besteht nur, wenn auch Bild geht.
+        if "--mmproj" in full_cmd and not await _test_vision_inference(port):
+            _kill(process)
+            _cleanup_log(process)
+            await wait_for_vram_stable(max_wait_seconds=10.0)
+            return VerifyResult(False, (), None, "OOM (vision probe crash)")
+
         # Wait for VRAM to actually stabilise after inference — without
         # this, nvidia-smi can return mid-cleanup numbers (one GPU still
         # holding activations, another already freed). wait_for_vram_stable
@@ -476,6 +558,15 @@ async def verify(
             fits = True
             detail = "VRAM unknown"
         else:
+            # Probe-first (Entscheidung 2026-07-07): die Probe ist die
+            # Wahrheit. Der Server wurde ready UND hat echte Inferenz
+            # (bei Vision-Modellen inkl. 4K-Bildanalyse) beantwortet.
+            # ``safety_margin_mb`` ist überall nur noch die nackte
+            # Betriebsreserve (LLAMACPP_VRAM_SAFETY_MARGIN, 192 MB) —
+            # der frühere Vision-Zuschlag ist durch die Bild-Probe
+            # ersetzt. Hart bleibt zusätzlich die Side-Channel-Reserve
+            # (oben bereits abgezogen): TTS/VLM fordern diesen Platz im
+            # Betrieb physisch zurück.
             min_free = min(measured)
             fits = min_free >= safety_margin_mb
             detail = ", ".join(

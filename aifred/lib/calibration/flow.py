@@ -18,8 +18,6 @@ from ..config import (
     LLAMACPP_CALIBRATION_PORT,
     LLAMACPP_CALIBRATION_PRECISION,
     LLAMACPP_HYBRID_HEALTH_TIMEOUT,
-    LLAMACPP_MMPROJ_PREPROCESS_MARGIN_MB,
-    LLAMACPP_VISION_VRAM_RESERVE,
     LLAMACPP_VRAM_SAFETY_MARGIN,
     MIN_FREE_RAM_MB,
     MIN_USEFUL_CONTEXT_TOKENS,
@@ -193,15 +191,12 @@ async def calibrate_llamacpp_model(
 
     gpu_total = tuple(g.total_mb for g in gpus)
 
-    # Vision models keep extra reserve for image-preprocessing buffers.
+    # Probe-first (2026-07-07): kein Vision-Zuschlag mehr auf die Margin.
+    # Der CLIP-/mmproj-Bedarf wird von der 4K-Bild-Probe im Verifier real
+    # alloziert und gemessen statt pauschal reserviert.
     safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN
     if _is_vision_model(full_cmd):
-        vision_reserve = _vision_reserve_mb(full_cmd)
-        safety_margin += vision_reserve
-        yield (
-            f"Vision model detected — safety margin +{vision_reserve} MB "
-            f"(mmproj weights + preprocessing)"
-        )
+        yield "Vision model detected — probe includes 4K image analysis"
 
     budget = build_budget(gpus, safety_margin=safety_margin)
     if any(reserve_vec):
@@ -569,30 +564,6 @@ def _enumerate_gpu_configs(
     return configs
 
 
-def _vision_reserve_mb(full_cmd: str) -> int:
-    """Vision-Reserve aus der ECHTEN mmproj-Dateigröße statt Pauschale.
-
-    fit-params kennt ``--mmproj`` nicht (das Flag sprengt das Tool, es
-    wird ihm deshalb nie übergeben) — die Projektor-Gewichte sind für
-    die gesamte Prognose unsichtbar und müssen als Aufschlag rein. Der
-    fixe 768-MB-Puffer war z.B. beim 27B bereits unterdeckt (mmproj-F16
-    = 927 MB). Jetzt: Dateigröße + 256 MB Preprocessing-Marge, mindestens
-    der bisherige messwertbasierte Puffer. Der MTP-Drafter braucht
-    keinen eigenen Term: seine Gewichte stecken im Haupt-GGUF (in
-    model.size_mb enthalten), sein Draft-KV (n_max=3) ist vernachlässigbar.
-    """
-    m = re.search(r"--mmproj\s+(\S+)", full_cmd)
-    if m:
-        p = Path(m.group(1))
-        if p.exists():
-            size_mb = int(p.stat().st_size / (1024 ** 2))
-            return max(
-                LLAMACPP_VISION_VRAM_RESERVE,
-                size_mb + LLAMACPP_MMPROJ_PREPROCESS_MARGIN_MB,
-            )
-    return LLAMACPP_VISION_VRAM_RESERVE
-
-
 def _is_vision_model(cmd: str) -> bool:
     return "--mmproj" in cmd
 
@@ -813,6 +784,13 @@ async def _find_speed_candidate(
     return None
 
 
+# Stable marker inside _project_cell's failure reason: the cost model has
+# proven that NO context (not even the minimum) fits this GPU set/budget.
+# Callers use it to fail fast instead of burning minutes-long blind probes
+# on a configuration the math has already ruled out.
+_REASON_TOO_BIG = "model too big"
+
+
 async def _project_cell(
     model: Model,
     gpus: list[GPU],
@@ -895,11 +873,36 @@ async def _project_cell(
             total_layers=model.total_layers, model_size_mb=model.size_mb,
             ceiling=model.native_context,
         )
+        if reduced is None or reduced.context < CALIBRATION_MIN_CONTEXT:
+            # Probe-first (2026-07-07): bevor die Zelle mathematisch
+            # stirbt, einmal OHNE safety_margin rechnen. Damit fällt nur
+            # der künstliche Puffer weg — base_overhead, Handicap und
+            # KV-Slope (gemessene Physik aus fit-params) bleiben in der
+            # Rechnung. Jeder Caller PROBT einen Kandidaten real (Load +
+            # Inferenz), bevor irgendetwas geschrieben wird; die Probe
+            # ist die Wahrheit. Grund: die händisch verifizierten
+            # Profile (397B: 141 MB frei) liegen bewusst unter der
+            # Margin — die margin-behaftete Mathe kann sie nie finden.
+            from dataclasses import replace as _budget_replace
+            budget0 = _budget_replace(budget, safety_margin=0)
+            zero = _max_ctx_where_all_layers_fit(
+                vmodel=vmodel, budget=budget0, gpus=gpus, active=active,
+                total_layers=model.total_layers,
+                model_size_mb=model.size_mb,
+                ceiling=model.native_context,
+            )
+            if (
+                zero is not None
+                and zero.reached_target
+                and zero.context >= CALIBRATION_MIN_CONTEXT
+            ):
+                reduced = zero
         if reduced is None:
             placed = int(sum(opt.tensor_split))
             return None, (
-                f"only {placed}/{model.total_layers} layers fit — model "
-                f"too big for {n_gpus} GPU(s) even at minimum context"
+                f"only {placed}/{model.total_layers} layers fit — "
+                f"{_REASON_TOO_BIG} for {n_gpus} GPU(s) even at minimum "
+                f"context"
             )
         # A reduced-context result with context == 0 means the binary
         # search landed on a split whose layer weights alone exceed a
@@ -909,8 +912,8 @@ async def _project_cell(
         # a failure instead of propagating an unusable candidate.
         if reduced.context < CALIBRATION_MIN_CONTEXT:
             return None, (
-                f"model too big for {n_gpus} GPU(s) at KV={kv}: no split "
-                f"leaves room for even the minimum context"
+                f"{_REASON_TOO_BIG} for {n_gpus} GPU(s) at KV={kv}: no "
+                f"split leaves room for even the minimum context"
             )
         opt = reduced
 
@@ -1330,6 +1333,15 @@ async def _verify_and_refine(
         else:
             max_shrinks = 5
             shrink_attempt = 0
+            # Load-death signature of the previous failed probe: when the
+            # server dies BEFORE getting ready (measured_free_mb empty,
+            # e.g. segfault while loading weights), the failure is usually
+            # ctx-independent — shrinking ctx re-runs the identical
+            # minutes-long load. If the next probe dies the same way with
+            # an identical per-GPU load-minimum, stop shrinking.
+            prev_load_sig = (
+                r.load_min_free_mb if not r.measured_free_mb else None
+            )
             while not r.fits and shrink_attempt < max_shrinks:
                 shrink_attempt += 1
                 new_ctx = int(current_ctx * 0.9 // 256) * 256
@@ -1356,6 +1368,20 @@ async def _verify_and_refine(
                 if r.thinks is not None:
                     thinks_seen = r.thinks
                 current_ctx = new_ctx
+                if not r.fits and not r.measured_free_mb:
+                    if (
+                        prev_load_sig is not None
+                        and r.load_min_free_mb == prev_load_sig
+                    ):
+                        yield (
+                            f"{status_prefix} load failure is "
+                            f"ctx-independent (identical load minimum) — "
+                            f"stopping shrinks"
+                        )
+                        break
+                    prev_load_sig = r.load_min_free_mb
+                else:
+                    prev_load_sig = None
 
         if not r.fits:
             yield _Done(None)
@@ -1432,7 +1458,12 @@ async def _verify_and_refine(
             f for i, f in enumerate(r.measured_free_mb)
             if i < len(current_split) and current_split[i] > 0
         ]
-        if active_free and min(active_free) > 2 * budget.safety_margin:
+        # Probe-first (2026-07-07): kein Headroom-Gate mehr. Früher lief
+        # der Upward-Push nur bei > 2×safety_margin Luft auf der engsten
+        # GPU — das nagelte das 397B auf 89k fest (CUDA1: 1833 MB), obwohl
+        # real ~171k laufen. Die Binary-Search probt jetzt immer; die
+        # Probes selbst sind die Kostenbremse und die Wahrheit.
+        if active_free:
             lo = current_ctx
             hi = upward_ceiling
             iteration += 1
@@ -2508,12 +2539,10 @@ async def calibrate_tts_variant_from_base(
         yield "__RESULT__:0:0:error"
         return
 
+    # Probe-first: gleiche nackte Margin wie im Basis-Pfad — der
+    # Vision-Bedarf kommt aus der 4K-Bild-Probe des Verifiers, nicht
+    # aus einem Zuschlag.
     safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN
-    if _is_vision_model(full_cmd):
-        # Gleiche mmproj-echte Reserve wie im Basis-Pfad — sonst rechnet
-        # die Varianten-Kalibrierung mit einer anderen (kleineren) Marge
-        # als die Basis, deren Split sie erbt.
-        safety_margin += _vision_reserve_mb(full_cmd)
     budget = build_budget(gpus, safety_margin=safety_margin)
     if any(reserve_vec):
         from dataclasses import replace as _replace
@@ -2664,6 +2693,20 @@ async def calibrate_tts_variant_from_base(
                 _model_cell, _model_reason = await _project_cell(
                     model, gpus, budget, full_cmd, base_kv, _active_adj,
                 )
+                if _model_cell is None and _REASON_TOO_BIG in _model_reason:
+                    # The cost model just proved that NO context fits this
+                    # GPU set under the side-channel reserve — every probe
+                    # of the derived split would be a minutes-long load
+                    # ending in OOM/segfault (observed 2026-07-07: 6 blind
+                    # probes à 3 min on a split whose weights alone
+                    # overflowed CUDA0). Fail fast instead.
+                    _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
+                    yield (
+                        f"{_side} variant infeasible ({_model_reason}) — "
+                        f"skipping probes"
+                    )
+                    yield "__RESULT__:0:0:error"
+                    return
                 if _model_cell is None:
                     yield (
                         f"  cost-model projection unavailable ({_model_reason}) "
