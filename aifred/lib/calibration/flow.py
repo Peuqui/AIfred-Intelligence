@@ -618,6 +618,49 @@ def _quantize_split_to_layers(
     return tuple(float(x) for x in result)
 
 
+def _weights_fit(
+    split: tuple[float, ...],
+    gpus: list[GPU],
+    budget: Budget,
+    model: Model,
+) -> tuple[bool, str]:
+    """True wenn die reinen Layer-GEWICHTE des Splits auf jede aktive GPU
+    passen (free − Gewichtsanteil − safety_margin − Handicap ≥ 0).
+
+    Prüft NUR die Gewichte, nicht den KV-Cache: der KV skaliert mit dem
+    Kontext und wird vom ctx-shrink im Verify behandelt. Das trennt zwei
+    Fälle, die das ``fill_fastest_first``-Urteil ("model too big")
+    vermischt:
+
+    - Gewichte passen NICHT (auch bei ctx→0 überläuft eine Karte) → der
+      Split ist physikalisch unmöglich, Probe wäre ein garantierter
+      OOM/Segfault-Load. Skippen ist korrekt.
+    - Gewichte passen, nur der KV bei der (von der Basis geerbten) hohen
+      ctx sprengt → der Split ist gültig, die Probe muss laufen; der
+      ctx-shrink senkt die ctx bis es passt, der Upward-Push maximiert
+      danach zurück ans safety_margin-Limit.
+
+    Der first-in-class-Handicap fließt ein, damit der Load-Peak der ersten
+    Karte (Output/Logits, Compute-Workspace) mit abgedeckt ist.
+    """
+    total = sum(split) or 1.0
+    for i, layers in enumerate(split):
+        if layers <= 0:
+            continue
+        weight = (layers / total) * model.size_mb
+        handicap = budget.first_gpu_handicap if gpus[i].first_in_class else 0
+        free_after = (
+            budget.per_gpu_free[i] - weight - budget.safety_margin - handicap
+        )
+        if free_after < 0:
+            return False, (
+                f"weights alone don't fit GPU{i} {gpus[i].name}: "
+                f"{int(weight)} MB weight + margin > "
+                f"{budget.per_gpu_free[i]} MB free"
+            )
+    return True, "weights fit"
+
+
 def _track_failed_solo(
     best_free: float, best_ctx: int, free_mb: float, max_ctx: int,
 ) -> tuple[float, int]:
@@ -2693,21 +2736,34 @@ async def calibrate_tts_variant_from_base(
                 _model_cell, _model_reason = await _project_cell(
                     model, gpus, budget, full_cmd, base_kv, _active_adj,
                 )
+                _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
                 if _model_cell is None and _REASON_TOO_BIG in _model_reason:
-                    # The cost model just proved that NO context fits this
-                    # GPU set under the side-channel reserve — every probe
-                    # of the derived split would be a minutes-long load
-                    # ending in OOM/segfault (observed 2026-07-07: 6 blind
-                    # probes à 3 min on a split whose weights alone
-                    # overflowed CUDA0). Fail fast instead.
-                    _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
-                    yield (
-                        f"{_side} variant infeasible ({_model_reason}) — "
-                        f"skipping probes"
+                    # ``_project_cell`` uses fill_fastest_first, which stacks
+                    # fastest-GPU-first and is pessimistic vs. the
+                    # proportionally derived split — it can report "model too
+                    # big" for a split that actually fits once the KV is
+                    # right-sized. Distinguish the two cases by the derived
+                    # split's RAW WEIGHTS: only genuinely infeasible when even
+                    # the weights don't fit (the segfault-load case). If the
+                    # weights fit and only the inherited base_ctx's KV
+                    # overflows, PROBE — the ctx-shrink finds the fitting ctx
+                    # and the upward push maximizes back to the safety floor.
+                    _wfit, _wreason = _weights_fit(
+                        tuple(_adj), gpus, budget, model,
                     )
-                    yield "__RESULT__:0:0:error"
-                    return
-                if _model_cell is None:
+                    if not _wfit:
+                        yield (
+                            f"{_side} variant infeasible ({_wreason}) — "
+                            f"skipping probes"
+                        )
+                        yield "__RESULT__:0:0:error"
+                        return
+                    yield (
+                        f"{_side} cost model pessimistic ({_model_reason}), "
+                        f"but derived split {_split_str(tuple(_adj))} fits by "
+                        f"weight — probing with ctx-shrink"
+                    )
+                elif _model_cell is None:
                     yield (
                         f"  cost-model projection unavailable ({_model_reason}) "
                         f"— refine falls back to blind shifts"
@@ -2722,7 +2778,6 @@ async def calibrate_tts_variant_from_base(
                     predicted_free_mb=_pred_free,
                     vram_model=_model_cell.vram_model if _model_cell else None,
                 )
-                _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
                 _newly_active = [i for i in _active_adj if i not in active]
                 yield (
                     f"{_side} variant from base: active GPUs {_active_adj}"
