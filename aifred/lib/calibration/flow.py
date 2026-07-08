@@ -1108,6 +1108,191 @@ class _Done:
         self.result = result
 
 
+class _CtxSearchResult:
+    """Sentinel yielded as the LAST item of :func:`_binary_search_fitting_ctx`
+    so the caller can pull the outcome plus the running counters back out of
+    the extracted search."""
+    __slots__ = ("best_r", "best_ctx", "iteration", "thinks_seen")
+
+    def __init__(
+        self,
+        best_r: "VerifyResult | None",
+        best_ctx: int,
+        iteration: int,
+        thinks_seen: bool | None,
+    ):
+        self.best_r = best_r
+        self.best_ctx = best_ctx
+        self.iteration = iteration
+        self.thinks_seen = thinks_seen
+
+
+async def _binary_search_fitting_ctx(
+    *,
+    current_split: tuple[float, ...],
+    candidate: Candidate,
+    model: Model,
+    gpus: list[GPU],
+    budget: Budget,
+    full_cmd: str,
+    port: int,
+    env: Optional[dict[str, str]],
+    probe_thinking: bool,
+    thinks_seen: bool | None,
+    status_prefix: str,
+    lo: int,
+    hi: int,
+    iteration: int,
+    initial_load_sig: tuple[int, ...] | None,
+) -> AsyncIterator:
+    """Math-guided binary search for the highest ctx that fits at a FIXED
+    split, in ``(lo, hi]``.
+
+    SSOT for the post-shift ctx fallback of ALL variants (base, speed, VLM,
+    best-effort). Math (:func:`_math_max_fitting_ctx`, ~ms, free) seeds the
+    smartest ctx to probe; bias tracking adds the observed math-vs-real gap
+    as an extra margin so the search jumps to a realistic ctx instead of
+    crawling in 256-token steps; and a ctx-independent load-death signature
+    stops it from re-running identical minutes-long crashes.
+
+    Previously only the locked variants (speed/VLM) got this search — the
+    base variant used 5 blind 10%-shrinks, whose crude, conservative anchor
+    then forced the upward push (Step 3) to crawl back up over many probes
+    (the giant-model slowdown). Unifying gives every variant a tight anchor
+    from the cost model while keeping the exact 256-token end precision.
+
+    Yields progress strings; the LAST item is a :class:`_CtxSearchResult`
+    carrying ``best_r``/``best_ctx`` and the updated iteration/thinks_seen.
+    """
+    best_r: VerifyResult | None = None
+    best_ctx = 0
+    math_bias_mb = 0
+    # Math becomes unreliable after a probe crashed without leaving
+    # measurement data (e.g. llama.cpp segfault on OOM — exit -11): we can't
+    # update math_bias_mb, so the next math_max prediction would land within
+    # one PRECISION of the failed value and crawl in 256-token decrements.
+    # Force one true bisection step to escape that trap.
+    math_unreliable = False
+    # After MATH_OOM_GIVEUP math-driven OOMs in a row, stop trusting math for
+    # the rest of the search — the bias model is broken in this region and we
+    # just bisect (without this the loop oscillates math_max↔bisect, wasting
+    # one probe per iteration).
+    consecutive_math_oom = 0
+    MATH_OOM_GIVEUP = 2
+    # Math predictions below this free-VRAM threshold are too tight to trust —
+    # a small runtime activation bump pushes them OOM. Treat as "no fit".
+    MATH_PREDICTION_MIN_FREE_MB = 512
+    # Load-death signature: when the server dies BEFORE getting ready
+    # (measured empty, e.g. segfault at load), shrinking ctx re-runs the
+    # identical load. If the next such death has the same per-GPU load minimum
+    # the failure is ctx-independent and we stop.
+    prev_load_sig = initial_load_sig
+    while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
+        math_max, predicted_min = _math_max_fitting_ctx(
+            current_split,
+            lo + LLAMACPP_CALIBRATION_PRECISION,
+            hi - LLAMACPP_CALIBRATION_PRECISION,
+            candidate, model, gpus, budget,
+            extra_safety_margin=math_bias_mb,
+        )
+        math_too_tight = (
+            math_max > lo
+            and predicted_min < MATH_PREDICTION_MIN_FREE_MB
+        )
+        math_burned_out = consecutive_math_oom >= MATH_OOM_GIVEUP
+        math_usable = (
+            math_max > lo
+            and not math_unreliable
+            and not math_too_tight
+            and not math_burned_out
+        )
+        if math_usable:
+            cand_ctx = math_max
+            bias_note = f", bias +{math_bias_mb} MB" if math_bias_mb else ""
+            src = f"math max → {predicted_min} MB free{bias_note}"
+            used_math = True
+        else:
+            cand_ctx = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
+            if cand_ctx <= lo or cand_ctx >= hi:
+                break
+            if math_burned_out:
+                src = f"bisect (math gave up after {MATH_OOM_GIVEUP} OOMs)"
+            elif math_too_tight:
+                src = f"bisect (math too tight: only {predicted_min} MB free predicted)"
+            elif math_unreliable:
+                src = "bisect (math unreliable after silent crash)"
+            else:
+                src = "bisect (math saw no fit)"
+            used_math = False
+        iteration += 1
+        yield (
+            f"{status_prefix} 🧮 ctx {format_number(cand_ctx)} "
+            f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
+            f"— probe..."
+        )
+        r = await verify(
+            full_cmd=proj.adjust_cmd_for_projection(
+                full_cmd, current_split, candidate.kv_quant,
+            ),
+            context=cand_ctx, port=port, gpus=gpus,
+            safety_margin_mb=budget.safety_margin,
+            reserve_mb=budget.gpu_reserve_mb,
+            ngl=candidate.ngl, env=env,
+            probe_thinking=probe_thinking and thinks_seen is None,
+        )
+        yield _fmt_verify(
+            status_prefix, iteration, current_split, cand_ctx, r,
+        )
+        if r.thinks is not None:
+            thinks_seen = r.thinks
+        if r.fits:
+            best_r = r
+            best_ctx = cand_ctx
+            lo = cand_ctx
+            math_unreliable = False
+            prev_load_sig = None
+            if used_math:
+                consecutive_math_oom = 0
+        else:
+            hi = cand_ctx
+            if used_math:
+                consecutive_math_oom += 1
+            # Update math-vs-real bias if probe gave measurements
+            if r.measured_free_mb:
+                math_unreliable = False
+                prev_load_sig = None
+                active_free_real = [
+                    r.measured_free_mb[i] for i in range(len(current_split))
+                    if i < len(r.measured_free_mb) and current_split[i] > 0
+                ]
+                if active_free_real:
+                    real_min = min(active_free_real)
+                    new_bias = max(0, predicted_min - real_min)
+                    if new_bias > math_bias_mb:
+                        yield (
+                            f"{status_prefix} 🧮 math bias detected: "
+                            f"predicted {predicted_min} MB vs real {real_min} MB "
+                            f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
+                        )
+                        math_bias_mb = new_bias
+            else:
+                # Probe crashed silently (no measurement, likely SegFault on
+                # OOM). Math has nothing to learn — force bisection next round;
+                # and if the load dies IDENTICALLY regardless of ctx, stop.
+                math_unreliable = True
+                if (
+                    prev_load_sig is not None
+                    and r.load_min_free_mb == prev_load_sig
+                ):
+                    yield (
+                        f"{status_prefix} load failure is ctx-independent "
+                        f"(identical load minimum) — stopping ctx search"
+                    )
+                    break
+                prev_load_sig = r.load_min_free_mb
+    yield _CtxSearchResult(best_r, best_ctx, iteration, thinks_seen)
+
+
 async def _verify_and_refine(
     candidate: Candidate,
     model: Model,
@@ -1122,17 +1307,24 @@ async def _verify_and_refine(
     ctx_ceiling: Optional[int] = None,
     lock_split: bool = False,
 ):
-    """Verify ``candidate``; refine split from measured VRAM if needed.
+    """Verify ``candidate``; refine split and context from measured VRAM.
 
-    Returns a container with the streamed messages and final ``Result``.
+    Yields streamed progress strings; the LAST item is a ``_Done`` carrying
+    the final ``Result`` (or ``None`` if nothing fit).
 
-    Loop structure:
-      1. First verify at candidate.max_context with the optimizer's split.
-      2. If OOM: shrink context once using measured overshoot, retry.
-      3. If fits but uneven: refine split (one layer swap) and retry.
-         Continue refining while the balance keeps improving (measured
-         spread shrinks) and no two refinements produce the same split
-         (oscillation guard).
+    Structure:
+      Step 1  First verify at candidate.max_context. On OOM, try up to 15
+              fastest-first cascade shifts at that ctx (skipped for the
+              VLM lock_split split); if still no fit, fall back to
+              ``_binary_search_fitting_ctx`` — a cost-model-seeded binary
+              search for the highest fitting ctx on the fixed split (SSOT
+              for all variants).
+      Step 2  Cheap cascade rebalance at the anchor ctx (only fires when a
+              card is near-OOM).
+      Step 3  Upward ctx push (binary search) toward the ceiling. On OOM at
+              a probed ctx, ``_context_refine_swap`` relieves the context-
+              limiting card onto the highest-ceiling destination (upstream
+              allowed) before shrinking the search window.
     """
     current_split = candidate.tensor_split
     current_ctx = candidate.max_context
@@ -1292,191 +1484,35 @@ async def _verify_and_refine(
             if r.thinks is not None:
                 thinks_seen = r.thinks
 
-        # Shifts exhausted — fall back to ctx shrink. Speed mode (locked
-        # active set) goes all the way down to MIN_USEFUL via binary
-        # search to find the highest fitting ctx; base mode does at most
-        # 5 conservative 10%-shrinks (base usually fits via shifts; an
-        # aggressive shrink would lose context unnecessarily).
-        if lock_active_gpus or lock_split:
-            # Math-guided binary search down. Math (~ms, free) picks the
-            # smartest ctx to probe; bias tracking keeps math honest by
-            # adding the observed math-vs-real gap as an extra safety
-            # margin in subsequent math searches. Without this, a constant
-            # ~110 MB math-bias causes the search to crawl in 256-token
-            # steps (each step buys only ~4 MB of free VRAM); with bias,
-            # math jumps straight to a realistic ctx after the first
-            # failed probe.
-            lo = MIN_USEFUL_CONTEXT_TOKENS
-            hi = current_ctx  # initial probe at this ctx already failed
-            best_r: VerifyResult | None = None
-            best_ctx = 0
-            math_bias_mb = 0
-            # Math becomes unreliable after a probe crashed without leaving
-            # measurement data (e.g. llama.cpp segfault on OOM — exit -11):
-            # we can't update math_bias_mb, so the next math_max prediction
-            # would land within one PRECISION of the failed value, causing
-            # the search to crawl in 256-token decrements. Force one true
-            # bisection step to escape that trap.
-            math_unreliable = False
-            # Counter for math-driven probes that OOMed. After
-            # ``MATH_OOM_GIVEUP`` failures in a row we stop trusting math
-            # for the rest of this search — the bias model is broken in
-            # this region and we just bisect. Without this guard the
-            # loop oscillates between math_max (always OOMs) and bisect
-            # (always succeeds), wasting one probe per iteration.
-            consecutive_math_oom = 0
-            MATH_OOM_GIVEUP = 2
-            # Math predictions below this free-VRAM threshold are too
-            # tight to trust — even a small runtime activation bump pushes
-            # them OOM. Treat them as "math saw no fit" and bisect
-            # instead. (Empirically: predicted_free < 500 MB → real OOM.)
-            MATH_PREDICTION_MIN_FREE_MB = 512
-            while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
-                math_max, predicted_min = _math_max_fitting_ctx(
-                    current_split,
-                    lo + LLAMACPP_CALIBRATION_PRECISION,
-                    hi - LLAMACPP_CALIBRATION_PRECISION,
-                    candidate, model, gpus, budget,
-                    extra_safety_margin=math_bias_mb,
-                )
-                math_too_tight = (
-                    math_max > lo
-                    and predicted_min < MATH_PREDICTION_MIN_FREE_MB
-                )
-                math_burned_out = consecutive_math_oom >= MATH_OOM_GIVEUP
-                math_usable = (
-                    math_max > lo
-                    and not math_unreliable
-                    and not math_too_tight
-                    and not math_burned_out
-                )
-                if math_usable:
-                    cand_ctx = math_max
-                    bias_note = f", bias +{math_bias_mb} MB" if math_bias_mb else ""
-                    src = f"math max → {predicted_min} MB free{bias_note}"
-                    used_math = True
-                else:
-                    cand_ctx = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
-                    if cand_ctx <= lo or cand_ctx >= hi:
-                        break
-                    if math_burned_out:
-                        src = f"bisect (math gave up after {MATH_OOM_GIVEUP} OOMs)"
-                    elif math_too_tight:
-                        src = f"bisect (math too tight: only {predicted_min} MB free predicted)"
-                    elif math_unreliable:
-                        src = "bisect (math unreliable after silent crash)"
-                    else:
-                        src = "bisect (math saw no fit)"
-                    used_math = False
-                iteration += 1
-                yield (
-                    f"{status_prefix} 🧮 ctx {format_number(cand_ctx)} "
-                    f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
-                    f"— probe..."
-                )
-                r = await verify(
-                    full_cmd=proj.adjust_cmd_for_projection(
-                        full_cmd, current_split, candidate.kv_quant,
-                    ),
-                    context=cand_ctx, port=port, gpus=gpus,
-                    safety_margin_mb=budget.safety_margin,
-                    reserve_mb=budget.gpu_reserve_mb,
-                    ngl=candidate.ngl, env=env,
-                    probe_thinking=probe_thinking and thinks_seen is None,
-                )
-                yield _fmt_verify(
-                    status_prefix, iteration, current_split, cand_ctx, r,
-                )
-                if r.thinks is not None:
-                    thinks_seen = r.thinks
-                if r.fits:
-                    best_r = r
-                    best_ctx = cand_ctx
-                    lo = cand_ctx
-                    math_unreliable = False
-                    if used_math:
-                        consecutive_math_oom = 0
-                else:
-                    hi = cand_ctx
-                    if used_math:
-                        consecutive_math_oom += 1
-                    # Update math-vs-real bias if probe gave measurements
-                    if r.measured_free_mb:
-                        math_unreliable = False
-                        active_free_real = [
-                            r.measured_free_mb[i] for i in range(len(current_split))
-                            if i < len(r.measured_free_mb) and current_split[i] > 0
-                        ]
-                        if active_free_real:
-                            real_min = min(active_free_real)
-                            new_bias = max(0, predicted_min - real_min)
-                            if new_bias > math_bias_mb:
-                                yield (
-                                    f"{status_prefix} 🧮 math bias detected: "
-                                    f"predicted {predicted_min} MB vs real {real_min} MB "
-                                    f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
-                                )
-                                math_bias_mb = new_bias
-                    else:
-                        # Probe crashed silently (no measurement, likely
-                        # SegFault on OOM). Math has nothing to learn from
-                        # this — force bisection next iteration.
-                        math_unreliable = True
-            if best_r is not None:
-                r = best_r
-                current_ctx = best_ctx
-        else:
-            max_shrinks = 5
-            shrink_attempt = 0
-            # Load-death signature of the previous failed probe: when the
-            # server dies BEFORE getting ready (measured_free_mb empty,
-            # e.g. segfault while loading weights), the failure is usually
-            # ctx-independent — shrinking ctx re-runs the identical
-            # minutes-long load. If the next probe dies the same way with
-            # an identical per-GPU load-minimum, stop shrinking.
-            prev_load_sig = (
-                r.load_min_free_mb if not r.measured_free_mb else None
-            )
-            while not r.fits and shrink_attempt < max_shrinks:
-                shrink_attempt += 1
-                new_ctx = int(current_ctx * 0.9 // 256) * 256
-                if new_ctx < MIN_USEFUL_CONTEXT_TOKENS or new_ctx >= current_ctx:
-                    break
-                iteration += 1
-                yield (
-                    f"{status_prefix} shrink {shrink_attempt}/{max_shrinks}: "
-                    f"ctx {format_number(current_ctx)} → {format_number(new_ctx)}"
-                )
-                r = await verify(
-                    full_cmd=proj.adjust_cmd_for_projection(
-                        full_cmd, current_split, candidate.kv_quant,
-                    ),
-                    context=new_ctx, port=port, gpus=gpus,
-                    safety_margin_mb=budget.safety_margin,
-                    reserve_mb=budget.gpu_reserve_mb,
-                    ngl=candidate.ngl, env=env,
-                    probe_thinking=probe_thinking and thinks_seen is None,
-                )
-                yield (_fmt_verify(
-                    status_prefix, iteration, current_split, new_ctx, r,
-                ))
-                if r.thinks is not None:
-                    thinks_seen = r.thinks
-                current_ctx = new_ctx
-                if not r.fits and not r.measured_free_mb:
-                    if (
-                        prev_load_sig is not None
-                        and r.load_min_free_mb == prev_load_sig
-                    ):
-                        yield (
-                            f"{status_prefix} load failure is "
-                            f"ctx-independent (identical load minimum) — "
-                            f"stopping shrinks"
-                        )
-                        break
-                    prev_load_sig = r.load_min_free_mb
-                else:
-                    prev_load_sig = None
+        # Shifts exhausted — fall back to a math-guided ctx search on the
+        # fixed split. SSOT for ALL variants (base, speed, VLM, best-effort):
+        # find the highest fitting ctx down to MIN_USEFUL via a binary search
+        # the cost model seeds; Step 3 then pushes it back up. Base used to do
+        # 5 blind 10%-shrinks whose crude anchor made Step 3 crawl (the
+        # giant-model slowdown). See _binary_search_fitting_ctx.
+        init_load_sig = (
+            r.load_min_free_mb if (not r.fits and not r.measured_free_mb)
+            else None
+        )
+        search_res: _CtxSearchResult | None = None
+        async for _sitem in _binary_search_fitting_ctx(
+            current_split=current_split, candidate=candidate, model=model,
+            gpus=gpus, budget=budget, full_cmd=full_cmd, port=port, env=env,
+            probe_thinking=probe_thinking, thinks_seen=thinks_seen,
+            status_prefix=status_prefix,
+            lo=MIN_USEFUL_CONTEXT_TOKENS, hi=current_ctx,
+            iteration=iteration, initial_load_sig=init_load_sig,
+        ):
+            if isinstance(_sitem, _CtxSearchResult):
+                search_res = _sitem
+            else:
+                yield _sitem
+        if search_res is not None:
+            iteration = search_res.iteration
+            thinks_seen = search_res.thinks_seen
+            if search_res.best_r is not None:
+                r = search_res.best_r
+                current_ctx = search_res.best_ctx
 
         if not r.fits:
             yield _Done(None)
@@ -1485,6 +1521,12 @@ async def _verify_and_refine(
     last_good = (r, current_split, current_ctx)
 
     # ── Step 2: keep refining split while it helps ─────────────────
+    # Cheap safety rebalance at the fixed anchor ctx: the cascade's
+    # 2×margin gate fires ONLY when a card is near-OOM, so at a comfortable
+    # anchor this does no probes. The context-maximizing rebalance
+    # (_context_refine_swap) lives in Step 3, where it triggers on the real
+    # OOM as ctx is pushed up — running it here would chase a ceiling above
+    # the useful ctx cap and burn probes for nothing.
     while True:
         refined, reason = _refine_split_from_measurement(
             current_split, gpus, r, budget,
@@ -1640,45 +1682,66 @@ async def _verify_and_refine(
                     # This is what saved the Qwen3-235B case where V100 had
                     # ~6 GB free while the RTX cards were tight.
                     refined_up: tuple[float, ...] | None = None
+                    refined_up_split: tuple[float, ...] | None = None
+                    refine_reason = ""
                     if r_up.measured_free_mb:
-                        refined_up_split, refine_reason = _refine_split_from_measurement(
+                        # Context objective for ALL variants incl. VLM: relieve
+                        # the ctx-limiting card and move the layer to the
+                        # highest-ceiling destination — even upstream onto a big
+                        # card, the move the downstream-only cascade structurally
+                        # cannot make (the 140.800-vs-114.944 Vigilantia gap,
+                        # which IS the lock_split VLM variant 17:18:8:9:9).
+                        #
+                        # This only ever RAISES the measured ceiling, so it
+                        # cannot reintroduce the 2026-07-07 VLM degradation the
+                        # blanket lock guarded against: a ceiling-lowering swap
+                        # (e.g. GPU1→reserve-loaded VLM GPU) is never selected,
+                        # while the good GPU0→GPU2 move is. measured_free is
+                        # already reserve-adjusted, so the reserve-loaded card
+                        # shows its true (tight) headroom and is dodged by the
+                        # ceiling math itself — no blanket lock needed.
+                        #
+                        # keep_active_set holds the VLM/speed GPU set fixed (no
+                        # silent activation of an idle card mid-push).
+                        refined_up_split, refine_reason = _context_refine_swap(
                             current_split, gpus, r_up, budget,
                             vram_model=candidate.vram_model,
                             total_layers=model.total_layers,
                             model_size_mb=model.size_mb,
                             current_context=cand_ctx,
+                            keep_active_set=lock_active_gpus or lock_split,
                         )
-                        if (
-                            refined_up_split is not None
-                            and refined_up_split not in seen_splits
-                        ):
-                            refined_up = refined_up_split
-                            seen_splits.add(refined_up)
-                            iteration += 1
-                            yield (
-                                f"{status_prefix} upward ctx {format_number(cand_ctx)} "
-                                f"OOM — try refined split ({refine_reason}): "
-                                f"{_split_str(current_split)} → {_split_str(refined_up)}"
-                            )
-                            r_re = await verify(
-                                full_cmd=proj.adjust_cmd_for_projection(
-                                    full_cmd, refined_up, candidate.kv_quant,
-                                ),
-                                context=cand_ctx, port=port, gpus=gpus,
-                                safety_margin_mb=budget.safety_margin,
-                                reserve_mb=budget.gpu_reserve_mb,
-                                ngl=candidate.ngl, env=env, probe_thinking=False,
-                            )
-                            yield _fmt_verify(
-                                status_prefix, iteration, refined_up, cand_ctx, r_re,
-                            )
-                            if r_re.fits:
-                                current_split = refined_up
-                                lo = cand_ctx
-                                last_good = (r_re, current_split, cand_ctx)
-                                continue
-                            # Refined split also failed — fall through to
-                            # math-bias update + hi shrink with r_up's data.
+                    if (
+                        refined_up_split is not None
+                        and refined_up_split not in seen_splits
+                    ):
+                        refined_up = refined_up_split
+                        seen_splits.add(refined_up)
+                        iteration += 1
+                        yield (
+                            f"{status_prefix} upward ctx {format_number(cand_ctx)} "
+                            f"OOM — try refined split ({refine_reason}): "
+                            f"{_split_str(current_split)} → {_split_str(refined_up)}"
+                        )
+                        r_re = await verify(
+                            full_cmd=proj.adjust_cmd_for_projection(
+                                full_cmd, refined_up, candidate.kv_quant,
+                            ),
+                            context=cand_ctx, port=port, gpus=gpus,
+                            safety_margin_mb=budget.safety_margin,
+                            reserve_mb=budget.gpu_reserve_mb,
+                            ngl=candidate.ngl, env=env, probe_thinking=False,
+                        )
+                        yield _fmt_verify(
+                            status_prefix, iteration, refined_up, cand_ctx, r_re,
+                        )
+                        if r_re.fits:
+                            current_split = refined_up
+                            lo = cand_ctx
+                            last_good = (r_re, current_split, cand_ctx)
+                            continue
+                        # Refined split also failed — fall through to
+                        # math-bias update + hi shrink with r_up's data.
                     hi = cand_ctx
                     if r_up.measured_free_mb:
                         active_free_real = [
@@ -1825,6 +1888,155 @@ def _refine_split_from_measurement(
     return (
         tuple(new_split),
         f"CUDA{bottleneck} ({b_free} MB) → CUDA{dest} ({step:g} layer, cascade)",
+    )
+
+
+def _context_refine_swap(
+    current_split: tuple[float, ...],
+    gpus: list[GPU],
+    verify_r: VerifyResult,
+    budget: Budget,
+    vram_model,
+    total_layers: int,
+    model_size_mb: float,
+    current_context: int,
+    keep_active_set: bool = False,
+) -> tuple[tuple[float, ...] | None, str]:
+    """Single whole-layer swap that MAXIMIZES the analytical context ceiling.
+
+    Used where the objective is maximum context (the upward ctx push), NOT
+    fitting fastest-first. Unlike the cascade refine
+    (:func:`_refine_split_from_measurement`), which relieves the card with
+    the least *absolute* free VRAM and can only spill DOWNSTREAM, this:
+
+      1. Relieves the CONTEXT-LIMITING card — the active GPU whose free VRAM
+         runs out first as context grows (smallest ``free ÷ per-card
+         KV-slope``). That is usually NOT the card with the least absolute
+         free: a P40 at the cascade tail can sit at a few MB yet carry a
+         shallow KV slope (few layers), so it limits nothing — which is why
+         the cascade uselessly gave up on it.
+      2. Moves the layer to whichever card yields the HIGHEST resulting
+         context ceiling — ranked with the same cost model the optimizer
+         uses (:func:`_context_ceiling_for_split`, SSOT), regardless of
+         cascade position. This lets a layer move back UPSTREAM onto a big
+         card with KV headroom, the move the downstream-only cascade
+         structurally cannot make (the 140.800-vs-114.944 gap).
+
+    Returns ``(new_split, reason)``; ``new_split`` is ``None`` when no swap
+    raises the ceiling. Fully data-driven — limiting card and best
+    destination both come from the measured VRAM model, so the same logic
+    holds for any GPU mix (5 cards today, 7 tomorrow).
+    """
+    import math as _math
+
+    from .optimizer import _per_gpu_coefficients
+
+    if not verify_r.measured_free_mb:
+        return None, "no measurement"
+    if vram_model is None:
+        return None, "no vram model"
+
+    active = [i for i, r in enumerate(current_split) if r > 0]
+    if len(active) < 2:
+        return None, "only one active GPU"
+
+    _, slope_per_layer = _per_gpu_coefficients(
+        vram_model, total_layers, model_size_mb,
+    )
+    mb_per_layer = model_size_mb / total_layers if total_layers else 0.0
+    measured = verify_r.measured_free_mb
+    sm = budget.safety_margin
+
+    def _free(i: int) -> float:
+        return float(measured[i]) if i < len(measured) else 0.0
+
+    # Additional context (tokens) a card can still absorb at its current
+    # layer count and measured free, before hitting the safety margin.
+    # Anchored to the MEASURED reality (post-load truth), not the pre-load
+    # plan — that reality gap is exactly why we are in the upward push.
+    def _card_ceiling(layers_i: int, free_i: float, i: int) -> float:
+        kv_slope = layers_i * slope_per_layer[i]
+        if layers_i <= 0 or kv_slope <= 0:
+            return float("inf")
+        return current_context + (free_i - sm) / kv_slope
+
+    def _split_ceiling(layers: list[int], free: list[float]) -> float:
+        return min(
+            (_card_ceiling(layers[i], free[i], i) for i in range(len(layers))
+             if layers[i] > 0),
+            default=float("inf"),
+        )
+
+    # 1) Context-limiting card = the active GPU whose free VRAM runs out
+    #    first as context grows (smallest free ÷ per-card KV-slope), among
+    #    those still holding a whole layer to give away.
+    def _ctx_headroom_tokens(i: int) -> float:
+        kv_slope = current_split[i] * slope_per_layer[i]
+        return _free(i) / kv_slope if kv_slope > 0 else float("inf")
+
+    givers = [i for i in active if int(current_split[i]) >= 1]
+    if not givers:
+        return None, "no card has a whole layer to move"
+    src = min(givers, key=_ctx_headroom_tokens)
+
+    # Whole layers to lift ``src`` back above the 2×margin rest threshold
+    # (mirrors the cascade refine's step so both paths move decisively).
+    save_per_layer = mb_per_layer + slope_per_layer[src] * current_context
+    deficit = 2 * sm - _free(src)
+    if save_per_layer > 0 and deficit > 0:
+        step = max(1, int(_math.ceil(deficit / save_per_layer)))
+    else:
+        step = 1
+    step = min(step, int(current_split[src]))
+    if step < 1:
+        return None, f"CUDA{src} has no whole layer left to shift"
+
+    cur_layers = [int(x) for x in current_split]
+    cur_free = [_free(i) for i in range(len(current_split))]
+    cur_ceiling = _split_ceiling(cur_layers, cur_free)
+
+    # 2) Evaluate every destination; keep the one giving the highest ceiling.
+    #    Moving ``step`` layers frees weight+KV on ``src`` and costs it on
+    #    ``dest``; a dest that gets overloaded simply becomes the new limiter
+    #    and scores a low ceiling, so feasibility is implicit — no separate
+    #    reserve check, no cascade-position restriction (dest may sit
+    #    upstream of src, the move the cascade structurally cannot make).
+    cost_src = mb_per_layer + slope_per_layer[src] * current_context
+    best_dest: int | None = None
+    best_ceiling = cur_ceiling
+    for dest in range(len(current_split)):
+        if dest == src:
+            continue
+        if keep_active_set and current_split[dest] <= 0:
+            continue
+        cost_dest = mb_per_layer + slope_per_layer[dest] * current_context
+        trial_layers = list(cur_layers)
+        trial_layers[src] -= step
+        trial_layers[dest] += step
+        trial_free = list(cur_free)
+        trial_free[src] += step * cost_src
+        trial_free[dest] -= step * cost_dest
+        c = _split_ceiling(trial_layers, trial_free)
+        if c > best_ceiling:
+            best_ceiling = c
+            best_dest = dest
+
+    if best_dest is None:
+        headroom = _ctx_headroom_tokens(src)
+        headroom_str = "∞" if headroom == float("inf") else str(int(headroom))
+        return None, (
+            f"CUDA{src} limits context ({headroom_str} tok headroom) but no "
+            f"swap raises the {format_number(int(cur_ceiling))}-tok ceiling"
+        )
+
+    new_split = list(current_split)
+    new_split[src] -= step
+    new_split[best_dest] += step
+    return (
+        tuple(new_split),
+        f"CUDA{src} (ctx-limiter) → CUDA{best_dest} ({step} layer, "
+        f"ceiling {format_number(int(cur_ceiling))}→"
+        f"{format_number(int(best_ceiling))} tok)",
     )
 
 
