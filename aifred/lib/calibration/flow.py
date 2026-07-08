@@ -1822,6 +1822,16 @@ async def _verify_and_refine(
                         if r_re.fits:
                             current_split = refined_up
                             lo = cand_ctx
+                            # ``hi`` was the OLD split's OOM ctx — it no longer
+                            # bounds the NEW split, which relieved the limiter
+                            # and can fit higher (its ceiling jumped, e.g. the
+                            # VLM case 141k→209k). Reopen the upper bound to the
+                            # ceiling so the search climbs the new split to its
+                            # true edge instead of capping just under the stale
+                            # ``hi`` (the 185.600-vs-~209k VLM undershoot). The
+                            # reserve stays safe: the search runs on
+                            # reserve-adjusted free and still stops at the margin.
+                            hi = upward_ceiling
                             last_good = (r_re, current_split, cand_ctx)
                             continue
                         # Refined split also failed — fall through to
