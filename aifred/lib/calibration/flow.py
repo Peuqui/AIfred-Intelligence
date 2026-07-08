@@ -1626,55 +1626,66 @@ async def _verify_and_refine(
             if r.thinks is not None:
                 thinks_seen = r.thinks
 
-        # Shifts exhausted — fall back to a math-guided ctx search on the
-        # fixed split. SSOT for ALL variants (base, speed, VLM, best-effort):
-        # find the highest fitting ctx down to MIN_USEFUL via a binary search
-        # the cost model seeds; Step 3 then pushes it back up. Base used to do
-        # 5 blind 10%-shrinks whose crude anchor made Step 3 crawl (the
-        # giant-model slowdown). See _binary_search_fitting_ctx.
-        init_load_sig = (
-            r.load_min_free_mb if (not r.fits and not r.measured_free_mb)
-            else None
-        )
-        # Seed the search's bias from the OOM we just measured, so the math is
-        # trusted from probe 1 instead of bisecting until it re-learns the gap
-        # (kills the fixed-512-floor crawl in the tight TTS regime). Only when
-        # the failing probe left a steady-state measurement and we have a model.
-        init_bias = 0
-        if r.measured_free_mb and candidate.vram_model is not None:
-            _, _pred_min = _math_predicts_fit(
-                current_split, current_ctx, candidate, model, gpus, budget,
-            )
-            _active_real = [
-                r.measured_free_mb[i] for i in range(len(current_split))
-                if i < len(r.measured_free_mb) and current_split[i] > 0
-            ]
-            if _active_real:
-                init_bias = max(0, _pred_min - min(_active_real))
-        search_res: _CtxSearchResult | None = None
-        async for _sitem in _binary_search_fitting_ctx(
-            current_split=current_split, candidate=candidate, model=model,
-            gpus=gpus, budget=budget, full_cmd=full_cmd, port=port, env=env,
-            probe_thinking=probe_thinking, thinks_seen=thinks_seen,
-            status_prefix=status_prefix,
-            lo=MIN_USEFUL_CONTEXT_TOKENS, hi=current_ctx,
-            iteration=iteration, initial_load_sig=init_load_sig,
-            initial_bias_mb=init_bias,
-        ):
-            if isinstance(_sitem, _CtxSearchResult):
-                search_res = _sitem
-            else:
-                yield _sitem
-        if search_res is not None:
-            iteration = search_res.iteration
-            thinks_seen = search_res.thinks_seen
-            if search_res.best_r is not None:
-                r = search_res.best_r
-                current_ctx = search_res.best_ctx
-
+        # Shift-Loop-Ausgang: NUR wenn immer noch OOM (alle Shifts erschöpft
+        # oder kein Shift mehr möglich) auf die math-geführte ctx-Suche
+        # zurückfallen. Endete der Loop dagegen GRÜN bei native ctx, ist
+        # native bereits die real verifizierte Obergrenze — dann KEINE
+        # ctx-Suche: der konservative Kostenmodell-Bias würde sie sonst einen
+        # Präzisions-Schritt (256 Tok) unter native starten lassen, dort grün
+        # proben, und weil die Restlücke zu native == PRECISION ist, greift
+        # der Aufwärts-Push (Step 3) nicht mehr (`hi - lo > PRECISION` ist
+        # bei 256 > 256 falsch) → der bereits gemessene native-Erfolg wird
+        # verworfen und ein unnötiger ~3-min-Probe verbrannt. Der erste Probe
+        # oben überspringt den ganzen if-Block aus demselben Grund, wenn er
+        # direkt grün ist — hier gilt dieselbe Logik nach dem Shift.
         if not r.fits:
-            yield _Done(None)
-            return
+            # SSOT for ALL variants (base, speed, VLM, best-effort): find the
+            # highest fitting ctx down to MIN_USEFUL via a binary search the
+            # cost model seeds; Step 3 then pushes it back up.
+            init_load_sig = (
+                r.load_min_free_mb if (not r.fits and not r.measured_free_mb)
+                else None
+            )
+            # Seed the search's bias from the OOM we just measured, so the
+            # math is trusted from probe 1 instead of bisecting until it
+            # re-learns the gap (kills the fixed-512-floor crawl in the tight
+            # TTS regime). Only when the failing probe left a steady-state
+            # measurement and we have a model.
+            init_bias = 0
+            if r.measured_free_mb and candidate.vram_model is not None:
+                _, _pred_min = _math_predicts_fit(
+                    current_split, current_ctx, candidate, model, gpus, budget,
+                )
+                _active_real = [
+                    r.measured_free_mb[i] for i in range(len(current_split))
+                    if i < len(r.measured_free_mb) and current_split[i] > 0
+                ]
+                if _active_real:
+                    init_bias = max(0, _pred_min - min(_active_real))
+            search_res: _CtxSearchResult | None = None
+            async for _sitem in _binary_search_fitting_ctx(
+                current_split=current_split, candidate=candidate, model=model,
+                gpus=gpus, budget=budget, full_cmd=full_cmd, port=port, env=env,
+                probe_thinking=probe_thinking, thinks_seen=thinks_seen,
+                status_prefix=status_prefix,
+                lo=MIN_USEFUL_CONTEXT_TOKENS, hi=current_ctx,
+                iteration=iteration, initial_load_sig=init_load_sig,
+                initial_bias_mb=init_bias,
+            ):
+                if isinstance(_sitem, _CtxSearchResult):
+                    search_res = _sitem
+                else:
+                    yield _sitem
+            if search_res is not None:
+                iteration = search_res.iteration
+                thinks_seen = search_res.thinks_seen
+                if search_res.best_r is not None:
+                    r = search_res.best_r
+                    current_ctx = search_res.best_ctx
+
+            if not r.fits:
+                yield _Done(None)
+                return
 
     last_good = (r, current_split, current_ctx)
 
