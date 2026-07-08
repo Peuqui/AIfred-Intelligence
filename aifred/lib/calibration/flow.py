@@ -1127,6 +1127,32 @@ class _CtxSearchResult:
         self.thinks_seen = thinks_seen
 
 
+# ── Cross-variant bias cache (the "cross-engine derivation") ──────────────
+# The fit-params-vs-real gap ("bias") is a property of the MODEL + HARDWARE —
+# runtime buffers (compute/MTP/activation) that fit-params doesn't model — NOT
+# of the per-engine TTS/VLM reserve (that's subtracted separately, on the
+# reserve-adjusted measured free). So once ANY variant of a model measures the
+# bias, every later variant on the same GPUs seeds its ctx search with it and
+# trusts the cost model from probe 1 instead of re-learning it — the whole
+# point of Point 2: engine 2/3 converge in ~2-3 probes instead of a full
+# search, without ever blindly copying engine 1's ctx (each still recomputes
+# its own max from its own reserve). Keyed by (model_id, gpu-uuids); ratchets
+# to the max observed (conservative — too-high only costs a few bisections,
+# never a wrong result); a pure hint, the search self-corrects if it's off.
+# Process-local: a service restart (= fresh code/hardware) starts clean.
+_MODEL_BIAS_CACHE: dict[tuple[str, tuple[str, ...]], int] = {}
+
+
+def _bias_key(model: Model, gpus: list[GPU]) -> tuple[str, tuple[str, ...]]:
+    return (model.model_id, tuple(g.uuid for g in gpus))
+
+
+def _remember_bias(model: Model, gpus: list[GPU], bias_mb: int) -> None:
+    key = _bias_key(model, gpus)
+    if bias_mb > _MODEL_BIAS_CACHE.get(key, 0):
+        _MODEL_BIAS_CACHE[key] = bias_mb
+
+
 async def _binary_search_fitting_ctx(
     *,
     current_split: tuple[float, ...],
@@ -1144,6 +1170,7 @@ async def _binary_search_fitting_ctx(
     hi: int,
     iteration: int,
     initial_load_sig: tuple[int, ...] | None,
+    initial_bias_mb: int = 0,
 ) -> AsyncIterator:
     """Math-guided binary search for the highest ctx that fits at a FIXED
     split, in ``(lo, hi]``.
@@ -1166,7 +1193,18 @@ async def _binary_search_fitting_ctx(
     """
     best_r: VerifyResult | None = None
     best_ctx = 0
-    math_bias_mb = 0
+    # Bias = how much the fit-params cost model OVER-predicts free VRAM vs. the
+    # real load. Measured empirically it ranges from ~2 MB to ~1.5 GB depending
+    # on model architecture (MoE/MTP runtime buffers), ctx and layer count — so
+    # NO fixed cushion generalises. We track it adaptively and seed it from the
+    # OOM that triggered this search (``initial_bias_mb``) AND from the
+    # cross-variant cache (a prior variant of this model+hardware), whichever
+    # is larger — so the math is trusted from probe 1 instead of re-learning
+    # the gap (Point 2: engine 2/3 converge fast).
+    math_bias_mb = max(initial_bias_mb, _MODEL_BIAS_CACHE.get(_bias_key(model, gpus), 0))
+    # Only a real cost model makes the bias meaningful; without one the math
+    # is a constant → keep bisecting.
+    bias_measured = math_bias_mb > 0 and candidate.vram_model is not None
     # Math becomes unreliable after a probe crashed without leaving
     # measurement data (e.g. llama.cpp segfault on OOM — exit -11): we can't
     # update math_bias_mb, so the next math_max prediction would land within
@@ -1179,9 +1217,14 @@ async def _binary_search_fitting_ctx(
     # one probe per iteration).
     consecutive_math_oom = 0
     MATH_OOM_GIVEUP = 2
-    # Math predictions below this free-VRAM threshold are too tight to trust —
-    # a small runtime activation bump pushes them OOM. Treat as "no fit".
-    MATH_PREDICTION_MIN_FREE_MB = 512
+    # Pre-measurement trust floor: BEFORE we have any measured/seeded bias,
+    # don't trust a math prediction whose raw free is below this — a high-bias
+    # model would OOM on the first over-jump. Tied to the config safety margin,
+    # NOT a magic constant. Once the bias IS known we trust the bias-adjusted
+    # math down to the margin; the old fixed 512-MB floor made the search
+    # bisect the whole way in the tight TTS regime even after the bias was
+    # learned (150-200 MB free < 512 → always "too tight" → crawl).
+    UNMEASURED_TRUST_FLOOR = 2 * budget.safety_margin
     # Load-death signature: when the server dies BEFORE getting ready
     # (measured empty, e.g. segfault at load), shrinking ctx re-runs the
     # identical load. If the next such death has the same per-GPU load minimum
@@ -1195,9 +1238,14 @@ async def _binary_search_fitting_ctx(
             candidate, model, gpus, budget,
             extra_safety_margin=math_bias_mb,
         )
+        # Only distrust the math while the bias is still UNKNOWN. Once it has
+        # been measured or seeded, ``predicted_min`` already carries it (via
+        # extra_safety_margin in _math_max_fitting_ctx) and we trust it down to
+        # the margin — no fixed floor.
         math_too_tight = (
-            math_max > lo
-            and predicted_min < MATH_PREDICTION_MIN_FREE_MB
+            not bias_measured
+            and math_max > lo
+            and predicted_min < UNMEASURED_TRUST_FLOOR
         )
         math_burned_out = consecutive_math_oom >= MATH_OOM_GIVEUP
         math_usable = (
@@ -1218,7 +1266,7 @@ async def _binary_search_fitting_ctx(
             if math_burned_out:
                 src = f"bisect (math gave up after {MATH_OOM_GIVEUP} OOMs)"
             elif math_too_tight:
-                src = f"bisect (math too tight: only {predicted_min} MB free predicted)"
+                src = f"bisect (unmeasured bias, only {predicted_min} MB free predicted)"
             elif math_unreliable:
                 src = "bisect (math unreliable after silent crash)"
             else:
@@ -1261,6 +1309,10 @@ async def _binary_search_fitting_ctx(
             if r.measured_free_mb:
                 math_unreliable = False
                 prev_load_sig = None
+                # Only a real cost model gives a meaningful bias; without one
+                # (_math_predicts_fit returns a constant) keep bisecting.
+                if candidate.vram_model is not None:
+                    bias_measured = True
                 active_free_real = [
                     r.measured_free_mb[i] for i in range(len(current_split))
                     if i < len(r.measured_free_mb) and current_split[i] > 0
@@ -1275,6 +1327,7 @@ async def _binary_search_fitting_ctx(
                             f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
                         )
                         math_bias_mb = new_bias
+                        _remember_bias(model, gpus, new_bias)
             else:
                 # Probe crashed silently (no measurement, likely SegFault on
                 # OOM). Math has nothing to learn — force bisection next round;
@@ -1370,13 +1423,22 @@ async def _verify_and_refine(
             # that's a real OOM with no per-GPU info).
             shifted: tuple[float, ...] | None = None
             if r.measured_free_mb:
-                refined, _reason = _refine_split_from_measurement(
+                # Point 1: at the FIRST OOM (with a steady-state measurement)
+                # try the context-MAXIMIZING swap, not the fastest-first
+                # cascade. It relieves the ctx-limiting card onto the
+                # highest-ceiling card (upstream allowed) and so fixes a
+                # ctx-suboptimal projected split RIGHT HERE — a fit at the
+                # projected ctx then skips the whole down-search + climb-back
+                # (the TTS variant's ~8 wasted probes). Only ceiling-raising +
+                # reserve-adjusted measured free → never eats a side-channel
+                # reserve, never degrades; keep_active_set honours speed/VLM.
+                refined, _reason = _context_refine_swap(
                     current_split, gpus, r, budget,
                     vram_model=candidate.vram_model,
                     total_layers=model.total_layers,
                     model_size_mb=model.size_mb,
                     current_context=current_ctx,
-                    keep_active_set=lock_active_gpus,
+                    keep_active_set=lock_active_gpus or lock_split,
                 )
                 if refined is not None:
                     shifted = refined
@@ -1494,6 +1556,21 @@ async def _verify_and_refine(
             r.load_min_free_mb if (not r.fits and not r.measured_free_mb)
             else None
         )
+        # Seed the search's bias from the OOM we just measured, so the math is
+        # trusted from probe 1 instead of bisecting until it re-learns the gap
+        # (kills the fixed-512-floor crawl in the tight TTS regime). Only when
+        # the failing probe left a steady-state measurement and we have a model.
+        init_bias = 0
+        if r.measured_free_mb and candidate.vram_model is not None:
+            _, _pred_min = _math_predicts_fit(
+                current_split, current_ctx, candidate, model, gpus, budget,
+            )
+            _active_real = [
+                r.measured_free_mb[i] for i in range(len(current_split))
+                if i < len(r.measured_free_mb) and current_split[i] > 0
+            ]
+            if _active_real:
+                init_bias = max(0, _pred_min - min(_active_real))
         search_res: _CtxSearchResult | None = None
         async for _sitem in _binary_search_fitting_ctx(
             current_split=current_split, candidate=candidate, model=model,
@@ -1502,6 +1579,7 @@ async def _verify_and_refine(
             status_prefix=status_prefix,
             lo=MIN_USEFUL_CONTEXT_TOKENS, hi=current_ctx,
             iteration=iteration, initial_load_sig=init_load_sig,
+            initial_bias_mb=init_bias,
         ):
             if isinstance(_sitem, _CtxSearchResult):
                 search_res = _sitem
@@ -1608,12 +1686,17 @@ async def _verify_and_refine(
                 f"{status_prefix} headroom on tightest GPU "
                 f"({min(active_free)} MB) — upward search to native ctx"
             )
-            math_bias_mb = 0
+            # Seed from the cross-variant cache — a prior variant of this
+            # model+hardware already measured the bias, so trust the math from
+            # probe 1. Without a cached value the floor below applies until the
+            # first upward OOM measures it (same rule as the down-search).
+            math_bias_mb = _MODEL_BIAS_CACHE.get(_bias_key(model, gpus), 0)
+            bias_measured = math_bias_mb > 0 and candidate.vram_model is not None
             # See the downward search above for the rationale behind these
             # two guards (Fix C + D from the calibration audit).
             consecutive_math_oom = 0
             MATH_OOM_GIVEUP = 2
-            MATH_PREDICTION_MIN_FREE_MB = 512
+            UNMEASURED_TRUST_FLOOR = 2 * budget.safety_margin
             while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
                 math_max, predicted_min = _math_max_fitting_ctx(
                     current_split,
@@ -1623,8 +1706,9 @@ async def _verify_and_refine(
                     extra_safety_margin=math_bias_mb,
                 )
                 math_too_tight = (
-                    math_max > lo
-                    and predicted_min < MATH_PREDICTION_MIN_FREE_MB
+                    not bias_measured
+                    and math_max > lo
+                    and predicted_min < UNMEASURED_TRUST_FLOOR
                 )
                 math_burned_out = consecutive_math_oom >= MATH_OOM_GIVEUP
                 math_usable = (
@@ -1644,7 +1728,7 @@ async def _verify_and_refine(
                     if math_burned_out:
                         src = f"bisect (math gave up after {MATH_OOM_GIVEUP} OOMs)"
                     elif math_too_tight:
-                        src = f"bisect (math too tight: only {predicted_min} MB free predicted)"
+                        src = f"bisect (unmeasured bias, only {predicted_min} MB free predicted)"
                     else:
                         src = "bisect (math saw no fit)"
                     used_math = False
@@ -1744,6 +1828,8 @@ async def _verify_and_refine(
                         # math-bias update + hi shrink with r_up's data.
                     hi = cand_ctx
                     if r_up.measured_free_mb:
+                        if candidate.vram_model is not None:
+                            bias_measured = True  # trust bias-adjusted math
                         active_free_real = [
                             r_up.measured_free_mb[i] for i in range(len(current_split))
                             if i < len(r_up.measured_free_mb) and current_split[i] > 0
@@ -1758,6 +1844,7 @@ async def _verify_and_refine(
                                     f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
                                 )
                                 math_bias_mb = new_bias
+                                _remember_bias(model, gpus, new_bias)
             r, current_split, current_ctx = last_good
 
     # Build the final result from the last successful run
