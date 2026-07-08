@@ -106,6 +106,24 @@ def _query_nvidia_smi() -> list[dict[str, Any]]:
     return rows
 
 
+def gpu_uuid_labels() -> dict[str, str]:
+    """Map each GPU UUID → a human-readable ``"GPU<idx> (<short name>)"``.
+
+    The ``<idx>`` is the nvidia-smi row position, i.e. the PCI-bus index
+    the user sees when running ``nvidia-smi`` — so ``GPU0``/``GPU2``/…
+    line up with that tool. Used to annotate the (UUID-based,
+    reboot-stable) llama-swap config with readable comments so the
+    sperrige UUIDs stay legible without giving up their reboot safety.
+
+    Returns an empty dict when nvidia-smi is unavailable — the caller
+    treats that as "skip the cosmetic annotation", never a hard error.
+    """
+    return {
+        row["uuid"]: f"GPU{idx} ({row['name']})"
+        for idx, row in enumerate(_query_nvidia_smi())
+    }
+
+
 def enumerate_gpus() -> list[GPU]:
     """Return all visible GPUs, sorted by compute_cap DESC, name, UUID.
 
