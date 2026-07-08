@@ -1488,13 +1488,25 @@ async def _verify_and_refine(
         # max ctx with the fewest GPUs — redistributing layers preserves
         # both, while shrinking ctx loses the primary goal.
         #
-        # lock_split: the VLM variant's split is already proportionally
-        # derived and optimal (17:18:8:9:9) — a shift would only move a
-        # layer ONTO the reserve-loaded VLM GPU and make things worse
-        # (observed 2026-07-07: 17:18:8:9:9 → 17:17:9:9:9 degradation).
-        # Skip shifts entirely and go straight to the ctx search; the
-        # split stays fixed, only the context is tuned down.
-        max_shifts = 0 if lock_split else 15
+        # Shifts sind für ALLE Varianten erlaubt — auch VLM/combo mit
+        # proportional abgeleitetem Split. Der abgeleitete Split ist NICHT
+        # immer optimal: der Reserve-Spill kann eine Nicht-reserve-Karte
+        # überladen (RTX 8000 mit 18 Layern, 151 MB frei bei ctx 224k),
+        # während eine idle V100 mit 17 GB danebensteht. Ein Shift der
+        # überladenen Karte auf die freie rettet dann den vollen Kontext,
+        # den der ctx-Shrink sonst opfern würde.
+        #
+        # Früher unterband ``lock_split`` (max_shifts=0) JEDEN Shift, weil
+        # ein Blind-Shift mal einen Layer AUF die reserve-belastete VLM-GPU
+        # schob (17:18:8:9:9 → 17:17:9:9:9). Das ist jetzt strukturell
+        # verhindert: reserve-GPUs sind über ``_blocked_dest`` als Shift-
+        # ZIEL ausgeschlossen (Blind- UND Smart-Pfad). Ein Layer auf einer
+        # Side-Channel-GPU fräße genau den reservierten Container-Platz —
+        # die Quelle darf jede Karte sein, nur das Ziel nie eine reserve.
+        _blocked_dest = frozenset(
+            i for i, m in enumerate(budget.gpu_reserve_mb) if m > 0
+        )
+        max_shifts = 15
         shift_attempt = 0
         while not r.fits and shift_attempt < max_shifts:
             # Smart shift if we have measurement data (server lived through
@@ -1566,6 +1578,7 @@ async def _verify_and_refine(
                     free_estimate=_adj_free,
                     min_free_mb=budget.safety_margin,
                     layer_cost_per_gpu=_layer_cost,
+                    blocked_dest=_blocked_dest,
                 )
             if shifted is None:
                 if lock_active_gpus:
@@ -2060,9 +2073,12 @@ def _refine_split_from_measurement(
         mb_per_layer + slope_per_layer[i] * current_context
         for i in range(len(gpus))
     )
+    _blocked = frozenset(
+        i for i, m in enumerate(budget.gpu_reserve_mb) if m > 0
+    )
     dest = _cascade_destination(
         bottleneck, list(current_split), verify_r.measured_free_mb,
-        layer_cost, budget.safety_margin, step, keep_active_set,
+        layer_cost, budget.safety_margin, step, keep_active_set, _blocked,
     )
     if dest is None:
         return None, (
@@ -2190,10 +2206,20 @@ def _context_refine_swap(
     #    reserve check, no cascade-position restriction (dest may sit
     #    upstream of src, the move the cascade structurally cannot make).
     cost_src = mb_per_layer + slope_per_layer[src] * current_context
+    # Reserve-belastete Side-Channel-GPUs (TTS/VLM) nie als Ziel: ihr freier
+    # Platz ist für den Container reserviert, nicht für Modell-Layer. Die
+    # reserve-bereinigte measured_free würde sie zwar niedriger bewerten,
+    # aber eine reserve-GPU mit wenigen Layern (flache KV-Slope) kann trotzdem
+    # das höchste Ceiling scoren — hart ausschließen ist die klare Semantik.
+    _blocked = frozenset(
+        i for i, m in enumerate(budget.gpu_reserve_mb) if m > 0
+    )
     best_dest: int | None = None
     best_ceiling = cur_ceiling
     for dest in range(len(current_split)):
         if dest == src:
+            continue
+        if dest in _blocked:
             continue
         if keep_active_set and current_split[dest] <= 0:
             continue
@@ -2349,11 +2375,18 @@ def _cascade_destination(
     min_free_mb: int,
     step: float,
     keep_active_set: bool,
+    blocked_dest: frozenset[int] = frozenset(),
 ) -> int | None:
     """Glas-Kaskade: die NÄCHSTE Karte nach ``src`` (in GPU-Listenreihenfolge
     = compute_cap DESC, total_mb DESC), die nach ``+step`` Layern noch
     ≥ ``min_free_mb`` frei bleibt — sonst die übernächste, bis ans Ende.
     ``None`` wenn keine Karte die Reserve hält.
+
+    ``blocked_dest``: GPU-Indizes, die NIE Ziel sein dürfen — die
+    reserve-belasteten TTS-/VLM-Side-Channel-GPUs. Ein Layer dort fräße
+    genau den Platz, den der Container später beansprucht (das war die
+    17:18:8:9:9 → 17:17:9:9:9-Degradation, die früher zum kompletten
+    Shift-Verbot führte).
 
     SSOT der Zielwahl für BEIDE Shift-Pfade — den Blind-Shift (Load-OOM,
     Frei aus Load-Sampling) UND den Smart-Refine (geladen-aber-knapp, Frei
@@ -2367,6 +2400,8 @@ def _cascade_destination(
     Ohne ``free_estimate``: Rückfall auf 'erste nachgelagerte (aktive) Karte'.
     """
     for i in range(src + 1, len(layers)):
+        if i in blocked_dest:
+            continue
         if keep_active_set and layers[i] <= 0:
             continue
         if free_estimate and i < len(free_estimate):
@@ -2389,6 +2424,7 @@ def _shift_one_layer_blind(
     free_estimate: tuple[int, ...] = (),
     min_free_mb: int = 0,
     layer_cost_per_gpu: tuple[float, ...] = (),
+    blocked_dest: frozenset[int] = frozenset(),
 ) -> tuple[float, ...] | None:
     """Kaskaden-Spill: einen Layer-Anteil von der OOM-Karte nehmen und auf
     die NÄCHSTE nachgelagerte Karte legen, die danach noch über der
@@ -2444,7 +2480,7 @@ def _shift_one_layer_blind(
     # Zielwahl über die gemeinsame Kaskaden-SSOT (identisch zum Smart-Refine).
     dest = _cascade_destination(
         src, layers, free_estimate, layer_cost_per_gpu,
-        min_free_mb, _STEP, keep_active_set,
+        min_free_mb, _STEP, keep_active_set, blocked_dest,
     )
     if dest is None:
         return None
