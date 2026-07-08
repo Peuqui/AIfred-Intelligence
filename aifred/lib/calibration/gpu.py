@@ -124,6 +124,26 @@ def gpu_uuid_labels() -> dict[str, str]:
     }
 
 
+def gpu_label(
+    gpu: GPU, position: int, labels: dict[str, str] | None = None
+) -> str:
+    """nvidia-smi-anchored label for a GPU: ``"GPU<smi_idx> (<name>)"``.
+
+    All calibration display uses this so a card carries the SAME number in
+    the log, the llama-swap config comments AND ``nvidia-smi`` — instead of
+    the compute-sorted list position, which disagrees for same-compute
+    cards (the 3× V100 tie-break by UUID vs. by PCI index). Falls back to
+    the caller's ``position`` + name when nvidia-smi is unavailable.
+
+    Pass a precomputed ``labels`` map (from :func:`gpu_uuid_labels`) when
+    labelling several GPUs in a loop to avoid re-querying nvidia-smi per
+    call.
+    """
+    if labels is None:
+        labels = gpu_uuid_labels()
+    return labels.get(gpu.uuid, f"GPU{position} ({gpu.name})")
+
+
 def enumerate_gpus() -> list[GPU]:
     """Return all visible GPUs, sorted by compute_cap DESC, name, UUID.
 

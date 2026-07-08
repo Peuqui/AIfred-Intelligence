@@ -2239,9 +2239,13 @@ class CalibrationMixin(rx.State, mixin=True):
                     _vlm_name = (
                         _all_gpus_v[_vlm_pos].name if _vlm_pos >= 0 else "?"
                     )
+                    from ..lib.calibration.gpu import gpu_uuid_labels
+                    _vlm_gpu_label = gpu_uuid_labels().get(
+                        _vlm_u, f"GPU{_vlm_pos} ({_vlm_name})"
+                    )
                     self._cal_debug(  # type: ignore[attr-defined]
                         f"   📌 {vlm_label} reserve: {_vlm_mb} MB on "
-                        f"GPU{_vlm_pos} {_vlm_name}"
+                        f"{_vlm_gpu_label}"
                     )
                     yield
 
