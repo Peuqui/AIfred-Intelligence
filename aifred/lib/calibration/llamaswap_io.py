@@ -32,18 +32,56 @@ def _read_yaml(config_path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+# Matches a dumped ``- CUDA_VISIBLE_DEVICES=GPU-…,GPU-…`` env list item
+# (optionally quoted by yaml.dump). Group 1 = indentation, group 2 = the
+# comma-separated UUID list.
+_CUDA_VIS_LINE_RE = re.compile(
+    r'^(\s*)-\s+["\']?CUDA_VISIBLE_DEVICES=(GPU-[^"\'\s]+)["\']?\s*$'
+)
+
+
+def _annotate_gpu_labels(text: str) -> str:
+    """Insert a human-readable comment above every ``CUDA_VISIBLE_DEVICES``
+    UUID line, translating each UUID → ``"GPU<idx> (<name>)"``.
+
+    PyYAML strips comments on every dump, so this runs on the serialized
+    text right before it hits disk and is regenerated on every write —
+    the comment can never go stale. The UUID stays the single source of
+    truth; the comment is purely derived. When nvidia-smi is unavailable
+    the label map is empty and the text is returned untouched.
+    """
+    from .gpu import gpu_uuid_labels
+
+    labels = gpu_uuid_labels()
+    if not labels:
+        return text
+    out: list[str] = []
+    for line in text.split("\n"):
+        m = _CUDA_VIS_LINE_RE.match(line)
+        if m:
+            indent, uuid_csv = m.group(1), m.group(2)
+            readable = ", ".join(
+                labels.get(u, u) for u in uuid_csv.split(",")
+            )
+            out.append(f"{indent}# {readable}")
+        out.append(line)
+    return "\n".join(out)
+
+
 def _write_yaml(config_path: Path, config: dict) -> None:
     # Atomar (tmp + os.replace): Ein Kill/Crash mitten im dump truncatet
     # sonst die config.yaml — und damit ALLE llama-swap-Profile, auch die
     # handgepflegten anderer Modelle. Eine Kalibrierung schreibt dutzende
     # Male; jeder Write ist ein Full-Rewrite der Datei. Gleiche Mechanik
     # wie model_vram_cache.save_cache.
+    text = yaml.dump(
+        config, default_flow_style=False,
+        allow_unicode=True, sort_keys=False,
+    )
+    text = _annotate_gpu_labels(text)
     tmp_path = config_path.with_suffix(config_path.suffix + ".tmp")
     with open(tmp_path, "w", encoding="utf-8") as f:
-        yaml.dump(
-            config, f, default_flow_style=False,
-            allow_unicode=True, sort_keys=False,
-        )
+        f.write(text)
     os.replace(tmp_path, config_path)
 
 
