@@ -2,7 +2,7 @@
 Vision/Image Processing Utilities
 
 Multi-backend vision model detection and image handling for AIfred Intelligence.
-Supports Ollama, llama.cpp (via llama-swap), vLLM, and TabbyAPI backends.
+Supports Ollama, llama.cpp (via llama-swap), and vLLM backends.
 """
 
 import logging
@@ -234,7 +234,7 @@ async def is_vision_model(state, model_name: str) -> bool:
     Detection Strategy by Backend:
     1. **Ollama**: Query /api/show for model_info with .vision.* keys
     2. **llama.cpp**: Name-based pattern matching (llama-swap keys are descriptive)
-    3. **vLLM/TabbyAPI**: Read HuggingFace config.json for architectures/model_type
+    3. **vLLM**: Read HuggingFace config.json for architectures/model_type
     4. **Fallback**: Name-based pattern matching
 
     Args:
@@ -298,8 +298,8 @@ async def is_vision_model(state, model_name: str) -> bool:
         elif backend_type == "llamacpp":
             return is_vision_model_sync(model_name)
 
-        # === vLLM/TabbyAPI: Check HuggingFace config.json ===
-        elif backend_type in ["vllm", "tabbyapi"]:
+        # === vLLM: Check HuggingFace config.json ===
+        elif backend_type == "vllm":
             import json
 
             # Convert model name to HF cache path

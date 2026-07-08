@@ -128,7 +128,6 @@ def restart_service(service_name: str, check: bool = False) -> bool:
 # Process patterns for AIfred backends (centralized constants)
 PROCESS_PATTERNS = {
     "vllm": "vllm serve",
-    "tabbyapi": "tabbyapi",
 }
 
 
@@ -139,7 +138,7 @@ async def stop_backend_process(backend_type: str, wait_for_vram: bool = True) ->
     Convenience wrapper using PROCESS_PATTERNS.
 
     Args:
-        backend_type: Backend identifier ("vllm", "tabbyapi")
+        backend_type: Backend identifier ("vllm")
         wait_for_vram: Wait for GPU memory release
 
     Returns:
@@ -475,7 +474,7 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
     Used by TTS backend switches, calibration, and any other VRAM-freeing needs.
 
     Args:
-        backend_type: Active LLM backend ("llamacpp", "ollama", "vllm", "tabbyapi")
+        backend_type: Active LLM backend ("llamacpp", "ollama", "vllm")
         keep_tts: TTS engine to keep running ("xtts" or "moss"). Empty = stop all.
 
     Returns list of actions taken.
@@ -517,13 +516,6 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
                 actions.append("vLLM stopped")
         except Exception as e:
             log_message(f"⚠️ vLLM stop failed: {e}", "warning")
-    elif backend_type == "tabbyapi":
-        # TabbyAPI: stop service
-        try:
-            subprocess.run(["systemctl", "stop", "tabbyapi"], timeout=15, check=False)
-            actions.append("TabbyAPI stopped")
-        except Exception:
-            pass
 
     # 2. Stop TTS containers (skip the one we want to keep + engines
     # whose image isn't installed locally — handled centrally by

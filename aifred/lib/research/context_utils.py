@@ -182,8 +182,8 @@ def get_agent_num_ctx(
             log_message(f"⚠️ Model {effective_id} not found in llama-swap YAML → fallback {fallback}")
             num_ctx = fallback
             source = "fallback"
-    elif backend_type in ("vllm", "tabbyapi"):
-        # vLLM/TabbyAPI: context is fixed at server startup (--max-model-len)
+    elif backend_type == "vllm":
+        # vLLM: context is fixed at server startup (--max-model-len)
         vllm_ctx = getattr(state, 'vllm_max_tokens', 0)
         if vllm_ctx > 0:
             num_ctx = vllm_ctx
@@ -211,7 +211,7 @@ def get_agent_num_ctx(
     # TTS VRAM reservation — only for backends where context is dynamic (Ollama).
     # For llamacpp: llama-swap YAML has separate TTS-calibrated profiles with
     # adjusted tensor-split. The -c value IS the ground truth — no reduction needed.
-    # For vLLM/TabbyAPI/cloud: context is fixed at server startup.
+    # For vLLM/cloud: context is fixed at server startup.
     enable_tts = getattr(state, 'enable_tts', False)
     tts_engine = getattr(state, 'tts_engine', '')
 

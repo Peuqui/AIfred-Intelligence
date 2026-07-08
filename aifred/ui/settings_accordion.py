@@ -333,7 +333,7 @@ def _ctx_column(
 
     ``extra_disabled`` (Reflex-Var oder Python-bool): zusätzlicher
     Disabled-Grund. Für Chat-Agenten typischerweise
-    ``AIState.backend_type != "ollama"`` — bei llama.cpp/vLLM/TabbyAPI
+    ``AIState.backend_type != "ollama"`` — bei llama.cpp/vLLM
     wird ``num_ctx`` zur Modell-Lade-Zeit fix gesetzt, per Request
     nicht mehr änderbar; Toggle + Input greifen also nicht und werden
     grau. Vision ist davon ausgenommen (läuft immer via Ollama)."""
@@ -581,7 +581,7 @@ def llm_parameters_accordion() -> rx.Component:
 
                     # Per-LLM Context Control - Four columns with toggle + input
                     # Chat-Agenten: num_ctx wird nur bei Ollama zur Request-
-                    # Zeit \u00fcbernommen. Bei llama.cpp/vLLM/TabbyAPI ist die
+                    # Zeit \u00fcbernommen. Bei llama.cpp/vLLM ist die
                     # ctx-Gr\u00f6\u00dfe zur Modell-Lade-Zeit fix (yaml/CLI-Args).
                     # Vision ist immer Ollama \u2192 davon ausgenommen.
                     rx.hstack(
@@ -610,7 +610,7 @@ def llm_parameters_accordion() -> rx.Component:
                             extra_disabled=AIState.backend_type != "ollama",
                         ),
                         # Vision num_ctx \u2014 gilt nur bei Ollama-Chat-Backend.
-                        # Bei llama-swap/vLLM/TabbyAPI laufen Vision-Calls
+                        # Bei llama-swap/vLLM laufen Vision-Calls
                         # \u00fcber den Vigilantia-Pfad (Server-Side), der den
                         # State-Override nicht sieht \u2014 Toggle w\u00e4re wirkungslos.
                         _ctx_column(
@@ -791,10 +791,6 @@ def settings_accordion() -> rx.Component:
                                     AIState.available_backends.contains("vllm"),
                                     rx.select.item("vLLM", value="vllm"),
                                 ),
-                                rx.cond(
-                                    AIState.available_backends.contains("tabbyapi"),
-                                    rx.select.item("TabbyAPI", value="tabbyapi"),
-                                ),
                                 rx.select.item("Cloud APIs", value="cloud_api"),
                             ),
                             value=AIState.backend_type,
@@ -855,8 +851,8 @@ def settings_accordion() -> rx.Component:
                                             rx.text(
                                                 rx.cond(
                                                     AIState.ui_language == "de",
-                                                    "vLLM & TabbyAPI ben\u00f6tigen Compute 7.0+",
-                                                    "vLLM & TabbyAPI require Compute 7.0+"
+                                                    "vLLM ben\u00f6tigt Compute 7.0+",
+                                                    "vLLM requires Compute 7.0+"
                                                 ),
                                                 font_size="10px",
                                                 color="#aaa",

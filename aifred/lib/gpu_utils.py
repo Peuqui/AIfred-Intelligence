@@ -76,7 +76,6 @@ def total_actual_vram_gb(gpu_info) -> float:
 # Each backend implements its own logic:
 # - Ollama: Query /api/ps endpoint
 # - vLLM: Always True (model fixed at server start)
-# - TabbyAPI: Always True (model fixed at server start)
 
 
 def get_gpu_memory_info(gpu_index: int = 0) -> Optional[Dict]:
@@ -602,7 +601,7 @@ async def calculate_vram_based_context(
     """
     Calculate maximum practical context window based on available VRAM
 
-    UNIVERSAL FUNCTION FOR ALL BACKENDS (Ollama, vLLM, TabbyAPI)
+    UNIVERSAL FUNCTION FOR ALL BACKENDS (Ollama, vLLM)
 
     For Ollama: Reads per-model use_extended setting from VRAM cache automatically.
 
@@ -613,7 +612,7 @@ async def calculate_vram_based_context(
         vram_context_ratio: MB of VRAM per context token (default: auto-detect via MoE)
         safety_margin_mb: MB to reserve for system (default: 512 MB from config)
         model_is_loaded: Whether model is already loaded in VRAM (affects calculation)
-        backend_type: Backend type ("ollama", "vllm", "tabbyapi") for MoE detection
+        backend_type: Backend type ("ollama", "vllm") for MoE detection
 
     Returns:
         tuple[int, list[str]]: (num_ctx, debug_messages)
@@ -662,7 +661,7 @@ async def calculate_vram_based_context(
 
     # PRIORITY 2: Auto-detect VRAM context ratio if not provided
     if vram_context_ratio is None:
-        # Detect MoE for Ollama and llama.cpp (vLLM/TabbyAPI use manual override)
+        # Detect MoE for Ollama and llama.cpp (vLLM uses manual override)
         if backend_type in ("ollama", "llamacpp"):
             is_moe = is_moe_model(model_name)
             architecture = "moe" if is_moe else "dense"
@@ -681,7 +680,7 @@ async def calculate_vram_based_context(
                 model_type = "MoE" if is_moe else "Dense"
                 debug_msgs.append(f"🔍 {model_type} detected → {format_number(vram_context_ratio, 2)} MB/token")
         else:
-            # For vLLM/TabbyAPI: Default to Dense (safer)
+            # For vLLM: Default to Dense (safer)
             vram_context_ratio = VRAM_CONTEXT_RATIO_DENSE
 
     # Check if VRAM calculation is enabled

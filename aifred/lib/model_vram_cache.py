@@ -2,7 +2,7 @@
 Unified Model VRAM Cache Management
 
 Manages a JSON-based cache for VRAM-related measurements across ALL backends
-(Ollama, vLLM, TabbyAPI). Combines:
+(Ollama, vLLM). Combines:
 - VRAM ratio measurements (MB/token) - Universal for all backends
 - vLLM context calibrations - vLLM-specific
 
@@ -11,7 +11,7 @@ Cache location: data/model_vram_cache.json
 Structure:
 {
     "model_name": {
-        "backend": "ollama|vllm|tabbyapi",
+        "backend": "ollama|vllm",
         "architecture": "moe|dense",
         "native_context": 262144,
         "gpu_model": "NVIDIA GeForce RTX 3090 Ti",
@@ -230,7 +230,7 @@ def add_vram_measurement(
         vram_before_mb: Free VRAM before inference (after model load)
         vram_during_mb: Free VRAM during inference (KV cache allocated)
         architecture: "moe" or "dense"
-        backend: "ollama", "vllm", or "tabbyapi"
+        backend: "ollama" or "vllm"
     """
     # Calculate MB per token from the measurement
     vram_used_by_context = vram_before_mb - vram_during_mb

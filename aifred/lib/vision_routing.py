@@ -86,7 +86,7 @@ def vision_swap_status(
     Chat-Modell für die Dauer der Bildanalyse aus dem VRAM zu verdrängen.
     Das ist genau dann der Fall, wenn das gewählte Modell über
     :func:`maybe_route_to_ollama` umgeleitet würde — also wenn der aktive
-    Backend routbar ist (llama-swap/vLLM/TabbyAPI) UND ein Ollama-Pendant
+    Backend routbar ist (llama-swap/vLLM) UND ein Ollama-Pendant
     existiert. Ist der Backend bereits Ollama, läuft es ohnehin ohne Swap.
 
     ``ollama_names`` erlaubt dem Caller, die (teure) Ollama-VLM-Liste
@@ -123,7 +123,7 @@ def vlm_key_for_model(name: str) -> str:
 # Local on-prem backends where re-routing to Ollama makes sense. Cloud-API
 # is excluded — the user explicitly chose a cloud provider and we don't
 # silently fall back to a local Ollama model with the same name.
-_ROUTABLE_BACKENDS = frozenset({"llamacpp", "vllm", "tabbyapi"})
+_ROUTABLE_BACKENDS = frozenset({"llamacpp", "vllm"})
 
 
 def maybe_route_to_ollama(
@@ -140,8 +140,8 @@ def maybe_route_to_ollama(
     * If ``backend_type`` is already ``"ollama"``: pass through unchanged.
     * If ``backend_type`` is a cloud-API backend: pass through unchanged
       (the user explicitly chose a cloud provider — no silent fallback).
-    * If ``backend_type`` is a routable on-prem backend (llama-swap, vllm,
-      tabbyapi) and an Ollama equivalent for ``vision_model`` exists:
+    * If ``backend_type`` is a routable on-prem backend (llama-swap, vllm)
+      and an Ollama equivalent for ``vision_model`` exists:
       route to Ollama (returns Ollama URL + the equivalent Ollama tag +
       ``"ollama"`` type).
     * Otherwise: pass through unchanged.

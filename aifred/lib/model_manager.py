@@ -89,17 +89,13 @@ def is_backend_compatible(model_dir: Path, backend: str) -> bool:
     - compressed-tensors (quantization_config.quant_method = "compressed-tensors")
     - FP16/BF16 (no quantization_config)
 
-    TabbyAPI supports:
-    - EXL2 (quantization_config.quant_method = "exl2")
-    - EXL3 (quantization_config.quant_method = "exl3" or model name contains "exl3")
-
-    Both do NOT support:
+    Does NOT support:
     - GGUF (Ollama-only)
     - Non-LLM models (Whisper, Vision, etc.)
 
     Args:
         model_dir: Path to the model directory (e.g., from HuggingFace cache)
-        backend: Backend name ("vllm" or "tabbyapi")
+        backend: Backend name ("vllm")
 
     Returns:
         True if model is compatible with the specified backend
@@ -139,18 +135,11 @@ def is_backend_compatible(model_dir: Path, backend: str) -> bool:
             if backend == "vllm":
                 # vLLM supports: awq, gptq, compressed-tensors
                 return quant_method in ["awq", "gptq", "compressed-tensors"]
-            elif backend == "tabbyapi":
-                # TabbyAPI supports: exl2, exl3
-                # Also check model name for "exl2" or "exl3" (some repos don't have quant_method in config)
-                return quant_method in ["exl2", "exl3"] or any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
         else:
             # No quantization config
             if backend == "vllm":
                 # FP16/BF16 (supported by vLLM)
                 return True
-            elif backend == "tabbyapi":
-                # TabbyAPI needs quantization - check model name for EXL format
-                return any(fmt in model_name.lower() for fmt in ["exl2", "exl3"])
 
     except (KeyError, AttributeError) as e:
         logger.warning(f"Failed to parse config.json for model '{model_name}': {e}")
@@ -167,7 +156,7 @@ def backend_supports_dynamic_models(backend: Any) -> bool:
         backend: Backend instance (from BackendFactory.create())
 
     Returns:
-        True if backend can load different models on-demand (like Ollama, TabbyAPI)
+        True if backend can load different models on-demand (like Ollama)
         False if backend requires server restart for model changes (like vLLM)
 
     Usage:

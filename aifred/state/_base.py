@@ -396,8 +396,6 @@ class AIState(  # type: ignore[misc]
             return config.DEFAULT_OLLAMA_URL
         elif self.backend_type == "vllm":
             return config.DEFAULT_VLLM_URL
-        elif self.backend_type == "tabbyapi":
-            return config.DEFAULT_TABBYAPI_URL
         elif self.backend_type == "llamacpp":
             return config.DEFAULT_LLAMACPP_URL
         elif self.backend_type == "cloud_api":
@@ -607,8 +605,8 @@ class AIState(  # type: ignore[misc]
                 self.add_debug(f"⚠️ High YaRN factor ({factor_float}x) may exceed VRAM → possible crash!")
                 self.add_debug("💡 Tip: For VRAM issues, reduce factor or use more GPU RAM")
 
-            # Force restart backend for YaRN change (vLLM/TabbyAPI)
-            if self.backend_type in ["vllm", "tabbyapi"]:
+            # Force restart backend for YaRN change (vLLM)
+            if self.backend_type == "vllm":
                 self.add_debug("🔄 Backend restart for YaRN change...")
 
                 # Show loading spinner
@@ -616,10 +614,7 @@ class AIState(  # type: ignore[misc]
                 yield  # Update UI to show spinner
 
                 try:
-                    if self.backend_type == "vllm":
-                        await self._restart_vllm_with_new_config()
-                    else:  # tabbyapi
-                        await self.initialize_backend()  # TabbyAPI might not need full restart
+                    await self._restart_vllm_with_new_config()
 
                     # Show actual factor after restart (might have been reduced by auto-calibration)
                     actual_factor = self.yarn_factor

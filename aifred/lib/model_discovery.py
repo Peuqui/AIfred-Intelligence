@@ -2,7 +2,7 @@
 Model Discovery - Backend-agnostic model discovery for AIfred
 
 Provides functions to discover available models from different backends:
-- vLLM/TabbyAPI: Scan HuggingFace cache
+- vLLM: Scan HuggingFace cache
 - Ollama: Query server API
 - llama.cpp: Query llama-swap API
 
@@ -23,10 +23,10 @@ def discover_huggingface_models(
     is_compatible_fn: Callable[[Path, str], bool]
 ) -> Dict[str, str]:
     """
-    Discover models from HuggingFace cache for vLLM/TabbyAPI backends.
+    Discover models from HuggingFace cache for vLLM backends.
 
     Args:
-        backend_type: "vllm" or "tabbyapi"
+        backend_type: "vllm"
         is_compatible_fn: Function(model_dir, backend_type) -> bool
 
     Returns:
@@ -168,16 +168,16 @@ def discover_models(
     Unified model discovery for any backend type.
 
     Args:
-        backend_type: "ollama", "vllm", "tabbyapi", or "llamacpp"
+        backend_type: "ollama", "vllm", or "llamacpp"
         backend_url: Required for Ollama and llamacpp backends
-        is_compatible_fn: Required for vLLM/TabbyAPI backends
+        is_compatible_fn: Required for vLLM backends
 
     Returns:
         Sorted dict mapping model_id to display label (by family, then size)
     """
-    if backend_type in ["vllm", "tabbyapi"]:
+    if backend_type == "vllm":
         if not is_compatible_fn:
-            raise ValueError("is_compatible_fn required for vLLM/TabbyAPI")
+            raise ValueError("is_compatible_fn required for vLLM")
         unsorted = discover_huggingface_models(backend_type, is_compatible_fn)
 
     elif backend_type == "ollama":

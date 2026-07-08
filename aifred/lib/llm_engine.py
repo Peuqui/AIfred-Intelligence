@@ -67,7 +67,7 @@ async def call_llm(
         detected_language: Sprache für Prompts ("de" oder "en")
         temperature_mode: "auto" oder "manual"
         temperature: Temperature-Wert (nur bei manual relevant)
-        backend_type: Backend-Typ ("ollama", "vllm", "tabbyapi", "llamacpp", "cloud_api")
+        backend_type: Backend-Typ ("ollama", "vllm", "llamacpp", "cloud_api")
         backend_url: Backend-URL
         enable_thinking: Thinking Mode aktiviert?
         state: AIState Objekt für num_ctx Lookup (optional)

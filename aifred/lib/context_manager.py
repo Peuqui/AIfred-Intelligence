@@ -567,7 +567,6 @@ async def calculate_dynamic_num_ctx(
     # NEW: Backend-specific practical limit calculation
     # - Ollama: Dynamic VRAM calculation (based on current free VRAM)
     # - vLLM: Cached startup value (FIXED, cannot be changed at runtime)
-    # - TabbyAPI: Cached startup value or API query
     vram_debug_msgs = []
     backend = llm_client._get_backend()
 
@@ -599,7 +598,7 @@ async def calculate_dynamic_num_ctx(
             max_practical_ctx = max(2048, max_practical_ctx - moss_token_reserve)
             vram_debug_msgs.append(f"🔊 MOSS-TTS reserved: ~{format_number(MOSS_TTS_VRAM_MB)} MB ({format_number(moss_token_reserve)} tok)")
 
-    # Ollama/vLLM/TabbyAPI/llama.cpp: Dynamic num_ctx calculation possible
+    # Ollama/vLLM/llama.cpp: Dynamic num_ctx calculation possible
     # gpu_utils.calculate_vram_based_context() returns:
     # - Calibrated: the measured max_context_gpu_only value
     # - Uncalibrated: dynamically calculated VRAM-based value
@@ -1063,7 +1062,7 @@ async def prepare_automatik_llm(
         # Only Ollama and llama.cpp benefit from preloading:
         # - Ollama: Set num_ctx to avoid 262K default allocation
         # - llama.cpp: Trigger llama-swap cold-start before user's first question
-        # - vLLM/TabbyAPI: Models stay loaded, no preload needed
+        # - vLLM: Models stay loaded, no preload needed
         if backend_type not in ("ollama", "llamacpp"):
             yield {"type": "result", "data": (True, 0.0)}
             return

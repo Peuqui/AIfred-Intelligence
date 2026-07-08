@@ -1,7 +1,7 @@
 """Backend mixin for AIfred state.
 
 Handles backend initialization, switching between backends (Ollama, llama.cpp,
-vLLM, TabbyAPI, Cloud APIs), model loading, vision detection, and on_load.
+vLLM, Cloud APIs), model loading, vision detection, and on_load.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class BackendMixin(rx.State, mixin=True):
     """Mixin for backend initialization, switching, and model management."""
 
     # ── Backend Settings ──────────────────────────────────────────
-    backend_type: str = "ollama"  # "ollama", "vllm", "tabbyapi", "cloud_api"
+    backend_type: str = "ollama"  # "ollama", "vllm", "llamacpp", "cloud_api"
     backend_id: str = "ollama"  # Pure backend ID (synced with backend_type)
     current_backend_label: str = "Ollama"  # Display label for current backend
     backend_url: str = config.DEFAULT_OLLAMA_URL
@@ -51,7 +51,6 @@ class BackendMixin(rx.State, mixin=True):
     available_backends_dict: Dict[str, str] = {
         "ollama": "Ollama",
         "llamacpp": "llama.cpp",
-        "tabbyapi": "TabbyAPI",
         "vllm": "vLLM",
         "cloud_api": "Cloud APIs",
     }
@@ -98,10 +97,10 @@ class BackendMixin(rx.State, mixin=True):
     gpu_vram_gb: float = 0
     gpu_all_names: List[str] = []
     available_backends: List[str] = [
-        "ollama", "llamacpp", "tabbyapi", "vllm", "cloud_api",
+        "ollama", "llamacpp", "vllm", "cloud_api",
     ]
     available_backends_list: List[str] = [
-        "Ollama", "llama.cpp", "TabbyAPI", "vLLM", "Cloud APIs",
+        "Ollama", "llama.cpp", "vLLM", "Cloud APIs",
     ]
 
     # ── vLLM YaRN Settings ────────────────────────────────────────
@@ -152,7 +151,6 @@ class BackendMixin(rx.State, mixin=True):
             "ollama": "Ollama",
             "llamacpp": "llama.cpp",
             "vllm": "vLLM",
-            "tabbyapi": "TabbyAPI",
         }
         names = [display_names.get(b, b) for b in self.available_backends if b != "cloud_api"]
         return ", ".join(names) if names else ""
@@ -166,8 +164,6 @@ class BackendMixin(rx.State, mixin=True):
             grouped.append("ollama")
         grouped.append("separator")
         grouped.append("header_modern")
-        if "tabbyapi" in self.available_backends:
-            grouped.append("tabbyapi")
         if "vllm" in self.available_backends:
             grouped.append("vllm")
         return grouped
@@ -768,8 +764,8 @@ class BackendMixin(rx.State, mixin=True):
                 if self.salomo_model_id:  # type: ignore[attr-defined, has-type]
                     self.add_debug(f"⚙️ Using default salomo_model from config.py: {self.salomo_model_id}")  # type: ignore[attr-defined, has-type]
 
-            # vLLM and TabbyAPI can only load ONE model at a time
-            if self.backend_type in ["vllm", "tabbyapi"]:
+            # vLLM can only load ONE model at a time
+            if self.backend_type == "vllm":
                 if self.automatik_model != self.aifred_model:
                     self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.aifred_model} for both AIfred and Automatic")  # type: ignore[attr-defined, has-type]
                     self.automatik_model = self.aifred_model
@@ -974,7 +970,7 @@ class BackendMixin(rx.State, mixin=True):
             # Load models using centralized discovery module
             from ..lib.model_discovery import discover_models
             try:
-                if self.backend_type in ["vllm", "tabbyapi"]:
+                if self.backend_type == "vllm":
                     self.available_models_dict = discover_models(
                         self.backend_type,
                         is_compatible_fn=is_backend_compatible
@@ -1134,7 +1130,7 @@ class BackendMixin(rx.State, mixin=True):
 
                 self.add_debug(f"✅ {len(self.available_models)} models available")  # type: ignore[attr-defined, has-type]
                 self.add_debug(f"   {get_agent_label('aifred')}: {aifred_display}")  # type: ignore[attr-defined, has-type]
-                if self.backend_type.lower() not in ["vllm", "tabbyapi"]:
+                if self.backend_type.lower() != "vllm":
                     if self.automatik_model_id:
                         self.add_debug(f"   \u2728 Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")  # type: ignore[attr-defined, has-type]
                     else:
@@ -1500,13 +1496,6 @@ class BackendMixin(rx.State, mixin=True):
             else:
                 self.add_debug("ℹ️ vLLM server was not running")  # type: ignore[attr-defined, has-type]
 
-        elif old_backend == "tabbyapi":
-            self.add_debug("🛑 Stopping TabbyAPI server...")  # type: ignore[attr-defined, has-type]
-            if await stop_backend_process("tabbyapi"):
-                self.add_debug("✅ TabbyAPI server stopped")  # type: ignore[attr-defined, has-type]
-            else:
-                self.add_debug("ℹ️ TabbyAPI server was not running")  # type: ignore[attr-defined, has-type]
-
         elif old_backend == "llamacpp":
             self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined, has-type]
             from ..lib.process_utils import stop_llama_swap
@@ -1589,7 +1578,7 @@ class BackendMixin(rx.State, mixin=True):
             self.salomo_model_id = target_salomo_model or ""  # type: ignore[attr-defined, has-type]
             self.salomo_model = target_salomo_model or ""  # type: ignore[attr-defined, has-type]
 
-            if new_backend in ["vllm", "tabbyapi"]:
+            if new_backend == "vllm":
                 if self.automatik_model_id:
                     self.add_debug(f"⚠️ {new_backend} can only load one model - Automatic will use AIfred-LLM")  # type: ignore[attr-defined, has-type]
                 self.automatik_model = ""
@@ -1740,8 +1729,8 @@ class BackendMixin(rx.State, mixin=True):
 
         self._save_settings()  # type: ignore[attr-defined, has-type]
 
-        # vLLM/TabbyAPI: Force restart backend for model change
-        if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
+        # vLLM: Force restart backend for model change
+        if self.backend_type == "vllm" and old_model != model:
             if self.backend_type == "vllm" and self.automatik_model != model:
                 self.automatik_model = model
 
@@ -1803,7 +1792,7 @@ class BackendMixin(rx.State, mixin=True):
         else:
             self.add_debug("⚡ Automatic-LLM: (same as Main-LLM)")  # type: ignore[attr-defined, has-type]
 
-        if self.backend_type in ["vllm", "tabbyapi"] and old_model != model:
+        if self.backend_type == "vllm" and old_model != model:
             self.add_debug("🔄 Backend restart for Automatic model switch...")  # type: ignore[attr-defined, has-type]
             await self.initialize_backend()
             self.add_debug("✅ New Automatic model loaded")  # type: ignore[attr-defined, has-type]
