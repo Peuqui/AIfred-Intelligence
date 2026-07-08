@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 import aifred.lib.calibration.flow as flow
 from aifred.lib.calibration.flow import (
     _binary_search_fitting_ctx,
@@ -33,6 +35,14 @@ from aifred.lib.calibration.verifier import VerifyResult
 
 TOTAL_LAYERS = 61
 MODEL_MB = 30000.0
+
+
+@pytest.fixture(autouse=True)
+def _clear_bias_cache():
+    """The cross-variant bias cache is module-level; isolate every test."""
+    flow._MODEL_BIAS_CACHE.clear()
+    yield
+    flow._MODEL_BIAS_CACHE.clear()
 
 
 def _vmodel(split, slope_per_layer):
@@ -219,6 +229,109 @@ def test_binary_search_finds_highest_fitting_ctx(monkeypatch):
     assert res.best_r is not None and res.best_r.fits
     assert res.best_ctx % 256 == 0
     assert threshold - 512 <= res.best_ctx <= threshold
+
+
+def _drain_search_verbose(**kwargs):
+    """Like _drain_search but also returns the yielded progress strings."""
+    msgs: list[str] = []
+
+    async def run():
+        res = None
+        async for item in _binary_search_fitting_ctx(**kwargs):
+            if isinstance(item, _CtxSearchResult):
+                res = item
+            else:
+                msgs.append(item)
+        assert res is not None
+        return res
+    res = asyncio.run(run())
+    return res, msgs
+
+
+def test_seeded_bias_trusts_math_instead_of_crawling(monkeypatch):
+    """With a real vram_model AND a seeded bias, the tight regime no longer
+    forces pure bisection — the math is trusted (a 'math max' probe appears).
+    This is the fixed-512-floor fix: previously 150-200 MB free < 512 meant
+    'too tight' and the search bisected the whole way."""
+    split = (17.0, 18.0, 9.0, 9.0, 8.0)  # sums to TOTAL_LAYERS (61)
+    vmodel = _vmodel(split, [0.006, 0.006, 0.006, 0.006, 0.006])
+    threshold = 150016  # fits iff ctx <= this (256-multiple)
+
+    async def _fake_verify(*, context, **kw):
+        if context <= threshold:
+            return VerifyResult(True, (2000,) * 5, None, "fit")
+        return VerifyResult(False, (150,) * 5, None, "oom")
+
+    monkeypatch.setattr(flow, "verify", _fake_verify)
+    res, msgs = _drain_search_verbose(
+        current_split=split, candidate=_candidate(split, vram_model=vmodel),
+        model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
+        full_cmd="--model x", port=1, env=None, probe_thinking=False,
+        thinks_seen=None, status_prefix="t", lo=8192, hi=200000,
+        iteration=0, initial_load_sig=None, initial_bias_mb=120,
+    )
+    assert res.best_r is not None and res.best_r.fits
+    assert res.best_ctx <= threshold
+    # The math was trusted at least once (not the old always-bisect crawl).
+    assert any("math max" in m for m in msgs)
+
+
+def test_no_model_still_bisects(monkeypatch):
+    """Without a vram_model the math is meaningless, so the search must keep
+    bisecting (no seeded/measured bias is trusted) — no regression."""
+    split = (17.0, 18.0, 9.0, 9.0, 8.0)
+    threshold = 98304
+
+    async def _fake_verify(*, context, **kw):
+        if context <= threshold:
+            return VerifyResult(True, (2000,) * 5, None, "fit")
+        return VerifyResult(False, (150,) * 5, None, "oom")
+
+    monkeypatch.setattr(flow, "verify", _fake_verify)
+    res, msgs = _drain_search_verbose(
+        current_split=split, candidate=_candidate(split, vram_model=None),
+        model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
+        full_cmd="--model x", port=1, env=None, probe_thinking=False,
+        thinks_seen=None, status_prefix="t", lo=8192, hi=200000,
+        iteration=0, initial_load_sig=None, initial_bias_mb=0,
+    )
+    assert res.best_r is not None and res.best_r.fits
+    assert res.best_ctx <= threshold
+    assert not any("math max" in m for m in msgs)
+
+
+def test_cross_variant_bias_cache_carries_to_next_variant(monkeypatch):
+    """Point 2 / cross-engine: variant 1 measures the model+hardware bias and
+    caches it; variant 2 (same model+GPUs) then trusts the math from probe 1
+    instead of re-learning it (never hits the 'unmeasured bias' floor)."""
+    split = (17.0, 18.0, 9.0, 9.0, 8.0)
+    vmodel = _vmodel(split, [0.006] * 5)
+    threshold = 150016
+
+    async def _fake_verify(*, context, **kw):
+        if context <= threshold:
+            return VerifyResult(True, (2000,) * 5, None, "fit")
+        return VerifyResult(False, (150,) * 5, None, "oom")
+
+    monkeypatch.setattr(flow, "verify", _fake_verify)
+    common = dict(
+        current_split=split, candidate=_candidate(split, vram_model=vmodel),
+        model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
+        full_cmd="--model x", port=1, env=None, probe_thinking=False,
+        thinks_seen=None, status_prefix="v", lo=8192, hi=200000,
+        iteration=0, initial_load_sig=None, initial_bias_mb=0,
+    )
+    # Variant 1: no seed, no cache — learns and caches the bias.
+    res1, _ = _drain_search_verbose(**common)
+    assert res1.best_r is not None and res1.best_r.fits
+    assert any(v > 0 for v in flow._MODEL_BIAS_CACHE.values())
+
+    # Variant 2: same model+GPUs, still initial_bias_mb=0 — the cache seeds it,
+    # so the search never falls into the unmeasured-bias floor.
+    res2, msgs2 = _drain_search_verbose(**common)
+    assert res2.best_r is not None and res2.best_r.fits
+    assert not any("unmeasured bias" in m for m in msgs2)
+    assert any("math max" in m for m in msgs2)
 
 
 def test_binary_search_stops_on_ctx_independent_load_death(monkeypatch):
