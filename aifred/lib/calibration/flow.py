@@ -665,6 +665,80 @@ def _weights_fit(
     return True, "weights fit"
 
 
+def _derive_reserved_split(
+    base_split: tuple[float, ...],
+    reserve_idxs: list[int],
+    gpus: list[GPU],
+    budget: Budget,
+    model: Model,
+) -> tuple[tuple[float, ...], dict[int, tuple[float, float]]]:
+    """Leite den Split für reserve-belastete GPUs aus der verifizierten
+    Basis ab — Prinzip der überlaufenden Gläser.
+
+    Jede GPU in ``reserve_idxs`` (TTS- und/oder VLM-Side-Channel) verliert
+    Layer proportional zu ihrem verbliebenen ``free/total``; der so
+    verdrängte Layer-Anteil (``lost``) läuft in die Karten mit echtem
+    Headroom über. Headroom = ``free − Gewichtsanteil − first-GPU-Handicap``
+    (der Handicap deckt den ctx-unabhängigen Load-Peak der ersten Karte je
+    Klasse: Output/Logits-Tensor, Compute-Workspace, MTP-Draft-Buffer).
+
+    Deckel: Eine Karte, die in der Basis bereits die tightest ihrer
+    Compute-Klasse ist UND Layer trägt (``first_in_class`` und base>0), ist
+    greedy randvoll gepackt und nimmt KEINEN Spill auf — ein zusätzlicher
+    Layer dort riskiert genau den Load-Peak, der bei GPU0 real OOMt
+    (Vigilantia-8B-Kombis: 16→17 auf der RTX 8000 = OOM). Idle-Karten
+    (base==0, das Ende der Kaskade) fangen den Überlauf ab — auch wenn sie
+    zufällig die ``first_in_class``-Karte ihrer Klasse sind (Tie-Break bei
+    gleich leeren V100), denn den Load-Peak trägt nur CUDA0, nicht eine
+    reine Datenkarte am Kaskaden-Ende.
+
+    Setup-agnostisch: kein Kartennamen-Heuristik, keine feste GPU-Position —
+    nur ``first_in_class``, ``free_mb`` und ``base_split``. Die bisherige
+    Ein-GPU-Ableitung (nur VLM) ist der Spezialfall ``len(reserve_idxs)==1``.
+
+    Returns: (auf ganze Layer quantisierter Split, {reserve_idx:
+    (ratio, new_layers)}) — das Dict nur fürs Logging.
+    """
+    adj = [float(x) for x in base_split]
+    total_base = sum(adj) or 1.0
+    reductions: dict[int, tuple[float, float]] = {}
+    lost = 0.0
+    for idx in reserve_idxs:
+        if adj[idx] <= 0:
+            continue
+        ratio = gpus[idx].free_mb / float(gpus[idx].total_mb or 1)
+        new_layers = adj[idx] * ratio
+        lost += adj[idx] - new_layers
+        adj[idx] = new_layers
+        reductions[idx] = (ratio, new_layers)
+
+    if lost > 0:
+        reserve_set = set(reserve_idxs)
+        targets: list[tuple[int, float]] = []
+        for i in range(len(gpus)):
+            if i in reserve_set:
+                continue
+            # Deckel: randvolle Spitzenkarte der Kaskade nimmt keinen Spill.
+            if gpus[i].first_in_class and adj[i] > 0:
+                continue
+            weight_mb = (adj[i] / total_base) * model.size_mb
+            handicap = (
+                budget.first_gpu_handicap if gpus[i].first_in_class else 0
+            )
+            headroom = gpus[i].free_mb - weight_mb - handicap
+            if headroom > 0:
+                targets.append((i, headroom))
+        total_headroom = sum(h for _, h in targets)
+        if total_headroom > 0:
+            for i, h in targets:
+                adj[i] += lost * h / total_headroom
+
+    return (
+        _quantize_split_to_layers(tuple(adj), model.total_layers),
+        reductions,
+    )
+
+
 def _track_failed_solo(
     best_free: float, best_ctx: int, free_mb: float, max_ctx: int,
 ) -> tuple[float, int]:
@@ -3007,200 +3081,166 @@ async def calibrate_tts_variant_from_base(
             yield line
         return
 
-    # ── VLM variant: proportional derivation from base_split ─────────────
-    # _project_cell fails when an artificial VLM reserve reduces the VLM
-    # GPU's budget below the next integer-layer boundary.  The conservative
-    # optimizer (safety_margin + first_gpu_handicap) then assigns one fewer
-    # layer than the model can actually hold, leaving 2-4 layers unplaced
-    # at every context.  The binary search converges on an overshoot result
-    # with context=0 and reports "no split leaves room for even the minimum
-    # context" even though the model fits in practice.
+    # ── VLM/TTS variant: proportional derivation from base_split ─────────
+    # _project_cell fails when an artificial side-channel reserve reduces a
+    # reserved GPU's budget below the next integer-layer boundary.  The
+    # conservative optimizer (safety_margin + first_gpu_handicap) then
+    # assigns one fewer layer than the model can actually hold, leaving 2-4
+    # layers unplaced at every context.  The binary search converges on an
+    # overshoot result with context=0 and reports "no split leaves room for
+    # even the minimum context" even though the model fits in practice.
     #
-    # Fix: derive the tensor-split proportionally from the proven
-    # base_split.  The VLM GPU's layer share shrinks proportionally to its
-    # effective free VRAM vs. its physical total; the lost layers are
-    # redistributed to the remaining GPUs proportional to their free VRAM.
-    # The proportional step produces non-integer values (e.g. 8.38 on
-    # V100) — those are then quantized to whole layers below, because
-    # llama.cpp only places WHOLE layers (a fractional -ts value is silently
-    # rounded; passing 1.5 vs 2 changed nothing empirically).
-    #
-    # Using total_mb (physical capacity) as the base reference makes this
-    # setup-agnostic: it correctly handles both VLM-only variants (where
-    # only the VLM reserve reduces the budget) and TTS×VLM variants (where
-    # TTS is running and has already reduced gpus[].free_mb, so
-    # free + vlm_reserve would undercount the base).
+    # Fix: derive the tensor-split proportionally from the proven base_split
+    # via _derive_reserved_split — the SSOT for "overflowing glasses".  It
+    # relieves EVERY reserved GPU (VLM side-channel and, for combos, the TTS
+    # GPU) proportionally and spills the freed layers onto the cards with
+    # real headroom, capping the randvoll top-of-class cards so the
+    # ctx-independent load peak can't OOM them (16→17 on CUDA0).  Setup-
+    # agnostic: no card-name heuristics, no fixed GPU count — only
+    # first_in_class / free_mb / total_mb / base_split.  The old single-GPU
+    # derivation is the len(reserve_idxs)==1 special case.
     if vlm_gpu_uuid and vlm_gpu_extra_reserve_mb > 0:
         _vlm_idx = next(
             (i for i, g in enumerate(gpus) if g.uuid == vlm_gpu_uuid), -1
         )
-        if (
-            _vlm_idx >= 0
-            and float(base_split[_vlm_idx]) > 0
-        ):
-            _base_ref = float(gpus[_vlm_idx].total_mb)
-            _ratio = gpus[_vlm_idx].free_mb / _base_ref
-            _new_vlm = float(base_split[_vlm_idx]) * _ratio
-            _lost = float(base_split[_vlm_idx]) - _new_vlm
-            _adj: list[float] = [float(x) for x in base_split]
-            _adj[_vlm_idx] = _new_vlm
-            # Spill-Ziele für die der VLM-GPU weggenommenen Layer: ALLE
-            # Karten — auch in der Basis idle gebliebene. Die Basis brauchte
-            # die letzte Kaskaden-Karte nicht, aber die VLM-Reserve
-            # verkleinert das Budget; die Glas-Kaskade muss dann in die
-            # nächste Karte überlaufen dürfen. Vorher waren nur die
-            # base-aktiven Karten Ziele: die verbleibenden vier wurden
-            # überladen (Restpuffer < 1 GB → OOM-Shift-Schleifen, je
-            # Versuch ein 3-5-min-Modell-Load), während eine leere P40 mit
-            # 24 GB daneben stand — und der Blind-Shift kann sie erst
-            # aktivieren, wenn ALLE nachgelagerten aktiven Karten selbst
-            # ge-OOMt haben.
-            #
-            # Gewichtung: HEADROOM nach bestehender Gewichts-Zuteilung
-            # (free − Gewichtsanteil des base_split), NICHT rohes free_mb —
-            # eine Karte mit viel free, die schon viele Layer trägt (RTX
-            # 8000 mit 18/48 Anteilen), ist praktisch voll und darf nicht
-            # auch noch den Spill schlucken; die idle Karte hat den
-            # größten Headroom und fängt ihn ab.
-            _total_base = sum(float(x) for x in base_split) or 1.0
-            _others = []
-            for _i in range(len(gpus)):
-                if _i == _vlm_idx:
-                    continue
-                _weights_mb = (float(base_split[_i]) / _total_base) * model.size_mb
-                _headroom = gpus[_i].free_mb - _weights_mb
-                if _headroom > 0:
-                    _others.append((_i, _headroom))
-            _other_free_total = sum(f for _, f in _others)
-            if _other_free_total > 0:
-                for _gi, _gf in _others:
-                    _adj[_gi] += _lost * _gf / _other_free_total
-                # Auf GANZE Layer quantisieren: der proportionale _adj
-                # (z.B. 16.68:17.4:6.12:6.2:2.6) ist physikalisch nicht
-                # platzierbar — llama.cpp rundet ihn ohnehin. Wir runden
-                # selbst, damit getesteter/geloggter Split = geladener Split
-                # und die Shifts sauber auf Layer-Ebene arbeiten.
-                _adj_q = list(_quantize_split_to_layers(
-                    tuple(_adj), model.total_layers
-                ))
-                _adj = _adj_q
-                _total_split = sum(_adj) or 1.0
-                _pred_free = tuple(
-                    int(gpus[i].free_mb - (_adj[i] / _total_split) * model.size_mb)
+        if _vlm_idx >= 0 and float(base_split[_vlm_idx]) > 0:
+            # Reserve-belastete GPUs: der VLM-Side-Channel plus — bei
+            # Kombis — die TTS-GPU. Beide werden in _derive_reserved_split
+            # SYMMETRISCH proportional entlastet; der Überlauf fließt per
+            # Wasserfall auf die Karten mit echtem Headroom (Deckel schützt
+            # die randvolle Spitze jeder Compute-Klasse vor dem Load-Peak).
+            # Vorher wurde NUR die VLM-GPU entlastet — die TTS-GPU behielt
+            # ihren base-Anteil und sprengte bei großen TTS-Reserven
+            # (Fish-Speech 26 GB) den weights_fit, obwohl die idle
+            # Kaskaden-Karte leer danebenstand.
+            _reserve_idxs = [_vlm_idx]
+            if (
+                tts_gpu_uuid
+                and tts_gpu_extra_reserve_mb > 0
+                and tts_position >= 0
+                and float(base_split[tts_position]) > 0
+            ):
+                _reserve_idxs.append(tts_position)
+            _adj_t, _reductions = _derive_reserved_split(
+                base_split, _reserve_idxs, gpus, budget, model,
+            )
+            _adj = list(_adj_t)
+            _total_split = sum(_adj) or 1.0
+            _pred_free = tuple(
+                int(gpus[i].free_mb - (_adj[i] / _total_split) * model.size_mb)
+                for i in range(len(gpus))
+            )
+            _active_adj = [i for i, x in enumerate(_adj) if x > 0]
+            # vram_model nachrüsten: Ohne Kostenmodell sind der
+            # messungsbasierte Smart-Refine und der Math-Vorfilter im
+            # Verify tot — bei OOM blieben nur Blind-Shifts (je Versuch ein
+            # Minuten-Modell-Load). _project_cell läuft hier NUR als
+            # Modell-Lieferant. Liefert die Projektion nichts, läuft der
+            # Verify wie bisher ohne Modell — das wird geloggt, nicht
+            # verschluckt.
+            _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
+            # Der abgeleitete Split (_adj) steht fest und ist optimal — er
+            # darf NICHT durch den Shift-Loop verschlechtert werden (der
+            # würde einen Layer auf eine reserve-belastete GPU schieben).
+            # Nur der Kontext ist die freie Variable. Zwei Gates:
+            #   1. Gewichts-Check: passt schon das reine Gewicht nicht, ist
+            #      der Split physikalisch unmöglich → skip.
+            #   2. Kostenmodell für GENAU diesen Split (fit-params) →
+            #      analytischer max ctx. Startet die Probe realistisch statt
+            #      an der geerbten Base, wo der Load-KV die Karten sprengt.
+            _wfit, _wreason = _weights_fit(tuple(_adj), gpus, budget, model)
+            if not _wfit:
+                yield (
+                    f"{_side} variant infeasible ({_wreason}) — "
+                    f"skipping probes"
+                )
+                yield "__RESULT__:0:0:error"
+                return
+            _vm = await _vram_model_for_fixed_split(
+                model, gpus, full_cmd, base_kv, tuple(_adj),
+            )
+            _start_ctx = base_ctx
+            if _vm is not None:
+                _gpu_total = tuple(g.total_mb for g in gpus)
+                _baseline = tuple(
+                    _gpu_total[i] - gpus[i].free_mb for i in range(len(gpus))
+                )
+                _handi = tuple(
+                    budget.first_gpu_handicap if gpus[i].first_in_class else 0
                     for i in range(len(gpus))
                 )
-                _active_adj = [i for i, x in enumerate(_adj) if x > 0]
-                # vram_model nachrüsten: Ohne Kostenmodell sind der
-                # messungsbasierte Smart-Refine und der Math-Vorfilter im
-                # Verify tot — bei OOM blieben nur Blind-Shifts (je Versuch
-                # ein Minuten-Modell-Load). _project_cell läuft hier NUR als
-                # Modell-Lieferant; sein Integer-Split wird bewusst
-                # verworfen (die Projektion selbst scheitert an der
-                # VLM-Reserve-Grenze — der Grund für diese proportionale
-                # Ableitung, siehe Kommentar oben). Liefert die Projektion
-                # nichts, läuft der Verify wie bisher ohne Modell — das
-                # wird geloggt, nicht verschluckt.
-                _side = "TTS+VLM" if tts_gpu_uuid else "VLM"
-                # Der proportional abgeleitete Split (_adj) steht fest und
-                # ist optimal — er darf NICHT durch den Shift-Loop
-                # verschlechtert werden (der würde einen Layer auf die
-                # reserve-belastete VLM-GPU schieben). Nur der Kontext ist
-                # die freie Variable. Zwei Gates:
-                #   1. Gewichts-Check: passt schon das reine Gewicht nicht,
-                #      ist der Split physikalisch unmöglich → skip.
-                #   2. Kostenmodell für GENAU diesen Split (fit-params) →
-                #      analytischer max ctx. Startet die Probe realistisch
-                #      (z.B. 171k) statt an der geerbten Base (256k), wo der
-                #      Load-KV die Karten schon beim Start sprengt.
-                _wfit, _wreason = _weights_fit(tuple(_adj), gpus, budget, model)
-                if not _wfit:
+                _fit_ctx, _pred_min = proj.max_context_for_budget(
+                    _vm, _gpu_total, _baseline, _handi,
+                    budget.safety_margin, ceiling=base_ctx,
+                )
+                if _fit_ctx < CALIBRATION_MIN_CONTEXT:
                     yield (
-                        f"{_side} variant infeasible ({_wreason}) — "
-                        f"skipping probes"
+                        f"{_side} variant infeasible: derived split "
+                        f"{_split_str(tuple(_adj))} max ctx {_fit_ctx} "
+                        f"< minimum — skipping probes"
                     )
                     yield "__RESULT__:0:0:error"
                     return
-                _vm = await _vram_model_for_fixed_split(
-                    model, gpus, full_cmd, base_kv, tuple(_adj),
-                )
-                _start_ctx = base_ctx
-                if _vm is not None:
-                    _gpu_total = tuple(g.total_mb for g in gpus)
-                    _baseline = tuple(
-                        _gpu_total[i] - gpus[i].free_mb for i in range(len(gpus))
-                    )
-                    _handi = tuple(
-                        budget.first_gpu_handicap if gpus[i].first_in_class else 0
-                        for i in range(len(gpus))
-                    )
-                    _fit_ctx, _pred_min = proj.max_context_for_budget(
-                        _vm, _gpu_total, _baseline, _handi,
-                        budget.safety_margin, ceiling=base_ctx,
-                    )
-                    if _fit_ctx < CALIBRATION_MIN_CONTEXT:
-                        yield (
-                            f"{_side} variant infeasible: derived split "
-                            f"{_split_str(tuple(_adj))} max ctx {_fit_ctx} "
-                            f"< minimum — skipping probes"
-                        )
-                        yield "__RESULT__:0:0:error"
-                        return
-                    _start_ctx = _fit_ctx
-                    yield (
-                        f"{_side} derived split {_split_str(tuple(_adj))} → "
-                        f"cost-model max ctx {format_number(_fit_ctx)} "
-                        f"(pred. {_pred_min} MB free on tightest) — probing "
-                        f"split-locked"
-                    )
-                else:
-                    yield (
-                        f"{_side} derived split {_split_str(tuple(_adj))} — "
-                        f"no cost model, probing at base ctx with ctx-shrink"
-                    )
-                _vlm_cand = Candidate(
-                    mode="gpu",
-                    n_gpus=len(_active_adj),
-                    kv_quant=base_kv,
-                    ngl=99,
-                    tensor_split=tuple(_adj),
-                    max_context=_start_ctx,
-                    predicted_free_mb=_pred_free,
-                    vram_model=_vm,
-                )
-                _newly_active = [i for i in _active_adj if i not in active]
+                _start_ctx = _fit_ctx
                 yield (
-                    f"{_side} variant from base: active GPUs "
-                    f"[{format_gpu_positions(_active_adj, gpus)}]"
-                    + (f" (idle spill → [{format_gpu_positions(_newly_active, gpus)}])"
-                       if _newly_active else "")
-                    + f", start ctx {format_number(_start_ctx)}, KV={base_kv}, "
-                    f"VLM ratio {_ratio:.3f} → {gpu_label(gpus[_vlm_idx], _vlm_idx)}: "
-                    f"{float(base_split[_vlm_idx]):.1f}→{_new_vlm:.1f} layers"
+                    f"{_side} derived split {_split_str(tuple(_adj))} → "
+                    f"cost-model max ctx {format_number(_fit_ctx)} "
+                    f"(pred. {_pred_min} MB free on tightest) — probing "
+                    f"split-locked"
                 )
-                yield _format_candidate_line(_vlm_cand, gpus)
-                _vlm_result: Result | None = None
-                async for _item in _verify_and_refine(
-                    _vlm_cand, model, gpus, budget, full_cmd, port, env,
-                    probe_thinking=(known_thinking is None),
-                    status_prefix=f"[vlm/{base_kv}]",
-                    ctx_ceiling=base_ctx,
-                    lock_split=True,
-                ):
-                    if isinstance(_item, _Done):
-                        _vlm_result = _item.result
-                    else:
-                        yield _item
-                if _vlm_result is None:
-                    yield f"{_side} variant: derived config does not fit"
-                    yield "__RESULT__:0:0:error"
-                    return
-                _thinks = (
-                    known_thinking
-                    if known_thinking is not None
-                    else _vlm_result.thinks
+            else:
+                yield (
+                    f"{_side} derived split {_split_str(tuple(_adj))} — "
+                    f"no cost model, probing at base ctx with ctx-shrink"
                 )
-                yield _result_sentinel(_vlm_result, bool(_thinks), gpus)
+            _vlm_cand = Candidate(
+                mode="gpu",
+                n_gpus=len(_active_adj),
+                kv_quant=base_kv,
+                ngl=99,
+                tensor_split=tuple(_adj),
+                max_context=_start_ctx,
+                predicted_free_mb=_pred_free,
+                vram_model=_vm,
+            )
+            _newly_active = [i for i in _active_adj if i not in active]
+            _reduction_str = "; ".join(
+                f"{gpu_label(gpus[_ri], _ri)} "
+                f"{float(base_split[_ri]):.1f}→{_rnew:.1f} (ratio {_rr:.3f})"
+                for _ri, (_rr, _rnew) in _reductions.items()
+            )
+            yield (
+                f"{_side} variant from base: active GPUs "
+                f"[{format_gpu_positions(_active_adj, gpus)}]"
+                + (f" (idle spill → [{format_gpu_positions(_newly_active, gpus)}])"
+                   if _newly_active else "")
+                + f", start ctx {format_number(_start_ctx)}, KV={base_kv}, "
+                f"reserve offload {_reduction_str}"
+            )
+            yield _format_candidate_line(_vlm_cand, gpus)
+            _vlm_result: Result | None = None
+            async for _item in _verify_and_refine(
+                _vlm_cand, model, gpus, budget, full_cmd, port, env,
+                probe_thinking=(known_thinking is None),
+                status_prefix=f"[vlm/{base_kv}]",
+                ctx_ceiling=base_ctx,
+                lock_split=True,
+            ):
+                if isinstance(_item, _Done):
+                    _vlm_result = _item.result
+                else:
+                    yield _item
+            if _vlm_result is None:
+                yield f"{_side} variant: derived config does not fit"
+                yield "__RESULT__:0:0:error"
                 return
+            _thinks = (
+                known_thinking
+                if known_thinking is not None
+                else _vlm_result.thinks
+            )
+            yield _result_sentinel(_vlm_result, bool(_thinks), gpus)
+            return
 
     if tts_position >= 0:
         # Label the TTS card with its nvidia-smi index (SSOT gpu_uuid_labels)
