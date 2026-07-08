@@ -955,7 +955,11 @@ def record_autonomous_turn(
         session_id = route.session_id
     else:
         session_id = secrets.token_hex(16)
-        create_empty_session(session_id, owner=owner)
+        # Tag with the origin channel → the browser's login auto-load skips
+        # it (interactive_only), so an autonomous alert's session is never
+        # adopted as sessions[0] and the browser doesn't jump out of the
+        # user's active chat. Same contract as process_inbound.
+        create_empty_session(session_id, owner=owner, channel=channel)
         routing_table.set_route(channel, channel_id, session_id)
 
     content = text
