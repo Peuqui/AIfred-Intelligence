@@ -123,7 +123,7 @@ def native_select_backend(value_var, on_change_handler, disabled_condition, back
     )
 
 
-def native_select_model(value_var, on_change_handler, disabled_condition=False, model_list=None) -> rx.Component:
+def native_select_model(value_var, on_change_handler, disabled_condition=False, model_list=None, rich_list=None) -> rx.Component:
     """Native HTML <select> for Model Selection (Mobile)
 
     Uses simple list of display names (like before).
@@ -134,19 +134,33 @@ def native_select_model(value_var, on_change_handler, disabled_condition=False, 
         on_change_handler: Event handler function
         disabled_condition: Boolean condition to disable the select (default: False)
         model_list: List of model display names (default: AIState.available_models)
+        rich_list: Optional list of ``{name, badge, ...}`` dicts. When given,
+            the option text becomes ``name + " " + badge`` (e.g. the Vision
+            dropdown's ``⚡ No Swap`` / ``🔄 Swap`` marker) while the option
+            *value* stays the plain ``name`` so selection resolves cleanly.
+            A native <select> can't colour the badge — the emoji carries it.
     """
-    # Default to available_models if no list specified
-    models = model_list if model_list is not None else AIState.available_models
-
-    return rx.el.select(
-        # Generate options - value and text are the same (display name)
-        rx.foreach(
+    if rich_list is not None:
+        options = rx.foreach(
+            rich_list,
+            lambda row: rx.el.option(
+                rx.cond(row["badge"] != "", row["name"] + "  " + row["badge"], row["name"]),
+                value=row["name"],
+            ),
+        )
+    else:
+        # Default to available_models if no list specified
+        models = model_list if model_list is not None else AIState.available_models
+        options = rx.foreach(
             models,
             lambda model: rx.el.option(
                 model,  # Display: "qwen3:8b (2.3 GB)"
                 value=model,  # Value: "qwen3:8b (2.3 GB)" (same!)
             ),
-        ),
+        )
+
+    return rx.el.select(
+        options,
         value=value_var,
         on_change=on_change_handler,
         disabled=disabled_condition,

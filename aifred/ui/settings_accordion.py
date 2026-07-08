@@ -1315,12 +1315,15 @@ def settings_accordion() -> rx.Component:
                         ),
                         rx.cond(
                             AIState.is_mobile,
-                            # MOBILE: Native HTML <select> (simple list)
+                            # MOBILE: Native HTML <select> mit Swap-Badge im
+                            # Options-Text (native <select> kann nicht färben —
+                            # das ⚡/🔄-Emoji trägt die Info; value bleibt der
+                            # reine Name).
                             native_select_model(
-                                AIState.vision_model,  # Display name with size
-                                AIState.set_vision_model,  # Original handler
+                                AIState.vision_model,
+                                AIState.set_vision_model,
                                 AIState.backend_switching,
-                                AIState.available_vision_models_list,  # Vision models list (state var, not computed)
+                                rich_list=AIState.available_vision_models_rich,
                             ),
                             # DESKTOP: Radix UI Select mit Swap-Badge pro Zeile.
                             # Custom-Items (value = reiner Name, Anzeige =
