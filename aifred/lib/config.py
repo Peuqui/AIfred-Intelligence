@@ -75,7 +75,7 @@ DEFAULT_SETTINGS = {
     # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
     # They will be merged in settings.py get_default_settings()
     "user_name": "",  # User's name (leave empty - set via UI, saved in settings.json)
-    "backend_type": "ollama",  # Default backend: "ollama", "vllm", "tabbyapi"
+    "backend_type": "ollama",  # Default backend: "ollama", "vllm", "llamacpp"
     # Calibration mode: "legacy" (deterministic algorithm) or "ai-<model>"
     # (LLM-driven via DashScope/Qwen). UI auto-selects "legacy" when no
     # DashScope API key is configured.
@@ -140,13 +140,6 @@ BACKEND_DEFAULT_MODELS = {
         "salomo_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",        # Salomo: AWQ 4-bit, ~2.8GB
         "vision_model": "",                                                # Vision: Auto-detect
     },
-    "tabbyapi": {
-        "aifred_model": "turboderp/Qwen3-30B-A3B-exl3",                   # AIfred Main-LLM: EXL3, ~18GB (CONFIRMED)
-        "automatik_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",   # Automatik: EXL3, ~2.8GB (CONFIRMED)
-        "sokrates_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",    # Sokrates: EXL3, ~2.8GB
-        "salomo_model": "ArtusDev/Qwen_Qwen3-4B-Instruct-2507-EXL3",      # Salomo: EXL3, ~2.8GB
-        "vision_model": "",                                                # Vision: Auto-detect
-    },
     "llamacpp": {
         "aifred_model": "qwen3-30b-a3b-instruct-2507-q8_0",               # AIfred Main-LLM: Q8_0, ~32GB (2x P40)
         "automatik_model": "qwen3-4b-instruct-2507-q4_k_m",               # Automatik: Q4_K_M, ~2.6GB
@@ -206,7 +199,6 @@ CLOUD_API_PROVIDERS = {
 # Use these constants instead of hardcoding URLs!
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_VLLM_URL = "http://localhost:8001/v1"
-DEFAULT_TABBYAPI_URL = "http://localhost:5000/v1"
 DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:11435/v1")
 
 # llama-swap / llama-server calibration
@@ -231,7 +223,6 @@ LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "999
 BACKEND_URLS = {
     "ollama": DEFAULT_OLLAMA_URL,
     "vllm": DEFAULT_VLLM_URL,      # Port 8001 for dev (8000 on production MiniPC)
-    "tabbyapi": DEFAULT_TABBYAPI_URL,
     "llamacpp": DEFAULT_LLAMACPP_URL,  # llama-swap proxy (see docs/en/guides/llamacpp-setup.md)
     "cloud_api": "",  # Dynamic - set based on provider selection
 }
@@ -240,7 +231,6 @@ BACKEND_URLS = {
 BACKEND_LABELS = {
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
-    "tabbyapi": "TabbyAPI",
     "vllm": "vLLM",
     "cloud_api": "Cloud APIs",
 }
@@ -915,7 +905,7 @@ def resolve_vlm_host(chat_backend_type: str | None = None) -> str:
 
     * ``chat_backend_type == "ollama"`` → default daemon on :11434 (the
       chat model already lives here, no point spinning up a second one).
-    * Anything else (``llamacpp``, ``vllm``, ``tabbyapi``, ``cloud_api``,
+    * Anything else (``llamacpp``, ``vllm``, ``cloud_api``,
       or ``None``) → pinned daemon on :11436, which is restricted to
       the V100 by its systemd unit.
 

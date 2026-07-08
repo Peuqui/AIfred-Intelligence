@@ -53,7 +53,7 @@ Every LLM call in AIfred flows through a unified chunk-processing pipeline (`run
                           +---------v---------+
                           |  Backend (LLM)    |
                           | Ollama / llama.cpp|
-                          | vLLM / TabbyAPI   |
+                          | vLLM              |
                           | Cloud API         |
                           +-------------------+
 ```

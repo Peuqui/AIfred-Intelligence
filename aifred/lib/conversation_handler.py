@@ -731,7 +731,7 @@ async def extract_structured_data_from_images(
         images: List of image dicts with "name" and "base64" keys
         vision_model: Vision-LLM model name (e.g., "qwen3-vl:8b")
         main_model: Main LLM for post-processing (e.g., "qwen3:30b")
-        backend_type: "ollama", "llamacpp", "vllm", "tabbyapi"
+        backend_type: "ollama", "llamacpp", "vllm"
         backend_url: Backend URL (optional, uses default if None)
         llm_options: Additional LLM options
         state: AIState object (REQUIRED for per-agent num_ctx lookup via get_agent_num_ctx)
@@ -772,7 +772,7 @@ async def extract_structured_data_from_images(
             log_message(f"⚠️ No backend_url provided, using default: {DEFAULT_OLLAMA_URL}")
 
     # === Side-Channel-Routing ===
-    # If the user picked a llama-swap/vllm/tabbyapi VL model that also exists
+    # If the user picked a llama-swap/vllm VL model that also exists
     # in Ollama (e.g. "Qwen3VL-4B-Instruct-Q8_0" ↔ "qwen3-vl:4b-instruct-q8_0"),
     # route to Ollama instead so the chat LLM doesn't get model-swapped out
     # for the duration of the vision call. Cloud-API and Ollama backends pass

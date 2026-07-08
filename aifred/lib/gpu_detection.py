@@ -101,12 +101,6 @@ class GPUDetector:
             "requires_tensor_cores": False,
             "requires_fast_fp16": True,
             "description": "AWQ/GPTQ models, requires Volta+ (7.0+)"
-        },
-        "tabbyapi": {
-            "min_compute_capability": 7.0,
-            "requires_tensor_cores": False,
-            "requires_fast_fp16": True,
-            "description": "ExLlamaV2/V3 (EXL2), requires fast FP16"
         }
     }
 
@@ -300,7 +294,7 @@ class GPUDetector:
         Check if a specific backend is compatible
 
         Args:
-            backend: "ollama", "vllm", "tabbyapi"
+            backend: "ollama", "vllm"
 
         Returns:
             True if compatible, False otherwise
@@ -319,7 +313,7 @@ class GPUDetector:
         Get user-friendly compatibility message for a backend
 
         Args:
-            backend: "ollama", "vllm", "tabbyapi"
+            backend: "ollama", "vllm"
 
         Returns:
             Warning message if incompatible, None if compatible

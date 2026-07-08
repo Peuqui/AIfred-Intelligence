@@ -80,7 +80,7 @@ class TranslationManager:
             "temperature_info": "0.0 = deterministisch, 0.2 = fakten, 0.8 = ausgewogen, 1.5+ = kreativ",
             "context_window": "📦 Context Window",
             "context_window_info": "Auto-berechnet basierend auf Message-Größe",
-            "context_window_fixed_hint": "ℹ️ Bei llama.cpp/vLLM/TabbyAPI ist der Kontext durch das geladene Modell-Profil fixiert (llama-swap-YAML) — manuell nur bei Ollama einstellbar.",
+            "context_window_fixed_hint": "ℹ️ Bei llama.cpp/vLLM ist der Kontext durch das geladene Modell-Profil fixiert (llama-swap-YAML) — manuell nur bei Ollama einstellbar.",
             
             # Progress Banner
             "automatic_decision": "Automatik-Entscheidung ...",
@@ -529,7 +529,7 @@ class TranslationManager:
             "model_lifecycle_help_llm_title": "4. LLM (Haupt + Automatik) — llama.cpp via llama-swap",
             "model_lifecycle_help_llm_size": "Größe: 1-130 GB je Modell | Backend: llama-swap orchestriert llama.cpp-Instanzen",
             "model_lifecycle_help_llm_body": "Auto-managed: llama-swap lädt Modelle on-demand bei jedem Inferenz-Request und evict nach Idle-TTL (config in ~/.config/llama-swap/config.yaml).",
-            "model_lifecycle_help_llm_triggers": "Trigger: (1) Jede User-Anfrage lädt das aktive Alfred-LLM. (2) Automatik-LLM lädt nur wenn unterschiedlich von Alfred-LLM. (3) Modell-Wechsel im Dropdown triggert Swap beim nächsten Request. (4) Andere Backends (Ollama, vLLM, TabbyAPI, Cloud) haben jeweils eigene Lifecycle-Strategien — Cloud lädt nichts lokal.",
+            "model_lifecycle_help_llm_triggers": "Trigger: (1) Jede User-Anfrage lädt das aktive Alfred-LLM. (2) Automatik-LLM lädt nur wenn unterschiedlich von Alfred-LLM. (3) Modell-Wechsel im Dropdown triggert Swap beim nächsten Request. (4) Andere Backends (Ollama, vLLM, Cloud) haben jeweils eigene Lifecycle-Strategien — Cloud lädt nichts lokal.",
             "model_lifecycle_help_vram_title": "VRAM-Praxis",
             "model_lifecycle_help_vram_body": "Mehrere Modell-Familien können parallel auf den GPUs liegen (InsightFace + VLM + TTS + LLM). Die Kalibration plant das Layout vorab — siehe 'Context kalibrieren' im Einstellungen-Panel. Faustregel: wenn unerwartet VRAM belegt ist, prüfe in dieser Reihenfolge: Vigi-Master, VLM-Toggle, TTS-Voice, aktiver Chat (LLM).",
             "model_lifecycle_help_close": "Schließen",
@@ -899,7 +899,7 @@ class TranslationManager:
             "temperature_info": "0.0 = deterministic, 0.2 = factual, 0.8 = balanced, 1.5+ = creative",
             "context_window": "📦 Context Window",
             "context_window_info": "Auto-calculated based on message size",
-            "context_window_fixed_hint": "ℹ️ With llama.cpp/vLLM/TabbyAPI the context is fixed by the loaded model profile (llama-swap YAML) — adjustable manually only with Ollama.",
+            "context_window_fixed_hint": "ℹ️ With llama.cpp/vLLM the context is fixed by the loaded model profile (llama-swap YAML) — adjustable manually only with Ollama.",
             
             # Progress Banner
             "automatic_decision": "Automatic decision ...",
@@ -1348,7 +1348,7 @@ class TranslationManager:
             "model_lifecycle_help_llm_title": "4. LLM (main + automatik) — llama.cpp via llama-swap",
             "model_lifecycle_help_llm_size": "Size: 1-130 GB per model | Backend: llama-swap orchestrates llama.cpp instances",
             "model_lifecycle_help_llm_body": "Auto-managed: llama-swap loads models on-demand on every inference request and evicts them after idle TTL (config in ~/.config/llama-swap/config.yaml).",
-            "model_lifecycle_help_llm_triggers": "Triggers: (1) Every user query loads the active Alfred LLM. (2) Automatik LLM loads only if it differs from Alfred LLM. (3) Model switch in the dropdown triggers a swap on the next request. (4) Other backends (Ollama, vLLM, TabbyAPI, Cloud) each have their own lifecycle strategy — Cloud loads nothing locally.",
+            "model_lifecycle_help_llm_triggers": "Triggers: (1) Every user query loads the active Alfred LLM. (2) Automatik LLM loads only if it differs from Alfred LLM. (3) Model switch in the dropdown triggers a swap on the next request. (4) Other backends (Ollama, vLLM, Cloud) each have their own lifecycle strategy — Cloud loads nothing locally.",
             "model_lifecycle_help_vram_title": "VRAM in practice",
             "model_lifecycle_help_vram_body": "Multiple model families can live on the GPUs in parallel (InsightFace + VLM + TTS + LLM). Calibration plans the layout in advance — see 'Calibrate context' in the settings panel. Rule of thumb: if VRAM is unexpectedly occupied, check in this order: Vigi master, VLM toggle, TTS voice, active chat (LLM).",
             "model_lifecycle_help_close": "Close",

@@ -62,7 +62,7 @@ async def perform_agent_research(
         session_id: Session ID for research cache (optional)
         temperature_mode: 'auto' (intent detection) or 'manual' (fixed value)
         temperature: Temperature value (0.0-2.0) - only for mode='manual'
-        backend_type: LLM Backend ("ollama", "vllm", "tabbyapi")
+        backend_type: LLM Backend ("ollama", "vllm")
         backend_url: Backend URL (optional, uses default if not provided)
         detected_intent: Pre-detected intent from state.py (FAKTISCH/KREATIV/GEMISCHT)
                         If provided, skips duplicate intent detection in context_builder
@@ -84,7 +84,7 @@ async def perform_agent_research(
     if backend_type == 'ollama':
         automatik_llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
     else:
-        # vLLM, TabbyAPI, llama.cpp: Same model, same client (no model switching)
+        # vLLM, llama.cpp: Same model, same client (no model switching)
         automatik_llm_client = llm_client
 
     # ==============================================================

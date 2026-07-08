@@ -8,7 +8,6 @@ from typing import Optional
 from .base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
 from .ollama import OllamaBackend
 from .vllm import vLLMBackend
-from .tabbyapi import TabbyAPIBackend
 from .llamacpp import LlamaCppBackend
 from .cloud_api import CloudAPIBackend, get_cloud_api_key, is_cloud_api_configured
 from ..lib.config import BACKEND_URLS, CLOUD_API_PROVIDERS
@@ -21,13 +20,12 @@ class BackendFactory:
     Usage:
         backend = BackendFactory.create("ollama")
         backend = BackendFactory.create("vllm")  # Uses BACKEND_URLS from config.py
-        backend = BackendFactory.create("tabbyapi", base_url="http://custom:5000/v1")
+        backend = BackendFactory.create("llamacpp")
     """
 
     _backends = {
         "ollama": OllamaBackend,
         "vllm": vLLMBackend,
-        "tabbyapi": TabbyAPIBackend,  # ExLlamaV2 (V3 noch experimentell)
         "llamacpp": LlamaCppBackend,   # llama.cpp via llama-swap (GGUF, direct)
         "cloud_api": CloudAPIBackend,  # Cloud APIs (Claude, Qwen, Kimi)
     }
@@ -44,7 +42,7 @@ class BackendFactory:
         Create a backend instance
 
         Args:
-            backend_type: "ollama", "vllm", "tabbyapi", "llamacpp", "cloud_api"
+            backend_type: "ollama", "vllm", "llamacpp", "cloud_api"
             base_url: Override default base URL
             api_key: API key (for cloud backends)
             provider: Cloud API provider ("claude", "qwen", "kimi") - only for cloud_api
@@ -98,7 +96,7 @@ class BackendFactory:
 
         # Create instance
         instance: LLMBackend
-        if backend_type in ["vllm", "tabbyapi", "llamacpp"]:
+        if backend_type in ["vllm", "llamacpp"]:
             # OpenAI-compatible backends need api_key (even if dummy)
             api_key = api_key or "dummy"
             instance = backend_class(base_url=base_url, api_key=api_key)
@@ -117,7 +115,6 @@ __all__ = [
     "LLMResponse",
     "OllamaBackend",
     "vLLMBackend",
-    "TabbyAPIBackend",
     "LlamaCppBackend",
     "CloudAPIBackend",
     "get_cloud_api_key",

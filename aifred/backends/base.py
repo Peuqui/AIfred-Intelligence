@@ -158,7 +158,6 @@ class LLMBackend(ABC):
         the maximum context length and VRAM size. Implementation is backend-specific:
         - Ollama: Use /api/show + /api/ps endpoints
         - vLLM: Use /v1/models endpoint (size estimation)
-        - TabbyAPI: Use /v1/models endpoint (size unavailable)
 
         Args:
             model: Model name/ID
@@ -184,7 +183,6 @@ class LLMBackend(ABC):
         Implementation is backend-specific:
         - Ollama: Query /api/ps endpoint for loaded models
         - vLLM: Model is always loaded (server started with specific model)
-        - TabbyAPI: Model is always loaded (server started with specific model)
 
         Args:
             model: Model name/ID
@@ -235,7 +233,6 @@ class LLMBackend(ABC):
         Examples:
             Ollama:   {"dynamic_models": True, "dynamic_context": True, ...}
             vLLM:     {"dynamic_models": False, "dynamic_context": False, ...}
-            TabbyAPI: {"dynamic_models": False, "dynamic_context": False, ...}
         """
         pass
 
@@ -251,8 +248,6 @@ class LLMBackend(ABC):
                      (can change based on loaded models)
         - **vLLM**: FIXED at server startup, cannot be recalculated
                     (returns cached value from startup)
-        - **TabbyAPI**: FIXED at server startup, cannot be recalculated
-                       (returns cached value from startup)
 
         Args:
             model: Model name/ID
@@ -268,13 +263,12 @@ class LLMBackend(ABC):
         Examples:
             Ollama:   Queries current VRAM, calculates fresh value
             vLLM:     Returns self._startup_context (set in start_with_model)
-            TabbyAPI: Returns self._startup_context (set at server start)
         """
         pass
 
     def set_startup_context(self, context: int, debug_messages: List[str]) -> None:
         """
-        Cache startup context for backends with fixed context (vLLM, TabbyAPI).
+        Cache startup context for backends with fixed context (vLLM).
 
         Called after server startup to cache the calculated context limit.
         This value is returned by calculate_practical_context() for fixed-context backends.
@@ -323,7 +317,7 @@ class BackendInferenceError(BackendError):
 
 
 class OpenAICompatibleBackend(LLMBackend):
-    """Shared implementation for OpenAI SDK-compatible backends (vLLM, TabbyAPI, CloudAPI, llamacpp).
+    """Shared implementation for OpenAI SDK-compatible backends (vLLM, CloudAPI, llamacpp).
 
     Subclasses override hooks to customize behavior:
     - _build_extra_body(): sampling params in extra_body
