@@ -38,6 +38,7 @@ from .gpu import (
     cuda_visible_devices,
     enumerate_gpus,
     find_min_gpus_for_weights,
+    format_gpu_positions,
     gpu_label,
     gpu_uuid_labels,
     total_free_mb,
@@ -3168,8 +3169,10 @@ async def calibrate_tts_variant_from_base(
                 )
                 _newly_active = [i for i in _active_adj if i not in active]
                 yield (
-                    f"{_side} variant from base: active GPUs {_active_adj}"
-                    + (f" (idle spill → {_newly_active})" if _newly_active else "")
+                    f"{_side} variant from base: active GPUs "
+                    f"[{format_gpu_positions(_active_adj, gpus)}]"
+                    + (f" (idle spill → [{format_gpu_positions(_newly_active, gpus)}])"
+                       if _newly_active else "")
                     + f", start ctx {format_number(_start_ctx)}, KV={base_kv}, "
                     f"VLM ratio {_ratio:.3f} → {gpu_label(gpus[_vlm_idx], _vlm_idx)}: "
                     f"{float(base_split[_vlm_idx]):.1f}→{_new_vlm:.1f} layers"
@@ -3206,10 +3209,12 @@ async def calibrate_tts_variant_from_base(
         # nvidia-smi), so "GPU3" here was physically the card nvidia-smi calls
         # GPU1. Same anchor as the llama-swap config comments. Falls back to
         # the positional index + name when nvidia-smi is unavailable.
+        _labels = gpu_uuid_labels()
         _tts_gpu = gpus[tts_position]
-        _tts_label = gpu_label(_tts_gpu, tts_position)
+        _tts_label = gpu_label(_tts_gpu, tts_position, _labels)
         yield (
-            f"TTS variant from base: active GPUs {active}, target ctx "
+            f"TTS variant from base: active GPUs "
+            f"[{format_gpu_positions(active, gpus, _labels)}], target ctx "
             f"{format_number(base_ctx)}, KV={base_kv}, free now "
             f"{format_number(total_free_mb(gpus))} MB "
             f"(TTS on {_tts_label}: "
@@ -3217,7 +3222,8 @@ async def calibrate_tts_variant_from_base(
         )
     else:
         yield (
-            f"Variant from base: active GPUs {active}, target ctx "
+            f"Variant from base: active GPUs "
+            f"[{format_gpu_positions(active, gpus)}], target ctx "
             f"{format_number(base_ctx)}, KV={base_kv}, free now "
             f"{format_number(total_free_mb(gpus))} MB"
         )

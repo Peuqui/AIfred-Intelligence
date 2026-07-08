@@ -144,6 +144,20 @@ def gpu_label(
     return labels.get(gpu.uuid, f"GPU{position} ({gpu.name})")
 
 
+def format_gpu_positions(
+    positions: "Any", gpus: "list[GPU]", labels: dict[str, str] | None = None
+) -> str:
+    """Format a list of compute-sorted GPU positions as nvidia-smi labels
+    for a log line, e.g. ``[0, 2]`` → ``"GPU0 (RTX 8000), GPU2 (RTX 8000)"``.
+
+    Keeps the ``active GPUs [...]`` lines on the same nvidia-smi anchor as
+    every other label. Pass a precomputed ``labels`` map to reuse it.
+    """
+    if labels is None:
+        labels = gpu_uuid_labels()
+    return ", ".join(gpu_label(gpus[i], i, labels) for i in positions)
+
+
 def enumerate_gpus() -> list[GPU]:
     """Return all visible GPUs, sorted by compute_cap DESC, name, UUID.
 
