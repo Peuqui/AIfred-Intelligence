@@ -429,13 +429,23 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 cal_cmd = cal_cmd.replace(' --port', ' -ts 1 -sm layer --port')
 
         # Log the tensor-split + the GPU pin order (names, not UUIDs).
-        # UUIDs in the env dict are correct but unreadable in logs — the
-        # short name list ("RTX 8000, RTX 8000, V100, P40") tells the user
-        # exactly which physical GPUs the calibration will see, in order.
+        # The LIST ORDER is the compute-sorted pin order (fastest first —
+        # what the tensor-split ratios map onto positionally), but each
+        # GPU is LABELLED with its nvidia-smi index via the same SSOT
+        # helper the llama-swap config comments use (gpu_uuid_labels).
+        # So "GPU2 (RTX 8000)" means the identical physical card in the
+        # log, the config comment AND `nvidia-smi` — no more two
+        # conflicting numbering schemes. Falls back to the positional
+        # index + name when nvidia-smi is unavailable.
         from ..lib.calibration import parse_tensor_split
+        from ..lib.calibration.gpu import gpu_uuid_labels
         _cal_ts = parse_tensor_split(cal_cmd)
         if cal_gpus:
-            _gpu_pin = ", ".join(f"GPU{i} {g.name}" for i, g in enumerate(cal_gpus))
+            _labels = gpu_uuid_labels()
+            _gpu_pin = ", ".join(
+                _labels.get(g.uuid, f"GPU{i} {g.name}")
+                for i, g in enumerate(cal_gpus)
+            )
             yield f"Calibration tensor-split: {_cal_ts} | GPU pin order: {_gpu_pin}"
         else:
             yield f"Calibration tensor-split: {_cal_ts}"

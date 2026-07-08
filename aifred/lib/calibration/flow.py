@@ -38,6 +38,8 @@ from .gpu import (
     cuda_visible_devices,
     enumerate_gpus,
     find_min_gpus_for_weights,
+    gpu_label,
+    gpu_uuid_labels,
     total_free_mb,
 )
 from .optimizer import OptResult, fill_fastest_first
@@ -280,10 +282,11 @@ async def calibrate_llamacpp_model(
         # es kann einen 2%-Fehlbetrag wettmachen, aber keine 25 %.
         failed_solo_free = -1.0
         failed_solo_ctx = 0
+        labels = gpu_uuid_labels()
         for active in configs:
             n = len(active)
             if n == 1:
-                label = f"GPU{active[0]} ({gpus[active[0]].name})"
+                label = gpu_label(gpus[active[0]], active[0], labels)
                 _free_i = gpus[active[0]].free_mb
                 _clearly_smaller = _free_i <= failed_solo_free - budget.first_gpu_handicap
                 _same_size_hopeless = (
@@ -301,10 +304,10 @@ async def calibrate_llamacpp_model(
                     )
                     continue
             else:
-                # Show position+name, not raw indices — matches the
-                # GPU0/GPU1/... convention used elsewhere in the log
-                # so it's clear which physical cards the config picks.
-                _names = ", ".join(f"GPU{i} {gpus[i].name}" for i in active)
+                # nvidia-smi-anchored labels (SSOT gpu_label) so it's clear
+                # which physical cards the config picks — same numbering as
+                # the config comments and `nvidia-smi`.
+                _names = ", ".join(gpu_label(gpus[i], i, labels) for i in active)
                 label = f"{n} GPUs ({_names})"
             c, reason = await _project_cell(
                 model, gpus, budget, full_cmd, kv, active,
@@ -654,7 +657,7 @@ def _weights_fit(
         )
         if free_after < 0:
             return False, (
-                f"weights alone don't fit GPU{i} {gpus[i].name}: "
+                f"weights alone don't fit {gpu_label(gpus[i], i)}: "
                 f"{int(weight)} MB weight + margin > "
                 f"{budget.per_gpu_free[i]} MB free"
             )
@@ -701,15 +704,16 @@ def _format_candidate_line(c: Candidate, gpus: list[GPU]) -> str:
           GPU0 RTX 8000: 2.500 MB, GPU1 RTX 8000: 3.100 MB,
           GPU2 V100: 1.800 MB, GPU3 P40: idle
     """
+    labels = gpu_uuid_labels()
     parts: list[str] = []
     for i, g in enumerate(gpus):
         layers_i = int(c.tensor_split[i]) if i < len(c.tensor_split) else 0
         if layers_i == 0:
-            parts.append(f"GPU{i} {g.name}: idle")
+            parts.append(f"{gpu_label(g, i, labels)}: idle")
             continue
         free = c.predicted_free_mb[i] if i < len(c.predicted_free_mb) else 0
         parts.append(
-            f"GPU{i} {g.name}: {format_number(max(0, free))} MB"
+            f"{gpu_label(g, i, labels)}: {format_number(max(0, free))} MB"
         )
     return (
         f"  [{c.n_gpus} GPUs / KV={c.kv_quant}] "
@@ -730,13 +734,14 @@ def _planned_free_line(
     die Zahl für den echten Reststand hält (KV + Compute-Buffer + CUDA-
     Context kommen oben drauf)."""
     total = sum(split) or 1.0
+    labels = gpu_uuid_labels()
     parts: list[str] = []
     for i, g in enumerate(gpus):
         if i >= len(split) or split[i] <= 0:
-            parts.append(f"GPU{i} {g.name}: idle")
+            parts.append(f"{gpu_label(g, i, labels)}: idle")
             continue
         free = int(g.free_mb - (split[i] / total) * model_size_mb)
-        parts.append(f"GPU{i} {g.name}: {format_number(free)} MB")
+        parts.append(f"{gpu_label(g, i, labels)}: {format_number(free)} MB")
     return "    plan after weights (excl. KV/buffers): " + ", ".join(parts)
 
 
@@ -3166,7 +3171,7 @@ async def calibrate_tts_variant_from_base(
                     f"{_side} variant from base: active GPUs {_active_adj}"
                     + (f" (idle spill → {_newly_active})" if _newly_active else "")
                     + f", start ctx {format_number(_start_ctx)}, KV={base_kv}, "
-                    f"VLM ratio {_ratio:.3f} → GPU{_vlm_idx}: "
+                    f"VLM ratio {_ratio:.3f} → {gpu_label(gpus[_vlm_idx], _vlm_idx)}: "
                     f"{float(base_split[_vlm_idx]):.1f}→{_new_vlm:.1f} layers"
                 )
                 yield _format_candidate_line(_vlm_cand, gpus)
@@ -3195,12 +3200,20 @@ async def calibrate_tts_variant_from_base(
                 return
 
     if tts_position >= 0:
+        # Label the TTS card with its nvidia-smi index (SSOT gpu_uuid_labels)
+        # instead of the compute-sorted list position — the two disagree for
+        # same-compute cards (3× V100 tie-break by UUID here, by index in
+        # nvidia-smi), so "GPU3" here was physically the card nvidia-smi calls
+        # GPU1. Same anchor as the llama-swap config comments. Falls back to
+        # the positional index + name when nvidia-smi is unavailable.
+        _tts_gpu = gpus[tts_position]
+        _tts_label = gpu_label(_tts_gpu, tts_position)
         yield (
             f"TTS variant from base: active GPUs {active}, target ctx "
             f"{format_number(base_ctx)}, KV={base_kv}, free now "
             f"{format_number(total_free_mb(gpus))} MB "
-            f"(TTS on GPU{tts_position} {gpus[tts_position].name}: "
-            f"{format_number(gpus[tts_position].free_mb)} MB free)"
+            f"(TTS on {_tts_label}: "
+            f"{format_number(_tts_gpu.free_mb)} MB free)"
         )
     else:
         yield (
