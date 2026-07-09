@@ -671,6 +671,7 @@ def _derive_reserved_split(
     gpus: list[GPU],
     budget: Budget,
     model: Model,
+    base_remaining_free: dict[str, int] | None = None,
 ) -> tuple[tuple[float, ...], dict[int, tuple[float, float]]]:
     """Leite den Split für reserve-belastete GPUs aus der verifizierten
     Basis ab — Prinzip der überlaufenden Gläser.
@@ -678,9 +679,14 @@ def _derive_reserved_split(
     Jede GPU in ``reserve_idxs`` (TTS- und/oder VLM-Side-Channel) verliert
     Layer proportional zu ihrem verbliebenen ``free/total``; der so
     verdrängte Layer-Anteil (``lost``) läuft in die Karten mit echtem
-    Headroom über. Headroom = ``free − Gewichtsanteil − first-GPU-Handicap``
-    (der Handicap deckt den ctx-unabhängigen Load-Peak der ersten Karte je
-    Klasse: Output/Logits-Tensor, Compute-Workspace, MTP-Draft-Buffer).
+    Headroom über. Headroom = die REALE Rest-Kapazität nach dem base-Laden
+    (``base_remaining_free`` je UUID, Gewicht + KV + Buffer schon abgezogen)
+    minus first-GPU-Handicap. Fehlt die Messung (alter Cache), Rückfall auf
+    ``free − Gewichtsanteil − Handicap`` — das ignoriert aber den
+    ctx-abhängigen KV und kann eine bei hohem ctx randvolle RTX 8000
+    überladen (sie zeigt leer viel „free"). Der Handicap deckt den
+    ctx-unabhängigen Load-Peak der ersten Karte je Klasse (Output/Logits,
+    Compute-Workspace, MTP-Draft-Buffer).
 
     Deckel: Eine Karte, die in der Basis bereits die tightest ihrer
     Compute-Klasse ist UND Layer trägt (``first_in_class`` und base>0), ist
@@ -721,11 +727,20 @@ def _derive_reserved_split(
             # Deckel: randvolle Spitzenkarte der Kaskade nimmt keinen Spill.
             if gpus[i].first_in_class and adj[i] > 0:
                 continue
-            weight_mb = (adj[i] / total_base) * model.size_mb
             handicap = (
                 budget.first_gpu_handicap if gpus[i].first_in_class else 0
             )
-            headroom = gpus[i].free_mb - weight_mb - handicap
+            if base_remaining_free and gpus[i].uuid in base_remaining_free:
+                # Reale Rest-Kapazität nach base-Laden (Gewicht + KV + Buffer
+                # bereits abgezogen) — die genaue SSOT statt free − Gewicht.
+                # Verhindert das Überladen einer RTX 8000, die bei hohem ctx
+                # durch KV schon randvoll ist, aber leer viel "free" zeigt.
+                headroom = float(base_remaining_free[gpus[i].uuid] - handicap)
+            else:
+                # Fallback ohne base-Messung (Cache vor diesem Feld): grobe
+                # Gewichts-Schätzung, ignoriert den ctx-abhängigen KV-Anteil.
+                weight_mb = (adj[i] / total_base) * model.size_mb
+                headroom = gpus[i].free_mb - weight_mb - handicap
             if headroom > 0:
                 targets.append((i, headroom))
         total_headroom = sum(h for _, h in targets)
@@ -2802,6 +2817,9 @@ def _persist_cache(
         speed_split=speed_split_cuda0,
         vram_per_gpu=vram_per_gpu,  # type: ignore[arg-type]
         gpu_uuids=[g.uuid for g in gpus],
+        # Real leftover per card after the base loaded — the SSOT the
+        # variant spill uses instead of the KV-blind ``free − weight``.
+        remaining_free_mb=list(result.remaining_free_mb) or None,
     )
     # Patch in the rest of the speed details (rest_layers + ctx) — these
     # power the UI's "speed available" indicator and CUDA_VISIBLE_DEVICES.
@@ -2987,6 +3005,7 @@ async def calibrate_tts_variant_from_base(
     tts_gpu_extra_reserve_mb: int = 0,
     vlm_gpu_uuid: Optional[str] = None,
     vlm_gpu_extra_reserve_mb: int = 0,
+    base_remaining_free: Optional[dict[str, int]] = None,
 ) -> AsyncIterator[str]:
     """Derive a TTS variant from an already-calibrated base config.
 
@@ -3170,6 +3189,7 @@ async def calibrate_tts_variant_from_base(
                 _reserve_idxs.append(tts_position)
             _adj_t, _reductions = _derive_reserved_split(
                 base_split, _reserve_idxs, gpus, budget, model,
+                base_remaining_free=base_remaining_free,
             )
             _adj = list(_adj_t)
             _total_split = sum(_adj) or 1.0
