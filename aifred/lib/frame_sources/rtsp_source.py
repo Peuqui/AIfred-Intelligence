@@ -97,6 +97,11 @@ _DEFAULT_PORT = 554
 # kurzer RTSP-Stall nicht stundenlang einfriert, aber eine tote Kamera nicht
 # pausenlos gehämmert wird.
 _RECONNECT_MAX_S = 30.0
+# Fallback-Grab-Periode, wenn die Kamera keine brauchbare CAP_PROP_FPS
+# meldet (0 oder unplausibel hoch). 15 fps ist ein üblicher RTSP-Sub-
+# Stream-Wert; die Periode muss nur ungefähr stimmen, da grab() billig ist
+# und nur den Treiber-Puffer leerhalten soll, nicht exakt takten.
+_DEFAULT_GRAB_FPS = 15.0
 
 
 def _slugify(name: str) -> str:
@@ -193,6 +198,48 @@ def _read_encode(cap: cv2.VideoCapture) -> tuple[bytes, int, int]:
     return bytes(buf), w, h
 
 
+def _grab_period_for(cap: cv2.VideoCapture) -> float:
+    """Native Frame-Periode der Kamera (Sekunden), aus CAP_PROP_FPS.
+    Fallback ``_DEFAULT_GRAB_FPS`` wenn der Treiber 0 oder einen
+    unplausiblen Wert meldet (RTSP/FFMPEG liest das aus der SDP-Session,
+    nicht immer verlässlich)."""
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0 or fps > 120:
+        fps = _DEFAULT_GRAB_FPS
+    return 1.0 / fps
+
+
+async def _drain_sleep(cap: cv2.VideoCapture, interval: float, grab_period: float) -> None:
+    """Warte ``interval`` Sekunden, aber leere dabei laufend den
+    Decoder-Puffer via ``cap.grab()`` (billig — kein Decode), damit der
+    nächste ``cap.read()`` einen frischen Frame liefert statt eines, der
+    während der Wartezeit im Treiber-FIFO aufgelaufen ist.
+
+    Portiert vom analogen ``_drain_sleep`` in ``v4l2_source.py``
+    (2026-05-25) — dort behoben, hier beim Bau der RTSP-Quelle fünf Tage
+    später übersehen. ``CAP_PROP_BUFFERSIZE=1`` (in ``_make_capture``) ist
+    beim FFMPEG/RTSP-Backend nur best-effort und wird nicht zuverlässig
+    honoriert; ohne aktives Draining läuft der Puffer bei gedrosseltem
+    fps (z.B. 4 fps gegen einen 15-fps-nativen Sub-Stream) über Zeit
+    IMMER WEITER auf — das "Live"-Bild im Zonen-Editor hinkt zunehmend
+    hinterher statt aktuell zu sein (User-Report 2026-07-09). Kein
+    Eviction-Handling nötig (anders als V4L2): RTSP erlaubt parallele
+    Reader, der Hub-Reader-Task wird bei Unsubscribe schlicht cancelt.
+    """
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + interval
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return
+        if remaining > grab_period:
+            await asyncio.to_thread(cap.grab)
+            await asyncio.sleep(grab_period)
+        else:
+            await asyncio.sleep(remaining)
+            return
+
+
 class RTSPSource:
     """IP-/WLAN-Kamera via cv2 + FFMPEG.
 
@@ -266,6 +313,7 @@ class RTSPSource:
         sequence_id = str(uuid.uuid4())
         frame_idx = 0
         cap: cv2.VideoCapture | None = None
+        grab_period = 1.0 / _DEFAULT_GRAB_FPS
         backoff = 1.0
         try:
             while True:
@@ -284,6 +332,7 @@ class RTSPSource:
                         continue
                     for _ in range(_WARMUP_FRAMES):
                         await asyncio.to_thread(cap.read)
+                    grab_period = await asyncio.to_thread(_grab_period_for, cap)
                     backoff = 1.0
                 # Frame lesen — bei Read-Fehler/Stall NICHT crashen (das ließ
                 # den Hub-Reader sterben → stundenlanges Einfrieren), sondern
@@ -314,7 +363,11 @@ class RTSPSource:
                     },
                 )
                 frame_idx += 1
-                await asyncio.sleep(interval)
+                # Drain-sleep statt plain sleep — siehe _drain_sleep-
+                # Docstring: ohne aktives Draining läuft der FFMPEG/RTSP-
+                # Puffer bei gedrosseltem fps über Zeit auf, das "Live"-
+                # Bild hinkt zunehmend hinterher statt aktuell zu sein.
+                await _drain_sleep(cap, interval, grab_period)
         finally:
             if cap is not None:
                 await asyncio.to_thread(cap.release)
