@@ -1285,6 +1285,71 @@ def _remember_bias(model: Model, gpus: list[GPU], bias_mb: int) -> None:
         _MODEL_BIAS_CACHE[key] = bias_mb
 
 
+# Cache-Key: (tensor_split, ctx). One entry per physical model load during a
+# single _verify_and_refine call.
+ProbeCache = dict[tuple[tuple[float, ...], int], VerifyResult]
+
+
+async def _load_and_cache(
+    probe_cache: ProbeCache,
+    split: tuple[float, ...],
+    ctx: int,
+    *,
+    full_cmd: str,
+    candidate: Candidate,
+    port: int,
+    gpus: list[GPU],
+    budget: Budget,
+    env: Optional[dict[str, str]],
+    probe_thinking: bool,
+) -> VerifyResult:
+    """Physically probe ``(split, ctx)`` and record the result in
+    ``probe_cache``.
+
+    SSOT for the minutes-long model-loading probes of BOTH ctx searches (the
+    downward :func:`_binary_search_fitting_ctx` and the upward push in
+    :func:`_verify_and_refine`). The two phases binary-search ctx at the same
+    fixed split and used to re-load the model for a value the other phase had
+    already measured (~3 min each). The caller checks the cache first and only
+    calls this on a miss, so a repeat is instant instead of a reload.
+    """
+    r = await verify(
+        full_cmd=proj.adjust_cmd_for_projection(
+            full_cmd, split, candidate.kv_quant,
+        ),
+        context=ctx, port=port, gpus=gpus,
+        safety_margin_mb=budget.safety_margin,
+        reserve_mb=budget.gpu_reserve_mb,
+        ngl=candidate.ngl, env=env, probe_thinking=probe_thinking,
+    )
+    probe_cache[(split, ctx)] = r
+    return r
+
+
+def _known_ctx_ceiling(
+    probe_cache: ProbeCache,
+    split: tuple[float, ...],
+    above_ctx: int,
+    default: int,
+) -> int:
+    """Smallest already-probed ctx that did NOT fit at ``split`` above
+    ``above_ctx`` — a proven ceiling for the upward search.
+
+    At a fixed split the KV cache grows monotonically with ctx, so no ctx at
+    or above a known failure can ever fit. Capping the upward window there
+    skips a whole doomed climb (the TTS+VLM combo re-probing values the
+    down-search already rejected). When the nearest reject sits one PRECISION
+    above ``above_ctx`` the upward while-guard (``hi - lo > PRECISION``) is
+    already false → the push runs zero probes. Returns ``default`` when no
+    failure is known above ``above_ctx``.
+    """
+    return min(
+        (c for (s, c), res in probe_cache.items()
+         if s == split and c > above_ctx and not res.fits),
+        default=default,
+    )
+
+
 async def _binary_search_fitting_ctx(
     *,
     current_split: tuple[float, ...],
@@ -1302,6 +1367,7 @@ async def _binary_search_fitting_ctx(
     hi: int,
     iteration: int,
     initial_load_sig: tuple[int, ...] | None,
+    probe_cache: ProbeCache,
     initial_bias_mb: int = 0,
 ) -> AsyncIterator:
     """Math-guided binary search for the highest ctx that fits at a FIXED
@@ -1404,25 +1470,30 @@ async def _binary_search_fitting_ctx(
             else:
                 src = "bisect (math saw no fit)"
             used_math = False
-        iteration += 1
-        yield (
-            f"{status_prefix} 🧮 ctx {format_number(cand_ctx)} "
-            f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
-            f"— probe..."
-        )
-        r = await verify(
-            full_cmd=proj.adjust_cmd_for_projection(
-                full_cmd, current_split, candidate.kv_quant,
-            ),
-            context=cand_ctx, port=port, gpus=gpus,
-            safety_margin_mb=budget.safety_margin,
-            reserve_mb=budget.gpu_reserve_mb,
-            ngl=candidate.ngl, env=env,
-            probe_thinking=probe_thinking and thinks_seen is None,
-        )
-        yield _fmt_verify(
-            status_prefix, iteration, current_split, cand_ctx, r,
-        )
+        cached = probe_cache.get((current_split, cand_ctx))
+        if cached is not None:
+            r = cached
+            yield (
+                f"{status_prefix} ↺ ctx {format_number(cand_ctx)} "
+                f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
+                f"— already probed ({'✓' if r.fits else '✗'}), skip reload"
+            )
+        else:
+            iteration += 1
+            yield (
+                f"{status_prefix} 🧮 ctx {format_number(cand_ctx)} "
+                f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
+                f"— probe..."
+            )
+            r = await _load_and_cache(
+                probe_cache, current_split, cand_ctx,
+                full_cmd=full_cmd, candidate=candidate, port=port,
+                gpus=gpus, budget=budget, env=env,
+                probe_thinking=probe_thinking and thinks_seen is None,
+            )
+            yield _fmt_verify(
+                status_prefix, iteration, current_split, cand_ctx, r,
+            )
         if r.thinks is not None:
             thinks_seen = r.thinks
         if r.fits:
@@ -1516,6 +1587,12 @@ async def _verify_and_refine(
     iteration = 0
     seen_splits: set[tuple[float, ...]] = {current_split}
     last_good: tuple[VerifyResult, tuple[float, ...], int] | None = None
+    # Probe cache (split, ctx) → result, shared across the down-search and the
+    # upward push. Stops the two phases from re-loading the model (~3 min) for
+    # a ctx one already measured, and its known failures cap the upward window
+    # at a proven ceiling (_known_ctx_ceiling). Local to this call: the next
+    # variant reserves different VRAM, so a fit here says nothing there.
+    probe_cache: ProbeCache = {}
 
     # ── Step 1: first verify ───────────────────────────────────────
     iteration += 1
@@ -1528,6 +1605,7 @@ async def _verify_and_refine(
         reserve_mb=budget.gpu_reserve_mb,
         ngl=candidate.ngl, env=env, probe_thinking=probe_thinking,
     )
+    probe_cache[(current_split, current_ctx)] = r
     yield (_fmt_verify(
         status_prefix, iteration, current_split, current_ctx, r,
     ))
@@ -1638,11 +1716,23 @@ async def _verify_and_refine(
                         f"{status_prefix} active set locked — no further "
                         f"layer shift possible without activating idle GPU"
                     )
+                elif r.oom_cuda_id is None and r.measured_free_mb:
+                    # "eff."-Pfad: der Server lief, unterschritt aber die
+                    # Safety-Margin — die enge Karte IST aus den Messwerten
+                    # bekannt (nur nicht als geparste stderr-OOM-Zeile). Der
+                    # measurement-basierte Refine (oben) hat bereits mit voller
+                    # Info kein Ziel gefunden; "not identifiable" wäre hier
+                    # schlicht falsch (die eff.-Werte im Log zeigen die Karte).
+                    yield (
+                        f"{status_prefix} no further layer shift possible — "
+                        f"measurement-based refine found no target within reserve"
+                    )
                 elif r.oom_cuda_id is None:
-                    # Ohne geparste OOM-Karte shiftet der Blind-Shift bewusst
-                    # nicht (falsche Quell-Karte wäre schlimmer als keine) —
-                    # das ist KEIN "alle Ziele voll", sondern fehlende Info
-                    # (z.B. Segfault exit -11 ohne OOM-Zeile im stderr).
+                    # Ohne geparste OOM-Karte UND ohne Messwerte shiftet der
+                    # Blind-Shift bewusst nicht (falsche Quell-Karte wäre
+                    # schlimmer als keine) — das ist KEIN "alle Ziele voll",
+                    # sondern fehlende Info (z.B. Segfault exit -11 ohne
+                    # OOM-Zeile im stderr).
                     yield (
                         f"{status_prefix} OOM GPU not identifiable from server "
                         f"log — cannot shift, falling back to ctx handling"
@@ -1735,7 +1825,7 @@ async def _verify_and_refine(
                 status_prefix=status_prefix,
                 lo=MIN_USEFUL_CONTEXT_TOKENS, hi=current_ctx,
                 iteration=iteration, initial_load_sig=init_load_sig,
-                initial_bias_mb=init_bias,
+                initial_bias_mb=init_bias, probe_cache=probe_cache,
             ):
                 if isinstance(_sitem, _CtxSearchResult):
                     search_res = _sitem
@@ -1836,11 +1926,21 @@ async def _verify_and_refine(
         # Probes selbst sind die Kostenbremse und die Wahrheit.
         if active_free:
             lo = current_ctx
-            hi = upward_ceiling
+            # Cap the window at a proven ceiling: if a higher ctx already
+            # failed at THIS split (Step 1's native OOM, or the down-search's
+            # first reject above current_ctx), no ctx up to it can fit — KV
+            # only grows. Without this the push re-climbs toward a doomed
+            # upward_ceiling and re-probes rejected values (the TTS+VLM combo's
+            # ~30-min crawl). When the reject sits one PRECISION above lo the
+            # while-guard below is already false → zero wasted probes.
+            hi = _known_ctx_ceiling(
+                probe_cache, current_split, current_ctx, upward_ceiling,
+            )
             iteration += 1
             yield (
                 f"{status_prefix} headroom on tightest GPU "
-                f"({min(active_free)} MB) — upward search to native ctx"
+                f"({min(active_free)} MB) — upward search to "
+                f"{format_number(hi)}"
             )
             # Seed from the cross-variant cache — a prior variant of this
             # model+hardware already measured the bias, so trust the math from
@@ -1888,24 +1988,32 @@ async def _verify_and_refine(
                     else:
                         src = "bisect (math saw no fit)"
                     used_math = False
-                iteration += 1
-                yield (
-                    f"{status_prefix} 🧮 upward ctx {format_number(cand_ctx)} "
-                    f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
-                    f"— probe..."
-                )
-                r_up = await verify(
-                    full_cmd=proj.adjust_cmd_for_projection(
-                        full_cmd, current_split, candidate.kv_quant,
-                    ),
-                    context=cand_ctx, port=port, gpus=gpus,
-                    safety_margin_mb=budget.safety_margin,
-                    reserve_mb=budget.gpu_reserve_mb,
-                    ngl=candidate.ngl, env=env, probe_thinking=False,
-                )
-                yield _fmt_verify(
-                    status_prefix, iteration, current_split, cand_ctx, r_up,
-                )
+                cached_up = probe_cache.get((current_split, cand_ctx))
+                if cached_up is not None:
+                    r_up = cached_up
+                    yield (
+                        f"{status_prefix} ↺ upward ctx "
+                        f"{format_number(cand_ctx)} "
+                        f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
+                        f"— already probed ({'✓' if r_up.fits else '✗'}), "
+                        f"skip reload"
+                    )
+                else:
+                    iteration += 1
+                    yield (
+                        f"{status_prefix} 🧮 upward ctx "
+                        f"{format_number(cand_ctx)} "
+                        f"(range {format_number(lo)}–{format_number(hi)}, {src}) "
+                        f"— probe..."
+                    )
+                    r_up = await _load_and_cache(
+                        probe_cache, current_split, cand_ctx,
+                        full_cmd=full_cmd, candidate=candidate, port=port,
+                        gpus=gpus, budget=budget, env=env, probe_thinking=False,
+                    )
+                    yield _fmt_verify(
+                        status_prefix, iteration, current_split, cand_ctx, r_up,
+                    )
                 if r_up.thinks is not None:
                     thinks_seen = r_up.thinks
                 if r_up.fits:
@@ -1963,14 +2071,11 @@ async def _verify_and_refine(
                             f"OOM — try refined split ({refine_reason}): "
                             f"{_split_str(current_split)} → {_split_str(refined_up)}"
                         )
-                        r_re = await verify(
-                            full_cmd=proj.adjust_cmd_for_projection(
-                                full_cmd, refined_up, candidate.kv_quant,
-                            ),
-                            context=cand_ctx, port=port, gpus=gpus,
-                            safety_margin_mb=budget.safety_margin,
-                            reserve_mb=budget.gpu_reserve_mb,
-                            ngl=candidate.ngl, env=env, probe_thinking=False,
+                        r_re = await _load_and_cache(
+                            probe_cache, refined_up, cand_ctx,
+                            full_cmd=full_cmd, candidate=candidate, port=port,
+                            gpus=gpus, budget=budget, env=env,
+                            probe_thinking=False,
                         )
                         yield _fmt_verify(
                             status_prefix, iteration, refined_up, cand_ctx, r_re,
@@ -2033,26 +2138,32 @@ async def _verify_and_refine(
         and _lg_ctx < _up_ceiling
         and _up_ceiling - _lg_ctx <= LLAMACPP_CALIBRATION_PRECISION
     ):
-        iteration += 1
-        yield (
-            f"{status_prefix} 🧮 final ceiling probe "
-            f"{format_number(_up_ceiling)} (last good {format_number(_lg_ctx)}, "
-            f"gap {_up_ceiling - _lg_ctx} ≤ precision) — probe..."
-        )
-        r_ceil = await verify(
-            full_cmd=proj.adjust_cmd_for_projection(
-                full_cmd, _lg_split, candidate.kv_quant,
-            ),
-            context=_up_ceiling, port=port, gpus=gpus,
-            safety_margin_mb=budget.safety_margin,
-            reserve_mb=budget.gpu_reserve_mb,
-            ngl=candidate.ngl, env=env, probe_thinking=False,
-        )
-        yield _fmt_verify(
-            status_prefix, iteration, _lg_split, _up_ceiling, r_ceil,
-        )
-        if r_ceil.fits:
-            last_good = (r_ceil, _lg_split, _up_ceiling)
+        cached_ceil = probe_cache.get((_lg_split, _up_ceiling))
+        if cached_ceil is not None:
+            yield (
+                f"{status_prefix} ↺ final ceiling {format_number(_up_ceiling)} "
+                f"already probed ({'✓' if cached_ceil.fits else '✗'}) — skip"
+            )
+            if cached_ceil.fits:
+                last_good = (cached_ceil, _lg_split, _up_ceiling)
+        else:
+            iteration += 1
+            yield (
+                f"{status_prefix} 🧮 final ceiling probe "
+                f"{format_number(_up_ceiling)} (last good "
+                f"{format_number(_lg_ctx)}, "
+                f"gap {_up_ceiling - _lg_ctx} ≤ precision) — probe..."
+            )
+            r_ceil = await _load_and_cache(
+                probe_cache, _lg_split, _up_ceiling,
+                full_cmd=full_cmd, candidate=candidate, port=port,
+                gpus=gpus, budget=budget, env=env, probe_thinking=False,
+            )
+            yield _fmt_verify(
+                status_prefix, iteration, _lg_split, _up_ceiling, r_ceil,
+            )
+            if r_ceil.fits:
+                last_good = (r_ceil, _lg_split, _up_ceiling)
 
     # Build the final result from the last successful run
     r_final, split_final, ctx_final = last_good

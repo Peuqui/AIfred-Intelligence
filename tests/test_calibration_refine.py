@@ -21,6 +21,7 @@ from aifred.lib.calibration.flow import (
     _binary_search_fitting_ctx,
     _context_refine_swap,
     _CtxSearchResult,
+    _known_ctx_ceiling,
     _refine_split_from_measurement,
 )
 from aifred.lib.calibration.types import (
@@ -180,6 +181,7 @@ def test_context_refine_respects_speed_lock():
 # ── _binary_search_fitting_ctx (Point 2+3: cost-model-seeded ctx search) ──
 
 def _drain_search(**kwargs) -> _CtxSearchResult:
+    kwargs.setdefault("probe_cache", {})
     async def run() -> _CtxSearchResult:
         res = None
         async for item in _binary_search_fitting_ctx(**kwargs):
@@ -233,6 +235,7 @@ def test_binary_search_finds_highest_fitting_ctx(monkeypatch):
 
 def _drain_search_verbose(**kwargs):
     """Like _drain_search but also returns the yielded progress strings."""
+    kwargs.setdefault("probe_cache", {})
     msgs: list[str] = []
 
     async def run():
@@ -356,3 +359,92 @@ def test_binary_search_stops_on_ctx_independent_load_death(monkeypatch):
     )
     assert res.best_r is None
     assert probes["n"] == 1  # stopped after the first identical load death
+
+
+# ── probe cache: dedup + proven-ceiling (combo-variant crawl fix) ─────────
+
+def test_known_ctx_ceiling_caps_at_proven_failure():
+    """The smallest FAILED ctx above the anchor at THIS split bounds the
+    upward push; fits, other splits, and lower failures are ignored."""
+    split = (17.0, 18.0, 8.0, 9.0, 9.0)
+    other = (16.0, 18.0, 8.0, 9.0, 10.0)
+    fit = VerifyResult(True, (2000,) * 5, None, "fit")
+    oom = VerifyResult(False, (100,) * 5, None, "oom")
+    cache = {
+        (split, 100096): fit,
+        (split, 120064): oom,   # nearest failure above the anchor
+        (split, 140032): oom,   # a higher failure — not the nearest
+        (other, 90112): oom,    # wrong split — must be ignored
+    }
+    # Nearest failure above the anchor wins.
+    assert _known_ctx_ceiling(cache, split, 100096, 262144) == 120064
+    # A fit is not a ceiling; the other-split OOM is ignored.
+    assert _known_ctx_ceiling(cache, split, 95000, 262144) == 120064
+    # Nothing failed above 140032 at this split → fall back to default.
+    assert _known_ctx_ceiling(cache, split, 140032, 262144) == 262144
+
+
+def test_down_search_caches_every_probe_without_reprobing(monkeypatch):
+    """Each physical probe is recorded in the shared cache and no ctx is
+    loaded twice — the bookkeeping the upward push reuses to skip reloads."""
+    split = (17.0, 18.0, 8.0, 9.0, 9.0)
+    threshold = 98304
+    seen: list[int] = []
+
+    async def _fake_verify(*, context, **kw):
+        seen.append(context)
+        if context <= threshold:
+            return VerifyResult(True, (2000,) * 5, None, "fit")
+        return VerifyResult(False, (100,) * 5, None, "oom")
+
+    monkeypatch.setattr(flow, "verify", _fake_verify)
+    cache: dict = {}
+    _drain_search(
+        current_split=split, candidate=_candidate(split), model=_model(),
+        gpus=_gpus_5(), budget=_budget((20000,) * 5),
+        full_cmd="--model x", port=1, env=None, probe_thinking=False,
+        thinks_seen=None, status_prefix="t", lo=8192, hi=200000,
+        iteration=0, initial_load_sig=None, probe_cache=cache,
+    )
+    # No ctx was physically probed twice …
+    assert len(seen) == len(set(seen))
+    # … and every probe landed in the cache under this split.
+    assert all((split, c) in cache for c in seen)
+    assert len(cache) == len(seen)
+
+
+def test_down_search_reuses_cached_probe(monkeypatch):
+    """A ctx already in the cache is served from it — verify() is never
+    called for that value, saving the ~3-min reload."""
+    split = (17.0, 18.0, 8.0, 9.0, 9.0)
+    threshold = 98304
+    probed: list[int] = []
+
+    async def _fake_verify(*, context, **kw):
+        probed.append(context)
+        if context <= threshold:
+            return VerifyResult(True, (2000,) * 5, None, "fit")
+        return VerifyResult(False, (100,) * 5, None, "oom")
+
+    monkeypatch.setattr(flow, "verify", _fake_verify)
+    # First run fills the cache; a second run on the SAME cache must not
+    # re-probe any of the already-known contexts.
+    cache: dict = {}
+    _drain_search(
+        current_split=split, candidate=_candidate(split), model=_model(),
+        gpus=_gpus_5(), budget=_budget((20000,) * 5),
+        full_cmd="--model x", port=1, env=None, probe_thinking=False,
+        thinks_seen=None, status_prefix="t", lo=8192, hi=200000,
+        iteration=0, initial_load_sig=None, probe_cache=cache,
+    )
+    probed.clear()
+    _drain_search(
+        current_split=split, candidate=_candidate(split), model=_model(),
+        gpus=_gpus_5(), budget=_budget((20000,) * 5),
+        full_cmd="--model x", port=1, env=None, probe_thinking=False,
+        thinks_seen=None, status_prefix="t", lo=8192, hi=200000,
+        iteration=0, initial_load_sig=None, probe_cache=cache,
+    )
+    # The deterministic search revisits the same contexts — all cached now,
+    # so verify() is never called again → zero reloads.
+    assert probed == []
