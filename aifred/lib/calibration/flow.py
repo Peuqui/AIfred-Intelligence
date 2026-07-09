@@ -268,6 +268,15 @@ async def calibrate_llamacpp_model(
     base_pick: Candidate | None = None
     base_result_obj: Result | None = None
     all_tried: list[Candidate] = []
+    # Real verifizierte, aber unter nativ kollabierte Zellen. Früher galt
+    # "first successfully-verified config wins": Sagte die Math bei der
+    # 2-Karten-Zelle "nativ passt", kollabierte der Verify aber real (MoE-
+    # Bias bis ~1,5 GB), wurde das kollabierte Ergebnis trotzdem als BASE
+    # akzeptiert — die 3-Karten-Zelle, die echtes Nativ gepackt hätte,
+    # wurde nie probiert. Jetzt: kollabierte Ergebnisse hier merken,
+    # weitersuchen; die finale Auswahl unten vergleicht alle ECHTEN
+    # Messungen (KV-Qualität zuerst, dann Kontext).
+    verified_fallbacks: list[tuple[Candidate, Result]] = []
     known_thinks: bool | None = known_thinking
     configs = _enumerate_gpu_configs(gpus, min_gpus)
     for kv in kv_levels:
@@ -348,17 +357,33 @@ async def calibrate_llamacpp_model(
                     v_result = item.result
                 else:
                     yield item
-            if v_result is not None:
+            if v_result is not None and v_result.thinks is not None:
+                known_thinks = v_result.thinks
+            if (
+                v_result is not None
+                and v_result.context >= model.native_context
+            ):
                 base_pick = c
                 base_result_obj = v_result
-                if base_result_obj.thinks is not None:
-                    known_thinks = base_result_obj.thinks
                 yield (
                     f"  ✓ Phase 1 success: {label}, KV={kv}, "
                     f"split={_split_str(base_result_obj.tensor_split)}, "
                     f"ctx={format_number(base_result_obj.context)}"
                 )
                 break
+            if v_result is not None:
+                # Math sagte nativ, die Messung kollabierte darunter —
+                # NICHT als Base akzeptieren, sondern merken und die
+                # nächste (größere) Zelle proben: die packt nativ evtl.
+                # wirklich. Kostet pro Zelle Minuten, kann aber ein
+                # Vielfaches an Kontext retten.
+                verified_fallbacks.append((c, v_result))
+                yield (
+                    f"  ↳ [{label} / KV={kv}] verified BELOW native "
+                    f"(ctx {format_number(v_result.context)}) — kept as "
+                    f"fallback, trying next config"
+                )
+                continue
 
     # No candidate reached native context. Before giving up to hybrid,
     # try a **best-effort GPU-only fit**. Prefer the HIGHEST KV QUALITY
@@ -369,24 +394,34 @@ async def calibrate_llamacpp_model(
     # (Previously this just took max(max_context), which silently traded
     # full-precision KV for ~20% more context — slower on this hardware.)
     if base_result_obj is None and all_tried:
+        # Nur noch UNverifizierte Zellen kommen für den Best-Effort-Probe
+        # infrage: die kollabierten Zellen sind schon real gemessen, ihre
+        # Math-Werte damit widerlegt — ein Re-Probe wäre reine Zeit-
+        # verschwendung (Identitätsvergleich: dieselben Objekte landen in
+        # all_tried UND verified_fallbacks).
+        unverified = [
+            c for c in all_tried
+            if all(c is not vc for vc, _ in verified_fallbacks)
+        ]
         best = None
         for kv in kv_levels:  # quality-ordered: f16 first
             kv_best = max(
-                (c for c in all_tried if c.kv_quant == kv),
+                (c for c in unverified if c.kv_quant == kv),
                 key=lambda c: c.max_context,
                 default=None,
             )
             if kv_best is not None and kv_best.max_context >= MIN_USEFUL_CONTEXT_TOKENS:
                 best = kv_best
                 break
-        if best is None:  # no KV level reached useful ctx → absolute best
-            best = max(all_tried, key=lambda c: c.max_context)
-        if best.max_context >= MIN_USEFUL_CONTEXT_TOKENS:
+        if best is None and unverified:
+            # no KV level reached useful ctx → absolute best
+            best = max(unverified, key=lambda c: c.max_context)
+        if best is not None and best.max_context >= MIN_USEFUL_CONTEXT_TOKENS:
             best_label = (
                 f"{best.n_gpus} GPUs / KV={best.kv_quant}"
             )
             yield (
-                f"  💡 No native-ctx fit — falling back to best candidate: "
+                f"  💡 No native-ctx fit — probing best unverified candidate: "
                 f"{best_label}, ctx={format_number(best.max_context)}"
             )
             v_result_fb: Result | None = None
@@ -400,14 +435,36 @@ async def calibrate_llamacpp_model(
                 else:
                     yield item
             if v_result_fb is not None:
-                base_result_obj = v_result_fb
-                if base_result_obj.thinks is not None:
-                    known_thinks = base_result_obj.thinks
-                yield (
-                    f"  ✓ Phase 1 best-effort success: "
-                    f"split={_split_str(base_result_obj.tensor_split)}, "
-                    f"ctx={format_number(base_result_obj.context)}"
-                )
+                if v_result_fb.thinks is not None:
+                    known_thinks = v_result_fb.thinks
+                # In den Pool statt direkt zur Base — die finale Auswahl
+                # unten vergleicht gegen die kollabierten Phase-1-Zellen.
+                verified_fallbacks.append((best, v_result_fb))
+
+    # Finale Auswahl über ALLE real verifizierten Ergebnisse (kollabierte
+    # Phase-1-Zellen + Best-Effort-Probe): dieselbe Philosophie wie die
+    # Kandidaten-Wahl — höchste KV-Qualität zuerst (f16 ist auf dieser
+    # Hardware schneller), innerhalb der Qualität der größte Kontext.
+    # Jedes Pool-Ergebnis ist eine echte Messung ≥ MIN_USEFUL (die
+    # ctx-Suche verwirft alles darunter), kein erneuter Probe nötig.
+    if base_result_obj is None and verified_fallbacks:
+        picked: Result | None = None
+        for kv in kv_levels:
+            kv_pool = [r for _, r in verified_fallbacks if r.kv_quant == kv]
+            if kv_pool:
+                picked = max(kv_pool, key=lambda r: r.context)
+                break
+        if picked is None:
+            picked = max(
+                (r for _, r in verified_fallbacks), key=lambda r: r.context,
+            )
+        base_result_obj = picked
+        yield (
+            f"  ✓ Phase 1 fallback base (best of "
+            f"{len(verified_fallbacks)} verified): KV={picked.kv_quant}, "
+            f"split={_split_str(picked.tensor_split)}, "
+            f"ctx={format_number(picked.context)}"
+        )
 
     # Still no fit → no GPU-only path. Try hybrid (or fail).
     if base_result_obj is None:
@@ -503,7 +560,9 @@ async def calibrate_llamacpp_model(
             yield msg
         _persist_cache(model, final, gpus, speed_result=speed_result)
         if speed_result:
-            async for msg in _write_speed_config(config_path, model_id, speed_result):
+            async for msg in _write_speed_config(
+                config_path, model_id, speed_result, gpus,
+            ):
                 yield msg
 
     # ── Emit sentinels ─────────────────────────────────────────────
@@ -1522,11 +1581,21 @@ async def _binary_search_fitting_ctx(
                 ]
                 if active_free_real:
                     real_min = min(active_free_real)
-                    new_bias = max(0, predicted_min - real_min)
+                    # Vorhersage am TATSÄCHLICH geprobten ctx neu rechnen:
+                    # ``predicted_min`` gehört zum math_max-ctx — bei einem
+                    # Bisect-Kandidaten (cand_ctx ≠ math_max) wanderte sonst
+                    # der KV-Zuwachs zwischen beiden ctx mit in den Bias und
+                    # wurde über den Ratchet-Cache dauerhaft überhöht (Math
+                    # zu konservativ → unnötige Bisect-Probes, <1 ms Rechnung
+                    # spart ~3-min-Loads).
+                    _, pred_at_probe = _math_predicts_fit(
+                        current_split, cand_ctx, candidate, model, gpus, budget,
+                    )
+                    new_bias = max(0, pred_at_probe - real_min)
                     if new_bias > math_bias_mb:
                         yield (
                             f"{status_prefix} 🧮 math bias detected: "
-                            f"predicted {predicted_min} MB vs real {real_min} MB "
+                            f"predicted {pred_at_probe} MB vs real {real_min} MB "
                             f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
                         )
                         math_bias_mb = new_bias
@@ -1536,8 +1605,13 @@ async def _binary_search_fitting_ctx(
                 # OOM). Math has nothing to learn — force bisection next round;
                 # and if the load dies IDENTICALLY regardless of ctx, stop.
                 math_unreliable = True
+                # Nur NICHT-leere Signaturen vergleichen: liefert das
+                # Load-Sampling zweimal keine Daten, wäre () == () sonst
+                # fälschlich "identisch" und ein ctx-abhängiger Crash würde
+                # den ganzen Kandidaten verwerfen.
                 if (
-                    prev_load_sig is not None
+                    prev_load_sig
+                    and r.load_min_free_mb
                     and r.load_min_free_mb == prev_load_sig
                 ):
                     yield (
@@ -1699,7 +1773,12 @@ async def _verify_and_refine(
                 shifted = _shift_one_layer_blind(
                     current_split, gpus,
                     oom_cuda_id=r.oom_cuda_id,
-                    keep_active_set=lock_active_gpus,
+                    # lock_split zählt hier genauso wie in den Smart-Pfaden
+                    # (1663, Step 3): der Blind-Shift darf einer split-
+                    # gelockten VLM-Variante keine idle Karte aktivieren —
+                    # gerade beim Load-OOM wirken unbefüllte Karten leer
+                    # und wären das bevorzugte (falsche) Ziel.
+                    keep_active_set=lock_active_gpus or lock_split,
                     # Reserve-bereinigte Load-Messwerte + config-Mindest-
                     # reserve als Untergrenze: Der Layer geht auf die nächste
                     # Karte, die danach noch ≥ safety_margin frei hat — sonst
@@ -1765,14 +1844,10 @@ async def _verify_and_refine(
             # nur die Split-Schieberei und nie, welche Karte wie eng wird.
             yield _planned_free_line(shifted, gpus, model.size_mb)
             current_split = shifted
-            r = await verify(
-                full_cmd=proj.adjust_cmd_for_projection(
-                    full_cmd, current_split, candidate.kv_quant,
-                ),
-                context=current_ctx, port=port, gpus=gpus,
-                safety_margin_mb=budget.safety_margin,
-                reserve_mb=budget.gpu_reserve_mb,
-                ngl=candidate.ngl, env=env,
+            r = await _load_and_cache(
+                probe_cache, current_split, current_ctx,
+                full_cmd=full_cmd, candidate=candidate, port=port,
+                gpus=gpus, budget=budget, env=env,
                 probe_thinking=probe_thinking and thinks_seen is None,
             )
             yield (_fmt_verify(
@@ -1858,6 +1933,11 @@ async def _verify_and_refine(
             total_layers=model.total_layers,
             model_size_mb=model.size_mb,
             current_context=current_ctx,
+            # Ohne den Lock durfte die Kaskade hier idle Karten aktivieren
+            # — Step 1 und Step 3 setzen ihn an denselben Stellen (1663,
+            # 2060), nur Step 2 hatte das Loch (Speed-Set wuchs still um
+            # eine langsame Karte).
+            keep_active_set=lock_active_gpus or lock_split,
         )
         if refined is None:
             # Always log why refinement stopped — makes it transparent
@@ -1877,14 +1957,10 @@ async def _verify_and_refine(
             f"{status_prefix} balance check: swap {reason} — "
             f"trying split {_split_str(refined)}"
         )
-        r_new = await verify(
-            full_cmd=proj.adjust_cmd_for_projection(
-                full_cmd, refined, candidate.kv_quant,
-            ),
-            context=current_ctx, port=port, gpus=gpus,
-            safety_margin_mb=budget.safety_margin,
-            reserve_mb=budget.gpu_reserve_mb,
-            ngl=candidate.ngl, env=env, probe_thinking=False,
+        r_new = await _load_and_cache(
+            probe_cache, refined, current_ctx,
+            full_cmd=full_cmd, candidate=candidate, port=port,
+            gpus=gpus, budget=budget, env=env, probe_thinking=False,
         )
         yield (_fmt_verify(
             status_prefix, iteration, refined, current_ctx, r_new,
@@ -1953,6 +2029,12 @@ async def _verify_and_refine(
             consecutive_math_oom = 0
             MATH_OOM_GIVEUP = 2
             UNMEASURED_TRUST_FLOOR = 2 * budget.safety_margin
+            # Stille Load-Crashes wie in der Abwärts-Suche behandeln: ohne
+            # Messwerte kann Math nichts lernen (Bisect erzwingen), und ein
+            # ctx-unabhängig identisch sterbender Load beendet die Suche,
+            # statt das Fenster in ~3-min-Crashes leer zu bisektieren.
+            up_math_unreliable = False
+            up_load_sig: tuple[int, ...] | None = None
             while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
                 math_max, predicted_min = _math_max_fitting_ctx(
                     current_split,
@@ -1969,6 +2051,7 @@ async def _verify_and_refine(
                 math_burned_out = consecutive_math_oom >= MATH_OOM_GIVEUP
                 math_usable = (
                     math_max > lo
+                    and not up_math_unreliable
                     and not math_too_tight
                     and not math_burned_out
                 )
@@ -1983,6 +2066,8 @@ async def _verify_and_refine(
                         break
                     if math_burned_out:
                         src = f"bisect (math gave up after {MATH_OOM_GIVEUP} OOMs)"
+                    elif up_math_unreliable:
+                        src = "bisect (math unreliable after silent crash)"
                     elif math_too_tight:
                         src = f"bisect (unmeasured bias, only {predicted_min} MB free predicted)"
                     else:
@@ -2019,6 +2104,8 @@ async def _verify_and_refine(
                 if r_up.fits:
                     lo = cand_ctx
                     last_good = (r_up, current_split, cand_ctx)
+                    up_math_unreliable = False
+                    up_load_sig = None
                     if used_math:
                         consecutive_math_oom = 0
                 else:
@@ -2094,11 +2181,36 @@ async def _verify_and_refine(
                             # reserve-adjusted free and still stops at the margin.
                             hi = upward_ceiling
                             last_good = (r_re, current_split, cand_ctx)
+                            # Load-Signatur ist split-abhängig — nach dem
+                            # Split-Wechsel darf eine alte Signatur nicht
+                            # gegen den neuen Split verglichen werden.
+                            up_math_unreliable = False
+                            up_load_sig = None
                             continue
                         # Refined split also failed — fall through to
                         # math-bias update + hi shrink with r_up's data.
                     hi = cand_ctx
+                    if not r_up.measured_free_mb:
+                        # Stiller Load-Crash (kein Steady-State-Messwert) —
+                        # Spiegel der Abwärts-Suche: Math nichts zu lernen →
+                        # Bisect erzwingen; identische NICHT-leere Signatur
+                        # → ctx-unabhängiger Crash, Suche beenden.
+                        up_math_unreliable = True
+                        if (
+                            up_load_sig
+                            and r_up.load_min_free_mb
+                            and r_up.load_min_free_mb == up_load_sig
+                        ):
+                            yield (
+                                f"{status_prefix} load failure is "
+                                f"ctx-independent (identical load minimum) — "
+                                f"stopping upward search"
+                            )
+                            break
+                        up_load_sig = r_up.load_min_free_mb
                     if r_up.measured_free_mb:
+                        up_math_unreliable = False
+                        up_load_sig = None
                         if candidate.vram_model is not None:
                             bias_measured = True  # trust bias-adjusted math
                         active_free_real = [
@@ -2107,11 +2219,17 @@ async def _verify_and_refine(
                         ]
                         if active_free_real:
                             real_min = min(active_free_real)
-                            new_bias = max(0, predicted_min - real_min)
+                            # Vorhersage am geprobten ctx — Begründung siehe
+                            # identische Stelle in der Abwärts-Suche.
+                            _, pred_at_probe = _math_predicts_fit(
+                                current_split, cand_ctx,
+                                candidate, model, gpus, budget,
+                            )
+                            new_bias = max(0, pred_at_probe - real_min)
                             if new_bias > math_bias_mb:
                                 yield (
                                     f"{status_prefix} 🧮 math bias detected: "
-                                    f"predicted {predicted_min} MB vs real {real_min} MB "
+                                    f"predicted {pred_at_probe} MB vs real {real_min} MB "
                                     f"→ bias +{new_bias} MB (was +{math_bias_mb} MB)"
                                 )
                                 math_bias_mb = new_bias
@@ -2866,7 +2984,12 @@ async def _try_ai_calibration(
     ngl = _ngl_from_cmd(full_cmd)
     kv = _kv_quant_from_cmd(full_cmd)
     num_gpus = sum(1 for r in ai_split if r > 0)
-    ts_colon = ":".join(str(int(round(r))) for r in ai_split)
+    # Sentinel grammar: __RESULT__ is COLON-delimited, so the split field
+    # must be comma-CSV of the ACTIVE values — same as _result_sentinel.
+    # A colon-joined split here shifted every following field in the parser
+    # (_parse_calibration_result splits on ":"): tensor_split became the
+    # first layer count, num_gpus the second, uuids the third.
+    ts_csv = ",".join(str(int(round(r))) for r in ai_split if r > 0)
 
     if config_path:
         result = Result(
@@ -2922,7 +3045,7 @@ async def _try_ai_calibration(
                     yield line
 
     yield (
-        f"__RESULT__:{ai_ctx}:{ngl}:gpu:thinks:{kv}:{ts_colon}:{num_gpus}:"
+        f"__RESULT__:{ai_ctx}:{ngl}:gpu:thinks:{kv}:{ts_csv}:{num_gpus}:"
         f"{_active_uuid_csv(tuple(ai_split), gpus)}"
     )
 
@@ -2959,7 +3082,7 @@ async def _write_base_config(
 
 
 async def _write_speed_config(
-    config_path: Path, model_id: str, result: Result,
+    config_path: Path, model_id: str, result: Result, gpus: list[GPU],
 ) -> AsyncIterator[str]:
     split_colon = _split_str(result.tensor_split)
     io.add_llamaswap_speed_variant(
@@ -2971,6 +3094,7 @@ async def _write_speed_config(
         num_gpus=result.num_gpus,
         kv_quant=result.kv_quant,
         speed_layer_split=split_colon,
+        cuda_visible_devices=_active_uuid_csv(result.tensor_split, gpus),
     )
     yield f"Speed config written: ctx={format_number(result.context)}, split={split_colon}"
 
@@ -3164,9 +3288,12 @@ async def _calibrate_hybrid(
                 gpu_uuids=[g.uuid for g in gpus],
             )
             ts_csv = ",".join(f"{x:g}" for x in ts_ngl if x > 0)
+            # 8th field (active-GPU UUIDs) like every other __RESULT__ —
+            # the parser docstring requires it as the CUDA_VISIBLE source.
             yield (
                 f"__RESULT__:{target}:{ngl}:hybrid:"
-                f"{'thinks' if thinks else 'nothink'}:f16:{ts_csv}:{len(gpus)}"
+                f"{'thinks' if thinks else 'nothink'}:f16:{ts_csv}:{len(gpus)}:"
+                f"{_active_uuid_csv(ts_ngl, gpus)}"
             )
             return
 

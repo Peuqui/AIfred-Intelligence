@@ -40,9 +40,11 @@ class GPU:
     # speed_class: rank of this GPU's compute_cap among visible classes;
     #              0 = highest. Used by the optimizer for homogeneous-fill
     #              ("two RTX 8000 first, then spill to V100").
-    # first_in_class: True for the GPU per class with the smallest
-    #                 free_mb at enumeration time — empirically the
-    #                 display-carrying card; gets the first-GPU handicap.
+    # first_in_class: True ONLY for the tightest GPU of the HIGHEST
+    #                 compute class (= CUDA device 0 in the pinned fill
+    #                 order) — the one card carrying llama.cpp's
+    #                 main-device buffers; gets the first-GPU handicap.
+    #                 Exactly one GPU per hardware constellation.
     speed_class: int
     first_in_class: bool
 

@@ -14,18 +14,19 @@ speed_class groups GPUs of identical compute capability for the
 optimizer's homogeneous-fill strategy (e.g. "two RTX 8000 first, then
 spill to V100").
 
-The "first-GPU handicap": within a class, one GPU typically holds less
-free VRAM than its identical sibling because it carries the
-display/compositor overhead. We mark that one ``first_in_class=True``
-empirically by picking the minimum-free GPU per class — no driver-order
-heuristic involved.
+The "first-GPU handicap": the first card of the HIGHEST compute class is
+CUDA device 0 in the pinned fill order and carries llama.cpp's main-device
+buffers (logits/output tensor, compute workspace, MTP draft) plus any
+display/compositor overhead. Exactly that one card is marked
+``first_in_class=True`` — empirically the minimum-free GPU of class 0, no
+driver-order heuristic involved. Slower classes carry none of these
+buffers and get no handicap.
 """
 
 from __future__ import annotations
 
 import logging
 import subprocess
-from collections import defaultdict
 from typing import Any
 
 from .types import GPU, Budget
@@ -90,10 +91,12 @@ def _query_nvidia_smi() -> list[dict[str, Any]]:
 
     rows: list[dict[str, Any]] = []
     for line in result.stdout.strip().split("\n"):
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) != 5:
+        if not line.strip():
             continue
+        parts = [p.strip() for p in line.split(",")]
         try:
+            if len(parts) != 5:
+                raise ValueError(f"expected 5 fields, got {len(parts)}")
             rows.append({
                 "uuid": parts[0],
                 "name": _short_name(parts[1]),
@@ -101,8 +104,16 @@ def _query_nvidia_smi() -> list[dict[str, Any]]:
                 "total_mb": int(parts[3]),
                 "free_mb": int(parts[4]),
             })
-        except ValueError:
-            continue
+        except ValueError as e:
+            # Eine still verworfene Zeile (z.B. "[N/A]" bei Treiber-Hickup)
+            # ließe die GPU aus der Planung verschwinden, obwohl sie CUDA-
+            # sichtbar bleibt — Split-Länge und CUDA-Order desyncen still.
+            # Laut scheitern; der Kalibrier-Handler fängt das und restartet
+            # llama-swap im finally.
+            raise RuntimeError(
+                f"nvidia-smi returned an unparseable GPU row ({line!r}): {e}"
+                " — refusing to plan with an incomplete GPU list"
+            ) from e
     return rows
 
 
@@ -190,21 +201,25 @@ def enumerate_gpus() -> list[GPU]:
         if cc not in class_of_compute:
             class_of_compute[cc] = len(class_of_compute)
 
-    # first_in_class: the GPU per compute-class with the lowest free_mb.
-    # Empirical detection of the display-carrying card — works for any
-    # GPU layout without name heuristics.
-    by_class: dict[float, list[dict[str, Any]]] = defaultdict(list)
-    for g in rows:
-        by_class[float(g["compute_cap"])].append(g)
+    # first_in_class: NUR die engste Karte der HÖCHSTEN Compute-Klasse.
+    # Sie ist in der Füll-Reihenfolge (compute DESC, via CUDA_VISIBLE_
+    # DEVICES gepinnt) CUDA-Device 0 und trägt als einzige die llama.cpp-
+    # Main-Device-Puffer (Logits/Output, Compute-Workspace, MTP-Draft) —
+    # der Handicap existiert genau EINMAL pro Hardware-Konstellation.
+    # Früher wurde pro Klasse eine Karte markiert (Einzelkarten immer):
+    # das in Klasse 0 gemessene Handicap wurde dann auch von der ersten
+    # V100/P40 abgezogen, die diese Puffer gar nicht hat — der Planer
+    # verschenkte dort Layer-Platz. Tie-Break bei gleichem free_mb:
+    # lexikographisch kleinste UUID (deterministisch, kein besseres Signal).
     first_uuids: set[str] = set()
-    for group in by_class.values():
-        if len(group) == 1:
-            first_uuids.add(group[0]["uuid"])
-            continue
-        # Tightest free GPU is treated as display-carrying. If two are
-        # tied, pick the one with the lexicographically smaller UUID —
-        # deterministic and we don't have a better signal.
-        tightest = min(group, key=lambda g: (g["free_mb"], g["uuid"]))
+    fastest_cc = next(
+        (cc for cc, idx in class_of_compute.items() if idx == 0), None,
+    )
+    if fastest_cc is not None:
+        fastest_group = [
+            g for g in rows if float(g["compute_cap"]) == fastest_cc
+        ]
+        tightest = min(fastest_group, key=lambda g: (g["free_mb"], g["uuid"]))
         first_uuids.add(tightest["uuid"])
 
     return [

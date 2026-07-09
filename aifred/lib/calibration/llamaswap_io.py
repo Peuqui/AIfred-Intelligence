@@ -488,11 +488,18 @@ def add_llamaswap_speed_variant(
     num_gpus: int = 0,
     kv_quant: str = "f16",
     speed_layer_split: str = "",
+    cuda_visible_devices: str = "",
 ) -> bool:
     """Create the ``<model>-speed`` entry in llama-swap YAML.
 
     Prefers ``speed_layer_split`` (full A:B:C:D string) when provided;
     falls back to existing tensor-split for backward compatibility.
+
+    ``cuda_visible_devices`` (explicit UUID-CSV, parallel zu den aktiven
+    Split-Werten) gewinnt über die abgeleitete Prefix-Trim-Logik — gleicher
+    Kontrakt wie die TTS-/VLM-Writer. Der Prefix-Trim stimmt nur, solange
+    das Speed-Set ein Präfix der Base-Enumeration ist; die explizite Liste
+    stimmt immer (2026-07-06-Entscheidung: UUIDs durchreichen).
     """
     if not config_path.exists():
         logger.error(f"llama-swap config not found: {config_path}")
@@ -520,20 +527,25 @@ def add_llamaswap_speed_variant(
     cmd = set_kv_quant(cmd, kv_quant)
     entry["cmd"] = cmd
 
-    # Inherit env from base (already contains CUDA_VISIBLE_DEVICES with
-    # UUIDs in AIfred's compute-DESC order). The speed variant uses the
-    # same physical GPUs — just fewer of them — so we trim the UUID list
-    # to the first ``num_gpus`` entries (compute-fastest first within
-    # the base set).
-    base_entry = (config.get("models") or {}).get(model_id) or {}
-    base_env = base_entry.get("env") or []
-    base_uuids = _extract_uuids_from_env(base_env)
-    if num_gpus > 0 and base_uuids and num_gpus < len(base_uuids):
-        speed_uuids = base_uuids[:num_gpus]
-        entry["env"] = [f"CUDA_VISIBLE_DEVICES={','.join(speed_uuids)}"]
+    if cuda_visible_devices:
+        # Explizite UUID-Liste vom Sentinel — exakt die aktiven Karten,
+        # unabhängig davon, ob das Speed-Set ein Enumerations-Präfix ist.
+        entry["env"] = [f"CUDA_VISIBLE_DEVICES={cuda_visible_devices}"]
     else:
-        # Same GPU count as base (or no base UUIDs) — keep base env.
-        entry["env"] = list(base_env)
+        # Inherit env from base (already contains CUDA_VISIBLE_DEVICES with
+        # UUIDs in AIfred's compute-DESC order). The speed variant uses the
+        # same physical GPUs — just fewer of them — so we trim the UUID list
+        # to the first ``num_gpus`` entries (compute-fastest first within
+        # the base set).
+        base_entry = (config.get("models") or {}).get(model_id) or {}
+        base_env = base_entry.get("env") or []
+        base_uuids = _extract_uuids_from_env(base_env)
+        if num_gpus > 0 and base_uuids and num_gpus < len(base_uuids):
+            speed_uuids = base_uuids[:num_gpus]
+            entry["env"] = [f"CUDA_VISIBLE_DEVICES={','.join(speed_uuids)}"]
+        else:
+            # Same GPU count as base (or no base UUIDs) — keep base env.
+            entry["env"] = list(base_env)
 
     existed = speed_id in config["models"]
     _insert_variant(config, model_id, speed_id, entry)
@@ -760,18 +772,17 @@ def add_llamaswap_tts_variant(
     cmd = set_context(cmd, tts_context)
     cmd = set_kv_quant(cmd, kv_quant)
     if tensor_split:
-        # llama.cpp's `--tensor-split` wants COMMA-separated values. Some
-        # callers pass the colon-form used internally for log/sentinel
-        # formatting — normalize here so the YAML always lands with the
-        # format llama.cpp can parse. Use the long ``--tensor-split``
-        # form to stay consistent with the BASE writer (the short ``-ts``
-        # and the long form are functionally identical, but mixing both
-        # in the same YAML makes diffs and grep harder).
-        ts_normalized = tensor_split.replace(":", ",")
-        cmd = re.sub(
-            r"(--tensor-split|-ts)\s+[\d.,:]+",
-            f"--tensor-split {ts_normalized}", cmd,
-        )
+        # llama.cpp's `--tensor-split` wants COMMA-separated values; the
+        # colon-form (internal log/sentinel format) is normalized here.
+        # SSOT ``set_tensor_split`` statt eigenem re.sub: das ersetzt nicht
+        # nur, sondern FÜGT das Flag samt ``-sm layer -fit off`` ein, wenn
+        # die Quelle keins hat (Single-GPU-Base → Multi-GPU-Variante). Die
+        # frühere re.sub-Variante verwarf den Split dann stillschweigend.
+        ratios = [
+            float(x) for x in tensor_split.replace(":", ",").split(",")
+            if x.strip()
+        ]
+        cmd = set_tensor_split(cmd, ratios)
     entry["cmd"] = cmd
 
     # Always pin via UUID list. Caller passes ``cuda_visible_devices``
@@ -954,13 +965,13 @@ def add_llamaswap_vlm_variant(
     cmd = set_context(cmd, vlm_context)
     cmd = set_kv_quant(cmd, kv_quant)
     if tensor_split:
-        # Same rationale as the TTS writer: long-form ``--tensor-split``
-        # keeps the YAML consistent with the BASE writer.
-        ts_normalized = tensor_split.replace(":", ",")
-        cmd = re.sub(
-            r"(--tensor-split|-ts)\s+[\d.,:]+",
-            f"--tensor-split {ts_normalized}", cmd,
-        )
+        # Same rationale as the TTS writer: SSOT set_tensor_split ersetzt
+        # UND fügt bei fehlendem Flag ein statt still zu verwerfen.
+        ratios = [
+            float(x) for x in tensor_split.replace(":", ",").split(",")
+            if x.strip()
+        ]
+        cmd = set_tensor_split(cmd, ratios)
     entry["cmd"] = cmd
 
     if cuda_visible_devices:
