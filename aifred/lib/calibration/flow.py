@@ -747,6 +747,34 @@ def _derive_reserved_split(
         if total_headroom > 0:
             for i, h in targets:
                 adj[i] += lost * h / total_headroom
+            # Headroom-bewusste Quantisierung. Es entstehen KEINE fraktionalen
+            # Layer — llama.cpp platziert nur ganze; die Fraktionen sind reines
+            # Rechen-Zwischenergebnis. Nur die Frage WELCHE Karte den
+            # aufgerundeten Rest-Layer bekommt, richtet sich hier nach echtem
+            # Platz statt nach dem Rundungsrest: Die generische
+            # Largest-Remainder-Rundung vergibt den Rest an den größten
+            # Nachkomma — das zwängt einer randvollen RTX 8000 einen Layer auf
+            # (GPU2 17→18, obwohl remaining_free nur ~2 GB), während die freie
+            # V100 (viel remaining_free) leer bleibt. Stattdessen: floor pro
+            # Karte, dann jeden Rest-Layer per Water-Filling an das Spill-Ziel
+            # mit dem aktuell meisten verbleibenden remaining_free.
+            floors = [float(int(x)) for x in adj]
+            remainder = model.total_layers - int(sum(floors))
+            _target_idxs = [i for i, _ in targets]
+            if remainder > 0 and _target_idxs and base_remaining_free:
+                _cost = model.size_mb / model.total_layers
+                _slack = {
+                    i: base_remaining_free[gpus[i].uuid]
+                    - max(0.0, floors[i] - base_split[i]) * _cost
+                    for i in _target_idxs
+                    if gpus[i].uuid in base_remaining_free
+                }
+                if _slack:
+                    for _ in range(remainder):
+                        _best = max(_slack, key=lambda k: _slack[k])
+                        floors[_best] += 1.0
+                        _slack[_best] -= _cost
+                    return (tuple(floors), reductions)
 
     return (
         _quantize_split_to_layers(tuple(adj), model.total_layers),
