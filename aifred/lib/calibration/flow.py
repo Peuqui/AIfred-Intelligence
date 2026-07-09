@@ -1976,6 +1976,47 @@ async def _verify_and_refine(
                                 _remember_bias(model, gpus, new_bias)
             r, current_split, current_ctx = last_good
 
+    # Finaler Decken-Probe: Der Upward-Push (und die 256er-Bisect-Rundung)
+    # lassen das Ergebnis genau PRECISION unter einem glatten Decken-
+    # Vielfachen stehen — native (262.144) ist per Bisect unerreichbar, wenn
+    # ``lo`` auf native−256 (261.888) landet (``hi-lo > PRECISION`` ist bei
+    # 256>256 falsch, und der Bisect-Kandidat rundet auf ``lo`` zurück).
+    # Sitzt der letzte grüne ctx nur EINEN Präzisions-Schritt unter der Decke
+    # und wurde die Decke nie geprobt, probe sie einmal: der 256-Token-KV-
+    # Zuwachs sind ein paar MB, passt fast immer und holt den vollen Kontext,
+    # der sonst verschenkt würde (0,1 %, aber unlogisch). Nur EIN Probe, nur
+    # wenn die Decke ohnehin schon fast erreicht ist.
+    _up_ceiling = (
+        min(ctx_ceiling, model.native_context) if ctx_ceiling
+        else model.native_context
+    )
+    _lg_r, _lg_split, _lg_ctx = last_good
+    if (
+        _lg_r.fits
+        and _lg_ctx < _up_ceiling
+        and _up_ceiling - _lg_ctx <= LLAMACPP_CALIBRATION_PRECISION
+    ):
+        iteration += 1
+        yield (
+            f"{status_prefix} 🧮 final ceiling probe "
+            f"{format_number(_up_ceiling)} (last good {format_number(_lg_ctx)}, "
+            f"gap {_up_ceiling - _lg_ctx} ≤ precision) — probe..."
+        )
+        r_ceil = await verify(
+            full_cmd=proj.adjust_cmd_for_projection(
+                full_cmd, _lg_split, candidate.kv_quant,
+            ),
+            context=_up_ceiling, port=port, gpus=gpus,
+            safety_margin_mb=budget.safety_margin,
+            reserve_mb=budget.gpu_reserve_mb,
+            ngl=candidate.ngl, env=env, probe_thinking=False,
+        )
+        yield _fmt_verify(
+            status_prefix, iteration, _lg_split, _up_ceiling, r_ceil,
+        )
+        if r_ceil.fits:
+            last_good = (r_ceil, _lg_split, _up_ceiling)
+
     # Build the final result from the last successful run
     r_final, split_final, ctx_final = last_good
     final_candidate = Candidate(
