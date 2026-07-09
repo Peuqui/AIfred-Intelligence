@@ -37,6 +37,13 @@ logger = logging.getLogger(__name__)
 # 25 leaves ample room for unexpected OOM streaks without burning
 # unbounded tokens if the agent fails to converge.
 MAX_PROBES = 25
+# Turn-Budget der Agenten-Schleife (Runaway-Bremse, falls das LLM nie
+# ``finalize`` ruft). Muss deutlich über MAX_PROBES liegen: Estimates
+# sind billig (1-2 s, kein Modell-Load) und werden dem LLM ausdrücklich
+# als Explorations-Werkzeug angeboten — mit dem alten Budget von
+# MAX_PROBES+5 strangulierte jeder Estimate-Roundtrip das Probe-Budget
+# (25 Estimates + 4 Probes → "Loop limit reached" ohne finalize).
+MAX_TURNS = 80
 DEFAULT_HEALTH_TIMEOUT = 600.0  # large models with mlock take a while
 
 
@@ -157,7 +164,23 @@ def _parse_split(text: str, n_gpus: int) -> Optional[list[float]]:
         return None
     if len(parts) != n_gpus or any(p < 0 for p in parts):
         return None
+    # All-Zero-Split ("0,0,0,0") passiert sonst die Validierung und landet
+    # als "-ts 0,0,0,0" beim llama-server (undefiniertes Verhalten, eine
+    # verbrannte Probe statt sofortiger Tool-Fehlermeldung an die KI).
+    if not any(p > 0 for p in parts):
+        return None
     return parts
+
+
+def _safe_int(value: object) -> int:
+    """LLM-Tool-Argument robust zu int koerzieren — '128k', null oder
+    Nicht-Zahlen dürfen den Generator nicht mit ValueError/TypeError
+    crashen, sondern werden 0 (→ bestehender Bad-Arguments-Pfad meldet
+    der KI den Fehler zurück)."""
+    try:
+        return int(float(value))  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return 0
 
 
 def _format_split(split: list[float] | tuple[float, ...]) -> str:
@@ -341,6 +364,7 @@ async def _do_estimate(
     tensor_split: list[float],
     gpus: list[GPU],
     safety_margin_mb: int,
+    reserve_mb: tuple[int, ...] = (),
 ) -> _ProbeOutcome:
     """Fast math projection via llama-fit-params (no model load).
 
@@ -369,6 +393,10 @@ async def _do_estimate(
             free_mb=[],
             detail="fit-params returned no per-GPU data",
         )
+    # Dieselbe Reserve-Bereinigung wie _do_probe/verify(): ohne sie meldet
+    # der Estimate für die Side-Channel-GPU zu viel frei und die KI sieht
+    # widersprüchliche Zahlen zwischen estimate_ok und probe→oom.
+    free_list = _apply_reserve(free_list, reserve_mb)
     min_free = min(free_list)
     if min_free < 0:
         status = "estimate_oom"
@@ -667,7 +695,7 @@ async def calibrate_with_ai(
     last_split: Optional[list[float]] = None
     probe_count = 0
 
-    for turn in range(MAX_PROBES + 5):  # extra slack for non-tool messages
+    for turn in range(MAX_TURNS):
         # The AI always reasons between turns, even without enable_thinking
         # (chain-of-thought just makes it more thorough + slower).
         if turn == 0:
@@ -731,7 +759,7 @@ async def calibrate_with_ai(
                 continue
 
             if name == "estimate_config":
-                ctx = int(args.get("ctx", 0))
+                ctx = _safe_int(args.get("ctx", 0))
                 split_str = str(args.get("tensor_split", ""))
                 split = _parse_split(split_str, len(gpus))
                 if ctx <= 0 or split is None:
@@ -757,6 +785,7 @@ async def calibrate_with_ai(
                 yield f"🧮 Estimate: ctx={ctx}, split={_format_split(split)}"
                 est = await _do_estimate(
                     full_cmd, gguf_path, ctx, split, gpus, safety_margin_mb,
+                    reserve_mb=reserve_mb,
                 )
                 yield f"   -> {est.status}: {est.detail}"
                 messages.append({
@@ -778,7 +807,7 @@ async def calibrate_with_ai(
                     })
                     continue
 
-                ctx = int(args.get("ctx", 0))
+                ctx = _safe_int(args.get("ctx", 0))
                 split_str = str(args.get("tensor_split", ""))
                 split = _parse_split(split_str, len(gpus))
                 if ctx <= 0 or split is None:
@@ -811,7 +840,7 @@ async def calibrate_with_ai(
                 })
 
             elif name == "finalize":
-                ctx = int(args.get("ctx", 0))
+                ctx = _safe_int(args.get("ctx", 0))
                 split_str = str(args.get("tensor_split", ""))
                 reasoning = str(args.get("reasoning", ""))
                 split = _parse_split(split_str, len(gpus))

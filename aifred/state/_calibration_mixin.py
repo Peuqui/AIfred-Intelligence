@@ -949,7 +949,6 @@ class CalibrationMixin(rx.State, mixin=True):
             update_llamaswap_context,
             update_llamaswap_ngl,
             add_llamaswap_speed_variant,
-            update_llamaswap_cuda_visible,
         )
         from ..lib.config import LLAMASWAP_CONFIG_PATH, MIN_USEFUL_CONTEXT_TOKENS
 
@@ -1314,6 +1313,7 @@ class CalibrationMixin(rx.State, mixin=True):
             speed_split_context = MIN_USEFUL_CONTEXT_TOKENS
             speed_num_gpus = 0
             speed_kv_quant = "f16"
+            speed_uuid_csv = ""
             # Calibrate the base model — speed variant is created as Phase 2
             # (model_id is always base ID — SSOT, no suffix stripping needed)
             calibration_model_id = self.aifred_model_id  # type: ignore[attr-defined]
@@ -1390,7 +1390,11 @@ class CalibrationMixin(rx.State, mixin=True):
                     elif progress_msg.startswith("__SPEED__:"):
                         speed_payload = progress_msg.removeprefix("__SPEED__:")
                         if "," in speed_payload:
-                            speed_parts = speed_payload.split(",")
+                            # maxsplit=4: das 5. Feld ist die UUID-CSV der
+                            # aktiven Karten (enthält selbst Kommata) — der
+                            # 2026-07-06-Desync-Fix, den dieser Parser bis
+                            # jetzt verworfen hatte.
+                            speed_parts = speed_payload.split(",", 4)
                             speed_layer_split = speed_parts[0]  # e.g. "26:11:11:0"
                             # Extract cuda0 and rest from layer split
                             layer_vals = [int(x) for x in speed_layer_split.split(":")]
@@ -1402,6 +1406,8 @@ class CalibrationMixin(rx.State, mixin=True):
                                 speed_num_gpus = int(speed_parts[2])
                             if len(speed_parts) > 3:
                                 speed_kv_quant = speed_parts[3]
+                            if len(speed_parts) > 4:
+                                speed_uuid_csv = speed_parts[4]
                         else:
                             speed_split_cuda0 = int(speed_payload)
                     else:
@@ -1472,6 +1478,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         num_gpus=speed_num_gpus,
                         kv_quant=speed_kv_quant,
                         speed_layer_split=speed_layer_split,
+                        cuda_visible_devices=speed_uuid_csv,
                     )
                     if added_speed:
                         gpu_info_str = f", {speed_num_gpus} GPUs" if speed_num_gpus else ""
@@ -1482,21 +1489,11 @@ class CalibrationMixin(rx.State, mixin=True):
                             f"(split {split_display}, "
                             f"ctx {format_number(speed_split_context)}{gpu_info_str}{kv_info_str})"
                         )
-                        # Pin speed variant to the first ``speed_num_gpus`` UUIDs
-                        # from the base config (highest compute first within
-                        # the base set).
-                        if speed_num_gpus > 0:
-                            from ..lib.calibration import llamaswap_io as _io
-                            speed_model_id = f"{calibration_model_id}-speed"
-                            _cfg = _io._read_yaml(LLAMASWAP_CONFIG_PATH)
-                            _base_entry = (_cfg.get("models") or {}).get(calibration_model_id) or {}
-                            _base_uuids = _io._extract_uuids_from_env(_base_entry.get("env") or [])
-                            if _base_uuids and speed_num_gpus < len(_base_uuids):
-                                _speed_uuids = _base_uuids[:speed_num_gpus]
-                                update_llamaswap_cuda_visible(
-                                    LLAMASWAP_CONFIG_PATH, speed_model_id,
-                                    _speed_uuids, _base_uuids,
-                                )
+                        # UUID-Pinning macht jetzt der Writer selbst über das
+                        # explizite ``cuda_visible_devices`` aus dem Sentinel
+                        # (exakt die aktiven Karten) — der frühere Post-hoc-
+                        # Prefix-Trim hätte diese korrekte Liste überschrieben
+                        # und stimmte nur für Präfix-Speed-Sets.
                         # Patch speed_split into the latest calibration entry (already saved)
                         from ..lib.model_vram_cache import update_llamacpp_speed_split
                         update_llamacpp_speed_split(
@@ -1901,10 +1898,17 @@ class CalibrationMixin(rx.State, mixin=True):
                                             )
                                             _sp_cuda0 = 0
                                             if _approx_sp_split:
+                                                # Sentinel tensor_split is
+                                                # comma-CSV (_result_sentinel)
+                                                # — ":" split returned the
+                                                # whole CSV as one token and
+                                                # int() always failed → the
+                                                # cache never saw the speed
+                                                # split (reuse check 0).
                                                 try:
-                                                    _sp_cuda0 = int(
-                                                        _approx_sp_split.split(":")[0]
-                                                    )
+                                                    _sp_cuda0 = int(float(
+                                                        _approx_sp_split.split(",")[0]
+                                                    ))
                                                 except (ValueError, IndexError):
                                                     _sp_cuda0 = 0
                                             _alc(

@@ -160,6 +160,19 @@ async def analyze_sequence(
     if not frames:
         raise ValueError("analyze_sequence requires at least 1 frame")
 
+    # Kalibrier-Gate (SSOT calibration_gate, wie Chat/Message-Hub): ein
+    # Motion-Event mitten in einer Kalibrier-Probe würde das VLM auf die
+    # gerade vermessene GPU laden — die Messung wäre verfälscht bzw. der
+    # Test-Server OOMt real. Ein RuntimeError ist der dokumentierte
+    # Fehlerpfad dieser Funktion; jeder Caller (Watcher, Türsteher,
+    # Event-Analyse) fängt ihn und loggt. Kein stilles Skippen.
+    from .calibration_gate import is_calibration_active
+    if is_calibration_active():
+        raise RuntimeError(
+            "VLM analysis blocked: calibration active — "
+            "GPU probes must not be skewed by a VLM load"
+        )
+
     # Frames vor dem VLM-Call auf max_pixels deckeln — spart Vision-Tokens
     # (passt N Keyframes in num_ctx), ohne die Beschreibung zu verschlechtern.
     # max_pixels <= 0 → kein Downscale (downscale_for_vlm gibt Original zurück).

@@ -497,13 +497,20 @@ async def verify(
             if output and not reason.startswith("cancelled"):
                 logger.error(f"llama-server not ready. Log tail:\n{output[-2000:]}")
                 # Distinguish OOM vs other crashes by scanning the log tail.
+                # NUR echte OOM-Marker zählen — ein generisches "CUDA error"
+                # (illegal memory access, device assert) ist KEIN OOM: als
+                # solches klassifiziert würde es den Layer-Shift-Refine in
+                # sinnlose Verschiebungen gegen einen Nicht-Speicher-Fehler
+                # treiben.
                 tail = output[-4000:]
                 tail_lower = tail.lower()
-                if "out of memory" in tail_lower or "cudamalloc" in tail_lower or "cuda error" in tail_lower:
+                if "out of memory" in tail_lower or "cudamalloc" in tail_lower:
                     reason = f"OOM during load ({reason})"
                     oom_cuda_id = _parse_oom_cuda_id(tail)
                     if oom_cuda_id is not None:
                         reason += f" — CUDA{oom_cuda_id}"
+                elif "cuda error" in tail_lower:
+                    reason = f"CUDA error (non-OOM) during load ({reason})"
             # Load-Phase-Messwerte ins Reporting: Ohne sie zeigt das Log bei
             # einem Load-OOM nur die Split-Schieberei, aber nie, wie eng es
             # auf welcher Karte real wurde. Bewusst NUR im detail-Text —
@@ -521,10 +528,18 @@ async def verify(
             )
 
         if not await _test_inference(port):
+            # Log VOR dem Cleanup lesen: nur so bekommt der Blind-Shift die
+            # OOM-Karte — vorher wurde der Tail ungelesen verworfen und der
+            # Shift hatte kein Ziel ("OOM GPU not identifiable").
+            output = _read_log(process)
             _kill(process)
             _cleanup_log(process)
             await wait_for_vram_stable(max_wait_seconds=10.0)
-            return VerifyResult(False, (), None, "OOM (inference crash)")
+            infer_oom_id = _parse_oom_cuda_id(output[-4000:]) if output else None
+            detail = "OOM (inference crash)"
+            if infer_oom_id is not None:
+                detail += f" — CUDA{infer_oom_id}"
+            return VerifyResult(False, (), None, detail, oom_cuda_id=infer_oom_id)
 
         # Vision-Probe (probe-first, 2026-07-07): --mmproj-Modelle
         # allozieren ihre CLIP-Buffer erst bei der ersten Bildanalyse.
@@ -532,10 +547,15 @@ async def verify(
         # Vision-VRAM-Zuschlag — der Bedarf steckt danach real in der
         # Messung, und ein Profil besteht nur, wenn auch Bild geht.
         if "--mmproj" in full_cmd and not await _test_vision_inference(port):
+            output = _read_log(process)
             _kill(process)
             _cleanup_log(process)
             await wait_for_vram_stable(max_wait_seconds=10.0)
-            return VerifyResult(False, (), None, "OOM (vision probe crash)")
+            vis_oom_id = _parse_oom_cuda_id(output[-4000:]) if output else None
+            detail = "OOM (vision probe crash)"
+            if vis_oom_id is not None:
+                detail += f" — CUDA{vis_oom_id}"
+            return VerifyResult(False, (), None, detail, oom_cuda_id=vis_oom_id)
 
         # Wait for VRAM to actually stabilise after inference — without
         # this, nvidia-smi can return mid-cleanup numbers (one GPU still
@@ -555,8 +575,15 @@ async def verify(
             )
             reserve_applied = True
         if not measured:
-            fits = True
-            detail = "VRAM unknown"
+            # KEIN stilles fits=True: eine unvollständige nvidia-smi-Antwort
+            # (eine fehlende GPU reicht, s. _measured_free) würde sonst ein
+            # ungeprüftes Profil akzeptieren → Betriebs-OOM. Laut scheitern —
+            # der Mixin-Handler fängt das, meldet "Calibration failed" und
+            # restartet llama-swap im finally.
+            raise RuntimeError(
+                "VRAM measurement failed (nvidia-smi returned no complete "
+                "per-GPU snapshot) — cannot decide fit, aborting calibration"
+            )
         else:
             # Probe-first (Entscheidung 2026-07-07): die Probe ist die
             # Wahrheit. Der Server wurde ready UND hat echte Inferenz
