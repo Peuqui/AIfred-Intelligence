@@ -2165,6 +2165,14 @@ class CalibrationMixin(rx.State, mixin=True):
                     enumerate_gpus as _vlm_eg,
                 )
                 from ..lib.calibration import parse_tensor_split
+                from ..lib.model_vram_cache import (
+                    get_llamacpp_remaining_free_by_uuid as _get_remaining,
+                )
+                # Reale Rest-Kapazität pro GPU (UUID→MiB) nach dem base-Laden
+                # — der KV-bewusste Spill-Headroom in _derive_reserved_split.
+                # Leer bei Cache-Einträgen vor diesem Feld → dort greift der
+                # Gewichts-Fallback (Base einmal neu kalibrieren füllt es).
+                _base_remaining = _get_remaining(calibration_model_id)
 
                 _cfg_v = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
                 _base_info_v = _cfg_v.get(calibration_model_id, {})
@@ -2277,6 +2285,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         tts_gpu_extra_reserve_mb=0,
                         vlm_gpu_uuid=_vlm_u,
                         vlm_gpu_extra_reserve_mb=_vlm_mb,
+                        base_remaining_free=_base_remaining,
                     ):
                         if _msg_v.startswith("__RESULT__:"):
                             _r_v = _parse_calibration_result(_msg_v)
@@ -2533,6 +2542,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             tts_gpu_extra_reserve_mb=tts_reserve_c,
                             vlm_gpu_uuid=_vu,
                             vlm_gpu_extra_reserve_mb=_vmb,
+                            base_remaining_free=_base_remaining,
                         ):
                             if _msg_c.startswith("__RESULT__:"):
                                 _r_c = _parse_calibration_result(_msg_c)

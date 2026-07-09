@@ -915,6 +915,7 @@ def add_llamacpp_calibration(
     vram_per_gpu: Optional[Dict[str, int]] = None,
     ram_cpu_mb: Optional[int] = None,
     gpu_uuids: Optional[list] = None,
+    remaining_free_mb: Optional[list] = None,
 ) -> bool:
     """Add a calibration point for a llama.cpp model (via llama-swap).
 
@@ -940,6 +941,14 @@ def add_llamacpp_calibration(
             calibration order. Used to invalidate the cache when the
             hardware actually changes (slot moves are tolerated, GPU
             replacements are detected).
+        remaining_free_mb: Measured free VRAM per GPU AFTER the model
+            loaded at ``max_context`` (parallel to ``gpu_uuids``). This is
+            the real leftover capacity per card — weights + KV + buffers
+            already deducted. TTS/VLM variant derivation uses it as the
+            spill headroom so a full RTX 8000 (little leftover) never gets
+            overloaded while an idle V100 (lots leftover) absorbs the
+            overflow. Without it the spill only sees ``free − weight`` and
+            ignores the ctx-dependent KV load.
 
     Returns:
         True if successfully added, False otherwise
@@ -986,6 +995,8 @@ def add_llamacpp_calibration(
             calibration["ram_cpu_mb"] = ram_cpu_mb
         if gpu_uuids:
             calibration["gpu_uuids"] = list(gpu_uuids)
+        if remaining_free_mb:
+            calibration["remaining_free_mb"] = list(remaining_free_mb)
 
         # Replace all previous calibrations — only the latest matters
         cache[model_id]["llamacpp_calibrations"] = [calibration]
@@ -1043,6 +1054,29 @@ def get_llamacpp_calibration_info(model_id: str) -> Optional[Dict[str, Any]]:
         "mode": latest.get("mode", "gpu"),
         "measured_at": latest.get("measured_at", ""),
     }
+
+
+def get_llamacpp_remaining_free_by_uuid(model_id: str) -> Dict[str, int]:
+    """Map each GPU UUID → measured free VRAM (MiB) after the base model
+    loaded at its calibrated context, from the latest calibration.
+
+    Keyed by UUID (not list position) so variant derivation stays correct
+    even if the GPU enumeration order differs from calibration time. Returns
+    an empty dict when the field is absent (cache entries written before
+    this field existed) — the caller then keeps the weight-only headroom.
+    """
+    cache = load_cache()
+    if model_id not in cache:
+        return {}
+    calibrations = cache[model_id].get("llamacpp_calibrations", [])
+    if not calibrations:
+        return {}
+    latest = calibrations[-1]
+    uuids = latest.get("gpu_uuids") or cache[model_id].get("gpu_uuids") or []
+    free = latest.get("remaining_free_mb") or []
+    if not uuids or len(uuids) != len(free):
+        return {}
+    return {str(u): int(f) for u, f in zip(uuids, free)}
 
 
 def update_llamacpp_speed_split(
