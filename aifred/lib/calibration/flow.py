@@ -688,15 +688,21 @@ def _derive_reserved_split(
     ctx-unabhängigen Load-Peak der ersten Karte je Klasse (Output/Logits,
     Compute-Workspace, MTP-Draft-Buffer).
 
-    Deckel: Eine Karte, die in der Basis bereits die tightest ihrer
-    Compute-Klasse ist UND Layer trägt (``first_in_class`` und base>0), ist
-    greedy randvoll gepackt und nimmt KEINEN Spill auf — ein zusätzlicher
-    Layer dort riskiert genau den Load-Peak, der bei GPU0 real OOMt
-    (Vigilantia-8B-Kombis: 16→17 auf der RTX 8000 = OOM). Idle-Karten
-    (base==0, das Ende der Kaskade) fangen den Überlauf ab — auch wenn sie
-    zufällig die ``first_in_class``-Karte ihrer Klasse sind (Tie-Break bei
-    gleich leeren V100), denn den Load-Peak trägt nur CUDA0, nicht eine
-    reine Datenkarte am Kaskaden-Ende.
+    Deckel (NUR im Fallback ohne Messung): Eine Karte, die in der Basis
+    bereits die tightest ihrer Compute-Klasse ist UND Layer trägt
+    (``first_in_class`` und base>0), gilt dort als greedy randvoll gepackt
+    und nimmt KEINEN Spill auf — ein zusätzlicher Layer dort riskiert den
+    Load-Peak, den nur die grobe Gewichts-Schätzung nicht sehen kann
+    (Vigilantia-8B-Kombis: 16→17 auf der RTX 8000 = OOM). Mit echter
+    ``base_remaining_free``-Messung entfällt der Deckel: Die Messung IST
+    bereits der wahre Rest-Platz, first_in_class ist dort kein Proxy mehr
+    nötig — und bei >1 Karte pro Klasse (z.B. 3× V100) ist first_in_class
+    ohnehin nur ein UUID-Tiebreak beim initialen Enumerieren, kein
+    Platz-Signal. Der Deckel hätte sonst beim 397B die V100 mit 15 GB
+    Rest-Kapazität blockiert, nur weil sie zufällig als first_in_class
+    markiert wurde, und den gesamten Überlauf auf eine RTX 8000 mit 2,6 GB
+    gepresst (TTS×VLM-8B-Combo: physisch unmöglicher Split, Kalibration
+    brach ab).
 
     Setup-agnostisch: kein Kartennamen-Heuristik, keine feste GPU-Position —
     nur ``first_in_class``, ``free_mb`` und ``base_split``. Die bisherige
@@ -721,21 +727,24 @@ def _derive_reserved_split(
     if lost > 0:
         reserve_set = set(reserve_idxs)
         targets: list[tuple[int, float]] = []
+        _remaining = base_remaining_free or {}
         for i in range(len(gpus)):
             if i in reserve_set:
                 continue
-            # Deckel: randvolle Spitzenkarte der Kaskade nimmt keinen Spill.
-            if gpus[i].first_in_class and adj[i] > 0:
+            has_measurement = gpus[i].uuid in _remaining
+            # Deckel nur im Fallback (kein first_in_class-Bypass mehr, wenn
+            # die echte Messung vorliegt — siehe Docstring).
+            if not has_measurement and gpus[i].first_in_class and adj[i] > 0:
                 continue
             handicap = (
                 budget.first_gpu_handicap if gpus[i].first_in_class else 0
             )
-            if base_remaining_free and gpus[i].uuid in base_remaining_free:
+            if has_measurement:
                 # Reale Rest-Kapazität nach base-Laden (Gewicht + KV + Buffer
                 # bereits abgezogen) — die genaue SSOT statt free − Gewicht.
                 # Verhindert das Überladen einer RTX 8000, die bei hohem ctx
                 # durch KV schon randvoll ist, aber leer viel "free" zeigt.
-                headroom = float(base_remaining_free[gpus[i].uuid] - handicap)
+                headroom = float(_remaining[gpus[i].uuid] - handicap)
             else:
                 # Fallback ohne base-Messung (Cache vor diesem Feld): grobe
                 # Gewichts-Schätzung, ignoriert den ctx-abhängigen KV-Anteil.
