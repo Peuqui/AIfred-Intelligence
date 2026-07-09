@@ -372,6 +372,18 @@ class VisionStore:
                         crop_url = str(cls.get("crop_url") or "")
                     except Exception:  # noqa: BLE001
                         crop_url = ""
+                if not crop_url:
+                    # Kein Live-Erkennungs-Event bisher (frisch angelegte
+                    # Identität, noch keine Kamera-Sichtung) — Fallback auf
+                    # das beste eigene Embedding-Crop, statt den Platzhalter
+                    # zu zeigen obwohl schon Gesichtsbilder da sind.
+                    best_emb = conn.execute(
+                        "SELECT crop_url FROM face_embeddings WHERE face_id = ? "
+                        "AND crop_url != '' ORDER BY quality_score DESC LIMIT 1",
+                        (fid,),
+                    ).fetchone()
+                    if best_emb:
+                        crop_url = str(best_emb["crop_url"])
                 result.append({
                     "id": fid,
                     "name": str(f["name"]),
