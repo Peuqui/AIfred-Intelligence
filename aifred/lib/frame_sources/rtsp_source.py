@@ -40,6 +40,7 @@ import json
 import logging
 import os
 import socket
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -209,7 +210,7 @@ def _grab_period_for(cap: cv2.VideoCapture) -> float:
     return 1.0 / fps
 
 
-async def _drain_sleep(cap: cv2.VideoCapture, interval: float, grab_period: float) -> None:
+async def _drain_sleep(cap: "_CapGuard", interval: float, grab_period: float) -> None:
     """Warte ``interval`` Sekunden, aber leere dabei laufend den
     Decoder-Puffer via ``cap.grab()`` (billig — kein Decode), damit der
     nächste ``cap.read()`` einen frischen Frame liefert statt eines, der
@@ -238,6 +239,80 @@ async def _drain_sleep(cap: cv2.VideoCapture, interval: float, grab_period: floa
         else:
             await asyncio.sleep(remaining)
             return
+
+
+class _CapGuard:
+    """Serialisiert ALLE Zugriffe auf einen ``cv2.VideoCapture`` über einen
+    Lock. Grund: ``asyncio.to_thread``-Tasks sind NICHT abbrechbar — wird
+    der Stream-Generator gecancelt (Tab zu, Reload, App-Neustart), während
+    ein ``grab()`` noch im Thread-Pool läuft, kollidiert das
+    ``finally``-``release()`` mit ihm → Use-after-free in libavcodec
+    (deterministische Worker-Segfaults 2026-07-10, ip …2c87f0, drei
+    identische Crashes). Der Lock lässt ``release()`` WARTEN statt racen.
+    """
+
+    def __init__(self, cap: cv2.VideoCapture) -> None:
+        self._cap = cap
+        self._lock = threading.Lock()
+
+    def grab(self) -> bool:
+        with self._lock:
+            return bool(self._cap.grab())
+
+    def read(self) -> Any:
+        with self._lock:
+            return self._cap.read()
+
+    def read_encode(self) -> tuple[bytes, int, int]:
+        with self._lock:
+            return _read_encode(self._cap)
+
+    def is_opened(self) -> bool:
+        with self._lock:
+            return bool(self._cap.isOpened())
+
+    def grab_period(self) -> float:
+        with self._lock:
+            return _grab_period_for(self._cap)
+
+    def release(self) -> None:
+        with self._lock:
+            self._cap.release()
+
+
+async def _drain_backlog(
+    cap: "_CapGuard", grab_period: float, max_grabs: int = 120,
+) -> int:
+    """Aufgelaufenen Puffer-Rückstand bis zum Live-Rand verwerfen.
+
+    ``_drain_sleep`` hält den Puffer nur WÄHREND der Wartezeit im
+    Kamera-Takt leer — es baut keinen Rückstand ab und die yield-Phase
+    (Konsument verarbeitet: YOLO/InsightFace auf CPU, MJPEG-Send) läuft
+    komplett ungedraint. Jede Konsument-Verzögerung akkumulierte so
+    dauerhaft Latenz (User-Report 2026-07-10: Zonen-Editor viele
+    Sekunden hinter live, wird nie besser).
+
+    Erkennung "Puffer leer" über das grab-Timing: ein ``grab()``, der
+    deutlich schneller zurückkommt als die native Frame-Periode, kam aus
+    dem Puffer; einer, der ~eine Periode braucht, hat auf ein LIVE-Frame
+    gewartet → aufgeholt, stopp. ``max_grabs`` begrenzt den Aufwand
+    (Schutz gegen Timing-Fehlklassifikation, ~8 s Rückstand bei 15 fps).
+
+    Kostet bei leerem Puffer genau einen verworfenen Live-Frame
+    (~1 Frame-Periode Wartezeit) pro Zyklus — bei den gedrosselten
+    Consumer-fps (1–4) vernachlässigbar gegen den Latenz-Gewinn.
+    """
+    loop = asyncio.get_event_loop()
+    n = 0
+    while n < max_grabs:
+        t0 = loop.time()
+        ok = await asyncio.to_thread(cap.grab)
+        if not ok:
+            break
+        n += 1
+        if loop.time() - t0 >= grab_period * 0.5:
+            break  # grab hat auf ein Live-Frame gewartet → Puffer leer
+    return n
 
 
 class RTSPSource:
@@ -312,15 +387,16 @@ class RTSPSource:
         interval = 1.0 / fps
         sequence_id = str(uuid.uuid4())
         frame_idx = 0
-        cap: cv2.VideoCapture | None = None
+        cap: _CapGuard | None = None
         grab_period = 1.0 / _DEFAULT_GRAB_FPS
         backoff = 1.0
         try:
             while True:
                 # (Neu-)Verbindung aufbauen, falls noch kein offener Cap.
                 if cap is None:
-                    cap = await asyncio.to_thread(_make_capture, self._build_url())
-                    if not await asyncio.to_thread(cap.isOpened):
+                    raw = await asyncio.to_thread(_make_capture, self._build_url())
+                    cap = _CapGuard(raw)
+                    if not await asyncio.to_thread(cap.is_opened):
                         await asyncio.to_thread(cap.release)
                         cap = None
                         logger.warning(
@@ -332,13 +408,22 @@ class RTSPSource:
                         continue
                     for _ in range(_WARMUP_FRAMES):
                         await asyncio.to_thread(cap.read)
-                    grab_period = await asyncio.to_thread(_grab_period_for, cap)
+                    grab_period = await asyncio.to_thread(cap.grab_period)
                     backoff = 1.0
                 # Frame lesen — bei Read-Fehler/Stall NICHT crashen (das ließ
                 # den Hub-Reader sterben → stundenlanges Einfrieren), sondern
                 # die Verbindung neu aufbauen (selbst-heilend).
                 try:
-                    jpeg_bytes, w, h = await asyncio.to_thread(_read_encode, cap)
+                    # Rückstand aus der yield-Phase (Konsument-Verarbeitung)
+                    # verwerfen, BEVOR gelesen wird — _drain_sleep allein
+                    # hält nur Schritt, holt aber nie auf (Latenz-Akkumulation).
+                    dropped = await _drain_backlog(cap, grab_period)
+                    if dropped > 3:
+                        logger.debug(
+                            "RTSP %s: dropped %d backlog frame(s) before read",
+                            self.source_id, dropped,
+                        )
+                    jpeg_bytes, w, h = await asyncio.to_thread(cap.read_encode)
                 except Exception as e:  # noqa: BLE001
                     logger.warning(
                         "RTSP read failed for %s: %s — reconnecting in %.0fs",
