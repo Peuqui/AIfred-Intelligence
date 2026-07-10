@@ -2325,8 +2325,8 @@ def _refine_split_from_measurement(
     """Propose a whole-layer shift when an active GPU is near OOM.
 
     Returns ``(new_split, reason)``.  ``new_split`` is ``None`` when no
-    downstream card can take the layer within the reserve; ``reason`` is a
-    short human string the caller logs.
+    card (downstream first, upstream as fallback) can take the layer
+    within the reserve; ``reason`` is a short human string the caller logs.
 
     Läuft, wenn der Server LÄDT, aber die knappste Karte < ``2 ×
     safety_margin`` frei hat. Die Zielwahl nutzt DIESELBE Glas-Kaskade wie
@@ -2404,8 +2404,8 @@ def _refine_split_from_measurement(
     )
     if dest is None:
         return None, (
-            f"CUDA{bottleneck} tight at {b_free} MB — no downstream card "
-            f"holds {step:g} more layer(s) within reserve"
+            f"CUDA{bottleneck} tight at {b_free} MB — no card (downstream "
+            f"or upstream) holds {step:g} more layer(s) within reserve"
         )
 
     new_split = list(current_split)
@@ -2702,6 +2702,16 @@ def _cascade_destination(
     """Glas-Kaskade: die NÄCHSTE Karte nach ``src`` (in GPU-Listenreihenfolge
     = compute_cap DESC, total_mb DESC), die nach ``+step`` Layern noch
     ≥ ``min_free_mb`` frei bleibt — sonst die übernächste, bis ans Ende.
+
+    Hält stromabwärts keine Karte die Reserve (typisch: ``src`` IST die
+    letzte Karte der Kaskade, wie beim 397B-8b-Combo-Lauf auf CUDA4),
+    fällt die Wahl auf STROMAUFWÄRTS zurück: unter allen Karten vor
+    ``src``, die dieselben Filter bestehen, gewinnt die mit dem größten
+    Rest-Headroom nach ``+step`` (highest-ceiling destination, analog
+    :func:`_context_refine_swap`). Ohne ``free_estimate`` gibt es
+    stromaufwärts KEINEN Rückfall — blind auf die (meist randvollen)
+    schnellen Karten zu raten wäre eine OOM-Schleife.
+
     ``None`` wenn keine Karte die Reserve hält.
 
     ``blocked_dest``: GPU-Indizes, die NIE Ziel sein dürfen — die
@@ -2735,7 +2745,28 @@ def _cascade_destination(
         elif layers[i] > 0 or not keep_active_set:
             # Keine Frei-Schätzung → erste nachgelagerte (aktive) Karte.
             return i
-    return None
+
+    # Upstream-Fallback (nur mit Frei-Schätzung): größter Rest-Headroom
+    # gewinnt — dieselben Filter wie stromabwärts.
+    if not free_estimate:
+        return None
+    best: int | None = None
+    best_headroom = 0.0
+    for i in range(src):
+        if i in blocked_dest:
+            continue
+        if keep_active_set and layers[i] <= 0:
+            continue
+        if i >= len(free_estimate):
+            continue
+        cost = step * (
+            layer_cost_per_gpu[i] if i < len(layer_cost_per_gpu) else 0.0
+        )
+        headroom = free_estimate[i] - cost
+        if headroom >= min_free_mb and (best is None or headroom > best_headroom):
+            best = i
+            best_headroom = headroom
+    return best
 
 
 def _shift_one_layer_blind(
@@ -2752,7 +2783,8 @@ def _shift_one_layer_blind(
     die NÄCHSTE nachgelagerte Karte legen, die danach noch über der
     config-Mindestreserve bleibt — sonst die übernächste, bis ans Ende
     (Glas-Kaskade: nächste Karte füllen, erst überlaufen lassen wenn sie
-    die Reserve nicht mehr hält).
+    die Reserve nicht mehr hält). Hält stromabwärts nichts die Reserve,
+    fällt die Zielwahl auf stromaufwärts zurück (``_cascade_destination``).
 
     Source: die tatsächliche OOM-Karte (``oom_cuda_id`` aus dem
     llama-server-stderr). Ohne diese Info kein Rateschluss → ``None``, der
