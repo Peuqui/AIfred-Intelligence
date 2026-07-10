@@ -88,6 +88,10 @@ class WatchConfig:
     motion_history_frames: int = 500
     motion_var_threshold: float = 16.0
     motion_warmup_frames: int = 10
+    # Ego-Motion-Gate (PTZ-Schwenk): Mindest-Bildverschiebung zwischen
+    # zwei Frames (px auf dem 160-px-Analysebild der Phasenkorrelation),
+    # ab der die KAMERA als bewegt gilt → kein Trigger, Modell-Reset.
+    motion_ego_shift_px: float = 3.0
     min_event_interval_sec: float = 5.0
     save_event_frames: bool = True
     run_face_detect_on_motion: bool = True
@@ -402,6 +406,7 @@ class VisionWatcher:
             min_area_ratio=config.motion_min_area_ratio,
             warmup_frames=config.motion_warmup_frames,
             zone_mask=zone_mask,
+            ego_shift_px=config.motion_ego_shift_px,
         )
         self._detectors[source_id] = motion
         hub = get_default_hub()
@@ -1037,10 +1042,18 @@ class VisionWatcher:
         # sonst dedupliziert der Dispatcher gleichartige weg → nur ein Name).
         # known_names listet jeden erkannten Namen (offen, ungedeckelt);
         # die Counts speisen "N Personen". DB-Events bleiben pro Gesicht.
-        known_names: list[str] = []
-        unsure_names: list[str] = []
+        # Benannte Erkennungen je Band: Name → beste Similarity des
+        # Vorkommnisses (Insertion-Order = Erkennungsfolge). Grundlage der
+        # Pro-Name-Konfidenz im Alert-Titel ("Peuqui (91 %), Anna (87 %)").
+        known_named: dict[str, float] = {}
+        unsure_named: dict[str, float] = {}
         band_count = {"face_known": 0, "face_unknown": 0, "face_unsure": 0}
         band_crop = {"face_known": "", "face_unknown": "", "face_unsure": ""}
+        # Alle Similarity-Werte je Band — Konfidenz-Spanne für Titel OHNE
+        # Namen ("2 unsichere Erkennungen (55–60 %)").
+        band_sims: dict[str, list[float]] = {
+            "face_known": [], "face_unknown": [], "face_unsure": [],
+        }
         for det in detections:
             match = recognizer.match(det.embedding)
             event_type = (
@@ -1069,12 +1082,15 @@ class VisionWatcher:
             # Aggregation füllen (für die zusammengefasste Meldung nach der
             # Schleife). Namen ohne Duplikate, Reihenfolge = Erkennungsfolge.
             band_count[event_type] += 1
+            band_sims[event_type].append(float(match.similarity))
             if not band_crop[event_type]:
                 band_crop[event_type] = crop_url
-            if event_type == "face_known" and match.name and match.name not in known_names:
-                known_names.append(match.name)
-            elif event_type == "face_unsure" and match.name and match.name not in unsure_names:
-                unsure_names.append(match.name)
+            if event_type == "face_known" and match.name:
+                prev = known_named.get(match.name, 0.0)
+                known_named[match.name] = max(prev, float(match.similarity))
+            elif event_type == "face_unsure" and match.name:
+                prev = unsure_named.get(match.name, 0.0)
+                unsure_named[match.name] = max(prev, float(match.similarity))
             cid = self._cluster_id_for(frame)
             event_id = self._store.add_event(
                 source_id=source_id,
@@ -1125,13 +1141,17 @@ class VisionWatcher:
         # Gesichter auf eine Meldung mit einem Namen zusammenstreicht.
         from .vision_alerts import emit_face_alert
         cid_final = self._cluster_id_for(frame)
-        for band, names in (
-            ("face_known", known_names),
-            ("face_unsure", unsure_names),
-            ("face_unknown", []),
+        for band, named in (
+            ("face_known", known_named),
+            ("face_unsure", unsure_named),
+            ("face_unknown", {}),
         ):
             if band_count[band] <= 0:
                 continue
+            # Benannt: names + korrespondierende Pro-Name-Similarities
+            # (gleiche Reihenfolge). Namenlos: alle Band-Werte → Spanne.
+            names = list(named)
+            sims = list(named.values()) if named else band_sims[band]
             await emit_face_alert(
                 source_id=source_id,
                 event_type=band,
@@ -1141,6 +1161,7 @@ class VisionWatcher:
                 cluster_id=cid_final,
                 names=names,
                 count=band_count[band],
+                similarities=sims,
                 timestamp=frame.timestamp,
                 store=self._store,
             )

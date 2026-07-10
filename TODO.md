@@ -743,6 +743,17 @@ algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
 
 ## Offene Verbesserungen
 
+- [ ] **Vigilantia: manuelle PTZ-Steuerung im UI** (Idee 2026-07-10).
+  Schwenk/Neige/Zoom-Buttons (+ Presets setzen/anfahren) im Zonen-Editor
+  oder Live-Popup, ueber den geteilten Reolink-Client (`PtzCtrl`,
+  `SetPtzPreset` — HTTP-API kann das; `GetPtzCurPos` existiert auf der
+  TrackMix-Firmware NICHT, Position also nur durch eigenes Kommandieren
+  bekannt). Bewusste Abgrenzung: Steuerung durch den USER im UI — das
+  automatische Tracking macht die Kamera selbst besser/schneller, AIfred
+  soll NICHT autonom schwenken. Dazu passend (gleiche Baustelle):
+  Live-Anzeige des gemessenen Ego-Motion-Shifts + Slider fuer
+  `watch.motion_ego_shift_px` im Zonen-Editor (Kalibrierung am Bild,
+  analog zur Ausloese-Schwelle).
 - [ ] Multi-Email-Konto Support (mehrere IMAP/SMTP Accounts, Rechte pro Konto)
 - [ ] Kanaluebergreifendes Routing (eine Session ueber mehrere Kanaele — Telegram/Discord/Email/Browser)
       — wird trivial nach dem SSOT-Refactor (siehe oben)

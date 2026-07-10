@@ -135,6 +135,7 @@ def _watch_config_from_settings(overrides: dict[str, Any] | None = None) -> Watc
         motion_history_frames=_i("motion_history_frames", 500),
         motion_var_threshold=_f("motion_var_threshold", 16.0),
         motion_warmup_frames=_i("motion_warmup_frames", 10),
+        motion_ego_shift_px=_f("motion_ego_shift_px", 3.0),
         min_event_interval_sec=_f("min_event_interval_sec", 5.0),
         save_event_frames=_b("save_event_frames", True),
         run_face_detect_on_motion=_b("run_face_detect_on_motion", True),

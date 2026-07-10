@@ -150,9 +150,13 @@ def _build_background_config(
     face_continuous = bool(fr.get("continuous", False))
 
     watch = plugin_settings.get("watch") or {}
+    _ego = watch.get("motion_ego_shift_px")
+    if not isinstance(_ego, (int, float)) or not 0.5 <= _ego <= 50.0:
+        _ego = 3.0
     base = WatchConfig(
         fps=2.0,  # Hintergrund-Default — niedrig, GPU-schonend
         motion_min_area_ratio=float(mma),
+        motion_ego_shift_px=float(_ego),
         save_event_frames=True,
         run_face_detect_on_motion=face_enabled,
         run_person_detect_on_motion=bool(watch.get("run_person_detect_on_motion", False)),

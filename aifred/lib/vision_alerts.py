@@ -96,28 +96,72 @@ def _source_alias(source_id: str, store: Any) -> str:
     return source_id
 
 
+def _session_routing(source_id: str, store: Any) -> tuple[str, str]:
+    """Browser-Session-Routing für die Alerts dieser Quelle.
+
+    ``session_group`` in den Quellen-Settings bündelt mehrere Streams
+    desselben physischen Geräts (Weitwinkel + Zoom einer Dual-Lens-
+    Kamera) in EINE Session: der Wert ist die source_id der Hauptquelle.
+    Ohne Gruppe behält jede Quelle ihre eigene Session. Der Titel kommt
+    fest aus dem Alias der routenden Quelle ("Vigilantia: Hauseingang")
+    — autonome Turns bekommen keinen LLM-Titel, ohne festen Titel
+    erschienen die Alert-Sessions als namenlose Chats."""
+    key = source_id
+    try:
+        rec = store.get_source(source_id) if store else None
+        group = ((rec or {}).get("settings") or {}).get("session_group") or ""
+        if group:
+            key = group
+    except Exception:  # noqa: BLE001
+        pass
+    return key, f"Vigilantia: {_source_alias(key, store)}"
+
+
+def _range_suffix(similarities: list[float]) -> str:
+    """Konfidenz-Spanne für NAMENLOSE Titel: "(62 %)" bzw. "(55–60 %)"."""
+    if not similarities:
+        return ""
+    pcts = sorted(round(s * 100) for s in similarities)
+    pct_str = f"{pcts[0]} %" if pcts[0] == pcts[-1] else f"{pcts[0]}–{pcts[-1]} %"
+    return f" ({pct_str})"
+
+
 def _compose(
     event_type: str, alias: str, names: list[str], count: int, ts: datetime,
+    similarities: list[float] | None = None,
 ) -> tuple[str, str]:
     """User-facing alert text (German — goes to the user's phone).
 
     ``names``: alle erkannten Namen des Bands (ungedeckelt, ein Vorkommnis
     kann eine ganze Menschenmenge nennen). ``count``: Anzahl Gesichter des
-    Bands — bei Unbekannten/Unsicheren ohne Namen die einzige Information."""
+    Bands — bei Unbekannten/Unsicheren ohne Namen die einzige Information.
+    ``similarities``: korrespondiert bei benannten Titeln PRO NAME (gleiche
+    Reihenfolge → "Peuqui (91 %), Anna (87 %)"); bei namenlosen Titeln sind
+    es alle Band-Werte → Spanne. face_unknown bekommt KEINE Zahl — dort
+    wäre die Best-Match-Similarity zum nächsten bekannten Gesicht
+    irreführend (der Titel sagt bereits "Unbekannte")."""
     when = ts.strftime("%H:%M")
-    names_str = ", ".join(names)
+    sims = similarities or []
+    if names and len(sims) == len(names):
+        names_str = ", ".join(
+            f"{n} ({round(s * 100)} %)" for n, s in zip(names, sims)
+        )
+        unnamed_suffix = ""
+    else:
+        names_str = ", ".join(names)
+        unnamed_suffix = _range_suffix(sims)
     if event_type == "face_known":
         if names_str:
             title = f"👤 {names_str} erkannt"
         else:
             title = (f"👤 {count} bekannte Personen erkannt" if count > 1
-                     else "👤 Bekannte Person erkannt")
+                     else "👤 Bekannte Person erkannt") + unnamed_suffix
     elif event_type == "face_unsure":
         if names_str:
             title = f"👤 Mögliche Person(en): {names_str}"
         else:
             title = (f"👤 {count} unsichere Erkennungen" if count > 1
-                     else "👤 Unsichere Erkennung")
+                     else "👤 Unsichere Erkennung") + unnamed_suffix
     else:  # face_unknown
         title = (f"🚨 {count} unbekannte Personen erkannt" if count > 1
                  else "🚨 Unbekannte Person erkannt")
@@ -137,6 +181,7 @@ async def _emit(
     crop_url: str = "",
     timestamp: datetime,
     metadata: dict[str, Any] | None = None,
+    store: Any = None,
 ) -> None:
     """Build + dispatch one AlertEvent. Best-effort — never raises into the
     watcher's hot path. The shared dispatcher's rules decide where it goes.
@@ -168,6 +213,7 @@ async def _emit(
         if crop_url and crop_url not in gallery:
             gallery.append(crop_url)
 
+        session_key, session_title = _session_routing(source_id, store)
         ev = AlertEvent(
             producer="vision",
             category=category,
@@ -181,6 +227,8 @@ async def _emit(
             media_gallery=gallery,
             timestamp=timestamp,
             metadata=metadata or {},
+            session_key=session_key,
+            session_title=session_title,
         )
         await get_default_dispatcher().emit(ev)
     except Exception as e:  # noqa: BLE001
@@ -197,12 +245,14 @@ async def emit_face_alert(
     cluster_id: str,
     names: list[str] | None = None,
     count: int = 1,
+    similarities: list[float] | None = None,
     timestamp: datetime | None = None,
     store: Any = None,
 ) -> None:
     """Emit an aggregated face-band detection as a proactive AlertEvent —
     one per band per happening, only while armed. ``names`` = alle erkannten
-    Namen des Bands (ungedeckelt), ``count`` = Anzahl Gesichter des Bands."""
+    Namen des Bands (ungedeckelt), ``count`` = Anzahl Gesichter des Bands,
+    ``similarities`` = deren Match-Werte (Konfidenz-Klammer im Titel)."""
     if event_type not in _ALERT_EVENT_TYPES:
         return
     if not _vigilantia_armed():
@@ -214,7 +264,7 @@ async def emit_face_alert(
     names = names or []
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
-    title, body = _compose(event_type, alias, names, count, ts)
+    title, body = _compose(event_type, alias, names, count, ts, similarities)
     severity = "warning" if event_type in ("face_unknown", "face_unsure") else "info"
     # Personalisierung: NUR beim sicheren Match (face_known) ALLE Namen
     # an die VLM-Beschreibung durchreichen — dann nennt das VLM jede
@@ -238,6 +288,7 @@ async def emit_face_alert(
         crop_url=crop_url,
         timestamp=ts,
         metadata=meta,
+        store=store,
     )
 
 
@@ -275,6 +326,7 @@ async def emit_person_alert(
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         timestamp=ts,
+        store=store,
     )
 
 
@@ -328,4 +380,5 @@ async def emit_object_alert(
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         timestamp=ts,
+        store=store,
     )
