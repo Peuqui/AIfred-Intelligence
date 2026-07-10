@@ -208,6 +208,35 @@ class UIConfigMixin(rx.State, mixin=True):
         except (ValueError, TypeError):
             self.add_debug(f"\u274c Invalid Vision Context value: {value}")  # type: ignore[attr-defined]
 
+    def _auto_ctx_for_agent(self, agent: str) -> int:
+        """Auto (calibrated) context for an agent's model — backend-aware.
+
+        llamacpp: variant-resolved profile ctx from the llama-swap YAML
+        (source of truth, same as ``_show_model_calibration_info``), cache
+        as secondary. ollama: rope-scaled calibration from the cache.
+        The old ollama-only lookup showed "not calibrated" for perfectly
+        calibrated llamacpp models.
+        """
+        model_id: str = getattr(self, f"{agent}_model_id")
+        if not model_id:
+            return 0
+        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+            from ..lib.calibration import parse_llamaswap_config
+            from ..lib.config import LLAMASWAP_CONFIG_PATH
+            from ..lib.model_vram_cache import get_llamacpp_calibration
+            effective = self._effective_model_id(agent) or model_id  # type: ignore[attr-defined]
+            yaml_models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+            yaml_ctx = int(yaml_models.get(effective, {}).get("current_context", 0))
+            if yaml_ctx > 0:
+                return yaml_ctx
+            return get_llamacpp_calibration(effective) or 0
+        from ..lib.model_vram_cache import (
+            get_ollama_calibration,
+            get_rope_factor_for_model,
+        )
+        rope_factor = get_rope_factor_for_model(model_id)
+        return get_ollama_calibration(model_id, rope_factor) or 0
+
     def calculate_manual_context(self) -> None:
         """Calculate and display context limits.
 
@@ -215,7 +244,6 @@ class UIConfigMixin(rx.State, mixin=True):
         Shows all LLM context values (manual or auto-calibrated from persistent cache).
         """
         from ..lib.formatting import format_number
-        from ..lib.model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
 
         # Collect effective limits for compression calculation
         effective_limits: list[int] = []
@@ -228,7 +256,7 @@ class UIConfigMixin(rx.State, mixin=True):
             else:
                 # Not calibrated - show clear indication
                 ctx_str = "n/a"
-                mode_str = "nicht kalibriert" if mode == "auto" else mode
+                mode_str = "not calibrated" if mode == "auto" else mode
             if model_display.endswith(")"):
                 return model_display[:-1] + f", {ctx_str} ctx, {mode_str})"
             return f"{model_display} ({ctx_str} ctx, {mode_str})"
@@ -240,8 +268,7 @@ class UIConfigMixin(rx.State, mixin=True):
             aifred_ctx = self.num_ctx_manual_aifred
             mode = "manual"
         else:
-            rope_factor = get_rope_factor_for_model(self.aifred_model_id)  # type: ignore[attr-defined]
-            aifred_ctx = get_ollama_calibration(self.aifred_model_id, rope_factor) or 0  # type: ignore[attr-defined]
+            aifred_ctx = self._auto_ctx_for_agent("aifred")
             mode = "auto"
         from ..lib.agent_config import get_agent_label
         self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(self.aifred_model, aifred_ctx, mode)}")  # type: ignore[attr-defined]
@@ -254,8 +281,7 @@ class UIConfigMixin(rx.State, mixin=True):
                 sokrates_ctx = self.num_ctx_manual_sokrates
                 mode = "manual"
             else:
-                rope_factor = get_rope_factor_for_model(self.sokrates_model_id)  # type: ignore[attr-defined]
-                sokrates_ctx = get_ollama_calibration(self.sokrates_model_id, rope_factor) or 0  # type: ignore[attr-defined]
+                sokrates_ctx = self._auto_ctx_for_agent("sokrates")
                 mode = "auto"
             self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.sokrates_model, sokrates_ctx, mode)}")  # type: ignore[attr-defined]
             if sokrates_ctx > 0:
@@ -267,8 +293,7 @@ class UIConfigMixin(rx.State, mixin=True):
                 salomo_ctx = self.num_ctx_manual_salomo
                 mode = "manual"
             else:
-                rope_factor = get_rope_factor_for_model(self.salomo_model_id)  # type: ignore[attr-defined]
-                salomo_ctx = get_ollama_calibration(self.salomo_model_id, rope_factor) or 0  # type: ignore[attr-defined]
+                salomo_ctx = self._auto_ctx_for_agent("salomo")
                 mode = "auto"
             self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.salomo_model, salomo_ctx, mode)}")  # type: ignore[attr-defined]
             if salomo_ctx > 0:
@@ -280,8 +305,7 @@ class UIConfigMixin(rx.State, mixin=True):
                 vision_ctx = self.vision_num_ctx
                 mode = "manual"
             else:
-                rope_factor = get_rope_factor_for_model(self.vision_model_id)  # type: ignore[attr-defined]
-                vision_ctx = get_ollama_calibration(self.vision_model_id, rope_factor) or 0  # type: ignore[attr-defined]
+                vision_ctx = self._auto_ctx_for_agent("vision")
                 mode = "auto"
             self.add_debug(f"   {get_agent_label('vision')}: {format_model_with_ctx(self.vision_model, vision_ctx, mode)}")  # type: ignore[attr-defined]
             # Vision context is NOT added to effective_limits - separate from chat context
