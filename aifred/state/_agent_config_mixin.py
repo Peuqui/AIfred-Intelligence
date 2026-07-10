@@ -94,6 +94,15 @@ class AgentConfigMixin(rx.State, mixin=True):
     salomo_thinking: bool = True
     vision_thinking: bool = True
 
+    # ── Per-Agent Reasoning-Effort Level (chat_template_kwargs) ───
+    # "" = template default (e.g. DeepSeek-V4 "Think High"); otherwise
+    # a level from {agent}_reasoning_levels (e.g. "max"). Only sent
+    # when thinking is on.
+    aifred_reasoning_effort: str = ""
+    sokrates_reasoning_effort: str = ""
+    salomo_reasoning_effort: str = ""
+    vision_reasoning_effort: str = ""
+
     # ── Per-Agent Sampling Parameters ─────────────────────────────
     aifred_top_k: int = DEFAULT_TOP_K
     aifred_top_p: float = DEFAULT_TOP_P
@@ -134,15 +143,19 @@ class AgentConfigMixin(rx.State, mixin=True):
     aifred_max_context: int = 0
     aifred_is_hybrid: bool = False
     aifred_supports_thinking: bool | None = None
+    aifred_reasoning_levels: list[str] = []
     sokrates_max_context: int = 0
     sokrates_is_hybrid: bool = False
     sokrates_supports_thinking: bool | None = None
+    sokrates_reasoning_levels: list[str] = []
     salomo_max_context: int = 0
     salomo_is_hybrid: bool = False
     salomo_supports_thinking: bool | None = None
+    salomo_reasoning_levels: list[str] = []
     vision_max_context: int = 0
     vision_is_hybrid: bool = False
     vision_supports_thinking: bool | None = None
+    vision_reasoning_levels: list[str] = []
 
     # ── Temperature Settings ──────────────────────────────────────
     sokrates_temperature: float = 0.5
@@ -186,7 +199,8 @@ class AgentConfigMixin(rx.State, mixin=True):
     def _toggle_agent_feature(self, agent: str, feature: str) -> None:
         """Toggle a boolean per-agent feature and persist + sync to prompt_loader.
 
-        Works for personality, reasoning, and thinking.
+        Works for personality and reasoning (thinking moved to the
+        thinking-mode dropdown, see _set_agent_thinking_mode).
         """
         attr = f"{agent}_{feature}"
         new_val = not getattr(self, attr)
@@ -240,6 +254,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     _save_personality_settings = lambda self: self._save_feature_settings("personality")  # noqa: E731
     _save_reasoning_settings = lambda self: self._save_feature_settings("reasoning")  # noqa: E731
     _save_thinking_settings = lambda self: self._save_feature_settings("thinking")  # noqa: E731
+    _save_reasoning_effort_settings = lambda self: self._save_feature_settings("reasoning_effort")  # noqa: E731
 
     # ── Reasoning Toggles ─────────────────────────────────────────
 
@@ -255,19 +270,99 @@ class AgentConfigMixin(rx.State, mixin=True):
     def toggle_vision_reasoning(self, _value: bool | None = None) -> None:
         self._toggle_agent_feature("vision", "reasoning")
 
-    # ── Thinking Toggles ──────────────────────────────────────────
+    # ── Thinking Mode (dropdown: off / on / effort level) ─────────
 
-    def toggle_aifred_thinking(self, _value: bool | None = None) -> None:
-        self._toggle_agent_feature("aifred", "thinking")
+    def _thinking_mode_labels(self) -> tuple[str, str]:
+        """(off_label, on_label) in the current UI language. Effort levels
+        stay raw — they are the template's proper names (e.g. "max")."""
+        from ..lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        return t("thinking_mode_off", lang=lang), t("thinking_mode_on", lang=lang)
 
-    def toggle_sokrates_thinking(self, _value: bool | None = None) -> None:
-        self._toggle_agent_feature("sokrates", "thinking")
+    def _set_agent_thinking_mode(self, agent: str, mode: str) -> None:
+        """Dropdown label → (thinking bool, reasoning_effort str).
 
-    def toggle_salomo_thinking(self, _value: bool | None = None) -> None:
-        self._toggle_agent_feature("salomo", "thinking")
+        off → thinking off; on → thinking on with template default;
+        any other value → thinking on + that effort level.
+        """
+        off_label, on_label = self._thinking_mode_labels()
+        if mode == off_label:
+            mode = "off"
+        elif mode == on_label:
+            mode = "on"
+        setattr(self, f"{agent}_thinking", mode != "off")
+        setattr(
+            self, f"{agent}_reasoning_effort",
+            "" if mode in ("off", "on") else mode,
+        )
+        emoji = _FEATURE_EMOJI["thinking"]
+        self.add_debug(f"{emoji} {agent.capitalize()} thinking: {mode}")  # type: ignore[attr-defined]
+        self._save_thinking_settings()
+        self._save_reasoning_effort_settings()
 
-    def toggle_vision_thinking(self, _value: bool | None = None) -> None:
-        self._toggle_agent_feature("vision", "thinking")
+    def set_aifred_thinking_mode(self, mode: str) -> None:
+        self._set_agent_thinking_mode("aifred", mode)
+
+    def set_sokrates_thinking_mode(self, mode: str) -> None:
+        self._set_agent_thinking_mode("sokrates", mode)
+
+    def set_salomo_thinking_mode(self, mode: str) -> None:
+        self._set_agent_thinking_mode("salomo", mode)
+
+    def set_vision_thinking_mode(self, mode: str) -> None:
+        self._set_agent_thinking_mode("vision", mode)
+
+    def _agent_thinking_mode(self, agent: str) -> str:
+        """Current dropdown label derived from (thinking, effort)."""
+        off_label, on_label = self._thinking_mode_labels()
+        if not getattr(self, f"{agent}_thinking"):
+            return off_label
+        return getattr(self, f"{agent}_reasoning_effort") or on_label
+
+    def _load_agent_reasoning_levels(self, agent: str, model_id: str) -> None:
+        """Refresh ``{agent}_reasoning_levels`` for a newly selected model
+        and clear a selected effort level the new model doesn't support.
+        Levels exist only for llama.cpp models (embedded chat template)."""
+        levels: list[str] = []
+        if model_id and self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+            from ..lib.gguf_utils import resolve_reasoning_levels
+            levels = resolve_reasoning_levels(model_id)
+        setattr(self, f"{agent}_reasoning_levels", levels)
+        if getattr(self, f"{agent}_reasoning_effort") not in ("", *levels):
+            setattr(self, f"{agent}_reasoning_effort", "")
+            self._save_reasoning_effort_settings()
+
+    @rx.var(deps=["aifred_thinking", "aifred_reasoning_effort", "ui_language"], auto_deps=False)
+    def aifred_thinking_mode(self) -> str:
+        return self._agent_thinking_mode("aifred")
+
+    @rx.var(deps=["sokrates_thinking", "sokrates_reasoning_effort", "ui_language"], auto_deps=False)
+    def sokrates_thinking_mode(self) -> str:
+        return self._agent_thinking_mode("sokrates")
+
+    @rx.var(deps=["salomo_thinking", "salomo_reasoning_effort", "ui_language"], auto_deps=False)
+    def salomo_thinking_mode(self) -> str:
+        return self._agent_thinking_mode("salomo")
+
+    @rx.var(deps=["vision_thinking", "vision_reasoning_effort", "ui_language"], auto_deps=False)
+    def vision_thinking_mode(self) -> str:
+        return self._agent_thinking_mode("vision")
+
+    @rx.var(deps=["aifred_reasoning_levels", "ui_language"], auto_deps=False)
+    def aifred_thinking_options(self) -> list[str]:
+        return [*self._thinking_mode_labels()] + self.aifred_reasoning_levels
+
+    @rx.var(deps=["sokrates_reasoning_levels", "ui_language"], auto_deps=False)
+    def sokrates_thinking_options(self) -> list[str]:
+        return [*self._thinking_mode_labels()] + self.sokrates_reasoning_levels
+
+    @rx.var(deps=["salomo_reasoning_levels", "ui_language"], auto_deps=False)
+    def salomo_thinking_options(self) -> list[str]:
+        return [*self._thinking_mode_labels()] + self.salomo_reasoning_levels
+
+    @rx.var(deps=["vision_reasoning_levels", "ui_language"], auto_deps=False)
+    def vision_thinking_options(self) -> list[str]:
+        return [*self._thinking_mode_labels()] + self.vision_reasoning_levels
 
     # ================================================================
     # SAMPLING PARAMETERS
@@ -963,6 +1058,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.sokrates_has_speed_variant = model_has_speed_variant(self.sokrates_model_id)
             if not self.sokrates_has_speed_variant:
                 self.sokrates_speed_mode = False
+        self._load_agent_reasoning_levels("sokrates", self.sokrates_model_id)
 
         # Reset sampling params to model defaults
         self._reset_agent_sampling("sokrates")
@@ -1009,6 +1105,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.salomo_has_speed_variant = model_has_speed_variant(self.salomo_model_id)
             if not self.salomo_has_speed_variant:
                 self.salomo_speed_mode = False
+        self._load_agent_reasoning_levels("salomo", self.salomo_model_id)
 
         # Reset sampling params to model defaults
         self._reset_agent_sampling("salomo")

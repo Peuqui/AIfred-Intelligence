@@ -135,6 +135,10 @@ class SettingsMixin(rx.State, mixin=True):
             "sokrates_thinking": self.sokrates_thinking,  # type: ignore[attr-defined, has-type]
             "salomo_thinking": self.salomo_thinking,  # type: ignore[attr-defined, has-type]
             "vision_thinking": self.vision_thinking,  # type: ignore[attr-defined, has-type]
+            "aifred_reasoning_effort": self.aifred_reasoning_effort,  # type: ignore[attr-defined, has-type]
+            "sokrates_reasoning_effort": self.sokrates_reasoning_effort,  # type: ignore[attr-defined, has-type]
+            "salomo_reasoning_effort": self.salomo_reasoning_effort,  # type: ignore[attr-defined, has-type]
+            "vision_reasoning_effort": self.vision_reasoning_effort,  # type: ignore[attr-defined, has-type]
             # Sampling params (per-agent)
             "aifred_top_k": self.aifred_top_k,  # type: ignore[attr-defined, has-type]
             "aifred_top_p": self.aifred_top_p,  # type: ignore[attr-defined, has-type]

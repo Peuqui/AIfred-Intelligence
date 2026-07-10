@@ -286,6 +286,8 @@ class TranslationManager:
             # Reasoning & Thinking Tooltips
             "reasoning_tooltip": "Reasoning-Prompt – Schritt-für-Schritt Analyse im System-Prompt",
             "thinking_tooltip": "Model Thinking – Internes Chain-of-Thought des Modells (enable_thinking)",
+            "thinking_mode_off": "Aus",
+            "thinking_mode_on": "An",
             "reasoning_thinking_info": "💭 Reasoning = Analyse-Prompt im System-Prompt\n🧠 Thinking = Modell-internes Denken (CoT)",
             # Reasoning/Thinking Help Modal
             "reasoning_thinking_help_title": "Reasoning & Thinking – Übersicht",
@@ -294,8 +296,9 @@ class TranslationManager:
             "reasoning_thinking_help_reasoning_desc": "Fügt einen Analyse-Prompt in den System-Prompt ein, der das Modell anweist, strukturiert und schrittweise zu antworten. Das Modell erhält explizite Anweisungen zur methodischen Analyse.",
             "reasoning_thinking_help_reasoning_effect": "Wirkung: Strukturiertere, gründlichere Antworten durch Prompt-Engineering.",
             "reasoning_thinking_help_thinking_title": "🧠 Model Thinking (CoT)",
-            "reasoning_thinking_help_thinking_desc": "Aktiviert das modell-interne Chain-of-Thought (enable_thinking). Das Modell denkt in einem versteckten <think>-Block nach, bevor es antwortet. Nur Modelle mit Thinking-Support (z.B. Qwen3, DeepSeek-R1) unterstützen dies.",
-            "reasoning_thinking_help_thinking_effect": "Wirkung: Tiefere Analyse durch internes Nachdenken. Erzeugt längere Antworten und mehr Tokens.",
+            "reasoning_thinking_help_thinking_desc": "Steuert das modell-interne Chain-of-Thought über das Dropdown: 'Aus' deaktiviert das Denken, 'An' aktiviert es mit der Standardstufe des Modells. Das Modell denkt in einem versteckten <think>-Block nach, bevor es antwortet. Nur Modelle mit Thinking-Support (z.B. Qwen3, DeepSeek) unterstützen dies.",
+            "reasoning_thinking_help_thinking_levels": "Stufen: Manche Modelle bieten über ihr Chat-Template zusätzlich abgestufte Denktiefe an — diese erscheinen automatisch als weitere Dropdown-Einträge (z.B. 'max' bei DeepSeek-V4 = Think Max mit deutlich ausführlicherem Denkprozess und mehr Tokens). Die verfügbaren Stufen werden modellagnostisch aus dem GGUF erkannt.",
+            "reasoning_thinking_help_thinking_effect": "Wirkung: Tiefere Analyse durch internes Nachdenken. Erzeugt längere Antworten und mehr Tokens — höhere Stufen entsprechend mehr.",
             "reasoning_thinking_help_combinations_title": "Kombinationen",
             "reasoning_thinking_help_both_on": "Beide AN: Maximale Analysetiefe – Prompt-Anweisung + internes Denken",
             "reasoning_thinking_help_reasoning_only": "Nur Reasoning: Strukturierte Antworten ohne internen Denkprozess",
@@ -1105,6 +1108,8 @@ class TranslationManager:
             # Reasoning & Thinking Tooltips
             "reasoning_tooltip": "Reasoning prompt – Step-by-step analysis in system prompt",
             "thinking_tooltip": "Model Thinking – Internal chain-of-thought (enable_thinking)",
+            "thinking_mode_off": "Off",
+            "thinking_mode_on": "On",
             "reasoning_thinking_info": "💭 Reasoning = Analysis prompt in system prompt\n🧠 Thinking = Model-internal thinking (CoT)",
             # Reasoning/Thinking Help Modal
             "reasoning_thinking_help_title": "Reasoning & Thinking – Overview",
@@ -1113,8 +1118,9 @@ class TranslationManager:
             "reasoning_thinking_help_reasoning_desc": "Injects an analysis prompt into the system prompt that instructs the model to respond in a structured, step-by-step manner. The model receives explicit instructions for methodical analysis.",
             "reasoning_thinking_help_reasoning_effect": "Effect: More structured, thorough responses through prompt engineering.",
             "reasoning_thinking_help_thinking_title": "🧠 Model Thinking (CoT)",
-            "reasoning_thinking_help_thinking_desc": "Activates the model's internal chain-of-thought (enable_thinking). The model thinks in a hidden <think> block before responding. Only models with thinking support (e.g. Qwen3, DeepSeek-R1) support this.",
-            "reasoning_thinking_help_thinking_effect": "Effect: Deeper analysis through internal reasoning. Produces longer responses and more tokens.",
+            "reasoning_thinking_help_thinking_desc": "Controls the model's internal chain-of-thought via the dropdown: \"Off\" disables thinking, \"On\" enables it at the model's default level. The model thinks in a hidden <think> block before responding. Only models with thinking support (e.g. Qwen3, DeepSeek) support this.",
+            "reasoning_thinking_help_thinking_levels": "Levels: Some models additionally offer graded thinking depth via their chat template — these appear automatically as extra dropdown entries (e.g. \"max\" on DeepSeek-V4 = Think Max with a considerably longer thought process and more tokens). Available levels are detected model-agnostically from the GGUF.",
+            "reasoning_thinking_help_thinking_effect": "Effect: Deeper analysis through internal reasoning. Produces longer responses and more tokens — higher levels accordingly more.",
             "reasoning_thinking_help_combinations_title": "Combinations",
             "reasoning_thinking_help_both_on": "Both ON: Maximum analysis depth – prompt instructions + internal thinking",
             "reasoning_thinking_help_reasoning_only": "Reasoning only: Structured responses without internal thought process",

@@ -313,6 +313,8 @@ class BackendMixin(rx.State, mixin=True):
 
         backend = getattr(self, "backend_type", None) or getattr(self, "backend_id", None)
 
+        self._load_agent_reasoning_levels(agent, model_id)  # type: ignore[attr-defined]
+
         if backend == "ollama":
             from ..lib.model_vram_cache import get_model_parameters
             params = get_model_parameters(model_id)
@@ -613,6 +615,12 @@ class BackendMixin(rx.State, mixin=True):
 
                 if "aifred_thinking" not in saved_settings or "vision_thinking" not in saved_settings:
                     self._save_thinking_settings()  # type: ignore[attr-defined, has-type]
+
+                # Load reasoning-effort levels (dropdown selection per agent)
+                self.aifred_reasoning_effort = saved_settings.get("aifred_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
+                self.sokrates_reasoning_effort = saved_settings.get("sokrates_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
+                self.salomo_reasoning_effort = saved_settings.get("salomo_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
+                self.vision_reasoning_effort = saved_settings.get("vision_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
 
                 # Load speed mode toggles (llamacpp only)
                 self.aifred_speed_mode = saved_settings.get("aifred_speed_mode", False)  # type: ignore[attr-defined, has-type]

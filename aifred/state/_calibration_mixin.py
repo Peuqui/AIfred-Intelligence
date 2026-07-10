@@ -2684,6 +2684,19 @@ class CalibrationMixin(rx.State, mixin=True):
                     f"(tested during calibration)"
                 )
 
+                # Steerable reasoning-effort levels from the embedded chat
+                # template (force=True: a re-download may have changed it).
+                from ..lib.gguf_utils import resolve_reasoning_levels
+                _levels = resolve_reasoning_levels(
+                    calibration_model_id, force=True,
+                )
+                async with self:
+                    self.aifred_reasoning_levels = _levels  # type: ignore[attr-defined]
+                if _levels:
+                    self._cal_debug(  # type: ignore[attr-defined]
+                        f"🧠 Reasoning-effort levels: {', '.join(_levels)}"
+                    )
+
                 # Ensure --reasoning-format deepseek is in llama-swap config
                 # for models that use reasoning_content (not <think> tags).
                 # Qwen3 uses <think> tags natively, doesn't need this flag.

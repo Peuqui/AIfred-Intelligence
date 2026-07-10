@@ -215,6 +215,7 @@ def reasoning_thinking_help_modal() -> rx.Component:
                 rx.vstack(
                     rx.text(t("reasoning_thinking_help_thinking_title"), color="#4FC3F7", font_weight="bold", font_size="17px"),
                     rx.text(t("reasoning_thinking_help_thinking_desc"), color="#ccc", font_size="15px"),
+                    rx.text(t("reasoning_thinking_help_thinking_levels"), color="#ccc", font_size="15px"),
                     rx.text(t("reasoning_thinking_help_thinking_effect"), color="#aaa", font_size="14px", font_style="italic"),
                     spacing="2",
                     width="100%",

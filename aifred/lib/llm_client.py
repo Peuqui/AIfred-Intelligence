@@ -46,6 +46,7 @@ def build_llm_options(state: "AIState | None", agent: str, temperature: float, n
         temperature=temperature,
         enable_thinking=getattr(state, f"{agent}_thinking", True),
         supports_thinking=getattr(state, f"{agent}_supports_thinking", None) if state.backend_type in ("ollama", "llamacpp") else None,
+        reasoning_effort=getattr(state, f"{agent}_reasoning_effort", "") or None,
         num_ctx=num_ctx,
         top_k=getattr(state, f"{agent}_top_k", 40),
         top_p=getattr(state, f"{agent}_top_p", 0.9),
@@ -127,7 +128,8 @@ class LLMClient:
                 min_p=options.get("min_p", 0.0),
                 seed=options.get("seed"),
                 enable_thinking=options.get("enable_thinking"),
-                supports_thinking=options.get("supports_thinking")
+                supports_thinking=options.get("supports_thinking"),
+                reasoning_effort=options.get("reasoning_effort"),
             )
         return LLMOptions()
 

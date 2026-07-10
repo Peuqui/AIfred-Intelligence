@@ -835,11 +835,14 @@ async def _run_agent_direct_response(
         # Build LLM options — custom agents use AIfred's settings
         opts_agent = agent if agent in _default_agents else "aifred"
         saved_thinking = getattr(state, f"{opts_agent}_thinking", True)
+        saved_effort = getattr(state, f"{opts_agent}_reasoning_effort", "")
         setattr(state, f"{opts_agent}_thinking", state.aifred_thinking)
+        setattr(state, f"{opts_agent}_reasoning_effort", state.aifred_reasoning_effort)
 
         agent_options = build_llm_options(state, opts_agent, agent_temp, agent_num_ctx)
 
         setattr(state, f"{opts_agent}_thinking", saved_thinking)
+        setattr(state, f"{opts_agent}_reasoning_effort", saved_effort)
 
         # Stream response via shared helper (SSOT for all streaming logic)
         result = None

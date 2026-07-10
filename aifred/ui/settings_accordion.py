@@ -400,6 +400,37 @@ def _agent_toggle(
     )
 
 
+def _agent_thinking_select(
+    mode_var,
+    options_var,
+    on_change_handler,
+    tooltip_text: str | rx.Var,
+) -> rx.Component:
+    """Thinking-mode dropdown (off / on / model-specific effort levels).
+
+    One control for every model — only the option count varies: models
+    whose chat template offers reasoning-effort levels (detected
+    model-agnostically from the GGUF, e.g. DeepSeek-V4 "max") get them
+    as extra entries; all others show just off/on.
+    """
+    return rx.tooltip(
+        rx.hstack(
+            agent_emoji("\U0001f9e0", size="14px"),
+            rx.select(
+                options_var,
+                value=mode_var,
+                on_change=on_change_handler,
+                size="1",
+                color_scheme="blue",
+                position="popper",
+            ),
+            spacing="1",
+            align="center",
+        ),
+        content=tooltip_text,
+    )
+
+
 def _lightbulb_icon() -> rx.Component:
     """Reasoning/Thinking help lightbulb icon with tooltip."""
     return rx.tooltip(
@@ -1115,7 +1146,7 @@ def settings_accordion() -> rx.Component:
                         _rope_select(AIState.rope_factor_display, AIState.set_aifred_rope_factor),
                         _agent_toggle("\U0001f3a9", AIState.aifred_personality, AIState.toggle_aifred_personality, t("personality_aifred_tooltip")),
                         _agent_toggle("\U0001f4ad", AIState.aifred_reasoning, AIState.toggle_aifred_reasoning, t("reasoning_tooltip")),
-                        _agent_toggle("\U0001f9e0", AIState.aifred_thinking, AIState.toggle_aifred_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                        _agent_thinking_select(AIState.aifred_thinking_mode, AIState.aifred_thinking_options, AIState.set_aifred_thinking_mode, t("thinking_tooltip")),
                         _lightbulb_icon(),
                         spacing="2",
                         align="center",
@@ -1124,7 +1155,7 @@ def settings_accordion() -> rx.Component:
                     rx.hstack(
                         _agent_toggle("\U0001f3a9", AIState.aifred_personality, AIState.toggle_aifred_personality, t("personality_aifred_tooltip")),
                         _agent_toggle("\U0001f4ad", AIState.aifred_reasoning, AIState.toggle_aifred_reasoning, t("reasoning_tooltip")),
-                        _agent_toggle("\U0001f9e0", AIState.aifred_thinking, AIState.toggle_aifred_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                        _agent_thinking_select(AIState.aifred_thinking_mode, AIState.aifred_thinking_options, AIState.set_aifred_thinking_mode, t("thinking_tooltip")),
                         _lightbulb_icon(),
                         _speed_toggle(AIState.aifred_has_speed_variant, AIState.aifred_speed_mode, AIState.toggle_aifred_speed_mode),
                         spacing="2",
@@ -1176,7 +1207,7 @@ def settings_accordion() -> rx.Component:
                             _rope_select(AIState.sokrates_rope_display, AIState.set_sokrates_rope_factor),
                             _agent_toggle("\U0001f3db\ufe0f", AIState.sokrates_personality, AIState.toggle_sokrates_personality, t("personality_sokrates_tooltip")),
                             _agent_toggle("\U0001f4ad", AIState.sokrates_reasoning, AIState.toggle_sokrates_reasoning, t("reasoning_tooltip")),
-                            _agent_toggle("\U0001f9e0", AIState.sokrates_thinking, AIState.toggle_sokrates_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                            _agent_thinking_select(AIState.sokrates_thinking_mode, AIState.sokrates_thinking_options, AIState.set_sokrates_thinking_mode, t("thinking_tooltip")),
                             _lightbulb_icon(),
                             spacing="2",
                             align="center",
@@ -1185,7 +1216,7 @@ def settings_accordion() -> rx.Component:
                         rx.hstack(
                             _agent_toggle("\U0001f3db\ufe0f", AIState.sokrates_personality, AIState.toggle_sokrates_personality, t("personality_sokrates_tooltip")),
                             _agent_toggle("\U0001f4ad", AIState.sokrates_reasoning, AIState.toggle_sokrates_reasoning, t("reasoning_tooltip")),
-                            _agent_toggle("\U0001f9e0", AIState.sokrates_thinking, AIState.toggle_sokrates_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                            _agent_thinking_select(AIState.sokrates_thinking_mode, AIState.sokrates_thinking_options, AIState.set_sokrates_thinking_mode, t("thinking_tooltip")),
                             _lightbulb_icon(),
                             _speed_toggle(AIState.sokrates_has_speed_variant, AIState.sokrates_speed_mode, AIState.toggle_sokrates_speed_mode, disabled_var=AIState.sokrates_model == ""),
                             spacing="2",
@@ -1238,7 +1269,7 @@ def settings_accordion() -> rx.Component:
                             _rope_select(AIState.salomo_rope_display, AIState.set_salomo_rope_factor),
                             _agent_toggle("\U0001f451", AIState.salomo_personality, AIState.toggle_salomo_personality, t("personality_salomo_tooltip")),
                             _agent_toggle("\U0001f4ad", AIState.salomo_reasoning, AIState.toggle_salomo_reasoning, t("reasoning_tooltip")),
-                            _agent_toggle("\U0001f9e0", AIState.salomo_thinking, AIState.toggle_salomo_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                            _agent_thinking_select(AIState.salomo_thinking_mode, AIState.salomo_thinking_options, AIState.set_salomo_thinking_mode, t("thinking_tooltip")),
                             _lightbulb_icon(),
                             spacing="2",
                             align="center",
@@ -1247,7 +1278,7 @@ def settings_accordion() -> rx.Component:
                         rx.hstack(
                             _agent_toggle("\U0001f451", AIState.salomo_personality, AIState.toggle_salomo_personality, t("personality_salomo_tooltip")),
                             _agent_toggle("\U0001f4ad", AIState.salomo_reasoning, AIState.toggle_salomo_reasoning, t("reasoning_tooltip")),
-                            _agent_toggle("\U0001f9e0", AIState.salomo_thinking, AIState.toggle_salomo_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                            _agent_thinking_select(AIState.salomo_thinking_mode, AIState.salomo_thinking_options, AIState.set_salomo_thinking_mode, t("thinking_tooltip")),
                             _lightbulb_icon(),
                             _speed_toggle(AIState.salomo_has_speed_variant, AIState.salomo_speed_mode, AIState.toggle_salomo_speed_mode, disabled_var=AIState.salomo_model == ""),
                             spacing="2",
@@ -1382,7 +1413,7 @@ def settings_accordion() -> rx.Component:
                     rx.hstack(
                         _agent_toggle("\U0001f4f7", AIState.vision_personality, AIState.toggle_vision_personality, t("personality_vision_tooltip")),
                         _agent_toggle("\U0001f4ad", AIState.vision_reasoning, AIState.toggle_vision_reasoning, t("reasoning_tooltip")),
-                        _agent_toggle("\U0001f9e0", AIState.vision_thinking, AIState.toggle_vision_thinking, t("thinking_tooltip"), color_scheme="blue"),
+                        _agent_thinking_select(AIState.vision_thinking_mode, AIState.vision_thinking_options, AIState.set_vision_thinking_mode, t("thinking_tooltip")),
                         _speed_toggle(AIState.vision_has_speed_variant, AIState.vision_speed_mode, AIState.toggle_vision_speed_mode),
                         spacing="2",
                         align="center",

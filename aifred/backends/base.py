@@ -45,6 +45,11 @@ class LLMOptions:
     seed: Optional[int] = None
     enable_thinking: Optional[bool] = None  # User preference: enable thinking if model supports it
     supports_thinking: Optional[bool] = None  # Model capability: None=unknown, True=supports, False=not supported
+    # Steerable reasoning-effort level (chat_template_kwargs), e.g. "max"
+    # for DeepSeek-V4. None = no effort kwarg sent (template default).
+    # Only meaningful with enable_thinking=True on templates that
+    # support levels (model_vram_cache.reasoning_levels).
+    reasoning_effort: Optional[str] = None
 
 
 @dataclass
@@ -403,6 +408,10 @@ class OpenAICompatibleBackend(LLMBackend):
             extra_body["min_p"] = options.min_p
         if options.enable_thinking is not None:
             extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+        if options.reasoning_effort:
+            extra_body.setdefault("chat_template_kwargs", {})[
+                "reasoning_effort"
+            ] = options.reasoning_effort
         return extra_body
 
     def _process_response_text(self, choice: Any) -> str:
