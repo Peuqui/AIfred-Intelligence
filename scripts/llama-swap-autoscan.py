@@ -211,7 +211,7 @@ def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
         f"(model {gguf_size_mb:.0f} MB = {ratio:.0%} of largest {largest_gpu_mb} MB, "
         f"total {total_vram_mb} MB)"
     )
-    return f"-sm layer --tensor-split {split_str} -fit off -b 512 -ub 256"
+    return f"-sm layer --tensor-split {split_str} -fit off -b 512 -ub 512"
 
 
 # ---------------------------------------------------------------------------
@@ -352,8 +352,17 @@ def update_all_tensor_splits(config_path: Path, per_gpu_vram: list[int]) -> int:
                     j += 1
                 cmd_end = j
         else:
-            # Unquoted single-line cmd
-            cmd_end = i
+            # Plain scalar — kann MEHRZEILIG sein: yaml.safe_dump bricht lange
+            # cmds in Fortsetzungszeilen (6 Spaces Einrückung) um. Ohne deren
+            # Einsammeln sah has_old_ts nur Zeile 1, fand dort kein
+            # --tensor-split → der Insert-Pfad unten feuerte erneut und
+            # duplizierte den "-sm layer --tensor-split … -fit off"-Block
+            # (beobachtet in der ganzen 397B-Familie).
+            j = i + 1
+            while j < len(lines) and lines[j].startswith("      "):
+                cmd_text += lines[j]
+                j += 1
+            cmd_end = j - 1
 
         # Skip RPC profiles
         if rpc_pattern.search(cmd_text):

@@ -21,6 +21,17 @@ und normalisiert:
      bekommen ``--spec-type draft-mtp``, non-MTP-Modelle ``ngram`` als
      sicheren Default. Idempotent.
 
+  4. Doppelte GPU-Flags deduplizieren + ``--cache-reuse`` normalisieren.
+     Historisch haben zwei Writer (autoscan-Insert mit Multi-Line-
+     Parse-Bug + Kalibrierung) den ``-sm layer --tensor-split … -fit
+     off``-Block doppelt in cmds geschrieben — llama.cpp nimmt zwar den
+     letzten Wert, aber die Dubletten sind Ballast und verwirren jeden
+     Nur-erste-Fundstelle-Parser. Hier wird je Flag nur das LETZTE
+     Vorkommen behalten. Außerdem bekommt jedes Modell OHNE ``--mmproj``
+     ``--cache-reuse 256`` (KV-Chunk-Reuse per Shift → TTFT bei RAG-/
+     Agent-Prompts); bei mmproj-Modellen würde der Server es eh mit
+     Warnung deaktivieren — wir setzen es dort gar nicht erst.
+
 Repo-Heimat: ``scripts/llama-swap-build-config`` im AIfred-Repo. Im PATH
 liegt ``~/bin/llama-swap-build-config`` als Symlink hierher — das
 Restart-Script ruft den absoluten ``/home/mp/bin/...`` Pfad auf, der
@@ -93,6 +104,20 @@ SPEC_TOKENS = {
     "--spec-default": 0,
 }
 
+# Flags, die historisch doppelt in cmds geraten sind (autoscan-Insert vor
+# dem Multi-Line-Parse-Fix + Kalibrierungs-Writer). Wert = Anzahl der
+# Wert-Argumente. Dedupe behält das LETZTE Vorkommen — llama.cpp nimmt bei
+# wiederholten Flags ohnehin den letzten Wert.
+DEDUPE_TOKENS = {"-sm": 1, "--tensor-split": 1, "-ts": 1, "-fit": 1}
+
+# TTFT-Hebel: KV-Chunks bereits verarbeiteter Prompt-Teile per Shift
+# wiederverwenden statt neu zu rechnen (min. Chunk-Größe 256 Tokens).
+# Greift bei AIfreds RAG-/Agent-Prompts, deren Mitte sich ändert, während
+# Prefix+Suffix stabil bleiben. Wird nur bei Modellen OHNE --mmproj
+# gesetzt — der Server deaktiviert cache_reuse bei Multimodal selbst
+# ("not supported by multimodal"), das Flag wäre dort nur Warn-Spam.
+CACHE_REUSE_FLAGS = ["--cache-reuse", "256"]
+
 
 # ── MTP-Detection ──────────────────────────────────────────────────────────
 def load_mtp_cache() -> dict:
@@ -159,14 +184,42 @@ def detect_mtp(gguf_path: Path, cache: dict) -> bool:
 
 
 # ── Flag-Normalisierung ────────────────────────────────────────────────────
-def strip_spec_tokens(tokens: list[str]) -> list[str]:
-    """Entfernt alle bekannten Spec-Flags (inkl. ihrer Wert-Argumente)."""
+def strip_tokens(tokens: list[str], flags: dict[str, int]) -> list[str]:
+    """Entfernt alle in ``flags`` gelisteten Flags (inkl. Wert-Argumente)."""
     out: list[str] = []
     i = 0
     while i < len(tokens):
         tok = tokens[i]
-        if tok in SPEC_TOKENS:
-            i += 1 + SPEC_TOKENS[tok]
+        if tok in flags:
+            i += 1 + flags[tok]
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
+def strip_spec_tokens(tokens: list[str]) -> list[str]:
+    """Entfernt alle bekannten Spec-Flags (inkl. ihrer Wert-Argumente)."""
+    return strip_tokens(tokens, SPEC_TOKENS)
+
+
+def dedupe_flag_tokens(tokens: list[str]) -> list[str]:
+    """Behält je DEDUPE_TOKENS-Flag nur das LETZTE Vorkommen (samt Wert).
+
+    Selbstheilung für die historisch doppelten ``-sm layer --tensor-split
+    … -fit off``-Blöcke — Position der Flags ist llama-server egal, nur
+    der letzte Wert zählt.
+    """
+    last: dict[str, int] = {}
+    for i, tok in enumerate(tokens):
+        if tok in DEDUPE_TOKENS:
+            last[tok] = i
+    out: list[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in DEDUPE_TOKENS and i != last[tok]:
+            i += 1 + DEDUPE_TOKENS[tok]
             continue
         out.append(tok)
         i += 1
@@ -308,8 +361,21 @@ def normalize_cmd(cmd: str, model_name: str, mtp_cache: dict) -> tuple[str, str]
 
     has_mtp = detect_mtp(model_path, mtp_cache)
     base = strip_spec_tokens(tokens)
+    # Historische Dubletten (-sm/--tensor-split/-fit doppelt) entfernen und
+    # --cache-reuse idempotent neu setzen (strip + re-inject wie bei Spec).
+    base = dedupe_flag_tokens(base)
+    base = strip_tokens(base, {"--cache-reuse": 1})
+    # -ub 256 -> 512: +38.5% Prompt-Processing (2026-07-09 llama-bench-Messung
+    # auf dem 397B). Nur bestehende -ub-Werte anheben (Multi-GPU-Profile,
+    # historisch von autoscan gesetzt) — Profile ohne -ub nutzen bereits den
+    # llama.cpp-Default von 512.
+    for _i, _tok in enumerate(base):
+        if _tok == "-ub" and _i + 1 < len(base):
+            base[_i + 1] = "512"
     spec = build_spec_flags(model_path, has_mtp)
     new_tokens = base + spec
+    if "--mmproj" not in new_tokens:
+        new_tokens = new_tokens + CACHE_REUSE_FLAGS
     new_cmd = " ".join(quote_if_needed(t) for t in new_tokens)
     return new_cmd, ("MTP" if has_mtp else "ngram")
 
