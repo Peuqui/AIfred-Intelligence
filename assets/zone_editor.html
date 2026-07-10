@@ -78,7 +78,7 @@
     <label><input type="checkbox" id="showMotion" checked> <span data-i18n="zone_editor_show_motion"></span></label>
     <label style="flex:1; min-width:18em;">
       <span data-i18n="zone_editor_motion_threshold"></span>
-      <input type="range" id="motionMin" min="0.5" max="25" step="0.5" value="2" style="flex:1; min-width:8em;">
+      <input type="range" id="motionMin" min="0.1" max="25" step="0.1" value="2" style="flex:1; min-width:8em;">
       <span id="motionMinVal" style="min-width:3.8em; text-align:right; color:var(--text);"></span>
     </label>
     <span style="font-size:13px; color:var(--muted);">
@@ -481,7 +481,7 @@
         "/api/vision/motion-min?source_id=" + encodeURIComponent(sourceId));
       const d = await res.json();
       if (d && typeof d.motion_min_area_ratio === "number") {
-        const pct = Math.max(0.5, Math.min(25, d.motion_min_area_ratio * 100));
+        const pct = Math.max(0.1, Math.min(25, d.motion_min_area_ratio * 100));
         motionMinEl.value = String(pct);
       }
     } catch (e) { /* Default (2 %) bleibt */ }
@@ -503,6 +503,17 @@
   brushValEl.textContent = brushEl.value;
   updateGridLabel();
   window.addEventListener("resize", fitStage);
+  // Fenster-Geometrie beim Schließen merken — der Öffnen-Button
+  // (open_zone_editor) liest sie und platziert das Popup beim nächsten
+  // Mal wieder dort, wo der User es zuletzt hingeschoben hat.
+  window.addEventListener("beforeunload", () => {
+    try {
+      localStorage.setItem("aifred-zone-editor-geom", JSON.stringify({
+        left: window.screenX, top: window.screenY,
+        width: window.outerWidth, height: window.outerHeight,
+      }));
+    } catch (e) { /* Storage voll/verboten — Defaults greifen */ }
+  });
   loadMotionMin();
   loadExisting().then(loadImage);
 })();

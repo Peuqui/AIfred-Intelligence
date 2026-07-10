@@ -110,3 +110,32 @@ class TestMotionDetector:
         r = det.process(_make_frame_from_array(moving))
         assert r.foreground_mask is not None
         assert r.foreground_mask.shape == bg.shape[:2]
+
+    def test_ptz_pan_is_ego_motion_not_trigger(self):
+        """PTZ-Schwenk (global kohärent verschobenes Bild) darf NICHT
+        triggern — das Ego-Motion-Gate erkennt ihn (Shift + response +
+        Fläche) und setzt das Hintergrundmodell frisch auf; nach dem
+        Warmup ist die neue Ansicht sofort der Hintergrund."""
+        rng = np.random.default_rng(42)
+        tex = rng.integers(0, 255, (240, 320), dtype=np.uint8)
+        tex = cv2.GaussianBlur(tex, (9, 9), 0)
+        tex3 = cv2.cvtColor(tex, cv2.COLOR_GRAY2BGR)
+        det = MotionDetector(warmup_frames=3, min_area_ratio=0.02)
+        for _ in range(10):
+            det.process(_make_frame_from_array(tex3))
+        panned = np.roll(tex3, 30, axis=1)
+        r = det.process(_make_frame_from_array(panned))
+        assert r.motion is False  # Schwenk, kein Alarm
+        # Neue Ansicht wird eingelernt: nach dem Warmup herrscht Ruhe …
+        for _ in range(8):
+            r = det.process(_make_frame_from_array(panned))
+        assert r.motion is False
+        assert r.area_ratio < 0.01
+        # … und ein LOKALES Objekt triggert weiterhin normal (kein
+        # fälschlicher Ego-Reset bei Szenen-Bewegung).
+        person = panned.copy()
+        person[60:200, 80:220] = rng.integers(
+            0, 255, (140, 140, 3), dtype=np.uint8
+        )
+        r = det.process(_make_frame_from_array(person))
+        assert r.motion is True

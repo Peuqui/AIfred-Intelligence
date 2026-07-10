@@ -66,7 +66,14 @@ JPEG_QUALITY = 75
 
 # Padding um die Bounding-Box relativ zur Box-Größe — sonst
 # schneidet's am Augenrand ab.
-BBOX_PADDING = 0.25
+# Crop-Padding um die InsightFace-BBox (Anteil der Boxbreite/-höhe).
+# SCRFD-Boxen enden am Haaransatz/Kinn — nach oben braucht es deutlich
+# mehr Zugabe (Stirn + Haar), nach unten etwas (Kinn/Hals), seitlich
+# reichen 25 %. Rein kosmetisch (Anzeige-Crops); das Embedding wird
+# vorher aus dem Vollbild gerechnet.
+BBOX_PAD_X = 0.25
+BBOX_PAD_TOP = 0.50
+BBOX_PAD_BOTTOM = 0.30
 
 
 @dataclass
@@ -322,12 +329,11 @@ def _crop_from_jpeg(jpeg_bytes: bytes, bbox: tuple[int, int, int, int]) -> bytes
         return b""
     h, w = frame.shape[:2]
     x, y, bw, bh = bbox
-    pad_x = int(bw * BBOX_PADDING)
-    pad_y = int(bh * BBOX_PADDING)
+    pad_x = int(bw * BBOX_PAD_X)
     x0 = max(0, x - pad_x)
-    y0 = max(0, y - pad_y)
+    y0 = max(0, y - int(bh * BBOX_PAD_TOP))
     x1 = min(w, x + bw + pad_x)
-    y1 = min(h, y + bh + pad_y)
+    y1 = min(h, y + bh + int(bh * BBOX_PAD_BOTTOM))
     if x1 <= x0 or y1 <= y0:
         return b""
     crop = frame[y0:y1, x0:x1]

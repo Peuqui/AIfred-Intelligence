@@ -387,14 +387,25 @@ class VisionSettingsMixin(rx.State, mixin=True):
         Popup-Fenster (gleiche Mechanik wie die Vigilantia-Live-Vorschau:
         verschiebbares OS-Fenster, fixer Name fokussiert es beim Reklick).
         Ausgeliefert über /api (prefix-unabhängig); source_id als Query-
-        Param, der Editor redet per /api/vision/* mit dem Backend."""
+        Param, der Editor redet per /api/vision/* mit dem Backend.
+
+        Fenster-Geometrie: der Editor schreibt Position+Größe beim
+        Schließen nach localStorage ('aifred-zone-editor-geom'); hier wird
+        sie gelesen, damit das Popup dort wieder aufgeht, wo der User es
+        zuletzt hingeschoben hat (Defaults nur beim allerersten Mal)."""
         import json
         sid = json.dumps(source_id or "")
         return rx.call_script(
+            "(function(){"
+            "var g={};"
+            "try{g=JSON.parse(localStorage.getItem('aifred-zone-editor-geom'))||{};}catch(e){}"
+            "var f='popup=yes,menubar=no,toolbar=no,location=no,status=no'"
+            "+',width='+(g.width||960)+',height='+(g.height||970)"
+            "+',left='+(g.left!=null?g.left:200)+',top='+(g.top!=null?g.top:55);"
             "window.open('/api/vision/zone-editor?source_id=' + "
-            f"encodeURIComponent({sid}),'aifred-zone-editor',"
-            "'popup=yes,width=960,height=970,left=200,top=55,"
-            "menubar=no,toolbar=no,location=no,status=no')"
+            f"encodeURIComponent({sid})"
+            ",'aifred-zone-editor',f);"
+            "})()"
         )
 
     @rx.event

@@ -50,6 +50,16 @@ class AlertEvent:
     media_gallery: list[str] = field(default_factory=list)
     timestamp: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Browser-session routing key. Sources that belong to one physical
+    # device (e.g. the wide + zoom lenses of a dual-lens camera) share a
+    # key so their alerts land in ONE session. None = own session per
+    # source_id (previous behaviour).
+    session_key: str | None = None
+    # Fixed title for the routed session (e.g. "Vigilantia: Hauseingang").
+    # Applied when the session is created or still untitled — autonomous
+    # turns get no LLM title generation, so without this the session
+    # shows up as an unnamed chat.
+    session_title: str | None = None
 
 
 @dataclass
@@ -174,9 +184,13 @@ class AlertDispatcher:
 
 
 def _format(ev: AlertEvent) -> str:
-    """Template text rendering — title + body (deterministic, no LLM)."""
+    """Template text rendering — source line first, then title.
+
+    Blank lines between the parts: chat bubbles render Markdown, where a
+    single newline collapses into the same paragraph — only ``\\n\\n``
+    visually separates the lines."""
     if ev.title and ev.body:
-        return f"{ev.title}\n{ev.body}"
+        return f"{ev.body}\n\n{ev.title}"
     return ev.title or ev.body
 
 
@@ -260,7 +274,7 @@ async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | Non
         prompt = f"{prompt}\n\nBildbeschreibung (VLM): {extra_context}"
     msg = InboundMessage(
         channel=ev.producer,
-        channel_id=ev.source_id or ev.producer,
+        channel_id=ev.session_key or ev.source_id or ev.producer,
         sender="system",
         text=prompt,
         timestamp=ev.timestamp or _dt.now(),
@@ -269,6 +283,21 @@ async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | Non
     )
     out = await process_inbound(msg)
     return out.text if out and out.text else None
+
+
+def _ensure_session_title(channel: str, channel_id: str, title: str) -> None:
+    """Set a fixed title on the routed alert session — only while it has
+    none, so a user-renamed session is never overwritten."""
+    from .routing_table import routing_table
+    from .session_storage import load_session, update_session_title
+
+    route = routing_table.get_route(channel, channel_id)
+    if not route:
+        return
+    session = load_session(route.session_id)
+    current = ((session or {}).get("data") or {}).get("title") or ""
+    if not current.strip():
+        update_session_title(route.session_id, title)
 
 
 async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
@@ -327,18 +356,36 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         # Reine VLM-Beschreibung in den Body. Bei leerer VLM-Antwort bleibt
         # der Template-Text (gleiches Degradations-Muster wie bei "llm").
         if vlm_desc:
-            text = f"{ev.title}\n{vlm_desc}\n{ev.body}".strip()
+            # Lesereihenfolge: Quelle+Zeit ("Hauseingang Zoom · 16:06")
+            # zuerst, dann der Erkennungs-Titel, dann die VLM-Beschreibung
+            # — mit gebündelten Sessions (mehrere Objektive in einem Chat)
+            # muss die Quelle das Erste sein. Absätze (\n\n) statt \n:
+            # die Bubble rendert Markdown, einfache Umbrüche kollabieren.
+            text = f"{ev.body}\n\n{ev.title}\n\n{vlm_desc}".strip()
 
     if not recorded:
         try:
             record_autonomous_turn(
-                ev.producer, ev.source_id or ev.producer,
+                ev.producer, ev.session_key or ev.source_id or ev.producer,
                 ev.title or ev.category, text, media=ev.media,
                 media_gallery=ev.media_gallery,
             )
             recorded = True
         except Exception as e:  # noqa: BLE001
             logger.warning("alert: session record failed: %s", e)
+
+    # Fixed session title (e.g. "Vigilantia: Hauseingang") — autonomous
+    # turns get no LLM title generation, so untitled alert sessions showed
+    # up as unnamed chats. Applied once (only while untitled); covers both
+    # record paths (template/VLM above, process_inbound in _compose_via_llm).
+    if recorded and ev.session_title:
+        try:
+            _ensure_session_title(
+                ev.producer, ev.session_key or ev.source_id or ev.producer,
+                ev.session_title,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("alert: session title failed: %s", e)
 
     # Severity → Audio-Type-Tupel fuer Sinks die einen lokalen Sound vor
     # der Nachricht abspielen koennen (FreeEcho.2: alarm_wav vs.
