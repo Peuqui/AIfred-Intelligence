@@ -133,6 +133,24 @@ def test_cascade_no_upstream_without_free_estimate():
     assert dest is None
 
 
+def test_measured_split_ceiling_min_over_active_cards():
+    """Ceiling = min over active cards of ctx + (free−margin)/(layers·slope);
+    idle cards are ignored (the upward search's rescue-probe anchor)."""
+    # card0: 1000 + (400−200)/(4·0.001) = 51.000 (limiter)
+    # card1: 1000 + (1000−200)/(2·0.001) = 401.000
+    c = flow._measured_split_ceiling(
+        [4, 2], [400.0, 1000.0], (0.001, 0.001), 1000, 200,
+    )
+    assert c == 51000.0
+    # idle card contributes nothing
+    c2 = flow._measured_split_ceiling(
+        [4, 0], [400.0, 0.0], (0.001, 0.001), 1000, 200,
+    )
+    assert c2 == 51000.0
+    # no active cards → inf (guard)
+    assert flow._measured_split_ceiling([0], [0.0], (0.001,), 1000, 200) == float("inf")
+
+
 def test_cascade_prefers_downstream_before_upstream():
     """The glass cascade stays a cascade: a downstream card that holds the
     reserve wins even when an upstream card has MORE headroom."""
