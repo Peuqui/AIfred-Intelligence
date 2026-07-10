@@ -302,6 +302,48 @@ intent_detector.py: detect_query_intent_and_addressee()
 
 ---
 
+## Thinking Modes & Reasoning-Effort Levels
+
+Each agent has a thinking-mode dropdown (🧠) instead of a plain on/off
+toggle. The option list is model-specific: `off` and `on` always exist;
+models whose chat template supports graded thinking depth contribute
+extra entries (e.g. DeepSeek-V4: `max` = Think Max — `on` is the
+template's default level, Think High).
+
+The mechanism is fully model-agnostic — no model names are hardcoded:
+
+```
+GGUF (tokenizer.chat_template)
+  |-- gguf_utils.detect_reasoning_levels()
+  |     Scans the embedded Jinja template for comparisons against the
+  |     `reasoning_effort` variable (== / != / in [...]). Whatever the
+  |     template compares against IS the supported level set, because
+  |     chat_template_kwargs are passed 1:1 as Jinja variables.
+  |
+  |-- model_vram_cache.json: "reasoning_levels" (persisted)
+  |     Filled lazily on model switch/startup (header read, ms) and
+  |     force-refreshed during calibration (re-download may change it).
+  |
+  |-- State: {agent}_thinking (bool) + {agent}_reasoning_effort (str)
+  |     Dropdown maps: off -> thinking=False; on -> thinking=True,
+  |     effort=""; <level> -> thinking=True, effort=<level>.
+  |
+  v
+LLMOptions.reasoning_effort
+  |-- llamacpp/_build_extra_body(): chat_template_kwargs =
+  |     {"enable_thinking": ..., "reasoning_effort": "<level>"}
+  |-- ollama: ignores effort (bool `think` only)
+```
+
+Any model whose template compares `reasoning_effort` against string
+literals (DeepSeek-V4 `max`, gpt-oss-style `low/medium/high`, future
+models) gets its levels detected automatically. Templates using a
+different variable name would need an extension in
+`detect_reasoning_levels()` — deliberately conservative to avoid false
+positives.
+
+---
+
 ## Summary: What Goes Through the Pipeline
 
 | Path | Entry Point | Pipeline? | Notes |

@@ -699,6 +699,46 @@ def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
     return result
 
 
+def set_reasoning_levels_for_model(model_name: str, levels: List[str]) -> bool:
+    """
+    Set the steerable reasoning-effort levels for a model, detected from
+    its embedded chat template (gguf_utils.detect_reasoning_levels).
+
+    Empty list = template analyzed, no effort levels (plain on/off
+    thinking, or none at all).
+    """
+    with _cache_lock:
+        cache = load_cache()
+
+        if model_name not in cache:
+            cache[model_name] = {
+                "backend": "llamacpp",
+                "native_context": 0,
+                "gpu_model": "Unknown",
+                "reasoning_levels": levels,
+            }
+        else:
+            cache[model_name]["reasoning_levels"] = levels
+
+        logger.info(f"🧠 Set reasoning_levels={levels} for {model_name}")
+        return save_cache(cache)
+
+
+def get_reasoning_levels_for_model(model_name: str) -> Optional[List[str]]:
+    """
+    Get the steerable reasoning-effort levels for a model.
+
+    Returns:
+        Level list if analyzed (may be empty = on/off only),
+        None if never analyzed.
+    """
+    cache = load_cache()
+    if model_name not in cache:
+        return None
+    result: List[str] | None = cache[model_name].get("reasoning_levels")
+    return result
+
+
 # ============================================================================
 # MoE EXPERT COUNT FUNCTIONS
 # ============================================================================

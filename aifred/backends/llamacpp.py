@@ -94,18 +94,26 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             "top_k": options.top_k,
             "min_p": options.min_p,
         }
+        thinking_forced_off = False
         if options.enable_thinking is not None:
             # Instruct models cannot think — force disable regardless of toggle.
             # They have <think> in their chat template but put ALL content into
             # reasoning_content, producing empty visible responses.
             if options.enable_thinking and "instruct" in self._current_model.lower():
                 extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+                thinking_forced_off = True
                 import logging
                 logging.getLogger(__name__).info(
                     f"Thinking disabled for Instruct model: {self._current_model}"
                 )
             else:
                 extra_body["chat_template_kwargs"] = {"enable_thinking": options.enable_thinking}
+        # Steerable effort level (e.g. DeepSeek-V4 "max") — passed 1:1 as a
+        # Jinja variable. Pointless when thinking was just forced off.
+        if options.reasoning_effort and not thinking_forced_off:
+            extra_body.setdefault("chat_template_kwargs", {})[
+                "reasoning_effort"
+            ] = options.reasoning_effort
         return extra_body
 
     def _process_response_text(self, choice: Any) -> str:

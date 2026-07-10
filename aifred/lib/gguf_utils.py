@@ -242,6 +242,139 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
         return None
 
 
+def get_gguf_chat_template(gguf_path: Path) -> Optional[str]:
+    """
+    Extract the embedded Jinja chat template from GGUF metadata
+    (``tokenizer.chat_template``). For split GGUFs the metadata lives in
+    part 1 — the path llama-swap/AIfred reference anyway.
+
+    Returns:
+        Template source text, or None if absent/unreadable.
+    """
+    if not gguf_path.exists():
+        logger.warning(f"GGUF file not found: {gguf_path}")
+        return None
+
+    try:
+        import gguf
+
+        with open(gguf_path, "rb") as f:
+            reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
+            field = reader.fields.get("tokenizer.chat_template")
+            if field is None:
+                logger.debug(f"No tokenizer.chat_template in {gguf_path.name}")
+                return None
+            raw = bytes(field.parts[field.data[0]])
+            return raw.decode("utf-8")
+    except ImportError:
+        logger.warning("gguf-py library not installed - cannot read chat template")
+        return None
+    except (OSError, ValueError, IndexError, UnicodeDecodeError) as e:
+        logger.error(f"Error reading chat template from {gguf_path}: {e}")
+        return None
+
+
+def detect_reasoning_levels(template: str) -> List[str]:
+    """
+    Detect which ``reasoning_effort`` levels a chat template understands.
+
+    ``chat_template_kwargs`` are passed 1:1 as Jinja variables, so the
+    template source is the authoritative capability description: a level
+    is supported exactly when the template compares the
+    ``reasoning_effort`` variable against its string literal (e.g.
+    DeepSeek-V4: ``{%- if thinking and reasoning_effort == 'max' -%}``).
+
+    Only direct comparisons and ``in [...]`` membership tests are
+    matched, on the standalone variable (``reasoning_effort_max`` — the
+    DeepSeek prompt-text variable — must not match).
+
+    Returns:
+        Level names in template order (deduplicated), e.g. ``["max"]``.
+        Empty list = template has no steerable effort levels (plain
+        on/off thinking or none at all).
+    """
+    import re
+
+    levels: List[str] = []
+
+    def _add(name: str) -> None:
+        if name and name not in levels:
+            levels.append(name)
+
+    # reasoning_effort == 'max'  /  reasoning_effort != "high"
+    for m in re.finditer(
+        r"\breasoning_effort\s*[=!]=\s*['\"]([\w-]+)['\"]", template
+    ):
+        _add(m.group(1))
+    # 'max' == reasoning_effort (reversed operands)
+    for m in re.finditer(
+        r"['\"]([\w-]+)['\"]\s*[=!]=\s*reasoning_effort\b", template
+    ):
+        _add(m.group(1))
+    # reasoning_effort in ['high', 'max']
+    for m in re.finditer(r"\breasoning_effort\s+in\s+\[([^\]]*)\]", template):
+        for lit in re.finditer(r"['\"]([\w-]+)['\"]", m.group(1)):
+            _add(lit.group(1))
+
+    return levels
+
+
+def get_gguf_reasoning_levels(gguf_path: Path) -> List[str]:
+    """Reasoning-effort levels supported by the model's embedded chat
+    template (see :func:`detect_reasoning_levels`). Empty list when the
+    template is absent or has no steerable levels."""
+    template = get_gguf_chat_template(gguf_path)
+    if not template:
+        return []
+    levels = detect_reasoning_levels(template)
+    if levels:
+        logger.info(
+            f"✅ Reasoning levels from chat template ({gguf_path.name}): {levels}"
+        )
+    return levels
+
+
+def resolve_reasoning_levels(model_id: str, force: bool = False) -> List[str]:
+    """
+    Reasoning-effort levels for a llama.cpp model — cache-first, on miss
+    analyzed from the model's GGUF chat template and persisted.
+
+    SSOT for both the model-switch state load (lazy fill) and
+    calibration (``force=True`` re-analyzes, e.g. after a re-download
+    changed the embedded template).
+
+    Returns [] when the model can't be resolved to an existing GGUF
+    (not persisted, so a later attempt retries).
+    """
+    from .model_vram_cache import (
+        get_reasoning_levels_for_model,
+        set_reasoning_levels_for_model,
+    )
+
+    if not force:
+        cached = get_reasoning_levels_for_model(model_id)
+        if cached is not None:
+            return cached
+
+    from .calibration import parse_llamaswap_config
+    from .config import LLAMASWAP_CONFIG_PATH
+
+    try:
+        config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+    except (FileNotFoundError, OSError, ValueError) as e:
+        logger.debug(f"Reasoning-level resolve: config unreadable: {e}")
+        return []
+    entry = config.get(model_id) or {}
+    gguf = entry.get("gguf_path")
+    if not gguf or not Path(gguf).exists():
+        logger.debug(f"Reasoning-level resolve: no GGUF for '{model_id}'")
+        return []
+
+    levels = get_gguf_reasoning_levels(Path(gguf))
+    set_reasoning_levels_for_model(model_id, levels)
+    return levels
+
+
 def extract_quantization_from_filename(filename: str) -> str:
     """
     Extract quantization level from GGUF filename
