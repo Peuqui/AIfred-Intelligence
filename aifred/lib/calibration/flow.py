@@ -11,7 +11,7 @@ import logging
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, Sequence
 
 from ..config import (
     CALIBRATION_MIN_CONTEXT,
@@ -2001,6 +2001,68 @@ async def _verify_and_refine(
         # real ~171k laufen. Die Binary-Search probt jetzt immer; die
         # Probes selbst sind die Kostenbremse und die Wahrheit.
         if active_free:
+            # Ceiling-refine at the anchor BEFORE pushing up (2026-07-10):
+            # the fit probe carries the full measurement, and a large
+            # headroom gap (DeepSeek base: CUDA0 1051 MB vs CUDA2 4445 MB)
+            # caps the whole upward search at the tight card's ceiling —
+            # one probed swap raises it for every subsequent step. And when
+            # later loads die silently (no measurement), Step 3's OOM-refine
+            # never fires, so this anchor pass is the ONLY rebalance chance.
+            # The Step-2 concern (chasing a ceiling past the useful cap) is
+            # already guarded here by the surrounding
+            # ``current_ctx < upward_ceiling``.
+            while True:
+                refined_a, reason_a = _context_refine_swap(
+                    current_split, gpus, r, budget,
+                    vram_model=candidate.vram_model,
+                    total_layers=model.total_layers,
+                    model_size_mb=model.size_mb,
+                    current_context=current_ctx,
+                    keep_active_set=lock_active_gpus or lock_split,
+                )
+                if refined_a is None:
+                    # Always say WHY no anchor swap happened — a silent
+                    # skip is indistinguishable from the refine never
+                    # running (the 2026-07-10 DeepSeek confusion).
+                    yield (
+                        f"{status_prefix} anchor ceiling-refine: {reason_a}"
+                    )
+                    break
+                if refined_a in seen_splits:
+                    yield (
+                        f"{status_prefix} anchor ceiling-refine: split "
+                        f"{_split_str(refined_a)} already probed — keeping "
+                        f"{_split_str(current_split)}"
+                    )
+                    break
+                seen_splits.add(refined_a)
+                iteration += 1
+                yield (
+                    f"{status_prefix} anchor ceiling-refine ({reason_a}): "
+                    f"{_split_str(current_split)} → {_split_str(refined_a)}"
+                )
+                r_a = await _load_and_cache(
+                    probe_cache, refined_a, current_ctx,
+                    full_cmd=full_cmd, candidate=candidate, port=port,
+                    gpus=gpus, budget=budget, env=env, probe_thinking=False,
+                )
+                yield _fmt_verify(
+                    status_prefix, iteration, refined_a, current_ctx, r_a,
+                )
+                if not r_a.fits:
+                    yield (
+                        f"{status_prefix} anchor refine OOM — keeping "
+                        f"previous split"
+                    )
+                    break
+                current_split = refined_a
+                r = r_a
+                last_good = (r, current_split, current_ctx)
+                active_free = [
+                    f for i, f in enumerate(r.measured_free_mb)
+                    if i < len(current_split) and current_split[i] > 0
+                ]
+
             lo = current_ctx
             # Cap the window at a proven ceiling: if a higher ctx already
             # failed at THIS split (Step 1's native OOM, or the down-search's
@@ -2035,6 +2097,7 @@ async def _verify_and_refine(
             # statt das Fenster in ~3-min-Crashes leer zu bisektieren.
             up_math_unreliable = False
             up_load_sig: tuple[int, ...] | None = None
+            up_rescue_done = False
             while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
                 math_max, predicted_min = _math_max_fitting_ctx(
                     current_split,
@@ -2193,17 +2256,90 @@ async def _verify_and_refine(
                     if not r_up.measured_free_mb:
                         # Stiller Load-Crash (kein Steady-State-Messwert) —
                         # Spiegel der Abwärts-Suche: Math nichts zu lernen →
-                        # Bisect erzwingen; identische NICHT-leere Signatur
-                        # → ctx-unabhängiger Crash, Suche beenden.
+                        # Bisect erzwingen. Identische NICHT-leere Signatur
+                        # sieht ctx-unabhängig aus — aber ``lo`` LIEF
+                        # nachweislich, der Fehler hat also real eine
+                        # Schwelle in (lo, cand_ctx) (DeepSeek-V4 #25468:
+                        # ctx-proportionaler Indexer-Buffer). Bevor die
+                        # Suche das Restfenster verschenkt: EIN Rettungs-
+                        # Probe am messungs-verankerten Ceiling des letzten
+                        # Fits — die einzige Stelle, die real noch fitten
+                        # kann. Crasht auch der, ist Schluss.
                         up_math_unreliable = True
                         if (
                             up_load_sig
                             and r_up.load_min_free_mb
                             and r_up.load_min_free_mb == up_load_sig
                         ):
+                            rescue_ctx = 0
+                            lg_r, lg_split, lg_ctx = last_good
+                            if (
+                                not up_rescue_done
+                                and candidate.vram_model is not None
+                                and lg_r.fits
+                                and lg_r.measured_free_mb
+                                and lg_split == current_split
+                            ):
+                                from .optimizer import _per_gpu_coefficients
+                                _, _slope = _per_gpu_coefficients(
+                                    candidate.vram_model,
+                                    model.total_layers, model.size_mb,
+                                )
+                                _ceiling = _measured_split_ceiling(
+                                    [int(x) for x in current_split],
+                                    [float(f) for f in lg_r.measured_free_mb],
+                                    _slope, lg_ctx, budget.safety_margin,
+                                )
+                                if _ceiling != float("inf"):
+                                    rescue_ctx = (
+                                        int(_ceiling)
+                                        // LLAMACPP_CALIBRATION_PRECISION
+                                        * LLAMACPP_CALIBRATION_PRECISION
+                                    )
+                                    rescue_ctx = min(
+                                        rescue_ctx,
+                                        hi - LLAMACPP_CALIBRATION_PRECISION,
+                                    )
+                            if rescue_ctx <= lo:
+                                yield (
+                                    f"{status_prefix} load failure is "
+                                    f"ctx-independent (identical load minimum) "
+                                    f"— stopping upward search"
+                                )
+                                break
+                            up_rescue_done = True
+                            iteration += 1
                             yield (
-                                f"{status_prefix} load failure is "
-                                f"ctx-independent (identical load minimum) — "
+                                f"{status_prefix} crashes look ctx-independent, "
+                                f"but {format_number(lo)} did load — one rescue "
+                                f"probe at the measured ceiling "
+                                f"{format_number(rescue_ctx)}"
+                            )
+                            r_rescue = await _load_and_cache(
+                                probe_cache, current_split, rescue_ctx,
+                                full_cmd=full_cmd, candidate=candidate,
+                                port=port, gpus=gpus, budget=budget, env=env,
+                                probe_thinking=False,
+                            )
+                            yield _fmt_verify(
+                                status_prefix, iteration, current_split,
+                                rescue_ctx, r_rescue,
+                            )
+                            if r_rescue.fits:
+                                lo = rescue_ctx
+                                last_good = (r_rescue, current_split, rescue_ctx)
+                                up_math_unreliable = False
+                                up_load_sig = None
+                                continue
+                            if r_rescue.measured_free_mb:
+                                # Real OOM with measurement (not a crash) —
+                                # the normal search can keep learning below.
+                                hi = rescue_ctx
+                                up_math_unreliable = False
+                                up_load_sig = None
+                                continue
+                            yield (
+                                f"{status_prefix} rescue probe crashed too — "
                                 f"stopping upward search"
                             )
                             break
@@ -2417,6 +2553,35 @@ def _refine_split_from_measurement(
     )
 
 
+def _measured_split_ceiling(
+    layers: list[int],
+    free: list[float],
+    slope_per_layer: "Sequence[float]",
+    current_context: int,
+    safety_margin: int,
+) -> float:
+    """Analytical ctx ceiling of a split, anchored to MEASURED free VRAM.
+
+    Per active card: ``current_context + (free - margin) / (layers ×
+    per-layer KV-slope)`` — the ctx at which that card's measured free
+    is eaten by KV growth. The split ceiling is the minimum. Anchoring
+    on the measured post-load reality (not the fit-params intercepts)
+    is what makes this more generous — and more truthful — than the
+    projection math. SSOT shared by :func:`_context_refine_swap` and
+    the upward search's silent-crash rescue probe.
+    """
+    def _card(i: int) -> float:
+        kv_slope = layers[i] * slope_per_layer[i]
+        if layers[i] <= 0 or kv_slope <= 0:
+            return float("inf")
+        return current_context + (free[i] - safety_margin) / kv_slope
+
+    return min(
+        (_card(i) for i in range(len(layers)) if layers[i] > 0),
+        default=float("inf"),
+    )
+
+
 def _context_refine_swap(
     current_split: tuple[float, ...],
     gpus: list[GPU],
@@ -2476,21 +2641,11 @@ def _context_refine_swap(
     def _free(i: int) -> float:
         return float(measured[i]) if i < len(measured) else 0.0
 
-    # Additional context (tokens) a card can still absorb at its current
-    # layer count and measured free, before hitting the safety margin.
     # Anchored to the MEASURED reality (post-load truth), not the pre-load
     # plan — that reality gap is exactly why we are in the upward push.
-    def _card_ceiling(layers_i: int, free_i: float, i: int) -> float:
-        kv_slope = layers_i * slope_per_layer[i]
-        if layers_i <= 0 or kv_slope <= 0:
-            return float("inf")
-        return current_context + (free_i - sm) / kv_slope
-
     def _split_ceiling(layers: list[int], free: list[float]) -> float:
-        return min(
-            (_card_ceiling(layers[i], free[i], i) for i in range(len(layers))
-             if layers[i] > 0),
-            default=float("inf"),
+        return _measured_split_ceiling(
+            layers, free, slope_per_layer, current_context, sm,
         )
 
     # 1) Context-limiting card = the active GPU whose free VRAM runs out
