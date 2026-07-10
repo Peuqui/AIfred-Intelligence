@@ -1,13 +1,13 @@
 """Context-maximizing refine (``_context_refine_swap``) vs. the fastest-first
 cascade (``_refine_split_from_measurement``).
 
-The cascade relieves the card with the least *absolute* free VRAM and can only
-spill DOWNSTREAM. When the context-limiting card sits at the cascade tail (a P40
-at a few MB but with a shallow KV slope), the cascade finds no downstream target
-and gives up — capping the upward context push (the real 140.800-vs-114.944
-Vigilantia gap). The context refine instead relieves the card whose free VRAM
-runs out first as context grows and moves the layer to the highest-ceiling
-destination, upstream if need be.
+The cascade relieves the card with the least *absolute* free VRAM and spills
+DOWNSTREAM first. When the bottleneck sits at the cascade tail (the 397B
+8b-combo dead-end on CUDA4), the shared destination SSOT
+(``_cascade_destination``) now falls back UPSTREAM to the highest-headroom
+card instead of giving up into a ctx-shrink. The context refine instead
+relieves the card whose free VRAM runs out first as context grows and moves
+the layer to the highest-ceiling destination, upstream if need be.
 """
 
 from __future__ import annotations
@@ -77,20 +77,72 @@ def _budget(free_5):
     )
 
 
-def test_cascade_deadends_on_tail_bottleneck():
-    """Least-absolute-free card is the tail P40 → cascade has no downstream
-    target and returns None (the give-up the fix targets)."""
+def test_cascade_falls_back_upstream_on_tail_bottleneck():
+    """Least-absolute-free card is the tail P40 → no downstream target; the
+    upstream fallback relieves it onto the highest-headroom card instead of
+    the old dead-end (None → ctx-shrink, the 397B 8b-combo loss)."""
     split = (17.0, 18.0, 8.0, 9.0, 9.0)
     gpus = _gpus_5()
     vmodel = _vmodel(split, [0.010, 0.006, 0.006, 0.006, 0.006])
     # GPU4 (tail) has the least absolute free; GPU0 the steepest slope.
     r = VerifyResult(fits=False, measured_free_mb=(500, 8000, 12000, 5000, 300),
                      thinks=None, detail="")
-    out, _reason = _refine_split_from_measurement(
+    out, reason = _refine_split_from_measurement(
         split, gpus, r, _budget((20000, 20000, 18000, 14000, 14000)),
         vmodel, TOTAL_LAYERS, MODEL_MB, 120000,
     )
-    assert out is None
+    assert out is not None
+    # The tail bottleneck was relieved …
+    assert out[4] == split[4] - 1
+    # … onto the upstream card with the most headroom (GPU2, 12000 MB free).
+    assert out[2] == split[2] + 1
+    assert sum(out) == sum(split)
+    assert "CUDA2" in reason
+
+
+def test_cascade_upstream_respects_blocked_dest():
+    """The upstream fallback must skip reserve-loaded (blocked) GPUs — the
+    layer then lands on the best NON-blocked upstream card."""
+    split = (17.0, 18.0, 8.0, 9.0, 9.0)
+    gpus = _gpus_5()
+    vmodel = _vmodel(split, [0.010, 0.006, 0.006, 0.006, 0.006])
+    r = VerifyResult(fits=False, measured_free_mb=(500, 8000, 12000, 5000, 300),
+                     thinks=None, detail="")
+    budget = Budget(
+        per_gpu_free=(20000, 20000, 18000, 14000, 14000),
+        first_gpu_handicap=500, safety_margin=192,
+        gpu_reserve_mb=(0, 0, 4000, 0, 0),  # GPU2 = VLM side-channel
+    )
+    out, _reason = _refine_split_from_measurement(
+        split, gpus, r, budget, vmodel, TOTAL_LAYERS, MODEL_MB, 120000,
+    )
+    assert out is not None
+    assert out[2] == split[2]            # blocked GPU2 stays untouched
+    assert out[1] == split[1] + 1        # next-best headroom (GPU1) takes it
+    assert out[4] == split[4] - 1
+
+
+def test_cascade_no_upstream_without_free_estimate():
+    """Without a per-card free estimate the fallback must NOT guess an
+    upstream target (fast cards are usually packed full) — None it is."""
+    dest = flow._cascade_destination(
+        src=4, layers=[17.0, 18.0, 8.0, 9.0, 9.0], free_estimate=(),
+        layer_cost_per_gpu=(), min_free_mb=192, step=1.0,
+        keep_active_set=False,
+    )
+    assert dest is None
+
+
+def test_cascade_prefers_downstream_before_upstream():
+    """The glass cascade stays a cascade: a downstream card that holds the
+    reserve wins even when an upstream card has MORE headroom."""
+    dest = flow._cascade_destination(
+        src=2, layers=[17.0, 18.0, 8.0, 9.0, 9.0],
+        free_estimate=(500, 9000, 300, 5000, 4000),
+        layer_cost_per_gpu=(1200.0,) * 5, min_free_mb=192, step=1.0,
+        keep_active_set=False,
+    )
+    assert dest == 3
 
 
 def test_context_refine_relieves_ctx_limiter_where_cascade_fails():

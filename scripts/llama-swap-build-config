@@ -398,17 +398,16 @@ def cleanup_uninstalled_tts_profiles(data: dict) -> list[str]:
     if not uninstalled:
         return []
 
-    # Engine-Key-Match anhand exakter Suffixe — fish-speech bleibt
+    # Engine-Key-Match boundary-sicher: exaktes Suffix ODER Key gefolgt
+    # von weiterem Segment (-speed, -vlm-…-Kombos). fish-speech bleibt
     # zusammen statt von einem Regex als "fish" gelesen zu werden.
-    suffixes: list[str] = []
-    for key in uninstalled:
-        suffixes.append(f"-tts-{key}")
-        suffixes.append(f"-tts-{key}-speed")
+    def _matches(name: str, key: str) -> bool:
+        return name.endswith(f"-tts-{key}") or f"-tts-{key}-" in name
 
     removed: list[str] = []
     models = data.get("models") or {}
     for name in list(models.keys()):
-        if any(name.endswith(s) for s in suffixes):
+        if any(_matches(name, key) for key in uninstalled):
             del models[name]
             removed.append(name)
 
