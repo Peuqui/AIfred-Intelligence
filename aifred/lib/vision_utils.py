@@ -408,7 +408,7 @@ def _get_gguf_vision_metadata(gguf_path: Path) -> tuple:
     except ImportError:
         logger.warning("gguf-py library not installed")
         return None, None, None
-    except (ImportError, OSError) as e:
+    except OSError as e:
         logger.warning(f"Error reading GGUF metadata from {gguf_path}: {e}")
         return None, None, None
 

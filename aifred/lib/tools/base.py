@@ -18,12 +18,10 @@ logger = logging.getLogger(__name__)
 
 class RateLimitError(Exception):
     """Raised when API rate limit is reached"""
-    pass
 
 
 class APIKeyMissingError(Exception):
     """Raised when API key is missing"""
-    pass
 
 
 # ============================================================

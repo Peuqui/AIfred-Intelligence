@@ -126,7 +126,7 @@ async def call_llm(
     # Inject system prompt (agent-aware)
     # When multimodal content is present, use the real agent's prompt stack
     # (identity, personality, memory, tools) + vision task as addon.
-    if multimodal_content is not None and agent != "vision":
+    if multimodal_content is not None:
         # Real agent prompt (with full layer stack: identity, tools, memory, personality)
         system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
         # Append vision-specific task instructions as addon
@@ -135,9 +135,6 @@ async def call_llm(
         vision_addon = load_prompt(vision_file, lang=detected_language)
         if vision_addon:
             system_prompt = f"{system_prompt}\n\n{vision_addon}"
-    elif agent == "vision":
-        # Legacy fallback: explicit "vision" agent (backward compat for direct VL calls)
-        system_prompt = get_agent_system_prompt("vision", vision_prompt_key, lang=detected_language)
     elif use_direct_prompt:
         system_prompt = get_agent_direct_prompt(agent, lang=detected_language)
     else:
@@ -283,7 +280,7 @@ async def call_llm(
         # Rebuild metadata with hub-specific params (history_tokens, backend_type, source_label)
         from .context_manager import estimate_tokens_from_llm_history
         history_tokens = estimate_tokens_from_llm_history(llm_history)
-        source_label = f"VL ({model_choice})" if agent == "vision" else f"{agent_label} ({model_choice})"
+        source_label = f"{agent_label} ({model_choice})"
 
         metadata_dict, metadata_display, debug_msg = build_inference_metadata(
             ttft=pipeline_result.ttft,

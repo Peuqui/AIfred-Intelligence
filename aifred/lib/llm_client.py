@@ -217,39 +217,6 @@ class LLMClient:
         backend = self._get_backend()
         return cast(tuple[int, int], await backend.get_model_context_limit(model))
 
-    async def preload_model(self, model: str) -> tuple[bool, float]:
-        """
-        Preload a model into VRAM by sending a minimal request.
-        This warms up the model so future requests are faster.
-
-        NOTE: Caller should explicitly call backend.unload_all_models() BEFORE this
-        to ensure proper model loading order.
-
-        Args:
-            model: Model name to preload (e.g., 'qwen3:8b')
-
-        Returns:
-            Tuple of (success: bool, load_time: float in seconds)
-        """
-        backend = self._get_backend()
-        # NOTE: Backend is cached in self._backend to prevent GC during async operations
-        return cast(tuple[bool, float], await backend.preload_model(model))
-
-    async def is_model_loaded(self, model: str) -> bool:
-        """
-        Check if a model is currently loaded in VRAM.
-
-        Used for VRAM-based context calculation to determine if model size
-        should be subtracted from free VRAM or not.
-
-        Args:
-            model: Model name/ID
-
-        Returns:
-            bool: True if model is currently loaded in VRAM, False otherwise
-        """
-        backend = self._get_backend()
-        return cast(bool, await backend.is_model_loaded(model))
 
     async def close(self):
         """Cleanup resources (close cached backend if exists)"""

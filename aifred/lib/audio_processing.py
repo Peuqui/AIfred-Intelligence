@@ -518,7 +518,7 @@ ABBREVIATIONS_DE = {
     "nr.", "s.", "str.", "tel.", "usw.", "vgl.", "vs.", "z.t.",
     "dr.", "prof.", "hr.", "fr.", "ing.", "dipl.",  # Titles
     "jan.", "feb.", "mär.", "apr.", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dez.",  # Months
-    "mo.", "di.", "mi.", "do.", "fr.", "sa.", "so.",  # Days
+    "mo.", "di.", "mi.", "do.", "sa.", "so.",  # Days ("fr." already in titles)
 }
 
 ABBREVIATIONS_EN = {

@@ -90,6 +90,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
     _tts_short_carry: str = ""  # Short sentences (< 3 words) waiting to merge with next
     _tts_in_collapsible_block: bool = False  # True while a collapsible block (think/vlm_output/data/…) is still streaming in
     _tts_streaming_active: bool = False  # True during active streaming session
+    _tts_finalize_spawned: bool = False  # background finalize already started for this init
     _tts_streaming_agent: str = "aifred"  # Current agent for voice selection (aifred/sokrates/salomo)
     _pending_audio_urls: List[str] = []  # Audio URLs collected during streaming, for message assignment
 
@@ -202,130 +203,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
     # ── TTS Callback ──────────────────────────────────────────────────
 
-    def handle_tts_callback(self, result: str):
-        """Callback nach TTS rx.call_script() Ausführung.
-
-        Wird aufgerufen wenn das JavaScript das TTS-Script ausgeführt hat.
-        Dient hauptsächlich zum Debugging.
-        """
-        self.add_debug(f"🔊 TTS callback received: {result}")  # type: ignore[attr-defined]
 
     # ── TTS Generation (Full Response) ────────────────────────────────
 
-    async def _generate_tts_for_response(self, ai_response: str, autoplay: bool = True, agent: str = "aifred"):
-        """Generate TTS audio for AI response and store path for playback
-
-        Args:
-            ai_response: The AI response text to convert to speech
-            autoplay: If True, set autoplay flag (respects user setting). If False, never autoplay.
-            agent: Agent name for per-agent voice settings (aifred, sokrates, salomo)
-
-        Note: This is a simple async function, NOT a generator. State updates happen directly.
-        """
-        try:
-            from ..lib.audio_processing import (
-                clean_text_for_tts,
-                generate_tts,
-                reset_content_hint_flags,
-                set_tts_agent,
-            )
-
-            # Set agent name for audio filename prefixing
-            set_tts_agent(agent)
-
-            # Reset content-hint flags so this response starts clean.
-            reset_content_hint_flags()
-
-            # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
-            clean_text = clean_text_for_tts(ai_response)
-
-            if not clean_text or len(clean_text.strip()) < 5:
-                self.add_debug("🔇 TTS: Text too short after cleanup")  # type: ignore[attr-defined]
-                return
-
-            self.add_debug(f"🔊 TTS: Generating audio ({len(clean_text)} chars)...")  # type: ignore[attr-defined]
-
-            # Voice/speed/pitch via the SSOT resolver (per-agent → agent's
-            # engine default → global), so a named agent never borrows
-            # another agent's voice.
-            voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
-            self.add_debug(f"🎭 {agent} voice: {voice_choice}")  # type: ignore[attr-defined]
-
-            # Generate TTS audio (returns URL path like "/tts_audio/audio_123.mp3")
-            # Per-agent speed is applied at generation time (different from browser playback rate)
-            # Pitch adjustment is applied via ffmpeg post-processing
-            tts_language = self._resolve_tts_language(agent)
-            audio_url = await generate_tts(
-                text=clean_text,
-                voice_choice=voice_choice,
-                speed_choice=speed_value,
-                tts_engine=self.tts_engine,  # type: ignore[attr-defined]
-                pitch=pitch_value,
-                language=tts_language
-            )
-
-            if audio_url:
-                # Verify file exists on disk (convert URL to filesystem path)
-                # URL: /_upload/tts_audio/audio_123.mp3 -> data/tts_audio/audio_123.mp3
-                from ..lib.config import DATA_DIR
-                filename = audio_url.split("/")[-1]
-                file_path = DATA_DIR / "tts_audio" / filename
-
-                if os.path.exists(file_path):
-                    # Set browser playback rate from agent speed setting
-                    self.tts_playback_rate = "1.0x"  # type: ignore[attr-defined]  # Speed is baked into audio via engine or ffmpeg
-                    self.add_debug(f"🔊 TTS: Playback rate set to {speed_value}x")  # type: ignore[attr-defined]
-                    # Store audio URL for playback (use temporary URL for autoplay)
-                    self.tts_audio_path = audio_url
-                    # Increment counter to trigger frontend playback via rx.use_effect
-                    self.tts_trigger_counter += 1
-                    file_size_kb = os.path.getsize(file_path) / 1024
-                    self.add_debug(f"✅ TTS: Audio generated ({file_size_kb:.1f} KB) → {audio_url}")  # type: ignore[attr-defined]
-                    self.add_debug(f"🔊 TTS: Trigger counter incremented to {self.tts_trigger_counter}")  # type: ignore[attr-defined]
-
-                    # Save to session directory for permanent storage (replay button)
-                    from ..lib.audio_processing import save_audio_to_session
-                    session_audio_url = save_audio_to_session([audio_url], self.session_id)  # type: ignore[attr-defined]
-                    if session_audio_url:
-                        log_message(f"🔊 TTS: Saved to session → {session_audio_url}")
-
-                        # Update last assistant message with session audio URL (for replay button).
-                        # Rebuild the entry deep so Reflex registers the nested change.
-                        _ch = self._chat_sub()
-                        if _ch.chat_history:
-                            new_history = list(_ch.chat_history)
-                            for i in range(len(new_history) - 1, -1, -1):
-                                if new_history[i].get("role") == "assistant":
-                                    prev = new_history[i]
-                                    new_metadata = dict(prev.get("metadata") or {})
-                                    new_metadata["audio_urls"] = [session_audio_url]
-                                    new_history[i] = {
-                                        **prev,
-                                        "metadata": new_metadata,
-                                        "has_audio": True,
-                                        "audio_urls_json": json.dumps([session_audio_url]),
-                                    }
-                                    log_message("🔊 TTS: Added audio URL to message metadata")
-                                    break
-                            _ch.chat_history = new_history
-                            self._save_current_session()  # type: ignore[attr-defined]
-                    else:
-                        log_message("⚠️ TTS: Failed to save audio to session")
-
-                    # Separator nach TTS-Ausgabe (Log-File + Debug-Konsole)
-                    from aifred.lib.logging_utils import console_separator
-                    console_separator()  # Schreibt in Log-File
-                    self.add_debug("────────────────────")  # type: ignore[attr-defined]  # Zeigt in Debug-Console
-                else:
-                    self.tts_audio_path = ""
-                    self.add_debug(f"⚠️ TTS: Audio file not found at {file_path}")  # type: ignore[attr-defined]
-            else:
-                self.tts_audio_path = ""
-                self.add_debug("⚠️ TTS: Audio generation failed")  # type: ignore[attr-defined]
-
-        except (FileNotFoundError, ValueError, RuntimeError) as e:
-            self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
-            log_message(f"❌ TTS generation error: {e}")
 
     # ── TTS Queue Management ─────────────────────────────────────────
 
@@ -506,6 +386,19 @@ class TTSStreamingMixin(rx.State, mixin=True):
             return True
         return False
 
+    def _tts_streaming_wanted(self, agent: str = "aifred") -> bool:
+        """SSOT for "should streaming TTS run for this agent?".
+
+        All four former call sites combined these switches differently
+        (some without enable_tts, some without the per-agent toggle) —
+        this is the one authoritative definition: global TTS on, autoplay
+        on (no consumer otherwise), streaming mode on, and the per-agent
+        voice not disabled.
+        """
+        if not (self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled):  # type: ignore[attr-defined]
+            return False
+        return bool(self.tts_agent_voices.get(agent, {}).get("enabled", True))  # type: ignore[attr-defined]
+
     def _init_streaming_tts(self, agent: str = "aifred"):
         """Initialize streaming TTS state for a new response.
 
@@ -527,6 +420,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         self._tts_short_carry = ""
         self._tts_in_collapsible_block = False
         self._tts_streaming_active = True
+        self._tts_finalize_spawned = False
         self._tts_streaming_agent = agent
 
         # Reset backend tracking (module-level, not in Reflex state).
@@ -572,9 +466,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
             request_id = f"tts_{uuid.uuid4().hex[:8]}"
             tts_state.pending_requests.append(request_id)
             log_message(f"🔊 TTS Finalize: Adding remaining text seq={seq} ({len(final_text)} chars): {repr(final_text[:50])}")
-            asyncio.create_task(self._tts_generate_sentence_async(
+            from ._base import track_orphan_task
+            track_orphan_task(asyncio.create_task(self._tts_generate_sentence_async(
                 final_text, agent, request_id, self.session_id, seq  # type: ignore[attr-defined]
-            ))
+            )))
 
         # Wait for all pending TTS tasks to complete.
         # 60 s war zu knapp: bei ~RTF-1 (Qwen3-TTS auf V100, XTTS auf P40 etc.)
@@ -630,6 +525,22 @@ class TTSStreamingMixin(rx.State, mixin=True):
         log_message("🔊 TTS Finalize: State reset complete")
 
         return [combined_url] if combined_url else []
+
+    def _spawn_tts_finalize(self) -> None:
+        """Start the background TTS finalize exactly once per streaming init.
+
+        Callable from every exit path of send_message (multi-agent finish,
+        vision fast path, pure-command return, exception → finally): the
+        claim flag makes repeated calls a no-op, so the finally block can
+        invoke this unconditionally without racing the multi-agent path.
+        """
+        if not self._tts_streaming_active or self._tts_finalize_spawned:
+            return
+        self._tts_finalize_spawned = True
+        from ._base import track_orphan_task
+        track_orphan_task(asyncio.create_task(
+            self._finalize_streaming_tts_in_background(self._tts_streaming_agent)
+        ))
 
     async def _finalize_streaming_tts_in_background(self, agent: str) -> None:
         """Fire-and-forget finalize: wait for all pending TTS tasks in the
@@ -799,7 +710,13 @@ class TTSStreamingMixin(rx.State, mixin=True):
             log_message(f"🔊 TTS Chunk: Created request {request_id}, pending={len(tts_state.pending_requests)}")
             # Start TTS generation IMMEDIATELY in parallel - no waiting!
             # Pass session_id for API-based queue push (create_task can't use Reflex state)
-            asyncio.create_task(self._tts_generate_sentence_async(sentence, agent, request_id, session_id, seq))
+            # track_orphan_task: without a strong reference the loop may GC
+            # the task mid-run — its request_id would then hang in
+            # pending_requests until the 300s finalize timeout.
+            from ._base import track_orphan_task
+            track_orphan_task(asyncio.create_task(
+                self._tts_generate_sentence_async(sentence, agent, request_id, session_id, seq)
+            ))
 
     async def _tts_generate_sentence_async(self, sentence: str, agent: str, request_id: str, session_id: str, seq: int) -> None:
         """Generate TTS for a single sentence - runs in parallel via create_task.
@@ -914,6 +831,13 @@ class TTSStreamingMixin(rx.State, mixin=True):
         # browser. Position is saved by the browser via /api/audio/position
         # on the source-switch — here we just flip the resume flag so the
         # player picks media back up after the TTS queue drains.
+        #
+        # KNOWN QUIRK (reviewed 2026-07-16, deliberately kept): this write
+        # happens inside a bare create_task, outside Reflex's event system —
+        # Reflex never pushes the delta to the browser. It works anyway
+        # because audio_channels/browser.py reads the flag server-side via
+        # getattr on every position poll. If media pause/resume is ever
+        # reworked, route this through the API queue like the audio URLs.
         if (
             getattr(self, "media_audio_url", "") != ""
             and not getattr(self, "media_paused_for_tts", False)

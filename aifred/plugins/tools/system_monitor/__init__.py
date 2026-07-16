@@ -77,30 +77,26 @@ class SystemMonitorPlugin:
 
             # GPU (nvidia-smi)
             if check_all or "gpu" in parts:
-                try:
-                    gpu_out = subprocess.check_output(
-                        ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used,memory.free,temperature.gpu,utilization.gpu",
-                         "--format=csv,noheader,nounits"],
-                        text=True, timeout=10
-                    ).strip()
-                    gpus = []
-                    for line in gpu_out.split("\n"):
-                        parts_gpu = [p.strip() for p in line.split(",")]
-                        if len(parts_gpu) >= 7:
-                            gpus.append({
-                                "index": parts_gpu[0],
-                                "name": parts_gpu[1],
-                                "vram_total_mb": parts_gpu[2],
-                                "vram_used_mb": parts_gpu[3],
-                                "vram_free_mb": parts_gpu[4],
-                                "temp_c": parts_gpu[5],
-                                "utilization_pct": parts_gpu[6],
-                            })
-                    result["gpus"] = gpus
-                except FileNotFoundError:
-                    result["gpus"] = {"error": "nvidia-smi not found"}
-                except Exception as e:
-                    result["gpus"] = {"error": str(e)}
+                from ....lib.nvidia_smi import query
+                rows = query(
+                    "index,name,memory.total,memory.used,"
+                    "memory.free,temperature.gpu,utilization.gpu"
+                )
+                if rows is None:
+                    result["gpus"] = {"error": "nvidia-smi unavailable"}
+                else:
+                    result["gpus"] = [
+                        {
+                            "index": r["index"],
+                            "name": r["name"],
+                            "vram_total_mb": r["memory.total"],
+                            "vram_used_mb": r["memory.used"],
+                            "vram_free_mb": r["memory.free"],
+                            "temp_c": r["temperature.gpu"],
+                            "utilization_pct": r["utilization.gpu"],
+                        }
+                        for r in rows
+                    ]
 
             # Disk
             if check_all or "disk" in parts:

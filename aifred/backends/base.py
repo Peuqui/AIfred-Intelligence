@@ -78,7 +78,6 @@ class LLMBackend(ABC):
     @abstractmethod
     async def list_models(self) -> List[str]:
         """Get list of available models"""
-        pass
 
     @abstractmethod
     async def chat(
@@ -100,7 +99,6 @@ class LLMBackend(ABC):
         Returns:
             LLMResponse with full text
         """
-        pass
 
     @abstractmethod
     def chat_stream(
@@ -128,17 +126,14 @@ class LLMBackend(ABC):
             The abstract method signature does NOT use 'async def' because
             it declares the return type AsyncIterator directly.
         """
-        pass
 
     @abstractmethod
     async def health_check(self) -> bool:
         """Check if backend is reachable and healthy"""
-        pass
 
     @abstractmethod
     def get_backend_name(self) -> str:
         """Return backend name (e.g., 'Ollama', 'vLLM', 'llama.cpp')"""
-        pass
 
     @abstractmethod
     async def get_backend_info(self) -> Dict:
@@ -152,7 +147,6 @@ class LLMBackend(ABC):
             This is an async method because it may need to query
             the backend API for version/model information.
         """
-        pass
 
     @abstractmethod
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
@@ -175,7 +169,6 @@ class LLMBackend(ABC):
         Raises:
             RuntimeError: If model not found or context limit cannot be determined
         """
-        pass
 
     @abstractmethod
     async def is_model_loaded(self, model: str) -> bool:
@@ -195,7 +188,6 @@ class LLMBackend(ABC):
         Returns:
             bool: True if model is currently loaded in VRAM, False otherwise
         """
-        pass
 
     @abstractmethod
     async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
@@ -218,7 +210,6 @@ class LLMBackend(ABC):
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
         """
-        pass
 
     @abstractmethod
     def get_capabilities(self) -> Dict[str, bool]:
@@ -239,7 +230,6 @@ class LLMBackend(ABC):
             Ollama:   {"dynamic_models": True, "dynamic_context": True, ...}
             vLLM:     {"dynamic_models": False, "dynamic_context": False, ...}
         """
-        pass
 
     @abstractmethod
     async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
@@ -269,7 +259,6 @@ class LLMBackend(ABC):
             Ollama:   Queries current VRAM, calculates fresh value
             vLLM:     Returns self._startup_context (set in start_with_model)
         """
-        pass
 
     def set_startup_context(self, context: int, debug_messages: List[str]) -> None:
         """
@@ -285,11 +274,10 @@ class LLMBackend(ABC):
         Note:
             Default implementation does nothing. Override in fixed-context backends.
         """
-        pass  # Default: no-op for dynamic backends like Ollama
+        # Default: no-op for dynamic backends like Ollama
 
     async def _pre_request_check(self, model: str) -> None:
         """Hook for pre-request validation (e.g. RPC connectivity). Override in subclasses."""
-        pass
 
     async def close(self) -> None:
         """
@@ -298,27 +286,23 @@ class LLMBackend(ABC):
         Called when switching backends or shutting down.
         Default implementation does nothing.
         """
-        pass  # Default: no-op
+        # Default: no-op
 
 
 class BackendError(Exception):
     """Base exception for backend errors"""
-    pass
 
 
 class BackendConnectionError(BackendError):
     """Backend not reachable"""
-    pass
 
 
 class BackendModelNotFoundError(BackendError):
     """Requested model not available"""
-    pass
 
 
 class BackendInferenceError(BackendError):
     """Error during inference"""
-    pass
 
 
 class OpenAICompatibleBackend(LLMBackend):

@@ -622,7 +622,6 @@ async def get_chat_history(session_id: Optional[str] = None):
         # Determine which session to load
         if session_id:
             session_data = load_session(session_id)
-            session_id = session_id
         else:
             session_file = get_latest_session_file()
             if session_file:

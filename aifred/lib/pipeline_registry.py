@@ -79,15 +79,6 @@ def unregister_pipeline(session_id: str, task: Optional[asyncio.Task] = None) ->
             _active_pipelines.pop(session_id, None)
 
 
-def is_pipeline_active(session_id: str) -> bool:
-    """True iff a pipeline is currently registered (and not yet done)."""
-    if not session_id:
-        return False
-    with _lock:
-        task = _active_pipelines.get(session_id)
-    return task is not None and not task.done()
-
-
 def cancel_pipeline(session_id: str) -> bool:
     """Cancel the registered pipeline for ``session_id``.
 

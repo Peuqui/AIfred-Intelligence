@@ -426,6 +426,12 @@ MAX_WORDS_SINGLE_SOURCE = 12000
 # German/English mix: ~3 characters per token
 CHARS_PER_TOKEN = 3
 
+# Token-to-character ratio for history/prompt token estimation.
+# Deliberately less conservative than CHARS_PER_TOKEN: RAG budgeting
+# over-estimates tokens for safety, history compression triggers are
+# calibrated against 3.5 chars/token for German text.
+HISTORY_CHARS_PER_TOKEN = 3.5
+
 # ============================================================
 # CONTEXT ESTIMATION CONSTANTS
 # ============================================================

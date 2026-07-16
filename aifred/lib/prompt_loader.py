@@ -1132,8 +1132,9 @@ def get_salomo_judge_prompt(lang: Optional[str] = None) -> str:
 # ============================================================
 
 def _estimate_tokens(text: str) -> int:
-    """Estimate tokens from text (3.5 chars/token for German/mixed)."""
-    return int(len(text) / 3.5) if text else 0
+    """Estimate tokens from text (HISTORY_CHARS_PER_TOKEN chars/token)."""
+    from .config import HISTORY_CHARS_PER_TOKEN
+    return int(len(text) / HISTORY_CHARS_PER_TOKEN) if text else 0
 
 
 def init_system_prompt_cache() -> dict[str, dict[str, int]]:

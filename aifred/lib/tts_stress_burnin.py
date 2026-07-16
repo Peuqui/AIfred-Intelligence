@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
 import time
 from typing import Any, Optional
 
@@ -126,21 +125,12 @@ _STRESS_TEXT_EN = (
 
 
 def _query_gpu_used_mb(gpu_index: int) -> int:
-    """One-shot ``nvidia-smi`` read of memory.used for a single GPU."""
+    """One-shot read of memory.used for a single GPU."""
+    from .nvidia_smi import query
+    rows = query("memory.used", gpu_index=gpu_index)
     try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                f"--id={gpu_index}",
-                "--query-gpu=memory.used",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return int(result.stdout.strip().split("\n")[0])
-    except (subprocess.SubprocessError, ValueError, IndexError) as e:
+        return int(rows[0]["memory.used"]) if rows else 0
+    except ValueError as e:
         logger.warning("tts_stress_burnin: nvidia-smi read failed (%s)", e)
         return 0
 
@@ -153,22 +143,12 @@ def _resolve_tts_gpu_index() -> Optional[int]:
     uuid = get_tts_gpu_uuid()
     if not uuid:
         return None
+    from .nvidia_smi import query
     try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=index,uuid",
-                "--format=csv,noheader",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for line in result.stdout.strip().split("\n"):
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 2 and parts[1] == uuid:
-                return int(parts[0])
-    except (subprocess.SubprocessError, ValueError) as e:
+        for row in query("index,uuid") or []:
+            if row["uuid"] == uuid:
+                return int(row["index"])
+    except ValueError as e:
         logger.warning("tts_stress_burnin: index lookup failed (%s)", e)
     return None
 

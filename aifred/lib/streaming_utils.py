@@ -3,8 +3,8 @@ Streaming Utilities - Common patterns for LLM streaming responses.
 
 This module centralizes the duplicated streaming loop pattern found in:
 - conversation_handler.py (2 places)
-- context_builder.py
-- cache_handler.py
+- research/context_builder.py
+- research/cache_handler.py
 
 The pattern handles:
 1. TTFT (Time-to-First-Token) measurement

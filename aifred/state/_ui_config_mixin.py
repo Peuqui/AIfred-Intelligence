@@ -231,11 +231,11 @@ class UIConfigMixin(rx.State, mixin=True):
                 return yaml_ctx
             return get_llamacpp_calibration(effective) or 0
         from ..lib.model_vram_cache import (
-            get_ollama_calibration,
+            get_ollama_calibrated_max_context,
             get_rope_factor_for_model,
         )
         rope_factor = get_rope_factor_for_model(model_id)
-        return get_ollama_calibration(model_id, rope_factor) or 0
+        return get_ollama_calibrated_max_context(model_id, rope_factor) or 0
 
     def calculate_manual_context(self) -> None:
         """Calculate and display context limits.
