@@ -11,7 +11,6 @@ This module contains the core Multi-Agent logic extracted from state.py.
 The functions work with async generators for streaming UI updates.
 """
 
-import asyncio
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 # Imports for the functions (same as original state.py methods)
@@ -46,8 +45,9 @@ if TYPE_CHECKING:
 
 
 def _estimate_prompt_tokens(prompt: str) -> int:
-    """Estimate tokens in a prompt (3.5 chars/token for German/mixed text)."""
-    return int(len(prompt) / 3.5) if prompt else 0
+    """Estimate tokens in a prompt (HISTORY_CHARS_PER_TOKEN chars/token)."""
+    from .config import HISTORY_CHARS_PER_TOKEN
+    return int(len(prompt) / HISTORY_CHARS_PER_TOKEN) if prompt else 0
 
 
 # ============================================================
@@ -247,7 +247,9 @@ async def _stream_agent_to_history(
     if state.backend_type == "vllm":
         await state._ensure_vllm_model(model)
 
-    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
+    # _tts_streaming_wanted includes the per-agent voice toggle — without
+    # it a disabled Sokrates/Salomo voice was synthesized anyway.
+    if state._tts_streaming_wanted(agent):
         state._init_streaming_tts(agent=agent)
 
     # Consume pipeline event stream
@@ -342,10 +344,9 @@ async def _stream_agent_to_history(
     # then the bubble (text + sources + sandbox) renders immediately and
     # AIfred stays responsive for the next prompt.
     audio_urls: list[str] = []
-    if state.enable_tts and state.tts_autoplay and state.tts_streaming_enabled:
-        asyncio.create_task(
-            state._finalize_streaming_tts_in_background(agent)
-        )
+    # No condition needed: _spawn_tts_finalize is a no-op unless streaming
+    # TTS was actually initialized for this turn.
+    state._spawn_tts_finalize()
 
     # Build web sources collapsible from tracked URLs
     sources_html = ""

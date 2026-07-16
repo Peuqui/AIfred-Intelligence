@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
@@ -103,21 +102,12 @@ def _image_b64(path: Path) -> str:
 
 
 def _gpu_used_mb(gpu_index: int) -> int:
-    """One-shot ``nvidia-smi`` read of memory.used for a single GPU index."""
+    """One-shot read of memory.used for a single GPU index."""
+    from .nvidia_smi import query
+    rows = query("memory.used", gpu_index=gpu_index)
     try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                f"--id={gpu_index}",
-                "--query-gpu=memory.used",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return int(result.stdout.strip().split("\n")[0])
-    except (subprocess.SubprocessError, ValueError, IndexError) as e:
+        return int(rows[0]["memory.used"]) if rows else 0
+    except ValueError as e:
         logger.warning("vlm_stress_prewarm: nvidia-smi read failed (%s)", e)
         return 0
 
@@ -273,24 +263,12 @@ async def stress_prewarm_vlm(
 def _query_gpu_uuid(gpu_index: int) -> Optional[str]:
     """Resolve a PCI_BUS_ID-ordered GPU index to its persistent NVIDIA UUID
     via nvidia-smi. Returns ``None`` on failure."""
-    try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                f"--id={gpu_index}",
-                "--query-gpu=uuid",
-                "--format=csv,noheader",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        uuid = result.stdout.strip().split("\n")[0]
-        return uuid or None
-    except (subprocess.SubprocessError, IndexError) as e:
-        logger.warning("vlm_stress_prewarm: UUID lookup for gpu=%d failed: %s",
-                       gpu_index, e)
+    from .nvidia_smi import query
+    rows = query("uuid", gpu_index=gpu_index)
+    if not rows:
+        logger.warning("vlm_stress_prewarm: UUID lookup for gpu=%d failed", gpu_index)
         return None
+    return rows[0]["uuid"] or None
 
 
 async def resolve_vlm_reserve(

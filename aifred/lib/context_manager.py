@@ -16,6 +16,7 @@ from .logging_utils import log_message, log_raw_messages, console_separator
 from .prompt_loader import load_prompt
 from .formatting import format_number
 from .config import (
+    HISTORY_CHARS_PER_TOKEN,
     HISTORY_COMPRESSION_TRIGGER,
     HISTORY_COMPRESSION_TARGET,
     HISTORY_SUMMARY_RATIO,
@@ -214,14 +215,16 @@ def strip_thinking_blocks(text: str) -> str:
 
 def estimate_tokens(messages: List[Dict], model_name: Optional[str] = None) -> int:
     """
-    Count tokens in messages using real tokenizer (with fallback)
+    Count tokens in messages using the local Qwen3 tokenizer.
+
+    No fallback — tokenizer errors must surface.
 
     Args:
         messages: List of message dicts with 'content' key (str or list)
         model_name: Optional model name for accurate tokenization
 
     Returns:
-        int: Token count (exact with tokenizer, estimated with fallback)
+        int: Exact token count
     """
     # Combine all message content (handle both str and multimodal list format)
     text_parts = []
@@ -276,8 +279,7 @@ def estimate_tokens_from_history(history: List[Dict[str, Any]]) -> int:
     for msg in history:
         content = msg.get("content", "")
         total_size += len(strip_non_llm_content(content))
-    # 3.5 chars per token (better for German texts than 4)
-    return int(total_size / 3.5)
+    return int(total_size / HISTORY_CHARS_PER_TOKEN)
 
 
 def estimate_tokens_from_llm_history(llm_history: List[Dict[str, str]]) -> int:
@@ -295,8 +297,7 @@ def estimate_tokens_from_llm_history(llm_history: List[Dict[str, str]]) -> int:
     if not llm_history:
         return 0
     total_size = sum(len(msg.get("content", "")) for msg in llm_history)
-    # 3.5 chars per token (better for German texts than 4)
-    return int(total_size / 3.5)
+    return int(total_size / HISTORY_CHARS_PER_TOKEN)
 
 
 def get_summary_target_tokens(tokens_to_compress: int) -> int:
@@ -329,7 +330,7 @@ def truncate_to_tokens(text: str, target_tokens: int) -> str:
     Returns:
         str: Truncated text (with ... indicator if truncated)
     """
-    target_chars = int(target_tokens * 3.5)
+    target_chars = int(target_tokens * HISTORY_CHARS_PER_TOKEN)
     if len(text) <= target_chars:
         return text
     # Find last sentence boundary before limit
@@ -813,12 +814,12 @@ async def summarize_history_if_needed(
     # Get num_ctx from VRAM cache (calibrated value for compression model)
     # IMPORTANT: Always use VRAM cache value, NOT manual settings!
     # Manual num_ctx is for testing agents, not for compression.
-    from .model_vram_cache import get_ollama_calibration, get_rope_factor_for_model, get_llamacpp_calibration
+    from .model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model, get_llamacpp_calibration
     # Try llama.cpp calibration first, then Ollama
     compression_num_ctx = get_llamacpp_calibration(model_name)
     if not compression_num_ctx:
         rope_factor = get_rope_factor_for_model(model_name)
-        compression_num_ctx = get_ollama_calibration(model_name, rope_factor)
+        compression_num_ctx = get_ollama_calibrated_max_context(model_name, rope_factor)
     if not compression_num_ctx:
         # Fallback: use context_limit (min of all agents) if not calibrated
         compression_num_ctx = context_limit
@@ -872,7 +873,7 @@ async def summarize_history_if_needed(
             tokens_generated = response.tokens_generated
             tokens_per_second = response.tokens_per_second
         else:
-            tokens_generated = len(summary_text) // 4
+            tokens_generated = int(len(summary_text) / HISTORY_CHARS_PER_TOKEN)
             tokens_per_second = tokens_generated / summary_time if summary_time > 0 else 0
 
         log_message(f"✅ [END {end_timestamp}] Summary generated:")
@@ -880,7 +881,7 @@ async def summarize_history_if_needed(
         log_message(f"   └─ Time: {format_number(summary_time, 2)}s, Speed: {format_number(tokens_per_second, 1)} tok/s")
 
         # TOLERANCE CHECK: Is summary too large?
-        summary_tokens = int(len(summary_text) / 3.5)
+        summary_tokens = int(len(summary_text) / HISTORY_CHARS_PER_TOKEN)
         max_allowed = int(summary_target_tokens * (1 + HISTORY_SUMMARY_TOLERANCE))
 
         if summary_tokens > max_allowed:

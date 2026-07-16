@@ -17,8 +17,6 @@ Quellen:
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -45,23 +43,12 @@ def _norm_model(name: str) -> str:
 def _query_free_vram_per_gpu() -> list[int]:
     """nvidia-smi memory.free pro GPU als MiB-Liste. Leere Liste wenn
     nvidia-smi nicht da oder fehlschlägt."""
-    if shutil.which("nvidia-smi") is None:
-        return []
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.free",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5, check=False,
-        )
-        if result.returncode != 0:
-            return []
-        return [
-            int(x.strip()) for x in result.stdout.strip().splitlines()
-            if x.strip().isdigit()
-        ]
-    except (subprocess.TimeoutExpired, OSError) as e:
-        logger.debug("nvidia-smi failed: %s", e)
-        return []
+    from .nvidia_smi import query
+    rows = query("memory.free")
+    return [
+        int(r["memory.free"]) for r in rows or []
+        if r["memory.free"].isdigit()
+    ]
 
 
 async def _query_ollama_running_models(host: str) -> list[dict[str, Any]]:

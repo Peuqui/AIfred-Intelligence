@@ -36,6 +36,9 @@ def query(
             cmd, capture_output=True, text=True, timeout=5.0, check=False
         )
         if result.returncode != 0:
+            logger.warning(
+                "nvidia-smi exited %d: %s", result.returncode, result.stderr[:200]
+            )
             return None
 
         field_names = [f.strip() for f in fields.split(",")]
@@ -46,7 +49,10 @@ def query(
             values = [v.strip() for v in line.split(", ")]
             if len(values) == len(field_names):
                 rows.append(dict(zip(field_names, values)))
+            else:
+                logger.warning("nvidia-smi: skipping malformed line %r", line[:120])
         return rows if rows else None
 
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning("nvidia-smi unavailable: %s", e)
         return None

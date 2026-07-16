@@ -113,7 +113,6 @@ async def chat_stream_with_retry(
     If still fails, re-raises the error.
     """
     attempt = 0
-    last_error = None
     # Once a chunk has been forwarded to the caller, retrying would duplicate
     # content downstream (chat history, TTS, browser). Bail out instead.
     yielded_any = False
@@ -135,12 +134,8 @@ async def chat_stream_with_retry(
 
                 await asyncio.sleep(retry_delay)
                 attempt += 1
-                last_error = e
             else:
                 raise
-
-    if last_error:
-        raise last_error
 
 
 async def run_llm_stream(
@@ -361,9 +356,21 @@ async def run_llm_stream(
                 except (ValueError, json.JSONDecodeError):
                     pass
 
-            # Update last URL success status
+            # Update last URL success status. Tool errors are always
+            # ``json.dumps({"error": ...})`` (web_fetch + function_calling
+            # wrappers) — check that structured format instead of
+            # substring-matching the content: a success page whose URL
+            # contains "error" must not count as a failure. Tool execution
+            # is sequential (backends/base.py loops tool_calls), so [-1]
+            # is always the web_fetch this result belongs to.
             if fetched_urls and fetched_urls[-1]["success"] is None:
-                fetched_urls[-1]["success"] = "error" not in result_text.lower()[:50]
+                _fetch_err = False
+                if result_text.lstrip().startswith("{"):
+                    try:
+                        _fetch_err = "error" in json.loads(result_text)
+                    except (ValueError, json.JSONDecodeError):
+                        _fetch_err = False
+                fetched_urls[-1]["success"] = not _fetch_err
 
             # Extract sandbox output URLs
             for line in result_text.split("\n"):

@@ -25,13 +25,6 @@ class BackendRequirement(TypedDict):
     description: str
 
 
-class KnownIssue(TypedDict):
-    """Type for known GPU issues"""
-    fp16_ratio: str
-    issue: str
-    recommendation: str
-
-
 @dataclass
 class GPUInfo:
     """GPU information and capabilities"""
@@ -67,20 +60,6 @@ class GPUDetector:
     """
 
     # Compute Capability → Architecture mapping
-    ARCH_MAP = {
-        (3, 0): "Kepler",
-        (3, 5): "Kepler",
-        (5, 0): "Maxwell",
-        (5, 2): "Maxwell",
-        (6, 0): "Pascal",
-        (6, 1): "Pascal",  # Tesla P40, P100
-        (7, 0): "Volta",   # V100
-        (7, 5): "Turing",  # RTX 2080, T4
-        (8, 0): "Ampere",  # A100
-        (8, 6): "Ampere",  # RTX 3090, A40
-        (8, 9): "Ada Lovelace",  # RTX 4090
-        (9, 0): "Hopper",  # H100
-    }
 
     # Backend requirements
     BACKEND_REQUIREMENTS: Dict[str, BackendRequirement] = {

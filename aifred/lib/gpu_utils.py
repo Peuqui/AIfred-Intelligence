@@ -6,11 +6,10 @@ based on available GPU memory.
 """
 
 import logging
-import math
 import struct
 import requests
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 from .config import (
     VRAM_SAFETY_MARGIN,
     VRAM_CONTEXT_RATIO_DENSE,
@@ -24,42 +23,6 @@ from . import nvidia_smi
 logger = logging.getLogger(__name__)
 
 
-# Common GPU VRAM sizes in GB (marketing specs)
-NOMINAL_VRAM_SIZES: List[int] = [4, 6, 8, 10, 11, 12, 16, 20, 24, 32, 40, 48, 64, 80]
-
-
-def round_to_nominal_vram(vram_mb: int) -> int:
-    """
-    Round VRAM to nearest marketing spec (nominal size).
-
-    nvidia-smi reports slightly less VRAM than the marketing spec due to
-    firmware overhead. This function rounds up to the expected nominal size.
-
-    Args:
-        vram_mb: VRAM in MiB as reported by nvidia-smi
-
-    Returns:
-        Nominal VRAM size in GB (e.g., 8, 12, 24, 48)
-
-    Examples:
-        >>> round_to_nominal_vram(23040)  # RTX 3090/4090
-        24
-        >>> round_to_nominal_vram(11264)  # RTX 2080 Ti
-        12
-        >>> round_to_nominal_vram(8192)   # RTX 3070
-        8
-        >>> round_to_nominal_vram(45000)  # Tesla A40
-        48
-    """
-    vram_gb = vram_mb / 1024
-
-    # Find closest size that's >= actual VRAM
-    for size in NOMINAL_VRAM_SIZES:
-        if vram_gb <= size:
-            return size
-
-    # For future larger GPUs: round up to nearest GB
-    return math.ceil(vram_gb)
 
 
 def total_actual_vram_gb(gpu_info) -> float:
@@ -253,31 +216,6 @@ def get_swap_used_mb() -> Optional[int]:
     except (OSError, AttributeError) as e:
         logger.debug(f"Could not query swap via psutil: {e}")
         return None
-
-
-def get_dynamic_ram_reserve(free_ram_mb: int) -> int:
-    """
-    Calculate dynamic RAM reserve based on available RAM.
-
-    More RAM available = larger reserve for comfort and stability.
-    Less RAM available = smaller reserve to maximize usability.
-
-    Args:
-        free_ram_mb: Currently free RAM in MB
-
-    Returns:
-        int: RAM reserve in MB (2048-8192)
-    """
-    if free_ram_mb >= 32768:  # 32+ GB free
-        return 8192  # 8 GB reserve (very comfortable)
-    elif free_ram_mb >= 16384:  # 16-32 GB free
-        return 6144  # 6 GB reserve
-    elif free_ram_mb >= 8192:  # 8-16 GB free
-        return 4096  # 4 GB reserve
-    elif free_ram_mb >= 4096:  # 4-8 GB free
-        return 3072  # 3 GB reserve
-    else:  # < 4 GB free
-        return 2048  # 2 GB reserve (minimum)
 
 
 def calculate_context_from_memory(
@@ -493,48 +431,6 @@ def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
 
     logger.debug(f"📊 MoE detection inconclusive, defaulting to Dense: {model_name}")
     return False
-
-
-def measure_vram_during_inference(
-    context_tokens: int,
-    vram_before_mb: int
-) -> Optional[Dict]:
-    """
-    Measure VRAM usage during inference to calibrate MB/token ratio
-
-    Args:
-        context_tokens: Number of context tokens used in this inference
-        vram_before_mb: Free VRAM before inference started (baseline)
-
-    Returns:
-        Dict with measurement data:
-        {
-            "vram_during_mb": int,           # Free VRAM during inference
-            "vram_used_by_context": int,     # VRAM consumed by KV cache
-            "measured_mb_per_token": float   # Calculated MB/token ratio
-        }
-        or None if measurement failed
-    """
-    vram_during_mb = get_free_vram_mb()
-
-    if vram_during_mb is None or vram_before_mb is None:
-        return None
-
-    # Calculate VRAM used by context (KV cache)
-    vram_used_by_context = vram_before_mb - vram_during_mb
-
-    # Ignore invalid measurements (negative = measurement error or noise)
-    if vram_used_by_context <= 0 or context_tokens <= 0:
-        return None
-
-    # Calculate MB/token from this measurement
-    measured_mb_per_token = vram_used_by_context / context_tokens
-
-    return {
-        "vram_during_mb": vram_during_mb,
-        "vram_used_by_context": vram_used_by_context,
-        "measured_mb_per_token": round(measured_mb_per_token, 4)
-    }
 
 
 def get_model_size_from_cache(model_name: str) -> int:
@@ -765,73 +661,6 @@ async def calculate_vram_based_context(
     return final_num_ctx, debug_msgs
 
 
-def calculate_gpu_layers(model_size_gb: float, vram_mb: int) -> int:
-    """
-    Calculate optimal number of GPU layers based on model size and VRAM
-
-    Args:
-        model_size_gb: Model size in GB
-        vram_mb: Available VRAM in MB
-
-    Returns:
-        Number of GPU layers to offload
-    """
-    # Safety margin
-    safety_margin_mb = 2048  # 2GB safety margin
-
-    usable_vram_mb = vram_mb - safety_margin_mb
-
-    if usable_vram_mb < 0:
-        return 0  # Not enough VRAM
-
-    # Estimate layers based on VRAM
-    # Rough approximation: 40 layers for 30B model = ~17GB
-    # So 1 layer ≈ 425MB for 30B model
-
-    model_size_mb = model_size_gb * 1024
-
-    if model_size_mb <= usable_vram_mb:
-        return -1  # All layers fit
-
-    # Calculate partial layers
-    # Assuming linear relationship (simplification)
-    estimated_layers = int((usable_vram_mb / model_size_mb) * 40)
-
-    return max(0, estimated_layers)
-
-
 # ============================================================
 # GPU UTILIZATION MONITORING (für InactivityMonitor)
 # ============================================================
-
-def get_gpu_utilization() -> Optional[List[int]]:
-    """
-    Get current GPU utilization for all GPUs via nvidia-smi.
-
-    Returns:
-        List of utilization percentages (0-100) for each GPU
-        None if nvidia-smi fails or no GPUs found
-    """
-    rows = nvidia_smi.query("utilization.gpu")
-    if not rows:
-        return None
-    try:
-        return [int(row["utilization.gpu"]) for row in rows]
-    except (ValueError, KeyError):
-        return None
-
-
-def are_all_gpus_idle(utilizations: Optional[List[int]]) -> bool:
-    """
-    Check if all GPUs are idle (0% utilization)
-
-    Args:
-        utilizations: List from get_gpu_utilization()
-
-    Returns:
-        True if all GPUs at 0%, False if any GPU active or None
-    """
-    if not utilizations:
-        return False  # Assume active if can't determine
-
-    return all(u == 0 for u in utilizations)

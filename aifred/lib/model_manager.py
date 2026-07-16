@@ -7,13 +7,12 @@ State access and can be used independently.
 Extracted from state.py (Phase 3.2 Refactoring):
 - sort_models_grouped(): Sort models by family and size
 - is_backend_compatible(): Check model compatibility with backend
-- backend_supports_dynamic_models(): Check if backend supports hot-swapping models
 """
 
 import logging
 import re
 import json
-from typing import Dict, Any
+from typing import Dict
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -141,36 +140,8 @@ def is_backend_compatible(model_dir: Path, backend: str) -> bool:
                 # FP16/BF16 (supported by vLLM)
                 return True
 
-    except (KeyError, AttributeError) as e:
+    except (OSError, json.JSONDecodeError, AttributeError) as e:
         logger.warning(f"Failed to parse config.json for model '{model_name}': {e}")
         return False
 
     return False
-
-
-def backend_supports_dynamic_models(backend: Any) -> bool:
-    """
-    Check if backend supports dynamic model loading using capabilities API.
-
-    Args:
-        backend: Backend instance (from BackendFactory.create())
-
-    Returns:
-        True if backend can load different models on-demand (like Ollama)
-        False if backend requires server restart for model changes (like vLLM)
-
-    Usage:
-        >>> from aifred.lib.backends import BackendFactory
-        >>> backend = BackendFactory.create("ollama")
-        >>> backend_supports_dynamic_models(backend)
-        True
-        >>> backend = BackendFactory.create("vllm")
-        >>> backend_supports_dynamic_models(backend)
-        False
-    """
-    try:
-        caps = backend.get_capabilities()
-        return bool(caps.get("dynamic_models", True))  # Default True for backwards compat
-    except (KeyError, AttributeError):
-        # Fallback to True (assume dynamic if capabilities not available)
-        return True

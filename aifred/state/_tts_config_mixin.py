@@ -382,11 +382,6 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     # ── Voice / Speed / Pitch / Autoplay ──────────────────────────
 
-    def set_tts_voice(self, voice: str):
-        """Set TTS voice"""
-        self.tts_voice = voice
-        self.add_debug(f"🔊 TTS Voice: {voice}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_xtts_gpu(self, use_gpu: bool):
         """Toggle XTTS GPU mode with immediate UI feedback."""
@@ -412,58 +407,6 @@ class TTSConfigMixin(rx.State, mixin=True):
         else:
             self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
 
-    def set_xtts_force_cpu(self, force_cpu: bool):
-        """Set XTTS CPU mode and restart container.
-
-        When force_cpu=True:
-        - XTTS runs on CPU (slower, but saves GPU VRAM for LLM)
-        - No VRAM reservation needed for context calculation
-
-        When force_cpu=False:
-        - XTTS auto-detects GPU/CPU based on available VRAM
-        - VRAM reservation applied to context calculation
-        """
-        from ..lib.process_utils import set_xtts_cpu_mode
-
-        self.xtts_force_cpu = force_cpu
-        mode_str = "CPU (forced)" if force_cpu else "GPU (auto)"
-        self.add_debug(f"🔊 XTTS Mode: {mode_str} - restarting container...")  # type: ignore[attr-defined]
-
-        # Restart XTTS container with new setting
-        success, message = set_xtts_cpu_mode(force_cpu)
-
-        if success:
-            self.add_debug(f"✅ {message}")  # type: ignore[attr-defined]
-        else:
-            self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
-
-        self._save_settings()  # type: ignore[attr-defined]
-
-    async def unload_xtts_model(self):
-        """Unload XTTS model from memory to free VRAM."""
-        import httpx
-        from ..lib.tts_engines import get_engine
-        xtts = get_engine("xtts")
-        if not xtts or not xtts.service_url:
-            return
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(f"{xtts.service_url}/unload")
-                response.raise_for_status()
-                data = response.json()
-
-                if data.get("success"):
-                    freed_device = data.get("freed_device", "unknown")
-                    self.add_debug(f"✅ XTTS model unloaded from {freed_device}")  # type: ignore[attr-defined]
-                    yield rx.toast.success(f"XTTS model unloaded from {freed_device}", duration=3000)
-                else:
-                    self.add_debug("⚠️ XTTS unload failed")  # type: ignore[attr-defined]
-                    yield rx.toast.error("Failed to unload XTTS model", duration=3000)
-
-        except httpx.HTTPError as e:
-            self.add_debug(f"❌ XTTS unload error: {e}")  # type: ignore[attr-defined]
-            yield rx.toast.error(f"Error: {e}", duration=3000)
 
     # Note: set_tts_speed removed - generation always at 1.0, tempo via browser playback rate
 
@@ -480,20 +423,6 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.add_debug(f"🔊 TTS Mode: {mode}")  # type: ignore[attr-defined]
         self._save_tts_toggles_for_engine(self.tts_engine)
 
-    def set_tts_playback_rate(self, rate: str):
-        """Set TTS playback rate (browser-side only, TTS generation stays at 1.0)"""
-        self.tts_playback_rate = rate
-        self.add_debug(f"🔊 TTS Tempo: {rate}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
-        # Apply rate to current audio player via JavaScript
-        rate_value = rate.replace("x", "")
-        return rx.call_script(f"setTtsPlaybackRate({rate_value})")
-
-    def set_tts_pitch(self, pitch: str):
-        """Set TTS pitch adjustment (applied via ffmpeg post-processing)"""
-        self.tts_pitch = pitch
-        self.add_debug(f"🔊 TTS Pitch: {pitch}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
 
     # ── Per-Agent Voice Settings ──────────────────────────────────
 

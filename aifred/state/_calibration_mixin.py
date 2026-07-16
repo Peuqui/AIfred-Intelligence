@@ -29,6 +29,28 @@ from ..lib.logging_utils import CONSOLE_SEPARATOR, log_message
 _cal_debug_buffer: list[str] = []
 
 
+def _write_variant_cache_entry(
+    base_model_id: str, variant_id: str, max_context: int, speed_split: int = 0,
+) -> None:
+    """Write a calibration-cache entry for a derived variant profile
+    (``-tts-*`` / ``-vlm-*`` / combos), inheriting the base model's
+    metadata. SSOT for the previously copy-pasted write blocks."""
+    from ..lib.model_vram_cache import add_llamacpp_calibration, load_cache
+    meta = load_cache().get(base_model_id, {})
+    add_llamacpp_calibration(
+        model_id=variant_id,
+        max_context=max_context,
+        native_context=int(meta.get("native_context", max_context)),
+        gguf_path=str(meta.get("gguf_path", "")),
+        quantization=str(meta.get("quantization", "")),
+        gpu_model=str(meta.get("gpu_model", "")),
+        model_size_gb=float(meta.get("model_size_gb", 0.0)),
+        ngl=99,
+        mode="gpu",
+        speed_split=speed_split,
+    )
+
+
 class CalibrationCell(TypedDict):
     """One checkbox cell in the calibration picker matrix.
 
@@ -472,6 +494,7 @@ class CalibrationMixin(rx.State, mixin=True):
         _cal_debug_buffer.append(f"{datetime.now().strftime('%H:%M:%S')} | {msg}")
 
     @rx.event
+
     def cancel_calibration(self):
         """User-Abbruch: Flag setzen — der Background-Lauf beendet sich
         am nächsten Schritt sauber (innere finally-Blöcke räumen auf).
@@ -517,6 +540,18 @@ class CalibrationMixin(rx.State, mixin=True):
 
             if self.is_calibrating:
                 self.add_debug("⚠️ Calibration already in progress")  # type: ignore[attr-defined]
+                return
+
+            # Process-wide guard: is_calibrating is per browser session —
+            # a second tab (or the test user) passes it and both runs
+            # would share the gate, the first finisher re-opening it for
+            # inference mid-measurement. The gate flag is the process-wide
+            # truth, so refuse to start while it is set.
+            from ..lib.calibration_gate import is_calibration_active
+            if is_calibration_active():
+                self.add_debug(
+                    "⚠️ Calibration already running in another session"
+                )  # type: ignore[attr-defined]
                 return
 
             self.is_calibrating = True
@@ -907,23 +942,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 f"   ✅ {vlm_label}{combo} speed variant: {model_id}{suffix} "
                 f"(ctx {format_number(vs_ctx)}, split {vs_split})"
             )
-            from ..lib.model_vram_cache import (
-                add_llamacpp_calibration as _alc,
-                load_cache as _lc,
-            )
-            _meta = _lc().get(model_id, {})
-            _alc(
-                model_id=f"{model_id}{suffix}",
-                max_context=vs_ctx,
-                native_context=int(_meta.get("native_context", vs_ctx)),
-                gguf_path=str(_meta.get("gguf_path", "")),
-                quantization=str(_meta.get("quantization", "")),
-                gpu_model=str(_meta.get("gpu_model", "")),
-                model_size_gb=float(_meta.get("model_size_gb", 0.0)),
-                ngl=99,
-                mode="gpu",
-                speed_split=0,
-            )
+            _write_variant_cache_entry(model_id, f"{model_id}{suffix}", vs_ctx)
         else:
             self._cal_debug(  # type: ignore[attr-defined]
                 f"   ⚠️ Could not write {vlm_label}{combo} speed variant"
@@ -1180,26 +1199,26 @@ class CalibrationMixin(rx.State, mixin=True):
                                     f"   ❌ {_ek} burn-in error: {_e}"
                                 )
                                 _burnin_failures.append(f"TTS {_ek}: {_e}")
-                                _peak = None
-                        if _peak is not None and _peak > 0:
-                            tts_vram_cache.put(_ek, _peak)
-                            self._cal_debug(  # type: ignore[attr-defined]
-                                f"   ✅ {_ek}: peak {_peak} MiB cached"
-                            )
-                        elif _peak is None:
-                            self._cal_debug(  # type: ignore[attr-defined]
-                                f"   ❌ {_ek}: burn-in failed — see error above"
-                            )
-                            _burnin_failures.append(
-                                f"TTS {_ek}: stress synthesis failed"
-                            )
-                        else:
-                            self._cal_debug(  # type: ignore[attr-defined]
-                                f"   ⚠️ {_ek}: burn-in returned 0 MiB"
-                            )
-                            _burnin_failures.append(
-                                f"TTS {_ek}: zero-peak measurement"
-                            )
+                            else:
+                                if _peak is not None and _peak > 0:
+                                    tts_vram_cache.put(_ek, _peak)
+                                    self._cal_debug(  # type: ignore[attr-defined]
+                                        f"   ✅ {_ek}: peak {_peak} MiB cached"
+                                    )
+                                elif _peak is None:
+                                    self._cal_debug(  # type: ignore[attr-defined]
+                                        f"   ❌ {_ek}: burn-in failed — see error above"
+                                    )
+                                    _burnin_failures.append(
+                                        f"TTS {_ek}: stress synthesis failed"
+                                    )
+                                else:
+                                    self._cal_debug(  # type: ignore[attr-defined]
+                                        f"   ⚠️ {_ek}: burn-in returned 0 MiB"
+                                    )
+                                    _burnin_failures.append(
+                                        f"TTS {_ek}: zero-peak measurement"
+                                    )
                         yield
 
             # VLM burn-ins for missing cache entries
@@ -1251,19 +1270,19 @@ class CalibrationMixin(rx.State, mixin=True):
                                     _burnin_failures.append(
                                         f"VLM {_vc['label']}: {_e}"
                                     )
-                                    _peak = None
-                                if _peak is not None and _peak > 0:
-                                    vlm_vram_cache.put(_mid, VLM_NUM_CTX, _peak)
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ✅ {_vc['label']}: peak {_peak} MiB cached"
-                                    )
                                 else:
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ❌ {_vc['label']}: prewarm failed"
-                                    )
-                                    _burnin_failures.append(
-                                        f"VLM {_vc['label']}: prewarm failed"
-                                    )
+                                    if _peak is not None and _peak > 0:
+                                        vlm_vram_cache.put(_mid, VLM_NUM_CTX, _peak)
+                                        self._cal_debug(  # type: ignore[attr-defined]
+                                            f"   ✅ {_vc['label']}: peak {_peak} MiB cached"
+                                        )
+                                    else:
+                                        self._cal_debug(  # type: ignore[attr-defined]
+                                            f"   ❌ {_vc['label']}: prewarm failed"
+                                        )
+                                        _burnin_failures.append(
+                                            f"VLM {_vc['label']}: prewarm failed"
+                                        )
                             yield
 
             # Wait for VRAM to settle after burn-ins so the LLM
@@ -1362,8 +1381,21 @@ class CalibrationMixin(rx.State, mixin=True):
                     speed_split_rest = s_rest
                     if s_ctx > 0:
                         speed_split_context = s_ctx
-                    speed_layer_split = f"{s_cuda0}:{s_rest}"
                     speed_entry = cfg.get(f"{calibration_model_id}-speed", {})
+                    # The cache only stores the compact "cuda0 : sum-of-rest"
+                    # form — on >2-GPU speed splits that is NOT a per-GPU
+                    # layout and must not feed the TTS/VLM re-projections.
+                    # The real layout lives in the YAML speed profile's
+                    # --tensor-split; the compact form is only correct for
+                    # the single-extra-GPU case (rest == one GPU).
+                    from ..lib.calibration.llamaswap_io import parse_tensor_split
+                    _speed_ts = parse_tensor_split(str(speed_entry.get("full_cmd", "")))
+                    if _speed_ts:
+                        speed_layer_split = ":".join(
+                            str(int(round(v))) for v in _speed_ts
+                        )
+                    else:
+                        speed_layer_split = f"{s_cuda0}:{s_rest}"
                     s_cvd = (speed_entry.get("env") or {}).get("CUDA_VISIBLE_DEVICES", "")
                     speed_num_gpus = len([x for x in s_cvd.split(",") if x]) if s_cvd else 0
                     speed_kv_quant = str(speed_entry.get("kv_cache_quant") or calibration_kv)
@@ -1645,29 +1677,10 @@ class CalibrationMixin(rx.State, mixin=True):
                             # this the isolated path left the YAML
                             # profile and the cache out of sync (the
                             # fast/full paths both write the cache).
-                            from ..lib.model_vram_cache import (
-                                add_llamacpp_calibration as _iso_alc,
-                                load_cache as _iso_lc,
-                            )
-                            _iso_tts_id = (
-                                f"{calibration_model_id}-tts-{_cand['tts_suffix']}"
-                            )
-                            _iso_base_meta = _iso_lc().get(calibration_model_id, {})
-                            _iso_alc(
-                                model_id=_iso_tts_id,
-                                max_context=_cand["ctx"],
-                                native_context=int(
-                                    _iso_base_meta.get("native_context", _cand["ctx"])
-                                ),
-                                gguf_path=str(_iso_base_meta.get("gguf_path", "")),
-                                quantization=str(_iso_base_meta.get("quantization", "")),
-                                gpu_model=str(_iso_base_meta.get("gpu_model", "")),
-                                model_size_gb=float(
-                                    _iso_base_meta.get("model_size_gb", 0.0)
-                                ),
-                                ngl=99,
-                                mode="gpu",
-                                speed_split=0,
+                            _write_variant_cache_entry(
+                                calibration_model_id,
+                                f"{calibration_model_id}-tts-{_cand['tts_suffix']}",
+                                _cand["ctx"],
                             )
                         else:
                             self._cal_debug(  # type: ignore[attr-defined]
@@ -1808,23 +1821,10 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"(ctx {format_number(approx_ctx)}, "
                                 f"split {_split_colon})"
                             )
-                            from ..lib.model_vram_cache import (
-                                add_llamacpp_calibration as _alc,
-                                load_cache as _lc,
-                            )
-                            _tts_model_id = f"{calibration_model_id}-tts-{tts_backend}"
-                            _base_meta = _lc().get(calibration_model_id, {})
-                            _alc(
-                                model_id=_tts_model_id,
-                                max_context=approx_ctx,
-                                native_context=int(_base_meta.get("native_context", approx_ctx)),
-                                gguf_path=str(_base_meta.get("gguf_path", "")),
-                                quantization=str(_base_meta.get("quantization", "")),
-                                gpu_model=str(_base_meta.get("gpu_model", "")),
-                                model_size_gb=float(_base_meta.get("model_size_gb", 0.0)),
-                                ngl=99,
-                                mode="gpu",
-                                speed_split=0,
+                            _write_variant_cache_entry(
+                                calibration_model_id,
+                                f"{calibration_model_id}-tts-{tts_backend}",
+                                approx_ctx,
                             )
 
                             # ── Speed + TTS combo via fast path ──
@@ -1911,23 +1911,11 @@ class CalibrationMixin(rx.State, mixin=True):
                                                     ))
                                                 except (ValueError, IndexError):
                                                     _sp_cuda0 = 0
-                                            _alc(
-                                                model_id=(
-                                                    f"{calibration_model_id}"
-                                                    f"-tts-{tts_backend}-speed"
-                                                ),
-                                                max_context=_approx_sp_ctx,
-                                                native_context=int(
-                                                    _base_meta.get("native_context", _approx_sp_ctx)
-                                                ),
-                                                gguf_path=str(_base_meta.get("gguf_path", "")),
-                                                quantization=str(_base_meta.get("quantization", "")),
-                                                gpu_model=str(_base_meta.get("gpu_model", "")),
-                                                model_size_gb=float(
-                                                    _base_meta.get("model_size_gb", 0.0)
-                                                ),
-                                                ngl=99,
-                                                mode="gpu",
+                                            _write_variant_cache_entry(
+                                                calibration_model_id,
+                                                f"{calibration_model_id}"
+                                                f"-tts-{tts_backend}-speed",
+                                                _approx_sp_ctx,
                                                 speed_split=_sp_cuda0,
                                             )
                                         else:
@@ -2028,29 +2016,17 @@ class CalibrationMixin(rx.State, mixin=True):
                             # the UI can find a speed_split for it (powers
                             # the Speed toggle when TTS mode is active).
                             from ..lib.model_vram_cache import (
-                                add_llamacpp_calibration,
-                                load_cache,
                                 update_llamacpp_speed_split,
                             )
                             tts_model_id = f"{calibration_model_id}-tts-{tts_backend}"
-                            # Inherit native_context + meta from base cache entry
-                            base_meta = load_cache().get(calibration_model_id, {})
                             tts_speed_cuda0 = 0
                             if tts_speed_split:
                                 try:
                                     tts_speed_cuda0 = int(tts_speed_split.split(":")[0])
                                 except (ValueError, IndexError):
                                     tts_speed_cuda0 = 0
-                            add_llamacpp_calibration(
-                                model_id=tts_model_id,
-                                max_context=tts_ctx,
-                                native_context=int(base_meta.get("native_context", tts_ctx)),
-                                gguf_path=str(base_meta.get("gguf_path", "")),
-                                quantization=str(base_meta.get("quantization", "")),
-                                gpu_model=str(base_meta.get("gpu_model", "")),
-                                model_size_gb=float(base_meta.get("model_size_gb", 0.0)),
-                                ngl=99,
-                                mode="gpu",
+                            _write_variant_cache_entry(
+                                calibration_model_id, tts_model_id, tts_ctx,
                                 speed_split=tts_speed_cuda0,
                             )
                             if tts_speed_ctx and tts_speed_ctx > 0 and tts_speed_cuda0 > 0:
@@ -2065,7 +2041,11 @@ class CalibrationMixin(rx.State, mixin=True):
 
                         # Also persist the speed variant for this TTS backend if found.
                         # Result key: <model>-tts-<backend>-speed (e.g. ...-tts-xtts-speed)
-                        if tts_speed_ctx and tts_speed_ctx > 0 and tts_speed_split != tts_tensor_split:
+                        # NOTE: an earlier "tts_speed_split != tts_tensor_split"
+                        # guard here was dead code — colon- vs. comma-format
+                        # strings can never compare equal. flow.py already
+                        # suppresses a redundant __SPEED__ payload itself.
+                        if tts_speed_ctx and tts_speed_ctx > 0:
                             # __SPEED__ carries the FULL split incl. zeros for
                             # idle GPUs ("26:27:0:0:0"); the uuids field lists
                             # only the ACTIVE GPUs. Write only the active
@@ -2321,27 +2301,10 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"{calibration_model_id}-vlm-{vlm_key} "
                                 f"(ctx {format_number(_vlm_ctx)}, split {_vlm_split})"
                             )
-                            from ..lib.model_vram_cache import (
-                                add_llamacpp_calibration as _vlm_alc,
-                                load_cache as _vlm_lc,
-                            )
-                            _vlm_full_id = f"{calibration_model_id}-vlm-{vlm_key}"
-                            _vlm_base_meta = _vlm_lc().get(calibration_model_id, {})
-                            _vlm_alc(
-                                model_id=_vlm_full_id,
-                                max_context=_vlm_ctx,
-                                native_context=int(
-                                    _vlm_base_meta.get("native_context", _vlm_ctx)
-                                ),
-                                gguf_path=str(_vlm_base_meta.get("gguf_path", "")),
-                                quantization=str(_vlm_base_meta.get("quantization", "")),
-                                gpu_model=str(_vlm_base_meta.get("gpu_model", "")),
-                                model_size_gb=float(
-                                    _vlm_base_meta.get("model_size_gb", 0.0)
-                                ),
-                                ngl=99,
-                                mode="gpu",
-                                speed_split=0,
+                            _write_variant_cache_entry(
+                                calibration_model_id,
+                                f"{calibration_model_id}-vlm-{vlm_key}",
+                                _vlm_ctx,
                             )
                         else:
                             self._cal_debug(  # type: ignore[attr-defined]
@@ -2579,30 +2542,11 @@ class CalibrationMixin(rx.State, mixin=True):
                                     f"{calibration_model_id}-tts-{tts_backend_c}-vlm-{vlm_key_c} "
                                     f"(ctx {format_number(_c_ctx)}, split {_c_split})"
                                 )
-                                from ..lib.model_vram_cache import (
-                                    add_llamacpp_calibration as _c_alc,
-                                    load_cache as _c_lc,
-                                )
-                                _c_full_id = (
+                                _write_variant_cache_entry(
+                                    calibration_model_id,
                                     f"{calibration_model_id}-tts-{tts_backend_c}"
-                                    f"-vlm-{vlm_key_c}"
-                                )
-                                _c_base_meta = _c_lc().get(calibration_model_id, {})
-                                _c_alc(
-                                    model_id=_c_full_id,
-                                    max_context=_c_ctx,
-                                    native_context=int(
-                                        _c_base_meta.get("native_context", _c_ctx)
-                                    ),
-                                    gguf_path=str(_c_base_meta.get("gguf_path", "")),
-                                    quantization=str(_c_base_meta.get("quantization", "")),
-                                    gpu_model=str(_c_base_meta.get("gpu_model", "")),
-                                    model_size_gb=float(
-                                        _c_base_meta.get("model_size_gb", 0.0)
-                                    ),
-                                    ngl=99,
-                                    mode="gpu",
-                                    speed_split=0,
+                                    f"-vlm-{vlm_key_c}",
+                                    _c_ctx,
                                 )
                             else:
                                 self._cal_debug(  # type: ignore[attr-defined]
@@ -3044,10 +2988,6 @@ class CalibrationMixin(rx.State, mixin=True):
             self.backend_switching = False  # type: ignore[attr-defined]
             yield  # Re-enable buttons
 
-    async def restart_ollama(self):
-        """Legacy method - calls restart_backend()"""
-        async for _ in self.restart_backend():
-            pass
 
     # ------------------------------------------------------------------
     # AIfred service restart

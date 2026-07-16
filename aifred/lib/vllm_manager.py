@@ -214,7 +214,6 @@ def detect_quantization(model_name: str) -> str:
                         return ""  # Let vLLM auto-detect
             except Exception as e:
                 print(f"⚠️ Could not read config.json: {e}")
-                pass
 
     # Fallback: Guess from model name (for legacy models)
     model_lower = model_name.lower()
@@ -523,6 +522,22 @@ class vLLMProcessManager:
                 self._ttl_timer = None
             self._stop_sync_locked()
 
+    def _query_free_vram_mb(self) -> Optional[float]:
+        """Free VRAM summed over the same GPU set as the startup baseline
+        (all of ``self.gpu_indices``) — polling a single GPU against a
+        summed multi-GPU baseline can never match."""
+        from aifred.lib.gpu_utils import get_gpu_memory_info
+        if self.gpu_indices is None:
+            info = get_gpu_memory_info()
+            return float(info["free_mb"]) if info else None
+        total = 0.0
+        for idx in self.gpu_indices:
+            info = get_gpu_memory_info(gpu_index=idx)
+            if info is None:
+                return None
+            total += info["free_mb"]
+        return total
+
     async def start_with_auto_detection(
         self,
         model: str,
@@ -656,9 +671,15 @@ class vLLMProcessManager:
                     import asyncio
                     await asyncio.sleep(3)
 
-                    # Retry with new limit
+                    # Retry with new limit. start() raises RuntimeError on
+                    # failure (it never returns False) — catch it so the
+                    # documented fall-through to STRATEGY 2 actually happens.
                     self.max_model_len = max_possible
-                    success = await self.start(model, timeout=timeout)
+                    try:
+                        success = await self.start(model, timeout=timeout)
+                    except RuntimeError as retry_err:
+                        log_feedback(f"⚠️ Retry start failed: {retry_err}")
+                        success = False
 
                     if success:
                         # Update cache with new calibration
@@ -815,10 +836,9 @@ class vLLMProcessManager:
             for i in range(30):  # Poll for up to 30 seconds
                 await asyncio.sleep(1)
 
-                poll_idx = self.gpu_indices[0] if self.gpu_indices else 0
-                gpu_poll = get_gpu_memory_info(gpu_index=poll_idx)
-                if gpu_poll:
-                    current_free_vram_mb = gpu_poll["free_mb"]
+                current_free = self._query_free_vram_mb()
+                if current_free is not None:
+                    current_free_vram_mb = current_free
                     vram_diff = abs(current_free_vram_mb - baseline_vram_mb)
 
                     # Check if VRAM is back to baseline (±2GB tolerance)
@@ -838,10 +858,9 @@ class vLLMProcessManager:
             cleanup_gpu_memory()
 
             # Re-measure VRAM before Attempt 2 (may have changed during waiting)
-            remeasure_idx = self.gpu_indices[0] if self.gpu_indices else 0
-            gpu_remeasure = get_gpu_memory_info(gpu_index=remeasure_idx)
-            if gpu_remeasure:
-                current_free_vram_mb_before_attempt2 = gpu_remeasure["free_mb"]
+            remeasured_free = self._query_free_vram_mb()
+            if remeasured_free is not None:
+                current_free_vram_mb_before_attempt2 = remeasured_free
 
                 # Compare with original baseline to detect VRAM changes
                 vram_change = current_free_vram_mb_before_attempt2 - baseline_vram_mb

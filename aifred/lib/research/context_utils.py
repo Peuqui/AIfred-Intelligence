@@ -22,7 +22,7 @@ from ..config import (
 )
 from ..formatting import format_number
 from ..logging_utils import log_message
-from ..model_vram_cache import get_ollama_calibration, get_rope_factor_for_model
+from ..model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
 from ..gpu_utils import is_moe_model
 
 if TYPE_CHECKING:
@@ -199,7 +199,7 @@ def get_agent_num_ctx(
     else:
         # Ollama: VRAM calibration cache
         rope_factor = get_rope_factor_for_model(model_id)
-        cached_ctx = get_ollama_calibration(model_id, rope_factor)
+        cached_ctx = get_ollama_calibrated_max_context(model_id, rope_factor)
 
         if cached_ctx:
             num_ctx = cached_ctx

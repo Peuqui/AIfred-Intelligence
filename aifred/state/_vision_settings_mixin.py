@@ -181,14 +181,17 @@ class VisionSettingsMixin(rx.State, mixin=True):
             self.face_retention_days = int(rd)
         self.vigilantia_armed = bool(settings.get("vigilantia_armed", False))
         self._reload_vigilantia_sources()
+        self._discover_vision_models()
+
+    def _discover_vision_models(self) -> None:
+        """Ollama-VLM-Discovery (SSOT). Only show models actually pulled in
+        Ollama. If discovery returned a real list and the saved selection
+        isn't in it, the model is gone → clear the selection instead of
+        prepending a phantom entry. An empty list means Ollama was
+        unreachable — leave the selection alone, we can't verify it now."""
         try:
             from ..lib.ollama_models import list_ollama_vlm_models
             models = [m.name for m in list_ollama_vlm_models()]
-            # Only show models actually pulled in Ollama. If discovery
-            # returned a real list and the saved selection isn't in it, the
-            # model is gone → clear the selection instead of prepending a
-            # phantom entry. An empty list means Ollama was unreachable —
-            # leave the selection alone, we can't verify it right now.
             if models and self.vision_model_value and self.vision_model_value not in models:
                 self.vision_model_value = ""
             self.vision_available_models = models
@@ -617,7 +620,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 }
                 active = _schedule_active_now(settings)
                 running = get_default_watcher().is_running(source_id)
-                if active and not running:
+                # auto_start gate — mirrors schedule_supervisor: a camera whose
+                # background watcher is disabled must not be started here.
+                armed_source = bool(rec.get("auto_start")) if rec else False
+                if active and not running and armed_source:
                     await start_background_watcher(source_id)
                 elif not active and running:
                     await get_default_watcher().stop(source_id)
@@ -937,8 +943,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
     @rx.event
     async def refresh_vlm_loaded(self) -> None:
         """Status frisch von Ollama abfragen. Wird vom on_load des
-        Vorschau-Popups + vom Open des Vigilantia-Settings-Modals
-        gerufen, damit der Power-Button den realen Zustand zeigt."""
+        Vorschau-Popups gerufen, damit der Power-Button den realen
+        Zustand zeigt."""
         try:
             from ..lib.vision_prewarm import is_vlm_loaded
             self.vlm_model_loaded = await is_vlm_loaded(self.vision_model_value)
@@ -982,14 +988,4 @@ class VisionSettingsMixin(rx.State, mixin=True):
     @rx.event
     def rescan_vision_models(self) -> None:
         """Re-run Ollama discovery (after the user did `ollama pull` externally)."""
-        try:
-            from ..lib.ollama_models import list_ollama_vlm_models
-            models = [m.name for m in list_ollama_vlm_models()]
-            # See _refresh_vision_settings: only show pulled models, clear a
-            # stale selection, never prepend a phantom. Empty list (Ollama
-            # unreachable) leaves the selection untouched.
-            if models and self.vision_model_value and self.vision_model_value not in models:
-                self.vision_model_value = ""
-            self.vision_available_models = models
-        except Exception as e:  # noqa: BLE001
-            logger.warning("vision settings rescan failed: %s", e)
+        self._discover_vision_models()

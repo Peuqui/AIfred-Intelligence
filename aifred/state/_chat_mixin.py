@@ -371,7 +371,7 @@ class ChatMixin(rx.State, mixin=True):
             should_generate_tts = self.enable_tts and self.tts_autoplay  # type: ignore[attr-defined]
         else:
             should_generate_tts = generate_tts
-        streaming_active = self.tts_autoplay and self.tts_streaming_enabled  # type: ignore[attr-defined]
+        streaming_active = self._tts_streaming_wanted(agent)  # type: ignore[attr-defined]
         if should_generate_tts and not streaming_active:
             # Check per-agent TTS enabled setting
             agent_tts_enabled = self.tts_agent_voices.get(agent, {}).get("enabled", True)  # type: ignore[attr-defined]
@@ -423,8 +423,9 @@ class ChatMixin(rx.State, mixin=True):
         # Generate TTS for AIfred's initial response BEFORE Multi-Agent starts
         # This ensures AIfred's voice is heard first, then Sokrates/Salomo follow
         # (Sokrates/Salomo TTS is generated via add_agent_panel() in multi_agent.py)
-        # SKIP if streaming TTS is enabled - text was already sent sentence-by-sentence
-        if self.enable_tts and not self.tts_streaming_enabled:  # type: ignore[attr-defined]
+        # Same rules as add_agent_panel: autoplay required (no consumer
+        # otherwise), skip if streaming TTS already spoke the sentences.
+        if self.enable_tts and self.tts_autoplay and not self._tts_streaming_wanted("aifred"):  # type: ignore[attr-defined]
             agent_tts_enabled = self.tts_agent_voices.get("aifred", {}).get("enabled", True)  # type: ignore[attr-defined]
             if agent_tts_enabled:
                 # Wait for TTS to complete so we can update message metadata with audio URL
@@ -702,38 +703,6 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(event["message"])
                 yield
 
-    async def _phase_finally_tts(self, ai_text: str) -> AsyncGenerator[None, None]:
-        """Generate TTS audio in finally block (standard mode only, non-streaming)."""
-        import re
-        if not (self.enable_tts and self.multi_agent_mode == "standard" and not self.tts_streaming_enabled):  # type: ignore[attr-defined]
-            return
-
-        try:
-            self.add_debug("🔊 TTS: Starting TTS generation...")
-            _ch = self._chat_sub()
-            if len(_ch.llm_history) > 0:
-                last_msg = _ch.llm_history[-1]
-                if last_msg.get("role") == "assistant":
-                    ai_response = last_msg.get("content", "")
-                    tts_agent = "aifred"
-                    agent_match = re.match(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', ai_response)
-                    if agent_match:
-                        tts_agent = agent_match.group(1).lower()
-                        ai_response = ai_response[agent_match.end():]
-                    agent_tts_enabled = self.tts_agent_voices.get(tts_agent, {}).get("enabled", True)  # type: ignore[attr-defined]
-                    if ai_response and ai_response.strip() and agent_tts_enabled:
-                        await self._generate_tts_for_response(ai_response, agent=tts_agent)  # type: ignore[attr-defined]
-                        yield
-                    else:
-                        self.add_debug("⚠️ TTS: Enabled but no AI response to convert")
-                else:
-                    self.add_debug("⚠️ TTS: Last message is not from assistant")
-            else:
-                self.add_debug("⚠️ TTS: Enabled but LLM history is empty")
-        except (RuntimeError, FileNotFoundError, ValueError) as tts_error:
-            self.add_debug(f"⚠️ TTS generation failed: {tts_error}")
-            from ..lib.logging_utils import log_message
-            log_message(f"❌ TTS error in finally block: {tts_error}")
 
     async def send_message(self, text: str = "") -> AsyncGenerator[None, None]:  # type: ignore[misc]
         """Send message to LLM with optional web research.
@@ -919,8 +888,7 @@ class ChatMixin(rx.State, mixin=True):
         # ``document.addEventListener('click', ...)``-Hook in custom.js,
         # der beim ALLERERSTEN User-Click im Tab feuert (im echten
         # Click-Stack) und dann sich selbst entfernt.
-        agent_tts_on = self.tts_agent_voices.get("aifred", {}).get("enabled", True)  # type: ignore[attr-defined]
-        tts_streaming = self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled and agent_tts_on  # type: ignore[attr-defined]
+        tts_streaming = self._tts_streaming_wanted("aifred")  # type: ignore[attr-defined]
         if tts_streaming:
             self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
             from ..lib.api import browser_queue_clear
@@ -976,6 +944,7 @@ class ChatMixin(rx.State, mixin=True):
                     )
                 )
 
+        _client_gone = False  # set on GeneratorExit — finally must not yield then
         try:
             # ============================================================
             # MAIN TRY BLOCK: Covers ALL stages from LLM client creation
@@ -1414,6 +1383,14 @@ class ChatMixin(rx.State, mixin=True):
             self._save_current_session()  # type: ignore[attr-defined]
             yield
 
+        except GeneratorExit:
+            # WebSocket disconnect cancelled this generator. A generator
+            # that yields again while unwinding GeneratorExit raises
+            # "async generator ignored GeneratorExit" and aborts the
+            # finally block — so flag it and let finally skip its yields
+            # (session save etc. still run).
+            _client_gone = True
+            raise
         except Exception as e:
             error_msg = f"Error: {e!s}"
             self._js_chunk_buffer = ""  # type: ignore[attr-defined]
@@ -1450,8 +1427,16 @@ class ChatMixin(rx.State, mixin=True):
             if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
                 unregister_pipeline(self.session_id, _pipeline_task)  # type: ignore[attr-defined]
 
+            # Streaming-TTS finalize for every path that skipped the
+            # multi-agent finish (vision fast path, pure-command return,
+            # exception before/inside the agent stream) — otherwise
+            # tts_streaming_in_flight stays True and blocks media resume.
+            # No-op when the multi-agent path already spawned it.
+            self._spawn_tts_finalize()  # type: ignore[attr-defined]
+
             self.is_generating = False
-            yield  # Let React update is_generating=False (button re-enables via Reflex binding)
+            if not _client_gone:
+                yield  # Let React update is_generating=False (button re-enables via Reflex binding)
             # NOTE: TTS polling stops automatically via data-polling attribute (MutationObserver)
             # Clear pending images after sending
             if len(self.pending_images) > 0:  # type: ignore[attr-defined]
@@ -1480,7 +1465,8 @@ class ChatMixin(rx.State, mixin=True):
 
             # Refresh session list to update sorting (last_seen changed) and message count
             self.refresh_session_list()  # type: ignore[attr-defined]
-            yield
+            if not _client_gone:
+                yield
 
             # Final cleanup: Clear streaming state
             self._set_current_agent("")

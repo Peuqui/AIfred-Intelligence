@@ -190,16 +190,6 @@ def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
     return tier[1].index if len(tier) > 1 else tier[0].index
 
 
-def pick_face_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
-    """Choose a GPU index for InsightFace (face_detect+recognize).
-
-    Co-locates with the VLM — InsightFace's footprint is tiny (~280 MB
-    vs the VLM's multi-GB) and both are vision workloads, so sharing the
-    VLM's card keeps the TTS card uncontended.
-    """
-    return pick_vlm_gpu(gpus)
-
-
 def ollama_override_text(gpu_id: int) -> str:
     """Generate the systemd drop-in content that pins Ollama to a GPU.
 

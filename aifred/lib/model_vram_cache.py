@@ -66,16 +66,23 @@ def ensure_cache_dir() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_cache() -> Dict[str, Any]:
+def load_cache(strict: bool = False) -> Dict[str, Any]:
     """
     Load unified model VRAM cache from JSON file.
 
     Uses an in-memory cache with mtime-based invalidation to avoid
     redundant disk reads when the file hasn't changed.
 
+    Args:
+        strict: Raise on an unreadable/corrupt cache file instead of
+            returning ``{}``. Writers MUST use this — a read-modify-write
+            on a silently emptied dict would persist only the new entry
+            and wipe every earlier calibration.
+
     Returns:
-        Dict with model_name → cache_data mappings
-        Empty dict if file doesn't exist or is invalid
+        Dict with model_name → cache_data mappings.
+        Empty dict if the file doesn't exist, or (non-strict only) is
+        invalid.
     """
     global _cache, _cache_mtime
     ensure_cache_dir()
@@ -101,6 +108,8 @@ def load_cache() -> Dict[str, Any]:
         return cache
     except (json.JSONDecodeError, IOError) as e:
         logger.error(f"Failed to load cache file {CACHE_FILE}: {e}")
+        if strict:
+            raise
         return {}
 
 
@@ -164,132 +173,53 @@ def is_model_calibrated(model_id: str) -> bool:
     return bool(entry and entry.get("gpu_model"))
 
 
-def is_tts_variant_calibrated(
-    model_id: str, tts_backend: str, require_speed: bool = False,
+def _is_variant_calibrated(
+    model_id: str, kind: str, key: str, require_speed: bool,
 ) -> bool:
-    """True if a TTS variant of ``model_id`` for ``tts_backend`` has a
-    real (non-preliminary) calibration in the vram cache.
+    """Shared core: does ``<model_id>-<kind>-<key>[-speed]`` have a real
+    (non-preliminary) calibration in the vram cache?
 
-    ``require_speed=False`` (default): accept either ``-tts-<backend>``
-    or ``-tts-<backend>-speed``.
-    ``require_speed=True``: only ``-tts-<backend>-speed``.
-
-    A TTS profile that exists only in llama-swap.yaml (e.g. carried over
-    from an older model via a manual migration) but has no entry in the
-    vram cache must NOT be reported as calibrated — picking it would
-    load the base VRAM profile and OOM once the TTS container starts.
+    A variant profile that exists only in llama-swap.yaml (e.g. carried
+    over from an older model via a manual migration) but has no entry in
+    the vram cache must NOT be reported as calibrated — picking it would
+    load the base VRAM profile and OOM once the sidecar starts.
     """
     cache = load_cache()
-    candidates = [f"{model_id}-tts-{tts_backend}-speed"]
+    candidates = [f"{model_id}-{kind}-{key}-speed"]
     if not require_speed:
-        candidates.append(f"{model_id}-tts-{tts_backend}")
+        candidates.append(f"{model_id}-{kind}-{key}")
     for name in candidates:
         entry = cache.get(name)
         if entry and entry.get("gpu_model"):
             return True
     return False
+
+
+def is_tts_variant_calibrated(
+    model_id: str, tts_backend: str, require_speed: bool = False,
+) -> bool:
+    """True if a TTS variant of ``model_id`` for ``tts_backend`` has a
+    real calibration in the vram cache.
+
+    ``require_speed=False`` (default): accept either ``-tts-<backend>``
+    or ``-tts-<backend>-speed``.
+    ``require_speed=True``: only ``-tts-<backend>-speed``.
+    """
+    return _is_variant_calibrated(model_id, "tts", tts_backend, require_speed)
 
 
 def is_vlm_variant_calibrated(
     model_id: str, vlm_key: str, require_speed: bool = False,
 ) -> bool:
     """True if a VLM variant of ``model_id`` for ``vlm_key`` has a real
-    (non-preliminary) calibration in the vram cache. Mirrors
-    :func:`is_tts_variant_calibrated` exactly so the picker UI can light
-    up the green dot the same way.
-    """
-    cache = load_cache()
-    candidates = [f"{model_id}-vlm-{vlm_key}-speed"]
-    if not require_speed:
-        candidates.append(f"{model_id}-vlm-{vlm_key}")
-    for name in candidates:
-        entry = cache.get(name)
-        if entry and entry.get("gpu_model"):
-            return True
-    return False
+    calibration in the vram cache. Same semantics as
+    :func:`is_tts_variant_calibrated`."""
+    return _is_variant_calibrated(model_id, "vlm", vlm_key, require_speed)
 
 
 # ============================================================================
 # VRAM RATIO FUNCTIONS (Universal - ALL backends)
 # ============================================================================
-
-def add_vram_measurement(
-    model_name: str,
-    context_tokens: int,
-    vram_before_mb: int,
-    vram_during_mb: int,
-    architecture: str,  # "moe" or "dense"
-    backend: str = "ollama"
-) -> None:
-    """
-    Add a VRAM ratio measurement for a model
-
-    Args:
-        model_name: Name of the model
-        context_tokens: Number of context tokens used
-        vram_before_mb: Free VRAM before inference (after model load)
-        vram_during_mb: Free VRAM during inference (KV cache allocated)
-        architecture: "moe" or "dense"
-        backend: "ollama" or "vllm"
-    """
-    # Calculate MB per token from the measurement
-    vram_used_by_context = vram_before_mb - vram_during_mb
-
-    # Ignore invalid measurements (negative values = measurement error)
-    if vram_used_by_context <= 0 or context_tokens <= 0:
-        return
-
-    mb_per_token = vram_used_by_context / context_tokens
-
-    # Serialise read-modify-write so concurrent measurements don't
-    # overwrite each other.
-    with _cache_lock:
-        cache = load_cache()
-
-        # Initialize model entry if not exists
-        if model_name not in cache:
-            cache[model_name] = {
-                "backend": backend,
-                "architecture": architecture,
-                "native_context": 0,  # Will be updated later
-                "gpu_model": "Unknown",  # Will be updated later
-                "vram_ratio": {
-                    "measurements": [],
-                    "avg_mb_per_token": 0.0
-                }
-            }
-
-        # Ensure vram_ratio exists (for migrated entries)
-        if "vram_ratio" not in cache[model_name]:
-            cache[model_name]["vram_ratio"] = {
-                "measurements": [],
-                "avg_mb_per_token": 0.0
-            }
-
-        # Update architecture if different
-        cache[model_name]["architecture"] = architecture
-        cache[model_name]["backend"] = backend
-
-        # Add measurement
-        measurement = {
-            "context_tokens": context_tokens,
-            "measured_mb_per_token": round(mb_per_token, 4),
-            "measured_at": datetime.now().isoformat()
-        }
-        cache[model_name]["vram_ratio"]["measurements"].append(measurement)
-
-        # Keep only last 10 measurements per model
-        if len(cache[model_name]["vram_ratio"]["measurements"]) > 10:
-            cache[model_name]["vram_ratio"]["measurements"] = \
-                cache[model_name]["vram_ratio"]["measurements"][-10:]
-
-        # Calculate average MB/token from all measurements
-        measurements = cache[model_name]["vram_ratio"]["measurements"]
-        avg = sum(m["measured_mb_per_token"] for m in measurements) / len(measurements)
-        cache[model_name]["vram_ratio"]["avg_mb_per_token"] = round(avg, 4)
-
-        # Save cache
-        save_cache(cache)
 
 
 def get_calibrated_ratio(model_name: str, architecture: str, default_ratio: float) -> float:
@@ -324,6 +254,15 @@ def get_measurement_count(model_name: str) -> int:
     return 0
 
 
+def _ollama_ctx_field(rope_factor: float) -> tuple[str, str]:
+    """Map a RoPE factor to its calibration field name + log label (SSOT)."""
+    if rope_factor == 1.5:
+        return "max_context_1.5x", "1.5x (RoPE)"
+    if rope_factor == 2.0:
+        return "max_context_2.0x", "2.0x (RoPE)"
+    return "max_context_1.0x", "1.0x (native)"
+
+
 def get_ollama_calibrated_max_context(
     model_name: str,
     rope_factor: float = 1.0
@@ -355,15 +294,7 @@ def get_ollama_calibrated_max_context(
     if not calibrations:
         return None
 
-    # Determine field name based on RoPE factor
-    if rope_factor == 1.0:
-        field_name = "max_context_1.0x"
-    elif rope_factor == 1.5:
-        field_name = "max_context_1.5x"
-    elif rope_factor == 2.0:
-        field_name = "max_context_2.0x"
-    else:
-        field_name = "max_context_1.0x"  # Fallback
+    field_name, _ = _ollama_ctx_field(rope_factor)
 
     # Search backwards for the most recent calibration with this field
     for cal in reversed(calibrations):
@@ -406,7 +337,7 @@ def add_ollama_calibration(
         True if successfully added, False otherwise
     """
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
 
         # Initialize model entry if not exists
         if model_name not in cache:
@@ -425,19 +356,7 @@ def add_ollama_calibration(
         cache[model_name]["native_context"] = native_context
         cache[model_name]["gpu_model"] = gpu_model
 
-        # Determine field name based on RoPE factor
-        if rope_factor == 1.0:
-            field_name = "max_context_1.0x"
-            mode_label = "1.0x (native)"
-        elif rope_factor == 1.5:
-            field_name = "max_context_1.5x"
-            mode_label = "1.5x (RoPE)"
-        elif rope_factor == 2.0:
-            field_name = "max_context_2.0x"
-            mode_label = "2.0x (RoPE)"
-        else:
-            field_name = "max_context_1.0x"
-            mode_label = "1.0x (native, fallback)"
+        field_name, mode_label = _ollama_ctx_field(rope_factor)
 
         # Add or replace calibration point for this rope_factor
         calibration = {
@@ -463,45 +382,6 @@ def add_ollama_calibration(
         return save_cache(cache)
 
 
-def get_ollama_calibration(model_name: str, rope_factor: float = 1.0) -> Optional[int]:
-    """
-    Get the calibrated max context for an Ollama model from persistent cache.
-
-    Args:
-        model_name: Ollama model name (e.g., "qwen3:8b")
-        rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
-
-    Returns:
-        Calibrated max context tokens, or None if not found
-    """
-    cache = load_cache()
-
-    if model_name not in cache:
-        return None
-
-    model_data = cache[model_name]
-    calibrations = model_data.get("ollama_calibrations", [])
-
-    if not calibrations:
-        return None
-
-    # Determine field name based on RoPE factor
-    if rope_factor == 1.5:
-        field_name = "max_context_1.5x"
-    elif rope_factor == 2.0:
-        field_name = "max_context_2.0x"
-    else:
-        field_name = "max_context_1.0x"
-
-    # Get latest calibration with the requested RoPE factor
-    for cal in reversed(calibrations):
-        if field_name in cal:
-            result: int | None = cal[field_name]
-            return result
-
-    return None
-
-
 def is_ollama_model_hybrid(model_name: str, rope_factor: float = 1.0) -> bool:
     """
     Check if an Ollama model is running in hybrid mode (CPU+GPU offload).
@@ -524,13 +404,7 @@ def is_ollama_model_hybrid(model_name: str, rope_factor: float = 1.0) -> bool:
     if not calibrations:
         return False
 
-    # Determine field name based on RoPE factor
-    if rope_factor == 1.5:
-        field_name = "max_context_1.5x"
-    elif rope_factor == 2.0:
-        field_name = "max_context_2.0x"
-    else:
-        field_name = "max_context_1.0x"
+    field_name, _ = _ollama_ctx_field(rope_factor)
 
     # Get latest calibration with the requested RoPE factor
     for cal in reversed(calibrations):
@@ -578,13 +452,7 @@ def get_model_parameters(model_name: str) -> Dict[str, Any]:
     is_hybrid = False
 
     if calibrations:
-        # Determine field name based on RoPE factor
-        if rope_factor == 1.5:
-            field_name = "max_context_1.5x"
-        elif rope_factor == 2.0:
-            field_name = "max_context_2.0x"
-        else:
-            field_name = "max_context_1.0x"
+        field_name, _ = _ollama_ctx_field(rope_factor)
 
         # Get latest calibration with the requested RoPE factor
         for cal in reversed(calibrations):
@@ -636,7 +504,7 @@ def set_rope_factor_for_model(model_name: str, rope_factor: float) -> bool:
         True if successfully saved, False otherwise
     """
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
 
         # Initialize model entry if not exists
         if model_name not in cache:
@@ -667,7 +535,7 @@ def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> 
         True if successfully saved, False otherwise
     """
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
 
         # Initialize model entry if not exists
         if model_name not in cache:
@@ -708,7 +576,7 @@ def set_reasoning_levels_for_model(model_name: str, levels: List[str]) -> bool:
     thinking, or none at all).
     """
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
 
         if model_name not in cache:
             cache[model_name] = {
@@ -776,7 +644,7 @@ def set_expert_counts(model_name: str, expert_count: int, expert_used_count: int
         True if successfully saved
     """
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
 
         if model_name not in cache:
             cache[model_name] = {
@@ -902,7 +770,7 @@ def add_vllm_calibration(
         True if successfully added, False otherwise
     """
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
 
         # Initialize model entry if not exists
         if model_id not in cache:
@@ -994,7 +862,7 @@ def add_llamacpp_calibration(
         True if successfully added, False otherwise
     """
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
 
         if model_id not in cache:
             cache[model_id] = {
@@ -1132,7 +1000,7 @@ def update_llamacpp_speed_split(
     because the speed result arrives after the context result is already saved).
     """
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
         if model_id not in cache:
             return False
         calibrations = cache[model_id].get("llamacpp_calibrations", [])
@@ -1170,25 +1038,6 @@ def get_llamacpp_speed_split(model_id: str) -> tuple[int, int, int]:
     return (0, 0, 0)
 
 
-def get_llamacpp_calibrations(model_id: str) -> List[Dict[str, Any]]:
-    """
-    Get all llama.cpp calibration points for a model.
-
-    Args:
-        model_id: llama-swap model name
-
-    Returns:
-        List of calibration dicts, newest first
-    """
-    cache = load_cache()
-
-    if model_id not in cache:
-        return []
-
-    calibrations = cache[model_id].get("llamacpp_calibrations", [])
-    return list(reversed(calibrations))
-
-
 def remove_model_from_cache(model_id: str) -> bool:
     """Delete a model's entire entry from the VRAM cache.
 
@@ -1197,7 +1046,7 @@ def remove_model_from_cache(model_id: str) -> bool:
     calibration picker keeps showing it as "already calibrated".
     Returns True if an entry was actually removed."""
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
         if model_id not in cache:
             return False
         del cache[model_id]
@@ -1251,7 +1100,7 @@ def record_calibration_failure(
         return False
 
     with _cache_lock:
-        cache = load_cache()
+        cache = load_cache(strict=True)
         entry = cache.get(model_id) or {"backend": "llamacpp"}
         entry["failure_status"] = {
             "reason": reason,
@@ -1274,15 +1123,6 @@ def is_calibration_failed(model_id: str) -> bool:
     return bool(entry and entry.get("failure_status"))
 
 
-def get_calibration_failure(model_id: str) -> Optional[Dict[str, Any]]:
-    """Return the raw ``failure_status`` dict or None if not failed."""
-    entry = load_cache().get(model_id)
-    if not entry:
-        return None
-    status = entry.get("failure_status")
-    return status if isinstance(status, dict) else None
-
-
 def get_model_native_context_from_cache(model_id: str) -> Optional[int]:
     """
     Get native (architectural) context limit from VRAM cache.
@@ -1298,9 +1138,3 @@ def get_model_native_context_from_cache(model_id: str) -> Optional[int]:
         return None
     native = cache[model_id].get("native_context", 0)
     return int(native) if native else None
-
-
-def get_cached_context(model_id: str) -> Optional[Dict[str, Any]]:
-    """Get all cached data for a model"""
-    cache = load_cache()
-    return cache.get(model_id, None)

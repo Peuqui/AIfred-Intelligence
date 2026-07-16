@@ -55,8 +55,10 @@ def discover_huggingface_models(
                 total_size = get_model_size_bytes(model_id)
                 size_gb = total_size / (1024**3)
                 result[model_id] = f"{model_id} ({format_number(size_gb, 1)} GB)"
-            except (httpx.HTTPError, ImportError):
-                # Fallback: show without size if calculation fails
+            except OSError as e:
+                # Show without size if blob scan fails (cache entry
+                # without weights, e.g. an aborted download)
+                log_message(f"⚠️ Size calculation failed for {model_id}: {e}")
                 result[model_id] = model_id
 
     log_message(f"📂 Found {len(result)} {backend_type}-compatible models ({len(model_dirs)} total in cache)")
@@ -155,7 +157,8 @@ def _get_llamacpp_model_sizes() -> Dict[str, float]:
                 from .gguf_utils import get_gguf_total_size
                 result[model_id] = get_gguf_total_size(gguf_path) / (1024 ** 3)
         return result
-    except httpx.HTTPError:
+    except OSError as e:
+        log_message(f"⚠️ Could not read GGUF sizes from llama-swap config: {e}")
         return {}
 
 
