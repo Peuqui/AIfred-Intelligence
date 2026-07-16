@@ -869,6 +869,59 @@ class CalibrationMixin(rx.State, mixin=True):
         self._cal_debug(f"   ⚡ {vlm_label}{combo} speed flavour...")  # type: ignore[attr-defined]
         yield
 
+        # 🎯 Isolated mode: the speed GPU subset is disjoint from every
+        # side-channel GPU → the calibrated -speed result is valid
+        # unchanged. Write the flavour as a copy of the -speed profile
+        # and skip projection + probes entirely.
+        from ..lib.calibration import (
+            parse_llamaswap_config,
+            side_channel_disjoint,
+        )
+        from ..lib.calibration.gpu import enumerate_gpus as _sf_gpus
+        _speed_src = f"{model_id}-speed"
+        _speed_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(_speed_src, {})
+        _speed_cvd = str((_speed_info.get("env") or {}).get("CUDA_VISIBLE_DEVICES", ""))
+        _speed_uuids = [
+            p.strip() for p in _speed_cvd.split(",") if p.strip().startswith("GPU-")
+        ]
+        _side_uuids = [vlm_u] + ([tts_uuid] if tts_uuid else [])
+        _iso_suffix = (
+            f"-tts-{tts_backend}-vlm-{vlm_key}-speed"
+            if tts_backend else f"-vlm-{vlm_key}-speed"
+        )
+        if side_channel_disjoint(_speed_uuids, _side_uuids, len(_sf_gpus())):
+            self._cal_debug(  # type: ignore[attr-defined]
+                f"   🎯 Isolated mode: speed GPU set disjoint from "
+                f"side-channel GPU(s) — reusing speed result "
+                f"(ctx {format_number(speed_ctx)}, no probes)"
+            )
+            yield
+            if add_llamaswap_vlm_variant(
+                LLAMASWAP_CONFIG_PATH,
+                model_id,
+                speed_ctx,
+                vlm_key,
+                kv_quant=speed_kv,
+                cuda_visible_devices=",".join(_speed_uuids),
+                source_model_id=_speed_src,
+                tts_backend=tts_backend,
+                speed=True,
+            ):
+                self._cal_debug(  # type: ignore[attr-defined]
+                    f"   ✅ {vlm_label}{combo} speed variant: "
+                    f"{model_id}{_iso_suffix} (isolated, "
+                    f"ctx {format_number(speed_ctx)})"
+                )
+                _write_variant_cache_entry(
+                    model_id, f"{model_id}{_iso_suffix}", speed_ctx,
+                )
+            else:
+                self._cal_debug(  # type: ignore[attr-defined]
+                    f"   ⚠️ Could not write {vlm_label}{combo} speed variant"
+                )
+            yield
+            return
+
         vs_ok = False
         vs_ctx = 0
         vs_uuids = ""
@@ -1581,17 +1634,14 @@ class CalibrationMixin(rx.State, mixin=True):
                     self._cal_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
                     yield
 
-                    # Isolated-mode shortcut: LLM fits on a single GPU and
-                    # a second (non-TTS) GPU is available — skip the expensive
+                    # Isolated-mode shortcut: the LLM's GPU set (base and/or
+                    # speed) is disjoint from the TTS GPU — skip the expensive
                     # shared-mode calibration entirely. The base/speed result
                     # is valid as long as LLM and TTS occupy disjoint GPUs
-                    # enforced via CUDA_VISIBLE_DEVICES.
-                    #
-                    # Two sub-cases:
-                    #  a) speed variant exists and is single-GPU → copy -speed
-                    #  b) base is already single-GPU (speed skipped for small
-                    #     models that already fit on 1 GPU at native context)
-                    #     → copy base
+                    # enforced via CUDA_VISIBLE_DEVICES. Not limited to
+                    # single-GPU layouts: any multi-GPU set that avoids the
+                    # TTS card qualifies (the per-candidate disjointness
+                    # check below decides).
                     # Isolated-mode candidates: base + speed (if it exists).
                     # The user's two toggles (Speed / TTS) are orthogonal,
                     # so we write a TTS variant for *every* base candidate
@@ -1619,7 +1669,11 @@ class CalibrationMixin(rx.State, mixin=True):
                             "ctx": int(calibrated_ctx),
                             "kv": calibration_kv,
                         })
-                    if speed_num_gpus == 1 and speed_split_cuda0 > 0:
+                    # Any speed layout qualifies as long as its GPU set is
+                    # disjoint from the TTS GPU (checked per candidate below)
+                    # — the old ``speed_num_gpus == 1`` restriction predates
+                    # the generic disjointness check.
+                    if speed_split_cuda0 > 0:
                         iso_candidates.append({
                             "label": "speed",
                             "source_id": f"{calibration_model_id}-speed",
@@ -1636,13 +1690,10 @@ class CalibrationMixin(rx.State, mixin=True):
                         # Without a UUID-pinned source we can't verify
                         # disjointness — skip this candidate. (Legacy
                         # stale entry without ``CUDA_VISIBLE_DEVICES``.)
-                        disjoint = (
-                            len(gpus) >= 2
-                            and bool(_llm_uuids)
-                            and bool(tts_uuid)
-                            and tts_uuid not in _llm_uuids
-                        )
-                        if not disjoint:
+                        from ..lib.calibration import side_channel_disjoint
+                        if not side_channel_disjoint(
+                            _llm_uuids, [tts_uuid], len(gpus),
+                        ):
                             continue
                         _llm_label = ", ".join(
                             f"{uuid_to_name.get(u, '?')}({u[:12]}…)"
@@ -2163,6 +2214,15 @@ class CalibrationMixin(rx.State, mixin=True):
                 _full_cmd_v = str(_base_info_v.get("full_cmd", ""))
                 _gguf_path_v = Path(_base_info_v.get("gguf_path", ""))
                 _all_gpus_v = _vlm_eg()
+                # UUID-pinned GPU set of the base profile — feeds the
+                # isolated-mode disjointness check (side_channel_disjoint).
+                _base_cvd_v = str(
+                    (_base_info_v.get("env") or {}).get("CUDA_VISIBLE_DEVICES", "")
+                )
+                _base_uuids_v = [
+                    p.strip() for p in _base_cvd_v.split(",")
+                    if p.strip().startswith("GPU-")
+                ]
                 _ts_v = parse_tensor_split(_full_cmd_v) or []
                 _base_split_v = tuple(
                     float(_ts_v[i]) if i < len(_ts_v) else 0.0
@@ -2246,6 +2306,69 @@ class CalibrationMixin(rx.State, mixin=True):
                         self._cal_debug(  # type: ignore[attr-defined]
                             f"   ⚠️ {vlm_label}: base config incomplete, skipping"
                         )
+                        yield
+                        continue
+
+                    # 🎯 Isolated mode: base GPU set disjoint from the VLM
+                    # GPU → CUDA_VISIBLE_DEVICES hides the VLM card from
+                    # the base profile entirely, the calibrated result is
+                    # valid unchanged. Write the variant as a copy of the
+                    # base profile and skip projection + probes. The speed
+                    # flavour runs anyway — it has its own isolated check
+                    # against the (different) speed GPU subset.
+                    from ..lib.calibration import side_channel_disjoint
+                    if side_channel_disjoint(
+                        _base_uuids_v, [_vlm_u], len(_all_gpus_v),
+                    ):
+                        self._cal_debug(  # type: ignore[attr-defined]
+                            f"   🎯 Isolated mode: LLM set disjoint from "
+                            f"{vlm_label} GPU ({_vlm_gpu_label}) — reusing "
+                            f"base result (ctx {format_number(calibrated_ctx)}, "
+                            f"no probes)"
+                        )
+                        yield
+                        if add_llamaswap_vlm_variant(
+                            LLAMASWAP_CONFIG_PATH,
+                            calibration_model_id,
+                            int(calibrated_ctx),
+                            vlm_key,
+                            kv_quant=calibration_kv,
+                            cuda_visible_devices=",".join(_base_uuids_v),
+                            source_model_id=calibration_model_id,
+                        ):
+                            self._cal_debug(  # type: ignore[attr-defined]
+                                f"   ✅ {vlm_label} variant: "
+                                f"{calibration_model_id}-vlm-{vlm_key} "
+                                f"(isolated, ctx {format_number(calibrated_ctx)})"
+                            )
+                            _write_variant_cache_entry(
+                                calibration_model_id,
+                                f"{calibration_model_id}-vlm-{vlm_key}",
+                                int(calibrated_ctx),
+                            )
+                            if _has_speed_base:
+                                async for _ in self._calibrate_vlm_speed_flavour(
+                                    model_id=calibration_model_id,
+                                    vlm_key=vlm_key,
+                                    vlm_label=vlm_label,
+                                    vlm_u=_vlm_u,
+                                    vlm_mb=_vlm_mb,
+                                    tts_uuid=None,
+                                    tts_reserve_mb=0,
+                                    tts_backend=None,
+                                    gguf_path=_gguf_path_v,
+                                    full_cmd=_full_cmd_v,
+                                    speed_split=_speed_split_v,
+                                    speed_ctx=int(speed_split_context),
+                                    speed_kv=speed_kv_quant,
+                                    env=_approx_env_v,
+                                    known_thinking=_known_thinking_v,
+                                ):
+                                    yield
+                        else:
+                            self._cal_debug(  # type: ignore[attr-defined]
+                                f"   ⚠️ Could not write {vlm_label} variant to config"
+                            )
                         yield
                         continue
 
@@ -2488,6 +2611,74 @@ class CalibrationMixin(rx.State, mixin=True):
                                     )
                                     yield
                                     continue
+
+                        # 🎯 Isolated mode: base GPU set disjoint from BOTH
+                        # side-channel GPUs (TTS + VLM) → the base result is
+                        # valid unchanged; write the combo as a copy of the
+                        # base profile, skip projection + probes. Runs after
+                        # the shared-card capacity check above — a combo that
+                        # can't physically fit its side channels must keep
+                        # failing fast regardless of disjointness. The speed
+                        # flavour runs anyway (own isolated check inside).
+                        from ..lib.calibration import side_channel_disjoint
+                        if side_channel_disjoint(
+                            _base_uuids_v, [_tts_uuid_c, _vu], len(_all_gpus_v),
+                        ):
+                            self._cal_debug(  # type: ignore[attr-defined]
+                                f"   🎯 Isolated mode: LLM set disjoint from "
+                                f"{tts_label_c} + {vlm_label_c} GPUs — reusing "
+                                f"base result (ctx {format_number(calibrated_ctx)}, "
+                                f"no probes)"
+                            )
+                            yield
+                            if add_llamaswap_vlm_variant(
+                                LLAMASWAP_CONFIG_PATH,
+                                calibration_model_id,
+                                int(calibrated_ctx),
+                                vlm_key_c,
+                                kv_quant=calibration_kv,
+                                cuda_visible_devices=",".join(_base_uuids_v),
+                                source_model_id=calibration_model_id,
+                                tts_backend=tts_backend_c,
+                            ):
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   ✅ {tts_label_c}+{vlm_label_c} combo: "
+                                    f"{calibration_model_id}-tts-{tts_backend_c}"
+                                    f"-vlm-{vlm_key_c} (isolated, "
+                                    f"ctx {format_number(calibrated_ctx)})"
+                                )
+                                _write_variant_cache_entry(
+                                    calibration_model_id,
+                                    f"{calibration_model_id}-tts-{tts_backend_c}"
+                                    f"-vlm-{vlm_key_c}",
+                                    int(calibrated_ctx),
+                                )
+                                if _has_speed_base:
+                                    async for _ in self._calibrate_vlm_speed_flavour(
+                                        model_id=calibration_model_id,
+                                        vlm_key=vlm_key_c,
+                                        vlm_label=vlm_label_c,
+                                        vlm_u=_vu,
+                                        vlm_mb=_vmb,
+                                        tts_uuid=_tts_uuid_c,
+                                        tts_reserve_mb=tts_reserve_c,
+                                        tts_backend=tts_backend_c,
+                                        gguf_path=_gguf_path_v,
+                                        full_cmd=_full_cmd_v,
+                                        speed_split=_speed_split_v,
+                                        speed_ctx=int(speed_split_context),
+                                        speed_kv=speed_kv_quant,
+                                        env=_approx_env_v,
+                                        known_thinking=_known_thinking_v,
+                                    ):
+                                        yield
+                            else:
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   ⚠️ Could not write {tts_label_c}+"
+                                    f"{vlm_label_c} combo to config"
+                                )
+                            yield
+                            continue
 
                         _c_ok = False
                         _c_ctx = 0

@@ -16,7 +16,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 import yaml
 
@@ -114,6 +114,30 @@ def _extract_uuids_from_env(env_lines: list) -> list[str]:
             return parts
         return []
     return []
+
+
+def side_channel_disjoint(
+    profile_uuids: Sequence[str],
+    side_uuids: Sequence[str | None],
+    total_gpus: int,
+) -> bool:
+    """True when a calibrated profile's GPU set is provably disjoint from
+    every given side-channel GPU (TTS and/or VLM).
+
+    In that case the profile never touches the side-channel card —
+    ``CUDA_VISIBLE_DEVICES`` hides it from the llama-server entirely — so
+    the calibrated result stays valid unchanged and the variant can be
+    written as a copy of the profile, skipping projection and probes.
+
+    Hardware-agnostic by construction: on single-GPU systems (or when the
+    profile is not UUID-pinned, or a side-channel GPU is unknown) this
+    returns False and the caller runs the full calibration as before.
+    """
+    if total_gpus < 2 or not profile_uuids:
+        return False
+    if not side_uuids:
+        return False
+    return all(bool(u) and u not in profile_uuids for u in side_uuids)
 
 
 def _ensure_in_group(config: dict, model_id: str, group_name: str = "main") -> None:
