@@ -16,7 +16,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t
+from .helpers import t, overlay_scaffold
 
 
 def _help_bullet(label: str, text: str) -> rx.Component:
@@ -36,84 +36,73 @@ def audio_help_modal() -> rx.Component:
     user can read the help without losing the underlying settings view.
     Closing this modal does NOT close the settings modal beneath.
     """
-    return rx.cond(
-        AIState.audio_settings_help_open,
-        rx.box(
+    return overlay_scaffold(
+        rx.vstack(
+            rx.hstack(
+                rx.icon("lightbulb", size=20, color="#ffd166"),
+                rx.text(
+                    "Hilfe — Audio Player Sources & Index",
+                    font_weight="bold", font_size="15px",
+                ),
+                rx.spacer(),
+                rx.button(
+                    rx.icon("x", size=16),
+                    size="1", variant="ghost",
+                    on_click=AIState.toggle_audio_settings_help,
+                    cursor="pointer",
+                    custom_attrs={"data-modal-close": "true"},
+                ),
+                spacing="2", align="center", width="100%",
+                padding_bottom="8px",
+                border_bottom="1px solid #333",
+            ),
             rx.box(
-                position="absolute", top="0", left="0",
-                width="100%", height="100%",
-                background_color="rgba(0, 0, 0, 0.92)",
-                # Backdrop fängt den Klick aber schließt das Modal nicht —
-                # User schließt nur explizit via X oder Schließen-Button.
-                on_click=rx.stop_propagation,
+                _help_content(),
+                flex="1",
+                overflow_y="auto",
+                min_height="0",
+                width="100%",
+                padding_right="8px",
             ),
-            rx.vstack(
-                rx.hstack(
-                    rx.icon("lightbulb", size=20, color="#ffd166"),
-                    rx.text(
-                        "Hilfe — Audio Player Sources & Index",
-                        font_weight="bold", font_size="15px",
-                    ),
-                    rx.spacer(),
-                    rx.button(
-                        rx.icon("x", size=16),
-                        size="1", variant="ghost",
-                        on_click=AIState.toggle_audio_settings_help,
-                        cursor="pointer",
-                        custom_attrs={"data-modal-close": "true"},
-                    ),
-                    spacing="2", align="center", width="100%",
-                    padding_bottom="8px",
-                    border_bottom="1px solid #333",
+            rx.hstack(
+                rx.text(
+                    t("audio_help_lifecycle_link"),
+                    size="2",
+                    color="#FFA500",
+                    cursor="pointer",
+                    on_click=[
+                        AIState.toggle_audio_settings_help,
+                        AIState.open_model_lifecycle_help,
+                    ],
+                    style={"text_decoration": "underline"},
                 ),
-                rx.box(
-                    _help_content(),
-                    flex="1",
-                    overflow_y="auto",
-                    min_height="0",
-                    width="100%",
-                    padding_right="8px",
+                rx.spacer(),
+                rx.button(
+                    "Schließen", size="2", variant="soft",
+                    on_click=AIState.toggle_audio_settings_help,
+                    cursor="pointer",
                 ),
-                rx.hstack(
-                    rx.text(
-                        t("audio_help_lifecycle_link"),
-                        size="2",
-                        color="#FFA500",
-                        cursor="pointer",
-                        on_click=[
-                            AIState.toggle_audio_settings_help,
-                            AIState.open_model_lifecycle_help,
-                        ],
-                        style={"text_decoration": "underline"},
-                    ),
-                    rx.spacer(),
-                    rx.button(
-                        "Schließen", size="2", variant="soft",
-                        on_click=AIState.toggle_audio_settings_help,
-                        cursor="pointer",
-                    ),
-                    width="100%",
-                    padding_top="10px",
-                    border_top="1px solid #333",
-                ),
-                on_click=rx.stop_propagation,
-                spacing="3",
-                width="min(820px, 95vw)",
-                height="min(640px, 90vh)",
-                padding="20px",
-                background_color="#1f1f1f",
-                border_radius="8px",
-                border="1px solid rgba(255, 209, 102, 0.4)",
-                box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
-                position="relative",
-                z_index="1401",
+                width="100%",
+                padding_top="10px",
+                border_top="1px solid #333",
             ),
-            position="fixed", top="0", left="0",
-            width="100vw", height="100vh",
-            display="flex", align_items="center", justify_content="center",
-            z_index="1400",
+            on_click=rx.stop_propagation,
+            spacing="3",
+            width="min(820px, 95vw)",
+            height="min(640px, 90vh)",
+            padding="20px",
+            background_color="#1f1f1f",
+            border_radius="8px",
+            border="1px solid rgba(255, 209, 102, 0.4)",
+            box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
+            position="relative",
+            z_index="1401",
         ),
-        rx.fragment(),
+        open_var=AIState.audio_settings_help_open,
+        # Backdrop fängt den Klick aber schließt das Modal nicht —
+        # User schließt nur explizit via X oder Schließen-Button.
+        backdrop_color="rgba(0, 0, 0, 0.92)",
+        z_index="1400",
     )
 
 
@@ -478,137 +467,121 @@ def audio_settings_page() -> rx.Component:
     die Initial-Bundle-Groesse weiter (analog zum Agent-Editor-Split).
     Visuell sieht die Page wie das alte Modal aus (Vollbild-Overlay).
     """
-    return rx.box(
-            rx.box(
-                position="absolute",
-                top="0",
-                left="0",
+    return overlay_scaffold(
+        rx.vstack(
+            # Header
+            rx.hstack(
+                rx.icon("music", size=20, color="#4287f5"),
+                rx.text("Audio Player — Sources & Index", font_weight="bold", font_size="15px"),
+                rx.spacer(),
+                # Help / lightbulb
+                rx.button(
+                    rx.icon("lightbulb", size=16),
+                    size="1",
+                    variant="ghost",
+                    color_scheme="yellow",
+                    on_click=AIState.toggle_audio_settings_help,
+                    cursor="pointer",
+                    title="Hilfe: was macht was?",
+                ),
+                rx.button(
+                    rx.icon("x", size=16),
+                    size="1",
+                    variant="ghost",
+                    on_click=AIState.close_audio_settings,
+                    cursor="pointer",
+                    custom_attrs={"data-modal-close": "true"},
+                ),
+                spacing="2",
+                align="center",
                 width="100%",
-                height="100%",
-                background_color="rgba(0, 0, 0, 0.92)",
-                # Backdrop fängt den Klick aber schließt das Modal nicht —
-                # User schließt nur explizit via X oder Schließen-Button.
-                on_click=rx.stop_propagation,
+                padding_bottom="8px",
+                border_bottom="1px solid #333",
             ),
-            rx.vstack(
-                # Header
-                rx.hstack(
-                    rx.icon("music", size=20, color="#4287f5"),
-                    rx.text("Audio Player — Sources & Index", font_weight="bold", font_size="15px"),
-                    rx.spacer(),
-                    # Help / lightbulb
-                    rx.button(
-                        rx.icon("lightbulb", size=16),
-                        size="1",
-                        variant="ghost",
-                        color_scheme="yellow",
-                        on_click=AIState.toggle_audio_settings_help,
-                        cursor="pointer",
-                        title="Hilfe: was macht was?",
-                    ),
-                    rx.button(
-                        rx.icon("x", size=16),
-                        size="1",
-                        variant="ghost",
-                        on_click=AIState.close_audio_settings,
-                        cursor="pointer",
-                        custom_attrs={"data-modal-close": "true"},
-                    ),
-                    spacing="2",
-                    align="center",
+            # (Help is rendered as separate modal via audio_help_modal)
+            # Sandbox-Root editor (for the source picker)
+            _sandbox_root_editor(),
+            # List/search default limits
+            _list_limits_editor(),
+            # TTS list filter threshold
+            _tts_list_threshold_editor(),
+            # Hint
+            rx.text(
+                "Sources sind Ordner oder Symlinks unter ",
+                rx.code("data/media/audio/"),
+                ". Symlinks zeigen NAS-Inhalt transparent. "
+                "HTTP-Streams werden in der settings.json verwaltet.",
+                font_size="12px",
+                color="#888",
+                line_height="1.5",
+            ),
+            # Source list — flex=1 keeps the modal at a fixed size
+            # regardless of how many sources the user has configured.
+            rx.box(
+                rx.vstack(
+                    rx.foreach(AIState.audio_sources_view, _source_row),
+                    spacing="0",
                     width="100%",
-                    padding_bottom="8px",
-                    border_bottom="1px solid #333",
                 ),
-                # (Help is rendered as separate modal via audio_help_modal)
-                # Sandbox-Root editor (for the source picker)
-                _sandbox_root_editor(),
-                # List/search default limits
-                _list_limits_editor(),
-                # TTS list filter threshold
-                _tts_list_threshold_editor(),
-                # Hint
+                flex="1",
+                overflow_y="auto",
+                min_height="0",
+                width="100%",
+            ),
+            # Status line
+            rx.cond(
+                AIState.audio_settings_status != "",
                 rx.text(
-                    "Sources sind Ordner oder Symlinks unter ",
-                    rx.code("data/media/audio/"),
-                    ". Symlinks zeigen NAS-Inhalt transparent. "
-                    "HTTP-Streams werden in der settings.json verwaltet.",
+                    AIState.audio_settings_status,
                     font_size="12px",
-                    color="#888",
-                    line_height="1.5",
+                    color="#aaa",
+                    font_family="monospace",
+                    padding="6px 10px",
+                    background_color="rgba(0, 0, 0, 0.3)",
+                    border_radius="4px",
                 ),
-                # Source list — flex=1 keeps the modal at a fixed size
-                # regardless of how many sources the user has configured.
-                rx.box(
-                    rx.vstack(
-                        rx.foreach(AIState.audio_sources_view, _source_row),
-                        spacing="0",
-                        width="100%",
-                    ),
-                    flex="1",
-                    overflow_y="auto",
-                    min_height="0",
-                    width="100%",
-                ),
-                # Status line
-                rx.cond(
-                    AIState.audio_settings_status != "",
-                    rx.text(
-                        AIState.audio_settings_status,
-                        font_size="12px",
-                        color="#aaa",
-                        font_family="monospace",
-                        padding="6px 10px",
-                        background_color="rgba(0, 0, 0, 0.3)",
-                        border_radius="4px",
-                    ),
-                    rx.fragment(),
-                ),
-                # Footer with add-source button
-                rx.hstack(
-                    rx.button(
-                        rx.icon("folder-plus", size=14),
-                        "Neue Source hinzufügen…",
-                        size="2",
-                        variant="soft",
-                        on_click=AIState.open_audio_source_picker,
-                        cursor="pointer",
-                    ),
-                    rx.spacer(),
-                    rx.button(
-                        "Schließen",
-                        size="2",
-                        variant="soft",
-                        on_click=AIState.close_audio_settings,
-                        cursor="pointer",
-                    ),
-                    spacing="2",
-                    width="100%",
-                    padding_top="10px",
-                    border_top="1px solid #333",
-                ),
-                # Modal content — stop click bubbling so clicks inside don't
-                # close the modal (only the backdrop click does)
-                on_click=rx.stop_propagation,
-                spacing="3",
-                # Fixed responsive size — stays stable as sources are added
-                width="min(1000px, 95vw)",
-                height="min(680px, 90vh)",
-                padding="20px",
-                background_color="#1f1f1f",
-                border_radius="8px",
-                border="1px solid #444",
-                box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
-                position="relative",
-                z_index="1201",
+                rx.fragment(),
             ),
-            position="fixed",
-            top="0",
-            left="0",
-            width="100vw",
-            height="100vh",
-            display="flex",
-            align_items="center",
-            justify_content="center",
-            z_index="1200",
+            # Footer with add-source button
+            rx.hstack(
+                rx.button(
+                    rx.icon("folder-plus", size=14),
+                    "Neue Source hinzufügen…",
+                    size="2",
+                    variant="soft",
+                    on_click=AIState.open_audio_source_picker,
+                    cursor="pointer",
+                ),
+                rx.spacer(),
+                rx.button(
+                    "Schließen",
+                    size="2",
+                    variant="soft",
+                    on_click=AIState.close_audio_settings,
+                    cursor="pointer",
+                ),
+                spacing="2",
+                width="100%",
+                padding_top="10px",
+                border_top="1px solid #333",
+            ),
+            # Modal content — stop click bubbling so clicks inside don't
+            # close the modal (only the backdrop click does)
+            on_click=rx.stop_propagation,
+            spacing="3",
+            # Fixed responsive size — stays stable as sources are added
+            width="min(1000px, 95vw)",
+            height="min(680px, 90vh)",
+            padding="20px",
+            background_color="#1f1f1f",
+            border_radius="8px",
+            border="1px solid #444",
+            box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
+            position="relative",
+            z_index="1201",
+        ),
+        # Backdrop fängt den Klick aber schließt das Modal nicht —
+        # User schließt nur explizit via X oder Schließen-Button.
+        backdrop_color="rgba(0, 0, 0, 0.92)",
+        z_index="1200",
     )

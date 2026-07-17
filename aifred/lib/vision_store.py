@@ -196,6 +196,38 @@ class VisionStore:
         d["settings"] = json.loads(d.pop("settings_json"))
         return d
 
+    def update_source_fields(
+        self,
+        source_id: str,
+        *,
+        fallback_display_name: str = "",
+        fallback_kind: str = "webcam",
+        **changes: Any,
+    ) -> None:
+        """Einzelne Top-Level-Felder einer Quelle ändern, alle übrigen
+        erhalten (SSOT für das Load-Merge-Write-Muster der Mixins).
+
+        ``changes`` akzeptiert die upsert_source-Felder (prompt_context,
+        position, auto_start, sensitivity, settings). Existiert die Quelle
+        noch nicht, wird sie mit den Fallbacks angelegt."""
+        existing = self.get_source(source_id) or {}
+        self.upsert_source(
+            source_id=source_id,
+            display_name=str(
+                existing.get("display_name") or fallback_display_name or source_id
+            ),
+            kind=str(existing.get("kind") or fallback_kind or "webcam"),
+            prompt_context=str(
+                changes.get("prompt_context", existing.get("prompt_context", ""))
+            ),
+            position=str(changes.get("position", existing.get("position", ""))),
+            auto_start=bool(changes.get("auto_start", existing.get("auto_start", False))),
+            sensitivity=str(
+                changes.get("sensitivity", existing.get("sensitivity", "medium"))
+            ),
+            settings=dict(changes.get("settings", existing.get("settings") or {})),
+        )
+
     def patch_source_settings(
         self, source_id: str, patch: dict[str, Any]
     ) -> None:
@@ -208,16 +240,7 @@ class VisionStore:
         existing = self.get_source(source_id) or {}
         new_settings = dict(existing.get("settings") or {})
         new_settings.update(patch)
-        self.upsert_source(
-            source_id=source_id,
-            display_name=str(existing.get("display_name") or source_id),
-            kind=str(existing.get("kind") or "webcam"),
-            prompt_context=str(existing.get("prompt_context", "")),
-            position=str(existing.get("position", "")),
-            auto_start=bool(existing.get("auto_start", False)),
-            sensitivity=str(existing.get("sensitivity", "medium")),
-            settings=new_settings,
-        )
+        self.update_source_fields(source_id, settings=new_settings)
 
     def list_sources(self) -> list[dict[str, Any]]:
         with self._conn() as conn:

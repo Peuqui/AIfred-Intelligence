@@ -143,6 +143,101 @@ class OllamaBackend(LLMBackend):
         except httpx.HTTPError as e:
             raise BackendConnectionError(f"Failed to list Ollama models: {e}")
 
+    def _build_chat_payload(
+        self,
+        model: str,
+        messages: List[LLMMessage],
+        options: LLMOptions,
+        stream: bool
+    ) -> dict[str, Any]:
+        """
+        Build the /api/chat request payload (options dict + think flag).
+
+        Thinking Mode: Set based on options AND model capability
+        - If supports_thinking=False (known not supported), skip thinking even if enabled
+        - If supports_thinking=None (unknown), try optimistically
+        - If supports_thinking=True (known supported), use enable_thinking setting
+
+        Historical drift between the two callers, preserved via ``stream``:
+        the streaming path coerces ``enable_thinking=None`` to False, while
+        the non-streaming path passes None through (JSON ``null``).
+        """
+        ollama_messages = self._convert_messages(messages)
+
+        # Build options dict — always send all params
+        ollama_options = {
+            "temperature": options.temperature,
+            "repeat_penalty": options.repeat_penalty,
+            "top_p": options.top_p,
+            "top_k": options.top_k,
+            "min_p": options.min_p,
+        }
+        if options.num_ctx:
+            ollama_options["num_ctx"] = options.num_ctx
+        # NOTE: num_predict intentionally NOT set for Ollama
+        # Ollama generates until EOS or num_ctx is full - no artificial limit needed
+        if options.seed:
+            ollama_options["seed"] = options.seed
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": ollama_messages,
+            "options": ollama_options,
+            "stream": stream
+        }
+
+        if options.supports_thinking is False:
+            # Model known to NOT support thinking - skip it
+            payload["think"] = False
+        elif stream:
+            # Unknown or known to support - use user preference (None → False)
+            payload["think"] = options.enable_thinking if options.enable_thinking is not None else False
+        else:
+            # Unknown or known to support - use user preference
+            payload["think"] = options.enable_thinking
+
+        return payload
+
+    @staticmethod
+    def _parse_chat_response(data: dict, model: str, inference_time: float) -> LLMResponse:
+        """
+        Parse a non-streaming /api/chat response into an LLMResponse.
+
+        Supports both standard models (content) and thinking models
+        (thinking field, wrapped in <think> tags) and computes metrics.
+        """
+        # Extract text from response
+        # Support both standard models (content) and thinking models (thinking field)
+        message = data.get("message", {})
+        content = message.get("content", "")
+        thinking = message.get("thinking", "")
+
+        # If thinking mode enabled and thinking present, wrap in <think> tags
+        if thinking and content:
+            # Both present: wrap thinking in tags, append content
+            text = f"<think>{thinking}</think>\n\n{content}"
+        elif thinking and not content:
+            # Only thinking present: wrap in tags
+            text = f"<think>{thinking}</think>"
+        else:
+            # No thinking or only content: use content
+            text = content
+
+        eval_count = data.get("eval_count", 0)
+        eval_duration = data.get("eval_duration", 1)  # nanoseconds
+        prompt_eval_count = data.get("prompt_eval_count", 0)
+
+        tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
+
+        return LLMResponse(
+            text=text,
+            tokens_prompt=prompt_eval_count,
+            tokens_generated=eval_count,
+            tokens_per_second=tokens_per_second,
+            inference_time=inference_time,
+            model=model
+        )
+
     async def chat(
         self,
         model: str,
@@ -168,40 +263,7 @@ class OllamaBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
-        ollama_messages = self._convert_messages(messages)
-
-        # Build options dict — always send all params
-        ollama_options = {
-            "temperature": options.temperature,
-            "repeat_penalty": options.repeat_penalty,
-            "top_p": options.top_p,
-            "top_k": options.top_k,
-            "min_p": options.min_p,
-        }
-        if options.num_ctx:
-            ollama_options["num_ctx"] = options.num_ctx
-        # NOTE: num_predict intentionally NOT set for Ollama
-        # Ollama generates until EOS or num_ctx is full - no artificial limit needed
-        if options.seed:
-            ollama_options["seed"] = options.seed
-
-        payload = {
-            "model": model,
-            "messages": ollama_messages,
-            "options": ollama_options,
-            "stream": False
-        }
-
-        # Thinking Mode: Set based on options AND model capability
-        # - If supports_thinking=False (known not supported), skip thinking even if enabled
-        # - If supports_thinking=None (unknown), try optimistically
-        # - If supports_thinking=True (known supported), use enable_thinking setting
-        if options.supports_thinking is False:
-            # Model known to NOT support thinking - skip it
-            payload["think"] = False
-        else:
-            # Unknown or known to support - use user preference
-            payload["think"] = options.enable_thinking
+        payload = self._build_chat_payload(model, messages, options, stream=False)
 
         try:
             timer = Timer()
@@ -214,39 +276,7 @@ class OllamaBackend(LLMBackend):
             response.raise_for_status()
             inference_time = timer.elapsed()
 
-            data = response.json()
-
-            # Extract text from response
-            # Support both standard models (content) and thinking models (thinking field)
-            message = data.get("message", {})
-            content = message.get("content", "")
-            thinking = message.get("thinking", "")
-
-            # If thinking mode enabled and thinking present, wrap in <think> tags
-            if thinking and content:
-                # Both present: wrap thinking in tags, append content
-                text = f"<think>{thinking}</think>\n\n{content}"
-            elif thinking and not content:
-                # Only thinking present: wrap in tags
-                text = f"<think>{thinking}</think>"
-            else:
-                # No thinking or only content: use content
-                text = content
-
-            eval_count = data.get("eval_count", 0)
-            eval_duration = data.get("eval_duration", 1)  # nanoseconds
-            prompt_eval_count = data.get("prompt_eval_count", 0)
-
-            tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
-
-            return LLMResponse(
-                text=text,
-                tokens_prompt=prompt_eval_count,
-                tokens_generated=eval_count,
-                tokens_per_second=tokens_per_second,
-                inference_time=inference_time,
-                model=model
-            )
+            return self._parse_chat_response(response.json(), model, inference_time)
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -270,31 +300,7 @@ class OllamaBackend(LLMBackend):
                         response.raise_for_status()
                         inference_time = retry_timer.elapsed()
 
-                        data = response.json()
-                        message = data.get("message", {})
-                        content = message.get("content", "")
-                        thinking = message.get("thinking", "")
-
-                        if thinking and content:
-                            text = f"<think>{thinking}</think>\n\n{content}"
-                        elif thinking and not content:
-                            text = f"<think>{thinking}</think>"
-                        else:
-                            text = content
-
-                        eval_count = data.get("eval_count", 0)
-                        eval_duration = data.get("eval_duration", 1)
-                        prompt_eval_count = data.get("prompt_eval_count", 0)
-                        tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
-
-                        return LLMResponse(
-                            text=text,
-                            tokens_prompt=prompt_eval_count,
-                            tokens_generated=eval_count,
-                            tokens_per_second=tokens_per_second,
-                            inference_time=inference_time,
-                            model=model
-                        )
+                        return self._parse_chat_response(response.json(), model, inference_time)
                 except (ValueError, KeyError):
                     pass  # If JSON parsing fails, fall through to normal error handling
                 raise BackendInferenceError(f"Ollama HTTP error: {e}")
@@ -339,41 +345,8 @@ class OllamaBackend(LLMBackend):
 
         if options is None:
             options = LLMOptions()
-        
-        ollama_messages = self._convert_messages(messages)
 
-        # Build options
-        ollama_options = {
-            "temperature": options.temperature,
-            "repeat_penalty": options.repeat_penalty,
-            "top_p": options.top_p,
-            "top_k": options.top_k,
-            "min_p": options.min_p,
-        }
-        if options.num_ctx:
-            ollama_options["num_ctx"] = options.num_ctx
-        # NOTE: num_predict intentionally NOT set for Ollama
-        # Ollama generates until EOS or num_ctx is full - no artificial limit needed
-        if options.seed:
-            ollama_options["seed"] = options.seed
-
-        payload = {
-            "model": model,
-            "messages": ollama_messages,
-            "options": ollama_options,
-            "stream": True
-        }
-
-        # Thinking Mode: Set based on options AND model capability
-        # - If supports_thinking=False (known not supported), skip thinking even if enabled
-        # - If supports_thinking=None (unknown), try optimistically
-        # - If supports_thinking=True (known supported), use enable_thinking setting
-        if options.supports_thinking is False:
-            # Model known to NOT support thinking - skip it
-            payload["think"] = False
-        else:
-            # Unknown or known to support - use user preference
-            payload["think"] = options.enable_thinking if options.enable_thinking is not None else False
+        payload = self._build_chat_payload(model, messages, options, stream=True)
 
         # Retry loop: try once, retry with think=false if needed.
         # IMPORTANT: only retry while nothing has been yielded yet. Once the
@@ -728,38 +701,6 @@ class OllamaBackend(LLMBackend):
         except httpx.HTTPError:
             return False
 
-    def get_backend_name(self) -> str:
-        return "Ollama"
-
-    async def get_backend_info(self) -> Dict:
-        """Get Ollama backend information"""
-        try:
-            # Try to get version
-            response = await self.client.get(f"{self.base_url}/api/version")
-            version = response.json().get("version", "unknown") if response.status_code == 200 else "unknown"
-
-            # Get models
-            models = await self.list_models()
-
-            return {
-                "backend": "Ollama",
-                "version": version,
-                "base_url": self.base_url,
-                "available_models": len(models),
-                "models": models,
-                "healthy": True
-            }
-        except httpx.HTTPError as e:
-            return {
-                "backend": "Ollama",
-                "version": "unknown",
-                "base_url": self.base_url,
-                "available_models": 0,
-                "models": [],
-                "healthy": False,
-                "error": str(e)
-            }
-
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
         Get context limit and model size for an Ollama model.
@@ -867,38 +808,6 @@ class OllamaBackend(LLMBackend):
         except httpx.HTTPError as e:
             logger.warning(f"Failed to query Ollama /api/ps: {e}")
             return False  # Assume not loaded on error
-
-    async def get_loaded_model_context(self, model: str) -> Optional[int]:
-        """
-        Get the context length that a loaded model is currently using.
-
-        This queries /api/ps to get the ACTUAL context_length value that Ollama
-        is using for this model (which may be lower than the architectural maximum
-        due to VRAM constraints or manual num_ctx settings).
-
-        Args:
-            model: Model name (e.g., "qwen3:8b")
-
-        Returns:
-            int: Context length the model is loaded with, or None if not loaded
-        """
-        try:
-            response = await self.client.get(f"{self.base_url}/api/ps")
-            response.raise_for_status()
-            data = response.json()
-
-            # Find model in 'models' array
-            loaded_models = data.get('models', [])
-            for loaded_model in loaded_models:
-                if loaded_model.get('name') == model:
-                    # Return the context_length Ollama is using for this model
-                    return int(loaded_model['context_length'])
-
-            return None  # Model not loaded
-
-        except httpx.HTTPError as e:
-            logger.warning(f"Failed to query Ollama /api/ps: {e}")
-            return None
 
     def get_capabilities(self) -> Dict[str, bool]:
         """
@@ -1094,6 +1003,100 @@ class OllamaBackend(LLMBackend):
         # Return result via special message (parsed by caller)
         yield f"__BINARY_RESULT__:{result}"
 
+    def _save_calibration(
+        self,
+        model: str,
+        final_ctx: int,
+        native_ctx: int,
+        rope_factor: float,
+        is_hybrid: bool
+    ) -> None:
+        """Persist a calibration result to the model VRAM cache."""
+        from ..lib.model_vram_cache import add_ollama_calibration
+        from ..lib.gpu_utils import get_gpu_model_name
+
+        gpu_model = get_gpu_model_name() or "Unknown"
+        add_ollama_calibration(
+            model_name=model,
+            max_context_gpu_only=final_ctx,
+            native_context=native_ctx,
+            gpu_model=gpu_model,
+            rope_factor=rope_factor,
+            is_hybrid=is_hybrid
+        )
+
+    async def _calibrate_hybrid(
+        self,
+        model: str,
+        native_ctx: int,
+        rope_factor: float,
+        effective_min_context: int,
+        calculated_upper: int,
+        ratio: float,
+        show_final_memory: bool,
+        done_message_template: str
+    ):
+        """
+        Shared hybrid calibration: RAM upper-bound test → binary search → save.
+
+        Yields progress messages; final yield is "__RESULT__:{ctx}:hybrid".
+        Caller differences are parameterized:
+        - show_final_memory: model>VRAM path shows a final VRAM/RAM status line
+        - done_message_template: success message, formatted with {ctx}
+          (force_hybrid: "✅ Hybrid calibrated: {ctx} tok",
+           model>VRAM: "✅ Hybrid mode: {ctx} tokens saved")
+        """
+        import asyncio
+        from ..lib.formatting import format_number
+        from ..lib.gpu_utils import get_free_vram_mb, get_free_ram_mb
+
+        yield f"→ Binary search range: {format_number(effective_min_context)} → {format_number(calculated_upper)} tok"
+        yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({format_number(ratio, 2)} MB/token)"
+
+        # Test upper bound first (often fits, saves binary search)
+        yield f"[1] Testing {format_number(calculated_upper)}..."
+        success, _ = await self.preload_model(model, num_ctx=calculated_upper)
+
+        if success:
+            await asyncio.sleep(2.0)
+            check_ram = get_free_ram_mb()
+            if check_ram and check_ram >= MIN_FREE_RAM_MB:
+                yield f"✅ {format_number(calculated_upper)} fits in RAM ({format_number(check_ram)} MB free)"
+                self._save_calibration(model, calculated_upper, native_ctx, rope_factor, is_hybrid=True)
+                yield f"__RESULT__:{calculated_upper}:hybrid"
+                return
+            else:
+                ram_str = format_number(check_ram) if check_ram else "N/A"
+                yield f"✗ {format_number(calculated_upper)} exceeds RAM reserve ({ram_str} MB < {format_number(MIN_FREE_RAM_MB)} MB)"
+        else:
+            yield f"✗ {format_number(calculated_upper)} failed to load"
+
+        # Binary search using shared helper function
+        final_ctx = effective_min_context  # Default if binary search yields nothing
+        async for msg in self._binary_search_hybrid_context(
+            model=model,
+            low=effective_min_context,
+            high=calculated_upper,
+            start_iteration=1
+        ):
+            if msg.startswith("__BINARY_RESULT__:"):
+                final_ctx = int(msg.split(":")[1])
+            else:
+                yield msg
+
+        if show_final_memory:
+            # Show final memory status
+            await asyncio.sleep(1.0)
+            final_vram = get_free_vram_mb()
+            final_ram = get_free_ram_mb()
+            if final_vram and final_ram:
+                yield f"→ Final: VRAM {format_number(final_vram / 1024, 1)} GB | RAM {format_number(final_ram / 1024, 1)} GB free"
+
+        # Save calibration result
+        self._save_calibration(model, final_ctx, native_ctx, rope_factor, is_hybrid=True)
+        yield done_message_template.format(ctx=format_number(final_ctx))
+        yield f"__RESULT__:{final_ctx}:hybrid"
+
     async def calibrate_max_context_generator(
         self,
         model: str,
@@ -1126,8 +1129,6 @@ class OllamaBackend(LLMBackend):
                  where mode is "gpu", "hybrid", or "error"
         """
         import asyncio
-        from ..lib.model_vram_cache import add_ollama_calibration
-        from ..lib.gpu_utils import get_gpu_model_name
         from ..lib.formatting import format_number
         from ..lib.config import CALIBRATION_MIN_CONTEXT
 
@@ -1207,60 +1208,17 @@ class OllamaBackend(LLMBackend):
                 yield "__RESULT__:0:error"
                 return
 
-            yield f"→ Binary search range: {format_number(effective_min_context)} → {format_number(calculated_upper)} tok"
-            yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({format_number(ratio, 2)} MB/token)"
-
-            # Test upper bound first (often fits, saves binary search)
-            yield f"[1] Testing {format_number(calculated_upper)}..."
-            success, _ = await self.preload_model(model, num_ctx=calculated_upper)
-
-            if success:
-                await asyncio.sleep(2.0)
-                check_ram = get_free_ram_mb()
-                if check_ram and check_ram >= MIN_FREE_RAM_MB:
-                    yield f"✅ {format_number(calculated_upper)} fits in RAM ({format_number(check_ram)} MB free)"
-                    gpu_model = get_gpu_model_name() or "Unknown"
-                    add_ollama_calibration(
-                        model_name=model,
-                        max_context_gpu_only=calculated_upper,
-                        native_context=native_ctx,
-                        gpu_model=gpu_model,
-                        rope_factor=rope_factor,
-                        is_hybrid=True
-                    )
-                    yield f"__RESULT__:{calculated_upper}:hybrid"
-                    return
-                else:
-                    ram_str = format_number(check_ram) if check_ram else "N/A"
-                    yield f"✗ {format_number(calculated_upper)} exceeds RAM reserve ({ram_str} MB < {format_number(MIN_FREE_RAM_MB)} MB)"
-            else:
-                yield f"✗ {format_number(calculated_upper)} failed to load"
-
-            # Binary search using shared helper function
-            final_ctx = effective_min_context  # Default if binary search yields nothing
-            async for msg in self._binary_search_hybrid_context(
+            async for msg in self._calibrate_hybrid(
                 model=model,
-                low=effective_min_context,
-                high=calculated_upper,
-                start_iteration=1
-            ):
-                if msg.startswith("__BINARY_RESULT__:"):
-                    final_ctx = int(msg.split(":")[1])
-                else:
-                    yield msg
-
-            # Save result
-            gpu_model = get_gpu_model_name() or "Unknown"
-            add_ollama_calibration(
-                model_name=model,
-                max_context_gpu_only=final_ctx,
-                native_context=native_ctx,
-                gpu_model=gpu_model,
+                native_ctx=native_ctx,
                 rope_factor=rope_factor,
-                is_hybrid=True
-            )
-            yield f"✅ Hybrid calibrated: {format_number(final_ctx)} tok"
-            yield f"__RESULT__:{final_ctx}:hybrid"
+                effective_min_context=effective_min_context,
+                calculated_upper=calculated_upper,
+                ratio=ratio,
+                show_final_memory=False,
+                done_message_template="✅ Hybrid calibrated: {ctx} tok"
+            ):
+                yield msg
             return
 
         # Check if we can do hybrid mode detection
@@ -1307,68 +1265,17 @@ class OllamaBackend(LLMBackend):
                 return
 
             # === BINARY SEARCH FOR OPTIMAL CONTEXT ===
-            yield f"→ Binary search range: {format_number(effective_min_context)} → {format_number(calculated_upper)} tok"
-            yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({format_number(ratio, 2)} MB/token)"
-
-            # Test upper bound first (often fits, saves binary search)
-            yield f"[1] Testing {format_number(calculated_upper)}..."
-            success, _ = await self.preload_model(model, num_ctx=calculated_upper)
-
-            if success:
-                await asyncio.sleep(2.0)
-                check_ram = get_free_ram_mb()
-                if check_ram and check_ram >= MIN_FREE_RAM_MB:
-                    yield f"✅ {format_number(calculated_upper)} fits in RAM ({format_number(check_ram)} MB free)"
-                    gpu_model = get_gpu_model_name() or "Unknown"
-                    add_ollama_calibration(
-                        model_name=model,
-                        max_context_gpu_only=calculated_upper,
-                        native_context=native_ctx,
-                        gpu_model=gpu_model,
-                        rope_factor=rope_factor,
-                        is_hybrid=True
-                    )
-                    yield f"__RESULT__:{calculated_upper}:hybrid"
-                    return
-                else:
-                    ram_str = format_number(check_ram) if check_ram else "N/A"
-                    yield f"✗ {format_number(calculated_upper)} exceeds RAM reserve ({ram_str} MB < {format_number(MIN_FREE_RAM_MB)} MB)"
-            else:
-                yield f"✗ {format_number(calculated_upper)} failed to load"
-
-            # Binary search using shared helper function
-            final_ctx = effective_min_context  # Default if binary search yields nothing
-            async for msg in self._binary_search_hybrid_context(
+            async for msg in self._calibrate_hybrid(
                 model=model,
-                low=effective_min_context,
-                high=calculated_upper,
-                start_iteration=1
-            ):
-                if msg.startswith("__BINARY_RESULT__:"):
-                    final_ctx = int(msg.split(":")[1])
-                else:
-                    yield msg
-
-            # Show final memory status
-            await asyncio.sleep(1.0)
-            final_vram = get_free_vram_mb()
-            final_ram = get_free_ram_mb()
-            if final_vram and final_ram:
-                yield f"→ Final: VRAM {format_number(final_vram / 1024, 1)} GB | RAM {format_number(final_ram / 1024, 1)} GB free"
-
-            # Save calibration result
-            gpu_model = get_gpu_model_name() or "Unknown"
-            add_ollama_calibration(
-                model_name=model,
-                max_context_gpu_only=final_ctx,
-                native_context=native_ctx,
-                gpu_model=gpu_model,
+                native_ctx=native_ctx,
                 rope_factor=rope_factor,
-                is_hybrid=True
-            )
-
-            yield f"✅ Hybrid mode: {format_number(final_ctx)} tokens saved"
-            yield f"__RESULT__:{final_ctx}:hybrid"
+                effective_min_context=effective_min_context,
+                calculated_upper=calculated_upper,
+                ratio=ratio,
+                show_final_memory=True,
+                done_message_template="✅ Hybrid mode: {ctx} tokens saved"
+            ):
+                yield msg
             return  # Skip normal binary search
 
         # === NORMAL MODE (model fits in VRAM) ===
@@ -1516,15 +1423,7 @@ class OllamaBackend(LLMBackend):
             yield f"✅ Calibrated ({mode_label}): {format_number(final_ctx)} tok"
 
         # 6. Save to cache
-        gpu_model = get_gpu_model_name() or "Unknown"
-        add_ollama_calibration(
-            model_name=model,
-            max_context_gpu_only=final_ctx,
-            native_context=native_ctx,
-            gpu_model=gpu_model,
-            rope_factor=rope_factor,
-            is_hybrid=is_hybrid
-        )
+        self._save_calibration(model, final_ctx, native_ctx, rope_factor, is_hybrid=is_hybrid)
 
         # NOTE: No longer auto-setting RoPE 2x here - we calibrate all RoPE factors explicitly
         # Each RoPE factor (1.0x, 1.5x, 2.0x) is calibrated separately in state.py

@@ -653,6 +653,40 @@ def has_llamaswap_tts_variant(
     )
 
 
+def resolve_effective_suffix(
+    config_path: Path,
+    base_id: str,
+    *,
+    speed_on: bool,
+    has_speed_variant: bool,
+    tts_active: bool,
+    tts_engine: str = "",
+) -> str:
+    """Convenience-Wrapper um :func:`resolve_variant_suffix`.
+
+    Holt den prozessweiten VLM-Zustand (``is_vision_active`` /
+    ``get_active_vlm_key``) und die ``GPU_ENGINES``-Menge intern — die
+    Callsites geben nur noch ihre eigenen Flags herein. SSOT für den
+    vorher an vier Stellen kopierten Prolog; verhindert, dass eine
+    Callsite bei der VLM-Ermittlung driftet.
+    """
+    from ..tts_engine_manager import GPU_ENGINES
+    from ..vision_prewarm import is_vision_active, get_active_vlm_key
+    vlm_active = is_vision_active()
+    vlm_key = get_active_vlm_key() if vlm_active else ""
+    return resolve_variant_suffix(
+        config_path,
+        base_id,
+        speed_on=speed_on,
+        has_speed_variant=has_speed_variant,
+        tts_active=tts_active,
+        tts_engine=tts_engine,
+        gpu_tts_engines=GPU_ENGINES,
+        vlm_active=vlm_active,
+        vlm_key=vlm_key,
+    )
+
+
 def resolve_variant_suffix(
     config_path: Path,
     base_id: str,
@@ -757,8 +791,12 @@ def resolve_variant_suffix(
         if base_tts_id in models:
             return f"-tts-{tts_engine}"
 
-    # Rule 7: Speed only.
-    if speed_on and has_speed_variant:
+    # Rule 7: Speed only — like every other rule this requires the
+    # profile to actually exist for THIS base id. The state flag alone
+    # is not enough: callers may resolve a different model than the one
+    # the flag belongs to (e.g. the Automatik resolver mirrors AIfred's
+    # toggles), which used to produce a llama-swap-unknown model id.
+    if speed_on and has_speed_variant and f"{base_id}-speed" in models:
         return "-speed"
 
     # Rule 8: bare base.

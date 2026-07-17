@@ -16,12 +16,16 @@ import asyncio
 
 import pytest
 
-import aifred.lib.calibration.flow as flow
-from aifred.lib.calibration.flow import (
+import aifred.lib.calibration.ctx_search as ctx_search
+import aifred.lib.calibration.fit_math as fit_math
+import aifred.lib.calibration.split_refine as split_refine
+from aifred.lib.calibration.ctx_search import (
     _binary_search_fitting_ctx,
-    _context_refine_swap,
     _CtxSearchResult,
     _known_ctx_ceiling,
+)
+from aifred.lib.calibration.split_refine import (
+    _context_refine_swap,
     _refine_split_from_measurement,
 )
 from aifred.lib.calibration.types import (
@@ -41,9 +45,9 @@ MODEL_MB = 30000.0
 @pytest.fixture(autouse=True)
 def _clear_bias_cache():
     """The cross-variant bias cache is module-level; isolate every test."""
-    flow._MODEL_BIAS_CACHE.clear()
+    fit_math._MODEL_BIAS_CACHE.clear()
     yield
-    flow._MODEL_BIAS_CACHE.clear()
+    fit_math._MODEL_BIAS_CACHE.clear()
 
 
 def _vmodel(split, slope_per_layer):
@@ -125,7 +129,7 @@ def test_cascade_upstream_respects_blocked_dest():
 def test_cascade_no_upstream_without_free_estimate():
     """Without a per-card free estimate the fallback must NOT guess an
     upstream target (fast cards are usually packed full) — None it is."""
-    dest = flow._cascade_destination(
+    dest = split_refine._cascade_destination(
         src=4, layers=[17.0, 18.0, 8.0, 9.0, 9.0], free_estimate=(),
         layer_cost_per_gpu=(), min_free_mb=192, step=1.0,
         keep_active_set=False,
@@ -138,23 +142,23 @@ def test_measured_split_ceiling_min_over_active_cards():
     idle cards are ignored (the upward search's rescue-probe anchor)."""
     # card0: 1000 + (400−200)/(4·0.001) = 51.000 (limiter)
     # card1: 1000 + (1000−200)/(2·0.001) = 401.000
-    c = flow._measured_split_ceiling(
+    c = split_refine._measured_split_ceiling(
         [4, 2], [400.0, 1000.0], (0.001, 0.001), 1000, 200,
     )
     assert c == 51000.0
     # idle card contributes nothing
-    c2 = flow._measured_split_ceiling(
+    c2 = split_refine._measured_split_ceiling(
         [4, 0], [400.0, 0.0], (0.001, 0.001), 1000, 200,
     )
     assert c2 == 51000.0
     # no active cards → inf (guard)
-    assert flow._measured_split_ceiling([0], [0.0], (0.001,), 1000, 200) == float("inf")
+    assert split_refine._measured_split_ceiling([0], [0.0], (0.001,), 1000, 200) == float("inf")
 
 
 def test_cascade_prefers_downstream_before_upstream():
     """The glass cascade stays a cascade: a downstream card that holds the
     reserve wins even when an upstream card has MORE headroom."""
-    dest = flow._cascade_destination(
+    dest = split_refine._cascade_destination(
         src=2, layers=[17.0, 18.0, 8.0, 9.0, 9.0],
         free_estimate=(500, 9000, 300, 5000, 4000),
         layer_cost_per_gpu=(1200.0,) * 5, min_free_mb=192, step=1.0,
@@ -290,7 +294,7 @@ def test_binary_search_finds_highest_fitting_ctx(monkeypatch):
             return VerifyResult(True, (2000,) * 5, None, "fit")
         return VerifyResult(False, (100,) * 5, None, "oom")
 
-    monkeypatch.setattr(flow, "verify", _fake_verify)
+    monkeypatch.setattr(ctx_search, "verify", _fake_verify)
     res = _drain_search(
         current_split=split, candidate=_candidate(split), model=_model(),
         gpus=_gpus_5(), budget=_budget((20000,) * 5),
@@ -335,7 +339,7 @@ def test_seeded_bias_trusts_math_instead_of_crawling(monkeypatch):
             return VerifyResult(True, (2000,) * 5, None, "fit")
         return VerifyResult(False, (150,) * 5, None, "oom")
 
-    monkeypatch.setattr(flow, "verify", _fake_verify)
+    monkeypatch.setattr(ctx_search, "verify", _fake_verify)
     res, msgs = _drain_search_verbose(
         current_split=split, candidate=_candidate(split, vram_model=vmodel),
         model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
@@ -360,7 +364,7 @@ def test_no_model_still_bisects(monkeypatch):
             return VerifyResult(True, (2000,) * 5, None, "fit")
         return VerifyResult(False, (150,) * 5, None, "oom")
 
-    monkeypatch.setattr(flow, "verify", _fake_verify)
+    monkeypatch.setattr(ctx_search, "verify", _fake_verify)
     res, msgs = _drain_search_verbose(
         current_split=split, candidate=_candidate(split, vram_model=None),
         model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
@@ -386,7 +390,7 @@ def test_cross_variant_bias_cache_carries_to_next_variant(monkeypatch):
             return VerifyResult(True, (2000,) * 5, None, "fit")
         return VerifyResult(False, (150,) * 5, None, "oom")
 
-    monkeypatch.setattr(flow, "verify", _fake_verify)
+    monkeypatch.setattr(ctx_search, "verify", _fake_verify)
     common = dict(
         current_split=split, candidate=_candidate(split, vram_model=vmodel),
         model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
@@ -397,7 +401,7 @@ def test_cross_variant_bias_cache_carries_to_next_variant(monkeypatch):
     # Variant 1: no seed, no cache — learns and caches the bias.
     res1, _ = _drain_search_verbose(**common)
     assert res1.best_r is not None and res1.best_r.fits
-    assert any(v > 0 for v in flow._MODEL_BIAS_CACHE.values())
+    assert any(v > 0 for v in fit_math._MODEL_BIAS_CACHE.values())
 
     # Variant 2: same model+GPUs, still initial_bias_mb=0 — the cache seeds it,
     # so the search never falls into the unmeasured-bias floor.
@@ -419,7 +423,7 @@ def test_binary_search_stops_on_ctx_independent_load_death(monkeypatch):
         # No measurement (load death) with a constant load minimum.
         return VerifyResult(False, (), None, "segfault", load_min_free_mb=sig)
 
-    monkeypatch.setattr(flow, "verify", _fake_verify)
+    monkeypatch.setattr(ctx_search, "verify", _fake_verify)
     res = _drain_search(
         current_split=split, candidate=_candidate(split), model=_model(),
         gpus=_gpus_5(), budget=_budget((20000,) * 5),
@@ -467,7 +471,7 @@ def test_down_search_caches_every_probe_without_reprobing(monkeypatch):
             return VerifyResult(True, (2000,) * 5, None, "fit")
         return VerifyResult(False, (100,) * 5, None, "oom")
 
-    monkeypatch.setattr(flow, "verify", _fake_verify)
+    monkeypatch.setattr(ctx_search, "verify", _fake_verify)
     cache: dict = {}
     _drain_search(
         current_split=split, candidate=_candidate(split), model=_model(),
@@ -496,7 +500,7 @@ def test_down_search_reuses_cached_probe(monkeypatch):
             return VerifyResult(True, (2000,) * 5, None, "fit")
         return VerifyResult(False, (100,) * 5, None, "oom")
 
-    monkeypatch.setattr(flow, "verify", _fake_verify)
+    monkeypatch.setattr(ctx_search, "verify", _fake_verify)
     # First run fills the cache; a second run on the SAME cache must not
     # re-probe any of the already-known contexts.
     cache: dict = {}

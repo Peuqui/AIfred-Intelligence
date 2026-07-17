@@ -11,6 +11,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
+from .helpers import overlay_scaffold
 
 
 def _icon_for(entry_is_dir: rx.Var, entry_is_symlink: rx.Var) -> rx.Component:  # type: ignore[type-arg]
@@ -255,140 +256,120 @@ def _create_symlink_form() -> rx.Component:
 
 def file_picker_modal() -> rx.Component:
     """The actual modal — rx.cond for mobile compatibility (no rx.dialog)."""
-    return rx.cond(
-        AIState.picker_open,
-        rx.box(
-            # Backdrop
-            rx.box(
-                position="absolute",
-                top="0",
-                left="0",
+    return overlay_scaffold(
+        # Modal content
+        rx.vstack(
+            # Header
+            rx.hstack(
+                rx.icon("folder", size=20, color="#4287f5"),
+                rx.text(AIState.picker_title, font_weight="bold", font_size="15px"),
+                rx.spacer(),
+                rx.button(
+                    rx.icon("x", size=16),
+                    size="1",
+                    variant="ghost",
+                    on_click=AIState.picker_close,
+                    cursor="pointer",
+                    custom_attrs={"data-modal-close": "true"},
+                ),
+                spacing="2",
+                align="center",
                 width="100%",
-                height="100%",
-                background_color="rgba(0, 0, 0, 0.92)",
-                # Backdrop fängt den Klick aber schließt das Modal nicht —
-                # User schließt nur explizit via X / Abbrechen / Diesen Ordner wählen.
-                on_click=rx.stop_propagation,
+                padding_bottom="8px",
+                border_bottom="1px solid #333",
             ),
-            # Modal content
-            rx.vstack(
-                # Header
-                rx.hstack(
-                    rx.icon("folder", size=20, color="#4287f5"),
-                    rx.text(AIState.picker_title, font_weight="bold", font_size="15px"),
-                    rx.spacer(),
-                    rx.button(
-                        rx.icon("x", size=16),
-                        size="1",
-                        variant="ghost",
-                        on_click=AIState.picker_close,
-                        cursor="pointer",
-                        custom_attrs={"data-modal-close": "true"},
-                    ),
-                    spacing="2",
-                    align="center",
-                    width="100%",
-                    padding_bottom="8px",
-                    border_bottom="1px solid #333",
-                ),
-                # Sandbox-Hint (zeigt root)
-                rx.text(
-                    "Sandbox: ", AIState.picker_root,
-                    font_size="11px",
-                    color="#888",
-                    font_family="monospace",
-                ),
-                # Breadcrumbs
-                _breadcrumbs(),
-                # Path input
-                _path_input_bar(),
-                # Toolbar (caps + sort)
-                _toolbar(),
-                # Inline forms (folder/symlink create)
-                _create_folder_form(),
-                _create_symlink_form(),
-                # Live-Filter
-                _filter_bar(),
-                # Error
+            # Sandbox-Hint (zeigt root)
+            rx.text(
+                "Sandbox: ", AIState.picker_root,
+                font_size="11px",
+                color="#888",
+                font_family="monospace",
+            ),
+            # Breadcrumbs
+            _breadcrumbs(),
+            # Path input
+            _path_input_bar(),
+            # Toolbar (caps + sort)
+            _toolbar(),
+            # Inline forms (folder/symlink create)
+            _create_folder_form(),
+            _create_symlink_form(),
+            # Live-Filter
+            _filter_bar(),
+            # Error
+            rx.cond(
+                AIState.picker_error != "",
+                rx.callout(AIState.picker_error, color_scheme="red", size="1"),
+                rx.fragment(),
+            ),
+            # File list — flex=1 fills remaining modal height,
+            # internal scroll keeps modal size stable.
+            rx.box(
                 rx.cond(
-                    AIState.picker_error != "",
-                    rx.callout(AIState.picker_error, color_scheme="red", size="1"),
+                    AIState.picker_loading,
+                    rx.center(rx.spinner(size="2"), padding="20px"),
+                    rx.cond(
+                        AIState.picker_filtered_entries.length() == 0,
+                        rx.center(
+                            rx.text("(Ordner leer oder kein Treffer)", color="#888", font_size="13px"),
+                            padding="20px",
+                        ),
+                        rx.vstack(
+                            rx.foreach(AIState.picker_filtered_entries, _entry_row),
+                            spacing="0",
+                            width="100%",
+                        ),
+                    ),
+                ),
+                flex="1",
+                overflow_y="auto",
+                min_height="0",  # required for flex children to shrink
+                width="100%",
+            ),
+            # Footer
+            rx.hstack(
+                rx.spacer(),
+                rx.button(
+                    "Abbrechen",
+                    size="2",
+                    variant="soft",
+                    on_click=AIState.picker_close,
+                    cursor="pointer",
+                ),
+                rx.cond(
+                    AIState.picker_mode == "pick_folder",
+                    rx.button(
+                        "Diesen Ordner wählen",
+                        size="2",
+                        on_click=AIState.picker_pick_current,
+                        cursor="pointer",
+                        color_scheme="blue",
+                    ),
                     rx.fragment(),
                 ),
-                # File list — flex=1 fills remaining modal height,
-                # internal scroll keeps modal size stable.
-                rx.box(
-                    rx.cond(
-                        AIState.picker_loading,
-                        rx.center(rx.spinner(size="2"), padding="20px"),
-                        rx.cond(
-                            AIState.picker_filtered_entries.length() == 0,
-                            rx.center(
-                                rx.text("(Ordner leer oder kein Treffer)", color="#888", font_size="13px"),
-                                padding="20px",
-                            ),
-                            rx.vstack(
-                                rx.foreach(AIState.picker_filtered_entries, _entry_row),
-                                spacing="0",
-                                width="100%",
-                            ),
-                        ),
-                    ),
-                    flex="1",
-                    overflow_y="auto",
-                    min_height="0",  # required for flex children to shrink
-                    width="100%",
-                ),
-                # Footer
-                rx.hstack(
-                    rx.spacer(),
-                    rx.button(
-                        "Abbrechen",
-                        size="2",
-                        variant="soft",
-                        on_click=AIState.picker_close,
-                        cursor="pointer",
-                    ),
-                    rx.cond(
-                        AIState.picker_mode == "pick_folder",
-                        rx.button(
-                            "Diesen Ordner wählen",
-                            size="2",
-                            on_click=AIState.picker_pick_current,
-                            cursor="pointer",
-                            color_scheme="blue",
-                        ),
-                        rx.fragment(),
-                    ),
-                    spacing="2",
-                    width="100%",
-                    padding_top="10px",
-                    border_top="1px solid #333",
-                ),
-                # Don't let inner clicks bubble to the backdrop
-                on_click=rx.stop_propagation,
                 spacing="2",
-                # Fixed responsive size — modal stays stable regardless
-                # of how many entries the listing returns
-                width="min(900px, 95vw)",
-                height="min(720px, 90vh)",
-                padding="20px",
-                background_color="#1f1f1f",
-                border_radius="8px",
-                border="1px solid #444",
-                box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
-                position="relative",
-                z_index="1301",
+                width="100%",
+                padding_top="10px",
+                border_top="1px solid #333",
             ),
-            position="fixed",
-            top="0",
-            left="0",
-            width="100vw",
-            height="100vh",
-            display="flex",
-            align_items="center",
-            justify_content="center",
-            z_index="1300",
+            # Don't let inner clicks bubble to the backdrop
+            on_click=rx.stop_propagation,
+            spacing="2",
+            # Fixed responsive size — modal stays stable regardless
+            # of how many entries the listing returns
+            width="min(900px, 95vw)",
+            height="min(720px, 90vh)",
+            padding="20px",
+            background_color="#1f1f1f",
+            border_radius="8px",
+            border="1px solid #444",
+            box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
+            position="relative",
+            z_index="1301",
         ),
-        rx.fragment(),
+        open_var=AIState.picker_open,
+        # Backdrop fängt den Klick aber schließt das Modal nicht —
+        # User schließt nur explizit via X / Abbrechen / Diesen Ordner wählen.
+        backdrop_color="rgba(0, 0, 0, 0.92)",
+        z_index="1300",
     )

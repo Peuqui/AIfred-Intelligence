@@ -694,29 +694,6 @@ class VectorCache:
                 'error': str(e)
             }
 
-    async def get_stats(self) -> Dict:
-        """
-        Get cache statistics
-
-        Returns:
-            Dict with keys:
-            - total_entries: Number of cached entries
-            - server_url: ChromaDB server URL
-        """
-        return await asyncio.to_thread(self._get_stats_sync)
-
-    def _get_stats_sync(self) -> Dict:
-        """Synchronous stats implementation"""
-        # Get settings via public API
-        settings = self.client.get_settings()
-        host = getattr(settings, 'chroma_server_host', 'localhost')
-        port = getattr(settings, 'chroma_server_http_port', 8000)
-
-        return {
-            'total_entries': self.collection.count(),
-            'server_url': f"http://{host}:{port}"
-        }
-
     async def clear(self) -> Dict:
         """
         Clear all cache entries
@@ -836,14 +813,6 @@ def get_cache(host: str = "localhost", port: int = 8000) -> VectorCache:
         _cache_instance = VectorCache(host=host, port=port)
 
     return _cache_instance
-
-
-def reset_cache_instance():
-    """
-    Reset global cache instance (for testing/restart)
-    """
-    global _cache_instance
-    _cache_instance = None
 
 
 def format_ttl_hours(hours: float) -> str:

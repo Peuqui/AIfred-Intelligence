@@ -36,11 +36,6 @@ class ToolRegistry:
         """Get a tool by name"""
         return self.tools.get(name)
 
-    def list_tools(self) -> List[str]:
-        """List all tools"""
-        return list(self.tools.keys())
-
-
 # ============================================================
 # GLOBAL TOOL REGISTRY
 # ============================================================

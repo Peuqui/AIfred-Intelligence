@@ -7,7 +7,6 @@ and thinking processes in the Reflex UI.
 
 import re
 import uuid
-import atexit
 import threading
 from pathlib import Path
 from collections import OrderedDict
@@ -520,18 +519,6 @@ def _save_html_to_assets(html_code: str, title: str = "") -> str:
     return relative_path
 
 
-@atexit.register
-def _cleanup_html_cache():
-    """Cleanup on program exit: Delete all HTML preview files from cache"""
-    with _html_cache_lock:
-        for filepath in _html_file_cache.values():
-            try:
-                filepath.unlink()
-            except OSError:
-                pass
-        _html_file_cache.clear()
-
-
 def cleanup_session_html(session_data: dict) -> int:
     """Delete HTML preview files referenced by a session's chat history.
 
@@ -780,20 +767,6 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
         xml_tags.append((channel_name, content.strip()))
 
     return xml_tags
-
-
-def format_debug_message(message: str) -> str:
-    """
-    Formatiert Debug-Message mit Timestamp (wie Legacy-Version).
-
-    Args:
-        message: Debug message text
-
-    Returns:
-        Formatted message mit Timestamp (z.B. "18:32:33 | 📨 User Request empfangen")
-    """
-    timestamp = get_timestamp()
-    return f"{timestamp} | {message}"
 
 
 def format_thinking_process(ai_response: str, model_name: str | None = None, inference_time: float | None = None, tokens_per_sec: float | None = None, lang: str | None = None) -> str:

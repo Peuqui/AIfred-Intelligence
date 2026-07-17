@@ -160,20 +160,6 @@ class AudioPlayerMixin(rx.State, mixin=True):
         return _json.dumps(self.media_queue)
 
     @rx.event
-    def pause_media_for_tts(self, pos_sec: float = 0.0) -> None:
-        """Called by JS just before TTS takes over the player.
-
-        The browser has already read currentTime and posted it to
-        /api/audio/position; here we only flip the flag so we can
-        auto-resume after TTS.
-        """
-        if not self.media_audio_url:
-            return  # nothing to pause
-        self.media_paused_for_tts = True
-        self.media_pause_pos_sec = float(pos_sec)
-        self._persist_audio_state()
-
-    @rx.event
     def resume_media_after_tts(self) -> None:
         """Called when the TTS queue is empty and the last chunk has ended.
 

@@ -71,13 +71,8 @@ def get_default_settings() -> Dict[str, Any]:
     # Start with DEFAULT_SETTINGS (includes backend_type from config.py)
     defaults = DEFAULT_SETTINGS.copy()
 
-    # Extract model names from BACKEND_DEFAULT_MODELS for current backend
-    backend_type = str(defaults.get("backend_type", "ollama"))
-    backend_models = BACKEND_DEFAULT_MODELS.get(backend_type, {})
-    defaults["model"] = backend_models.get("aifred_model", "qwen3:8b")
-    defaults["automatik_model"] = backend_models.get("automatik_model", "qwen2.5:3b")
-
-    # Store full backend models dict for backend switching
+    # Full per-backend models dict — the single source of truth for
+    # model fields (no flat "model"/"automatik_model" keys anymore)
     defaults["backend_models"] = BACKEND_DEFAULT_MODELS
 
     # Qwen3 Thinking Mode (already in DEFAULT_SETTINGS, but ensure it's present)

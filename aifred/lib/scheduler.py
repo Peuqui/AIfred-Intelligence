@@ -124,6 +124,36 @@ class JobStore:
         log_message(f"Scheduler: added job '{name}' (type={schedule_type}, next={next_run})")
         return self.get(job_id)  # type: ignore[return-value]
 
+    def update(
+        self,
+        job_id: int,
+        name: str,
+        schedule_type: str,
+        schedule_expr: str,
+        payload: dict[str, Any],
+        max_tier: int = 1,
+    ) -> Job | None:
+        """Update a job in place.
+
+        Keeps job_id, enabled, last_run and created_at (a delete+add would
+        lose them and — worse — lose the job entirely if the add fails
+        after the delete). retry_count resets like a fresh add.
+        """
+        next_run = _calculate_next_run(schedule_type, schedule_expr, _now_iso())
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """UPDATE jobs SET name = ?, schedule_type = ?, schedule_expr = ?,
+                       payload = ?, max_tier = ?, next_run = ?, retry_count = 0
+                   WHERE job_id = ?""",
+                (name, schedule_type, schedule_expr, json.dumps(payload),
+                 max_tier, next_run, job_id),
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                return None
+        log_message(f"Scheduler: updated job '{name}' (id={job_id}, next={next_run})")
+        return self.get(job_id)
+
     def get(self, job_id: int) -> Job | None:
         """Get a single job by ID."""
         with self._connect() as conn:

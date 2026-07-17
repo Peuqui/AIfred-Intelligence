@@ -121,10 +121,3 @@ async def subscribe(source_id: str) -> AsyncIterator[dict[str, Any]]:
                 _teardown_after_grace(source_id),
                 name=f"vlm_preview_teardown|{source_id}",
             )
-
-
-def active_subscriber_count(source_id: str) -> int:
-    """How many SSE clients are currently subscribed to this source.
-    Used by /api/vision/events/active for diagnostics; the idle-teardown
-    in ``subscribe()`` drives the auto-stop (no viewers = tear down)."""
-    return len(_subscribers.get(source_id, []))

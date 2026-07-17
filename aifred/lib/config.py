@@ -329,18 +329,6 @@ TTS_LANGUAGE_LABEL_TO_CODE = {label: code for code, label in TTS_LANGUAGE_OPTION
 TTS_LANGUAGE_CODE_TO_LABEL = {code: label for code, label in TTS_LANGUAGE_OPTIONS}
 
 
-QWEN3_TTS_CALIBRATION_TEXT = (
-    "Sehr geehrte Damen und Herren, dies ist ein interner Aufwärmlauf für "
-    "das Sprachsynthese-Modell. Die Generierung dieses Textes dient "
-    "ausschließlich dazu, den vollen Speicherbedarf des Modells zu "
-    "reservieren, bevor das Sprachmodell im Hauptsystem seine Kalibrierung "
-    "durchführt. Auf diese Weise wird verhindert, dass die Kalibrierung "
-    "mit einem zu großzügigen Speicherbudget rechnet und das Sprachmodell "
-    "anschließend zu viel Grafikspeicher belegt. Sobald dieser Aufwärmlauf "
-    "abgeschlossen ist, meldet der Container über den Health-Endpunkt "
-    "seine Bereitschaft, und der reguläre Inferenzbetrieb kann beginnen."
-)
-
 def sort_voices_custom_first(voices: list[str]) -> list[str]:
     """Sort voices: ★ custom voices first, then built-in alphabetically."""
     custom = sorted(v for v in voices if v.startswith("★"))
@@ -522,11 +510,6 @@ CALIBRATION_MIN_CONTEXT = 8192  # 8K minimum for usable context
 # 32K is sufficient for multi-turn chat with RAG, system prompts, and reasoning.
 MIN_USEFUL_CONTEXT_TOKENS = 32768  # 32K - below this, VRAM-only is not useful
 
-# If f16 KV-cache reaches this context or more, prefer f16 over quantized KV.
-# f16 is faster (no dequantization) and higher quality. Beyond this threshold,
-# more context has diminishing returns (model attention degrades, compression kicks in).
-F16_KV_PREFER_THRESHOLD = 262144  # 256K - f16 preferred if it reaches this
-
 # Minimum free RAM to maintain during Hybrid mode calibration.
 # This is a FIXED reserve (not dynamic) to ensure system stability.
 # 3 GB leaves enough headroom for OS, browser, and other processes.
@@ -695,7 +678,6 @@ PERSON_DETECT_CONFIDENCE = 0.35
 PERSON_DETECT_NMS_IOU = 0.45
 # GPU analog zu FACE_DETECT — Default CPU, GPU bleibt frei für LLM/VLM/TTS.
 PERSON_DETECT_USE_GPU = False
-PERSON_DETECT_GPU_ID = 4
 
 # ── Edge-AI-Confirmation-Policy ───────────────────────────────────────
 # Pro Edge-AI-Klasse: muss UNSER YOLO den Kamera-Trigger bestätigen,
@@ -1093,30 +1075,18 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         # Other backends don't have llama-swap variants
         return str(base_id)
 
-    from .calibration import parse_llamaswap_config, resolve_variant_suffix
-    from .tts_engine_manager import GPU_ENGINES
+    from .calibration import parse_llamaswap_config, resolve_effective_suffix
 
     swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
     has_speed_variant = f"{base_id}-speed" in swap_cfg
 
-    # VLM activation mirrors the vision plugin's runtime state: if vision
-    # is active and the configured model matches one of the calibrated
-    # VLM variants, the resolver prefers the matching ``-vlm-<key>``
-    # profile so the LLM has the right VRAM cushion in place.
-    from .vision_prewarm import is_vision_active, get_active_vlm_key
-    vlm_active = is_vision_active()
-    vlm_key = get_active_vlm_key() if vlm_active else ""
-
-    suffix = resolve_variant_suffix(
+    suffix = resolve_effective_suffix(
         Path(LLAMASWAP_CONFIG_PATH),
         base_id,
         speed_on=settings.get(f"{speed_agent}_speed_mode", False),
         has_speed_variant=has_speed_variant,
         tts_active=settings.get("enable_tts", False),
         tts_engine=settings.get("tts_engine", ""),
-        gpu_tts_engines=GPU_ENGINES,
-        vlm_active=vlm_active,
-        vlm_key=vlm_key,
     )
     return str(base_id + suffix)
 
@@ -1250,16 +1220,6 @@ SANDBOX_MAX_FILE_SIZE_MB = 512       # RLIMIT_FSIZE: single-file write cap insid
 SANDBOX_MAX_PROCESSES = 64           # RLIMIT_NPROC: cap child processes so a fork bomb
                                      # can't multiply past the per-process RAM limit.
 SANDBOX_WORK_DIR = "/tmp/aifred_sandbox"
-SANDBOX_ALLOWED_IMPORTS: list[str] = [
-    # stdlib
-    "math", "statistics", "datetime", "json", "csv", "re",
-    "collections", "itertools", "functools", "operator",
-    "fractions", "decimal", "random", "string", "textwrap",
-    "pprint", "io", "os", "sys", "pathlib", "hashlib", "base64",
-    # data science
-    "numpy", "pandas", "matplotlib", "matplotlib.pyplot",
-    "scipy", "sklearn", "seaborn", "plotly",
-]
 
 # ============================================================
 # EMAIL CONFIGURATION
@@ -1308,8 +1268,6 @@ DOCUMENT_EMBED_BATCH_SIZE = 64      # Chunks pro Embed-API-Call beim Indexieren.
                                      # bleibt responsiv. 64 ist ein Kompromiss
                                      # zwischen API-Overhead (kleinere Batches → mehr
                                      # Calls) und Worker-Responsiveness.
-EMBEDDING_MAX_INPUT_TOKENS = 8192   # Hard input limit of the active embedding model
-                                     # (bge-m3). Keep in sync when switching models.
 DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
 WORKSPACE_READ_MAX_BYTES = 25 * 1024 * 1024  # read_file tool: reject files larger
                                      # than this (the whole file is loaded into RAM;
@@ -1389,7 +1347,6 @@ SANDBOX_OUTPUT_DIR = DATA_DIR / "sandbox_output"
 # huge sandbox/upload file stalling the send or hitting provider limits
 # (Telegram bot API: 50 MB, most SMTP: ~25 MB). env-overridable.
 OUTBOUND_ATTACHMENT_MAX_BYTES = int(os.environ.get("OUTBOUND_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024)))
-SANDBOX_OUTPUT_MAX_FILES = 200       # LRU cache limit for data/sandbox_output/
 
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION

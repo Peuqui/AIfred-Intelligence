@@ -59,28 +59,9 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
         self.vigilantia_help_open = False
 
     @rx.event
-    def toggle_vigilantia_feed_visible(self) -> None:
-        """User-Toggle: Akkordeon ein-/ausblenden (Persistenz im
-        UI-Settings-Mixin via _save_settings)."""
-        self.vigilantia_feed_visible = not self.vigilantia_feed_visible
-        # Sofort einmal laden, damit beim Einblenden nicht „leer" steht.
-        if self.vigilantia_feed_visible:
-            self._refresh_vigilantia_feed()
-
-    @rx.event
     def set_vigilantia_feed_visible(self, value: bool) -> None:
         self.vigilantia_feed_visible = bool(value)
         if self.vigilantia_feed_visible:
-            self._refresh_vigilantia_feed()
-
-    @rx.event
-    def open_vigilantia_feed(self, value: list[str] | str = "") -> None:
-        """Akkordeon-Open-Handler. Reflex Radix-Accordion ruft mit dem
-        aktuell offenen Wert (collapsible=True → "" oder Item-Value).
-        Beim Öffnen frisch laden."""
-        is_open = bool(value) and value != ""
-        self.vigilantia_feed_open = is_open
-        if is_open:
             self._refresh_vigilantia_feed()
 
     @rx.event

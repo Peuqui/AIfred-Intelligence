@@ -62,11 +62,6 @@ class UIConfigMixin(rx.State, mixin=True):
     # TEMPERATURE
     # ================================================================
 
-    def set_temperature(self, temp: list[float]) -> None:
-        """Set temperature (from slider which returns list[float])."""
-        self.temperature = temp[0] if isinstance(temp, list) else temp
-        self._save_settings()  # type: ignore[attr-defined]
-
     def set_temperature_mode(self, checked: bool) -> None:
         """Set temperature mode from toggle switch.
 
@@ -77,30 +72,6 @@ class UIConfigMixin(rx.State, mixin=True):
         self._save_settings()  # type: ignore[attr-defined]
         mode_label = "Manual" if checked else "Auto"
         self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {mode_label}")  # type: ignore[attr-defined]
-
-    def set_temperature_mode_radio(self, value: str) -> None:
-        """Set temperature mode from radio group (returns string directly).
-
-        Args:
-            value: "auto" or "manual"
-        """
-        self.temperature_mode = value
-        self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {value.title()}")  # type: ignore[attr-defined]
-
-    def set_temperature_mode_from_display(self, display_value: str) -> None:
-        """Set temperature mode from radio display value.
-
-        Args:
-            display_value: Display string like "Auto (Intent-Detection)" or "Manuell"
-        """
-        # Extract mode from display value
-        if "Auto" in display_value:
-            self.temperature_mode = "auto"
-        else:
-            self.temperature_mode = "manual"
-        self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {self.temperature_mode.title()}")  # type: ignore[attr-defined]
 
     # ================================================================
     # CONTEXT WINDOW CONTROL
@@ -332,18 +303,6 @@ class UIConfigMixin(rx.State, mixin=True):
             mode, self.ui_language  # type: ignore[attr-defined]
         )
         self.add_debug(f"\U0001f50d Research mode: {mode}")  # type: ignore[attr-defined]
-        self._persist_session_config()  # type: ignore[attr-defined]
-
-    def set_research_mode_display(self, display_value: str) -> None:
-        """Set research mode from UI display value."""
-        from ..lib import TranslationManager
-
-        # Use translation manager to get the internal mode value
-        self.research_mode_display = display_value
-        self.research_mode = TranslationManager.get_research_mode_value(
-            display_value, self.ui_language  # type: ignore[attr-defined]
-        )
-        self.add_debug(f"\U0001f50d Research mode: {self.research_mode} (from: '{display_value}')")  # type: ignore[attr-defined]
         self._persist_session_config()  # type: ignore[attr-defined]
 
     # ================================================================

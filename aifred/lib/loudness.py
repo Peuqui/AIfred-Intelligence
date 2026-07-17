@@ -326,11 +326,6 @@ class LoudnessIndex:
             ceiling_dbfs,
         )
 
-    def get_duration(self, file_path: Path | str) -> Optional[float]:
-        """Cached duration in seconds, or None."""
-        info = self.get_info(file_path)
-        return info.duration_sec if info is not None else None
-
     # ── Analyse ─────────────────────────────────────────────
 
     def analyze_file(self, file_path: Path | str) -> Optional[LoudnessInfo]:

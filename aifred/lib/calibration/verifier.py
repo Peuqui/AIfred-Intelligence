@@ -231,6 +231,24 @@ async def _wait_ready(
     return False, f"polling timeout ({int(timeout)}s, server not ready)", _collected()
 
 
+async def _post_chat_probe(port: int, payload: dict, timeout: float) -> bool:
+    """POST a chat-completions probe to the test server (SSOT).
+
+    Returns True if the request succeeded (HTTP 200) and the answer
+    contains content or reasoning_content, False otherwise.
+    """
+    url = f"http://localhost:{port}/v1/chat/completions"
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, json=payload, timeout=timeout)
+            if r.status_code != 200:
+                return False
+            msg = r.json().get("choices", [{}])[0].get("message", {})
+            return bool(msg.get("content") or msg.get("reasoning_content"))
+    except (httpx.HTTPError, ValueError, KeyError):
+        return False
+
+
 async def _test_inference(port: int, timeout: float = 120.0) -> bool:
     """Run a non-trivial inference to provoke peak VRAM allocation.
 
@@ -240,7 +258,6 @@ async def _test_inference(port: int, timeout: float = 120.0) -> bool:
     We send a meaningful prompt and ask for ~64 tokens of generation so
     the server hits a steady state before we measure VRAM.
     """
-    url = f"http://localhost:{port}/v1/chat/completions"
     payload = {
         "model": "test",
         "messages": [{
@@ -253,15 +270,7 @@ async def _test_inference(port: int, timeout: float = 120.0) -> bool:
         "max_tokens": 64,
         "temperature": 0.7,
     }
-    try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(url, json=payload, timeout=timeout)
-            if r.status_code != 200:
-                return False
-            msg = r.json().get("choices", [{}])[0].get("message", {})
-            return bool(msg.get("content") or msg.get("reasoning_content"))
-    except (httpx.HTTPError, ValueError, KeyError):
-        return False
+    return await _post_chat_probe(port, payload, timeout)
 
 
 def _vision_probe_image_b64() -> str:
@@ -303,7 +312,6 @@ async def _test_vision_inference(port: int, timeout: float = 300.0) -> bool:
     answer length is irrelevant for the peak (decode reuses existing
     buffers), so one sentence keeps the probe fast.
     """
-    url = f"http://localhost:{port}/v1/chat/completions"
     payload = {
         "model": "test",
         "messages": [{
@@ -319,15 +327,7 @@ async def _test_vision_inference(port: int, timeout: float = 300.0) -> bool:
         "max_tokens": 48,
         "temperature": 0.7,
     }
-    try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(url, json=payload, timeout=timeout)
-            if r.status_code != 200:
-                return False
-            msg = r.json().get("choices", [{}])[0].get("message", {})
-            return bool(msg.get("content") or msg.get("reasoning_content"))
-    except (httpx.HTTPError, ValueError, KeyError):
-        return False
+    return await _post_chat_probe(port, payload, timeout)
 
 
 async def _probe_thinking(port: int) -> bool:
@@ -636,10 +636,3 @@ async def kill_orphan_on_port(port: int) -> None:
             logger.info(f"Killed orphan on port {port}")
     except (OSError, subprocess.SubprocessError):
         pass
-
-
-# Regex exposed for callers that inspect llama-server logs directly
-_MEMORY_BREAKDOWN_RE = re.compile(
-    r"llama_memory_breakdown_print:\s*\|\s+-\s+(CUDA\d+)\s+\([^)]+\)\s*\|\s*"
-    r"(\d+)\s*=\s*(\d+)\s*\+\s*\(\s*(\d+)"
-)

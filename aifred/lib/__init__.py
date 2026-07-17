@@ -44,8 +44,6 @@ from .intent_detector import (
 
 from .multi_agent import (
     parse_pro_contra,
-    run_sokrates_direct_response,
-    run_salomo_direct_response,
     run_sokrates_analysis,
     run_tribunal,
 )
@@ -80,8 +78,6 @@ __all__ = [
     "get_temperature_label",
     # Multi-Agent
     "parse_pro_contra",
-    "run_sokrates_direct_response",
-    "run_salomo_direct_response",
     "run_sokrates_analysis",
     "run_tribunal",
 ]

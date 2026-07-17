@@ -103,26 +103,6 @@ class RoutingTable:
             )
             return cursor.rowcount
 
-    def get_routes_for_session(self, session_id: str) -> list[Route]:
-        """Get all routes that point to a specific session."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT channel, channel_id, session_id, created_at, updated_at "
-                "FROM routes WHERE session_id = ?",
-                (session_id,),
-            ).fetchall()
-        return [Route(*row) for row in rows]
-
-    def get_all_routes(self) -> list[Route]:
-        """List all routes (for debugging/admin)."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT channel, channel_id, session_id, created_at, updated_at "
-                "FROM routes ORDER BY updated_at DESC",
-            ).fetchall()
-        return [Route(*row) for row in rows]
-
-
 # ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------

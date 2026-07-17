@@ -27,7 +27,6 @@ from .context_manager import (
 )
 from .prompt_loader import (
     get_agent_system_prompt,
-    get_agent_direct_prompt,
     get_sokrates_critic_prompt,
     get_sokrates_devils_advocate_prompt,
     get_aifred_refinement_prompt,
@@ -42,6 +41,20 @@ from ..backends.base import LLMOptions
 if TYPE_CHECKING:
     from ..state import AIState
 
+
+
+def resolve_agent_temperature(state: 'AIState', agent: str) -> float:
+    """SSOT for the effective temperature of an agent inference.
+
+    Sokrates/Salomo have their own settings (manual mode) or offsets on
+    AIfred's global temperature; every other agent (aifred, vision,
+    custom agents) uses AIfred's global temperature directly.
+    """
+    if agent in ("sokrates", "salomo"):
+        if state.temperature_mode == "manual":  # type: ignore[has-type]
+            return float(getattr(state, f"{agent}_temperature"))
+        return min(1.0, float(state.temperature) + float(getattr(state, f"{agent}_temperature_offset")))
+    return float(state.temperature)
 
 
 def _estimate_prompt_tokens(prompt: str) -> int:
@@ -800,14 +813,7 @@ async def _run_agent_direct_response(
 
         messages.insert(0, {"role": "system", "content": system_prompt})
 
-        # Temperature — Sokrates/Salomo have own settings, others use AIfred's global
-        if agent in ("sokrates", "salomo"):
-            if state.temperature_mode == "manual":  # type: ignore[has-type]
-                agent_temp = getattr(state, f"{agent}_temperature")
-            else:
-                agent_temp = min(1.0, state.temperature + getattr(state, f"{agent}_temperature_offset"))
-        else:
-            agent_temp = state.temperature  # type: ignore[has-type]
+        agent_temp = resolve_agent_temperature(state, agent)
 
         # Token breakdown: System + Memory + RAG + Research + History = Total / Limit
         sys_tok = estimate_tokens([{"content": system_prompt}], model_name=agent_model_id)
@@ -839,11 +845,14 @@ async def _run_agent_direct_response(
         saved_effort = getattr(state, f"{opts_agent}_reasoning_effort", "")
         setattr(state, f"{opts_agent}_thinking", state.aifred_thinking)
         setattr(state, f"{opts_agent}_reasoning_effort", state.aifred_reasoning_effort)
-
-        agent_options = build_llm_options(state, opts_agent, agent_temp, agent_num_ctx)
-
-        setattr(state, f"{opts_agent}_thinking", saved_thinking)
-        setattr(state, f"{opts_agent}_reasoning_effort", saved_effort)
+        try:
+            agent_options = build_llm_options(state, opts_agent, agent_temp, agent_num_ctx)
+        finally:
+            # Restore MUST run even when build_llm_options raises — the
+            # overrides would otherwise stick and get persisted with the
+            # next settings save.
+            setattr(state, f"{opts_agent}_thinking", saved_thinking)
+            setattr(state, f"{opts_agent}_reasoning_effort", saved_effort)
 
         # Stream response via shared helper (SSOT for all streaming logic)
         result = None
@@ -902,34 +911,6 @@ async def _run_agent_direct_response(
     finally:
         if llm_client is not None:
             await llm_client.close()
-
-
-async def run_sokrates_direct_response(
-    state: 'AIState',
-    user_query: str,
-    detected_lang: Optional[str] = None
-) -> AsyncGenerator[None, None]:
-    """Sokrates responds directly to user."""
-    async for _ in _run_agent_direct_response(
-        state, "sokrates", "Sokrates", "🏛️",
-        lambda lang=None, memory=True, tools=False: get_agent_direct_prompt("sokrates", lang=lang, memory=memory, tools=tools),
-        user_query, detected_lang,
-    ):
-        yield
-
-
-async def run_salomo_direct_response(
-    state: 'AIState',
-    user_query: str,
-    detected_lang: Optional[str] = None
-) -> AsyncGenerator[None, None]:
-    """Salomo responds directly to user."""
-    async for _ in _run_agent_direct_response(
-        state, "salomo", "Salomo", "👑",
-        lambda lang=None, memory=True, tools=False: get_agent_direct_prompt("salomo", lang=lang, memory=memory, tools=tools),
-        user_query, detected_lang,
-    ):
-        yield
 
 
 async def run_generic_agent_direct_response(
@@ -1483,9 +1464,13 @@ async def run_symposion(
         # Beitraege auseinanderhalten kann.
         import re as _re
         conversation: list[dict[str, str]] = []
-        agent_id_by_label = {
-            cfg.display_name.strip().upper(): aid for aid, cfg in agent_configs
-        }
+        # Producer ist add_agent_panel: es schreibt "[<AGENT_ID_UPPER>]: ..."
+        # in die llm_history. Display-Namen zusaetzlich mappen, damit auch
+        # anders erzeugte Panels (z.B. Alt-Bestand) zugeordnet werden.
+        agent_id_by_label: dict[str, str] = {}
+        for aid, cfg in agent_configs:
+            agent_id_by_label[aid.strip().upper()] = aid
+            agent_id_by_label[cfg.display_name.strip().upper()] = aid
         for hist_msg in state._chat_sub().llm_history:
             role = hist_msg.get("role")
             content = hist_msg.get("content", "")
@@ -1573,7 +1558,7 @@ async def run_symposion(
 
                 # Build options (use agent's temperature from state)
                 opts_agent = agent_id if agent_id in default_agents else "aifred"
-                agent_temp = getattr(state, f"{opts_agent}_temperature", 0.7)
+                agent_temp = resolve_agent_temperature(state, opts_agent)
                 agent_options = build_llm_options(state, opts_agent, agent_temp, agent_num_ctx)
 
                 # Stream response

@@ -6,12 +6,24 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS
-from .helpers import t, clickable_tip
+from .helpers import t, clickable_tip, blue_action_button_style
 
 from .helpers import native_select_generic
 from .settings_accordion import llm_parameters_accordion
 from .chat_display import processing_progress_banner
 from .vigilantia_feed import vigilantia_feed_popover
+
+
+def _busy_disabled() -> rx.Var:
+    """Gemeinsamer Disabled-Ausdruck der Eingabe-/Action-Buttons:
+    aktiv während Generierung, History-Kompression oder laufendem
+    Bild-/Dokument-Upload."""
+    return (
+        AIState.is_generating
+        | AIState.is_compressing
+        | AIState.is_uploading_image
+        | AIState.is_uploading_document
+    )
 
 
 def _agent_toggle_button(agent: rx.Var) -> rx.Component:
@@ -272,15 +284,7 @@ def image_upload_section() -> rx.Component:
                         color_scheme="blue",
                         width="100%",
                         disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
-                        style={
-                            "background": "rgba(0, 50, 100, 0.4)",
-                            "color": "#58a6ff",
-                            "border_color": "#58a6ff",
-                            "&:hover:not([disabled])": {
-                                "background": "rgba(0, 80, 150, 0.6) !important",
-                            },
-                            "&[disabled]": {"opacity": "0.45"},
-                        },
+                        style=blue_action_button_style(press_effect=False),
                     ),
                     content=t("audio_hint"),
                 ),
@@ -471,7 +475,7 @@ def text_input_section() -> rx.Component:
             width="100%",
             rows="3",
             spell_check=False,
-            disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
+            disabled=_busy_disabled(),
             style={
                 "field_sizing": "content",
                 "min_height": "4.5em",
@@ -680,7 +684,7 @@ def text_input_section() -> rx.Component:
                 size="2",
                 variant="solid",
                 loading=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document | AIState.tts_regenerating,
+                disabled=_busy_disabled() | AIState.tts_regenerating,
                 flex="2",
                 style={
                     "background": "#3d2a00 !important",
@@ -706,7 +710,7 @@ def text_input_section() -> rx.Component:
                 rx.icon("trash-2", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("clear_chat")),
                 on_click=AIState.clear_chat,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
+                disabled=_busy_disabled(),
                 size="2",
                 variant="outline",
                 color_scheme="orange",
@@ -731,7 +735,7 @@ def text_input_section() -> rx.Component:
                 rx.icon("pin", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("save_memory")),
                 on_click=AIState.save_session_memory,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
+                disabled=_busy_disabled(),
                 size="2",
                 variant="outline",
                 color_scheme="green",
@@ -757,49 +761,23 @@ def text_input_section() -> rx.Component:
                 rx.icon("share-2", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("share_chat")),
                 on_click=AIState.share_chat,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
+                disabled=_busy_disabled(),
                 size="2",
                 variant="outline",
                 color_scheme="blue",
                 flex="1",
-                style={
-                    "background": "rgba(0, 50, 100, 0.4)",
-                    "color": "#58a6ff",
-                    "border_color": "#58a6ff",
-                    "&:hover:not([disabled])": {
-                        "background": "rgba(0, 80, 150, 0.6) !important",
-                        "transform": "scale(1.02)",
-                    },
-                    "&:active:not([disabled])": {
-                        "background": "rgba(0, 40, 80, 0.7) !important",
-                        "transform": "scale(0.98)",
-                    },
-                    "&[disabled]": {"opacity": "0.45"},
-                },
+                style=blue_action_button_style(),
             ),
             rx.button(
                 rx.icon("download", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("download_chat")),
                 on_click=AIState.download_chat,
-                disabled=AIState.is_generating | AIState.is_compressing | AIState.is_uploading_image | AIState.is_uploading_document,
+                disabled=_busy_disabled(),
                 size="2",
                 variant="outline",
                 color_scheme="blue",
                 flex="1",
-                style={
-                    "background": "rgba(0, 50, 100, 0.4)",
-                    "color": "#58a6ff",
-                    "border_color": "#58a6ff",
-                    "&:hover:not([disabled])": {
-                        "background": "rgba(0, 80, 150, 0.6) !important",
-                        "transform": "scale(1.02)",
-                    },
-                    "&:active:not([disabled])": {
-                        "background": "rgba(0, 40, 80, 0.7) !important",
-                        "transform": "scale(0.98)",
-                    },
-                    "&[disabled]": {"opacity": "0.45"},
-                },
+                style=blue_action_button_style(),
             ),
             spacing="2",
             width="100%",

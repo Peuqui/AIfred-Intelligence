@@ -57,20 +57,6 @@ def render_history_thumbnail(img_data) -> rx.Component:
     )
 
 
-def render_image_thumbnails(images) -> rx.Component:
-    """Render row of clickable image thumbnails"""
-    return rx.cond(
-        images.length() > 0,
-        rx.hstack(
-            rx.foreach(images, render_history_thumbnail),
-            spacing="2",
-            margin_bottom="2",
-            flex_wrap="wrap",
-        ),
-        rx.fragment(),  # Empty component when no images
-    )
-
-
 # ============================================================
 # MESSAGE BUBBLES
 # ============================================================

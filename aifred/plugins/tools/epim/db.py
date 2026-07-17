@@ -275,6 +275,23 @@ def _clamp_limit(limit: int) -> int:
     return max(1, min(value, _LIMIT_MAX))
 
 
+# Allowed UPDATE columns per entity (consumed by the generic _update_row).
+# Internal constants, never LLM input.
+_TASK_UPDATE_COLUMNS = frozenset({
+    "TITLE", "STARTTIME", "ENDTIME", "LOCATION", "ALLDAY",
+    "CALENDAR", "CATEGORY", "TEXT", "PRIORITY", "TAGS",
+    "COMPLETION", "COMPLETED", "EXCLUSIVE", "REPEATING",
+})
+_TODO_UPDATE_COLUMNS = frozenset({
+    "TITLE", "STARTTIME", "ENDTIME", "PRIORITY", "TEXT",
+    "TAGS", "COMPLETION", "COMPLETED", "IDLIST",
+})
+_CONTACT_UPDATE_COLUMNS = frozenset({"SUBJECT", "FIELDSDATA", "TAGS"})
+_NOTE_UPDATE_COLUMNS = frozenset({"TITLE", "TAGS"})
+_NOTETAB_UPDATE_COLUMNS = frozenset({"NAME", "TEXT"})
+_PASSWORD_UPDATE_COLUMNS = frozenset({"SUBJECT", "FIELDSDATA", "TAGS"})
+
+
 def _serialized(method):
     """EP6: serialize all DB access through the instance RLock.
 
@@ -472,6 +489,51 @@ class EpimDatabase:
             )
         return row[0] or ""
 
+    @_serialized
+    def _update_row(
+        self,
+        table: str,
+        id_col: str,
+        row_id: int,
+        fields: dict[str, object],
+        allowed: frozenset[str],
+        touch_lastchanged: bool = True,
+    ) -> bool:
+        """SSOT for the UPDATE-builder pattern: allowed-filter →
+        updates/params loop → _row_exists → LASTCHANGED → execute/commit.
+
+        ``table``/``id_col``/``allowed`` are internal constants, never LLM
+        input. Note: Firebird fdb driver does not reliably report rowcount
+        for UPDATEs, hence the explicit ``_row_exists`` check.
+        """
+        con = self._connect()
+        cur = con.cursor()
+
+        updates = []
+        params: list = []
+        for key, value in fields.items():
+            col = key.upper()
+            if col not in allowed:
+                continue
+            updates.append(f"{col} = ?")
+            params.append(value)
+
+        if not updates:
+            return False
+
+        if not self._row_exists(table, id_col, row_id):
+            return False
+
+        if touch_lastchanged:
+            updates.append("LASTCHANGED = ?")
+            params.append(datetime.now())
+        params.append(row_id)
+
+        sql = f"UPDATE {table} SET {', '.join(updates)} WHERE {id_col} = ?"
+        cur.execute(sql, params)
+        con.commit()
+        return True
+
     # ============================================================
     # TASKS / CALENDAR
     # ============================================================
@@ -652,38 +714,8 @@ class EpimDatabase:
                 if cal_id is not None:
                     fields["CALENDAR"] = cal_id
 
-        con = self._connect()
-        cur = con.cursor()
-
-        allowed = {
-            "TITLE", "STARTTIME", "ENDTIME", "LOCATION", "ALLDAY",
-            "CALENDAR", "CATEGORY", "TEXT", "PRIORITY", "TAGS",
-            "COMPLETION", "COMPLETED", "EXCLUSIVE", "REPEATING",
-        }
-        updates = []
-        params: list = []
-        for key, value in fields.items():
-            col = key.upper()
-            if col not in allowed:
-                continue
-            updates.append(f"{col} = ?")
-            params.append(value)
-
-        if not updates:
-            return False
-
-        if not self._row_exists("TASKS", "IDTASK", task_id):
-            return False
-
-        updates.append("LASTCHANGED = ?")
-        params.append(datetime.now())
-        params.append(task_id)
-
-        sql = f"UPDATE TASKS SET {', '.join(updates)} WHERE IDTASK = ?"
-        cur.execute(sql, params)
-        con.commit()
-        # Note: Firebird fdb driver does not reliably report rowcount for UPDATEs
-        return True
+        updated: bool = self._update_row("TASKS", "IDTASK", task_id, fields, _TASK_UPDATE_COLUMNS)
+        return updated
 
     @_serialized
     def delete_task(self, task_id: int) -> bool:
@@ -810,37 +842,22 @@ class EpimDatabase:
         """Update a contact."""
         if not self._row_exists("CONTACTS", "IDCONTACT", contact_id):
             return False
-        con = self._connect()
-        cur = con.cursor()
 
-        updates = []
-        params: list = []
-
+        updates: dict[str, object] = {}
         if name is not None:
-            updates.append("SUBJECT = ?")
-            params.append(name)
+            updates["SUBJECT"] = name
         if fields is not None:
+            cur = self._connect().cursor()
             existing_raw = self._read_fieldsdata_for_update(
                 cur, "CONTACTS", "IDCONTACT", contact_id
             )
             name_to_id = {v: k for k, v in self._get_contact_field_map().items()}
-            updates.append("FIELDSDATA = ?")
-            params.append(merge_fieldsdata(existing_raw, fields, name_to_id))
+            updates["FIELDSDATA"] = merge_fieldsdata(existing_raw, fields, name_to_id)
         if tags is not None:
-            updates.append("TAGS = ?")
-            params.append(tags)
+            updates["TAGS"] = tags
 
-        if not updates:
-            return False
-
-        updates.append("LASTCHANGED = ?")
-        params.append(datetime.now())
-        params.append(contact_id)
-
-        sql = f"UPDATE CONTACTS SET {', '.join(updates)} WHERE IDCONTACT = ?"
-        cur.execute(sql, params)
-        con.commit()
-        return True
+        updated: bool = self._update_row("CONTACTS", "IDCONTACT", contact_id, updates, _CONTACT_UPDATE_COLUMNS)
+        return updated
 
     @_serialized
     def delete_contact(self, contact_id: int) -> bool:
@@ -998,51 +1015,25 @@ class EpimDatabase:
     def update_note(self, note_id: int, title: Optional[str] = None,
                     tags: Optional[str] = None) -> bool:
         """Update note metadata."""
-        if title is None and tags is None:
-            return False
-        if not self._row_exists("NOTES", "IDNOTE", note_id):
-            return False
-        con = self._connect()
-        cur = con.cursor()
-        updates = []
-        params: list = []
+        updates: dict[str, object] = {}
         if title is not None:
-            updates.append("TITLE = ?")
-            params.append(title)
+            updates["TITLE"] = title
         if tags is not None:
-            updates.append("TAGS = ?")
-            params.append(tags)
-        updates.append("LASTCHANGED = ?")
-        params.append(datetime.now())
-        params.append(note_id)
-        cur.execute(f"UPDATE NOTES SET {', '.join(updates)} WHERE IDNOTE = ?", params)
-        con.commit()
-        return True
+            updates["TAGS"] = tags
+        updated: bool = self._update_row("NOTES", "IDNOTE", note_id, updates, _NOTE_UPDATE_COLUMNS)
+        return updated
 
     @_serialized
     def update_note_tab(self, tab_id: int, name: Optional[str] = None,
                         text: Optional[str] = None) -> bool:
         """Update a note tab's content."""
-        if name is None and text is None:
-            return False
-        if not self._row_exists("NOTETABS", "IDNOTETAB", tab_id):
-            return False
-        con = self._connect()
-        cur = con.cursor()
-        updates = []
-        params: list = []
+        updates: dict[str, object] = {}
         if name is not None:
-            updates.append("NAME = ?")
-            params.append(name)
+            updates["NAME"] = name
         if text is not None:
-            updates.append("TEXT = ?")
-            params.append(text)
-        updates.append("LASTCHANGED = ?")
-        params.append(datetime.now())
-        params.append(tab_id)
-        cur.execute(f"UPDATE NOTETABS SET {', '.join(updates)} WHERE IDNOTETAB = ?", params)
-        con.commit()
-        return True
+            updates["TEXT"] = text
+        updated: bool = self._update_row("NOTETABS", "IDNOTETAB", tab_id, updates, _NOTETAB_UPDATE_COLUMNS)
+        return updated
 
     @_serialized
     def delete_note(self, note_id: int) -> bool:
@@ -1176,34 +1167,8 @@ class EpimDatabase:
                 if list_id is not None:
                     fields["IDLIST"] = list_id
 
-        con = self._connect()
-        cur = con.cursor()
-
-        allowed = {
-            "TITLE", "STARTTIME", "ENDTIME", "PRIORITY", "TEXT",
-            "TAGS", "COMPLETION", "COMPLETED", "IDLIST",
-        }
-        updates = []
-        params: list = []
-        for key, value in fields.items():
-            col = key.upper()
-            if col not in allowed:
-                continue
-            updates.append(f"{col} = ?")
-            params.append(value)
-
-        if not updates:
-            return False
-
-        if not self._row_exists("TODOS", "IDTODO", todo_id):
-            return False
-
-        updates.append("LASTCHANGED = ?")
-        params.append(datetime.now())
-        params.append(todo_id)
-        cur.execute(f"UPDATE TODOS SET {', '.join(updates)} WHERE IDTODO = ?", params)
-        con.commit()
-        return True
+        updated: bool = self._update_row("TODOS", "IDTODO", todo_id, fields, _TODO_UPDATE_COLUMNS)
+        return updated
 
     @_serialized
     def delete_todo(self, todo_id: int) -> bool:
@@ -1255,39 +1220,6 @@ class EpimDatabase:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
     @_serialized
-    def get_password(self, entry_id: int) -> Optional[dict]:
-        """Get a password entry with decoded fields."""
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute(
-            "SELECT IDPASSENTRY, SUBJECT, FIELDSDATA, FIELDSDATA2, TAGS, "
-            "CREATED, LASTCHANGED "
-            "FROM PASSENTRIES WHERE IDPASSENTRY = ?",
-            (entry_id,),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-
-        # Password field definitions
-        cur.execute(
-            "SELECT IDFIELD, NAME FROM PASSENTRYFIELDS WHERE ENABLED = 1"
-        )
-        pw_field_map = {r[0]: r[1].strip() for r in cur.fetchall() if r[1]}
-
-        raw = row[2] or ""
-        if row[3]:
-            raw = row[3]
-        return {
-            "id": row[0],
-            "subject": row[1],
-            "tags": row[4],
-            "created": row[5],
-            "last_changed": row[6],
-            "fields": decode_fieldsdata(raw, pw_field_map),
-        }
-
-    @_serialized
     def create_password(self, subject: str, fields: Optional[dict[str, str]] = None,
                         group_id: Optional[int] = None, tags: Optional[str] = None) -> int:
         """Create a new password entry."""
@@ -1322,32 +1254,23 @@ class EpimDatabase:
         """Update a password entry."""
         if not self._row_exists("PASSENTRIES", "IDPASSENTRY", entry_id):
             return False
-        con = self._connect()
-        cur = con.cursor()
-        updates = []
-        params: list = []
+
+        updates: dict[str, object] = {}
         if subject is not None:
-            updates.append("SUBJECT = ?")
-            params.append(subject)
+            updates["SUBJECT"] = subject
         if fields is not None:
+            cur = self._connect().cursor()
             existing_raw = self._read_fieldsdata_for_update(
                 cur, "PASSENTRIES", "IDPASSENTRY", entry_id
             )
             cur.execute("SELECT IDFIELD, NAME FROM PASSENTRYFIELDS WHERE ENABLED = 1")
             pw_name_to_id = {r[1].strip(): r[0] for r in cur.fetchall() if r[1]}
-            updates.append("FIELDSDATA = ?")
-            params.append(merge_fieldsdata(existing_raw, fields, pw_name_to_id))
+            updates["FIELDSDATA"] = merge_fieldsdata(existing_raw, fields, pw_name_to_id)
         if tags is not None:
-            updates.append("TAGS = ?")
-            params.append(tags)
-        if not updates:
-            return False
-        updates.append("LASTCHANGED = ?")
-        params.append(datetime.now())
-        params.append(entry_id)
-        cur.execute(f"UPDATE PASSENTRIES SET {', '.join(updates)} WHERE IDPASSENTRY = ?", params)
-        con.commit()
-        return True
+            updates["TAGS"] = tags
+
+        updated: bool = self._update_row("PASSENTRIES", "IDPASSENTRY", entry_id, updates, _PASSWORD_UPDATE_COLUMNS)
+        return updated
 
     @_serialized
     def delete_password(self, entry_id: int) -> bool:

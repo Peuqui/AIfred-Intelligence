@@ -307,6 +307,25 @@ class CasusMixin(rx.State, mixin=True):
     def casus_cancel_delete_all(self) -> None:
         self.casus_confirm_delete_all = False
 
+    def _resolve_casus_filters(self) -> tuple[str | None, list[str], int | None, bool]:
+        """Aktive Filter-Vars in Store-Query-Parameter auflösen (SSOT für
+        Event-Liste und Bulk-Delete): (source_id, event_types, face_id,
+        unknown_only)."""
+        source = self.casus_filter_source
+        source_id = source if source and source != "all" else None
+        event_types = _FILTER_TYPE_MAP.get(self.casus_filter_type, [])
+        face_filter = self.casus_filter_face
+        face_id: int | None = None
+        unknown_only = False
+        if face_filter == "unknown":
+            unknown_only = True
+        elif face_filter and face_filter != "all":
+            try:
+                face_id = int(face_filter)
+            except (TypeError, ValueError):
+                face_id = None
+        return source_id, event_types, face_id, unknown_only
+
     @rx.event
     def casus_confirm_delete_all_now(self) -> None:
         """Zweite Stufe: bestätigtes Bulk-Delete. Löscht alle Events
@@ -315,19 +334,7 @@ class CasusMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_store import VisionStore
             store = VisionStore()
-            source = self.casus_filter_source
-            source_id = source if source and source != "all" else None
-            event_types = _FILTER_TYPE_MAP.get(self.casus_filter_type, [])
-            face_filter = self.casus_filter_face
-            face_id: int | None = None
-            unknown_only = False
-            if face_filter == "unknown":
-                unknown_only = True
-            elif face_filter and face_filter != "all":
-                try:
-                    face_id = int(face_filter)
-                except (TypeError, ValueError):
-                    face_id = None
+            source_id, event_types, face_id, unknown_only = self._resolve_casus_filters()
             deleted = store.delete_events_filtered(
                 source_id=source_id,
                 event_types=event_types or None,
@@ -545,19 +552,7 @@ class CasusMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_store import VisionStore
             store = VisionStore()
-            source = self.casus_filter_source
-            source_id = source if source and source != "all" else None
-            event_types = _FILTER_TYPE_MAP.get(self.casus_filter_type, [])
-            face_filter = self.casus_filter_face
-            face_id: int | None = None
-            unknown_only = False
-            if face_filter == "unknown":
-                unknown_only = True
-            elif face_filter and face_filter != "all":
-                try:
-                    face_id = int(face_filter)
-                except (TypeError, ValueError):
-                    face_id = None
+            source_id, event_types, face_id, unknown_only = self._resolve_casus_filters()
 
             if self.casus_cluster_mode:
                 # Größere Liste holen + Python-side gruppieren.

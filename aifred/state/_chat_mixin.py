@@ -792,137 +792,11 @@ class ChatMixin(rx.State, mixin=True):
         self.is_generating = True
         self._set_current_agent("")
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-        yield  # Spinner visible immediately
 
-        # ============================================================
-        # PHASE 2: Build and add user message to chat
-        # ============================================================
-        user_msg = user_text
-        self.current_user_input = ""  # Clear state (for injection/transcription path)
-        self.current_user_message = user_msg
-        self.used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
-        self.failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
-        self.all_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
-        self.clear_tts_queue()  # type: ignore[attr-defined]
-
-        display_user_msg = user_msg
-        if has_pending_images:
-            # Generate clickable image thumbnails as HTML. No <a> wrapper:
-            # the /_upload/ URL is picked up by the global lightbox handler
-            # (aifred.py lightbox_js) on click — a target="_blank" link would
-            # additionally open a redundant browser tab. Lightbox only.
-            image_html_parts: list[str] = []
-            for img in self.pending_images:  # type: ignore[attr-defined]
-                url = img.get('url', '')
-                if url:
-                    image_html_parts.append(
-                        f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
-                        f'border-radius:4px;cursor:zoom-in;margin-right:4px;">'
-                    )
-            image_html = "".join(image_html_parts)
-
-            if not user_msg or user_msg.strip() == "":
-                # Image-only upload
-                if len(self.pending_images) == 1:  # type: ignore[attr-defined]
-                    display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"  # type: ignore[attr-defined]
-                else:
-                    img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])  # type: ignore[attr-defined]
-                    display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"  # type: ignore[attr-defined]
-            else:
-                # Text + images
-                display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
-
-        ch = self._chat_sub()
-        ch.chat_history = [
-            *ch.chat_history,
-            {
-                "role": "user",
-                "content": display_user_msg,
-                "agent": "",
-                "mode": "",
-                "round_num": 0,
-                "metadata": {
-                    "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []  # type: ignore[attr-defined]
-                },
-                "timestamp": datetime.now().isoformat(),
-                "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
-                "used_sources": [],
-                "failed_sources": [],
-                "has_audio": False,
-                "audio_urls_json": "[]",
-            },
-        ]
-        # Anchor the image location in the user turn of llm_history: the image
-        # itself only goes into the one-off multimodal call, never into the
-        # history. Without the URL the model "forgets" on a follow-up that an
-        # image ever existed and falsely accuses itself of hallucinating. With
-        # the /_upload/ URL it can re-examine the image via vision_analyze (on
-        # the big model when that is vision-capable).
-        llm_user_content = user_msg
-        if has_pending_images:
-            _img_urls = [img.get("url", "") for img in self.pending_images if img.get("url")]  # type: ignore[attr-defined]
-            if _img_urls:
-                from ..lib.prompt_loader import get_language
-                _de = get_language() == "de"
-                _label = (
-                    ("Angehängtes Bild" if len(_img_urls) == 1 else "Angehängte Bilder")
-                    if _de else
-                    ("Attached image" if len(_img_urls) == 1 else "Attached images")
-                )
-                _hint = (
-                    "mit dem vision_analyze-Tool erneut betrachtbar"
-                    if _de else
-                    "re-examine with the vision_analyze tool"
-                )
-                _marker = f"[{_label}: {', '.join(_img_urls)} — {_hint}]"
-                llm_user_content = f"{user_msg}\n\n{_marker}" if user_msg.strip() else _marker
-        ch.llm_history = [*ch.llm_history, {"role": "user", "content": llm_user_content}]
-        self.add_debug("📨 User request received")
-
-        # ============================================================
-        # PHASE 3: Audio-Bus init (TTS streaming + SSE stream)
-        # ============================================================
-        # NOTE: Audio-Unlock laeuft NICHT hier — rx.call_script kommt
-        # ueber WebSocket asynchron im Browser an, ist also keine
-        # User-Geste mehr. Der Unlock passiert ueber einen
-        # ``document.addEventListener('click', ...)``-Hook in custom.js,
-        # der beim ALLERERSTEN User-Click im Tab feuert (im echten
-        # Click-Stack) und dann sich selbst entfernt.
-        tts_streaming = self._tts_streaming_wanted("aifred")  # type: ignore[attr-defined]
-        if tts_streaming:
-            self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
-            from ..lib.api import browser_queue_clear
-            browser_queue_clear(self.session_id)  # type: ignore[attr-defined]
-        # SSE stream (re)start — idempotent if already connected.
-        yield rx.call_script(  # type: ignore[misc]
-            f"if(window.startBrowserStream) startBrowserStream('{self.session_id}');"
-        )
-
-        # ============================================================
-        # PHASE 4: vLLM model loading (AFTER user message is visible)
-        # ============================================================
-        if self.backend_type == "vllm":  # type: ignore[attr-defined]
-            from . import _global_backend_state
-            mgr = _global_backend_state.get("vllm_manager")
-            if not (mgr and mgr.is_running()) and self.aifred_model_id:  # type: ignore[attr-defined]
-                self.add_debug(f"🚀 Starting vLLM with {self.aifred_model_id}...")  # type: ignore[attr-defined]
-                yield  # Show debug message while loading
-            await self._ensure_vllm_model()  # type: ignore[attr-defined]
-
-        # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
-        async for _ in self._phase_tts_container_checks():
-            yield
-
-        # Register this coroutine in the pipeline registry so external stop
-        # commands (UI stop button, future cross-channel stop) can cancel it.
+        # Cleanup bookkeeping referenced by the finally block — must exist
+        # BEFORE the try so every abort point (including the early yields
+        # below) resets is_generating and releases pipeline/TTS again.
         from ..lib.pipeline_registry import register_pipeline, unregister_pipeline
-        _pipeline_task = asyncio.current_task()
-        if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
-            register_pipeline(self.session_id, _pipeline_task)  # type: ignore[attr-defined]
-
-        # Acquire active GPU TTS engine + start keep-alive ping for the
-        # duration of the pipeline. Prevents the container from idle-out
-        # during long inference or web research (analogous to FreeEcho.2 channel).
         from ..lib.tts_engine_manager import (
             GPU_ENGINES,
             _detect_running_tts_engine,
@@ -930,29 +804,155 @@ class ChatMixin(rx.State, mixin=True):
             release_tts,
             tts_keepalive_loop,
         )
+        from ..lib.llm_client import LLMClient
+        ai_text = ""  # Used in finally block
+        _pipeline_task: asyncio.Task | None = None
         acquired_tts_engines: list[str] = []
         tts_keepalive_task = None
-        if self.enable_tts and self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-            _active_engine = _detect_running_tts_engine()
-            if _active_engine:
-                acquire_tts(_active_engine)
-                acquired_tts_engines.append(_active_engine)
-                tts_keepalive_task = asyncio.create_task(
-                    tts_keepalive_loop(
-                        acquired_tts_engines,
-                        on_warn=lambda m: self.add_debug(f"⚠️ {m}"),  # type: ignore[attr-defined]
-                    )
-                )
-
+        llm_client: LLMClient | None = None
         _client_gone = False  # set on GeneratorExit — finally must not yield then
         try:
+            yield  # Spinner visible immediately
+
             # ============================================================
-            # MAIN TRY BLOCK: Covers ALL stages from LLM client creation
-            # through inference. Ensures is_generating is ALWAYS reset in finally,
-            # even if intent detection hangs, compression fails, or the generator
-            # is cancelled by WebSocket disconnect (GeneratorExit).
+            # PHASE 2: Build and add user message to chat
             # ============================================================
-            ai_text = ""  # Must be initialized here — used in finally block
+            user_msg = user_text
+            self.current_user_input = ""  # Clear state (for injection/transcription path)
+            self.current_user_message = user_msg
+            self.used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
+            self.failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
+            self.all_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
+            self.clear_tts_queue()  # type: ignore[attr-defined]
+
+            display_user_msg = user_msg
+            if has_pending_images:
+                # Generate clickable image thumbnails as HTML. No <a> wrapper:
+                # the /_upload/ URL is picked up by the global lightbox handler
+                # (aifred.py lightbox_js) on click — a target="_blank" link would
+                # additionally open a redundant browser tab. Lightbox only.
+                image_html_parts: list[str] = []
+                for img in self.pending_images:  # type: ignore[attr-defined]
+                    url = img.get('url', '')
+                    if url:
+                        image_html_parts.append(
+                            f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
+                            f'border-radius:4px;cursor:zoom-in;margin-right:4px;">'
+                        )
+                image_html = "".join(image_html_parts)
+
+                if not user_msg or user_msg.strip() == "":
+                    # Image-only upload
+                    if len(self.pending_images) == 1:  # type: ignore[attr-defined]
+                        display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"  # type: ignore[attr-defined]
+                    else:
+                        img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])  # type: ignore[attr-defined]
+                        display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"  # type: ignore[attr-defined]
+                else:
+                    # Text + images
+                    display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
+
+            ch = self._chat_sub()
+            ch.chat_history = [
+                *ch.chat_history,
+                {
+                    "role": "user",
+                    "content": display_user_msg,
+                    "agent": "",
+                    "mode": "",
+                    "round_num": 0,
+                    "metadata": {
+                        "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []  # type: ignore[attr-defined]
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                    "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
+                    "used_sources": [],
+                    "failed_sources": [],
+                    "has_audio": False,
+                    "audio_urls_json": "[]",
+                },
+            ]
+            # Anchor the image location in the user turn of llm_history: the image
+            # itself only goes into the one-off multimodal call, never into the
+            # history. Without the URL the model "forgets" on a follow-up that an
+            # image ever existed and falsely accuses itself of hallucinating. With
+            # the /_upload/ URL it can re-examine the image via vision_analyze (on
+            # the big model when that is vision-capable).
+            llm_user_content = user_msg
+            if has_pending_images:
+                _img_urls = [img.get("url", "") for img in self.pending_images if img.get("url")]  # type: ignore[attr-defined]
+                if _img_urls:
+                    from ..lib.prompt_loader import get_language
+                    _de = get_language() == "de"
+                    _label = (
+                        ("Angehängtes Bild" if len(_img_urls) == 1 else "Angehängte Bilder")
+                        if _de else
+                        ("Attached image" if len(_img_urls) == 1 else "Attached images")
+                    )
+                    _hint = (
+                        "mit dem vision_analyze-Tool erneut betrachtbar"
+                        if _de else
+                        "re-examine with the vision_analyze tool"
+                    )
+                    _marker = f"[{_label}: {', '.join(_img_urls)} — {_hint}]"
+                    llm_user_content = f"{user_msg}\n\n{_marker}" if user_msg.strip() else _marker
+            ch.llm_history = [*ch.llm_history, {"role": "user", "content": llm_user_content}]
+            self.add_debug("📨 User request received")
+
+            # ============================================================
+            # PHASE 3: Audio-Bus init (TTS streaming + SSE stream)
+            # ============================================================
+            # NOTE: Audio-Unlock laeuft NICHT hier — rx.call_script kommt
+            # ueber WebSocket asynchron im Browser an, ist also keine
+            # User-Geste mehr. Der Unlock passiert ueber einen
+            # ``document.addEventListener('click', ...)``-Hook in custom.js,
+            # der beim ALLERERSTEN User-Click im Tab feuert (im echten
+            # Click-Stack) und dann sich selbst entfernt.
+            tts_streaming = self._tts_streaming_wanted("aifred")  # type: ignore[attr-defined]
+            if tts_streaming:
+                self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
+                from ..lib.api import browser_queue_clear
+                browser_queue_clear(self.session_id)  # type: ignore[attr-defined]
+            # SSE stream (re)start — idempotent if already connected.
+            yield rx.call_script(  # type: ignore[misc]
+                f"if(window.startBrowserStream) startBrowserStream('{self.session_id}');"
+            )
+
+            # ============================================================
+            # PHASE 4: vLLM model loading (AFTER user message is visible)
+            # ============================================================
+            if self.backend_type == "vllm":  # type: ignore[attr-defined]
+                from . import _global_backend_state
+                mgr = _global_backend_state.get("vllm_manager")
+                if not (mgr and mgr.is_running()) and self.aifred_model_id:  # type: ignore[attr-defined]
+                    self.add_debug(f"🚀 Starting vLLM with {self.aifred_model_id}...")  # type: ignore[attr-defined]
+                    yield  # Show debug message while loading
+                await self._ensure_vllm_model()  # type: ignore[attr-defined]
+
+            # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
+            async for _ in self._phase_tts_container_checks():
+                yield
+
+            # Register this coroutine in the pipeline registry so external stop
+            # commands (UI stop button, future cross-channel stop) can cancel it.
+            _pipeline_task = asyncio.current_task()
+            if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
+                register_pipeline(self.session_id, _pipeline_task)  # type: ignore[attr-defined]
+
+            # Acquire active GPU TTS engine + start keep-alive ping for the
+            # duration of the pipeline. Prevents the container from idle-out
+            # during long inference or web research (analogous to FreeEcho.2 channel).
+            if self.enable_tts and self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
+                _active_engine = _detect_running_tts_engine()
+                if _active_engine:
+                    acquire_tts(_active_engine)
+                    acquired_tts_engines.append(_active_engine)
+                    tts_keepalive_task = asyncio.create_task(
+                        tts_keepalive_loop(
+                            acquired_tts_engines,
+                            on_warn=lambda m: self.add_debug(f"⚠️ {m}"),  # type: ignore[attr-defined]
+                        )
+                    )
 
             # ============================================================
             # VISION FAST PATH: Images present → VL model handles everything
@@ -1036,7 +1036,6 @@ class ChatMixin(rx.State, mixin=True):
                 return  # Vision fast path complete
 
             # Create LLM client once - used for ALL LLM operations
-            from ..lib.llm_client import LLMClient
             llm_client = LLMClient(
                 backend_type=self.backend_type,  # type: ignore[attr-defined]
                 base_url=self.backend_url,  # type: ignore[attr-defined]
@@ -1414,6 +1413,12 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(f"Traceback: {traceback.format_exc()}")
 
         finally:
+            # Close the per-message LLM client — every backend holds a
+            # persistent HTTP connection pool; without this the pool leaks
+            # once per sent message (multi_agent closes its own clients).
+            if llm_client is not None:
+                await llm_client.close()
+
             # Stop TTS keep-alive task and release engine refcounts before
             # any other cleanup runs (so a stuck downstream save doesn't
             # leak our acquisition).
@@ -1433,6 +1438,12 @@ class ChatMixin(rx.State, mixin=True):
             # tts_streaming_in_flight stays True and blocks media resume.
             # No-op when the multi-agent path already spawned it.
             self._spawn_tts_finalize()  # type: ignore[attr-defined]
+
+            # Per-turn semantics: without this reset a failed agent
+            # inference AFTER successful research leaves the counter set
+            # and the NEXT (research-less) turn gets a stale
+            # "[Recherche: N Quellen]" marker in its llm_history.
+            self._research_source_count = 0  # type: ignore[attr-defined]
 
             self.is_generating = False
             if not _client_gone:
@@ -1534,10 +1545,6 @@ class ChatMixin(rx.State, mixin=True):
 
         # Generate summary via LLM
         from ..lib.llm_client import LLMClient
-        llm_client = LLMClient(
-            backend_type=self.backend_type,  # type: ignore[attr-defined]
-            base_url=self.backend_url,  # type: ignore[attr-defined]
-        )
         model = self._effective_model_id("aifred")  # type: ignore[attr-defined]
 
         summary_prompt = (
@@ -1556,6 +1563,10 @@ class ChatMixin(rx.State, mixin=True):
         self.add_debug(f"📌 Generating session summary ({len(history)} messages) for: {', '.join(agent_names)}")  # type: ignore[attr-defined]
         yield None
 
+        llm_client = LLMClient(
+            backend_type=self.backend_type,  # type: ignore[attr-defined]
+            base_url=self.backend_url,  # type: ignore[attr-defined]
+        )
         try:
             summary = ""
             async for chunk in llm_client.chat_stream(
@@ -1607,3 +1618,5 @@ class ChatMixin(rx.State, mixin=True):
         except Exception as e:
             self.add_debug(f"❌ Session pin failed: {e}")  # type: ignore[attr-defined]
             yield rx.toast.error(f"Error: {e}", duration=3000, position="top-center")
+        finally:
+            await llm_client.close()

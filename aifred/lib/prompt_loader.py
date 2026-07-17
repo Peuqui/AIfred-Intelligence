@@ -76,13 +76,6 @@ def set_user_gender(gender: str):
     _current_user_gender = gender if gender in ("male", "female") else "male"
 
 
-def get_user_gender() -> str:
-    """Get the current user gender"""
-    return _current_user_gender
-
-
-
-
 def set_personality_enabled(agent: str, enabled: bool):
     """
     Set personality toggle state for an agent.
@@ -580,64 +573,6 @@ def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> 
     )
 
 
-def get_research_decision_prompt(
-    user_text: str,
-    has_images: bool = False,
-    vision_json: Optional[dict] = None,
-    lang: Optional[str] = None
-) -> str:
-    """
-    Load combined research decision prompt (Decision-Making + Query-Optimization).
-
-    This consolidates two LLM calls into one:
-    1. Decides if web research is needed
-    2. If yes, generates 3 optimized search queries
-
-    Output format is JSON:
-    - {"web": false} if no research needed
-    - {"web": true, "queries": ["q1", "q2", "q3"]} if research needed
-
-    Args:
-        user_text: User query text
-        has_images: Whether the message includes image(s)
-        vision_json: Structured data extracted from images by Vision-LLM
-        lang: Language override
-
-    Returns:
-        Formatted research decision prompt
-    """
-    # Build image context string
-    if has_images:
-        if lang == "en":
-            image_context = "\n\n⚠️ USER ATTACHED IMAGE(S) - This is an image analysis task!"
-        else:  # German (default)
-            image_context = "\n\n⚠️ BENUTZER HAT BILD(ER) ANGEHÄNGT - Dies ist eine Bildanalyse-Aufgabe!"
-    else:
-        image_context = ""
-
-    # Build Vision JSON context string
-    if vision_json:
-        import json
-        vision_json_context = f"""
-
-STRUKTURIERTE DATEN AUS BILD:
-```json
-{json.dumps(vision_json, ensure_ascii=False, indent=2)}
-```
-
-Diese Daten wurden automatisch aus dem Bild extrahiert."""
-    else:
-        vision_json_context = ""
-
-    return load_prompt(
-        'automatik/research_decision',
-        lang=lang,
-        user_text=user_text,
-        image_context=image_context,
-        vision_json_context=vision_json_context
-    )
-
-
 def get_query_generation_prompt(
     user_text: str,
     has_images: bool = False,
@@ -936,30 +871,6 @@ def get_vision_event_sequence_prompt(lang: Optional[str] = None) -> str:
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_sequence.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
-
-
-def get_cache_metadata_prompt(sources_preview: str, lang: Optional[str] = None) -> str:
-    """
-    Load cache metadata generation prompt.
-
-    Used to generate a concise summary of cached research sources
-    for later cache hit decisions.
-
-    Args:
-        sources_preview: Preview text of research sources
-        lang: Language code (de/en), defaults to current language
-
-    Returns:
-        Formatted prompt with sources inserted
-    """
-    if lang is None:
-        lang = _current_language
-
-    prompt_file = PROMPTS_DIR / lang / "automatik" / "cache_metadata.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        template = f.read().strip()
-
-    return template.format(sources_preview=sources_preview)
 
 
 # ============================================================

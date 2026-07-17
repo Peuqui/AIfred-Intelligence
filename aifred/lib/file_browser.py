@@ -24,15 +24,6 @@ from typing import Optional
 
 
 @dataclass
-class BrowseCapabilities:
-    """What operations the picker UI is allowed to expose."""
-    can_create_folder: bool = False
-    can_delete: bool = False
-    can_rename: bool = False
-    can_upload: bool = False
-
-
-@dataclass
 class BrowseRequest:
     root: str                   # absolute path; everything must stay under this
     rel_path: str = ""          # current location, relative to root
@@ -243,23 +234,6 @@ def delete_entry(root: str, rel_path: str) -> tuple[bool, str]:
     except OSError as exc:
         return False, f"delete failed: {exc}"
     return True, str(target)
-
-
-def rename_entry(root: str, rel_path: str, new_name: str) -> tuple[bool, str]:
-    """Rename a file/folder/symlink in-place. Used when caps.can_rename."""
-    if not new_name or "/" in new_name or new_name.startswith("."):
-        return False, "invalid new name"
-    target, err = safe_resolve(root, rel_path)
-    if err or target is None:
-        return False, err or "invalid path"
-    new_target = target.parent / new_name
-    if new_target.exists():
-        return False, "destination exists"
-    try:
-        target.rename(new_target)
-    except OSError as exc:
-        return False, f"rename failed: {exc}"
-    return True, str(new_target.relative_to(Path(root).resolve()))
 
 
 def create_symlink(

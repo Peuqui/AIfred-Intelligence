@@ -120,15 +120,6 @@ class VRamModel:
     low_point: VRamPoint
     high_point: VRamPoint
 
-    def predict_free_mb(
-        self, ctx: int, gpu_total_mb: tuple[int, ...],
-    ) -> tuple[float, ...]:
-        """Predict per-GPU free MiB at the given context."""
-        return tuple(
-            gpu_total_mb[i] - (self.intercept_mb[i] + self.slope_mb_per_tok[i] * ctx)
-            for i in range(len(self.intercept_mb))
-        )
-
 
 @dataclass(frozen=True)
 class Candidate:
@@ -148,11 +139,6 @@ class Candidate:
     max_context: int
     predicted_free_mb: tuple[int, ...]   # per-GPU predicted free at max_context
     vram_model: Optional[VRamModel]
-
-    @property
-    def projected_min_free_mb(self) -> int:
-        active = [f for f, r in zip(self.predicted_free_mb, self.tensor_split) if r > 0]
-        return min(active) if active else 0
 
 
 @dataclass(frozen=True)

@@ -41,11 +41,6 @@ class FileOpResult:
     detail: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def as_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"success": self.success, "detail": self.detail}
-        out.update(self.metadata)
-        return out
-
 
 # ─────────────────────────────────────────────────────────────────────────
 # Path safety

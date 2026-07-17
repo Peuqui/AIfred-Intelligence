@@ -6,10 +6,9 @@ Handles caching of research results including:
 - Session-based cache lookups
 """
 
-import time  # Keep for timestamp (time.time() for data, not duration)
 import threading
 from collections import OrderedDict
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from .logging_utils import log_message
 
 
@@ -22,20 +21,6 @@ from .logging_utils import log_message
 # OrderedDict instead of Dict for LRU Cache (oldest entries are deleted first)
 _research_cache: OrderedDict = OrderedDict()
 _research_cache_lock: threading.Lock = threading.Lock()
-MAX_CACHE_ENTRIES = 100  # Maximum number of sessions in RAM
-
-
-def set_research_cache(cache_dict: Dict, lock: threading.Lock) -> None:
-    """
-    Sets the research cache and lock for dependency injection
-
-    Args:
-        cache_dict: Dictionary to store research results by session_id
-        lock: threading.Lock() for thread-safe access
-    """
-    global _research_cache, _research_cache_lock
-    _research_cache = OrderedDict(cache_dict)
-    _research_cache_lock = lock
 
 
 def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
@@ -66,92 +51,6 @@ def get_cached_research(session_id: Optional[str]) -> Optional[Dict]:
         else:
             log_message(f"   ❌ Cache-Miss! session_id '{session_id[:8]}...' not in cache")
     return None
-
-
-def get_all_metadata_summaries(exclude_session_id: Optional[str] = None, max_entries: int = 10) -> List[Dict]:
-    """
-    Gets ALL metadata summaries from the cache (except the current session).
-
-    This function is used to give the main LLM context from previous research,
-    WITHOUT passing the full sources (saves context tokens).
-
-    Args:
-        exclude_session_id: Session ID that should NOT be returned (current research)
-        max_entries: Maximum number of old research entries (default: 10)
-
-    Returns:
-        List of dicts with {session_id, user_text, metadata_summary, timestamp}
-        Sorted by timestamp (newest first), max. max_entries entries
-    """
-    result = []
-    with _research_cache_lock:
-        for session_id, cache_entry in _research_cache.items():
-            # Exclude current session
-            if session_id == exclude_session_id:
-                continue
-
-            # Only entries WITH metadata summary
-            metadata_summary = cache_entry.get('metadata_summary')
-            if not metadata_summary:
-                continue
-
-            result.append({
-                'session_id': session_id,
-                'user_text': cache_entry.get('user_text', ''),
-                'metadata_summary': metadata_summary,
-                'timestamp': cache_entry.get('timestamp', 0)
-            })
-
-    # Sort by timestamp (newest first) and limit to max_entries
-    result.sort(key=lambda x: x['timestamp'], reverse=True)
-    return result[:max_entries]
-
-
-def save_cached_research(
-    session_id: Optional[str],
-    user_text: str,
-    scraped_sources: List[Dict],
-    mode: str,
-    metadata_summary: Optional[str] = None
-) -> None:
-    """
-    Saves research to cache (thread-safe)
-
-    Args:
-        session_id: Session ID
-        user_text: Original user question
-        scraped_sources: List of scraped source dictionaries
-        mode: Research mode used
-        metadata_summary: Optional KI-generated semantic summary of sources
-    """
-    if not session_id:
-        log_message("⚠️ DEBUG Cache save failed: No session_id")
-        return
-
-    with _research_cache_lock:
-        _research_cache[session_id] = {
-            'timestamp': time.time(),
-            'user_text': user_text,
-            'scraped_sources': scraped_sources,
-            'mode': mode,
-            'metadata_summary': metadata_summary
-        }
-
-        # LRU Eviction: If cache is full, delete oldest entry
-        if len(_research_cache) > MAX_CACHE_ENTRIES:
-            oldest_session = next(iter(_research_cache))  # First item = oldest
-            evicted_entry = _research_cache.pop(oldest_session)
-            log_message(
-                f"🗑️ Research-Cache LRU evicted: Session {oldest_session[:8]}... "
-                f"(Question: '{evicted_entry['user_text'][:50]}...')"
-            )
-
-        # DEBUG: Show cache status after saving
-        cache_size = len(_research_cache)
-        log_message(f"💾 Research-Cache saved for Session {session_id[:8]}...")
-        log_message(f"   Cache now contains {cache_size}/{MAX_CACHE_ENTRIES} entries: {[k[:8] + '...' for k in list(_research_cache.keys())[-5:]]}")
-        log_message(f"   Saved: {len(scraped_sources)} sources, user_text: '{user_text[:50]}...'")
-
 
 
 def delete_cached_research(session_id: Optional[str]) -> None:

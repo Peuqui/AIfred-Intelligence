@@ -330,9 +330,6 @@ class VisionWatcher:
         """Snapshot of all currently-running watch sessions."""
         return [s for sid, s in self._statuses.items() if self.is_running(sid)]
 
-    def get_status(self, source_id: str) -> WatchStatus | None:
-        return self._statuses.get(source_id)
-
     async def shutdown(self) -> None:
         """Stop all running watches. Call before process exit."""
         with self._lock:

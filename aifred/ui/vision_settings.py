@@ -11,7 +11,7 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS
-from .helpers import t
+from .helpers import t, overlay_modal
 
 
 def _mode_section() -> rx.Component:
@@ -697,125 +697,94 @@ def vision_settings_modal() -> rx.Component:
     """Modal globally mounted in aifred.py. Visible only when
     ``AIState.vision_settings_open`` is True. Closes on backdrop click or
     on the close button (top right + bottom)."""
-    return rx.cond(
+    return overlay_modal(
         AIState.vision_settings_open,
-        rx.box(
-            # Backdrop (klickbar zum Schließen) — gleiches Pattern wie crop_modal
-            rx.box(
-                position="absolute",
-                top="0",
-                left="0",
-                width="100%",
-                height="100%",
-                background_color="rgba(0, 0, 0, 0.5)",
-                on_click=AIState.close_vision_settings,
-            ),
-            # Modal content — zentriert, kompakte Box
-            rx.box(
-                rx.vstack(
+        rx.vstack(
                     # Header: Titel + X-Close
-                    rx.hstack(
-                        rx.icon("camera", size=20),
-                        rx.text(
-                            t("vision_settings_title"),
-                            font_weight="bold",
-                            size="4",
-                        ),
-                        rx.spacer(),
-                        rx.icon_button(
-                            rx.icon("x", size=16),
-                            on_click=AIState.close_vision_settings,
-                            size="1",
-                            variant="ghost",
-                            color_scheme="gray",
-                            custom_attrs={"data-modal-close": "true"},
-                        ),
-                        spacing="2",
-                        align="center",
-                        width="100%",
-                    ),
-                    rx.text(
-                        t("vision_settings_subtitle"),
-                        color="gray",
-                        size="2",
-                        margin_bottom="0.5em",
-                    ),
-                    rx.divider(),
-                    _mode_section(),
-                    rx.divider(),
-                    _model_section(),
-                    rx.divider(),
-                    _face_recognition_section(),
-                    rx.divider(),
-                    _sources_section(),
-                    rx.divider(),
-                    _rtsp_cameras_section(),
-                    rx.divider(),
-                    _alert_rules_section(),
-                    rx.divider(),
-                    _feed_visibility_section(),
-                    rx.divider(),
-                    # Sub-Modals (Personarium / Casus / Multi-Pose) öffnen
-                    # OHNE das Vigilantia-Modal zu schließen — sie
-                    # stapeln sich darüber. Beim Schließen des
-                    # Sub-Modals ist Vigilantia wieder die Top-Layer,
-                    # der User kommt nicht zu weit zurück.
-                    rx.button(
-                        rx.icon("users", size=16),
-                        rx.text(t("vision_settings_open_personarium")),
-                        on_click=AIState.open_personarium,
-                        size="2",
-                        variant="soft",
-                        color_scheme="orange",
-                        width="100%",
-                    ),
-                    rx.button(
-                        rx.icon("scroll-text", size=16),
-                        rx.text(t("vision_settings_open_casus")),
-                        on_click=AIState.open_casus,
-                        size="2",
-                        variant="soft",
-                        color_scheme="orange",
-                        width="100%",
-                    ),
-                    rx.button(
-                        rx.icon("user-cog", size=16),
-                        rx.text(t("vision_settings_open_multipose")),
-                        on_click=AIState.open_multipose(0, ""),
-                        size="2",
-                        variant="soft",
-                        color_scheme="orange",
-                        width="100%",
-                    ),
-                    rx.divider(),
-                    rx.button(
-                        t("vision_settings_close"),
-                        on_click=AIState.close_vision_settings,
-                        variant="soft",
-                        width="100%",
-                    ),
-                    align="stretch",
-                    spacing="3",
-                    width="100%",
+            rx.hstack(
+                rx.icon("camera", size=20),
+                rx.text(
+                    t("vision_settings_title"),
+                    font_weight="bold",
+                    size="4",
                 ),
-                position="absolute",
-                top="50%",
-                left="50%",
-                transform="translate(-50%, -50%)",
-                background_color="var(--gray-2)",
-                border="1px solid var(--gray-6)",
-                border_radius="12px",
-                padding="1.5em",
-                width="min(540px, 92vw)",
-                max_height="92vh",
-                overflow_y="auto",
-                box_shadow="0 20px 60px rgba(0,0,0,0.5)",
+                rx.spacer(),
+                rx.icon_button(
+                    rx.icon("x", size=16),
+                    on_click=AIState.close_vision_settings,
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                    custom_attrs={"data-modal-close": "true"},
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
             ),
-            position="fixed",
-            top="0",
-            left="0",
-            width="100vw",
-            height="100vh",
-            z_index="9999",
+            rx.text(
+                t("vision_settings_subtitle"),
+                color="gray",
+                size="2",
+                margin_bottom="0.5em",
+            ),
+            rx.divider(),
+            _mode_section(),
+            rx.divider(),
+            _model_section(),
+            rx.divider(),
+            _face_recognition_section(),
+            rx.divider(),
+            _sources_section(),
+            rx.divider(),
+            _rtsp_cameras_section(),
+            rx.divider(),
+            _alert_rules_section(),
+            rx.divider(),
+            _feed_visibility_section(),
+            rx.divider(),
+            # Sub-Modals (Personarium / Casus / Multi-Pose) öffnen
+            # OHNE das Vigilantia-Modal zu schließen — sie
+            # stapeln sich darüber. Beim Schließen des
+            # Sub-Modals ist Vigilantia wieder die Top-Layer,
+            # der User kommt nicht zu weit zurück.
+            rx.button(
+                rx.icon("users", size=16),
+                rx.text(t("vision_settings_open_personarium")),
+                on_click=AIState.open_personarium,
+                size="2",
+                variant="soft",
+                color_scheme="orange",
+                width="100%",
+            ),
+            rx.button(
+                rx.icon("scroll-text", size=16),
+                rx.text(t("vision_settings_open_casus")),
+                on_click=AIState.open_casus,
+                size="2",
+                variant="soft",
+                color_scheme="orange",
+                width="100%",
+            ),
+            rx.button(
+                rx.icon("user-cog", size=16),
+                rx.text(t("vision_settings_open_multipose")),
+                on_click=AIState.open_multipose(0, ""),
+                size="2",
+                variant="soft",
+                color_scheme="orange",
+                width="100%",
+            ),
+            rx.divider(),
+            rx.button(
+                t("vision_settings_close"),
+                on_click=AIState.close_vision_settings,
+                variant="soft",
+                width="100%",
+            ),
+            align="stretch",
+            spacing="3",
+            width="100%",
         ),
+        on_close=AIState.close_vision_settings,
+        width="min(540px, 92vw)",
     )

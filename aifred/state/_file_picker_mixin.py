@@ -225,11 +225,6 @@ class FilePickerMixin(rx.State, mixin=True):
         self._dispatch_callback(self.picker_current)
 
     @rx.event
-    def picker_pick(self, rel_path: str) -> None:
-        """Pick a specific entry (used for pick_file mode or click-to-pick)."""
-        self._dispatch_callback(rel_path)
-
-    @rx.event
     def picker_entry_clicked(self, rel_path: str, is_dir: bool) -> None:
         """Default entry click handler: navigate into folders, pick files
         in pick_file mode, ignore file clicks in pick_folder mode."""
@@ -326,15 +321,3 @@ class FilePickerMixin(rx.State, mixin=True):
     def picker_set_symlink_target(self, value: str) -> None:
         self.picker_symlink_target = value
 
-    # ── Delete ───────────────────────────────────────────
-
-    @rx.event
-    def picker_delete_entry(self, rel_path: str) -> None:
-        if not self.picker_caps.get("can_delete"):
-            return
-        from ..lib.file_browser import delete_entry
-        ok, msg = delete_entry(self.picker_root, rel_path)
-        if not ok:
-            self.picker_error = msg
-            return
-        self._picker_refresh()

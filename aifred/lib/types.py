@@ -5,7 +5,7 @@ Usage:
     from aifred.lib.types import StreamChunk, ContentChunk, DoneChunk
 """
 
-from typing import TypedDict, Literal, Union, Dict, Any
+from typing import TypedDict, Literal, Union
 from typing_extensions import NotRequired
 
 __all__ = [
@@ -90,29 +90,3 @@ class DoneChunk(TypedDict):
 
 # Union type for all possible stream chunks
 StreamChunk = Union[ContentChunk, DebugChunk, ThinkingWarningChunk, DoneChunk]
-
-
-# ============================================================
-# HELPER TYPE GUARDS
-# ============================================================
-# These functions can be used for runtime type checking
-
-
-def is_content_chunk(chunk: Dict[str, Any]) -> bool:
-    """Check if chunk is a content chunk."""
-    return chunk.get("type") == "content"
-
-
-def is_done_chunk(chunk: Dict[str, Any]) -> bool:
-    """Check if chunk is a done chunk."""
-    return chunk.get("type") == "done"
-
-
-def is_debug_chunk(chunk: Dict[str, Any]) -> bool:
-    """Check if chunk is a debug chunk."""
-    return chunk.get("type") == "debug"
-
-
-def is_thinking_warning_chunk(chunk: Dict[str, Any]) -> bool:
-    """Check if chunk is a thinking warning chunk."""
-    return chunk.get("type") == "thinking_warning"

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .....lib.plugin_base import load_tool_description
 from .....lib.security import TIER_WRITE_DATA
+from .._common import _get_token
 
 # Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
 # nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
@@ -54,14 +55,6 @@ def _escape_drive_term(term: str) -> str:
     term can inject arbitrary query operators.
     """
     return term.replace("\\", "\\\\").replace("'", "\\'")
-
-
-async def _get_token() -> str:
-    from .....lib.oauth.broker import oauth_broker
-    token = await oauth_broker.get_token("google")
-    if not token:
-        raise RuntimeError("Google nicht verbunden. Bitte erst in den Einstellungen autorisieren.")
-    return token
 
 
 async def _read_capped(response: httpx.Response) -> str:

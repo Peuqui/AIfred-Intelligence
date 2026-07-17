@@ -84,38 +84,6 @@ class CloudAPIBackend(OpenAICompatibleBackend):
             self._available_models = []
             return self._available_models
 
-    def get_backend_name(self) -> str:
-        """Return the provider display name."""
-        return self.provider_config["name"]
-
-    async def get_backend_info(self) -> Dict:
-        """Get Cloud API backend information."""
-        try:
-            models = await self.list_models()
-            healthy = await self.health_check()
-
-            return {
-                "backend": "Cloud API",
-                "provider": self.provider,
-                "provider_name": self.provider_config["name"],
-                "base_url": self.provider_config["base_url"],
-                "available_models": len(models),
-                "models": models,
-                "healthy": healthy,
-                "api_type": "OpenAI-compatible"
-            }
-        except openai.OpenAIError as e:
-            return {
-                "backend": "Cloud API",
-                "provider": self.provider,
-                "provider_name": self.provider_config["name"],
-                "base_url": self.provider_config["base_url"],
-                "available_models": 0,
-                "models": [],
-                "healthy": False,
-                "error": str(e)
-            }
-
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
         Get context limit for a Cloud API model.

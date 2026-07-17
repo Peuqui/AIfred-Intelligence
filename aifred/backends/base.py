@@ -132,23 +132,6 @@ class LLMBackend(ABC):
         """Check if backend is reachable and healthy"""
 
     @abstractmethod
-    def get_backend_name(self) -> str:
-        """Return backend name (e.g., 'Ollama', 'vLLM', 'llama.cpp')"""
-
-    @abstractmethod
-    async def get_backend_info(self) -> Dict:
-        """
-        Return backend information (async method)
-
-        Returns:
-            Dict with: version, gpu_available, memory_info, etc.
-
-        Note:
-            This is an async method because it may need to query
-            the backend API for version/model information.
-        """
-
-    @abstractmethod
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
         Get the context window size and model size for a specific model.
@@ -356,29 +339,6 @@ class OpenAICompatibleBackend(LLMBackend):
         """No-op preload — models are already loaded. Override for Ollama/llamacpp."""
         return (True, 0.0)
 
-    async def get_backend_info(self) -> Dict:
-        """Get backend information via models.list()."""
-        import openai
-        try:
-            models = await self.list_models()
-            return {
-                "backend": self.BACKEND_NAME,
-                "base_url": self.base_url,
-                "available_models": len(models),
-                "models": models,
-                "healthy": True,
-                "api_type": "OpenAI-compatible",
-            }
-        except openai.OpenAIError as e:
-            return {
-                "backend": self.BACKEND_NAME,
-                "base_url": self.base_url,
-                "available_models": 0,
-                "models": [],
-                "healthy": False,
-                "error": str(e),
-            }
-
     # === Hooks (override in subclasses as needed) ===
 
     def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
@@ -525,6 +485,69 @@ class OpenAICompatibleBackend(LLMBackend):
         except Exception as e:
             raise self._classify_error(e, model)
 
+    async def _consume_stream(
+        self,
+        stream: Any,
+        stream_state: Dict[str, Any],
+        counters: Dict[str, Any],
+        tool_calls: Optional[List[Dict[str, Any]]],
+    ) -> AsyncIterator[Dict]:
+        """Consume one completion stream and yield UI items.
+
+        Updates counters in place (prompt_tokens, total_tokens,
+        server_timings, last_finish_reason). Accumulates streamed
+        tool-call deltas into tool_calls when a list is given
+        (pass None for tool-free rounds).
+        """
+        async for chunk in stream:
+            if chunk.choices:
+                delta = chunk.choices[0].delta
+                delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
+                # OpenAI SDK doesn't define reasoning_content in ChoiceDelta —
+                # it lands in model_extra instead of model_dump()
+                if hasattr(delta, "model_extra") and delta.model_extra:
+                    if "reasoning_content" in delta.model_extra:
+                        delta_dict["reasoning_content"] = delta.model_extra["reasoning_content"]
+
+                # Accumulate tool calls from streaming deltas
+                if tool_calls is not None and hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        while idx >= len(tool_calls):
+                            tool_calls.append({"id": "", "name": "", "arguments": ""})
+                        if tc_delta.id:
+                            tool_calls[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tool_calls[idx]["name"] = tc_delta.function.name
+                                # Notify UI immediately when tool name is known
+                                yield {"type": "tool_call_start", "name": tc_delta.function.name}
+                            if tc_delta.function.arguments:
+                                tool_calls[idx]["arguments"] += tc_delta.function.arguments
+
+                # Normal content/thinking chunks
+                for item in self._process_stream_delta(delta, delta_dict, stream_state):
+                    yield item
+                    if item.get("type") == "content":
+                        counters["total_tokens"] += 1
+                        stream_state.setdefault("_content_acc", "")
+                        stream_state["_content_acc"] += item.get("text", "")
+
+                # Track finish_reason — set on the chunk that
+                # closes the stream. Used to detect a
+                # truncated tool-call (finish_reason="length"
+                # = hit max_tokens before the args were complete).
+                if chunk.choices[0].finish_reason:
+                    counters["last_finish_reason"] = chunk.choices[0].finish_reason
+
+            if hasattr(chunk, "usage") and chunk.usage:
+                counters["prompt_tokens"] = chunk.usage.prompt_tokens
+                counters["total_tokens"] = chunk.usage.completion_tokens
+                counters["server_timings"] = self._extract_server_timings(chunk)
+
+        for item in self._finalize_stream(stream_state):
+            yield item
+
     async def chat_stream(
         self,
         model: str,
@@ -597,59 +620,21 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     stream_state: Dict[str, Any] = {}
                     tool_calls: List[Dict[str, Any]] = []
-                    last_finish_reason: Optional[str] = None
-
-                    async for chunk in stream:
-                        if chunk.choices:
-                            delta = chunk.choices[0].delta
-                            delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
-                            # OpenAI SDK doesn't define reasoning_content in ChoiceDelta —
-                            # it lands in model_extra instead of model_dump()
-                            if hasattr(delta, "model_extra") and delta.model_extra:
-                                if "reasoning_content" in delta.model_extra:
-                                    delta_dict["reasoning_content"] = delta.model_extra["reasoning_content"]
-
-                            # Accumulate tool calls from streaming deltas
-                            if hasattr(delta, "tool_calls") and delta.tool_calls:
-                                for tc_delta in delta.tool_calls:
-                                    idx = tc_delta.index
-                                    while idx >= len(tool_calls):
-                                        tool_calls.append({"id": "", "name": "", "arguments": ""})
-                                    if tc_delta.id:
-                                        tool_calls[idx]["id"] = tc_delta.id
-                                    if tc_delta.function:
-                                        if tc_delta.function.name:
-                                            tool_calls[idx]["name"] = tc_delta.function.name
-                                            # Notify UI immediately when tool name is known
-                                            yield {"type": "tool_call_start", "name": tc_delta.function.name}
-                                            yielded_any = True
-                                        if tc_delta.function.arguments:
-                                            tool_calls[idx]["arguments"] += tc_delta.function.arguments
-
-                            # Normal content/thinking chunks
-                            for item in self._process_stream_delta(delta, delta_dict, stream_state):
-                                yield item
-                                yielded_any = True
-                                if item.get("type") == "content":
-                                    total_tokens += 1
-                                    stream_state.setdefault("_content_acc", "")
-                                    stream_state["_content_acc"] += item.get("text", "")
-
-                            # Track finish_reason — set on the chunk that
-                            # closes the stream. Used below to detect a
-                            # truncated tool-call (finish_reason="length"
-                            # = hit max_tokens before the args were complete).
-                            if chunk.choices[0].finish_reason:
-                                last_finish_reason = chunk.choices[0].finish_reason
-
-                        if hasattr(chunk, "usage") and chunk.usage:
-                            prompt_tokens = chunk.usage.prompt_tokens
-                            total_tokens = chunk.usage.completion_tokens
-                            server_timings = self._extract_server_timings(chunk)
-
-                    for item in self._finalize_stream(stream_state):
+                    counters: Dict[str, Any] = {
+                        "prompt_tokens": prompt_tokens,
+                        "total_tokens": total_tokens,
+                        "server_timings": server_timings,
+                        "last_finish_reason": None,
+                    }
+                    async for item in self._consume_stream(
+                        stream, stream_state, counters, tool_calls
+                    ):
                         yield item
                         yielded_any = True
+                    prompt_tokens = counters["prompt_tokens"]
+                    total_tokens = counters["total_tokens"]
+                    server_timings = counters["server_timings"]
+                    last_finish_reason: Optional[str] = counters["last_finish_reason"]
 
                     # Discard tool calls if generation was truncated mid-args.
                     # Executing partial JSON would just emit a noisy error to
@@ -767,25 +752,20 @@ class OpenAICompatibleBackend(LLMBackend):
                     kwargs_final = {**kwargs, "tools": None, "tool_choice": None}
                     stream = await self.client.chat.completions.create(**kwargs_final)
                     stream_state = {}
-                    async for chunk in stream:
-                        if chunk.choices:
-                            delta = chunk.choices[0].delta
-                            delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
-                            if hasattr(delta, "model_extra") and delta.model_extra:
-                                if "reasoning_content" in delta.model_extra:
-                                    delta_dict["reasoning_content"] = delta.model_extra["reasoning_content"]
-                            for item in self._process_stream_delta(delta, delta_dict, stream_state):
-                                yield item
-                                yielded_any = True
-                                if item.get("type") == "content":
-                                    total_tokens += 1
-                        if hasattr(chunk, "usage") and chunk.usage:
-                            prompt_tokens = chunk.usage.prompt_tokens
-                            total_tokens = chunk.usage.completion_tokens
-                            server_timings = self._extract_server_timings(chunk)
-                    for item in self._finalize_stream(stream_state):
+                    counters = {
+                        "prompt_tokens": prompt_tokens,
+                        "total_tokens": total_tokens,
+                        "server_timings": server_timings,
+                        "last_finish_reason": None,
+                    }
+                    async for item in self._consume_stream(
+                        stream, stream_state, counters, None
+                    ):
                         yield item
                         yielded_any = True
+                    prompt_tokens = counters["prompt_tokens"]
+                    total_tokens = counters["total_tokens"]
+                    server_timings = counters["server_timings"]
 
                 inference_time = timer.elapsed()
 

@@ -29,14 +29,6 @@ def _gpu_engine_keys() -> set[str]:
 
 GPU_ENGINES = _gpu_engine_keys()
 
-# Engines that run without Docker / without VRAM — complement of GPU_ENGINES.
-def _lightweight_engine_keys() -> set[str]:
-    from .tts_engines import TTS_ENGINES
-    return {k for k, e in TTS_ENGINES.items() if not e.needs_gpu}
-
-
-LIGHTWEIGHT_ENGINES = _lightweight_engine_keys()
-
 # HTTP timeout for TTS health checks (seconds).
 # Normal response: <100ms. This is only a safety net for hung connections.
 TTS_HEALTH_CHECK_TIMEOUT = 5

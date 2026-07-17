@@ -12,7 +12,6 @@ session-scoped cleanup (like images in data/upload/images/{session_id}/).
 
 import asyncio
 import os
-import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
@@ -30,6 +29,7 @@ from .config import (
 )
 
 from .logging_utils import log_message
+from .session_storage import SESSION_ID_RE
 
 
 @dataclass
@@ -72,9 +72,6 @@ def _build_wrapper_script(code: str, work_dir: Path) -> str:
     return "\n".join(parts)
 
 
-_SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
-
-
 def _safe_session_subdir(session_id: str) -> Optional[Path]:
     """Return the per-session SANDBOX_OUTPUT_DIR subpath if the id is safe.
 
@@ -84,7 +81,7 @@ def _safe_session_subdir(session_id: str) -> Optional[Path]:
     that fail elsewhere also fail here.
     """
     from .config import SANDBOX_OUTPUT_DIR
-    if not isinstance(session_id, str) or not _SESSION_ID_RE.match(session_id):
+    if not isinstance(session_id, str) or not SESSION_ID_RE.match(session_id):
         return None
     root = SANDBOX_OUTPUT_DIR.resolve()
     candidate = (SANDBOX_OUTPUT_DIR / session_id).resolve()

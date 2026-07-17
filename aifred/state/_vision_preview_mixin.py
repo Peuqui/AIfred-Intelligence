@@ -50,84 +50,6 @@ _RESOLUTION_LABELS: dict[tuple[int, int], str] = {
 }
 
 
-_VISION_SSE_MANAGER_SCRIPT = r"""
-(() => {
-  // Single SSE manager per page. Watches for elements with the
-  // .vlm-event-target class and a data-vlm-source attribute; opens
-  // an EventSource per unique source and pipes VLM analysis events
-  // into the matching DOM target as a 1-per-line teleprompter feed.
-  if (window.__aifredVLMSSEInit) return;
-  window.__aifredVLMSSEInit = true;
-  console.log('[AIfred-VLM] SSE manager booting');
-  const streams = {};
-  const lines = {};
-  const MAX_LINES = 8;
-
-  function render(sid) {
-    const items = lines[sid] || [];
-    document.querySelectorAll('.vlm-event-target[data-vlm-source="' + sid + '"]')
-      .forEach(function (el) {
-        if (items.length === 0) {
-          el.textContent = el.dataset.idleText || '';
-          el.style.fontStyle = 'italic';
-          return;
-        }
-        el.style.fontStyle = 'normal';
-        el.textContent = items.join('\n');
-        el.scrollTop = el.scrollHeight;
-      });
-  }
-
-  function openStream(sid) {
-    if (streams[sid] && streams[sid].readyState !== 2) return;
-    const url = '/api/vision/events/' + sid;
-    console.log('[AIfred-VLM] EventSource opening:', url);
-    const es = new EventSource(url);
-    streams[sid] = es;
-    lines[sid] = lines[sid] || [];
-    es.onopen = function () { console.log('[AIfred-VLM] EventSource open:', sid); };
-    es.onmessage = function (ev) {
-      try {
-        const data = JSON.parse(ev.data);
-        const ts = (data.timestamp || '').split('T')[1] || '';
-        const desc = (data.description || '').replace(/\s+/g, ' ').trim();
-        const line = ts + '  ' + desc;
-        lines[sid].push(line);
-        if (lines[sid].length > MAX_LINES) lines[sid].shift();
-        render(sid);
-      } catch (e) {}
-    };
-    es.onerror = function (e) {
-      console.warn('[AIfred-VLM] EventSource error:', sid, e);
-    };
-  }
-
-  function scan() {
-    const targets = document.querySelectorAll('.vlm-event-target[data-vlm-source]');
-    const seen = new Set();
-    targets.forEach(function (el) {
-      const sid = el.dataset.vlmSource;
-      if (!sid) return;
-      if (!el.dataset.idleText) el.dataset.idleText = el.textContent;
-      seen.add(sid);
-      openStream(sid);
-      render(sid);
-    });
-    Object.keys(streams).forEach(function (sid) {
-      if (!seen.has(sid) && streams[sid]) {
-        streams[sid].close();
-        delete streams[sid];
-      }
-    });
-  }
-
-  const obs = new MutationObserver(function () { scan(); });
-  obs.observe(document.body, { childList: true, subtree: true });
-  scan();
-})();
-"""
-
-
 def _label_from(entry: dict[str, Any], alias: str) -> str:
     """Recompute a source-list label given a fresh alias. Used by the
     alias-setter to keep the label in sync without re-running the full
@@ -948,24 +870,12 @@ class VisionPreviewMixin(rx.State, mixin=True):
         try:
             from ..lib.frame_sources import get as get_source
             from ..lib.vision_store import VisionStore
-            store = VisionStore()
             src = get_source(source_id)
-            existing = store.get_source(source_id)
-            display_name = existing.get("display_name") if existing else (
-                src.display_name if src else source_id
-            )
-            kind = existing.get("kind") if existing else (
-                src.kind if src else "webcam"
-            )
-            store.upsert_source(
-                source_id=source_id,
-                display_name=str(display_name or source_id),
-                kind=str(kind or "webcam"),
+            VisionStore().update_source_fields(
+                source_id,
+                fallback_display_name=src.display_name if src else source_id,
+                fallback_kind=src.kind if src else "webcam",
                 prompt_context=prompt_context,
-                position=str(existing.get("position", "")) if existing else "",
-                auto_start=bool(existing.get("auto_start", False)) if existing else False,
-                sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
-                settings=dict(existing.get("settings", {})) if existing else {},
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("vision-preview prompt-context persist failed: %s", e)
@@ -980,60 +890,20 @@ class VisionPreviewMixin(rx.State, mixin=True):
             store = VisionStore()
             src = get_source(source_id)
             existing = store.get_source(source_id)
-            display_name = existing.get("display_name") if existing else (
-                src.display_name if src else source_id
-            )
-            kind = existing.get("kind") if existing else (
-                src.kind if src else "webcam"
-            )
             settings = dict(existing.get("settings", {})) if existing else {}
             if alias:
                 settings["alias"] = alias
             else:
                 settings.pop("alias", None)
-            store.upsert_source(
-                source_id=source_id,
-                display_name=str(display_name or source_id),
-                kind=str(kind or "webcam"),
-                prompt_context=str(existing.get("prompt_context", "")) if existing else "",
-                position=str(existing.get("position", "")) if existing else "",
-                auto_start=bool(existing.get("auto_start", False)) if existing else False,
-                sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
+            store.update_source_fields(
+                source_id,
+                fallback_display_name=src.display_name if src else source_id,
+                fallback_kind=src.kind if src else "webcam",
                 settings=settings,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("vision-preview alias persist failed: %s", e)
             self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
-
-    def _persist_source_auto_start(self, source_id: str, value: bool) -> None:
-        """Toggle für Hintergrund-Watch auf der Top-Level-Spalte
-        ``sources.auto_start`` persistieren."""
-        try:
-            from ..lib.frame_sources import get as get_source
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            src = get_source(source_id)
-            existing = store.get_source(source_id)
-            display_name = existing.get("display_name") if existing else (
-                src.display_name if src else source_id
-            )
-            kind = existing.get("kind") if existing else (
-                src.kind if src else "webcam"
-            )
-            store.upsert_source(
-                source_id=source_id,
-                display_name=str(display_name or source_id),
-                kind=str(kind or "webcam"),
-                prompt_context=str(existing.get("prompt_context", "")) if existing else "",
-                position=str(existing.get("position", "")) if existing else "",
-                auto_start=bool(value),
-                sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
-                settings=dict(existing.get("settings", {})) if existing else {},
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("vision-preview auto_start persist failed: %s", e)
-            self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
-
 
     def _persist_source_resolution(self, source_id: str, resolution: str) -> None:
         """Write the per-source resolution choice to vision_store.sources."""

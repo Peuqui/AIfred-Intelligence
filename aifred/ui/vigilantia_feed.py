@@ -13,7 +13,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t
+from .helpers import t, overlay_modal
 
 
 def _feed_thumb(event: rx.Var) -> rx.Component:
@@ -294,139 +294,112 @@ def vigilantia_help_modal() -> rx.Component:
     """Übersichts-Modal, das die drei Ebenen (Master / Quellen / Live-
     Steuerung) und die zugehörigen Zustände erklärt. Globally mounted
     in aifred.py, sichtbar wenn ``AIState.vigilantia_help_open``."""
-    return rx.cond(
+    return overlay_modal(
         AIState.vigilantia_help_open,
-        rx.box(
-            rx.box(
-                position="absolute",
-                top="0",
-                left="0",
-                width="100%",
-                height="100%",
-                background_color="rgba(0, 0, 0, 0.5)",
-                on_click=AIState.close_vigilantia_help,
-            ),
-            rx.box(
-                rx.vstack(
-                    rx.hstack(
-                        rx.icon("lightbulb", size=20, color="#FFA500"),
-                        rx.text(
-                            t("vigilantia_help_title"),
-                            font_weight="bold", size="4",
-                        ),
-                        rx.spacer(),
-                        rx.icon_button(
-                            rx.icon("x", size=16),
-                            on_click=AIState.close_vigilantia_help,
-                            size="1", variant="ghost", color_scheme="gray",
-                            custom_attrs={"data-modal-close": "true"},
-                        ),
-                        spacing="2",
-                        align="center",
-                        width="100%",
-                    ),
-                    rx.text(
-                        t("vigilantia_help_intro"),
-                        color="gray", size="2",
-                        margin_bottom="0.5em",
-                    ),
-                    rx.divider(),
-                    # Ebene 1: Master
-                    rx.text(
-                        t("vigilantia_help_section_master"),
-                        font_weight="bold", size="3",
-                        style={"margin_top": "0.5em"},
-                    ),
-                    _help_row("eye", "#FFA500",
-                              "vigilantia_help_eye_open_label",
-                              "vigilantia_help_eye_open_body"),
-                    _help_row("eye-off", "var(--gray-9)",
-                              "vigilantia_help_eye_closed_label",
-                              "vigilantia_help_eye_closed_body"),
-                    rx.divider(),
-                    # Ebene 2: Quellen
-                    rx.text(
-                        t("vigilantia_help_section_sources"),
-                        font_weight="bold", size="3",
-                        style={"margin_top": "0.5em"},
-                    ),
-                    _help_row("camera", "#FFA500",
-                              "vigilantia_help_sources_label",
-                              "vigilantia_help_sources_body"),
-                    _help_row("users", "#FFA500",
-                              "vigilantia_help_face_label",
-                              "vigilantia_help_face_body"),
-                    _help_row("activity", "var(--blue-9)",
-                              "vigilantia_help_motion_label",
-                              "vigilantia_help_motion_body"),
-                    _help_row("person-standing", "var(--purple-9)",
-                              "vigilantia_help_person_label",
-                              "vigilantia_help_person_body"),
-                    rx.divider(),
-                    # Ebene 3: Vorschau
-                    rx.text(
-                        t("vigilantia_help_section_preview"),
-                        font_weight="bold", size="3",
-                        style={"margin_top": "0.5em"},
-                    ),
-                    _help_row("monitor", "#FFA500",
-                              "vigilantia_help_preview_label",
-                              "vigilantia_help_preview_body"),
-                    rx.divider(),
-                    # Verwandte Modals
-                    rx.text(
-                        t("vigilantia_help_section_related"),
-                        font_weight="bold", size="3",
-                        style={"margin_top": "0.5em"},
-                    ),
-                    _help_row("users", "#FFA500",
-                              "vigilantia_help_personarium_label",
-                              "vigilantia_help_personarium_body"),
-                    _help_row("scroll-text", "#FFA500",
-                              "vigilantia_help_casus_label",
-                              "vigilantia_help_casus_body"),
-                    _help_row("user-cog", "#FFA500",
-                              "vigilantia_help_multipose_label",
-                              "vigilantia_help_multipose_body"),
-                    rx.divider(),
-                    rx.text(
-                        t("vigilantia_help_lifecycle_link"),
-                        size="2",
-                        color="#FFA500",
-                        cursor="pointer",
-                        on_click=[
-                            AIState.close_vigilantia_help,
-                            AIState.open_model_lifecycle_help,
-                        ],
-                        style={"text_decoration": "underline"},
-                    ),
-                    rx.button(
-                        t("vision_settings_close"),
-                        on_click=AIState.close_vigilantia_help,
-                        size="2", variant="soft", width="100%",
-                    ),
-                    align="stretch",
-                    spacing="2",
-                    width="100%",
+        rx.vstack(
+            rx.hstack(
+                rx.icon("lightbulb", size=20, color="#FFA500"),
+                rx.text(
+                    t("vigilantia_help_title"),
+                    font_weight="bold", size="4",
                 ),
-                position="absolute",
-                top="50%",
-                left="50%",
-                transform="translate(-50%, -50%)",
-                background_color="var(--gray-2)",
-                border="1px solid var(--gray-6)",
-                border_radius="12px",
-                padding="1.5em",
-                width="min(620px, 95vw)",
-                max_height="92vh",
-                overflow_y="auto",
-                box_shadow="0 20px 60px rgba(0,0,0,0.5)",
+                rx.spacer(),
+                rx.icon_button(
+                    rx.icon("x", size=16),
+                    on_click=AIState.close_vigilantia_help,
+                    size="1", variant="ghost", color_scheme="gray",
+                    custom_attrs={"data-modal-close": "true"},
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
             ),
-            position="fixed",
-            top="0", left="0",
-            width="100vw", height="100vh",
-            z_index="9999",
+            rx.text(
+                t("vigilantia_help_intro"),
+                color="gray", size="2",
+                margin_bottom="0.5em",
+            ),
+            rx.divider(),
+            # Ebene 1: Master
+            rx.text(
+                t("vigilantia_help_section_master"),
+                font_weight="bold", size="3",
+                style={"margin_top": "0.5em"},
+            ),
+            _help_row("eye", "#FFA500",
+                      "vigilantia_help_eye_open_label",
+                      "vigilantia_help_eye_open_body"),
+            _help_row("eye-off", "var(--gray-9)",
+                      "vigilantia_help_eye_closed_label",
+                      "vigilantia_help_eye_closed_body"),
+            rx.divider(),
+            # Ebene 2: Quellen
+            rx.text(
+                t("vigilantia_help_section_sources"),
+                font_weight="bold", size="3",
+                style={"margin_top": "0.5em"},
+            ),
+            _help_row("camera", "#FFA500",
+                      "vigilantia_help_sources_label",
+                      "vigilantia_help_sources_body"),
+            _help_row("users", "#FFA500",
+                      "vigilantia_help_face_label",
+                      "vigilantia_help_face_body"),
+            _help_row("activity", "var(--blue-9)",
+                      "vigilantia_help_motion_label",
+                      "vigilantia_help_motion_body"),
+            _help_row("person-standing", "var(--purple-9)",
+                      "vigilantia_help_person_label",
+                      "vigilantia_help_person_body"),
+            rx.divider(),
+            # Ebene 3: Vorschau
+            rx.text(
+                t("vigilantia_help_section_preview"),
+                font_weight="bold", size="3",
+                style={"margin_top": "0.5em"},
+            ),
+            _help_row("monitor", "#FFA500",
+                      "vigilantia_help_preview_label",
+                      "vigilantia_help_preview_body"),
+            rx.divider(),
+            # Verwandte Modals
+            rx.text(
+                t("vigilantia_help_section_related"),
+                font_weight="bold", size="3",
+                style={"margin_top": "0.5em"},
+            ),
+            _help_row("users", "#FFA500",
+                      "vigilantia_help_personarium_label",
+                      "vigilantia_help_personarium_body"),
+            _help_row("scroll-text", "#FFA500",
+                      "vigilantia_help_casus_label",
+                      "vigilantia_help_casus_body"),
+            _help_row("user-cog", "#FFA500",
+                      "vigilantia_help_multipose_label",
+                      "vigilantia_help_multipose_body"),
+            rx.divider(),
+            rx.text(
+                t("vigilantia_help_lifecycle_link"),
+                size="2",
+                color="#FFA500",
+                cursor="pointer",
+                on_click=[
+                    AIState.close_vigilantia_help,
+                    AIState.open_model_lifecycle_help,
+                ],
+                style={"text_decoration": "underline"},
+            ),
+            rx.button(
+                t("vision_settings_close"),
+                on_click=AIState.close_vigilantia_help,
+                size="2", variant="soft", width="100%",
+            ),
+            align="stretch",
+            spacing="2",
+            width="100%",
         ),
+        on_close=AIState.close_vigilantia_help,
+        width="min(620px, 95vw)",
     )
 
 

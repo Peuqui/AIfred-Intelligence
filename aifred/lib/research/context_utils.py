@@ -147,9 +147,8 @@ def get_agent_num_ctx(
         # past the real limit without ever triggering history compression.
         # SSOT is the State toggle (enable_tts + tts_engine), not a live
         # container probe — same rationale as _effective_model_id.
-        from ..calibration import parse_llamaswap_config, resolve_variant_suffix
+        from ..calibration import parse_llamaswap_config, resolve_effective_suffix
         from ..config import LLAMASWAP_CONFIG_PATH
-        from ..tts_engine_manager import GPU_ENGINES
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 
         # Resolve the variant via the SSOT — same rules as the model-id
@@ -157,19 +156,13 @@ def get_agent_num_ctx(
         # speed toggle of its own; vision uses the AIfred agent's flags.
         speed_attr = f"{agent}_speed_mode" if agent != "vision" else "vision_speed_mode"
         has_speed_attr = f"{agent}_has_speed_variant" if agent != "vision" else "vision_has_speed_variant"
-        from ..vision_prewarm import is_vision_active, get_active_vlm_key
-        _vlm_active = is_vision_active()
-        _vlm_key = get_active_vlm_key() if _vlm_active else ""
-        suffix = resolve_variant_suffix(
+        suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             model_id,
             speed_on=getattr(state, speed_attr, False),
             has_speed_variant=getattr(state, has_speed_attr, False),
             tts_active=bool(getattr(state, "enable_tts", False)),
             tts_engine=getattr(state, "tts_engine", ""),
-            gpu_tts_engines=GPU_ENGINES,
-            vlm_active=_vlm_active,
-            vlm_key=_vlm_key,
         )
         effective_id = model_id + suffix
 

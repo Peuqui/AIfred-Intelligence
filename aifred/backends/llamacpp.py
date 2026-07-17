@@ -223,33 +223,6 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             logger.warning(f"llama.cpp: Preload failed for {model}: {e}")
             return (False, load_time)
 
-    def get_backend_name(self) -> str:
-        return "llama.cpp"
-
-    async def get_backend_info(self) -> Dict:
-        """Get llama.cpp/llama-swap backend information"""
-        try:
-            models = await self.list_models()
-            return {
-                "backend": "llama.cpp",
-                "proxy": "llama-swap",
-                "base_url": self.base_url,
-                "available_models": len(models),
-                "models": models,
-                "healthy": True,
-                "api_type": "OpenAI-compatible"
-            }
-        except Exception as e:
-            return {
-                "backend": "llama.cpp",
-                "proxy": "llama-swap",
-                "base_url": self.base_url,
-                "available_models": 0,
-                "models": [],
-                "healthy": False,
-                "error": str(e)
-            }
-
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
         Get context limit for a llama.cpp model.
