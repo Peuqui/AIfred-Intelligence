@@ -180,8 +180,3 @@ def list_ollama_text_models(host: str | None = None) -> list[OllamaModelInfo]:
     (no VLM, no embedding). For settings UIs that explicitly want chat-only
     models (e.g. a future Ollama-based "main LLM" picker)."""
     return [m for m in list_ollama_models(host=host) if classify_model(m) == "text"]
-
-
-def list_ollama_embedding_models(host: str | None = None) -> list[OllamaModelInfo]:
-    """Subset of ``list_ollama_models()`` that returns embedding-only models."""
-    return [m for m in list_ollama_models(host=host) if classify_model(m) == "embedding"]

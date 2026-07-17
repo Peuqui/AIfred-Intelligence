@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -50,7 +49,6 @@ from .config import (  # noqa: E402  SSOT für VLM-Context + Downscale-Ziel
     VISION_VLM_MAX_PIXELS as DEFAULT_MAX_PIXELS,
 )
 DEFAULT_KEEP_ALIVE = "30m"
-DEFAULT_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 
 @dataclass(frozen=True)

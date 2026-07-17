@@ -14,6 +14,7 @@ from typing import Any, Tuple, Optional
 # Imports for session-based image storage
 from .config import DATA_DIR
 from .logging_utils import log_message
+from .session_storage import SESSION_ID_RE
 
 # Vision images live in two session-scoped trees:
 #   data/vigilantia/toolcall/<session>/ — on-demand camera captures
@@ -27,8 +28,6 @@ TOOLCALL_IMAGES_DIR: Path = VIGILANTIA_DIR / "toolcall"
 UPLOAD_IMAGES_DIR: Path = DATA_DIR / "upload" / "images"
 
 logger = logging.getLogger(__name__)
-
-_SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
 
 # ============================================================
@@ -149,7 +148,7 @@ def resolve_source_id(name_or_id: str) -> str:
 def _safe_session_dir(base_dir: Path, session_id: str) -> Optional[Path]:
     """Return ``base_dir/session_id`` if session_id is well-formed and the
     resolved path stays under ``base_dir``, else None (path-traversal-safe)."""
-    if not isinstance(session_id, str) or not _SESSION_ID_RE.match(session_id):
+    if not isinstance(session_id, str) or not SESSION_ID_RE.match(session_id):
         return None
     root = base_dir.resolve()
     candidate = (base_dir / session_id).resolve()
@@ -366,53 +365,6 @@ async def is_vision_model(state, model_name: str) -> bool:
         return _is_vision_model_by_name(model_name)
 
 
-def _get_gguf_vision_metadata(gguf_path: Path) -> tuple:
-    """
-    Extract vision-relevant metadata from GGUF file.
-
-    Args:
-        gguf_path: Path to GGUF model file
-
-    Returns:
-        Tuple of (architecture, tags, name) - any can be None if not found
-    """
-    try:
-        import gguf
-
-        with open(gguf_path, "rb") as f:
-            reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
-
-            architecture = None
-            tags = None
-            name = None
-
-            for field in reader.fields.values():
-                try:
-                    value_array = field.parts[-1]
-                    if hasattr(value_array, 'tobytes'):
-                        value = value_array.tobytes().decode('utf-8', errors='ignore').strip('\x00')
-                    else:
-                        value = str(value_array)
-
-                    if field.name == 'general.architecture':
-                        architecture = value
-                    elif field.name == 'general.tags':
-                        tags = value
-                    elif field.name == 'general.name':
-                        name = value
-                except (ImportError, AttributeError):
-                    continue
-
-            return architecture, tags, name
-
-    except ImportError:
-        logger.warning("gguf-py library not installed")
-        return None, None, None
-    except OSError as e:
-        logger.warning(f"Error reading GGUF metadata from {gguf_path}: {e}")
-        return None, None, None
-
-
 def _is_vision_model_by_name(model_name: str) -> bool:
     """
     Fallback: Detect vision models by name patterns.
@@ -519,20 +471,6 @@ def validate_image_file(filename: str, size_bytes: int) -> Tuple[bool, Optional[
         return False, f"⚠️ File format not supported. Allowed: {', '.join(valid_extensions)}"
 
     return True, None
-
-
-def encode_image_to_base64(image_bytes: bytes) -> str:
-    """
-    Encode image to base64 for Ollama API.
-
-    Args:
-        image_bytes: Raw image data
-
-    Returns:
-        Base64-encoded string
-    """
-    import base64
-    return base64.b64encode(image_bytes).decode('utf-8')
 
 
 async def get_vision_model_capabilities(backend_url: str, model_name: str) -> Tuple[bool, Optional[int]]:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t
+from .helpers import t, overlay_modal
 
 
 def _face_row(face: rx.Var) -> rx.Component:
@@ -217,117 +217,86 @@ def personarium_modal() -> rx.Component:
     """Personarium-Modal: Liste aller Identitäten mit
     Verwaltungs-Aktionen. Global gemountet in aifred.py, sichtbar
     wenn ``AIState.personarium_open == True``."""
-    return rx.cond(
+    return overlay_modal(
         AIState.personarium_open,
-        rx.box(
-            # Backdrop — Klick schließt
-            rx.box(
-                position="absolute",
-                top="0",
-                left="0",
+        rx.vstack(
+            # Header
+            rx.hstack(
+                rx.icon("users", size=20),
+                rx.text(
+                    t("personarium_title"),
+                    font_weight="bold",
+                    size="4",
+                ),
+                rx.spacer(),
+                rx.icon_button(
+                    rx.icon("x", size=16),
+                    on_click=AIState.close_personarium,
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                    custom_attrs={"data-modal-close": "true"},
+                ),
+                spacing="2",
+                align="center",
                 width="100%",
-                height="100%",
-                background_color="rgba(0, 0, 0, 0.5)",
-                on_click=AIState.close_personarium,
             ),
-            # Modal-Box
-            rx.box(
-                rx.vstack(
-                    # Header
-                    rx.hstack(
-                        rx.icon("users", size=20),
-                        rx.text(
-                            t("personarium_title"),
-                            font_weight="bold",
-                            size="4",
-                        ),
-                        rx.spacer(),
-                        rx.icon_button(
-                            rx.icon("x", size=16),
-                            on_click=AIState.close_personarium,
-                            size="1",
-                            variant="ghost",
-                            color_scheme="gray",
-                            custom_attrs={"data-modal-close": "true"},
-                        ),
-                        spacing="2",
-                        align="center",
-                        width="100%",
-                    ),
+            rx.text(
+                t("personarium_subtitle"),
+                color="gray",
+                size="2",
+                margin_bottom="0.5em",
+            ),
+            rx.divider(),
+            # Liste oder Leer-Zustand
+            rx.cond(
+                AIState.personarium_faces.length() > 0,
+                rx.box(
+                    rx.foreach(AIState.personarium_faces, _face_row),
+                    style={
+                        "width": "100%",
+                        "max_height": "60vh",
+                        "overflow_y": "auto",
+                    },
+                ),
+                rx.box(
+                    rx.icon("users", size=32, color="gray"),
                     rx.text(
-                        t("personarium_subtitle"),
+                        t("personarium_empty"),
                         color="gray",
                         size="2",
-                        margin_bottom="0.5em",
+                        margin_top="0.5em",
+                        text_align="center",
                     ),
-                    rx.divider(),
-                    # Liste oder Leer-Zustand
-                    rx.cond(
-                        AIState.personarium_faces.length() > 0,
-                        rx.box(
-                            rx.foreach(AIState.personarium_faces, _face_row),
-                            style={
-                                "width": "100%",
-                                "max_height": "60vh",
-                                "overflow_y": "auto",
-                            },
-                        ),
-                        rx.box(
-                            rx.icon("users", size=32, color="gray"),
-                            rx.text(
-                                t("personarium_empty"),
-                                color="gray",
-                                size="2",
-                                margin_top="0.5em",
-                                text_align="center",
-                            ),
-                            style={
-                                "display": "flex",
-                                "flex_direction": "column",
-                                "align_items": "center",
-                                "justify_content": "center",
-                                "padding": "2em",
-                            },
-                        ),
-                    ),
-                    rx.cond(
-                        AIState.personarium_status != "",
-                        rx.callout.root(
-                            rx.callout.icon(rx.icon("info")),
-                            rx.callout.text(AIState.personarium_status),
-                            color_scheme="amber",
-                            size="1",
-                        ),
-                    ),
-                    rx.divider(),
-                    rx.button(
-                        t("vision_settings_close"),
-                        on_click=AIState.close_personarium,
-                        size="2",
-                        width="100%",
-                    ),
-                    align="stretch",
-                    spacing="2",
-                    width="100%",
+                    style={
+                        "display": "flex",
+                        "flex_direction": "column",
+                        "align_items": "center",
+                        "justify_content": "center",
+                        "padding": "2em",
+                    },
                 ),
-                position="absolute",
-                top="50%",
-                left="50%",
-                transform="translate(-50%, -50%)",
-                background_color="var(--gray-2)",
-                border="1px solid var(--gray-6)",
-                border_radius="12px",
-                padding="1.5em",
-                width="min(640px, 92vw)",
-                max_height="92vh",
-                overflow_y="auto",
-                box_shadow="0 20px 60px rgba(0,0,0,0.5)",
             ),
-            position="fixed",
-            top="0",
-            left="0",
-            width="100vw",
-            height="100vh",
-            z_index="9999",
+            rx.cond(
+                AIState.personarium_status != "",
+                rx.callout.root(
+                    rx.callout.icon(rx.icon("info")),
+                    rx.callout.text(AIState.personarium_status),
+                    color_scheme="amber",
+                    size="1",
+                ),
+            ),
+            rx.divider(),
+            rx.button(
+                t("vision_settings_close"),
+                on_click=AIState.close_personarium,
+                size="2",
+                width="100%",
+            ),
+            align="stretch",
+            spacing="2",
+            width="100%",
         ),
+        on_close=AIState.close_personarium,
+        width="min(640px, 92vw)",
     )

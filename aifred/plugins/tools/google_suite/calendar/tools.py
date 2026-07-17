@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .....lib.plugin_base import load_tool_description
 from .....lib.security import TIER_WRITE_DATA
+from .._common import _get_token
 
 # Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
 # nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
@@ -21,14 +22,6 @@ _PLUGIN_DIR = str(Path(__file__).resolve().parents[1])
 logger = logging.getLogger(__name__)
 
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
-
-
-async def _get_token() -> str:
-    from .....lib.oauth.broker import oauth_broker
-    token = await oauth_broker.get_token("google")
-    if not token:
-        raise RuntimeError("Google nicht verbunden. Bitte erst in den Einstellungen autorisieren.")
-    return token
 
 
 def get_calendar_tools(lang: str = "de") -> list[Tool]:

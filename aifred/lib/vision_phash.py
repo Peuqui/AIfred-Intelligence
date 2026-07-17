@@ -59,13 +59,3 @@ def hamming_distance(a: int, b: int) -> int:
     Python 3.10+ hat ``int.bit_count()`` — schneller als bin().count('1').
     """
     return int(a ^ b).bit_count()
-
-
-def is_similar(a: int, b: int, threshold: int = 5) -> bool:
-    """True wenn Hamming-Distanz ≤ threshold. Threshold 5 ist eine
-    pragmatische Wahl: tolerant gegen JPEG-Kompression + Mikro-Bewegung,
-    streng genug um „andere Szene" zu erkennen."""
-    if a == 0 or b == 0:
-        # Sentinel — wir wollen ungültige Hashes nicht clustern.
-        return False
-    return hamming_distance(a, b) <= threshold

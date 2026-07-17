@@ -803,12 +803,6 @@ def start_whisper_container() -> tuple[bool, str]:
     return _docker_compose_action(WHISPER_DOCKER_COMPOSE_PATH, "up", "Whisper")
 
 
-def stop_whisper_container() -> tuple[bool, str]:
-    """Stop the Whisper STT Docker container."""
-    from .config import WHISPER_DOCKER_COMPOSE_PATH
-    return _docker_compose_action(WHISPER_DOCKER_COMPOSE_PATH, "down", "Whisper")
-
-
 def ensure_whisper_ready(timeout: int = 60) -> tuple[bool, str]:
     """Ensure Whisper container is running and model is loaded.
 

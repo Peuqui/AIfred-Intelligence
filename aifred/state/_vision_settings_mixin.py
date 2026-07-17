@@ -364,24 +364,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
         Defaults an, falls sie noch nicht im Store existiert."""
         from ..lib.frame_sources import get as get_source
         from ..lib.vision_store import VisionStore
-        store = VisionStore()
         src = get_source(source_id)
-        existing = store.get_source(source_id)
-        display_name = existing.get("display_name") if existing else (
-            src.display_name if src else source_id
-        )
-        kind = existing.get("kind") if existing else (
-            src.kind if src else "webcam"
-        )
-        store.upsert_source(
-            source_id=source_id,
-            display_name=str(display_name or source_id),
-            kind=str(kind or "webcam"),
-            prompt_context=str(existing.get("prompt_context", "")) if existing else "",
-            position=str(existing.get("position", "")) if existing else "",
+        VisionStore().update_source_fields(
+            source_id,
+            fallback_display_name=src.display_name if src else source_id,
+            fallback_kind=src.kind if src else "webcam",
             auto_start=active,
-            sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
-            settings=dict(existing.get("settings", {})) if existing else {},
         )
 
     @rx.event
@@ -483,20 +471,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
         store = VisionStore()
         src = get_source(source_id)
         existing = store.get_source(source_id)
-        display_name = existing.get("display_name") if existing else (
-            src.display_name if src else source_id
-        )
-        kind = existing.get("kind") if existing else (src.kind if src else "webcam")
         settings = dict(existing.get("settings", {})) if existing else {}
         settings[key] = value
-        store.upsert_source(
-            source_id=source_id,
-            display_name=str(display_name or source_id),
-            kind=str(kind or "webcam"),
-            prompt_context=str(existing.get("prompt_context", "")) if existing else "",
-            position=str(existing.get("position", "")) if existing else "",
-            auto_start=bool(existing.get("auto_start", False)) if existing else False,
-            sensitivity=str(existing.get("sensitivity", "medium")) if existing else "medium",
+        store.update_source_fields(
+            source_id,
+            fallback_display_name=src.display_name if src else source_id,
+            fallback_kind=src.kind if src else "webcam",
             settings=settings,
         )
 

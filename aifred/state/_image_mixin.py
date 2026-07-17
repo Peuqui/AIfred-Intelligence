@@ -392,17 +392,6 @@ class ImageMixin(rx.State, mixin=True):
         except (ValueError, FileNotFoundError, AttributeError) as e:
             self.add_debug(f"\u274c Rotate failed: {e}")  # type: ignore[attr-defined]
 
-    def update_crop_box(self, x: float, y: float, width: float, height: float) -> None:
-        """Update Crop-Box Koordinaten (von JavaScript/UI)"""
-        self.crop_box_x = max(0, min(100, x))
-        self.crop_box_y = max(0, min(100, y))
-        self.crop_box_width = max(1, min(100 - self.crop_box_x, width))
-        self.crop_box_height = max(1, min(100 - self.crop_box_y, height))
-
-    async def apply_crop(self) -> None:
-        """Applies crop and updates the image in pending_images (Legacy, uses State coordinates)"""
-        await self._do_apply_crop(self.crop_box_x, self.crop_box_y, self.crop_box_width, self.crop_box_height)
-
     async def apply_crop_with_coords(self, coords_json: str) -> None:
         """Applies crop with coordinates from JavaScript (JSON String)"""
         import json

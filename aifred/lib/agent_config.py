@@ -210,12 +210,6 @@ def save_agents_raw(agents: dict[str, dict]) -> None:
         json.dump({"agents": agents}, f, indent=2, ensure_ascii=False)
 
 
-def save_agents(agents: dict[str, AgentConfig]) -> None:
-    """Save agent configurations to data/agents.json."""
-    raw = {agent_id: config.to_dict() for agent_id, config in agents.items()}
-    save_agents_raw(raw)
-
-
 def get_agent_ids() -> list[str]:
     """Return list of configured agent IDs."""
     agents = load_agents_raw()

@@ -110,8 +110,9 @@ class SettingsMixin(rx.State, mixin=True):
             # Multi-Agent debate params (still global)
             "max_debate_rounds": self.max_debate_rounds,  # type: ignore[attr-defined, has-type]
             "consensus_type": self.consensus_type,  # type: ignore[attr-defined, has-type]
-            "sokrates_model": self.sokrates_model_id,  # type: ignore[attr-defined, has-type]
-            "salomo_model": self.salomo_model_id,  # type: ignore[attr-defined, has-type]
+            # NOTE: Modell-Felder (auch sokrates/salomo) leben ausschließlich
+            # in backend_models — eine zweite flache Wahrheit gab es bis
+            # 2026-07-17 und sie hat den Message-Hub-Pfad verfehlt.
             "salomo_temperature": self.salomo_temperature,  # type: ignore[attr-defined, has-type]
             "salomo_temperature_offset": self.salomo_temperature_offset,  # type: ignore[attr-defined, has-type]
             # vLLM YaRN Settings (only enable/disable, factor is calculated dynamically)
@@ -322,16 +323,7 @@ class SettingsMixin(rx.State, mixin=True):
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
         self.tts_voice = settings.get("voice", self.tts_voice)  # type: ignore[attr-defined, has-type]
-        saved_engine = settings.get("tts_engine", self.tts_engine)  # type: ignore[attr-defined, has-type]
-        # Migrate old display-string format to key format
-        if saved_engine and len(saved_engine) > 10:
-            engine_map = {"XTTS": "xtts", "MOSS": "moss", "DashScope": "dashscope",
-                          "Piper": "piper", "eSpeak": "espeak", "Edge": "edge"}
-            for name, key in engine_map.items():
-                if name in saved_engine:
-                    saved_engine = key
-                    break
-        self.tts_engine = saved_engine  # type: ignore[attr-defined, has-type]
+        self.tts_engine = settings.get("tts_engine", self.tts_engine)  # type: ignore[attr-defined, has-type]
         self.xtts_force_cpu = settings.get("xtts_force_cpu", self.xtts_force_cpu)  # type: ignore[attr-defined, has-type]
 
         # Ensure all registered agents have TTS voice entries
@@ -494,10 +486,6 @@ class SettingsMixin(rx.State, mixin=True):
         tiers[channel] = tier_value
         self.channel_security_tiers = tiers
         self._save_settings()
-
-    def _get_channel_toggle(self, channel: str, key: str) -> bool:
-        """Read a toggle value for a channel."""
-        return self.channel_toggles.get(channel, {}).get(key, False)
 
     def _set_channel_toggle(self, channel: str, key: str, value: bool) -> None:
         """Set a toggle value for a channel and persist."""
@@ -1042,31 +1030,9 @@ class SettingsMixin(rx.State, mixin=True):
 
     def open_audit_log(self) -> None:
         """Load recent audit log entries and open modal."""
-        import sqlite3
-        from ..lib.config import SECURITY_AUDIT_DB
-        from ..lib.formatting import format_duration_ms
+        from ..lib.security import load_audit_entries
 
-        entries: list[dict[str, str]] = []
-        db_path = SECURITY_AUDIT_DB
-        if db_path.exists():
-            conn = sqlite3.connect(str(db_path), timeout=5)
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM tool_audit ORDER BY timestamp DESC LIMIT 50"
-            ).fetchall()
-            conn.close()
-            for r in rows:
-                entries.append({
-                    "timestamp": r["timestamp"] or "",
-                    "source": r["source"] or "",
-                    "tool_name": r["tool_name"] or "",
-                    "tool_tier": str(r["tool_tier"]),
-                    "success": "OK" if r["success"] else "FAIL",
-                    "duration": format_duration_ms(r["duration_ms"]) if r["duration_ms"] else "",
-                    "args": (r["tool_args_preview"] or "")[:100],
-                })
-
-        self.audit_log_entries = entries
+        self.audit_log_entries = load_audit_entries(include_args=True)
         self.audit_log_open = True
 
     def close_audit_log(self) -> None:

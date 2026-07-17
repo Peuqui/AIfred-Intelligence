@@ -23,7 +23,6 @@ import os
 import re
 import shlex
 from pathlib import Path
-from typing import Iterable
 
 from ..logging_utils import log_message
 from .llamaswap_io import has_tensor_split, set_tensor_split
@@ -196,34 +195,6 @@ async def project(
     else:
         free = tuple(0 for _ in range(length))
     return VRamPoint(context=context, per_gpu_used_mb=used, per_gpu_free_mb=free)
-
-
-async def project_parallel(
-    calls: Iterable[tuple[str, Path, int, int]],
-) -> list[VRamPoint | None]:
-    """Run many ``project`` calls with a bounded concurrency.
-
-    ``calls`` items: ``(full_cmd, gguf_path, context, ngl)``.
-    Returns results in submission order.  Failed projections are
-    replaced with ``None`` in the list so the caller can decide how to
-    handle partial failures (we prefer that over crashing the whole sweep).
-    """
-    sem = asyncio.Semaphore(_MAX_PARALLEL_FIT)
-
-    async def _one(
-        full_cmd: str, gguf: Path, ctx: int, ngl: int,
-    ) -> VRamPoint | None:
-        async with sem:
-            try:
-                return await project(full_cmd, gguf, ctx, ngl=ngl)
-            except FitParamsError as e:
-                logger.warning(f"fit-params failed (ctx={ctx}, ngl={ngl}): {e}")
-                return None
-
-    results: list[VRamPoint | None] = list(
-        await asyncio.gather(*(_one(*c) for c in calls))
-    )
-    return results
 
 
 def fit_linear_model(

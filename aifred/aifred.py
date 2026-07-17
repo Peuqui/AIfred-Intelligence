@@ -1423,14 +1423,4 @@ async def _message_hub_lifespan():
             pass
 
 
-def _register_message_hub_workers(hub: object) -> None:
-    """Register all channel listener workers with the Message Hub.
-
-    Delegates to register_channel_workers() in message_hub module.
-    Kept for backwards compatibility with settings mixin.
-    """
-    from .lib.message_hub import register_channel_workers  # noqa: E402
-    register_channel_workers(hub)  # type: ignore[arg-type]
-
-
 app.register_lifespan_task(_message_hub_lifespan)

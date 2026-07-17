@@ -68,10 +68,6 @@ class MultiposeMixin(rx.State, mixin=True):
         return self.multipose_target_face_id > 0
 
     @rx.var
-    def multipose_total_steps(self) -> int:
-        return len(POSE_STEPS)
-
-    @rx.var
     def multipose_progress_label(self) -> str:
         """„2 / 5" — Fortschritt anzeigen."""
         return f"{min(self.multipose_step + 1, len(POSE_STEPS))} / {len(POSE_STEPS)}"

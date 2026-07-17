@@ -16,7 +16,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t
+from .helpers import t, overlay_modal
 
 
 def _capture_thumb(cap: rx.Var) -> rx.Component:
@@ -220,111 +220,81 @@ def _action_buttons() -> rx.Component:
 
 
 def multipose_modal() -> rx.Component:
-    return rx.cond(
+    return overlay_modal(
         AIState.multipose_open,
-        rx.box(
-            # Backdrop
-            rx.box(
-                position="absolute",
-                top="0",
-                left="0",
-                width="100%",
-                height="100%",
-                background_color="rgba(0, 0, 0, 0.5)",
-                on_click=AIState.close_multipose,
-            ),
-            rx.box(
-                rx.vstack(
-                    # Header
-                    rx.hstack(
-                        rx.icon("user-cog", size=20),
-                        rx.text(
-                            t("multipose_title"),
-                            font_weight="bold",
-                            size="4",
-                        ),
-                        rx.spacer(),
-                        rx.text(
-                            AIState.multipose_progress_label,
-                            size="1",
-                            color="gray",
-                            style={"font_family": "monospace"},
-                        ),
-                        rx.icon_button(
-                            rx.icon("x", size=16),
-                            on_click=AIState.close_multipose,
-                            size="1",
-                            variant="ghost",
-                            color_scheme="gray",
-                            custom_attrs={"data-modal-close": "true"},
-                        ),
-                        spacing="2",
-                        align="center",
-                        width="100%",
-                    ),
-                    rx.text(
-                        t("multipose_subtitle"),
-                        color="gray",
-                        size="2",
-                        margin_bottom="0.25em",
-                    ),
-                    rx.divider(),
-                    _name_input(),
-                    _source_picker(),
-                    rx.divider(),
-                    _step_instruction(),
-                    _live_preview(),
-                    # Kontinuierliche Live-Preview: tickt nur solange das Modal
-                    # offen ist (der Handler no-opt sonst) → frisches Bild zum
-                    # Pose-Prüfen.
-                    rx.moment(
-                        # 800 ms: frische Snap-API-Frames (kein RTSP-Pufferlag)
-                        # vertragen ein flotteres Tick — responsiv genug zum
-                        # Posieren beim Einlernen. Der Handler no-opt bei
-                        # geschlossenem Modal / laufendem Capture.
-                        interval=800,
-                        on_change=AIState.multipose_live_tick,
-                        display="none",
-                    ),
-                    rx.text(
-                        t("multipose_captures_label"),
-                        size="1",
-                        color="gray",
-                    ),
-                    _capture_strip(),
-                    rx.cond(
-                        AIState.multipose_status != "",
-                        rx.callout.root(
-                            rx.callout.icon(rx.icon("info")),
-                            rx.callout.text(AIState.multipose_status),
-                            color_scheme="amber",
-                            size="1",
-                        ),
-                    ),
-                    rx.divider(),
-                    _action_buttons(),
-                    align="stretch",
-                    spacing="2",
-                    width="100%",
+        rx.vstack(
+            # Header
+            rx.hstack(
+                rx.icon("user-cog", size=20),
+                rx.text(
+                    t("multipose_title"),
+                    font_weight="bold",
+                    size="4",
                 ),
-                position="absolute",
-                top="50%",
-                left="50%",
-                transform="translate(-50%, -50%)",
-                background_color="var(--gray-2)",
-                border="1px solid var(--gray-6)",
-                border_radius="12px",
-                padding="1.5em",
-                width="min(560px, 95vw)",
-                max_height="92vh",
-                overflow_y="auto",
-                box_shadow="0 20px 60px rgba(0,0,0,0.5)",
+                rx.spacer(),
+                rx.text(
+                    AIState.multipose_progress_label,
+                    size="1",
+                    color="gray",
+                    style={"font_family": "monospace"},
+                ),
+                rx.icon_button(
+                    rx.icon("x", size=16),
+                    on_click=AIState.close_multipose,
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                    custom_attrs={"data-modal-close": "true"},
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
             ),
-            position="fixed",
-            top="0",
-            left="0",
-            width="100vw",
-            height="100vh",
-            z_index="9999",
+            rx.text(
+                t("multipose_subtitle"),
+                color="gray",
+                size="2",
+                margin_bottom="0.25em",
+            ),
+            rx.divider(),
+            _name_input(),
+            _source_picker(),
+            rx.divider(),
+            _step_instruction(),
+            _live_preview(),
+            # Kontinuierliche Live-Preview: tickt nur solange das Modal
+            # offen ist (der Handler no-opt sonst) → frisches Bild zum
+            # Pose-Prüfen.
+            rx.moment(
+                # 800 ms: frische Snap-API-Frames (kein RTSP-Pufferlag)
+                # vertragen ein flotteres Tick — responsiv genug zum
+                # Posieren beim Einlernen. Der Handler no-opt bei
+                # geschlossenem Modal / laufendem Capture.
+                interval=800,
+                on_change=AIState.multipose_live_tick,
+                display="none",
+            ),
+            rx.text(
+                t("multipose_captures_label"),
+                size="1",
+                color="gray",
+            ),
+            _capture_strip(),
+            rx.cond(
+                AIState.multipose_status != "",
+                rx.callout.root(
+                    rx.callout.icon(rx.icon("info")),
+                    rx.callout.text(AIState.multipose_status),
+                    color_scheme="amber",
+                    size="1",
+                ),
+            ),
+            rx.divider(),
+            _action_buttons(),
+            align="stretch",
+            spacing="2",
+            width="100%",
         ),
+        on_close=AIState.close_multipose,
+        width="min(560px, 95vw)",
     )

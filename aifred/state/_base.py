@@ -14,7 +14,6 @@ from ..lib import (
     console_separator
 )
 from ..lib.logging_utils import CONSOLE_SEPARATOR
-from ..lib import config
 
 
 # Pattern for structured data that STT likely transcribes incorrectly.
@@ -39,12 +38,6 @@ def _transcription_needs_review(text: str) -> bool:
 # ============================================================
 # TypedDicts for Reflex (foreach requires typed dicts)
 # ============================================================
-
-class FailedSourceDict(TypedDict):
-    """A single failed source entry"""
-    url: str
-    error: str
-    method: str
 
 class ChatMessage(TypedDict):
     """Single chat message in new dict-based format.
@@ -122,6 +115,8 @@ from ._multipose_mixin import MultiposeMixin  # noqa: E402
 from ._vigilantia_feed_mixin import VigilantiaFeedMixin  # noqa: E402
 from ._file_picker_mixin import FilePickerMixin  # noqa: E402
 from ._agent_config_mixin import AgentConfigMixin  # noqa: E402
+from ._agent_editor_mixin import AgentEditorMixin  # noqa: E402
+from ._memory_browser_mixin import MemoryBrowserMixin  # noqa: E402
 from ._settings_mixin import SettingsMixin  # noqa: E402
 from ._calibration_mixin import CalibrationMixin  # noqa: E402
 from ._backend_mixin import BackendMixin  # noqa: E402
@@ -146,6 +141,8 @@ class AIState(  # type: ignore[misc]
     VigilantiaFeedMixin,
     FilePickerMixin,
     AgentConfigMixin,
+    AgentEditorMixin,
+    MemoryBrowserMixin,
     SettingsMixin,
     CalibrationMixin,
     BackendMixin,
@@ -389,20 +386,6 @@ class AIState(  # type: ignore[misc]
             self._last_pushed_debug_len = current_len
             yield
 
-    def _get_backend_url(self) -> str:
-        """Get current backend URL based on backend_type."""
-        # Use already imported config from ..lib.config (top of file)
-        if self.backend_type == "ollama":
-            return config.DEFAULT_OLLAMA_URL
-        elif self.backend_type == "vllm":
-            return config.DEFAULT_VLLM_URL
-        elif self.backend_type == "llamacpp":
-            return config.DEFAULT_LLAMACPP_URL
-        elif self.backend_type == "cloud_api":
-            # Cloud API URL is determined by provider in BackendFactory
-            return ""
-        return config.DEFAULT_OLLAMA_URL
-
     # Image Handlers → ImageMixin
     # ============================================================
     # AUDIO UPLOAD HANDLER (STT)
@@ -517,48 +500,6 @@ class AIState(  # type: ignore[misc]
                 os.unlink(tmp_path)
             except Exception:
                 pass
-
-    async def clear_vector_cache(self):
-        """Clear Vector DB by deleting all documents (keeps collection intact)"""
-        try:
-            self.add_debug("🗑️ Clearing Vector DB...")
-            yield  # Update UI immediately
-
-            import chromadb
-            client = chromadb.HttpClient(host='localhost', port=8000)
-
-            # Get collection (must match name in vector_cache.py)
-            collection = client.get_collection('research_cache')
-
-            # Get all document IDs
-            all_ids = collection.get(include=[])["ids"]
-
-            if all_ids:
-                count = len(all_ids)
-                self.add_debug(f"   📊 Deleting {count} entries...")
-                yield  # Update UI
-
-                # Delete all documents (keeps collection structure intact)
-                collection.delete(ids=all_ids)
-
-                self.add_debug(f"✅ Vector DB cleared successfully ({count} entries deleted)")
-                # Separator after clear operation
-                self.add_debug(CONSOLE_SEPARATOR)
-                console_separator()  # Log-File
-                yield  # Update UI
-            else:
-                self.add_debug("✅ Vector DB is already empty")
-                # Separator after clear operation
-                self.add_debug(CONSOLE_SEPARATOR)
-                console_separator()  # Log-File
-                yield  # Update UI
-
-        except Exception as e:
-            self.add_debug(f"❌ Vector DB clear failed: {e}")
-            # Separator after error
-            self.add_debug(CONSOLE_SEPARATOR)
-            console_separator()  # Log-File
-            yield  # Update UI even on error
 
     def toggle_yarn(self):
         """Toggle YaRN context extension"""

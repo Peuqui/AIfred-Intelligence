@@ -407,24 +407,3 @@ async def stop_all_background_watchers() -> int:
         except Exception as e:  # noqa: BLE001
             logger.warning("autostart: stop failed for %s: %s", source_id, e)
     return stopped
-
-
-def schedule_autostart() -> None:
-    """Wird beim App-Boot aus aifred.py aufgerufen. Erzeugt einen
-    fire-and-forget Task — ohne running event loop schedulen wir
-    den Start in einen neuen Loop pro App-Worker."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.create_task(start_all_background_watchers())
-            # Dauer-Supervisor für die Pro-Kamera-Zeitpläne (nur im laufenden
-            # Loop sinnvoll — die one-shot-Pfade unten haben keinen).
-            asyncio.create_task(schedule_supervisor())
-        else:
-            loop.run_until_complete(start_all_background_watchers())
-    except RuntimeError:
-        # Kein Event-Loop im aktuellen Thread — neuen erzeugen.
-        try:
-            asyncio.run(start_all_background_watchers())
-        except Exception as e:  # noqa: BLE001
-            logger.warning("autostart: scheduling failed: %s", e)

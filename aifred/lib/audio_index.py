@@ -36,22 +36,6 @@ AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".opus", ".aac"}
 
 
 @dataclass
-class IndexEntry:
-    source: str
-    rel_path: str
-    filename: str
-    mtime: int
-    size: int
-    artist: Optional[str]
-    album: Optional[str]
-    title: Optional[str]
-    year: Optional[int]
-    genre: Optional[str]
-    duration: Optional[float]
-    track: Optional[int]
-
-
-@dataclass
 class ScanResult:
     source: str
     scanned: int        # total files seen

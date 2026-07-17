@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
 
 from ..state import AIState
@@ -20,14 +22,6 @@ MARKDOWN_COMPONENT_MAP = {
     # Tighter paragraph spacing (browser default is 1em top+bottom = too much)
     "p": lambda text, **props: rx.el.p(text, **props, style={"margin_top": "0.5em", "margin_bottom": "0.5em", "line_height": "1.4"}),
 }
-
-# Extended component map with list styling (used in some UI areas)
-MARKDOWN_COMPONENT_MAP_WITH_LISTS = {
-    **MARKDOWN_COMPONENT_MAP,
-    "ul": lambda children: rx.el.ul(children, style={"margin_left": "16px", "list_style_type": "disc"}),
-    "li": lambda children: rx.el.li(children, style={"margin_bottom": "4px"}),
-}
-
 
 # ============================================================
 # TRANSLATION HELPER
@@ -76,8 +70,160 @@ def agent_emoji(emoji: str, size: str = "1.2em") -> rx.Component:
 
 
 # ============================================================
+# FULLSCREEN OVERLAY MODAL SCAFFOLD
+# ============================================================
+
+def _overlay_backdrop(
+    color: str,
+    on_click: Any = None,
+    *,
+    fixed: bool = False,
+    z_index: str | None = None,
+) -> rx.Component:
+    """Abdunkelnder Fullscreen-Backdrop hinter einem Modal.
+
+    Standard: absolut positioniert, füllt den fixed Container.
+    ``fixed=True`` rendert die Variante der Audit-/Bundle-Modals
+    (position fixed, 100vw/100vh, eigener z-index).
+    """
+    props: dict[str, Any] = {}
+    if on_click is not None:
+        props["on_click"] = on_click
+    if fixed:
+        return rx.box(
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background_color=color,
+            z_index=z_index,
+            **props,
+        )
+    return rx.box(
+        position="absolute",
+        top="0",
+        left="0",
+        width="100%",
+        height="100%",
+        background_color=color,
+        **props,
+    )
+
+
+def overlay_modal(
+    open_var: rx.Var | bool,
+    body: rx.Component,
+    *extra: rx.Component,
+    on_close: Any,
+    width: str,
+    z_index: str = "9999",
+) -> rx.Component:
+    """Fullscreen-Modal, Familie A (Vigilantia/Casus/Personarium/…).
+
+    Struktur: rx.cond(open) → fixed Fullscreen-Container → Backdrop
+    (rgba 0.5, Klick schließt) → Content-Box mit Standard-Styling,
+    per translate(-50%, -50%) zentriert. ``extra`` hängt weitere
+    Geschwister hinter die Content-Box (z.B. Sub-Overlays).
+    """
+    return rx.cond(
+        open_var,
+        rx.box(
+            _overlay_backdrop("rgba(0, 0, 0, 0.5)", on_close),
+            rx.box(
+                body,
+                position="absolute",
+                top="50%",
+                left="50%",
+                transform="translate(-50%, -50%)",
+                background_color="var(--gray-2)",
+                border="1px solid var(--gray-6)",
+                border_radius="12px",
+                padding="1.5em",
+                width=width,
+                max_height="92vh",
+                overflow_y="auto",
+                box_shadow="0 20px 60px rgba(0,0,0,0.5)",
+            ),
+            *extra,
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            z_index=z_index,
+        ),
+    )
+
+
+def overlay_scaffold(
+    *children: rx.Component,
+    open_var: rx.Var | bool | None = None,
+    backdrop_color: str,
+    backdrop_on_click: Any = rx.stop_propagation,
+    z_index: str = "1000",
+    backdrop_fixed: bool = False,
+    flex_center: bool = True,
+    touch_action_none: bool = False,
+) -> rx.Component:
+    """Fullscreen-Overlay-Gerüst, Familie B (Help-Modals/Pages/Lightbox).
+
+    Fixed Fullscreen-Container mit Backdrop; die ``children`` behalten
+    ihr eigenes Styling (inkl. z-index über dem Backdrop).
+    ``flex_center`` zentriert per Flexbox; ohne ``open_var`` wird das
+    Overlay unbedingt gerendert (Vollbild-Pages mit eigener Route).
+    """
+    outer: dict[str, Any] = dict(
+        position="fixed",
+        top="0",
+        left="0",
+        width="100vw",
+        height="100vh",
+        z_index=z_index,
+    )
+    if flex_center:
+        outer.update(display="flex", justify_content="center", align_items="center")
+    if touch_action_none:
+        outer["style"] = {"touch_action": "none"}
+    backdrop = _overlay_backdrop(
+        backdrop_color,
+        backdrop_on_click,
+        fixed=backdrop_fixed,
+        z_index=z_index if backdrop_fixed else None,
+    )
+    overlay = rx.box(backdrop, *children, **outer)
+    if open_var is None:
+        return overlay
+    return rx.cond(open_var, overlay)
+
+
+# ============================================================
 # MOBILE NATIVE SELECT HELPERS
 # ============================================================
+
+# Gemeinsames Dark-Theme-Styling der nativen <select>-Elemente (Mobile).
+_NATIVE_SELECT_STYLE: dict[str, str] = {
+    "width": "100%",
+    "padding": "8px 12px",
+    "font_size": "12px",
+    "color": COLORS["text_primary"],
+    "background": COLORS["input_bg"],
+    "border": f"1px solid {COLORS['border']}",
+    "border_radius": "6px",
+    "min_height": "48px",  # Touch-friendly
+    "cursor": "pointer",
+    "white_space": "nowrap",  # Don't wrap long entries
+    "overflow": "hidden",  # Hide overflow
+    "text_overflow": "ellipsis",  # Show ... if text is too long
+}
+
+# Kompakt-Variante für die Pill-Button-Reihe (feste 32px statt Touch-Höhe).
+_NATIVE_SELECT_STYLE_COMPACT: dict[str, str] = {
+    **{k: v for k, v in _NATIVE_SELECT_STYLE.items() if k != "min_height"},
+    "width": "auto",
+    "padding": "4px 10px",
+    "height": "32px",
+}
 
 def native_select_backend(value_var, on_change_handler, disabled_condition, backend_list) -> rx.Component:
     """Native HTML <select> for Backend Selection (Mobile)
@@ -105,20 +251,9 @@ def native_select_backend(value_var, on_change_handler, disabled_condition, back
         disabled=disabled_condition,
         # Dark theme styling for native select (same as native_select_model)
         style={
-            "width": "100%",
+            **_NATIVE_SELECT_STYLE,
             "min_width": "120px",  # Ensure minimum width for text
             "flex": "1",  # Take available space in hstack
-            "padding": "8px 12px",
-            "font_size": "12px",
-            "color": COLORS["text_primary"],
-            "background": COLORS["input_bg"],
-            "border": f"1px solid {COLORS['border']}",
-            "border_radius": "6px",
-            "min_height": "48px",
-            "cursor": "pointer",
-            "white_space": "nowrap",
-            "overflow": "hidden",
-            "text_overflow": "ellipsis",
         },
     )
 
@@ -165,20 +300,7 @@ def native_select_model(value_var, on_change_handler, disabled_condition=False, 
         on_change=on_change_handler,
         disabled=disabled_condition,
         # Dark theme styling for native select - Model names visible
-        style={
-            "width": "100%",
-            "padding": "8px 12px",
-            "font_size": "12px",  # Smaller font to fit more text
-            "color": COLORS["text_primary"],
-            "background": COLORS["input_bg"],
-            "border": f"1px solid {COLORS['border']}",
-            "border_radius": "6px",
-            "min_height": "48px",  # Touch-friendly
-            "cursor": "pointer",
-            "white_space": "nowrap",  # Don't wrap long model names
-            "overflow": "hidden",  # Hide overflow
-            "text_overflow": "ellipsis",  # Show ... if text is too long
-        },
+        style=_NATIVE_SELECT_STYLE,
     )
 
 
@@ -200,21 +322,7 @@ def native_select_tts(value_var, on_change_handler, options_list) -> rx.Componen
         ),
         value=value_var,
         on_change=on_change_handler,
-        style={
-            "width": "100%",
-            "flex": "1",
-            "padding": "8px 12px",
-            "font_size": "12px",
-            "color": COLORS["text_primary"],
-            "background": COLORS["input_bg"],
-            "border": f"1px solid {COLORS['border']}",
-            "border_radius": "6px",
-            "min_height": "48px",
-            "cursor": "pointer",
-            "white_space": "nowrap",
-            "overflow": "hidden",
-            "text_overflow": "ellipsis",
-        },
+        style={**_NATIVE_SELECT_STYLE, "flex": "1"},
     )
 
 
@@ -230,21 +338,7 @@ def native_select_stt(value_var, on_change_handler, options_list) -> rx.Componen
         ),
         value=value_var,
         on_change=on_change_handler,
-        style={
-            "width": "100%",
-            "flex": "1",
-            "padding": "8px 12px",
-            "font_size": "12px",
-            "color": COLORS["text_primary"],
-            "background": COLORS["input_bg"],
-            "border": f"1px solid {COLORS['border']}",
-            "border_radius": "6px",
-            "min_height": "48px",
-            "cursor": "pointer",
-            "white_space": "nowrap",
-            "overflow": "hidden",
-            "text_overflow": "ellipsis",
-        },
+        style={**_NATIVE_SELECT_STYLE, "flex": "1"},
     )
 
 
@@ -265,21 +359,40 @@ def native_select_generic(value_var, on_change_handler, options_pairs) -> rx.Com
         ),
         value=value_var,
         on_change=on_change_handler,
-        style={
-            "width": "auto",
-            "padding": "4px 10px",
-            "font_size": "12px",
-            "color": COLORS["text_primary"],
-            "background": COLORS["input_bg"],
-            "border": f"1px solid {COLORS['border']}",
-            "border_radius": "6px",
-            "height": "32px",
-            "cursor": "pointer",
-            "white_space": "nowrap",
-            "overflow": "hidden",
-            "text_overflow": "ellipsis",
-        },
+        style=_NATIVE_SELECT_STYLE_COMPACT,
     )
+
+
+# ============================================================
+# ACTION BUTTON STYLES
+# ============================================================
+
+def blue_action_button_style(press_effect: bool = True) -> dict[str, Any]:
+    """Blauer Outline-Action-Button-Style (Audio-Upload/Share/Download).
+
+    ``press_effect=True`` ergänzt Hover-/Active-Transform (scale) und den
+    Active-Hintergrund; ``False`` liefert die reine Hover-Variante des
+    Audio-Upload-Buttons.
+    """
+    style: dict[str, Any] = {
+        "background": "rgba(0, 50, 100, 0.4)",
+        "color": "#58a6ff",
+        "border_color": "#58a6ff",
+        "&:hover:not([disabled])": {
+            "background": "rgba(0, 80, 150, 0.6) !important",
+        },
+        "&[disabled]": {"opacity": "0.45"},
+    }
+    if press_effect:
+        style["&:hover:not([disabled])"] = {
+            "background": "rgba(0, 80, 150, 0.6) !important",
+            "transform": "scale(1.02)",
+        }
+        style["&:active:not([disabled])"] = {
+            "background": "rgba(0, 40, 80, 0.7) !important",
+            "transform": "scale(0.98)",
+        }
+    return style
 
 
 # ============================================================

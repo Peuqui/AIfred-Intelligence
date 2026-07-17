@@ -237,31 +237,6 @@ class SourceResolver:
             for label, cfg in self._sources.items()
         ]
 
-    def list_items(self, label: str) -> list[str]:
-        """Recursively list audio files in a local_folder source."""
-        cfg = self._sources.get(label)
-        if not cfg or cfg.get("type") != "local_folder":
-            return []
-        path = cfg.get("path", "")
-        if not path:
-            return []
-        root = Path(path).expanduser().resolve()
-        if not root.is_dir():
-            return []
-        items: list[str] = []
-        for child in root.rglob("*"):
-            if not child.is_file():
-                continue
-            if child.suffix.lower() not in ALLOWED_EXTENSIONS:
-                continue
-            try:
-                rel = child.relative_to(root)
-            except ValueError:
-                continue
-            items.append(str(rel))
-        items.sort()
-        return items
-
     # ── Resolution ────────────────────────────────────────
 
     def resolve(self, item: str) -> ResolvedSource:

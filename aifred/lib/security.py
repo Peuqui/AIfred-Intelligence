@@ -363,10 +363,6 @@ def sanitize_tool_output(text: str) -> str:
 # TOOL-CHAIN & RATE LIMITING
 # ============================================================
 
-class ToolChainLimitReached(Exception):
-    """Raised when tool call chain depth exceeds the configured maximum."""
-
-
 class RateLimitReached(Exception):
     """Raised when tool call rate exceeds the configured maximum."""
 
@@ -673,6 +669,35 @@ def audit_log(
             conn.commit()
     except Exception as exc:
         logger.warning("Audit log write failed: %s", exc)
+
+
+def load_audit_entries(limit: int = 50, include_args: bool = False) -> list[dict[str, str]]:
+    """Jüngste ``tool_audit``-Zeilen als UI-fertige Dicts (SSOT für beide
+    Audit-Ansichten: Settings-Modal und Agent-Editor-Tab)."""
+    from .formatting import format_duration_ms
+    db_path = _get_audit_db_path()
+    entries: list[dict[str, str]] = []
+    if not db_path.exists():
+        return entries
+    conn = sqlite3.connect(str(db_path), timeout=5)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM tool_audit ORDER BY timestamp DESC LIMIT ?", (limit,),
+    ).fetchall()
+    conn.close()
+    for r in rows:
+        entry = {
+            "timestamp": r["timestamp"] or "",
+            "source": r["source"] or "",
+            "tool_name": r["tool_name"] or "",
+            "tool_tier": str(r["tool_tier"]),
+            "success": "OK" if r["success"] else "FAIL",
+            "duration": format_duration_ms(r["duration_ms"]) if r["duration_ms"] else "",
+        }
+        if include_args:
+            entry["args"] = (r["tool_args_preview"] or "")[:100]
+        entries.append(entry)
+    return entries
 
 
 def prune_audit_log(retention_days: int | None = None) -> int:

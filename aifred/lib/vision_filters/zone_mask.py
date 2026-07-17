@@ -50,7 +50,6 @@ _VISION_SETTINGS = (
 )
 
 # Zell-Typen
-_IGNORE = 1
 _BLACKOUT = 2
 _ROI = 3
 

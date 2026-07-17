@@ -303,12 +303,6 @@ class vLLMProcessManager:
         self._ttl_timer.daemon = True
         self._ttl_timer.start()
 
-    def _cancel_ttl_timer(self) -> None:
-        """Cancel the TTL timer (on explicit stop)."""
-        if self._ttl_timer:
-            self._ttl_timer.cancel()
-            self._ttl_timer = None
-
     def _ttl_expired(self) -> None:
         """Called by timer thread when TTL expires — stop server if still idle."""
         with self._lifecycle_lock:
@@ -965,20 +959,3 @@ class vLLMProcessManager:
                     log_feedback("❌ Could not parse refined limit or no improvement")
                     return (False, None)
 
-    async def restart_with_model(self, model: str, timeout: int = 60) -> bool:
-        """
-        Restart vLLM with a different model
-
-        Args:
-            model: New model name
-            timeout: Seconds to wait for server ready
-
-        Returns:
-            True if restarted successfully
-        """
-        if model == self.current_model and self.is_running():
-            logger.info(f"ℹ️ Already running with model: {model}")
-            return True
-
-        logger.info(f"🔄 Restarting vLLM with model: {model}")
-        return await self.start(model, timeout=timeout)

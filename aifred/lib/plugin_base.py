@@ -264,16 +264,6 @@ class BaseChannel(ABC):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)
 
-    def get_setting(self, key: str) -> str:
-        """Get a single setting value. Returns empty string if not set."""
-        return self.load_settings().get(key, "")
-
-    def set_setting(self, key: str, value: str) -> None:
-        """Set a single setting value (read-modify-write)."""
-        settings = self.load_settings()
-        settings[key] = value
-        self.save_settings(settings)
-
     # ── Plugin i18n (i18n.json in plugin directory) ────────────
 
     def _i18n_path(self) -> "Path":

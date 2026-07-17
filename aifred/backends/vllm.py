@@ -28,9 +28,6 @@ class vLLMBackend(OpenAICompatibleBackend):
     def __init__(self, base_url: str = "http://localhost:8000/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
 
-    def get_backend_name(self) -> str:
-        return "vLLM"
-
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
         Get context limit and estimated model size for a vLLM model.

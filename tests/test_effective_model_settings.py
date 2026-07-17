@@ -40,9 +40,12 @@ def _run(agent, settings):
     def fake_suffix(_path, _base_id, *, speed_on, **_kw):
         return "-speed" if speed_on else ""
 
+    # Patch target ist die Modul-Quelle (llamaswap_io), nicht der Package-
+    # Re-Export: der Produktionspfad läuft über resolve_effective_suffix,
+    # das die modullokale Referenz aufruft.
     with patch("aifred.lib.settings.load_settings", return_value=settings), \
          patch("aifred.lib.calibration.parse_llamaswap_config", return_value={"Qwen3.6-27B-speed": {}}), \
-         patch("aifred.lib.calibration.resolve_variant_suffix", side_effect=fake_suffix), \
+         patch("aifred.lib.calibration.llamaswap_io.resolve_variant_suffix", side_effect=fake_suffix), \
          patch("aifred.lib.vision_prewarm.is_vision_active", return_value=False):
         return get_effective_model_from_settings(agent)
 

@@ -9,7 +9,10 @@ from __future__ import annotations
 import asyncio
 
 import aifred.lib.audio_channels as ac
-import aifred.plugins.channels.freeecho2_channel as fe
+# Direkt das alert_queue-Modul, nicht das Paket: die Tests REBINDEN
+# fe._ws_loop, und run_on_ws_loop löst das Global zur Laufzeit in
+# alert_queue auf — ein Rebind am Paket-Re-Export käme dort nie an.
+import aifred.plugins.channels.freeecho2_channel.alert_queue as fe
 
 
 class _FakeBridge:

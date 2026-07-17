@@ -100,15 +100,6 @@ def _engine_to_bundle_dir(engine: str) -> str | None:
     return None
 
 
-def _bundle_dir_to_engine(dir_name: str) -> str | None:
-    """Inverse of _engine_to_bundle_dir — settings key by engine."""
-    if dir_name == "xtts":
-        return "xtts"
-    if dir_name == "moss-tts":
-        return "moss"
-    return None
-
-
 # ─────────────────────────────────────────────────────────────────────────
 # Export
 # ─────────────────────────────────────────────────────────────────────────

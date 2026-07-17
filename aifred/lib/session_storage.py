@@ -16,6 +16,7 @@ import os
 import json
 import hashlib
 import hmac
+import re
 import secrets
 import threading
 from pathlib import Path
@@ -29,6 +30,10 @@ from .config import DATA_DIR
 
 # Session directory (subdirectory of data/)
 SESSION_DIR = DATA_DIR / "sessions"
+
+# SSOT: Session-ID format — exactly 32 lowercase hex chars (128 bit).
+# Shared by sandbox.py and vision_utils.py for path-safety checks.
+SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
 # M4: Session files are written from MULTIPLE threads — the Reflex main
 # loop (browser autosave), the message-hub worker thread (its own event
@@ -310,29 +315,6 @@ def verify_account(username: str, password: str) -> bool:
     return True
 
 
-def change_account_password(username: str, old_password: str, new_password: str) -> bool:
-    """
-    Change password for existing account.
-
-    Args:
-        username: Username
-        old_password: Current password for verification
-        new_password: New password to set
-
-    Returns:
-        True on success
-    """
-    if not verify_account(username, old_password):
-        return False
-
-    if not new_password:
-        return False
-
-    accounts = _load_accounts()
-    accounts[username.lower()] = hash_password(new_password)
-    return _save_accounts(accounts)
-
-
 def list_accounts() -> List[str]:
     """
     List all usernames.
@@ -406,14 +388,12 @@ def _sanitize_session_id(session_id: str) -> str:
     Raises:
         ValueError: If format is invalid or session_id is None
     """
-    import re
-
     # Check for None or empty
     if not session_id:
         raise ValueError("session_id cannot be None or empty")
 
     # Only allow lowercase hex: exactly 32 characters (128 bit)
-    if not re.match(r'^[a-f0-9]{32}$', session_id):
+    if not SESSION_ID_RE.match(session_id):
         raise ValueError(
             f"Invalid session_id format: Expected 32 hex chars, got '{str(session_id)[:50]}'"
         )
@@ -976,38 +956,6 @@ def get_session_title(session_id: str) -> Optional[str]:
 
     title: str | None = session.get("data", {}).get("title")
     return title
-
-
-# ============================================================
-# Cleanup (for background task)
-# ============================================================
-
-def cleanup_old_sessions(max_age_days: int = 30) -> int:
-    """
-    Delete sessions older than max_age_days.
-
-    Based on file modification time (not last_seen in JSON),
-    as this is more efficient than parsing every file.
-
-    Args:
-        max_age_days: Maximum age in days
-
-    Returns:
-        Number of deleted sessions
-    """
-    _ensure_session_dir()
-    cutoff_timestamp = datetime.now().timestamp() - (max_age_days * 24 * 60 * 60)
-    deleted_count = 0
-
-    for session_file in SESSION_DIR.glob("*.json"):
-        try:
-            if session_file.stat().st_mtime < cutoff_timestamp:
-                session_file.unlink()
-                deleted_count += 1
-        except IOError:
-            pass
-
-    return deleted_count
 
 
 # ============================================================

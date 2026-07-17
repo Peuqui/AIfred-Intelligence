@@ -416,9 +416,6 @@ OUTPUT_RESERVE_PREFERRED = 32768  # 32K - Ideal for detailed answers (4x increas
 OUTPUT_RESERVE_REDUCED = 6144     # 6K - Acceptable when VRAM is tight
 OUTPUT_RESERVE_MINIMUM = 4096     # 4K - Minimum, below this content is truncated
 
-# For backward compatibility (used in calculate_dynamic_num_ctx)
-OUTPUT_RESERVE_TOKENS = OUTPUT_RESERVE_PREFERRED
-
 
 def calculate_adaptive_reserve(
     available_context: int,

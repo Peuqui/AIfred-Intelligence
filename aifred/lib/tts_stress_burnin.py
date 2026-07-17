@@ -377,22 +377,6 @@ async def resolve_tts_reserve(
     return peak + LLAMACPP_TTS_BURNIN_HEADROOM_MB
 
 
-def resolve_tts_reserve_sync(engine_key: str, *, debug: Any = None) -> int:
-    """Synchronous wrapper for the resolver — used by callers that
-    can't await (e.g. the TTSEngine property accessors in the
-    calibration sync path)."""
-    try:
-        return asyncio.run(resolve_tts_reserve(engine_key, debug=debug))
-    except RuntimeError:
-        # Already inside a running event loop — fall back to cache-only
-        # so we don't crash. The async path will pick the burn-in up on
-        # the next opportunity.
-        from .config import LLAMACPP_TTS_BURNIN_HEADROOM_MB
-        from . import tts_vram_cache
-        cached = tts_vram_cache.get(engine_key)
-        return (cached + LLAMACPP_TTS_BURNIN_HEADROOM_MB) if cached else 0
-
-
 if __name__ == "__main__":  # pragma: no cover
     import sys
     if len(sys.argv) != 2:

@@ -156,68 +156,14 @@ class BackendMixin(rx.State, mixin=True):
         return ", ".join(names) if names else ""
 
     @rx.var
-    def grouped_backends_display(self) -> List[str]:
-        """Return backend list with headers and separators for dropdown display."""
-        grouped: list[str] = []
-        grouped.append("header_universal")
-        if "ollama" in self.available_backends:
-            grouped.append("ollama")
-        grouped.append("separator")
-        grouped.append("header_modern")
-        if "vllm" in self.available_backends:
-            grouped.append("vllm")
-        return grouped
-
-    @rx.var
     def backend_supports_dynamic_models(self) -> bool:
         """Check if current backend supports dynamic model switching."""
         return self.backend_type != "vllm"
 
     @rx.var
-    def available_vision_models(self) -> List[str]:
-        """Filter available_models to only include vision-capable models."""
-        return [self.available_models_dict.get(mid, mid) for mid in self.vision_models_cache
-                if mid in self.available_models_dict]
-
-    @rx.var
     def backend_label(self) -> str:
         """Get display label for current backend."""
         return self.available_backends_dict.get(self.backend_id, self.backend_id)
-
-    @rx.var
-    def available_backends_display(self) -> List[str]:
-        """Get list of backend display names (filtered by GPU compatibility)."""
-        return [self.available_backends_dict.get(bid, bid) for bid in self.available_backends
-                if bid in self.available_backends_dict]
-
-    @rx.var
-    def available_backend_ids(self) -> List[str]:
-        """Get list of available backend IDs (filtered by GPU compatibility)."""
-        return [bid for bid in self.available_backends_dict.keys()
-                if bid in self.available_backends]
-
-    @rx.var
-    def available_backends_for_select(self) -> List[List[str]]:
-        """Get filtered list of [id, label] pairs for native select."""
-        return [[bid, label] for bid, label in self.available_backends_dict.items()
-                if bid in self.available_backends]
-
-    @rx.var
-    def aifred_model_label(self) -> str:
-        """Get display label for selected model."""
-        return self.available_models_dict.get(self.aifred_model_id, self.aifred_model_id)
-
-    @rx.var
-    def automatik_model_label(self) -> str:
-        """Get display label for automatik model (empty = same as AIfred)."""
-        if not self.automatik_model_id:
-            return self.available_models_dict.get(self.aifred_model_id, self.aifred_model_id)
-        return self.available_models_dict.get(self.automatik_model_id, self.automatik_model_id)
-
-    @rx.var
-    def vision_model_label(self) -> str:
-        """Get display label for vision model."""
-        return self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
 
     @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
     def automatik_available_models(self) -> list[str]:
@@ -251,48 +197,29 @@ class BackendMixin(rx.State, mixin=True):
         if self.backend_type != "llamacpp":  # type: ignore[attr-defined]
             return self.automatik_model_id  # type: ignore[attr-defined, no-any-return]
 
-        from ..lib.calibration import resolve_variant_suffix
+        from ..lib.calibration import resolve_effective_suffix
         from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.tts_engine_manager import GPU_ENGINES
 
         # Automatik mirrors the AIfred agent's Speed toggle — it doesn't
         # have an independent UI control, so a separate
         # ``automatik_speed_mode`` flag doesn't exist.
-        from ..lib.vision_prewarm import is_vision_active, get_active_vlm_key
-        _vlm_active = is_vision_active()
-        _vlm_key = get_active_vlm_key() if _vlm_active else ""
-        suffix = resolve_variant_suffix(
+        suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             self.automatik_model_id,  # type: ignore[attr-defined]
             speed_on=self.aifred_speed_mode,  # type: ignore[attr-defined]
-            has_speed_variant=self.aifred_has_speed_variant,  # type: ignore[attr-defined]
+            # The Automatik model has no own state flag; whether ITS
+            # ``-speed`` profile exists is checked by the resolver
+            # (Rule 7 ``in models``). AIfred's flag would be the wrong
+            # model's property here.
+            has_speed_variant=True,
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
             tts_engine=self.tts_engine,  # type: ignore[attr-defined]
-            gpu_tts_engines=GPU_ENGINES,
-            vlm_active=_vlm_active,
-            vlm_key=_vlm_key,
         )
         return self.automatik_model_id + suffix  # type: ignore[attr-defined, no-any-return]
-
-    @rx.var
-    def available_models_for_select(self) -> List[List[str]]:
-        """Get list of [id, label] pairs for native model select."""
-        return [[mid, label] for mid, label in self.available_models_dict.items()]
-
-    @rx.var
-    def available_vision_models_for_select(self) -> List[List[str]]:
-        """Get list of [id, label] pairs for vision model select."""
-        return [[mid, self.available_models_dict[mid]]
-                for mid in self.vision_models_cache
-                if mid in self.available_models_dict]
 
     # ================================================================
     # HELPER METHODS
     # ================================================================
-
-    def get_backend_display_label(self, backend_id: str) -> str:
-        """Get display label for backend dropdown items."""
-        return config.BACKEND_LABELS.get(backend_id, backend_id)
 
     def _resolve_model_id(self, display_label: str) -> str:
         """Reverse lookup: find model_id (dict key) from display label."""
@@ -402,7 +329,6 @@ class BackendMixin(rx.State, mixin=True):
         if not _base_module._global_backend_initialized:
             async with _base_module._backend_init_lock:
                 if not _base_module._global_backend_initialized:
-                    _base_module._global_backend_initialized = True
                     print("=" * 60)
                     print("🚀 FIRST-TIME SERVER INITIALIZATION...")
                     print("=" * 60)
@@ -518,6 +444,11 @@ class BackendMixin(rx.State, mixin=True):
                         message_hub.register("scheduler", scheduler_loop)
                     await message_hub.start_all()
 
+                    # Only mark done AFTER the whole body succeeded — a
+                    # failure above leaves the flag False so the next
+                    # on_load retries instead of running forever without
+                    # vector cache / message hub / scheduler.
+                    _base_module._global_backend_initialized = True
                     print("✅ Global initialization complete")
 
         # PER-SESSION INITIALIZATION (every user/tab/reload)
@@ -525,335 +456,329 @@ class BackendMixin(rx.State, mixin=True):
             log_message("⏭️ on_load already running, skipping duplicate call")
             return
         self._on_load_running = True
+        # try/finally: any exception (or GeneratorExit at the cookie yield
+        # below) must reset the flag — otherwise every later on_load returns
+        # early and the session can never initialize until server restart.
+        try:
+            # Load session list immediately (before backend init which can take time)
+            self.refresh_session_list()  # type: ignore[attr-defined, has-type]
 
-        # Load session list immediately (before backend init which can take time)
-        self.refresh_session_list()  # type: ignore[attr-defined, has-type]
+            if not self._backend_initialized:
+                log_message("📱 Initializing session...")
 
-        if not self._backend_initialized:
-            log_message("📱 Initializing session...")
+                from ..lib.formatting import set_ui_locale
+                set_ui_locale(self.ui_language)  # type: ignore[attr-defined, has-type]
 
-            from ..lib.formatting import set_ui_locale
-            set_ui_locale(self.ui_language)  # type: ignore[attr-defined, has-type]
+                # Load saved settings
+                from ..lib.settings import load_settings
+                saved_settings = load_settings()
+                _had_backend_settings = False
 
-            # Load saved settings
-            from ..lib.settings import load_settings
-            saved_settings = load_settings()
-            _had_backend_settings = False
-
-            if saved_settings:
-                self.backend_type = saved_settings.get("backend_type", self.backend_type)
-                self.backend_id = self.backend_type
-                self.current_backend_label = self.available_backends_dict.get(self.backend_id, self.backend_id)
-
-                # Cloud API provider
-                saved_provider = saved_settings.get("cloud_api_provider", self.cloud_api_provider)
-                if saved_provider in CLOUD_API_PROVIDERS:
-                    self.cloud_api_provider = saved_provider
-                    self.cloud_api_provider_label = CLOUD_API_PROVIDERS[saved_provider]["name"]
-                    # Resolve the key status here too — otherwise the button
-                    # shows "key missing" on startup until the user toggles the
-                    # backend, because the async model-load path (which sets it)
-                    # doesn't run during this synchronous settings restore.
-                    self.cloud_api_key_configured = is_cloud_api_configured(saved_provider)
-
-                # NOTE: research_mode is per-session now, loaded in _restore_session().
-                # Here we just keep the class default (DEFAULT_SESSION_CONFIG["research_mode"]).
-                from ..lib import TranslationManager
-                self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, self.ui_language)  # type: ignore[attr-defined, has-type, arg-type]
-
-                self.temperature = saved_settings.get("temperature", self.temperature)  # type: ignore[attr-defined, has-type]
-                self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
-                self.sokrates_temperature = saved_settings.get("sokrates_temperature", self.sokrates_temperature)  # type: ignore[attr-defined, has-type]
-                self.sokrates_temperature_offset = saved_settings.get("sokrates_temperature_offset", self.sokrates_temperature_offset)  # type: ignore[attr-defined, has-type]
-                self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)  # type: ignore[attr-defined, has-type]
-                self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)  # type: ignore[attr-defined, has-type]
-                # Load UI language and update global locale + prompt language
-                saved_ui_lang = saved_settings.get("ui_language", self.ui_language)  # type: ignore[attr-defined, has-type]
-                if saved_ui_lang in ["de", "en"]:
-                    self.ui_language = saved_ui_lang  # type: ignore[attr-defined, has-type]
-                    set_ui_locale(saved_ui_lang)
-                    set_language(saved_ui_lang)
-
-                # Load user name and gender
-                self.user_name = saved_settings.get("user_name", self.user_name)  # type: ignore[attr-defined, has-type]
-                self.user_gender = saved_settings.get("user_gender", self.user_gender)  # type: ignore[attr-defined, has-type]
-                from ..lib.prompt_loader import set_user_name, set_user_gender, init_system_prompt_cache, set_personality_enabled, set_reasoning_enabled
-                set_user_name(self.user_name)  # type: ignore[attr-defined, has-type, arg-type]
-                set_user_gender(self.user_gender)  # type: ignore[attr-defined, has-type, arg-type]
-
-                # Load and sync personality toggles
-                self.aifred_personality = saved_settings.get("aifred_personality", self.aifred_personality)  # type: ignore[attr-defined, has-type]
-                self.sokrates_personality = saved_settings.get("sokrates_personality", self.sokrates_personality)  # type: ignore[attr-defined, has-type]
-                self.salomo_personality = saved_settings.get("salomo_personality", self.salomo_personality)  # type: ignore[attr-defined, has-type]
-                self.vision_personality = saved_settings.get("vision_personality", self.vision_personality)  # type: ignore[attr-defined, has-type]
-                set_personality_enabled("aifred", self.aifred_personality)  # type: ignore[attr-defined, has-type, arg-type]
-                set_personality_enabled("sokrates", self.sokrates_personality)  # type: ignore[attr-defined, has-type, arg-type]
-                set_personality_enabled("salomo", self.salomo_personality)  # type: ignore[attr-defined, has-type, arg-type]
-                set_personality_enabled("vision", self.vision_personality)  # type: ignore[attr-defined, has-type, arg-type]
-
-                if "aifred_personality" not in saved_settings or "vision_personality" not in saved_settings:
-                    self._save_personality_settings()  # type: ignore[attr-defined, has-type]
-
-                # Load and sync reasoning toggles
-                self.aifred_reasoning = saved_settings.get("aifred_reasoning", self.aifred_reasoning)  # type: ignore[attr-defined, has-type]
-                self.sokrates_reasoning = saved_settings.get("sokrates_reasoning", self.sokrates_reasoning)  # type: ignore[attr-defined, has-type]
-                self.salomo_reasoning = saved_settings.get("salomo_reasoning", self.salomo_reasoning)  # type: ignore[attr-defined, has-type]
-                self.vision_reasoning = saved_settings.get("vision_reasoning", self.vision_reasoning)  # type: ignore[attr-defined, has-type]
-                set_reasoning_enabled("aifred", self.aifred_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
-                set_reasoning_enabled("sokrates", self.sokrates_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
-                set_reasoning_enabled("salomo", self.salomo_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
-                set_reasoning_enabled("vision", self.vision_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
-
-                if "aifred_reasoning" not in saved_settings or "vision_reasoning" not in saved_settings:
-                    self._save_reasoning_settings()  # type: ignore[attr-defined, has-type]
-
-                # Load thinking toggles (read directly from State at runtime, no prompt_loader sync)
-                self.aifred_thinking = saved_settings.get("aifred_thinking", self.aifred_thinking)  # type: ignore[attr-defined, has-type]
-                self.sokrates_thinking = saved_settings.get("sokrates_thinking", self.sokrates_thinking)  # type: ignore[attr-defined, has-type]
-                self.salomo_thinking = saved_settings.get("salomo_thinking", self.salomo_thinking)  # type: ignore[attr-defined, has-type]
-                self.vision_thinking = saved_settings.get("vision_thinking", self.vision_thinking)  # type: ignore[attr-defined, has-type]
-
-                if "aifred_thinking" not in saved_settings or "vision_thinking" not in saved_settings:
-                    self._save_thinking_settings()  # type: ignore[attr-defined, has-type]
-
-                # Load reasoning-effort levels (dropdown selection per agent)
-                self.aifred_reasoning_effort = saved_settings.get("aifred_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
-                self.sokrates_reasoning_effort = saved_settings.get("sokrates_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
-                self.salomo_reasoning_effort = saved_settings.get("salomo_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
-                self.vision_reasoning_effort = saved_settings.get("vision_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
-
-                # Load speed mode toggles (llamacpp only)
-                self.aifred_speed_mode = saved_settings.get("aifred_speed_mode", False)  # type: ignore[attr-defined, has-type]
-                self.sokrates_speed_mode = saved_settings.get("sokrates_speed_mode", False)  # type: ignore[attr-defined, has-type]
-                self.salomo_speed_mode = saved_settings.get("salomo_speed_mode", False)  # type: ignore[attr-defined, has-type]
-                self.vision_speed_mode = saved_settings.get("vision_speed_mode", False)  # type: ignore[attr-defined, has-type]
-
-                # Load Vision settings (PERSISTENT)
-                self.vision_num_ctx_enabled = saved_settings.get("vision_num_ctx_enabled", self.vision_num_ctx_enabled)  # type: ignore[attr-defined, has-type]
-                self.vision_num_ctx = saved_settings.get("vision_num_ctx", self.vision_num_ctx)  # type: ignore[attr-defined, has-type]
-
-                # Restore the Vigilantia master switch (vigilantia_armed) +
-                # vision_mode / VLM model from the vision plugin's settings.json,
-                # so the 👁️ eye shows the real scharf/unscharf state right after
-                # login instead of the default "disarmed". The background watchers
-                # run server-side regardless — this is purely the UI restore that
-                # was previously only done when the vision popup opened.
-                self._refresh_vision_settings()  # type: ignore[attr-defined]
-
-                init_system_prompt_cache()
-
-                # Load TTS/STT Settings
-                self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
-                saved_engine = saved_settings.get("tts_engine", self.tts_engine)  # type: ignore[attr-defined, has-type]
-                if saved_engine and len(saved_engine) > 10:
-                    engine_map = {"XTTS": "xtts", "MOSS": "moss", "DashScope": "dashscope",
-                                  "Piper": "piper", "eSpeak": "espeak", "Edge": "edge"}
-                    for name, key in engine_map.items():
-                        if name in saved_engine:
-                            saved_engine = key
-                            break
-                self.tts_engine = saved_engine  # type: ignore[attr-defined, has-type]
-                self.xtts_force_cpu = saved_settings.get("xtts_force_cpu", self.xtts_force_cpu)  # type: ignore[attr-defined, has-type]
-                # tts_autoplay/tts_streaming_enabled: loaded per-engine by _restore_tts_toggles_for_engine below
-                self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)  # type: ignore[attr-defined, has-type]
-                self.tts_pitch = saved_settings.get("tts_pitch", self.tts_pitch)  # type: ignore[attr-defined, has-type]
-                saved_whisper = saved_settings.get("whisper_model", self.whisper_model_key)  # type: ignore[attr-defined, has-type]
-                if "(" in saved_whisper:  # type: ignore[operator]
-                    saved_whisper = saved_whisper.split("(")[0].strip()  # type: ignore[union-attr]
-                self.whisper_model_key = saved_whisper  # type: ignore[attr-defined, has-type]
-                self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)  # type: ignore[attr-defined, has-type]
-                self.enter_sends_message = saved_settings.get("enter_sends_message", self.enter_sends_message)  # type: ignore[attr-defined, has-type]
-
-                # Load TTS voice
-                user_voices = saved_settings.get("tts_voices_per_language", {})
-                engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
-                saved_voice = user_voices.get(engine_key, {}).get(self.ui_language)  # type: ignore[attr-defined, has-type]
-                if saved_voice:
-                    self.tts_voice = saved_voice  # type: ignore[attr-defined, has-type]
-                else:
-                    self.tts_voice = saved_settings.get("voice", self.tts_voice)  # type: ignore[attr-defined, has-type]
-
-                self._restore_agent_voices_for_engine(engine_key)  # type: ignore[attr-defined, has-type]
-                self._restore_tts_toggles_for_engine(engine_key)  # type: ignore[attr-defined, has-type]
-
-                if self.tts_engine == "xtts":  # type: ignore[attr-defined, has-type]
-                    self._refresh_xtts_voices()  # type: ignore[attr-defined, has-type]
-
-                # Load vLLM YaRN Settings
-                self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
-                self.yarn_factor = 1.0
-                self.yarn_factor_input = "1.0"
-
-                # Load UI Settings
-                self.auto_refresh_enabled = saved_settings.get("auto_scroll", self.auto_refresh_enabled)  # type: ignore[attr-defined, has-type]
-
-                # Load Multi-Agent Settings
-                self.multi_agent_mode = saved_settings.get("multi_agent_mode", self.multi_agent_mode)  # type: ignore[attr-defined, has-type]
-                self.max_debate_rounds = saved_settings.get("max_debate_rounds", self.max_debate_rounds)  # type: ignore[attr-defined, has-type]
-                self.consensus_type = saved_settings.get("consensus_type", self.consensus_type)  # type: ignore[attr-defined, has-type]
-                self.sokrates_model_id = saved_settings.get("sokrates_model", "")  # type: ignore[attr-defined, has-type]
-                self.sokrates_model = self.sokrates_model_id  # type: ignore[attr-defined, has-type]
-                self.salomo_model_id = saved_settings.get("salomo_model", "")  # type: ignore[attr-defined, has-type]
-                self.salomo_model = self.salomo_model_id  # type: ignore[attr-defined, has-type]
-                self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)  # type: ignore[attr-defined, has-type]
-                self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)  # type: ignore[attr-defined, has-type]
-
-                # Load per-backend models
-                backend_models = saved_settings.get("backend_models", {})
-                _had_backend_settings = self.backend_id in backend_models
-                if _had_backend_settings:
-                    backend_data = backend_models[self.backend_id]
-                    selected_raw = backend_data.get("aifred_model", "")
-                    automatik_raw = backend_data.get("automatik_model", "")
-                    vision_raw = backend_data.get("vision_model", "")
-                    sokrates_raw = backend_data.get("sokrates_model", "")
-                    salomo_raw = backend_data.get("salomo_model", "")
-
-                    self.aifred_model_id = selected_raw
-                    self.automatik_model_id = automatik_raw
-                    self.vision_model_id = vision_raw
-                    self.sokrates_model_id = sokrates_raw  # type: ignore[attr-defined, has-type]
-                    self.salomo_model_id = salomo_raw  # type: ignore[attr-defined, has-type]
-
-                    # Load all model parameters from cache on startup
-                    self._load_all_agent_model_params()
-
-                    self.aifred_model = selected_raw
-                    self.automatik_model = automatik_raw
-                    self.vision_model = vision_raw
-                    self.sokrates_model = sokrates_raw  # type: ignore[attr-defined, has-type]
-                    self.salomo_model = salomo_raw  # type: ignore[attr-defined, has-type]
-
-                self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")  # type: ignore[attr-defined, has-type]
-
-                # Send TTS playback rate to JavaScript
-                rate_value = self.tts_playback_rate.replace("x", "")  # type: ignore[attr-defined, has-type, union-attr]
-                yield rx.call_script(f"setTimeout(() => {{ if (typeof setTtsPlaybackRate === 'function') setTtsPlaybackRate({rate_value}); }}, 100)")
-
-            # Apply config.py defaults as final fallback
-            backend_defaults = config.BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
-
-            if not self.aifred_model:
-                self.aifred_model = backend_defaults.get("aifred_model", "")
-                self.aifred_model_id = self.aifred_model
-                if self.aifred_model:
-                    self.add_debug(f"⚙️ Using default aifred_model from config.py: {self.aifred_model}")  # type: ignore[attr-defined, has-type]
-                else:
-                    self.add_debug("⚠️ No aifred_model configured")  # type: ignore[attr-defined, has-type]
-
-            if not self.automatik_model and not _had_backend_settings:
-                self.automatik_model = backend_defaults.get("automatik_model", "")
-                self.automatik_model_id = self.automatik_model
-                if self.automatik_model:
-                    self.add_debug(f"⚙️ Using default automatik_model from config.py: {self.automatik_model}")  # type: ignore[attr-defined, has-type]
-                else:
-                    self.add_debug("⚠️ No automatik_model configured")  # type: ignore[attr-defined, has-type]
-
-            if not self.vision_model:
-                self.vision_model = backend_defaults.get("vision_model", "")
-                self.vision_model_id = self.vision_model
-                if self.vision_model:
-                    self.add_debug(f"⚙️ Using default vision_model from config.py: {self.vision_model}")  # type: ignore[attr-defined, has-type]
-                else:
-                    self.add_debug("ℹ️ No vision_model configured - will auto-detect first available vision model")  # type: ignore[attr-defined, has-type]
-
-            # Multi-Agent Models (optional)
-            # Only apply config.py defaults if NO per-backend settings exist.
-            # Empty string ("") is a valid saved value meaning "use AIfred-LLM".
-            if not _had_backend_settings and not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                self.sokrates_model_id = backend_defaults.get("sokrates_model", "")  # type: ignore[attr-defined, has-type]
-                self.sokrates_model = self.sokrates_model_id  # type: ignore[attr-defined, has-type]
-                if self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                    self.add_debug(f"⚙️ Using default sokrates_model from config.py: {self.sokrates_model_id}")  # type: ignore[attr-defined, has-type]
-
-            if not _had_backend_settings and not self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                self.salomo_model_id = backend_defaults.get("salomo_model", "")  # type: ignore[attr-defined, has-type]
-                self.salomo_model = self.salomo_model_id  # type: ignore[attr-defined, has-type]
-                if self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                    self.add_debug(f"⚙️ Using default salomo_model from config.py: {self.salomo_model_id}")  # type: ignore[attr-defined, has-type]
-
-            # vLLM can only load ONE model at a time
-            if self.backend_type == "vllm":
-                if self.automatik_model != self.aifred_model:
-                    self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.aifred_model} for both AIfred and Automatic")  # type: ignore[attr-defined, has-type]
-                    self.automatik_model = self.aifred_model
-
-            # Generate internal session ID
-            if not self.session_id:  # type: ignore[attr-defined, has-type]
-                self.session_id = str(uuid.uuid4())  # type: ignore[attr-defined, has-type]
-
-            # Restore GPU info from global state
-            gpu_info = _global_backend_state.get("gpu_info")
-            if gpu_info:
-                self.gpu_detected = True
-                self.gpu_name = gpu_info.name
-                self.gpu_compute_cap = gpu_info.compute_capability
-                self.gpu_warnings = gpu_info.warnings
-                self.gpu_count = gpu_info.gpu_count
-                self.gpu_all_names = gpu_info.all_gpu_names
-
-                self.gpu_vram_gb = total_actual_vram_gb(gpu_info)
-
-                self.add_debug(f"🎮 GPU: {self.gpu_display_text}")  # type: ignore[attr-defined, has-type]
-
-                if gpu_info.recommended_backends:
-                    self.available_backends = gpu_info.recommended_backends.copy()
-                    if "cloud_api" not in self.available_backends:
-                        self.available_backends.append("cloud_api")
-                    self.available_backends_list = [
-                        self.available_backends_dict.get(bid, bid)
-                        for bid in self.available_backends
-                    ]
-                    _global_backend_state["available_backends"] = self.available_backends
-                    _global_backend_state["available_backends_list"] = self.available_backends_list
-                    self.add_debug(f"✅ Compatible backends: {', '.join(self.available_backends)}")  # type: ignore[attr-defined, has-type]
-
-                    if self.backend_type not in self.available_backends:
-                        old_backend = self.backend_type
-                        self.backend_type = self.available_backends[0]
-                        self.backend_id = self.backend_type
-                        self.add_debug(f"⚠️ Backend '{old_backend}' not compatible with {gpu_info.name}")  # type: ignore[attr-defined, has-type]
-                        self.add_debug(f"🔄 Auto-switched to '{self.backend_type}'")  # type: ignore[attr-defined, has-type]
-
+                if saved_settings:
+                    self.backend_type = saved_settings.get("backend_type", self.backend_type)
+                    self.backend_id = self.backend_type
                     self.current_backend_label = self.available_backends_dict.get(self.backend_id, self.backend_id)
-                    _global_backend_state["current_backend_label"] = self.current_backend_label
 
-            # Initialize backend (or restore from global state)
-            self.add_debug("🔧 Initializing backend...")  # type: ignore[attr-defined, has-type]
-            backend_init_success = False
-            was_fast_path = False
-            try:
-                was_fast_path = await self.initialize_backend()
-                backend_init_success = True
-            except Exception as e:
-                self.add_debug(f"❌ Backend init failed: {e}")  # type: ignore[attr-defined, has-type]
-                log_message(f"❌ Backend init failed: {e}")
-                import traceback
-                log_message(traceback.format_exc())
+                    # Cloud API provider
+                    saved_provider = saved_settings.get("cloud_api_provider", self.cloud_api_provider)
+                    if saved_provider in CLOUD_API_PROVIDERS:
+                        self.cloud_api_provider = saved_provider
+                        self.cloud_api_provider_label = CLOUD_API_PROVIDERS[saved_provider]["name"]
+                        # Resolve the key status here too — otherwise the button
+                        # shows "key missing" on startup until the user toggles the
+                        # backend, because the async model-load path (which sets it)
+                        # doesn't run during this synchronous settings restore.
+                        self.cloud_api_key_configured = is_cloud_api_configured(saved_provider)
 
-            if backend_init_success and not was_fast_path:
-                self.add_debug("✅ Backend ready")  # type: ignore[attr-defined, has-type]
+                    # NOTE: research_mode is per-session now, loaded in _restore_session().
+                    # Here we just keep the class default (DEFAULT_SESSION_CONFIG["research_mode"]).
+                    from ..lib import TranslationManager
+                    self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, self.ui_language)  # type: ignore[attr-defined, has-type, arg-type]
 
-            if backend_init_success:
-                from aifred.lib.logging_utils import console_separator
-                console_separator()
-                self.debug_messages = [*self.debug_messages, "────────────────────"]  # type: ignore[attr-defined, has-type]
+                    self.temperature = saved_settings.get("temperature", self.temperature)  # type: ignore[attr-defined, has-type]
+                    self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
+                    self.sokrates_temperature = saved_settings.get("sokrates_temperature", self.sokrates_temperature)  # type: ignore[attr-defined, has-type]
+                    self.sokrates_temperature_offset = saved_settings.get("sokrates_temperature_offset", self.sokrates_temperature_offset)  # type: ignore[attr-defined, has-type]
+                    self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)  # type: ignore[attr-defined, has-type]
+                    self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)  # type: ignore[attr-defined, has-type]
+                    # Load UI language and update global locale + prompt language
+                    saved_ui_lang = saved_settings.get("ui_language", self.ui_language)  # type: ignore[attr-defined, has-type]
+                    if saved_ui_lang in ["de", "en"]:
+                        self.ui_language = saved_ui_lang  # type: ignore[attr-defined, has-type]
+                        set_ui_locale(saved_ui_lang)
+                        set_language(saved_ui_lang)
 
-            self._backend_initialized = True
-            log_message("✅ Session initialization complete")
+                    # Load user name and gender
+                    self.user_name = saved_settings.get("user_name", self.user_name)  # type: ignore[attr-defined, has-type]
+                    self.user_gender = saved_settings.get("user_gender", self.user_gender)  # type: ignore[attr-defined, has-type]
+                    from ..lib.prompt_loader import set_user_name, set_user_gender, init_system_prompt_cache, set_personality_enabled, set_reasoning_enabled
+                    set_user_name(self.user_name)  # type: ignore[attr-defined, has-type, arg-type]
+                    set_user_gender(self.user_gender)  # type: ignore[attr-defined, has-type, arg-type]
 
-            # Authentication: Read username from cookie
-            if not self._session_initialized:  # type: ignore[attr-defined, has-type]
-                from ..lib.browser_storage import get_username_script
-                log_message("🔐 Requesting username cookie from browser...")
-                # Import AIState at usage site to avoid circular import
-                from ._base import AIState
-                yield rx.call_script(
-                    get_username_script(),
-                    callback=AIState.handle_username_loaded
-                )
+                    # Load and sync personality toggles
+                    self.aifred_personality = saved_settings.get("aifred_personality", self.aifred_personality)  # type: ignore[attr-defined, has-type]
+                    self.sokrates_personality = saved_settings.get("sokrates_personality", self.sokrates_personality)  # type: ignore[attr-defined, has-type]
+                    self.salomo_personality = saved_settings.get("salomo_personality", self.salomo_personality)  # type: ignore[attr-defined, has-type]
+                    self.vision_personality = saved_settings.get("vision_personality", self.vision_personality)  # type: ignore[attr-defined, has-type]
+                    set_personality_enabled("aifred", self.aifred_personality)  # type: ignore[attr-defined, has-type, arg-type]
+                    set_personality_enabled("sokrates", self.sokrates_personality)  # type: ignore[attr-defined, has-type, arg-type]
+                    set_personality_enabled("salomo", self.salomo_personality)  # type: ignore[attr-defined, has-type, arg-type]
+                    set_personality_enabled("vision", self.vision_personality)  # type: ignore[attr-defined, has-type, arg-type]
 
-        self._on_load_running = False
+                    if "aifred_personality" not in saved_settings or "vision_personality" not in saved_settings:
+                        self._save_personality_settings()  # type: ignore[attr-defined, has-type]
+
+                    # Load and sync reasoning toggles
+                    self.aifred_reasoning = saved_settings.get("aifred_reasoning", self.aifred_reasoning)  # type: ignore[attr-defined, has-type]
+                    self.sokrates_reasoning = saved_settings.get("sokrates_reasoning", self.sokrates_reasoning)  # type: ignore[attr-defined, has-type]
+                    self.salomo_reasoning = saved_settings.get("salomo_reasoning", self.salomo_reasoning)  # type: ignore[attr-defined, has-type]
+                    self.vision_reasoning = saved_settings.get("vision_reasoning", self.vision_reasoning)  # type: ignore[attr-defined, has-type]
+                    set_reasoning_enabled("aifred", self.aifred_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
+                    set_reasoning_enabled("sokrates", self.sokrates_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
+                    set_reasoning_enabled("salomo", self.salomo_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
+                    set_reasoning_enabled("vision", self.vision_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
+
+                    if "aifred_reasoning" not in saved_settings or "vision_reasoning" not in saved_settings:
+                        self._save_reasoning_settings()  # type: ignore[attr-defined, has-type]
+
+                    # Load thinking toggles (read directly from State at runtime, no prompt_loader sync)
+                    self.aifred_thinking = saved_settings.get("aifred_thinking", self.aifred_thinking)  # type: ignore[attr-defined, has-type]
+                    self.sokrates_thinking = saved_settings.get("sokrates_thinking", self.sokrates_thinking)  # type: ignore[attr-defined, has-type]
+                    self.salomo_thinking = saved_settings.get("salomo_thinking", self.salomo_thinking)  # type: ignore[attr-defined, has-type]
+                    self.vision_thinking = saved_settings.get("vision_thinking", self.vision_thinking)  # type: ignore[attr-defined, has-type]
+
+                    if "aifred_thinking" not in saved_settings or "vision_thinking" not in saved_settings:
+                        self._save_thinking_settings()  # type: ignore[attr-defined, has-type]
+
+                    # Load reasoning-effort levels (dropdown selection per agent)
+                    self.aifred_reasoning_effort = saved_settings.get("aifred_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
+                    self.sokrates_reasoning_effort = saved_settings.get("sokrates_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
+                    self.salomo_reasoning_effort = saved_settings.get("salomo_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
+                    self.vision_reasoning_effort = saved_settings.get("vision_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
+
+                    # Load speed mode toggles (llamacpp only)
+                    self.aifred_speed_mode = saved_settings.get("aifred_speed_mode", False)  # type: ignore[attr-defined, has-type]
+                    self.sokrates_speed_mode = saved_settings.get("sokrates_speed_mode", False)  # type: ignore[attr-defined, has-type]
+                    self.salomo_speed_mode = saved_settings.get("salomo_speed_mode", False)  # type: ignore[attr-defined, has-type]
+                    self.vision_speed_mode = saved_settings.get("vision_speed_mode", False)  # type: ignore[attr-defined, has-type]
+
+                    # Load Vision settings (PERSISTENT)
+                    self.vision_num_ctx_enabled = saved_settings.get("vision_num_ctx_enabled", self.vision_num_ctx_enabled)  # type: ignore[attr-defined, has-type]
+                    self.vision_num_ctx = saved_settings.get("vision_num_ctx", self.vision_num_ctx)  # type: ignore[attr-defined, has-type]
+
+                    # Restore the Vigilantia master switch (vigilantia_armed) +
+                    # vision_mode / VLM model from the vision plugin's settings.json,
+                    # so the 👁️ eye shows the real scharf/unscharf state right after
+                    # login instead of the default "disarmed". The background watchers
+                    # run server-side regardless — this is purely the UI restore that
+                    # was previously only done when the vision popup opened.
+                    self._refresh_vision_settings()  # type: ignore[attr-defined]
+
+                    init_system_prompt_cache()
+
+                    # Load TTS/STT Settings
+                    self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
+                    self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)  # type: ignore[attr-defined, has-type]
+                    self.xtts_force_cpu = saved_settings.get("xtts_force_cpu", self.xtts_force_cpu)  # type: ignore[attr-defined, has-type]
+                    # tts_autoplay/tts_streaming_enabled: loaded per-engine by _restore_tts_toggles_for_engine below
+                    self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)  # type: ignore[attr-defined, has-type]
+                    self.tts_pitch = saved_settings.get("tts_pitch", self.tts_pitch)  # type: ignore[attr-defined, has-type]
+                    saved_whisper = saved_settings.get("whisper_model", self.whisper_model_key)  # type: ignore[attr-defined, has-type]
+                    if "(" in saved_whisper:  # type: ignore[operator]
+                        saved_whisper = saved_whisper.split("(")[0].strip()  # type: ignore[union-attr]
+                    self.whisper_model_key = saved_whisper  # type: ignore[attr-defined, has-type]
+                    self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)  # type: ignore[attr-defined, has-type]
+                    self.enter_sends_message = saved_settings.get("enter_sends_message", self.enter_sends_message)  # type: ignore[attr-defined, has-type]
+
+                    # Load TTS voice
+                    user_voices = saved_settings.get("tts_voices_per_language", {})
+                    engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
+                    saved_voice = user_voices.get(engine_key, {}).get(self.ui_language)  # type: ignore[attr-defined, has-type]
+                    if saved_voice:
+                        self.tts_voice = saved_voice  # type: ignore[attr-defined, has-type]
+                    else:
+                        self.tts_voice = saved_settings.get("voice", self.tts_voice)  # type: ignore[attr-defined, has-type]
+
+                    self._restore_agent_voices_for_engine(engine_key)  # type: ignore[attr-defined, has-type]
+                    self._restore_tts_toggles_for_engine(engine_key)  # type: ignore[attr-defined, has-type]
+
+                    if self.tts_engine == "xtts":  # type: ignore[attr-defined, has-type]
+                        self._refresh_xtts_voices()  # type: ignore[attr-defined, has-type]
+
+                    # Load vLLM YaRN Settings
+                    self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
+                    self.yarn_factor = 1.0
+                    self.yarn_factor_input = "1.0"
+
+                    # Load UI Settings
+                    self.auto_refresh_enabled = saved_settings.get("auto_scroll", self.auto_refresh_enabled)  # type: ignore[attr-defined, has-type]
+
+                    # Load Multi-Agent Settings
+                    self.multi_agent_mode = saved_settings.get("multi_agent_mode", self.multi_agent_mode)  # type: ignore[attr-defined, has-type]
+                    self.max_debate_rounds = saved_settings.get("max_debate_rounds", self.max_debate_rounds)  # type: ignore[attr-defined, has-type]
+                    self.consensus_type = saved_settings.get("consensus_type", self.consensus_type)  # type: ignore[attr-defined, has-type]
+                    # sokrates/salomo model ids come from backend_models below
+                    # (single source of truth — no flat keys anymore)
+                    self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)  # type: ignore[attr-defined, has-type]
+                    self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)  # type: ignore[attr-defined, has-type]
+
+                    # Load per-backend models
+                    backend_models = saved_settings.get("backend_models", {})
+                    _had_backend_settings = self.backend_id in backend_models
+                    if _had_backend_settings:
+                        backend_data = backend_models[self.backend_id]
+                        selected_raw = backend_data.get("aifred_model", "")
+                        automatik_raw = backend_data.get("automatik_model", "")
+                        vision_raw = backend_data.get("vision_model", "")
+                        sokrates_raw = backend_data.get("sokrates_model", "")
+                        salomo_raw = backend_data.get("salomo_model", "")
+
+                        self.aifred_model_id = selected_raw
+                        self.automatik_model_id = automatik_raw
+                        self.vision_model_id = vision_raw
+                        self.sokrates_model_id = sokrates_raw  # type: ignore[attr-defined, has-type]
+                        self.salomo_model_id = salomo_raw  # type: ignore[attr-defined, has-type]
+
+                        # Load all model parameters from cache on startup
+                        self._load_all_agent_model_params()
+
+                        self.aifred_model = selected_raw
+                        self.automatik_model = automatik_raw
+                        self.vision_model = vision_raw
+                        self.sokrates_model = sokrates_raw  # type: ignore[attr-defined, has-type]
+                        self.salomo_model = salomo_raw  # type: ignore[attr-defined, has-type]
+
+                    self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")  # type: ignore[attr-defined, has-type]
+
+                    # Send TTS playback rate to JavaScript
+                    rate_value = self.tts_playback_rate.replace("x", "")  # type: ignore[attr-defined, has-type, union-attr]
+                    yield rx.call_script(f"setTimeout(() => {{ if (typeof setTtsPlaybackRate === 'function') setTtsPlaybackRate({rate_value}); }}, 100)")
+
+                # Apply config.py defaults as final fallback
+                backend_defaults = config.BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
+
+                if not self.aifred_model:
+                    self.aifred_model = backend_defaults.get("aifred_model", "")
+                    self.aifred_model_id = self.aifred_model
+                    if self.aifred_model:
+                        self.add_debug(f"⚙️ Using default aifred_model from config.py: {self.aifred_model}")  # type: ignore[attr-defined, has-type]
+                    else:
+                        self.add_debug("⚠️ No aifred_model configured")  # type: ignore[attr-defined, has-type]
+
+                if not self.automatik_model and not _had_backend_settings:
+                    self.automatik_model = backend_defaults.get("automatik_model", "")
+                    self.automatik_model_id = self.automatik_model
+                    if self.automatik_model:
+                        self.add_debug(f"⚙️ Using default automatik_model from config.py: {self.automatik_model}")  # type: ignore[attr-defined, has-type]
+                    else:
+                        self.add_debug("⚠️ No automatik_model configured")  # type: ignore[attr-defined, has-type]
+
+                if not self.vision_model:
+                    self.vision_model = backend_defaults.get("vision_model", "")
+                    self.vision_model_id = self.vision_model
+                    if self.vision_model:
+                        self.add_debug(f"⚙️ Using default vision_model from config.py: {self.vision_model}")  # type: ignore[attr-defined, has-type]
+                    else:
+                        self.add_debug("ℹ️ No vision_model configured - will auto-detect first available vision model")  # type: ignore[attr-defined, has-type]
+
+                # Multi-Agent Models (optional)
+                # Only apply config.py defaults if NO per-backend settings exist.
+                # Empty string ("") is a valid saved value meaning "use AIfred-LLM".
+                if not _had_backend_settings and not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
+                    self.sokrates_model_id = backend_defaults.get("sokrates_model", "")  # type: ignore[attr-defined, has-type]
+                    self.sokrates_model = self.sokrates_model_id  # type: ignore[attr-defined, has-type]
+                    if self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
+                        self.add_debug(f"⚙️ Using default sokrates_model from config.py: {self.sokrates_model_id}")  # type: ignore[attr-defined, has-type]
+
+                if not _had_backend_settings and not self.salomo_model_id:  # type: ignore[attr-defined, has-type]
+                    self.salomo_model_id = backend_defaults.get("salomo_model", "")  # type: ignore[attr-defined, has-type]
+                    self.salomo_model = self.salomo_model_id  # type: ignore[attr-defined, has-type]
+                    if self.salomo_model_id:  # type: ignore[attr-defined, has-type]
+                        self.add_debug(f"⚙️ Using default salomo_model from config.py: {self.salomo_model_id}")  # type: ignore[attr-defined, has-type]
+
+                # vLLM can only load ONE model at a time
+                if self.backend_type == "vllm":
+                    if self.automatik_model != self.aifred_model:
+                        self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.aifred_model} for both AIfred and Automatic")  # type: ignore[attr-defined, has-type]
+                        self.automatik_model = self.aifred_model
+
+                # Generate internal session ID
+                if not self.session_id:  # type: ignore[attr-defined, has-type]
+                    self.session_id = str(uuid.uuid4())  # type: ignore[attr-defined, has-type]
+
+                # Restore GPU info from global state
+                gpu_info = _global_backend_state.get("gpu_info")
+                if gpu_info:
+                    self.gpu_detected = True
+                    self.gpu_name = gpu_info.name
+                    self.gpu_compute_cap = gpu_info.compute_capability
+                    self.gpu_warnings = gpu_info.warnings
+                    self.gpu_count = gpu_info.gpu_count
+                    self.gpu_all_names = gpu_info.all_gpu_names
+
+                    self.gpu_vram_gb = total_actual_vram_gb(gpu_info)
+
+                    self.add_debug(f"🎮 GPU: {self.gpu_display_text}")  # type: ignore[attr-defined, has-type]
+
+                    if gpu_info.recommended_backends:
+                        self.available_backends = gpu_info.recommended_backends.copy()
+                        if "cloud_api" not in self.available_backends:
+                            self.available_backends.append("cloud_api")
+                        self.available_backends_list = [
+                            self.available_backends_dict.get(bid, bid)
+                            for bid in self.available_backends
+                        ]
+                        _global_backend_state["available_backends"] = self.available_backends
+                        _global_backend_state["available_backends_list"] = self.available_backends_list
+                        self.add_debug(f"✅ Compatible backends: {', '.join(self.available_backends)}")  # type: ignore[attr-defined, has-type]
+
+                        if self.backend_type not in self.available_backends:
+                            old_backend = self.backend_type
+                            self.backend_type = self.available_backends[0]
+                            self.backend_id = self.backend_type
+                            self.add_debug(f"⚠️ Backend '{old_backend}' not compatible with {gpu_info.name}")  # type: ignore[attr-defined, has-type]
+                            self.add_debug(f"🔄 Auto-switched to '{self.backend_type}'")  # type: ignore[attr-defined, has-type]
+
+                        self.current_backend_label = self.available_backends_dict.get(self.backend_id, self.backend_id)
+                        _global_backend_state["current_backend_label"] = self.current_backend_label
+
+                # Initialize backend (or restore from global state)
+                self.add_debug("🔧 Initializing backend...")  # type: ignore[attr-defined, has-type]
+                backend_init_success = False
+                was_fast_path = False
+                try:
+                    was_fast_path = await self.initialize_backend()
+                    backend_init_success = True
+                except Exception as e:
+                    self.add_debug(f"❌ Backend init failed: {e}")  # type: ignore[attr-defined, has-type]
+                    log_message(f"❌ Backend init failed: {e}")
+                    import traceback
+                    log_message(traceback.format_exc())
+
+                if backend_init_success and not was_fast_path:
+                    self.add_debug("✅ Backend ready")  # type: ignore[attr-defined, has-type]
+
+                if backend_init_success:
+                    from aifred.lib.logging_utils import console_separator
+                    console_separator()
+                    self.debug_messages = [*self.debug_messages, "────────────────────"]  # type: ignore[attr-defined, has-type]
+
+                self._backend_initialized = True
+                log_message("✅ Session initialization complete")
+
+                # Authentication: Read username from cookie
+                if not self._session_initialized:  # type: ignore[attr-defined, has-type]
+                    from ..lib.browser_storage import get_username_script
+                    log_message("🔐 Requesting username cookie from browser...")
+                    # Import AIState at usage site to avoid circular import
+                    from ._base import AIState
+                    yield rx.call_script(
+                        get_username_script(),
+                        callback=AIState.handle_username_loaded
+                    )
+
+        finally:
+            self._on_load_running = False
 
     # ================================================================
     # INITIALIZE BACKEND
@@ -893,9 +818,14 @@ class BackendMixin(rx.State, mixin=True):
                 self.aifred_model_id = _global_backend_state["aifred_model_id"]
                 self.aifred_model = self.available_models_dict[self.aifred_model_id]
             else:
-                first_id = next(iter(self.available_models_dict.keys()), "")
-                self.aifred_model_id = first_id
-                self.aifred_model = self.available_models_dict.get(first_id, first_id)
+                # Stale main model — same policy as the SLOW PATH below:
+                # clear instead of silently substituting another model,
+                # the user picks explicitly (send_message guards on empty).
+                log_message(
+                    f"⚠️ Configured model '{self.aifred_model_id}' not available — cleared"
+                )
+                self.aifred_model_id = ""
+                self.aifred_model = ""
 
             # Validate and sync automatik_model
             if not self.automatik_model_id:
@@ -1107,26 +1037,17 @@ class BackendMixin(rx.State, mixin=True):
                 self.backend_info = f"{self.model_count} models"
                 self.backend_healthy = True
 
-                # Format model display with calibrated context
-                from ..lib.model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model, get_llamacpp_calibration
-                from ..lib.formatting import format_number
+                # Format model display with calibrated context (SSOT in
+                # lib/model_vram_cache — thin wrapper binds backend_type)
+                from ..lib.model_vram_cache import (
+                    format_model_with_ctx as _format_model_with_ctx,
+                    get_llamacpp_calibration,
+                    get_ollama_calibrated_max_context,
+                    get_rope_factor_for_model,
+                )
 
                 def format_model_with_ctx(model_display: str, model_id: str) -> str:
-                    """Format model display with calibrated context limit."""
-                    if not model_id:
-                        return model_display
-                    if self.backend_type == "llamacpp":
-                        ctx = get_llamacpp_calibration(model_id)
-                    else:
-                        ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
-                    if ctx:
-                        if model_display.endswith(")"):
-                            return model_display[:-1] + f", {format_number(ctx)} ctx)"
-                        return f"{model_display} ({format_number(ctx)} ctx)"
-                    else:
-                        if model_display.endswith(")"):
-                            return model_display[:-1] + ", ctx not calibrated)"
-                        return f"{model_display} (ctx not calibrated)"
+                    return _format_model_with_ctx(model_display, model_id, self.backend_type)
 
                 from ..lib.agent_config import get_agent_label
                 # Show effective model (includes TTS variant if GPU TTS is active)
@@ -1766,22 +1687,6 @@ class BackendMixin(rx.State, mixin=True):
                 self.vllm_restarting = False
                 yield
 
-    async def set_aifred_model_by_id(self, model_id: str):
-        """Set selected model using pure ID (new key-value system)."""
-        self.aifred_model_id = model_id
-
-        if self.backend_id == "ollama":
-            from ..lib.model_vram_cache import get_rope_factor_for_model
-            self.aifred_rope_factor = get_rope_factor_for_model(model_id)  # type: ignore[attr-defined, has-type]
-        elif self.backend_type == "llamacpp":
-            self.aifred_rope_factor = 1.0  # type: ignore[attr-defined, has-type]
-
-        display_label = self.available_models_dict.get(model_id, model_id)
-        self.aifred_model = display_label
-
-        async for _ in self.set_aifred_model(display_label):
-            pass
-
     async def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization."""
         from ..lib.i18n import t
@@ -1805,22 +1710,6 @@ class BackendMixin(rx.State, mixin=True):
             await self.initialize_backend()
             self.add_debug("✅ New Automatic model loaded")  # type: ignore[attr-defined, has-type]
 
-    async def set_automatik_model_by_id(self, model_id: str):
-        """Set automatik model using pure ID (new key-value system)."""
-        self.automatik_model_id = model_id
-
-        if model_id:
-            if self.backend_id == "ollama":
-                from ..lib.model_vram_cache import get_rope_factor_for_model
-                self.automatik_rope_factor = get_rope_factor_for_model(model_id)  # type: ignore[attr-defined, has-type]
-            elif self.backend_type == "llamacpp":
-                self.automatik_rope_factor = 1.0  # type: ignore[attr-defined, has-type]
-
-        display_label = self.available_models_dict.get(model_id, model_id)
-        self.automatik_model = display_label
-
-        await self.set_automatik_model(display_label)
-
     async def set_vision_model(self, model: str):
         """Set vision model for OCR/image analysis."""
         self.vision_model = model
@@ -1835,21 +1724,6 @@ class BackendMixin(rx.State, mixin=True):
                 self.vision_speed_mode = False  # type: ignore[attr-defined, has-type]
 
         self._save_settings()  # type: ignore[attr-defined, has-type]
-
-    async def set_vision_model_by_id(self, model_id: str):
-        """Set vision model using pure ID (new key-value system)."""
-        self.vision_model_id = model_id
-
-        if self.backend_id == "ollama":
-            from ..lib.model_vram_cache import get_rope_factor_for_model
-            self.vision_rope_factor = get_rope_factor_for_model(model_id)  # type: ignore[attr-defined, has-type]
-        elif self.backend_type == "llamacpp":
-            self.vision_rope_factor = 1.0  # type: ignore[attr-defined, has-type]
-
-        display_label = self.available_models_dict.get(model_id, model_id)
-        self.vision_model = display_label
-
-        await self.set_vision_model(display_label)
 
     # ================================================================
     # BACKEND GUARD

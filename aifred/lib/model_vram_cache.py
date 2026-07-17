@@ -151,6 +151,42 @@ def save_cache(cache: Dict[str, Any]) -> bool:
         return False
 
 
+def _ensure_entry(cache: Dict[str, Any], model_name: str, defaults: Dict[str, Any]) -> Dict[str, Any]:
+    """Initialize a model entry with backend defaults if missing; return the entry.
+
+    Must be called with ``_cache_lock`` held (part of the write pattern).
+    """
+    if model_name not in cache:
+        cache[model_name] = dict(defaults)
+    entry: Dict[str, Any] = cache[model_name]
+    return entry
+
+
+def _update_entry(
+    model_name: str,
+    defaults: Dict[str, Any],
+    updates: Dict[str, Any],
+    log_msg: str,
+) -> bool:
+    """SSOT for the simple setter pattern: lock → load → init-entry → set fields → save.
+
+    Args:
+        model_name: Cache key.
+        defaults: Backend-specific entry skeleton used when the entry doesn't exist yet.
+        updates: Fields to set on the entry (applied on top of defaults or existing entry).
+        log_msg: Log line emitted before saving.
+
+    Returns:
+        True if successfully saved, False otherwise
+    """
+    with _cache_lock:
+        cache = load_cache(strict=True)
+        entry = _ensure_entry(cache, model_name, defaults)
+        entry.update(updates)
+        logger.info(log_msg)
+        return save_cache(cache)
+
+
 # ============================================================================
 # CALIBRATION STATUS HELPERS
 # ============================================================================
@@ -340,21 +376,20 @@ def add_ollama_calibration(
         cache = load_cache(strict=True)
 
         # Initialize model entry if not exists
-        if model_name not in cache:
-            cache[model_name] = {
-                "backend": "ollama",
-                "native_context": native_context,
-                "gpu_model": gpu_model,
-                "ollama_calibrations": []
-            }
+        entry = _ensure_entry(cache, model_name, {
+            "backend": "ollama",
+            "native_context": native_context,
+            "gpu_model": gpu_model,
+            "ollama_calibrations": []
+        })
 
         # Ensure ollama_calibrations exists
-        if "ollama_calibrations" not in cache[model_name]:
-            cache[model_name]["ollama_calibrations"] = []
+        if "ollama_calibrations" not in entry:
+            entry["ollama_calibrations"] = []
 
         # Update metadata
-        cache[model_name]["native_context"] = native_context
-        cache[model_name]["gpu_model"] = gpu_model
+        entry["native_context"] = native_context
+        entry["gpu_model"] = gpu_model
 
         field_name, mode_label = _ollama_ctx_field(rope_factor)
 
@@ -365,7 +400,7 @@ def add_ollama_calibration(
             "measured_at": datetime.now().isoformat()
         }
 
-        calibrations = cache[model_name]["ollama_calibrations"]
+        calibrations = entry["ollama_calibrations"]
         for i, cal in enumerate(calibrations):
             if field_name in cal:
                 calibrations[i] = calibration
@@ -503,22 +538,12 @@ def set_rope_factor_for_model(model_name: str, rope_factor: float) -> bool:
     Returns:
         True if successfully saved, False otherwise
     """
-    with _cache_lock:
-        cache = load_cache(strict=True)
-
-        # Initialize model entry if not exists
-        if model_name not in cache:
-            cache[model_name] = {
-                "backend": "ollama",
-                "native_context": 0,
-                "gpu_model": "Unknown",
-                "rope_factor": rope_factor
-            }
-        else:
-            cache[model_name]["rope_factor"] = rope_factor
-
-        logger.info(f"📊 Set rope_factor={rope_factor}x for {model_name}")
-        return save_cache(cache)
+    return _update_entry(
+        model_name,
+        defaults={"backend": "ollama", "native_context": 0, "gpu_model": "Unknown"},
+        updates={"rope_factor": rope_factor},
+        log_msg=f"📊 Set rope_factor={rope_factor}x for {model_name}",
+    )
 
 
 def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> bool:
@@ -534,23 +559,13 @@ def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> 
     Returns:
         True if successfully saved, False otherwise
     """
-    with _cache_lock:
-        cache = load_cache(strict=True)
-
-        # Initialize model entry if not exists
-        if model_name not in cache:
-            cache[model_name] = {
-                "backend": "ollama",
-                "native_context": 0,
-                "gpu_model": "Unknown",
-                "supports_thinking": supports_thinking
-            }
-        else:
-            cache[model_name]["supports_thinking"] = supports_thinking
-
-        status = "✅" if supports_thinking else "⚠️"
-        logger.info(f"{status} Set thinking support={supports_thinking} for {model_name}")
-        return save_cache(cache)
+    status = "✅" if supports_thinking else "⚠️"
+    return _update_entry(
+        model_name,
+        defaults={"backend": "ollama", "native_context": 0, "gpu_model": "Unknown"},
+        updates={"supports_thinking": supports_thinking},
+        log_msg=f"{status} Set thinking support={supports_thinking} for {model_name}",
+    )
 
 
 def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
@@ -575,21 +590,12 @@ def set_reasoning_levels_for_model(model_name: str, levels: List[str]) -> bool:
     Empty list = template analyzed, no effort levels (plain on/off
     thinking, or none at all).
     """
-    with _cache_lock:
-        cache = load_cache(strict=True)
-
-        if model_name not in cache:
-            cache[model_name] = {
-                "backend": "llamacpp",
-                "native_context": 0,
-                "gpu_model": "Unknown",
-                "reasoning_levels": levels,
-            }
-        else:
-            cache[model_name]["reasoning_levels"] = levels
-
-        logger.info(f"🧠 Set reasoning_levels={levels} for {model_name}")
-        return save_cache(cache)
+    return _update_entry(
+        model_name,
+        defaults={"backend": "llamacpp", "native_context": 0, "gpu_model": "Unknown"},
+        updates={"reasoning_levels": levels},
+        log_msg=f"🧠 Set reasoning_levels={levels} for {model_name}",
+    )
 
 
 def get_reasoning_levels_for_model(model_name: str) -> Optional[List[str]]:
@@ -643,22 +649,13 @@ def set_expert_counts(model_name: str, expert_count: int, expert_used_count: int
     Returns:
         True if successfully saved
     """
-    with _cache_lock:
-        cache = load_cache(strict=True)
-
-        if model_name not in cache:
-            cache[model_name] = {
-                "backend": "llamacpp",
-                "native_context": 0,
-                "gpu_model": "",
-            }
-
-        cache[model_name]["expert_count"] = expert_count
-        cache[model_name]["expert_used_count"] = expert_used_count
-
-        label = f"MoE ({expert_count}x, {expert_used_count} active)" if expert_count > 1 else "Dense"
-        logger.info(f"📊 Set expert counts for {model_name}: {label}")
-        return save_cache(cache)
+    label = f"MoE ({expert_count}x, {expert_used_count} active)" if expert_count > 1 else "Dense"
+    return _update_entry(
+        model_name,
+        defaults={"backend": "llamacpp", "native_context": 0, "gpu_model": ""},
+        updates={"expert_count": expert_count, "expert_used_count": expert_used_count},
+        log_msg=f"📊 Set expert counts for {model_name}: {label}",
+    )
 
 
 # ============================================================================
@@ -773,24 +770,23 @@ def add_vllm_calibration(
         cache = load_cache(strict=True)
 
         # Initialize model entry if not exists
-        if model_id not in cache:
-            cache[model_id] = {
-                "backend": "vllm",
-                "architecture": architecture,
-                "native_context": native_context,
-                "gpu_model": gpu_model,
-                "vllm_calibrations": []
-            }
+        entry = _ensure_entry(cache, model_id, {
+            "backend": "vllm",
+            "architecture": architecture,
+            "native_context": native_context,
+            "gpu_model": gpu_model,
+            "vllm_calibrations": []
+        })
 
         # Ensure vllm_calibrations exists (for Ollama models)
-        if "vllm_calibrations" not in cache[model_id]:
-            cache[model_id]["vllm_calibrations"] = []
+        if "vllm_calibrations" not in entry:
+            entry["vllm_calibrations"] = []
 
         # Update metadata
-        cache[model_id]["native_context"] = native_context
-        cache[model_id]["gpu_model"] = gpu_model
+        entry["native_context"] = native_context
+        entry["gpu_model"] = gpu_model
         if architecture != "unknown":
-            cache[model_id]["architecture"] = architecture
+            entry["architecture"] = architecture
 
         # Add calibration point
         calibration = {
@@ -799,7 +795,7 @@ def add_vllm_calibration(
             "measured_at": datetime.now().isoformat()
         }
 
-        cache[model_id]["vllm_calibrations"].append(calibration)
+        entry["vllm_calibrations"].append(calibration)
 
         # Save and return result
         return save_cache(cache)
@@ -864,30 +860,29 @@ def add_llamacpp_calibration(
     with _cache_lock:
         cache = load_cache(strict=True)
 
-        if model_id not in cache:
-            cache[model_id] = {
-                "backend": "llamacpp",
-                "native_context": native_context,
-                "quantization": quantization,
-                "model_size_gb": model_size_gb,
-                "gpu_model": gpu_model,
-                "gguf_path": gguf_path,
-                "llamacpp_calibrations": []
-            }
+        entry = _ensure_entry(cache, model_id, {
+            "backend": "llamacpp",
+            "native_context": native_context,
+            "quantization": quantization,
+            "model_size_gb": model_size_gb,
+            "gpu_model": gpu_model,
+            "gguf_path": gguf_path,
+            "llamacpp_calibrations": []
+        })
 
-        if "llamacpp_calibrations" not in cache[model_id]:
-            cache[model_id]["llamacpp_calibrations"] = []
+        if "llamacpp_calibrations" not in entry:
+            entry["llamacpp_calibrations"] = []
 
-        cache[model_id]["native_context"] = native_context
-        cache[model_id]["quantization"] = quantization
-        cache[model_id]["model_size_gb"] = model_size_gb
-        cache[model_id]["gpu_model"] = gpu_model
-        cache[model_id]["gguf_path"] = gguf_path
+        entry["native_context"] = native_context
+        entry["quantization"] = quantization
+        entry["model_size_gb"] = model_size_gb
+        entry["gpu_model"] = gpu_model
+        entry["gguf_path"] = gguf_path
         if gpu_uuids:
-            cache[model_id]["gpu_uuids"] = list(gpu_uuids)
+            entry["gpu_uuids"] = list(gpu_uuids)
         # A successful calibration overrides any earlier failure_status
         # so the picker drops the red dot on the same cell.
-        cache[model_id].pop("failure_status", None)
+        entry.pop("failure_status", None)
 
         calibration: Dict[str, Any] = {
             "max_context": max_context,
@@ -907,7 +902,7 @@ def add_llamacpp_calibration(
             calibration["remaining_free_mb"] = list(remaining_free_mb)
 
         # Replace all previous calibrations — only the latest matters
-        cache[model_id]["llamacpp_calibrations"] = [calibration]
+        entry["llamacpp_calibrations"] = [calibration]
 
         speed_info = f", speed_split={speed_split}:1" if speed_split > 0 else ""
         logger.info(
@@ -939,6 +934,26 @@ def get_llamacpp_calibration(model_id: str) -> Optional[int]:
 
     # Return most recent calibration
     return int(calibrations[-1]["max_context"])
+
+
+def format_model_with_ctx(model_display: str, model_id: str, backend_type: str) -> str:
+    """Model-Label um den kalibrierten Kontext ergänzen (SSOT für die
+    Debug-Anzeigen in den State-Mixins).
+
+    Merged in eine bereits vorhandene Klammer ("… (8,1 GB)" →
+    "… (8,1 GB, 32.768 ctx)"), sonst wird eine neue angehängt.
+    """
+    from .formatting import format_number
+    if not model_id:
+        return model_display
+    if backend_type == "llamacpp":
+        ctx = get_llamacpp_calibration(model_id)
+    else:
+        ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
+    suffix = f"{format_number(ctx)} ctx" if ctx else "ctx not calibrated"
+    if model_display.endswith(")"):
+        return model_display[:-1] + f", {suffix})"
+    return f"{model_display} ({suffix})"
 
 
 def get_llamacpp_calibration_info(model_id: str) -> Optional[Dict[str, Any]]:

@@ -63,10 +63,23 @@ class AuthMixin(rx.State, mixin=True):
 
     # ── Login / Register / Logout ────────────────────────────────────
 
+    def _post_auth_script(self):
+        """Nach Login/Registrierung: Username- + Session-Cookie setzen und
+        den Browser-Push-Bus-SSE-Stream starten (SSOT für beide Pfade)."""
+        from ..lib.browser_storage import set_username_script, set_session_id_script
+        combined_script = (
+            set_username_script(self.logged_in_user)
+            + "; "
+            + set_session_id_script(self.session_id)  # type: ignore[attr-defined]
+            + "; if(window.startBrowserStream) startBrowserStream('"
+            + self.session_id  # type: ignore[attr-defined]
+            + "');"
+        )
+        return rx.call_script(combined_script)
+
     def do_login(self):  # type: ignore[return]
         """Attempt to log in with entered credentials."""
         from ..lib.session_storage import verify_account, account_exists, list_sessions
-        from ..lib.browser_storage import set_username_script, set_session_id_script
 
         username = self.login_username.strip()
         password = self.login_password
@@ -99,21 +112,11 @@ class AuthMixin(rx.State, mixin=True):
             self.new_session()  # type: ignore[attr-defined]
             self.add_debug(f"✅ Logged in as: {self.logged_in_user} (new)")  # type: ignore[attr-defined]
 
-        # Save username AND session cookies + start Browser Push Bus SSE stream
-        combined_script = (
-            set_username_script(self.logged_in_user)
-            + "; "
-            + set_session_id_script(self.session_id)  # type: ignore[attr-defined]
-            + "; if(window.startBrowserStream) startBrowserStream('"
-            + self.session_id  # type: ignore[attr-defined]
-            + "');"
-        )
-        return rx.call_script(combined_script)
+        return self._post_auth_script()
 
     def do_register(self):  # type: ignore[return]
         """Attempt to create new account."""
         from ..lib.session_storage import create_account, is_username_allowed
-        from ..lib.browser_storage import set_username_script, set_session_id_script
 
         username = self.login_username.strip()
         password = self.login_password
@@ -139,16 +142,7 @@ class AuthMixin(rx.State, mixin=True):
         self.new_session()  # type: ignore[attr-defined]
         self.add_debug(f"✅ Account created: {self.logged_in_user}")  # type: ignore[attr-defined]
 
-        # Save username AND session cookies + start Browser Push Bus SSE stream
-        combined_script = (
-            set_username_script(self.logged_in_user)
-            + "; "
-            + set_session_id_script(self.session_id)  # type: ignore[attr-defined]
-            + "; if(window.startBrowserStream) startBrowserStream('"
-            + self.session_id  # type: ignore[attr-defined]
-            + "');"
-        )
-        return rx.call_script(combined_script)
+        return self._post_auth_script()
 
     def do_logout(self):  # type: ignore[return]
         """Log out current user."""

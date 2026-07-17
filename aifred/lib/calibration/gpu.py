@@ -236,14 +236,6 @@ def enumerate_gpus() -> list[GPU]:
     ]
 
 
-def group_by_speed_class(gpus: list[GPU]) -> list[list[GPU]]:
-    """Group GPUs by speed_class — result[0] is the highest class."""
-    classes: dict[int, list[GPU]] = {}
-    for g in gpus:
-        classes.setdefault(g.speed_class, []).append(g)
-    return [classes[k] for k in sorted(classes)]
-
-
 def measure_first_gpu_handicap(gpus: list[GPU]) -> int:
     """Empirical handicap for the display-carrying GPU vs its sibling.
 

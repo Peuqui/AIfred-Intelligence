@@ -40,16 +40,8 @@ SCOPES_CALENDAR = [
 SCOPES_CONTACTS = [
     "https://www.googleapis.com/auth/contacts",
 ]
-SCOPES_DRIVE_READONLY = [
-    "https://www.googleapis.com/auth/drive.readonly",
-]
 SCOPES_TASKS = [
     "https://www.googleapis.com/auth/tasks",
-]
-SCOPES_PROFILE = [
-    "openid",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
 ]
 
 

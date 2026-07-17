@@ -95,18 +95,6 @@ def set_session_id_script(session_id: str) -> str:
     return f'document.cookie = "{COOKIE_NAME}={safe_id}; path=/; max-age={max_age_seconds}; SameSite=Lax";'
 
 
-def clear_session_id_script() -> str:
-    """
-    Generate JavaScript to delete Session-ID cookie.
-
-    Sets max-age=0 to immediately invalidate cookie.
-
-    Returns:
-        JavaScript code as string
-    """
-    return f'document.cookie = "{COOKIE_NAME}=; path=/; max-age=0";'
-
-
 # ============================================================
 # Username Cookie (for Login persistence)
 # ============================================================

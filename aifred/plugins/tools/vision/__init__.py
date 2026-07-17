@@ -41,7 +41,6 @@ from ....lib.vision_filters.face_detect import (
     get_default_detector,
     set_default_detector_kwargs,
 )
-from ....lib.vision_filters.face_recognize import FaceRecognizer
 from ....lib.vision_gpu_select import resolve_gpu_id
 from ....lib.vision_store import VisionStore
 from ....lib.vision_utils import (
@@ -148,15 +147,6 @@ def _store() -> VisionStore:
     return VisionStore()
 
 
-def _recognizer(store: VisionStore | None = None) -> FaceRecognizer:
-    cfg = _load_settings().get("face_recognition", {})
-    return FaceRecognizer(
-        store or _store(),
-        threshold_known=float(cfg.get("threshold_known", 0.5)),
-        threshold_unsure=float(cfg.get("threshold_unsure", 0.4)),
-    )
-
-
 def _watcher(store: VisionStore | None = None) -> VisionWatcher:
     return get_default_watcher(store or _store())
 
@@ -190,16 +180,6 @@ def _vision_mode() -> str:
         logger.warning("invalid vision_mode setting %r — falling back to on-demand", raw)
         return "on-demand"
     return mode
-
-
-def _err_mode_off() -> str:
-    return _err(
-        "vision_disabled",
-        message=(
-            "Vision is disabled in plugin settings. Set vision_mode to "
-            "'on-demand' or 'live' to enable image / webcam operations."
-        ),
-    )
 
 
 @dataclass

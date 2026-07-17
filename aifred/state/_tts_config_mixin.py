@@ -110,42 +110,6 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Computed: True when GPU mode, False when CPU mode."""
         return not self.xtts_force_cpu
 
-    @rx.var(deps=["tts_engine", "xtts_voices_cache"], auto_deps=False)
-    def available_tts_voices(self) -> List[str]:
-        """
-        Returns list of available TTS voices for the current engine.
-        Edge TTS, XTTS v2, Piper and eSpeak have different voice sets.
-
-        Note: Uses auto_deps=False with explicit deps to disable automatic
-        dependency detection (Reflex cannot introspect module-level imports).
-        XTTS voices come from xtts_voices_cache (refreshed via _refresh_xtts_voices).
-        """
-        from ..lib.tts_engines import get_engine
-
-        if self.tts_engine == "xtts":
-            # Use cached voices (refreshed when engine changes to XTTS)
-            if self.xtts_voices_cache:
-                return self.xtts_voices_cache  # Already sorted by _refresh_xtts_voices
-            # Fallback when service unavailable
-            from ..lib.config import sort_voices_custom_first
-            xtts = get_engine("xtts")
-            return sort_voices_custom_first(list(xtts.voices_fallback.keys())) if xtts else []
-        elif self.tts_engine in ("moss", "qwen3local", "fishspeech"):
-            # Live discovery via the engine, fall back to its static list.
-            eng = get_engine(self.tts_engine)
-            if not eng:
-                return []
-            voices = eng.get_voices()
-            return sorted(list(voices.keys()) if voices else list(eng.voices_fallback.keys()))
-        elif self.tts_engine == "dashscope":
-            from ..lib.config import sort_voices_custom_first
-            ds = get_engine("dashscope")
-            return sort_voices_custom_first(list(ds.voices_fallback.keys())) if ds else []
-        else:
-            # piper / espeak / edge — static catalogues, no live discovery.
-            eng = get_engine(self.tts_engine)
-            return sorted(list(eng.voices_fallback.keys())) if eng else []
-
     @rx.var(deps=["enable_tts"], auto_deps=False)
     def tts_player_visible(self) -> bool:
         """Returns True if TTS audio player should be visible.
@@ -239,10 +203,6 @@ class TTSConfigMixin(rx.State, mixin=True):
     @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_pitch(self) -> str:
         return str(self._editor_tts_settings.get("pitch", "1.0"))
-
-    @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
-    def editor_agent_tts_enabled(self) -> bool:
-        return bool(self._editor_tts_settings.get("enabled", True))
 
     @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_language(self) -> str:
@@ -424,37 +384,6 @@ class TTSConfigMixin(rx.State, mixin=True):
         self._save_tts_toggles_for_engine(self.tts_engine)
 
 
-    # ── Per-Agent Voice Settings ──────────────────────────────────
-
-    def set_agent_voice(self, agent: str, voice: str):
-        """Set voice for a specific agent."""
-        if agent in self.tts_agent_voices:
-            self.tts_agent_voices[agent]["voice"] = voice
-            self.add_debug(f"🔊 {agent.capitalize()} Voice: {voice}")  # type: ignore[attr-defined]
-            self._save_agent_voices_for_engine(self.tts_engine)
-
-    def set_agent_speed(self, agent: str, speed: str):
-        """Set playback speed for a specific agent."""
-        if agent in self.tts_agent_voices:
-            self.tts_agent_voices[agent]["speed"] = speed
-            self.add_debug(f"🔊 {agent.capitalize()} Speed: {speed}")  # type: ignore[attr-defined]
-            self._save_agent_voices_for_engine(self.tts_engine)
-
-    def set_agent_pitch(self, agent: str, pitch: str):
-        """Set pitch for a specific agent."""
-        if agent in self.tts_agent_voices:
-            self.tts_agent_voices[agent]["pitch"] = pitch
-            self.add_debug(f"🔊 {agent.capitalize()} Pitch: {pitch}")  # type: ignore[attr-defined]
-            self._save_agent_voices_for_engine(self.tts_engine)
-
-    def toggle_agent_tts(self, agent: str):
-        """Toggle TTS enabled for a specific agent."""
-        if agent in self.tts_agent_voices:
-            self.tts_agent_voices[agent]["enabled"] = not self.tts_agent_voices[agent]["enabled"]
-            status = "enabled" if self.tts_agent_voices[agent]["enabled"] else "disabled"
-            self.add_debug(f"🔊 {agent.capitalize()} TTS: {status}")  # type: ignore[attr-defined]
-            self._save_agent_voices_for_engine(self.tts_engine)
-
     # ── Agent Editor TTS Handlers ────────────────────────────────
 
     def _load_editor_tts_settings(self) -> None:
@@ -540,11 +469,6 @@ class TTSConfigMixin(rx.State, mixin=True):
     def set_editor_agent_tts_pitch(self, pitch: str):
         """Set TTS pitch for the agent currently open in the editor."""
         self._editor_tts_settings["pitch"] = pitch
-        self._save_editor_tts_settings()
-
-    def toggle_editor_agent_tts(self):
-        """Toggle TTS for the agent currently open in the editor."""
-        self._editor_tts_settings["enabled"] = not self._editor_tts_settings.get("enabled", True)
         self._save_editor_tts_settings()
 
     # ── Engine Key Helper ─────────────────────────────────────────
