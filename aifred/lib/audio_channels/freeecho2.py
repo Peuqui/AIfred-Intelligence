@@ -506,7 +506,7 @@ class FreeEcho2Channel:
         # Speed via mpv-IPC funktioniert; PCM-Stream wird beim Resample-
         # Stage mit angepasstem Tempo geliefert.
         try:
-            await stream._send({"command": ["set_property", "speed", float(factor)]})
+            await stream._ipc.send({"command": ["set_property", "speed", float(factor)]})
             return True
         except Exception:  # noqa: BLE001
             return False

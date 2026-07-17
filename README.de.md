@@ -1374,7 +1374,15 @@ Erster Start dauert ~5-10 Minuten (Modell-Download ~3-5 GB). Danach ist MOSS-TTS
 reflex run
 ```
 
-Die App läuft dann unter: http://localhost:3002
+Reflex startet **zwei** Prozesse: das Frontend (Node, Port `3002`) und das
+Backend (Granian/FastAPI, Port `8002`). Für die vollständige UI — inklusive
+Kamera-Vorschaubilder, Vigilantia-Live-Ansicht, Casus-Previews und Audio —
+einen Reverse-Proxy vor beide Prozesse stellen und die App darüber öffnen
+(keine Portnummer in der URL). Direkt `http://localhost:3002/aifred/` zu
+öffnen lädt zwar die Seiten, aber jeder `/api/*`- und `/_upload/*`-Request
+liefert 404, wodurch Bilder und Audio leer bleiben. Siehe
+**[Zugriff auf die Web-UI](docs/en/guides/deployment.md#access-the-web-ui)**
+für ein generisches nginx-Routing-Beispiel.
 
 ---
 
@@ -1416,18 +1424,25 @@ Settings werden in `data/settings.json` gespeichert:
 
 Quelle der Sampling-Defaults: `--temp`, `--top-k`, `--top-p`, `--min-p`, `--repeat-penalty` Flags in der llama-swap YAML-Config (`~/.config/llama-swap/config.yaml`).
 
-**Beispiel Settings-Struktur:**
+`backend_models` ist die **einzige Wahrheitsquelle** für alle Modell-Felder
+(Haupt, Automatik, Vision, Sokrates, Salomo) — Browser-UI, REST-API
+(`PATCH /api/settings`) und Message Hub lesen und schreiben dieselbe
+per-Backend-Struktur, sodass ein Modellwechsel von jedem Einstiegspunkt aus
+alle Kanäle erreicht:
 ```json
 {
   "backend_type": "vllm",
   "enable_thinking": true,
   "backend_models": {
     "ollama": {
-      "selected_model": "qwen3:8b",
-      "automatik_model": "qwen2.5:3b"
+      "aifred_model": "qwen3:8b",
+      "automatik_model": "qwen2.5:3b",
+      "vision_model": "",
+      "sokrates_model": "",
+      "salomo_model": ""
     },
     "vllm": {
-      "selected_model": "Qwen/Qwen3-8B-AWQ",
+      "aifred_model": "Qwen/Qwen3-8B-AWQ",
       "automatik_model": "Qwen/Qwen3-4B-AWQ"
     }
   }
@@ -1480,9 +1495,12 @@ AIfred-Intelligence/
 │   │   ├── context_manager.py   # History-Kompression
 │   │   ├── conversation_handler.py # Automatik-Modus, RAG-Kontext
 │   │   ├── config.py            # Default Settings
+│   │   ├── i18n/                # UI-Übersetzungen (Sprach-JSONs + Loader)
 │   │   ├── vector_cache.py      # ChromaDB Vector Cache
 │   │   ├── model_vram_cache.py  # Unified VRAM Cache (alle Backends)
-│   │   ├── llamacpp_calibration.py # llama.cpp Binary Search Kalibrierung
+│   │   ├── mpv_ipc.py           # Gemeinsamer mpv-JSON-IPC-Client (Browser + FreeEcho.2)
+│   │   ├── calibration/         # llama.cpp Binary Search Kalibrierung (flow, ctx_search, …)
+│   │   ├── api/                 # REST-API-Paket (core, chat, vision, browser_bus, …)
 │   │   ├── gguf_utils.py        # GGUF-Metadaten-Reader (nativer Kontext, Quant)
 │   │   ├── research/            # Web-Research Module
 │   │   │   ├── orchestrator.py      # Research Orchestrierung
@@ -1491,13 +1509,18 @@ AIfred-Intelligence/
 │   │   └── tools/               # Tool-Implementierungen
 │   │       ├── search_tools.py      # Parallele Websuche
 │   │       └── scraper_tool.py      # Paralleles Web-Scraping
-│   ├── aifred.py          # Hauptanwendung / UI
-│   └── state.py           # Reflex State Management
+│   ├── state/              # Reflex State (aus Feature-Mixins zusammengesetzt)
+│   │   ├── _chat_mixin.py       # Chat-Pipeline / send_message
+│   │   ├── _backend_mixin.py    # Backend-Init, Modellwahl
+│   │   ├── _calibration_mixin.py # Kalibrierungs-Orchestrierung
+│   │   └── …                    # Agent-Config, Editor, Vision, TTS, Auth, …
+│   ├── ui/                 # Reflex-UI-Komponenten (modals/, agent_editor/, settings_accordion/, …)
+│   ├── plugins/            # Dynamisch geladene Tools + Channels (Telegram, Discord, FreeEcho.2, …)
+│   └── aifred.py           # Hauptanwendung / App-Verdrahtung
 ├── prompts/               # System Prompts (de/en)
 ├── scripts/               # Utility Scripts
 ├── docs/                  # Dokumentation
-│   ├── infrastructure/          # Service-Setup Anleitungen
-│   ├── architecture/            # Architektur-Docs
+│   ├── de/ · en/                # Zweisprachige Guides + Architektur-Docs
 │   └── GPU_COMPATIBILITY.md     # GPU-Kompatibilitätsmatrix
 ├── data/                  # Laufzeitdaten (Settings, Sessions, Caches)
 │   ├── settings.json            # Benutzereinstellungen

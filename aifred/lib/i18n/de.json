@@ -500,6 +500,7 @@
   "zone_editor_help_ego_label": "Schwenk-Erkennung (PTZ)",
   "zone_editor_help_ego": "Bewegt sich die KAMERA selbst (PTZ-Schwenk, Auto-Tracking), verschiebt sich das ganze Bild — das System erkennt diese globale Verschiebung, wirft KEINEN Alarm und lernt die neue Ansicht sofort neu (statt minutenlang alles blau zu zeigen). Der Schwellwert dafür (watch.motion_ego_shift_px in den Plugin-Settings, Standard 3 px) ist die Mindest-Bildverschiebung zwischen zwei Frames: NIEDRIGER = schon kleinste Verschiebungen gelten als Schwenk — Vorsicht: ein im Wind wackelnder Mast setzt die Erkennung dann ständig zurück (Detektor dauernd im Warmup = blind). HÖHER = nur schnelle Schwenks werden erkannt; langsame Schwenks erzeugen dann wieder Fehlalarme. Im Zweifel gewinnt immer der Alarm, nie die Schwenk-Vermutung.",
   "vision_settings_source_background_help": "Im Hintergrund überwachen — startet automatisch beim AIfred-Service-Boot.",
+  "vision_settings_event_interval_label": "Min. Event-Abstand",
   "vision_settings_source_alerts_label": "Benachrichtigungen",
   "vision_settings_alert_types_label": "Bei:",
   "vision_settings_alert_type_person": "Person",

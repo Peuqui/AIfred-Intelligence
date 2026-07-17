@@ -148,6 +148,29 @@ def _source_card(cam: rx.Var) -> rx.Component:
                 t("vision_settings_source_background_help"),
                 color="gray", size="1",
             ),
+            # Pro-Kamera Mindestabstand zwischen Detection-Events — wie oft
+            # darf der Watcher frühestens neu auslösen (Motion/Face/Edge-AI).
+            rx.hstack(
+                rx.icon("timer", size=14, color="gray"),
+                rx.text(t("vision_settings_event_interval_label"), size="2", color="gray"),
+                rx.spacer(),
+                rx.select.root(
+                    rx.select.trigger(),
+                    rx.select.content(
+                        rx.foreach(
+                            AIState.vision_event_interval_options,
+                            lambda opt: rx.select.item(opt["label"], value=opt["value"]),
+                        ),
+                    ),
+                    value=cam["event_interval"],
+                    on_change=lambda v: AIState.set_vigilantia_event_interval(sid, v),
+                    size="1",
+                ),
+                align="center",
+                width="100%",
+                spacing="2",
+                style={"margin_top": "0.3em"},
+            ),
             # Pro-Kamera Push-Alerts an/aus (Anti-Spam). Aus = erkennt/speichert
             # weiter, schickt aber keine proaktiven Benachrichtigungen.
             rx.hstack(

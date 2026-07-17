@@ -25,6 +25,13 @@ from dataclasses import dataclass
 TRIGGER_MOTION = "motion"
 TRIGGER_EDGE_AI = "edge_ai"
 
+# SSOT für den Default-Mindestabstand zwischen Detection-Events
+# (``WatchConfig.min_event_interval_sec``), wenn eine Quelle keinen eigenen
+# Wert in ``sources.settings`` gespeichert hat. Alle drei Konsumenten
+# (Hintergrund-Autostart, Live-Vorschau-Popup, LLM-Tool ``vision_start_watch``)
+# fallen auf denselben Wert zurück statt je einen eigenen Literal zu pflegen.
+DEFAULT_MIN_EVENT_INTERVAL_SEC = 1.0
+
 
 @dataclass(frozen=True)
 class VisionProfile:
