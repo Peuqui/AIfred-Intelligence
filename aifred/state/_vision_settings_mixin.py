@@ -34,6 +34,16 @@ def _hhmm(value: Any) -> str:
     return f"{mins // 60:02d}:{mins % 60:02d}"
 
 
+def _fmt_interval(value: Any) -> str:
+    """Sekunden-Wert als Select-Value formatieren (``1.0`` -> ``"1"``,
+    passend zu den ``value``-Strings in ``vision_event_interval_options``)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "1"
+    return str(int(v)) if v == int(v) else f"{v:g}"
+
+
 _VISION_SETTINGS_PATH = (
     Path(__file__).parent.parent / "plugins" / "tools" / "vision" / "settings.json"
 )
@@ -101,6 +111,18 @@ class VisionSettingsMixin(rx.State, mixin=True):
     """UI state for the Vision-Plugin settings modal."""
 
     vision_settings_open: bool = False
+    # Presets für den Pro-Kamera "Min. Event-Abstand"-Regler (Hintergrund-
+    # Watcher). Bewusst eigene, gröbere Stufen als das Live-Vorschau-Popup
+    # (``vision_preview_face_throttle_options``, 0,1-3s für Türsteher-
+    # Modus) — der Hintergrund läuft dauerhaft, hier ist der sinnvolle
+    # Bereich 1-10s statt Zehntelsekunden.
+    vision_event_interval_options: list[dict[str, str]] = [
+        {"value": "1", "label": "1 s"},
+        {"value": "2", "label": "2 s"},
+        {"value": "3", "label": "3 s"},
+        {"value": "5", "label": "5 s"},
+        {"value": "10", "label": "10 s"},
+    ]
     vision_mode_value: str = "on-demand"
     vision_model_value: str = "qwen3-vl:4b-instruct-q8_0"
     vision_available_models: list[str] = []
@@ -319,6 +341,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         Modal."""
         try:
             from ..lib.frame_sources import list_all
+            from ..lib.vision_profiles import DEFAULT_MIN_EVENT_INTERVAL_SEC
             from ..lib.vision_store import VisionStore
             store = VisionStore()
             cams: list[dict[str, Any]] = []
@@ -352,6 +375,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "schedule_start": _hhmm(s.get("schedule_start", "18:00")),
                     "schedule_end": _hhmm(s.get("schedule_end", "08:00")),
                     "resolution": str(s.get("resolution") or "default"),
+                    "event_interval": _fmt_interval(
+                        s.get("min_event_interval_sec", DEFAULT_MIN_EVENT_INTERVAL_SEC)
+                    ),
                 })
             self.vigilantia_sources = cams
         except Exception as e:  # noqa: BLE001
@@ -545,6 +571,29 @@ class VisionSettingsMixin(rx.State, mixin=True):
             return
         self.vigilantia_sources = [
             {**c, field: display_val} if c["id"] == source_id else c
+            for c in self.vigilantia_sources
+        ]
+
+    @rx.event
+    def set_vigilantia_event_interval(self, source_id: str, value: str) -> None:
+        """Pro-Kamera Mindestabstand zwischen Detection-Events (Hintergrund-
+        Watcher). Greift erst beim nächsten (Re-)Start des Watchers für
+        diese Quelle — bei laufender Überwachung also nach einem Toggle
+        aus/an oder dem nächsten App-Neustart."""
+        if not source_id:
+            return
+        try:
+            sec = max(0.1, min(60.0, float(value)))
+        except (TypeError, ValueError):
+            return
+        try:
+            self._persist_source_setting(source_id, "min_event_interval_sec", sec)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("event-interval persist failed for %s: %s", source_id, e)
+            return
+        display_val = _fmt_interval(sec)
+        self.vigilantia_sources = [
+            {**c, "event_interval": display_val} if c["id"] == source_id else c
             for c in self.vigilantia_sources
         ]
 

@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
-import json
 import os
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
@@ -34,6 +33,7 @@ from ..config import DATA_DIR
 from ..debug_bus import debug as debug_event
 from ..formatting import format_number
 from ..logging_utils import log_message
+from ..mpv_ipc import MpvIpcClient
 
 MPV_BINARY = "/usr/bin/mpv"
 SOCKET_WAIT_TIMEOUT_SEC = 5.0
@@ -153,15 +153,19 @@ class FreeEcho2Stream:
 
         # Subprocess + Tasks + IPC
         self._proc: Optional[asyncio.subprocess.Process] = None
-        self._reader_task: Optional[asyncio.Task[None]] = None
         self._fifo_pump_task: Optional[asyncio.Task[None]] = None
         self._save_task: Optional[asyncio.Task[None]] = None
         self._heartbeat_task: Optional[asyncio.Task[None]] = None
-        self._ipc_reader: Optional[asyncio.StreamReader] = None
-        self._ipc_writer: Optional[asyncio.StreamWriter] = None
+        self._ipc = MpvIpcClient(
+            command_timeout_sec=COMMAND_TIMEOUT_SEC,
+            error_factory=lambda msg: FreeEcho2StreamError(
+                f"FreeEcho2Stream[{room}]: {msg}"
+            ),
+            log_prefix=f"FreeEcho2Stream[{room}]",
+            read_error_log_level="warning",
+            on_eof=self._on_eof,
+        )
         self._lock = asyncio.Lock()
-        self._request_id = 0
-        self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
 
         # State
         self._current_uri: Optional[str] = None
@@ -320,14 +324,11 @@ class FreeEcho2Stream:
             # any failure before the pump task starts must terminate it (else it
             # blocks on the pipe forever). Wrap the setup so it always cleans up.
             try:
-                self._ipc_reader, self._ipc_writer = await asyncio.open_unix_connection(
-                    self._socket_path
+                # Connect + read loop + eof-reached subscription (SSOT in mpv_ipc)
+                await self._ipc.connect(
+                    self._socket_path,
+                    task_name=f"freeecho2-{self.room}-ipc-reader",
                 )
-                self._reader_task = asyncio.create_task(
-                    self._ipc_read_loop(),
-                    name=f"freeecho2-{self.room}-ipc-reader",
-                )
-                await self._send({"command": ["observe_property", 1, "eof-reached"]})
             except BaseException:
                 await self._cleanup_unlocked()
                 raise
@@ -460,10 +461,10 @@ class FreeEcho2Stream:
         # Wichtig: time-pos ist die Decode-Position (kann bei grossem
         # Demuxer-Buffer von 512 MiB weit vor der Hoer-Position liegen),
         # daher NICHT als Stop-Position loggen — das waere irrefuehrend.
-        if self._current_state_key and self._ipc_writer is not None:
+        if self._current_state_key and self._ipc.connected:
             try:
-                pos = await self._get_property("time-pos", default=None)
-                dur = await self._get_property("duration", default=None)
+                pos = await self._ipc.get_property("time-pos", default=None)
+                dur = await self._ipc.get_property("duration", default=None)
                 if pos is not None:
                     from ..audio_state import audio_state
                     audio_state.update(
@@ -493,30 +494,27 @@ class FreeEcho2Stream:
                 pass
         self._proc = None
 
-        # 3. Tasks aufräumen
-        for task in (self._fifo_pump_task, self._reader_task, self._save_task, self._heartbeat_task):
+        # 3. Tasks aufräumen (Read-Loop des IPC-Clients in derselben
+        # Cancel/Await-Reihenfolge wie die eigenen Tasks)
+        _tasks = (
+            self._fifo_pump_task, self._ipc.reader_task,
+            self._save_task, self._heartbeat_task,
+        )
+        for task in _tasks:
             if task is not None and not task.done():
                 task.cancel()
-        for task in (self._fifo_pump_task, self._reader_task, self._save_task, self._heartbeat_task):
+        for task in _tasks:
             if task is not None:
                 try:
                     await asyncio.wait_for(task, timeout=2.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError, Exception):  # noqa: BLE001
                     pass
         self._fifo_pump_task = None
-        self._reader_task = None
         self._save_task = None
         self._heartbeat_task = None
 
         # 4. IPC + Files
-        if self._ipc_writer is not None:
-            try:
-                self._ipc_writer.close()
-                await self._ipc_writer.wait_closed()
-            except OSError:
-                pass
-        self._ipc_writer = None
-        self._ipc_reader = None
+        await self._ipc.close_writer()
 
         for path in (self._fifo_path, self._socket_path):
             try:
@@ -534,7 +532,7 @@ class FreeEcho2Stream:
 
         self._current_uri = None
         self._current_state_key = None
-        self._pending.clear()
+        self._ipc.clear_pending()
 
     # ── Steuerung via mpv-IPC ────────────────────────────────
 
@@ -542,9 +540,9 @@ class FreeEcho2Stream:
         if not self.is_running:
             return False
         try:
-            pos = await self._get_property("time-pos", default=None)
-            dur = await self._get_property("duration", default=None)
-            await self._send({"command": ["set_property", "pause", True]})
+            pos = await self._ipc.get_property("time-pos", default=None)
+            dur = await self._ipc.get_property("duration", default=None)
+            await self._ipc.send({"command": ["set_property", "pause", True]})
             debug_event(
                 f"🎵 [{self.room}] ⏸️ pause: {self._current_state_key} "
                 f"@ {_fmt_state(pos, dur)}"
@@ -564,9 +562,9 @@ class FreeEcho2Stream:
             # nicht-paused. Vorab-Prüfung von _get_property("pause") raus
             # weil ein IPC-Race/Glitch dort silent False liefern und Resume
             # ueberspringen koennte (Live-Test-Bug 2026-05-10).
-            pos = await self._get_property("time-pos", default=None)
-            dur = await self._get_property("duration", default=None)
-            await self._send({"command": ["set_property", "pause", False]})
+            pos = await self._ipc.get_property("time-pos", default=None)
+            dur = await self._ipc.get_property("duration", default=None)
+            await self._ipc.send({"command": ["set_property", "pause", False]})
             debug_event(
                 f"🎵 [{self.room}] ▶️ resume: {self._current_state_key} "
                 f"@ {_fmt_state(pos, dur)}"
@@ -583,7 +581,7 @@ class FreeEcho2Stream:
             return False
         try:
             mode = "relative" if relative else "absolute"
-            await self._send({"command": ["seek", float(position_sec), mode]})
+            await self._ipc.send({"command": ["seek", float(position_sec), mode]})
             return True
         except Exception:  # noqa: BLE001
             return False
@@ -592,9 +590,9 @@ class FreeEcho2Stream:
         if not self.is_running:
             return {"running": False, "playing": False, "paused": False, "target": self.target_id}
         try:
-            pos = await self._get_property("time-pos", default=None)
-            dur = await self._get_property("duration", default=None)
-            paused = await self._get_property("pause", default=False)
+            pos = await self._ipc.get_property("time-pos", default=None)
+            dur = await self._ipc.get_property("duration", default=None)
+            paused = await self._ipc.get_property("pause", default=False)
         except Exception:  # noqa: BLE001
             pos = dur = None
             paused = False
@@ -607,63 +605,6 @@ class FreeEcho2Stream:
             "duration_sec": float(dur) if dur is not None else None,
             "target": self.target_id,
         }
-
-    # ── IPC primitives ───────────────────────────────────────
-
-    async def _send(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if self._ipc_writer is None:
-            raise FreeEcho2StreamError(f"FreeEcho2Stream[{self.room}]: IPC not connected")
-        self._request_id += 1
-        rid = self._request_id
-        wrapped = {**payload, "request_id": rid}
-
-        loop = asyncio.get_event_loop()
-        fut: asyncio.Future[dict[str, Any]] = loop.create_future()
-        self._pending[rid] = fut
-
-        try:
-            line = (json.dumps(wrapped) + "\n").encode("utf-8")
-            self._ipc_writer.write(line)
-            await self._ipc_writer.drain()
-            return await asyncio.wait_for(fut, timeout=COMMAND_TIMEOUT_SEC)
-        finally:
-            self._pending.pop(rid, None)
-
-    async def _ipc_read_loop(self) -> None:
-        if self._ipc_reader is None:
-            return
-        try:
-            while True:
-                line = await self._ipc_reader.readline()
-                if not line:
-                    break
-                try:
-                    msg = json.loads(line.decode("utf-8"))
-                except json.JSONDecodeError:
-                    continue
-                rid = msg.get("request_id")
-                if rid is not None and rid in self._pending:
-                    fut = self._pending[rid]
-                    if not fut.done():
-                        fut.set_result(msg)
-                    continue
-                # mpv signalisiert das natürliche Ende — Stream zu Ende.
-                if msg.get("event") == "property-change" and msg.get("name") == "eof-reached":
-                    if msg.get("data") is True:
-                        await self._on_eof()
-        except asyncio.CancelledError:
-            return
-        except Exception as exc:  # noqa: BLE001
-            log_message(f"FreeEcho2Stream[{self.room}]: IPC read loop error: {exc}", "warning")
-
-    async def _get_property(self, name: str, default: Any = None) -> Any:
-        try:
-            resp = await self._send({"command": ["get_property", name]})
-            if resp.get("error") == "success":
-                return resp.get("data", default)
-        except Exception:  # noqa: BLE001
-            pass
-        return default
 
     async def _on_eof(self) -> None:
         if self._current_state_key:
@@ -984,13 +925,13 @@ class FreeEcho2Stream:
         try:
             while True:
                 await asyncio.sleep(self._save_interval)
-                if self._stopping or not self._current_state_key or self._ipc_writer is None:
+                if self._stopping or not self._current_state_key or not self._ipc.connected:
                     continue
-                pos = await self._get_property("time-pos", default=None)
-                paused = await self._get_property("pause", default=False)
+                pos = await self._ipc.get_property("time-pos", default=None)
+                paused = await self._ipc.get_property("pause", default=False)
                 if pos is None or paused:
                     continue
-                dur = await self._get_property("duration", default=None)
+                dur = await self._ipc.get_property("duration", default=None)
                 from ..audio_state import audio_state
                 audio_state.update(
                     key=self._current_state_key,

@@ -137,6 +137,7 @@ def _build_background_config(
     """
     import dataclasses
 
+    from .vision_profiles import DEFAULT_MIN_EVENT_INTERVAL_SEC
     from .vision_watcher import WatchConfig
 
     source_id = str(source_record.get("source_id") or "")
@@ -144,6 +145,13 @@ def _build_background_config(
     mma = settings.get("motion_min_area_ratio")
     if not isinstance(mma, (int, float)) or not 0.001 <= mma <= 0.5:
         mma = 0.02
+
+    # Pro-Kamera-Drossel (UI: "Min. Event-Abstand"). Eine belebte
+    # Außenkamera und ein selten überwachter Schreibtisch brauchen
+    # unterschiedliche Werte — deshalb per-Kamera statt global.
+    mies = settings.get("min_event_interval_sec")
+    if not isinstance(mies, (int, float)) or not 0.1 <= mies <= 60.0:
+        mies = DEFAULT_MIN_EVENT_INTERVAL_SEC
 
     fr = plugin_settings.get("face_recognition") or {}
     face_enabled = bool(fr.get("enabled", True))
@@ -165,7 +173,7 @@ def _build_background_config(
         # VLM bleibt im Hintergrund AUS — opt-in nur über Live-Popup.
         run_vlm_on_motion=False,
         run_vlm_continuous=False,
-        min_event_interval_sec=1.0,
+        min_event_interval_sec=float(mies),
     )
     overrides = profile_watch_overrides(source_id, settings, plugin_settings)
     return dataclasses.replace(base, **overrides) if overrides else base

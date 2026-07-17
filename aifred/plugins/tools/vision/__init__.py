@@ -128,6 +128,7 @@ def _watch_config_from_settings(overrides: dict[str, Any] | None = None) -> Watc
         return bool(v) if v is not None else default
 
     fps = merged.get("fps", merged.get("default_fps", 1.0))
+    from ....lib.vision_profiles import DEFAULT_MIN_EVENT_INTERVAL_SEC
     return WatchConfig(
         fps=float(fps) if fps is not None else 1.0,
         motion_min_area_ratio=_f("motion_min_area_ratio", 0.02),
@@ -135,7 +136,7 @@ def _watch_config_from_settings(overrides: dict[str, Any] | None = None) -> Watc
         motion_var_threshold=_f("motion_var_threshold", 16.0),
         motion_warmup_frames=_i("motion_warmup_frames", 10),
         motion_ego_shift_px=_f("motion_ego_shift_px", 3.0),
-        min_event_interval_sec=_f("min_event_interval_sec", 5.0),
+        min_event_interval_sec=_f("min_event_interval_sec", DEFAULT_MIN_EVENT_INTERVAL_SEC),
         save_event_frames=_b("save_event_frames", True),
         run_face_detect_on_motion=_b("run_face_detect_on_motion", True),
         run_person_detect_on_motion=_b("run_person_detect_on_motion", False),
@@ -738,7 +739,14 @@ class VisionPlugin:
         ) -> str:
             from ....lib.vision_utils import resolve_source_id
             source_id = resolve_source_id(source_id)
+            record = _store().get_source(source_id) or {}
+            cam_settings = record.get("settings") or {}
             overrides: dict[str, Any] = {}
+            # Per-Kamera-Drossel aus den Vision-Settings übernehmen — sonst
+            # ignoriert der Tool-Pfad den dort konfigurierten Wert und fällt
+            # immer auf den globalen Plugin-Default zurück.
+            if "min_event_interval_sec" in cam_settings:
+                overrides["min_event_interval_sec"] = cam_settings["min_event_interval_sec"]
             if fps is not None:
                 # Clamp: an unbounded fps (e.g. 1000) becomes a ~1ms decode
                 # busy-loop that pins CPU/GPU. Cap to a sane surveillance range.
@@ -750,9 +758,8 @@ class VisionPlugin:
             # detects on-device — MOG2 gating/YOLO off, edge-AI poll triggers.
             # Without this the tool path silently bypassed the profile logic.
             from ....lib.vision_autostart import profile_watch_overrides
-            record = _store().get_source(source_id) or {}
             profile_overrides = profile_watch_overrides(
-                source_id, record.get("settings") or {}, _load_settings()
+                source_id, cam_settings, _load_settings()
             )
             if profile_overrides:
                 import dataclasses

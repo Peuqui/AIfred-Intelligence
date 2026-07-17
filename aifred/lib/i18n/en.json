@@ -500,6 +500,7 @@
   "zone_editor_help_ego_label": "Pan detection (PTZ)",
   "zone_editor_help_ego": "When the CAMERA itself moves (PTZ pan, auto tracking), the whole image shifts — the system detects this global shift, raises NO alert and relearns the new view immediately (instead of showing everything blue for minutes). Its threshold (watch.motion_ego_shift_px in the plugin settings, default 3 px) is the minimum image shift between two frames: LOWER = even tiny shifts count as a pan — careful: a mast swaying in the wind then resets detection constantly (detector stuck in warmup = blind). HIGHER = only fast pans are detected; slow pans cause false alerts again. In doubt the alert always wins, never the pan assumption.",
   "vision_settings_source_background_help": "Watch in background — starts automatically at AIfred service boot.",
+  "vision_settings_event_interval_label": "Min. event interval",
   "vision_settings_source_alerts_label": "Notifications",
   "vision_settings_alert_types_label": "On:",
   "vision_settings_alert_type_person": "Person",

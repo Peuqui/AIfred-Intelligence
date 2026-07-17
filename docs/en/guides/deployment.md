@@ -309,6 +309,63 @@ Groups updated: main → [Qwen3-14B-Q8_0, Qwen3-8B-Q4_K_M]
 Done. 1 added, 1 VRAM cache entries added.
 ```
 
+### Access the web UI
+
+AIfred runs as **two processes** behind a single port that a reverse proxy
+ties together:
+
+| Process | Default port | Serves |
+|---------|-------------|--------|
+| Reflex **frontend** (Node) | `3002` | the app pages + WebSocket state channel |
+| Reflex **backend** (Granian/FastAPI) | `8002` | `/api/*` (REST, Casus frames, audio SSE), `/_upload/*` (images, face crops, documents), `/_event` |
+
+**The frontend port alone is not enough.** If you open the app directly on
+`http://<host>:3002/aifred/`, the pages load and the WebSocket works, but every
+`/api/*` and `/_upload/*` request 404s — so camera thumbnails, the Vigilantia
+live modal, Casus previews and audio playback stay blank. Those routes only
+exist on the backend, and only a reverse proxy in front of both processes makes
+them reachable under one origin.
+
+**Recommended: a reverse proxy (nginx/Caddy)** that routes by path prefix to the
+two upstreams. Minimal nginx sketch (generic — substitute your own host,
+ports and, if desired, TLS/auth):
+
+```nginx
+server {
+    listen 80;
+    server_name your-host.example;   # or a LAN IP
+
+    # App pages + WebSocket → frontend
+    location /aifred/ {
+        proxy_pass http://127.0.0.1:3002/aifred/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;      # WebSocket
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+
+    # REST API, uploads, server-sent events → backend
+    location ~ ^/(api|_upload|_event) {
+        proxy_pass http://127.0.0.1:8002;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # `/_upload/*` is cookie-gated by AIfred's own login; add
+        # auth_basic here as a second factor if the proxy is exposed.
+    }
+}
+```
+
+With the proxy in place, open **`http://your-host.example/aifred/`** (no port).
+The `/_upload/*` static mounts are additionally cookie-gated by the web login
+(`AuthenticatedStaticFiles`), so only the share-links under
+`/_upload/html_preview` are reachable without a session.
+
+> **Quick local check without a proxy:** the app is usable on `:3002` for
+> everything that goes over the WebSocket (chat, settings), but treat missing
+> images/audio there as expected, not a bug — reach it through the proxy to see
+> the full UI.
+
 ---
 
 ## 8. Removing models

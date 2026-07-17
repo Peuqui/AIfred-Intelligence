@@ -1484,7 +1484,14 @@ First start takes ~5-10 minutes (model download ~3-5 GB). After that, MOSS-TTS i
 reflex run
 ```
 
-The app will run at: http://localhost:3002
+Reflex starts **two** processes: the frontend (Node, port `3002`) and the
+backend (Granian/FastAPI, port `8002`). For the full UI — including camera
+thumbnails, the Vigilantia live view, Casus previews and audio — put a reverse
+proxy in front of both and open the app through it (no port in the URL).
+Opening `http://localhost:3002/aifred/` directly loads the pages but 404s every
+`/api/*` and `/_upload/*` request, so images and audio stay blank. See
+**[Access the web UI](docs/en/guides/deployment.md#access-the-web-ui)** for a
+generic nginx routing example.
 
 ---
 
@@ -1527,17 +1534,25 @@ Settings are saved in `data/settings.json`:
 Source of truth for sampling defaults: `--temp`, `--top-k`, `--top-p`, `--min-p`, `--repeat-penalty` flags in the llama-swap YAML config (`~/.config/llama-swap/config.yaml`).
 
 **Example Settings Structure:**
+`backend_models` is the **single source of truth** for every model field
+(main, automatik, vision, Sokrates, Salomo) — the browser UI, the REST API
+(`PATCH /api/settings`) and the Message Hub all read and write the same
+per-backend structure, so a model change from any entry point reaches all
+channels:
 ```json
 {
   "backend_type": "vllm",
   "enable_thinking": true,
   "backend_models": {
     "ollama": {
-      "selected_model": "qwen3:8b",
-      "automatik_model": "qwen2.5:3b"
+      "aifred_model": "qwen3:8b",
+      "automatik_model": "qwen2.5:3b",
+      "vision_model": "",
+      "sokrates_model": "",
+      "salomo_model": ""
     },
     "vllm": {
-      "selected_model": "Qwen/Qwen3-8B-AWQ",
+      "aifred_model": "Qwen/Qwen3-8B-AWQ",
       "automatik_model": "Qwen/Qwen3-4B-AWQ"
     }
   }
@@ -1590,9 +1605,12 @@ AIfred-Intelligence/
 │   │   ├── context_manager.py   # History compression
 │   │   ├── conversation_handler.py # Automatik mode, RAG context
 │   │   ├── config.py            # Default settings
-│   │   ���── vector_cache.py      # ChromaDB Vector Cache
+│   │   ├── vector_cache.py      # ChromaDB Vector Cache
 │   │   ├── model_vram_cache.py  # Unified VRAM cache (all backends)
-│   │   ├── llamacpp_calibration.py # llama.cpp Binary Search calibration
+│   │   ├── mpv_ipc.py           # Shared mpv JSON-IPC client (browser + FreeEcho.2)
+│   │   ├── calibration/         # llama.cpp Binary Search calibration (flow, ctx_search, …)
+│   │   ├── api/                 # REST API package (core, chat, vision, browser_bus, …)
+│   │   ├── i18n/                # UI translations (per-language JSON + loader)
 │   │   ├── gguf_utils.py        # GGUF metadata reader (native context, quant)
 │   │   ├── research/            # Web research modules
 │   │   │   ├── orchestrator.py      # Research orchestration
