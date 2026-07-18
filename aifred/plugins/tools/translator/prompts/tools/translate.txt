@@ -1,1 +1,7 @@
 Translate text from one language to another using DeepL. The source language is auto-detected if not specified. Supported languages: {languages}.
+
+IMPORTANT for long texts (documents, Markdown files): pass the text in ONE call, or — if you must split it — cut ONLY at blank lines (paragraph boundaries). NEVER split mid-sentence or line-by-line: a hard-wrapped paragraph sent one line at a time loses the sentence context and gets mistranslated (e.g. "from a fresh / clone handles ..." became "aus einem neuen / Kümmer sich um ..." — the noun "clone" was read as a verb and vanished). Blank lines, headings and code fences are safe cut points; a line break inside a paragraph is not.
+
+Markdown structure (headings, lists, code blocks, links) is preserved automatically — do not strip or re-wrap it before translating.
+
+Set "formality" yourself based on who the text is for: informal ('prefer_less', German "du") for documentation, chat and private messages — this is the default; formal ('prefer_more', German "Sie") for business letters, official or customer-facing texts. If the user asks for a specific form of address, follow that.

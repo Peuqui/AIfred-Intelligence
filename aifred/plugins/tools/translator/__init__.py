@@ -46,6 +46,33 @@ DEEPL_LANGUAGES: dict[str, str] = {
 }
 
 
+# DeepL-Satzsegmentierung. Der API-Default "1" teilt an Satzzeichen UND an
+# Zeilenumbrüchen — bei hart umbrochenem Fließtext (Markdown-Docs, ~72
+# Zeichen/Zeile) wird dadurch jede Zeile als eigener Satz übersetzt und der
+# Kontext über den Umbruch hinweg geht verloren. Beobachtet 2026-07-18 beim
+# deployment.md: "from a fresh / clone handles dependencies" wurde zu
+# "aus einem neuen / Kümmer sich um Abhängigkeiten" — "clone" als Imperativ
+# missverstanden und das Substantiv verschluckt. "nonewlines" segmentiert
+# ausschließlich an Satzzeichen und behebt genau das.
+DEEPL_SPLIT_SENTENCES = "nonewlines"
+
+# Erlaubte Werte des DeepL-Parameters "formality" (Anrede/Tonfall). Das
+# LLM wählt pro Aufruf passend zum Zieltext — Doku/Chat informell, Behörden-
+# oder Geschäftskorrespondenz förmlich. Die "prefer_*"-Varianten sind
+# robuster als "more"/"less": bei Sprachen ohne Formalitätsunterscheidung
+# (z.B. EN) fallen sie still auf den Default zurück, statt einen API-Fehler
+# zu werfen.
+DEEPL_FORMALITY_VALUES = frozenset(
+    {"default", "more", "less", "prefer_more", "prefer_less"}
+)
+
+# Fallback, wenn das LLM nichts angibt: informell. Begründung — der mit
+# Abstand häufigste Fall in diesem Projekt ist deutschsprachige Doku und
+# Chat, und die Hausordnung nutzt durchgängig "du" (README.de.md: 23x "du",
+# 0x "Sie"). Für förmliche Texte setzt das LLM explizit "prefer_more".
+DEEPL_FORMALITY_DEFAULT = "prefer_less"
+
+
 def _get_api_url(api_key: str) -> str:
     """Return the correct DeepL API URL based on the key type."""
     if api_key.endswith(":fx"):
@@ -76,7 +103,13 @@ class TranslatorPlugin:
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
 
-        async def _translate(text: str, target_lang: str, source_lang: str = "") -> str:
+        async def _translate(
+            text: str,
+            target_lang: str,
+            source_lang: str = "",
+            context: str = "",
+            formality: str = "",
+        ) -> str:
             """Translate text using the DeepL API."""
             import aiohttp
             from ....lib.credential_broker import broker
@@ -94,14 +127,34 @@ class TranslatorPlugin:
                     "supported": sorted(lang_codes),
                 })
 
-            log_message(f"🌐 translate: {len(text)} chars → {target_lang}")
+            formality = (formality or DEEPL_FORMALITY_DEFAULT).lower()
+            if formality not in DEEPL_FORMALITY_VALUES:
+                return json.dumps({
+                    "error": f"Unsupported formality: {formality}",
+                    "supported": sorted(DEEPL_FORMALITY_VALUES),
+                })
+
+            log_message(
+                f"🌐 translate: {len(text)} chars → {target_lang} ({formality})"
+            )
 
             payload: dict[str, Any] = {
                 "text": [text],
                 "target_lang": target_lang,
+                # Siehe Konstanten oben: Zeilenumbrüche dürfen keine
+                # Satzgrenzen sein, sonst zerfällt umbrochener Fließtext.
+                "split_sentences": DEEPL_SPLIT_SENTENCES,
+                "formality": formality,
+                # Absätze/Zeilenstruktur des Originals erhalten — bei
+                # Markdown ist die Zeilenstruktur bedeutungstragend.
+                "preserve_formatting": True,
             }
             if source_lang:
                 payload["source_lang"] = source_lang.upper()
+            if context:
+                # Wird NICHT mitübersetzt und zählt nicht zum Zeichenkontingent,
+                # verbessert aber Terminologie/Tonfall (DeepL-API "context").
+                payload["context"] = context
 
             url = _get_api_url(api_key)
             headers = {
@@ -166,6 +219,30 @@ class TranslatorPlugin:
                             "type": "string",
                             "description": (
                                 "Source language code (optional, auto-detected if omitted)"
+                            ),
+                        },
+                        "context": {
+                            "type": "string",
+                            "description": (
+                                "Optional surrounding context (not translated, not "
+                                "billed) — improves terminology and tone. Useful when "
+                                "translating a chunk of a larger document: pass the "
+                                "neighbouring text or a short topic description."
+                            ),
+                        },
+                        "formality": {
+                            "type": "string",
+                            "enum": sorted(DEEPL_FORMALITY_VALUES),
+                            "description": (
+                                "Form of address / tone, for languages that "
+                                "distinguish it (DE, FR, ES, IT, NL, PL, PT, JA, RU). "
+                                "'prefer_less' = informal (German 'du') — the default, "
+                                "right for documentation, chat and private messages. "
+                                "'prefer_more' = formal (German 'Sie') — use for "
+                                "business or official correspondence, legal and "
+                                "customer-facing texts. 'default' leaves the choice to "
+                                "DeepL. Pick it from the target audience of the text; "
+                                "if the user states a preference, follow that."
                             ),
                         },
                     },
