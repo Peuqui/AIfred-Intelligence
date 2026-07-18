@@ -126,22 +126,45 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
                     ),
                 ),
                 # Rename
-                rx.icon_button(
-                    rx.icon("pencil", size=14),
-                    size="1", variant="ghost", color_scheme="yellow",
-                    on_click=AIState.doc_start_rename(name), cursor="pointer",
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("pencil", size=14),
+                        size="1", variant="ghost", color_scheme="yellow",
+                        on_click=AIState.doc_start_rename(name), cursor="pointer",
+                    ),
+                    content=rx.cond(AIState.ui_language == "de", "Umbenennen", "Rename"),
                 ),
                 # Preview
-                rx.icon_button(
-                    rx.icon("eye", size=14),
-                    size="1", variant="ghost", color_scheme="blue",
-                    on_click=AIState.preview_document(name), cursor="pointer",
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("eye", size=14),
+                        size="1", variant="ghost", color_scheme="blue",
+                        on_click=AIState.preview_document(name), cursor="pointer",
+                    ),
+                    content=rx.cond(AIState.ui_language == "de", "Vorschau", "Preview"),
+                ),
+                # Download — direkter Link auf den AuthenticatedStaticFiles-
+                # Mount; ``download`` erzwingt Speichern statt Anzeigen.
+                rx.tooltip(
+                    rx.link(
+                        rx.icon_button(
+                            rx.icon("download", size=14),
+                            size="1", variant="ghost", color_scheme="green",
+                            cursor="pointer",
+                        ),
+                        href=AIState.doc_download_prefix + name,
+                        download=name,
+                    ),
+                    content=rx.cond(AIState.ui_language == "de", "Herunterladen", "Download"),
                 ),
                 # Delete
-                rx.icon_button(
-                    rx.icon("trash-2", size=14),
-                    size="1", variant="ghost", color_scheme="red",
-                    on_click=AIState.doc_open_delete_dialog(name), cursor="pointer",
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("trash-2", size=14),
+                        size="1", variant="ghost", color_scheme="red",
+                        on_click=AIState.doc_open_delete_dialog(name), cursor="pointer",
+                    ),
+                    content=rx.cond(AIState.ui_language == "de", "Löschen", "Delete"),
                 ),
                 spacing="0",
                 align="center",
@@ -151,15 +174,25 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
         rx.cond(
             is_folder,
             rx.hstack(
-                rx.icon_button(
-                    rx.icon("pencil", size=14),
-                    size="1", variant="ghost", color_scheme="yellow",
-                    on_click=AIState.doc_start_rename(name), cursor="pointer",
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("pencil", size=14),
+                        size="1", variant="ghost", color_scheme="yellow",
+                        on_click=AIState.doc_start_rename(name), cursor="pointer",
+                    ),
+                    content=rx.cond(
+                        AIState.ui_language == "de", "Ordner umbenennen", "Rename folder",
+                    ),
                 ),
-                rx.icon_button(
-                    rx.icon("trash-2", size=14),
-                    size="1", variant="ghost", color_scheme="red",
-                    on_click=AIState.doc_open_delete_folder_dialog(name), cursor="pointer",
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("trash-2", size=14),
+                        size="1", variant="ghost", color_scheme="red",
+                        on_click=AIState.doc_open_delete_folder_dialog(name), cursor="pointer",
+                    ),
+                    content=rx.cond(
+                        AIState.ui_language == "de", "Ordner löschen", "Delete folder",
+                    ),
                 ),
                 spacing="0", align="center",
             ),
@@ -251,11 +284,14 @@ def document_manager_page() -> rx.Component:
                 rx.text(t("doc_manager_title"), color="white",
                         font_weight="bold", font_size="18px"),
                 rx.spacer(),
-                rx.icon_button(
-                    rx.icon("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
-                    variant="ghost", color_scheme="gray",
-                    on_click=AIState.close_document_manager, cursor="pointer",
-                    custom_attrs={"data-modal-close": "true"},
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                        variant="ghost", color_scheme="gray",
+                        on_click=AIState.close_document_manager, cursor="pointer",
+                        custom_attrs={"data-modal-close": "true"},
+                    ),
+                    content=rx.cond(AIState.ui_language == "de", "Schließen", "Close"),
                 ),
                 width="100%", align="center",
             ),
@@ -264,17 +300,23 @@ def document_manager_page() -> rx.Component:
             # Action-Buttons direkt links neben dem Pfad — vorher
             # waren sie ganz rechts zu klein und wurden übersehen.
             rx.hstack(
-                rx.icon_button(
-                    rx.icon("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
-                    variant="ghost", color_scheme="yellow",
-                    on_click=AIState.doc_navigate_root, cursor="pointer",
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                        variant="ghost", color_scheme="yellow",
+                        on_click=AIState.doc_navigate_root, cursor="pointer",
+                    ),
+                    content=rx.cond(AIState.ui_language == "de", "Zum Hauptordner", "To root folder"),
                 ),
                 rx.cond(
                     AIState.doc_current_folder != "",
-                    rx.icon_button(
-                        rx.icon("arrow-left", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
-                        variant="ghost", color_scheme="gray",
-                        on_click=AIState.doc_navigate_up, cursor="pointer",
+                    rx.tooltip(
+                        rx.icon_button(
+                            rx.icon("arrow-left", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                            variant="ghost", color_scheme="gray",
+                            on_click=AIState.doc_navigate_up, cursor="pointer",
+                        ),
+                        content=rx.cond(AIState.ui_language == "de", "Eine Ebene hoch", "Up one level"),
                     ),
                 ),
                 rx.cond(
@@ -292,15 +334,21 @@ def document_manager_page() -> rx.Component:
                             size="1", font_size="12px", width="160px",
                             auto_focus=True,
                         ),
-                        rx.icon_button(
-                            rx.icon("check", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
-                            variant="ghost", color_scheme="green",
-                            on_click=AIState.doc_confirm_create_folder, cursor="pointer",
+                        rx.tooltip(
+                            rx.icon_button(
+                                rx.icon("check", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                                variant="ghost", color_scheme="green",
+                                on_click=AIState.doc_confirm_create_folder, cursor="pointer",
+                            ),
+                            content=rx.cond(AIState.ui_language == "de", "Anlegen", "Create"),
                         ),
-                        rx.icon_button(
-                            rx.icon("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
-                            variant="ghost", color_scheme="gray",
-                            on_click=AIState.doc_cancel_create_folder, cursor="pointer",
+                        rx.tooltip(
+                            rx.icon_button(
+                                rx.icon("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                                variant="ghost", color_scheme="gray",
+                                on_click=AIState.doc_cancel_create_folder, cursor="pointer",
+                            ),
+                            content=rx.cond(AIState.ui_language == "de", "Abbrechen", "Cancel"),
                         ),
                         spacing="1", align="center",
                     ),

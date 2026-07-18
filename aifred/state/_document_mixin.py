@@ -23,6 +23,17 @@ class DocumentMixin(rx.State, mixin=True):
     doc_current_folder: str = ""  # relative to data/documents/, empty = root
     doc_file_list: List[Dict[str, Any]] = []  # [{name, type, size, indexed, chunks}]
 
+    @rx.var
+    def doc_download_prefix(self) -> str:
+        """URL-Prefix für Datei-Downloads im aktuellen Ordner.
+
+        Der Mount ``/_upload/documents`` (AuthenticatedStaticFiles, siehe
+        aifred.py) liefert die Dateien aus — hier wird nur der Ordnerpfad
+        vorangestellt, den Dateinamen hängt die UI pro Zeile an."""
+        if self.doc_current_folder:
+            return f"/_upload/documents/{self.doc_current_folder}/"
+        return "/_upload/documents/"
+
     # Rename state
     doc_rename_target: str = ""  # file/folder being renamed
     doc_rename_value: str = ""  # new name input
