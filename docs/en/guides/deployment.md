@@ -2,7 +2,7 @@
 
 Setup guide for a fresh AIfred installation with the llama.cpp backend (llama-swap).
 
-**Last updated:** 2026-05-28
+**Last updated:** 2026-07-18
 
 > **TL;DR — fastest path:** `./scripts/install-all.sh` from a fresh
 > clone handles dependencies, venv, Playwright, the Reflex routing
@@ -554,7 +554,9 @@ Settings → Vision → Vigilantia:
   before a motion event fires (default 0.02 = 2%)
 - `motion.warmup_frames` — frames to learn the background before
   triggering (default 10)
-- `min_event_interval_sec` — debounce between events (default 5s)
+- `min_event_interval_sec` — debounce between events (default 1s).
+  Configurable **per camera** in the camera editor ("Min. event interval");
+  the live-preview popup has its own, independent throttle in its header
 - `save_event_frames` — store the frame as JPEG on each event
 - `face_detect.threshold_known` — cosine similarity above which a face
   is `known` (default 0.6)

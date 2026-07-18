@@ -1,0 +1,7 @@
+Translate a whole document in the documents folder and write the result as a new file — via DeepL. Supported languages: {languages}.
+
+PREFER THIS over read_file + translate + write_file for documents. The file content is read, translated and written entirely server-side, so it never passes through your context: nothing is lost or reworded on the way, fenced code blocks keep their exact indentation (they are excluded from translation), and you save the tokens for the whole document twice over.
+
+Long documents are chunked automatically at paragraph boundaries — you do not need to split anything yourself.
+
+Give "filename" relative to the documents root, e.g. 'documents/deployment.md'. If you are unsure of the exact path, call list_files first. The output name defaults to '<name>-<LANG>.<ext>' in the same folder; override it with "output_filename" only if the user asked for a specific name.

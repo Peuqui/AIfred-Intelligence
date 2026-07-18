@@ -24,6 +24,18 @@ class DocumentMixin(rx.State, mixin=True):
     doc_file_list: List[Dict[str, Any]] = []  # [{name, type, size, indexed, chunks}]
 
     @rx.var
+    def doc_path_prefix(self) -> str:
+        """Ordner-Prefix für den AIfred-Pfad einer Datei.
+
+        Das ist der Pfad, den die Datei-Tools (read_file, translate_file,
+        …) erwarten: relativ zur Dokumenten-Wurzel, OHNE führenden Slash.
+        Der Browser-URL aus der Adresszeile ist etwas anderes und wird von
+        den Tools nicht verstanden — daher der Kopier-Button in der UI."""
+        if self.doc_current_folder:
+            return f"{self.doc_current_folder}/"
+        return ""
+
+    @rx.var
     def doc_download_prefix(self) -> str:
         """URL-Prefix für Datei-Downloads im aktuellen Ordner.
 
