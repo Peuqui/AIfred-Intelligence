@@ -785,10 +785,18 @@ def text_input_section() -> rx.Component:
 
         spacing="3",
         width="100%",
-        # Kappt den ~2px-Überstand des Hover-scale(1.02) des rechtesten
-        # Buttons ("Chat teilen") — sonst erscheint ein horizontaler
-        # Seiten-Scrollbalken.
-        overflow_x="hidden",
+        # Kappt den ~2px-Überstand des Hover-scale(1.02) der Buttons —
+        # sonst erscheint ein horizontaler Seiten-Scrollbalken.
+        #
+        # BEWUSST "clip" statt "hidden": Sobald EINE Achse "hidden" ist,
+        # macht die CSS-Spezifikation aus der anderen automatisch "auto".
+        # Damit wurde dieser Container vertikal scrollbar und der gleiche
+        # 2px-Überhang ließ beim Hover einen zweiten, inneren Scrollbalken
+        # aufpoppen — der die Zeile verschmälerte, das Layout umbrach und
+        # so den Hover beendete: sichtbares Flackern (2026-07-18).
+        # "clip" kappt ebenfalls, erzeugt aber KEINEN Scroll-Container,
+        # die Y-Achse bleibt "visible".
+        overflow_x="clip",
     )
 
 

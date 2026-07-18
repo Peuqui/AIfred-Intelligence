@@ -928,6 +928,12 @@ class VisionPlugin:
                     event_types=describe_types,
                     since=describe_since,
                     check_vram=False,
+                    # Denselben Store wie die Abfrage selbst nutzen. Ohne
+                    # das legt run_bulk_describe intern eine eigene
+                    # VisionStore()-Instanz an (store or VisionStore()) —
+                    # zwei Instanzen für einen Vorgang, und Aufrufer, die
+                    # einen abweichenden Store setzen, werden umgangen.
+                    store=_store(),
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning("on-demand describe failed: %s", e)
