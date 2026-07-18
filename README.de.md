@@ -1134,7 +1134,7 @@ curl http://localhost:8002/api/sessions
   - **vLLM** (schnell, AWQ-Modelle) - beste Performance für AWQ (erfordert Compute Capability 7.5+)
   - **TabbyAPI** (ExLlamaV2/V3, EXL2-Modelle) - experimentell
 
-> **Zero-Config Modell-Management (llama.cpp-Backend):** Nach dem einmaligen Setup genügt `ollama pull model` oder `hf download ...`, dann llama-swap neu starten — der Autoscan konfiguriert alles automatisch (YAML-Einträge, Gruppen, VRAM-Cache). Vollständige Anleitung: [docs/en/guides/deployment.md](docs/en/guides/deployment.md).
+> **Zero-Config Modell-Management (llama.cpp-Backend):** Nach dem einmaligen Setup genügt `ollama pull model` oder `hf download ...`, dann llama-swap neu starten — der Autoscan konfiguriert alles automatisch (YAML-Einträge, Gruppen, VRAM-Cache). Vollständige Anleitung: [docs/de/guides/deployment.md](docs/de/guides/deployment.md).
 - 8GB+ RAM (12GB+ empfohlen für größere Modelle)
 - Docker (für ChromaDB Vector Cache)
 - **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))
@@ -1381,7 +1381,7 @@ einen Reverse-Proxy vor beide Prozesse stellen und die App darüber öffnen
 (keine Portnummer in der URL). Direkt `http://localhost:3002/aifred/` zu
 öffnen lädt zwar die Seiten, aber jeder `/api/*`- und `/_upload/*`-Request
 liefert 404, wodurch Bilder und Audio leer bleiben. Siehe
-**[Zugriff auf die Web-UI](docs/en/guides/deployment.md#access-the-web-ui)**
+**[Zugriff auf die Web-UI](docs/de/guides/deployment.md#auf-die-web-ui-zugreifen)**
 für ein generisches nginx-Routing-Beispiel.
 
 ---
@@ -2266,7 +2266,7 @@ Weitere Dokumentation im `docs/` Verzeichnis:
 - [Message Hub Architektur](docs/de/architecture/message-hub.md)
 - [LLM-Aufruf-Architektur](docs/en/architecture/llm-call.md)
 - [llama.cpp + llama-swap Setup Guide](docs/en/guides/llamacpp-setup.md)
-- [Deployment Guide](docs/en/guides/deployment.md)
+- [Deployment Guide](docs/de/guides/deployment.md)
 - [Tensor Split Benchmark: Speed vs. Full Context](docs/en/benchmarks/tensor-split.md)
 
 ---

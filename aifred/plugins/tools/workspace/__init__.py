@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ....lib.config import (
-    DATA_DIR, DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
+    DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
     DOCUMENT_SEARCH_DISTANCE_STRONG, WORKSPACE_READ_MAX_BYTES,
     CHROMA_HOST, CHROMA_PORT,
 )
@@ -22,8 +22,8 @@ from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
 
-# Base directory for all file operations (path traversal protection)
-_DATA_DIR = DATA_DIR
+# Base directory for all file operations (path traversal protection).
+# ALLE Pfade in Tool-Parametern und -Antworten sind relativ hierzu.
 _DOCUMENTS_DIR = DOCUMENTS_DIR
 
 
@@ -59,9 +59,22 @@ class WorkspacePlugin:
             if not target.exists():
                 return json.dumps({"error": f"Directory not found: {subfolder}"})
 
+            # Pfad-Bezug ist IMMER die Dokumenten-Wurzel — genau das, was
+            # read_file/write_file/translate_file als Parameter erwarten.
+            # Vorher wurde relativ zu data/ gemeldet, also mit zusätzlichem
+            # "documents/" davor: Ein list_files(subfolder="documents")
+            # meldete "documents/documents", das Modell baute daraus
+            # "documents/documents/<datei>" und lief in Endlosschleifen
+            # aus File-not-found (beobachtet 2026-07-18).
+            rel_dir = target.relative_to(_DOCUMENTS_DIR.resolve())
+            rel_prefix = "" if str(rel_dir) == "." else f"{rel_dir}/"
+
             entries = []
             for item in sorted(target.iterdir()):
                 entry: dict[str, Any] = {"name": item.name}
+                # Fertiger Pfad für die Datei-Tools — erspart dem Modell
+                # das fehleranfällige Zusammensetzen aus Ordner + Name.
+                entry["path"] = f"{rel_prefix}{item.name}"
                 if item.is_dir():
                     entry["type"] = "directory"
                     entry["items"] = len(list(item.iterdir()))
@@ -71,8 +84,11 @@ class WorkspacePlugin:
                     entry["extension"] = item.suffix.lower()
                 entries.append(entry)
 
-            log_message(f"📂 list_files: {target.relative_to(_DATA_DIR)} ({len(entries)} entries)")
-            return json.dumps({"directory": str(target.relative_to(_DATA_DIR)), "entries": entries}, ensure_ascii=False)
+            log_message(f"📂 list_files: {rel_dir} ({len(entries)} entries)")
+            return json.dumps(
+                {"directory": str(rel_dir), "entries": entries},
+                ensure_ascii=False,
+            )
 
         tools.append(Tool(
             name="list_files",

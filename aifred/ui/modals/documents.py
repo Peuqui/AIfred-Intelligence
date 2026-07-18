@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import reflex as rx
+# Rohes <a>-Element: rx.link und rx.el.a sind in Reflex 0.8 beide auf den
+# ReactRouterLink gemappt, der wurzel-relative hrefs um den frontend_path
+# ergänzt. Für Links auf die /_upload-Mounts (außerhalb der App-Routen)
+# brauchen wir ein echtes Anchor-Tag.
+from reflex.components.el.elements.inline import A as _Anchor
 
 from ...state import AIState
 from ..helpers import t, overlay_scaffold
@@ -145,8 +150,21 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
                 ),
                 # Download — direkter Link auf den AuthenticatedStaticFiles-
                 # Mount; ``download`` erzwingt Speichern statt Anzeigen.
+                #
+                # BEWUSST die rohe A-Klasse (rendert <a href=…>):
+                # * rx.link rendert einen ReactRouterLink, der jeden
+                #   wurzel-relativen href um den frontend_path ergänzt
+                #   ("/aifred/_upload/…") → 404, und mit download-Attribut
+                #   speichert der Browser die SPA-Hülle als Datei.
+                # * ``is_external`` hilft NICHT: es setzt nur
+                #   target="_blank", der Router bleibt aktiv (siehe
+                #   reflex/components/radix/themes/typography/link.py).
+                # * rx.el.a ist in Reflex 0.8 ebenfalls auf ReactRouterLink
+                #   gemappt (rendert to=… statt href=…).
+                # Verifiziert 2026-07-18: A.create() rendert name="a" mit
+                # echtem href-Prop, ohne Router.
                 rx.tooltip(
-                    rx.link(
+                    _Anchor.create(
                         rx.icon_button(
                             rx.icon("download", size=14),
                             size="1", variant="ghost", color_scheme="green",
@@ -156,6 +174,23 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
                         download=name,
                     ),
                     content=rx.cond(AIState.ui_language == "de", "Herunterladen", "Download"),
+                ),
+                # Pfad kopieren — der Browser-URL aus der Adresszeile ist
+                # NICHT der Pfad, den die Datei-Tools verstehen. Ein Klick
+                # legt "<ordner>/<datei>" in die Zwischenablage, das kann
+                # direkt in den Chat eingefügt werden.
+                rx.tooltip(
+                    rx.icon_button(
+                        rx.icon("clipboard-copy", size=14),
+                        size="1", variant="ghost", color_scheme="gray",
+                        on_click=rx.set_clipboard(AIState.doc_path_prefix + name),
+                        cursor="pointer",
+                    ),
+                    content=rx.cond(
+                        AIState.ui_language == "de",
+                        "Pfad für AIfred kopieren",
+                        "Copy path for AIfred",
+                    ),
                 ),
                 # Delete
                 rx.tooltip(
