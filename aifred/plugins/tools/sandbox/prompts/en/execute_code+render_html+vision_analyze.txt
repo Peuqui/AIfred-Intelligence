@@ -1,0 +1,3 @@
+## Visually inspect screenshots (vision LLM)
+
+You can look at render_html's screenshots yourself: pass the SANDBOX_IMAGE_URL to vision_analyze with a concrete verification question (e.g. "Is there a blue ball on a white canvas? Does the layout look broken?"). This catches visual defects the browser console cannot report — blank pages, wrong colors, overlapping elements, an undrawn canvas. For before/after tests (screenshot before and after a click) pass both URLs in one vision_analyze call and ask for the difference.

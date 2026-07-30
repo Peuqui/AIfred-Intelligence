@@ -1221,14 +1221,17 @@ SANDBOX_MAX_PROCESSES = 64           # RLIMIT_NPROC: cap child processes so a fo
                                      # can't multiply past the per-process RAM limit.
 SANDBOX_WORK_DIR = "/tmp/aifred_sandbox"
 
-# Browser-Render-Tool (render_html): headless Chrome renders sandbox HTML,
-# captures console messages + a screenshot so agents can verify their
-# HTML/JS output actually works.
-BROWSER_RENDER_BINARY = "google-chrome"      # headless-capable Chrome/Chromium binary
-BROWSER_RENDER_TIMEOUT_SECONDS = 30          # hard cap for the render subprocess
-BROWSER_RENDER_WINDOW_SIZE = "1280,800"      # --window-size for screenshot
-BROWSER_RENDER_VIRTUAL_TIME_MS = 5000        # --virtual-time-budget: fast-forwards
-                                             # timers/animations before the shot
+# Browser-Render-Tool (render_html): Playwright drives the SYSTEM Chrome
+# (channel launch, no bundled browser) to render sandbox HTML, perform
+# interactions (click/fill/drag) and capture console messages + screenshots
+# so agents can verify their HTML/JS output actually works.
+BROWSER_RENDER_CHANNEL = "chrome"            # Playwright browser channel (system Chrome)
+BROWSER_RENDER_TIMEOUT_SECONDS = 60          # hard cap for the whole render session
+BROWSER_RENDER_WINDOW_SIZE = "1280,800"      # viewport for screenshots
+BROWSER_RENDER_DEFAULT_WAIT_MS = 2000        # settle time after load (real time —
+                                             # animations run live before the shot)
+BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selector
+                                             # fails fast instead of hanging)
 
 # ============================================================
 # EMAIL CONFIGURATION

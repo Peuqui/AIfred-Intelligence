@@ -330,6 +330,7 @@
         "execute_code",
         "execute_code_write",
         "render_html",
+        "vision_analyze",
         "scheduler_create",
         "scheduler_list",
         "scheduler_delete",

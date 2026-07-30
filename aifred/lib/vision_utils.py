@@ -914,6 +914,9 @@ def url_to_file_path(image_url: str, session_id: str) -> Optional[Path]:
     Handles URLs like:
     - /_upload/vigilantia/{...}  → data/vigilantia/{...}
     - /_upload/images/{session_id}/{filename}  → data/upload/images/{...}
+    - /_upload/sandbox_output/{session_id}/{filename}  → data/sandbox_output/{...}
+      (render_html screenshots / sandbox plots — lets agents feed their own
+      render output into vision_analyze)
     - http://host:port/_upload/...  (host stripped)
 
     Args:
@@ -932,9 +935,12 @@ def url_to_file_path(image_url: str, session_id: str) -> Optional[Path]:
     # globals stay monkeypatchable in tests. Table entry: (url_marker,
     # base_dir, session_scoped) — session_scoped means the first path segment
     # after the marker IS the owning session id (VI7).
+    from .config import SANDBOX_OUTPUT_DIR
     return _resolve_upload_marker(image_url, session_id, (
         ("_upload/vigilantia/", VIGILANTIA_DIR, False),
         ("_upload/images/", UPLOAD_IMAGES_DIR, True),
+        # render_html screenshots / sandbox plots — session-scoped (VI7)
+        ("_upload/sandbox_output/", SANDBOX_OUTPUT_DIR, True),
     ))
 
 

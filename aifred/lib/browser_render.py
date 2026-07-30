@@ -1,15 +1,14 @@
 """Headless-browser rendering for sandbox-generated HTML.
 
 Backs the generic ``render_html`` tool: loads an HTML file previously
-produced by ``execute_code`` (SANDBOX_HTML_URL) in headless Chrome,
-captures console messages (incl. uncaught JS errors) and a screenshot.
+produced by ``execute_code`` (SANDBOX_HTML_URL) in headless Chrome via
+Playwright, optionally performs interactions (clicks, fills, mouse drags),
+captures console messages (incl. uncaught JS errors) and screenshots.
 This closes the build→verify loop for HTML/JS output that the Python
 sandbox itself cannot execute (no browser inside bubblewrap).
 
-No CDP / no extra dependencies — plain Chrome CLI flags:
-``--headless=new --screenshot=... --enable-logging=stderr`` emit console
-lines as ``[pid:tid:date:INFO:CONSOLE:<line>] "msg", source: <url> (<line>)``
-on stderr, which is all we need.
+Playwright drives the SYSTEM Chrome (``channel``-launch) — no bundled
+browser downloads involved.
 """
 
 from __future__ import annotations
@@ -17,23 +16,22 @@ from __future__ import annotations
 import asyncio
 import re
 import shutil
-import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .logging_utils import log_message
 
 # Sandbox HTML filenames are uuid4().hex[:8] + ".html" (see sandbox._collect_html)
 _SANDBOX_HTML_NAME_RE = re.compile(r"^[0-9a-f]{8}\.html$")
-_CONSOLE_LINE_RE = re.compile(r":CONSOLE:\d+\]\s*(.*)$")
 
 
 @dataclass
 class RenderResult:
     console_messages: list[str] = field(default_factory=list)
-    screenshot_url: str = ""
+    action_errors: list[str] = field(default_factory=list)
+    screenshot_urls: list[str] = field(default_factory=list)
     error: str = ""
     timed_out: bool = False
 
@@ -67,35 +65,56 @@ def resolve_sandbox_html_path(html_url: str, session_id: str) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
-def parse_console_messages(stderr_text: str) -> list[str]:
-    """Extract console messages from Chrome's --enable-logging=stderr output."""
-    messages: list[str] = []
-    for line in stderr_text.splitlines():
-        m = _CONSOLE_LINE_RE.search(line)
-        if m:
-            messages.append(m.group(1).strip())
-    return messages
+async def _apply_action(page: Any, action: dict, index: int, result: RenderResult,
+                        take_screenshot) -> None:
+    """Execute one interaction step; failures are reported, not swallowed."""
+    try:
+        if "click" in action:
+            await page.click(str(action["click"]))
+        elif "fill" in action:
+            spec = action["fill"]
+            await page.fill(str(spec["selector"]), str(spec["text"]))
+        elif "press" in action:
+            await page.keyboard.press(str(action["press"]))
+        elif "mouse_drag" in action:
+            spec = action["mouse_drag"]
+            x1, y1 = spec["from"]
+            x2, y2 = spec["to"]
+            await page.mouse.move(float(x1), float(y1))
+            await page.mouse.down()
+            await page.mouse.move(float(x2), float(y2), steps=10)
+            await page.mouse.up()
+        elif "wait_ms" in action:
+            await page.wait_for_timeout(min(int(action["wait_ms"]), 30_000))
+        elif "screenshot" in action:
+            await take_screenshot()
+        else:
+            result.action_errors.append(f"action {index + 1}: unknown action {action!r}")
+    except Exception as exc:  # noqa: BLE001 — report per-action failure to the model
+        result.action_errors.append(f"action {index + 1} {action!r} failed: {exc}")
 
 
 async def render_html_in_browser(
-    html_url: str, session_id: str, wait_ms: Optional[int] = None
+    html_url: str,
+    session_id: str,
+    wait_ms: Optional[int] = None,
+    actions: Optional[list[dict]] = None,
 ) -> RenderResult:
-    """Render a sandbox HTML file in headless Chrome.
+    """Render a sandbox HTML file in headless Chrome via Playwright.
 
-    Returns console messages and a screenshot URL (saved next to the HTML
-    in sandbox_output/{session_id}/ so the chat pipeline can embed it).
+    Loads the page, waits ``wait_ms`` (animations run in real time), applies
+    the optional ``actions`` sequence (click/fill/press/mouse_drag/wait_ms/
+    screenshot), and always takes a final screenshot. Console messages and
+    uncaught page errors are collected throughout.
     """
     from .config import (
-        BROWSER_RENDER_BINARY,
+        BROWSER_RENDER_ACTION_TIMEOUT_MS,
+        BROWSER_RENDER_CHANNEL,
+        BROWSER_RENDER_DEFAULT_WAIT_MS,
         BROWSER_RENDER_TIMEOUT_SECONDS,
-        BROWSER_RENDER_VIRTUAL_TIME_MS,
         BROWSER_RENDER_WINDOW_SIZE,
     )
     from .sandbox import _sandbox_url, _session_output_dir
-
-    binary = shutil.which(BROWSER_RENDER_BINARY)
-    if not binary:
-        return RenderResult(error=f"Browser binary not found: {BROWSER_RENDER_BINARY}")
 
     html_path = resolve_sandbox_html_path(html_url, session_id)
     if html_path is None:
@@ -106,53 +125,59 @@ async def render_html_in_browser(
             )
         )
 
-    virtual_time = wait_ms if wait_ms and wait_ms > 0 else BROWSER_RENDER_VIRTUAL_TIME_MS
+    width, height = (int(v) for v in BROWSER_RENDER_WINDOW_SIZE.split(","))
+    settle_ms = wait_ms if wait_ms and wait_ms > 0 else BROWSER_RENDER_DEFAULT_WAIT_MS
+    result = RenderResult()
+    output_dir = _session_output_dir(session_id)
+    tmp_shots: list[Path] = []
 
-    profile_dir = tempfile.mkdtemp(prefix="aifred_render_")
-    screenshot_tmp = Path(profile_dir) / "screenshot.png"
-    cmd = [
-        binary,
-        "--headless=new",
-        "--disable-gpu",
-        "--no-first-run",
-        f"--user-data-dir={profile_dir}",
-        "--enable-logging=stderr",
-        "--v=0",
-        f"--window-size={BROWSER_RENDER_WINDOW_SIZE}",
-        f"--virtual-time-budget={virtual_time}",
-        f"--screenshot={screenshot_tmp}",
-        f"file://{html_path}",
-    ]
+    async def _run() -> None:
+        from playwright.async_api import async_playwright
 
-    log_message(f"render_html: rendering {html_path.name} (virtual time {virtual_time} ms)")
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(channel=BROWSER_RENDER_CHANNEL, headless=True)
+            try:
+                page = await browser.new_page(viewport={"width": width, "height": height})
+                page.set_default_timeout(BROWSER_RENDER_ACTION_TIMEOUT_MS)
+                page.on("console", lambda m: result.console_messages.append(f"{m.type}: {m.text}"))
+                page.on("pageerror", lambda e: result.console_messages.append(f"pageerror: {e}"))
+
+                async def take_screenshot() -> None:
+                    shot = output_dir / f"__render_{uuid.uuid4().hex[:8]}.png"
+                    await page.screenshot(path=str(shot))
+                    tmp_shots.append(shot)
+
+                await page.goto(f"file://{html_path}")
+                await page.wait_for_timeout(settle_ms)
+
+                for i, action in enumerate(actions or []):
+                    if not isinstance(action, dict):
+                        result.action_errors.append(f"action {i + 1}: not an object: {action!r}")
+                        continue
+                    await _apply_action(page, action, i, result, take_screenshot)
+
+                await take_screenshot()
+            finally:
+                await browser.close()
+
+    log_message(
+        f"render_html: rendering {html_path.name} "
+        f"(wait {settle_ms} ms, {len(actions or [])} action(s))"
+    )
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            _, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=BROWSER_RENDER_TIMEOUT_SECONDS
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            return RenderResult(timed_out=True, error="Browser render timed out")
+        await asyncio.wait_for(_run(), timeout=BROWSER_RENDER_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        result.timed_out = True
+        result.error = "Browser render timed out"
+    except Exception as exc:  # noqa: BLE001 — surface launch/render failure to the model
+        result.error = f"Browser render failed: {exc}"
 
-        result = RenderResult(
-            console_messages=parse_console_messages(
-                stderr_bytes.decode("utf-8", errors="replace")
-            )
-        )
-
-        if screenshot_tmp.is_file() and screenshot_tmp.stat().st_size > 0:
-            output_dir = _session_output_dir(session_id)
+    # Publish screenshots under the sandbox naming scheme (stable URLs)
+    for shot in tmp_shots:
+        if shot.is_file() and shot.stat().st_size > 0:
             filename = f"{uuid.uuid4().hex[:8]}.png"
-            shutil.copy2(screenshot_tmp, output_dir / filename)
-            result.screenshot_url = _sandbox_url(session_id, filename)
-        else:
-            result.error = "Browser produced no screenshot"
-        return result
-    finally:
-        shutil.rmtree(profile_dir, ignore_errors=True)
+            shutil.move(str(shot), output_dir / filename)
+            result.screenshot_urls.append(_sandbox_url(session_id, filename))
+    if not result.screenshot_urls and not result.error:
+        result.error = "Browser produced no screenshot"
+    return result
