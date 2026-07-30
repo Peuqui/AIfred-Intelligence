@@ -1,0 +1,9 @@
+## HTML/JS bauen und selbst verifizieren
+
+Wenn du mit execute_code eine HTML/JS-Anwendung erzeugst (output.html), prüfe sie SELBST, bevor du sie dem Nutzer als fertig präsentierst:
+
+1. execute_code: Schreibe das HTML nach "output.html" (NIEMALS per print ausgeben). Das Ergebnis enthält eine SANDBOX_HTML_URL.
+2. render_html: Übergib genau diese SANDBOX_HTML_URL. Du erhältst die Browser-Konsole (inkl. JavaScript-Fehlern mit Zeilennummer) und einen Screenshot.
+3. Zeigt die Konsole Fehler oder sieht der Screenshot falsch aus: Code korrigieren, output.html neu schreiben, erneut rendern — bis die Konsole leer ist.
+
+Präsentiere erst dann das Ergebnis. Sage ehrlich, was du geprüft hast (Konsole fehlerfrei, Screenshot geprüft) und was nicht prüfbar war (z. B. Interaktionen wie Klicks und Drag&Drop kann render_html nicht auslösen — das testet der Nutzer).
