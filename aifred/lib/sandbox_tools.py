@@ -88,7 +88,12 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         if result.images:
             for img_url in result.images:
                 parts.append(f"SANDBOX_IMAGE_URL: {img_url}")
-            parts.append("The plot image is automatically displayed in the chat. Do NOT try to show it again or generate base64. Just describe the result.")
+            parts.append(
+                "The plot image is automatically displayed in the chat — the user "
+                "already sees it. Do NOT emit it again in your answer: no markdown "
+                "images ![...](...), no img tags, no base64, no URLs. Just describe "
+                "the result."
+            )
 
         if result.exit_code != 0 and not result.timed_out:
             parts.append(f"EXIT CODE: {result.exit_code}")
@@ -104,15 +109,18 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
     async def _execute_code_write(code: str, description: str = "") -> str:
         return await _run(code, description, allow_write=True)
 
-    async def _render_html(html_url: str, wait_ms: int = 0) -> str:
+    async def _render_html(
+        html_url: str, wait_ms: int = 0, actions: Optional[list] = None
+    ) -> str:
         from .browser_render import render_html_in_browser
 
         if not html_url or not html_url.strip():
             return json.dumps({"error": "No html_url provided"})
 
-        log_message(f"🔧 render_html: {html_url}")
+        log_message(f"🔧 render_html: {html_url} ({len(actions or [])} action(s))")
         result = await render_html_in_browser(
-            html_url.strip(), session_id=session_id or "", wait_ms=wait_ms or None,
+            html_url.strip(), session_id=session_id or "",
+            wait_ms=wait_ms or None, actions=actions,
         )
 
         parts: list[str] = []
@@ -121,19 +129,25 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         if result.error:
             parts.append(f"ERROR: {result.error}")
 
+        if result.action_errors:
+            joined = "\n".join(result.action_errors)
+            parts.append(f"ACTION ERRORS ({len(result.action_errors)}):\n{joined}")
+
         if result.console_messages:
             joined = "\n".join(result.console_messages)
             parts.append(f"BROWSER CONSOLE ({len(result.console_messages)} message(s)):\n{joined}")
         elif not result.error:
             parts.append("BROWSER CONSOLE: no messages (no JS errors detected).")
 
-        if result.screenshot_url:
-            parts.append(f"SANDBOX_IMAGE_URL: {result.screenshot_url}")
+        if result.screenshot_urls:
+            for url in result.screenshot_urls:
+                parts.append(f"SANDBOX_IMAGE_URL: {url}")
             parts.append(
-                "The screenshot is automatically displayed in the chat. "
-                "Do NOT try to show it again. Check the console messages above "
-                "for JS errors; if the page has vision-analysis available, you "
-                "may inspect the screenshot visually."
+                "The screenshot(s) are automatically displayed in the chat — the "
+                "user already sees them. Do NOT emit them again in your answer: "
+                "no markdown images ![...](...), no img tags, no URLs. "
+                "Check the console messages above for JS errors; if the page has "
+                "vision-analysis available, you may inspect the screenshots visually."
             )
 
         return "\n\n".join(parts)
@@ -181,7 +195,21 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
                     },
                     "wait_ms": {
                         "type": "integer",
-                        "description": "Virtual time budget in ms before the screenshot (default 5000) — increase for long-running animations",
+                        "description": "Settle time in ms after page load before actions/screenshot (default 2000) — increase for slow-building pages",
+                    },
+                    "actions": {
+                        "type": "array",
+                        "description": (
+                            "Optional interaction sequence, each item ONE of: "
+                            '{"click": "<css-selector>"} | '
+                            '{"fill": {"selector": "<css>", "text": "..."}} | '
+                            '{"press": "<key e.g. Enter>"} | '
+                            '{"mouse_drag": {"from": [x, y], "to": [x, y]}} | '
+                            '{"wait_ms": <int>} | '
+                            '{"screenshot": true} (intermediate shot). '
+                            "A final screenshot is always taken."
+                        ),
+                        "items": {"type": "object"},
                     },
                 },
                 "required": ["html_url"],

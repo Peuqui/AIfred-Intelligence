@@ -3,7 +3,8 @@
 Wenn du mit execute_code eine HTML/JS-Anwendung erzeugst (output.html), prüfe sie SELBST, bevor du sie dem Nutzer als fertig präsentierst:
 
 1. execute_code: Schreibe das HTML nach "output.html" (NIEMALS per print ausgeben). Das Ergebnis enthält eine SANDBOX_HTML_URL.
-2. render_html: Übergib genau diese SANDBOX_HTML_URL. Du erhältst die Browser-Konsole (inkl. JavaScript-Fehlern mit Zeilennummer) und einen Screenshot.
-3. Zeigt die Konsole Fehler oder sieht der Screenshot falsch aus: Code korrigieren, output.html neu schreiben, erneut rendern — bis die Konsole leer ist.
+2. render_html: Übergib genau diese SANDBOX_HTML_URL. Du erhältst die Browser-Konsole (inkl. JavaScript-Fehlern) und Screenshots.
+3. Teste die Kernfunktion aktiv mit actions: Buttons klicken ({"click": "#id"}), Eingaben füllen, per {"mouse_drag": ...} ziehen, mit {"wait_ms": ...} Animationen abwarten und mit {"screenshot": true} Zwischenzustände festhalten. Beispiel: Erst Screenshot des Ausgangszustands, dann den Start-Button klicken, kurz warten — der finale Screenshot zeigt, ob die Aktion gewirkt hat.
+4. Zeigt die Konsole Fehler, schlagen Aktionen fehl (ACTION ERRORS) oder sehen die Screenshots falsch aus: Code korrigieren, output.html neu schreiben, erneut rendern — bis alles sauber ist.
 
-Präsentiere erst dann das Ergebnis. Sage ehrlich, was du geprüft hast (Konsole fehlerfrei, Screenshot geprüft) und was nicht prüfbar war (z. B. Interaktionen wie Klicks und Drag&Drop kann render_html nicht auslösen — das testet der Nutzer).
+Präsentiere erst dann das Ergebnis und sage ehrlich, was du geprüft hast (z. B. "Konsole fehlerfrei, Klick auf Start getestet, Screenshots vor/nach verglichen").

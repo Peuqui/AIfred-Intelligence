@@ -1,0 +1,3 @@
+## Screenshots visuell prüfen (Vision-LLM)
+
+Die Screenshots von render_html kannst du selbst ansehen: Übergib die SANDBOX_IMAGE_URL an vision_analyze mit einer konkreten Prüffrage (z. B. "Ist ein blauer Ball auf weißem Canvas zu sehen? Wirkt das Layout kaputt?"). So erkennst du visuelle Fehler, die die Browser-Konsole nicht meldet — leere Seiten, falsche Farben, überlappende Elemente, nicht gezeichnetes Canvas. Bei Vorher/Nachher-Tests (Screenshot vor und nach einem Klick) übergib beide URLs in einem vision_analyze-Aufruf und frage nach dem Unterschied.
