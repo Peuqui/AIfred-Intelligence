@@ -115,9 +115,15 @@ def get_agent_num_ctx(
         >>> print(f"Using {num_ctx} tokens ({source})")
         Using 4096 tokens (manual)
     """
-    # Validate agent name
+    # Validate agent name. Registered custom agents (agents.json) run on
+    # AIfred's model/profile, so they use AIfred's context bucket — the
+    # mapping lives HERE (SSOT), not at the call-sites. Unregistered names
+    # still raise (typo guard).
     if agent not in ("aifred", "sokrates", "salomo", "vision"):
-        raise ValueError(f"Unknown agent: {agent}. Must be 'aifred', 'sokrates', 'salomo', or 'vision'.")
+        from ..agent_config import get_agent_config
+        if get_agent_config(agent) is None:
+            raise ValueError(f"Unknown agent: {agent}. Must be 'aifred', 'sokrates', 'salomo', 'vision', or a registered custom agent.")
+        agent = "aifred"
 
     # Check if manual mode is enabled for this agent
     if agent == "vision":

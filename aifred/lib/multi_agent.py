@@ -747,10 +747,10 @@ async def _run_agent_direct_response(
             agent_base_id = state.aifred_model_id  # type: ignore[attr-defined, has-type]
         state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_id} ({state.backend_type})")
 
-        # Context limit — custom agents use AIfred's context
+        # Context limit — get_agent_num_ctx maps custom agents to AIfred's
+        # context bucket itself (SSOT)
         from .research.context_utils import get_agent_num_ctx
-        ctx_agent = agent if agent in _default_agents else "aifred"
-        agent_num_ctx, ctx_source = get_agent_num_ctx(ctx_agent, state, agent_base_id)
+        agent_num_ctx, ctx_source = get_agent_num_ctx(agent, state, agent_base_id)
         state.add_debug(f"   🎯 Context: {format_number(agent_num_ctx)} ({ctx_source})")
 
         # Combined toolkit: memory + research tools (based on research_mode)
