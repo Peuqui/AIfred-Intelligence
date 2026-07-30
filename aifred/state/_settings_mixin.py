@@ -65,22 +65,25 @@ class SettingsMixin(rx.State, mixin=True):
 
     def _save_settings(self) -> None:
         """Save current settings to file (per-backend models)."""
+        from ..lib.agent_settings import get_agent_setting
         existing = load_settings() or {}
         backend_models = existing.get("backend_models", {})
 
         # Only update backend models if model IDs are validated against current backend.
         # Prevents saving stale IDs from a different backend during transitions
         # (e.g., backend_id already switched but model_ids not yet validated).
-        if self.aifred_model_id and self.backend_id and self.available_models_dict:  # type: ignore[attr-defined, has-type]
-            # model_id vars always contain base IDs (SSOT — speed suffix is computed)
-            if self.aifred_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                backend_models[self.backend_id] = {  # type: ignore[attr-defined, has-type]
-                    "aifred_model": self.aifred_model_id,  # type: ignore[attr-defined, has-type]
-                    "automatik_model": self.automatik_model_id,  # type: ignore[attr-defined, has-type]
-                    "vision_model": self.vision_model_id,  # type: ignore[attr-defined, has-type]
-                    "sokrates_model": self.sokrates_model_id,  # type: ignore[attr-defined, has-type]
-                    "salomo_model": self.salomo_model_id,  # type: ignore[attr-defined, has-type]
+        aifred_model_id: str = get_agent_setting(self, "aifred", "model_id")
+        if aifred_model_id and self.backend_id and self.available_models_dict:  # type: ignore[attr-defined, has-type]
+            # tuning buckets always contain base IDs (SSOT — speed suffix is
+            # computed). Keys are agent ids ("" = inherits AIfred); the
+            # Automatik (not an agent) keeps its own entry.
+            if aifred_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
+                models_out = {
+                    agent: tuning.model_id
+                    for agent, tuning in self.agent_tuning.items()  # type: ignore[attr-defined]
                 }
+                models_out["automatik"] = self.automatik_model_id  # type: ignore[attr-defined, has-type]
+                backend_models[self.backend_id] = models_out  # type: ignore[attr-defined, has-type]
 
         # Only save self.backend_type if backend is fully initialized.
         # Prevents the class default "ollama" from overwriting the persisted
@@ -99,10 +102,9 @@ class SettingsMixin(rx.State, mixin=True):
             # the AI calibration toggle to legacy on the next run.
             "calibration_mode": self.calibration_mode or "legacy",  # type: ignore[attr-defined, has-type]
             # NOTE: research_mode, multi_agent_mode are per-session now (session_storage.DEFAULT_SESSION_CONFIG)
-            # NOTE: per-agent tuning fields (temperature, sampling, thinking,
-            # personality, speed) are appended below via PER_AGENT_PERSISTED_FIELDS
+            # NOTE: per-agent tuning (temperature, sampling, thinking,
+            # personality, speed) is appended below as "agent_tuning"
             "temperature_mode": self.temperature_mode,  # type: ignore[attr-defined, has-type]
-            "sokrates_temperature_offset": self.sokrates_temperature_offset,  # type: ignore[attr-defined, has-type]
             "ui_language": self.ui_language,  # UI language (de/en)
             "user_name": self.user_name,  # User's name for personalized responses
             "user_gender": self.user_gender,  # Gender for salutation (male/female)
@@ -113,15 +115,11 @@ class SettingsMixin(rx.State, mixin=True):
             # NOTE: Modell-Felder (auch sokrates/salomo) leben ausschließlich
             # in backend_models — eine zweite flache Wahrheit gab es bis
             # 2026-07-17 und sie hat den Message-Hub-Pfad verfehlt.
-            "salomo_temperature_offset": self.salomo_temperature_offset,  # type: ignore[attr-defined, has-type]
             # vLLM YaRN Settings (only enable/disable, factor is calculated dynamically)
             "enable_yarn": self.enable_yarn,  # type: ignore[attr-defined, has-type]
             # NOTE: yarn_factor is NOT saved - always starts at 1.0, system calibrates maximum
             # NOTE: vllm_max_tokens and vllm_native_context are NEVER saved!
             # They are calculated dynamically on every vLLM startup based on VRAM
-            # Vision LLM Context Settings (PERSISTENT)
-            "vision_num_ctx_enabled": self.vision_num_ctx_enabled,  # type: ignore[attr-defined, has-type]
-            "vision_num_ctx": self.vision_num_ctx,  # type: ignore[attr-defined, has-type]
             # TTS/STT Settings
             "enable_tts": self.enable_tts,  # type: ignore[attr-defined, has-type]
             "voice": self.tts_voice,  # type: ignore[attr-defined, has-type]
@@ -147,14 +145,22 @@ class SettingsMixin(rx.State, mixin=True):
             "channel_security_tiers": self.channel_security_tiers,
         }
 
-        # Per-agent tuning fields — key list is SSOT in agent_settings
-        # (covers personality/reasoning/thinking/reasoning_effort/temperature/
-        # sampling/speed for all canonical agents; keys == attr names)
-        from ..lib.agent_settings import CANONICAL_AGENTS, PER_AGENT_PERSISTED_FIELDS, agent_attr
-        for agent in CANONICAL_AGENTS:
-            for field in PER_AGENT_PERSISTED_FIELDS:
-                attr = agent_attr(agent, field)
-                settings[attr] = getattr(self, attr)
+        # Per-agent tuning — one dict per agent bucket. Field list is SSOT in
+        # agent_settings (PERSISTED_TUNING_FIELDS). Asymmetries: aifred's
+        # temperature is the global "temperature" key (not per-bucket);
+        # num_ctx_manual(+_enabled) persists only for vision (chat agents
+        # reset on restart — deliberate, see llm_params UI hint).
+        from ..lib.agent_settings import PERSISTED_TUNING_FIELDS
+        agent_tuning_out: Dict[str, Dict[str, Any]] = {}
+        for agent, tuning in self.agent_tuning.items():  # type: ignore[attr-defined]
+            entry = {field: getattr(tuning, field) for field in PERSISTED_TUNING_FIELDS}
+            if agent == "aifred":
+                del entry["temperature"]
+            if agent == "vision":
+                entry["num_ctx_manual"] = tuning.num_ctx_manual
+                entry["num_ctx_manual_enabled"] = tuning.num_ctx_manual_enabled
+            agent_tuning_out[agent] = entry
+        settings["agent_tuning"] = agent_tuning_out
         # Update tts_voices_per_language with current voice selection
         engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
         lang = self.ui_language
@@ -202,79 +208,32 @@ class SettingsMixin(rx.State, mixin=True):
         self.calibration_mode = settings.get("calibration_mode", "legacy")  # type: ignore[attr-defined]
         self.calibration_allow_hybrid = settings.get("calibration_allow_hybrid", False)  # type: ignore[attr-defined]
 
-        # Model IDs - update both ID and display variables
-        # AIfred model (top-level "model" field in settings.json)
-        if "model" in settings:
-            model_id = settings["model"]
-            self.aifred_model_id = model_id  # type: ignore[attr-defined, has-type]
-            # Update display name if we have the models dict
-            if model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                self.aifred_model = self.available_models_dict[model_id]  # type: ignore[attr-defined, has-type]
-            else:
-                self.aifred_model = model_id  # type: ignore[attr-defined, has-type]
+        # NOTE: model ids live exclusively in backend_models (loaded at
+        # backend init) — no flat model keys in settings.json anymore.
+        from ..lib.agent_settings import get_agent_setting, set_agent_setting
 
-        # Sokrates model
-        if "sokrates_model" in settings:
-            model_id = settings["sokrates_model"]
-            self.sokrates_model_id = model_id  # type: ignore[attr-defined, has-type]
-            if model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                self.sokrates_model = self.available_models_dict[model_id]  # type: ignore[attr-defined, has-type]
-            else:
-                self.sokrates_model = model_id  # type: ignore[attr-defined, has-type]
-
-        # Salomo model
-        if "salomo_model" in settings:
-            model_id = settings["salomo_model"]
-            self.salomo_model_id = model_id  # type: ignore[attr-defined, has-type]
-            if model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                self.salomo_model = self.available_models_dict[model_id]  # type: ignore[attr-defined, has-type]
-            else:
-                self.salomo_model = model_id  # type: ignore[attr-defined, has-type]
-
-        # Automatik model (can be empty = same as AIfred)
-        if "automatik_model" in settings:
-            model_id = settings["automatik_model"]
-            self.automatik_model_id = model_id  # type: ignore[attr-defined, has-type]
-            if not model_id:
-                self.automatik_model = ""  # type: ignore[attr-defined, has-type]
-            elif model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                self.automatik_model = self.available_models_dict[model_id]  # type: ignore[attr-defined, has-type]
-            else:
-                self.automatik_model = model_id  # type: ignore[attr-defined, has-type]
-
-        # Vision model
-        if "vision_model" in settings:
-            model_id = settings["vision_model"]
-            self.vision_model_id = model_id  # type: ignore[attr-defined, has-type]
-            if model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                self.vision_model = self.available_models_dict[model_id]  # type: ignore[attr-defined, has-type]
-            else:
-                self.vision_model = model_id  # type: ignore[attr-defined, has-type]
-
-        # RoPE factors
-        self.aifred_rope_factor = settings.get("aifred_rope_factor", self.aifred_rope_factor)  # type: ignore[attr-defined, has-type]
-        self.sokrates_rope_factor = settings.get("sokrates_rope_factor", self.sokrates_rope_factor)  # type: ignore[attr-defined, has-type]
-        self.salomo_rope_factor = settings.get("salomo_rope_factor", self.salomo_rope_factor)  # type: ignore[attr-defined, has-type]
+        # RoPE factors (agents: in the tuning dict; automatik: own field)
         self.automatik_rope_factor = settings.get("automatik_rope_factor", self.automatik_rope_factor)  # type: ignore[attr-defined, has-type]
-        self.vision_rope_factor = settings.get("vision_rope_factor", self.vision_rope_factor)  # type: ignore[attr-defined, has-type]
 
         # Sampling params + personality (per-agent). Deliberately only this
-        # subset of PER_AGENT_PERSISTED_FIELDS — reload serves API-driven
+        # subset of PERSISTED_TUNING_FIELDS — reload serves API-driven
         # changes; thinking/reasoning/speed/temperature stay untouched here
         # (same behavior as before the loop-ification).
-        from ..lib.agent_settings import CANONICAL_AGENTS, agent_attr
         from ..lib.prompt_loader import set_personality_enabled
-        for agent in CANONICAL_AGENTS:
-            for field in ("top_k", "top_p", "min_p", "repeat_penalty"):
-                attr = agent_attr(agent, field)
-                setattr(self, attr, settings.get(attr, getattr(self, attr)))
-        self.vision_temperature = settings.get("vision_temperature", self.vision_temperature)  # type: ignore[attr-defined, has-type]
+        saved_tuning = settings.get("agent_tuning", {})
+        for agent, entry in saved_tuning.items():
+            if agent not in self.agent_tuning:  # type: ignore[attr-defined]
+                continue
+            for field in ("top_k", "top_p", "min_p", "repeat_penalty", "rope_factor"):
+                if field in entry:
+                    set_agent_setting(self, agent, field, entry[field])
+            if agent == "vision" and "temperature" in entry:
+                set_agent_setting(self, "vision", "temperature", entry["temperature"])
 
-        # Personality toggles (+ prompt_loader sync)
-        for agent in CANONICAL_AGENTS:
-            attr = agent_attr(agent, "personality")
-            setattr(self, attr, settings.get(attr, getattr(self, attr)))
-            set_personality_enabled(agent, getattr(self, attr))
+            # Personality toggles (+ prompt_loader sync)
+            if "personality" in entry:
+                set_agent_setting(self, agent, "personality", entry["personality"])
+            set_personality_enabled(agent, get_agent_setting(self, agent, "personality"))
 
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
@@ -408,7 +367,7 @@ class SettingsMixin(rx.State, mixin=True):
 
                 # IMPORTANT: Set model names from defaults (prevents fallback to available_models[0])
                 # The "model" and "automatik_model" keys come from get_default_settings()
-                self.aifred_model = saved_settings.get("model", self.aifred_model)  # type: ignore[attr-defined, has-type]
+                self.agent_tuning["aifred"].model = saved_settings.get("model", self.agent_tuning["aifred"].model)  # type: ignore[attr-defined, has-type]
                 self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)  # type: ignore[attr-defined, has-type]
 
                 self.add_debug("\U0001f504 Settings reloaded from file")  # type: ignore[attr-defined, has-type]

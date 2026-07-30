@@ -229,7 +229,7 @@ class CalibrationMixin(rx.State, mixin=True):
         return ["", t("calibration_matrix_no_tts"),
                 *[e.label_short for e in installed_gpu_engines()]]
 
-    @rx.var(cache=True, auto_deps=False, deps=["aifred_model_id", "calibration_matrix", "ui_language"])
+    @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "calibration_matrix", "ui_language"])
     def calibration_matrix_rows(self) -> list[CalibrationRow]:
         """One entry per VLM choice (including "no VLM"). Each entry
         carries ``{label, cells}`` where ``cells`` is a list of dicts
@@ -269,7 +269,7 @@ class CalibrationMixin(rx.State, mixin=True):
         )
         from aifred.lib.config import VLM_CALIBRATION_CHOICES
 
-        model_id = getattr(self, "aifred_model_id", "") or ""
+        model_id = self.agent_tuning["aifred"].model_id or ""
         engines = list(installed_gpu_engines())
         cache = load_cache() if model_id else {}
 
@@ -427,7 +427,7 @@ class CalibrationMixin(rx.State, mixin=True):
         from aifred.lib.model_vram_cache import load_cache, save_cache
         from aifred.lib.config import VLM_CALIBRATION_CHOICES
 
-        model_id = getattr(self, "aifred_model_id", "") or ""
+        model_id = self.agent_tuning["aifred"].model_id or ""
         if not model_id or "|" not in key:
             return
         vlm_key, tts_key = key.split("|", 1)
@@ -534,7 +534,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("⚠️ Calibration only for Ollama and llama.cpp")  # type: ignore[attr-defined]
                 return
 
-            if not self.aifred_model_id:  # type: ignore[attr-defined]
+            if not self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
                 self.add_debug("⚠️ No model selected")  # type: ignore[attr-defined]
                 return
 
@@ -563,7 +563,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # Session im Fenster zwischen Check und Set beide Guards
             # passieren (TOCTOU) und zwei Läufe teilen sich Gate + Buffer.
             set_calibration_active(True)
-            self.add_debug(f"🔧 Starting calibration for {self.aifred_model_id}...")  # type: ignore[attr-defined]
+            self.add_debug(f"🔧 Starting calibration for {self.agent_tuning["aifred"].model_id}...")  # type: ignore[attr-defined]
 
         _cal_debug_buffer.clear()  # Reste eines Vorlaufs verwerfen
         gen = self._calibrate_context_impl()
@@ -619,7 +619,7 @@ class CalibrationMixin(rx.State, mixin=True):
         können dann alt, teilerneuert oder ganz weg sein."""
         from ..lib.model_vram_cache import load_cache
 
-        model_id = str(self.aifred_model_id or "")  # type: ignore[attr-defined]
+        model_id = str(self.agent_tuning["aifred"].model_id or "")  # type: ignore[attr-defined]
         if not model_id:
             return
         entry = (load_cache() or {}).get(model_id) or {}
@@ -669,7 +669,7 @@ class CalibrationMixin(rx.State, mixin=True):
             )
 
             # Get native context limit first
-            native_ctx, _ = await backend.get_model_context_limit(self.aifred_model_id)  # type: ignore[attr-defined]
+            native_ctx, _ = await backend.get_model_context_limit(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
             calibration_results = {}
 
             # === STEP 1: Calibrate Native (1.0x) ===
@@ -679,7 +679,7 @@ class CalibrationMixin(rx.State, mixin=True):
             calibrated_ctx = None
             is_hybrid_mode = False  # Track if 1.0x resulted in hybrid mode
             async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                self.aifred_model_id,  # type: ignore[attr-defined]
+                self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
                 rope_factor=1.0
             ):
                 if progress_msg.startswith("__RESULT__:"):
@@ -731,7 +731,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 gpu_model = get_gpu_model_name() or "Unknown"
                 for rope_factor in [1.5, 2.0]:
                     add_ollama_calibration(
-                        model_name=self.aifred_model_id,  # type: ignore[attr-defined]
+                        model_name=self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
                         max_context_gpu_only=calibrated_ctx,
                         native_context=native_ctx,
                         gpu_model=gpu_model,
@@ -753,7 +753,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
                     rope_calibrated_ctx = None
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                        self.aifred_model_id,  # type: ignore[attr-defined]
+                        self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
                         rope_factor=rope_factor,
                         min_context=prev_ctx,  # Start from previous result (1.0x or 1.5x)
                         force_hybrid=is_hybrid_mode  # Continue in hybrid mode if 1.0x was hybrid
@@ -772,7 +772,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # Summary
             self._cal_debug("═" * 20)  # type: ignore[attr-defined]
             mode_info = " (Hybrid)" if is_hybrid_mode else ""
-            self._cal_debug(f"✅ Calibration complete for {self.aifred_model_id}{mode_info}:")  # type: ignore[attr-defined]
+            self._cal_debug(f"✅ Calibration complete for {self.agent_tuning["aifred"].model_id}{mode_info}:")  # type: ignore[attr-defined]
             for factor, ctx in calibration_results.items():
                 label = "Native" if factor == 1.0 else f"RoPE {factor}x"
                 suffix = " (auto)" if skip_rope_calibration and factor > 1.0 else ""
@@ -781,7 +781,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
             # Test thinking capability if calibration was successful (shared helper)
             if calibration_results.get(1.0, 0) > 0:
-                async for _ in self._test_and_save_thinking(backend, self.aifred_model_id):  # type: ignore[attr-defined]
+                async for _ in self._test_and_save_thinking(backend, self.agent_tuning["aifred"].model_id):  # type: ignore[attr-defined]
                     yield
 
             self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
@@ -822,12 +822,12 @@ class CalibrationMixin(rx.State, mixin=True):
             # Update state for ALL agents using this model (State-WRITE →
             # im Background-Task nur unter Lock erlaubt)
             async with self:
-                if self.aifred_model_id == model_id:  # type: ignore[attr-defined]
-                    self.aifred_supports_thinking = supports_thinking  # type: ignore[attr-defined]
-                if self.sokrates_model_id == model_id:  # type: ignore[attr-defined]
-                    self.sokrates_supports_thinking = supports_thinking  # type: ignore[attr-defined]
-                if self.salomo_model_id == model_id:  # type: ignore[attr-defined]
-                    self.salomo_supports_thinking = supports_thinking  # type: ignore[attr-defined]
+                if self.agent_tuning["aifred"].model_id == model_id:  # type: ignore[attr-defined]
+                    self.agent_tuning["aifred"].supports_thinking = supports_thinking  # type: ignore[attr-defined]
+                if self.agent_tuning["sokrates"].model_id == model_id:  # type: ignore[attr-defined]
+                    self.agent_tuning["sokrates"].supports_thinking = supports_thinking  # type: ignore[attr-defined]
+                if self.agent_tuning["salomo"].model_id == model_id:  # type: ignore[attr-defined]
+                    self.agent_tuning["salomo"].supports_thinking = supports_thinking  # type: ignore[attr-defined]
 
             if supports_thinking:
                 self._cal_debug("✅ Reasoning mode: Supported (<think> tags)")  # type: ignore[attr-defined]
@@ -1414,7 +1414,7 @@ class CalibrationMixin(rx.State, mixin=True):
             speed_uuid_csv = ""
             # Calibrate the base model — speed variant is created as Phase 2
             # (model_id is always base ID — SSOT, no suffix stripping needed)
-            calibration_model_id = self.aifred_model_id  # type: ignore[attr-defined]
+            calibration_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
 
             # Picker option "Basis-Kalibrierung" deselected → reuse the
             # existing base+speed values from llama-swap.yaml + vram cache
@@ -1577,8 +1577,8 @@ class CalibrationMixin(rx.State, mixin=True):
                 # Write speed variant YAML entry (only for multi-GPU models with valid split)
                 if speed_split_cuda0 <= 0:
                     async with self:
-                        self.aifred_has_speed_variant = False  # type: ignore[attr-defined]
-                        self.aifred_speed_mode = False  # type: ignore[attr-defined]
+                        self.agent_tuning["aifred"].has_speed_variant = False  # type: ignore[attr-defined]
+                        self.agent_tuning["aifred"].speed_mode = False  # type: ignore[attr-defined]
                 if speed_split_cuda0 > 0:
                     added_speed = add_llamaswap_speed_variant(
                         LLAMASWAP_CONFIG_PATH,
@@ -1615,7 +1615,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         )
                         # Toggle immediately visible without restart
                         async with self:
-                            self.aifred_has_speed_variant = True  # type: ignore[attr-defined]
+                            self.agent_tuning["aifred"].has_speed_variant = True  # type: ignore[attr-defined]
                     else:
                         self._cal_debug("⚠️ Could not write speed variant to llama-swap config")  # type: ignore[attr-defined]
                 yield
@@ -2867,9 +2867,9 @@ class CalibrationMixin(rx.State, mixin=True):
             # Step 6: Save thinking result (tested during calibration)
             if thinking_tested:
                 from ..lib.model_vram_cache import set_thinking_support_for_model
-                set_thinking_support_for_model(self.aifred_model_id, supports_thinking)  # type: ignore[attr-defined]
+                set_thinking_support_for_model(self.agent_tuning["aifred"].model_id, supports_thinking)  # type: ignore[attr-defined]
                 async with self:
-                    self.aifred_supports_thinking = supports_thinking  # type: ignore[attr-defined]
+                    self.agent_tuning["aifred"].supports_thinking = supports_thinking  # type: ignore[attr-defined]
                 self._cal_debug(  # type: ignore[attr-defined]
                     f"🧠 Reasoning: {'yes' if supports_thinking else 'no'} "
                     f"(tested during calibration)"
@@ -2882,7 +2882,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     calibration_model_id, force=True,
                 )
                 async with self:
-                    self.aifred_reasoning_levels = _levels  # type: ignore[attr-defined]
+                    self.agent_tuning["aifred"].reasoning_levels = _levels  # type: ignore[attr-defined]
                 if _levels:
                     self._cal_debug(  # type: ignore[attr-defined]
                         f"🧠 Reasoning-effort levels: {', '.join(_levels)}"

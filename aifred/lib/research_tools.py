@@ -95,7 +95,7 @@ async def execute_research(
     #   resident on the side-channel GPU → CUDA OOM the moment the
     #   BASE profile tries to allocate its full layer footprint on
     #   that GPU. Mirrors the chat path's ``state._effective_model_id``.
-    automatik_model_id_base = state.automatik_model_id or state.aifred_model_id  # type: ignore[has-type]
+    automatik_model_id_base = state.automatik_model_id or state.agent_tuning["aifred"].model_id  # type: ignore[has-type]
     automatik_num_ctx, _ = get_agent_num_ctx("aifred", state, automatik_model_id_base)
     automatik_model_id = state._effective_automatik_id  # type: ignore[attr-defined]
 
@@ -355,7 +355,7 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict], mode: str
     if not aifred_model_id:
         backend_models = settings.get("backend_models", {}).get(backend_type, {})
         defaults = BACKEND_DEFAULT_MODELS.get(backend_type, {})
-        aifred_model_id = backend_models.get("aifred_model", defaults.get("aifred_model", ""))
+        aifred_model_id = backend_models.get("aifred", defaults.get("aifred", ""))
 
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
 

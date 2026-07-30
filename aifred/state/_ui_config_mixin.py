@@ -17,20 +17,9 @@ class UIConfigMixin(rx.State, mixin=True):
     temperature_mode: str = "auto"  # "auto" (Intent-Detection) | "manual" (user slider)
 
     # ── Context Window Control ────────────────────────────────────
+    # Per-agent manual values + toggles live in agent_tuning
+    # (num_ctx_manual / num_ctx_manual_enabled) — persisted for vision only.
     num_ctx: int = 32768
-
-    # Per-Agent manual values (used only when corresponding _enabled flag is True)
-    num_ctx_manual_aifred: int = 4096  # Manual value for AIfred - Ollama default
-    num_ctx_manual_sokrates: int = 4096  # Manual value for Sokrates
-    num_ctx_manual_salomo: int = 4096  # Manual value for Salomo
-    # Per-Agent manual toggle (True = use manual value, False = use auto-calibrated)
-    num_ctx_manual_aifred_enabled: bool = False
-    num_ctx_manual_sokrates_enabled: bool = False
-    num_ctx_manual_salomo_enabled: bool = False
-
-    # Vision Context Window Control (PERSISTENT)
-    vision_num_ctx_enabled: bool = False  # True = use manual value, False = use calibrated
-    vision_num_ctx: int = 32768  # Manual context value (default: 32K)
 
     # ── Research Settings ─────────────────────────────────────────
     # NOTE: research_mode is now per-session (session_storage.DEFAULT_SESSION_CONFIG).
@@ -81,7 +70,7 @@ class UIConfigMixin(rx.State, mixin=True):
         """Set manual num_ctx value for an agent (only used when enabled).
 
         IMPORTANT: Not saved in settings.json (vision has its own persistent
-        setter, see set_vision_num_ctx).
+        path, see set_agent_num_ctx_manual).
         """
         from ..lib.agent_settings import set_agent_setting
         from ..lib.config import NUM_CTX_MANUAL_MAX
@@ -93,8 +82,9 @@ class UIConfigMixin(rx.State, mixin=True):
             if not clean_value:
                 return  # Empty input, ignore
             num_value = int(clean_value)
-            if num_value < 1:
-                num_value = 1
+            min_value = 1024 if agent == "vision" else 1  # Vision minimum 1K
+            if num_value < min_value:
+                num_value = min_value
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
             set_agent_setting(self, agent, "num_ctx_manual", num_value)
@@ -105,14 +95,15 @@ class UIConfigMixin(rx.State, mixin=True):
         except (ValueError, TypeError):
             self.add_debug(f"\u274c Invalid Context value: {value}")  # type: ignore[attr-defined]
 
-    def set_num_ctx_manual_aifred(self, value: str) -> None:
-        self._set_num_ctx_manual("aifred", value)
+    def set_agent_num_ctx_manual(self, agent: str, value: str) -> None:
+        """Generic manual-context input handler (foreach rows pass the id).
 
-    def set_num_ctx_manual_sokrates(self, value: str) -> None:
-        self._set_num_ctx_manual("sokrates", value)
-
-    def set_num_ctx_manual_salomo(self, value: str) -> None:
-        self._set_num_ctx_manual("salomo", value)
+        Vision's value is persisted (settings.json); chat agents reset on
+        restart \u2014 deliberate, see the llm_params UI hint.
+        """
+        self._set_num_ctx_manual(agent, value)
+        if agent == "vision":
+            self._save_settings()  # type: ignore[attr-defined]
 
     def _toggle_num_ctx_manual(self, agent: str, enabled: bool) -> None:
         """Toggle manual context for an agent."""
@@ -122,38 +113,11 @@ class UIConfigMixin(rx.State, mixin=True):
         status = "Manual" if enabled else "Auto"
         self.add_debug(f"{get_agent_label(agent)} Context: {status}")  # type: ignore[attr-defined]
 
-    def toggle_num_ctx_manual_aifred(self, enabled: bool) -> None:
-        self._toggle_num_ctx_manual("aifred", enabled)
-
-    def toggle_num_ctx_manual_sokrates(self, enabled: bool) -> None:
-        self._toggle_num_ctx_manual("sokrates", enabled)
-
-    def toggle_num_ctx_manual_salomo(self, enabled: bool) -> None:
-        self._toggle_num_ctx_manual("salomo", enabled)
-
-    def toggle_vision_num_ctx(self, enabled: bool) -> None:
-        """Toggle manual context for Vision-LLM (PERSISTENT)."""
-        self.vision_num_ctx_enabled = enabled
-        status = "Manual" if enabled else "Auto (calibrated)"
-        self.add_debug(f"\U0001f441\ufe0f Vision Context: {status}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
-
-    def set_vision_num_ctx(self, value: str) -> None:
-        """Set manual vision context value (PERSISTENT)."""
-        from ..lib.config import NUM_CTX_MANUAL_MAX
-        from ..lib.formatting import format_number
-
-        try:
-            num_value = int(value)
-            if num_value < 1024:  # Minimum 1K for vision
-                num_value = 1024
-            if num_value > NUM_CTX_MANUAL_MAX:
-                num_value = NUM_CTX_MANUAL_MAX
-            self.vision_num_ctx = num_value
-            self.add_debug(f"\U0001f441\ufe0f Manual Context (Vision): {format_number(num_value)}")  # type: ignore[attr-defined]
+    def toggle_agent_num_ctx_manual(self, agent: str, enabled: bool) -> None:
+        """Generic manual-context toggle handler (foreach rows pass the id)."""
+        self._toggle_num_ctx_manual(agent, enabled)
+        if agent == "vision":
             self._save_settings()  # type: ignore[attr-defined]
-        except (ValueError, TypeError):
-            self.add_debug(f"\u274c Invalid Vision Context value: {value}")  # type: ignore[attr-defined]
 
     def _auto_ctx_for_agent(self, agent: str) -> int:
         """Auto (calibrated) context for an agent's model — backend-aware.
@@ -212,8 +176,9 @@ class UIConfigMixin(rx.State, mixin=True):
         self.add_debug("\U0001f4ca Context configuration:")  # type: ignore[attr-defined]
 
         from ..lib.agent_config import get_agent_label
-        from ..lib.agent_settings import CANONICAL_AGENTS, get_agent_setting
-        for agent in CANONICAL_AGENTS:
+        from ..lib.agent_settings import get_agent_setting
+        for entry in self._ui_agent_list():  # type: ignore[attr-defined]
+            agent = entry["id"]
             # AIfred is always shown; the others only with an own model
             if agent != "aifred" and not get_agent_setting(self, agent, "model_id"):
                 continue

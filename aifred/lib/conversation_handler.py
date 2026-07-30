@@ -862,8 +862,9 @@ async def extract_structured_data_from_images(
     # / hoher Bild-Auflösung. Default-Wert reicht für Türsteher-
     # Beschreibungen.
     from .config import VLM_NUM_CTX
-    if state and getattr(state, 'vision_num_ctx_enabled', False):
-        num_ctx = int(getattr(state, 'vision_num_ctx', VLM_NUM_CTX))
+    from .agent_settings import get_agent_setting
+    if state and get_agent_setting(state, "vision", "num_ctx_manual_enabled", False):
+        num_ctx = int(get_agent_setting(state, "vision", "num_ctx_manual", VLM_NUM_CTX))
         ctx_msg1 = f"🎯 Vision Context: {format_number(num_ctx)} tok (MANUAL OVERRIDE)"
     else:
         num_ctx = VLM_NUM_CTX

@@ -10,26 +10,27 @@ from ..helpers import t, agent_emoji
 
 
 def _ctx_column(
-    emoji: str, label: str,
-    enabled_var, toggle_handler,
-    value_var, set_handler,
-    placeholder: str = "16384",
+    agent_id, emoji, label,
+    enabled_var, value_var,
     extra_disabled=False,
     **extra_style,
 ) -> rx.Component:
     """Helper: One agent context column with toggle + input.
 
+    ``agent_id``/``emoji``/``label`` sind Vars aus ``AIState.ctx_rows``
+    (rx.foreach) — die Handler sind die generischen Agent-Setter.
+
     ``extra_disabled`` (Reflex-Var oder Python-bool): zusätzlicher
-    Disabled-Grund. Für Chat-Agenten typischerweise
-    ``AIState.backend_type != "ollama"`` — bei llama.cpp/vLLM
-    wird ``num_ctx`` zur Modell-Lade-Zeit fix gesetzt, per Request
-    nicht mehr änderbar; Toggle + Input greifen also nicht und werden
-    grau. Vision ist davon ausgenommen (läuft immer via Ollama)."""
+    Disabled-Grund. Typischerweise ``AIState.backend_type != "ollama"`` —
+    bei llama.cpp/vLLM wird ``num_ctx`` zur Modell-Lade-Zeit fix gesetzt,
+    per Request nicht mehr änderbar; Toggle + Input greifen also nicht
+    und werden grau."""
+    from ..helpers import agent_emoji_var
     input_disabled = ~enabled_var | extra_disabled  # type: ignore[operator]
     input_active = enabled_var & ~extra_disabled  # type: ignore[operator]
     return rx.vstack(
         rx.hstack(
-            agent_emoji(emoji, size="13px"),
+            agent_emoji_var(emoji, size="13px"),
             rx.text(
                 label,
                 font_size="11px",
@@ -38,7 +39,7 @@ def _ctx_column(
             ),
             rx.switch(
                 checked=enabled_var,
-                on_change=toggle_handler,
+                on_change=lambda v: AIState.toggle_agent_num_ctx_manual(agent_id, v),
                 disabled=extra_disabled,
                 size="1",
             ),
@@ -46,9 +47,9 @@ def _ctx_column(
             align="center",
         ),
         rx.input(
-            placeholder=placeholder,
+            placeholder=rx.cond(agent_id == "vision", "32768", "16384"),
             default_value=value_var.to(str),
-            on_blur=set_handler,
+            on_blur=lambda v: AIState.set_agent_num_ctx_manual(agent_id, v),
             type="number",
             width="78px",
             disabled=input_disabled,
@@ -64,16 +65,18 @@ def _ctx_column(
 # ============================================================
 
 def _agent_toggle(
-    emoji: str,
+    emoji,
     checked_var,
     on_change_handler,
     tooltip_text: str | rx.Var,
     color_scheme: str = "orange",
+    emoji_is_var: bool = False,
 ) -> rx.Component:
     """Single agent toggle with tooltip (Personality/Reasoning/Thinking)."""
+    from ..helpers import agent_emoji_var
     return rx.tooltip(
         rx.hstack(
-            agent_emoji(emoji, size="14px"),
+            agent_emoji_var(emoji, size="14px") if emoji_is_var else agent_emoji(emoji, size="14px"),
             rx.checkbox(
                 checked=checked_var,
                 on_change=on_change_handler,

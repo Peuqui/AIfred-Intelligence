@@ -478,11 +478,11 @@ class ChatMixin(rx.State, mixin=True):
         # reload, even though it is physically the same loaded model. With
         # matching base IDs the image just hits the already-loaded main model
         # with a different (vision) prompt — no swap.
-        if self.vision_model_id == self.aifred_model_id:  # type: ignore[attr-defined]
+        if self.agent_tuning["vision"].model_id == self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
             effective_vision_id = self._effective_model_id("aifred")  # type: ignore[attr-defined]
         else:
             effective_vision_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
-        if effective_vision_id != self.vision_model_id:  # type: ignore[attr-defined]
+        if effective_vision_id != self.agent_tuning["vision"].model_id:  # type: ignore[attr-defined]
             self.add_debug(f"⚡ VL variant: {effective_vision_id}")  # type: ignore[attr-defined]
             yield
 
@@ -521,10 +521,10 @@ class ChatMixin(rx.State, mixin=True):
             detected_intent=detected_intent,
             detected_language=detected_language,
             temperature_mode="manual",
-            temperature=self.vision_temperature,  # type: ignore[attr-defined]
+            temperature=self.agent_tuning["vision"].temperature,  # type: ignore[attr-defined]
             backend_type=self.backend_type,  # type: ignore[attr-defined]
             backend_url=self.backend_url,  # type: ignore[attr-defined]
-            enable_thinking=self.vision_thinking,  # type: ignore[attr-defined]
+            enable_thinking=self.agent_tuning["vision"].thinking,  # type: ignore[attr-defined]
             state=self,
             multimodal_content=content_parts,
             vision_prompt_key=vision_prompt_key,
@@ -616,11 +616,11 @@ class ChatMixin(rx.State, mixin=True):
             from ..lib.calibration import has_llamaswap_tts_variant
             from ..lib.config import LLAMASWAP_CONFIG_PATH
             if not has_llamaswap_tts_variant(
-                LLAMASWAP_CONFIG_PATH, self.aifred_model_id, wanted,  # type: ignore[attr-defined]
+                LLAMASWAP_CONFIG_PATH, self.agent_tuning["aifred"].model_id, wanted,  # type: ignore[attr-defined]
             ):
                 self.add_debug(  # type: ignore[attr-defined]
                     f"⚠️ No calibrated {wanted} profile for "
-                    f"{self.aifred_model_id} — voice output disabled "  # type: ignore[attr-defined]
+                    f"{self.agent_tuning["aifred"].model_id} — voice output disabled "  # type: ignore[attr-defined]
                     f"for this model (calibrate it first)"
                 )
                 wanted = ""
@@ -663,15 +663,15 @@ class ChatMixin(rx.State, mixin=True):
         # BASE model_id, not the already-resolved _effective_model_id, or
         # we get a double-suffix lookup that misses the YAML entry.
         context_limits: list[int] = []
-        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.aifred_model_id)  # type: ignore[attr-defined, arg-type]
+        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined, arg-type]
         context_limits.append(aifred_ctx)
 
         if self.multi_agent_mode != "standard":  # type: ignore[attr-defined]
-            if self.sokrates_model_id:  # type: ignore[attr-defined]
-                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.sokrates_model_id)  # type: ignore[attr-defined, arg-type]
+            if self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined]
+                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.agent_tuning["sokrates"].model_id)  # type: ignore[attr-defined, arg-type]
                 context_limits.append(sokrates_ctx)
-            if self.salomo_model_id:  # type: ignore[attr-defined]
-                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.salomo_model_id)  # type: ignore[attr-defined, arg-type]
+            if self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined]
+                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.agent_tuning["salomo"].model_id)  # type: ignore[attr-defined, arg-type]
                 context_limits.append(salomo_ctx)
 
         context_limit = min(context_limits) if context_limits else 4096
@@ -747,7 +747,7 @@ class ChatMixin(rx.State, mixin=True):
         # got cleared on backend switch (we clear rather than silently
         # substitute). Stop here with a clear hint instead of crashing
         # downstream on an empty model id.
-        if not self.aifred_model_id:  # type: ignore[attr-defined]
+        if not self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
             self.add_debug("⚠️ No model selected — pick one in the settings panel")  # type: ignore[attr-defined]
             return
 
@@ -770,7 +770,7 @@ class ChatMixin(rx.State, mixin=True):
                 _vlm_key_chat = get_active_vlm_key() if _vlm_active_chat else ""
                 _warn = diagnose_uncalibrated_combo(
                     LLAMASWAP_CONFIG_PATH,
-                    self.aifred_model_id,  # type: ignore[attr-defined]
+                    self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
                     tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
                     tts_engine=self.tts_engine,  # type: ignore[attr-defined]
                     gpu_tts_engines=GPU_ENGINES,
@@ -924,8 +924,8 @@ class ChatMixin(rx.State, mixin=True):
             if self.backend_type == "vllm":  # type: ignore[attr-defined]
                 from . import _global_backend_state
                 mgr = _global_backend_state.get("vllm_manager")
-                if not (mgr and mgr.is_running()) and self.aifred_model_id:  # type: ignore[attr-defined]
-                    self.add_debug(f"🚀 Starting vLLM with {self.aifred_model_id}...")  # type: ignore[attr-defined]
+                if not (mgr and mgr.is_running()) and self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
+                    self.add_debug(f"🚀 Starting vLLM with {self.agent_tuning["aifred"].model_id}...")  # type: ignore[attr-defined]
                     yield  # Show debug message while loading
                 await self._ensure_vllm_model()  # type: ignore[attr-defined]
 
@@ -981,7 +981,7 @@ class ChatMixin(rx.State, mixin=True):
                         pass
 
                 img_count = len(local_images)
-                self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {self.vision_model}")  # type: ignore[attr-defined]
+                self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {self.agent_tuning["vision"].model}")  # type: ignore[attr-defined]
                 yield
 
                 # Build multimodal content (images + text) for call_llm()
@@ -991,7 +991,7 @@ class ChatMixin(rx.State, mixin=True):
                 content_parts: list[dict] = []
 
                 # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL)
-                if not self.vision_thinking:  # type: ignore[attr-defined]
+                if not self.agent_tuning["vision"].thinking:  # type: ignore[attr-defined]
                     content_parts.append({"type": "text", "text": "/no_think"})
 
                 # Images first (VL models handle it best this way)
@@ -1054,11 +1054,11 @@ class ChatMixin(rx.State, mixin=True):
                 # Ollama uses MODEL DEFAULT (not currently loaded context) when num_ctx is omitted.
                 # Omitting num_ctx causes Ollama to reload with default → then main inference
                 # sends calibrated num_ctx → Ollama reloads AGAIN. Two unnecessary reloads!
-                auto_num_ctx: int | None = self.aifred_max_context if self.aifred_max_context else None  # type: ignore[attr-defined]
+                auto_num_ctx: int | None = self.agent_tuning["aifred"].max_context if self.agent_tuning["aifred"].max_context else None  # type: ignore[attr-defined]
                 log_message(f"🔧 Automatik = AIfred ({effective_auto}) → num_ctx={auto_num_ctx} (match preload)")
 
                 # Warning if AIfred context is below recommended Automatik threshold
-                effective_ctx = self.aifred_max_context or 0  # type: ignore[attr-defined]
+                effective_ctx = self.agent_tuning["aifred"].max_context or 0  # type: ignore[attr-defined]
                 if effective_ctx > 0 and effective_ctx < AUTOMATIK_LLM_NUM_CTX:
                     self.add_debug(
                         f"⚠️ Automatik Context ({format_number(effective_ctx)}) < recommended ({format_number(AUTOMATIK_LLM_NUM_CTX)}) - Automatik tasks may be less reliable"

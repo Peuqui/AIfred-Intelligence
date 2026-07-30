@@ -1,36 +1,42 @@
-"""Per-agent tuning-settings access — SSOT for attribute addressing.
+"""Per-agent tuning-settings access — SSOT for bucket addressing.
 
-Phase 1 of the agent-settings refactor: every code path that addresses
-per-agent tuning fields (model, sampling, thinking, speed, manual context)
-goes through these helpers. The helpers own the naming scheme INCLUDING its
-historical asymmetries, so Phase 2 (dict storage) only has to change this
-module — not the call-sites.
-
-The returned names are valid both as Reflex-state attributes AND as flat
-``settings.json`` keys (the persistence layer uses the same names).
+Phase 2 of the agent-settings refactor: per-agent tuning lives in
+``state.agent_tuning: dict[str, AgentTuning]`` (see ``agent_tuning.py``).
+Every code path that reads or writes per-agent tuning goes through these
+helpers; they own the remaining asymmetry (AIfred's temperature is the
+global ``state.temperature``), so call-sites never special-case agents.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-# The four agents with own state vars. Everything else (custom agents from
-# agents.json) shares AIfred's tuning bucket — they run on AIfred's model.
-CANONICAL_AGENTS = ("aifred", "sokrates", "salomo", "vision")
+from .agent_tuning import CANONICAL_AGENTS, default_tuning
+
+__all__ = [
+    "CANONICAL_AGENTS",
+    "PERSISTED_TUNING_FIELDS",
+    "settings_agent",
+    "model_owner",
+    "get_agent_setting",
+    "set_agent_setting",
+    "get_agent_base_model_id",
+    "get_persisted_tuning",
+]
 
 _MISSING = object()
 
-# Per-agent tuning fields persisted flat in settings.json — the keys equal
-# the state-attr names (see agent_attr, incl. the aifred-temperature
-# asymmetry: agent_attr("aifred", "temperature") == "temperature").
-# Reload note: _reload_settings_from_file deliberately reloads only a
-# subset of these (sampling + personality) — see the comments there.
-PER_AGENT_PERSISTED_FIELDS = (
+# Tuning fields persisted per agent under settings.json["agent_tuning"].
+# Asymmetries handled in _save_settings/_load: aifred's temperature is the
+# global "temperature" key; num_ctx_manual(+_enabled) persists only for
+# vision (chat agents reset on restart — deliberate, see llm_params UI hint).
+PERSISTED_TUNING_FIELDS = (
     "personality",
     "reasoning",
     "thinking",
     "reasoning_effort",
     "temperature",
+    "temperature_offset",
     "top_k",
     "top_p",
     "min_p",
@@ -40,10 +46,11 @@ PER_AGENT_PERSISTED_FIELDS = (
 
 
 def settings_agent(agent: str) -> str:
-    """Map an agent id to the agent whose tuning bucket applies.
+    """Validate an agent id and return the id of its tuning bucket.
 
-    Canonical agents own their bucket; registered custom agents share
-    AIfred's. Unregistered names raise (typo guard).
+    Every registered agent (canonical or custom) owns its bucket — buckets
+    for new agents materialize on first write, reads before that serve the
+    agent's defaults. Unregistered names raise (typo guard).
     """
     if agent in CANONICAL_AGENTS:
         return agent
@@ -53,54 +60,82 @@ def settings_agent(agent: str) -> str:
             f"Unknown agent: {agent}. Must be one of {CANONICAL_AGENTS} "
             f"or a registered custom agent."
         )
-    return "aifred"
+    return agent
 
 
-def agent_attr(agent: str, field: str) -> str:
-    """SSOT: (agent, field) → state-attribute / settings.json key.
-
-    Encapsulates the naming asymmetries:
-    - AIfred's temperature is the global ``temperature`` (no ``aifred_`` prefix)
-    - Vision's manual context is ``vision_num_ctx(_enabled)`` instead of
-      ``num_ctx_manual_vision(_enabled)``
-    """
-    agent = settings_agent(agent)
-    if field == "temperature" and agent == "aifred":
-        return "temperature"
-    if field == "num_ctx_manual":
-        return "vision_num_ctx" if agent == "vision" else f"num_ctx_manual_{agent}"
-    if field == "num_ctx_manual_enabled":
-        return (
-            "vision_num_ctx_enabled" if agent == "vision"
-            else f"num_ctx_manual_{agent}_enabled"
-        )
-    return f"{agent}_{field}"
+def _tuning_bucket(state: Any, agent: str) -> Any:
+    """The agent's AgentTuning bucket, created on demand for new agents."""
+    tuning = state.agent_tuning.get(agent)
+    if tuning is None:
+        tuning = default_tuning(agent)
+        state.agent_tuning[agent] = tuning
+    return tuning
 
 
 def get_agent_setting(state: Any, agent: str, field: str, default: Any = _MISSING) -> Any:
-    """Read a per-agent tuning value from state (or any attr container).
+    """Read a per-agent tuning value from state.
 
-    Without ``default`` a missing attribute raises AttributeError — loud,
-    no silent fallback.
+    Agents without a bucket yet (fresh custom agents) read their
+    ``default_tuning`` values. Without ``default`` an unknown FIELD raises
+    AttributeError — loud, no silent fallback.
     """
-    attr = agent_attr(agent, field)
+    agent = settings_agent(agent)
+    if agent == "aifred" and field == "temperature":
+        return getattr(state, "temperature")
+    tuning = state.agent_tuning.get(agent)
+    if tuning is None:
+        tuning = default_tuning(agent)
     if default is _MISSING:
-        return getattr(state, attr)
-    return getattr(state, attr, default)
+        return getattr(tuning, field)
+    return getattr(tuning, field, default)
 
 
 def set_agent_setting(state: Any, agent: str, field: str, value: Any) -> None:
     """Write a per-agent tuning value to state."""
-    setattr(state, agent_attr(agent, field), value)
+    agent = settings_agent(agent)
+    if agent == "aifred" and field == "temperature":
+        setattr(state, "temperature", value)
+        return
+    setattr(_tuning_bucket(state, agent), field, value)
+
+
+def model_owner(state: Any, agent: str) -> str:
+    """Agent whose model actually loads for this agent.
+
+    An agent without an own model shares AIfred's LLM — and with it
+    AIfred's model-bound toggles (speed_mode, has_speed_variant). Resolving
+    those from the owner keeps browser, Hub and context lookup on the SAME
+    llama-swap variant (a mismatch double-loads base ↔ -speed).
+    """
+    agent = settings_agent(agent)
+    if get_agent_setting(state, agent, "model_id", ""):
+        return agent
+    return "aifred"
 
 
 def get_agent_base_model_id(state: Any, agent: str) -> str:
     """Base model ID (no variant suffix) with inheritance.
 
-    Agents without an own model (empty ``*_model_id``, and all custom
-    agents) share AIfred's LLM — the single inheritance rule that was
-    previously duplicated as ``... or state.aifred_model_id`` at several
-    call-sites.
+    Agents without an own model (empty ``model_id``) share AIfred's LLM —
+    the single inheritance rule.
     """
     own: str = get_agent_setting(state, agent, "model_id", "")
-    return own or getattr(state, "aifred_model_id", "")
+    if own:
+        return own
+    inherited: str = get_agent_setting(state, "aifred", "model_id", "")
+    return inherited
+
+
+def get_persisted_tuning(settings: dict, agent: str, field: str, default: Any) -> Any:
+    """Read a per-agent tuning value from a loaded settings.json dict.
+
+    For code paths without a State instance (Message Hub workers). Applies
+    the same aifred-temperature asymmetry as :func:`get_agent_setting`.
+    """
+    try:
+        agent = settings_agent(agent)
+    except ValueError:
+        return default
+    if agent == "aifred" and field == "temperature":
+        return settings.get("temperature", default)
+    return settings.get("agent_tuning", {}).get(agent, {}).get(field, default)

@@ -29,7 +29,7 @@ def build_llm_options(state: "AIState | None", agent: str, temperature: float, n
     keys directly from ``settings.json`` so browser-configured per-agent
     sampling overrides apply universally — no inconsistency between channels.
     """
-    from .agent_settings import agent_attr, get_agent_setting
+    from .agent_settings import get_agent_setting, get_persisted_tuning
     if state is None:
         from .settings import load_settings
         s = load_settings() or {}
@@ -38,10 +38,10 @@ def build_llm_options(state: "AIState | None", agent: str, temperature: float, n
             enable_thinking=False,  # Hub workers default to no-thinking
             supports_thinking=None,
             num_ctx=num_ctx,
-            top_k=s.get(agent_attr(agent, "top_k"), 40),
-            top_p=s.get(agent_attr(agent, "top_p"), 0.9),
-            min_p=s.get(agent_attr(agent, "min_p"), 0.0),
-            repeat_penalty=s.get(agent_attr(agent, "repeat_penalty"), 1.1),
+            top_k=get_persisted_tuning(s, agent, "top_k", 40),
+            top_p=get_persisted_tuning(s, agent, "top_p", 0.9),
+            min_p=get_persisted_tuning(s, agent, "min_p", 0.0),
+            repeat_penalty=get_persisted_tuning(s, agent, "repeat_penalty", 1.1),
         )
     return LLMOptions(
         temperature=temperature,

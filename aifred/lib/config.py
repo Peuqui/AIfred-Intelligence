@@ -127,32 +127,32 @@ DEFAULT_SETTINGS = {
 # - Multi-Agent (Sokrates, Salomo, AIfred): Qwen3-4B-Instruct-2507 (~2.6GB)
 BACKEND_DEFAULT_MODELS = {
     "ollama": {
-        "aifred_model": "qwen3:4b-instruct-2507-q4_K_M",                  # AIfred Main-LLM: GGUF Q8_0, ~32GB
-        "automatik_model": "qwen3:4b-instruct-2507-q4_K_M",               # Automatik: GGUF Q4_K_M, ~2.6GB
-        "sokrates_model": "qwen3:4b-instruct-2507-q4_K_M",                # Sokrates: GGUF Q4_K_M, ~2.6GB
-        "salomo_model": "qwen3:4b-instruct-2507-q4_K_M",                  # Salomo: GGUF Q4_K_M, ~2.6GB
-        "vision_model": "qwen3-vl:8b",                                    # Vision: Qwen3-VL 8B
+        "aifred": "qwen3:4b-instruct-2507-q4_K_M",                  # AIfred Main-LLM: GGUF Q8_0, ~32GB
+        "automatik": "qwen3:4b-instruct-2507-q4_K_M",               # Automatik: GGUF Q4_K_M, ~2.6GB
+        "sokrates": "qwen3:4b-instruct-2507-q4_K_M",                # Sokrates: GGUF Q4_K_M, ~2.6GB
+        "salomo": "qwen3:4b-instruct-2507-q4_K_M",                  # Salomo: GGUF Q4_K_M, ~2.6GB
+        "vision": "qwen3-vl:8b",                                    # Vision: Qwen3-VL 8B
     },
     "vllm": {
-        "aifred_model": "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",   # AIfred Main-LLM: AWQ 4-bit, ~18GB (CONFIRMED)
-        "automatik_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",     # Automatik: AWQ 4-bit, ~2.8GB (CONFIRMED)
-        "sokrates_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",      # Sokrates: AWQ 4-bit, ~2.8GB
-        "salomo_model": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",        # Salomo: AWQ 4-bit, ~2.8GB
-        "vision_model": "",                                                # Vision: Auto-detect
+        "aifred": "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",   # AIfred Main-LLM: AWQ 4-bit, ~18GB (CONFIRMED)
+        "automatik": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",     # Automatik: AWQ 4-bit, ~2.8GB (CONFIRMED)
+        "sokrates": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",      # Sokrates: AWQ 4-bit, ~2.8GB
+        "salomo": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",        # Salomo: AWQ 4-bit, ~2.8GB
+        "vision": "",                                                # Vision: Auto-detect
     },
     "llamacpp": {
-        "aifred_model": "qwen3-30b-a3b-instruct-2507-q8_0",               # AIfred Main-LLM: Q8_0, ~32GB (2x P40)
-        "automatik_model": "qwen3-4b-instruct-2507-q4_k_m",               # Automatik: Q4_K_M, ~2.6GB
-        "sokrates_model": "qwen3-8b-q4_k_m",                              # Sokrates: Q4_K_M, ~4.7GB
-        "salomo_model": "qwen3-8b-q4_k_m",                                # Salomo: Q4_K_M, ~4.7GB
-        "vision_model": "",                                                # Vision: Auto-detect
+        "aifred": "qwen3-30b-a3b-instruct-2507-q8_0",               # AIfred Main-LLM: Q8_0, ~32GB (2x P40)
+        "automatik": "qwen3-4b-instruct-2507-q4_k_m",               # Automatik: Q4_K_M, ~2.6GB
+        "sokrates": "qwen3-8b-q4_k_m",                              # Sokrates: Q4_K_M, ~4.7GB
+        "salomo": "qwen3-8b-q4_k_m",                                # Salomo: Q4_K_M, ~4.7GB
+        "vision": "",                                                # Vision: Auto-detect
     },
     "cloud_api": {
-        "aifred_model": "qwen-plus",                                          # Default: Qwen Plus (free tier)
-        "automatik_model": "qwen-turbo",                                      # Automatik: Qwen Turbo (faster, free)
-        "sokrates_model": "qwen-turbo",                                       # Sokrates: Qwen Turbo
-        "salomo_model": "qwen-turbo",                                         # Salomo: Qwen Turbo
-        "vision_model": "",                                                   # Vision: Not yet supported
+        "aifred": "qwen-plus",                                          # Default: Qwen Plus (free tier)
+        "automatik": "qwen-turbo",                                      # Automatik: Qwen Turbo (faster, free)
+        "sokrates": "qwen-turbo",                                       # Sokrates: Qwen Turbo
+        "salomo": "qwen-turbo",                                         # Salomo: Qwen Turbo
+        "vision": "",                                                   # Vision: Not yet supported
     },
 }
 
@@ -1057,12 +1057,11 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     # toggle, otherwise Hub and browser resolve different variants and
     # llama-swap double-loads (base ↔ -speed) on every channel request.
     saved = settings.get("backend_models", {}).get(backend_type, {})
-    model_key = f"{agent}_model" if agent != "aifred" else "aifred_model"
-    base_id = saved.get(model_key, "")
+    base_id = saved.get(agent, "")
     speed_agent = agent
     if not base_id:
         # Fall back to AIfred's model (other agents share the same LLM)
-        base_id = saved.get("aifred_model", "")
+        base_id = saved.get("aifred", "")
         speed_agent = "aifred"
     if not base_id:
         return str(base_id)
@@ -1075,6 +1074,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         # Other backends don't have llama-swap variants
         return str(base_id)
 
+    from .agent_settings import get_persisted_tuning
     from .calibration import parse_llamaswap_config, resolve_effective_suffix
 
     swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
@@ -1083,7 +1083,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     suffix = resolve_effective_suffix(
         Path(LLAMASWAP_CONFIG_PATH),
         base_id,
-        speed_on=settings.get(f"{speed_agent}_speed_mode", False),
+        speed_on=get_persisted_tuning(settings, speed_agent, "speed_mode", False),
         has_speed_variant=has_speed_variant,
         tts_active=settings.get("enable_tts", False),
         tts_engine=settings.get("tts_engine", ""),
