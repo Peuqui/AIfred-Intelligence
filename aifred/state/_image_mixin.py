@@ -138,13 +138,13 @@ class ImageMixin(rx.State, mixin=True):
 
         try:
             # Check if vision model selected
-            if not self.vision_model:  # type: ignore[attr-defined]
+            if not self.agent_tuning["vision"].model:  # type: ignore[attr-defined]
                 self.image_upload_warning = "\u26a0\ufe0f Please select a Vision model in settings first."
                 self.add_debug("\u26a0\ufe0f Image upload blocked: No vision model selected")  # type: ignore[attr-defined]
                 return
 
             # Check if vision_model is in the vision models cache (metadata-validated)
-            if self.vision_model_id not in self.vision_models_cache:  # type: ignore[attr-defined]
+            if self.agent_tuning["vision"].model_id not in self.vision_models_cache:  # type: ignore[attr-defined]
                 self.image_upload_warning = (
                     "\u26a0\ufe0f Selected Vision model doesn't support images. "
                     "Please choose a different Vision model from the dropdown."

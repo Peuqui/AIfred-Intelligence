@@ -209,6 +209,7 @@
   "personality_sokrates_tooltip": "Philosopher personality: Socratic method with rhetorical questions",
   "personality_salomo_tooltip": "King personality: Wise arbiter style with Hebrew proverbs",
   "personality_vision_tooltip": "Vision personality: AIfred butler style for image analysis",
+  "personality_generic_tooltip": "Personality: This agent's own speech style",
   "reasoning_tooltip": "Reasoning prompt – Step-by-step analysis in system prompt",
   "thinking_tooltip": "Model Thinking – Internal chain-of-thought (enable_thinking)",
   "thinking_mode_off": "Off",

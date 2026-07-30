@@ -69,6 +69,23 @@ def agent_emoji(emoji: str, size: str = "1.2em") -> rx.Component:
     return rx.text(emoji, font_size=size, line_height="1", flex_shrink="0")
 
 
+def agent_emoji_var(emoji: rx.Var, size: str = "1.2em") -> rx.Component:
+    """Var-based variant of :func:`agent_emoji` for rx.foreach rows."""
+    top_hat = next(iter(_CUSTOM_EMOJI_MAP))
+    return rx.cond(
+        emoji == top_hat,
+        rx.image(
+            src=_CUSTOM_EMOJI_MAP[top_hat],
+            width=size,
+            height=size,
+            display="inline-block",
+            vertical_align="middle",
+            flex_shrink="0",
+        ),
+        rx.text(emoji, font_size=size, line_height="1", flex_shrink="0"),
+    )
+
+
 # ============================================================
 # FULLSCREEN OVERLAY MODAL SCAFFOLD
 # ============================================================

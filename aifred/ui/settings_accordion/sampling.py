@@ -1,4 +1,8 @@
-"""Settings: Sampling-Parameter-Zeilen (Temp/Top-P/Top-K/Penalty) pro Agent."""
+"""Settings: Sampling-Parameter-Zeilen (Temp/Top-P/Top-K/Penalty) pro Agent.
+
+Rendert generisch über ``AIState.sampling_rows`` (rx.foreach) — jeder
+registrierte Agent (auch Custom) bekommt seine Zeile automatisch.
+"""
 
 from __future__ import annotations
 
@@ -6,16 +10,15 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import t, agent_emoji
+from ..helpers import t, agent_emoji_var
 
 
-def _sampling_input(agent: str, param: str, width: str = "55px") -> rx.Component:
+def _sampling_input(row: rx.Var, param: str, value: rx.Var, width: str = "55px") -> rx.Component:
     """Helper: Input field for a sampling parameter (always editable)."""
-    attr_name = f"{agent}_{param}"
     return rx.input(
-        default_value=getattr(AIState, attr_name).to(str),
-        on_blur=lambda v, a=agent, p=param: getattr(AIState, f"set_{a}_sampling")(p, v),
-        key=AIState.sampling_reset_key.to(str) + f"_{agent}_{param}",
+        default_value=value,
+        on_blur=lambda v: AIState.set_agent_sampling_for(row.id, param, v),  # type: ignore[attr-defined,union-attr]
+        key=AIState.sampling_reset_key.to(str) + "_" + row.id + "_" + param,  # type: ignore[attr-defined,union-attr,operator]
         type="number",
         width=width,
         size="1",
@@ -23,49 +26,41 @@ def _sampling_input(agent: str, param: str, width: str = "55px") -> rx.Component
     )
 
 
-def _temp_input(agent: str, width: str = "50px") -> rx.Component:
-    """Helper: Temperature input field for an agent (disabled in Auto mode, except Vision)."""
-    # Vision always uses manual temperature (no Auto mode)
-    is_auto = AIState.temperature_mode == "auto" if agent != "vision" else False
-    # AIfred uses self.temperature, others use self.{agent}_temperature
-    if agent == "aifred":
-        attr = AIState.temperature
-    else:
-        attr = getattr(AIState, f"{agent}_temperature")
-    handler = getattr(AIState, f"set_{agent}_temperature_input")
+def _temp_input(row: rx.Var, width: str = "50px") -> rx.Component:
+    """Helper: Temperature input (disabled in Auto mode, except Vision)."""
     return rx.input(
-        default_value=attr.to(str),  # type: ignore[union-attr]
-        on_blur=handler,
-        key=AIState.sampling_reset_key.to(str) + f"_{agent}_temp",
+        default_value=row.temp,  # type: ignore[attr-defined,union-attr]
+        on_blur=lambda v: AIState.set_agent_temperature_for(row.id, v),  # type: ignore[attr-defined,union-attr]
+        key=AIState.sampling_reset_key.to(str) + "_" + row.id + "_temp",  # type: ignore[attr-defined,union-attr,operator]
         type="number",
         width=width,
         size="1",
         height="28px",
-        disabled=is_auto,
-        opacity=rx.cond(is_auto, "0.5", "1.0") if agent != "vision" else "1.0",
+        disabled=row.temp_disabled,  # type: ignore[attr-defined,union-attr]
+        opacity=rx.cond(row.temp_disabled, "0.5", "1.0"),  # type: ignore[attr-defined,union-attr]
     )
 
 
-def _sampling_agent_row(agent: str, emoji: str, label: str, reset_handler) -> rx.Component:
-    """Helper: One agent row with temp + 4 sampling inputs + reset button."""
+def _sampling_agent_row(row: rx.Var) -> rx.Component:
+    """One agent row with temp + 4 sampling inputs + reset button."""
     return rx.hstack(
         rx.hstack(
-            agent_emoji(emoji, size="14px"),
-            rx.text(label, font_size="10px", font_weight="bold", color=COLORS["text_primary"]),
+            agent_emoji_var(row.emoji, size="14px"),  # type: ignore[attr-defined,union-attr]
+            rx.text(row.label, font_size="10px", font_weight="bold", color=COLORS["text_primary"]),  # type: ignore[attr-defined,union-attr]
             spacing="1", align="center", width="75px",
         ),
-        _temp_input(agent),
-        _sampling_input(agent, "top_k"),
-        _sampling_input(agent, "top_p"),
-        _sampling_input(agent, "min_p"),
-        _sampling_input(agent, "repeat_penalty"),
+        _temp_input(row),
+        _sampling_input(row, "top_k", row.top_k),  # type: ignore[attr-defined,union-attr]
+        _sampling_input(row, "top_p", row.top_p),  # type: ignore[attr-defined,union-attr]
+        _sampling_input(row, "min_p", row.min_p),  # type: ignore[attr-defined,union-attr]
+        _sampling_input(row, "repeat_penalty", row.repeat_penalty),  # type: ignore[attr-defined,union-attr]
         rx.tooltip(
             rx.icon(
                 "rotate-ccw",
                 size=13,
                 color=COLORS["primary"],
                 cursor="pointer",
-                on_click=reset_handler,
+                on_click=AIState.reset_agent_sampling_for(row.id),  # type: ignore[attr-defined,union-attr]
                 style={
                     "transition": "all 0.2s ease",
                     "&:hover": {"color": COLORS["primary_hover"], "transform": "scale(1.15)"},
@@ -122,11 +117,8 @@ def sampling_control_section() -> rx.Component:
             spacing="2",
             align="center",
         ),
-        # Agent rows
-        _sampling_agent_row("aifred", "\U0001f3a9", "AIfred", AIState.reset_aifred_sampling),
-        _sampling_agent_row("sokrates", "\U0001f3db\ufe0f", "Sokrates", AIState.reset_sokrates_sampling),
-        _sampling_agent_row("salomo", "\U0001f451", "Salomo", AIState.reset_salomo_sampling),
-        _sampling_agent_row("vision", "\U0001f4f7", "Vision", AIState.reset_vision_sampling),
+        # Agent rows — one per registered agent (custom agents included)
+        rx.foreach(AIState.sampling_rows, _sampling_agent_row),
         width="100%",
         spacing="1",
     )

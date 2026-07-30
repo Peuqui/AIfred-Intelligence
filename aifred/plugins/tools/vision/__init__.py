@@ -549,8 +549,8 @@ class VisionPlugin:
             _settings = _global_settings() or {}
             if _settings.get("backend_type") == "llamacpp":
                 _saved = _settings.get("backend_models", {}).get("llamacpp", {})
-                _vision_choice = str(_saved.get("vision_model") or "")
-                if not _vision_choice or _vision_choice == str(_saved.get("aifred_model") or ""):
+                _vision_choice = str(_saved.get("vision") or "")
+                if not _vision_choice or _vision_choice == str(_saved.get("aifred") or ""):
                     from ....lib.config import get_effective_model_from_settings
                     from ....lib.vision_utils import model_has_mmproj
                     main_model = get_effective_model_from_settings("aifred")

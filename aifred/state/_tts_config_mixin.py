@@ -53,7 +53,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         return [t(f"tts_engine_{key}", lang=lang) for key in TTS_ENGINE_KEYS]
 
-    @rx.var(deps=["ui_language", "aifred_model_id", "backend_type", "llamaswap_revision", "aifred_speed_mode"], auto_deps=False)
+    @rx.var(deps=["ui_language", "agent_tuning", "backend_type", "llamaswap_revision"], auto_deps=False)
     def tts_engine_options(self) -> List[dict]:
         """Dropdown options with a ``disabled`` flag.
 
@@ -84,7 +84,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         from ..lib.model_vram_cache import is_tts_variant_calibrated
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         gpu_keys = {e.key for e in gpu_engines()}
-        model_id = self.aifred_model_id  # type: ignore[attr-defined]
+        model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
         is_llamacpp = self.backend_type == "llamacpp"  # type: ignore[attr-defined]
         out: List[dict] = []
         for key in TTS_ENGINE_KEYS:

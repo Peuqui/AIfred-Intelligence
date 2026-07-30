@@ -56,8 +56,7 @@ class BackendMixin(rx.State, mixin=True):
     }
 
     # ── Model Settings ────────────────────────────────────────────
-    aifred_model: str = ""
-    aifred_model_id: str = ""
+    # Per-agent model/model_id live in agent_tuning (AgentConfigMixin).
     available_models: List[str] = []
     available_models_dict: Dict[str, str] = {}
     vision_models_cache: List[str] = []
@@ -72,8 +71,6 @@ class BackendMixin(rx.State, mixin=True):
 
     automatik_model: str = ""
     automatik_model_id: str = ""
-    vision_model: str = ""
-    vision_model_id: str = ""
 
     # ── Backend Status ────────────────────────────────────────────
     backend_healthy: bool = False
@@ -189,7 +186,7 @@ class BackendMixin(rx.State, mixin=True):
         """
         if not self.automatik_model_id:
             return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
-        if self.automatik_model_id == self.aifred_model_id:
+        if self.automatik_model_id == self.agent_tuning["aifred"].model_id:
             return self._effective_model_id("aifred")  # type: ignore[attr-defined, no-any-return]
         # Different Automatik model — still needs TTS / Speed variants
         # if those toggles are active in the UI. Route through the SSOT
@@ -206,7 +203,7 @@ class BackendMixin(rx.State, mixin=True):
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             self.automatik_model_id,  # type: ignore[attr-defined]
-            speed_on=self.aifred_speed_mode,  # type: ignore[attr-defined]
+            speed_on=self.agent_tuning["aifred"].speed_mode,  # type: ignore[attr-defined]
             # The Automatik model has no own state flag; whether ITS
             # ``-speed`` profile exists is checked by the resolver
             # (Rule 7 ``in models``). AIfred's flag would be the wrong
@@ -242,28 +239,29 @@ class BackendMixin(rx.State, mixin=True):
 
         self._load_agent_reasoning_levels(agent, model_id)  # type: ignore[attr-defined]
 
+        from ..lib.agent_settings import set_agent_setting
         if backend == "ollama":
             from ..lib.model_vram_cache import get_model_parameters
             params = get_model_parameters(model_id)
-            setattr(self, f"{agent}_rope_factor", params["rope_factor"])
-            setattr(self, f"{agent}_max_context", params["max_context"])
-            setattr(self, f"{agent}_is_hybrid", params["is_hybrid"])
-            setattr(self, f"{agent}_supports_thinking", params["supports_thinking"])
+            set_agent_setting(self, agent, "rope_factor", params["rope_factor"])
+            set_agent_setting(self, agent, "max_context", params["max_context"])
+            set_agent_setting(self, agent, "is_hybrid", params["is_hybrid"])
+            set_agent_setting(self, agent, "supports_thinking", params["supports_thinking"])
         elif backend == "llamacpp":
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
                 get_thinking_support_for_model,
             )
-            setattr(self, f"{agent}_rope_factor", 1.0)
-            setattr(self, f"{agent}_is_hybrid", False)
-            setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
+            set_agent_setting(self, agent, "rope_factor", 1.0)
+            set_agent_setting(self, agent, "is_hybrid", False)
+            set_agent_setting(self, agent, "supports_thinking", get_thinking_support_for_model(model_id))
             # Reihenfolge: has_speed_variant MUSS vor _effective_model_id
             # gesetzt sein — der Variant-Resolver liest es. SSoT ist die config
             # (existiert ein -speed-Eintrag), NICHT das Cache-speed_split-Feld:
             # eine frische Multi-GPU-Kali lässt letzteres unbesetzt (397B-Bug).
             from ..lib.calibration import model_has_speed_variant
-            setattr(
-                self, f"{agent}_has_speed_variant",
+            set_agent_setting(
+                self, agent, "has_speed_variant",
                 model_has_speed_variant(model_id),
             )
             # max_context ist VARIANTEN-spezifisch: das aktive
@@ -276,7 +274,7 @@ class BackendMixin(rx.State, mixin=True):
             ctx = get_llamacpp_calibration(effective_id)
             if ctx is None and effective_id != model_id:
                 ctx = get_llamacpp_calibration(model_id)
-            setattr(self, f"{agent}_max_context", ctx or 0)
+            set_agent_setting(self, agent, "max_context", ctx or 0)
 
     def _load_all_agent_model_params(self) -> None:
         """Load model parameters for all agents from cache."""
@@ -284,16 +282,10 @@ class BackendMixin(rx.State, mixin=True):
         if backend not in ("ollama", "llamacpp"):
             return
 
-        agents_models = [
-            ("aifred", self.aifred_model_id),
-            ("sokrates", self.sokrates_model_id),  # type: ignore[attr-defined, has-type]
-            ("salomo", self.salomo_model_id),  # type: ignore[attr-defined, has-type]
-        ]
-        if backend == "llamacpp":
-            agents_models.append(("vision", self.vision_model_id))
-
-        for agent, model_id in agents_models:
-            self._load_agent_model_params(agent, model_id)
+        for agent, tuning in self.agent_tuning.items():
+            if agent == "vision" and backend != "llamacpp":
+                continue
+            self._load_agent_model_params(agent, tuning.model_id)
 
     def _clear_models_state(self, include_vision: bool = False) -> None:
         """Reset available models to empty (used on backend/provider switch errors)."""
@@ -497,10 +489,6 @@ class BackendMixin(rx.State, mixin=True):
 
                     self.temperature = saved_settings.get("temperature", self.temperature)  # type: ignore[attr-defined, has-type]
                     self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
-                    self.sokrates_temperature = saved_settings.get("sokrates_temperature", self.sokrates_temperature)  # type: ignore[attr-defined, has-type]
-                    self.sokrates_temperature_offset = saved_settings.get("sokrates_temperature_offset", self.sokrates_temperature_offset)  # type: ignore[attr-defined, has-type]
-                    self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)  # type: ignore[attr-defined, has-type]
-                    self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)  # type: ignore[attr-defined, has-type]
                     # Load UI language and update global locale + prompt language
                     saved_ui_lang = saved_settings.get("ui_language", self.ui_language)  # type: ignore[attr-defined, has-type]
                     if saved_ui_lang in ["de", "en"]:
@@ -515,56 +503,25 @@ class BackendMixin(rx.State, mixin=True):
                     set_user_name(self.user_name)  # type: ignore[attr-defined, has-type, arg-type]
                     set_user_gender(self.user_gender)  # type: ignore[attr-defined, has-type, arg-type]
 
-                    # Load and sync personality toggles
-                    self.aifred_personality = saved_settings.get("aifred_personality", self.aifred_personality)  # type: ignore[attr-defined, has-type]
-                    self.sokrates_personality = saved_settings.get("sokrates_personality", self.sokrates_personality)  # type: ignore[attr-defined, has-type]
-                    self.salomo_personality = saved_settings.get("salomo_personality", self.salomo_personality)  # type: ignore[attr-defined, has-type]
-                    self.vision_personality = saved_settings.get("vision_personality", self.vision_personality)  # type: ignore[attr-defined, has-type]
-                    set_personality_enabled("aifred", self.aifred_personality)  # type: ignore[attr-defined, has-type, arg-type]
-                    set_personality_enabled("sokrates", self.sokrates_personality)  # type: ignore[attr-defined, has-type, arg-type]
-                    set_personality_enabled("salomo", self.salomo_personality)  # type: ignore[attr-defined, has-type, arg-type]
-                    set_personality_enabled("vision", self.vision_personality)  # type: ignore[attr-defined, has-type, arg-type]
+                    # Load per-agent tuning (dict format, SSOT field list in
+                    # agent_settings). Buckets for agents not yet in state
+                    # (custom agents) are created on demand. Missing keys keep
+                    # the class defaults — no legacy flat-key fallback.
+                    from ..lib.agent_settings import PERSISTED_TUNING_FIELDS
+                    from ..lib.agent_tuning import default_tuning
+                    for agent, entry in saved_settings.get("agent_tuning", {}).items():
+                        bucket = self.agent_tuning.get(agent)
+                        if bucket is None:
+                            bucket = default_tuning(agent)
+                            self.agent_tuning[agent] = bucket
+                        for field in (*PERSISTED_TUNING_FIELDS, "num_ctx_manual", "num_ctx_manual_enabled"):
+                            if field in entry and not (agent == "aifred" and field == "temperature"):
+                                setattr(bucket, field, entry[field])
 
-                    if "aifred_personality" not in saved_settings or "vision_personality" not in saved_settings:
-                        self._save_personality_settings()  # type: ignore[attr-defined, has-type]
-
-                    # Load and sync reasoning toggles
-                    self.aifred_reasoning = saved_settings.get("aifred_reasoning", self.aifred_reasoning)  # type: ignore[attr-defined, has-type]
-                    self.sokrates_reasoning = saved_settings.get("sokrates_reasoning", self.sokrates_reasoning)  # type: ignore[attr-defined, has-type]
-                    self.salomo_reasoning = saved_settings.get("salomo_reasoning", self.salomo_reasoning)  # type: ignore[attr-defined, has-type]
-                    self.vision_reasoning = saved_settings.get("vision_reasoning", self.vision_reasoning)  # type: ignore[attr-defined, has-type]
-                    set_reasoning_enabled("aifred", self.aifred_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
-                    set_reasoning_enabled("sokrates", self.sokrates_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
-                    set_reasoning_enabled("salomo", self.salomo_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
-                    set_reasoning_enabled("vision", self.vision_reasoning)  # type: ignore[attr-defined, has-type, arg-type]
-
-                    if "aifred_reasoning" not in saved_settings or "vision_reasoning" not in saved_settings:
-                        self._save_reasoning_settings()  # type: ignore[attr-defined, has-type]
-
-                    # Load thinking toggles (read directly from State at runtime, no prompt_loader sync)
-                    self.aifred_thinking = saved_settings.get("aifred_thinking", self.aifred_thinking)  # type: ignore[attr-defined, has-type]
-                    self.sokrates_thinking = saved_settings.get("sokrates_thinking", self.sokrates_thinking)  # type: ignore[attr-defined, has-type]
-                    self.salomo_thinking = saved_settings.get("salomo_thinking", self.salomo_thinking)  # type: ignore[attr-defined, has-type]
-                    self.vision_thinking = saved_settings.get("vision_thinking", self.vision_thinking)  # type: ignore[attr-defined, has-type]
-
-                    if "aifred_thinking" not in saved_settings or "vision_thinking" not in saved_settings:
-                        self._save_thinking_settings()  # type: ignore[attr-defined, has-type]
-
-                    # Load reasoning-effort levels (dropdown selection per agent)
-                    self.aifred_reasoning_effort = saved_settings.get("aifred_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
-                    self.sokrates_reasoning_effort = saved_settings.get("sokrates_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
-                    self.salomo_reasoning_effort = saved_settings.get("salomo_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
-                    self.vision_reasoning_effort = saved_settings.get("vision_reasoning_effort", "")  # type: ignore[attr-defined, has-type]
-
-                    # Load speed mode toggles (llamacpp only)
-                    self.aifred_speed_mode = saved_settings.get("aifred_speed_mode", False)  # type: ignore[attr-defined, has-type]
-                    self.sokrates_speed_mode = saved_settings.get("sokrates_speed_mode", False)  # type: ignore[attr-defined, has-type]
-                    self.salomo_speed_mode = saved_settings.get("salomo_speed_mode", False)  # type: ignore[attr-defined, has-type]
-                    self.vision_speed_mode = saved_settings.get("vision_speed_mode", False)  # type: ignore[attr-defined, has-type]
-
-                    # Load Vision settings (PERSISTENT)
-                    self.vision_num_ctx_enabled = saved_settings.get("vision_num_ctx_enabled", self.vision_num_ctx_enabled)  # type: ignore[attr-defined, has-type]
-                    self.vision_num_ctx = saved_settings.get("vision_num_ctx", self.vision_num_ctx)  # type: ignore[attr-defined, has-type]
+                    # Sync personality/reasoning toggles to prompt_loader
+                    for agent, bucket in self.agent_tuning.items():
+                        set_personality_enabled(agent, bucket.personality)
+                        set_reasoning_enabled(agent, bucket.reasoning)
 
                     # Restore the Vigilantia master switch (vigilantia_armed) +
                     # vision_mode / VLM model from the vision plugin's settings.json,
@@ -619,34 +576,30 @@ class BackendMixin(rx.State, mixin=True):
                     self.consensus_type = saved_settings.get("consensus_type", self.consensus_type)  # type: ignore[attr-defined, has-type]
                     # sokrates/salomo model ids come from backend_models below
                     # (single source of truth — no flat keys anymore)
-                    self.salomo_temperature = saved_settings.get("salomo_temperature", self.salomo_temperature)  # type: ignore[attr-defined, has-type]
-                    self.salomo_temperature_offset = saved_settings.get("salomo_temperature_offset", self.salomo_temperature_offset)  # type: ignore[attr-defined, has-type]
 
-                    # Load per-backend models
+                    # Load per-backend models — keys are agent ids
+                    # (+ "automatik"); buckets for custom agents materialize
+                    # on demand.
                     backend_models = saved_settings.get("backend_models", {})
                     _had_backend_settings = self.backend_id in backend_models
                     if _had_backend_settings:
+                        from ..lib.agent_config import get_agent_config
+                        from ..lib.agent_tuning import default_tuning
                         backend_data = backend_models[self.backend_id]
-                        selected_raw = backend_data.get("aifred_model", "")
-                        automatik_raw = backend_data.get("automatik_model", "")
-                        vision_raw = backend_data.get("vision_model", "")
-                        sokrates_raw = backend_data.get("sokrates_model", "")
-                        salomo_raw = backend_data.get("salomo_model", "")
-
-                        self.aifred_model_id = selected_raw
-                        self.automatik_model_id = automatik_raw
-                        self.vision_model_id = vision_raw
-                        self.sokrates_model_id = sokrates_raw  # type: ignore[attr-defined, has-type]
-                        self.salomo_model_id = salomo_raw  # type: ignore[attr-defined, has-type]
+                        for agent, model_id_raw in backend_data.items():
+                            if agent == "automatik":
+                                self.automatik_model_id = model_id_raw
+                                self.automatik_model = model_id_raw
+                                continue
+                            if agent not in self.agent_tuning:
+                                if get_agent_config(agent) is None:
+                                    continue  # agent no longer registered
+                                self.agent_tuning[agent] = default_tuning(agent)
+                            self.agent_tuning[agent].model_id = model_id_raw
+                            self.agent_tuning[agent].model = model_id_raw
 
                         # Load all model parameters from cache on startup
                         self._load_all_agent_model_params()
-
-                        self.aifred_model = selected_raw
-                        self.automatik_model = automatik_raw
-                        self.vision_model = vision_raw
-                        self.sokrates_model = sokrates_raw  # type: ignore[attr-defined, has-type]
-                        self.salomo_model = salomo_raw  # type: ignore[attr-defined, has-type]
 
                     self.add_debug(f"⚙️ Settings loaded (backend: {self.backend_type})")  # type: ignore[attr-defined, has-type]
 
@@ -657,50 +610,50 @@ class BackendMixin(rx.State, mixin=True):
                 # Apply config.py defaults as final fallback
                 backend_defaults = config.BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
 
-                if not self.aifred_model:
-                    self.aifred_model = backend_defaults.get("aifred_model", "")
-                    self.aifred_model_id = self.aifred_model
-                    if self.aifred_model:
-                        self.add_debug(f"⚙️ Using default aifred_model from config.py: {self.aifred_model}")  # type: ignore[attr-defined, has-type]
+                if not self.agent_tuning["aifred"].model:
+                    self.agent_tuning["aifred"].model = backend_defaults.get("aifred", "")
+                    self.agent_tuning["aifred"].model_id = self.agent_tuning["aifred"].model
+                    if self.agent_tuning["aifred"].model:
+                        self.add_debug(f"⚙️ Using default aifred_model from config.py: {self.agent_tuning["aifred"].model}")  # type: ignore[attr-defined, has-type]
                     else:
                         self.add_debug("⚠️ No aifred_model configured")  # type: ignore[attr-defined, has-type]
 
                 if not self.automatik_model and not _had_backend_settings:
-                    self.automatik_model = backend_defaults.get("automatik_model", "")
+                    self.automatik_model = backend_defaults.get("automatik", "")
                     self.automatik_model_id = self.automatik_model
                     if self.automatik_model:
                         self.add_debug(f"⚙️ Using default automatik_model from config.py: {self.automatik_model}")  # type: ignore[attr-defined, has-type]
                     else:
                         self.add_debug("⚠️ No automatik_model configured")  # type: ignore[attr-defined, has-type]
 
-                if not self.vision_model:
-                    self.vision_model = backend_defaults.get("vision_model", "")
-                    self.vision_model_id = self.vision_model
-                    if self.vision_model:
-                        self.add_debug(f"⚙️ Using default vision_model from config.py: {self.vision_model}")  # type: ignore[attr-defined, has-type]
+                if not self.agent_tuning["vision"].model:
+                    self.agent_tuning["vision"].model = backend_defaults.get("vision", "")
+                    self.agent_tuning["vision"].model_id = self.agent_tuning["vision"].model
+                    if self.agent_tuning["vision"].model:
+                        self.add_debug(f"⚙️ Using default vision_model from config.py: {self.agent_tuning["vision"].model}")  # type: ignore[attr-defined, has-type]
                     else:
                         self.add_debug("ℹ️ No vision_model configured - will auto-detect first available vision model")  # type: ignore[attr-defined, has-type]
 
                 # Multi-Agent Models (optional)
                 # Only apply config.py defaults if NO per-backend settings exist.
                 # Empty string ("") is a valid saved value meaning "use AIfred-LLM".
-                if not _had_backend_settings and not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                    self.sokrates_model_id = backend_defaults.get("sokrates_model", "")  # type: ignore[attr-defined, has-type]
-                    self.sokrates_model = self.sokrates_model_id  # type: ignore[attr-defined, has-type]
-                    if self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                        self.add_debug(f"⚙️ Using default sokrates_model from config.py: {self.sokrates_model_id}")  # type: ignore[attr-defined, has-type]
+                if not _had_backend_settings and not self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined, has-type]
+                    self.agent_tuning["sokrates"].model_id = backend_defaults.get("sokrates", "")  # type: ignore[attr-defined, has-type]
+                    self.agent_tuning["sokrates"].model = self.agent_tuning["sokrates"].model_id  # type: ignore[attr-defined, has-type]
+                    if self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined, has-type]
+                        self.add_debug(f"⚙️ Using default sokrates_model from config.py: {self.agent_tuning["sokrates"].model_id}")  # type: ignore[attr-defined, has-type]
 
-                if not _had_backend_settings and not self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                    self.salomo_model_id = backend_defaults.get("salomo_model", "")  # type: ignore[attr-defined, has-type]
-                    self.salomo_model = self.salomo_model_id  # type: ignore[attr-defined, has-type]
-                    if self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                        self.add_debug(f"⚙️ Using default salomo_model from config.py: {self.salomo_model_id}")  # type: ignore[attr-defined, has-type]
+                if not _had_backend_settings and not self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined, has-type]
+                    self.agent_tuning["salomo"].model_id = backend_defaults.get("salomo", "")  # type: ignore[attr-defined, has-type]
+                    self.agent_tuning["salomo"].model = self.agent_tuning["salomo"].model_id  # type: ignore[attr-defined, has-type]
+                    if self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined, has-type]
+                        self.add_debug(f"⚙️ Using default salomo_model from config.py: {self.agent_tuning["salomo"].model_id}")  # type: ignore[attr-defined, has-type]
 
                 # vLLM can only load ONE model at a time
                 if self.backend_type == "vllm":
-                    if self.automatik_model != self.aifred_model:
-                        self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.aifred_model} for both AIfred and Automatic")  # type: ignore[attr-defined, has-type]
-                        self.automatik_model = self.aifred_model
+                    if self.automatik_model != self.agent_tuning["aifred"].model:
+                        self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.agent_tuning["aifred"].model} for both AIfred and Automatic")  # type: ignore[attr-defined, has-type]
+                        self.automatik_model = self.agent_tuning["aifred"].model
 
                 # Generate internal session ID
                 if not self.session_id:  # type: ignore[attr-defined, has-type]
@@ -812,20 +765,20 @@ class BackendMixin(rx.State, mixin=True):
                 self.available_backends_dict.get(self.backend_type, self.backend_type))
 
             # Validate and sync aifred_model (model_id is always base ID)
-            if self.aifred_model_id and self.aifred_model_id in self.available_models_dict:
-                self.aifred_model = self.available_models_dict[self.aifred_model_id]
+            if self.agent_tuning["aifred"].model_id and self.agent_tuning["aifred"].model_id in self.available_models_dict:
+                self.agent_tuning["aifred"].model = self.available_models_dict[self.agent_tuning["aifred"].model_id]
             elif _global_backend_state.get("aifred_model_id") in self.available_models_dict:
-                self.aifred_model_id = _global_backend_state["aifred_model_id"]
-                self.aifred_model = self.available_models_dict[self.aifred_model_id]
+                self.agent_tuning["aifred"].model_id = _global_backend_state["aifred_model_id"]
+                self.agent_tuning["aifred"].model = self.available_models_dict[self.agent_tuning["aifred"].model_id]
             else:
                 # Stale main model — same policy as the SLOW PATH below:
                 # clear instead of silently substituting another model,
                 # the user picks explicitly (send_message guards on empty).
                 log_message(
-                    f"⚠️ Configured model '{self.aifred_model_id}' not available — cleared"
+                    f"⚠️ Configured model '{self.agent_tuning["aifred"].model_id}' not available — cleared"
                 )
-                self.aifred_model_id = ""
-                self.aifred_model = ""
+                self.agent_tuning["aifred"].model_id = ""
+                self.agent_tuning["aifred"].model = ""
 
             # Validate and sync automatik_model
             if not self.automatik_model_id:
@@ -841,28 +794,25 @@ class BackendMixin(rx.State, mixin=True):
                 self.automatik_model = ""
 
             # Validate and sync vision_model
-            if self.vision_model_id and self.vision_model_id in self.vision_models_cache:
-                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
+            if self.agent_tuning["vision"].model_id and self.agent_tuning["vision"].model_id in self.vision_models_cache:
+                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
             elif _global_backend_state.get("vision_model_id") in self.vision_models_cache:
-                self.vision_model_id = _global_backend_state["vision_model_id"]
-                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
+                self.agent_tuning["vision"].model_id = _global_backend_state["vision_model_id"]
+                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
             elif self.vision_models_cache:
-                self.vision_model_id = self.vision_models_cache[0]
-                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
+                self.agent_tuning["vision"].model_id = self.vision_models_cache[0]
+                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
 
-            # Validate and sync sokrates_model
-            if self.sokrates_model_id and self.sokrates_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                self.sokrates_model = self.available_models_dict[self.sokrates_model_id]  # type: ignore[attr-defined, has-type]
-            elif self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                self.sokrates_model_id = ""  # type: ignore[attr-defined, has-type]
-                self.sokrates_model = ""  # type: ignore[attr-defined, has-type]
-
-            # Validate and sync salomo_model
-            if self.salomo_model_id and self.salomo_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                self.salomo_model = self.available_models_dict[self.salomo_model_id]  # type: ignore[attr-defined, has-type]
-            elif self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                self.salomo_model_id = ""  # type: ignore[attr-defined, has-type]
-                self.salomo_model = ""  # type: ignore[attr-defined, has-type]
+            # Validate and sync secondary-agent models (Sokrates/Salomo/
+            # custom). Clearing the id to "" means "same as AIfred".
+            for agent, tuning in self.agent_tuning.items():
+                if agent in ("aifred", "vision"):
+                    continue
+                if tuning.model_id and tuning.model_id in self.available_models_dict:
+                    tuning.model = self.available_models_dict[tuning.model_id]
+                elif tuning.model_id:
+                    tuning.model_id = ""
+                    tuning.model = ""
 
             # vLLM can only load ONE model
             if self.backend_type == "vllm" and self.automatik_model_id:
@@ -989,20 +939,20 @@ class BackendMixin(rx.State, mixin=True):
                     self.available_models = list(self.available_models_dict.values())
 
                 # Validate and sync aifred_model (model_id is always base ID)
-                self.add_debug(f"🔍 Checking: '{self.aifred_model_id}' available in {self.backend_type}?")  # type: ignore[attr-defined, has-type]
+                self.add_debug(f"🔍 Checking: '{self.agent_tuning["aifred"].model_id}' available in {self.backend_type}?")  # type: ignore[attr-defined, has-type]
 
-                if self.aifred_model_id in self.available_models_dict:
-                    self.aifred_model = self.available_models_dict[self.aifred_model_id]
-                    self.add_debug(f"✅ Model found: {self.aifred_model_id}")  # type: ignore[attr-defined, has-type]
+                if self.agent_tuning["aifred"].model_id in self.available_models_dict:
+                    self.agent_tuning["aifred"].model = self.available_models_dict[self.agent_tuning["aifred"].model_id]
+                    self.add_debug(f"✅ Model found: {self.agent_tuning["aifred"].model_id}")  # type: ignore[attr-defined, has-type]
                 elif self.available_models_dict:
                     # Stale main model (not pulled / deleted). Clear it instead
                     # of silently substituting another model — the user picks
                     # or pulls one. The guard (available_models_dict non-empty)
                     # means a transient backend outage never wipes the choice.
-                    self.add_debug(f"⚠️ '{self.aifred_model_id}' not in {self.backend_type} — cleared, pick a model")  # type: ignore[attr-defined, has-type]
-                    log_message(f"⚠️ Configured model '{self.aifred_model_id}' not available — cleared")
-                    self.aifred_model_id = ""
-                    self.aifred_model = ""
+                    self.add_debug(f"⚠️ '{self.agent_tuning["aifred"].model_id}' not in {self.backend_type} — cleared, pick a model")  # type: ignore[attr-defined, has-type]
+                    log_message(f"⚠️ Configured model '{self.agent_tuning["aifred"].model_id}' not available — cleared")
+                    self.agent_tuning["aifred"].model_id = ""
+                    self.agent_tuning["aifred"].model = ""
 
                 # Validate and sync automatik_model
                 if not self.automatik_model_id:
@@ -1014,24 +964,20 @@ class BackendMixin(rx.State, mixin=True):
                     self.automatik_model_id = ""
                     self.automatik_model = ""
 
-                # Validate and sync sokrates_model. Clearing the id to "" means
-                # "same as AIfred" (the default dropdown option). Only clear when
-                # discovery actually returned models (available_models_dict
-                # non-empty) — a transient backend outage must not wipe the choice.
-                if self.sokrates_model_id and self.sokrates_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                    self.sokrates_model = self.available_models_dict[self.sokrates_model_id]  # type: ignore[attr-defined, has-type]
-                elif self.sokrates_model_id and self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                    log_message(f"⚠️ Configured sokrates model '{self.sokrates_model_id}' not available — reset to 'same as AIfred'")  # type: ignore[attr-defined, has-type]
-                    self.sokrates_model_id = ""  # type: ignore[attr-defined, has-type]
-                    self.sokrates_model = ""  # type: ignore[attr-defined, has-type]
-
-                # Validate and sync salomo_model (same rules as sokrates).
-                if self.salomo_model_id and self.salomo_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                    self.salomo_model = self.available_models_dict[self.salomo_model_id]  # type: ignore[attr-defined, has-type]
-                elif self.salomo_model_id and self.available_models_dict:  # type: ignore[attr-defined, has-type]
-                    log_message(f"⚠️ Configured salomo model '{self.salomo_model_id}' not available — reset to 'same as AIfred'")  # type: ignore[attr-defined, has-type]
-                    self.salomo_model_id = ""  # type: ignore[attr-defined, has-type]
-                    self.salomo_model = ""  # type: ignore[attr-defined, has-type]
+                # Validate and sync secondary-agent models (Sokrates/Salomo/
+                # custom). Clearing the id to "" means "same as AIfred" (the
+                # default dropdown option). Only clear when discovery actually
+                # returned models (available_models_dict non-empty) — a
+                # transient backend outage must not wipe the choice.
+                for agent, tuning in self.agent_tuning.items():
+                    if agent in ("aifred", "vision"):
+                        continue
+                    if tuning.model_id and tuning.model_id in self.available_models_dict:
+                        tuning.model = self.available_models_dict[tuning.model_id]
+                    elif tuning.model_id and self.available_models_dict:
+                        log_message(f"⚠️ Configured {agent} model '{tuning.model_id}' not available — reset to 'same as AIfred'")
+                        tuning.model_id = ""
+                        tuning.model = ""
 
                 self.model_count = len(self.available_models)
                 self.backend_info = f"{self.model_count} models"
@@ -1053,9 +999,9 @@ class BackendMixin(rx.State, mixin=True):
                 # Show effective model (includes TTS variant if GPU TTS is active)
                 from ..lib.tts_engine_manager import get_effective_model_info
                 effective_info = get_effective_model_info(self.backend_type)
-                base_info = format_model_with_ctx(self.aifred_model, self.aifred_model_id)
+                base_info = format_model_with_ctx(self.agent_tuning["aifred"].model, self.agent_tuning["aifred"].model_id)
                 # If TTS changes the model, show effective info instead
-                aifred_display = effective_info if effective_info and effective_info != self.aifred_model else base_info
+                aifred_display = effective_info if effective_info and effective_info != self.agent_tuning["aifred"].model else base_info
 
                 self.add_debug(f"✅ {len(self.available_models)} models available")  # type: ignore[attr-defined, has-type]
                 self.add_debug(f"   {get_agent_label('aifred')}: {aifred_display}")  # type: ignore[attr-defined, has-type]
@@ -1065,14 +1011,14 @@ class BackendMixin(rx.State, mixin=True):
                     else:
                         self.add_debug("   \u2728 Automatic: (= AIfred)")  # type: ignore[attr-defined, has-type]
                     if self.multi_agent_mode != "standard":  # type: ignore[attr-defined, has-type]
-                        if self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
-                            self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.sokrates_model, self.sokrates_model_id)}")  # type: ignore[attr-defined, has-type]
-                        if self.salomo_model_id:  # type: ignore[attr-defined, has-type]
-                            self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.salomo_model, self.salomo_model_id)}")  # type: ignore[attr-defined, has-type]
+                        if self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined, has-type]
+                            self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.agent_tuning["sokrates"].model, self.agent_tuning["sokrates"].model_id)}")  # type: ignore[attr-defined, has-type]
+                        if self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined, has-type]
+                            self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.agent_tuning["salomo"].model, self.agent_tuning["salomo"].model_id)}")  # type: ignore[attr-defined, has-type]
 
                 # Cache min context limit for session-load display
                 context_limits = []
-                for model_id in [self.aifred_model_id, self.sokrates_model_id, self.salomo_model_id]:  # type: ignore[attr-defined, has-type]
+                for model_id in [self.agent_tuning["aifred"].model_id, self.agent_tuning["sokrates"].model_id, self.agent_tuning["salomo"].model_id]:  # type: ignore[attr-defined, has-type]
                     if model_id:
                         if self.backend_type == "llamacpp":
                             ctx = get_llamacpp_calibration(model_id)
@@ -1093,7 +1039,7 @@ class BackendMixin(rx.State, mixin=True):
             temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)  # type: ignore[assignment]
             caps = temp_backend.get_capabilities()
 
-            if not caps.get("dynamic_models", True) and self.automatik_model_id and self.automatik_model_id != self.aifred_model_id:
+            if not caps.get("dynamic_models", True) and self.automatik_model_id and self.automatik_model_id != self.agent_tuning["aifred"].model_id:
                 self.automatik_model = ""
                 self.automatik_model_id = ""
                 self._save_settings()  # type: ignore[attr-defined, has-type]
@@ -1101,8 +1047,8 @@ class BackendMixin(rx.State, mixin=True):
             # Store in global state
             _global_backend_state["backend_type"] = self.backend_type
             _global_backend_state["backend_url"] = self.backend_url
-            _global_backend_state["aifred_model"] = self.aifred_model
-            _global_backend_state["aifred_model_id"] = self.aifred_model_id
+            _global_backend_state["aifred_model"] = self.agent_tuning["aifred"].model
+            _global_backend_state["aifred_model_id"] = self.agent_tuning["aifred"].model_id
             _global_backend_state["automatik_model"] = self.automatik_model
             _global_backend_state["automatik_model_id"] = self.automatik_model_id
             _global_backend_state["available_models"] = self.available_models
@@ -1166,7 +1112,7 @@ class BackendMixin(rx.State, mixin=True):
             swap_models = set(parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).keys())
         except (OSError, ValueError):
             swap_models = set()
-        aifred_base = self.aifred_model_id or ""
+        aifred_base = self.agent_tuning["aifred"].model_id or ""
 
         rows: List[Dict[str, str]] = []
         for mid in vision_model_ids:
@@ -1235,26 +1181,26 @@ class BackendMixin(rx.State, mixin=True):
         self.add_debug(f"✅ Found {len(vision_model_ids)} vision-capable models")  # type: ignore[attr-defined, has-type]
 
         # Auto-select vision_model if not set or empty
-        if (not self.vision_model_id or self.vision_model_id.strip() == "") and vision_model_ids:
-            self.vision_model_id = vision_model_ids[0]
-            self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
-            self.add_debug(f"⚙️ Auto-selected vision_model: {self.vision_model_id}")  # type: ignore[attr-defined, has-type]
+        if (not self.agent_tuning["vision"].model_id or self.agent_tuning["vision"].model_id.strip() == "") and vision_model_ids:
+            self.agent_tuning["vision"].model_id = vision_model_ids[0]
+            self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+            self.add_debug(f"⚙️ Auto-selected vision_model: {self.agent_tuning["vision"].model_id}")  # type: ignore[attr-defined, has-type]
             self._save_settings()  # type: ignore[attr-defined, has-type]
-        elif self.vision_model_id and vision_model_ids:
-            if self.vision_model_id in vision_model_ids:
-                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
+        elif self.agent_tuning["vision"].model_id and vision_model_ids:
+            if self.agent_tuning["vision"].model_id in vision_model_ids:
+                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
             else:
-                self.add_debug(f"⚠️ Saved vision_model '{self.vision_model_id}' not found in vision models, auto-selecting...")  # type: ignore[attr-defined, has-type]
-                self.vision_model_id = vision_model_ids[0]
-                self.vision_model = self.available_models_dict.get(self.vision_model_id, self.vision_model_id)
+                self.add_debug(f"⚠️ Saved vision_model '{self.agent_tuning["vision"].model_id}' not found in vision models, auto-selecting...")  # type: ignore[attr-defined, has-type]
+                self.agent_tuning["vision"].model_id = vision_model_ids[0]
+                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
                 self._save_settings()  # type: ignore[attr-defined, has-type]
 
-        if self.vision_model_id:
+        if self.agent_tuning["vision"].model_id:
             from ..lib.agent_config import get_agent_label as _get_label
-            self.add_debug(f"   {_get_label('vision')}: {self.vision_model}")  # type: ignore[attr-defined, has-type]
+            self.add_debug(f"   {_get_label('vision')}: {self.agent_tuning["vision"].model}")  # type: ignore[attr-defined, has-type]
 
-        _global_backend_state["vision_model"] = self.vision_model
-        _global_backend_state["vision_model_id"] = self.vision_model_id
+        _global_backend_state["vision_model"] = self.agent_tuning["vision"].model
+        _global_backend_state["vision_model_id"] = self.agent_tuning["vision"].model_id
 
     # ================================================================
     # vLLM SERVER MANAGEMENT
@@ -1264,11 +1210,11 @@ class BackendMixin(rx.State, mixin=True):
         """Start vLLM server process with specified model.
 
         Args:
-            model_id: Model to load. Empty string = use self.aifred_model_id.
+            model_id: Model to load. Empty string = use self.agent_tuning["aifred"].model_id.
         """
         from . import _global_backend_state
 
-        startup_model = model_id or self.aifred_model_id
+        startup_model = model_id or self.agent_tuning["aifred"].model_id
         if not startup_model:
             self.add_debug("⚠️ No model selected — cannot start vLLM")  # type: ignore[attr-defined, has-type]
             return
@@ -1382,9 +1328,9 @@ class BackendMixin(rx.State, mixin=True):
         try:
             # Force stop + start (even with same model — config changed)
             await self._stop_vllm_server()
-            await self._start_vllm_server(self.aifred_model_id)
+            await self._start_vllm_server(self.agent_tuning["aifred"].model_id)
 
-            _global_backend_state["aifred_model"] = self.aifred_model
+            _global_backend_state["aifred_model"] = self.agent_tuning["aifred"].model
             _global_backend_state["automatik_model"] = self.automatik_model
 
         except (RuntimeError, OSError) as e:
@@ -1479,33 +1425,33 @@ class BackendMixin(rx.State, mixin=True):
             self.add_debug(f"🔍 Settings contains backends: {list(backend_models.keys())}")  # type: ignore[attr-defined, has-type]
             if new_backend in backend_models:
                 saved_models = backend_models[new_backend]
-                target_main_model = saved_models.get("aifred_model")
-                target_auto_model = saved_models.get("automatik_model")
-                target_vision_model = saved_models.get("vision_model")
-                target_sokrates_model = saved_models.get("sokrates_model", "")
-                target_salomo_model = saved_models.get("salomo_model", "")
+                target_main_model = saved_models.get("aifred")
+                target_auto_model = saved_models.get("automatik")
+                target_vision_model = saved_models.get("vision")
+                target_sokrates_model = saved_models.get("sokrates", "")
+                target_salomo_model = saved_models.get("salomo", "")
                 self.add_debug(f"📝 Loading {new_backend} from settings: AIfred={target_main_model}, Auto={target_auto_model}, Vision={target_vision_model}, Sokrates={target_sokrates_model or '(Main)'}, Salomo={target_salomo_model or '(Main)'}")  # type: ignore[attr-defined, has-type]
             else:
                 default_models = config.BACKEND_DEFAULT_MODELS.get(new_backend, {})
-                target_main_model = default_models.get("aifred_model")
-                target_auto_model = default_models.get("automatik_model")
-                target_sokrates_model = default_models.get("sokrates_model", "")
-                target_salomo_model = default_models.get("salomo_model", "")
+                target_main_model = default_models.get("aifred")
+                target_auto_model = default_models.get("automatik")
+                target_sokrates_model = default_models.get("sokrates", "")
+                target_salomo_model = default_models.get("salomo", "")
                 self.add_debug(f"📝 No settings for {new_backend}, using config.py defaults: AIfred={target_main_model}, Auto={target_auto_model}")  # type: ignore[attr-defined, has-type]
 
             if target_main_model:
-                self.aifred_model = target_main_model
-                self.aifred_model_id = target_main_model
+                self.agent_tuning["aifred"].model = target_main_model
+                self.agent_tuning["aifred"].model_id = target_main_model
             if target_auto_model is not None:
                 self.automatik_model = target_auto_model
                 self.automatik_model_id = target_auto_model
             if target_vision_model:
-                self.vision_model = target_vision_model
-                self.vision_model_id = target_vision_model
-            self.sokrates_model_id = target_sokrates_model or ""  # type: ignore[attr-defined, has-type]
-            self.sokrates_model = target_sokrates_model or ""  # type: ignore[attr-defined, has-type]
-            self.salomo_model_id = target_salomo_model or ""  # type: ignore[attr-defined, has-type]
-            self.salomo_model = target_salomo_model or ""  # type: ignore[attr-defined, has-type]
+                self.agent_tuning["vision"].model = target_vision_model
+                self.agent_tuning["vision"].model_id = target_vision_model
+            self.agent_tuning["sokrates"].model_id = target_sokrates_model or ""  # type: ignore[attr-defined, has-type]
+            self.agent_tuning["sokrates"].model = target_sokrates_model or ""  # type: ignore[attr-defined, has-type]
+            self.agent_tuning["salomo"].model_id = target_salomo_model or ""  # type: ignore[attr-defined, has-type]
+            self.agent_tuning["salomo"].model = target_salomo_model or ""  # type: ignore[attr-defined, has-type]
 
             if new_backend == "vllm":
                 if self.automatik_model_id:
@@ -1586,17 +1532,17 @@ class BackendMixin(rx.State, mixin=True):
                         self.add_debug(f"📷 {len(vl_models)} vision models")  # type: ignore[attr-defined, has-type]
 
                     default_model = models[0]
-                    self.aifred_model = default_model
-                    self.aifred_model_id = default_model
+                    self.agent_tuning["aifred"].model = default_model
+                    self.agent_tuning["aifred"].model_id = default_model
                     self.automatik_model = default_model
                     self.automatik_model_id = default_model
 
                     if vl_models:
-                        self.vision_model = vl_models[0]
-                        self.vision_model_id = vl_models[0]
+                        self.agent_tuning["vision"].model = vl_models[0]
+                        self.agent_tuning["vision"].model_id = vl_models[0]
                     else:
-                        self.vision_model = ""
-                        self.vision_model_id = ""
+                        self.agent_tuning["vision"].model = ""
+                        self.agent_tuning["vision"].model_id = ""
                 else:
                     self._clear_models_state(include_vision=True)
                     self.add_debug("⚠️ No models returned from API")  # type: ignore[attr-defined, has-type]
@@ -1618,9 +1564,9 @@ class BackendMixin(rx.State, mixin=True):
         """Set selected model and restart backend if needed."""
         from ..lib.vision_utils import is_vision_model
 
-        old_model = self.aifred_model
-        self.aifred_model = model
-        self.aifred_model_id = self._resolve_model_id(model)
+        old_model = self.agent_tuning["aifred"].model
+        self.agent_tuning["aifred"].model = model
+        self.agent_tuning["aifred"].model_id = self._resolve_model_id(model)
         self.add_debug(f"📝 AIfred-LLM: {model}")  # type: ignore[attr-defined, has-type]
 
         # Die Vision-Swap-Badges hängen vom Chat-LLM ab (welche -vlm-Profile
@@ -1636,11 +1582,11 @@ class BackendMixin(rx.State, mixin=True):
             )
 
         # Load model parameters from cache
-        self._load_agent_model_params("aifred", self.aifred_model_id)
-        if self.backend_type == "llamacpp" and not getattr(self, "aifred_has_speed_variant", False):
-            self.aifred_speed_mode = False  # type: ignore[attr-defined, has-type]
+        self._load_agent_model_params("aifred", self.agent_tuning["aifred"].model_id)
+        if self.backend_type == "llamacpp" and not self.agent_tuning["aifred"].has_speed_variant:
+            self.agent_tuning["aifred"].speed_mode = False  # type: ignore[attr-defined, has-type]
 
-        self._show_model_calibration_info(self.aifred_model_id)  # type: ignore[attr-defined]
+        self._show_model_calibration_info(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
 
         # Check if switching to non-vision model with pending images
         if len(self.pending_images) > 0:  # type: ignore[attr-defined, has-type]
@@ -1651,9 +1597,9 @@ class BackendMixin(rx.State, mixin=True):
 
         # Reset sampling params to model defaults for all affected agents
         self._reset_agent_sampling("aifred")  # type: ignore[attr-defined]
-        if not self.sokrates_model_id:  # type: ignore[attr-defined, has-type]
+        if not self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined, has-type]
             self._reset_agent_sampling("sokrates")  # type: ignore[attr-defined]
-        if not self.salomo_model_id:  # type: ignore[attr-defined, has-type]
+        if not self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined, has-type]
             self._reset_agent_sampling("salomo")  # type: ignore[attr-defined]
 
         self._save_settings()  # type: ignore[attr-defined, has-type]
@@ -1712,16 +1658,16 @@ class BackendMixin(rx.State, mixin=True):
 
     async def set_vision_model(self, model: str):
         """Set vision model for OCR/image analysis."""
-        self.vision_model = model
-        self.vision_model_id = self._resolve_model_id(model)
+        self.agent_tuning["vision"].model = model
+        self.agent_tuning["vision"].model_id = self._resolve_model_id(model)
         self.add_debug(f"👁️ Vision-LLM: {model}")  # type: ignore[attr-defined, has-type]
-        self._show_model_calibration_info(self.vision_model_id)  # type: ignore[attr-defined]
+        self._show_model_calibration_info(self.agent_tuning["vision"].model_id)  # type: ignore[attr-defined]
 
         if self.backend_type == "llamacpp":
             from ..lib.calibration import model_has_speed_variant
-            self.vision_has_speed_variant = model_has_speed_variant(self.vision_model_id)  # type: ignore[attr-defined, has-type]
-            if not self.vision_has_speed_variant:  # type: ignore[attr-defined, has-type]
-                self.vision_speed_mode = False  # type: ignore[attr-defined, has-type]
+            self.agent_tuning["vision"].has_speed_variant = model_has_speed_variant(self.agent_tuning["vision"].model_id)  # type: ignore[attr-defined, has-type]
+            if not self.agent_tuning["vision"].has_speed_variant:  # type: ignore[attr-defined, has-type]
+                self.agent_tuning["vision"].speed_mode = False  # type: ignore[attr-defined, has-type]
 
         self._save_settings()  # type: ignore[attr-defined, has-type]
 
@@ -1746,11 +1692,11 @@ class BackendMixin(rx.State, mixin=True):
         - Running with different model → restart with new model
 
         Args:
-            model_id: Model to ensure. Empty string = use self.aifred_model_id.
+            model_id: Model to ensure. Empty string = use self.agent_tuning["aifred"].model_id.
         """
         from . import _global_backend_state
 
-        target_model = model_id or self.aifred_model_id
+        target_model = model_id or self.agent_tuning["aifred"].model_id
         if not target_model:
             self.add_debug("⚠️ No model selected — cannot start vLLM")  # type: ignore[attr-defined, has-type]
             return

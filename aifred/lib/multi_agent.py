@@ -549,7 +549,7 @@ def _setup_debate_contexts(
     # it the already-resolved id produces a double-suffix lookup that
     # misses the YAML entry and triggers the 32K fallback.
     from .agent_settings import get_agent_base_model_id
-    aifred_base = state.aifred_model_id  # type: ignore[attr-defined,has-type]
+    aifred_base = state.agent_tuning["aifred"].model_id  # type: ignore[attr-defined,has-type]
     sokrates_base = get_agent_base_model_id(state, "sokrates")
     salomo_base = get_agent_base_model_id(state, "salomo")
     main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, aifred_base, fallback=32768)
@@ -577,12 +577,12 @@ def _setup_debate_contexts(
     # Temperatures
     if state.temperature_mode == "manual":  # type: ignore[has-type]
         alfred_temp = state.temperature  # type: ignore[has-type]
-        sokrates_temp = state.sokrates_temperature
-        salomo_temp = state.salomo_temperature
+        sokrates_temp = state.agent_tuning["sokrates"].temperature
+        salomo_temp = state.agent_tuning["salomo"].temperature
     else:
         alfred_temp = state.temperature  # type: ignore[has-type]
-        sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
-        salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
+        sokrates_temp = min(1.0, alfred_temp + state.agent_tuning["sokrates"].temperature_offset)
+        salomo_temp = min(1.0, alfred_temp + state.agent_tuning["salomo"].temperature_offset)
 
     state.add_debug(
         f"🌡️ Temps: AIfred={format_number(alfred_temp, 1)}, "
@@ -734,8 +734,8 @@ async def _run_agent_direct_response(
             base_url=state.backend_url
         )
 
-        # Determine agent model — custom agents use AIfred's model (the
-        # agent_settings SSOT maps them to AIfred's bucket).
+        # Determine agent model — agents without an own model inherit
+        # AIfred's (get_agent_base_model_id SSOT).
         # Track base + resolved separately: backend wants resolved (with
         # speed/tts suffix), context lookup wants base (get_agent_num_ctx
         # runs resolve_variant_suffix itself; a resolved id would
@@ -745,8 +745,8 @@ async def _run_agent_direct_response(
         agent_base_id = get_agent_base_model_id(state, agent)
         state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_id} ({state.backend_type})")
 
-        # Context limit — get_agent_num_ctx maps custom agents to AIfred's
-        # context bucket itself (SSOT)
+        # Context limit — get_agent_num_ctx resolves model-bound toggles
+        # via the model owner itself (SSOT)
         from .research.context_utils import get_agent_num_ctx
         agent_num_ctx, ctx_source = get_agent_num_ctx(agent, state, agent_base_id)
         state.add_debug(f"   🎯 Context: {format_number(agent_num_ctx)} ({ctx_source})")
@@ -838,12 +838,11 @@ async def _run_agent_direct_response(
         budget_var.set(compute_budget(agent_num_ctx, sys_tok, hist_tok, mem_tok))
 
         # Build LLM options — direct-chat path forces AIfred's thinking
-        # config onto the responding agent (custom agents read AIfred's
-        # bucket anyway via the agent_settings SSOT).
+        # config onto the responding agent (temporarily, restored below).
         saved_thinking = get_agent_setting(state, agent, "thinking", True)
         saved_effort = get_agent_setting(state, agent, "reasoning_effort", "")
-        set_agent_setting(state, agent, "thinking", state.aifred_thinking)
-        set_agent_setting(state, agent, "reasoning_effort", state.aifred_reasoning_effort)
+        set_agent_setting(state, agent, "thinking", state.agent_tuning["aifred"].thinking)
+        set_agent_setting(state, agent, "reasoning_effort", state.agent_tuning["aifred"].reasoning_effort)
         try:
             agent_options = build_llm_options(state, agent, agent_temp, agent_num_ctx)
         finally:
@@ -995,7 +994,7 @@ async def run_sokrates_analysis(
 
         # Determine models
         sokrates_model = state._effective_model_id("sokrates") or state._effective_model_id("aifred")
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
+        sokrates_display = state.agent_tuning["sokrates"].model if state.agent_tuning["sokrates"].model else state.agent_tuning["aifred"].model  # type: ignore[has-type]
         alfred_model = state._effective_model_id("aifred")
         salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
         state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
@@ -1084,7 +1083,7 @@ async def run_sokrates_analysis(
 
             # === AUTO-CONSENSUS (TRIALOG): Salomo synthesizes and decides ===
             if state.multi_agent_mode == "auto_consensus":
-                salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
+                salomo_display = state.agent_tuning["salomo"].model if state.agent_tuning["salomo"].model else state.agent_tuning["aifred"].model  # type: ignore[has-type]
                 if round_num == 1:
                     state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
 
@@ -1250,9 +1249,9 @@ async def run_tribunal(
 
         # Determine models
         sokrates_model = state._effective_model_id("sokrates") or state._effective_model_id("aifred")
-        sokrates_display = state.sokrates_model if state.sokrates_model else state.aifred_model  # type: ignore[has-type]
+        sokrates_display = state.agent_tuning["sokrates"].model if state.agent_tuning["sokrates"].model else state.agent_tuning["aifred"].model  # type: ignore[has-type]
         salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
-        salomo_display = state.salomo_model if state.salomo_model else state.aifred_model  # type: ignore[has-type]
+        salomo_display = state.agent_tuning["salomo"].model if state.agent_tuning["salomo"].model else state.agent_tuning["aifred"].model  # type: ignore[has-type]
         alfred_model = state._effective_model_id("aifred")
 
         state.add_debug("⚖️ Tribunal mode started")
@@ -1502,7 +1501,7 @@ async def run_symposion(
                 agent_label = cfg.display_name
                 emoji = cfg.emoji
 
-                # Model: custom agents use AIfred's model (agent_settings SSOT).
+                # Model: agents without an own model inherit AIfred's.
                 # Resolved id for the backend, base id for the context lookup
                 # (see _setup_debate_contexts comment).
                 model_id = state._effective_model_id(agent_id) or state._effective_model_id("aifred")

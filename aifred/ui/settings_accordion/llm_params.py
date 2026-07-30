@@ -58,51 +58,25 @@ def llm_parameters_accordion() -> rx.Component:
                         ),
                     ),
 
-                    # Per-LLM Context Control - Four columns with toggle + input
+                    # Per-LLM Context Control \u2014 one column per registered
+                    # agent (custom agents included), rendered via foreach.
                     # Chat-Agenten: num_ctx wird nur bei Ollama zur Request-
                     # Zeit \u00fcbernommen. Bei llama.cpp/vLLM ist die
                     # ctx-Gr\u00f6\u00dfe zur Modell-Lade-Zeit fix (yaml/CLI-Args).
-                    # Vision ist immer Ollama \u2192 davon ausgenommen.
                     rx.hstack(
-                        _ctx_column(
-                            "\U0001f3a9", "AIfred",
-                            AIState.num_ctx_manual_aifred_enabled,
-                            AIState.toggle_num_ctx_manual_aifred,
-                            AIState.num_ctx_manual_aifred,
-                            AIState.set_num_ctx_manual_aifred,
-                            extra_disabled=AIState.backend_type != "ollama",
-                        ),
-                        _ctx_column(
-                            "\U0001f3db\ufe0f", "Sokrates",
-                            AIState.num_ctx_manual_sokrates_enabled,
-                            AIState.toggle_num_ctx_manual_sokrates,
-                            AIState.num_ctx_manual_sokrates,
-                            AIState.set_num_ctx_manual_sokrates,
-                            extra_disabled=AIState.backend_type != "ollama",
-                        ),
-                        _ctx_column(
-                            "\U0001f451", "Salomo",
-                            AIState.num_ctx_manual_salomo_enabled,
-                            AIState.toggle_num_ctx_manual_salomo,
-                            AIState.num_ctx_manual_salomo,
-                            AIState.set_num_ctx_manual_salomo,
-                            extra_disabled=AIState.backend_type != "ollama",
-                        ),
-                        # Vision num_ctx \u2014 gilt nur bei Ollama-Chat-Backend.
-                        # Bei llama-swap/vLLM laufen Vision-Calls
-                        # \u00fcber den Vigilantia-Pfad (Server-Side), der den
-                        # State-Override nicht sieht \u2014 Toggle w\u00e4re wirkungslos.
-                        _ctx_column(
-                            "\U0001f441\ufe0f", "Vision",
-                            AIState.vision_num_ctx_enabled,
-                            AIState.toggle_vision_num_ctx,
-                            AIState.vision_num_ctx,  # type: ignore[arg-type]
-                            AIState.set_vision_num_ctx,
-                            placeholder="32768",
-                            extra_disabled=AIState.backend_type != "ollama",
-                            margin_left="8px",
+                        rx.foreach(
+                            AIState.ctx_rows,
+                            lambda row: _ctx_column(
+                                row.id,
+                                row.emoji,
+                                row.label,
+                                row.enabled,
+                                row.value,
+                                extra_disabled=AIState.backend_type != "ollama",
+                            ),
                         ),
                         spacing="3",
+                        flex_wrap="wrap",
                     ),
 
                     # Show Calculation Button (styled like "Text senden" button)

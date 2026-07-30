@@ -90,8 +90,9 @@ def get_agent_num_ctx(
     The returned num_ctx is already reduced by ~14K tokens when XTTS uses GPU VRAM.
 
     Args:
-        agent: Agent identifier — canonical (aifred/sokrates/salomo/vision)
-            or a registered custom agent (uses AIfred's context bucket)
+        agent: Agent identifier — any registered agent (canonical or custom;
+            each owns its tuning bucket, model-bound toggles resolve via
+            the model owner)
         state: AIState instance containing per-agent settings
         model_id: **BASE** model ID without variant suffix (e.g., "qwen3:14b" or
             "Qwen3.5-...-IQ3_XXS"). MUST NOT be a resolved variant id like
@@ -116,10 +117,13 @@ def get_agent_num_ctx(
         >>> print(f"Using {num_ctx} tokens ({source})")
         Using 4096 tokens (manual)
     """
-    # Agent addressing (incl. custom-agent → AIfred-bucket mapping and the
-    # vision_num_ctx naming asymmetry) lives in the agent_settings SSOT.
-    from ..agent_settings import get_agent_setting, settings_agent
+    # Agent addressing lives in the agent_settings SSOT. Speed toggles are
+    # read from the MODEL OWNER (an agent sharing AIfred's LLM shares
+    # AIfred's speed toggle — otherwise this lookup and the actual load
+    # resolve different llama-swap variants).
+    from ..agent_settings import get_agent_setting, model_owner, settings_agent
     agent = settings_agent(agent)
+    owner = model_owner(state, agent)
 
     # Check if manual mode is enabled for this agent
     if get_agent_setting(state, agent, "num_ctx_manual_enabled", False):
@@ -150,8 +154,8 @@ def get_agent_num_ctx(
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             model_id,
-            speed_on=get_agent_setting(state, agent, "speed_mode", False),
-            has_speed_variant=get_agent_setting(state, agent, "has_speed_variant", False),
+            speed_on=get_agent_setting(state, owner, "speed_mode", False),
+            has_speed_variant=get_agent_setting(state, owner, "has_speed_variant", False),
             tts_active=bool(getattr(state, "enable_tts", False)),
             tts_engine=getattr(state, "tts_engine", ""),
         )

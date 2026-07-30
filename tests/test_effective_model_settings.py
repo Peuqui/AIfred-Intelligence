@@ -11,23 +11,23 @@ from unittest.mock import patch
 from aifred.lib.config import get_effective_model_from_settings
 
 
-def _settings(**overrides):
-    base = {
+def _settings(*, aifred_speed_mode=True, sokrates_speed_mode=False):
+    return {
         "backend_type": "llamacpp",
         "backend_models": {
             "llamacpp": {
-                "aifred_model": "Qwen3.6-27B",
-                "automatik_model": "",
-                "sokrates_model": "",
+                "aifred": "Qwen3.6-27B",
+                "automatik": "",
+                "sokrates": "",
             },
         },
-        "aifred_speed_mode": True,
-        "sokrates_speed_mode": False,
+        "agent_tuning": {
+            "aifred": {"speed_mode": aifred_speed_mode},
+            "sokrates": {"speed_mode": sokrates_speed_mode},
+        },
         "enable_tts": False,
         "tts_engine": "",
     }
-    base.update(overrides)
-    return base
 
 
 def _run(agent, settings):
@@ -59,7 +59,7 @@ class TestAutomatikSpeedMirror:
     def test_automatik_own_model_still_mirrors_aifred_speed(self):
         # Automatik has no own speed toggle even with a dedicated model.
         s = _settings()
-        s["backend_models"]["llamacpp"]["automatik_model"] = "Qwen3-4B"
+        s["backend_models"]["llamacpp"]["automatik"] = "Qwen3-4B"
         assert _run("automatik", s) == "Qwen3-4B-speed"
 
     def test_automatik_speed_off_when_aifred_speed_off(self):
@@ -74,7 +74,7 @@ class TestSharedModelSpeedFallback:
 
     def test_agent_with_own_model_uses_own_speed(self):
         s = _settings()
-        s["backend_models"]["llamacpp"]["sokrates_model"] = "Qwen3-14B"
+        s["backend_models"]["llamacpp"]["sokrates"] = "Qwen3-14B"
         assert _run("sokrates", s) == "Qwen3-14B"  # sokrates_speed_mode=False
 
     def test_aifred_uses_own_speed(self):

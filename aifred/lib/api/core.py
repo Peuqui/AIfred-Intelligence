@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, List
 
+from ..agent_settings import get_persisted_tuning as _tuning
 from ..settings import load_settings, save_settings, get_default_settings
 from ..formatting import format_number
 from ..logging_utils import log_message
@@ -168,16 +169,16 @@ async def get_settings():
         backend_type=backend_type,
         backend_url=backend_url,
         # backend_models is the single source of truth for model fields
-        aifred_model=backend_models.get("aifred_model", ""),
-        sokrates_model=backend_models.get("sokrates_model", ""),
-        salomo_model=backend_models.get("salomo_model", ""),
-        automatik_model=backend_models.get("automatik_model", ""),
-        vision_model=backend_models.get("vision_model", ""),
-        aifred_rope_factor=settings.get("aifred_rope_factor", 1.0),
-        sokrates_rope_factor=settings.get("sokrates_rope_factor", 1.0),
-        salomo_rope_factor=settings.get("salomo_rope_factor", 1.0),
+        aifred_model=backend_models.get("aifred", ""),
+        sokrates_model=backend_models.get("sokrates", ""),
+        salomo_model=backend_models.get("salomo", ""),
+        automatik_model=backend_models.get("automatik", ""),
+        vision_model=backend_models.get("vision", ""),
+        aifred_rope_factor=_tuning(settings, "aifred", "rope_factor", 1.0),
+        sokrates_rope_factor=_tuning(settings, "sokrates", "rope_factor", 1.0),
+        salomo_rope_factor=_tuning(settings, "salomo", "rope_factor", 1.0),
         automatik_rope_factor=settings.get("automatik_rope_factor", 1.0),
-        vision_rope_factor=settings.get("vision_rope_factor", 1.0),
+        vision_rope_factor=_tuning(settings, "vision", "rope_factor", 1.0),
         temperature=settings.get("temperature", 0.3),
         temperature_mode=settings.get("temperature_mode", "auto"),
         enable_thinking=settings.get("enable_thinking", True),
@@ -216,9 +217,19 @@ async def update_settings(update: SettingsUpdate):
     # Model fields live in backend_models[<backend_type>] — the SAME
     # structure the UI writes and the Message-Hub reads. A flat top-level
     # write here used to create a second truth that the hub never saw.
+    # API field name -> backend_models key (agent id)
     _MODEL_FIELDS = {
-        "aifred_model", "sokrates_model", "salomo_model",
-        "automatik_model", "vision_model",
+        "aifred_model": "aifred", "sokrates_model": "sokrates",
+        "salomo_model": "salomo", "automatik_model": "automatik",
+        "vision_model": "vision",
+    }
+    # Per-agent tuning fields live in settings["agent_tuning"][<agent>]
+    # (automatik_rope_factor stays flat — the Automatik is not an agent).
+    _TUNING_FIELDS = {
+        "aifred_rope_factor": ("aifred", "rope_factor"),
+        "sokrates_rope_factor": ("sokrates", "rope_factor"),
+        "salomo_rope_factor": ("salomo", "rope_factor"),
+        "vision_rope_factor": ("vision", "rope_factor"),
     }
     # Map API field names to settings.json field names (non-model fields)
     field_mapping = {
@@ -229,8 +240,14 @@ async def update_settings(update: SettingsUpdate):
     target_backend = update_dict.get("backend_type") or settings.get("backend_type", "llamacpp")
     for api_field, value in update_dict.items():
         if api_field in _MODEL_FIELDS:
-            settings.setdefault("backend_models", {}).setdefault(target_backend, {})[api_field] = value
-            log_message(f"📝 API: Updated backend_models.{target_backend}.{api_field} = {value}")
+            model_key = _MODEL_FIELDS[api_field]
+            settings.setdefault("backend_models", {}).setdefault(target_backend, {})[model_key] = value
+            log_message(f"📝 API: Updated backend_models.{target_backend}.{model_key} = {value}")
+            continue
+        if api_field in _TUNING_FIELDS:
+            agent, tuning_field = _TUNING_FIELDS[api_field]
+            settings.setdefault("agent_tuning", {}).setdefault(agent, {})[tuning_field] = value
+            log_message(f"📝 API: Updated agent_tuning.{agent}.{tuning_field} = {value}")
             continue
         settings_field = field_mapping.get(api_field, api_field)
         settings[settings_field] = value

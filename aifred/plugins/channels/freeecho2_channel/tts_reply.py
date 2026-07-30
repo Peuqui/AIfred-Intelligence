@@ -193,7 +193,7 @@ class TtsReplyMixin(BaseChannel):
         settings = load_settings() or {}
         backend = self._get_backend_type()
         model_id = str(
-            settings.get("backend_models", {}).get(backend, {}).get("aifred_model", "")
+            settings.get("backend_models", {}).get(backend, {}).get("aifred", "")
         )
         if not model_id:
             return True

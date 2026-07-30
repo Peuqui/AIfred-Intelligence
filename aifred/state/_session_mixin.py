@@ -584,11 +584,11 @@ class SessionMixin(rx.State, mixin=True):
 
         # Determine num_ctx override to avoid Ollama reload
         num_ctx_override = 0
-        if title_model_override == self.vision_model_id and self.vision_model_id:  # type: ignore[attr-defined]
+        if title_model_override == self.agent_tuning["vision"].model_id and self.agent_tuning["vision"].model_id:  # type: ignore[attr-defined]
             from ..lib.research.context_utils import get_agent_num_ctx
-            num_ctx_override, _ = get_agent_num_ctx("vision", self, self.vision_model_id)  # type: ignore[attr-defined, arg-type]
-        elif self.aifred_max_context:  # type: ignore[attr-defined]
-            num_ctx_override = self.aifred_max_context  # type: ignore[attr-defined]
+            num_ctx_override, _ = get_agent_num_ctx("vision", self, self.agent_tuning["vision"].model_id)  # type: ignore[attr-defined, arg-type]
+        elif self.agent_tuning["aifred"].max_context:  # type: ignore[attr-defined]
+            num_ctx_override = self.agent_tuning["aifred"].max_context  # type: ignore[attr-defined]
 
         self.add_debug("Generating session title...")  # type: ignore[attr-defined]
 
