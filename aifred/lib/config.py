@@ -1221,6 +1221,15 @@ SANDBOX_MAX_PROCESSES = 64           # RLIMIT_NPROC: cap child processes so a fo
                                      # can't multiply past the per-process RAM limit.
 SANDBOX_WORK_DIR = "/tmp/aifred_sandbox"
 
+# Browser-Render-Tool (render_html): headless Chrome renders sandbox HTML,
+# captures console messages + a screenshot so agents can verify their
+# HTML/JS output actually works.
+BROWSER_RENDER_BINARY = "google-chrome"      # headless-capable Chrome/Chromium binary
+BROWSER_RENDER_TIMEOUT_SECONDS = 30          # hard cap for the render subprocess
+BROWSER_RENDER_WINDOW_SIZE = "1280,800"      # --window-size for screenshot
+BROWSER_RENDER_VIRTUAL_TIME_MS = 5000        # --virtual-time-budget: fast-forwards
+                                             # timers/animations before the shot
+
 # ============================================================
 # EMAIL CONFIGURATION
 # ============================================================

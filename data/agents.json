@@ -329,6 +329,7 @@
         "web_fetch",
         "execute_code",
         "execute_code_write",
+        "render_html",
         "scheduler_create",
         "scheduler_list",
         "scheduler_delete",
