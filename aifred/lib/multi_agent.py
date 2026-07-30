@@ -50,11 +50,12 @@ def resolve_agent_temperature(state: 'AIState', agent: str) -> float:
     AIfred's global temperature; every other agent (aifred, vision,
     custom agents) uses AIfred's global temperature directly.
     """
+    from .agent_settings import get_agent_setting
     if agent in ("sokrates", "salomo"):
         if state.temperature_mode == "manual":  # type: ignore[has-type]
-            return float(getattr(state, f"{agent}_temperature"))
-        return min(1.0, float(state.temperature) + float(getattr(state, f"{agent}_temperature_offset")))
-    return float(state.temperature)
+            return float(get_agent_setting(state, agent, "temperature"))
+        return min(1.0, float(state.temperature) + float(get_agent_setting(state, agent, "temperature_offset")))  # type: ignore[has-type]
+    return float(state.temperature)  # type: ignore[has-type]
 
 
 def _estimate_prompt_tokens(prompt: str) -> int:
@@ -547,9 +548,10 @@ def _setup_debate_contexts(
     # get_agent_num_ctx runs resolve_variant_suffix internally; handing
     # it the already-resolved id produces a double-suffix lookup that
     # misses the YAML entry and triggers the 32K fallback.
+    from .agent_settings import get_agent_base_model_id
     aifred_base = state.aifred_model_id  # type: ignore[attr-defined,has-type]
-    sokrates_base = state.sokrates_model_id or aifred_base  # type: ignore[attr-defined]
-    salomo_base = state.salomo_model_id or aifred_base  # type: ignore[attr-defined]
+    sokrates_base = get_agent_base_model_id(state, "sokrates")
+    salomo_base = get_agent_base_model_id(state, "salomo")
     main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, aifred_base, fallback=32768)
     sokrates_num_ctx, sokrates_source = get_agent_num_ctx("sokrates", state, sokrates_base, fallback=32768)
     salomo_num_ctx, salomo_source = get_agent_num_ctx("salomo", state, salomo_base, fallback=32768)
@@ -574,11 +576,11 @@ def _setup_debate_contexts(
 
     # Temperatures
     if state.temperature_mode == "manual":  # type: ignore[has-type]
-        alfred_temp = state.temperature
+        alfred_temp = state.temperature  # type: ignore[has-type]
         sokrates_temp = state.sokrates_temperature
         salomo_temp = state.salomo_temperature
     else:
-        alfred_temp = state.temperature
+        alfred_temp = state.temperature  # type: ignore[has-type]
         sokrates_temp = min(1.0, alfred_temp + state.sokrates_temperature_offset)
         salomo_temp = min(1.0, alfred_temp + state.salomo_temperature_offset)
 
@@ -732,19 +734,15 @@ async def _run_agent_direct_response(
             base_url=state.backend_url
         )
 
-        # Determine agent model — custom agents use AIfred's model.
+        # Determine agent model — custom agents use AIfred's model (the
+        # agent_settings SSOT maps them to AIfred's bucket).
         # Track base + resolved separately: backend wants resolved (with
         # speed/tts suffix), context lookup wants base (get_agent_num_ctx
         # runs resolve_variant_suffix itself; a resolved id would
         # double-suffix and trigger a 32K fallback).
-        _default_agents = ("aifred", "sokrates", "salomo", "vision")
-        if agent in _default_agents:
-            agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
-            base_attr = "vision_model_id" if agent == "vision" else f"{agent}_model_id"
-            agent_base_id = getattr(state, base_attr, "") or state.aifred_model_id  # type: ignore[attr-defined, has-type]
-        else:
-            agent_model_id = state._effective_model_id("aifred")
-            agent_base_id = state.aifred_model_id  # type: ignore[attr-defined, has-type]
+        from .agent_settings import get_agent_base_model_id, get_agent_setting, set_agent_setting
+        agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
+        agent_base_id = get_agent_base_model_id(state, agent)
         state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_id} ({state.backend_type})")
 
         # Context limit — get_agent_num_ctx maps custom agents to AIfred's
@@ -839,20 +837,21 @@ async def _run_agent_direct_response(
         from .tool_output_cap import budget_var, compute_budget
         budget_var.set(compute_budget(agent_num_ctx, sys_tok, hist_tok, mem_tok))
 
-        # Build LLM options — custom agents use AIfred's settings
-        opts_agent = agent if agent in _default_agents else "aifred"
-        saved_thinking = getattr(state, f"{opts_agent}_thinking", True)
-        saved_effort = getattr(state, f"{opts_agent}_reasoning_effort", "")
-        setattr(state, f"{opts_agent}_thinking", state.aifred_thinking)
-        setattr(state, f"{opts_agent}_reasoning_effort", state.aifred_reasoning_effort)
+        # Build LLM options — direct-chat path forces AIfred's thinking
+        # config onto the responding agent (custom agents read AIfred's
+        # bucket anyway via the agent_settings SSOT).
+        saved_thinking = get_agent_setting(state, agent, "thinking", True)
+        saved_effort = get_agent_setting(state, agent, "reasoning_effort", "")
+        set_agent_setting(state, agent, "thinking", state.aifred_thinking)
+        set_agent_setting(state, agent, "reasoning_effort", state.aifred_reasoning_effort)
         try:
-            agent_options = build_llm_options(state, opts_agent, agent_temp, agent_num_ctx)
+            agent_options = build_llm_options(state, agent, agent_temp, agent_num_ctx)
         finally:
             # Restore MUST run even when build_llm_options raises — the
             # overrides would otherwise stick and get persisted with the
             # next settings save.
-            setattr(state, f"{opts_agent}_thinking", saved_thinking)
-            setattr(state, f"{opts_agent}_reasoning_effort", saved_effort)
+            set_agent_setting(state, agent, "thinking", saved_thinking)
+            set_agent_setting(state, agent, "reasoning_effort", saved_effort)
 
         # Stream response via shared helper (SSOT for all streaming logic)
         result = None
@@ -1420,13 +1419,12 @@ async def run_symposion(
     from .agent_config import get_agent_config
     from .prompt_loader import get_agent_system_prompt, load_prompt
     from .agent_memory import prepare_agent_toolkit
+    from .agent_settings import get_agent_base_model_id
     from .research.context_utils import get_agent_num_ctx
 
     agents = state.symposion_agents
     max_rounds = state.max_debate_rounds
     memory_enabled = state.agent_memory_enabled
-
-    default_agents = ("aifred", "sokrates", "salomo", "vision")
 
     agent_configs = []
     for agent_id in agents:
@@ -1504,22 +1502,16 @@ async def run_symposion(
                 agent_label = cfg.display_name
                 emoji = cfg.emoji
 
-                # Model: custom agents use AIfred's model.
+                # Model: custom agents use AIfred's model (agent_settings SSOT).
                 # Resolved id for the backend, base id for the context lookup
                 # (see _setup_debate_contexts comment).
-                if agent_id in default_agents:
-                    model_id = state._effective_model_id(agent_id) or state._effective_model_id("aifred")
-                    base_attr = "vision_model_id" if agent_id == "vision" else f"{agent_id}_model_id"
-                    base_id = getattr(state, base_attr, "") or state.aifred_model_id  # type: ignore[attr-defined, has-type]
-                else:
-                    model_id = state._effective_model_id("aifred")
-                    base_id = state.aifred_model_id  # type: ignore[attr-defined, has-type]
+                model_id = state._effective_model_id(agent_id) or state._effective_model_id("aifred")
+                base_id = get_agent_base_model_id(state, agent_id)
 
                 state.add_debug(f"{emoji} {agent_label} (R{round_num})")
 
                 # Context limit
-                ctx_agent = agent_id if agent_id in default_agents else "aifred"
-                agent_num_ctx, _ = get_agent_num_ctx(ctx_agent, state, base_id)
+                agent_num_ctx, _ = get_agent_num_ctx(agent_id, state, base_id)
 
                 # System prompt: agent identity + symposion rules + memory
                 # From round 2 onwards augment with the reflection prompt so
@@ -1557,9 +1549,8 @@ async def run_symposion(
                         messages.append({"role": "user", "content": msg["content"]})
 
                 # Build options (use agent's temperature from state)
-                opts_agent = agent_id if agent_id in default_agents else "aifred"
-                agent_temp = resolve_agent_temperature(state, opts_agent)
-                agent_options = build_llm_options(state, opts_agent, agent_temp, agent_num_ctx)
+                agent_temp = resolve_agent_temperature(state, agent_id)
+                agent_options = build_llm_options(state, agent_id, agent_temp, agent_num_ctx)
 
                 # Stream response
                 result = None

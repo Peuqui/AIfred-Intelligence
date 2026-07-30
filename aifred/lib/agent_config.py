@@ -388,7 +388,8 @@ def delete_agent(agent_id: str) -> None:
     import shutil
     from .prompt_loader import PROMPTS_DIR
 
-    if agent_id in ("aifred", "sokrates", "salomo", "vision"):
+    from .agent_settings import CANONICAL_AGENTS
+    if agent_id in CANONICAL_AGENTS:
         raise ValueError(f"Cannot delete default agent '{agent_id}'")
 
     agents = load_agents_raw()

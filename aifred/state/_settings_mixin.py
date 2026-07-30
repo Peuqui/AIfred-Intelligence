@@ -99,9 +99,9 @@ class SettingsMixin(rx.State, mixin=True):
             # the AI calibration toggle to legacy on the next run.
             "calibration_mode": self.calibration_mode or "legacy",  # type: ignore[attr-defined, has-type]
             # NOTE: research_mode, multi_agent_mode are per-session now (session_storage.DEFAULT_SESSION_CONFIG)
-            "temperature": self.temperature,  # type: ignore[attr-defined, has-type]
+            # NOTE: per-agent tuning fields (temperature, sampling, thinking,
+            # personality, speed) are appended below via PER_AGENT_PERSISTED_FIELDS
             "temperature_mode": self.temperature_mode,  # type: ignore[attr-defined, has-type]
-            "sokrates_temperature": self.sokrates_temperature,  # type: ignore[attr-defined, has-type]
             "sokrates_temperature_offset": self.sokrates_temperature_offset,  # type: ignore[attr-defined, has-type]
             "ui_language": self.ui_language,  # UI language (de/en)
             "user_name": self.user_name,  # User's name for personalized responses
@@ -113,7 +113,6 @@ class SettingsMixin(rx.State, mixin=True):
             # NOTE: Modell-Felder (auch sokrates/salomo) leben ausschließlich
             # in backend_models — eine zweite flache Wahrheit gab es bis
             # 2026-07-17 und sie hat den Message-Hub-Pfad verfehlt.
-            "salomo_temperature": self.salomo_temperature,  # type: ignore[attr-defined, has-type]
             "salomo_temperature_offset": self.salomo_temperature_offset,  # type: ignore[attr-defined, has-type]
             # vLLM YaRN Settings (only enable/disable, factor is calculated dynamically)
             "enable_yarn": self.enable_yarn,  # type: ignore[attr-defined, has-type]
@@ -123,45 +122,6 @@ class SettingsMixin(rx.State, mixin=True):
             # Vision LLM Context Settings (PERSISTENT)
             "vision_num_ctx_enabled": self.vision_num_ctx_enabled,  # type: ignore[attr-defined, has-type]
             "vision_num_ctx": self.vision_num_ctx,  # type: ignore[attr-defined, has-type]
-            # Agent Personality & Reasoning Settings
-            "aifred_personality": self.aifred_personality,  # type: ignore[attr-defined, has-type]
-            "sokrates_personality": self.sokrates_personality,  # type: ignore[attr-defined, has-type]
-            "salomo_personality": self.salomo_personality,  # type: ignore[attr-defined, has-type]
-            "vision_personality": self.vision_personality,  # type: ignore[attr-defined, has-type]
-            "aifred_reasoning": self.aifred_reasoning,  # type: ignore[attr-defined, has-type]
-            "sokrates_reasoning": self.sokrates_reasoning,  # type: ignore[attr-defined, has-type]
-            "salomo_reasoning": self.salomo_reasoning,  # type: ignore[attr-defined, has-type]
-            "vision_reasoning": self.vision_reasoning,  # type: ignore[attr-defined, has-type]
-            "aifred_thinking": self.aifred_thinking,  # type: ignore[attr-defined, has-type]
-            "sokrates_thinking": self.sokrates_thinking,  # type: ignore[attr-defined, has-type]
-            "salomo_thinking": self.salomo_thinking,  # type: ignore[attr-defined, has-type]
-            "vision_thinking": self.vision_thinking,  # type: ignore[attr-defined, has-type]
-            "aifred_reasoning_effort": self.aifred_reasoning_effort,  # type: ignore[attr-defined, has-type]
-            "sokrates_reasoning_effort": self.sokrates_reasoning_effort,  # type: ignore[attr-defined, has-type]
-            "salomo_reasoning_effort": self.salomo_reasoning_effort,  # type: ignore[attr-defined, has-type]
-            "vision_reasoning_effort": self.vision_reasoning_effort,  # type: ignore[attr-defined, has-type]
-            # Sampling params (per-agent)
-            "aifred_top_k": self.aifred_top_k,  # type: ignore[attr-defined, has-type]
-            "aifred_top_p": self.aifred_top_p,  # type: ignore[attr-defined, has-type]
-            "aifred_min_p": self.aifred_min_p,  # type: ignore[attr-defined, has-type]
-            "aifred_repeat_penalty": self.aifred_repeat_penalty,  # type: ignore[attr-defined, has-type]
-            "sokrates_top_k": self.sokrates_top_k,  # type: ignore[attr-defined, has-type]
-            "sokrates_top_p": self.sokrates_top_p,  # type: ignore[attr-defined, has-type]
-            "sokrates_min_p": self.sokrates_min_p,  # type: ignore[attr-defined, has-type]
-            "sokrates_repeat_penalty": self.sokrates_repeat_penalty,  # type: ignore[attr-defined, has-type]
-            "salomo_top_k": self.salomo_top_k,  # type: ignore[attr-defined, has-type]
-            "salomo_top_p": self.salomo_top_p,  # type: ignore[attr-defined, has-type]
-            "salomo_min_p": self.salomo_min_p,  # type: ignore[attr-defined, has-type]
-            "salomo_repeat_penalty": self.salomo_repeat_penalty,  # type: ignore[attr-defined, has-type]
-            "vision_top_k": self.vision_top_k,  # type: ignore[attr-defined, has-type]
-            "vision_top_p": self.vision_top_p,  # type: ignore[attr-defined, has-type]
-            "vision_min_p": self.vision_min_p,  # type: ignore[attr-defined, has-type]
-            "vision_repeat_penalty": self.vision_repeat_penalty,  # type: ignore[attr-defined, has-type]
-            "vision_temperature": self.vision_temperature,  # type: ignore[attr-defined, has-type]
-            "aifred_speed_mode": self.aifred_speed_mode,  # type: ignore[attr-defined, has-type]
-            "sokrates_speed_mode": self.sokrates_speed_mode,  # type: ignore[attr-defined, has-type]
-            "salomo_speed_mode": self.salomo_speed_mode,  # type: ignore[attr-defined, has-type]
-            "vision_speed_mode": self.vision_speed_mode,  # type: ignore[attr-defined, has-type]
             # TTS/STT Settings
             "enable_tts": self.enable_tts,  # type: ignore[attr-defined, has-type]
             "voice": self.tts_voice,  # type: ignore[attr-defined, has-type]
@@ -186,6 +146,15 @@ class SettingsMixin(rx.State, mixin=True):
             "channel_toggles": self.channel_toggles,
             "channel_security_tiers": self.channel_security_tiers,
         }
+
+        # Per-agent tuning fields — key list is SSOT in agent_settings
+        # (covers personality/reasoning/thinking/reasoning_effort/temperature/
+        # sampling/speed for all canonical agents; keys == attr names)
+        from ..lib.agent_settings import CANONICAL_AGENTS, PER_AGENT_PERSISTED_FIELDS, agent_attr
+        for agent in CANONICAL_AGENTS:
+            for field in PER_AGENT_PERSISTED_FIELDS:
+                attr = agent_attr(agent, field)
+                settings[attr] = getattr(self, attr)
         # Update tts_voices_per_language with current voice selection
         engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
         lang = self.ui_language
@@ -289,36 +258,23 @@ class SettingsMixin(rx.State, mixin=True):
         self.automatik_rope_factor = settings.get("automatik_rope_factor", self.automatik_rope_factor)  # type: ignore[attr-defined, has-type]
         self.vision_rope_factor = settings.get("vision_rope_factor", self.vision_rope_factor)  # type: ignore[attr-defined, has-type]
 
-        # Sampling params (per-agent)
-        self.aifred_top_k = settings.get("aifred_top_k", self.aifred_top_k)  # type: ignore[attr-defined, has-type]
-        self.aifred_top_p = settings.get("aifred_top_p", self.aifred_top_p)  # type: ignore[attr-defined, has-type]
-        self.aifred_min_p = settings.get("aifred_min_p", self.aifred_min_p)  # type: ignore[attr-defined, has-type]
-        self.aifred_repeat_penalty = settings.get("aifred_repeat_penalty", self.aifred_repeat_penalty)  # type: ignore[attr-defined, has-type]
-        self.sokrates_top_k = settings.get("sokrates_top_k", self.sokrates_top_k)  # type: ignore[attr-defined, has-type]
-        self.sokrates_top_p = settings.get("sokrates_top_p", self.sokrates_top_p)  # type: ignore[attr-defined, has-type]
-        self.sokrates_min_p = settings.get("sokrates_min_p", self.sokrates_min_p)  # type: ignore[attr-defined, has-type]
-        self.sokrates_repeat_penalty = settings.get("sokrates_repeat_penalty", self.sokrates_repeat_penalty)  # type: ignore[attr-defined, has-type]
-        self.salomo_top_k = settings.get("salomo_top_k", self.salomo_top_k)  # type: ignore[attr-defined, has-type]
-        self.salomo_top_p = settings.get("salomo_top_p", self.salomo_top_p)  # type: ignore[attr-defined, has-type]
-        self.salomo_min_p = settings.get("salomo_min_p", self.salomo_min_p)  # type: ignore[attr-defined, has-type]
-        self.salomo_repeat_penalty = settings.get("salomo_repeat_penalty", self.salomo_repeat_penalty)  # type: ignore[attr-defined, has-type]
-        self.vision_top_k = settings.get("vision_top_k", self.vision_top_k)  # type: ignore[attr-defined, has-type]
-        self.vision_top_p = settings.get("vision_top_p", self.vision_top_p)  # type: ignore[attr-defined, has-type]
-        self.vision_min_p = settings.get("vision_min_p", self.vision_min_p)  # type: ignore[attr-defined, has-type]
-        self.vision_repeat_penalty = settings.get("vision_repeat_penalty", self.vision_repeat_penalty)  # type: ignore[attr-defined, has-type]
+        # Sampling params + personality (per-agent). Deliberately only this
+        # subset of PER_AGENT_PERSISTED_FIELDS — reload serves API-driven
+        # changes; thinking/reasoning/speed/temperature stay untouched here
+        # (same behavior as before the loop-ification).
+        from ..lib.agent_settings import CANONICAL_AGENTS, agent_attr
+        from ..lib.prompt_loader import set_personality_enabled
+        for agent in CANONICAL_AGENTS:
+            for field in ("top_k", "top_p", "min_p", "repeat_penalty"):
+                attr = agent_attr(agent, field)
+                setattr(self, attr, settings.get(attr, getattr(self, attr)))
         self.vision_temperature = settings.get("vision_temperature", self.vision_temperature)  # type: ignore[attr-defined, has-type]
 
-        # Personality toggles
-        self.aifred_personality = settings.get("aifred_personality", self.aifred_personality)  # type: ignore[attr-defined, has-type]
-        self.sokrates_personality = settings.get("sokrates_personality", self.sokrates_personality)  # type: ignore[attr-defined, has-type]
-        self.salomo_personality = settings.get("salomo_personality", self.salomo_personality)  # type: ignore[attr-defined, has-type]
-        self.vision_personality = settings.get("vision_personality", self.vision_personality)  # type: ignore[attr-defined, has-type]
-        # Sync to prompt_loader
-        from ..lib.prompt_loader import set_personality_enabled
-        set_personality_enabled("aifred", self.aifred_personality)  # type: ignore[attr-defined, has-type, arg-type]
-        set_personality_enabled("sokrates", self.sokrates_personality)  # type: ignore[attr-defined, has-type, arg-type]
-        set_personality_enabled("salomo", self.salomo_personality)  # type: ignore[attr-defined, has-type, arg-type]
-        set_personality_enabled("vision", self.vision_personality)  # type: ignore[attr-defined, has-type, arg-type]
+        # Personality toggles (+ prompt_loader sync)
+        for agent in CANONICAL_AGENTS:
+            attr = agent_attr(agent, "personality")
+            setattr(self, attr, settings.get(attr, getattr(self, attr)))
+            set_personality_enabled(agent, getattr(self, attr))
 
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]

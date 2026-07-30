@@ -34,7 +34,7 @@ def _temp_input(agent: str, width: str = "50px") -> rx.Component:
         attr = getattr(AIState, f"{agent}_temperature")
     handler = getattr(AIState, f"set_{agent}_temperature_input")
     return rx.input(
-        default_value=attr.to(str),
+        default_value=attr.to(str),  # type: ignore[union-attr]
         on_blur=handler,
         key=AIState.sampling_reset_key.to(str) + f"_{agent}_temp",
         type="number",
