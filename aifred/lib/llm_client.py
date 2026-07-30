@@ -29,6 +29,7 @@ def build_llm_options(state: "AIState | None", agent: str, temperature: float, n
     keys directly from ``settings.json`` so browser-configured per-agent
     sampling overrides apply universally — no inconsistency between channels.
     """
+    from .agent_settings import agent_attr, get_agent_setting
     if state is None:
         from .settings import load_settings
         s = load_settings() or {}
@@ -37,21 +38,21 @@ def build_llm_options(state: "AIState | None", agent: str, temperature: float, n
             enable_thinking=False,  # Hub workers default to no-thinking
             supports_thinking=None,
             num_ctx=num_ctx,
-            top_k=s.get(f"{agent}_top_k", 40),
-            top_p=s.get(f"{agent}_top_p", 0.9),
-            min_p=s.get(f"{agent}_min_p", 0.0),
-            repeat_penalty=s.get(f"{agent}_repeat_penalty", 1.1),
+            top_k=s.get(agent_attr(agent, "top_k"), 40),
+            top_p=s.get(agent_attr(agent, "top_p"), 0.9),
+            min_p=s.get(agent_attr(agent, "min_p"), 0.0),
+            repeat_penalty=s.get(agent_attr(agent, "repeat_penalty"), 1.1),
         )
     return LLMOptions(
         temperature=temperature,
-        enable_thinking=getattr(state, f"{agent}_thinking", True),
-        supports_thinking=getattr(state, f"{agent}_supports_thinking", None) if state.backend_type in ("ollama", "llamacpp") else None,
-        reasoning_effort=getattr(state, f"{agent}_reasoning_effort", "") or None,
+        enable_thinking=get_agent_setting(state, agent, "thinking", True),
+        supports_thinking=get_agent_setting(state, agent, "supports_thinking", None) if state.backend_type in ("ollama", "llamacpp") else None,
+        reasoning_effort=get_agent_setting(state, agent, "reasoning_effort", "") or None,
         num_ctx=num_ctx,
-        top_k=getattr(state, f"{agent}_top_k", 40),
-        top_p=getattr(state, f"{agent}_top_p", 0.9),
-        min_p=getattr(state, f"{agent}_min_p", 0.0),
-        repeat_penalty=getattr(state, f"{agent}_repeat_penalty", 1.1),
+        top_k=get_agent_setting(state, agent, "top_k", 40),
+        top_p=get_agent_setting(state, agent, "top_p", 0.9),
+        min_p=get_agent_setting(state, agent, "min_p", 0.0),
+        repeat_penalty=get_agent_setting(state, agent, "repeat_penalty", 1.1),
     )
 
 

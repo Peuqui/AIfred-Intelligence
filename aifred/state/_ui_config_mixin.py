@@ -77,8 +77,13 @@ class UIConfigMixin(rx.State, mixin=True):
     # CONTEXT WINDOW CONTROL
     # ================================================================
 
-    def set_num_ctx_manual_aifred(self, value: str) -> None:
-        """Set manual num_ctx value for AIfred (only used when aifred_enabled=True)."""
+    def _set_num_ctx_manual(self, agent: str, value: str) -> None:
+        """Set manual num_ctx value for an agent (only used when enabled).
+
+        IMPORTANT: Not saved in settings.json (vision has its own persistent
+        setter, see set_vision_num_ctx).
+        """
+        from ..lib.agent_settings import set_agent_setting
         from ..lib.config import NUM_CTX_MANUAL_MAX
         from ..lib.formatting import format_number
 
@@ -92,68 +97,39 @@ class UIConfigMixin(rx.State, mixin=True):
                 num_value = 1
             if num_value > NUM_CTX_MANUAL_MAX:
                 num_value = NUM_CTX_MANUAL_MAX
-            self.num_ctx_manual_aifred = num_value
-            self.add_debug(f"\U0001f527 Manual Context (AIfred): {format_number(num_value)}")  # type: ignore[attr-defined]
-            # IMPORTANT: Not saved in settings.json!
+            set_agent_setting(self, agent, "num_ctx_manual", num_value)
+            from ..lib.agent_config import get_agent_config
+            cfg = get_agent_config(agent)
+            display = cfg.display_name if cfg else agent.capitalize()
+            self.add_debug(f"\U0001f527 Manual Context ({display}): {format_number(num_value)}")  # type: ignore[attr-defined]
         except (ValueError, TypeError):
             self.add_debug(f"\u274c Invalid Context value: {value}")  # type: ignore[attr-defined]
+
+    def set_num_ctx_manual_aifred(self, value: str) -> None:
+        self._set_num_ctx_manual("aifred", value)
 
     def set_num_ctx_manual_sokrates(self, value: str) -> None:
-        """Set manual num_ctx value for Sokrates (only used when mode=manual)."""
-        from ..lib.config import NUM_CTX_MANUAL_MAX
-        from ..lib.formatting import format_number
-
-        try:
-            clean_value = str(value).replace(".", "").replace(",", "").replace(" ", "").strip()
-            if not clean_value:
-                return
-            num_value = int(clean_value)
-            if num_value < 1:
-                num_value = 1
-            if num_value > NUM_CTX_MANUAL_MAX:
-                num_value = NUM_CTX_MANUAL_MAX
-            self.num_ctx_manual_sokrates = num_value
-            self.add_debug(f"\U0001f527 Manual Context (Sokrates): {format_number(num_value)}")  # type: ignore[attr-defined]
-        except (ValueError, TypeError):
-            self.add_debug(f"\u274c Invalid Context value: {value}")  # type: ignore[attr-defined]
+        self._set_num_ctx_manual("sokrates", value)
 
     def set_num_ctx_manual_salomo(self, value: str) -> None:
-        """Set manual num_ctx value for Salomo (only used when mode=manual)."""
-        from ..lib.config import NUM_CTX_MANUAL_MAX
-        from ..lib.formatting import format_number
+        self._set_num_ctx_manual("salomo", value)
 
-        try:
-            clean_value = str(value).replace(".", "").replace(",", "").replace(" ", "").strip()
-            if not clean_value:
-                return
-            num_value = int(clean_value)
-            if num_value < 1:
-                num_value = 1
-            if num_value > NUM_CTX_MANUAL_MAX:
-                num_value = NUM_CTX_MANUAL_MAX
-            self.num_ctx_manual_salomo = num_value
-            self.add_debug(f"\U0001f527 Manual Context (Salomo): {format_number(num_value)}")  # type: ignore[attr-defined]
-        except (ValueError, TypeError):
-            self.add_debug(f"\u274c Invalid Context value: {value}")  # type: ignore[attr-defined]
+    def _toggle_num_ctx_manual(self, agent: str, enabled: bool) -> None:
+        """Toggle manual context for an agent."""
+        from ..lib.agent_config import get_agent_label
+        from ..lib.agent_settings import set_agent_setting
+        set_agent_setting(self, agent, "num_ctx_manual_enabled", enabled)
+        status = "Manual" if enabled else "Auto"
+        self.add_debug(f"{get_agent_label(agent)} Context: {status}")  # type: ignore[attr-defined]
 
     def toggle_num_ctx_manual_aifred(self, enabled: bool) -> None:
-        """Toggle manual context for AIfred."""
-        self.num_ctx_manual_aifred_enabled = enabled
-        status = "Manual" if enabled else "Auto"
-        from ..lib.agent_config import get_agent_label
-        self.add_debug(f"{get_agent_label('aifred')} Context: {status}")  # type: ignore[attr-defined]
+        self._toggle_num_ctx_manual("aifred", enabled)
 
     def toggle_num_ctx_manual_sokrates(self, enabled: bool) -> None:
-        """Toggle manual context for Sokrates."""
-        self.num_ctx_manual_sokrates_enabled = enabled
-        status = "Manual" if enabled else "Auto"
-        self.add_debug(f"\U0001f3db\ufe0f Sokrates Context: {status}")  # type: ignore[attr-defined]
+        self._toggle_num_ctx_manual("sokrates", enabled)
 
     def toggle_num_ctx_manual_salomo(self, enabled: bool) -> None:
-        """Toggle manual context for Salomo."""
-        self.num_ctx_manual_salomo_enabled = enabled
-        status = "Manual" if enabled else "Auto"
-        self.add_debug(f"\U0001f451 Salomo Context: {status}")  # type: ignore[attr-defined]
+        self._toggle_num_ctx_manual("salomo", enabled)
 
     def toggle_vision_num_ctx(self, enabled: bool) -> None:
         """Toggle manual context for Vision-LLM (PERSISTENT)."""
@@ -188,7 +164,8 @@ class UIConfigMixin(rx.State, mixin=True):
         The old ollama-only lookup showed "not calibrated" for perfectly
         calibrated llamacpp models.
         """
-        model_id: str = getattr(self, f"{agent}_model_id")
+        from ..lib.agent_settings import get_agent_setting
+        model_id: str = get_agent_setting(self, agent, "model_id")
         if not model_id:
             return 0
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
@@ -234,52 +211,23 @@ class UIConfigMixin(rx.State, mixin=True):
 
         self.add_debug("\U0001f4ca Context configuration:")  # type: ignore[attr-defined]
 
-        # AIfred - get auto value from persistent cache if not manual
-        if self.num_ctx_manual_aifred_enabled:
-            aifred_ctx = self.num_ctx_manual_aifred
-            mode = "manual"
-        else:
-            aifred_ctx = self._auto_ctx_for_agent("aifred")
-            mode = "auto"
         from ..lib.agent_config import get_agent_label
-        self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(self.aifred_model, aifred_ctx, mode)}")  # type: ignore[attr-defined]
-        if aifred_ctx > 0:
-            effective_limits.append(aifred_ctx)
-
-        # Sokrates - always show (needed for multi-agent context display)
-        if self.sokrates_model_id:  # type: ignore[attr-defined]
-            if self.num_ctx_manual_sokrates_enabled:
-                sokrates_ctx = self.num_ctx_manual_sokrates
+        from ..lib.agent_settings import CANONICAL_AGENTS, get_agent_setting
+        for agent in CANONICAL_AGENTS:
+            # AIfred is always shown; the others only with an own model
+            if agent != "aifred" and not get_agent_setting(self, agent, "model_id"):
+                continue
+            if get_agent_setting(self, agent, "num_ctx_manual_enabled"):
+                agent_ctx: int = get_agent_setting(self, agent, "num_ctx_manual")
                 mode = "manual"
             else:
-                sokrates_ctx = self._auto_ctx_for_agent("sokrates")
+                agent_ctx = self._auto_ctx_for_agent(agent)
                 mode = "auto"
-            self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.sokrates_model, sokrates_ctx, mode)}")  # type: ignore[attr-defined]
-            if sokrates_ctx > 0:
-                effective_limits.append(sokrates_ctx)
-
-        # Salomo - always show (needed for multi-agent context display)
-        if self.salomo_model_id:  # type: ignore[attr-defined]
-            if self.num_ctx_manual_salomo_enabled:
-                salomo_ctx = self.num_ctx_manual_salomo
-                mode = "manual"
-            else:
-                salomo_ctx = self._auto_ctx_for_agent("salomo")
-                mode = "auto"
-            self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.salomo_model, salomo_ctx, mode)}")  # type: ignore[attr-defined]
-            if salomo_ctx > 0:
-                effective_limits.append(salomo_ctx)
-
-        # Vision - always show if vision model is selected
-        if self.vision_model_id:  # type: ignore[attr-defined]
-            if self.vision_num_ctx_enabled:
-                vision_ctx = self.vision_num_ctx
-                mode = "manual"
-            else:
-                vision_ctx = self._auto_ctx_for_agent("vision")
-                mode = "auto"
-            self.add_debug(f"   {get_agent_label('vision')}: {format_model_with_ctx(self.vision_model, vision_ctx, mode)}")  # type: ignore[attr-defined]
+            model_display = get_agent_setting(self, agent, "model")
+            self.add_debug(f"   {get_agent_label(agent)}: {format_model_with_ctx(model_display, agent_ctx, mode)}")  # type: ignore[attr-defined]
             # Vision context is NOT added to effective_limits - separate from chat context
+            if agent != "vision" and agent_ctx > 0:
+                effective_limits.append(agent_ctx)
 
         # Calculate effective limit (minimum of all active limits)
         effective_limit = min(effective_limits) if effective_limits else 0

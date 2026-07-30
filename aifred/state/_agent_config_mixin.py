@@ -30,8 +30,9 @@ from ..lib.config import (
     VISION_DEFAULT_REPEAT_PENALTY,
 )
 
-# Agent names used throughout this mixin
-_AGENTS = ("aifred", "sokrates", "salomo", "vision")
+# Agent names: import CANONICAL_AGENTS from ..lib.agent_settings lazily in
+# methods — a module-level import here changes mypy's SCC analysis order and
+# breaks type inference of the temperature state var.
 
 # Feature -> (emoji, prompt_loader setter name)
 # Note: thinking has no prompt_loader sync — read directly from State at runtime.
@@ -229,9 +230,10 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def _save_feature_settings(self, feature: str) -> None:
         """Save toggle states for a feature (personality/reasoning/thinking) to settings."""
+        from ..lib.agent_settings import CANONICAL_AGENTS
         from ..lib.settings import load_settings, save_settings
         settings = load_settings() or {}
-        for agent in ("aifred", "sokrates", "salomo", "vision"):
+        for agent in CANONICAL_AGENTS:
             settings[f"{agent}_{feature}"] = getattr(self, f"{agent}_{feature}")
         save_settings(settings)
 
@@ -433,7 +435,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
             # Try to get model-specific values from llama-swap YAML
             # Sokrates/Salomo with empty model_id inherit from AIfred
-            model_id = getattr(self, f"{agent}_model_id", "") or self.aifred_model_id  # type: ignore[attr-defined]
+            from ..lib.agent_settings import get_agent_base_model_id
+            model_id = get_agent_base_model_id(self, agent)
             if model_id:
                 from ..lib.calibration import parse_llamaswap_config, parse_sampling_from_cmd
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
@@ -449,10 +452,8 @@ class AgentConfigMixin(rx.State, mixin=True):
                     }
 
         if include_temperature:
-            if agent == "aifred":
-                self.temperature = defaults["temperature"]  # type: ignore[attr-defined]
-            else:
-                setattr(self, f"{agent}_temperature", defaults["temperature"])
+            from ..lib.agent_settings import set_agent_setting
+            set_agent_setting(self, agent, "temperature", defaults["temperature"])
         setattr(self, f"{agent}_top_k", int(defaults["top_k"]))
         setattr(self, f"{agent}_top_p", defaults["top_p"])
         setattr(self, f"{agent}_min_p", defaults["min_p"])
@@ -478,6 +479,9 @@ class AgentConfigMixin(rx.State, mixin=True):
     def _effective_model_id(self, agent: str) -> str:
         """Return model ID with variant suffix for the current configuration.
 
+        Accepts any registered agent — custom agents resolve to AIfred's
+        model/speed bucket via the agent_settings SSOT.
+
         Delegates the suffix resolution to the SSOT helper
         :func:`aifred.lib.calibration.resolve_variant_suffix`, so the
         agents, the Automatik path, the compression-ctx lookup and the
@@ -498,7 +502,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         container is up before inference; from there the toggle stays
         authoritative for the rest of the request.
         """
-        base_id: str = getattr(self, f"{agent}_model_id")
+        from ..lib.agent_settings import get_agent_setting
+        base_id: str = get_agent_setting(self, agent, "model_id")
         if not base_id or self.backend_type != "llamacpp":  # type: ignore[attr-defined]
             return base_id
 
@@ -508,8 +513,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             base_id,
-            speed_on=getattr(self, f"{agent}_speed_mode"),
-            has_speed_variant=getattr(self, f"{agent}_has_speed_variant"),
+            speed_on=get_agent_setting(self, agent, "speed_mode"),
+            has_speed_variant=get_agent_setting(self, agent, "has_speed_variant"),
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
             tts_engine=self.tts_engine,  # type: ignore[attr-defined]
         )
@@ -546,9 +551,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         message says so and reports the real loaded context, instead of
         promising the speed context the user won't actually get. Mirrors the
         runtime resolver (``_effective_model_id``)."""
+        from ..lib.agent_settings import get_agent_base_model_id
         from ..lib.formatting import format_number
         from ..lib.research.context_utils import get_model_native_context
-        base_id = getattr(self, f"{agent}_model_id", "") or self.aifred_model_id  # type: ignore[attr-defined]
+        base_id = get_agent_base_model_id(self, agent)
         effective = self._effective_model_id(agent)
         ctx = get_model_native_context(effective, self.backend_type)  # type: ignore[attr-defined]
         ctx_str = format_number(ctx) if ctx > 0 else "n/a"
@@ -698,7 +704,8 @@ class AgentConfigMixin(rx.State, mixin=True):
     def _set_temperature_input(self, agent: str, value: str) -> None:
         """Set temperature for any agent from text input field."""
         try:
-            attr = "temperature" if agent == "aifred" else f"{agent}_temperature"
+            from ..lib.agent_settings import agent_attr
+            attr = agent_attr(agent, "temperature")
             setattr(self, attr, max(0.0, min(2.0, float(value))))
             self.add_debug(f"\U0001f321\ufe0f {agent.capitalize()} temperature={getattr(self, attr)}")  # type: ignore[attr-defined]
             self._save_settings()  # type: ignore[attr-defined]
@@ -933,96 +940,67 @@ class AgentConfigMixin(rx.State, mixin=True):
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         return t("sokrates_llm_same", lang=lang) if self.salomo_model == "" else self.salomo_model
 
-    def set_sokrates_model(self, model: str) -> None:
-        """Set Sokrates LLM model for multi-agent debate."""
+    # Debug-emoji for the secondary-model selects (historical, differs from
+    # the agents.json emoji — 🧠 for Sokrates, 👑 for Salomo)
+    _SECONDARY_MODEL_EMOJI: ClassVar[dict[str, str]] = {
+        "sokrates": "\U0001f9e0",
+        "salomo": "\U0001f451",
+    }
+
+    def _set_secondary_agent_model(self, agent: str, model: str) -> None:
+        """Set Sokrates/Salomo LLM model for multi-agent debate (shared logic)."""
         from ..lib.i18n import t
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         if model == t("sokrates_llm_same", lang=lang):
             model = ""
-        self.sokrates_model = model
-        self.sokrates_model_id = self._resolve_model_id(model)  # type: ignore[attr-defined]
+        setattr(self, f"{agent}_model", model)
+        model_id: str = self._resolve_model_id(model)  # type: ignore[attr-defined]
+        setattr(self, f"{agent}_model_id", model_id)
 
-        if not self.sokrates_model_id:
+        if not model_id:
             # "(wie AIfred-LLM)" selected -- clear speed variant
-            self.sokrates_has_speed_variant = False
-            self.sokrates_speed_mode = False
+            setattr(self, f"{agent}_has_speed_variant", False)
+            setattr(self, f"{agent}_speed_mode", False)
 
         # Load all model parameters from cache
-        if self.backend_id == "ollama" and self.sokrates_model_id:  # type: ignore[attr-defined]
+        if self.backend_id == "ollama" and model_id:  # type: ignore[attr-defined]
             from ..lib.model_vram_cache import get_model_parameters
-            params = get_model_parameters(self.sokrates_model_id)
-            self.sokrates_rope_factor = params["rope_factor"]
-            self.sokrates_max_context = params["max_context"]
-            self.sokrates_is_hybrid = params["is_hybrid"]
-            self.sokrates_supports_thinking = params["supports_thinking"]
-        elif self.backend_type == "llamacpp" and self.sokrates_model_id:  # type: ignore[attr-defined]
+            params = get_model_parameters(model_id)
+            setattr(self, f"{agent}_rope_factor", params["rope_factor"])
+            setattr(self, f"{agent}_max_context", params["max_context"])
+            setattr(self, f"{agent}_is_hybrid", params["is_hybrid"])
+            setattr(self, f"{agent}_supports_thinking", params["supports_thinking"])
+        elif self.backend_type == "llamacpp" and model_id:  # type: ignore[attr-defined]
             from ..lib.calibration import model_has_speed_variant
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
                 get_thinking_support_for_model,
             )
-            self.sokrates_rope_factor = 1.0
-            self.sokrates_max_context = get_llamacpp_calibration(self.sokrates_model_id) or 0
-            self.sokrates_is_hybrid = False
-            self.sokrates_supports_thinking = get_thinking_support_for_model(self.sokrates_model_id)
-            self.sokrates_has_speed_variant = model_has_speed_variant(self.sokrates_model_id)
-            if not self.sokrates_has_speed_variant:
-                self.sokrates_speed_mode = False
-        self._load_agent_reasoning_levels("sokrates", self.sokrates_model_id)
+            setattr(self, f"{agent}_rope_factor", 1.0)
+            setattr(self, f"{agent}_max_context", get_llamacpp_calibration(model_id) or 0)
+            setattr(self, f"{agent}_is_hybrid", False)
+            setattr(self, f"{agent}_supports_thinking", get_thinking_support_for_model(model_id))
+            has_speed = model_has_speed_variant(model_id)
+            setattr(self, f"{agent}_has_speed_variant", has_speed)
+            if not has_speed:
+                setattr(self, f"{agent}_speed_mode", False)
+        self._load_agent_reasoning_levels(agent, model_id)
 
         # Reset sampling params to model defaults
-        self._reset_agent_sampling("sokrates")
+        self._reset_agent_sampling(agent)
 
         self._save_settings()  # type: ignore[attr-defined]
+        emoji = self._SECONDARY_MODEL_EMOJI[agent]
         if model:
-            self.add_debug(f"\U0001f9e0 Sokrates-LLM: {model}")  # type: ignore[attr-defined]
-            self._show_model_calibration_info(self.sokrates_model_id)  # type: ignore[attr-defined]
+            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: {model}")  # type: ignore[attr-defined]
+            self._show_model_calibration_info(model_id)  # type: ignore[attr-defined]
         else:
-            self.add_debug("\U0001f9e0 Sokrates-LLM: (same as Main-LLM)")  # type: ignore[attr-defined]
+            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: (same as Main-LLM)")  # type: ignore[attr-defined]
+
+    def set_sokrates_model(self, model: str) -> None:
+        """Set Sokrates LLM model for multi-agent debate."""
+        self._set_secondary_agent_model("sokrates", model)
 
     def set_salomo_model(self, model: str) -> None:
         """Set Salomo LLM model for multi-agent debate."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        if model == t("sokrates_llm_same", lang=lang):
-            model = ""
-        self.salomo_model = model
-        self.salomo_model_id = self._resolve_model_id(model)  # type: ignore[attr-defined]
-
-        if not self.salomo_model_id:
-            # "(wie AIfred-LLM)" selected -- clear speed variant
-            self.salomo_has_speed_variant = False
-            self.salomo_speed_mode = False
-
-        # Load all model parameters from cache
-        if self.backend_id == "ollama" and self.salomo_model_id:  # type: ignore[attr-defined]
-            from ..lib.model_vram_cache import get_model_parameters
-            params = get_model_parameters(self.salomo_model_id)
-            self.salomo_rope_factor = params["rope_factor"]
-            self.salomo_max_context = params["max_context"]
-            self.salomo_is_hybrid = params["is_hybrid"]
-            self.salomo_supports_thinking = params["supports_thinking"]
-        elif self.backend_type == "llamacpp" and self.salomo_model_id:  # type: ignore[attr-defined]
-            from ..lib.calibration import model_has_speed_variant
-            from ..lib.model_vram_cache import (
-                get_llamacpp_calibration,
-                get_thinking_support_for_model,
-            )
-            self.salomo_rope_factor = 1.0
-            self.salomo_max_context = get_llamacpp_calibration(self.salomo_model_id) or 0
-            self.salomo_is_hybrid = False
-            self.salomo_supports_thinking = get_thinking_support_for_model(self.salomo_model_id)
-            self.salomo_has_speed_variant = model_has_speed_variant(self.salomo_model_id)
-            if not self.salomo_has_speed_variant:
-                self.salomo_speed_mode = False
-        self._load_agent_reasoning_levels("salomo", self.salomo_model_id)
-
-        # Reset sampling params to model defaults
-        self._reset_agent_sampling("salomo")
-
-        self._save_settings()  # type: ignore[attr-defined]
-        if model:
-            self.add_debug(f"\U0001f451 Salomo-LLM: {model}")  # type: ignore[attr-defined]
-            self._show_model_calibration_info(self.salomo_model_id)  # type: ignore[attr-defined]
-        else:
-            self.add_debug("\U0001f451 Salomo-LLM: (same as Main-LLM)")  # type: ignore[attr-defined]
+        self._set_secondary_agent_model("salomo", model)

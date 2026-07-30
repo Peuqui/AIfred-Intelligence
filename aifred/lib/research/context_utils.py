@@ -90,7 +90,8 @@ def get_agent_num_ctx(
     The returned num_ctx is already reduced by ~14K tokens when XTTS uses GPU VRAM.
 
     Args:
-        agent: Agent identifier - "aifred", "sokrates", or "salomo"
+        agent: Agent identifier — canonical (aifred/sokrates/salomo/vision)
+            or a registered custom agent (uses AIfred's context bucket)
         state: AIState instance containing per-agent settings
         model_id: **BASE** model ID without variant suffix (e.g., "qwen3:14b" or
             "Qwen3.5-...-IQ3_XXS"). MUST NOT be a resolved variant id like
@@ -115,29 +116,16 @@ def get_agent_num_ctx(
         >>> print(f"Using {num_ctx} tokens ({source})")
         Using 4096 tokens (manual)
     """
-    # Validate agent name. Registered custom agents (agents.json) run on
-    # AIfred's model/profile, so they use AIfred's context bucket — the
-    # mapping lives HERE (SSOT), not at the call-sites. Unregistered names
-    # still raise (typo guard).
-    if agent not in ("aifred", "sokrates", "salomo", "vision"):
-        from ..agent_config import get_agent_config
-        if get_agent_config(agent) is None:
-            raise ValueError(f"Unknown agent: {agent}. Must be 'aifred', 'sokrates', 'salomo', 'vision', or a registered custom agent.")
-        agent = "aifred"
+    # Agent addressing (incl. custom-agent → AIfred-bucket mapping and the
+    # vision_num_ctx naming asymmetry) lives in the agent_settings SSOT.
+    from ..agent_settings import get_agent_setting, settings_agent
+    agent = settings_agent(agent)
 
     # Check if manual mode is enabled for this agent
-    if agent == "vision":
-        # Vision uses separate state attributes (not the per-agent num_ctx_manual_* pattern)
-        if getattr(state, "vision_num_ctx_enabled", False):
-            manual_value = getattr(state, "vision_num_ctx", fallback)
-            return (manual_value if manual_value else fallback, "manual")
-    else:
-        enabled_attr = f"num_ctx_manual_{agent}_enabled"
-        value_attr = f"num_ctx_manual_{agent}"
-        if getattr(state, enabled_attr, False):
-            # Manual mode: use user-configured value (no XTTS adjustment for manual)
-            manual_value = getattr(state, value_attr, fallback)
-            return (manual_value if manual_value else fallback, "manual")
+    if get_agent_setting(state, agent, "num_ctx_manual_enabled", False):
+        # Manual mode: use user-configured value (no XTTS adjustment for manual)
+        manual_value = get_agent_setting(state, agent, "num_ctx_manual", fallback)
+        return (manual_value if manual_value else fallback, "manual")
 
     # Auto mode: try VRAM calibration cache (backend-aware)
     backend_type = getattr(state, 'backend_type', 'ollama')
@@ -158,15 +146,12 @@ def get_agent_num_ctx(
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 
         # Resolve the variant via the SSOT — same rules as the model-id
-        # resolver in _agent_config_mixin. agent="vision" doesn't have a
-        # speed toggle of its own; vision uses the AIfred agent's flags.
-        speed_attr = f"{agent}_speed_mode" if agent != "vision" else "vision_speed_mode"
-        has_speed_attr = f"{agent}_has_speed_variant" if agent != "vision" else "vision_has_speed_variant"
+        # resolver in _agent_config_mixin.
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             model_id,
-            speed_on=getattr(state, speed_attr, False),
-            has_speed_variant=getattr(state, has_speed_attr, False),
+            speed_on=get_agent_setting(state, agent, "speed_mode", False),
+            has_speed_variant=get_agent_setting(state, agent, "has_speed_variant", False),
             tts_active=bool(getattr(state, "enable_tts", False)),
             tts_engine=getattr(state, "tts_engine", ""),
         )
