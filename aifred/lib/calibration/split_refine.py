@@ -28,6 +28,17 @@ def _cascade_destination(
     = compute_cap DESC, total_mb DESC), die nach ``+step`` Layern noch
     ≥ ``min_free_mb`` frei bleibt — sonst die übernächste, bis ans Ende.
 
+    IDLE Karten VOR ``src`` gewinnen zuerst (fastest-first, 2026-07-31):
+    liegt das Modell nicht auf der ersten Karte der Pin-Order (z.B. weil
+    der 1-GPU-Sweep GPU0 wegen des Idle-Floors übersprang) und ist eine
+    Karte davor komplett leer, ist DIE das beste Überlauf-Ziel — sie ist
+    per Sortierung schneller oder gleich schnell UND frei. Ohne diesen
+    Schritt schob der 35B-Single-GPU-OOM seine Layer auf die V100,
+    während die zweite RTX 8000 idle daneben stand. Gleiche Filter wie
+    überall (Reserve, ``blocked_dest``); ``keep_active_set`` (Speed)
+    aktiviert weiterhin keine idle Karte, und ohne ``free_estimate``
+    wird nicht geraten.
+
     Hält stromabwärts keine Karte die Reserve (typisch: ``src`` IST die
     letzte Karte der Kaskade, wie beim 397B-8b-Combo-Lauf auf CUDA4),
     fällt die Wahl auf STROMAUFWÄRTS zurück: unter allen Karten vor
@@ -56,6 +67,20 @@ def _cascade_destination(
     ``keep_active_set``: idle Karten NICHT aktivieren (Speed-Variante).
     Ohne ``free_estimate``: Rückfall auf 'erste nachgelagerte (aktive) Karte'.
     """
+    # Fastest-first: idle Karte vor src (schnellere/gleiche Klasse, leer)
+    # schlägt den Downstream-Überlauf auf langsamere Karten.
+    if free_estimate and not keep_active_set:
+        for i in range(src):
+            if i in blocked_dest or layers[i] > 0:
+                continue
+            if i >= len(free_estimate):
+                continue
+            cost = step * (
+                layer_cost_per_gpu[i] if i < len(layer_cost_per_gpu) else 0.0
+            )
+            if free_estimate[i] - cost >= min_free_mb:
+                return i
+
     for i in range(src + 1, len(layers)):
         if i in blocked_dest:
             continue

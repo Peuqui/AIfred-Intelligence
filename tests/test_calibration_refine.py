@@ -104,6 +104,49 @@ def test_cascade_falls_back_upstream_on_tail_bottleneck():
     assert "CUDA2" in reason
 
 
+def test_cascade_prefers_idle_upstream_over_downstream():
+    """Single-GPU model on slot 1 (second RTX) OOMs; slot 0 (first RTX) is
+    completely idle. The overflow layer must land on the idle faster card,
+    not cascade down onto the V100 (the 35B single-GPU case, 2026-07-31).
+    Tested at the SSOT directly — the real case runs via the blind-shift
+    path, which shares this destination choice."""
+    dest = split_refine._cascade_destination(
+        src=1, layers=[0.0, 41.0, 0.0, 0.0, 0.0],
+        free_estimate=(48000, 200, 32000, 32000, 32000),
+        layer_cost_per_gpu=(1000.0,) * 5,
+        min_free_mb=192, step=1.0, keep_active_set=False,
+    )
+    assert dest == 0
+    # Without a free estimate the idle-upstream shortcut must NOT guess —
+    # fall back to the plain downstream rule.
+    dest_blind = split_refine._cascade_destination(
+        src=1, layers=[0.0, 41.0, 0.0, 0.0, 0.0],
+        free_estimate=(),
+        layer_cost_per_gpu=(1000.0,) * 5,
+        min_free_mb=192, step=1.0, keep_active_set=False,
+    )
+    assert dest_blind == 2
+
+
+def test_cascade_idle_upstream_not_activated_for_speed_variant():
+    """keep_active_set (speed variant) must still never activate an idle
+    card — even the idle-upstream shortcut respects it."""
+    split = (0.0, 41.0, 2.0, 0.0, 0.0)
+    gpus = _gpus_5()
+    vmodel = _vmodel(split, [0.006] * 5)
+    r = VerifyResult(fits=False, measured_free_mb=(48000, 200, 25000, 32000, 32000),
+                     thinks=None, detail="")
+    out, _reason = _refine_split_from_measurement(
+        split, gpus, r, _budget((48000, 48000, 32000, 32000, 32000)),
+        vmodel, TOTAL_LAYERS, MODEL_MB, 120000,
+        keep_active_set=True,
+    )
+    assert out is not None
+    # Idle slot 0 untouched; overflow stays within the active set (slot 2).
+    assert out[0] == 0.0
+    assert out[2] == split[2] + 1
+
+
 def test_cascade_upstream_respects_blocked_dest():
     """The upstream fallback must skip reserve-loaded (blocked) GPUs — the
     layer then lands on the best NON-blocked upstream card."""
@@ -370,7 +413,7 @@ def test_no_model_still_bisects(monkeypatch):
         model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
         full_cmd="--model x", port=1, env=None, probe_thinking=False,
         thinks_seen=None, status_prefix="t", lo=8192, hi=200000,
-        iteration=0, initial_load_sig=None, initial_bias_mb=0,
+        iteration=0, initial_load_sig=None, initial_bias_mb=None,
     )
     assert res.best_r is not None and res.best_r.fits
     assert res.best_ctx <= threshold
@@ -396,12 +439,13 @@ def test_cross_variant_bias_cache_carries_to_next_variant(monkeypatch):
         model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
         full_cmd="--model x", port=1, env=None, probe_thinking=False,
         thinks_seen=None, status_prefix="v", lo=8192, hi=200000,
-        iteration=0, initial_load_sig=None, initial_bias_mb=0,
+        iteration=0, initial_load_sig=None, initial_bias_mb=None,
     )
-    # Variant 1: no seed, no cache — learns and caches the bias.
+    # Variant 1: no seed, no cache — learns and caches the bias (the cached
+    # value may legitimately be negative since the bias is bidirectional).
     res1, _ = _drain_search_verbose(**common)
     assert res1.best_r is not None and res1.best_r.fits
-    assert any(v > 0 for v in fit_math._MODEL_BIAS_CACHE.values())
+    assert fit_math._MODEL_BIAS_CACHE
 
     # Variant 2: same model+GPUs, still initial_bias_mb=0 — the cache seeds it,
     # so the search never falls into the unmeasured-bias floor.
@@ -409,6 +453,95 @@ def test_cross_variant_bias_cache_carries_to_next_variant(monkeypatch):
     assert res2.best_r is not None and res2.best_r.fits
     assert not any("unmeasured bias" in m for m in msgs2)
     assert any("math max" in m for m in msgs2)
+
+
+def test_mmproj_extra_counted_on_first_active_slot(tmp_path):
+    """fit-params cannot model --mmproj; the projection must add the
+    projector file size onto the first GPU that holds layers (the 35B
+    single-GPU miss, 2026-07-31)."""
+    from aifred.lib.calibration import projection as proj_mod
+    mm = tmp_path / "mmproj-test-F16.gguf"
+    mm.write_bytes(b"\x00" * (3 * 1024 * 1024))
+    cmd = f"llama-server --mmproj {mm} --tensor-split 0,41,0,0,0 -c 1"
+    assert proj_mod._mmproj_extra_mb(cmd) == 3
+    assert proj_mod._first_active_slot(cmd, 5) == 1
+    # Ohne mmproj: kein Zuschlag; ohne tensor-split: Slot 0.
+    assert proj_mod._mmproj_extra_mb("llama-server -c 1") == 0
+    assert proj_mod._first_active_slot("llama-server -c 1", 5) == 0
+    # Fehlende Datei: 0 statt Exception.
+    assert proj_mod._mmproj_extra_mb(
+        "llama-server --mmproj /nonexistent/mm.gguf -c 1"
+    ) == 0
+
+
+def test_bias_state_bidirectional_with_oom_floor():
+    """_BiasState learns in both directions; after a non-fitting probe the
+    applied bias never drops below the hardest OOM measurement (oscillation
+    guard for the risky/negative direction)."""
+    state = fit_math._BiasState(cache_key=("m", ("u0",), "b2048-ub2048"))
+    # Fitting probe, math too pessimistic: predicted 500 vs real 3000 free.
+    upd = state.observe(500, 3000, fits=True)
+    assert upd == (0, -2500)
+    assert state.applied == -2500 and state.measured
+    # Non-fitting probe: predicted 100 vs real 150 → raw -50 becomes the
+    # OOM floor; applied rises to it.
+    state.observe(100, 150, fits=False)
+    assert state.oom_floor == -50 and state.applied == -50
+    # A later fitting probe measuring an even lower raw must NOT drop the
+    # applied bias below the proven OOM floor.
+    state.observe(500, 3000, fits=True)
+    assert state.applied == -50
+    # Cache always carries the latest applied value.
+    assert fit_math._MODEL_BIAS_CACHE[state.cache_key] == -50
+
+
+def test_batch_signature_extraction():
+    """-b/-ub are parsed from the cmd; absent flags fall back to the
+    llama.cpp defaults (b=2048, ub=512)."""
+    assert fit_math._batch_signature("llama-server -b 2048 -ub 2048 -c 1") == "b2048-ub2048"
+    assert fit_math._batch_signature("llama-server -c 262144") == "b2048-ub512"
+
+
+def test_pessimistic_math_recovers_after_first_probe(monkeypatch):
+    """When the cost model is far too pessimistic (fit-params overstating
+    ub-2048 compute buffers), the old one-directional bias froze the search
+    into pure bisection. Now the first measured probe learns a negative bias
+    and the math is trusted again (a 'math max' probe appears)."""
+    split = (17.0, 18.0, 9.0, 9.0, 8.0)
+    vmodel = _vmodel(split, [0.006] * 5)
+    # Inflate the intercepts: math now predicts ~8 GB less free than real.
+    vmodel = VRamModel(
+        n_gpus=vmodel.n_gpus, kv_quant=vmodel.kv_quant, ngl=vmodel.ngl,
+        tensor_split=vmodel.tensor_split,
+        intercept_mb=tuple(i + 8000.0 for i in vmodel.intercept_mb),
+        slope_mb_per_tok=vmodel.slope_mb_per_tok,
+        low_point=vmodel.low_point, high_point=vmodel.high_point,
+    )
+    threshold = 150016
+
+    async def _fake_verify(*, context, **kw):
+        if context <= threshold:
+            return VerifyResult(True, (9000,) * 5, None, "fit")
+        return VerifyResult(False, (150,) * 5, None, "oom")
+
+    monkeypatch.setattr(ctx_search, "verify", _fake_verify)
+    res, msgs = _drain_search_verbose(
+        current_split=split, candidate=_candidate(split, vram_model=vmodel),
+        model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
+        full_cmd="--model x -b 2048 -ub 2048", port=1, env=None,
+        probe_thinking=False, thinks_seen=None, status_prefix="t",
+        lo=8192, hi=200000,
+        iteration=0, initial_load_sig=None, initial_bias_mb=None,
+    )
+    assert res.best_r is not None and res.best_r.fits
+    assert res.best_ctx <= threshold
+    # The negative bias was learned and the math trusted again.
+    assert any("math bias updated" in m for m in msgs)
+    assert any("math max" in m for m in msgs)
+    key = fit_math._bias_key(
+        _model(), _gpus_5(), "b2048-ub2048",
+    )
+    assert fit_math._MODEL_BIAS_CACHE[key] < 0
 
 
 def test_binary_search_stops_on_ctx_independent_load_death(monkeypatch):

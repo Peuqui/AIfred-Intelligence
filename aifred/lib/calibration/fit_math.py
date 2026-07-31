@@ -8,6 +8,7 @@ darf :mod:`flow` NICHT importieren.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 
 from ..config import (
     CALIBRATION_MIN_CONTEXT,
@@ -381,29 +382,88 @@ def _seed_tensor_split(
 
 
 # ── Cross-variant bias cache (the "cross-engine derivation") ──────────────
-# The fit-params-vs-real gap ("bias") is a property of the MODEL + HARDWARE —
-# runtime buffers (compute/MTP/activation) that fit-params doesn't model — NOT
-# of the per-engine TTS/VLM reserve (that's subtracted separately, on the
-# reserve-adjusted measured free). So once ANY variant of a model measures the
-# bias, every later variant on the same GPUs seeds its ctx search with it and
-# trusts the cost model from probe 1 instead of re-learning it — the whole
-# point of Point 2: engine 2/3 converge in ~2-3 probes instead of a full
-# search, without ever blindly copying engine 1's ctx (each still recomputes
-# its own max from its own reserve). Keyed by (model_id, gpu-uuids); ratchets
-# to the max observed (conservative — too-high only costs a few bisections,
-# never a wrong result); a pure hint, the search self-corrects if it's off.
-# Process-local: a service restart (= fresh code/hardware) starts clean.
-_MODEL_BIAS_CACHE: dict[tuple[str, tuple[str, ...]], int] = {}
+# The fit-params-vs-real gap ("bias") is a property of the MODEL + HARDWARE +
+# batch regime — runtime buffers (compute/MTP/activation) that fit-params
+# models differently than llama-server allocates them — NOT of the per-engine
+# TTS/VLM reserve (that's subtracted separately, on the reserve-adjusted
+# measured free). So once ANY variant of a model measures the bias, every
+# later variant on the same GPUs seeds its ctx search with it and trusts the
+# cost model from probe 1 instead of re-learning it.
+#
+# The bias is BIDIRECTIONAL (2026-07-31): positive = math over-predicts free
+# (too optimistic, be more careful), negative = math under-predicts free (too
+# pessimistic — fit-params overstates e.g. the ub-2048 compute buffers by
+# ~2.5 GB/GPU on the 397B, which froze every search into blind bisection).
+# The cache stores the LATEST observed value, not a max-ratchet: a ratchet
+# would permanently ignore negative measurements after one positive one. The
+# OOM floor in :class:`_BiasState` guards the risky (negative) direction, and
+# every math jump is still verified by a real probe — a wrong bias costs one
+# probe, never a wrong result.
+#
+# Keyed by (model_id, gpu-uuids, batch-signature): the compute-buffer part of
+# the bias scales with -b/-ub, so a value learned at ub 512 must not seed a
+# ub 2048 run. Process-local: a service restart starts clean.
+_MODEL_BIAS_CACHE: dict[tuple[str, tuple[str, ...], str], int] = {}
 
 
-def _bias_key(model: Model, gpus: list[GPU]) -> tuple[str, tuple[str, ...]]:
-    return (model.model_id, tuple(g.uuid for g in gpus))
+def _batch_signature(full_cmd: str) -> str:
+    """Extract the ``-b``/``-ub`` regime from a llama-server cmd.
+
+    Falls back to the llama.cpp defaults (b=2048, ub=512) for flags not
+    present in the cmd — the bias cache must distinguish batch regimes
+    because the compute buffers (= the bias) scale with them.
+    """
+    tokens = full_cmd.split()
+    b_val, ub_val = "2048", "512"
+    for i, tok in enumerate(tokens[:-1]):
+        if tok == "-b":
+            b_val = tokens[i + 1]
+        elif tok == "-ub":
+            ub_val = tokens[i + 1]
+    return f"b{b_val}-ub{ub_val}"
 
 
-def _remember_bias(model: Model, gpus: list[GPU], bias_mb: int) -> None:
-    key = _bias_key(model, gpus)
-    if bias_mb > _MODEL_BIAS_CACHE.get(key, 0):
-        _MODEL_BIAS_CACHE[key] = bias_mb
+def _bias_key(
+    model: Model, gpus: list[GPU], batch_sig: str,
+) -> tuple[str, tuple[str, ...], str]:
+    return (model.model_id, tuple(g.uuid for g in gpus), batch_sig)
+
+
+@dataclass
+class _BiasState:
+    """Adaptive math-vs-real bias for one ctx search (SSOT for both the
+    downward binary search and the upward push).
+
+    ``applied`` is fed into :func:`_math_predicts_fit` as
+    ``extra_safety_margin``: positive shrinks the trusted window (math too
+    optimistic), negative widens it (math too pessimistic). ``oom_floor``
+    is the hardest bias measured at a NON-fitting probe — ``applied`` never
+    drops below it, so a too-optimistic slope cannot re-trigger a proven
+    OOM (oscillation guard). ``measured`` gates the pre-measurement trust
+    floor in ``_pick_next_ctx``.
+    """
+    cache_key: tuple[str, tuple[str, ...], str]
+    applied: int = 0
+    measured: bool = False
+    oom_floor: int | None = None
+
+    def observe(
+        self, pred_min_mb: int, real_min_mb: int, fits: bool,
+    ) -> tuple[int, int] | None:
+        """Learn from one probe measurement; returns ``(old, new)`` when the
+        applied bias changed, ``None`` otherwise. Caches the new value for
+        cross-variant seeding either way."""
+        raw = pred_min_mb - real_min_mb
+        if not fits:
+            self.oom_floor = (
+                raw if self.oom_floor is None else max(self.oom_floor, raw)
+            )
+        new = raw if self.oom_floor is None else max(raw, self.oom_floor)
+        old = self.applied
+        self.applied = new
+        self.measured = True
+        _MODEL_BIAS_CACHE[self.cache_key] = new
+        return (old, new) if new != old else None
 
 
 def _math_predicts_fit(
@@ -423,9 +483,12 @@ def _math_predicts_fit(
     values before they cost 30-90 s each.
 
     ``extra_safety_margin`` adds an empirical safety buffer on top of
-    ``budget.safety_margin`` — set this to the observed math-vs-real bias
-    (predicted_free − measured_free) from a previous failed probe so the
-    next math search picks a more conservative ctx.
+    ``budget.safety_margin`` — the observed math-vs-real bias
+    (predicted_free − measured_free) from previous probes. May be NEGATIVE
+    when the cost model under-predicts free VRAM (fit-params overstating
+    compute buffers): the threshold then drops below the safety margin,
+    which is sound because the REAL free will exceed the prediction by
+    exactly that bias.
     """
     if candidate.vram_model is None:
         # No VRAM model available (e.g. VLM-only candidate derived from
