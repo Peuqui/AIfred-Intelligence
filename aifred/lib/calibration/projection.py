@@ -158,24 +158,41 @@ async def _run_fit(
     return parsed
 
 
+def _mmproj_path(full_cmd: str) -> Path | None:
+    """Pfad der ``--mmproj``-Datei aus einem llama-server cmd — SSOT fürs
+    Parsing (Projektion + Encode-Burn-In im Verifier). ``None`` wenn das
+    Flag fehlt."""
+    tokens = shlex.split(full_cmd)
+    for i, tok in enumerate(tokens[:-1]):
+        if tok == "--mmproj":
+            return Path(tokens[i + 1])
+    return None
+
+
 def _mmproj_extra_mb(full_cmd: str) -> int:
-    """VRAM der mmproj-Gewichte (= Dateigröße), die llama-fit-params nicht
+    """VRAM-Anteile eines Vision-Modells, die llama-fit-params nicht
     modellieren kann — das Tool kennt ``--mmproj`` nicht, weshalb das Flag
     in ``_GPU_FLAGS`` bewusst NICHT weitergereicht wird. Ohne diese
     Korrektur hält die Mathe Vision-Modelle für kleiner als sie sind
     (35B, 2026-07-31: ~1 GB Projektor → zwei aussichtslose
-    Single-GPU-Probes am nativen Kontext). Der Bild-Encoding-Buffer des
-    Vision-Probes bleibt beim adaptiven Bias — er ist nicht statisch
-    berechenbar. 0 wenn kein ``--mmproj`` im cmd oder die Datei fehlt.
+    Single-GPU-Probes am nativen Kontext).
+
+    Zwei Summanden: die mmproj-Gewichte (= Dateigröße, exakt) plus der
+    per Burn-In gemessene Encode-Buffer-Peak aus
+    :mod:`aifred.lib.mmproj_encode_vram_cache` (0 bis zur ersten Messung
+    — dann fängt ihn der adaptive Bias). 0 wenn kein ``--mmproj`` im cmd
+    oder die Datei fehlt.
     """
-    tokens = shlex.split(full_cmd)
-    for i, tok in enumerate(tokens[:-1]):
-        if tok == "--mmproj":
-            try:
-                return int(Path(tokens[i + 1]).stat().st_size // (1024 * 1024))
-            except OSError:
-                return 0
-    return 0
+    from ..mmproj_encode_vram_cache import get as _encode_peak_cached
+
+    mm = _mmproj_path(full_cmd)
+    if mm is None:
+        return 0
+    try:
+        weights_mb = int(mm.stat().st_size // (1024 * 1024))
+    except OSError:
+        return 0
+    return weights_mb + (_encode_peak_cached(mm) or 0)
 
 
 def _first_active_slot(full_cmd: str, length: int) -> int:

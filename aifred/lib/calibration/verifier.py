@@ -546,16 +546,47 @@ async def verify(
         # Eine 4K-Analyse in der Probe ersetzt den früheren pauschalen
         # Vision-VRAM-Zuschlag — der Bedarf steckt danach real in der
         # Messung, und ein Profil besteht nur, wenn auch Bild geht.
-        if "--mmproj" in full_cmd and not await _test_vision_inference(port):
-            output = _read_log(process)
-            _kill(process)
-            _cleanup_log(process)
-            await wait_for_vram_stable(max_wait_seconds=10.0)
-            vis_oom_id = _parse_oom_cuda_id(output[-4000:]) if output else None
-            detail = "OOM (vision probe crash)"
-            if vis_oom_id is not None:
-                detail += f" — CUDA{vis_oom_id}"
-            return VerifyResult(False, (), None, detail, oom_cuda_id=vis_oom_id)
+        if "--mmproj" in full_cmd:
+            from ..mmproj_encode_vram_cache import (
+                get as _encode_cached,
+                put as _encode_put,
+            )
+            from .projection import _mmproj_path
+
+            # Encode-Burn-In (2026-07-31): Beim ersten Lauf pro mmproj-Datei
+            # das VRAM-Delta um die erste Bildanalyse messen und cachen —
+            # ab dann kennt die fit-params-Projektion den Buffer statisch
+            # statt ihn über Bias-Lernen und OOM-Probes zu ertasten. Nur
+            # bei Cache-Miss (die Messung kostet zwei Stabilisierungs-
+            # Wartezeiten pro Probe).
+            _mm = _mmproj_path(full_cmd)
+            _burnin_before: tuple[int, ...] = ()
+            if _mm is not None and _encode_cached(_mm) is None:
+                await wait_for_vram_stable(max_wait_seconds=8.0)
+                _burnin_before = _measured_free(gpus)
+            if not await _test_vision_inference(port):
+                output = _read_log(process)
+                _kill(process)
+                _cleanup_log(process)
+                await wait_for_vram_stable(max_wait_seconds=10.0)
+                vis_oom_id = _parse_oom_cuda_id(output[-4000:]) if output else None
+                detail = "OOM (vision probe crash)"
+                if vis_oom_id is not None:
+                    detail += f" — CUDA{vis_oom_id}"
+                return VerifyResult(False, (), None, detail, oom_cuda_id=vis_oom_id)
+            if _mm is not None and _burnin_before:
+                await wait_for_vram_stable(max_wait_seconds=8.0)
+                _burnin_after = _measured_free(gpus)
+                if _burnin_after:
+                    # Delta über alle GPUs (der Buffer liegt praktisch auf
+                    # dem Main-Device); enthält den Mini-KV der ~50 Antwort-
+                    # Tokens — vernachlässigbar und konservativ.
+                    _delta = sum(
+                        max(0, b - a)
+                        for b, a in zip(_burnin_before, _burnin_after)
+                    )
+                    if _delta > 0:
+                        _encode_put(_mm, _delta)
 
         # Wait for VRAM to actually stabilise after inference — without
         # this, nvidia-smi can return mid-cleanup numbers (one GPU still

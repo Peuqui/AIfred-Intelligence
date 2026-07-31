@@ -474,6 +474,32 @@ def test_mmproj_extra_counted_on_first_active_slot(tmp_path):
     ) == 0
 
 
+def test_mmproj_encode_burnin_cache_feeds_projection(tmp_path, monkeypatch):
+    """Der per Burn-In gemessene Encode-Buffer-Peak fließt als zweiter
+    Summand in _mmproj_extra_mb; mtime-/Auflösungs-Änderung invalidiert."""
+    from aifred.lib import mmproj_encode_vram_cache as enc
+    from aifred.lib.calibration import projection as proj_mod
+    monkeypatch.setattr(enc, "_store", type(enc._store)(
+        tmp_path / "cache.json", "test_encode_cache",
+    ))
+    mm = tmp_path / "mmproj-test-F16.gguf"
+    mm.write_bytes(b"\x00" * (3 * 1024 * 1024))
+    cmd = f"llama-server --mmproj {mm} -c 1"
+
+    assert enc.get(mm) is None
+    assert proj_mod._mmproj_extra_mb(cmd) == 3  # nur Gewichte
+
+    enc.put(mm, 2500)
+    assert enc.get(mm) == 2500
+    assert proj_mod._mmproj_extra_mb(cmd) == 3 + 2500
+
+    # Geänderte mmproj-Datei (mtime) → Messung verworfen.
+    import os
+    os.utime(mm, (1, 1))
+    assert enc.get(mm) is None
+    assert proj_mod._mmproj_extra_mb(cmd) == 3
+
+
 def test_bias_state_bidirectional_with_oom_floor():
     """_BiasState learns in both directions; after a non-fitting probe the
     applied bias never drops below the hardest OOM measurement (oscillation
