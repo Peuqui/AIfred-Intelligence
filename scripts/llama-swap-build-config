@@ -152,6 +152,27 @@ def _multipart_parts(gguf_path: Path) -> list[Path]:
     ]
 
 
+def _cache_lookup(cache: dict, key: str, mtime: float, field: str) -> bool | None:
+    """mtime-validierter Lookup eines einzelnen Flags im Detection-Cache."""
+    entry = cache.get(key)
+    if entry and entry.get("mtime") == mtime and field in entry:
+        return bool(entry[field])
+    return None
+
+
+def _cache_store(
+    cache: dict, key: str, mtime: float, field: str, value: bool,
+) -> None:
+    """Schreibt ein Flag ins Cache-Entry, ohne fremde Felder desselben
+    (mtime-gültigen) Entries zu verwerfen — MTP- und MoE-Detection teilen
+    sich den Cache pro GGUF."""
+    entry = cache.get(key)
+    if entry and entry.get("mtime") == mtime:
+        entry[field] = value
+    else:
+        cache[key] = {"mtime": mtime, field: value}
+
+
 def detect_mtp(gguf_path: Path, cache: dict) -> bool:
     """Liest GGUF-Header, prüft auf MTP-Tensoren. mtime-basierter Cache."""
     key = str(gguf_path)
@@ -160,9 +181,9 @@ def detect_mtp(gguf_path: Path, cache: dict) -> bool:
     except FileNotFoundError:
         sys.stderr.write(f"⚠️  GGUF nicht gefunden: {gguf_path}\n")
         return False
-    entry = cache.get(key)
-    if entry and entry.get("mtime") == mtime:
-        return bool(entry["has_mtp"])
+    cached = _cache_lookup(cache, key, mtime, "has_mtp")
+    if cached is not None:
+        return cached
 
     parts = _multipart_parts(gguf_path)
     has_mtp = False
@@ -181,11 +202,55 @@ def detect_mtp(gguf_path: Path, cache: dict) -> bool:
         sys.stderr.write(f"⚠️  GGUF-Read-Fehler {gguf_path}: {e}\n")
         return False
 
-    cache[key] = {"mtime": mtime, "has_mtp": has_mtp}
+    _cache_store(cache, key, mtime, "has_mtp", has_mtp)
     return has_mtp
 
 
+def detect_moe(gguf_path: Path, cache: dict) -> bool:
+    """Prüft via GGUF-KV-Metadaten (``<arch>.expert_count``), ob das Modell
+    ein MoE ist. Architektur-agnostisch; Metadaten stehen vollständig im
+    ersten Part, Multi-Part-Scan wie bei MTP ist nicht nötig.
+    mtime-basierter Cache (geteilt mit detect_mtp)."""
+    key = str(gguf_path)
+    try:
+        mtime = gguf_path.stat().st_mtime
+    except FileNotFoundError:
+        sys.stderr.write(f"⚠️  GGUF nicht gefunden: {gguf_path}\n")
+        return False
+    cached = _cache_lookup(cache, key, mtime, "is_moe")
+    if cached is not None:
+        return cached
+
+    is_moe = False
+    try:
+        reader = GGUFReader(str(gguf_path))
+        for name, field in reader.fields.items():
+            if name.endswith(".expert_count"):
+                is_moe = int(field.contents() or 0) > 0
+                break
+    except Exception as e:
+        sys.stderr.write(f"⚠️  GGUF-Read-Fehler {gguf_path}: {e}\n")
+        return False
+
+    _cache_store(cache, key, mtime, "is_moe", is_moe)
+    return is_moe
+
+
 # ── Flag-Normalisierung ────────────────────────────────────────────────────
+def force_flag_value(tokens: list[str], flag: str, value: str) -> list[str]:
+    """Setzt ``flag value``: hebt vorhandene Vorkommen auf ``value`` an,
+    fehlt das Flag, wird es angehängt."""
+    out = list(tokens)
+    found = False
+    for i, tok in enumerate(out[:-1]):
+        if tok == flag:
+            out[i + 1] = value
+            found = True
+    if not found:
+        out += [flag, value]
+    return out
+
+
 def strip_tokens(tokens: list[str], flags: dict[str, int]) -> list[str]:
     """Entfernt alle in ``flags`` gelisteten Flags (inkl. Wert-Argumente)."""
     out: list[str] = []
@@ -362,19 +427,21 @@ def normalize_cmd(cmd: str, model_name: str, mtp_cache: dict) -> tuple[str, str]
             sys.stderr.write(f"👁️  {model_name}: --mmproj gesetzt ({mmproj.name})\n")
 
     has_mtp = detect_mtp(model_path, mtp_cache)
+    is_moe = detect_moe(model_path, mtp_cache)
     base = strip_spec_tokens(tokens)
     # Historische Dubletten (-sm/--tensor-split/-fit doppelt) entfernen und
     # --cache-reuse idempotent neu setzen (strip + re-inject wie bei Spec).
     base = dedupe_flag_tokens(base)
     base = strip_tokens(base, {"--cache-reuse": 1})
-    # -ub 512 -> 2048: +66% Prompt-Processing (2026-07-31 llama-bench-Messung
-    # auf dem 397B: pp2048 247->411 t/s, Decode unveraendert ~30 t/s; MoE-
-    # Experten-Reads amortisieren sich ueber groessere Microbatches). Nur
-    # bestehende -ub-Werte anheben (Multi-GPU-Profile, historisch von
-    # autoscan gesetzt) — Profile ohne -ub bleiben beim llama.cpp-Default 512.
-    for _i, _tok in enumerate(base):
-        if _tok == "-ub" and _i + 1 < len(base):
-            base[_i + 1] = "2048"
+    # -b/-ub 2048 für MoE-Modelle: Experten-Gewichts-Reads amortisieren sich
+    # über größere Microbatches (llama-bench 2026-07-31: 35B-A3B pp8192
+    # 1585->2423 t/s (+53%), 397B 240->399 t/s (+66%); dense 27B nur +8%,
+    # Decode überall unverändert). Realer VRAM-Preis ~1 GB/GPU, den die
+    # Kalibrierung via fit-params einplant. Dense Profile bleiben beim
+    # llama.cpp-Default (512) bzw. bei manuell gesetzten Werten.
+    if is_moe:
+        base = force_flag_value(base, "-b", "2048")
+        base = force_flag_value(base, "-ub", "2048")
     spec = build_spec_flags(model_path, has_mtp)
     new_tokens = base + spec
     if "--mmproj" not in new_tokens:
