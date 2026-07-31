@@ -123,7 +123,9 @@ CACHE_REUSE_FLAGS = ["--cache-reuse", "256"]
 def load_mtp_cache() -> dict:
     if MTP_STATUS_CACHE.exists():
         try:
-            return json.loads(MTP_STATUS_CACHE.read_text())
+            data = json.loads(MTP_STATUS_CACHE.read_text())
+            if isinstance(data, dict):
+                return data
         except json.JSONDecodeError:
             pass
     return {}
@@ -365,13 +367,14 @@ def normalize_cmd(cmd: str, model_name: str, mtp_cache: dict) -> tuple[str, str]
     # --cache-reuse idempotent neu setzen (strip + re-inject wie bei Spec).
     base = dedupe_flag_tokens(base)
     base = strip_tokens(base, {"--cache-reuse": 1})
-    # -ub 256 -> 512: +38.5% Prompt-Processing (2026-07-09 llama-bench-Messung
-    # auf dem 397B). Nur bestehende -ub-Werte anheben (Multi-GPU-Profile,
-    # historisch von autoscan gesetzt) — Profile ohne -ub nutzen bereits den
-    # llama.cpp-Default von 512.
+    # -ub 512 -> 2048: +66% Prompt-Processing (2026-07-31 llama-bench-Messung
+    # auf dem 397B: pp2048 247->411 t/s, Decode unveraendert ~30 t/s; MoE-
+    # Experten-Reads amortisieren sich ueber groessere Microbatches). Nur
+    # bestehende -ub-Werte anheben (Multi-GPU-Profile, historisch von
+    # autoscan gesetzt) — Profile ohne -ub bleiben beim llama.cpp-Default 512.
     for _i, _tok in enumerate(base):
         if _tok == "-ub" and _i + 1 < len(base):
-            base[_i + 1] = "512"
+            base[_i + 1] = "2048"
     spec = build_spec_flags(model_path, has_mtp)
     new_tokens = base + spec
     if "--mmproj" not in new_tokens:
