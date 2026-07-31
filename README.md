@@ -60,6 +60,7 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 
 - **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unlimited custom agents
 - **Custom Agents**: Name, emoji, role, bilingual prompts (DE/EN), own long-term memory. Agent Editor in UI
+- **Generic Agent Core**: All per-agent settings (model, sampling, thinking mode, context size, TTS voice) live in a single `agent_tuning` map — custom agents are first-class citizens. A newly created agent automatically gets its own settings row, sampling row and context column in the UI; no code changes, no hardcoded agent lists
 - **5 Discussion Modes**: Standard, Critical Review, Auto-Consensus, Tribunal, Symposion (with reflection layer from round 2)
 - **Voice-Based Mode Switching**: Switch modes, agents, and research settings via natural language — "Start Tribunal", "Switch to Sokrates", "Use deep research and discuss X". The Automatik-LLM detects mode switches, persistent agent changes ("I want to keep talking to Pater Tuck"), and combined commands in a single utterance. Works from browser, voice terminal (FreeEcho.2), and all channels
 - **Direct Addressing**: Address any agent by name — also via Telegram, Discord and Email through Message Hub
@@ -393,16 +394,20 @@ Each message is displayed individually with its emoji and mode label:
 
 ### 🔊 Voice Interface (TTS Engines)
 
-AIfred supports 6 TTS engines with different trade-offs between quality, latency, and resource usage. Each engine was chosen for a specific use case after extensive experimentation.
+AIfred supports 8 TTS engines with different trade-offs between quality, latency, and resource usage. Each engine was chosen for a specific use case after extensive experimentation. The preferred engine is the **local Qwen3-TTS container**.
 
-| Engine | Type | Streaming | Quality | Latency | Resources |
-|--------|------|-----------|---------|---------|-----------|
-| **XTTS v2** | Local Docker | Sentence-level | High (voice cloning) | ~1-2s/sentence | ~2 GB VRAM |
-| **MOSS-TTS 1.7B** | Local Docker | None (batch after bubble) | Excellent (best open-source) | ~18-22s/sentence | ~11.5 GB VRAM |
+| Engine | Type | Streaming | Quality | Latency* | Resources |
+|--------|------|-----------|---------|----------|-----------|
+| **Qwen3-TTS 1.7B** | Local Docker | Sentence-level | High (voice cloning, 10 languages incl. native DE) | ~8.5s | ~5-7 GB VRAM |
+| **XTTS v2** | Local Docker | Sentence-level | High (voice cloning) | ~2.8s | ~2 GB VRAM |
+| **Fish-Speech S2 Pro** | Local Docker | Sentence-level | High (voice cloning, 80+ languages) | ~11s | ~20-24 GB VRAM |
+| **MOSS-TTS 1.7B** | Local Docker | None (batch after bubble) | Excellent (best open-source) | ~14.8s | ~11.5 GB VRAM |
 | **DashScope Qwen3-TTS** | Cloud API | Sentence-level | High (voice cloning) | ~1-2s/sentence | API key only |
 | **Piper TTS** | Local | Sentence-level | Medium | <100ms | CPU only |
 | **eSpeak** | Local | Sentence-level | Low (robotic) | <50ms | CPU only |
 | **Edge TTS** | Cloud | Sentence-level | Good | ~200ms | Internet only |
+
+\* Local cloning engines measured head-to-head on the same bilingual test paragraph (V100, fp16) — full comparison in [TTS Model Comparison](docs/en/models/tts-comparison.md).
 
 **Why multiple engines?**
 
@@ -410,14 +415,18 @@ The search for the perfect TTS experience led through several iterations:
 
 - **Edge TTS** was the first engine -- free, fast, decent quality, but limited voices and no voice cloning.
 - **XTTS v2** added high-quality voice cloning with multilingual support. Sentence-level streaming works well: while the LLM generates the next sentence, XTTS synthesizes the current one. However, it requires a Docker container and ~2 GB VRAM.
-- **MOSS-TTS 1.7B** delivers the best speech quality of all open-source models (SIM 73-79%), but at a cost: ~18-22 seconds per sentence makes it unsuitable for streaming. Audio is generated as a batch after the complete response, which is acceptable for short answers but frustrating for longer ones.
-- **DashScope Qwen3-TTS** adds cloud-based voice cloning via Alibaba Cloud's API. By default it uses sentence-level streaming (same as XTTS) for better intonation. A realtime WebSocket mode (word-level chunks, ~200ms first audio) is also implemented but disabled by default -- it trades slightly worse prosody for faster first-audio. To re-enable it, uncomment the WebSocket block in `state.py:_init_streaming_tts()` (see code comment there).
+- **MOSS-TTS 1.7B** delivers the best speech quality of all open-source models (SIM 73-79%), but at a cost: ~15-22 seconds per sentence (depending on GPU) makes it unsuitable for streaming. Audio is generated as a batch after the complete response, which is acceptable for short answers but frustrating for longer ones.
+- **Qwen3-TTS 1.7B** (local Docker container) is the current default engine — the best quality/speed compromise in the head-to-head test. Voice cloning from ~3 seconds of reference audio, 10 languages with native German support, Apache 2.0 license. Reference voices (`docker/tts/voices/`) are pre-warmed at container start; speed/pitch are post-processed centrally via ffmpeg.
+- **Fish-Speech S2 Pro** (5B Dual-AR, 80+ languages) delivers high cloning quality, but is heavy: ~20-24 GB VRAM under load (calibration reserves 26 GB). Its research/non-commercial license also keeps it out of the channel dropdowns (FreeEcho.2 etc.) — browser use only.
+- **DashScope Qwen3-TTS** is the cloud counterpart to the local Qwen3-TTS container — voice cloning via Alibaba Cloud's API, no local VRAM needed. By default it uses sentence-level streaming (same as XTTS) for better intonation. A realtime WebSocket mode (word-level chunks, ~200ms first audio) is also implemented but disabled by default -- it trades slightly worse prosody for faster first-audio. To re-enable it, uncomment the WebSocket block in `state.py:_init_streaming_tts()` (see code comment there).
 - **Piper TTS** and **eSpeak** serve as lightweight offline alternatives that work without Docker, GPU, or internet connection.
+
+All local engines follow the same container conventions (REST API with `/tts` + `/health`, shared voice directory, idle tracking) — a new engine is a subclass in `aifred/lib/tts_engines/` plus one registry entry, no scattered if/else cascades. See [TTS Container Conventions](docs/de/architecture/tts-container-conventions.md) (German).
 
 **Playback Architecture:**
 - Visible HTML5 `<audio>` widget with blob-URL prefetching (next 2 chunks pre-fetched into memory)
 - `preservesPitch: true` for speed adjustments without chipmunk effect
-- Per-agent voice/pitch/speed settings (AIfred, Sokrates, Salomo can each have distinct voices)
+- Per-agent voice/pitch/speed settings — every agent, built-in or custom, can have its own voice
 - SSE-based audio streaming from backend to browser (persistent connection, 15s keepalive)
 
 ### ☁️ Cloud API Support
@@ -1288,7 +1297,7 @@ python scripts/patch-reflex.py
 | LLM Backends | httpx, openai, pynvml, psutil |
 | Web Research | trafilatura, playwright, requests, pymupdf |
 | Vector Cache | chromadb, ollama, numpy |
-| Audio (STT/TTS) | edge-tts, XTTS v2 (Docker), openai-whisper |
+| Audio (STT/TTS) | TTS containers under `docker/tts/` (Qwen3-TTS, XTTS v2, Fish-Speech, MOSS-TTS), edge-tts, piper, openai-whisper (Docker) |
 
 4. **Environment variables** (.env):
 ```env
@@ -1434,12 +1443,27 @@ except Exception as e:
 "
 ```
 
-8. **Start XTTS Voice Cloning** (Optional, Docker):
+8. **Start Qwen3-TTS Voice Cloning** (Recommended, Docker):
+
+The local Qwen3-TTS container (1.7B base model) is the preferred TTS engine — best quality/speed compromise, voice cloning from ~3 seconds of reference audio, 10 languages with native German support, Apache 2.0.
+
+```bash
+cd docker/tts/qwen3-tts
+docker compose up -d
+```
+
+**Features:**
+- Shared voice directory `docker/tts/voices/<Name>/<Name>.wav` (+ optional transcript) — reference voices are pre-warmed at container start
+- Sentence-level streaming during LLM generation, speed/pitch via central ffmpeg post-processing
+- ~5-7 GB VRAM on the TTS side-channel GPU (calibration reserves 7.5 GB)
+- REST API on port 5052 (`/tts`, `/health`, `/voices`) — same conventions as all other TTS containers
+
+9. **Start XTTS Voice Cloning** (Optional, Docker):
 
 XTTS v2 provides high-quality voice cloning with multilingual support and smart GPU/CPU selection.
 
 ```bash
-cd docker/xtts
+cd docker/tts/xtts
 docker compose up -d
 ```
 
@@ -1451,18 +1475,18 @@ First start takes ~2-3 minutes (model download ~1.5GB). After that, XTTS is avai
 - **Manual CPU-Mode Toggle**: Save GPU VRAM for larger LLM context window (slower TTS)
 - Multilingual support (16 languages) with automatic code-switching (DE/EN mixed)
 - Per-agent voices with individual pitch and speed settings
-- **Multi-Agent TTS Queue**: Sequential playback of AIfred → Sokrates → Salomo responses
+- **Multi-Agent TTS Queue**: Sequential playback of all participating agents' responses in speaking order
 - Async TTS generation (doesn't block next LLM inference)
 - **VRAM Management**: In GPU mode, ~2 GB VRAM is reserved and deducted from LLM context window
 
-See [docker/xtts/README.md](docker/xtts/README.md) for full documentation.
+See [docker/tts/xtts/README.md](docker/tts/xtts/README.md) for full documentation.
 
-9. **Start MOSS-TTS Voice Cloning** (Optional, Docker):
+10. **Start MOSS-TTS Voice Cloning** (Optional, Docker):
 
 MOSS-TTS (MossTTSLocal 1.7B) provides state-of-the-art zero-shot voice cloning across 20 languages with excellent speech quality.
 
 ```bash
-cd docker/moss-tts
+cd docker/tts/moss-tts
 docker compose up -d
 ```
 
@@ -1479,7 +1503,18 @@ First start takes ~5-10 minutes (model download ~3-5 GB). After that, MOSS-TTS i
 - **VRAM Management**: In GPU mode, ~11.5 GB VRAM is reserved and deducted from LLM context window
 - Recommended for high-quality offline audio generation, not for real-time streaming
 
-10. **Start application**:
+11. **Start Fish-Speech S2 Pro** (Optional, Docker):
+
+Fish Audio S2 Pro (5B Dual-AR, 80+ languages) provides high-quality voice cloning via server-side reference IDs.
+
+```bash
+cd docker/tts/fish-speech
+docker compose up -d
+```
+
+First start takes a while (~8 GB weights pulled from HuggingFace). Note: heavy VRAM footprint (~20-24 GB under load, calibration reserves 26 GB) and a research/non-commercial license — therefore not offered to external channels (FreeEcho.2 etc.), browser use only.
+
+12. **Start application**:
 ```bash
 reflex run
 ```
@@ -1601,7 +1636,7 @@ AIfred-Intelligence/
 │   │   ├── vllm.py           # vLLM Backend (AWQ)
 │   │   └── tabbyapi.py       # TabbyAPI Backend (EXL2)
 │   ├── lib/               # Core Libraries
-│   │   ├── multi_agent.py       # Multi-Agent System (AIfred, Sokrates, Salomo)
+│   │   ├── multi_agent.py       # Multi-Agent System (AIfred, Sokrates, Salomo + custom agents)
 │   │   ├── context_manager.py   # History compression
 │   │   ├── conversation_handler.py # Automatik mode, RAG context
 │   │   ├── config.py            # Default settings
