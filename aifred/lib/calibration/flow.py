@@ -605,13 +605,22 @@ async def _find_speed_candidate(
             # n_gpus/kv — matching those put the "speed" variant on the
             # slow cards.
             _wanted_active = set(range(n))
-            cached = next(
-                (c for c in already_tried
-                 if c.n_gpus == n and c.kv_quant == base_kv
-                 and {i for i, s in enumerate(c.tensor_split) if s > 0}
-                 == _wanted_active),
-                None,
-            )
+            # Vision-Modelle (--mmproj): Sweep-Zellen NICHT wiederverwenden.
+            # Deren Projektion entstand VOR der ersten Probe — also vor
+            # einem frisch gemessenen Encode-Buffer-Burn-In
+            # (mmproj_encode_vram_cache, 2026-07-31). Eine frische
+            # Projektion (~2 s fit-params) trägt den gemessenen Peak noch
+            # im selben Kalibrierungslauf in die Speed-Phase, statt ihn
+            # über Vision-Crash-Probes vom Bias ertasten zu lassen.
+            cached: Candidate | None = None
+            if "--mmproj" not in full_cmd:
+                cached = next(
+                    (c for c in already_tried
+                     if c.n_gpus == n and c.kv_quant == base_kv
+                     and {i for i, s in enumerate(c.tensor_split) if s > 0}
+                     == _wanted_active),
+                    None,
+                )
             if cached is not None:
                 c: Candidate | None = cached
             else:
