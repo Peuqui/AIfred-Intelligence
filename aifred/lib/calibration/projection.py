@@ -158,6 +158,42 @@ async def _run_fit(
     return parsed
 
 
+def _mmproj_extra_mb(full_cmd: str) -> int:
+    """VRAM der mmproj-Gewichte (= Dateigröße), die llama-fit-params nicht
+    modellieren kann — das Tool kennt ``--mmproj`` nicht, weshalb das Flag
+    in ``_GPU_FLAGS`` bewusst NICHT weitergereicht wird. Ohne diese
+    Korrektur hält die Mathe Vision-Modelle für kleiner als sie sind
+    (35B, 2026-07-31: ~1 GB Projektor → zwei aussichtslose
+    Single-GPU-Probes am nativen Kontext). Der Bild-Encoding-Buffer des
+    Vision-Probes bleibt beim adaptiven Bias — er ist nicht statisch
+    berechenbar. 0 wenn kein ``--mmproj`` im cmd oder die Datei fehlt.
+    """
+    tokens = shlex.split(full_cmd)
+    for i, tok in enumerate(tokens[:-1]):
+        if tok == "--mmproj":
+            try:
+                return int(Path(tokens[i + 1]).stat().st_size // (1024 * 1024))
+            except OSError:
+                return 0
+    return 0
+
+
+def _first_active_slot(full_cmd: str, length: int) -> int:
+    """Slot der ersten GPU mit Layern laut ``--tensor-split`` im cmd —
+    dort legt llama.cpp die mmproj-Gewichte ab (Main-Device der
+    Layer-Kette; empirisch verifiziert am 35B: Split 0:41 → mmproj auf
+    Slot 1, Split 41:0 → Slot 0). Ohne tensor-split: Slot 0."""
+    m = re.search(r"(?:--tensor-split|-ts)\s+([\d.,]+)", full_cmd)
+    if m:
+        for i, part in enumerate(m.group(1).split(",")[:length]):
+            try:
+                if float(part) > 0:
+                    return i
+            except ValueError:
+                break
+    return 0
+
+
 async def project(
     full_cmd: str, gguf_path: Path, context: int, ngl: int = 99,
     n_gpus: int | None = None,
@@ -187,6 +223,17 @@ async def project(
     max_id = max(per_gpu_used) if per_gpu_used else -1
     length = n_gpus if n_gpus is not None else max_id + 1
     used = tuple(per_gpu_used.get(i, 0) for i in range(length))
+    # fit-params-blinder mmproj-Anteil auf das Main-Device der Layer-Kette
+    # addieren — VOR der free-Ableitung, damit VRamPoints, Intercepts und
+    # alle Downstream-Verbraucher die Korrektur automatisch tragen.
+    mmproj_mb = _mmproj_extra_mb(full_cmd)
+    if mmproj_mb and used:
+        slot = _first_active_slot(full_cmd, length)
+        if slot < length:
+            used = tuple(
+                u + mmproj_mb if i == slot else u
+                for i, u in enumerate(used)
+            )
     if gpu_total_mb is not None:
         free = tuple(
             gpu_total_mb[i] - used[i] if i < len(gpu_total_mb) else 0
