@@ -139,3 +139,41 @@ def test_ai_error_no_fallback(monkeypatch):
         known_thinking=True,
     ))
     assert out[-1] == "__RESULT__:0:0:error"  # no algorithmic fallback
+
+
+def test_speed_candidate_reprojects_for_vision_models(monkeypatch):
+    """--mmproj-Modelle dürfen Sweep-Zellen nicht wiederverwenden: deren
+    Projektion entstand vor dem Encode-Buffer-Burn-In der ersten Probe.
+    Ohne mmproj bleibt die Wiederverwendung erhalten (spart Projektionen)."""
+    from aifred.lib.calibration.types import Candidate
+
+    gpus = [_gpu("g0", "RTX 8000", 7.5, 49152),
+            _gpu("g1", "RTX 8000", 7.5, 49152)]
+    cached_cell = Candidate(
+        mode="gpu", n_gpus=1, kv_quant="f16", ngl=99,
+        tensor_split=(41.0, 0.0), max_context=200000,
+        predicted_free_mb=(0, 0), vram_model=None,
+    )
+    calls = {"n": 0}
+
+    async def fake_project_cell(model, gpus_, budget, full_cmd, kv, n):
+        calls["n"] += 1
+        return cached_cell, ""
+
+    monkeypatch.setattr(flow, "_project_cell", fake_project_cell)
+
+    async def run(cmd):
+        return await flow._find_speed_candidate(
+            _model(40000), gpus, _budget((0, 0)), cmd,
+            already_tried=[cached_cell], base_n_gpus=2, base_kv="f16",
+        )
+
+    # Ohne mmproj: Sweep-Zelle wird wiederverwendet, keine Projektion.
+    out = asyncio.run(run("llama-server --model x"))
+    assert out is cached_cell
+    assert calls["n"] == 0
+
+    # Mit mmproj: frische Projektion trotz passender Sweep-Zelle.
+    out = asyncio.run(run("llama-server --model x --mmproj /mm.gguf"))
+    assert out is cached_cell
+    assert calls["n"] == 1
