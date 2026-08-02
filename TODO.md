@@ -22,7 +22,7 @@ Modell-Handicap weiterhin beim Erst-Load auf GPU0 OOMen.
 ## Grundprinzip: Security im Framework, nicht in Plugins
 
 Security wird im System-Code erzwungen (plugin_registry, function_calling,
-message_processor). Plugins koennen die Sicherheitsmechanismen NICHT umgehen.
+message_processor). Plugins können die Sicherheitsmechanismen NICHT umgehen.
 
 Pipeline: Inbound Sanitization → Tier-Check → Tool-Aufruf → Output-Sanitization → Audit-Log
 
@@ -39,27 +39,27 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
 
 **Phase 1.1 ✅ Browser-Adapter (HTML5 nativ)**
 - `/api/audio/file?key=...` mit HTTP Range-Support (Seek funktioniert nativ)
-- `/api/audio/position` fuer Browser→Server Position-Sync
+- `/api/audio/position` für Browser→Server Position-Sync
 - Auto-Target aus PluginContext.source: browser-Anfrage → media im selben Tab
-- Native HTML5-Controls fuer Pause/Seek/Volume — keine Extra-Tools noetig
-- Auto-Pause-fuer-TTS: TTS pausiert media, resumt mit 3s Pre-Roll
+- Native HTML5-Controls für Pause/Seek/Volume — keine Extra-Tools nötig
+- Auto-Pause-für-TTS: TTS pausiert media, resumt mit 3s Pre-Roll
 - Live verifiziert mit Qwen3.5-122B; A3B-MoE-Modelle haben Tool-Calling-Issues
   bei finalem Round (parking-Patch in `aifred/backends/base.py:570-585`)
 
 **Phase 1.2 — TODO offen**
-- [x] ~~Folder-mtime-Tracking fuer audio_index.scan_source~~ ✅ war bereits
+- [x] ~~Folder-mtime-Tracking für audio_index.scan_source~~ ✅ war bereits
   am 2026-05-03 umgesetzt (commit `dae8dc89`): `folders`-Tabelle mit
-  per-Folder-mtime, `walk()`-Fast-Path ueberspringt unveraenderte Subtrees
+  per-Folder-mtime, `walk()`-Fast-Path überspringt unveränderte Subtrees
   komplett (`skipped_folders`-Statistik), Tag-only-Edits brauchen
   `force=True` (dokumentiert im Docstring).
-- [x] ~~Auto-Pause-fuer-TTS End-to-End-Test~~ ✅ Puck-Live-Test 2026-07-06:
+- [x] ~~Auto-Pause-für-TTS End-to-End-Test~~ ✅ Puck-Live-Test 2026-07-06:
   Hörbuch → Voice-Pause → Zwischenfrage (TTS-Antwort) → "weiter" → Resume
   an korrekter Position → "stopp". User-Pause blockiert Auto-Resume wie
   designt. Noch ungetestet: Auto-Pause-Variante OHNE explizite Pause
   (Wake mitten in laufende Wiedergabe → Auto-Resume mit Pre-Roll).
 - [x] ~~Generischer Folder-Picker (eigene Lib + Reflex-Component)~~ ✅ implementiert
   in `aifred/lib/file_browser.py` + `aifred/state/_file_picker_mixin.py` +
-  `aifred/ui/file_picker.py`. Capability-Flags fuer create_folder/delete/
+  `aifred/ui/file_picker.py`. Capability-Flags für create_folder/delete/
   rename/upload/create_symlink, Sandbox per `root`-Param, Symlinks werden
   transparent gefolgt, Path-Traversal-Guard auf user-facing Pfad.
 - [x] ~~Audio-Plugin-Settings-Modal mit Source-Liste + Folder-Picker~~ ✅
@@ -71,9 +71,9 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
   (ChromaDB-Indexing, Bulk-Index, Preview, Upload) die ein "Folder-Picker"
   nicht braucht. Backend-Code-Duplikation in Filesystem-Walking
   (`file_manager.list_directory` vs `file_browser.browse`) wird akzeptiert.
-- [ ] (vielleicht) Plugin-Prompt "Auto-Pick" bei klarem Item — fragwuerdig, ca. 50%
-  der natuerlichen Audio-Anfragen brauchen listing fuer fuzzy-match (Tippfehler,
-  Kuenstler statt Filename, Genre-Anfragen). Latenz-Gewinn ~5s pro direct-play
+- [ ] (vielleicht) Plugin-Prompt "Auto-Pick" bei klarem Item — fragwürdig, ca. 50%
+  der natürlichen Audio-Anfragen brauchen listing für fuzzy-match (Tippfehler,
+  Künstler statt Filename, Genre-Anfragen). Latenz-Gewinn ~5s pro direct-play
   steht gegen Halluzinations-Risiko (LLM erfindet nicht-existierenden Pfad).
 
 **Phase 2.0 — TODO**
@@ -99,17 +99,17 @@ Idee: analog zum Audio-Player ein video_player Plugin mit:
 
 - **HDMI-Out am Mini** als Hauptziel (mpv mit `--vo=gpu` auf physischen Display)
 - **Sources** wie Audio: lokale Folder, NAS-Mount (Vuplus / Mediaserver), Streams
-- **Index ueber SQLite-FTS5** (gleicher Mechanismus wie audio_search), zusaetzlich aber:
-  - **Metadaten-Anreicherung** ueber TMDB/IMDB-API ODER lokale `.nfo`-Files (Kodi-Standard) →
+- **Index über SQLite-FTS5** (gleicher Mechanismus wie audio_search), zusätzlich aber:
+  - **Metadaten-Anreicherung** über TMDB/IMDB-API ODER lokale `.nfo`-Files (Kodi-Standard) →
     Schauspieler, Genre, Jahr, Plot, Original-Title
   - Anfragen wie *„suche alle Filme mit Bud Spencer"*, *„zeig mir was von Tarantino"*,
-    *„welche Komoedien ab 90er habe ich"* werden so beantwortbar
+    *„welche Komödien ab 90er habe ich"* werden so beantwortbar
 - **Tools**: `video_search(query)`, `video_play(item, target='hdmi')`, `video_pause`,
   `video_stop`, `video_seek`, `video_subtitles(lang)`, `video_audio_track(idx)`
-- **Browser-Target** optional: HTML5 `<video>` im AIfred-Tab fuer Office-Wiedergabe
+- **Browser-Target** optional: HTML5 `<video>` im AIfred-Tab für Office-Wiedergabe
 - **Puck-Target**: vermutlich nicht sinnvoll (kein Display)
 
-Aufwand grob: ~6-8h fuer Plugin + Index + TMDB-Anbindung. Nicht jetzt — erst nach
+Aufwand grob: ~6-8h für Plugin + Index + TMDB-Anbindung. Nicht jetzt — erst nach
 Audio-Phase 1.2/2.0/3.0.
 
 ---
@@ -673,8 +673,8 @@ Statt eines eigenen Calibration-Profils existiert heute:
 - [ ] Konfigurierbar pro Channel
 
 ### Action Confirmation Verfeinerung
-- [ ] Rueckfrage an Sender statt hartem Block (Telegram Inline Keyboards etc.)
-- [ ] Review-Queue fuer Cron-Jobs
+- [ ] Rückfrage an Sender statt hartem Block (Telegram Inline Keyboards etc.)
+- [ ] Review-Queue für Cron-Jobs
 - [ ] Optional: PIN/zweiter Faktor
 
 ### Erweiterte Output-Sanitization
@@ -686,21 +686,21 @@ Statt eines eigenen Calibration-Profils existiert heute:
 - [ ] Cross-Channel-Exfiltration verhindern
 - [ ] Network Egress Control (Default-Deny)
 
-### RAG/Vector-DB Haertung
+### RAG/Vector-DB Härtung
 - [ ] Untrusted-Channel-Daten bekommen niedrigen Trust-Score
 - [ ] Periodisches Auditing/Purging des Vector-Cache
 - [ ] Namespace-Isolation pro Channel/Sender
 
 ---
 
-## Plugins (spaeter)
+## Plugins (später)
 
 ### Community & Forum Plugins
 - [ ] Reddit Plugin: lesen, posten, kommentieren, Subreddit-Monitoring
 - [ ] Hacker News Plugin: lesen, suchen (read-only)
 - [ ] Discourse Plugin (optional)
 
-### Neue Kanaele
+### Neue Kanäle
 - [ ] Signal Plugin (signal-cli-rest-api Docker)
 
 ### Neue Tool Plugins
@@ -708,21 +708,21 @@ Statt eines eigenen Calibration-Profils existiert heute:
       (siehe "Zukunftsweg: Tool-Call-first-Architektur"). Puck/Haupt-LLM bekommt
       Tools `set_discussion_mode()`, `set_research_mode()`, `set_active_agent()`.
       Erstmal parallel zur Automatik-LLM-MODE_SWITCH-Variante, als Opt-in-Pfad.
-- [ ] RSS/News Feed Plugin: Nachrichten-Quellen ueberwachen und zusammenfassen
-- [ ] Home Assistant Plugin: Smart Home Geraete steuern (REST API)
-- [ ] **Audio-Transkription Plugin**: Watchfolder fuer Audio-Dateien (z.B. Memos,
+- [ ] RSS/News Feed Plugin: Nachrichten-Quellen überwachen und zusammenfassen
+- [ ] Home Assistant Plugin: Smart Home Geräte steuern (REST API)
+- [ ] **Audio-Transkription Plugin**: Watchfolder für Audio-Dateien (z.B. Memos,
       Meeting-Recordings). Whisper ist schon installiert → neu hereingelegte
       Files automatisch transkribieren und als Text ablegen / in RAG indexieren.
-- [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhaengig von EPIM)
+- [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhängig von EPIM)
 
 ### Google Suite ✅ (implementiert)
 
 `aifred/plugins/tools/google_suite/` — Orchestrator-Plugin wie geplant:
 Sub-Services `calendar/`, `contacts/`, `drive/`, `tasks/` (per settings.json
 toggelbar), eigene `i18n.json` + `prompts/`, ein OAuth-Flow über den
-OAuth-Broker (`aifred/lib/oauth/`, Fernet-verschluesselt, CSRF-State).
+OAuth-Broker (`aifred/lib/oauth/`, Fernet-verschlüsselt, CSRF-State).
 
-### KI-gestuetzte Kalibrierung ✅ (implementiert)
+### KI-gestützte Kalibrierung ✅ (implementiert)
 
 `aifred/lib/calibration/ai_agent.py`: Qwen via DashScope-Function-Calling
 treibt die Such-Schleife (`probe_config`/`finalize`-Tools, 15-Probe-Cap,
@@ -734,7 +734,7 @@ algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
 
 ### UI Verbesserungen
 - [ ] Tages-Separatoren bei Datumswechsel in Chat (Messenger-Stil)
-- [ ] Clickable Tooltips: Hilfe-Modale fuer alle UI-Bereiche (Agenten-Editor, etc.)
+- [ ] Clickable Tooltips: Hilfe-Modale für alle UI-Bereiche (Agenten-Editor, etc.)
 - [x] ~~Scheduler UI: Benutzerfreundliche Zeiteingabe~~ ✅ war bereits am
   2026-04-12 umgesetzt (commit `fc2fcc3a`, gleicher Tag wie der TODO-Eintrag):
   strukturierte Cron-Felder + Presets, Interval Zahl+Einheit, Once
@@ -745,39 +745,39 @@ algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
 
 - [ ] **Vigilantia: manuelle PTZ-Steuerung im UI** (Idee 2026-07-10).
   Schwenk/Neige/Zoom-Buttons (+ Presets setzen/anfahren) im Zonen-Editor
-  oder Live-Popup, ueber den geteilten Reolink-Client (`PtzCtrl`,
+  oder Live-Popup, über den geteilten Reolink-Client (`PtzCtrl`,
   `SetPtzPreset` — HTTP-API kann das; `GetPtzCurPos` existiert auf der
   TrackMix-Firmware NICHT, Position also nur durch eigenes Kommandieren
   bekannt). Bewusste Abgrenzung: Steuerung durch den USER im UI — das
   automatische Tracking macht die Kamera selbst besser/schneller, AIfred
   soll NICHT autonom schwenken. Dazu passend (gleiche Baustelle):
-  Live-Anzeige des gemessenen Ego-Motion-Shifts + Slider fuer
+  Live-Anzeige des gemessenen Ego-Motion-Shifts + Slider für
   `watch.motion_ego_shift_px` im Zonen-Editor (Kalibrierung am Bild,
-  analog zur Ausloese-Schwelle).
+  analog zur Auslöse-Schwelle).
 - [ ] Multi-Email-Konto Support (mehrere IMAP/SMTP Accounts, Rechte pro Konto)
-- [ ] Kanaluebergreifendes Routing (eine Session ueber mehrere Kanaele — Telegram/Discord/Email/Browser)
+- [ ] Kanalübergreifendes Routing (eine Session über mehrere Kanäle — Telegram/Discord/Email/Browser)
       — wird trivial nach dem SSOT-Refactor (siehe oben)
-- [ ] Research-Pipeline State-Abhaengigkeit weiter reduzieren
+- [ ] Research-Pipeline State-Abhängigkeit weiter reduzieren
 - [ ] Inbound-Sanitization Strictness pro Channel konfigurierbar
 - [ ] Session Memory Sanitization nach Job-Ende
 - [ ] Audit-Log UI Filter (Channel, Tool, Zeitraum)
-- [ ] **prompt_loader: Cross-Pipeline Sprach-Race aufloesen.** Heute setzt
+- [ ] **prompt_loader: Cross-Pipeline Sprach-Race auflösen.** Heute setzt
   `aifred/lib/research/context_builder.py:157` mit `set_language(detected_user_language)`
   ein Modul-Global (`_current_language` in `prompt_loader.py`), das von
-  nachgelagerten Pipeline-Stufen ueber `get_language()` wieder gelesen wird
+  nachgelagerten Pipeline-Stufen über `get_language()` wieder gelesen wird
   (multi_agent.py:702/974/1232, llm_engine.py:395, i18n.py:1057/1092/1118,
-  _chat_mixin.py:807/917). Wenn waehrend einer laufenden Inferenz ein zweiter
+  _chat_mixin.py:807/917). Wenn während einer laufenden Inferenz ein zweiter
   Pipeline-Lauf in einer anderen Sprache startet (Browser-Tab DE + Mail EN
-  parallel), ueberschreibt der zweite den Modul-Global → der erste liest
+  parallel), überschreibt der zweite den Modul-Global → der erste liest
   beim Sokrates/Salomo-Prompt-Aufbau die falsche Sprache und antwortet
   inkonsistent. Auch user_name/user_gender/personality/reasoning sind als
   Modul-Globals dort gleich riskant, heute aber praktisch egal, weil
   settings.json prozess-weit ist (alle Tabs sehen dieselben Werte).
-  **Loesung:** `set_language()` aus context_builder rausziehen und
+  **Lösung:** `set_language()` aus context_builder rausziehen und
   `detected_language` als expliziten Parameter durch ALLE nachgelagerten
   Pipeline-Stufen reichen. Multi-Agent-API, generate_session_title,
   Hub-Notification-Builder und die i18n-Calls brauchen den Parameter.
-  Aufwand ~1h sauber, Risiko: eine vergessene Stelle laesst den
+  Aufwand ~1h sauber, Risiko: eine vergessene Stelle lässt den
   Sprach-Default greifen. Schaden heute: Symptom-Bug (gelegentliche
   Sprach-Mismatch im Multi-Channel-Setup), kein Datenverlust.
 
@@ -785,7 +785,7 @@ algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
 
 ## RAG / Embedding-Pipeline (offen nach 2026-05-02 Migration)
 
-Seit BGE-M3-Migration und Token-Chunker — folgende Punkte fuer die naechste
+Seit BGE-M3-Migration und Token-Chunker — folgende Punkte für die nächste
 Iteration:
 
 - [x] ~~README + zentrale Docs auf den heutigen Stand bringen~~ ✅ war
@@ -801,10 +801,10 @@ Iteration:
     Fallback); `DOCUMENT_CHUNK_SIZE = 800` Tokens
   - Embedding-Mode-Switch: GPU bei Index (`mode="index"`,
     `keep_alive=60s`), CPU bei Query (`mode="query"`, `keep_alive=1800s`).
-    Document-Store haelt zwei separate `OllamaEmbeddingFunction`-Instanzen
+    Document-Store hält zwei separate `OllamaEmbeddingFunction`-Instanzen
   - `delete + upsert` statt nur `upsert` in `index_document` —
     Zombie-Chunk-Fix bei verkleinerten Dateien
-  - Document Manager UI: Bulk-Index-Button (gruenes Database-Icon im
+  - Document Manager UI: Bulk-Index-Button (grünes Database-Icon im
     Header), rekursive Datei-Anzahl pro Ordner in der File-Liste
   - `search_documents` mit `folder`-Parameter (exact match, keine
     Wildcards) und Chunk-Nachbar-Retrieval (`neighbor_window=1`,
@@ -816,56 +816,56 @@ Iteration:
   - Sefaria-Downloader (`scripts/download_judaica.py`) +
     Verifikations-Skript (`scripts/verify_judaica.py`) mit
     Schema-Inflation-Check
-  - Personality-Prompts fuer Rabbi Shmuel + Pater Tuck jetzt mit
-    Wissensbasis-Hinweis (welche Folder fuer welche Quelle, mit
+  - Personality-Prompts für Rabbi Shmuel + Pater Tuck jetzt mit
+    Wissensbasis-Hinweis (welche Folder für welche Quelle, mit
     Anti-Konfabulations-Klausel)
   - Symposion-Modus: Reflection-Prompt-Layer ab Runde 2 (Variante D —
     Augmentation, kein Replacement); Title-Generation greift jetzt auch
     im Symposion (SSOT-Fix in `_chat_mixin.py:1316-1325`)
   - Tool-Output-Cap: `TOOL_OUTPUT_TOTAL_INPUT_RATIO = 0.75` —
     JSON-aware Truncation der Tool-Results, ContextVar-basiert pro
-    Inferenz, gilt fuer alle Tools
+    Inferenz, gilt für alle Tools
   - Multi-Agent: Agent-Prefix `[Sokrates]` in Tool-Call-Debug-Zeilen
     (greift nur in Multi-Agent-Modi)
   - Tool-Result-Token-Count im Debug-Panel (lokalisiert formatiert)
   - System-Agenten (`role=system`) automatisch aus Symposion-Auswahl
-    ausgeschlossen — Calibration faellt damit raus, kuenftige interne
-    Agenten ohne Code-Aenderung mit
+    ausgeschlossen — Calibration fällt damit raus, künftige interne
+    Agenten ohne Code-Änderung mit
   - Orphan-Cleanup im Settings → Datenbank-Panel
     (`fm.list_orphaned()` + Bulk-Delete-Button, gruppiert pro
     Dokument)
-  - File-Manager als Single Source of Truth fuer FS+ChromaDB-Operationen
+  - File-Manager als Single Source of Truth für FS+ChromaDB-Operationen
     (`aifred/lib/file_manager.py` — wird vom Workspace-Plugin und
     Document-UI genutzt)
 
 - [ ] **Embedding-Modell-Strategie verfeinern.** Aktuell: GPU bei Index,
   CPU bei Query — global konfiguriert. Verbesserungen:
-  - Dynamische GPU-Auswahl: schnellste verfuegbare Karte beim Index-Modus
+  - Dynamische GPU-Auswahl: schnellste verfügbare Karte beim Index-Modus
     (statt fester GPU-0-Default in Ollama)
-  - Vor Embedding-Start: pruefen ob LLM-Modell entladen werden muss oder
-    genuegend VRAM-Reserve besteht; ggf. LLM kurz pausieren
-  - Bei aktiver LLM-Inferenz: zwingend auf CPU bleiben fuer maximalen
+  - Vor Embedding-Start: prüfen ob LLM-Modell entladen werden muss oder
+    genügend VRAM-Reserve besteht; ggf. LLM kurz pausieren
+  - Bei aktiver LLM-Inferenz: zwingend auf CPU bleiben für maximalen
     Kontext-Headroom (heute manuell, sollte automatisch erkannt werden)
 
-- [ ] **Sentence-Window-Indexing pruefen.** Statt 800-Token-Chunks pro
+- [ ] **Sentence-Window-Indexing prüfen.** Statt 800-Token-Chunks pro
   Vers/Satz indexieren mit gespeichertem Window-Kontext (LlamaIndex-
-  Pattern). Schaerfere Embeddings, hoeherer Index-Aufwand.
-  Lohnt sich evtl. nur fuer dichte Texte wie Talmud/Kommentare.
+  Pattern). Schärfere Embeddings, höherer Index-Aufwand.
+  Lohnt sich evtl. nur für dichte Texte wie Talmud/Kommentare.
 
 - [ ] **`_research_context` von State-Variable auf ContextVar umstellen.**
   Konsistenz mit `doc_rag_tokens_var` und `tool_output_budget_var`.
   Funktional kein Bug (deklariert in `_chat_mixin.py:58`), nur Stil.
   Multi-Agent-Tribunal-Reset-Logik beachten.
 
-- [ ] **Echte Stemmer fuer Korpus-Phrase-Suche (DE + EN).** Aktuell laeuft
+- [ ] **Echte Stemmer für Korpus-Phrase-Suche (DE + EN).** Aktuell läuft
   Phrase-Highlight + Backend-Phrase-Filter mit einer Holzhammer-Heuristik
   (Wort >= 6 Zeichen → letzte 2 Zeichen weg, dann `\w*` dahinter). Deckt
-  haeufige deutsche Flexionen (heiliger / heiligen / Heiligtum) und
-  englische Plurale grob ab, aber linguistisch nicht sauber. Naechster
-  Schritt: Snowball-Stemmer fuer DE und EN integrieren (z.B. `pystemmer`
+  häufige deutsche Flexionen (heiliger / heiligen / Heiligtum) und
+  englische Plurale grob ab, aber linguistisch nicht sauber. Nächster
+  Schritt: Snowball-Stemmer für DE und EN integrieren (z.B. `pystemmer`
   Backend-seitig in `_build_phrase_regex`, `snowball-stemmers` JS-seitig
-  fuer `highlight()` in `deploy/corpus/index.html`). Sprachwahl: aus dem
-  Folder ableiten oder UI-Toggle. Gilt fuer den `phrase`-Mode in
+  für `highlight()` in `deploy/corpus/index.html`). Sprachwahl: aus dem
+  Folder ableiten oder UI-Toggle. Gilt für den `phrase`-Mode in
   `corpus_search_server.py` und die Highlight-Funktion im Korpus-Browser.
 
 ---

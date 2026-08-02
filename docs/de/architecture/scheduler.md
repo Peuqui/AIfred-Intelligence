@@ -2,7 +2,7 @@
 
 **Stand:** 2026-03-29
 
-AIfred kann zeitgesteuert eigenstaendig handeln — ohne dass ein User eine Nachricht schickt.
+AIfred kann zeitgesteuert eigenständig handeln — ohne dass ein User eine Nachricht schickt.
 Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
 
 ---
@@ -18,7 +18,7 @@ Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
           ┌────────────────────┼────────────────────┐
           │                    │                    │
    Channel Workers      Scheduler Worker     Webhook API
-   (Email, Discord)     (prueft jede Min)    (/api/agent/trigger)
+   (Email, Discord)     (prüft jede Min)    (/api/agent/trigger)
           │                    │                    │
           └────────────────────┼────────────────────┘
                                │
@@ -48,13 +48,13 @@ Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
 |-----|-----------|-------------|
 | `cron` | `0 8 * * *` | Standard 5-Feld Cron (via croniter), mit Timezone |
 | `interval` | `300` | Feste Intervalle in Sekunden |
-| `once` | `2026-04-01T10:00:00` | Einmalige Ausfuehrung zu ISO-Zeitpunkt |
+| `once` | `2026-04-01T10:00:00` | Einmalige Ausführung zu ISO-Zeitpunkt |
 
 ### Cron-Beispiele
 
 | Expression | Bedeutung |
 |-----------|-----------|
-| `0 8 * * *` | Taeglich um 8:00 |
+| `0 8 * * *` | Täglich um 8:00 |
 | `*/30 * * * *` | Alle 30 Minuten |
 | `0 9 * * 1-5` | Werktags um 9:00 |
 | `0 0 1 * *` | Monatlich am 1. um Mitternacht |
@@ -63,7 +63,7 @@ Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
 
 ## Job Store (SQLite)
 
-Persistiert in `data/scheduler/jobs.db`. Jobs ueberleben Neustarts.
+Persistiert in `data/scheduler/jobs.db`. Jobs überleben Neustarts.
 
 ```sql
 CREATE TABLE jobs (
@@ -115,7 +115,7 @@ job = store.add(
 all_jobs = store.list_all()
 active_jobs = store.list_all(enabled_only=True)
 
-# Job loeschen
+# Job löschen
 store.delete(job.job_id)
 
 # Job aktivieren/deaktivieren
@@ -132,19 +132,19 @@ Wohin geht das Ergebnis eines Jobs?
 |------|-------------|
 | `log` | Nur im Audit-Log und Session (Default) |
 | `announce` | An einen Channel senden (Discord, Telegram, E-Mail) |
-| `review` | Notification in der Web-UI, User prueft in Session |
+| `review` | Notification in der Web-UI, User prüft in Session |
 | `webhook` | HTTP POST an externe URL (z.B. Home Assistant) |
 
 ### announce
 
-Benoetigt `channel` und optional `recipient` im Payload:
+Benötigt `channel` und optional `recipient` im Payload:
 ```json
 {"delivery": "announce", "channel": "discord", "recipient": ""}
 ```
 
 ### webhook
 
-Benoetigt `webhook_url` im Payload:
+Benötigt `webhook_url` im Payload:
 ```json
 {"delivery": "webhook", "webhook_url": "http://homeassistant.local:8123/api/webhook/aifred"}
 ```
@@ -163,7 +163,7 @@ POST-Body:
 
 ## Webhook-API (externe Trigger)
 
-Externe Systeme koennen AIfred-Aktionen ausloesen:
+Externe Systeme können AIfred-Aktionen auslösen:
 
 ```
 POST /api/agent/trigger
@@ -198,7 +198,7 @@ Token-basiert via Credential Broker (`WEBHOOK_API_TOKEN` in `.env`).
 
 ### Security
 
-- Token wird gegen `WEBHOOK_API_TOKEN` geprueft (via Broker, nie im LLM-Kontext)
+- Token wird gegen `WEBHOOK_API_TOKEN` geprüft (via Broker, nie im LLM-Kontext)
 - `max_tier` ist gekappt auf `DEFAULT_TIER_BY_SOURCE["webhook"]` (Default: 0 = read-only)
 - Jeder Trigger bekommt eine isolierte Session
 - Rate Limiting greift (aus Security-Layer S6)
@@ -222,7 +222,7 @@ Alle Worker (Channel-Listener, Scheduler) haben automatischen Restart bei Crashe
 |-------|----------|
 | `aifred/lib/scheduler.py` | Job Store, Scheduler Loop, Delivery Modes |
 | `aifred/lib/message_hub.py` | Worker-Management mit Auto-Restart |
-| `aifred/lib/api.py` | Webhook-API Endpoint (`/api/agent/trigger`) |
+| `aifred/lib/api/agents.py` | Webhook-API Endpoint (`/api/agent/trigger`) |
 | `aifred/lib/credential_broker.py` | WEBHOOK_API_TOKEN Mapping |
 | `aifred/aifred.py` | Scheduler-Registrierung beim App-Start |
 | `data/scheduler/jobs.db` | SQLite Job-Datenbank |

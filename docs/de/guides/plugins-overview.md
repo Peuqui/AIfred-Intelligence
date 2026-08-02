@@ -209,11 +209,11 @@ OAuth 2.0 Integration für Google Calendar und Contacts. Orchestrator-Plugin mit
 
 **Datei:** `plugins/tools/translator/`
 
-Textuebersetzung via DeepL API mit automatischer Quellsprach-Erkennung. 30+ Sprachen, 500.000 Zeichen/Monat kostenlos.
+Textübersetzung via DeepL API mit automatischer Quellsprach-Erkennung. 30+ Sprachen, 500.000 Zeichen/Monat kostenlos.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `translate` | Text in eine Zielsprache uebersetzen | READONLY |
+| `translate` | Text in eine Zielsprache übersetzen | READONLY |
 
 > **Details:** [Translator Plugin](plugins/translator.md)
 
@@ -273,7 +273,7 @@ Zugriff auf den jüdischen Quellkorpus (Tanach, Talmud, Mischna, Midrasch, Halac
 
 Channel Plugins verbinden AIfred mit externen Kommunikationskanälen. Eingehende Nachrichten werden automatisch verarbeitet und optional beantwortet.
 
-> **Sprachsteuerung:** Eine Sprachbedienung ist über „FreeEcho.2" möglich — ein **separates Companion-Projekt** für den Amazon Echo Dot 2 (Custom-Firmware, die das Gerät vom Cloud-Zwang befreit und als lokales Sprach-Interface nutzbar macht). Verfügbarkeit und Details folgen; es ist **nicht Teil** dieses Open-Source-Repositorys.
+> **Sprachsteuerung:** Die Sprachbedienung läuft über „FreeEcho.2" — Custom-Firmware für den Amazon Echo Dot 2, die das Gerät vom Cloud-Zwang befreit und als lokales Sprach-Interface nutzbar macht. Die Geräte-Firmware lebt in einem separaten Projekt, aber die AIfred-seitige Integration ist ein vollwertiges Channel-Plugin in diesem Repository (`plugins/channels/freeecho2_channel/`, siehe unten).
 
 **Outbound Markdown:** Agenten antworten in Markdown. Jeder Channel wandelt das via `BaseChannel.format_outbound()` in ein Format, das der Empfänger darstellen kann: Email bekommt HTML mit Plaintext-Fallback (multipart/alternative), Telegram bekommt gestripptes Plain, Discord bleibt Markdown (rendert es nativ). Gemeinsame Konverter liegen in `aifred/lib/markdown_render.py` (`md_to_html`, `md_to_plain`). Vollständiges Pattern für neue Channels siehe [Plugin Development → Outbound Markdown Conversion](../../en/guides/plugin-development.md#outbound-markdown-conversion) (englisch).
 
@@ -301,8 +301,11 @@ Discord Bot mit Channel- und DM-Support.
 
 **Features:**
 - WebSocket/Gateway-Verbindung
-- `/clear` Slash Command
+- Absender-Allowlist (Pflicht — siehe unten)
+- `/clear` Slash Command (setzt die Konversation zurück UND löscht Channel-Nachrichten, soweit die Berechtigungen es erlauben)
 - Kanal- und DM-Nachrichten
+
+**Allowlist (Pflicht):** Der Bot antwortet nur User-IDs, die in den Plugin-Settings gelistet sind (Zahnrad → *Allowed user IDs*, kommagetrennt). Leere Liste heißt **niemand**; das `*`-Wildcard wird **nicht** unterstützt — ein weltoffener Bot ließe jeden dein LLM steuern. **Onboarding eines neuen Users:** einmal den Bot anschreiben lassen — der Versuch wird abgelehnt, aber die numerische User-ID erscheint im Log (`blocked message from user <ID>`); diese ID ins Allowlist-Feld eintragen.
 
 > **Details:** [Discord Plugin](plugins/discord.md)
 
@@ -315,19 +318,38 @@ Discord Bot mit Channel- und DM-Support.
 Telegram Bot via Long Polling.
 
 **Features:**
-- Whitelist-basierter Zugang
+- Absender-Allowlist (Pflicht — siehe unten)
+- `/clear` löscht die Konversation: Kontext-Reset + Bulk-Delete aller getrackten Chat-Nachrichten (Telegram-Limits gelten: nur Nachrichten, die der Bot gesehen/gesendet hat, jünger als 48 h)
+- Nachrichten, die während AIfred-Downtime eingingen, werden beim Start nachgeholt (Telegram puffert bis zu 24 h)
 - Auto-Reply konfigurierbar
 - Setup-Guide: [Telegram Setup](telegram-setup.md)
+
+**Allowlist (Pflicht):** Gleiches Modell wie Discord — der Bot antwortet nur User-IDs aus den Plugin-Settings (Zahnrad → *Allowed user IDs*). Leer = niemand, `*` wird **nicht** unterstützt. **Onboarding eines neuen Users:** einmal den Bot anschreiben lassen; die numerische User-ID erscheint im Log (`blocked message from <ID>`) — ins Allowlist-Feld eintragen.
 
 > **Details:** [Telegram Plugin](plugins/telegram.md)
 
 ---
 
+### FreeEcho.2 (Voice)
+
+**Datei:** `plugins/channels/freeecho2_channel/`
+
+Voice-Channel für das FreeEcho.2-Gerät (siehe Sprachsteuerungs-Hinweis oben). Eingehende Transkripte werden wie bei jedem anderen Channel beantwortet; Antworten werden über die plugin-eigene TTS-Engine als Audio synthetisiert.
+
+**Features:**
+- Eigene TTS-Engine, pro Plugin konfiguriert (unabhängig vom Browser)
+- Always-Reply-Channel (Sprach-Terminal)
+- i18n + agentenspezifische Prompts
+
+**Auth-Token (empfohlen):** Das Plugin betreibt einen WebSocket-Server, mit dem sich das Gerät verbindet. Setze ein Shared Secret in den Channel-Settings (Zahnrad → *Auth token*) **und** denselben Wert in der Web-UI des Pucks (Server → *Auth token*): Registrierungen ohne passendes Token werden abgelehnt, bevor sie einen Device-Slot belegen oder die STT→LLM→TTS-Pipeline steuern können. Ohne Token akzeptiert der Server jeden Host, der den Port erreicht (beim Start wird eine Warnung geloggt). Der explizite *Authentication*-Schalter neben dem Token-Feld kann die Prüfung deaktivieren; nur das wörtliche „Off" tut das — fail-safe Richtung an.
+
+---
+
 ### Vigilantia (Kamera-Überwachung)
 
-**Datei:** `plugins/channels/vigilantia/`
+**Code:** `aifred/lib/` (`frame_hub.py`, `vision_watcher.py`, `frame_sources/`, `vision_*.py`) — **kein Plugin**, sondern fest integriertes Subsystem
 
-Kontinuierliche Kamera-Überwachung als eigener Channel — Master Eye, Background-Watcher, Casus Event-Browser, Personarium-Identitäten-Datenbank. Baut auf der FrameHub-Pipeline auf (siehe [Vision-Tools](#vision-kamera--vlm)).
+Kontinuierliche Kamera-Überwachung — Master Eye, Background-Watcher, Casus Event-Browser, Personarium-Identitäten-Datenbank. Baut auf der FrameHub-Pipeline auf (Frame-Quellen: RTSP + V4L2 in `aifred/lib/frame_sources/`); die LLM-seitigen Tools liegen im [Vision-Tool-Plugin](#vision-kamera--vlm).
 
 **Features:**
 - **Master Eye + Per-Source Watcher** im Message-Hub-Worker-Prozess (überlebt Browser-Disconnects)
@@ -339,7 +361,7 @@ Kontinuierliche Kamera-Überwachung als eigener Channel — Master Eye, Backgrou
 - **VRAM-Vorab-Check** vor Bulk-VLM-Analyse — bricht sauber ab statt mittendrin OOM zu produzieren
 - **Vigilantia-Feed Live-Card** auf der Hauptseite zeigt die letzten N Events aller Quellen
 
-Die LLM-seitigen Tools für Vision (snapshot, analyze, enroll_face, start_watch etc.) liegen unter [Vision](#vision-kamera--vlm) — Vigilantia ist der dauerhafte Channel-Layer darüber.
+Die LLM-seitigen Tools für Vision (snapshot, analyze, enroll_face, start_watch etc.) liegen unter [Vision](#vision-kamera--vlm) — Vigilantia ist der dauerhafte Überwachungs-Layer darüber.
 
 ---
 
@@ -354,7 +376,7 @@ aifred/plugins/
 │   ├── calculator/         # Mathematik
 │   ├── audio_player/       # Audio-Wiedergabe
 │   ├── scheduler_tool/     # Geplante Aufgaben
-│   ├── translator/         # DeepL-Uebersetzung
+│   ├── translator/         # DeepL-Übersetzung
 │   ├── vision/             # Kamera-Snapshots, VLM, Gesichtserkennung
 │   ├── bible/              # Bibel-Lookup + thematische Suche
 │   ├── judaica/            # Jüdischer Quellkorpus
@@ -364,14 +386,11 @@ aifred/plugins/
 │   └── google_suite/       # Google Calendar + Contacts (OAuth)
 │       ├── calendar/
 │       └── contacts/
-├── channels/               # Channel Plugins (Kommunikation + Vigilantia)
-│   ├── email_channel/      # E-Mail (IMAP/SMTP)
-│   ├── discord_channel/    # Discord Bot
-│   ├── telegram_channel/   # Telegram Bot
-│   └── vigilantia/         # Kamera-Überwachung (Master Eye, Casus, Personarium)
-└── vision_sources/         # Frame-Source Plugins (FrameHub)
-    ├── webcam/             # V4L2 + MJPEG
-    └── …
+└── channels/               # Channel Plugins (Kommunikation)
+    ├── email_channel/      # E-Mail (IMAP/SMTP)
+    ├── discord_channel/    # Discord Bot
+    ├── telegram_channel/   # Telegram Bot
+    └── freeecho2_channel/  # FreeEcho.2 Sprach-Terminal
 ```
 
 **Auto-Discovery:** Jede `.py`-Datei mit einem `plugin`-Attribut (Tool) oder einer `BaseChannel`-Subklasse (Channel) wird automatisch erkannt. Kein Registrieren nötig.

@@ -4,8 +4,8 @@ Stand: 2026-05-22. Lebendes Dokument.
 
 Der **Browser Push Bus** ist der reflex-unabhängige Kanal, über den der
 Server den Browser aktualisiert, **ohne** den Weg über Reflex-State-Deltas
-zu nehmen. Server-Seite: [`browser_push()`](../../../aifred/lib/api.py) in
-`aifred/lib/api.py`. Browser-Seite: `browserEventSource` /
+zu nehmen. Server-Seite: [`browser_push()`](../../../aifred/lib/api/browser_bus.py) in
+`aifred/lib/api/browser_bus.py`. Browser-Seite: `browserEventSource` /
 `startBrowserStream()` in [`assets/custom.js`](../../../assets/custom.js).
 
 ---
@@ -57,7 +57,7 @@ Ein einziger SSE-Stream pro Session trägt **alle** Kinds — Audio
 EventSource wäre eine zweite langlebige HTTP-Verbindung pro Tab; das
 sparen wir uns.
 
-### Server-Seite (`aifred/lib/api.py`)
+### Server-Seite (`aifred/lib/api/browser_bus.py`)
 
 | Baustein | Zweck |
 |---|---|
@@ -111,7 +111,7 @@ Konsole).
 
 ## Checkliste: neuen `kind` hinzufügen
 
-1. **Server — `aifred/lib/api.py`:**
+1. **Server — `aifred/lib/api/browser_bus.py`:**
    - Den `kind` im Header-Kommentar des Bus-Blocks und im Docstring von
      `browser_push()` dokumentieren.
    - Braucht der `kind` Metadaten über `url` hinaus? Dann in `browser_push()`

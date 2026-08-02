@@ -1,3 +1,5 @@
+> ⚠️ **Historical (as of 2025-11, pre state-refactor):** Code references to `aifred/state.py` (now the `aifred/state/` package) and to removed modules like `vllm_context_cache.py` no longer resolve, and hardware notes refer to the pre-migration GPU setup. **Deliberately kept:** vLLM returns as the main backend after the P40→V100 migration (see TODO.md) — these notes will be revised then. Do not delete.
+
 # vLLM Fix Summary - RTX 3060 Configuration
 
 ## Problem

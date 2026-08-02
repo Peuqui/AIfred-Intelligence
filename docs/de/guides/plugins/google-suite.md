@@ -2,7 +2,7 @@
 
 **Dateien:** `aifred/plugins/tools/google_suite/`
 
-Google Calendar, Contacts, Tasks und Drive ueber OAuth 2.0. Orchestrator-Plugin mit vier aktivierbaren Sub-Services. Benoetigt einmaligen OAuth-Flow in der Google Cloud Console. Den OAuth-Mechanismus (Token-Storage, Auto-Refresh, API-Endpoints) beschreibt [oauth.md](oauth.md).
+Google Calendar, Contacts, Tasks und Drive über OAuth 2.0. Orchestrator-Plugin mit vier aktivierbaren Sub-Services. Benötigt einmaligen OAuth-Flow in der Google Cloud Console. Den OAuth-Mechanismus (Token-Storage, Auto-Refresh, API-Endpoints) beschreibt [oauth.md](oauth.md).
 
 ## Setup
 
@@ -22,8 +22,8 @@ Google Calendar, Contacts, Tasks und Drive ueber OAuth 2.0. Orchestrator-Plugin 
    ```bash
    curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://narnia.spdns.de:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
    ```
-   Zurueckgegebene URL im Browser oeffnen → Google-Login → Weiterleitung auf Callback-URL → fertig.
-7. Verbindungsstatus pruefen:
+   Zurückgegebene URL im Browser öffnen → Google-Login → Weiterleitung auf Callback-URL → fertig.
+7. Verbindungsstatus prüfen:
    ```bash
    curl http://localhost:8002/api/oauth/google/status
    ```
@@ -50,8 +50,8 @@ Einen Sub-Service deaktivieren: Wert auf `"false"` setzen, AIfred neu starten. W
 |------|-------------|------|
 | `google_calendar_list_events` | Termine in einem Zeitraum abrufen | READONLY |
 | `google_calendar_create_event` | Neuen Termin erstellen | WRITE_DATA |
-| `google_calendar_update_event` | Bestehenden Termin aendern (nur gesetzte Felder) | WRITE_DATA |
-| `google_calendar_delete_event` | Termin loeschen | WRITE_DATA |
+| `google_calendar_update_event` | Bestehenden Termin ändern (nur gesetzte Felder) | WRITE_DATA |
+| `google_calendar_delete_event` | Termin löschen | WRITE_DATA |
 | `google_calendar_list_calendars` | Alle Kalender des Nutzers auflisten | READONLY |
 
 **Zeitangaben:** RFC 3339 Format, z.B. `2026-04-22T10:00:00+02:00` oder `2026-04-22T08:00:00Z`
@@ -101,9 +101,9 @@ Einen Sub-Service deaktivieren: Wert auf `"false"` setzen, AIfred neu starten. W
 | `google_contacts_search` | Kontakte nach Name oder E-Mail suchen | READONLY |
 | `google_contacts_create` | Neuen Kontakt anlegen | WRITE_DATA |
 | `google_contacts_update` | Bestehenden Kontakt aktualisieren (nur gesetzte Felder) | WRITE_DATA |
-| `google_contacts_delete` | Kontakt loeschen | WRITE_DATA |
+| `google_contacts_delete` | Kontakt löschen | WRITE_DATA |
 
-**Ressourcennamen:** Format `people/c123456789` — kommt aus den Suchergebnissen von `google_contacts_search` und wird fuer Update/Delete benoetigt.
+**Ressourcennamen:** Format `people/c123456789` — kommt aus den Suchergebnissen von `google_contacts_search` und wird für Update/Delete benötigt.
 
 ### Parameter `google_contacts_search`
 
@@ -116,7 +116,7 @@ Einen Sub-Service deaktivieren: Wert auf `"false"` setzen, AIfred neu starten. W
 
 | Parameter | Pflicht | Beschreibung |
 |-----------|---------|-------------|
-| `display_name` | Ja | Vollstaendiger Name |
+| `display_name` | Ja | Vollständiger Name |
 | `email` | Nein | E-Mail-Adresse |
 | `phone` | Nein | Telefonnummer |
 | `organization` | Nein | Firma / Organisation |
@@ -176,7 +176,7 @@ AIfred ruft `google_drive_search(query="Projektplan")` auf.
 | `google_tasks_create` | Neue Aufgabe erstellen | WRITE_DATA |
 | `google_tasks_update` | Aufgabe aktualisieren | WRITE_DATA |
 | `google_tasks_complete` | Aufgabe als erledigt markieren | WRITE_DATA |
-| `google_tasks_delete` | Aufgabe loeschen | WRITE_DATA |
+| `google_tasks_delete` | Aufgabe löschen | WRITE_DATA |
 
 ## Drive Tools
 
@@ -187,9 +187,9 @@ AIfred ruft `google_drive_search(query="Projektplan")` auf.
 | `google_drive_list_files` | Dateien auflisten (optional nach Ordner gefiltert) | READONLY |
 | `google_drive_search` | Volltextsuche im Drive | READONLY |
 | `google_drive_get_file` | Dateiinhalt lesen (Google Docs → Klartext, Sheets → CSV) | READONLY |
-| `google_drive_create_file` | Neue Textdatei erstellen und befuellen | WRITE_DATA |
-| `google_drive_update_file` | Dateiinhalt ueberschreiben | WRITE_DATA |
-| `google_drive_delete_file` | Datei dauerhaft loeschen | WRITE_DATA |
+| `google_drive_create_file` | Neue Textdatei erstellen und befüllen | WRITE_DATA |
+| `google_drive_update_file` | Dateiinhalt überschreiben | WRITE_DATA |
+| `google_drive_delete_file` | Datei dauerhaft löschen | WRITE_DATA |
 | `google_drive_create_folder` | Neuen Ordner erstellen | WRITE_DATA |
 | `google_drive_move_file` | Datei in anderen Ordner verschieben | WRITE_DATA |
 

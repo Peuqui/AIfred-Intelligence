@@ -171,7 +171,7 @@ Both configurations are stored in the llama-swap config and selectable via model
 
 ## Hardware Context
 
-See [llamacpp-setup.md](llamacpp-setup.md#benchmark-tensor-split-optimization-2026-02-18)
+See [llamacpp-setup.md](../guides/llamacpp-setup.md#benchmark-tensor-split-optimization-2026-02-18)
 for synthetic `llama-bench` results on the same hardware, including per-split-ratio measurements
 for Qwen3-32B.
 

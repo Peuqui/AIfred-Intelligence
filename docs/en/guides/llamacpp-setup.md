@@ -5,6 +5,12 @@ Updated when hardware changes or new llama.cpp releases introduce relevant chang
 
 **Last updated:** 2026-02-18
 
+> ⚠️ **Hardware note:** Benchmarks and GPU tables in this guide were measured
+> on the previous GPU setup (Tesla P40 / Quadro RTX 8000 / RTX 3090 Ti). The
+> current machine runs 2× RTX 8000 + 3× V100 (192 GB VRAM total). The
+> workflow, configuration steps, and autoscan/calibration behaviour remain
+> valid; absolute performance numbers are historical.
+
 ---
 
 ## Hardware Overview
@@ -248,7 +254,7 @@ KV cache quantization (`-ctk q8_0 -ctv q8_0`) saves an additional ~50% KV VRAM.
 
 ### Benchmark: Tensor Split Optimization (2026-02-18)
 
-> **Real-world benchmark:** See [tensor-split-benchmark.md](tensor-split-benchmark.md) for a
+> **Real-world benchmark:** See [tensor-split.md](../benchmarks/tensor-split.md) for a
 > full AIfred multi-agent tribunal comparison between aggressive (11:1) and balanced (2:1) split
 > on Qwen3-Next-80B-A3B-Instruct.
 
@@ -321,7 +327,9 @@ so CUDA0 = RTX 8000 and CUDA1 = P40. Tensor split values refer to CUDA0:CUDA1.
 
 ## GPU-Management: Was automatisch geht, was manuell muss
 
-### Uebersicht
+> **Note:** The following section is currently only available in German.
+
+### Übersicht
 
 | Szenario | Autoscan | Kalibrierung | Manuell? |
 |----------|----------|--------------|----------|

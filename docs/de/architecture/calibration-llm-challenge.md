@@ -24,7 +24,7 @@ Kurzfassung:
   sprengen (Capacity-Check).
 
 Aktueller LLM-Pfad: `calibration_mode = "ai"` ruft
-[ai_agent.py](../../aifred/lib/calibration/ai_agent.py) auf — aber **nur
+[ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) auf — aber **nur
 für BASE**. Speed/TTS/VLM/Combos laufen weiterhin algorithmisch durch
 `calibrate_tts_variant_from_base` (Re-Projection via fit-params).
 
@@ -145,7 +145,7 @@ zwischen den Läufen für sauberen GPU-State.
 |---|---|
 | LLM gewinnt klar (≥20% schneller, gleiche ctx-Werte, deterministisch) | AI-Pfad als optionale Variante behalten, Prompts pro Step ausgliedern (eigene Prompts für BASE + SPEED, Re-Projection bleibt algorithmisch), evtl. später Default |
 | LLM kompetitiv aber nicht klar besser | AI-Pfad als Notnagel behalten für Edge-Cases (ungewöhnliche Hardware, fit-params versagt komplett). Keine Investition in Refactor |
-| LLM schlechter oder nicht-deterministisch | AI-Pfad rauswerfen, [ai_agent.py](../../aifred/lib/calibration/ai_agent.py) + [prompts/de/calibration/system.txt](../../prompts/de/calibration/system.txt) + `calibration_mode`-Switch löschen |
+| LLM schlechter oder nicht-deterministisch | AI-Pfad rauswerfen, [ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) + [prompts/de/calibration/system.txt](../../../prompts/de/calibration/system.txt) + `calibration_mode`-Switch löschen |
 
 ## Wichtige Verbindlichkeiten für die LLM-Seite
 
@@ -182,15 +182,15 @@ Wenn der AI-Pfad ausgebaut wird, neues Prompt-Layout:
 
 - [calibration-strategy.md](calibration-strategy.md) — algorithmische
   Strategie (SSOT)
-- [aifred/lib/calibration/flow.py](../../aifred/lib/calibration/flow.py) —
+- [aifred/lib/calibration/flow.py](../../../aifred/lib/calibration/flow.py) —
   `calibrate_llamacpp_model`
-- [aifred/lib/calibration/ai_agent.py](../../aifred/lib/calibration/ai_agent.py) —
+- [aifred/lib/calibration/ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) —
   aktueller LLM-Pfad (nur BASE)
-- [aifred/lib/calibration/optimizer.py](../../aifred/lib/calibration/optimizer.py) —
+- [aifred/lib/calibration/optimizer.py](../../../aifred/lib/calibration/optimizer.py) —
   `fill_fastest_first`
-- [prompts/de/calibration/system.txt](../../prompts/de/calibration/system.txt) —
+- [prompts/de/calibration/system.txt](../../../prompts/de/calibration/system.txt) —
   aktueller LLM-System-Prompt
-- [data/vlm_vram_cache.json](../../data/vlm_vram_cache.json),
-  [data/tts_vram_cache.json](../../data/tts_vram_cache.json) — Burn-In-Lookups
-- [data/model_vram_cache.json](../../data/model_vram_cache.json) — Calibration-Cache
+- [data/vlm_vram_cache.json](../../../data/vlm_vram_cache.json),
+  [data/tts_vram_cache.json](../../../data/tts_vram_cache.json) — Burn-In-Lookups
+- [data/model_vram_cache.json](../../../data/model_vram_cache.json) — Calibration-Cache
   (vor Vergleich für Testmodell leeren)

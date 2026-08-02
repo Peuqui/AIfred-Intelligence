@@ -10,7 +10,7 @@ Stand: 2026-02-21 — Offizielle Unsloth-Docs + Eigene Tests
 |-----------|------|---------|
 | --jinja | ja, Pflicht | Harmony-Template |
 | --reasoning-format | none | NICHT deepseek! |
-| --chat-template-kwargs | '{"reasoning_effort": "medium"}' | low/medium/high moeglich |
+| --chat-template-kwargs | '{"reasoning_effort": "medium"}' | low/medium/high möglich |
 | --temp | 1.0 | |
 | --top-p | 1.0 | |
 | --top-k | 0 (offiziell) oder 100 (Speed-Trick) | |
@@ -30,7 +30,7 @@ Stand: 2026-02-21 — Offizielle Unsloth-Docs + Eigene Tests
 | --temp | 0.7 (Coding) / 1.0 (allgemein) | |
 | --top-p | 1.0 (Coding) / 0.95 (allgemein) | |
 | --min-p | 0.01 | llama.cpp Default 0.1 ist zu hoch |
-| --repeat-penalty | 1.0 (= disabled, KRITISCH!) | Jeder andere Wert zerstoert Output |
+| --repeat-penalty | 1.0 (= disabled, KRITISCH!) | Jeder andere Wert zerstört Output |
 | -ctk / -ctv | q8_0 / q8_0 | OK, spart VRAM |
 | -fa | on | |
 | -b / -ub | 2048 / 512 | |
@@ -48,14 +48,14 @@ Stand: 2026-02-21 — Offizielle Unsloth-Docs + Eigene Tests
 | --repeat-penalty | 1.0 | |
 | -ctk / -ctv | q4_0 / q4_0 | OK bei Q2_K_XL Modell |
 | -fa | on | |
-| -b / -ub | 4096 / 4096 | MoE profitiert von grossen Batches |
+| -b / -ub | 4096 / 4096 | MoE profitiert von großen Batches |
 
 ## Qwen3 — Instruct-Varianten (4B, 14B, 30B-A3B, 235B-A22B)
 
 | Parameter | Wert | Wichtig |
 |-----------|------|---------|
 | --jinja | ja | |
-| --reasoning-format | nicht noetig | Instruct = kein Thinking |
+| --reasoning-format | nicht nötig | Instruct = kein Thinking |
 | --temp | 0.7 | |
 | --top-p | 0.8 | |
 | --top-k | 20 | |
@@ -70,11 +70,11 @@ Stand: 2026-02-21 — Offizielle Unsloth-Docs + Eigene Tests
 | Parameter | Wert | Wichtig |
 |-----------|------|---------|
 | --jinja | ja | |
-| --reasoning-format | deepseek (Thinking) / nicht noetig (Instruct) | |
+| --reasoning-format | deepseek (Thinking) / nicht nötig (Instruct) | |
 | --temp | 0.6 (Thinking) / 0.7 (Instruct) | |
 | --top-p | 0.95 (Thinking) / 0.8 (Instruct) | |
 | --top-k | 20 | |
-| -ub | max 512! | Hoeher = Crash |
+| -ub | max 512! | Höher = Crash |
 | -ctk / -ctv | q4_1 / q4_1 | |
 | KV-Cache-Reuse | kaputt | Hybrid-Architektur |
 
@@ -86,7 +86,7 @@ Stand: 2026-02-21 — Offizielle Unsloth-Docs + Eigene Tests
 - **GPT-OSS**: --reasoning-format none, nicht deepseek (Harmony-Format ist inkompatibel)
 - **GLM-REAP**: --repeat-penalty muss 1.0 sein (alles andere = Endlos-Wiederholungen)
 - **MiniMax**: --reasoning-format none (kein deepseek)
-- **Qwen3-Next**: -ub max 512 (hoeher crasht wegen Hybrid-Architektur)
+- **Qwen3-Next**: -ub max 512 (höher crasht wegen Hybrid-Architektur)
 - **--jinja ist bei ALLEN Modellen Pflicht**
 - **--no-context-shift** ist Pflicht bei Qwen3 + KV-Quant
 

@@ -134,12 +134,12 @@ source venv/bin/activate && mypy aifred/DATEI.py --ignore-missing-imports
 
 **Mehrere Dateien auf einmal:**
 ```bash
-source venv/bin/activate && ruff check aifred/state.py aifred/aifred.py aifred/lib/context_manager.py
-source venv/bin/activate && mypy aifred/state.py aifred/aifred.py --ignore-missing-imports
+source venv/bin/activate && ruff check aifred/state/ aifred/aifred.py aifred/lib/context_manager.py
+source venv/bin/activate && mypy aifred/state/ aifred/aifred.py --ignore-missing-imports
 ```
 
 **Bekannte Ignores (NICHT beheben):**
-- `E402` in config.py/state.py: Import-Position (notwendig wegen zirkulärer Imports)
+- `E402` in config.py/state/: Import-Position (notwendig wegen zirkulärer Imports)
 - `F541` unnötige f-strings: Können mit `--fix` automatisch behoben werden
 - mypy-Warnungen in Backends: OpenAI SDK Type-Mismatches (OpenAI-Library Issue)
 - mypy `no_implicit_optional`: Bestehender Code, wird nicht refactored

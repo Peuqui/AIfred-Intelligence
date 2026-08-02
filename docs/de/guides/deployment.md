@@ -634,5 +634,5 @@ sudo systemctl restart llama-swap
 
 ## Verwandte Dokumente
 
-- [llamacpp-setup.md](llamacpp-setup.md) — Hardware-Benchmarks, Leistungsoptionen,
+- [llamacpp-setup.md](../../en/guides/llamacpp-setup.md) (englisch) — Hardware-Benchmarks, Leistungsoptionen,
   Multi-GPU-Konfiguration, Details zu Flash Attention

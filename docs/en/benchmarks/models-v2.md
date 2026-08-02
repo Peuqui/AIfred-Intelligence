@@ -124,7 +124,7 @@ Nemotron achieves 874K context (83% of native 1M) thanks to only 12B active para
 **Mode**: Tribunal (AIfred -> Sokrates R1 -> AIfred R2 -> Sokrates R2 -> Salomo Verdict)
 **Languages**: German + English
 
-See [benchmark-analysis-v2.md](benchmark-analysis-v2.md) for detailed tribunal analysis across models.
+See [analysis-v2.md](analysis-v2.md) for detailed tribunal analysis across models.
 
 ### Performance Summary (from tribunal sessions)
 

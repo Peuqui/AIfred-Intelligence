@@ -45,7 +45,7 @@ Alles lokal, ein einziger Prompt, kein Zwischen-Klick. Dateien aus der Konversat
 
 Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-Infrastruktur mit Plugin-System:
 
-- **Message Hub — AIfred als Kommunikationszentrale**: AIfred überwacht externe Kanäle und verarbeitet eingehende Nachrichten autonom. **Läuft headless** — kein Browser nötig. Channel-Plugins lauschen im Hintergrund, das LLM verarbeitet und antwortet über Discord/E-Mail eigenständig. Die Web-UI wird nur für die Ersteinrichtung (Credentials, Plugin-Toggles) und optionales Monitoring benötigt. **Einheitliches Plugin-System**: `.py`-Datei in `plugins/channels/` oder `plugins/tools/` ablegen — wird automatisch erkannt, keine Code-Änderungen nötig. **Eingebaute Kanäle**: E-Mail Monitor (IMAP IDLE Push-basiert + SMTP Auto-Reply), Discord (Bot mit Channel- + DM-Support, `/clear`-Befehl). **Plugin Manager** UI-Modal zum Ein-/Ausschalten aller Plugins zur Laufzeit (verschiebt Dateien nach `disabled/`). Pipeline: **Channel Listener** → **Envelope-Normalisierung** → **SQLite Routing Table** → **AIfred Engine-Aufruf** (mit vollem Toolkit inkl. Web-Recherche, Kalenderprüfung) → **Auto-Reply** (optional, per Toggle). Agent-Routing: Sokrates oder Salomo per Name ansprechen. **Hinweis**: Hub-Nachrichten werden ohne Browser-State verarbeitet — Fortschrittsanzeigen, Live-Streaming und Quellen-HTML stehen bei Hub-Nachrichten nicht zur Verfügung; dies ist systembedingt, keine Einschränkung. Siehe [Architektur & Setup](docs/plans/message-hub-architecture.md)
+- **Message Hub — AIfred als Kommunikationszentrale**: AIfred überwacht externe Kanäle und verarbeitet eingehende Nachrichten autonom. **Läuft headless** — kein Browser nötig. Channel-Plugins lauschen im Hintergrund, das LLM verarbeitet und antwortet über Discord/E-Mail eigenständig. Die Web-UI wird nur für die Ersteinrichtung (Credentials, Plugin-Toggles) und optionales Monitoring benötigt. **Einheitliches Plugin-System**: `.py`-Datei in `plugins/channels/` oder `plugins/tools/` ablegen — wird automatisch erkannt, keine Code-Änderungen nötig. **Eingebaute Kanäle**: E-Mail Monitor (IMAP IDLE Push-basiert + SMTP Auto-Reply), Discord (Bot mit Channel- + DM-Support, `/clear`-Befehl). **Plugin Manager** UI-Modal zum Ein-/Ausschalten aller Plugins zur Laufzeit (verschiebt Dateien nach `disabled/`). Pipeline: **Channel Listener** → **Envelope-Normalisierung** → **SQLite Routing Table** → **AIfred Engine-Aufruf** (mit vollem Toolkit inkl. Web-Recherche, Kalenderprüfung) → **Auto-Reply** (optional, per Toggle). Agent-Routing: Sokrates oder Salomo per Name ansprechen. **Hinweis**: Hub-Nachrichten werden ohne Browser-State verarbeitet — Fortschrittsanzeigen, Live-Streaming und Quellen-HTML stehen bei Hub-Nachrichten nicht zur Verfügung; dies ist systembedingt, keine Einschränkung. Siehe [Architektur & Setup](docs/de/architecture/message-hub.md)
 - **E-Mail-Integration**: E-Mails lesen, suchen und senden via IMAP/SMTP. Senden erfordert explizite Bestätigung (Entwurf → Prüfung → Bestätigung). Credentials über `.env` oder UI-Modal konfigurierbar
 - **EPIM-Datenbank-Integration**: Voller CRUD-Zugriff auf die [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 Datenbank — das LLM sucht, erstellt, ändert und löscht eigenständig Kalendertermine, Kontakte, Notizen, Todos und Passworteinträge. Automatische Name-zu-ID-Auflösung, Anti-Halluzinations-Schutz, 7-Tage-Datumsreferenz
 - **Workspace (Dateien & Dokumente)**: Dokumente hochladen (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatisches Chunking und Embedding in ChromaDB via **BGE-M3** (8192 Token Context, 1024-dim, multilingual). Token-genaues Chunking mit dem lokalen Qwen3-Tokenizer. Das LLM kann autonom Dateien durchsuchen, lesen (PDFs seitenweise), schreiben, bearbeiten, **umbenennen** und löschen — und dann in die Vektordatenbank einspeisen für semantische Suche mit **Folder-Filter** (`search_documents(query=…, folder="bibel/Schlachter")`) und **Chunk-Nachbar-Retrieval** (jeder Treffer liefert seine direkten Nachbar-Chunks für vollen Kontext). Dokument-Manager UI mit Preview, **Bulk-Folder-Index** (ein Klick für ganzen Baum), Live-Datei-Anzahl pro Ordner, **Orphan-Cleanup** (indexierte Einträge ohne Quell-Datei finden) und Toast-basierte Status-Meldungen
@@ -53,7 +53,7 @@ Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-I
 - **Agenten-Langzeitgedächtnis**: Persistentes Gedächtnis pro Agent via ChromaDB (BGE-M3 Embeddings) — Agenten speichern eigenständig Erkenntnisse, kombinierter Recall (10 neueste + semantische Suche), Session-Pinning. Memory-Browser zum Inspizieren und Aufräumen. Inkognito-Modus (🔒)
 - **Tool-Output Token-Cap**: Ein einzelnes Tool-Result wird so begrenzt, dass `system + history + memory + tool_result ≤ 75%` des aktiven Modell-Contexts belegen — garantiert dem Modell 25% Headroom für seine Antwort. JSON-aware Truncation: results-Listen werden vom Ende her gestutzt (mit `_truncated`-Marker), damit das Modell weiterhin strukturierte Daten sieht
 - **Automatische Web-Recherche**: KI entscheidet selbst wann Recherche nötig ist. Multi-API (SearXNG primär, Tavily + Brave als Fallback) mit automatischem Scraping und LLM-basiertem URL-Ranking. Semantischer Vector-Cache via ChromaDB mit **volatility-aware Wiederverwendungs-Threshold** (PERMANENT 0.20 / MONTHLY 0.15 / WEEKLY 0.10 / DAILY 0.05) — stabiles Wissen toleriert breitere Treffer, News-Themen bleiben eng damit keine veralteten Fakten
-- Weitere Tools: `calculate` (Berechnungen), `web_fetch` (URLs abrufen), `store_memory` (Gedächtnis)
+- **Weitere Tool-Plugins**: **Audio Player** (lokale Audio-Dateien abspielen — WAV, MP3, OGG, FLAC), **Scheduler** (LLM legt Cron-/Intervall-/Einmal-Jobs an), **System Monitor** (CPU, RAM, GPU, Disk, Temperatur), **Google Suite** (OAuth 2.0 für Google Calendar + Contacts), **Translator** (DeepL, 30+ Sprachen, automatische Quellsprach-Erkennung), **Bibel** (exakter Stellen-Lookup + thematische Vektorsuche), **Judaica** (jüdischer Quellkorpus: Tanach, Talmud, Mischna, Midrasch, Halacha, Kommentare), **Calculator** (`calculate`), dazu `web_fetch` (URLs abrufen) und `store_memory` (Gedächtnis)
 - **Plugin-Übersicht:** [Verfügbare Plugins](docs/de/guides/plugins-overview.md)
 
 ### 🎩 Multi-Agent-System
@@ -358,7 +358,7 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
 - **VRAM-bewusster Kontext**: Automatische Kontext-Größe basierend auf verfügbarem GPU-Speicher
 - **Debug-Konsole**: Umfangreiches Logging und Monitoring
 - **ChromaDB-Server-Modus**: Thread-sichere Vector-DB via Docker (0.0 Distance für exakte Matches)
-- **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
+- **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen
 - **Kontext-Kalibrierung**: Intelligente Kalibrierung pro Modell für Ollama und llama.cpp
   - **Ollama**: Binäre Suche mit automatischer VRAM/Hybrid-Modus-Erkennung (512 Token Präzision, 3 GB RAM-Reserve)
   - **llama.cpp** (3-phasige Kalibrierung für Multi-GPU-Setups):
@@ -538,7 +538,7 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    └─ Ohne Tag:  distance < 0.05 → Cache verwenden (CACHE_DISTANCE_DEFAULT)
 
 3. IF Cache akzeptiert:
-   └─ Cached Antwort + Alters-Hinweis zurueckgeben
+   └─ Cached Antwort + Alters-Hinweis zurückgeben
    └─ RETURN (0 LLM Calls!)
 
 4. IF Cache abgelehnt (distance ≥ Volatility-Threshold):
@@ -619,12 +619,12 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
 
 #### Phase 1: Vector Cache Check (Volatility-Aware)
 ```
-1. Query ChromaDB nach aehnlicher frueherer Recherche
+1. Query ChromaDB nach ähnlicher früherer Recherche
    └─ Gleicher Volatility-aware Threshold wie im Automatik-Modus
       (PERMANENT 0.20 / MONTHLY 0.15 / WEEKLY 0.10 / DAILY 0.05)
 
 2. IF Cache akzeptiert:
-   └─ Cached Antwort direkt zurueck (mit Alters-Hinweis)
+   └─ Cached Antwort direkt zurück (mit Alters-Hinweis)
    └─ KEINE Web-Recherche, KEIN LLM-Call
    └─ RETURN
 
@@ -637,9 +637,9 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
 1. LLM Call - Query Generation
    ├─ Model: Automatik-LLM
    ├─ Prompt: query_generation (+ Vision JSON falls vorhanden)
-   ├─ Messages: ✅ Letzte 3 History-Turns (fuer Follow-up Kontext)
+   ├─ Messages: ✅ Letzte 3 History-Turns (für Follow-up Kontext)
    ├─ Options:
-   │  ├─ temperature: 0.3 (balanciert fuer Keywords)
+   │  ├─ temperature: 0.3 (balanciert für Keywords)
    │  ├─ num_ctx: min(8192, automatik_limit)
    │  ├─ num_predict: 128
    │  └─ enable_thinking: False
@@ -653,7 +653,7 @@ Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, un
    ├─ Fallback 1: Tavily Search API (KI-optimierte Snippets)
    ├─ Fallback 2: Brave Search API
    ├─ Jede API liefert bis zu 10 URLs
-   └─ Deduplizierung ueber APIs
+   └─ Deduplizierung über APIs
 ```
 
 #### Phase 2.5: URL-Filterung + LLM-basiertes Ranking (v2.15.30)
@@ -962,21 +962,21 @@ USER INPUT
 
 **Document-RAG-Pipeline:**
 - `aifred/lib/document_store.py` - ChromaDB Documents-Collection — token-genaues
-  Chunking (Qwen3-Tokenizer, Char-Fallback), `delete + upsert` fuer sauberes
+  Chunking (Qwen3-Tokenizer, Char-Fallback), `delete + upsert` für sauberes
   Re-Indexing, zwei Embedding-Functions (Index/Query-Mode), Folder-Filter
   + Chunk-Nachbar-Retrieval in `search()`
-- `aifred/lib/file_manager.py` - Single Source of Truth fuer Filesystem +
+- `aifred/lib/file_manager.py` - Single Source of Truth für Filesystem +
   ChromaDB-Operationen (genutzt von Document UI und Workspace-Plugin):
   list/create/delete/rename/index/deindex/search/list_orphaned
 
 **Unterstützende Module:**
-- `aifred/lib/vector_cache.py` - ChromaDB semantischer Cache fuer Web-Recherche,
+- `aifred/lib/vector_cache.py` - ChromaDB semantischer Cache für Web-Recherche,
   inkl. `OllamaEmbeddingFunction` mit Mode-Switch (index→GPU+warm,
   query→CPU)
 - `aifred/lib/agent_memory.py` - ChromaDB-Memory pro Agent
-- `aifred/lib/tool_output_cap.py` - Token-Budget fuer Tool-Results
+- `aifred/lib/tool_output_cap.py` - Token-Budget für Tool-Results
   (75% Input-Ratio, JSON-aware Truncation, ContextVar-basiert)
-- `aifred/lib/debug_format.py` - Tool-Call/Result-Formatierung fuers
+- `aifred/lib/debug_format.py` - Tool-Call/Result-Formatierung fürs
   Debug-Panel (key=value-Rendering, Agent-Prefix, Token-Count)
 - `aifred/lib/intent_detector.py` - Temperatur-Auswahl
 - `aifred/lib/agent_tools.py` - Web-Suche, Scraping, Context-Building
@@ -1146,7 +1146,7 @@ curl http://localhost:8002/api/sessions
 > **Zero-Config Modell-Management (llama.cpp-Backend):** Nach dem einmaligen Setup genügt `ollama pull model` oder `hf download ...`, dann llama-swap neu starten — der Autoscan konfiguriert alles automatisch (YAML-Einträge, Gruppen, VRAM-Cache). Vollständige Anleitung: [docs/de/guides/deployment.md](docs/de/guides/deployment.md).
 - 8GB+ RAM (12GB+ empfohlen für größere Modelle)
 - Docker (für ChromaDB Vector Cache)
-- **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))
+- **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Detection](#gpu-compatibility-detection))
 
 ### Setup
 
@@ -1241,7 +1241,7 @@ manuelles YAML-Editieren nötig.
 
 GGUFs nach `~/models/<name>/` ziehen, dann llama-swap neu starten — die
 Autoscan-Logik trägt YAML-Einträge automatisch nach. Details:
-[docs/de/guides/llamacpp-setup.md](docs/de/guides/llamacpp-setup.md).
+[docs/en/guides/llamacpp-setup.md](docs/en/guides/llamacpp-setup.md) (englisch).
 
 ```bash
 hf download <repo> --local-dir ~/models/<name>
@@ -1282,9 +1282,9 @@ ollama pull bge-m3
 ```
 Das Modell wird von allen drei ChromaDB-Collections geteilt
 (Web-Research-Cache, indexierte Dokumente, Agenten-Memory). Zur
-Laufzeit waehlt AIfred **GPU-Mode** fuers Bulk-Indexing (warm fuer
-~1 Min zwischen Chunks) und **CPU-Mode** fuer einzelne Suchen
-(warm fuer ~30 Min, kein VRAM-Konflikt mit dem aktiven LLM).
+Laufzeit wählt AIfred **GPU-Mode** fürs Bulk-Indexing (warm für
+~1 Min zwischen Chunks) und **CPU-Mode** für einzelne Suchen
+(warm für ~30 Min, kein VRAM-Konflikt mit dem aktiven LLM).
 
 7. **ChromaDB Vector Cache starten** (Docker):
 ```bash
@@ -1427,7 +1427,7 @@ für ein generisches nginx-Routing-Beispiel.
 
 AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechselt werden können:
 
-- **llama.cpp** (via llama-swap): GGUF-Modelle, beste Roh-Performance (+43% Generation, +30% Prompt-Processing vs Ollama), volle GPU-Kontrolle, Multi-GPU-Unterstützung. Verwendet eine 3-stufige Architektur: **llama-swap** (Go-Proxy, Modell-Management) → **llama-server** (Inferenz) → **llama.cpp** (Library). Automatische VRAM-Kalibrierung via 3-phasiger Binärer Suche: GPU-only Kontext-Sizing → Speed-Variante mit optimierter Tensor-Split für maximalen Multi-GPU-Durchsatz → Hybrid NGL-Fallback für übergroße Modelle. Siehe [Setup-Anleitung](docs/llamacpp-setup.md).
+- **llama.cpp** (via llama-swap): GGUF-Modelle, beste Roh-Performance (+43% Generation, +30% Prompt-Processing vs Ollama), volle GPU-Kontrolle, Multi-GPU-Unterstützung. Verwendet eine 3-stufige Architektur: **llama-swap** (Go-Proxy, Modell-Management) → **llama-server** (Inferenz) → **llama.cpp** (Library). Automatische VRAM-Kalibrierung via 3-phasiger Binärer Suche: GPU-only Kontext-Sizing → Speed-Variante mit optimierter Tensor-Split für maximalen Multi-GPU-Durchsatz → Hybrid NGL-Fallback für übergroße Modelle. Siehe [Setup-Anleitung](docs/en/guides/llamacpp-setup.md) (englisch).
 - **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation, automatisches Modell-Management, gute Performance nach v2.32.0-Optimierungen
 - **vLLM**: AWQ-Modelle (4-bit), beste Performance mit AWQ Marlin Kernel
 - **TabbyAPI**: EXL2-Modelle (ExLlamaV2/V3) - experimentell, nur Basis-Unterstützung
@@ -1438,8 +1438,6 @@ AIfred erkennt automatisch beim Start deine GPU und warnt vor inkompatiblen Back
 
 - **Tesla P40 / GTX 10 Series** (Pascal): Nutze llama.cpp oder Ollama (GGUF) - vLLM/AWQ wird nicht unterstützt
 - **RTX 20+ Series** (Turing/Ampere/Ada): llama.cpp (GGUF) oder vLLM (AWQ) empfohlen für beste Performance
-
-Detaillierte Informationen: [GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md)
 
 ### Settings-Persistenz
 
@@ -1555,16 +1553,14 @@ AIfred-Intelligence/
 ├── prompts/               # System Prompts (de/en)
 ├── scripts/               # Utility Scripts
 ├── docs/                  # Dokumentation
-│   ├── de/ · en/                # Zweisprachige Guides + Architektur-Docs
-│   └── GPU_COMPATIBILITY.md     # GPU-Kompatibilitätsmatrix
+│   └── de/ · en/                # Zweisprachige Guides + Architektur-Docs
 ├── data/                  # Laufzeitdaten (Settings, Sessions, Caches)
 │   ├── settings.json            # Benutzereinstellungen
 │   ├── model_vram_cache.json    # VRAM-Kalibrierungsdaten (alle Backends)
 │   ├── sessions/                # Chat-Sessions
 │   └── logs/                    # Debug-Logs
-├── docker/                # Docker-Konfigurationen
-│   └── aifred_vector_cache/     # ChromaDB Docker Setup
-└── CHANGELOG.md           # Projekt-Changelog
+└── docker/                # Docker-Konfigurationen
+    └── aifred_vector_cache/     # ChromaDB Docker Setup
 ```
 
 ### History Compression System
@@ -1671,9 +1667,9 @@ Rein semantische Deduplizierung ohne Zeit-Checks → Konsistentes Verhalten.
 
 #### Cache Distance Thresholds
 
-ChromaDB liefert `source=CACHE` wenn der naechste Eintrag innerhalb von
-`CACHE_DISTANCE_HIGH = 0.5` liegt. Ob die gecachte Antwort *tatsaechlich
-ausgegeben wird*, haengt von einem zweiten, volatility-aware Check ab,
+ChromaDB liefert `source=CACHE` wenn der nächste Eintrag innerhalb von
+`CACHE_DISTANCE_HIGH = 0.5` liegt. Ob die gecachte Antwort *tatsächlich
+ausgegeben wird*, hängt von einem zweiten, volatility-aware Check ab,
 der pro Themen-Frische getunt ist:
 
 | Volatility | Threshold | Anwendungsfall |
@@ -1731,11 +1727,11 @@ Cache-Verhalten in `aifred/lib/config.py`:
 CACHE_DISTANCE_HIGH = 0.5        # < 0.5 → ChromaDB liefert source=CACHE
 CACHE_DISTANCE_DUPLICATE = 0.3   # < 0.3 = semantischer Duplikat (immer gemerged)
 
-# Volatility-aware Phase-0 Cache-Acceptance — geprueft in
+# Volatility-aware Phase-0 Cache-Acceptance — geprüft in
 # research_tools.py *nach* ChromaDB's source=CACHE-Antwort. Stabiles
 # Wissen toleriert breitere semantische Treffer; News-Themen brauchen
 # einen engen Threshold damit der Cache keine veralteten Fakten unter
-# leicht abweichender Formulierung herausgibt. NOCACHE-Eintraege
+# leicht abweichender Formulierung herausgibt. NOCACHE-Einträge
 # werden gar nicht erst gespeichert.
 CACHE_DISTANCE_PER_VOLATILITY = {
     'PERMANENT': 0.20,
@@ -2245,7 +2241,7 @@ Nach dieser Änderung **Modelle neu kalibrieren** in der UI, um den freigeworden
 
 ### llama.cpp vs Ollama Performance-Vergleich
 
-Benchmarks mit Qwen3-30B-A3B Q8_0 auf 2× Tesla P40 (48 GB VRAM gesamt):
+Benchmarks mit Qwen3-30B-A3B Q8_0 auf 2× Tesla P40 (48 GB VRAM gesamt — historische Messung aus der P40-Ära; der relative Vorteil überträgt sich auf neuere Hardware):
 
 | Metrik | llama.cpp | Ollama | Vorteil |
 |--------|:---------:|:------:|:-------:|
@@ -2294,7 +2290,7 @@ systemctl status ollama
 
 ## 📚 Dokumentation
 
-Weitere Dokumentation im `docs/` Verzeichnis:
+Weitere Dokumentation im `docs/` Verzeichnis — vollständiger Index: [docs/README.md](docs/README.md). Highlights:
 - [Security-Architektur](docs/de/architecture/security.md)
 - [Scheduler & Proaktive Features](docs/de/architecture/scheduler.md)
 - [Plugin-Entwicklung](docs/en/guides/plugin-development.md) (mit Templates)
