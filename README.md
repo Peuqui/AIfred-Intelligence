@@ -45,7 +45,7 @@ All local, a single prompt, no intermediate click. Files from the conversation (
 
 The LLM autonomously decides which tools to use — OpenAI-compatible tool infrastructure with plugin system:
 
-- **Message Hub — AIfred as Communication Central**: AIfred monitors external channels and processes incoming messages autonomously. **Runs headless** — no browser needed. Channel plugins listen in the background, the LLM processes and replies via Discord/Email independently. The web UI is only needed for initial setup (credentials, plugin toggles) and optional monitoring. **Unified plugin system**: drop a `.py` file into `plugins/channels/` or `plugins/tools/` — auto-discovered, no code changes needed. **Built-in channels**: E-Mail Monitor (IMAP IDLE push-based + SMTP auto-reply), Discord (bot with channel + DM support, `/clear` command). **Plugin Manager** UI modal to enable/disable any plugin at runtime (moves files to `disabled/`). Pipeline: **Channel listener** → **Envelope normalization** → **SQLite routing table** → **AIfred engine call** (with full toolkit incl. web research, calendar check) → **Auto-reply** (optional, per-channel toggle). Agent routing: address Sokrates or Salomo by name. **Note**: Hub messages are processed without browser State — progress bars, live streaming and sources HTML are not available for Hub-processed messages; this is by design, not a limitation. See [Architecture & Setup](docs/plans/message-hub-architecture.md)
+- **Message Hub — AIfred as Communication Central**: AIfred monitors external channels and processes incoming messages autonomously. **Runs headless** — no browser needed. Channel plugins listen in the background, the LLM processes and replies via Discord/Email independently. The web UI is only needed for initial setup (credentials, plugin toggles) and optional monitoring. **Unified plugin system**: drop a `.py` file into `plugins/channels/` or `plugins/tools/` — auto-discovered, no code changes needed. **Built-in channels**: E-Mail Monitor (IMAP IDLE push-based + SMTP auto-reply), Discord (bot with channel + DM support, `/clear` command). **Plugin Manager** UI modal to enable/disable any plugin at runtime (moves files to `disabled/`). Pipeline: **Channel listener** → **Envelope normalization** → **SQLite routing table** → **AIfred engine call** (with full toolkit incl. web research, calendar check) → **Auto-reply** (optional, per-channel toggle). Agent routing: address Sokrates or Salomo by name. **Note**: Hub messages are processed without browser State — progress bars, live streaming and sources HTML are not available for Hub-processed messages; this is by design, not a limitation. See [Architecture & Setup](docs/de/architecture/message-hub.md) (German)
 - **Email Integration**: Read, search, and send emails via IMAP/SMTP. Sending requires explicit user confirmation (draft → review → confirm). Credentials via `.env` or UI modal
 - **EPIM Database Integration**: Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 database — the LLM autonomously searches, creates, updates and deletes calendar events, contacts, notes, todos and password entries. Automatic name-to-ID resolution, anti-hallucination guardrails, 7-day date reference
 - **Workspace (Files & Documents)**: Upload documents (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatic chunking and embedding in ChromaDB via **BGE-M3** (8192-token context, 1024-dim, multilingual). Token-accurate chunking with the local Qwen3 tokenizer. LLM can autonomously browse, read (PDFs page-by-page), write, edit, **rename** and delete files on disk — then index them into the vector database for semantic search with **folder filter** (`search_documents(query=…, folder="bibel/Schlachter")`) and **chunk-neighbor retrieval** (each hit returns its immediate neighbor chunks for full surrounding context). Document Manager UI with preview, **bulk-folder index** (one click for an entire tree), live file count per folder, **orphan cleanup** (find indexed entries whose source file is gone) and toast-based feedback for terminal status messages
@@ -53,7 +53,7 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 - **Agent Long-Term Memory**: Per-agent persistent memory via ChromaDB (BGE-M3 embeddings) — agents autonomously store insights, combined recall (10 recent + semantic search), session pinning. Memory Browser for inspection and cleanup. Incognito mode (🔒)
 - **Tool-Output Token Cap**: Single tool result is capped to keep `system + history + memory + tool_result ≤ 75%` of the active model's context window — guarantees the model has 25% headroom for its answer. JSON-aware truncation: result-list responses are shortened from the end (with `_truncated` marker) so the model still sees structured data
 - **Automatic Web Research**: AI decides autonomously when research is needed. Multi-API (SearXNG primary, Tavily + Brave as fallback) with automatic scraping and LLM-based URL ranking. Semantic vector cache via ChromaDB with **volatility-aware reuse threshold** (PERMANENT 0.20 / MONTHLY 0.15 / WEEKLY 0.10 / DAILY 0.05) — stable knowledge tolerates wider matches, news-class topics stay tight to avoid stale facts
-- Additional tools: `calculate` (math), `web_fetch` (URL extraction), `store_memory` (memory)
+- **More tool plugins**: **Audio Player** (play local audio files — WAV, MP3, OGG, FLAC), **Scheduler** (LLM creates cron/interval/one-shot jobs), **System Monitor** (CPU, RAM, GPU, disk, temperature), **Google Suite** (OAuth 2.0 for Google Calendar + Contacts), **Translator** (DeepL, 30+ languages, auto source-language detection), **Bible** (exact passage lookup + thematic vector search), **Judaica** (Jewish source corpus: Tanakh, Talmud, Mishnah, Midrash, Halacha, commentaries), **Calculator** (`calculate`), plus `web_fetch` (URL extraction) and `store_memory` (agent memory)
 - **Full plugin overview:** [Available Plugins](docs/en/guides/plugins-overview.md)
 
 ### 🎩 Multi-Agent System
@@ -76,7 +76,7 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
   - **Stress Burn-In**: VLM + TTS VRAM footprints are measured under load (worst-case bilingual TTS synthesis, VLM context-fill prewarm) instead of being hand-coded. Results cached in `data/vlm_vram_cache.json` / `data/tts_vram_cache.json`
   - **Side-Channel Capacity Guard**: Before writing a `<base>-tts-<engine>-vlm-<key>` combo profile, the calibrator checks whether `tts_reserve + vlm_reserve` fits the shared side-channel GPU. Combos that would OOM at runtime are rejected with a clear "Profile NOT written" message — no stale traps in the YAML
   - **Persistent Failure Tracking**: The picker shows three states per cell — green dot (calibrated), red dot (tried but failed, with reason), empty (never tried). Failure reasons: `capacity_exceeded`, `model_too_big`, `projection_failed`, `probe_unrecoverable`. A successful recalibration clears the red dot automatically
-  - **Strategy SSOT**: [docs/en/architecture/calibration-strategy.md](docs/en/architecture/calibration-strategy.md) is the verbindlich algorithmic reference; algorithm + (optional) AI agent path both read from it
+  - **Strategy SSOT**: [docs/de/architecture/calibration-strategy.md](docs/de/architecture/calibration-strategy.md) (German) is the authoritative algorithmic reference; algorithm + (optional) AI agent path both read from it
 - **Thinking Mode**: Chain-of-Thought reasoning (Qwen3, NemoTron, QwQ)
 - **History Compression**: Intelligent compression at 70% context utilization for unlimited conversations
 - **Automatic Model Lifecycle**: Zero-config — new models auto-discovered on start, removed models auto-cleaned
@@ -360,7 +360,7 @@ Each message is displayed individually with its emoji and mode label:
 - **VRAM-Aware Context**: Automatic context sizing based on available GPU memory
 - **Debug Console**: Comprehensive logging and monitoring
 - **ChromaDB Server Mode**: Thread-safe vector DB via Docker (0.0 distance for exact matches)
-- **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations ([docs/GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md))
+- **GPU Detection**: Automatic detection and warnings for incompatible backend-GPU combinations
 - **Context Calibration**: Intelligent per-model calibration for Ollama and llama.cpp
   - **Ollama**: Binary search with automatic VRAM/Hybrid mode detection (512 token precision)
     - Hybrid mode for CPU+GPU offload (MoE vs Dense detection, 3 GB RAM reserve)
@@ -1236,7 +1236,7 @@ curl http://localhost:8002/api/sessions
 > **Zero-Config Model Management (llama.cpp backend):** After the initial setup, adding models requires no manual configuration. Just run `ollama pull model` or `hf download ...`, then restart llama-swap — the autoscan configures everything automatically (YAML entries, groups, VRAM cache). See [docs/en/guides/deployment.md](docs/en/guides/deployment.md) for the full setup guide.
 - 8GB+ RAM (12GB+ recommended for larger models)
 - Docker (for ChromaDB Vector Cache)
-- **GPU**: NVIDIA GPU recommended (see [GPU Compatibility Guide](docs/GPU_COMPATIBILITY.md))
+- **GPU**: NVIDIA GPU recommended (see [GPU Compatibility Detection](#gpu-compatibility-detection))
 
 ### Setup
 
@@ -1536,7 +1536,7 @@ generic nginx routing example.
 
 AIfred supports different LLM backends that can be switched dynamically in the UI:
 
-- **llama.cpp** (via llama-swap): GGUF models, best raw performance (+43% generation, +30% prompt processing vs Ollama), full GPU control, multi-GPU support. Uses a 3-tier architecture: **llama-swap** (Go proxy, model management) → **llama-server** (inference) → **llama.cpp** (library). Automatic VRAM calibration via 3-phase Binary Search: GPU-only context sizing → Speed variant with optimized tensor-split for multi-GPU throughput → Hybrid NGL fallback for oversized models. See [setup guide](docs/llamacpp-setup.md).
+- **llama.cpp** (via llama-swap): GGUF models, best raw performance (+43% generation, +30% prompt processing vs Ollama), full GPU control, multi-GPU support. Uses a 3-tier architecture: **llama-swap** (Go proxy, model management) → **llama-server** (inference) → **llama.cpp** (library). Automatic VRAM calibration via 3-phase Binary Search: GPU-only context sizing → Speed variant with optimized tensor-split for multi-GPU throughput → Hybrid NGL fallback for oversized models. See [setup guide](docs/en/guides/llamacpp-setup.md).
 - **Ollama**: GGUF models (Q4/Q8), easiest installation, automatic model management, good performance after v2.32.0 optimizations
 - **vLLM**: AWQ models (4-bit), best performance with AWQ Marlin kernel
 - **TabbyAPI**: EXL2 models (ExLlamaV2/V3) - experimental, basic support only
@@ -1547,8 +1547,6 @@ AIfred automatically detects your GPU at startup and warns about incompatible ba
 
 - **Tesla P40 / GTX 10 Series** (Pascal): Use llama.cpp or Ollama (GGUF) - vLLM/AWQ not supported
 - **RTX 20+ Series** (Turing/Ampere/Ada): llama.cpp (GGUF) or vLLM (AWQ) recommended for best performance
-
-Detailed information: [GPU_COMPATIBILITY.md](docs/GPU_COMPATIBILITY.md)
 
 ### Settings Persistence
 
@@ -1654,22 +1652,25 @@ AIfred-Intelligence/
 │   │   └── tools/               # Tool implementations
 │   │       ├── search_tools.py      # Parallel web search
 │   │       └── scraper_tool.py      # Parallel web scraping
-│   ├── aifred.py          # Main application / UI
-│   └── state.py           # Reflex State Management
+│   ├── state/              # Reflex State (composed from feature mixins)
+│   │   ├── _chat_mixin.py       # Chat pipeline / send_message
+│   │   ├── _backend_mixin.py    # Backend init, model selection
+│   │   ├── _calibration_mixin.py # Calibration orchestration
+│   │   └── …                    # Agent config, editor, vision, TTS, auth, …
+│   ├── ui/                 # Reflex UI components (modals/, agent_editor/, settings_accordion/, …)
+│   ├── plugins/            # Dynamically loaded tools + channels (Telegram, Discord, FreeEcho.2, …)
+│   └── aifred.py           # Main application / app wiring
 ├── prompts/               # System Prompts (de/en)
 ├── scripts/               # Utility Scripts
 ├── docs/                  # Documentation
-│   ├── infrastructure/          # Service setup guides
-│   ├── architecture/            # Architecture docs
-│   └── GPU_COMPATIBILITY.md     # GPU compatibility matrix
+│   └── de/ · en/                # Bilingual guides + architecture docs
 ├── data/                  # Runtime data (settings, sessions, caches)
 │   ├── settings.json            # User settings
 │   ├── model_vram_cache.json    # VRAM calibration data (all backends)
 │   ├── sessions/                # Chat sessions
 │   └── logs/                    # Debug logs
-├── docker/                # Docker configurations
-│   └── aifred_vector_cache/     # ChromaDB Docker setup
-└── CHANGELOG.md           # Project Changelog
+└── docker/                # Docker configurations
+    └── aifred_vector_cache/     # ChromaDB Docker setup
 ```
 
 ### History Compression System
@@ -2342,7 +2343,7 @@ After changing this setting, **recalibrate your models** in the UI to take advan
 
 ### llama.cpp vs Ollama Performance Comparison
 
-Benchmarks with Qwen3-30B-A3B Q8_0 on 2× Tesla P40 (48 GB VRAM total):
+Benchmarks with Qwen3-30B-A3B Q8_0 on 2× Tesla P40 (48 GB VRAM total — historical measurement from the P40 era; the relative advantage carries over to newer hardware):
 
 | Metric | llama.cpp | Ollama | Advantage |
 |--------|:---------:|:------:|:---------:|
@@ -2391,7 +2392,7 @@ systemctl status ollama
 
 ## 📚 Documentation
 
-More documentation in the `docs/` directory:
+More documentation in the `docs/` directory — full index: [docs/README.md](docs/README.md). Highlights:
 - [Security Architecture](docs/en/architecture/security.md)
 - [Scheduler & Proactive Features](docs/en/architecture/scheduler.md)
 - [Plugin Development Guide](docs/en/guides/plugin-development.md) (with templates)
@@ -2399,7 +2400,7 @@ More documentation in the `docs/` directory:
 - [LLM Call Architecture](docs/en/architecture/llm-call.md)
 - [llama.cpp + llama-swap Setup Guide](docs/en/guides/llamacpp-setup.md)
 - [Deployment Guide](docs/en/guides/deployment.md) — fresh-install walkthrough, calibration matrix picker, vision + Vigilantia setup
-- [Calibration Strategy (SSOT)](docs/en/architecture/calibration-strategy.md) — greedy cascade, burn-in, capacity guard, failure tracking
+- [Calibration Strategy (SSOT)](docs/de/architecture/calibration-strategy.md) (German) — greedy cascade, burn-in, capacity guard, failure tracking
 - [Tensor Split Benchmark: Speed vs. Full Context](docs/en/benchmarks/tensor-split.md)
 
 ---

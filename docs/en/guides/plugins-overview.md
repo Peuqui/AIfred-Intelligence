@@ -358,6 +358,26 @@ only the literal "Off" does — fail-safe towards on.
 
 ---
 
+### Vigilantia (Camera Surveillance)
+
+**Code:** `aifred/lib/` (`frame_hub.py`, `vision_watcher.py`, `frame_sources/`, `vision_*.py`) — **not a plugin**, a built-in subsystem
+
+Continuous camera surveillance — Master Eye, background watchers, Casus event browser, Personarium identity database. Built on the FrameHub pipeline (frame sources: RTSP + V4L2 in `aifred/lib/frame_sources/`); the LLM-side tools live in the [Vision tool plugin](#vision-camera--vlm).
+
+**Features:**
+- **Master Eye + per-source watchers** in the Message Hub worker process (survives browser disconnects)
+- **Motion detection** via OpenCV MOG2 with configurable min-area ratio, warmup frames, event throttling
+- **Face recognition** with insightface (`buffalo_l`), selectable execution provider (CUDA/CPU/CoreML), continuous-detection mode
+- **Personarium**: identity database for enrollment (name + ID + group), multi-pose wizard, known/unsure/unknown classification via cosine similarity
+- **Casus event browser**: filters (type, source, face ID), pagination, single-event VLM analysis, bulk mode with progress + cancel
+- **pHash dedup + cluster mode**: perceptual hash on every event frame, near-duplicates are collapsed into clusters
+- **VRAM pre-check** before bulk VLM analysis — aborts cleanly instead of OOMing mid-run
+- **Vigilantia feed live card** on the main page shows the last N events across all sources
+
+The LLM-side vision tools (snapshot, analyze, enroll_face, start_watch etc.) live under [Vision](#vision-camera--vlm) — Vigilantia is the persistent surveillance layer on top.
+
+---
+
 ## Plugin Architecture
 
 ```

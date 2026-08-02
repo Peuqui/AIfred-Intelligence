@@ -222,7 +222,7 @@ All workers (channel listeners, scheduler) auto-restart on crash:
 |------|---------|
 | `aifred/lib/scheduler.py` | Job store, scheduler loop, delivery modes |
 | `aifred/lib/message_hub.py` | Worker management with auto-restart |
-| `aifred/lib/api.py` | Webhook API endpoint (`/api/agent/trigger`) |
+| `aifred/lib/api/agents.py` | Webhook API endpoint (`/api/agent/trigger`) |
 | `aifred/lib/credential_broker.py` | WEBHOOK_API_TOKEN mapping |
 | `aifred/aifred.py` | Scheduler registration at app startup |
 | `data/scheduler/jobs.db` | SQLite job database |

@@ -444,7 +444,7 @@ What runs under the hood:
 - Final results land in `data/model_vram_cache.json` and as profile
   entries in `~/.config/llama-swap/config.yaml`
 
-> **Strategy reference (SSOT):** [calibration-strategy.md](../architecture/calibration-strategy.md)
+> **Strategy reference (SSOT):** [calibration-strategy.md](../../de/architecture/calibration-strategy.md) (German)
 
 Without calibration the model still works — it runs with the native
 context. If that exceeds VRAM, the first request will fail with an OOM

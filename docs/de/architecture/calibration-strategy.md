@@ -29,11 +29,11 @@ GPUs werden sortiert nach:
    48 GB sind gleichberechtigt nach diesem Kriterium
 3. **CUDA-ID** (asc) als finaler Tiebreaker
 
-Implementiert in [`_gpu_ranking()`](../../aifred/lib/process_utils.py).
+Implementiert in [`_gpu_ranking()`](../../../aifred/lib/process_utils.py).
 
 ## Side-Channel-Platzierung (VLM + TTS)
 
-> SSOT: [`aifred/lib/vision_gpu_select.py`](../../aifred/lib/vision_gpu_select.py).
+> SSOT: [`aifred/lib/vision_gpu_select.py`](../../../aifred/lib/vision_gpu_select.py).
 > Hardware-agnostisch — es wird **nichts** auf „immer V100" hartkodiert.
 
 Die schnellste Compute-Klasse bleibt komplett frei für die Chat-LLMs
@@ -72,8 +72,8 @@ fällt genau diese Combo raus (Rest läuft).
 
 | Setup | LLM-Tier | TTS | VLM |
 |---|---|---|---|
-| 2× RTX 8000 + 1× V100 + 2× P40 (heute) | RTX 8000 ×2 | V100 | V100 (geteilt, P40 per Floor raus) |
-| 2× RTX 8000 + 2× V100 + … | RTX 8000 ×2 | V100 #1 | V100 #2 |
+| 2× RTX 8000 + 1× V100 + 2× P40 | RTX 8000 ×2 | V100 | V100 (geteilt, P40 per Floor raus) |
+| 2× RTX 8000 + 3× V100 (heute) | RTX 8000 ×2 | V100 #1 | V100 #2 |
 | 3× RTX 8000 | RTX 8000 #1 | RTX 8000 #2 | RTX 8000 #3 |
 | nur P40s | P40 #1 | P40 #2 | P40 #3 (weicher Fallback) |
 | 1× RTX 8000 + 1× P40 | RTX 8000 | P40 | P40 (Notnagel) |
@@ -100,8 +100,8 @@ Die Kalibration rechnet das VLM auf der vom Picker gewählten Karte ein.
 Damit Ollama das Modell zur Laufzeit auch dort lädt, muss der
 systemd-Drop-in (`CUDA_VISIBLE_DEVICES`, siehe `ollama_override_text()`)
 auf diese Karte gepinnt sein — Ollama wählt sonst greedy first-fit.
-Auf Single-Tier-Karten (heute) ist das identisch zum bisherigen Pin,
-also kein Handlungsbedarf; relevant erst, wenn TTS und VLM auf zwei
+Bei einer einzelnen Tier-Karte ist das identisch zum bisherigen Pin,
+also kein Handlungsbedarf; relevant sobald TTS und VLM auf zwei
 verschiedene Karten aufgeteilt werden.
 
 ## User-Präferenzen (verbindlich)
@@ -113,7 +113,7 @@ In dieser Reihenfolge:
    4 GPUs vorziehen.
 2. **Schnellste GPU-Klasse zuerst füllen** — Layer landen primär auf RTX
    8000s, P40s nur als Spillover.
-3. **Knallvoll bis Safety-Margin** ([`LLAMACPP_VRAM_SAFETY_MARGIN`](../../aifred/lib/config.py),
+3. **Knallvoll bis Safety-Margin** ([`LLAMACPP_VRAM_SAFETY_MARGIN`](../../../aifred/lib/config.py),
    192 MB Linux, 1536 MB WSL) — KEIN Headroom-Verteilen. Eine GPU mit 2 GB
    free ist ok, eine mit 20 GB free ist Verschwendung wenn wir nicht-aktive
    GPUs hinzunehmen müssten.
@@ -157,7 +157,7 @@ wird als ihre Geschwister.
 - Nur eine GPU in der schnellsten Klasse → Floor (kein Geschwister-Vergleich
   möglich).
 
-Implementiert in [`measure_first_gpu_handicap()`](../../aifred/lib/calibration/gpu.py).
+Implementiert in [`measure_first_gpu_handicap()`](../../../aifred/lib/calibration/gpu.py).
 Im Log sichtbar als Zeile `📊 first-GPU handicap: <N> MB`.
 
 **Praktischer Effekt:** Im Split `[27, 29, 19, 14, 5]` für ein 5-GPU-235B-
@@ -170,11 +170,11 @@ bekam und sich beide am Ende **gleich knapp** an der Safety-Margin treffen.
 
 Wenn ein Probe OOMt, wird umverteilt — genau **ein ganzer Layer** von der
 überladenen GPU weg. Sowohl der Blind-Shift in Phase 1
-([`_shift_one_layer_blind()`](../../aifred/lib/calibration/flow.py)) als auch
+([`_shift_one_layer_blind()`](../../../aifred/lib/calibration/flow.py)) als auch
 das messgestützte Refinement
-([`_refine_split_from_measurement()`](../../aifred/lib/calibration/flow.py))
+([`_refine_split_from_measurement()`](../../../aifred/lib/calibration/flow.py))
 wählen das Ziel über **dieselbe** SSOT-Funktion
-[`_cascade_destination()`](../../aifred/lib/calibration/flow.py). Zwei
+[`_cascade_destination()`](../../../aifred/lib/calibration/flow.py). Zwei
 verschiedene Verteil-Philosophien für dasselbe Problem sind verboten
 (siehe [First-GPU-Handicap](#first-gpu-handicap) und die
 Projektregel „einmal getroffene Architekturentscheidungen strikt
@@ -195,7 +195,7 @@ wird intern auf ganze Layer gerundet. Ein 0,5er-Shift bewegt darum physisch
 oft **gar nichts**, kostet aber einen vollen Modell-Reload (bei einem 122B-
 Modell ~125 GB Lesen). Deshalb bewegt ein Shift immer genau einen ganzen
 Layer, und der finale fraktionale Split wird per
-[`_quantize_split_to_layers()`](../../aifred/lib/calibration/flow.py)
+[`_quantize_split_to_layers()`](../../../aifred/lib/calibration/flow.py)
 (Largest-Remainder-Rundung) auf ganze Layer gerundet, die exakt
 `total_layers` summieren.
 
@@ -360,20 +360,20 @@ unten (nur 3–5 Probes statt 25+).
 ## Betrieb: Gate, Cancel, Timeout
 
 Die Kalibration läuft als Reflex-Background-Event
-([`calibrate_context`](../../aifred/state/_calibration_mixin.py), `@rx.event(background=True)`),
+([`calibrate_context`](../../../aifred/state/_calibration_mixin.py), `@rx.event(background=True)`),
 damit die UI während der minutenlangen Probes bedienbar bleibt (Abbrechen-
 Button, Debug-Konsole). Progress-Meldungen laufen über einen modulweiten
 Puffer, der unter dem State-Lock geleert wird — so triggert das Debugging
 keinen Session-Sync-Sturm.
 
 - **Prozessweites Inferenz-Gate**
-  ([`calibration_gate.py`](../../aifred/lib/calibration_gate.py)): Während
+  ([`calibration_gate.py`](../../../aifred/lib/calibration_gate.py)): Während
   einer laufenden Kalibration wird die reguläre Chat-Inferenz geblockt —
   ein zweiter llama-server auf denselben GPUs würde die VRAM-Messung
   verfälschen. `set_calibration_active()` / `is_calibration_active()`.
 - **Sofort-Abbruch:** Der Abbrechen-Button setzt `request_cancel()`; die
   Verify-Schleife
-  ([`verifier.py`](../../aifred/lib/calibration/verifier.py)) prüft
+  ([`verifier.py`](../../../aifred/lib/calibration/verifier.py)) prüft
   `is_cancel_requested()` beim Server-Warten und vor jedem Spawn und beendet
   Test-Server sauber.
 - **Größen-skalierter Health-Timeout:** Der Ladetimeout wächst mit der
@@ -387,7 +387,7 @@ keinen Session-Sync-Sturm.
 Bei `calibration_mode = "ai"`: ein DashScope-Qwen-Agent steuert den Loop
 über Function Calls (`estimate_config`, `probe_config`, `finalize`).
 Folgt der gleichen Strategie via System-Prompt
-([prompts/de/calibration/system.txt](../../prompts/de/calibration/system.txt)).
+([prompts/de/calibration/system.txt](../../../prompts/de/calibration/system.txt)).
 Vorteil: kann ungewöhnliche Hardware-Mixe (z.B. heterogene Karten) besser
 handhaben als der deterministische Algorithmus.
 
@@ -415,20 +415,20 @@ handhaben als der deterministische Algorithmus.
 
 ## Referenzen im Code
 
-- Algorithmus: [`aifred/lib/calibration/flow.py`](../../aifred/lib/calibration/flow.py)
+- Algorithmus: [`aifred/lib/calibration/flow.py`](../../../aifred/lib/calibration/flow.py)
   - `calibrate_llamacpp_model()` — Entry Point
   - `_verify_and_refine()` — Verify + Shift + Native-Push
   - `_shift_one_layer_blind()` — Blind-Shift (Phase 1)
   - `_refine_split_from_measurement()` — messgestütztes Refinement
   - `_cascade_destination()` — SSOT Ziel-Wahl (Kaskade, reserve-adjusted, idle-skip)
   - `_quantize_split_to_layers()` — fraktionalen Split auf ganze Layer runden
-- Optimizer: [`aifred/lib/calibration/optimizer.py`](../../aifred/lib/calibration/optimizer.py)
+- Optimizer: [`aifred/lib/calibration/optimizer.py`](../../../aifred/lib/calibration/optimizer.py)
   - `fill_fastest_first()` — greedy fill nach Speed-Klasse
-- Hardware: [`aifred/lib/process_utils.py`](../../aifred/lib/process_utils.py)
+- Hardware: [`aifred/lib/process_utils.py`](../../../aifred/lib/process_utils.py)
   - `_gpu_ranking()` — Compute-Capability-Sortierung
   - `get_tts_gpu_uuid()` — TTS-GPU-Pinning (UUID, via `pick_tts_gpu`)
-- Side-Channel-Platzierung: [`aifred/lib/vision_gpu_select.py`](../../aifred/lib/vision_gpu_select.py)
+- Side-Channel-Platzierung: [`aifred/lib/vision_gpu_select.py`](../../../aifred/lib/vision_gpu_select.py)
   - `_side_channel_tier()` — Tier-Bildung + Compute-Floor
   - `pick_tts_gpu()` / `pick_vlm_gpu()` / `pick_face_gpu()` — Karten-Wahl
-- KI-Variante: [`aifred/lib/calibration/ai_agent.py`](../../aifred/lib/calibration/ai_agent.py)
-- Prompt: [`prompts/de/calibration/system.txt`](../../prompts/de/calibration/system.txt)
+- KI-Variante: [`aifred/lib/calibration/ai_agent.py`](../../../aifred/lib/calibration/ai_agent.py)
+- Prompt: [`prompts/de/calibration/system.txt`](../../../prompts/de/calibration/system.txt)

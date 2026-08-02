@@ -2,7 +2,7 @@
 
 **Dateien:** `aifred/lib/oauth/broker.py`, `aifred/lib/oauth/google.py`
 
-Generischer OAuth 2.0 Broker fuer alle Google-Plugins und kuenftige Provider. Verwaltet Token-Speicherung (Fernet-verschluesselt), CSRF-Schutz ueber State-Parameter und automatischen Token-Refresh 60 Sekunden vor Ablauf.
+Generischer OAuth 2.0 Broker für alle Google-Plugins und künftige Provider. Verwaltet Token-Speicherung (Fernet-verschlüsselt), CSRF-Schutz über State-Parameter und automatischen Token-Refresh 60 Sekunden vor Ablauf.
 
 ## Architektur
 
@@ -10,14 +10,14 @@ Generischer OAuth 2.0 Broker fuer alle Google-Plugins und kuenftige Provider. Ve
 |-------|---------|
 | `aifred/lib/oauth/broker.py` | Generischer Broker: Provider-Registry, Token-Storage, Auto-Refresh |
 | `aifred/lib/oauth/google.py` | Google OAuth2 Provider (Calendar, Contacts, Drive, Tasks) |
-| `data/oauth_tokens.json` | Verschluesselte Token-Datei (eine Eintrag pro Provider) |
+| `data/oauth_tokens.json` | Verschlüsselte Token-Datei (eine Eintrag pro Provider) |
 | `data/oauth_encryption_key.bin` | Fernet-Key — auto-generiert beim ersten Start, Rechte 0o600 |
 
-**Token-Sicherheit:** Jeder Provider-Token wird individuell Fernet-verschluesselt. Die JSON-Datei zeigt die Struktur (Provider-Namen als Keys), aber alle Werte sind ohne den Key unlesbar.
+**Token-Sicherheit:** Jeder Provider-Token wird individuell Fernet-verschlüsselt. Die JSON-Datei zeigt die Struktur (Provider-Namen als Keys), aber alle Werte sind ohne den Key unlesbar.
 
 **CSRF-Schutz:** State-Token mit 10-Minuten-TTL. Nach Ablauf oder unbekanntem State wird der Callback abgelehnt.
 
-**Auto-Refresh:** `get_token()` prueft den Ablaufzeitpunkt und erneuert den Token transparent, falls er in weniger als 60 Sekunden ablaueft.
+**Auto-Refresh:** `get_token()` prüft den Ablaufzeitpunkt und erneuert den Token transparent, falls er in weniger als 60 Sekunden ablaueft.
 
 ## API Endpoints
 
@@ -25,8 +25,8 @@ Generischer OAuth 2.0 Broker fuer alle Google-Plugins und kuenftige Provider. Ve
 |----------|--------|-------------|
 | `/api/oauth/{provider}/auth-url` | GET | Auth-URL generieren. Query-Parameter: `redirect_uri`, `scopes` (kommagetrennt) |
 | `/api/oauth/{provider}/callback` | GET | OAuth-Callback — wird automatisch von Google aufgerufen nach Login |
-| `/api/oauth/{provider}/status` | GET | Verbindungsstatus pruefen (`connected: true/false`) |
-| `/api/oauth/{provider}/` | DELETE | Token loeschen / Verbindung trennen |
+| `/api/oauth/{provider}/status` | GET | Verbindungsstatus prüfen (`connected: true/false`) |
+| `/api/oauth/{provider}/` | DELETE | Token löschen / Verbindung trennen |
 
 `{provider}` ist aktuell immer `google`.
 
@@ -36,7 +36,7 @@ Generischer OAuth 2.0 Broker fuer alle Google-Plugins und kuenftige Provider. Ve
 curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://narnia.spdns.de:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
 ```
 
-### Beispiel: Status pruefen
+### Beispiel: Status prüfen
 
 ```bash
 curl http://localhost:8002/api/oauth/google/status
@@ -49,7 +49,7 @@ curl http://localhost:8002/api/oauth/google/status
 curl -X DELETE http://localhost:8002/api/oauth/google/
 ```
 
-## Verfuegbare Google Scopes
+## Verfügbare Google Scopes
 
 | Konstante in `google.py` | Scope-URL | Beschreibung |
 |--------------------------|-----------|-------------|
@@ -59,9 +59,9 @@ curl -X DELETE http://localhost:8002/api/oauth/google/
 | `SCOPES_TASKS` | `auth/tasks` | Google Tasks |
 | `SCOPES_PROFILE` | `openid`, `userinfo.email`, `userinfo.profile` | Benutzerprofil |
 
-**Hinweis:** Google stellt einen Refresh-Token nur einmal aus. Alle benoetigen Scopes muessen beim ersten Auth-Flow angegeben werden. Ein nachtraegliches Hinzufuegen erfordert einen neuen OAuth-Flow.
+**Hinweis:** Google stellt einen Refresh-Token nur einmal aus. Alle benötigen Scopes müssen beim ersten Auth-Flow angegeben werden. Ein nachträgliches Hinzufügen erfordert einen neuen OAuth-Flow.
 
-## Neuen Provider hinzufuegen
+## Neuen Provider hinzufügen
 
 1. Neue Datei anlegen, z.B. `aifred/lib/oauth/myprovider.py`
 2. Klasse von `OAuthProvider` ableiten und drei Methoden implementieren:

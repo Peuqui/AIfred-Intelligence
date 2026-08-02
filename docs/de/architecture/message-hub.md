@@ -7,14 +7,14 @@
 
 ## Konzept
 
-AIfred wird zum zentralen Dispatcher fuer alle Kommunikationskanaele.
-Jeder Kanal (E-Mail, Discord, Telegram, Signal) ist ein Plugin mit eigener Identitaet.
-AIfred ist ein eigenstaendiger Teilnehmer — er ueberwacht NICHT die Kanaele des Users,
+AIfred wird zum zentralen Dispatcher für alle Kommunikationskanäle.
+Jeder Kanal (E-Mail, Discord, Telegram, Signal) ist ein Plugin mit eigener Identität.
+AIfred ist ein eigenständiger Teilnehmer — er überwacht NICHT die Kanäle des Users,
 sondern hat eigene Adressen (eigene E-Mail, eigener Discord-Bot, etc.).
 
 ---
 
-## Architektur-Uebersicht
+## Architektur-Übersicht
 
 ```
                         ┌──────────────────────────┐
@@ -58,7 +58,7 @@ sondern hat eigene Adressen (eigene E-Mail, eigener Discord-Bot, etc.).
                                      │
                           ┌──────────▼──────────┐
                           │   Outbound Reply    │
-                          │   (zurueck ueber    │
+                          │   (zurück über    │
                           │    selben Kanal)    │
                           └─────────────────────┘
 ```
@@ -69,7 +69,7 @@ sondern hat eigene Adressen (eigene E-Mail, eigener Discord-Bot, etc.).
 
 Jede eingehende Nachricht wird in ein einheitliches Format normalisiert.
 Die AIfred Engine sieht nie kanal-spezifische Details — sie bekommt Text rein
-und gibt Text raus. Die Kanal-Plugins kuemmern sich um den Rest.
+und gibt Text raus. Die Kanal-Plugins kümmern sich um den Rest.
 
 ```python
 @dataclass
@@ -84,18 +84,18 @@ class InboundMessage:
 
 @dataclass
 class OutboundMessage:
-    channel: str            # Zurueck ueber selben Kanal
+    channel: str            # Zurück über selben Kanal
     channel_id: str         # An selben Thread/Channel
     recipient: str          # An selben Sender
     text: str               # Antworttext
-    metadata: dict          # Kanal-spezifisch (Subject fuer E-Mail, etc.)
+    metadata: dict          # Kanal-spezifisch (Subject für E-Mail, etc.)
 ```
 
 ---
 
 ## Routing Table (SQLite)
 
-Einfaches Mapping: Welche Konversation auf welchem Kanal gehoert zu welcher AIfred-Session.
+Einfaches Mapping: Welche Konversation auf welchem Kanal gehört zu welcher AIfred-Session.
 
 ```sql
 CREATE TABLE routes (
@@ -111,7 +111,7 @@ CREATE TABLE routes (
 
 - Neue Nachricht → Route nachschlagen → Session gefunden? Weiterleiten.
 - Keine Route? → Neue Session erstellen, Route anlegen.
-- Session geloescht? → Route loeschen. Bei naechster Nachricht: neue Session.
+- Session gelöscht? → Route löschen. Bei nächster Nachricht: neue Session.
 
 ---
 
@@ -124,8 +124,8 @@ Wenn eine Nachricht an einen bestimmten Agenten gerichtet ist, wird dieser aufge
 - "@Salomo ..." → `run_salomo_direct_response()`
 - Custom Agents → entsprechende Funktion
 
-Die Ziel-Agent-Erkennung laeuft LLM-basiert in `message_processor.py:
-process_inbound()`. Interne Trigger koennen den Agenten hart pinnen, indem sie
+Die Ziel-Agent-Erkennung läuft LLM-basiert in `message_processor.py:
+process_inbound()`. Interne Trigger können den Agenten hart pinnen, indem sie
 `metadata["wake_agent"]` setzen (z.B. der Scheduler, siehe `scheduler.py`) —
 dann greift kein Rerouting durch die Intent-Erkennung.
 
@@ -146,14 +146,14 @@ dann greift kein Rerouting durch die Intent-Erkennung.
 
 ## User-Zuordnung
 
-AIfred ist ein **Single-Owner-System** fuer den Message Hub:
+AIfred ist ein **Single-Owner-System** für den Message Hub:
 - Alle eingehenden Nachrichten landen in Sessions des **Betreibers** (Owner)
-- AIfred ueberwacht das Postfach des Owners, nicht die Postfaecher anderer User
+- AIfred überwacht das Postfach des Owners, nicht die Postfächer anderer User
 - Wenn jemand dem Owner eine E-Mail schickt, ist das eine Nachricht an den Owner
 - Multi-User-Routing (verschiedene User bekommen eigene Sessions) ist Zukunftsmusik
 
 AIfred hat zwar ein User-System (accounts.json, Whitelist, Session-Owner-Binding),
-aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
+aber für den Message Hub ist erstmal nur der Hauptnutzer relevant.
 
 ---
 
@@ -161,7 +161,7 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
 
 - Pro Kanal konfigurierbar: Wer darf AIfred anschreiben?
 - Unbekannte Sender werden ignoriert oder bekommen Standardantwort
-- Spaeter erweiterbar: Pairing-Mechanismus wie OpenClaw
+- Später erweiterbar: Pairing-Mechanismus wie OpenClaw
 
 ---
 
@@ -176,11 +176,11 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
 ### Paket 2: Routing Table ✅
 - [x] `aifred/lib/routing_table.py` — SQLite-basiert
 - [x] CRUD: get_route(), set_route(), delete_route(), get_routes_for_session()
-- [ ] Auto-Cleanup wenn Session geloescht wird
+- [ ] Auto-Cleanup wenn Session gelöscht wird
 
 ### Paket 3: IMAP IDLE Listener ✅
-- [x] `aifred/lib/imap_listener.py` — IMAP IDLE fuer Push-Notifications
-- [x] Eingehende Mails erkennen (In-Reply-To Header fuer Thread-Zuordnung)
+- [x] `aifred/lib/imap_listener.py` — IMAP IDLE für Push-Notifications
+- [x] Eingehende Mails erkennen (In-Reply-To Header für Thread-Zuordnung)
 - [x] UID-basierte Erkennung neuer Mails
 - [x] Auto-Reconnect bei Verbindungsfehlern
 - [x] Integration mit Message Hub als Worker registrieren
@@ -190,7 +190,7 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
 - [x] `aifred/lib/message_processor.py` — Bridge zwischen Hub und Engine
 - [x] Eingehende Nachricht → Routing Table → Session erstellen/finden
 - [x] AIfred Engine direkt aufrufen (call_llm)
-- [x] Antwort per SMTP zuruecksenden (bei Auto-Reply AN)
+- [x] Antwort per SMTP zurücksenden (bei Auto-Reply AN)
 - [x] Session mit Konversation aktualisieren (update_chat_data)
 - [x] Agent-Routing (Sokrates/Salomo wenn im Text angesprochen)
 - [x] Config: MESSAGE_HUB_OWNER, EMAIL_MONITOR_AUTO_REPLY
@@ -201,19 +201,19 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
 - [ ] Toggle pro Kanal: Monitor An/Aus, Auto-Reply An/Aus
 - [ ] Allowlist-Konfiguration
 
-### Paket 6: Weitere Kanaele
+### Paket 6: Weitere Kanäle
 - [x] Discord Bot Plugin (`plugins/channels/discord_channel/`)
 - [x] Telegram Bot Plugin (`plugins/channels/telegram_channel/`)
 - [x] FreeEcho.2 Voice-Kanal (`plugins/channels/freeecho2_channel/`)
 - [x] Auto-Discovery + Registrierung via `message_hub.py: register_channel_workers()`
-- [ ] Kanaluebergreifendes Routing
+- [ ] Kanalübergreifendes Routing
 
 ---
 
 ## Design-Prinzipien
 
 - Envelope-Normalisierung (InboundMessage/OutboundMessage)
-- Eigene Identitaet pro Kanal (kein Mitlesen von User-Accounts)
+- Eigene Identität pro Kanal (kein Mitlesen von User-Accounts)
 - Allowlist/Security als First-Class-Feature
 - Mention-Gating in Gruppen (Discord: nur auf @AIfred reagieren)
 
@@ -223,7 +223,7 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
 
 ### Voraussetzungen
 
-1. **E-Mail Credentials** muessen als Umgebungsvariablen gesetzt sein (`.env`):
+1. **E-Mail Credentials** müssen als Umgebungsvariablen gesetzt sein (`.env`):
    ```
    EMAIL_ENABLED=true
    EMAIL_IMAP_HOST=imap.example.com
@@ -239,11 +239,11 @@ aber fuer den Message Hub ist erstmal nur der Hauptnutzer relevant.
    ```
    MESSAGE_HUB_OWNER=mp
    ```
-   Sessions die der Hub erstellt gehoeren diesem User.
+   Sessions die der Hub erstellt gehören diesem User.
 
 ### Aktivierung
 
-1. AIfred starten (oder neu starten wenn `.env` geaendert)
+1. AIfred starten (oder neu starten wenn `.env` geändert)
 2. In der Web-UI: **Settings → Message Hub → E-Mail Monitor: ON**
 3. Optional: **Auto-Reply: ON** (AIfred antwortet automatisch per E-Mail)
 
@@ -290,12 +290,12 @@ Auto-Reply aktiv?
 
 ### Ablauf: Monitor ein-/ausschalten zur Laufzeit
 
-Der E-Mail Monitor kann ueber die UI **ohne Neustart** ein-/ausgeschaltet werden:
+Der E-Mail Monitor kann über die UI **ohne Neustart** ein-/ausgeschaltet werden:
 
 - **Einschalten:** Worker wird registriert + asyncio Task gestartet
 - **Ausschalten:** Worker wird abgemeldet + Task gecancelt
 - **Persistenz:** Einstellung wird in `settings.json` gespeichert,
-  beim naechsten App-Start automatisch wieder aktiv
+  beim nächsten App-Start automatisch wieder aktiv
 
 ### Datenbank
 
@@ -304,7 +304,7 @@ Wird automatisch erstellt beim ersten Zugriff.
 
 ---
 
-## Modul-Uebersicht
+## Modul-Übersicht
 
 | Modul | Datei | Funktion |
 |-------|-------|----------|
@@ -317,19 +317,19 @@ Wird automatisch erstellt beim ersten Zugriff.
 | Settings | `aifred/state/_settings_mixin.py` | UI-Toggles + Persistenz |
 | UI | `aifred/ui/settings_accordion.py` | Message Hub Sektion in Settings-Dropdown |
 | Config | `aifred/lib/config.py` | MESSAGE_HUB_OWNER, EMAIL_MONITOR_AUTO_REPLY |
-| i18n | `aifred/lib/i18n.py` | Uebersetzungen (DE/EN) |
+| i18n | `aifred/lib/i18n.py` | Übersetzungen (DE/EN) |
 
 ---
 
 ## Dependencies
 
-Keine neuen System-Dependencies fuer Paket 1-5.
+Keine neuen System-Dependencies für Paket 1-5.
 - `sqlite3` — Python Standardbibliothek
 - `imaplib` — Python Standardbibliothek
 - `smtplib` — Python Standardbibliothek (schon genutzt)
 - `asyncio` — Python Standardbibliothek
 
-Fuer spaetere Pakete:
+Für spätere Pakete:
 - `discord.py` — Discord Bot (pip install)
 - `python-telegram-bot` — Telegram Bot (pip install)
 - `signal-cli-rest-api` — Signal (Docker Container)

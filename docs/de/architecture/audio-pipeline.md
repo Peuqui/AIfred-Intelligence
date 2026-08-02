@@ -13,7 +13,7 @@ weiter ausgebaut.
 | `audio_sources.py` (Folder + HTTP-Stream) | ✅ | [aifred/lib/audio_sources.py](../../../aifred/lib/audio_sources.py) |
 | `audio_index.py` (SQLite/FTS5 für 100k+ Files) | ✅ | [aifred/lib/audio_index.py](../../../aifred/lib/audio_index.py) |
 | Output: lokal (mpv default → ALSA/Pulse) | ✅ | siehe `_route_play()` |
-| Output: Browser (HTML5 `<audio>` + REST) | ✅ | [audio_player/__init__.py](../../../aifred/plugins/tools/audio_player/__init__.py), [api.py](../../../aifred/lib/api.py) |
+| Output: Browser (HTML5 `<audio>` + REST) | ✅ | [audio_player/__init__.py](../../../aifred/plugins/tools/audio_player/__init__.py), [audio.py](../../../aifred/lib/api/audio.py) |
 | Output: FreeEcho.2-Bridge | ✅ Phase 3.0b | mpv→FIFO→WS-Pipeline pro Raum, eine FreeEcho2Stream-Instanz pro Target |
 | `AudioOutputChannel`-Protokoll (Refactor) | ✅ Phase 3.0a | Registry mit Local/Browser/FreeEcho.2, alle Tools kanalbasiert |
 | Wake-Tokens `_pause`/`_resume`/`_standby`/`_activate` | ⚠️ Phase 3.0c (Server done) | Server fertig; FreeEcho.2-Firmware muss `_pause`/`_resume` noch als WA_PAUSE/WA_RESUME aufnehmen |
@@ -302,7 +302,7 @@ Schreibregeln:
 ## Audio-Index (SQLite/FTS5)
 
 [aifred/lib/audio_index.py](../../../aifred/lib/audio_index.py) führt einen lokalen Index über alle
-Items in `local_folder`-Sources, persistiert in [data/audio_index.db](../../../data/audio_index.db):
+Items in `local_folder`-Sources, persistiert in `data/audio_index.db` (Laufzeit-Datei):
 
 - **Schema:** `(source, rel_path)` als zusammengesetzter PK, plus
   Tag-Spalten (`artist`, `album`, `title`, `year`, `genre`,

@@ -271,7 +271,7 @@ is no problem.
 ## Recommended Evaluation Order
 
 1. ~~Test **MOSS-TTS Local**~~ ✅ Integrated! (Docker container, VRAM reservation, good quality)
-2. ~~Test **MOSS-TTS Delay 8B**~~ ✅ Integrated! (RTX 8000 float32, own generate() API, web UI with parameter sliders. See [moss-tts-8b-notes.md](moss-tts-8b-notes.md))
+2. ~~Test **MOSS-TTS Delay 8B**~~ ✅ Integrated! (RTX 8000 float32, own generate() API, web UI with parameter sliders. See [moss-tts-8b-notes.md](../../de/models/moss-tts-8b-notes.md) (German))
 3. Test **MOSS-TTS-Realtime** (streaming via `push_text`, same VRAM class as Local)
 4. Test **F5-TTS** with a German fine-tune (smallest model, fastest)
 5. Test **Qwen3-TTS** (native DE support, streaming via fork)

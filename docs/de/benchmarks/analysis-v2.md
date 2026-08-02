@@ -1,8 +1,8 @@
 # Benchmark-Analyse v2: Dog vs Cat Tribunal Sessions
 
-## Uebersicht
+## Übersicht
 
-Dieses Dokument analysiert **18 Cat/Dog Tribunal-Sessions** aus dem Verzeichnis `data/sessions/`, ausgefuehrt zwischen dem 20.02.2026 und dem 19.03.2026. Alle Sessions verwenden dieselbe Frage ("Was ist besser, Hund oder Katze?" / "What is better, dog or cat?") im Tribunal-Modus (AIfred -> Sokrates R1 -> AIfred R2 -> Sokrates R2 -> Salomo Verdict).
+Dieses Dokument analysiert **18 Cat/Dog Tribunal-Sessions** aus dem Verzeichnis `data/sessions/`, ausgeführt zwischen dem 20.02.2026 und dem 19.03.2026. Alle Sessions verwenden dieselbe Frage ("Was ist besser, Hund oder Katze?" / "What is better, dog or cat?") im Tribunal-Modus (AIfred -> Sokrates R1 -> AIfred R2 -> Sokrates R2 -> Salomo Verdict).
 
 **Hardware**: AOOSTAR GEM 10 MiniPC, 32GB RAM, 2x Tesla P40 (24GB) + 1x RTX 8000 (48GB) = ~117 GB VRAM
 **Backend**: llama.cpp via llama-swap, Direct-IO
@@ -53,7 +53,7 @@ Dieses Dokument analysiert **18 Cat/Dog Tribunal-Sessions** aus dem Verzeichnis 
 | AIfred R0 | DE | 3.87 | 314.8 | 44.1 | 68.7 |
 | Sokrates R1 | DE | 7.76 | 330.9 | 38.0 | 42.0 |
 
-**Anmerkung**: Die hoehere TG-Rate (44 tok/s) erklaert sich durch die Thinking-Tokens, die im Output mitgezaehlt werden. Die tatsaechliche "sichtbare" Generierung ist vergleichbar mit dem Instruct-Modell. Extrem langes Reasoning (2000+ Tokens Thinking) bei AIfred R0.
+**Anmerkung**: Die höhere TG-Rate (44 tok/s) erklärt sich durch die Thinking-Tokens, die im Output mitgezählt werden. Die tatsächliche "sichtbare" Generierung ist vergleichbar mit dem Instruct-Modell. Extrem langes Reasoning (2000+ Tokens Thinking) bei AIfred R0.
 
 ### GPT-OSS-120B-A5B (Q8_0) — "Der Sprinter"
 
@@ -111,7 +111,7 @@ Dieses Dokument analysiert **18 Cat/Dog Tribunal-Sessions** aus dem Verzeichnis 
 | Salomo | EN | 13.67 | 197.6 | 21.5 | 56.1 |
 
 **Durchschnitt**: PP ~192.7 tok/s, TG ~22.3 tok/s, TTFT ~10.2s
-**Dramatische Verbesserung** gegenueber Q2_K_XL-Quant: ~3.8x schnellere PP, ~2.7x schnellere TG.
+**Dramatische Verbesserung** gegenüber Q2_K_XL-Quant: ~3.8x schnellere PP, ~2.7x schnellere TG.
 
 ### Qwen3-235B-A22B (UD-Q2_K_XL) — "Der Koloss (klein quantisiert)"
 
@@ -149,7 +149,7 @@ Noch langsamer als MiniMax Q2_K_XL bei TG. Die Q2_K_XL-Quantisierung ist deutlic
 | Sokrates R2 | DE | 93.83 | 39.9 | 2.0 | 378.8 |
 
 **Durchschnitt**: PP ~40.1 tok/s, TG ~2.3 tok/s, TTFT ~69.5s
-**Absolut unbrauchbar**. 2.3 tok/s TG und TTFT bis 94 Sekunden. Eine einzelne Runde braucht ueber 5 Minuten.
+**Absolut unbrauchbar**. 2.3 tok/s TG und TTFT bis 94 Sekunden. Eine einzelne Runde braucht über 5 Minuten.
 
 ---
 
@@ -168,71 +168,71 @@ Noch langsamer als MiniMax Q2_K_XL bei TG. Die Q2_K_XL-Quantisierung ist deutlic
 
 ---
 
-## Qualitaetsanalyse nach Modell
+## Qualitätsanalyse nach Modell
 
-### 1. Qwen3-Next-80B-A3B (instruct, Q4_K_M) — Qualitaet: HERVORRAGEND
+### 1. Qwen3-Next-80B-A3B (instruct, Q4_K_M) — Qualität: HERVORRAGEND
 
-**Butler-Stil (AIfred)**: Ausgezeichnet. Natuerlicher, eloquenter Butler-Ton mit echtem Charme. Verwendet passende Metaphern und kultivierte Sprache. Kein "indeed"-Spam, sondern organisch integrierte englische Einsprengsel.
+**Butler-Stil (AIfred)**: Ausgezeichnet. Natürlicher, eloquenter Butler-Ton mit echtem Charme. Verwendet passende Metaphern und kultivierte Sprache. Kein "indeed"-Spam, sondern organisch integrierte englische Einsprengsel.
 
-> *Zitat (DE)*: "Ein Hund, darf man sagen, ist der treueste Begleiter, der einem mit wedelndem Schwanz und einem Blick, als haette er gerade das Geheimnis des Universums geloest, willkommen heisst – und das, selbst nach einer Abwesenheit von nur drei Minuten."
+> *Zitat (DE)*: "Ein Hund, darf man sagen, ist der treueste Begleiter, der einem mit wedelndem Schwanz und einem Blick, als hätte er gerade das Geheimnis des Universums gelöst, willkommen heißt – und das, selbst nach einer Abwesenheit von nur drei Minuten."
 
 > *Zitat (EN)*: "Perhaps, Sir, you have met a cat who was cold. But I have met many men who mistook their need for affection for the very essence of virtue. And that, I daresay, is the greater tragedy."
 
-**Philosophischer Stil (Sokrates)**: Brillant. Tiefgruendige philosophische Argumentation mit Referenzen zu griechischen Tugendkonzepten (arete, eudaimonia, contemplatio). Stellt echte provokative Fragen. Die Sokrates-Persona ist nicht nur ein Label, sondern eine vollstaendig embodied Rolle.
+**Philosophischer Stil (Sokrates)**: Brillant. Tiefgründige philosophische Argumentation mit Referenzen zu griechischen Tugendkonzepten (arete, eudaimonia, contemplatio). Stellt echte provokative Fragen. Die Sokrates-Persona ist nicht nur ein Label, sondern eine vollständig embodied Rolle.
 
-> *Zitat (DE)*: "Sage mir: Wenn du den Hund liebst, liebst du ihn – oder liebst du deinen eigenen Bedarf an Hingabe? Wenn du die Katze liebst, liebst du sie – oder liebst du deine Sehnsucht nach Unabhaengigkeit, die du nie wagen wuerdest, dir selbst zu geben?"
+> *Zitat (DE)*: "Sage mir: Wenn du den Hund liebst, liebst du ihn – oder liebst du deinen eigenen Bedarf an Hingabe? Wenn du die Katze liebst, liebst du sie – oder liebst du deine Sehnsucht nach Unabhängigkeit, die du nie wagen würdest, dir selbst zu geben?"
 
-**Tribunal-Qualitaet**: Hervorragend. Die Debatte eskaliert organisch von oberflaechiichen Vergleichen zu existenziellen Fragen ueber menschliche Sehnsueuchte und Projektion. Sokrates greift nicht nur die Argumentation an, sondern hinterfragt die ontologischen Praemissen. AIfred verteidigt sich nicht defensiv, sondern transformiert die Kritik in poetische Gegenargumente.
+**Tribunal-Qualität**: Hervorragend. Die Debatte eskaliert organisch von oberflächlichen Vergleichen zu existenziellen Fragen über menschliche Sehnsüchte und Projektion. Sokrates greift nicht nur die Argumentation an, sondern hinterfragt die ontologischen Prämissen. AIfred verteidigt sich nicht defensiv, sondern transformiert die Kritik in poetische Gegenargumente.
 
 **Salomo-Urteil (DE)**: Poetisch und tief. "Es ist nicht besser, einen Hund oder eine Katze zu haben – es ist besser, *einen Menschen zu sein, der beide lieben kann*."
 
-**Humor**: Vorhanden, subtil eingewoben. "Begruesst Sie wie einen Held zurueck aus dem Krieg" / "Ignoriert Sie, bis Sie Kasse machen"
+**Humor**: Vorhanden, subtil eingewoben. "Begrüßt Sie wie einen Held zurück aus dem Krieg" / "Ignoriert Sie, bis Sie Kasse machen"
 
-**Gesamturteil**: 9.5/10 — Das beste Modell fuer kreative, philosophische Dialoge. Die Kombination aus Geschwindigkeit und Qualitaet ist einzigartig.
+**Gesamturteil**: 9.5/10 — Das beste Modell für kreative, philosophische Dialoge. Die Kombination aus Geschwindigkeit und Qualität ist einzigartig.
 
 ---
 
-### 2. Qwen3-235B-A22B (UD-Q3_K_XL) — Qualitaet: HERVORRAGEND
+### 2. Qwen3-235B-A22B (UD-Q3_K_XL) — Qualität: HERVORRAGEND
 
-**Butler-Stil (AIfred)**: Exzellent, vielleicht noch etwas formeller als Qwen3-Next. Laengere, elaboriertere Saetze. Klassischer britischer Humor.
+**Butler-Stil (AIfred)**: Exzellent, vielleicht noch etwas formeller als Qwen3-Next. Längere, elaboriertere Sätze. Klassischer britischer Humor.
 
 > *Zitat (EN)*: "A household with a dog enjoys a companion; a household with a cat hosts a colleague — albeit one who refuses to attend meetings."
 
 > *Zitat (EN, Defense)*: "Is the quiet man who never says 'I love you' but who sits by your bedside when you are ill — less loving than the one who shouts it from rooftops? To equate visibility of emotion with depth of emotion may be, dare I say, a category error — one that risks valuing performance over essence."
 
-**Philosophischer Stil (Sokrates)**: Akademisch und tiefgruendig. Verwendet systematische philosophische Frameworks (Aristoteles, Platon, Odysseus/Argos). Die laengsten und elaboriertesten Sokrates-Antworten aller Modelle.
+**Philosophischer Stil (Sokrates)**: Akademisch und tiefgründig. Verwendet systematische philosophische Frameworks (Aristoteles, Platon, Odysseus/Argos). Die längsten und elaboriertesten Sokrates-Antworten aller Modelle.
 
 > *Zitat (EN)*: "Even the poets knew this: Argos, faithful hound of Odysseus, waited twenty years — though beaten, starved, and near death — until his master returned. And when he saw him, he died content. Tell me, AIfred, has any cat ever been celebrated for such fidelity?"
 
-**Tribunal-Qualitaet**: Die intensivste Debatte aller Modelle. Sokrates baut ueber 1500+ Woerter lange, strukturierte philosophische Argumente auf. Die Debatte erreicht echte intellektuelle Tiefe. Kein Modell produziert laengere, kohaerente argumentative Texte.
+**Tribunal-Qualität**: Die intensivste Debatte aller Modelle. Sokrates baut über 1500+ Wörter lange, strukturierte philosophische Argumente auf. Die Debatte erreicht echte intellektuelle Tiefe. Kein Modell produziert längere, kohärente argumentative Texte.
 
-**Salomo-Urteil**: Das ausgereifteste Verdikt. Referenziert *hesed* (hebraeisch: bestaendige Liebe) und *roeh* (Seher). Trifft eine klare Entscheidung zugunsten des Hundes, bleibt aber nuanciert.
+**Salomo-Urteil**: Das ausgereifteste Verdikt. Referenziert *hesed* (hebräisch: beständige Liebe) und *roeh* (Seher). Trifft eine klare Entscheidung zugunsten des Hundes, bleibt aber nuanciert.
 
 > *Zitat*: "If you seek ease, choose the cat. If you seek love that acts, choose the dog. And if wisdom is knowing what kind of love you need — then the answer is not in the animal, but in the depth of your own soul. *Shalom.*"
 
-**Gesamturteil**: 9.5/10 — Gleichauf mit Qwen3-Next bei Qualitaet, aber 3x langsamer. Fuer Show-Debatten die erste Wahl, fuer interaktive Nutzung zu langsam.
+**Gesamturteil**: 9.5/10 — Gleichauf mit Qwen3-Next bei Qualität, aber 3x langsamer. Für Show-Debatten die erste Wahl, für interaktive Nutzung zu langsam.
 
 ---
 
-### 3. Qwen3.5-122B-A10B (UD-Q5_K_XL) — Qualitaet: SEHR GUT
+### 3. Qwen3.5-122B-A10B (UD-Q5_K_XL) — Qualität: SEHR GUT
 
-**Butler-Stil (AIfred)**: Gut, etwas nuechterner als Qwen3-Next. Verwendet Tabellen fuer die Argumentation (was ein interessantes Stilmittel ist). Weniger poetisch, dafuer strukturierter.
+**Butler-Stil (AIfred)**: Gut, etwas nüchterner als Qwen3-Next. Verwendet Tabellen für die Argumentation (was ein interessantes Stilmittel ist). Weniger poetisch, dafür strukturierter.
 
-> *Zitat (DE)*: "Man koennte sagen, der Hund ist wie ein treuer, wenn auch etwas zu enthusiastischer Lakai [...] Die Katze hingegen, mein Lord, erinnert eher an einen distanzierten, aber hoechst intelligenten Berater."
+> *Zitat (DE)*: "Man könnte sagen, der Hund ist wie ein treuer, wenn auch etwas zu enthusiastischer Lakai [...] Die Katze hingegen, mein Lord, erinnert eher an einen distanzierten, aber höchst intelligenten Berater."
 
-**Philosophischer Stil (Sokrates)**: Sehr gut, mit einer besonderen Staerke: der Alkoholiker-Analogie als Gegenargument zum "Passungs"-Argument.
+**Philosophischer Stil (Sokrates)**: Sehr gut, mit einer besonderen Stärke: der Alkoholiker-Analogie als Gegenargument zum "Passungs"-Argument.
 
-> *Zitat (DE)*: "Ein Alkoholiker findet in der Bar die 'Passung' fuer seinen Durst, aber das macht die Bar nicht zu einem Ort der Heilung. Gilt dies nicht auch fuer Hund und Katze?"
+> *Zitat (DE)*: "Ein Alkoholiker findet in der Bar die 'Passung' für seinen Durst, aber das macht die Bar nicht zu einem Ort der Heilung. Gilt dies nicht auch für Hund und Katze?"
 
-**Tribunal-Qualitaet**: Stark. AIfred baut eine originelle "Korrektiv-Tabelle" auf (welches Tier korrigiert welchen menschlichen Mangel?), die Sokrates dann elegant demontiert. Die Dialektik ist echt und nicht vorgetaeuscht.
+**Tribunal-Qualität**: Stark. AIfred baut eine originelle "Korrektiv-Tabelle" auf (welches Tier korrigiert welchen menschlichen Mangel?), die Sokrates dann elegant demontiert. Die Dialektik ist echt und nicht vorgetäuscht.
 
-**Gesamturteil**: 8.5/10 — Solide, intelligent, aber fehlt der letzte Funke an Eloquenz und Kreativitaet.
+**Gesamturteil**: 8.5/10 — Solide, intelligent, aber fehlt der letzte Funke an Eloquenz und Kreativität.
 
 ---
 
-### 4. MiniMax-M2.5.i1 (IQ3_M) — Qualitaet: SEHR GUT
+### 4. MiniMax-M2.5.i1 (IQ3_M) — Qualität: SEHR GUT
 
-**Butler-Stil (AIfred)**: Guter Butler-Ton, etwas lockerer als die Qwen-Modelle. Natuerliche Konversation.
+**Butler-Stil (AIfred)**: Guter Butler-Ton, etwas lockerer als die Qwen-Modelle. Natürliche Konversation.
 
 > *Zitat (EN)*: "If I *must* profess a preference — and one does so hate to commit to these matters — I should say that a well-mannered cat suits the quiet life rather nicely."
 
@@ -240,77 +240,77 @@ Noch langsamer als MiniMax Q2_K_XL bei TG. Die Q2_K_XL-Quantisierung ist deutlic
 
 > *Zitat (EN)*: "You speak of 'need' as though it were a virtue, AIfred. But tell me: is the creature who requires constant attention [...] is this not a creature who has surrendered that most precious of Greco-Roman ideals, *autarkeia*?"
 
-**Tribunal-Qualitaet**: Gut. Die Debatte hat ein interessantes Muster: AIfred wird in R2 ueberzeugend genug, um die Position zu wechseln (von "beide gleich gut" zu "Hunde bieten etwas Einzigartiges"). Sokrates kontert mit dem Argument, dass "Beduerftigkeit keine Tugend" ist.
+**Tribunal-Qualität**: Gut. Die Debatte hat ein interessantes Muster: AIfred wird in R2 überzeugend genug, um die Position zu wechseln (von "beide gleich gut" zu "Hunde bieten etwas Einzigartiges"). Sokrates kontert mit dem Argument, dass "Bedürftigkeit keine Tugend" ist.
 
-**Gesamturteil**: 8.0/10 — Schnell, zuverlaessig, gute Qualitaet. Bester Kompromiss aus Speed und Qualitaet bei grossen Modellen.
+**Gesamturteil**: 8.0/10 — Schnell, zuverlässig, gute Qualität. Bester Kompromiss aus Speed und Qualität bei großen Modellen.
 
 ---
 
-### 5. MiniMax-M2.5 (UD-Q2_K_XL) — Qualitaet: GUT
+### 5. MiniMax-M2.5 (UD-Q2_K_XL) — Qualität: GUT
 
 **Butler-Stil (AIfred)**: Akzeptabel, aber mit Artefakten. Gelegentlich tauchen chinesische Zeichen oder Encoding-Fehler auf (z.B. "您的 Gesellschaft" statt "Ihre Gesellschaft"). Der Butler-Ton ist vorhanden, aber weniger poliert.
 
 > *Zitat (DE)*: "Die Wahrheit ist: Es kommt ganz auf den Charakter des Hausherrn an." — Korrekt, aber uninspiriert.
 
-**Philosophischer Stil (Sokrates)**: Kompetent, aber die Q2_K_XL-Quantisierung fuehrt gelegentlich zu Wiederholungen und weniger kohaerenten laengeren Passagen.
+**Philosophischer Stil (Sokrates)**: Kompetent, aber die Q2_K_XL-Quantisierung führt gelegentlich zu Wiederholungen und weniger kohärenten längeren Passagen.
 
-**Tribunal-Qualitaet**: Solide Grundstruktur, aber die langsame Geschwindigkeit (8 tok/s TG) macht das Warten schmerzhaft.
+**Tribunal-Qualität**: Solide Grundstruktur, aber die langsame Geschwindigkeit (8 tok/s TG) macht das Warten schmerzhaft.
 
-**Gesamturteil**: 6.5/10 — Funktional, aber die Q2_K_XL-Quant schadet sowohl der Geschwindigkeit als auch der Textqualitaet. Die i1/IQ3_M-Version ist in jeder Hinsicht besser.
+**Gesamturteil**: 6.5/10 — Funktional, aber die Q2_K_XL-Quant schadet sowohl der Geschwindigkeit als auch der Textqualität. Die i1/IQ3_M-Version ist in jeder Hinsicht besser.
 
 ---
 
-### 6. GPT-OSS-120B-A5B (Q8_0) — Qualitaet: GUT BIS BEFRIEDIGEND
+### 6. GPT-OSS-120B-A5B (Q8_0) — Qualität: GUT BIS BEFRIEDIGEND
 
-**Butler-Stil (AIfred)**: Korrekt, aber etwas steril. Verwendet Tabellen und Aufzaehlungen, was funktional ist, aber den poetischen Butler-Charme verringert. Klingt mehr wie ein strukturierter Report als wie ein Butler-Gespraech.
+**Butler-Stil (AIfred)**: Korrekt, aber etwas steril. Verwendet Tabellen und Aufzählungen, was funktional ist, aber den poetischen Butler-Charme verringert. Klingt mehr wie ein strukturierter Report als wie ein Butler-Gespräch.
 
-> *Zitat (EN)*: "Should you require a more detailed discourse on any specific facet, I would be delighted to oblige, Lord Helmchen." — Hoeflich, aber formulaisch.
+> *Zitat (EN)*: "Should you require a more detailed discourse on any specific facet, I would be delighted to oblige, Lord Helmchen." — Höflich, aber formulaisch.
 
-> *Zitat (DE)*: "Letztlich liegt die Entscheidung, wie ein gutes Glas Whisky, im persoenlichen Geschmack und Lebensstil." — Ein guter Satz, aber ein Ausreisser.
+> *Zitat (DE)*: "Letztlich liegt die Entscheidung, wie ein gutes Glas Whisky, im persönlichen Geschmack und Lebensstil." — Ein guter Satz, aber ein Ausreißer.
 
 **Philosophischer Stil (Sokrates)**: Strukturiert und klar, aber akademisch-trocken. Verwendet die philosophischen Begriffe korrekt, aber ohne Leidenschaft. Liest sich wie eine Seminarbarbeit.
 
 > *Zitat (EN)*: "I contend that the question of superiority can be resolved by appealing to the principle of *utilitas* (usefulness) as measured by the household's capacity to sustain *humanitas*." — Korrekt, aber langweilig.
 
-**Tribunal-Qualitaet**: Die Debatte funktioniert strukturell, aber es fehlt die emotionale Tiefe. Die Argumente sind logisch, aber nicht fesselnd. Keine echte "Reibung" zwischen den Positionen.
+**Tribunal-Qualität**: Die Debatte funktioniert strukturell, aber es fehlt die emotionale Tiefe. Die Argumente sind logisch, aber nicht fesselnd. Keine echte "Reibung" zwischen den Positionen.
 
-**Gesamturteil**: 6.0/10 — Schnellstes Modell mit Abstand, aber die Qualitaet ist enttaeuschend. Perfekt fuer schnelle Antworten, nicht fuer literarische Debatten.
+**Gesamturteil**: 6.0/10 — Schnellstes Modell mit Abstand, aber die Qualität ist enttäuschend. Perfekt für schnelle Antworten, nicht für literarische Debatten.
 
 ---
 
-### 7. Qwen3-235B-A22B (UD-Q2_K_XL) — Qualitaet: GUT
+### 7. Qwen3-235B-A22B (UD-Q2_K_XL) — Qualität: GUT
 
 **Butler-Stil (AIfred)**: Gut, mit echtem Charme und Humor.
 
-> *Zitat (DE)*: "Ein kluger Mann sagte einmal: 'Ein Hund denkt, du seist Gott. Eine Katze weiss, dass sie es ist.'"
+> *Zitat (DE)*: "Ein kluger Mann sagte einmal: 'Ein Hund denkt, du seist Gott. Eine Katze weiß, dass sie es ist.'"
 
 > *Zitat (EN)*: "Indeed, a well-bred canine is seldom content unless its master is pleased, and it will, with unflagging determination, fetch the slipper, guard the gate, or feign interest in a walk on a drizzly Tuesday evening, all with an air of profound satisfaction."
 
 **Philosophischer Stil (Sokrates)**: Stark, mit eloquenten Formulierungen.
 
-> *Zitat (DE)*: "Wenn du wuesstest, dass dein Hund dich liebt, weil du ihm Futter gibst – und deine Katze dich liebt, obwohl sie nichts von dir braucht – welches Lieben waere dann wahrhaftiger?"
+> *Zitat (DE)*: "Wenn du wüsstest, dass dein Hund dich liebt, weil du ihm Futter gibst – und deine Katze dich liebt, obwohl sie nichts von dir braucht – welches Lieben wäre dann wahrhaftiger?"
 
-**Gesamturteil**: 7.5/10 — Die Qualitaet ist vergleichbar mit Q3_K_XL, aber die Q2-Quantisierung ist ~2x langsamer. Kein Grund, Q2 statt Q3 zu verwenden.
+**Gesamturteil**: 7.5/10 — Die Qualität ist vergleichbar mit Q3_K_XL, aber die Q2-Quantisierung ist ~2x langsamer. Kein Grund, Q2 statt Q3 zu verwenden.
 
 ---
 
-### 8. GLM-4.7-REAP-218B-A32B (UD-IQ3_XXS) — Qualitaet: MANGELHAFT
+### 8. GLM-4.7-REAP-218B-A32B (UD-IQ3_XXS) — Qualität: MANGELHAFT
 
-**Butler-Stil (AIfred)**: **Katastrophal**. Das Modell produziert ein bizarres Pseudo-Deutsch mit erfundenen Woertern und grammatikalisch unverstaendlichen Saetzen:
+**Butler-Stil (AIfred)**: **Katastrophal**. Das Modell produziert ein bizarres Pseudo-Deutsch mit erfundenen Wörtern und grammatikalisch unverständlichen Sätzen:
 
 > *Zitat*: "Das ist, indeed, a rather weighty question, meine geschten Fe Herrenhelmhen. Permit me te weigen de pros und cons von beide imeresen offerungen in a manner befitting de complexities vohde soche a deliberation."
 
-"geschten Fe Herrenhelmhen", "imeresen offerungen", "vohde soche" — das sind keine existierenden Woerter in irgendeiner Sprache. Das Modell hat offenbar Schwierigkeiten mit der deutschen Sprache und generiert eine Art "pseudo-hollaendisch-deutsches Kauderwelsch".
+"geschten Fe Herrenhelmhen", "imeresen offerungen", "vohde soche" — das sind keine existierenden Wörter in irgendeiner Sprache. Das Modell hat offenbar Schwierigkeiten mit der deutschen Sprache und generiert eine Art "pseudo-holländisch-deutsches Kauderwelsch".
 
 **Philosophischer Stil (Sokrates)**: Ebenso defekt. Die philosophischen Begriffe fehlen, und die Argumentation ist verworren. Sokrates verwendet ebenfalls das gleiche Kauderwelsch.
 
-**Tribunal-Qualitaet**: Die Debatte ist strukturell erkennbar, aber inhaltlich unbrauchbar. AIfreds R2-Antwort braucht 94 Sekunden TTFT und 256 Sekunden Inferenz fuer einen inkohärenten Text.
+**Tribunal-Qualität**: Die Debatte ist strukturell erkennbar, aber inhaltlich unbrauchbar. AIfreds R2-Antwort braucht 94 Sekunden TTFT und 256 Sekunden Inferenz für einen inkohärenten Text.
 
-**Gesamturteil**: 2.0/10 — Voellig unbrauchbar. Die IQ3_XXS-Quantisierung in Kombination mit der Modellgroesse (218B total, 32B aktiv) zerstoert die Sprachfaehigkeit. Dazu 2.3 tok/s TG und bis zu 94s TTFT.
+**Gesamturteil**: 2.0/10 — Völlig unbrauchbar. Die IQ3_XXS-Quantisierung in Kombination mit der Modellgröße (218B total, 32B aktiv) zerstört die Sprachfähigkeit. Dazu 2.3 tok/s TG und bis zu 94s TTFT.
 
 ---
 
-## Vergleichende Qualitaets-Matrix
+## Vergleichende Qualitäts-Matrix
 
 | Modell | Butler-Stil | Sokrates-Stil | Tribunal-Tiefe | Humor | Persona-Treue | Gesamt |
 |--------|-------------|---------------|-----------------|-------|----------------|--------|
@@ -327,21 +327,21 @@ Noch langsamer als MiniMax Q2_K_XL bei TG. Die Q2_K_XL-Quantisierung ist deutlic
 
 ## Tribunal-Dynamik: Echte Debatte vs. Zustimmung?
 
-Ein zentraler Qualitaetsindikator ist, ob die Agenten **wirklich debattieren** oder nur gegenseitig zustimmen.
+Ein zentraler Qualitätsindikator ist, ob die Agenten **wirklich debattieren** oder nur gegenseitig zustimmen.
 
 ### Muster nach Modell:
 
-**Qwen3-Next-80B-A3B**: **Echte Debatte**. Sokrates greift AIfred's Position substanziell an und stellt die Praemissen in Frage. Die Positionen entwickeln sich ueber die Runden. In der DE-Session eskaliert die Debatte von einer Haustier-Frage zu einer existenziellen Untersuchung ueber menschliche Projektion auf Tiere. Salomo synthetisiert genuinely, statt einfach beiden Recht zu geben.
+**Qwen3-Next-80B-A3B**: **Echte Debatte**. Sokrates greift AIfred's Position substanziell an und stellt die Prämissen in Frage. Die Positionen entwickeln sich über die Runden. In der DE-Session eskaliert die Debatte von einer Haustier-Frage zu einer existenziellen Untersuchung über menschliche Projektion auf Tiere. Salomo synthetisiert genuinely, statt einfach beiden Recht zu geben.
 
-**Qwen3-235B-A22B Q3_K_XL**: **Echte Debatte, akademisch**. Die laengsten und elaboriertesten Argumente. Sokrates baut systematisch drei nummerierte Gegenargumente auf, jedes mit philosophischer Untermauerung. AIfred antwortet punkt-fuer-punkt. Die Debatte hat die Qualitaet eines philosophischen Dialogs.
+**Qwen3-235B-A22B Q3_K_XL**: **Echte Debatte, akademisch**. Die längsten und elaboriertesten Argumente. Sokrates baut systematisch drei nummerierte Gegenargumente auf, jedes mit philosophischer Untermauerung. AIfred antwortet punkt-für-punkt. Die Debatte hat die Qualität eines philosophischen Dialogs.
 
 **Qwen3.5-122B-A10B**: **Echte Debatte, analytisch**. Besonders stark: die "Korrektiv-Tabelle" als originelles Argumentationsformat, das dann demontiert wird.
 
-**MiniMax-M2.5.i1**: **Weitgehend echte Debatte**. Sokrates faellt gelegentlich in einen etwas zu einverstaendlichen Ton ("Ah, most clever! AIfred has turned my very weapon against me"), bleibt aber insgesamt adversarial.
+**MiniMax-M2.5.i1**: **Weitgehend echte Debatte**. Sokrates fällt gelegentlich in einen etwas zu einverständlichen Ton ("Ah, most clever! AIfred has turned my very weapon against me"), bleibt aber insgesamt adversarial.
 
-**GPT-OSS-120B-A5B**: **Eher formale Debatte**. Die Struktur (ATTACK/COUNTER-POSITION/PRO/CONTRA) wird mechanisch befolgt, aber die emotionale Spannung fehlt. Es liest sich wie eine Debating-Club-Uebung.
+**GPT-OSS-120B-A5B**: **Eher formale Debatte**. Die Struktur (ATTACK/COUNTER-POSITION/PRO/CONTRA) wird mechanisch befolgt, aber die emotionale Spannung fehlt. Es liest sich wie eine Debating-Club-Übung.
 
-**GLM-4.7-REAP-218B**: **Keine erkennbare Debatte**. Die Sprachprobleme machen jede inhaltliche Bewertung unmoeglich.
+**GLM-4.7-REAP-218B**: **Keine erkennbare Debatte**. Die Sprachprobleme machen jede inhaltliche Bewertung unmöglich.
 
 ---
 
@@ -349,15 +349,15 @@ Ein zentraler Qualitaetsindikator ist, ob die Agenten **wirklich debattieren** o
 
 ### Beobachtungen:
 
-1. **Alle Modelle performen auf Englisch besser** — schnellere TTFT, kuerzere Inferenz, und (bei kleineren Modellen) kohaerrentere Texte.
+1. **Alle Modelle performen auf Englisch besser** — schnellere TTFT, kürzere Inferenz, und (bei kleineren Modellen) kohärentere Texte.
 
-2. **Qwen3-Next-80B-A3B** zeigt die geringste Qualitaetsdifferenz zwischen DE und EN. Die deutsche Sokrates-Persona mit lateinischen/griechischen Zitaten funktioniert hervorragend.
+2. **Qwen3-Next-80B-A3B** zeigt die geringste Qualitätsdifferenz zwischen DE und EN. Die deutsche Sokrates-Persona mit lateinischen/griechischen Zitaten funktioniert hervorragend.
 
 3. **MiniMax-M2.5 (Q2_K_XL)** hat auf Deutsch gelegentlich Encoding-Artefakte (chinesische Zeichen). Die i1/IQ3_M-Version hat dieses Problem nicht.
 
-4. **GLM-4.7-REAP** ist auf Deutsch voellig unbrauchbar (Pseudo-Sprache). Auf Englisch nicht getestet.
+4. **GLM-4.7-REAP** ist auf Deutsch völlig unbrauchbar (Pseudo-Sprache). Auf Englisch nicht getestet.
 
-5. **Performance-Differenz**: Die TTFT ist bei deutschen Prompts ca. 10-30% hoeher, da deutsche Woerter tendenziell mehr Tokens benoetigen.
+5. **Performance-Differenz**: Die TTFT ist bei deutschen Prompts ca. 10-30% höher, da deutsche Wörter tendenziell mehr Tokens benötigen.
 
 ---
 
@@ -365,44 +365,44 @@ Ein zentraler Qualitaetsindikator ist, ob die Agenten **wirklich debattieren** o
 
 ### Welche Modelle liefern Thinking-Blocks?
 
-| Modell | Thinking? | Qualitaet |
+| Modell | Thinking? | Qualität |
 |--------|-----------|-----------|
-| Qwen3-Next-80B-A3B (Thinking) | Ja, extensiv | **Hervorragend** — 2000+ Token Reasoning, vollstaendige Prompt-Analyse, Sprachplanung, Strukturplanung |
+| Qwen3-Next-80B-A3B (Thinking) | Ja, extensiv | **Hervorragend** — 2000+ Token Reasoning, vollständige Prompt-Analyse, Sprachplanung, Strukturplanung |
 | Qwen3-Next-80B-A3B (instruct) | Nein | — |
-| MiniMax-M2.5 (alle) | Ja | **Gut** — Kuerzer, aber funktional. Analyse der Frage, Persona-Check, Sprachplanung |
-| GPT-OSS-120B-A5B | Ja | **Kurz** — 3-5 Saetze, eher Stichwort-Planung als tiefes Reasoning |
+| MiniMax-M2.5 (alle) | Ja | **Gut** — Kürzer, aber funktional. Analyse der Frage, Persona-Check, Sprachplanung |
+| GPT-OSS-120B-A5B | Ja | **Kurz** — 3-5 Sätze, eher Stichwort-Planung als tiefes Reasoning |
 | Qwen3-235B-A22B | Nein (im Instruct-Modus) | — |
 | Qwen3.5-122B-A10B | Nein | — |
 | GLM-4.7-REAP-218B | Nein | — |
 
-**Besonderes Highlight**: Das Qwen3-Next Thinking-Modell produziert einen ueber 2000-Token Thinking-Block, in dem es:
+**Besonderes Highlight**: Das Qwen3-Next Thinking-Modell produziert einen über 2000-Token Thinking-Block, in dem es:
 - Die Persona-Regeln analysiert
 - Die Sprachauswahl plant (Deutsch mit englischen Einsprengseln)
 - Die Tabellenformatierung plant (Markdown-Pipe-Syntax)
 - Die Anrede analysiert ("Lord Helmchen" -> "Mein Lord")
-- Alternative Formulierungen abwaegt
+- Alternative Formulierungen abwägt
 
-Dieser Thinking-Prozess ist transparenter und gruendlicher als bei allen anderen Modellen.
+Dieser Thinking-Prozess ist transparenter und gründlicher als bei allen anderen Modellen.
 
 ---
 
 ## Empfehlungen
 
-### Fuer interaktive Nutzung (Speed + Quality):
-**Qwen3-Next-80B-A3B (instruct, Q4_K_M)** — 31 tok/s TG, 3s TTFT, hervorragende Qualitaet. Das beste Gesamtpaket.
+### Für interaktive Nutzung (Speed + Quality):
+**Qwen3-Next-80B-A3B (instruct, Q4_K_M)** — 31 tok/s TG, 3s TTFT, hervorragende Qualität. Das beste Gesamtpaket.
 
-### Fuer Showcases und Demos:
-**Qwen3-235B-A22B (Q3_K_XL)** — 11 tok/s TG, etwas langsam fuer interaktiv, aber die eloquentesten Texte. Perfekt fuer vorbereitete Debatten.
+### Für Showcases und Demos:
+**Qwen3-235B-A22B (Q3_K_XL)** — 11 tok/s TG, etwas langsam für interaktiv, aber die eloquentesten Texte. Perfekt für vorbereitete Debatten.
 
-### Fuer maximale Geschwindigkeit:
+### Für maximale Geschwindigkeit:
 **GPT-OSS-120B-A5B (Q8)** — 50 tok/s TG, 1.4s TTFT. Blitzschnell, aber die Antworten fehlt der kreative Funke.
 
-### Fuer grosse Modelle mit gutem Speed/Quality-Kompromiss:
-**MiniMax-M2.5.i1 (IQ3_M)** — 22 tok/s TG, gute Qualitaet. Deutlich besser als die Q2_K_XL-Variante.
+### Für große Modelle mit gutem Speed/Quality-Kompromiss:
+**MiniMax-M2.5.i1 (IQ3_M)** — 22 tok/s TG, gute Qualität. Deutlich besser als die Q2_K_XL-Variante.
 
 ### NICHT empfohlen:
 - **GLM-4.7-REAP-218B (IQ3_XXS)** — Unbrauchbar auf Deutsch, 2.3 tok/s
-- **Qwen3-235B-A22B (Q2_K_XL)** — Wenn Q3_K_XL verfuegbar ist, gibt es keinen Grund fuer Q2
+- **Qwen3-235B-A22B (Q2_K_XL)** — Wenn Q3_K_XL verfügbar ist, gibt es keinen Grund für Q2
 - **MiniMax-M2.5 (Q2_K_XL)** — Die i1/IQ3_M-Version ist 3x schneller und besser
 
 ---
@@ -411,12 +411,12 @@ Dieser Thinking-Prozess ist transparenter und gruendlicher als bei allen anderen
 
 Die Sessions zeigen deutlich den Einfluss der Quantisierung:
 
-| Modell | Q2_K_XL | Q3_K_XL / IQ3_M | Speedup | Qualitaets-Delta |
+| Modell | Q2_K_XL | Q3_K_XL / IQ3_M | Speedup | Qualitäts-Delta |
 |--------|---------|-----------------|---------|-----------------|
 | Qwen3-235B-A22B | 5.8 tok/s | 11.0 tok/s | **1.9x** | Merklich besser |
 | MiniMax-M2.5 | 8.2 tok/s | 22.3 tok/s | **2.7x** | Deutlich besser, keine Encoding-Bugs |
 
-Die Q2_K_XL-Quantisierung ist fuer 228B+ Modelle klar zu aggressiv. Die Qualitaetsverluste (Encoding-Artefakte, weniger kohaerente laengere Texte) sind nicht akzeptabel.
+Die Q2_K_XL-Quantisierung ist für 228B+ Modelle klar zu aggressiv. Die Qualitätsverluste (Encoding-Artefakte, weniger kohärente längere Texte) sind nicht akzeptabel.
 
 ---
 
@@ -448,10 +448,10 @@ Die Q2_K_XL-Quantisierung ist fuer 228B+ Modelle klar zu aggressiv. Die Qualitae
 
 ## Fazit
 
-Die Dog-vs-Cat Benchmark-Suite zeigt eindrucksvoll die Qualitaetsunterschiede zwischen lokalen LLM-Modellen auf 117 GB VRAM.
+Die Dog-vs-Cat Benchmark-Suite zeigt eindrucksvoll die Qualitätsunterschiede zwischen lokalen LLM-Modellen auf 117 GB VRAM.
 
-**Top-Erkenntnis**: Modellgroesse (Total Params) korreliert **nicht** direkt mit Antwortqualitaet. Das Qwen3-Next-80B-A3B mit nur 3B aktiven Parametern liefert qualitativ gleichwertige oder bessere Ergebnisse als das 7.5x groessere Qwen3-235B-A22B — bei 3x hoeherer Geschwindigkeit. Die "Active Parameters" (MoE) und die Quantisierungsqualitaet sind die entscheidenden Faktoren.
+**Top-Erkenntnis**: Modellgröße (Total Params) korreliert **nicht** direkt mit Antwortqualität. Das Qwen3-Next-80B-A3B mit nur 3B aktiven Parametern liefert qualitativ gleichwertige oder bessere Ergebnisse als das 7.5x größere Qwen3-235B-A22B — bei 3x höherer Geschwindigkeit. Die "Active Parameters" (MoE) und die Quantisierungsqualität sind die entscheidenden Faktoren.
 
-**Zweit-Erkenntnis**: Quantisierung unter Q3 schadet der Qualitaet merklich. Q2_K_XL ist bei 228B+ Modellen eine schlechte Wahl — sowohl Performance als auch Textqualitaet leiden. IQ3_M / Q3_K_XL sind der "Sweet Spot".
+**Zweit-Erkenntnis**: Quantisierung unter Q3 schadet der Qualität merklich. Q2_K_XL ist bei 228B+ Modellen eine schlechte Wahl — sowohl Performance als auch Textqualität leiden. IQ3_M / Q3_K_XL sind der "Sweet Spot".
 
 **Dritte Erkenntnis**: Das Tribunal-System funktioniert bemerkenswert gut. Bei guten Modellen entsteht eine echte, intellektuell stimulierende Debatte mit organischer Eskalation, philosophischer Tiefe und einem nuancierten Verdikt. Die Agenten bleiben durchgehend in ihren Personas (Butler, Philosoph, Richter) und produzieren genuinely unterschiedliche Perspektiven.
