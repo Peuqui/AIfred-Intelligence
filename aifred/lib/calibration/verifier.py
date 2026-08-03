@@ -249,25 +249,43 @@ async def _post_chat_probe(port: int, payload: dict, timeout: float) -> bool:
         return False
 
 
-async def _test_inference(port: int, timeout: float = 120.0) -> bool:
+async def _test_inference(
+    port: int, timeout: float = 420.0, ub: int = 512,
+) -> bool:
     """Run a non-trivial inference to provoke peak VRAM allocation.
 
     A 2-token "say ok" probe is enough to catch hard OOM at CUDA-kernel
     init, but not enough to surface peak activation memory: layers fully
     allocate their compute buffers only when handling a longer batch.
-    We send a meaningful prompt and ask for ~64 tokens of generation so
-    the server hits a steady state before we measure VRAM.
+
+    Hardened 2026-08-03 after a production OOM ~15 min into real chat on
+    a profile that had passed verification (DeepSeek-V4 + DSpark,
+    -ub 2048): the old ~30-token prompt never filled the microbatch, so
+    the full-size prompt-processing buffers were first allocated in
+    production. The probe prompt now spans at least two full microbatches
+    (~2×ub tokens) and generation runs 192 tokens so spec-decoding
+    profiles (--model-draft) cycle their draft/verify buffers into
+    steady state before VRAM is measured.
     """
+    # ~20 tokens per sentence → 2×ub tokens with margin. Numbered
+    # sentences keep the prompt incompressible for the tokenizer.
+    n_sentences = max(1, (2 * ub) // 20 + 8)
+    filler = " ".join(
+        f"Item {i}: GPUs execute matrix multiplications across thousands "
+        f"of parallel cores while memory bandwidth limits throughput."
+        for i in range(n_sentences)
+    )
     payload = {
         "model": "test",
         "messages": [{
             "role": "user",
             "content": (
-                "Write a short paragraph about how GPUs are used in machine "
-                "learning. Mention CUDA, tensor cores and memory bandwidth."
+                filler
+                + " Summarize the above in one short paragraph and mention "
+                  "CUDA, tensor cores and memory bandwidth."
             ),
         }],
-        "max_tokens": 64,
+        "max_tokens": 192,
         "temperature": 0.7,
     }
     return await _post_chat_probe(port, payload, timeout)
@@ -527,7 +545,9 @@ async def verify(
                 load_min_free_mb=load_min_free,
             )
 
-        if not await _test_inference(port):
+        ub_match = re.search(r"(?:^|\s)-ub\s+(\d+)", full_cmd)
+        probe_ub = int(ub_match.group(1)) if ub_match else 512
+        if not await _test_inference(port, ub=probe_ub):
             # Log VOR dem Cleanup lesen: nur so bekommt der Blind-Shift die
             # OOM-Karte — vorher wurde der Tail ungelesen verworfen und der
             # Shift hatte kein Ziel ("OOM GPU not identifiable").
