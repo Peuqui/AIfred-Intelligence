@@ -182,6 +182,27 @@ def get_gguf_total_size(gguf_path: Path) -> int:
     return resolved.stat().st_size
 
 
+def find_missing_split_parts(gguf_path: Path) -> list[str]:
+    """Return the filenames of missing parts for a split GGUF.
+
+    Empty list means the model is complete (or not a split GGUF at all).
+    A partial part-set typically means a download is still in progress —
+    callers should skip the model for this run WITHOUT adding it to the
+    persistent skip list, so the next run picks it up once complete.
+    """
+    resolved = gguf_path.resolve()
+    match = re.match(r'^(.+)-(\d{5})-of-(\d{5})\.gguf$', resolved.name)
+    if not match:
+        return []
+    base, _, total_parts = match.groups()
+    missing = []
+    for i in range(1, int(total_parts) + 1):
+        part = resolved.parent / f"{base}-{i:05d}-of-{total_parts}.gguf"
+        if not part.exists():
+            missing.append(part.name)
+    return missing
+
+
 def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
     """Build GPU distribution flags based on model size vs available GPUs.
 
@@ -985,6 +1006,11 @@ def scan_hf_cache() -> list[dict]:
             if re.match(r'.*-\d{5}-of-\d{5}\.gguf$', gguf_file.name):
                 if not gguf_file.name.endswith("-00001-of-" + gguf_file.name.split("-of-")[-1]):
                     continue
+                missing = find_missing_split_parts(gguf_file)
+                if missing:
+                    print(f"  ~ {gguf_file.name}: {len(missing)} part(s) missing "
+                          f"(download in progress?) — skipped this run")
+                    continue
             stem = gguf_file.stem
             split_match = re.match(r'^(.+)-\d{5}-of-\d{5}$', stem)
             if split_match:
@@ -1135,6 +1161,11 @@ def scan_gguf_models() -> list[dict]:
         # Skip split-GGUF parts (only count the first part or single files)
         if re.match(r'.*-\d{5}-of-\d{5}\.gguf$', gguf_file.name):
             if not gguf_file.name.endswith("-00001-of-" + gguf_file.name.split("-of-")[-1]):
+                continue
+            missing = find_missing_split_parts(gguf_file)
+            if missing:
+                print(f"  ~ {gguf_file.name}: {len(missing)} part(s) missing "
+                      f"(download in progress?) — skipped this run")
                 continue
 
         model_stem = gguf_file.stem
