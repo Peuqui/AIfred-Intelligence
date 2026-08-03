@@ -157,28 +157,9 @@ def _restore_code_blocks(text: str, blocks: list[str]) -> tuple[str, int]:
     return _PLACEHOLDER_RE.sub(_sub, text), restored
 
 
-def _split_chunks(text: str, limit: int) -> list[str]:
-    """Text an Absatzgrenzen (Leerzeilen) in Stücke <= ``limit`` teilen.
-
-    NIE mitten im Satz oder pro Zeile schneiden — ein hart umbrochener
-    Absatz, der zeilenweise übersetzt wird, verliert den Satzkontext
-    (beobachtet 2026-07-18: "from a fresh / clone handles …" wurde zu
-    "aus einem neuen / Kümmer sich um …"). Ein einzelner Absatz, der
-    allein schon zu groß ist, geht ungeteilt raus.
-    """
-    paragraphs = text.split("\n\n")
-    chunks: list[str] = []
-    buf = ""
-    for para in paragraphs:
-        candidate = f"{buf}\n\n{para}" if buf else para
-        if buf and len(candidate) > limit:
-            chunks.append(buf)
-            buf = para
-        else:
-            buf = candidate
-    if buf:
-        chunks.append(buf)
-    return chunks
+# Chunking lebt in lib/text_chunking.py (SSOT) — der narrator chunkt
+# mit derselben Funktion, nur mit eigenem Limit.
+from ....lib.text_chunking import split_paragraph_chunks as _split_chunks  # noqa: E402
 
 
 async def _deepl_request(

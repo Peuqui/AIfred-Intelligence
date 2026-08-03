@@ -400,11 +400,13 @@ class AIState(  # type: ignore[misc]
             success, msg = ensure_whisper_ready(timeout=60)
             if not success:
                 self.add_debug(f"❌ {msg}")
+                yield rx.toast.error(f"🎤 Whisper: {msg}", duration=8000, position="top-center")
                 return
 
         # Validate file
         if not files or len(files) == 0:
             self.add_debug("⚠️ No audio file provided")
+            yield rx.toast.error("⚠️ Keine Audio-Datei erhalten", duration=5000, position="top-center")
             return
 
         file = files[0]  # Only process first file
@@ -414,16 +416,25 @@ class AIState(  # type: ignore[misc]
         file_ext = os.path.splitext(file.filename or "")[1].lower()
         if file_ext not in allowed_extensions:
             self.add_debug(f"⚠️ Unsupported audio format: {file_ext}")
+            yield rx.toast.error(
+                f"⚠️ Format {file_ext or '(ohne Endung)'} wird nicht unterstützt "
+                f"({', '.join(allowed_extensions)})",
+                duration=8000, position="top-center",
+            )
             return
 
         # Read file content
         content = await file.read()
         file_size_mb = len(content) / (1024 * 1024)
 
-        # Size limit: 25 MB (Whisper can handle longer files)
-        if file_size_mb > 25:
+        # Sanity cap only — local Whisper has no API limit (see config.py)
+        from ..lib.config import AUDIO_UPLOAD_MAX_MB
+        if file_size_mb > AUDIO_UPLOAD_MAX_MB:
             from ..lib.formatting import format_number
-            self.add_debug(f"⚠️ Audio file too large: {format_number(file_size_mb, 1)} MB (max 25 MB)")
+            msg = (f"Audio file too large: {format_number(file_size_mb, 1)} MB "
+                   f"(max {format_number(AUDIO_UPLOAD_MAX_MB, 0)} MB)")
+            self.add_debug(f"⚠️ {msg}")
+            yield rx.toast.error(f"⚠️ {msg}", duration=8000, position="top-center")
             return
 
         # Save to temporary file for Whisper processing
@@ -445,13 +456,53 @@ class AIState(  # type: ignore[misc]
                 size_display = f"{format_number(file_size_mb, 1)} MB"
 
             self.add_debug(f"🎤 Transcribing audio: {file.filename} ({size_display})...")
+            yield  # flush debug line before the long-running transcription
 
-            user_text, stt_time = transcribe_audio(tmp_path, language=self.ui_language)
+            # Whisper call is a blocking HTTP request that can run for minutes
+            # on long recordings — keep it off the event loop.
+            ui_language = self.ui_language
+            loop = asyncio.get_running_loop()
+            user_text, stt_time = await loop.run_in_executor(
+                None, lambda: transcribe_audio(tmp_path, language=ui_language)
+            )
 
             if user_text:
                 # German number format: 0,2s instead of 0.2s
                 from ..lib.formatting import format_number
                 self.add_debug(f"✅ Transcription complete ({format_number(stt_time, 1)}s)")
+
+                # Long recording (meeting etc.) → workspace file instead of
+                # flooding the input field. The agent can then process it with
+                # its file tools (translate_file, read_file, …).
+                from ..lib.config import TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS
+                if len(user_text) > TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS:
+                    from datetime import datetime
+                    from ..lib import file_manager as fm
+                    stem = re.sub(
+                        r'[^A-Za-z0-9._-]+', '_',
+                        os.path.splitext(file.filename or "audio")[0],
+                    )[:60]
+                    rel_name = f"transcript-{stem}-{datetime.now().strftime('%Y-%m-%d-%H%M')}.txt"
+                    result = fm.write_file(rel_name, user_text)
+                    if result.success:
+                        self.add_debug(
+                            f"📄 Transcript saved to workspace: {rel_name} "
+                            f"({format_number(len(user_text) / 1000, 1)}k chars)"
+                        )
+                        yield rx.toast.success(
+                            f"📄 Transkript gespeichert: {rel_name} — im Chat z. B. "
+                            f"„fasse {rel_name} zusammen“ oder „übersetze {rel_name}“",
+                            duration=12000, position="top-center",
+                        )
+                    else:
+                        self.add_debug(f"❌ Workspace write failed: {result.detail}")
+                        yield rx.toast.error(
+                            f"❌ Transkript konnte nicht gespeichert werden: {result.detail}",
+                            duration=8000, position="top-center",
+                        )
+                    self.add_debug(CONSOLE_SEPARATOR)
+                    console_separator()  # Log-File
+                    return
 
                 # Auto-enable edit mode if transcription contains structured data
                 # (email addresses, URLs) that STT likely got wrong
@@ -490,10 +541,15 @@ class AIState(  # type: ignore[misc]
                         yield  # Forward to UI for real-time updates
             else:
                 self.add_debug("⚠️ Transcription returned empty text")
+                yield rx.toast.error(
+                    "⚠️ Transkription lieferte keinen Text (Whisper-Log prüfen)",
+                    duration=8000, position="top-center",
+                )
 
         except (ImportError, RuntimeError, ValueError, OSError) as e:
             self.add_debug(f"❌ Audio transcription failed: {e}")
             log_message(f"❌ Audio transcription error: {e}")
+            yield rx.toast.error(f"❌ Transkription fehlgeschlagen: {e}", duration=8000, position="top-center")
         finally:
             # Clean up temporary file
             try:

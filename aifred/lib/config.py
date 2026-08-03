@@ -259,6 +259,17 @@ TTS_ENGINE_KEYS = _build_tts_engine_keys()
 # truth: the state mixins read this instead of each hardcoding a key.
 TTS_DEFAULT_ENGINE = "qwen3local"
 
+# narrate_file (narrator plugin): characters per TTS synthesis call.
+# Qwen3-TTS is LLM-based — page-length inputs risk omissions, prosody
+# drift and KV growth toward the VRAM reserve, so text is chunked at
+# paragraph boundaries and the audio is ffmpeg-concatenated afterwards.
+# Raise cautiously after empirical testing with long inputs.
+NARRATE_CHUNK_LIMIT_CHARS = 800
+
+# narrate_file: fallback voice when the caller does not pass one.
+# Must match a reference voice shipped in docker/tts/voices/.
+NARRATE_DEFAULT_VOICE = "AIfred"
+
 # Channel-plugin TTS-engine dropdown options — derived from the
 # TTSEngine registry (aifred.lib.tts_engines). Each engine declares
 # ``suitable_for_channels`` itself, so adding a new engine to the
@@ -1099,6 +1110,22 @@ WHISPER_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "whisper", "
 
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)
 WHISPER_SERVICE_URL = "http://localhost:5080"
+
+# Audio upload for STT transcription: generous sanity cap only — local Whisper
+# has no API limit (the old 25 MB was OpenAI's cloud upload cap). A 2 h meeting
+# as uncompressed WAV is ~1.3 GB. NOTE: uploads through the nginx reverse proxy
+# are additionally capped by its client_max_body_size.
+AUDIO_UPLOAD_MAX_MB = 2048
+
+# Whisper transcribes each file in a single request (no chunking), so long
+# recordings need a matching HTTP timeout. GPU large-v3 runs at roughly
+# 10-20x realtime → 2 h audio ≈ 6-12 min.
+WHISPER_TRANSCRIBE_TIMEOUT_S = 1800
+
+# Transcripts longer than this are written to the workspace (data/documents/)
+# as a text file instead of flooding the input field — the agent can then
+# process them with its file tools (translate_file, read_file, …).
+TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS = 4000
 
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:
