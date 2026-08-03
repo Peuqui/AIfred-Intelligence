@@ -1246,7 +1246,7 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
         return "", 0.0
 
     import requests
-    from .config import WHISPER_SERVICE_URL
+    from .config import WHISPER_SERVICE_URL, WHISPER_TRANSCRIBE_TIMEOUT_S
 
     try:
         with open(audio_path, "rb") as f:
@@ -1254,7 +1254,7 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
                 f"{WHISPER_SERVICE_URL}/transcribe",
                 files={"file": (Path(audio_path).name, f)},
                 data={"device": device, "language": language},
-                timeout=120,
+                timeout=WHISPER_TRANSCRIBE_TIMEOUT_S,
             )
 
         if resp.ok:
