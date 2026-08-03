@@ -211,6 +211,64 @@ def _first_active_slot(full_cmd: str, length: int) -> int:
     return 0
 
 
+def _draft_path(full_cmd: str) -> Path | None:
+    """Pfad des Draft-Sidecar-GGUFs (``--model-draft``/``-md``) aus einem
+    llama-server cmd — Spec-Decoding mit separatem Draft-Modell (DSpark,
+    EAGLE3, DFlash). ``None`` wenn das Flag fehlt."""
+    tokens = shlex.split(full_cmd)
+    for i, tok in enumerate(tokens[:-1]):
+        if tok in ("--model-draft", "-md", "--spec-draft-model"):
+            return Path(tokens[i + 1])
+    return None
+
+
+def _draft_device_slot(full_cmd: str, length: int) -> int:
+    """Slot der GPU, die das Draft-Sidecar trägt. Explizit gesetztes
+    ``--device-draft CUDAn`` gewinnt; sonst die LETZTE aktive Karte laut
+    ``--tensor-split`` — dort liegt der Output-Layer des Hauptmodells,
+    und das Draft MUSS auf dessen Device (sonst ggml-Assert
+    "pre-allocated tensor (output.weight)…"; empirisch DeepSeek-V4-Flash
+    2026-08-03)."""
+    m = re.search(r"(?:--device-draft|--spec-draft-device|-devd)\s+CUDA(\d+)", full_cmd)
+    if m:
+        slot = int(m.group(1))
+        return slot if slot < length else max(length - 1, 0)
+    last = 0
+    m = re.search(r"(?:--tensor-split|-ts)\s+([\d.,]+)", full_cmd)
+    if m:
+        for i, part in enumerate(m.group(1).split(",")[:length]):
+            try:
+                if float(part) > 0:
+                    last = i
+            except ValueError:
+                break
+    return last
+
+
+def _draft_extra_mb(full_cmd: str) -> int:
+    """VRAM des Draft-Sidecars, den llama-fit-params nicht modelliert —
+    ``--model-draft`` steht bewusst nicht in ``_GPU_FLAGS``, und
+    fit-params kann Draft-Head-GGUFs auch nicht selbst laden ("failed
+    to create llama_context", verifiziert am DSpark-Sidecar 2026-08-03).
+    Gleiche Mechanik wie :func:`_mmproj_extra_mb`: Dateigröße (exakt)
+    plus konservativer Headroom für Draft-KV + Compute-Puffer
+    (``LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB``); den Restfehler fängt der
+    adaptive Bias über die realen Verify-Proben, die das Draft im
+    selben Prozess ohnehin mitmessen. 0 wenn kein Draft im cmd oder
+    die Datei fehlt."""
+    from ..config import LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB
+
+    draft = _draft_path(full_cmd)
+    if draft is None:
+        return 0
+    try:
+        weights_mb = int(draft.stat().st_size // (1024 * 1024))
+    except OSError:
+        log_message(f"⚠️ draft projection: file missing: {draft}", category="stats")
+        return 0
+    return weights_mb + LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB
+
+
 async def project(
     full_cmd: str, gguf_path: Path, context: int, ngl: int = 99,
     n_gpus: int | None = None,
@@ -249,6 +307,17 @@ async def project(
         if slot < length:
             used = tuple(
                 u + mmproj_mb if i == slot else u
+                for i, u in enumerate(used)
+            )
+    # fit-params-blinder Draft-Sidecar-Anteil (DSpark/EAGLE3/DFlash) auf
+    # das Draft-Device addieren — gleiche Mechanik wie mmproj: VOR der
+    # free-Ableitung, damit alle Downstream-Verbraucher ihn tragen.
+    draft_mb = _draft_extra_mb(full_cmd)
+    if draft_mb and used:
+        slot = _draft_device_slot(full_cmd, length)
+        if slot < length:
+            used = tuple(
+                u + draft_mb if i == slot else u
                 for i, u in enumerate(used)
             )
     if gpu_total_mb is not None:

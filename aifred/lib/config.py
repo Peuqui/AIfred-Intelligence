@@ -1127,6 +1127,15 @@ WHISPER_TRANSCRIBE_TIMEOUT_S = 1800
 # process them with its file tools (translate_file, read_file, …).
 TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS = 4000
 
+# Draft-sidecar headroom for calibration projection (--model-draft profiles,
+# e.g. DSpark). The sidecar weights are exact (file size); this covers the
+# draft's own KV cache (draft heads have 1-2 layers → small) plus its
+# compute buffers. fit-params cannot load draft-head GGUFs ("failed to
+# create llama_context"), so a parametric projection is not possible —
+# the real verify probes measure the true footprint and the adaptive
+# bias corrects any residual error.
+LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB = 2048
+
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:
 # - LLaMA-2 7B: ~0.5 MB/token (research baseline)
