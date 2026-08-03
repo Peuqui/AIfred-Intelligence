@@ -972,6 +972,15 @@ VRAM_SAFETY_MARGIN = 512  # MB
 # Measured on WSL2: 512 → 70 tok/s (VMM), 1024 → marginal, 1536 → 137 tok/s (full speed)
 _is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
 LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 192  # MB
+
+# Extra margin for draft-sidecar profiles (--model-draft, e.g. DSpark):
+# production OOM'd 2026-08-03 ~15 min into real chat on a profile that had
+# passed verification — spec-decode draft/verify batches allocate compute
+# buffers late, beyond what the (now hardened) probe provokes. Only these
+# profiles pay the extra margin; plain/MTP profiles (Qwen: expensive KV,
+# stable on 192 MB for weeks) keep their context. On MLA models the extra
+# margin costs almost no context anyway.
+LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB = 320
 LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary search
 
 # Maximum tool call rounds per LLM response (safety net against infinite loops)
