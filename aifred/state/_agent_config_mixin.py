@@ -181,7 +181,11 @@ class AgentConfigMixin(rx.State, mixin=True):
             from ..lib.gguf_utils import resolve_reasoning_levels
             levels = resolve_reasoning_levels(model_id)
         set_agent_setting(self, agent, "reasoning_levels", levels)
-        if get_agent_setting(self, agent, "reasoning_effort") not in ("", *levels):
+        # Effort gegen die EFFEKTIVEN Stufen validieren (Owner-aware):
+        # Beim Umstellen auf "(wie AIfred-LLM)" ist die eigene Liste leer,
+        # aber ein gesetztes "high" bleibt gültig, solange der Owner es kann.
+        effective = self._effective_reasoning_levels(agent)
+        if get_agent_setting(self, agent, "reasoning_effort") not in ("", *effective):
             set_agent_setting(self, agent, "reasoning_effort", "")
             self._save_settings()  # type: ignore[attr-defined]
 
@@ -195,10 +199,23 @@ class AgentConfigMixin(rx.State, mixin=True):
     def vision_thinking_mode(self) -> str:
         return self._agent_thinking_mode("vision")
 
+    def _effective_reasoning_levels(self, agent: str) -> list[str]:
+        """Reasoning-Levels des Modells, das für diesen Agenten real lädt.
+
+        Agenten ohne eigenes Modell ("(wie AIfred-LLM)") erben AIfreds LLM —
+        und damit dessen steuerbare Effort-Stufen (z.B. DeepSeek-V4
+        high/max). Vorher zeigte ihr Dropdown nur Aus/An, weil die eigene
+        ``reasoning_levels``-Liste leer blieb. Owner-Lookup über die
+        ``model_owner``-SSOT, damit ein AIfred-Modellwechsel die Stufen
+        aller Erben automatisch mitzieht."""
+        from ..lib.agent_settings import get_agent_setting, model_owner
+        levels: list[str] = get_agent_setting(
+            self, model_owner(self, agent), "reasoning_levels",
+        )
+        return levels
+
     def _agent_thinking_options(self, agent: str) -> list[str]:
-        from ..lib.agent_settings import get_agent_setting
-        levels: list[str] = get_agent_setting(self, agent, "reasoning_levels")
-        return [*self._thinking_mode_labels()] + levels
+        return [*self._thinking_mode_labels()] + self._effective_reasoning_levels(agent)
 
     @rx.var(deps=["agent_tuning", "ui_language"], auto_deps=False)
     def aifred_thinking_options(self) -> list[str]:
