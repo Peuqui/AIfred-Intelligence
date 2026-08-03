@@ -43,6 +43,12 @@ LLAMASWAP_CONFIG = Path.home() / ".config" / "llama-swap" / "config.yaml"
 # Delete an entry manually to re-test after a llama.cpp update.
 AUTOSCAN_SKIP_FILE = LLAMASWAP_CONFIG.parent / "autoscan-skip.json"
 
+# Speculative-decoding sidecar GGUFs (draft models for --model-draft).
+# Not standalone models — llama.cpp's own sidecar discovery uses exactly
+# these filename prefixes (common/download.cpp). Without this skip the
+# autoscan burns minutes trying to calibrate a draft head as an LLM.
+SPECULATIVE_SIDECAR_PREFIXES = ("mtp-", "eagle3-", "dflash-", "dspark-")
+
 
 # ---------------------------------------------------------------------------
 # Config IO — SSOT for llama-swap config.yaml read/write
@@ -1002,6 +1008,9 @@ def scan_hf_cache() -> list[dict]:
             continue
         # Scan top-level AND subdirectories (split GGUFs in quant-named subdirs)
         for gguf_file in sorted(snapshot.rglob("*.gguf")):
+            # Draft-sidecar GGUFs (dspark-, mtp-, …) belong to their main model
+            if gguf_file.name.startswith(SPECULATIVE_SIDECAR_PREFIXES):
+                continue
             # Skip split-GGUF parts (only count the first part or single files)
             if re.match(r'.*-\d{5}-of-\d{5}\.gguf$', gguf_file.name):
                 if not gguf_file.name.endswith("-00001-of-" + gguf_file.name.split("-of-")[-1]):
@@ -1156,6 +1165,10 @@ def scan_gguf_models() -> list[dict]:
     for gguf_file in sorted(MODELS_DIR.rglob("*.gguf")):
         # mmproj files are not standalone models
         if gguf_file.name.startswith("mmproj-"):
+            continue
+
+        # Draft-sidecar GGUFs (dspark-, mtp-, …) belong to their main model
+        if gguf_file.name.startswith(SPECULATIVE_SIDECAR_PREFIXES):
             continue
 
         # Skip split-GGUF parts (only count the first part or single files)

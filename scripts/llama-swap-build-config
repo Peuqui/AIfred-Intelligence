@@ -426,9 +426,21 @@ def normalize_cmd(cmd: str, model_name: str, mtp_cache: dict) -> tuple[str, str]
             tokens[insert_at:insert_at] = ["--mmproj", str(mmproj)]
             sys.stderr.write(f"👁️  {model_name}: --mmproj gesetzt ({mmproj.name})\n")
 
+    # Sidecar-Draft-Profile (DSpark / EAGLE3 / DFlash): Spec-Setup ist
+    # handkalibriert (separates Draft-GGUF via --model-draft, Device-
+    # Pinning, eigene Draft-Params) — build-config kennt nur MTP/ngram
+    # und würde es zu ngram zurücknormalisieren und das --model-draft
+    # verwaisen lassen. Deshalb Spec-Flags unangetastet lassen; die
+    # Pflege-Schritte (mmproj, Dedupe, MoE-Batch) laufen normal weiter.
+    sidecar_spec_types = {"draft-dspark", "draft-eagle3", "draft-dflash"}
+    preserve_spec = any(
+        tok == "--spec-type" and i + 1 < len(tokens) and tokens[i + 1] in sidecar_spec_types
+        for i, tok in enumerate(tokens)
+    )
+
     has_mtp = detect_mtp(model_path, mtp_cache)
     is_moe = detect_moe(model_path, mtp_cache)
-    base = strip_spec_tokens(tokens)
+    base = list(tokens) if preserve_spec else strip_spec_tokens(tokens)
     # Historische Dubletten (-sm/--tensor-split/-fit doppelt) entfernen und
     # --cache-reuse idempotent neu setzen (strip + re-inject wie bei Spec).
     base = dedupe_flag_tokens(base)
@@ -442,11 +454,13 @@ def normalize_cmd(cmd: str, model_name: str, mtp_cache: dict) -> tuple[str, str]
     if is_moe:
         base = force_flag_value(base, "-b", "2048")
         base = force_flag_value(base, "-ub", "2048")
-    spec = build_spec_flags(model_path, has_mtp)
+    spec = [] if preserve_spec else build_spec_flags(model_path, has_mtp)
     new_tokens = base + spec
     if "--mmproj" not in new_tokens:
         new_tokens = new_tokens + CACHE_REUSE_FLAGS
     new_cmd = " ".join(quote_if_needed(t) for t in new_tokens)
+    if preserve_spec:
+        return new_cmd, "sidecar"
     return new_cmd, ("MTP" if has_mtp else "ngram")
 
 
@@ -649,7 +663,7 @@ def main() -> int:
     # Status-Übersicht (auch wenn nichts geändert wurde)
     sys.stderr.write("Speculative-Status pro Modell:\n")
     for name, status in summary:
-        symbol = {"MTP": "🚀", "ngram": "📋", "skip": "⚠️ "}.get(status, "?")
+        symbol = {"MTP": "🚀", "ngram": "📋", "sidecar": "🎯", "skip": "⚠️ "}.get(status, "?")
         sys.stderr.write(f"  {symbol} {status:5}  {name}\n")
 
     if changed == 0 and not removed_tts and not removed_gguf:
