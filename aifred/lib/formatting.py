@@ -769,6 +769,23 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
     return xml_tags
 
 
+def neutralize_markdown_fences(text: str) -> str:
+    """Markdown-Codeblock-Fences in Denk-/Debug-Text entschärfen.
+
+    Thinking-Inhalte werden roh in <details>-HTML eingebettet und laufen
+    danach durch den Markdown-Renderer der Bubble. Ein UNGEPAARTER
+    ```-Fence im Denktext (DeepSeek skizziert beim Denken gern Pseudocode)
+    öffnet dann einen nie geschlossenen Codeblock und verschluckt den
+    kompletten Rest der Bubble — beobachtet 2026-08-04 (Aquarium-Session:
+    nur das Denk-Collapsible sichtbar, Antwort + iframe weg). Ein
+    Zero-Width-Space nach dem ersten Zeichen zerstört die Fence-Erkennung,
+    bleibt aber optisch unsichtbar. Gilt für ``` und ~~~ an Zeilenanfängen.
+    """
+    text = re.sub(r"(?m)^(\s*)```", "\\1`\u200b``", text)
+    text = re.sub(r"(?m)^(\s*)~~~", "\\1~\u200b~~", text)
+    return text
+
+
 def format_thinking_process(ai_response: str, model_name: str | None = None, inference_time: float | None = None, tokens_per_sec: float | None = None, lang: str | None = None) -> str:
     """
     Format XML tags as collapsible accordions (GENERIC).
@@ -848,6 +865,7 @@ def format_thinking_process(ai_response: str, model_name: str | None = None, inf
 
         # Collapse multiple consecutive blank lines (pre-wrap preserves them literally)
         content = re.sub(r'\n{3,}', '\n\n', content.strip())
+        content = neutralize_markdown_fences(content)
 
         # Strip residual same-type tag delimiters that leaked into the content
         # via malformed nesting. A thinking model (Qwen3) re-emits a bare
@@ -956,6 +974,7 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
         time_suffix = f" • {query_time:.1f}s" if query_time else ""
         query_opt_label = t("collapsible_query_optimization", lang=lang)
         clean_reasoning = re.sub(r'\n{3,}', '\n\n', query_reasoning.strip())
+        clean_reasoning = neutralize_markdown_fences(clean_reasoning)
         debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{query_opt_label} ({automatik_model}){time_suffix}</summary>
 <div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">
@@ -972,6 +991,7 @@ def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model,
             time_suffix = f" • {final_time:.1f}s" if final_time else ""
             thinking_label = t("collapsible_thinking_process", lang=lang)
             clean_content = re.sub(r'\n{3,}', '\n\n', content.strip())
+            clean_content = neutralize_markdown_fences(clean_content)
             debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{thinking_label} ({main_model}){time_suffix}</summary>
 <div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">

@@ -17,7 +17,6 @@ import cv2
 import numpy as np
 import pytest
 
-import aifred.plugins.tools.vision as vp
 from aifred.lib.frame_sources import (
     Frame,
     SourceInfo,
@@ -28,6 +27,14 @@ from aifred.lib.plugin_base import PluginContext
 from aifred.lib.vision_filters.face_detect import FaceDetection
 from aifred.lib.vision_store import VisionStore
 from aifred.lib.vision_watcher import VisionWatcher
+
+# Vision kann per Plugin-Manager deaktiviert sein (Verzeichnis liegt dann
+# unter plugins/disabled/) — die Suite muss diesen Betriebszustand
+# überspringen statt beim Collecten zu sterben.
+vp = pytest.importorskip(
+    "aifred.plugins.tools.vision",
+    reason="Vision-Plugin deaktiviert (plugins/disabled/)",
+)
 
 
 def run(coro):

@@ -925,7 +925,9 @@ async def summarize_history_if_needed(
         inner_html = ""
         if thinking_content:
             # Collapse multiple consecutive blank lines
+            from .formatting import neutralize_markdown_fences
             clean_thinking = re.sub(r'\n{3,}', '\n\n', thinking_content.strip())
+            clean_thinking = neutralize_markdown_fences(clean_thinking)
             inner_html += (
                 '<details style="font-size: 0.9em; margin-bottom: 0.5em;">\n'
                 '<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
