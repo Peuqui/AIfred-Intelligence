@@ -22,6 +22,7 @@ Hardware-Basis seit 2026-06/07: 5 GPUs = 192 GB VRAM
 | 2026-07-31 | **`-ub` 512 → 2048** für MoE-Multi-GPU-Profile (`7f26658f`) + Neu-Kalibrierung 122B/397B | MoE-Experten-Reads amortisieren sich über größere Microbatches. llama-bench 397B pp8192: 240 → 399 tok/s (+66 %); 122B API-Messung: PP ~400 → 839–855 tok/s (~2,1×). Decode überall unverändert. VRAM-Preis real ~1 GB/GPU |
 | 2026-07-31 | **MoE-Erkennung generisch** via `expert_count` aus GGUF-Metadaten (`80f5d739`) — auch Profile ohne bestehendes `-ub` (35B) bekommen `-b/-ub 2048`; greift automatisch für jedes neue Modell | llama-bench 35B-A3B pp8192: 1.585 → 2.423 tok/s (+53 %). Dense-Modelle bleiben bewusst bei ub 512 (27B: nur +6–8 % messbar) |
 | 2026-07-31 | **Kalibrierungs-Umbau** (`ae98e3d3`, `fa087959`): bidirektionaler Math-Bias mit OOM-Floor, Fastest-First-Kaskade (idle schnellere Karten vor Downstream-Überlauf), mmproj-Gewichte + Encode-Buffer-Burn-In in der fit-params-Projektion | Keine Inferenz-Wirkung, aber: 35B-Komplettkalibration in 13 min (vorher 397B-Klasse: 2,5 h), korrekte 2×-RTX-Splits statt V100-Streuung, alle Side-Channel-Varianten ohne Extra-Probes abgeleitet |
+| 2026-08-03/04 | **DeepSeek-V4-Flash-0731 + DSpark** (llama.cpp PR #25784, gemerged 02.08.): erstes Sidecar-Draft-Modell (`--model-draft` + `--spec-type draft-dspark`, n-max 5, Draft aufs Output-Device CUDA4 gepinnt); Kalibrierung um Draft-Projektion (`207a4dc6`) + gehärtete Verify-Probe (`e9855789`) erweitert; llama.cpp auf b10257 + cuBLAS-Workspace-Patch (PR #26574) wegen sporadischer Volta/Turing-Aborts (#26554, 4 Crashes) | Juli-Fehlversuch (11 TG, TTFT 6 min) → produktiv: PP med 325 (1,8× vs. 397B), TTFT med 35 s (3× schneller), TG 19–41 content-abhängig (Accept 61–65 %). Ctx 193K Basis / 425K TTS-Variante dank spottbilligem MLA-KV (~0,5 MB/1K auf engster Karte). User-Politik: DeepSeek nur noch MIT DSpark |
 
 ---
 
@@ -91,6 +92,30 @@ Dense — von der ub-Umstellung bewusst ausgenommen (Messgewinn nur +6–8 %).
 |---|---|---|---|
 | 30.07. | ub 512 (dense) | 2.738–3.211 | 66–92 |
 
+### DeepSeek-V4-Flash-0731 284B-A13B UD-Q4_K_XL (5 GPUs, DSpark)
+
+Erstes Modell mit **Sidecar-Draft** (separates 11-GB-DSpark-GGUF via
+`--model-draft`, Accept-Raten 61–65 %) statt eingebauter MTP-Heads.
+TG ist stark content-abhängig — die Session-Werte sind ANTWORT-
+Durchschnitte (inkl. schlecht draftender Reasoning-Phasen ~20 tok/s);
+die Momentan-Rate beim Schreiben von Code/Dateien liegt live bei
+**40–45 tok/s** (llama-stats-Beobachtung 04.08. — strukturierter
+Output drafted nahe am Acceptance-Maximum). Läuft auf llama.cpp
+b10257 + cuBLAS-Workspace-Patch (PR #26574, Volta/Turing-Bug #26554).
+
+| Zeitraum | Konfiguration | PP | TG |
+|---|---|---|---|
+| 10.07. | Alt-Modell UD-Q8_K_XL, **ohne** Spec-Decoding (Basis-Support #24162) | 142–144 | 10–12 (TTFT ~354 s!) → verworfen |
+| 03.–04.08. | 0731 UD-Q4_K_XL, **DSpark n-max 5**, ub 2048, ctx 193K | 163–376 (med 325) | 19–41 (med 24) |
+
+**Direktvergleich zum 397B (Sessions Juli/August):** PP med 325 vs.
+181 (~1,8×), TTFT med 35 s vs. 114 s (~3×) — Generierung im
+Antwort-Schnitt med 24 vs. 36 zugunsten des 397B; beim reinen
+Code-Schreiben liegen beide gleichauf (40–45), der 397B-Vorsprung
+entsteht in den Reasoning-Phasen (MTP drafted Denktext besser als
+DSpark). Qualitativ (Aquarium-Burst-Benchmark des Users) ist
+V4-Flash die neue Nr. 1 im Coding.
+
 ### Historische Referenz (Vor-MTP-Ära, 4-GPU-Setup, andere Modelle)
 
 Aus `showcase-notes.md` (Frühjahr 2026): GPT-OSS-120B 541 PP / 50 TG;
@@ -110,3 +135,9 @@ Größenordnung vor MTP + 5-GPU-Ausbau.
 - End-to-End-PP liegt systematisch unter den llama-bench-Werten
   (Server-Overhead, Streaming, kurze Prompts amortisieren schlechter);
   die API-`timings` des llama-servers sind der ehrlichste Live-Wert.
+- **DSpark** (Sidecar-Draft, DeepSeek-0731) wirkt wie MTP auf die
+  Generierung, aber mit niedrigeren Accept-Raten (61–65 % vs. 90–96 %
+  bei MTP) und stark content-abhängig: strukturierter Code drafted
+  fast doppelt so schnell wie freie Prosa. Der PP-Vorsprung des
+  V4-Flash kommt nicht vom Draft, sondern von der Architektur
+  (43 Layer, Sparse-Attention-Indexer, billiger MLA-KV).
