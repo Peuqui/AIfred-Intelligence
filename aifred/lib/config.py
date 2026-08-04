@@ -1385,7 +1385,14 @@ EPIM_FB_DIR = PROJECT_ROOT / "lib" / "firebird25"
 # ============================================================
 SECURITY_AUDIT_DB = DATA_DIR / "security" / "audit.db"
 SECURITY_AUDIT_RETENTION_DAYS = 7       # tool_audit-Zeilen aelter als N Tage taeglich pruegen (sonst append-only unbegrenzt)
-SECURITY_MAX_TOOL_CHAIN_DEPTH = 10      # Max tool calls per single LLM request
+# Max tool calls per single LLM request (counter lives on the per-request
+# ToolKit — every new user request starts at 0 again). Havarie-Deckel, kein
+# Arbeits-Budget: ehrliche Selbsttest-Zyklen (Codine: schreiben → rendern →
+# Screenshot → nachbessern) erreichten die alten 10 in Minuten und wurden
+# beim finalen Verifikations-Render geblockt (2026-08-04). Echte Schleifen
+# fängt SECURITY_MAX_IDENTICAL_TOOL_CALLS; dieser Deckel stoppt nur noch
+# degenerierte Varianten-Ketten kleiner Modelle. 0 = deaktiviert.
+SECURITY_MAX_TOOL_CHAIN_DEPTH = 50
 SECURITY_MAX_IDENTICAL_TOOL_CALLS = 2   # Same tool+args this many times → next identical call is refused (loop breaker; 0 = off)
 SECURITY_RATE_LIMIT_WINDOW_SEC = 60     # Rate limit window in seconds
 SECURITY_RATE_LIMITS: dict[str, int] = {
