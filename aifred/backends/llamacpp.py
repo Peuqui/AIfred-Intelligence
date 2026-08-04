@@ -23,6 +23,22 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 
+def _require_timings(server_timings: Dict[str, Any]) -> None:
+    """Fail with a diagnostic message when llama-server timings are absent.
+
+    A response without ``timings`` means the server died mid-generation
+    (stream cut, llama-swap restarts it) — the former bare
+    ``server_timings["predicted_per_second"]`` access surfaced that as a
+    cryptic ``KeyError: 'predicted_per_second'`` in the UI (3x on
+    2026-08-03). Keep it an error — never fake numbers — just say what
+    actually happened."""
+    if "predicted_per_second" not in server_timings:
+        raise RuntimeError(
+            "llama-server returned no timings — server crashed "
+            "mid-generation (see `journalctl -u llama-swap`)"
+        )
+
+
 class LlamaCppBackend(OpenAICompatibleBackend):
     """llama.cpp backend via llama-swap (OpenAI-compatible)
 
@@ -167,6 +183,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         server_timings: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Use llama-server's pure inference timings."""
+        _require_timings(server_timings)
         return {
             "tokens_prompt": prompt_tokens,
             "tokens_generated": total_tokens,
@@ -186,6 +203,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         server_timings: Dict[str, Any],
     ) -> LLMResponse:
         """Use llama-server's pure inference timings."""
+        _require_timings(server_timings)
         return LLMResponse(
             text=text,
             tokens_prompt=tokens_prompt,
