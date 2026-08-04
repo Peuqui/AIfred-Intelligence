@@ -985,9 +985,9 @@ LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 192  # MB
 LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB = 64
 LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary search
 
-# Maximum tool call rounds per LLM response (safety net against infinite loops)
-# After this limit, a final response without tools is forced.
-MAX_TOOL_ROUNDS = 10
+# MAX_TOOL_ROUNDS ist als SSOT vom Call-Budget abgeleitet und lebt
+# direkt bei seiner Quelle SECURITY_MAX_TOOL_CHAIN_DEPTH im
+# SECURITY-CONFIGURATION-Block weiter unten.
 
 # Forced-Research pipeline URL counts (quick vs deep).
 # Es wird einmal gescraped, alles was klappt wird genommen — keine Re-Try-Logik.
@@ -1393,6 +1393,19 @@ SECURITY_AUDIT_RETENTION_DAYS = 7       # tool_audit-Zeilen aelter als N Tage ta
 # fängt SECURITY_MAX_IDENTICAL_TOOL_CALLS; dieser Deckel stoppt nur noch
 # degenerierte Varianten-Ketten kleiner Modelle. 0 = deaktiviert.
 SECURITY_MAX_TOOL_CHAIN_DEPTH = 50
+
+# Maximum tool call rounds per LLM response — der harte Not-Aus der
+# Loop-SCHLEIFE (nach Limit: Finalantwort ohne Tools erzwungen), während
+# SECURITY_MAX_TOOL_CHAIN_DEPTH einzelne CALLS budgetiert (Modell bekommt
+# Fehler-Results und kann reagieren). Beide teilen denselben Geist, daher
+# SSOT: Rounds wird vom Call-Budget ABGELEITET statt separat gepflegt —
+# zwei getrennte Zehner erzeugten 2026-08-04 den Bug, dass das Runden-
+# Finale tools-lose Aufrufe erzwang, in denen DeepSeek seine Calls als
+# rohen DSML-Text in die Bubble schrieb. Invariante Rounds >= Calls ist
+# damit strukturell gesichert (eine Runde kann mehrere Calls enthalten,
+# d.h. das Call-Budget erschöpft nie NACH den Runden). Fallback 100:
+# Call-Budget 0 = "deaktiviert" darf den Not-Aus nicht mitdeaktivieren.
+MAX_TOOL_ROUNDS = SECURITY_MAX_TOOL_CHAIN_DEPTH or 100
 SECURITY_MAX_IDENTICAL_TOOL_CALLS = 2   # Same tool+args this many times → next identical call is refused (loop breaker; 0 = off)
 SECURITY_RATE_LIMIT_WINDOW_SEC = 60     # Rate limit window in seconds
 SECURITY_RATE_LIMITS: dict[str, int] = {
