@@ -975,12 +975,14 @@ LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 192  # MB
 
 # Extra margin for draft-sidecar profiles (--model-draft, e.g. DSpark):
 # production OOM'd 2026-08-03 ~15 min into real chat on a profile that had
-# passed verification — spec-decode draft/verify batches allocate compute
-# buffers late, beyond what the (now hardened) probe provokes. Only these
-# profiles pay the extra margin; plain/MTP profiles (Qwen: expensive KV,
-# stable on 192 MB for weeks) keep their context. On MLA models the extra
-# margin costs almost no context anyway.
-LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB = 320
+# passed verification. Root cause was the too-soft verify probe (fixed:
+# probe now fills ≥2 microbatches and cycles draft/verify buffers), so the
+# extra margin only covers long-run fragmentation on top. Kept small on
+# purpose: on MLA models (cheap KV) every 100 MB of margin costs a six-
+# figure token count of calibrated context — the opposite trade-off of
+# dense-KV models. Only --model-draft profiles pay this; plain/MTP
+# profiles keep the base margin.
+LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB = 64
 LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary search
 
 # Maximum tool call rounds per LLM response (safety net against infinite loops)
