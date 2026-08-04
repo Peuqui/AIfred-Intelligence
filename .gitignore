@@ -134,3 +134,6 @@ data/FreeEchoDot2/
 
 # Private PR-/Marketing-Drafts (Foren-Posts, Redaktions-Mails) — nicht öffentlich
 /_private/
+
+# Plugin-Manager verschiebt deaktivierte Plugins hierher (transienter Zustand)
+aifred/plugins/disabled/
