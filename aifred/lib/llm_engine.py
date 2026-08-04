@@ -385,6 +385,12 @@ async def generate_session_title(
     user_short = re.sub(r'<[^>]+>', '', user_text).strip()[:500]
     ai_short = strip_thinking_blocks(ai_response)[:500] if ai_response else ""
     if not user_short or not ai_short:
+        # Happens legitimately after a crashed generation (answer was
+        # reasoning-only → empty after thinking-strip) — but say WHY,
+        # the bare "empty response" downstream is undebuggable.
+        from .debug_bus import debug
+        which = "user text" if not user_short else "AI answer (empty after thinking-strip)"
+        debug(f"📝 Title skipped: no usable {which}")
         return ""
 
     prompt = load_prompt(
@@ -415,6 +421,13 @@ async def generate_session_title(
 
         title = strip_thinking_blocks(response.text.strip()).strip().strip('"\'').rstrip('.!?:')
 
+        if not title:
+            from .debug_bus import debug
+            debug(
+                f"📝 Title LLM returned empty text "
+                f"(raw len {len(response.text or '')}, model {model})"
+            )
+
         if title and len(title) > 80:
             title = title[:77] + "..."
 
@@ -431,4 +444,8 @@ async def generate_session_title(
         return ""
     except Exception as exc:
         log_message(f"Title generation failed: {exc}", "warning")
+        # Also surface in the session debug console — the logfile is
+        # truncated on every restart, which already ate one diagnosis.
+        from .debug_bus import debug
+        debug(f"📝 Title generation failed: {exc}")
         return ""
