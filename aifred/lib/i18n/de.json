@@ -769,5 +769,6 @@
   "doc_manager_title": "📁 Dokumente",
   "doc_manager_empty": "Noch keine Dokumente hochgeladen.",
   "doc_manager_chunks": "{chunks} Abschnitte",
-  "doc_manager_close": "Schließen"
+  "doc_manager_close": "Schließen",
+  "generation_interrupted": "⚠️ *Generierung unterbrochen — Antwort unvollständig*"
 }

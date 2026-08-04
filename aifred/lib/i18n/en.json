@@ -769,5 +769,6 @@
   "doc_manager_title": "📁 Documents",
   "doc_manager_empty": "No documents uploaded yet.",
   "doc_manager_chunks": "{chunks} chunks",
-  "doc_manager_close": "Close"
+  "doc_manager_close": "Close",
+  "generation_interrupted": "⚠️ *Generation interrupted — response incomplete*"
 }
