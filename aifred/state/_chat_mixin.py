@@ -1445,6 +1445,38 @@ class ChatMixin(rx.State, mixin=True):
             # "[Recherche: N Quellen]" marker in its llm_history.
             self._research_source_count = 0  # type: ignore[attr-defined]
 
+            # Partial-response rescue: when the handler is aborted
+            # mid-stream (CancelledError from the stop button or pipeline
+            # supersession, GeneratorExit on shutdown/worker respawn), the
+            # streamed text so far lives ONLY in current_ai_response —
+            # add_agent_panel never ran and a minutes-long answer would be
+            # lost. Persist it as a visibly interrupted bubble. Gate on
+            # "last chat entry is not an assistant panel": the success path
+            # and the except-Exception path both appended one already (the
+            # except path also rewrote current_ai_response to the error
+            # text — without this gate we would duplicate it). No yield
+            # here: safe during GeneratorExit unwinding.
+            _last_entry = (
+                self._chat_sub().chat_history[-1]
+                if self._chat_sub().chat_history else {}
+            )
+            _partial = self._streaming_sub().current_ai_response  # type: ignore[attr-defined]
+            if _last_entry.get("role") != "assistant" and _partial.strip():
+                from ..lib.i18n import t
+                _lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+                self.add_agent_panel(
+                    agent=self.current_agent or "aifred",
+                    content=f"{_partial}\n\n{t('generation_interrupted', lang=_lang)}",
+                    mode="standard",
+                    round_num=None,
+                    metadata=None,
+                    sync_llm_history=True,
+                )
+                self.add_debug(
+                    f"⚠️ Partial response rescued ({len(_partial)} chars) "
+                    f"after aborted generation"
+                )
+
             self.is_generating = False
             if not _client_gone:
                 yield  # Let React update is_generating=False (button re-enables via Reflex binding)
