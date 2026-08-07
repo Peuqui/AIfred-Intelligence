@@ -56,6 +56,11 @@ EAGER_LOAD = os.environ.get("WHISPER_EAGER_LOAD", "1") in ("1", "true", "True")
 # Minimum free VRAM (MiB) to load GPU model. Whisper medium ≈ 1500 MiB.
 _MIN_VRAM_MIB = int(os.environ.get("WHISPER_MIN_VRAM_MIB", "2000"))
 
+# Max wait for one GPU transcription result. Long meeting recordings need
+# minutes even on GPU (medium ≈ 10-20x realtime → 2 h audio ≈ 6-12 min);
+# matches the AIfred-side WHISPER_TRANSCRIBE_TIMEOUT_S.
+_GPU_RESULT_TIMEOUT_S = int(os.environ.get("WHISPER_GPU_RESULT_TIMEOUT_S", "1800"))
+
 
 # ── CPU Model (main process, permanent) ──────────────────────
 
@@ -118,37 +123,44 @@ _gpu_device_index: int | None = None
 _gpu_model_name: str = ""  # Track which model is loaded on GPU
 
 
-def _find_best_gpu() -> int | None:
-    """Find the GPU with the most free VRAM. Prefers completely empty GPUs."""
+def _find_best_gpu() -> tuple[int, str] | None:
+    """Find the GPU with the most free VRAM. Prefers completely empty GPUs.
+
+    Returns (nvidia-smi index, GPU UUID). The worker pins the card via its
+    UUID — same SSOT technique as the llama-swap profiles — so the CUDA
+    enumeration order (FASTEST_FIRST vs PCI) can never select a different
+    card than the one reported here.
+    """
     import subprocess
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,memory.free,memory.used,name",
+            ["nvidia-smi", "--query-gpu=index,uuid,memory.free,memory.used,name",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         )
-        best_idx: int | None = None
+        best: tuple[int, str] | None = None
         best_free, best_used = 0, float("inf")
         for line in result.stdout.strip().split("\n"):
             parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 4:
-                idx, free, used = int(parts[0]), int(parts[1]), int(parts[2])
-                name = parts[3]
+            if len(parts) >= 5:
+                idx, uuid = int(parts[0]), parts[1]
+                free, used = int(parts[2]), int(parts[3])
+                name = parts[4]
                 print(f"[Whisper]   GPU {idx}: {name} — {free} MiB free, {used} MiB used", flush=True)
                 if free < _MIN_VRAM_MIB:
                     continue
-                if best_idx is None:
-                    best_idx, best_free, best_used = idx, free, used
+                if best is None:
+                    best, best_free, best_used = (idx, uuid), free, used
                 elif used == 0 and best_used > 0:
-                    best_idx, best_free, best_used = idx, free, used
+                    best, best_free, best_used = (idx, uuid), free, used
                 elif (used == 0) == (best_used == 0) and free > best_free:
-                    best_idx, best_free, best_used = idx, free, used
-        if best_idx is not None:
-            print(f"[Whisper] Selected GPU {best_idx} "
-                  f"(free={best_free} MiB, used={int(best_used)} MiB)", flush=True)
+                    best, best_free, best_used = (idx, uuid), free, used
+        if best is not None:
+            print(f"[Whisper] Selected GPU {best[0]} ({best[1]}, "
+                  f"free={best_free} MiB, used={int(best_used)} MiB)", flush=True)
         else:
             print(f"[Whisper] No GPU with >= {_MIN_VRAM_MIB} MiB free VRAM", flush=True)
-        return best_idx
+        return best
     except Exception as e:
         print(f"[Whisper] GPU detection failed: {e}", flush=True)
         return None
@@ -177,10 +189,12 @@ def _detect_gpu_compute(gpu_idx: int) -> str:
 
 
 def _gpu_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Queue,
-                gpu_idx: int, model_name: str, compute: str):
+                gpu_idx: int, gpu_uuid: str, model_name: str, compute: str):
     """Child process: load model on GPU, process requests until killed."""
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_idx)
-    print(f"[Whisper/GPU] Worker started on GPU {gpu_idx} (PID {os.getpid()})", flush=True)
+    # Pin by UUID (SSOT, same as llama-swap profiles) — immune to CUDA's
+    # enumeration order, which differs from nvidia-smi on mixed-GPU hosts.
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpu_uuid
+    print(f"[Whisper/GPU] Worker started on GPU {gpu_idx} ({gpu_uuid}, PID {os.getpid()})", flush=True)
 
     from faster_whisper import WhisperModel
 
@@ -231,9 +245,10 @@ def _start_gpu_worker() -> bool:
     """Start GPU child process on the best available GPU."""
     global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index, _gpu_model_name
 
-    gpu_idx = _find_best_gpu()
-    if gpu_idx is None:
+    selected = _find_best_gpu()
+    if selected is None:
         return False
+    gpu_idx, gpu_uuid = selected
 
     compute = _detect_gpu_compute(gpu_idx)
     _gpu_device_index = gpu_idx
@@ -244,7 +259,7 @@ def _start_gpu_worker() -> bool:
 
     _gpu_process = multiprocessing.Process(
         target=_gpu_worker,
-        args=(_gpu_request_queue, _gpu_result_queue, gpu_idx, _config["gpu_model"], compute),
+        args=(_gpu_request_queue, _gpu_result_queue, gpu_idx, gpu_uuid, _config["gpu_model"], compute),
         daemon=True,
         name=f"whisper-gpu-{gpu_idx}",
     )
@@ -329,11 +344,11 @@ def _transcribe_gpu(audio_path: str, language: str) -> dict | None:
 
     # Wait for result (outside lock so CPU requests aren't blocked)
     try:
-        result = _gpu_result_queue.get(timeout=300)
+        result = _gpu_result_queue.get(timeout=_GPU_RESULT_TIMEOUT_S)
         _reset_gpu_ttl()
         return result
     except Exception:
-        return {"error": "GPU worker timeout"}
+        return {"error": f"GPU worker timeout ({_GPU_RESULT_TIMEOUT_S}s)"}
 
 
 # ── Web-UI ───────────────────────────────────────────────────
@@ -536,7 +551,9 @@ def transcribe():
             result = _transcribe_gpu(tmp_path, language)
 
         if result is None:
-            return jsonify({"error": "Failed to start GPU worker — no GPU with enough VRAM"}), 500
+            # 503 (not 500): tells the client "GPU temporarily unavailable,
+            # CPU fallback is a valid option" — distinct from real errors.
+            return jsonify({"error": "Failed to start GPU worker — no GPU with enough VRAM"}), 503
         if "error" in result:
             return jsonify({"error": result["error"]}), 500
 

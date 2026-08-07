@@ -770,5 +770,10 @@
   "doc_manager_empty": "Noch keine Dokumente hochgeladen.",
   "doc_manager_chunks": "{chunks} Abschnitte",
   "doc_manager_close": "Schließen",
-  "generation_interrupted": "⚠️ *Generierung unterbrochen — Antwort unvollständig*"
+  "generation_interrupted": "⚠️ *Generierung unterbrochen — Antwort unvollständig*",
+  "stt_estimate_too_long": "⚠️ Transkription würde ~{minutes} min dauern — über dem Limit von {limit} min. GPU freimachen (Modell entladen) oder Datei aufteilen.",
+  "stt_confirm_long": "Transkription von „{filename}“ dauert voraussichtlich ~{minutes} min ({engine}-Engine). Fortfahren?",
+  "stt_cancelled": "Transkription abgebrochen.",
+  "stt_bubble_started": "🎤 Audio-Datei „{filename}“ ({size}) hochgeladen — Transkription läuft ({engine}-Engine). Das Ergebnis wird als Dokument gespeichert.",
+  "stt_bubble_saved": "📄 Transkript gespeichert: {transcript_link} ({chars}k Zeichen). Sag z. B. „fasse {filename} zusammen“ oder „übersetze {filename}“."
 }

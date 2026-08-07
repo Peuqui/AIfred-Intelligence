@@ -391,6 +391,13 @@ class AIState(  # type: ignore[misc]
     # AUDIO UPLOAD HANDLER (STT)
     # ============================================================
 
+    # Parked upload context while a confirm dialog is open (backend-only
+    # vars, never synced to the client). stt_confirm_result() consumes them.
+    _stt_pending_path: str = ""
+    _stt_pending_device: str = ""
+    _stt_pending_filename: str = ""
+    _stt_pending_size: str = ""
+
     async def handle_audio_upload(self, files: List[rx.UploadFile]):
         """Handle audio file uploads and transcribe with Whisper STT"""
         # Check Whisper Docker service is ready
@@ -443,28 +450,167 @@ class AIState(  # type: ignore[misc]
             tmp_file.write(content)
             tmp_path = tmp_file.name
 
+        # Device routing + duration estimate — BEFORE the transcription
+        # try/finally, because a confirmation pause must not delete tmp_path.
+        from ..lib.audio_processing import get_audio_duration
+        from ..lib.config import (
+            WHISPER_CONFIRM_THRESHOLD_S,
+            WHISPER_GPU_MIN_FILE_MB,
+            WHISPER_RTF_CPU,
+            WHISPER_RTF_GPU,
+            WHISPER_TRANSCRIBE_TIMEOUT_S,
+        )
+        from ..lib.formatting import format_number
+        from ..lib.i18n import t as _t
+
+        # Big files (meetings) go to the GPU engine, small mic dictations
+        # stay on the permanent CPU model.
+        stt_device = "cuda" if file_size_mb > WHISPER_GPU_MIN_FILE_MB else "cpu"
+
+        # Show KB for small files, MB for larger files (German number format)
+        if file_size_mb < 1:
+            size_display = f"{format_number(len(content) / 1024, 0)} KB"
+        else:
+            size_display = f"{format_number(file_size_mb, 1)} MB"
+
+        duration_s = get_audio_duration(tmp_path)
+        rtf = WHISPER_RTF_GPU if stt_device == "cuda" else WHISPER_RTF_CPU
+        estimate_s = duration_s * rtf
+        if duration_s:
+            self.add_debug(
+                f"🎤 Audio duration {format_number(duration_s / 60, 1)} min — "
+                f"estimated transcription ~{format_number(max(estimate_s, 6) / 60, 1)} min "
+                f"({'GPU' if stt_device == 'cuda' else 'CPU'} engine)"
+            )
+
+        if estimate_s > WHISPER_TRANSCRIBE_TIMEOUT_S:
+            # Cannot succeed — reject now instead of burning the full timeout.
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            self.add_debug(
+                f"⚠️ Estimated ~{round(estimate_s / 60)} min exceeds the "
+                f"{WHISPER_TRANSCRIBE_TIMEOUT_S // 60} min transcribe timeout — aborted"
+            )
+            yield rx.toast.error(
+                _t("stt_estimate_too_long", lang=self.ui_language,
+                   minutes=round(estimate_s / 60),
+                   limit=WHISPER_TRANSCRIBE_TIMEOUT_S // 60),
+                duration=12000, position="top-center",
+            )
+            return
+
+        if estimate_s > WHISPER_CONFIRM_THRESHOLD_S:
+            # Long but feasible — ask before starting. Context is parked in
+            # backend vars; stt_confirm_result() resumes or cleans up.
+            import json as _json
+            self._stt_pending_path = tmp_path
+            self._stt_pending_device = stt_device
+            self._stt_pending_filename = file.filename or "audio"
+            self._stt_pending_size = size_display
+            question = _t(
+                "stt_confirm_long", lang=self.ui_language,
+                filename=file.filename or "audio",
+                minutes=round(estimate_s / 60),
+                engine="GPU" if stt_device == "cuda" else "CPU",
+            )
+            yield rx.call_script(
+                f"window.confirm({_json.dumps(question)})",
+                callback=AIState.stt_confirm_result,
+            )
+            return
+
+        async for _ in self._run_transcription(
+            tmp_path, file.filename or "audio", stt_device, size_display
+        ):
+            yield
+
+    async def stt_confirm_result(self, confirmed: bool):
+        """Resume or cancel a transcription parked for user confirmation."""
+        tmp_path = self._stt_pending_path
+        stt_device = self._stt_pending_device
+        filename = self._stt_pending_filename
+        size_display = self._stt_pending_size
+        self._stt_pending_path = ""
+        self._stt_pending_device = ""
+        self._stt_pending_filename = ""
+        self._stt_pending_size = ""
+
+        if not tmp_path:
+            return
+        if not confirmed:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            from ..lib.i18n import t as _t
+            self.add_debug("🎤 Transcription cancelled by user")
+            yield rx.toast.info(
+                _t("stt_cancelled", lang=self.ui_language),
+                duration=5000, position="top-center",
+            )
+            return
+
+        async for _ in self._run_transcription(tmp_path, filename, stt_device, size_display):
+            yield
+
+    async def _run_transcription(
+        self, tmp_path: str, filename: str, stt_device: str, size_display: str
+    ):
+        """Whisper call + result handling; deletes tmp_path when done."""
         try:
-            # Transcribe with Whisper
             from ..lib.audio_processing import transcribe_audio
             from ..lib.formatting import format_number
 
-            # Show KB for small files, MB for larger files (German number format)
-            if file_size_mb < 1:
-                file_size_kb = len(content) / 1024
-                size_display = f"{format_number(file_size_kb, 0)} KB"
-            else:
-                size_display = f"{format_number(file_size_mb, 1)} MB"
-
-            self.add_debug(f"🎤 Transcribing audio: {file.filename} ({size_display})...")
+            self.add_debug(
+                f"🎤 Transcribing audio: {filename} ({size_display}, "
+                f"{'GPU' if stt_device == 'cuda' else 'CPU'} engine)..."
+            )
+            # Big files (meeting uploads) get a persistent chat bubble so the
+            # upload is visible in the history — mic dictations stay quiet
+            # (their text lands in the chat anyway).
+            if stt_device == "cuda":
+                from ..lib.i18n import t as _t
+                self.add_agent_panel(  # type: ignore[attr-defined]
+                    agent="aifred",
+                    content=_t("stt_bubble_started", lang=self.ui_language,
+                               filename=filename, size=size_display, engine="GPU"),
+                    mode="standard",
+                    sync_llm_history=False,
+                    generate_tts=False,
+                )
             yield  # flush debug line before the long-running transcription
 
             # Whisper call is a blocking HTTP request that can run for minutes
             # on long recordings — keep it off the event loop.
-            ui_language = self.ui_language
+            # Language: big files (meetings) use auto-detect so the transcript
+            # keeps its ORIGINAL language — forcing the UI language makes
+            # Whisper translate on the fly, which is worse than a proper
+            # second-step translation (translate_file → DeepL). Mic dictations
+            # keep the UI language (fast, and the assumption is correct).
+            from ..lib.audio_processing import WhisperGPUUnavailable
+            stt_language = "auto" if stt_device == "cuda" else self.ui_language
             loop = asyncio.get_running_loop()
-            user_text, stt_time = await loop.run_in_executor(
-                None, lambda: transcribe_audio(tmp_path, language=ui_language)
-            )
+            try:
+                try:
+                    user_text, stt_time = await loop.run_in_executor(
+                        None,
+                        lambda: transcribe_audio(tmp_path, language=stt_language, device=stt_device),
+                    )
+                except WhisperGPUUnavailable:
+                    # All GPUs occupied (e.g. big LLM loaded) — visible CPU
+                    # retry, explicitly wanted: slower, but never blocks on VRAM.
+                    self.add_debug("⚠️ No GPU with free VRAM — falling back to CPU engine (slower)")
+                    yield
+                    user_text, stt_time = await loop.run_in_executor(
+                        None,
+                        lambda: transcribe_audio(tmp_path, language=stt_language, device="cpu"),
+                    )
+            except TimeoutError as e:
+                self.add_debug(f"⚠️ {e}")
+                yield rx.toast.error(f"⚠️ {e}", duration=10000, position="top-center")
+                return
 
             if user_text:
                 # German number format: 0,2s instead of 0.2s
@@ -480,7 +626,7 @@ class AIState(  # type: ignore[misc]
                     from ..lib import file_manager as fm
                     stem = re.sub(
                         r'[^A-Za-z0-9._-]+', '_',
-                        os.path.splitext(file.filename or "audio")[0],
+                        os.path.splitext(filename)[0],
                     )[:60]
                     rel_name = f"transcript-{stem}-{datetime.now().strftime('%Y-%m-%d-%H%M')}.txt"
                     result = fm.write_file(rel_name, user_text)
@@ -488,6 +634,24 @@ class AIState(  # type: ignore[misc]
                         self.add_debug(
                             f"📄 Transcript saved to workspace: {rel_name} "
                             f"({format_number(len(user_text) / 1000, 1)}k chars)"
+                        )
+                        # Persistent chat bubble — synced to llm_history so the
+                        # model knows the filename ("summarize it" works). The
+                        # transcript is clickable (documents static mount).
+                        from ..lib.i18n import t as _t
+                        transcript_link = (
+                            f'<a href="/_upload/documents/{rel_name}" '
+                            f'target="_blank">{rel_name}</a>'
+                        )
+                        self.add_agent_panel(  # type: ignore[attr-defined]
+                            agent="aifred",
+                            content=_t("stt_bubble_saved", lang=self.ui_language,
+                                       transcript_link=transcript_link,
+                                       filename=rel_name,
+                                       chars=format_number(len(user_text) / 1000, 1)),
+                            mode="standard",
+                            sync_llm_history=True,
+                            generate_tts=False,
                         )
                         yield rx.toast.success(
                             f"📄 Transkript gespeichert: {rel_name} — im Chat z. B. "

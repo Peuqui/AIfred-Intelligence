@@ -770,5 +770,10 @@
   "doc_manager_empty": "No documents uploaded yet.",
   "doc_manager_chunks": "{chunks} chunks",
   "doc_manager_close": "Close",
-  "generation_interrupted": "⚠️ *Generation interrupted — response incomplete*"
+  "generation_interrupted": "⚠️ *Generation interrupted — response incomplete*",
+  "stt_estimate_too_long": "⚠️ Transcription would take ~{minutes} min — beyond the {limit} min limit. Free a GPU (unload the model) or split the file.",
+  "stt_confirm_long": "Transcribing “{filename}” will take an estimated ~{minutes} min ({engine} engine). Continue?",
+  "stt_cancelled": "Transcription cancelled.",
+  "stt_bubble_started": "🎤 Audio file “{filename}” ({size}) uploaded — transcription running ({engine} engine). The result will be saved as a document.",
+  "stt_bubble_saved": "📄 Transcript saved: {transcript_link} ({chars}k characters). Say e.g. “summarize {filename}” or “translate {filename}”."
 }
