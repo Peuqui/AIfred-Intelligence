@@ -75,7 +75,7 @@ class NarratorPlugin:
 
             if not output_filename:
                 p = PurePosixPath(filename)
-                output_filename = str(p.with_suffix(".wav"))
+                output_filename = str(p.with_suffix(".mp3"))
             out_path, err = fm.safe_resolve(output_filename)
             if err:
                 return json.dumps({"error": err})
@@ -119,9 +119,23 @@ class NarratorPlugin:
                 return json.dumps({"error": "ffmpeg concat failed"})
 
             # Move out of the 24h-cleanup TTS cache into the documents tree.
+            # Default target is MP3 (speech VBR ≈ 130 kbps, ~10x smaller than
+            # WAV — an 80 min narration is ~80 MB instead of ~800 MB, fit for
+            # phone download). An explicit '.wav' output skips the encode.
             src = TTS_AUDIO_DIR / combined_url.split("/")[-1]
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(src), str(out_path))
+            if out_path.suffix.lower() == ".mp3":
+                import subprocess
+                enc = await loop.run_in_executor(None, lambda: subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(src),
+                     "-codec:a", "libmp3lame", "-q:a", "4", str(out_path)],
+                    capture_output=True, timeout=1800,
+                ))
+                src.unlink(missing_ok=True)
+                if enc.returncode != 0:
+                    return json.dumps({"error": "ffmpeg mp3 encode failed"})
+            else:
+                shutil.move(str(src), str(out_path))
 
             size_mb = out_path.stat().st_size / (1024 * 1024)
             debug(f"✅ narrate_file: wrote {output_filename} ({size_mb:.1f} MB)")
@@ -156,7 +170,8 @@ class NarratorPlugin:
                             "type": "string",
                             "description": (
                                 "Optional output path. Default: same folder, "
-                                "'<name>.wav'."
+                                "'<name>.mp3'. Use a '.wav' suffix to skip the "
+                                "MP3 encode."
                             ),
                         },
                         "voice": {
