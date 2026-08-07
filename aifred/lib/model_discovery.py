@@ -144,18 +144,29 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
 
 
 def _get_llamacpp_model_sizes() -> Dict[str, float]:
-    """Get GGUF file sizes for llama-swap models."""
+    """Get GGUF file sizes for llama-swap models.
+
+    Draft-sidecar profiles (``--model-draft``, e.g. DSpark) load the
+    draft GGUF alongside the main model on every run — its size counts
+    toward what the profile really costs, so it is included here.
+    """
     try:
+        from .calibration.projection import draft_gguf_path
         from .calibration import parse_llamaswap_config
         from .config import LLAMASWAP_CONFIG_PATH
+        from .gguf_utils import get_gguf_total_size
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         result = {}
         for model_id, info in config.items():
             gguf_path = Path(info["gguf_path"])
-            if gguf_path.exists():
-                from .gguf_utils import get_gguf_total_size
-                result[model_id] = get_gguf_total_size(gguf_path) / (1024 ** 3)
+            if not gguf_path.exists():
+                continue
+            total_bytes = get_gguf_total_size(gguf_path)
+            draft = draft_gguf_path(info["full_cmd"])
+            if draft is not None and draft.exists():
+                total_bytes += get_gguf_total_size(draft)
+            result[model_id] = total_bytes / (1024 ** 3)
         return result
     except OSError as e:
         log_message(f"⚠️ Could not read GGUF sizes from llama-swap config: {e}")
