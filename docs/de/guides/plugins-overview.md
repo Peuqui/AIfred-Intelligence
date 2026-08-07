@@ -219,6 +219,20 @@ Textübersetzung via DeepL API mit automatischer Quellsprach-Erkennung. 30+ Spra
 
 ---
 
+### Narrator (Dokument → Audio)
+
+**Datei:** `plugins/tools/narrator/`
+
+Vertont ganze Textdokumente aus dem Workspace zu einer MP3-Datei — serverseitig gechunkt und synthetisiert, der Text passiert nie den LLM-Kontext. Engine, GPU-freier Fallback und Stimme (pro Engine) über das Zahnrad im Plugin-Tab einstellbar.
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `narrate_file` | Textdatei zu einer MP3-Audiodatei vertonen | WRITE_DATA |
+
+> **Details:** [Narrator Plugin](plugins/narrator.md)
+
+---
+
 ### Vision (Kamera + VLM)
 
 **Datei:** `plugins/tools/vision/`
@@ -377,6 +391,7 @@ aifred/plugins/
 │   ├── audio_player/       # Audio-Wiedergabe
 │   ├── scheduler_tool/     # Geplante Aufgaben
 │   ├── translator/         # DeepL-Übersetzung
+│   ├── narrator/           # Dokument → MP3 (narrate_file)
 │   ├── vision/             # Kamera-Snapshots, VLM, Gesichtserkennung
 │   ├── bible/              # Bibel-Lookup + thematische Suche
 │   ├── judaica/            # Jüdischer Quellkorpus
