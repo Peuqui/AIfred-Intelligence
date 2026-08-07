@@ -13,9 +13,16 @@ from ...state import AIState
 from ..helpers import t, overlay_modal
 
 
-def _row(label_key: str, control: rx.Component) -> rx.Component:
+def _row(
+    label_key: str, control: rx.Component, tooltip_key: str = "",
+) -> rx.Component:
+    # Tooltip only on the label — wrapping the whole row keeps the
+    # tooltip hovered while the select is open and covers its options.
+    label: rx.Component = rx.text(t(label_key), font_size="13px", width="90px")
+    if tooltip_key:
+        label = rx.tooltip(label, content=t(tooltip_key))
     return rx.hstack(
-        rx.text(t(label_key), font_size="13px", width="90px"),
+        label,
         control,
         spacing="2",
         align="center",
@@ -62,17 +69,15 @@ def narrator_settings_modal() -> rx.Component:
             ),
             rx.cond(
                 AIState.narrator_engine == "auto",
-                rx.tooltip(
-                    _row(
-                        "narrator_fallback_label",
-                        rx.select(
-                            AIState.narrator_fallback_options,
-                            value=AIState.narrator_fallback_display,
-                            on_change=AIState.set_narrator_fallback_engine,
-                            size="2",
-                        ),
+                _row(
+                    "narrator_fallback_label",
+                    rx.select(
+                        AIState.narrator_fallback_options,
+                        value=AIState.narrator_fallback_display,
+                        on_change=AIState.set_narrator_fallback_engine,
+                        size="2",
                     ),
-                    content=t("narrator_fallback_tooltip"),
+                    tooltip_key="narrator_fallback_tooltip",
                 ),
                 rx.fragment(),
             ),
