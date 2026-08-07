@@ -157,6 +157,8 @@ def _tts_section() -> rx.Component:
             align="center",
             width="100%",
         ),
+        # Narrator (narrate_file) engine/voice: configured via the gear icon
+        # in the Agent-Editor plugin tab (narrator_settings_modal).
         # Agent voices are configured in the Agent Editor modal
         spacing="2",
         width="100%",

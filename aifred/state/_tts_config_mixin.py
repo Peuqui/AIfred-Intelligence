@@ -43,6 +43,18 @@ class TTSConfigMixin(rx.State, mixin=True):
     # Streaming TTS toggle (config only — streaming logic is elsewhere)
     tts_streaming_enabled: bool = True  # Enable streaming TTS (vs waiting for full response)
 
+    # ── Narrator plugin (narrate_file) engine selection ──────────
+    # "auto" = follow the spoken-output engine. When that is off, use
+    # narrator_fallback_engine (GPU-free, user-selectable) so the loaded
+    # LLM keeps its VRAM instead of the TTS container silently falling
+    # back to CPU.
+    narrator_engine: str = "auto"
+    narrator_fallback_engine: str = "piper"
+    # Voice PER ENGINE (voices are engine-bound: "AIfred" is a clone that
+    # only the cloning engines know; Piper/DashScope have their own sets).
+    # Missing key = engine's first own voice.
+    narrator_voices: Dict[str, str] = {}
+
     # ── Computed Vars ─────────────────────────────────────────────
 
     @rx.var(deps=["ui_language"], auto_deps=False)
@@ -104,6 +116,146 @@ class TTSConfigMixin(rx.State, mixin=True):
             )
             out.append({"label": t(f"tts_engine_{key}", lang=lang), "disabled": disabled})
         return out
+
+    # ── Narrator plugin settings (computed + setters) ─────────────
+
+    @rx.var(deps=[], auto_deps=False)
+    def narrator_plugin_enabled(self) -> bool:
+        # Plugin enable/disable requires a restart anyway — static per process.
+        from ..lib.plugin_registry import is_plugin_enabled
+        return is_plugin_enabled("narrator")
+
+    @rx.var(deps=["ui_language", "narrator_engine"], auto_deps=False)
+    def narrator_engine_display(self) -> str:
+        from ..lib.i18n import t, tts_key_to_label
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        if self.narrator_engine == "auto":
+            return t("narrator_engine_auto", lang=lang)
+        return tts_key_to_label(self.narrator_engine, lang=lang)
+
+    @rx.var(deps=["ui_language", "agent_tuning", "backend_type", "llamaswap_revision"], auto_deps=False)
+    def narrator_engine_options(self) -> List[str]:
+        """'(same as spoken output)' + usable engines — same gating as the
+        main TTS dropdown (installed; GPU engines only when calibrated)."""
+        from ..lib.config import TTS_ENGINE_KEYS
+        from ..lib.i18n import t, tts_key_to_label
+        from ..lib.model_vram_cache import is_tts_variant_calibrated
+        from ..lib.tts_engines import get_engine, gpu_engines
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        gpu_keys = {e.key for e in gpu_engines()}
+        model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
+        is_llamacpp = self.backend_type == "llamacpp"  # type: ignore[attr-defined]
+        out: List[str] = [t("narrator_engine_auto", lang=lang)]
+        for key in TTS_ENGINE_KEYS:
+            if key == "off":
+                continue
+            eng = get_engine(key)
+            if eng is not None and eng.runs_in_container and not eng.is_installed():
+                continue
+            if (is_llamacpp and key in gpu_keys and bool(model_id)
+                    and not is_tts_variant_calibrated(model_id, key)):
+                continue
+            out.append(tts_key_to_label(key, lang=lang))
+        return out
+
+    @rx.var(deps=["ui_language", "narrator_fallback_engine"], auto_deps=False)
+    def narrator_fallback_display(self) -> str:
+        from ..lib.i18n import tts_key_to_label
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        return tts_key_to_label(self.narrator_fallback_engine, lang=lang)
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def narrator_fallback_options(self) -> List[str]:
+        """GPU-free engines only — they never touch the LLM's VRAM."""
+        from ..lib.config import TTS_ENGINE_KEYS
+        from ..lib.i18n import tts_key_to_label
+        from ..lib.tts_engines import get_engine
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        out: List[str] = []
+        for key in TTS_ENGINE_KEYS:
+            if key == "off":
+                continue
+            eng = get_engine(key)
+            if eng is None or eng.needs_gpu:
+                continue
+            if eng.runs_in_container and not eng.is_installed():
+                continue
+            out.append(tts_key_to_label(key, lang=lang))
+        return out
+
+    @rx.var(
+        deps=["narrator_engine", "narrator_fallback_engine", "enable_tts", "tts_engine"],
+        auto_deps=False,
+    )
+    def narrator_effective_engine(self) -> str:
+        """The engine narrate_file would actually use right now."""
+        if self.narrator_engine != "auto":
+            return self.narrator_engine
+        return self.tts_engine if self.enable_tts else self.narrator_fallback_engine  # type: ignore[has-type]
+
+    @rx.var(
+        deps=["narrator_engine", "narrator_fallback_engine", "enable_tts",
+              "tts_engine"],
+        auto_deps=False,
+    )
+    def narrator_voice_options(self) -> List[str]:
+        """The effective engine's OWN voices (engine.get_voices() is the
+        SSOT — clones only appear on cloning engines, Piper lists its
+        built-in speakers, etc.)."""
+        from ..lib.tts_engines import get_engine
+        eng = get_engine(self.narrator_effective_engine)
+        if eng is None:
+            return []
+        try:
+            return list(eng.get_voices().keys())
+        except Exception:
+            return list(eng.voices_fallback.keys())
+
+    @rx.var(
+        deps=["narrator_voices", "narrator_engine", "narrator_fallback_engine",
+              "enable_tts", "tts_engine"],
+        auto_deps=False,
+    )
+    def narrator_voice_display(self) -> str:
+        """Saved voice for the effective engine, else its first own voice."""
+        engine = self.narrator_effective_engine
+        saved = self.narrator_voices.get(engine, "")
+        options = self.narrator_voice_options
+        if saved and saved in options:
+            return saved
+        return options[0] if options else ""
+
+    def set_narrator_engine(self, selection: str) -> None:
+        from ..lib.i18n import t, tts_label_to_key
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        if selection == t("narrator_engine_auto", lang=lang):
+            self.narrator_engine = "auto"
+        else:
+            self.narrator_engine = tts_label_to_key(selection)
+        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"🔊 Narrator engine: {self.narrator_engine}")  # type: ignore[attr-defined]
+
+    def set_narrator_fallback_engine(self, selection: str) -> None:
+        from ..lib.i18n import tts_label_to_key
+        self.narrator_fallback_engine = tts_label_to_key(selection)
+        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"🔊 Narrator GPU-free fallback: {self.narrator_fallback_engine}")  # type: ignore[attr-defined]
+
+    def set_narrator_voice(self, voice: str) -> None:
+        engine = self.narrator_effective_engine
+        # Re-assign the dict so Reflex flags it dirty.
+        self.narrator_voices = {**self.narrator_voices, engine: voice}
+        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"🔊 Narrator voice ({engine}): {voice}")  # type: ignore[attr-defined]
+
+    # Modal open/close (gear icon in the Agent-Editor plugin tab)
+    narrator_settings_open: bool = False
+
+    def open_narrator_settings(self) -> None:
+        self.narrator_settings_open = True
+
+    def close_narrator_settings(self) -> None:
+        self.narrator_settings_open = False
 
     @rx.var
     def xtts_gpu_enabled(self) -> bool:

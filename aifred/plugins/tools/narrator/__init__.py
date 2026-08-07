@@ -27,6 +27,9 @@ from ....lib.plugin_base import PluginContext, load_tool_description
 class NarratorPlugin:
     name: str = "narrator"
     display_name: str = "Narrator"
+    # Gear icon in the Agent-Editor plugin tab dispatches this state event
+    # (same mechanism as audio_player → open_audio_settings).
+    settings_event_name: str = "open_narrator_settings"
     description: str = (
         "Vertont Textdateien aus dem Dokumentenbaum zu einer einzelnen "
         "Audio-Datei — satzweise über die lokale TTS-Engine, Ergebnis als "
@@ -63,7 +66,35 @@ class NarratorPlugin:
             from ....lib.text_chunking import split_paragraph_chunks
             from ....lib.tts_engine_manager import ensure_engine_ready
 
-            engine = engine or TTS_DEFAULT_ENGINE
+            # Resolve engine/voice from the narrator settings (UI row in the
+            # audio section) unless the caller passed them explicitly.
+            # "auto" follows the spoken-output engine; while that is off,
+            # the user-selected GPU-free fallback is used so the loaded LLM
+            # keeps its VRAM (the qwen3local container otherwise silently
+            # falls back to an agonizingly slow CPU synth).
+            from ....lib.settings import load_settings
+            _settings = load_settings() or {}
+            if not engine:
+                engine = _settings.get("narrator_engine", "auto")
+                if engine == "auto":
+                    if _settings.get("enable_tts"):
+                        engine = _settings.get("tts_engine") or TTS_DEFAULT_ENGINE
+                    else:
+                        engine = _settings.get("narrator_fallback_engine", "piper")
+            if not voice:
+                # Voices are engine-bound — look up the saved voice for the
+                # resolved engine, else fall back to the engine's own first
+                # voice (never hand e.g. the "AIfred" clone name to Piper).
+                voice = (_settings.get("narrator_voices") or {}).get(engine, "")
+            if not voice:
+                from ....lib.tts_engines import get_engine
+                eng_obj = get_engine(engine)
+                if eng_obj is not None:
+                    try:
+                        _voices = list(eng_obj.get_voices().keys())
+                    except Exception:
+                        _voices = list(eng_obj.voices_fallback.keys())
+                    voice = _voices[0] if _voices else ""
             voice = voice or NARRATE_DEFAULT_VOICE
 
             read = fm.read_file(filename)

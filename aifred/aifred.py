@@ -1192,6 +1192,7 @@ def agent_editor_route() -> rx.Component:
     # vision_settings_modal hier mit-mounten, weil das Plugin-Tab im
     # Agent-Editor steht und das Modal sonst nicht im DOM ist, wenn
     # der User auf das Vigilantia-Zahnrad klickt.
+    from .ui.modals.narrator_settings import narrator_settings_modal
     return rx.fragment(
         agent_editor_page(),
         vision_settings_modal(),
@@ -1199,6 +1200,8 @@ def agent_editor_route() -> rx.Component:
         casus_modal(),
         multipose_modal(),
         vigilantia_help_modal(),
+        # Narrator gear icon in the plugin tab opens this
+        narrator_settings_modal(),
     )
 
 

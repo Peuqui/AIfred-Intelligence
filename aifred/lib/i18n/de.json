@@ -775,5 +775,11 @@
   "stt_confirm_long": "Transkription von „{filename}“ dauert voraussichtlich ~{minutes} min ({engine}-Engine). Fortfahren?",
   "stt_cancelled": "Transkription abgebrochen.",
   "stt_bubble_started": "🎤 Audio-Datei „{filename}“ ({size}) hochgeladen.\n\nTranskription läuft ({engine}-Engine) — das Ergebnis wird als Dokument gespeichert.",
-  "stt_bubble_saved": "📄 Transkript gespeichert: {transcript_link} ({chars}k Zeichen).\n\nSag z. B. „fasse {filename} zusammen“\n\noder „übersetze {filename}“."
+  "stt_bubble_saved": "📄 Transkript gespeichert: {transcript_link} ({chars}k Zeichen).\n\nSag z. B. „fasse {filename} zusammen“\n\noder „übersetze {filename}“.",
+  "narrator_engine_auto": "(wie Sprachausgabe)",
+  "narrator_fallback_tooltip": "GPU-freie Engine, wenn die Sprachausgabe aus ist — das geladene Modell behält sein VRAM",
+  "narrator_engine_label": "Engine:",
+  "narrator_fallback_label": "GPU-frei:",
+  "narrator_voice_label": "Stimme:",
+  "narrator_settings_subtitle": "Vorlese-Engine und Stimme für narrate_file (Dokument → Audio-Datei)"
 }
