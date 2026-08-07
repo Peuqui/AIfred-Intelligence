@@ -24,11 +24,16 @@ from ....lib.plugin_base import PluginContext, load_tool_description
 
 
 def _voice_names(eng_obj: Any) -> list[str]:
-    """Display names of an engine's voices (get_voices, else fallback)."""
+    """Display names of an engine's voices (get_voices, else fallback).
+
+    Container engines return {} (not an exception) while the container
+    is down — treat that like a failure and use the static catalogue.
+    """
     try:
-        return list(eng_obj.get_voices().keys())
+        voices = eng_obj.get_voices()
     except Exception:
-        return list(eng_obj.voices_fallback.keys())
+        voices = {}
+    return list((voices or eng_obj.voices_fallback).keys())
 
 
 def _resolve_engine_and_voice(engine: str = "", voice: str = "") -> tuple[str, str]:

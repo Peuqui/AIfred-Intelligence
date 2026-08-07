@@ -200,9 +200,13 @@ class TTSConfigMixin(rx.State, mixin=True):
         if eng is None:
             return []
         try:
-            return list(eng.get_voices().keys())
+            # Container engines return {} (not an exception) while the
+            # container is down — fall back to the static catalogue then,
+            # same handling as the main TTS voice dropdown.
+            voices = eng.get_voices()
         except Exception:
-            return list(eng.voices_fallback.keys())
+            voices = {}
+        return list((voices or eng.voices_fallback).keys())
 
     @rx.var(
         deps=["narrator_voices", "narrator_engine", "narrator_fallback_engine",

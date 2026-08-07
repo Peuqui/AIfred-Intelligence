@@ -180,6 +180,25 @@ Satzfluss sieht nur die Akustik). Lokales gated-Modell, HF-Token nur
 für den Einmal-Download, `diarize=true` am `/transcribe`-Endpoint,
 VRAM ~2–3 GB im GPU-Worker-Muster.
 
+**Watch-Item — parallele Narrator-Synthese (nur falls Tempo real
+drückt; über Nacht laufen lassen ist heute akzeptiert):** Die Chunks
+sind unabhängig (embarrassingly parallel, Concat wahrt die
+Reihenfolge), aber der Narrator-Loop synthetisiert strikt sequenziell
+und ein einzelner autoregressiver Stream sättigt die GPU nicht
+(V100 bei Qwen3-TTS: ~50–55 %). Zwei Stufen:
+- **Stufe 1 — Intra-GPU-Parallelität (erster Hebel):** 2 parallele
+  Streams im SELBEN Container. VRAM-Kosten sind NICHT doppelt —
+  Gewichte (~2–4 GB) liegen einmal, pro Stream kommt nur
+  KV-Cache/Aktivierungen (Größenordnung wenige hundert MB) dazu.
+  Aufwand: `/tts`-Endpoint im Container muss parallele Requests echt
+  parallel/gebatcht bedienen (heute vermutlich seriell) + paralleler
+  Dispatch im Narrator-Loop + Mehrverbrauch in der
+  `-tts-`Kalibrierungsmarge berücksichtigen.
+- **Stufe 2 — Multi-Container auf mehreren GPUs (großer Hammer):**
+  echte Verdopplung (Gewichte pro GPU nochmal komplett), braucht
+  Multi-Instanz-Support in Engine-Manager/Keep-Alive/Refcount und
+  neue Kalibrierungs-Profilvarianten. Nur falls Stufe 1 nicht reicht.
+
 ---
 
 ## Video-Plugin (später)
