@@ -80,6 +80,15 @@ class TestVoiceNames:
         )
         assert _voice_names(eng) == ["A"]
 
+    def test_empty_get_voices_falls_back(self):
+        # Container-Engines liefern {} (keine Exception), solange der
+        # Container down ist — z. B. qwen3local nach Idle-Stop.
+        eng = SimpleNamespace(
+            get_voices=lambda: {},
+            voices_fallback={"AIfred": "AIfred", "Salomo": "Salomo"},
+        )
+        assert _voice_names(eng) == ["AIfred", "Salomo"]
+
 
 class TestGpuEngineConflict:
     def test_gpu_engine_spoken_output_off_is_refused(self, fake_env):
