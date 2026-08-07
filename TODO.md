@@ -93,6 +93,20 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
 
 ---
 
+## RPC-fähige KI-Kalibrierung (geplant, Skizze 2026-08-06)
+
+Verteilte Inferenz via llama.cpp RPC (Mini + Aragon) durch den
+KI-Kalibrierer kalibrieren lassen — der deterministische Algorithmus
+bleibt bewusst lokal (braucht exakte nvidia-smi-Telemetrie). Detection
+über das `--rpc`-Flag im Profil-cmd, kein neuer Config-Schalter.
+Wartet auf das reaktivierte RPC-Setup (Kabel + Aragon).
+
+> **Details:** [Arbeitspaket-Skizze](docs/de/architecture/calibration-rpc.md)
+> — inkl. verifiziertem Ist-Stand (fit-params plant RPC-Devices korrekt,
+> Parser + GPU-Enumeration fehlen noch).
+
+---
+
 ## Sprecher-Diarisierung + Hörspiel-Narrator (geplant, Idee 2026-08-07)
 
 Meeting-/Interview-Transkripte mit Sprecher-Markern versehen und daraus
