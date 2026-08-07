@@ -25,6 +25,7 @@ Der Narrator vertont **1:1**: kein Übersetzen, kein Zusammenfassen, keine Korre
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
 | `narrate_file` | Textdatei zu einer MP3-Audiodatei vertonen | WRITE_DATA |
+| `list_narrator_voices` | Stimmen der effektiven Engine auflisten (Discovery für Multi-Voice) | READONLY |
 
 ## Parameter
 
@@ -35,7 +36,20 @@ Der Narrator vertont **1:1**: kein Übersetzen, kein Zusammenfassen, keine Korre
 | `voice` | Nein | Standard: gespeicherte Stimme der aufgelösten Engine, sonst deren erste eigene Stimme |
 | `language` | Nein | Sprachcode des Texts (Standard `de`) |
 | `engine` | Nein | Standard: Auflösung über die Plugin-Einstellungen (siehe oben) |
+| `speaker_voices` | Nein | Multi-Voice-Mapping Sprecher-Label → Stimmenname (siehe unten) |
 
-Rückgabe (JSON): `written`, `chunks`, `chars`, `engine`, `voice`, `size_mb`.
+Rückgabe (JSON): `written`, `chunks`, `chars`, `engine`, `voice`, `size_mb` — im Multi-Voice-Modus zusätzlich `speaker_voices`, `segments`.
+
+## Multi-Voice-Modus (Hörspiel)
+
+Interview-/Dialog-Transkripte lassen sich mit **einer Stimme pro Sprecher** vertonen. Die Sprechertrennung macht das LLM (nicht die Akustik): AIfred bereitet das Transkript als markierten Dialog auf und ruft `narrate_file` **einmal** mit `speaker_voices` auf.
+
+- **Stimmen-Discovery**: `list_narrator_voices` liefert die gültigen Stimmennamen der effektiv aufgelösten Engine (plus Default-Stimme) — Stimmennamen sind engine-spezifisch, das Modell ruft das Tool vor einem Multi-Voice-Lauf auf statt zu raten.
+- **Klon-Stimmen bevorzugt**: Stimmen mit `★`-Prefix sind selbst geklonte Stimmen (SSOT: das Prefix kommt direkt aus `engine.get_voices()`, z. B. bei xtts und DashScope). Das Modell ist angewiesen, sie bei der Rollenvergabe zu bevorzugen; `generate_tts` strippt das Prefix zentral vor der Synthese. Bei reinen Klon-Engines (qwen3local) tragen die Stimmen kein `★` — dort ist ohnehin jede Stimme ein Klon.
+- **Marker-Format**: Zeilen, die mit `[LABEL]:` beginnen (Label frei: `FRAGE`/`ANTWORT`/`S1`/…). Ein Segment läuft bis zum nächsten Marker; der Marker selbst wird **nicht mitvertont**. Text vor dem ersten Marker bekommt die Default-Stimme (`voice`).
+- **`speaker_voices`**: JSON-Objekt Label → Stimmenname (aus der `list_narrator_voices`-Liste). Alle Stimmen müssen zur **einen** effektiven Engine gehören (kein Engine-Mix).
+- **Strikte Validierung**: unbekannte Stimme oder ein Label im Text ohne Mapping → Klartext-Fehler, **kein stiller Fallback**.
+- **Chunking**: Sprecherwechsel ist immer eine harte Chunk-Grenze; lange Segmente werden intern weiter an Absatzgrenzen geteilt.
+- Die Marker überleben die DeepL-Übersetzung (`translate_file`) — übersetzte Hörspiele funktionieren mit derselben markierten Datei-Pipeline.
 
 **Hinweis:** Lange Dokumente brauchen real Zeit (grob 5–10× der Audiodauer, engine-abhängig). Fortschritt erscheint alle 5 Chunks in der Debug-Konsole.

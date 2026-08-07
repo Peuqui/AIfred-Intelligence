@@ -6,6 +6,8 @@ it the same way: at blank-line paragraph boundaries, never mid-sentence.
 """
 from __future__ import annotations
 
+import re
+
 
 def split_paragraph_chunks(text: str, limit: int) -> list[str]:
     """Text an Absatzgrenzen (Leerzeilen) in Stücke <= ``limit`` teilen.
@@ -29,3 +31,30 @@ def split_paragraph_chunks(text: str, limit: int) -> list[str]:
     if buf:
         chunks.append(buf)
     return chunks
+
+
+# Sprecher-Marker am Zeilenanfang: "[LABEL]:" — Label frei (FRAGE, S1, …).
+_SPEAKER_MARKER = re.compile(r"^\[([^\]]+)\]:[ \t]*", re.MULTILINE)
+
+
+def split_speaker_segments(text: str) -> list[tuple[str | None, str]]:
+    """Text an Sprecher-Markern ``[LABEL]:`` in (label, text)-Segmente teilen.
+
+    Ein Segment läuft bis zum nächsten Marker; der Marker selbst wird
+    gestrippt (er soll nicht mitvertont werden). Text vor dem ersten
+    Marker bekommt das Label ``None`` (→ Default-Stimme beim Aufrufer).
+    Leere Segmente (Marker direkt hintereinander) werden verworfen.
+    """
+    segments: list[tuple[str | None, str]] = []
+    pos = 0
+    label: str | None = None
+    for match in _SPEAKER_MARKER.finditer(text):
+        segment_text = text[pos:match.start()].strip()
+        if segment_text:
+            segments.append((label, segment_text))
+        label = match.group(1)
+        pos = match.end()
+    tail = text[pos:].strip()
+    if tail:
+        segments.append((label, tail))
+    return segments
