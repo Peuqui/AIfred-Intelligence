@@ -172,6 +172,9 @@ class NarratorPlugin:
             debug(f"✅ narrate_file: wrote {output_filename} ({size_mb:.1f} MB)")
             return json.dumps({
                 "written": output_filename,
+                # Ready-made browser URL — share it as a MARKDOWN link
+                # ([name](url)); raw <a> HTML renders dead in chat bubbles.
+                "url": f"/_upload/documents/{output_filename}",
                 "chunks": len(chunks),
                 "chars": len(text),
                 "engine": engine,

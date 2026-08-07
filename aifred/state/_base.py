@@ -636,13 +636,13 @@ class AIState(  # type: ignore[misc]
                             f"({format_number(len(user_text) / 1000, 1)}k chars)"
                         )
                         # Persistent chat bubble — synced to llm_history so the
-                        # model knows the filename ("summarize it" works). The
-                        # transcript is clickable (documents static mount).
+                        # model knows the filename ("summarize it" works).
+                        # Markdown link, NOT raw <a> HTML: the markdown
+                        # component map renders [..](..) as a new-tab link,
+                        # while raw HTML anchors come out dead — and the
+                        # model imitates whatever pattern it sees here.
                         from ..lib.i18n import t as _t
-                        transcript_link = (
-                            f'<a href="/_upload/documents/{rel_name}" '
-                            f'target="_blank">{rel_name}</a>'
-                        )
+                        transcript_link = f"[{rel_name}](/_upload/documents/{rel_name})"
                         self.add_agent_panel(  # type: ignore[attr-defined]
                             agent="aifred",
                             content=_t("stt_bubble_saved", lang=self.ui_language,

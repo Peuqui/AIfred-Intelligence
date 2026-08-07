@@ -5,3 +5,5 @@ PREFER THIS over reading the file and speaking it yourself: the file content is 
 Typical pipeline for meeting recordings: the transcript already lies in the workspace ('transcript-….txt') → translate_file to the target language → narrate_file on the translated file.
 
 Give "filename" relative to the documents root (e.g. 'documents/meeting-DE.txt'); call list_files first if unsure. The output defaults to '<name>.mp3' in the same folder (phone-friendly; pass a '.wav' output_filename to skip the encode). Long documents take real time (roughly 5-10x the audio duration) — tell the user the job is running and that progress appears in the debug console.
+
+The result contains a ready-made "url". When sharing it in chat, ALWAYS use a Markdown link ([filename](url)) — it opens in a new tab where the browser's audio player plays the MP3. Never write raw <a> HTML; it renders as a dead link.
