@@ -26,11 +26,11 @@ from ....lib.plugin_base import PluginContext, load_tool_description
 @dataclass
 class NarratorPlugin:
     name: str = "narrator"
-    display_name: str = "Datei-Vertonung (TTS)"
+    display_name: str = "Narrator"
     description: str = (
         "Vertont Textdateien aus dem Dokumentenbaum zu einer einzelnen "
         "Audio-Datei — satzweise über die lokale TTS-Engine, Ergebnis als "
-        "WAV neben der Quelldatei."
+        "MP3 neben der Quelldatei (handytauglich, '.wav' optional)."
     )
 
     def is_available(self) -> bool:

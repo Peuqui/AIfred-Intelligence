@@ -1151,6 +1151,11 @@ WHISPER_RTF_CPU = 0.6    # medium int8 ≈ 1.5-2x realtime
 # rejected outright — they cannot succeed).
 WHISPER_CONFIRM_THRESHOLD_S = 180
 
+# Before an LLM cold start, a RUNNING GPU transcription is granted this much
+# time to finish (polling); afterwards the worker is force-killed — the
+# interactive chat must not stall behind a stuck transcription forever.
+WHISPER_RELEASE_WAIT_MAX_S = 600
+
 # Transcripts longer than this are written to the workspace (data/documents/)
 # as a text file instead of flooding the input field — the agent can then
 # process them with its file tools (translate_file, read_file, …).

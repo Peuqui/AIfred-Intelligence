@@ -1235,6 +1235,57 @@ class WhisperGPUUnavailable(RuntimeError):
     """No GPU with enough free VRAM — caller may retry on CPU."""
 
 
+def whisper_gpu_busy() -> bool:
+    """True while the whisper-stt GPU worker is transcribing (False if the
+    service is down)."""
+    import requests
+    from .config import WHISPER_SERVICE_URL
+    try:
+        resp = requests.get(f"{WHISPER_SERVICE_URL}/status", timeout=3)
+        return bool(resp.ok and resp.json().get("gpu_busy"))
+    except (requests.RequestException, ValueError):
+        return False
+
+
+def release_whisper_gpu() -> bool:
+    """Kill the whisper-stt GPU worker so its VRAM can't collide with an
+    LLM cold start (calibrated splits assume empty cards).
+
+    A transcription in flight is granted WHISPER_RELEASE_WAIT_MAX_S to
+    finish (the service answers 409 while busy); after the deadline the
+    worker is force-killed — interactive chat has priority.
+
+    Returns True if a GPU worker was actually unloaded. No-op (False) when
+    the service is down or no GPU worker is running.
+    """
+    import time
+    import requests
+    from .config import WHISPER_RELEASE_WAIT_MAX_S, WHISPER_SERVICE_URL
+
+    deadline = time.monotonic() + WHISPER_RELEASE_WAIT_MAX_S
+    try:
+        while True:
+            resp = requests.post(
+                f"{WHISPER_SERVICE_URL}/unload", params={"device": "cuda"}, timeout=5,
+            )
+            if resp.status_code != 409:
+                return resp.ok and "gpu" in resp.json().get("unloaded", [])
+            if time.monotonic() >= deadline:
+                log_message(
+                    f"⚠️ Whisper transcription still running after "
+                    f"{WHISPER_RELEASE_WAIT_MAX_S}s — force-killing GPU worker "
+                    f"for model load", "warning",
+                )
+                resp = requests.post(
+                    f"{WHISPER_SERVICE_URL}/unload",
+                    params={"device": "cuda", "force": "1"}, timeout=5,
+                )
+                return resp.ok and "gpu" in resp.json().get("unloaded", [])
+            time.sleep(2)
+    except (requests.RequestException, ValueError):
+        return False
+
+
 def get_audio_duration(audio_path: str) -> float:
     """Audio duration in seconds via ffprobe (0.0 if not determinable)."""
     import subprocess

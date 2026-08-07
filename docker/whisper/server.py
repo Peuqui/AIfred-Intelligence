@@ -116,6 +116,7 @@ def _transcribe_cpu(audio_path: str, language: str) -> dict:
 _gpu_process: multiprocessing.Process | None = None
 _gpu_request_queue: multiprocessing.Queue | None = None
 _gpu_result_queue: multiprocessing.Queue | None = None
+_gpu_busy = False  # True while a transcription job is in flight
 _gpu_lock = threading.Lock()
 _gpu_ttl_timer: threading.Timer | None = None
 _last_gpu_request = 0.0
@@ -302,10 +303,20 @@ def _kill_gpu_worker():
             pass
         _gpu_request_queue = None
     if _gpu_result_queue is not None:
-        try:
-            _gpu_result_queue.close()
-        except Exception:
-            pass
+        if _gpu_busy:
+            # Unblock a /transcribe request waiting on this queue — without
+            # this it would sit out the full result timeout after a force
+            # unload killed its worker mid-job. The queue is deliberately
+            # not closed here; the waiter still reads the error from it.
+            try:
+                _gpu_result_queue.put({"error": "GPU worker was unloaded mid-transcription"})
+            except Exception:
+                pass
+        else:
+            try:
+                _gpu_result_queue.close()
+            except Exception:
+                pass
         _gpu_result_queue = None
     _gpu_device_index = None
     _gpu_model_name = ""
@@ -327,6 +338,7 @@ def _reset_gpu_ttl():
 
 def _transcribe_gpu(audio_path: str, language: str) -> dict | None:
     """Transcribe using GPU child process."""
+    global _gpu_busy
     with _gpu_lock:
         # Start worker if not running
         if _gpu_process is None or not _gpu_process.is_alive():
@@ -334,6 +346,7 @@ def _transcribe_gpu(audio_path: str, language: str) -> dict | None:
                 return None
 
         # Send job
+        _gpu_busy = True
         _gpu_request_queue.put({
             "audio_path": audio_path,
             "language": language,
@@ -349,6 +362,8 @@ def _transcribe_gpu(audio_path: str, language: str) -> dict | None:
         return result
     except Exception:
         return {"error": f"GPU worker timeout ({_GPU_RESULT_TIMEOUT_S}s)"}
+    finally:
+        _gpu_busy = False
 
 
 # ── Web-UI ───────────────────────────────────────────────────
@@ -570,6 +585,7 @@ def status():
         **_config,
         "cpu_loaded": _model_cpu is not None,
         "gpu_loaded": gpu_alive,
+        "gpu_busy": _gpu_busy,
         "gpu_device_index": _gpu_device_index,
         "gpu_worker_pid": _gpu_process.pid if gpu_alive else None,
     }
@@ -592,8 +608,17 @@ def unload():
     unloaded = []
 
     if device in ("gpu", "cuda", "all"):
+        # A transcription in flight is not killed silently — callers get a
+        # 409 and may retry (or pass force=1 to kill regardless, e.g. after
+        # a patience deadline before an LLM cold start).
+        if _gpu_busy and request.args.get("force") != "1":
+            return jsonify({"success": False, "busy": True}), 409
+        # Report "gpu" only when a worker was actually alive — callers use
+        # this to log an honest "released before model load" message.
+        gpu_was_alive = _gpu_process is not None and _gpu_process.is_alive()
         _kill_gpu_worker()
-        unloaded.append("gpu")
+        if gpu_was_alive:
+            unloaded.append("gpu")
     if device in ("cpu", "all") and _model_cpu is not None:
         _model_cpu = None
         gc.collect()

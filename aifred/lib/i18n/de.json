@@ -774,6 +774,6 @@
   "stt_estimate_too_long": "⚠️ Transkription würde ~{minutes} min dauern — über dem Limit von {limit} min. GPU freimachen (Modell entladen) oder Datei aufteilen.",
   "stt_confirm_long": "Transkription von „{filename}“ dauert voraussichtlich ~{minutes} min ({engine}-Engine). Fortfahren?",
   "stt_cancelled": "Transkription abgebrochen.",
-  "stt_bubble_started": "🎤 Audio-Datei „{filename}“ ({size}) hochgeladen — Transkription läuft ({engine}-Engine). Das Ergebnis wird als Dokument gespeichert.",
-  "stt_bubble_saved": "📄 Transkript gespeichert: {transcript_link} ({chars}k Zeichen). Sag z. B. „fasse {filename} zusammen“ oder „übersetze {filename}“."
+  "stt_bubble_started": "🎤 Audio-Datei „{filename}“ ({size}) hochgeladen.\n\nTranskription läuft ({engine}-Engine) — das Ergebnis wird als Dokument gespeichert.",
+  "stt_bubble_saved": "📄 Transkript gespeichert: {transcript_link} ({chars}k Zeichen).\n\nSag z. B. „fasse {filename} zusammen“\n\noder „übersetze {filename}“."
 }
