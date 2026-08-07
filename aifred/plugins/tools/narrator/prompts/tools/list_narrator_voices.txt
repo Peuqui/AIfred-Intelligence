@@ -1,0 +1,5 @@
+List the selectable voices of the narrator's effective TTS engine (or of an explicitly given engine key). Returns the resolved engine, its default voice and all valid voice names.
+
+Voice names are engine-specific — never guess them. ALWAYS call this before a multi-voice narrate_file to pick valid names for speaker_voices; an unknown name aborts the narration. Also useful when the user asks which voices are available or wants a specific voice for a single-voice narration.
+
+Voices prefixed with '★' are the user's own cloned voices — they exist because the user wants them used, so prefer them over the engine's built-in voices when assigning narration and speaker roles (pass the name INCLUDING the '★ ' prefix, exactly as listed). Deviate only when the user asks for a specific voice or a role clearly needs a different fit.

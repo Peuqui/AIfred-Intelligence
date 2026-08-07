@@ -19,8 +19,49 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_WRITE_DATA
+from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.plugin_base import PluginContext, load_tool_description
+
+
+def _voice_names(eng_obj: Any) -> list[str]:
+    """Display names of an engine's voices (get_voices, else fallback)."""
+    try:
+        return list(eng_obj.get_voices().keys())
+    except Exception:
+        return list(eng_obj.voices_fallback.keys())
+
+
+def _resolve_engine_and_voice(engine: str = "", voice: str = "") -> tuple[str, str]:
+    """Resolve the effective narrator engine and its default voice.
+
+    Shared by narrate_file and list_narrator_voices so both always agree.
+    "auto" follows the spoken-output engine; while that is off, the
+    user-selected GPU-free fallback is used so the loaded LLM keeps its
+    VRAM (the qwen3local container otherwise silently falls back to an
+    agonizingly slow CPU synth). Voices are engine-bound — the saved
+    voice for the resolved engine wins, else the engine's own first
+    voice (never hand e.g. the "AIfred" clone name to Piper).
+    """
+    from ....lib.config import NARRATE_DEFAULT_VOICE, TTS_DEFAULT_ENGINE
+    from ....lib.settings import load_settings
+    from ....lib.tts_engines import get_engine
+
+    _settings = load_settings() or {}
+    if not engine:
+        engine = _settings.get("narrator_engine", "auto")
+        if engine == "auto":
+            if _settings.get("enable_tts"):
+                engine = _settings.get("tts_engine") or TTS_DEFAULT_ENGINE
+            else:
+                engine = _settings.get("narrator_fallback_engine", "piper")
+    if not voice:
+        voice = (_settings.get("narrator_voices") or {}).get(engine, "")
+    if not voice:
+        eng_obj = get_engine(engine)
+        if eng_obj is not None:
+            names = _voice_names(eng_obj)
+            voice = names[0] if names else ""
+    return engine, voice or NARRATE_DEFAULT_VOICE
 
 
 @dataclass
@@ -49,6 +90,7 @@ class NarratorPlugin:
             voice: str = "",
             language: str = "de",
             engine: str = "",
+            speaker_voices: dict[str, str] | None = None,
         ) -> str:
             """Synthesize a whole document into one audio file."""
             from ....lib import file_manager as fm
@@ -57,45 +99,17 @@ class NarratorPlugin:
                 concatenate_wav_files,
                 generate_tts,
             )
-            from ....lib.config import (
-                NARRATE_CHUNK_LIMIT_CHARS,
-                NARRATE_DEFAULT_VOICE,
-                TTS_DEFAULT_ENGINE,
-            )
+            from ....lib.config import NARRATE_CHUNK_LIMIT_CHARS
             from ....lib.debug_bus import debug
-            from ....lib.text_chunking import split_paragraph_chunks
+            from ....lib.text_chunking import (
+                split_paragraph_chunks,
+                split_speaker_segments,
+            )
             from ....lib.tts_engine_manager import ensure_engine_ready
 
             # Resolve engine/voice from the narrator settings (UI row in the
             # audio section) unless the caller passed them explicitly.
-            # "auto" follows the spoken-output engine; while that is off,
-            # the user-selected GPU-free fallback is used so the loaded LLM
-            # keeps its VRAM (the qwen3local container otherwise silently
-            # falls back to an agonizingly slow CPU synth).
-            from ....lib.settings import load_settings
-            _settings = load_settings() or {}
-            if not engine:
-                engine = _settings.get("narrator_engine", "auto")
-                if engine == "auto":
-                    if _settings.get("enable_tts"):
-                        engine = _settings.get("tts_engine") or TTS_DEFAULT_ENGINE
-                    else:
-                        engine = _settings.get("narrator_fallback_engine", "piper")
-            if not voice:
-                # Voices are engine-bound — look up the saved voice for the
-                # resolved engine, else fall back to the engine's own first
-                # voice (never hand e.g. the "AIfred" clone name to Piper).
-                voice = (_settings.get("narrator_voices") or {}).get(engine, "")
-            if not voice:
-                from ....lib.tts_engines import get_engine
-                eng_obj = get_engine(engine)
-                if eng_obj is not None:
-                    try:
-                        _voices = list(eng_obj.get_voices().keys())
-                    except Exception:
-                        _voices = list(eng_obj.voices_fallback.keys())
-                    voice = _voices[0] if _voices else ""
-            voice = voice or NARRATE_DEFAULT_VOICE
+            engine, voice = _resolve_engine_and_voice(engine, voice)
 
             read = fm.read_file(filename)
             if not read.success:
@@ -103,6 +117,46 @@ class NarratorPlugin:
             text = read.metadata["content"].strip()
             if not text:
                 return json.dumps({"error": f"File is empty: {filename}"})
+
+            # Multi-voice mode: map "[LABEL]:" line markers to voices.
+            # Validate strictly up front — an unknown voice or an unmapped
+            # label in the text must abort with a clear error instead of
+            # silently narrating with the wrong voice (project rule).
+            if speaker_voices:
+                if not isinstance(speaker_voices, dict) or not all(
+                    isinstance(k, str) and isinstance(v, str)
+                    for k, v in speaker_voices.items()
+                ):
+                    return json.dumps({"error": (
+                        "speaker_voices must be a JSON object mapping "
+                        "speaker labels to voice names"
+                    )})
+                from ....lib.tts_engines import get_engine
+                eng_obj = get_engine(engine)
+                if eng_obj is None:
+                    return json.dumps({"error": f"Unknown TTS engine: {engine}"})
+                known_voices = set(_voice_names(eng_obj))
+                unknown_voices = sorted(
+                    v for v in speaker_voices.values() if v not in known_voices
+                )
+                if unknown_voices:
+                    return json.dumps({"error": (
+                        f"Unknown voice(s) for engine {engine}: "
+                        f"{', '.join(unknown_voices)}. "
+                        f"Available: {', '.join(sorted(known_voices))}"
+                    )})
+                segments = split_speaker_segments(text)
+                unmapped = sorted({
+                    label for label, _ in segments
+                    if label is not None and label not in speaker_voices
+                })
+                if unmapped:
+                    return json.dumps({"error": (
+                        f"Speaker label(s) in {filename} without a voice in "
+                        f"speaker_voices: {', '.join(unmapped)}"
+                    )})
+            else:
+                segments = [(None, text)]
 
             if not output_filename:
                 p = PurePosixPath(filename)
@@ -121,23 +175,37 @@ class NarratorPlugin:
             if not ok:
                 return json.dumps({"error": f"TTS engine {engine}: {status}"})
 
-            chunks = split_paragraph_chunks(text, NARRATE_CHUNK_LIMIT_CHARS)
-            debug(f"🔊 narrate_file: {filename} → {len(chunks)} chunks ({engine}, {voice})")
+            # A speaker change is always a hard chunk boundary; long
+            # segments are still split at paragraph boundaries internally.
+            voiced_chunks: list[tuple[str, str]] = []
+            for label, segment_text in segments:
+                segment_voice = voice if label is None else (speaker_voices or {})[label]
+                for chunk in split_paragraph_chunks(segment_text, NARRATE_CHUNK_LIMIT_CHARS):
+                    voiced_chunks.append((segment_voice, chunk))
+            total = len(voiced_chunks)
+            if speaker_voices:
+                debug(
+                    f"🔊 narrate_file: {filename} → {len(segments)} speaker "
+                    f"segments, {total} chunks ({engine}, "
+                    f"{len(speaker_voices)} voices)"
+                )
+            else:
+                debug(f"🔊 narrate_file: {filename} → {total} chunks ({engine}, {voice})")
 
             wav_urls: list[str] = []
-            for i, chunk in enumerate(chunks, 1):
+            for i, (chunk_voice, chunk) in enumerate(voiced_chunks, 1):
                 url = await generate_tts(
-                    chunk, voice, 1.0, engine,
+                    chunk, chunk_voice, 1.0, engine,
                     pitch=1.0, agent="narrator", language=language,
                 )
                 if not url:
                     return json.dumps({
-                        "error": f"TTS failed at chunk {i}/{len(chunks)}",
+                        "error": f"TTS failed at chunk {i}/{total}",
                         "chunks_done": i - 1,
                     })
                 wav_urls.append(url)
-                if i % 5 == 0 or i == len(chunks):
-                    debug(f"🔊 narrate_file: {i}/{len(chunks)} chunks synthesized")
+                if i % 5 == 0 or i == total:
+                    debug(f"🔊 narrate_file: {i}/{total} chunks synthesized")
 
             combined_url: str | None
             if len(wav_urls) == 1:
@@ -170,19 +238,56 @@ class NarratorPlugin:
 
             size_mb = out_path.stat().st_size / (1024 * 1024)
             debug(f"✅ narrate_file: wrote {output_filename} ({size_mb:.1f} MB)")
-            return json.dumps({
+            result: dict[str, Any] = {
                 "written": output_filename,
                 # Ready-made browser URL — share it as a MARKDOWN link
                 # ([name](url)); raw <a> HTML renders dead in chat bubbles.
                 "url": f"/_upload/documents/{output_filename}",
-                "chunks": len(chunks),
+                "chunks": total,
                 "chars": len(text),
                 "engine": engine,
                 "voice": voice,
                 "size_mb": round(size_mb, 1),
+            }
+            if speaker_voices:
+                result["speaker_voices"] = speaker_voices
+                result["segments"] = len(segments)
+            return json.dumps(result)
+
+        async def _list_narrator_voices(engine: str = "") -> str:
+            """Voice discovery for the effective narrator engine."""
+            from ....lib.tts_engines import get_engine
+
+            engine, default_voice = _resolve_engine_and_voice(engine)
+            eng_obj = get_engine(engine)
+            if eng_obj is None:
+                return json.dumps({"error": f"Unknown TTS engine: {engine}"})
+            return json.dumps({
+                "engine": engine,
+                "default_voice": default_voice,
+                "voices": _voice_names(eng_obj),
             })
 
         return [
+            Tool(
+                name="list_narrator_voices",
+                tier=TIER_READONLY,
+                description=load_tool_description(__file__, "list_narrator_voices"),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "engine": {
+                            "type": "string",
+                            "description": (
+                                "Optional TTS engine key. Default: the engine "
+                                "the narrator settings resolve to."
+                            ),
+                        },
+                    },
+                    "required": [],
+                },
+                executor=_list_narrator_voices,
+            ),
             Tool(
                 name="narrate_file",
                 # Schreibt eine Datei im Dokumentenbaum → gleiche Stufe wie
@@ -226,6 +331,20 @@ class NarratorPlugin:
                                 "engine, normally 'qwen3local')."
                             ),
                         },
+                        "speaker_voices": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                            "description": (
+                                "Optional multi-voice mapping: speaker label → "
+                                "voice name. Lines in the source file starting "
+                                "with '[LABEL]:' switch to that speaker's voice "
+                                "(the marker itself is not spoken); text before "
+                                "the first marker uses the default voice. Voice "
+                                "names are engine-specific — call "
+                                "list_narrator_voices first and use names from "
+                                "its result."
+                            ),
+                        },
                     },
                     "required": ["filename"],
                 },
@@ -243,6 +362,10 @@ class NarratorPlugin:
             if lang == "de":
                 return f"🔊 Vertone {fname}..."
             return f"🔊 Narrating {fname}..."
+        if tool_name == "list_narrator_voices":
+            if lang == "de":
+                return "🎤 Ermittle verfügbare Stimmen..."
+            return "🎤 Listing available voices..."
         return ""
 
 

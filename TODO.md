@@ -136,7 +136,7 @@ Wartet auf das reaktivierte RPC-Setup (Kabel + Aragon).
 
 ---
 
-## Hörspiel-Narrator: Multi-Voice-Modus (geplant, 2026-08-07)
+## Hörspiel-Narrator: Multi-Voice-Modus ✅ (umgesetzt 2026-08-07)
 
 Interview-/Dialog-Transkripte mit mehreren Stimmen vertonen. Baut auf
 der bestehenden Meeting-Pipeline auf (Upload → GPU-Whisper →
@@ -149,13 +149,28 @@ Diarisierung (versteht Rollen, glättet Whisper-Verhörer, formatiert),
 und die Fähigkeit existiert bereits (kein neues Modell, kein Setup).
 Live verifiziert am Exorzisten-Interview (FRAGE/ANTWORT-Aufbereitung).
 
-**Baustein — Multi-Voice-Modus in `narrate_file`:**
-- Einfaches Marker-Format definieren (z. B. `[S1]:` / `[S2]:` oder
-  `[FRAGE]:` / `[ANTWORT]:`), das das LLM beim Aufbereiten schreibt.
-- `narrate_file`: Marker-Parsing, Chunking an Sprecherwechseln (statt
-  nur an Absätzen), Mapping Marker → Stimme (z. B. Frage → Thorsten,
-  Antwort → Eva K) per Tool-Parameter oder Narrator-Settings.
-- Rest der Maschinerie (Synthese, ffmpeg-Concat, MP3-Encode) existiert.
+**Baustein — Multi-Voice-Modus in `narrate_file`** ✅ *(umgesetzt
+2026-08-07: `split_speaker_segments` in `lib/text_chunking.py`,
+`speaker_voices`-Parameter im Narrator-Plugin, Tool-Prompt + Guides
+DE/EN, Unit-Tests in `tests/test_text_chunking.py`; end-to-end mit
+Edge verifiziert — Validierungsfehler + 2-Stimmen-MP3)*:
+- Neuer optionaler Tool-Parameter `speaker_voices: dict`
+  (Marker → Stimmenname, z. B. `{"FRAGE": "Deutsch (Thorsten)",
+  "ANTWORT": "Deutsch (Eva K)"}`). Ohne den Parameter: Verhalten
+  exakt wie heute (eine Stimme).
+- Marker-Format: Zeilen, die mit `[LABEL]:` beginnen (LABEL frei:
+  FRAGE/ANTWORT/S1/…). Parsing VOR dem Chunking → (label, text)-
+  Segmente; Sprecherwechsel ist immer Chunk-Grenze, innerhalb eines
+  Segments weiter `split_paragraph_chunks`. Marker selbst wird
+  gestrippt (nicht mitvertonen). Text ohne Marker → Default-Voice.
+- Stimmen müssen zur effektiven Engine gehören
+  (`engine.get_voices()`); unbekannte Stimme → Klartext-Fehler,
+  KEIN stiller Fallback.
+- Rest der Maschinerie (Engine-Auflösung, Synthese, ffmpeg-Concat,
+  MP3-Encode) bleibt unverändert.
+- Tool-Prompt (`narrator/prompts/tools/narrate_file.txt`) um die
+  Multi-Voice-Anleitung ergänzen; Plugin-Guides narrator.md (DE/EN)
+  nachziehen.
 - Die Marker überleben die DeepL-Übersetzung → übersetzte Hörspiele.
 
 **Zurückgestellt — akustische Diarisierung (pyannote/WhisperX):** nur
