@@ -93,6 +93,36 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
 
 ---
 
+## Sprecher-Diarisierung + Hörspiel-Narrator (geplant, Idee 2026-08-07)
+
+Meeting-/Interview-Transkripte mit Sprecher-Markern versehen und daraus
+Mehr-Stimmen-Audio erzeugen. Baut komplett auf der bestehenden
+Meeting-Pipeline auf (Upload → GPU-Whisper → Workspace-Transkript →
+`translate_file` → `narrate_file`/MP3).
+
+**Baustein 1 — Diarisierung im whisper-stt-Container:**
+- pyannote.audio (Standard, auch von WhisperX genutzt): **lokales**
+  Modell, kein Cloud-Call — das HF-Token wird nur einmalig für den
+  Download gebraucht (Modell ist "gated": Lizenz auf der
+  HuggingFace-Seite bestätigen, Token in `.env`). Danach vollständig
+  offline, keine Daten verlassen den Mini.
+- Neuer Parameter `diarize=true` am `/transcribe`-Endpoint → Transkript
+  mit `[SPEAKER_00]: …`-Markern (Merge über Wort-Timestamps nach dem
+  WhisperX-Muster; faster-whisper steckt schon im Container).
+- Grenzen: anonyme Labels (keine Namen — die kann ggf. das LLM
+  nachträglich aus dem Gesprächskontext zuordnen); gut bei klaren
+  Sprecherwechseln (Interview/Podcast), schwach bei Überlappungen.
+  VRAM ~2–3 GB, im bestehenden GPU-Worker-Muster mit TTL.
+
+**Baustein 2 — Multi-Voice-Modus in `narrate_file` (Hörspiel):**
+- Sprecher-Marker-Parsing, Chunking an Sprecherwechseln (statt nur an
+  Absätzen), Mapping Sprecher → Stimme (z. B. SPEAKER_00 → Thorsten,
+  SPEAKER_01 → Eva K) — per Tool-Parameter oder Narrator-Settings.
+- Rest der Maschinerie (Synthese, ffmpeg-Concat, MP3-Encode) existiert.
+- Die Marker überleben die DeepL-Übersetzung → übersetzte Hörspiele.
+
+---
+
 ## Video-Plugin (später)
 
 Idee: analog zum Audio-Player ein video_player Plugin mit:
@@ -710,9 +740,14 @@ Statt eines eigenen Calibration-Profils existiert heute:
       Erstmal parallel zur Automatik-LLM-MODE_SWITCH-Variante, als Opt-in-Pfad.
 - [ ] RSS/News Feed Plugin: Nachrichten-Quellen überwachen und zusammenfassen
 - [ ] Home Assistant Plugin: Smart Home Geräte steuern (REST API)
-- [ ] **Audio-Transkription Plugin**: Watchfolder für Audio-Dateien (z.B. Memos,
-      Meeting-Recordings). Whisper ist schon installiert → neu hereingelegte
-      Files automatisch transkribieren und als Text ablegen / in RAG indexieren.
+- [x] ~~**Audio-Transkription Plugin** (Watchfolder)~~ ✅ Kern anders
+      gelöst (2026-08-07): Die Audio-Upload-Pipeline transkribiert große
+      Dateien auf der GPU (`language=auto`, Dauer-Schätzung mit Confirm,
+      CPU-Fallback) und legt das Transkript als Workspace-Datei ab
+      (verlinkte Chat-Bubble) → `translate_file` → `narrate_file`.
+      Watchfolder-Automatik bewusst NICHT gebaut — Agent-Auftrag statt
+      Automatik-Pipeline; bei Bedarf über Scheduler + Workspace-Tools
+      abbildbar.
 - [ ] Kalender-Sync Plugin: Google Calendar / CalDAV (unabhängig von EPIM)
 
 ### Google Suite ✅ (implementiert)
@@ -872,13 +907,17 @@ Iteration:
 
 ## Hardware (offen)
 
-- [x] ~~V100 testen~~ ✅ V100 läuft produktiv im 5-GPU-Setup (176 GB
-  VRAM, Stand 2026-05-20), ECC enabled (HBM2 Inline-ECC ohne
-  VRAM-Verlust). Die Speed-Klassen-Logik sortiert nach compute_cap —
-  Volta (7.0) wird als schnellste Karte einsortiert (CUDA-Device 0).
-- [ ] **Sukzessive P40 → V100-Migration** — läuft: alle OCuLink-Adapter
-  sind da, die erste V100 ist bereits in Betrieb. Nach Abschluss: vLLM
-  als Haupt-Backend zurück (docs/vllm/ deshalb NICHT löschen).
+- [x] ~~V100 testen~~ ✅ V100 läuft produktiv, ECC enabled (HBM2
+  Inline-ECC ohne VRAM-Verlust). Die Speed-Klassen-Logik sortiert nach
+  compute_cap — Volta (7.0) wird als schnellste Karte einsortiert
+  (CUDA-Device 0).
+- [x] ~~Sukzessive P40 → V100-Migration~~ ✅ abgeschlossen: Endausbau
+  5 GPUs = 192 GB VRAM (2× RTX 8000 48 GB + 3× V100 32 GB), alle P40
+  raus (Stand 2026-07-10). Kein weiterer GPU-Ausbau geplant —
+  allenfalls V100→RTX-8000-Tausch oder irgendwann ein neuer Server.
+- [ ] **vLLM als Haupt-Backend zurückholen** — war an die P40-Ablösung
+  gekoppelt (fehlender Pascal-Support), die ist durch. `docs/vllm/`
+  deshalb NICHT löschen, höchstens als Historical Notes markieren.
 
 ---
 
