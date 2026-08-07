@@ -117,6 +117,17 @@ class SessionMixin(rx.State, mixin=True):
         # research_mode and audio state are picked up correctly.
         self.session_id = session_id
 
+        # Sync mtime tracker to the target session — otherwise the 500ms
+        # tick-handler sees mtime > tracker (whenever the target file is
+        # newer than the previously tracked session) and reloads the whole
+        # session a second time right after this switch.
+        import os as _os
+        from ..lib.session_storage import get_session_path
+        try:
+            self._last_session_mtime = _os.path.getmtime(get_session_path(session_id))  # type: ignore[attr-defined]
+        except (OSError, ValueError):
+            self._last_session_mtime = 0.0  # type: ignore[attr-defined]
+
         # Clear stale debug messages from the previous session before
         # _restore_session merges saved ones with whatever is currently
         # in self.debug_messages.
