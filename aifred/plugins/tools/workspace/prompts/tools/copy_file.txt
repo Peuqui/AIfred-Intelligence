@@ -1,0 +1,1 @@
+Copy a file inside the documents directory (server-side, binary-safe — works for MP3/PDF/etc. without reading the content into context). Target may be a file path or an existing folder (the file keeps its name). Refuses to overwrite an existing target unless overwrite=true. Files only — use move_file for folders.

@@ -418,6 +418,82 @@ class WorkspacePlugin:
             executor=_delete_folder,
         ))
 
+        async def _copy_file(path: str, target_path: str, overwrite: bool = False) -> str:
+            """Copy a file (binary-safe, server-side) inside the documents tree."""
+            result = fm.copy_file(path, target_path, overwrite=overwrite)
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            return json.dumps({
+                "copied": path,
+                "to": result.metadata.get("path", target_path),
+                "bytes": result.metadata.get("bytes", 0),
+            })
+
+        tools.append(Tool(
+            name="copy_file",
+            tier=TIER_WRITE_DATA,
+            description=(
+                load_tool_description(__file__, "copy_file")
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Source file relative to documents/ (e.g. 'notes/draft.md')",
+                    },
+                    "target_path": {
+                        "type": "string",
+                        "description": "Target path — a file path or an existing folder (file keeps its name)",
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": "Replace an existing target (default false)",
+                    },
+                },
+                "required": ["path", "target_path"],
+            },
+            executor=_copy_file,
+        ))
+
+        async def _move_file(path: str, target_path: str, overwrite: bool = False) -> str:
+            """Move a file or folder; index metadata follows moved files."""
+            result = fm.move_file(path, target_path, overwrite=overwrite)
+            if not result.success:
+                return json.dumps({"error": result.detail})
+            return json.dumps({
+                "moved": path,
+                "to": result.metadata.get("path", target_path),
+                "chunks_updated": result.metadata.get("chunks_updated", 0),
+            })
+
+        tools.append(Tool(
+            name="move_file",
+            tier=TIER_WRITE_DATA,
+            description=(
+                load_tool_description(__file__, "move_file")
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Source file or folder relative to documents/",
+                    },
+                    "target_path": {
+                        "type": "string",
+                        "description": "Target path — a new path or an existing folder (source keeps its name)",
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": "Replace an existing target (default false)",
+                    },
+                },
+                "required": ["path", "target_path"],
+            },
+            executor=_move_file,
+        ))
+
         async def _rename(path: str, new_name: str) -> str:
             """Rename a file or folder. Updates the ChromaDB index for indexed files."""
             parts = path.strip("/").rsplit("/", 1)
