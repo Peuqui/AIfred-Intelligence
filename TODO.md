@@ -93,6 +93,35 @@ Architektur: [docs/de/architecture/audio-pipeline.md](docs/de/architecture/audio
 
 ---
 
+## Dependency-Wartungsfenster (geplant, Bestandsaufnahme 2026-08-07)
+
+`pip list --outdated`: 207 Pakete mit Updates. Gestuft angehen, NICHT
+pauschal hochziehen (torch/CUDA/vLLM-Block ist versionsverzahnt):
+
+**Stufe 1 — risikoarm (Security-/Wartungs-Hygiene):**
+- cryptography 46→50, certifi, openai 2.15→2.53, pydantic-Minors,
+  granian 2.6→2.8. Erwartung: keine Funktionsgewinne, reine Hygiene.
+
+**Stufe 2 — Reflex 0.8.28 → 0.9.x (eigenes Paket, Breaking!):**
+- **VORHER Pflicht:** `AgentTuning` von `rx.Base` auf
+  `pydantic.BaseModel` migrieren — rx.Base ist in 0.9 ENTFERNT,
+  ohne Migration startet AIfred nicht (Deprecation-Warnung läuft
+  heute bei jedem Start durch).
+- Beide dokumentierten Patches neu prüfen/portieren:
+  route.py frontend_path-Fix + exec.py respawn_failed_workers
+  (siehe CLAUDE.md).
+- Danach Regressionstest: Session-Wechsel, Text-Markierung im Idle
+  (CDP-Sniff-Methode siehe Fix vom 2026-08-07), Uploads, Hot-Reload.
+
+**Stufe 3 — nur bei Bedarf:** chromadb-Client (muss zum
+Docker-Server passen), ctranslate2/faster-whisper (Container haben
+eigene gepinnte Versionen — venv-Update bringt dort nichts).
+
+**Nicht anfassen:** torch/CUDA/vLLM-Block — erst mit dem
+vLLM-Rückkehr-Projekt (siehe Hardware-Abschnitt).
+
+---
+
 ## RPC-fähige KI-Kalibrierung (geplant, Skizze 2026-08-06)
 
 Verteilte Inferenz via llama.cpp RPC (Mini + Aragon) durch den
@@ -107,33 +136,34 @@ Wartet auf das reaktivierte RPC-Setup (Kabel + Aragon).
 
 ---
 
-## Sprecher-Diarisierung + Hörspiel-Narrator (geplant, Idee 2026-08-07)
+## Hörspiel-Narrator: Multi-Voice-Modus (geplant, 2026-08-07)
 
-Meeting-/Interview-Transkripte mit Sprecher-Markern versehen und daraus
-Mehr-Stimmen-Audio erzeugen. Baut komplett auf der bestehenden
-Meeting-Pipeline auf (Upload → GPU-Whisper → Workspace-Transkript →
-`translate_file` → `narrate_file`/MP3).
+Interview-/Dialog-Transkripte mit mehreren Stimmen vertonen. Baut auf
+der bestehenden Meeting-Pipeline auf (Upload → GPU-Whisper →
+Workspace-Transkript → `translate_file` → `narrate_file`/MP3).
 
-**Baustein 1 — Diarisierung im whisper-stt-Container:**
-- pyannote.audio (Standard, auch von WhisperX genutzt): **lokales**
-  Modell, kein Cloud-Call — das HF-Token wird nur einmalig für den
-  Download gebraucht (Modell ist "gated": Lizenz auf der
-  HuggingFace-Seite bestätigen, Token in `.env`). Danach vollständig
-  offline, keine Daten verlassen den Mini.
-- Neuer Parameter `diarize=true` am `/transcribe`-Endpoint → Transkript
-  mit `[SPEAKER_00]: …`-Markern (Merge über Wort-Timestamps nach dem
-  WhisperX-Muster; faster-whisper steckt schon im Container).
-- Grenzen: anonyme Labels (keine Namen — die kann ggf. das LLM
-  nachträglich aus dem Gesprächskontext zuordnen); gut bei klaren
-  Sprecherwechseln (Interview/Podcast), schwach bei Überlappungen.
-  VRAM ~2–3 GB, im bestehenden GPU-Worker-Muster mit TTL.
+**Sprechertrennung macht das LLM, nicht die Akustik** (entschieden
+2026-08-07): AIfred bereitet das Rohtranskript per Auftrag als Dialog
+mit Sprecher-Markern auf — semantisch oft besser als akustische
+Diarisierung (versteht Rollen, glättet Whisper-Verhörer, formatiert),
+und die Fähigkeit existiert bereits (kein neues Modell, kein Setup).
+Live verifiziert am Exorzisten-Interview (FRAGE/ANTWORT-Aufbereitung).
 
-**Baustein 2 — Multi-Voice-Modus in `narrate_file` (Hörspiel):**
-- Sprecher-Marker-Parsing, Chunking an Sprecherwechseln (statt nur an
-  Absätzen), Mapping Sprecher → Stimme (z. B. SPEAKER_00 → Thorsten,
-  SPEAKER_01 → Eva K) — per Tool-Parameter oder Narrator-Settings.
+**Baustein — Multi-Voice-Modus in `narrate_file`:**
+- Einfaches Marker-Format definieren (z. B. `[S1]:` / `[S2]:` oder
+  `[FRAGE]:` / `[ANTWORT]:`), das das LLM beim Aufbereiten schreibt.
+- `narrate_file`: Marker-Parsing, Chunking an Sprecherwechseln (statt
+  nur an Absätzen), Mapping Marker → Stimme (z. B. Frage → Thorsten,
+  Antwort → Eva K) per Tool-Parameter oder Narrator-Settings.
 - Rest der Maschinerie (Synthese, ffmpeg-Concat, MP3-Encode) existiert.
 - Die Marker überleben die DeepL-Übersetzung → übersetzte Hörspiele.
+
+**Zurückgestellt — akustische Diarisierung (pyannote/WhisperX):** nur
+nachrüsten, falls Viel-Sprecher-Meetings ohne klare Rollen real werden
+(Text allein verrät dann nicht, wer spricht; auch Wechsel mitten im
+Satzfluss sieht nur die Akustik). Lokales gated-Modell, HF-Token nur
+für den Einmal-Download, `diarize=true` am `/transcribe`-Endpoint,
+VRAM ~2–3 GB im GPU-Worker-Muster.
 
 ---
 
