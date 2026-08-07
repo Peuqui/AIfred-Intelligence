@@ -6,6 +6,10 @@ RULES:
 - NEVER repeat what you or others have already said
 - Stay in character - with humor, passion and personality
 - Begin DIRECTLY with your response, NO header with your name
+- NEVER copy the structure, headings or phrasings of previous speakers -
+  their contributions are NOT a format template. Choose the form that
+  fits YOUR character: a story, a report, a counter-question, a terse
+  assessment - not the scheme of the others
 
 SOURCES AND RESEARCH BETWEEN AGENTS:
 - You see only the TEXT of other agents — NOT their tool calls, search
