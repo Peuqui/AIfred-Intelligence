@@ -125,6 +125,9 @@ class SettingsMixin(rx.State, mixin=True):
             "voice": self.tts_voice,  # type: ignore[attr-defined, has-type]
             # Note: tts_speed removed - generation always at 1.0, tempo via tts_playback_rate
             "tts_engine": self.tts_engine,  # type: ignore[attr-defined, has-type]
+            "narrator_engine": self.narrator_engine,  # type: ignore[attr-defined, has-type]
+            "narrator_fallback_engine": self.narrator_fallback_engine,  # type: ignore[attr-defined, has-type]
+            "narrator_voices": self.narrator_voices,  # type: ignore[attr-defined, has-type]
             "xtts_force_cpu": self.xtts_force_cpu,  # type: ignore[attr-defined, has-type]
             # tts_autoplay/tts_streaming_enabled: per-engine only (tts_toggles_per_engine)
             "tts_playback_rate": self.tts_playback_rate,  # type: ignore[attr-defined, has-type]
@@ -239,6 +242,9 @@ class SettingsMixin(rx.State, mixin=True):
         self.enable_tts = settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
         self.tts_voice = settings.get("voice", self.tts_voice)  # type: ignore[attr-defined, has-type]
         self.tts_engine = settings.get("tts_engine", self.tts_engine)  # type: ignore[attr-defined, has-type]
+        self.narrator_engine = settings.get("narrator_engine", self.narrator_engine)  # type: ignore[attr-defined, has-type]
+        self.narrator_fallback_engine = settings.get("narrator_fallback_engine", self.narrator_fallback_engine)  # type: ignore[attr-defined, has-type]
+        self.narrator_voices = settings.get("narrator_voices", self.narrator_voices)  # type: ignore[attr-defined, has-type]
         self.xtts_force_cpu = settings.get("xtts_force_cpu", self.xtts_force_cpu)  # type: ignore[attr-defined, has-type]
 
         # Ensure all registered agents have TTS voice entries

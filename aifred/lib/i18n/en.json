@@ -775,5 +775,11 @@
   "stt_confirm_long": "Transcribing “{filename}” will take an estimated ~{minutes} min ({engine} engine). Continue?",
   "stt_cancelled": "Transcription cancelled.",
   "stt_bubble_started": "🎤 Audio file “{filename}” ({size}) uploaded.\n\nTranscription running ({engine} engine) — the result will be saved as a document.",
-  "stt_bubble_saved": "📄 Transcript saved: {transcript_link} ({chars}k characters).\n\nSay e.g. “summarize {filename}”\n\nor “translate {filename}”."
+  "stt_bubble_saved": "📄 Transcript saved: {transcript_link} ({chars}k characters).\n\nSay e.g. “summarize {filename}”\n\nor “translate {filename}”.",
+  "narrator_engine_auto": "(same as spoken output)",
+  "narrator_fallback_tooltip": "GPU-free engine used while spoken output is off — the loaded model keeps its VRAM",
+  "narrator_engine_label": "Engine:",
+  "narrator_fallback_label": "GPU-free:",
+  "narrator_voice_label": "Voice:",
+  "narrator_settings_subtitle": "Narration engine and voice for narrate_file (document → audio file)"
 }
