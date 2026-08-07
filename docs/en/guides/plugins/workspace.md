@@ -15,6 +15,8 @@ The Workspace Plugin provides the LLM with direct file access to the documents d
 | `write_file` | Write or edit a text file (with verify) | WRITE_DATA |
 | `create_folder` | Create a subfolder | WRITE_DATA |
 | `rename` | Rename a file or folder (keeps the ChromaDB index in sync) | WRITE_DATA |
+| `copy_file` | Copy a file (server-side, binary-safe — MP3/PDF too) | WRITE_DATA |
+| `move_file` | Move a file or folder (index follows moved files) | WRITE_DATA |
 | `delete_file` | Delete a file (also removes it from the index) | WRITE_SYSTEM |
 | `delete_folder` | Delete a folder (empty by default, `recursive=true` to wipe the tree) | WRITE_SYSTEM |
 

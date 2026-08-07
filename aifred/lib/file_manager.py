@@ -358,6 +358,107 @@ async def delete_file(
     return FileOpResult(True, detail, {"chunks_removed": chunks_removed, "actions": actions})
 
 
+def _sync_index_path(old_path: Path, new_path: Path, old_name: str) -> int:
+    """Update ChromaDB chunk metadata after a file changed its path, so the
+    indexed document stays searchable. Returns the number of updated chunks
+    (0 when the file isn't indexed or the store is down)."""
+    chunks_updated = 0
+    try:
+        from .document_store import get_document_store
+        store = get_document_store()
+        if store:
+            old_rel = str(old_path.relative_to(DOCUMENTS_DIR))
+            new_rel = str(new_path.relative_to(DOCUMENTS_DIR))
+            # Try canonical rel-path first, fall back to bare filename
+            # (legacy uploads stored without subfolder prefix).
+            for filename_query in (old_rel, old_name):
+                data = store.collection.get(where={"filename": filename_query})
+                if data and data.get("ids"):
+                    for chunk_id in data["ids"]:
+                        store.collection.update(
+                            ids=[chunk_id],
+                            metadatas=[{"filename": new_rel}],
+                        )
+                        chunks_updated += 1
+                    break
+    except Exception as exc:
+        logger.warning(f"index path sync failed for {old_name}: {exc}")
+    return chunks_updated
+
+
+def copy_file(src_rel: str, dest_rel: str, *, overwrite: bool = False) -> FileOpResult:
+    """Copy a file (binary-safe) inside the documents tree.
+
+    ``dest_rel`` may be an existing folder — the file keeps its name then.
+    Refuses to overwrite unless ``overwrite`` is set. Files only (no
+    recursive folder copies).
+    """
+    import shutil
+    src, err = safe_resolve(src_rel)
+    if err:
+        return FileOpResult(False, err)
+    assert src is not None
+    if not src.exists():
+        return FileOpResult(False, f"Source not found: {src_rel}")
+    if src.is_dir():
+        return FileOpResult(False, "copy_file copies files only, not folders")
+
+    dest, err = safe_resolve(dest_rel)
+    if err:
+        return FileOpResult(False, err)
+    assert dest is not None
+    if dest.is_dir():
+        dest = dest / src.name
+    if dest == src:
+        return FileOpResult(False, "Source and target are identical")
+    if dest.exists() and not overwrite:
+        return FileOpResult(False, f"Target exists: {dest_rel} (set overwrite=true to replace)")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dest)
+    size = dest.stat().st_size
+    dest_out = str(dest.relative_to(DOCUMENTS_DIR))
+    logger.info(f"copy_file: {src_rel} → {dest_out} ({size} bytes)")
+    return FileOpResult(True, f"Copied {size} bytes", {"path": dest_out, "bytes": size})
+
+
+def move_file(src_rel: str, dest_rel: str, *, overwrite: bool = False) -> FileOpResult:
+    """Move a file or folder inside the documents tree (rename across
+    folders). Indexed files keep their searchability — chunk metadata is
+    updated like in :func:`rename`. For moved FOLDERS the contained files'
+    index paths become stale (use list_orphaned/index_document to repair).
+    """
+    import shutil
+    src, err = safe_resolve(src_rel)
+    if err:
+        return FileOpResult(False, err)
+    assert src is not None
+    if not src.exists():
+        return FileOpResult(False, f"Source not found: {src_rel}")
+
+    dest, err = safe_resolve(dest_rel)
+    if err:
+        return FileOpResult(False, err)
+    assert dest is not None
+    if dest.is_dir():
+        dest = dest / src.name
+    if dest == src:
+        return FileOpResult(False, "Source and target are identical")
+    if dest.exists() and not overwrite:
+        return FileOpResult(False, f"Target exists: {dest_rel} (set overwrite=true to replace)")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    was_file = src.is_file()
+    shutil.move(str(src), str(dest))
+    chunks_updated = _sync_index_path(src, dest, src.name) if was_file else 0
+    dest_out = str(dest.relative_to(DOCUMENTS_DIR))
+    detail = f"Moved {src_rel} → {dest_out}"
+    if chunks_updated:
+        detail += f" (index updated, {chunks_updated} chunks)"
+    logger.info(detail)
+    return FileOpResult(True, detail, {"path": dest_out, "chunks_updated": chunks_updated})
+
+
 def rename(
     folder_rel: str,
     old_name: str,
@@ -390,26 +491,7 @@ def rename(
 
     chunks_updated = 0
     if sync_index and new_path.is_file():
-        try:
-            from .document_store import get_document_store
-            store = get_document_store()
-            if store:
-                old_rel = str(old_path.relative_to(DOCUMENTS_DIR))
-                new_rel = str(new_path.relative_to(DOCUMENTS_DIR))
-                # Try canonical rel-path first, fall back to bare filename
-                # (legacy uploads stored without subfolder prefix).
-                for filename_query in (old_rel, old_name):
-                    data = store.collection.get(where={"filename": filename_query})
-                    if data and data.get("ids"):
-                        for chunk_id in data["ids"]:
-                            store.collection.update(
-                                ids=[chunk_id],
-                                metadatas=[{"filename": new_rel}],
-                            )
-                            chunks_updated += 1
-                        break
-        except Exception as exc:
-            logger.warning(f"rename: index sync failed for {old_name}: {exc}")
+        chunks_updated = _sync_index_path(old_path, new_path, old_name)
 
     detail = f"Renamed {old_name} → {new_name}"
     if chunks_updated:

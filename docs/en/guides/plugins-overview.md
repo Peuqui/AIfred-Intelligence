@@ -23,6 +23,8 @@ File access to the documents directory (`data/documents/`) and semantic search v
 | `read_file` | Read a file (PDFs page-by-page with `pages="1-5"`) | READONLY |
 | `write_file` | Write/edit a text file (with verify) | WRITE_DATA |
 | `create_folder` | Create a subfolder | WRITE_DATA |
+| `copy_file` | Copy a file (server-side, binary-safe) | WRITE_DATA |
+| `move_file` | Move a file/folder (index follows) | WRITE_DATA |
 | `delete_file` | Delete a file from disk | WRITE_SYSTEM |
 | `delete_folder` | Delete an empty folder | WRITE_SYSTEM |
 | `index_document` | Index a file into the ChromaDB vector database | WRITE_DATA |

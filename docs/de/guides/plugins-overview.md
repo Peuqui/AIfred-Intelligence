@@ -23,6 +23,8 @@ Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische 
 | `read_file` | Datei lesen (PDFs seitenweise mit `pages="1-5"`) | READONLY |
 | `write_file` | Textdatei schreiben/bearbeiten (mit Verify) | WRITE_DATA |
 | `create_folder` | Unterordner anlegen | WRITE_DATA |
+| `copy_file` | Datei kopieren (serverseitig, binärsicher) | WRITE_DATA |
+| `move_file` | Datei/Ordner verschieben (Index folgt) | WRITE_DATA |
 | `delete_file` | Datei von der Platte löschen | WRITE_SYSTEM |
 | `delete_folder` | Leeren Ordner löschen | WRITE_SYSTEM |
 | `index_document` | Datei in ChromaDB-Vektordatenbank einspeisen | WRITE_DATA |
