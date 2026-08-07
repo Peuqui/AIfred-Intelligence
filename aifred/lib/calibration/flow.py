@@ -175,8 +175,8 @@ async def calibrate_llamacpp_model(
     # Draft-Sidecar-Profile (--model-draft) zahlen extra Marge: Spec-Decode-
     # Puffer allozieren spät (Produktions-OOM 2026-08-03); Plain-/MTP-Profile
     # behalten die knappe Marge und damit ihren Kontext.
-    from .projection import _draft_path
-    if _draft_path(full_cmd) is not None:
+    from .projection import draft_gguf_path
+    if draft_gguf_path(full_cmd) is not None:
         from ..config import LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB
         safety_margin += LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB
         yield (
@@ -1244,8 +1244,8 @@ async def calibrate_tts_variant_from_base(
     # aus einem Zuschlag.
     safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN
     # Draft-Sidecar-Profile zahlen extra Marge (siehe Basis-Pfad).
-    from .projection import _draft_path
-    if _draft_path(full_cmd) is not None:
+    from .projection import draft_gguf_path
+    if draft_gguf_path(full_cmd) is not None:
         from ..config import LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB
         safety_margin += LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB
         yield (

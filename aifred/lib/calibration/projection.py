@@ -211,10 +211,11 @@ def _first_active_slot(full_cmd: str, length: int) -> int:
     return 0
 
 
-def _draft_path(full_cmd: str) -> Path | None:
+def draft_gguf_path(full_cmd: str) -> Path | None:
     """Pfad des Draft-Sidecar-GGUFs (``--model-draft``/``-md``) aus einem
     llama-server cmd — Spec-Decoding mit separatem Draft-Modell (DSpark,
-    EAGLE3, DFlash). ``None`` wenn das Flag fehlt."""
+    EAGLE3, DFlash). ``None`` wenn das Flag fehlt. SSOT — auch die
+    Modell-Discovery (Dropdown-Größe) nutzt diesen Extraktor."""
     tokens = shlex.split(full_cmd)
     for i, tok in enumerate(tokens[:-1]):
         if tok in ("--model-draft", "-md", "--spec-draft-model"):
@@ -258,7 +259,7 @@ def _draft_extra_mb(full_cmd: str) -> int:
     die Datei fehlt."""
     from ..config import LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB
 
-    draft = _draft_path(full_cmd)
+    draft = draft_gguf_path(full_cmd)
     if draft is None:
         return 0
     try:
