@@ -976,6 +976,14 @@ class ChatMixin(rx.State, mixin=True):
                         _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
                         if _eff_vl not in running:
                             self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
+                            # Same VRAM guard as the main-model cold start.
+                            from ..lib.audio_processing import release_whisper_gpu, whisper_gpu_busy
+                            _loop = asyncio.get_running_loop()
+                            if await _loop.run_in_executor(None, whisper_gpu_busy):
+                                self.add_debug("⏳ Whisper transcription in progress — model load waits for it to finish")  # type: ignore[attr-defined]
+                                yield
+                            if await _loop.run_in_executor(None, release_whisper_gpu):
+                                self.add_debug("🎤 Whisper GPU worker released (VRAM for model load)")  # type: ignore[attr-defined]
                             yield
                     except Exception:
                         pass
@@ -1118,6 +1126,16 @@ class ChatMixin(rx.State, mixin=True):
                             pass
                         self.add_debug(f"🔄 Model Cold Start ({effective_auto}){details} — loading into VRAM, this may take a while")
                         log_message(f"🔄 Cold Start: {effective_auto}{details}")
+                        # Whisper's GPU worker (~2 GB, 30 min TTL) would break
+                        # the calibrated splits — release it before the load.
+                        # A running transcription gets a grace period first.
+                        from ..lib.audio_processing import release_whisper_gpu, whisper_gpu_busy
+                        _loop = asyncio.get_running_loop()
+                        if await _loop.run_in_executor(None, whisper_gpu_busy):
+                            self.add_debug("⏳ Whisper transcription in progress — model load waits for it to finish")
+                            yield
+                        if await _loop.run_in_executor(None, release_whisper_gpu):
+                            self.add_debug("🎤 Whisper GPU worker released (VRAM for model load)")
                         yield
                 except Exception:
                     pass  # Can't check — proceed normally, don't show false warnings
