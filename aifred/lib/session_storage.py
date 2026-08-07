@@ -853,6 +853,15 @@ def get_latest_session_file() -> Optional[Path]:
     return session_files[0]
 
 
+# Metadata cache for list_sessions(): filename → (mtime_ns, size, meta).
+# Session files grow to hundreds of KB (coding sessions), and the picker
+# needs only title/timestamps/count — re-parsing every file on every
+# refresh made bulk deletes sluggish. A file is re-parsed only when its
+# mtime or size changed. No lock: dict ops are GIL-atomic, a concurrent
+# refresh at worst parses a file twice.
+_session_meta_cache: Dict[str, tuple] = {}
+
+
 def list_sessions(
     owner: Optional[str] = None, interactive_only: bool = False
 ) -> List[Dict[str, Any]]:
@@ -882,33 +891,47 @@ def list_sessions(
 
     owner_lower = owner.lower() if owner else None
     sessions = []
+    seen_files = set()
 
     for session_file in SESSION_DIR.glob("*.json"):
         try:
-            with open(session_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            stat = session_file.stat()
+            seen_files.add(session_file.name)
 
-            # Filter by owner (if specified)
-            session_owner = data.get("owner", "").lower()
-            if owner_lower and session_owner != owner_lower:
+            cached = _session_meta_cache.get(session_file.name)
+            if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+                meta = cached[2]
+            else:
+                with open(session_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                chat_history = data.get("data", {}).get("chat_history", [])
+                meta = {
+                    "session_id": session_file.stem,
+                    "title": data.get("data", {}).get("title"),
+                    "last_seen": data.get("last_seen", ""),
+                    "created_at": data.get("created_at", ""),
+                    "message_count": len(chat_history),
+                    "owner": data.get("owner", "").lower(),
+                    "channel": data.get("channel", ""),
+                }
+                _session_meta_cache[session_file.name] = (
+                    stat.st_mtime_ns, stat.st_size, meta,
+                )
+
+            # Filter AFTER the cache lookup — the cache is owner-agnostic
+            # so one entry serves every logged-in user.
+            if owner_lower and meta["owner"] != owner_lower:
+                continue
+            if interactive_only and meta["channel"]:
                 continue
 
-            session_channel = data.get("channel", "")
-            if interactive_only and session_channel:
-                continue
-
-            chat_history = data.get("data", {}).get("chat_history", [])
-            sessions.append({
-                "session_id": session_file.stem,
-                "title": data.get("data", {}).get("title"),
-                "last_seen": data.get("last_seen", ""),
-                "created_at": data.get("created_at", ""),
-                "message_count": len(chat_history),
-                "owner": session_owner,
-                "channel": session_channel,
-            })
-        except (json.JSONDecodeError, IOError):
+            sessions.append(dict(meta))
+        except (json.JSONDecodeError, IOError, OSError):
             continue
+
+    # Evict entries for deleted files so the cache mirrors the directory.
+    for stale in set(_session_meta_cache) - seen_files:
+        _session_meta_cache.pop(stale, None)
 
     # Sort by last_seen, newest first
     sessions.sort(key=lambda s: s.get("last_seen", ""), reverse=True)

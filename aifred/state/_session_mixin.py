@@ -169,7 +169,7 @@ class SessionMixin(rx.State, mixin=True):
             discard_tts_backend_state(session_id)
             log_message(f"Deleted session: {session_id[:8]}...")
             self.add_debug("Session deleted")  # type: ignore[attr-defined]
-            self.refresh_session_list()
+            self._refresh_available_sessions()
         else:
             log_message(
                 f"Refused to delete session {session_id[:8]}...: "
@@ -370,6 +370,19 @@ class SessionMixin(rx.State, mixin=True):
 
     # ── Session List ─────────────────────────────────────────────────
 
+    def _refresh_available_sessions(self):
+        """Reload only the session-picker list (no sync check, no SSE script).
+
+        Deleting a foreign session changes neither the current session nor
+        the device binding — the full refresh_session_list() would re-read
+        the current session from disk on every click, which made bulk
+        deletes over slow links noticeably sluggish.
+        """
+        from ..lib.session_storage import list_sessions
+
+        # Only show sessions owned by logged in user
+        self.available_sessions = list_sessions(owner=self.logged_in_user)  # type: ignore[attr-defined]
+
     def refresh_session_list(self):  # type: ignore[return]
         """Refresh the list of available sessions for the session picker.
 
@@ -379,10 +392,9 @@ class SessionMixin(rx.State, mixin=True):
         Additionally reconnects TTS SSE stream to ensure this device receives
         audio events (multi-device support - Last Writer Wins).
         """
-        from ..lib.session_storage import list_sessions, get_session_title, load_session
+        from ..lib.session_storage import get_session_title, load_session
 
-        # Only show sessions owned by logged in user
-        self.available_sessions = list_sessions(owner=self.logged_in_user)  # type: ignore[attr-defined]
+        self._refresh_available_sessions()
 
         # Update current session title
         if self.session_id:
