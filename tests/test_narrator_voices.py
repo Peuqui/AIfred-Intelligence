@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from aifred.plugins.tools.narrator import (
+    _gpu_engine_conflict,
     _resolve_engine_and_voice,
     _voice_names,
     plugin,
@@ -17,9 +18,10 @@ from aifred.lib.plugin_base import PluginContext
 
 
 class _FakeEngine:
-    def __init__(self, voices: dict[str, str]):
+    def __init__(self, voices: dict[str, str], needs_gpu: bool = False):
         self._voices = voices
         self.voices_fallback = voices
+        self.needs_gpu = needs_gpu
 
     def get_voices(self) -> dict[str, str]:
         return self._voices
@@ -32,6 +34,9 @@ def fake_env(monkeypatch):
     engines = {
         "piper": _FakeEngine({"Deutsch (Thorsten)": "t", "Deutsch (Ramona)": "r"}),
         "edge": _FakeEngine({"Deutsch (Katja)": "k", "Deutsch (Conrad)": "c"}),
+        "qwen3local": _FakeEngine(
+            {"AIfred": "a", "Sokrates": "s"}, needs_gpu=True,
+        ),
     }
     monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: settings)
     monkeypatch.setattr("aifred.lib.tts_engines.get_engine", engines.get)
@@ -74,6 +79,32 @@ class TestVoiceNames:
             voices_fallback={"A": "a"},
         )
         assert _voice_names(eng) == ["A"]
+
+
+class TestGpuEngineConflict:
+    def test_gpu_engine_spoken_output_off_is_refused(self, fake_env):
+        fake_env["enable_tts"] = False
+        msg = _gpu_engine_conflict("qwen3local")
+        assert msg is not None and "qwen3local" in msg
+
+    def test_gpu_engine_different_spoken_engine_is_refused(self, fake_env):
+        fake_env.update({"enable_tts": True, "tts_engine": "xtts"})
+        assert _gpu_engine_conflict("qwen3local") is not None
+
+    def test_gpu_engine_matching_spoken_engine_is_allowed(self, fake_env):
+        fake_env.update({"enable_tts": True, "tts_engine": "qwen3local"})
+        assert _gpu_engine_conflict("qwen3local") is None
+
+    def test_gpu_free_engine_always_allowed(self, fake_env):
+        fake_env["enable_tts"] = False
+        assert _gpu_engine_conflict("edge") is None
+
+    def test_list_voices_tool_refuses_conflicting_gpu_engine(self, fake_env):
+        fake_env["enable_tts"] = False
+        ctx = PluginContext(agent_id="aifred", lang="de", session_id="test")
+        tool = {t.name: t for t in plugin.get_tools(ctx)}["list_narrator_voices"]
+        res = json.loads(asyncio.run(tool.executor(engine="qwen3local")))
+        assert "error" in res and "qwen3local" in res["error"]
 
 
 class TestListNarratorVoicesTool:

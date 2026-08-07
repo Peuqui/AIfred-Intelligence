@@ -15,10 +15,10 @@ Der Narrator vertont **1:1**: kein Übersetzen, kein Zusammenfassen, keine Korre
 
 ## Einstellungen (Zahnrad im Plugin-Tab des Agent-Editors)
 
-- **Engine**: `(wie Sprachausgabe)` folgt der Haupt-TTS-Engine. Ist die Sprachausgabe **aus**, greift stattdessen die GPU-freie Fallback-Engine — das geladene LLM behält sein VRAM (verhindert den stillen CPU-Fallback des TTS-Containers).
+- **Engine**: Auswahl ist bewusst auf `(wie Sprachausgabe)` + GPU-freie Engines beschränkt. `(wie Sprachausgabe)` folgt der Haupt-TTS-Engine; ist die Sprachausgabe **aus**, greift stattdessen die GPU-freie Fallback-Engine — das geladene LLM behält sein VRAM. Explizite GPU-Engines gibt es nicht: sie würden einen zweiten, unkoordinierten TTS-Container neben dem LLM starten (OOM- bzw. CPU-Fallback-Risiko). GPU-Vertonung — etwa mit Klonstimmen — läuft ausschließlich über `(wie Sprachausgabe)` bei **eingeschalteter** Sprachausgabe mit der gewünschten GPU-Engine.
 - **GPU-frei**: nur Engines ohne GPU-Bedarf wählbar (Piper, Edge, eSpeak, DashScope — je nach Installation). Standard: Piper (lokal, offline).
 - **Stimme**: wird **pro Engine** gespeichert. Die Liste zeigt ausschließlich die eigenen Stimmen der effektiv gewählten Engine (`engine.get_voices()`) — Klon-Stimmen wie „AIfred" erscheinen nur bei Klon-Engines, Piper listet seine eingebauten Sprecher (Thorsten, Karlsson, …).
-- GPU-Engines erscheinen nur, wenn ihre `-tts-`Profilvariante für das aktuelle Modell kalibriert ist (derselbe Schutz wie im Haupt-TTS-Dropdown).
+- **Runtime-Guard**: Landet trotzdem eine GPU-Engine im narrate-Pfad (Tool-Parameter `engine`, veraltetes gespeichertes Setting), die nicht der aktiven Sprachausgabe entspricht, bricht das Tool mit einem Klartext-Fehler ab — kein stiller Fallback.
 
 ## Tools
 
@@ -49,6 +49,7 @@ Interview-/Dialog-Transkripte lassen sich mit **einer Stimme pro Sprecher** vert
 - **Marker-Format**: Zeilen, die mit `[LABEL]:` beginnen (Label frei: `FRAGE`/`ANTWORT`/`S1`/…). Ein Segment läuft bis zum nächsten Marker; der Marker selbst wird **nicht mitvertont**. Text vor dem ersten Marker bekommt die Default-Stimme (`voice`).
 - **`speaker_voices`**: JSON-Objekt Label → Stimmenname (aus der `list_narrator_voices`-Liste). Alle Stimmen müssen zur **einen** effektiven Engine gehören (kein Engine-Mix).
 - **Strikte Validierung**: unbekannte Stimme oder ein Label im Text ohne Mapping → Klartext-Fehler, **kein stiller Fallback**.
+- **Sprecheranzahl**: unbegrenzt — der Parser kennt kein Limit. Praktisch begrenzt nur die Stimmenzahl der Engine die Klangvielfalt; mehrere Labels dürfen sich dieselbe Stimme teilen (Zehn-Personen-Hörspiel mit vier Stimmen ist legitim).
 - **Chunking**: Sprecherwechsel ist immer eine harte Chunk-Grenze; lange Segmente werden intern weiter an Absatzgrenzen geteilt.
 - Die Marker überleben die DeepL-Übersetzung (`translate_file`) — übersetzte Hörspiele funktionieren mit derselben markierten Datei-Pipeline.
 

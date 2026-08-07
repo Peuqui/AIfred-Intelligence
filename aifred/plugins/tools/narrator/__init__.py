@@ -64,6 +64,34 @@ def _resolve_engine_and_voice(engine: str = "", voice: str = "") -> tuple[str, s
     return engine, voice or NARRATE_DEFAULT_VOICE
 
 
+def _gpu_engine_conflict(engine: str) -> str | None:
+    """Clear error text when a GPU-bound engine cannot run right now.
+
+    A GPU TTS engine is only safe while the spoken output runs the SAME
+    engine — the LLM then sits in the matching -tts- calibration profile
+    and the container's VRAM is reserved. Anything else (spoken output
+    off, or on a different engine) would start a second uncoordinated
+    GPU consumer next to the LLM: OOM or a silent CPU fallback. Per
+    project rule there is no silent fallback — refuse with a clear
+    message instead. Returns ``None`` when the engine is fine.
+    """
+    from ....lib.settings import load_settings
+    from ....lib.tts_engines import get_engine
+
+    eng_obj = get_engine(engine)
+    if eng_obj is None or not eng_obj.needs_gpu:
+        return None
+    _settings = load_settings() or {}
+    if _settings.get("enable_tts") and _settings.get("tts_engine") == engine:
+        return None
+    return (
+        f"Engine '{engine}' needs GPU VRAM, but the spoken output is not "
+        f"running it — a second GPU TTS container next to the LLM is not "
+        f"coordinated. Use engine 'auto' or a GPU-free engine, or enable "
+        f"the spoken output with '{engine}' first."
+    )
+
+
 @dataclass
 class NarratorPlugin:
     name: str = "narrator"
@@ -110,6 +138,9 @@ class NarratorPlugin:
             # Resolve engine/voice from the narrator settings (UI row in the
             # audio section) unless the caller passed them explicitly.
             engine, voice = _resolve_engine_and_voice(engine, voice)
+            conflict = _gpu_engine_conflict(engine)
+            if conflict:
+                return json.dumps({"error": conflict})
 
             read = fm.read_file(filename)
             if not read.success:
@@ -259,6 +290,9 @@ class NarratorPlugin:
             from ....lib.tts_engines import get_engine
 
             engine, default_voice = _resolve_engine_and_voice(engine)
+            conflict = _gpu_engine_conflict(engine)
+            if conflict:
+                return json.dumps({"error": conflict})
             eng_obj = get_engine(engine)
             if eng_obj is None:
                 return json.dumps({"error": f"Unknown TTS engine: {engine}"})
@@ -327,8 +361,11 @@ class NarratorPlugin:
                         "engine": {
                             "type": "string",
                             "description": (
-                                "TTS engine key (default: the configured default "
-                                "engine, normally 'qwen3local')."
+                                "Optional TTS engine key. Default: resolved from "
+                                "the narrator settings. GPU-bound engines are "
+                                "only allowed while the spoken output runs the "
+                                "same engine — otherwise omit or pick a GPU-free "
+                                "engine."
                             ),
                         },
                         "speaker_voices": {

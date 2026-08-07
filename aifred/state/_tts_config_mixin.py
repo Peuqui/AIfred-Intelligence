@@ -133,44 +133,12 @@ class TTSConfigMixin(rx.State, mixin=True):
             return t("narrator_engine_auto", lang=lang)
         return tts_key_to_label(self.narrator_engine, lang=lang)
 
-    @rx.var(deps=["ui_language", "agent_tuning", "backend_type", "llamaswap_revision"], auto_deps=False)
-    def narrator_engine_options(self) -> List[str]:
-        """'(same as spoken output)' + usable engines — same gating as the
-        main TTS dropdown (installed; GPU engines only when calibrated)."""
-        from ..lib.config import TTS_ENGINE_KEYS
-        from ..lib.i18n import t, tts_key_to_label
-        from ..lib.model_vram_cache import is_tts_variant_calibrated
-        from ..lib.tts_engines import get_engine, gpu_engines
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        gpu_keys = {e.key for e in gpu_engines()}
-        model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
-        is_llamacpp = self.backend_type == "llamacpp"  # type: ignore[attr-defined]
-        out: List[str] = [t("narrator_engine_auto", lang=lang)]
-        for key in TTS_ENGINE_KEYS:
-            if key == "off":
-                continue
-            eng = get_engine(key)
-            if eng is not None and eng.runs_in_container and not eng.is_installed():
-                continue
-            if (is_llamacpp and key in gpu_keys and bool(model_id)
-                    and not is_tts_variant_calibrated(model_id, key)):
-                continue
-            out.append(tts_key_to_label(key, lang=lang))
-        return out
-
-    @rx.var(deps=["ui_language", "narrator_fallback_engine"], auto_deps=False)
-    def narrator_fallback_display(self) -> str:
-        from ..lib.i18n import tts_key_to_label
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        return tts_key_to_label(self.narrator_fallback_engine, lang=lang)
-
-    @rx.var(deps=["ui_language"], auto_deps=False)
-    def narrator_fallback_options(self) -> List[str]:
-        """GPU-free engines only — they never touch the LLM's VRAM."""
+    def _gpu_free_engine_labels(self, lang: str) -> List[str]:
+        """Labels of installed GPU-free engines — they never touch the
+        LLM's VRAM. Shared by the narrator engine and fallback dropdowns."""
         from ..lib.config import TTS_ENGINE_KEYS
         from ..lib.i18n import tts_key_to_label
         from ..lib.tts_engines import get_engine
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
         out: List[str] = []
         for key in TTS_ENGINE_KEYS:
             if key == "off":
@@ -182,6 +150,31 @@ class TTSConfigMixin(rx.State, mixin=True):
                 continue
             out.append(tts_key_to_label(key, lang=lang))
         return out
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def narrator_engine_options(self) -> List[str]:
+        """'(same as spoken output)' + GPU-free engines only.
+
+        Explicit GPU engines are not offered: they would start a second
+        TTS container next to the LLM without any VRAM orchestration
+        (OOM or silent CPU-fallback risk). GPU narration runs
+        exclusively via 'auto' — the active spoken-output engine, whose
+        -tts- calibration profile reserves the container's VRAM."""
+        from ..lib.i18n import t
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        return [t("narrator_engine_auto", lang=lang)] + self._gpu_free_engine_labels(lang)
+
+    @rx.var(deps=["ui_language", "narrator_fallback_engine"], auto_deps=False)
+    def narrator_fallback_display(self) -> str:
+        from ..lib.i18n import tts_key_to_label
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        return tts_key_to_label(self.narrator_fallback_engine, lang=lang)
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def narrator_fallback_options(self) -> List[str]:
+        """GPU-free engines only — they never touch the LLM's VRAM."""
+        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        return self._gpu_free_engine_labels(lang)
 
     @rx.var(
         deps=["narrator_engine", "narrator_fallback_engine", "enable_tts", "tts_engine"],

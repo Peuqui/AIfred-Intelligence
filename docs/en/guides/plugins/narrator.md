@@ -15,10 +15,10 @@ The narrator reads **verbatim**: no translation, no summarizing, no correction. 
 
 ## Settings (gear icon in the Agent-Editor plugin tab)
 
-- **Engine**: `(same as spoken output)` follows the main TTS engine. When spoken output is **off**, the GPU-free fallback engine is used instead — the loaded LLM keeps its VRAM (prevents the TTS container's silent CPU fallback).
+- **Engine**: the selection is deliberately limited to `(same as spoken output)` + GPU-free engines. `(same as spoken output)` follows the main TTS engine; when spoken output is **off**, the GPU-free fallback engine is used instead — the loaded LLM keeps its VRAM. There are no explicit GPU engines: they would start a second, uncoordinated TTS container next to the LLM (OOM or CPU-fallback risk). GPU narration — e.g. with clone voices — runs exclusively via `(same as spoken output)` with the spoken output **enabled** on the desired GPU engine.
 - **GPU-free**: only engines without GPU requirements are selectable (Piper, Edge, eSpeak, DashScope — depending on installation). Default: Piper (local, offline).
 - **Voice**: stored **per engine**. The list shows only the effective engine's own voices (`engine.get_voices()`) — clone voices like "AIfred" appear only on cloning engines; Piper lists its built-in speakers (Thorsten, Karlsson, …).
-- GPU engines only appear when their `-tts-` profile variant is calibrated for the current model (same guard as the main TTS dropdown).
+- **Runtime guard**: if a GPU engine still reaches the narrate path (tool parameter `engine`, stale saved setting) without the spoken output running it, the tool aborts with a clear error — no silent fallback.
 
 ## Tools
 
@@ -49,6 +49,7 @@ Interview/dialog transcripts can be narrated with **one voice per speaker**. Spe
 - **Marker format**: lines starting with `[LABEL]:` (labels are free: `FRAGE`/`ANTWORT`/`S1`/…). A segment runs until the next marker; the marker itself is **not spoken**. Text before the first marker uses the default voice (`voice`).
 - **`speaker_voices`**: JSON object label → voice name (taken from the `list_narrator_voices` result). All voices must belong to the **one** effective engine (no engine mix).
 - **Strict validation**: an unknown voice or a label in the text without a mapping → clear error, **no silent fallback**.
+- **Speaker count**: unlimited — the parser has no limit. In practice only the engine's voice count bounds the variety; multiple labels may share the same voice (a ten-character audio drama with four voices is legitimate).
 - **Chunking**: a speaker change is always a hard chunk boundary; long segments are still split at paragraph boundaries internally.
 - The markers survive the DeepL translation (`translate_file`) — translated audio dramas work with the same marked-file pipeline.
 
