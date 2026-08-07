@@ -1231,6 +1231,26 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
     return deleted
 
 
+class WhisperGPUUnavailable(RuntimeError):
+    """No GPU with enough free VRAM — caller may retry on CPU."""
+
+
+def get_audio_duration(audio_path: str) -> float:
+    """Audio duration in seconds via ffprobe (0.0 if not determinable)."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return float(result.stdout.strip())
+    except (subprocess.SubprocessError, ValueError, OSError):
+        pass
+    return 0.0
+
+
 def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu", log_result: bool = True) -> tuple[str, float]:
     """Transcribe audio to text via Whisper Docker service.
 
@@ -1269,12 +1289,31 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
                 )
             return user_text, stt_time
 
-        log_message(f"❌ Whisper service error: {resp.status_code} {resp.text[:200]}", "error")
-        return "", 0.0
+        # Surface the real reason (e.g. "no GPU with enough VRAM") instead of
+        # returning empty text — the caller shows RuntimeError as a toast.
+        try:
+            service_error = resp.json().get("error", resp.text[:200])
+        except ValueError:
+            service_error = resp.text[:200]
+        log_message(f"❌ Whisper service error: {resp.status_code} {service_error}", "error")
+        if resp.status_code == 503:
+            raise WhisperGPUUnavailable(service_error)
+        raise RuntimeError(f"Whisper ({device}): {service_error}")
 
+    except requests.Timeout:
+        minutes = WHISPER_TRANSCRIBE_TIMEOUT_S // 60
+        log_message(
+            f"❌ Whisper transcription timed out after {minutes} min "
+            f"(device={device}) — file too long for this engine", "error",
+        )
+        raise TimeoutError(
+            f"Transcription timed out after {minutes} min ({device} engine)"
+        )
     except requests.ConnectionError:
         log_message("❌ Whisper service not reachable (container running?)", "error")
         return "", 0.0
+    except RuntimeError:
+        raise  # service error raised above — do not swallow into empty text
     except Exception as e:
         log_message(f"❌ Whisper transcription failed: {e}", "error")
         return "", 0.0
