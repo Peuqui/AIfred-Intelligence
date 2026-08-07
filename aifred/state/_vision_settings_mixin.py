@@ -154,6 +154,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # ``resolution``. Wird beim Modal-Open befüllt aus vision_store +
     # frame_sources. Bewegungs-Schwelle wird im Zonen-Editor getunt.
     vigilantia_sources: list[dict[str, Any]] = []
+    # Plain var, deliberately NOT a computed var: a computed iterating the
+    # mutable sources list re-marks the list dirty on every evaluation
+    # (MutableProxy), creating a self-sustaining dirty cycle — both vars
+    # were pushed in EVERY 500ms tick delta to all tabs, wiping any text
+    # selection in chat bubbles. Updated via _update_has_armed_source().
+    vigilantia_has_armed_source: bool = False
     # Ob das aktuell konfigurierte VLM-Modell im Ollama-VRAM liegt.
     # Wird beim Page-Load + nach jedem Load/Unload-Toggle frisch von
     # Ollama abgefragt — keine Annahme, dass der State stimmt, wenn
@@ -314,15 +320,14 @@ class VisionSettingsMixin(rx.State, mixin=True):
         settings.setdefault("face_recognition", {})["retention_days"] = days
         _save_settings(settings)
 
-    @rx.var
-    def vigilantia_has_armed_source(self) -> bool:
+    def _update_has_armed_source(self) -> None:
         """True wenn mindestens eine Source ``auto_start=True`` hat —
         die Live-Card zeigt sonst „Keine Cams scharfgeschaltet" statt
-        „Ruhig", damit der User nicht denkt, alles laufe schon."""
-        for c in self.vigilantia_sources:
-            if c.get("auto_start"):
-                return True
-        return False
+        „Ruhig". Wird nach jeder Zuweisung von vigilantia_sources
+        aufgerufen (siehe Kommentar an der Var-Deklaration)."""
+        armed = any(c.get("auto_start") for c in self.vigilantia_sources)
+        if armed != self.vigilantia_has_armed_source:
+            self.vigilantia_has_armed_source = armed
 
     # Recompute when a plugin toggle changes (the FS status can't be a dep, so
     # tool_plugin_toggles is the proxy); explicit deps also avoid the lazy-import
@@ -379,10 +384,18 @@ class VisionSettingsMixin(rx.State, mixin=True):
                         s.get("min_event_interval_sec", DEFAULT_MIN_EVENT_INTERVAL_SEC)
                     ),
                 })
-            self.vigilantia_sources = cams
+            # Assign only on real change: the 500ms feed tick calls this
+            # whenever the list is empty (always true with the vision
+            # plugin disabled) — an unconditional `= []` re-assignment
+            # marks the var dirty EVERY tick, pushing a delta to all tabs
+            # twice a second (which also wipes text selections).
+            if cams != self.vigilantia_sources:
+                self.vigilantia_sources = cams
         except Exception as e:  # noqa: BLE001
             logger.warning("vigilantia sources load failed: %s", e)
-            self.vigilantia_sources = []
+            if self.vigilantia_sources:
+                self.vigilantia_sources = []
+        self._update_has_armed_source()
 
     def _set_source_auto_start(self, source_id: str, active: bool) -> None:
         """Hintergrund-Toggle einer Quelle persistieren, alle übrigen Felder
@@ -443,6 +456,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             {**c, "auto_start": active} if c["id"] == source_id else c
             for c in self.vigilantia_sources
         ]
+        self._update_has_armed_source()
         # Live-Effekt nur wenn Master scharf ist.
         if not self.vigilantia_armed:
             return
