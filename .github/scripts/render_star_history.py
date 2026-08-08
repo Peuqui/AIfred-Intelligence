@@ -54,9 +54,10 @@ FONT = ("font-family=\"system-ui, -apple-system, Segoe UI, "
 def read_snapshots(path: Path) -> list[dict]:
     """Parse the snapshot file.
 
-    Despite the .jsonl name the workflow appends pretty-printed jq output,
-    so the objects span multiple lines — decode them one after another
-    instead of line by line.
+    Mixed formats by history: entries written before 2026-08 span multiple
+    lines (jq without -c), newer ones are a single line each. Decoding the
+    objects one after another handles both — reading it line by line would
+    choke on the older half.
     """
     text = path.read_text(encoding="utf-8")
     decoder = json.JSONDecoder()
