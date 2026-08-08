@@ -56,6 +56,34 @@ class DocumentMixin(rx.State, mixin=True):
     doc_delete_from_disk: bool = True
     doc_delete_from_index: bool = True
 
+    # Multi-select for batch delete. Holds bare filenames of the CURRENT
+    # folder only — _refresh_file_list drops entries that are no longer
+    # listed, so navigating away cannot carry a selection into a folder
+    # where the same name means a different file.
+    doc_selected_files: List[str] = []
+    doc_delete_batch: bool = False  # dialog targets the selection, not one file
+
+    @rx.var
+    def doc_selection_count(self) -> int:
+        """Number of currently selected files."""
+        return len(self.doc_selected_files)
+
+    @rx.var
+    def doc_has_selection(self) -> bool:
+        """Whether at least one file is selected."""
+        return len(self.doc_selected_files) > 0
+
+    @rx.var
+    def doc_all_selected(self) -> bool:
+        """Whether every file in the current folder is selected."""
+        total = sum(1 for item in self.doc_file_list if item.get("type") != "folder")
+        return total > 0 and len(self.doc_selected_files) == total
+
+    @rx.var
+    def doc_delete_dialog_open(self) -> bool:
+        """Delete confirmation is showing — for a single item or the selection."""
+        return self.doc_delete_target != "" or self.doc_delete_batch
+
     # Create folder state
     doc_creating_folder: bool = False
     doc_new_folder_name: str = ""
@@ -96,6 +124,12 @@ class DocumentMixin(rx.State, mixin=True):
         result = fm.list_directory(self.doc_current_folder)
         items = result.metadata.get("items", []) if result.success else []
         self.doc_file_list = items
+
+        # Keep the selection in sync with what is actually listed. Covers
+        # folder navigation and files that just got deleted or renamed —
+        # without this a stale name could be deleted in the wrong folder.
+        listed = {item["name"] for item in items if item.get("type") != "folder"}
+        self.doc_selected_files = [n for n in self.doc_selected_files if n in listed]
         self.add_debug(f"📂 _refresh_file_list: folder={self.doc_current_folder!r}, {len(items)} items: {[i['name'] for i in items]}")  # type: ignore[attr-defined]
 
     def doc_navigate_folder(self, folder_name: str) -> None:
@@ -416,10 +450,37 @@ class DocumentMixin(rx.State, mixin=True):
     # DELETE — with confirmation dialog
     # ================================================================
 
+    def doc_toggle_select(self, filename: str) -> None:
+        """Add or remove a file from the batch selection."""
+        if filename in self.doc_selected_files:
+            self.doc_selected_files = [n for n in self.doc_selected_files if n != filename]
+        else:
+            self.doc_selected_files = [*self.doc_selected_files, filename]
+
+    def doc_toggle_select_all(self) -> None:
+        """Select every file in the current folder, or clear the selection."""
+        files = [item["name"] for item in self.doc_file_list if item.get("type") != "folder"]
+        self.doc_selected_files = [] if len(self.doc_selected_files) == len(files) else files
+
+    def doc_clear_selection(self) -> None:
+        """Drop the batch selection."""
+        self.doc_selected_files = []
+
     def doc_open_delete_dialog(self, filename: str) -> None:
         """Open delete confirmation for a file."""
         self.doc_delete_target = filename
         self.doc_delete_is_folder = False
+        self.doc_delete_batch = False
+        self.doc_delete_from_disk = True
+        self.doc_delete_from_index = True
+
+    def doc_open_batch_delete_dialog(self) -> None:
+        """Open delete confirmation for the whole selection."""
+        if not self.doc_selected_files:
+            return
+        self.doc_delete_target = ""
+        self.doc_delete_is_folder = False
+        self.doc_delete_batch = True
         self.doc_delete_from_disk = True
         self.doc_delete_from_index = True
 
@@ -427,6 +488,7 @@ class DocumentMixin(rx.State, mixin=True):
         """Close delete confirmation."""
         self.doc_delete_target = ""
         self.doc_delete_is_folder = False
+        self.doc_delete_batch = False
 
     def doc_toggle_delete_disk(self, _val: bool) -> None:
         """Toggle 'delete from disk' checkbox."""
@@ -436,10 +498,67 @@ class DocumentMixin(rx.State, mixin=True):
         """Toggle 'delete from index' checkbox."""
         self.doc_delete_from_index = not self.doc_delete_from_index
 
+    async def _doc_delete_selection(self) -> AsyncGenerator[EventSpec | None, None]:
+        """Delete every selected file with the dialog's disk/index options."""
+        from ..lib import file_manager as fm
+        from ..lib.i18n import t
+
+        selection = list(self.doc_selected_files)
+        folder = self.doc_current_folder
+        from_disk = self.doc_delete_from_disk
+        from_index = self.doc_delete_from_index
+
+        chunks_total = 0
+        failed: list[str] = []
+        for filename in selection:
+            result = await fm.delete_file(
+                folder, filename, from_disk=from_disk, from_index=from_index,
+            )
+            chunks_total += result.metadata.get("chunks_removed", 0)
+            if not result.success:
+                failed.append(filename)
+
+        deleted = len(selection) - len(failed)
+        actions: list[str] = []
+        if from_index and chunks_total:
+            actions.append(f"Index ({chunks_total} chunks)")
+        if from_disk and deleted:
+            actions.append("Disk")
+        action_str = " + ".join(actions) if actions else "nothing"
+
+        self.add_debug(  # type: ignore[attr-defined]
+            f"\U0001f5d1️ Batch delete in {folder or '/'}: "
+            f"{deleted}/{len(selection)} files, {action_str}"
+        )
+        if failed:
+            self.add_debug(f"⚠️ Failed: {', '.join(failed)}")  # type: ignore[attr-defined]
+
+        self.doc_delete_batch = False
+        self.document_upload_status = ""
+        self._refresh_file_list()
+
+        if failed:
+            yield rx.toast.warning(
+                t("doc_delete_batch_failed", lang=self.ui_language,  # type: ignore[attr-defined]
+                  failed=len(failed), count=len(selection)),
+                duration=8000, position="top-center",
+            )
+        else:
+            yield rx.toast.success(
+                t("doc_delete_batch_done", lang=self.ui_language,  # type: ignore[attr-defined]
+                  count=deleted, actions=action_str),
+                duration=5000, position="top-center",
+            )
+
     async def doc_confirm_delete(self) -> AsyncGenerator[EventSpec | None, None]:
         """Execute delete with selected options (file or folder)."""
         from ..lib import file_manager as fm
         from ..lib.i18n import t
+
+        if self.doc_delete_batch:
+            async for event in self._doc_delete_selection():
+                yield event
+            return
 
         target_name = self.doc_delete_target
         is_folder = self.doc_delete_is_folder
