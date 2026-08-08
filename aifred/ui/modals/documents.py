@@ -30,6 +30,21 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
     chunks = item["chunks"].to(int)
 
     return rx.hstack(
+        # Batch-select checkbox — files only. Folders keep their single
+        # delete dialog: a recursive folder delete hidden behind a bulk
+        # action is too easy to trigger by accident.
+        rx.cond(
+            is_folder,
+            rx.box(width="16px", flex_shrink="0"),
+            rx.checkbox(
+                checked=AIState.doc_selected_files.contains(name),
+                on_change=AIState.doc_toggle_select(name),
+                size="1",
+                color_scheme="red",
+                cursor="pointer",
+                flex_shrink="0",
+            ),
+        ),
         # Icon: folder or file with index indicator
         rx.cond(
             is_folder,
@@ -82,10 +97,13 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
             ),
         ),
         rx.spacer(),
-        # Size (files) or recursive file count (folders)
+        # Size (files) or recursive file count (folders). Hidden on narrow
+        # screens: with checkbox, name and six action buttons in one row the
+        # filename otherwise wraps to one character per line on a phone.
         rx.cond(
             ~is_folder,
-            rx.text(item["size"].to(str), font_size="10px", color="#666", min_width="60px"),
+            rx.text(item["size"].to(str), font_size="10px", color="#666",
+                    min_width="60px", display=["none", "none", "block"]),
             rx.text(
                 item["file_count"].to(str) + rx.cond(
                     AIState.ui_language == "de",
@@ -97,13 +115,15 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
                 min_width="60px",
             ),
         ),
-        # Index status badge
+        # Index status badge — same reasoning as the size column
         rx.cond(
             ~is_folder,
             rx.cond(
                 is_indexed,
-                rx.text(chunks.to(str) + " chunks", font_size="10px", color="#4CAF50", min_width="60px"),
-                rx.text("—", font_size="10px", color="#555", min_width="60px"),
+                rx.text(chunks.to(str) + " chunks", font_size="10px", color="#4CAF50",
+                        min_width="60px", display=["none", "none", "block"]),
+                rx.text("—", font_size="10px", color="#555",
+                        min_width="60px", display=["none", "none", "block"]),
             ),
         ),
         # Actions (files only)
@@ -243,20 +263,41 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
 def _doc_delete_dialog() -> rx.Component:
     """Delete confirmation dialog with disk/index checkboxes."""
     return rx.cond(
-        AIState.doc_delete_target != "",
+        AIState.doc_delete_dialog_open,
         rx.box(
             rx.vstack(
                 rx.text(
                     rx.cond(
-                        AIState.doc_delete_is_folder,
-                        rx.cond(AIState.ui_language == "de", "Ordner löschen (rekursiv)", "Delete folder (recursive)"),
-                        t("doc_delete_confirm_title"),
+                        AIState.doc_delete_batch,
+                        AIState.doc_selection_count.to(str) + rx.cond(
+                            AIState.ui_language == "de",
+                            " Dateien löschen", " files to delete",
+                        ),
+                        rx.cond(
+                            AIState.doc_delete_is_folder,
+                            rx.cond(AIState.ui_language == "de", "Ordner löschen (rekursiv)", "Delete folder (recursive)"),
+                            t("doc_delete_confirm_title"),
+                        ),
                     ),
                     font_weight="bold", font_size="14px", color="white",
                 ),
-                rx.text(
-                    AIState.doc_delete_target,
-                    font_size="12px", color="#d29922", font_weight="bold",
+                # Batch: list the names so nothing is deleted sight unseen.
+                rx.cond(
+                    AIState.doc_delete_batch,
+                    rx.box(
+                        rx.foreach(
+                            AIState.doc_selected_files,
+                            lambda fn: rx.text(
+                                fn, font_size="11px", color="#d29922",
+                                word_break="break-all",
+                            ),
+                        ),
+                        max_height="120px", overflow_y="auto", width="100%",
+                    ),
+                    rx.text(
+                        AIState.doc_delete_target,
+                        font_size="12px", color="#d29922", font_weight="bold",
+                    ),
                 ),
                 rx.vstack(
                     rx.hstack(
@@ -454,6 +495,50 @@ def document_manager_page() -> rx.Component:
                         border="none", padding="0", width="100%",
                     ),
 
+                    # Selection bar — only once the folder holds files
+                    rx.cond(
+                        AIState.doc_file_list.length() > 0,
+                        rx.hstack(
+                            rx.checkbox(
+                                t("doc_select_all"),
+                                checked=AIState.doc_all_selected,
+                                on_change=AIState.doc_toggle_select_all,
+                                size="1", color_scheme="red", cursor="pointer",
+                            ),
+                            rx.cond(
+                                AIState.doc_has_selection,
+                                rx.hstack(
+                                    rx.text(
+                                        AIState.doc_selection_count.to(str) + rx.cond(
+                                            AIState.ui_language == "de",
+                                            " ausgewählt", " selected",
+                                        ),
+                                        font_size="11px", color="#d29922", font_weight="bold",
+                                    ),
+                                    rx.spacer(),
+                                    rx.button(
+                                        rx.icon("x", size=12),
+                                        t("doc_selection_clear"),
+                                        on_click=AIState.doc_clear_selection,
+                                        size="1", variant="soft", color_scheme="gray",
+                                        cursor="pointer",
+                                    ),
+                                    rx.button(
+                                        rx.icon("trash-2", size=12),
+                                        t("doc_delete_selected"),
+                                        on_click=AIState.doc_open_batch_delete_dialog,
+                                        size="1", variant="solid", color_scheme="red",
+                                        cursor="pointer",
+                                    ),
+                                    spacing="2", align="center", flex="1", min_width="0",
+                                ),
+                            ),
+                            spacing="3", align="center", width="100%",
+                            padding="4px 8px",
+                            border_bottom="1px solid #2a2a2a",
+                        ),
+                    ),
+
                     # File listing (own scroll container)
                     rx.box(
                         rx.cond(
@@ -566,8 +651,12 @@ def document_manager_page() -> rx.Component:
             padding="25px",
             background_color="#1a1a1a",
             border_radius="12px",
-            width=["95vw", "95vw", "1100px"],
-            height=["90vh", "90vh", "700px"],
+            # Breakpoints: initial/sm bleiben bei 95vw (Mobil unverändert),
+            # ab md wird der vorhandene Platz genutzt statt ihn zu verschenken.
+            # max_width deckelt weiterhin bei 95vw, damit die Breite auf
+            # keinem Gerät über den Viewport hinauswächst.
+            width=["95vw", "95vw", "1100px", "1400px", "1700px"],
+            height=["90vh", "90vh", "700px", "760px", "820px"],
             max_width="95vw",
             max_height="90vh",
             overflow_y="hidden",
