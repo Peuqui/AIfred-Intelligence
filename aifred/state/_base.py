@@ -521,10 +521,10 @@ class AIState(  # type: ignore[misc]
             )
             return
 
-        async for _ in self._run_transcription(
+        async for event in self._run_transcription(
             tmp_path, file.filename or "audio", stt_device, size_display
         ):
-            yield
+            yield event
 
     async def stt_confirm_result(self, confirmed: bool):
         """Resume or cancel a transcription parked for user confirmation."""
@@ -552,8 +552,8 @@ class AIState(  # type: ignore[misc]
             )
             return
 
-        async for _ in self._run_transcription(tmp_path, filename, stt_device, size_display):
-            yield
+        async for event in self._run_transcription(tmp_path, filename, stt_device, size_display):
+            yield event
 
     async def _run_transcription(
         self, tmp_path: str, filename: str, stt_device: str, size_display: str
@@ -700,9 +700,12 @@ class AIState(  # type: ignore[misc]
                     # Separator after STT, before send_message starts
                     self.add_debug(CONSOLE_SEPARATOR)
                     console_separator()  # Log-File
-                    # Forward yields from send_message() to update UI in real-time
-                    async for _ in self.send_message():
-                        yield  # Forward to UI for real-time updates
+                    # Forward yields from send_message() — the yielded value
+                    # must be passed through: send_message emits real events
+                    # (rx.call_script for the TTS browser stream), and a bare
+                    # ``yield`` would drop them and only push state deltas.
+                    async for event in self.send_message():
+                        yield event
             else:
                 self.add_debug("⚠️ Transcription returned empty text")
                 yield rx.toast.error(
