@@ -52,10 +52,37 @@ jobs:
             echo "Added traffic data for $DATE"
           fi
 
-      # Ersetzt den star-history.com-Einbindung: GitHub hat die Stargazer-API
-      # am 30.06.2026 auf Repo-Admins beschränkt, externe Dienste kommen ohne
-      # Token mit Schreibrechten nicht mehr an die Daten. Die Snapshots oben
-      # enthalten den Sternestand ohnehin seit Februar.
+      # Zeitstempel der einzelnen Sterne, aggregiert auf Tage und OHNE
+      # Benutzernamen — genau die personenbezogenen Daten, wegen derer
+      # GitHub die API am 30.06.2026 gesperrt hat, gehören nicht in ein
+      # öffentliches Repo. Als Repo-Admin liefert die API sie weiterhin.
+      # Reicht bis zum ersten Stern zurück und schließt damit die Lücke
+      # vor Messbeginn (die Snapshots starten erst im Februar).
+      - name: Refresh star timestamps
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+
+          CREATED=$(gh api "repos/$REPO" --jq '.created_at' | cut -dT -f1)
+          # --slurp verträgt sich nicht mit --jq, deshalb die Aggregation
+          # in einer nachgelagerten jq-Pipe. Ohne --slurp käme pro Seite ein
+          # eigenes JSON-Array, was ab 100 Sternen auseinanderfliegt.
+          DAILY=$(gh api "repos/$REPO/stargazers" --paginate --slurp \
+                    -H "Accept: application/vnd.github.star+json" \
+                  | jq 'add | [.[].starred_at | split("T")[0]]
+                        | group_by(.) | map({key: .[0], value: length}) | from_entries')
+
+          # Erst in eine Temp-Datei: Ein fehlgeschlagener Abruf darf die
+          # vorhandene Historie nicht durch eine leere Datei ersetzen.
+          jq -n --arg created "$CREATED" --argjson daily "$DAILY" \
+            '{repo_created: $created, daily_stars: $daily}' \
+            > .github/traffic/stars-daily.json.tmp
+          mv .github/traffic/stars-daily.json.tmp .github/traffic/stars-daily.json
+
+      # Ersetzt die star-history.com-Einbindung, die seit der API-Sperre
+      # ohne Token mit Schreibrechten nicht mehr funktioniert.
       - name: Render star history chart
         run: python3 .github/scripts/render_star_history.py
 
