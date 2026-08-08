@@ -18,23 +18,35 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
         run: |
+          # Kein Fallback auf Ersatzwerte: Ein gescheiterter Abruf soll den
+          # Lauf rot färben, statt still eine 0 in die Historie zu schreiben.
+          # "0 Sterne" ist eine inhaltliche Aussage, kein "nicht gemessen" —
+          # und war zweimal (u.a. 2026-03-30) als Phantom-Einbruch in der
+          # Kurve zu sehen. Eine fehlende Zeile ist ehrlicher; die
+          # Traffic-Daten holt das 14-Tage-Fenster am Folgetag ohnehin nach.
+          set -euo pipefail
+
           DATE=$(date -u +%Y-%m-%d)
           REPO="${{ github.repository }}"
 
           mkdir -p .github/traffic
 
-          # Traffic-Daten abrufen
-          VIEWS=$(gh api "repos/$REPO/traffic/views" 2>/dev/null) || VIEWS='{"count":0,"uniques":0,"views":[]}'
-          CLONES=$(gh api "repos/$REPO/traffic/clones" 2>/dev/null) || CLONES='{"count":0,"uniques":0,"clones":[]}'
-          REFERRERS=$(gh api "repos/$REPO/traffic/popular/referrers" 2>/dev/null) || REFERRERS='[]'
-          PATHS=$(gh api "repos/$REPO/traffic/popular/paths" 2>/dev/null) || PATHS='[]'
+          # Traffic-Daten abrufen (stderr bleibt sichtbar — im Fehlerfall
+          # steht die Ursache im Action-Log)
+          VIEWS=$(gh api "repos/$REPO/traffic/views")
+          CLONES=$(gh api "repos/$REPO/traffic/clones")
+          REFERRERS=$(gh api "repos/$REPO/traffic/popular/referrers")
+          PATHS=$(gh api "repos/$REPO/traffic/popular/paths")
 
           # Stars und Forks abrufen
-          STARS=$(gh api "repos/$REPO" --jq '.stargazers_count' 2>/dev/null) || STARS='0'
-          FORKS=$(gh api "repos/$REPO" --jq '.forks_count' 2>/dev/null) || FORKS='0'
+          STARS=$(gh api "repos/$REPO" --jq '.stargazers_count')
+          FORKS=$(gh api "repos/$REPO" --jq '.forks_count')
 
-          # Tages-Snapshot als JSONL (eine Zeile pro Tag, einfach appendbar)
-          SNAPSHOT=$(jq -n \
+          # Tages-Snapshot als JSONL — -c schreibt eine Zeile pro Tag und
+          # macht die Datei zu dem echten JSONL, das ihr Name behauptet.
+          # Zuvor gab jq mehrzeilig aus, weshalb der Duplikat-Check unten
+          # nie gegriffen hat.
+          SNAPSHOT=$(jq -nc \
             --arg date "$DATE" \
             --argjson views "$VIEWS" \
             --argjson clones "$CLONES" \
@@ -44,8 +56,10 @@ jobs:
             --argjson forks "$FORKS" \
             '{date: $date, views: $views, clones: $clones, referrers: $referrers, paths: $paths, stars: $stars, forks: $forks}')
 
-          # Duplikat-Check (nicht doppelt speichern wenn am selben Tag nochmal läuft)
-          if grep -q "\"date\":\"$DATE\"" .github/traffic/traffic.jsonl 2>/dev/null; then
+          # Duplikat-Check (nicht doppelt speichern wenn am selben Tag nochmal
+          # läuft). Das optionale Leerzeichen im Muster deckt beide Formate ab:
+          # die Altbestände sind mehrzeilig-eingerückt, neue Zeilen kompakt.
+          if grep -qE "\"date\": ?\"$DATE\"" .github/traffic/traffic.jsonl; then
             echo "Data for $DATE already exists, skipping."
           else
             echo "$SNAPSHOT" >> .github/traffic/traffic.jsonl
