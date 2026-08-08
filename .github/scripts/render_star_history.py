@@ -18,6 +18,7 @@ from datetime import date
 from pathlib import Path
 
 DATA_FILE = Path(".github/traffic/traffic.jsonl")
+STARS_FILE = Path(".github/traffic/stars-daily.json")
 OUTPUT_FILE = Path(".github/traffic/star-history.svg")
 
 WIDTH = 800
@@ -93,6 +94,42 @@ def extract_series(snapshots: list[dict]) -> list[tuple[date, int]]:
     return series
 
 
+def backfill_series(stars_file: Path, until: date) -> list[tuple[date, int]]:
+    """Reconstruct the history before daily collection started.
+
+    The stargazers endpoint carries a starred_at timestamp per star, and a
+    repo admin still gets it despite the 2026-06-30 restriction. Summing
+    those per day gives the curve back to the very first star.
+
+    Caveat: it only knows stars that still exist today, so it cannot show
+    a star that was later withdrawn. That is why it is used purely as the
+    prefix — from the first measured snapshot onward the daily counts take
+    over, and those record withdrawals correctly.
+    """
+    if not stars_file.exists():
+        return []
+
+    payload = json.loads(stars_file.read_text(encoding="utf-8"))
+    daily: dict[str, int] = payload.get("daily_stars", {})
+    if not daily:
+        return []
+
+    series: list[tuple[date, int]] = []
+    created = payload.get("repo_created")
+    if created:
+        # Start at repository creation so the quiet opening months are visible.
+        series.append((date.fromisoformat(created), 0))
+
+    running = 0
+    for day_iso in sorted(daily):
+        day = date.fromisoformat(day_iso)
+        if day >= until:
+            break
+        running += daily[day_iso]
+        series.append((day, running))
+    return series
+
+
 def month_ticks(first: date, last: date) -> list[date]:
     """First of every month in range; the range start only if it stands alone.
 
@@ -125,7 +162,8 @@ def nice_step(span: int, target_ticks: int = 4) -> int:
     return 2000
 
 
-def build_svg(series: list[tuple[date, int]], repo: str) -> str:
+def build_svg(series: list[tuple[date, int]], repo: str,
+              measured_from: date | None = None) -> str:
     first_day, last_day = series[0][0], series[-1][0]
     max_stars = max(stars for _, stars in series)
 
@@ -189,9 +227,15 @@ def build_svg(series: list[tuple[date, int]], repo: str) -> str:
     axis_attrs = f'stroke="{COLORS["axis"]}" stroke-width="1" opacity="0.55"'
     stars_now = series[-1][1]
 
+    if measured_from and measured_from > first_day:
+        provenance = (f"measured daily since {measured_from.isoformat()}, "
+                      f"earlier points reconstructed from star timestamps")
+    else:
+        provenance = "collected daily from the GitHub API"
+
     return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {WIDTH} {HEIGHT}" width="{WIDTH}" height="{HEIGHT}" role="img" aria-label="Star history for {repo}: {stars_now} stars">
   <text {FONT} font-size="15" font-weight="600" fill="{COLORS["title"]}" x="{MARGIN_LEFT}" y="24">Star History</text>
-  <text {FONT} font-size="11" fill="{COLORS["text"]}" x="{MARGIN_LEFT}" y="{HEIGHT - 8}">{repo} &#183; {first_day.isoformat()} &#8211; {last_day.isoformat()} &#183; collected daily from the GitHub API</text>
+  <text {FONT} font-size="11" fill="{COLORS["text"]}" x="{MARGIN_LEFT}" y="{HEIGHT - 8}">{repo} &#183; {first_day.isoformat()} &#8211; {last_day.isoformat()} &#183; {provenance}</text>
   {body}
   <polygon fill="{COLORS["area"]}" opacity="0.12" points="{area_points}"/>
   <polyline fill="none" stroke="{COLORS["line"]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="{line_points}"/>
@@ -208,13 +252,18 @@ def main() -> int:
     if not repo:
         raise SystemExit("Repository unknown: set GITHUB_REPOSITORY or pass owner/name as argument")
 
-    snapshots = read_snapshots(DATA_FILE)
-    series = extract_series(snapshots)
-    if not series:
+    measured = extract_series(read_snapshots(DATA_FILE))
+    if not measured:
         raise SystemExit(f"{DATA_FILE}: no usable star counts found")
 
-    OUTPUT_FILE.write_text(build_svg(series, repo), encoding="utf-8")
-    print(f"{OUTPUT_FILE}: {len(series)} data points, {series[-1][1]} stars "
+    # Daily collection only started in February; everything before that is
+    # reconstructed from the stars' own timestamps.
+    series = backfill_series(STARS_FILE, until=measured[0][0]) + measured
+
+    OUTPUT_FILE.write_text(
+        build_svg(series, repo, measured_from=measured[0][0]), encoding="utf-8")
+    print(f"{OUTPUT_FILE}: {len(series)} data points "
+          f"({len(series) - len(measured)} reconstructed), {series[-1][1]} stars "
           f"({series[0][0]} - {series[-1][0]})")
     return 0
 
