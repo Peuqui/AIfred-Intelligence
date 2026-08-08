@@ -106,7 +106,7 @@ strong { color: #fff; }
 </div>
 
 <div class="update">
-<strong>Update &mdash; August 2026:</strong> The Pascal tier is gone. Both Tesla P40s were replaced by two more Tesla V100s by July 2026, so the machine now runs <span class="highlight">2x Quadro RTX 8000 (48 GB) + 3x Tesla V100 (32 GB) = 192 GB VRAM</span> &mdash; still five cards, still the same MiniPC. Every GPU is now compute capability 7.0 or higher, which lifts the vLLM restriction listed under Limitations; those P40-specific notes describe the March 2026 build, not the current one. The build story below is left as it happened. Idle power has been re-measured for the new mix (~110W total, up from ~76W &mdash; the V100s are thirstier at idle than the P40s were); the throughput figures still predate the current card mix.
+<strong>Update &mdash; August 2026:</strong> The Pascal tier is gone. Both Tesla P40s were replaced by two more Tesla V100s by July 2026, so the machine now runs <span class="highlight">2x Quadro RTX 8000 (48 GB) + 3x Tesla V100 (32 GB) = 192 GB VRAM</span> &mdash; still five cards, still the same MiniPC. Every GPU is now compute capability 7.0 or higher, which lifts the vLLM restriction listed under Limitations; those P40-specific notes describe the March 2026 build, not the current one. The build story below is left as it happened. Idle power has been re-measured for the new mix (~110W total, up from ~76W &mdash; the V100s are thirstier at idle than the P40s were), and the throughput section now carries a second table with numbers measured on the current cards.
 </div>
 
 <h2>The Base: AOOSTAR GEM 10</h2>
@@ -215,7 +215,7 @@ strong { color: #fff; }
 <p>Two things worth noting. The SXM2&rarr;PCIe modded V100 idles about 2W above the two native PCIe cards &mdash; consistently, not as measurement noise. And the V100s draw considerably more at idle than the P40s they replaced (24&ndash;26W versus ~9W each), so dropping the Pascal tier cost roughly 35W: the March 2026 build with 176 GB sat at about 76W. Worth it for HBM2 bandwidth, inline ECC and compute capability 7.0 &mdash; but it is not a free upgrade.</p>
 
 <h2>What It Runs</h2>
-<p class="subtitle">Representative models the Mini runs GPU-resident. Most tok/s figures are ballpark numbers from the earlier 4-GPU stage; the 397B figure is current. GPU count, tensor split and context are auto-calibrated per model by AIfred — and MTP-capable models now run with speculative decoding, so real-world speeds on the 5-GPU config tend to be higher.</p>
+<p class="subtitle">Representative models the Mini runs GPU-resident. The tok/s figures in this first table are ballpark numbers from the earlier 4-GPU stage &mdash; the August 2026 table further down has measurements from the current cards. GPU count, tensor split and context are auto-calibrated per model by AIfred — and MTP-capable models now run with speculative decoding, so real-world speeds on the 5-GPU config tend to be higher.</p>
 
 <table>
 <tr><th>Model</th><th>Size</th><th>Quant</th><th>Context</th><th>KV Cache</th><th>TG tok/s</th></tr>
@@ -230,6 +230,23 @@ strong { color: #fff; }
 </table>
 <p>All models GPU-only (ngl=99), flash-attn, Direct-IO, mlock. Context sizes and the per-GPU tensor split are auto-calibrated by AIfred's 3-phase calibration to maximize available VRAM — including a separate "speed" variant (fewer GPUs, less context, more throughput) and automatic placement of TTS / vision side-channels onto dedicated cards. MTP-capable models (UD-MTP GGUFs) additionally run with speculative decoding (<code>--spec-type draft-mtp</code>), which lifts generation speed further.</p>
 <p>Model lifecycle managed by <a href="https://github.com/mostlygeek/llama-swap">llama-swap</a> — models auto-swap on request, Direct-IO makes loading near-instant.</p>
+
+<h3>Update &mdash; August 2026: measured on the current 5-GPU mix</h3>
+<p class="subtitle">Prompt processing (PP) and token generation (TG) in tok/s, taken from real chat sessions on 2x RTX 8000 + 3x V100. Read these as a range, not as a benchmark: end-to-end numbers move with prompt length, RAG context and cache state, and every model below runs with speculative decoding.</p>
+
+<table>
+<tr><th>Model</th><th>Size</th><th>Quant</th><th>GPUs</th><th>PP tok/s</th><th>TG tok/s</th></tr>
+<tr><td>Qwen3.5-4B</td><td>4B dense</td><td>Q8_K_XL</td><td>1</td><td>2,738&ndash;3,211</td><td>66&ndash;92</td></tr>
+<tr><td>Qwen3.6-27B</td><td>27B dense</td><td>Q8_K_XL</td><td>1&ndash;2</td><td>557&ndash;730</td><td>21&ndash;27</td></tr>
+<tr><td>Qwen3.6-35B-A3B</td><td>35B MoE</td><td>Q8_K_XL</td><td>1</td><td><strong>1,841</strong></td><td><strong>105</strong></td></tr>
+<tr><td>Qwen3.5-122B-A10B</td><td>122B MoE</td><td>Q8_K_XL</td><td>4&ndash;5</td><td>503&ndash;655</td><td>42&ndash;50</td></tr>
+<tr><td>DeepSeek-V4-Flash-0731</td><td>284B MoE, 13B active</td><td>UD-Q4_K_XL</td><td>5</td><td>163&ndash;376 (med 325)</td><td>19&ndash;41 (med 24)</td></tr>
+<tr><td>Qwen3.5-397B-A17B</td><td>397B MoE, 17B active</td><td>IQ3_S</td><td>5</td><td>315</td><td>36&ndash;46</td></tr>
+</table>
+
+<p>Two findings worth calling out. <strong>Microbatch size matters enormously for MoE models:</strong> raising <code>-ub</code> from 512 to 2048 lifted prompt processing by 53% to 2.1x across the MoE profiles (isolated llama-bench, 397B pp8192: 240 &rarr; 399 tok/s) while leaving generation untouched — expert reads amortize over the larger microbatch. Dense models gain only 6&ndash;8% and were deliberately left at 512.</p>
+
+<p><strong>And the draft model decides how fast generation feels.</strong> The MTP-capable Qwen models draft with 90&ndash;96% acceptance. DeepSeek-V4-Flash instead uses a separate 11 GB DSpark sidecar draft (<code>--spec-type draft-dspark</code>) at 61&ndash;65% acceptance, and it is strongly content-dependent: writing structured code it drafts near its ceiling at 40&ndash;45 tok/s, while free-form reasoning text drops to around 20. That is why its answer-average lands below the 397B even though its prompt processing is roughly 1.8x faster and its time-to-first-token about 3x shorter. The PP advantage comes from the architecture &mdash; 43 layers, a sparse-attention indexer and a very cheap MLA KV cache &mdash; not from the draft model.</p>
 
 <h2>Limitations</h2>
 <ul>
