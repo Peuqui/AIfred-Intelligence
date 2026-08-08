@@ -150,20 +150,25 @@
         <h1>AIfred Intelligence</h1>
         <p class="subtitle">Example Conversations & Showcases</p>
 
-        <div class="section-title">Hardware &mdash; <span style="font-size: 0.8em; color: #888;">March 2026</span></div>
+        <div class="section-title">Hardware &mdash; <span style="font-size: 0.8em; color: #888;">March 2026, updated August 2026</span></div>
 
         <div class="example-card">
-            <h2>🔧 The Frankenstein MiniPC — 5 GPUs, 176 GB VRAM, ~76W Idle</h2>
+            <h2>🔧 The Frankenstein MiniPC — 5 GPUs, 192 GB VRAM, ~110W Idle</h2>
             <p>
-                How a tiny AOOSTAR GEM 10 MiniPC ended up with 2x Quadro RTX 8000 + 2x Tesla P40 + a Tesla V100
-                modded from SXM2 to PCIe — 5 eGPUs across M.2&rarr;OCuLink (4 dedicated lanes each) and USB4.
-                The full story: from the first OCuLink test to sawing fan grilles, fighting ReBAR, and running
-                235B+ models fully GPU-resident — with photos, cost breakdown, model configurations, and lessons learned.
+                How a tiny AOOSTAR GEM 10 MiniPC ended up with five eGPUs across M.2&rarr;OCuLink
+                (4 dedicated lanes each) and USB4. The full story: from the first OCuLink test to sawing fan
+                grilles, fighting ReBAR, and running 235B+ models fully GPU-resident — with photos, cost
+                breakdown, model configurations, and lessons learned.
+            </p>
+            <p>
+                It started as 2x Quadro RTX 8000 + 2x Tesla P40 + a Tesla V100 modded from SXM2 to PCIe.
+                Since July 2026 the Pascal cards are gone: the machine now runs 2x RTX 8000 (48 GB) +
+                3x Tesla V100 (32 GB) = 192 GB VRAM, with no card below compute capability 7.0.
             </p>
             <div class="tags">
                 <span class="tag tag-orange">Hardware</span>
                 <span class="tag">5 GPUs</span>
-                <span class="tag">176 GB VRAM</span>
+                <span class="tag">192 GB VRAM</span>
                 <span class="tag tag-green">24/7 Server</span>
             </div>
             <a class="btn" href="examples/Hardware_Setup_Frankenstein_MiniPC.html">View Full Setup</a>
