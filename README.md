@@ -2408,7 +2408,9 @@ More documentation in the `docs/` directory — full index: [docs/README.md](doc
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Peuqui/AIfred-Intelligence&type=Date)](https://star-history.com/#Peuqui/AIfred-Intelligence&Date)
+![Star History](.github/traffic/star-history.svg)
+
+<sub>Selbst erhoben: Ein täglicher Workflow schreibt den Sternestand mit, das Diagramm entsteht daraus im Repo. GitHub hat die Stargazer-API am 30.06.2026 auf Repo-Admins beschränkt — externe Chart-Dienste brauchen dafür seither einen Token mit Schreibrechten.</sub>
 
 ## 📄 License
 
