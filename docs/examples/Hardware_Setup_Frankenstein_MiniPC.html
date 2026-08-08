@@ -28,6 +28,14 @@ p { margin-bottom: 1rem; }
     margin: 1.5rem 0;
     border-radius: 0 8px 8px 0;
 }
+.update {
+    background: rgba(255,165,0,0.08);
+    border-left: 4px solid #ffa500;
+    padding: 1rem 1.5rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.update strong:first-child { color: #ffa500; }
 table {
     width: 100%;
     border-collapse: collapse;
@@ -91,10 +99,14 @@ strong { color: #fff; }
 <div class="container">
 
 <h1>The Frankenstein MiniPC</h1>
-<p class="subtitle">5 GPUs, 176 GB VRAM — how a tiny MiniPC became a 235B+ inference server</p>
+<p class="subtitle">5 GPUs, 192 GB VRAM — how a tiny MiniPC became a 235B+ inference server</p>
 
 <div class="tldr">
-<strong>Setup:</strong> AOOSTAR GEM 10 MiniPC &bull; 2x Quadro RTX 8000 (48 GB) + 2x Tesla P40 (24 GB) + 1x Tesla V100 (32 GB, SXM2&rarr;PCIe modded) = <span class="highlight">176 GB VRAM</span> &bull; Runs 235B / 397B models fully GPU-resident &bull; 4 cards via M.2&rarr;OCuLink (4 dedicated PCIe lanes each), 1 via USB4 &bull; 24/7
+<strong>Setup as built (March 2026):</strong> AOOSTAR GEM 10 MiniPC &bull; 2x Quadro RTX 8000 (48 GB) + 2x Tesla P40 (24 GB) + 1x Tesla V100 (32 GB, SXM2&rarr;PCIe modded) = <span class="highlight">176 GB VRAM</span> &bull; Runs 235B / 397B models fully GPU-resident &bull; 4 cards via M.2&rarr;OCuLink (4 dedicated PCIe lanes each), 1 via USB4 &bull; 24/7
+</div>
+
+<div class="update">
+<strong>Update &mdash; August 2026:</strong> The Pascal tier is gone. Both Tesla P40s were replaced by two more Tesla V100s by July 2026, so the machine now runs <span class="highlight">2x Quadro RTX 8000 (48 GB) + 3x Tesla V100 (32 GB) = 192 GB VRAM</span> &mdash; still five cards, still the same MiniPC. Every GPU is now compute capability 7.0 or higher, which lifts the vLLM restriction listed under Limitations; those P40-specific notes describe the March 2026 build, not the current one. The build story below is left as it happened. Idle power has been re-measured for the new mix (~110W total, up from ~76W &mdash; the V100s are thirstier at idle than the P40s were); the throughput figures still predate the current card mix.
 </div>
 
 <h2>The Base: AOOSTAR GEM 10</h2>
@@ -151,6 +163,7 @@ strong { color: #fff; }
     <p>To free up a fast M.2 slot for another OCuLink adapter, the <strong>boot SSD and a backup drive were moved out to USB 3</strong> — the precious PCIe lanes belong to the GPUs. End state: <strong>4 cards on M.2&rarr;OCuLink adapters with 4 dedicated PCIe lanes each, straight to the CPU; the 5th on the USB4 port.</strong></p>
 </div>
 
+<p class="subtitle">The five-card layout as of March 2026 &mdash; the two P40 slots hold V100s today, see the update at the top.</p>
 <table>
 <tr><th>GPU</th><th>VRAM</th><th>Connection</th></tr>
 <tr><td>Quadro RTX 8000 #1</td><td>48 GB</td><td>M.2 &rarr; OCuLink (4 lanes)</td></tr>
@@ -189,16 +202,17 @@ strong { color: #fff; }
 </table>
 
 <h2>Power Consumption (Idle)</h2>
-<p class="subtitle">Measured per-card idle draw (nvidia-smi).</p>
+<p class="subtitle">Measured per-card idle draw (nvidia-smi), August 2026, with no model resident in VRAM.</p>
 <table>
 <tr><th>Component</th><th>Idle Power</th></tr>
-<tr><td>Tesla P40 (x2)</td><td>9W each = 18W</td></tr>
 <tr><td>Quadro RTX 8000 (x2)</td><td>13W each = 26W</td></tr>
-<tr><td>Tesla V100</td><td>23W</td></tr>
+<tr><td>Tesla V100, SXM2&rarr;PCIe modded</td><td>26W</td></tr>
+<tr><td>Tesla V100, native PCIe (x2)</td><td>24W each = 48W</td></tr>
 <tr><td>MiniPC</td><td>~7-10W</td></tr>
-<tr><td><strong>Total</strong></td><td><strong>~76W</strong></td></tr>
+<tr><td><strong>Total</strong></td><td><strong>~110W</strong></td></tr>
 </table>
-<p>A 176 GB VRAM inference server idling around ~76W. Try that with a proper server rack.</p>
+<p>A 192 GB VRAM inference server idling around ~110W. Try that with a proper server rack.</p>
+<p>Two things worth noting. The SXM2&rarr;PCIe modded V100 idles about 2W above the two native PCIe cards &mdash; consistently, not as measurement noise. And the V100s draw considerably more at idle than the P40s they replaced (24&ndash;26W versus ~9W each), so dropping the Pascal tier cost roughly 35W: the March 2026 build with 176 GB sat at about 76W. Worth it for HBM2 bandwidth, inline ECC and compute capability 7.0 &mdash; but it is not a free upgrade.</p>
 
 <h2>What It Runs</h2>
 <p class="subtitle">Representative models the Mini runs GPU-resident. Most tok/s figures are ballpark numbers from the earlier 4-GPU stage; the 397B figure is current. GPU count, tensor split and context are auto-calibrated per model by AIfred — and MTP-capable models now run with speculative decoding, so real-world speeds on the 5-GPU config tend to be higher.</p>
@@ -242,13 +256,14 @@ strong { color: #fff; }
 
 <h3>Next upgrade</h3>
 <p>The trajectory is swapping the remaining P40s out for faster cards (more V100s and/or RTX 8000s). Once the slow Pascal tier is gone, vLLM becomes viable across all GPUs and the whole rig moves up a class. ReBAR is sorted — it's just a matter of cards showing up at sane prices.</p>
+<p class="warning">Done &mdash; both P40s were replaced by V100s by July 2026, bringing the machine to 192 GB VRAM with no card below compute capability 7.0. See the update note at the top.</p>
 
 <h3>The honest take</h3>
 <p>For ~&euro;4,700 you could probably get a 128 GB unified memory MiniPC and call it a day. But I didn't know where this was going when I started. One GPU became two, two became four, then five, and suddenly I'm sawing fan grilles and hunting down an SXM2&rarr;PCIe-converted V100 from a Chinese seller. That's how hobbies work. And honestly, the building was half the fun.</p>
 
 <div class="footer">
     <p><a href="https://github.com/Peuqui/AIfred-Intelligence">AIfred Intelligence</a> &bull; <a href="../">Back to Showcases</a></p>
-    <p>Setup by Peuqui &bull; updated May 2026</p>
+    <p>Setup by Peuqui &bull; updated August 2026</p>
 </div>
 
 </div>
