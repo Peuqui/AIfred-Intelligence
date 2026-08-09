@@ -147,6 +147,26 @@ async def render_html_in_browser(
                     await page.screenshot(path=str(shot))
                     tmp_shots.append(shot)
 
+                # SECURITY: block all external network from the render browser.
+                # render_html verifies the model's OWN, self-contained/local HTML
+                # — it must never become an egress channel (see the
+                # sandbox-escape study). Allow only file:/data:/blob: and
+                # localhost; abort everything else (fail-closed). Locally
+                # mirrored libraries are served via localhost and stay usable.
+                from urllib.parse import urlparse as _urlparse
+
+                async def _block_external(route: Any) -> None:
+                    parsed = _urlparse(route.request.url)
+                    host = (parsed.hostname or "").lower()
+                    if parsed.scheme in ("file", "data", "blob") or host in (
+                        "localhost", "127.0.0.1", "::1",
+                    ):
+                        await route.continue_()
+                    else:
+                        await route.abort()
+
+                await page.route("**/*", _block_external)
+
                 await page.goto(f"file://{html_path}")
                 await page.wait_for_timeout(settle_ms)
 
