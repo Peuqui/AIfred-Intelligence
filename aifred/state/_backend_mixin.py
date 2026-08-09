@@ -455,6 +455,27 @@ class BackendMixin(rx.State, mixin=True):
             # Load session list immediately (before backend init which can take time)
             self.refresh_session_list()  # type: ignore[attr-defined, has-type]
 
+            # Cross-session model sync: the full settings restore below only runs
+            # for a FRESH session (guarded by _backend_initialized). A tab reload
+            # of an existing session would otherwise keep a stale model when it
+            # was changed elsewhere (another tab/device) — settings.json is the
+            # SSOT and is written on every model change. Re-read just the
+            # persisted model fields on every on_load so the dropdown and the
+            # effective model reflect the current persisted state. Idempotent:
+            # on a fresh session the full restore sets the same values afterwards.
+            from ..lib.settings import load_settings as _sync_load_settings
+            _sync = _sync_load_settings() or {}
+            for _sync_agent, _sync_entry in _sync.get("agent_tuning", {}).items():
+                _sync_bucket = self.agent_tuning.get(_sync_agent)
+                if _sync_bucket is None:
+                    continue
+                if "model" in _sync_entry:
+                    _sync_bucket.model = _sync_entry["model"]
+                if "model_id" in _sync_entry:
+                    _sync_bucket.model_id = _sync_entry["model_id"]
+            if "automatik_model" in _sync:
+                self.automatik_model = _sync["automatik_model"]  # type: ignore[attr-defined, has-type]
+
             if not self._backend_initialized:
                 log_message("📱 Initializing session...")
 
@@ -1583,6 +1604,22 @@ class BackendMixin(rx.State, mixin=True):
 
         # Load model parameters from cache
         self._load_agent_model_params("aifred", self.agent_tuning["aifred"].model_id)
+
+        # Re-validate reasoning effort for agents that INHERIT AIfred's model
+        # ("(wie AIfred-LLM)"): the base-model switch changes their effective
+        # reasoning levels, so a previously selected effort (e.g. "max") can
+        # become invalid for the new model and would otherwise leave the effort
+        # dropdown empty. _load_agent_reasoning_levels is owner-aware and clears
+        # an unsupported effort.
+        from ..lib.agent_settings import get_agent_setting
+        for _entry in self._ui_agent_list():  # type: ignore[attr-defined]
+            _aid = _entry["id"]
+            if _aid in ("aifred", "vision"):
+                continue
+            if not get_agent_setting(self, _aid, "model_id"):
+                self._load_agent_reasoning_levels(  # type: ignore[attr-defined]
+                    _aid, get_agent_setting(self, _aid, "model_id")
+                )
         if self.backend_type == "llamacpp" and not self.agent_tuning["aifred"].has_speed_variant:
             self.agent_tuning["aifred"].speed_mode = False  # type: ignore[attr-defined, has-type]
 

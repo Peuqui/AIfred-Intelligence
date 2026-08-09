@@ -305,9 +305,12 @@ class AgentConfigMixin(rx.State, mixin=True):
 
         # Debug log — use get_agent_label for emoji + display_name from config
         from ..lib.agent_config import get_agent_label
+        from ..lib.agent_settings import get_agent_base_model_id
+        reset_model = get_agent_base_model_id(self, agent)
+        model_info = f" → {reset_model} defaults" if reset_model else ""
         temp_info = f"temp={defaults['temperature']}, " if include_temperature else ""
         self.add_debug(  # type: ignore[attr-defined]
-            f"{get_agent_label(agent)} sampling reset: "
+            f"{get_agent_label(agent)} sampling reset{model_info}: "
             f"{temp_info}top_k={int(defaults['top_k'])}, "
             f"top_p={defaults['top_p']}, min_p={defaults['min_p']}, "
             f"rep={defaults['repeat_penalty']}"
