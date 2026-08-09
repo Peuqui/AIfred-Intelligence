@@ -54,8 +54,42 @@ class CloudAPIBackend(OpenAICompatibleBackend):
         logger.info(f"☁️ CloudAPIBackend initialized: {self.provider_config['name']}")
 
     def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
-        """Cloud APIs: no extra_body params needed."""
-        return {}
+        """Provider-specific reasoning params for cloud APIs.
+
+        Unlike local inference servers (llama.cpp/vLLM), cloud endpoints do
+        NOT read ``chat_template_kwargs`` — each provider exposes its own
+        top-level reasoning controls. Only providers whose contract is
+        verified are wired here; the rest fall through to the provider's
+        default (no extra params, thinking as the model defaults to).
+        """
+        extra_body: Dict[str, Any] = {}
+        thinking = options.enable_thinking
+        if thinking is None:
+            return extra_body  # no explicit preference → provider default
+
+        if self.provider in ("qwen", "kimi"):
+            # DashScope (Qwen) + Moonshot (Kimi), OpenAI-compatible: the native
+            # thinking mode is toggled per request via a TOP-LEVEL
+            # ``enable_thinking`` bool. No thinking_budget/effort cap is sent,
+            # so an enabled model reasons at its full default depth
+            # (= maximum reasoning). Moonshot REJECTS ``reasoning_effort``
+            # alongside thinking, so we never send that.
+            extra_body["enable_thinking"] = thinking
+        elif self.provider == "deepseek":
+            # DeepSeek, OpenAI-compatible: thinking via a ``thinking`` object.
+            extra_body["thinking"] = {"type": "enabled" if thinking else "disabled"}
+        elif self.provider == "claude":
+            # Anthropic OpenAI-SDK compatibility: extended thinking via a
+            # ``thinking`` object with a required token budget. Disabled is
+            # Claude's default, so only the enabled form is sent. NOTE:
+            # UNVERIFIED — no ANTHROPIC_API_KEY configured; budgets are
+            # conservative/tunable and must stay below the request max_tokens.
+            if thinking:
+                budget = {"max": 16000, "high": 8000}.get(
+                    options.reasoning_effort or "", 4000
+                )
+                extra_body["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        return extra_body
 
     def _classify_error(self, error: Exception, model: str) -> BackendError:
         """Cloud APIs: additional auth error detection."""
