@@ -520,7 +520,7 @@ p:last-child > em:only-child {
    - Die eigentlichen Boxen (#debug-console-box, #settings-accordion) erben height */
 .debug-settings-grid {
     display: grid !important;
-    grid-template-columns: 1fr minmax(380px, 460px) !important;
+    grid-template-columns: 1fr fit-content(560px) !important;
     gap: 1rem !important;
     align-items: stretch !important;  /* Grid-Kinder gleich hoch */
 }
@@ -530,6 +530,15 @@ p:last-child > em:only-child {
     display: flex !important;
     flex-direction: column !important;
     height: 100% !important;  /* Volle Grid-Zellen-Höhe */
+}
+
+/* Nur die Debug-Spalte (1fr, erstes Kind) darf unter ihren Inhalt schrumpfen —
+   sonst erzwingt die min-content-Breite der langen Debug-Zeilen ein Grid, das
+   breiter als der Container wird und rechts überläuft. Die Settings-Spalte
+   (fit-content, zweites Kind) bleibt inhaltsgetrieben, damit ihr Dropdown nicht
+   abschneidet. */
+.debug-settings-grid > *:first-child {
+    min-width: 0 !important;
 }
 
 /* Debug Console Box: Füllt den Wrapper komplett aus */
