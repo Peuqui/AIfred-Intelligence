@@ -251,12 +251,17 @@ ohne dass ein Restloch bleibt.
 
 ## 8. Mitigation & Empfehlung
 
-**Empfehlung: `render_html` gegen externes Netz abriegeln.** Payoff hoch
-(schließt den einzigen belegten Egress + stoppt die Memory-Propagation aus
-Befund 2), Kosten niedrig — der legitime Zweck sind *self-contained*
-HTML-Visualisierungen, die kein externes Netz brauchen.
+**✅ Umgesetzt (2026-08-09): `render_html` gegen externes Netz abgeriegelt.**
+In `browser_render.py` blockt ein fail-closed `page.route('**/*')` alle Requests
+außer `file:`/`data:`/`blob:`/localhost — externe Fetches werden abgebrochen.
+Damit ist Befund 1 geschlossen. Kosten null: die gängigen JS-Libs (Chart.js, D3,
+Plotly, Three.js) liegen jetzt **lokal gespiegelt** unter `assets/vendor/`
+(via `scripts/fetch_vendor_libs.sh`) und werden über localhost ausgeliefert; die
+Tool-Prompts weisen das Modell an, diese statt externer CDNs zu nutzen.
+Retrieval-Egress über render_html ist damit tot, self-contained Visualisierungen
+funktionieren weiter.
 
-Umsetzungsoptionen (jeweils lokales Rendering + Screenshot erhalten):
+Alternativ erwogene Optionen (nicht nötig, da page.route genügt):
 - Chrome mit Netz-Namespace / `--proxy-server` auf toten Port starten.
 - `page.route`-Interception, die externe Requests blockiert.
 - Host-Level-Egress-Restriktion (systemd `IPAddressDeny` / Firewall-Regel).

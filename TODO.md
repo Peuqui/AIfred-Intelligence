@@ -222,6 +222,34 @@ Audio-Phase 1.2/2.0/3.0.
 
 ---
 
+## Google-Suite-Ausbau: Sheets + Docs (später)
+
+Neue Sub-Services im `google_suite`-Plugin, damit das Modell Tabellen und
+Dokumente erstellen/bearbeiten kann.
+
+**Voraussetzungen (bewusster Setup-Schritt, nichts schleicht sich ein):**
+- Neue OAuth-Scopes ergänzen: `…/auth/spreadsheets`, `…/auth/documents`
+  (aktuell nur calendar/contacts/tasks/drive — siehe `google_suite/__init__.py`).
+- Sheets-API + Docs-API im Google-Cloud-Projekt aktivieren.
+- **Re-Consent** nötig (bestehendes Token hat die Scopes nicht).
+
+**⚠️ Sicherheit — Sheets ist ein potenzieller Egress-Kanal:**
+- `=GOOGLEFINANCE(...)`, `=IMPORTDATA(url)`, `=IMPORTXML/HTML(...)` lassen
+  Googles Server externe Daten holen; per Drive-Export (CSV) liest das Modell
+  die *ausgewerteten* Werte zurück → ungeprüfter Web-Fetch über Google als
+  Proxy, im pcap unsichtbar, umgeht `validate_external_url`. Das ist genau der
+  Egress, den wir bei render_html geschlossen haben.
+- **Daher Pflicht: Formel-Filter** — die `IMPORT*`/`GOOGLEFINANCE`-Familie beim
+  Schreiben abweisen, damit Sheets ein Editor bleibt und kein Stealth-Egress.
+- Erwägen: `drive.file` statt des vollen `drive`-Scopes (Voll-Drive erlaubt
+  theoretisch xlsx-Upload-mit-Formel → Konvertierung → Rücklesen).
+
+**Docs:** geringeres Risiko (keine live-neuberechnenden Formeln), aber kann
+verknüpfte Objekte (aus Sheets eingebettete Diagramme) / URL-Bilder enthalten
+→ beim Design mitdenken.
+
+---
+
 ## FreeEcho.2 Puck — AIfred Voice Interface
 
 Separates Projekt: github.com/Peuqui/FreeEcho.2
