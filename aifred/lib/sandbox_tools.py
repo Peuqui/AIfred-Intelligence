@@ -31,6 +31,18 @@ _HTML_IN_STDOUT_HINT = (
 )
 
 
+def _vendor_base() -> str:
+    """Base URL of the locally mirrored JS libs (frontend-served assets/vendor).
+
+    The frontend port is read from the Reflex config (SSOT in rxconfig.py),
+    never hardcoded — keeps the render_html/execute_code tool prompts portable
+    across deployments with a different frontend port.
+    """
+    import reflex as rx
+    port = rx.config.get_config().frontend_port
+    return f"http://localhost:{port}/vendor"
+
+
 def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
     """Create sandbox tools for LLM function calling.
 
@@ -167,11 +179,12 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         "required": ["code"],
     }
 
+    _vb = _vendor_base()
     return [
         Tool(
             name="execute_code",
             tier=TIER_WRITE_DATA,
-            description=load_shared_tool_description("execute_code_tool.txt"),
+            description=load_shared_tool_description("execute_code_tool.txt").replace("{VENDOR_BASE}", _vb),
             parameters=params,
             executor=_execute_code,
         ),
@@ -185,7 +198,7 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         Tool(
             name="render_html",
             tier=TIER_WRITE_DATA,
-            description=load_shared_tool_description("render_html_tool.txt"),
+            description=load_shared_tool_description("render_html_tool.txt").replace("{VENDOR_BASE}", _vb),
             parameters={
                 "type": "object",
                 "properties": {
