@@ -203,6 +203,24 @@ class UIConfigMixin(rx.State, mixin=True):
         # Show history utilization and warn if compression will trigger
         self._log_history_utilization(effective_limit)
 
+        # Effective sampling parameters per agent — the values build_llm_options
+        # actually sends (temperature via resolve_agent_temperature). Shown for
+        # ALL matrix agents so the preview is a real pre-flight check that
+        # surfaces UI/engine divergence (e.g. a manual per-agent temperature
+        # that silently does not take effect).
+        from ..lib.multi_agent import resolve_agent_temperature
+        self.add_debug(f"\U0001f39b️ Sampling ({self.temperature_mode}):")  # type: ignore[attr-defined]
+        for entry in self._ui_agent_list():  # type: ignore[attr-defined]
+            agent = entry["id"]
+            temp = resolve_agent_temperature(self, agent)  # type: ignore[arg-type]
+            self.add_debug(  # type: ignore[attr-defined]
+                f"   {get_agent_label(agent)}: temp {format_number(temp, 2)}, "
+                f"top_k {int(get_agent_setting(self, agent, 'top_k', 40))}, "
+                f"top_p {format_number(get_agent_setting(self, agent, 'top_p', 0.9), 2)}, "
+                f"min_p {format_number(get_agent_setting(self, agent, 'min_p', 0.0), 2)}, "
+                f"rep {format_number(get_agent_setting(self, agent, 'repeat_penalty', 1.1), 2)}"
+            )
+
     # ================================================================
     # RESEARCH MODE
     # ================================================================

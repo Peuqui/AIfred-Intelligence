@@ -46,14 +46,15 @@ if TYPE_CHECKING:
 def resolve_agent_temperature(state: 'AIState', agent: str) -> float:
     """SSOT for the effective temperature of an agent inference.
 
-    Sokrates/Salomo have their own settings (manual mode) or offsets on
-    AIfred's global temperature; every other agent (aifred, vision,
-    custom agents) uses AIfred's global temperature directly.
+    Manual mode: every agent uses its own configured temperature (the
+    ``aifred`` bucket maps to the global ``state.temperature`` via
+    get_agent_setting). Auto mode: intent-driven global temperature, with
+    Sokrates/Salomo adding their offset on top.
     """
     from .agent_settings import get_agent_setting
+    if state.temperature_mode == "manual":  # type: ignore[has-type]
+        return float(get_agent_setting(state, agent, "temperature"))
     if agent in ("sokrates", "salomo"):
-        if state.temperature_mode == "manual":  # type: ignore[has-type]
-            return float(get_agent_setting(state, agent, "temperature"))
         return min(1.0, float(state.temperature) + float(get_agent_setting(state, agent, "temperature_offset")))  # type: ignore[has-type]
     return float(state.temperature)  # type: ignore[has-type]
 
