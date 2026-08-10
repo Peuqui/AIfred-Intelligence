@@ -5,8 +5,7 @@
 
 from __future__ import annotations
 
-import functools
-import operator
+import json
 
 import reflex as rx
 
@@ -71,10 +70,17 @@ def _group_header(name: str, tool_names: list[str]) -> rx.Component:
     grants/revokes the whole group (a partial selection reads as OFF, so one flip
     grants all). Saves the per-tool click-orgy for big groups like Google Suite.
     """
-    all_on = functools.reduce(
-        operator.and_,
-        [AIState.editor_tools[n].to(bool) for n in tool_names],
-    )
+    # Chaining the per-tool Vars with `&` (functools.reduce) blows up
+    # exponentially: Reflex' boolean `&` repeats its left operand in the
+    # generated JS, so every extra tool roughly doubles the expression tree.
+    # Measured: 12 tools 0.01s, 20 tools 0.98s, 26 tools (Google Suite) 58s —
+    # paid at import time, which is what pushed AIfred's startup to 3.5 min.
+    # Referencing the dict Var ONCE and testing the keys in JS is O(n):
+    # 0.001s, a 5x smaller expression, same state binding (so it stays
+    # reactive).
+    all_on = rx.Var(
+        f"{json.dumps(tool_names)}.every((n) => {AIState.editor_tools}[n])"
+    ).to(bool)
     return rx.hstack(
         rx.text(name, font_size="10px", color="#888"),
         rx.switch(
