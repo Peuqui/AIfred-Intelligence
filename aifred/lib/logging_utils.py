@@ -47,6 +47,13 @@ def initialize_debug_log(force_reset: bool = False) -> None:
     """
     global _debug_log_initialized
 
+    # CLI tools (e.g. llama-swap-build-config) import the AIfred lib but must
+    # never truncate the running app's live debug log. They export
+    # AIFRED_CLI_MODE — treat the log as already initialized without touching it.
+    if os.environ.get("AIFRED_CLI_MODE"):
+        _debug_log_initialized = True
+        return
+
     if _debug_log_initialized and not force_reset:
         return
 
@@ -100,7 +107,7 @@ def log_message(message: str, category: str = "info") -> None:
     # ============================================================
     # FILE DEBUG (if enabled)
     # ============================================================
-    if FILE_DEBUG_ENABLED:
+    if FILE_DEBUG_ENABLED and not os.environ.get("AIFRED_CLI_MODE"):
         try:
             timestamp_file = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # HH:MM:SS.mmm
             with open(DEBUG_LOG_FILE, 'a', encoding='utf-8') as f:

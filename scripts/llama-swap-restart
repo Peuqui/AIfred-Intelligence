@@ -108,7 +108,7 @@ build_config="/home/mp/bin/llama-swap-build-config"
 build_python="/home/mp/Projekte/AIfred-Intelligence/venv/bin/python"
 if [ -x "$build_config" ] && [ -x "$build_python" ]; then
     echo "🔍 Pruefe Spec-Decoding-Flags pro Modell..."
-    if ! "$build_python" "$build_config" 2>&1 | sed 's/^/   /'; then
+    if ! AIFRED_CLI_MODE=1 "$build_python" "$build_config" 2>&1 | sed 's/^/   /'; then
         echo "❌ Spec-Config-Build fehlgeschlagen — Start abgebrochen."
         exit 1
     fi
@@ -153,7 +153,7 @@ echo ""
 # Watch-config-Polling von llama-swap (2s) zieht die Aenderung dann
 # automatisch nach.
 if [ -x "$build_config" ] && [ -x "$build_python" ]; then
-    out=$("$build_python" "$build_config" 2>&1)
+    out=$(AIFRED_CLI_MODE=1 "$build_python" "$build_config" 2>&1)
     if echo "$out" | grep -qE "aktualisiert werden|aktualisiert\.|Modell\(e\) aktualisiert"; then
         echo "🔍 Spec-Flags-Nachpass (post-autoscan):"
         echo "$out" | grep -E "🚀 MTP|📋 ngram|aktualisiert" | sed 's/^/   /'
