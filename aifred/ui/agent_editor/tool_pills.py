@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import functools
+import operator
+
 import reflex as rx
 
 from ...state import AIState
@@ -61,6 +64,31 @@ def _build_tool_pill(tool_name: str, tier: int = 0) -> rx.Component:
     )
 
 
+def _group_header(name: str, tool_names: list[str]) -> rx.Component:
+    """Group heading with a switch that toggles every tool in the group at once.
+
+    The switch is ON only when *all* tools of the group are granted; flipping it
+    grants/revokes the whole group (a partial selection reads as OFF, so one flip
+    grants all). Saves the per-tool click-orgy for big groups like Google Suite.
+    """
+    all_on = functools.reduce(
+        operator.and_,
+        [AIState.editor_tools[n].to(bool) for n in tool_names],
+    )
+    return rx.hstack(
+        rx.text(name, font_size="10px", color="#888"),
+        rx.switch(
+            checked=all_on,
+            on_change=lambda v: AIState.set_editor_tool_group(tool_names, v),  # type: ignore[arg-type]
+            color_scheme="orange",
+            size="1",
+            transform="scale(0.85)",
+        ),
+        spacing="2",
+        align="center",
+    )
+
+
 def _build_tool_groups() -> list[rx.Component]:
     """Build tool pill groups at build-time, grouped by plugin."""
     from ...lib.plugin_registry import discover_tools, all_channels
@@ -74,7 +102,7 @@ def _build_tool_groups() -> list[rx.Component]:
     # Memory (always first — tier 2 = write data)
     groups.append(
         rx.vstack(
-            rx.text("Memory", font_size="10px", color="#888"),
+            _group_header("Memory", ["store_memory"]),
             rx.flex(
                 _build_tool_pill("store_memory", tier=TIER_WRITE_DATA),
                 wrap="wrap", gap="4px",
@@ -92,7 +120,7 @@ def _build_tool_groups() -> list[rx.Component]:
             continue
         groups.append(
             rx.vstack(
-                rx.text(plugin.display_name, font_size="10px", color="#888"),
+                _group_header(plugin.display_name, [t.name for t in tools]),
                 rx.flex(
                     *[_build_tool_pill(t.name, tier=t.tier) for t in tools],
                     wrap="wrap", gap="4px",
@@ -103,15 +131,17 @@ def _build_tool_groups() -> list[rx.Component]:
 
     # Channel tools
     channel_pills: list[rx.Component] = []
+    channel_names: list[str] = []
     for ch in all_channels().values():
         if not ch.is_configured():
             continue
         for tool in ch.get_tools(ctx):
             channel_pills.append(_build_tool_pill(tool.name, tier=tool.tier))
+            channel_names.append(tool.name)
     if channel_pills:
         groups.append(
             rx.vstack(
-                rx.text("Channels", font_size="10px", color="#888"),
+                _group_header("Channels", channel_names),
                 rx.flex(*channel_pills, wrap="wrap", gap="4px"),
                 spacing="1", width="100%",
             )

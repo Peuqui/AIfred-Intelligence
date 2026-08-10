@@ -1101,6 +1101,14 @@ class AgentEditorMixin(rx.State, mixin=True):
         """Enable or disable all tools at once."""
         self.editor_tools = {name: enabled for name in self.editor_tools}
 
+    def set_editor_tool_group(self, tool_names: list[str], enabled: bool) -> None:
+        """Enable or disable all tools of one group at once (group-header toggle)."""
+        tools = dict(self.editor_tools)
+        for name in tool_names:
+            if name in tools:
+                tools[name] = enabled
+        self.editor_tools = tools
+
     def toggle_emoji_picker(self) -> None:
         """Toggle the emoji picker visibility."""
         self.editor_emoji_picker_open = not self.editor_emoji_picker_open
