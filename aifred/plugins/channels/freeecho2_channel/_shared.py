@@ -38,6 +38,15 @@ _reject_log_last: dict[str, float] = {}
 _REJECT_LOG_INTERVAL_SEC = 60.0
 
 
+def channel_language() -> str:
+    """SSOT for the household language of the FreeEcho.2 channel: STT
+    language prior, prompt language and i18n of tool messages. Configured
+    via the channel settings in the AIfred WebUI (FREEECHO2_LANGUAGE)."""
+    from ....lib.credential_broker import broker
+
+    return (broker.get("freeecho2", "language") or "").strip() or "de"
+
+
 def _required_auth_token() -> str:
     """SSOT for the A6 auth decision: the expected register token, or ""
     when authentication is off.

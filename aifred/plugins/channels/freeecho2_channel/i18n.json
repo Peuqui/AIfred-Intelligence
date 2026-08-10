@@ -18,5 +18,9 @@
   "freeecho2_cred_tts_voice": {
     "de": "Fallback-Stimme (optional, sonst aus Agenten-Config)",
     "en": "Fallback Voice (optional, otherwise from Agent Config)"
+  },
+  "freeecho2_cred_language": {
+    "de": "Haushaltssprache (STT + Ansagen)",
+    "en": "Household language (STT + announcements)"
   }
 }

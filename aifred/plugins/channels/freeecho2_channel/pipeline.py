@@ -285,11 +285,16 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 Path(wav_path).unlink(missing_ok=True)
 
     async def _run_stt(self, wav_path: str) -> str:
-        """Run Speech-to-Text via Whisper Docker service."""
-        from ....lib.audio_processing import transcribe_audio
+        """Run Speech-to-Text via Whisper Docker service.
+
+        Device routing (GPU-first, CPU fallback) is the shared SSOT in
+        transcribe_audio_auto — wake-word clips are tiny, so the big-file
+        re-raise cannot practically trigger here."""
+        from ....lib.audio_processing import transcribe_audio_auto
+        from ._shared import channel_language
 
         loop = asyncio.get_event_loop()
-        text, stt_time = await loop.run_in_executor(
-            None, transcribe_audio, wav_path, "de", "cpu", False,
+        text, stt_time, _device = await loop.run_in_executor(
+            None, transcribe_audio_auto, wav_path, channel_language(), False,
         )
         return text or ""

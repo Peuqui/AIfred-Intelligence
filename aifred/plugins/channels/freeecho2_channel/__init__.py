@@ -129,6 +129,14 @@ class FreeEchoChannel(ConnectionMixin):
                 # engines (Qwen3-TTS local etc.) show up here automatically.
                 options=_channel_tts_options(),
             ),
+            CredentialField(
+                env_key="FREEECHO2_LANGUAGE",
+                label_key="freeecho2_cred_language",
+                placeholder="de",
+                # Household language: STT language prior, prompt language
+                # and i18n of tool replies (see channel_language()).
+                options=[("de", "Deutsch"), ("en", "English")],
+            ),
         ]
 
     def is_configured(self) -> bool:
@@ -168,6 +176,11 @@ class FreeEchoChannel(ConnectionMixin):
         tts_voice = values.get("FREEECHO2_TTS_VOICE", "de_DE-thorsten-high")
         if tts_voice:
             broker.set_runtime("freeecho2", "tts_voice", tts_voice)
+
+        broker.set_runtime(
+            "freeecho2", "language",
+            values.get("FREEECHO2_LANGUAGE", "de") or "de",
+        )
 
     # ── Tools ─────────────────────────────────────────────────
 
@@ -264,8 +277,10 @@ class FreeEchoChannel(ConnectionMixin):
         the raw history entry).
         """
         from ....lib.prompt_loader import load_prompt
+        from ._shared import channel_language
         return load_prompt(
             "shared/channel_freeecho2",
+            lang=channel_language(),
             room=message.metadata.get("room", "unknown"),
             text=message.text,
         )

@@ -431,8 +431,9 @@ class CommandsMixin(BaseChannel):
         # Synthetischer PluginContext für den Channel — kein State,
         # weil das nicht aus einem Reflex-Tab kommt.
         from ....lib.plugin_base import PluginContext
+        from ._shared import channel_language
         ctx = PluginContext(
-            agent_id="aifred", lang="de",
+            agent_id="aifred", lang=channel_language(),
             session_id="", source="freeecho2",
             metadata={"room": room},
         )
