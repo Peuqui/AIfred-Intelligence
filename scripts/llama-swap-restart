@@ -9,6 +9,35 @@
 # Repo-Heimat: ``scripts/llama-swap-restart`` im AIfred-Repo.
 # Installiert per Symlink von ``~/bin/llama-swap-restart`` hierher.
 
+# ── Pro-Zeile-Zeitstempel (fork-frei via EPOCHREALTIME) ────────────────
+# Beim ersten Aufruf ruft sich das Script selbst auf und leitet stdout+stderr
+# durch einen bash-Reader, der jede Zeile mit "Zeit seit Start" praefixt — so
+# bekommt JEDE Ausgabe (auch aus Subprozessen wie build-config/journalctl)
+# einen Zeitstempel, ohne pro Zeile ein `date` zu forken. EPOCHREALTIME nutzt
+# je nach Locale Punkt ODER Komma als Dezimaltrenner — beide werden entfernt,
+# damit ein sauberer Mikrosekunden-Integer uebrig bleibt.
+if [ -z "${_TS_WRAPPED:-}" ]; then
+    export _TS_WRAPPED=1
+    _ts_start=${EPOCHREALTIME//[.,]/}
+    exec bash "$0" "$@" 2>&1 | while IFS= read -r _ts_line; do
+        _ts_now=${EPOCHREALTIME//[.,]/}
+        _ts_d=$(( _ts_now - _ts_start ))
+        printf '%3d.%03ds │ %s\n' "$(( _ts_d / 1000000 ))" "$(( (_ts_d / 1000) % 1000 ))" "$_ts_line"
+    done
+    exit "${PIPESTATUS[0]}"
+fi
+
+# ── Millisekunden-Timing pro Phase ─────────────────────────────────────
+# Zeigt die Dauer jeder Phase (Delta) plus kumulativ (Σ ab Start), um
+# langsame Schritte sichtbar zu machen. Reine Diagnose — keine Logik.
+_t0=$(date +%s%3N)
+_tlast=$_t0
+tick() {
+    local now; now=$(date +%s%3N)
+    printf '   ⏱  %-38s +%6dms   (Σ %dms)\n' "$1" "$((now - _tlast))" "$((now - _t0))"
+    _tlast=$now
+}
+
 echo "🔄 Stopping llama-swap..."
 stop_output=$(systemctl stop llama-swap 2>&1)
 stop_exit=$?
@@ -56,6 +85,7 @@ if [ "$remaining" -gt 0 ]; then
 fi
 
 echo "   ✓ Stopped"
+tick "Stop + llama-server-Kill"
 
 # Warte bis llama-server VRAM tatsaechlich freigegeben ist (max 10s).
 # Nach pkill ist der Prozess weg, aber der GPU-Treiber kann 1-2s brauchen,
@@ -76,6 +106,7 @@ if echo "$gpu_apps" | grep -q "llama-server"; then
     echo "$gpu_apps" | grep "llama-server"
     echo "   Versuche trotzdem zu starten..."
 fi
+tick "VRAM-Freigabe abwarten + nvidia-smi"
 
 # ── Lookup-Cache Orphan-Cleanup ────────────────────────────────────────
 # Wenn Modelle aus der config entfernt wurden, bleiben deren persistente
@@ -99,6 +130,7 @@ if [ -f "$config_yaml" ]; then
     done
     [ "$orphans_removed" -eq 0 ] && echo "🧹 Lookup-Cache: keine Orphans gefunden"
 fi
+tick "Lookup-Cache-Cleanup"
 
 # ── Speculative-Decoding-Flags pro Modell anpassen ─────────────────────
 # Scannt die in config.yaml referenzierten GGUFs auf MTP-Tensoren
@@ -115,6 +147,7 @@ if [ -x "$build_config" ] && [ -x "$build_python" ]; then
 else
     echo "⚠️ llama-swap-build-config nicht ausfuehrbar — ueberspringe Spec-Check."
 fi
+tick "Spec-Flag-Pass #1 (build-config-Import)"
 
 echo "🚀 Starting llama-swap..."
 start_time=$(date '+%Y-%m-%d %H:%M:%S')
@@ -124,6 +157,7 @@ if [ $? -ne 0 ]; then
     echo "❌ Start fehlgeschlagen!"
     exit 1
 fi
+tick "systemctl start (inkl. ExecStartPre-Autoscan)"
 
 # Warte bis Startup komplett ("listening" im Log), max 60s
 timeout=60
@@ -138,6 +172,7 @@ while ! journalctl -u llama-swap --since "$start_time" -o cat --no-pager 2>/dev/
         exit 1
     fi
 done
+tick "Warten auf 'listening'"
 
 # Startup-Ausgabe anzeigen
 echo ""
@@ -159,5 +194,6 @@ if [ -x "$build_config" ] && [ -x "$build_python" ]; then
         echo "$out" | grep -E "🚀 MTP|📋 ngram|aktualisiert" | sed 's/^/   /'
     fi
 fi
+tick "Spec-Flag-Pass #2 (build-config-Import)"
 
 echo "✅ llama-swap bereit!"
