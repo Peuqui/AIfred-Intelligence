@@ -29,6 +29,14 @@ if tavily_key:
 if not brave_key and not tavily_key:
     print("⚠️ No API keys found - only SearXNG will be used")
 
-from .aifred import app  # noqa: E402
-
-__all__ = ["app"]
+# CLI helper tools set AIFRED_CLI_MODE=1 (e.g. llama-swap-build-config, which
+# only needs the lightweight aifred.lib.tts_engines registry). Importing the
+# app drags in the entire Reflex UI incl. tool_pills' import-time plugin
+# discovery (~60s) — pointless for a config helper. Only the real app process
+# needs `app`; reflex loads aifred.aifred directly via app_name, so guarding
+# this export breaks nothing.
+if not os.environ.get("AIFRED_CLI_MODE"):
+    from .aifred import app  # noqa: E402
+    __all__ = ["app"]
+else:
+    __all__ = []
