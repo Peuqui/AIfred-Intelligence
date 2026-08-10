@@ -1302,6 +1302,37 @@ def get_audio_duration(audio_path: str) -> float:
     return 0.0
 
 
+def transcribe_audio_auto(
+    audio_path: str, language: str = "de", log_result: bool = True,
+) -> tuple[str, float, str]:
+    """GPU-first transcription — SSOT for the device routing policy.
+
+    Tries the GPU engine first (the whisper-stt service checks free VRAM
+    itself and answers 503 when nothing fits). Files up to
+    WHISPER_GPU_MIN_FILE_MB then retry on the permanent CPU model; bigger
+    files re-raise WhisperGPUUnavailable so the caller decides what to do
+    (unload the LLM, abort, ...) — CPU is no option at that size.
+
+    Returns:
+        tuple: (transcribed_text, time_in_seconds, device_used)
+    """
+    from .config import WHISPER_GPU_MIN_FILE_MB
+
+    try:
+        text, stt_time = transcribe_audio(
+            audio_path, language=language, device="cuda", log_result=log_result,
+        )
+        return text, stt_time, "cuda"
+    except WhisperGPUUnavailable:
+        if os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB:
+            raise
+        log_message("⚠️ No GPU with free VRAM — falling back to CPU engine (slower)", "warning")
+        text, stt_time = transcribe_audio(
+            audio_path, language=language, device="cpu", log_result=log_result,
+        )
+        return text, stt_time, "cpu"
+
+
 def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu", log_result: bool = True) -> tuple[str, float]:
     """Transcribe audio to text via Whisper Docker service.
 

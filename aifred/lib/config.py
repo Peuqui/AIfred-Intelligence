@@ -1133,18 +1133,18 @@ AUDIO_UPLOAD_MAX_MB = 2048
 # 10-20x realtime → 2 h audio ≈ 6-12 min.
 WHISPER_TRANSCRIBE_TIMEOUT_S = 1800
 
-# Device routing for audio uploads: files above this size go to the GPU
-# engine (whisper-stt starts a per-request GPU worker with TTL, VRAM is
-# fully released afterwards). Small mic dictations stay on the permanent
-# CPU model — fast enough there, and no VRAM churn. A 2-minute voice memo
-# is ~1-2 MB; meeting recordings are tens of MB.
+# All transcriptions go GPU-first (the whisper-stt service checks free VRAM
+# itself and answers 503 when nothing fits). This threshold only decides what
+# happens THEN: files up to this size silently retry on the permanent CPU
+# model (fast enough there); bigger files (meetings) would take >30 min on
+# CPU, so the user is asked whether to unload the LLM instead. A 2-minute
+# voice memo is ~1-2 MB; meeting recordings are tens of MB.
 WHISPER_GPU_MIN_FILE_MB = 10
 
 # Duration estimation: processing time ≈ audio duration × realtime factor.
-# Engine-specific, deliberately rough (content/VAD-dependent, accurate to
-# ~1.5-2x) — good enough for proceed/abort decisions, not for progress bars.
+# Deliberately rough (content/VAD-dependent, accurate to ~1.5-2x) — good
+# enough for proceed/abort decisions, not for progress bars.
 WHISPER_RTF_GPU = 0.07   # medium float16 ≈ 15-20x realtime
-WHISPER_RTF_CPU = 0.6    # medium int8 ≈ 1.5-2x realtime
 
 # Uploads whose estimated transcription time exceeds this ask the user for
 # confirmation before starting (estimates beyond the transcribe timeout are
@@ -1157,8 +1157,9 @@ WHISPER_CONFIRM_THRESHOLD_S = 180
 WHISPER_RELEASE_WAIT_MAX_S = 600
 
 # Transcripts longer than this are written to the workspace (data/documents/)
-# as a text file instead of flooding the input field — the agent can then
-# process them with its file tools (translate_file, read_file, …).
+# as a text file instead of flooding the input field or a chat bubble — the
+# agent can then process them with its file tools (translate_file, read_file,
+# …). Below the threshold, file uploads show the full text in a chat bubble.
 TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS = 4000
 
 # Draft-sidecar headroom for calibration projection (--model-draft profiles,

@@ -392,14 +392,26 @@ class AIState(  # type: ignore[misc]
     # ============================================================
 
     # Parked upload context while a confirm dialog is open (backend-only
-    # vars, never synced to the client). stt_confirm_result() consumes them.
+    # vars, never synced to the client). stt_confirm_result() and
+    # stt_unload_confirm_result() consume them.
     _stt_pending_path: str = ""
-    _stt_pending_device: str = ""
+    _stt_pending_source: str = ""
     _stt_pending_filename: str = ""
     _stt_pending_size: str = ""
 
     async def handle_audio_upload(self, files: List[rx.UploadFile]):
-        """Handle audio file uploads and transcribe with Whisper STT"""
+        """Audio file upload (disc button) — transcript goes to a chat bubble."""
+        async for event in self._handle_audio(files, source="file"):
+            yield event
+
+    async def handle_audio_recording(self, files: List[rx.UploadFile]):
+        """Mic recording (MediaRecorder) — transcript goes to the input
+        field (edit toggle on) or straight to the AI (toggle off)."""
+        async for event in self._handle_audio(files, source="mic"):
+            yield event
+
+    async def _handle_audio(self, files: List[rx.UploadFile], source: str):
+        """Shared validation + device routing for both audio sources."""
         # Check Whisper Docker service is ready
         if not is_whisper_ready():
             self.add_debug("🎤 Starting Whisper service...")
@@ -450,22 +462,18 @@ class AIState(  # type: ignore[misc]
             tmp_file.write(content)
             tmp_path = tmp_file.name
 
-        # Device routing + duration estimate — BEFORE the transcription
-        # try/finally, because a confirmation pause must not delete tmp_path.
+        # Duration estimate — BEFORE the transcription try/finally, because
+        # a confirmation pause must not delete tmp_path. Device is always
+        # GPU-first (the Whisper service checks VRAM itself and answers 503
+        # if nothing fits); _run_transcription handles the fallback.
         from ..lib.audio_processing import get_audio_duration
         from ..lib.config import (
             WHISPER_CONFIRM_THRESHOLD_S,
-            WHISPER_GPU_MIN_FILE_MB,
-            WHISPER_RTF_CPU,
             WHISPER_RTF_GPU,
             WHISPER_TRANSCRIBE_TIMEOUT_S,
         )
         from ..lib.formatting import format_number
         from ..lib.i18n import t as _t
-
-        # Big files (meetings) go to the GPU engine, small mic dictations
-        # stay on the permanent CPU model.
-        stt_device = "cuda" if file_size_mb > WHISPER_GPU_MIN_FILE_MB else "cpu"
 
         # Show KB for small files, MB for larger files (German number format)
         if file_size_mb < 1:
@@ -474,13 +482,12 @@ class AIState(  # type: ignore[misc]
             size_display = f"{format_number(file_size_mb, 1)} MB"
 
         duration_s = get_audio_duration(tmp_path)
-        rtf = WHISPER_RTF_GPU if stt_device == "cuda" else WHISPER_RTF_CPU
-        estimate_s = duration_s * rtf
+        estimate_s = duration_s * WHISPER_RTF_GPU
         if duration_s:
             self.add_debug(
                 f"🎤 Audio duration {format_number(duration_s / 60, 1)} min — "
                 f"estimated transcription ~{format_number(max(estimate_s, 6) / 60, 1)} min "
-                f"({'GPU' if stt_device == 'cuda' else 'CPU'} engine)"
+                f"(GPU engine)"
             )
 
         if estimate_s > WHISPER_TRANSCRIBE_TIMEOUT_S:
@@ -506,14 +513,14 @@ class AIState(  # type: ignore[misc]
             # backend vars; stt_confirm_result() resumes or cleans up.
             import json as _json
             self._stt_pending_path = tmp_path
-            self._stt_pending_device = stt_device
+            self._stt_pending_source = source
             self._stt_pending_filename = file.filename or "audio"
             self._stt_pending_size = size_display
             question = _t(
                 "stt_confirm_long", lang=self.ui_language,
                 filename=file.filename or "audio",
                 minutes=round(estimate_s / 60),
-                engine="GPU" if stt_device == "cuda" else "CPU",
+                engine="GPU",
             )
             yield rx.call_script(
                 f"window.confirm({_json.dumps(question)})",
@@ -522,20 +529,25 @@ class AIState(  # type: ignore[misc]
             return
 
         async for event in self._run_transcription(
-            tmp_path, file.filename or "audio", stt_device, size_display
+            tmp_path, file.filename or "audio", source, size_display
         ):
             yield event
 
-    async def stt_confirm_result(self, confirmed: bool):
-        """Resume or cancel a transcription parked for user confirmation."""
-        tmp_path = self._stt_pending_path
-        stt_device = self._stt_pending_device
-        filename = self._stt_pending_filename
-        size_display = self._stt_pending_size
+    def _consume_stt_pending(self) -> tuple[str, str, str, str]:
+        """Pop the parked confirm-dialog context (path, source, filename, size)."""
+        parked = (
+            self._stt_pending_path, self._stt_pending_source,
+            self._stt_pending_filename, self._stt_pending_size,
+        )
         self._stt_pending_path = ""
-        self._stt_pending_device = ""
+        self._stt_pending_source = ""
         self._stt_pending_filename = ""
         self._stt_pending_size = ""
+        return parked
+
+    async def stt_confirm_result(self, confirmed: bool):
+        """Resume or cancel a transcription parked for user confirmation."""
+        tmp_path, source, filename, size_display = self._consume_stt_pending()
 
         if not tmp_path:
             return
@@ -552,25 +564,84 @@ class AIState(  # type: ignore[misc]
             )
             return
 
-        async for event in self._run_transcription(tmp_path, filename, stt_device, size_display):
+        async for event in self._run_transcription(tmp_path, filename, source, size_display):
             yield event
 
+    async def stt_unload_confirm_result(self, confirmed: bool):
+        """Resume a big-file transcription parked on the 'unload LLM?'
+        question: unload the chat backend, then retry the GPU engine once."""
+        tmp_path, source, filename, size_display = self._consume_stt_pending()
+
+        if not tmp_path:
+            return
+        if not confirmed:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            from ..lib.i18n import t as _t
+            self.add_debug("🎤 Transcription cancelled by user (GPU busy, no LLM unload)")
+            yield rx.toast.info(
+                _t("stt_cancelled", lang=self.ui_language),
+                duration=5000, position="top-center",
+            )
+            return
+
+        self.add_debug(f"🎤 Unloading LLM backend ({self.backend_type}) for GPU transcription...")
+        yield
+        await self._unload_llm_for_stt()
+
+        async for event in self._run_transcription(
+            tmp_path, filename, source, size_display, allow_unload_prompt=False
+        ):
+            yield event
+
+    async def _unload_llm_for_stt(self) -> None:
+        """Unload the active chat backend's models so the Whisper GPU worker
+        fits. The LLM reloads automatically on the next chat request."""
+        from ..backends.ollama import wait_for_vram_stable
+
+        if self.backend_type == "llamacpp":
+            # llama-swap: POST /unload stops all running llama-server instances
+            import requests
+            from ..lib.config import BACKEND_URLS
+            base = BACKEND_URLS["llamacpp"].removesuffix("/v1")
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, lambda: requests.post(f"{base}/unload", timeout=30),
+            )
+            stabilized, wait_s, free_mb = await wait_for_vram_stable()
+            self.add_debug(
+                f"🎤 llama-swap unloaded — {free_mb} MiB VRAM free "
+                f"after {wait_s:.1f}s{'' if stabilized else ' (still settling)'}"
+            )
+        elif self.backend_type == "ollama":
+            from ..backends import BackendFactory
+            backend = BackendFactory.create("ollama")
+            try:
+                success, unloaded = await backend.unload_all_models(wait_for_stability=True)
+                self.add_debug(f"🎤 Ollama unloaded: {', '.join(unloaded) if unloaded else 'nothing loaded'}")
+            finally:
+                await backend.client.aclose()
+
     async def _run_transcription(
-        self, tmp_path: str, filename: str, stt_device: str, size_display: str
+        self, tmp_path: str, filename: str, source: str, size_display: str,
+        allow_unload_prompt: bool = True,
     ):
-        """Whisper call + result handling; deletes tmp_path when done."""
+        """Whisper call + result handling; deletes tmp_path when done
+        (unless the context gets parked for an unload-confirm dialog)."""
+        parked = False
         try:
-            from ..lib.audio_processing import transcribe_audio
+            from ..lib.audio_processing import transcribe_audio_auto
             from ..lib.formatting import format_number
 
             self.add_debug(
-                f"🎤 Transcribing audio: {filename} ({size_display}, "
-                f"{'GPU' if stt_device == 'cuda' else 'CPU'} engine)..."
+                f"🎤 Transcribing audio: {filename} ({size_display}, GPU engine)..."
             )
-            # Big files (meeting uploads) get a persistent chat bubble so the
-            # upload is visible in the history — mic dictations stay quiet
-            # (their text lands in the chat anyway).
-            if stt_device == "cuda":
+            # File uploads get a persistent chat bubble so the upload is
+            # visible in the history — mic dictations stay quiet (their text
+            # lands in the chat anyway).
+            if source == "file":
                 from ..lib.i18n import t as _t
                 self.add_agent_panel(  # type: ignore[attr-defined]
                     agent="aifred",
@@ -584,29 +655,57 @@ class AIState(  # type: ignore[misc]
 
             # Whisper call is a blocking HTTP request that can run for minutes
             # on long recordings — keep it off the event loop.
-            # Language: big files (meetings) use auto-detect so the transcript
-            # keeps its ORIGINAL language — forcing the UI language makes
-            # Whisper translate on the fly, which is worse than a proper
+            # Language: file uploads (meetings) use auto-detect so the
+            # transcript keeps its ORIGINAL language — forcing the UI language
+            # makes Whisper translate on the fly, which is worse than a proper
             # second-step translation (translate_file → DeepL). Mic dictations
             # keep the UI language (fast, and the assumption is correct).
             from ..lib.audio_processing import WhisperGPUUnavailable
-            stt_language = "auto" if stt_device == "cuda" else self.ui_language
+            stt_language = "auto" if source == "file" else self.ui_language
             loop = asyncio.get_running_loop()
             try:
                 try:
-                    user_text, stt_time = await loop.run_in_executor(
+                    # GPU-first + small-file CPU fallback live in the helper
+                    # (SSOT with the FreeEcho.2 channel); only the big-file
+                    # case (WhisperGPUUnavailable) surfaces here.
+                    user_text, stt_time, stt_device = await loop.run_in_executor(
                         None,
-                        lambda: transcribe_audio(tmp_path, language=stt_language, device=stt_device),
+                        lambda: transcribe_audio_auto(tmp_path, language=stt_language),
                     )
+                    if stt_device == "cpu":
+                        self.add_debug("⚠️ No GPU with free VRAM — transcribed on CPU engine (slower)")
                 except WhisperGPUUnavailable:
-                    # All GPUs occupied (e.g. big LLM loaded) — visible CPU
-                    # retry, explicitly wanted: slower, but never blocks on VRAM.
-                    self.add_debug("⚠️ No GPU with free VRAM — falling back to CPU engine (slower)")
-                    yield
-                    user_text, stt_time = await loop.run_in_executor(
-                        None,
-                        lambda: transcribe_audio(tmp_path, language=stt_language, device="cpu"),
-                    )
+                    # Big file, all GPUs occupied (e.g. big LLM loaded) —
+                    # CPU would take >30 min, offer to unload the LLM instead.
+                    from ..lib.i18n import t as _t
+                    if allow_unload_prompt and self.backend_type in ("llamacpp", "ollama"):
+                        # Park context and ask: unload the LLM to free VRAM?
+                        # stt_unload_confirm_result() resumes or cleans up.
+                        import json as _json
+                        self._stt_pending_path = tmp_path
+                        self._stt_pending_source = source
+                        self._stt_pending_filename = filename
+                        self._stt_pending_size = size_display
+                        parked = True
+                        question = _t(
+                            "stt_gpu_busy_unload_confirm", lang=self.ui_language,
+                            filename=filename, size=size_display,
+                        )
+                        self.add_debug("⚠️ No GPU with free VRAM — asking to unload the LLM")
+                        yield rx.call_script(
+                            f"window.confirm({_json.dumps(question)})",
+                            callback=AIState.stt_unload_confirm_result,
+                        )
+                        return
+                    else:
+                        # Non-unloadable backend (vLLM/cloud) or the retry
+                        # after an unload — CPU is no option at this size.
+                        self.add_debug("⚠️ No GPU with free VRAM — transcription aborted (file too big for CPU)")
+                        yield rx.toast.error(
+                            _t("stt_gpu_busy_aborted", lang=self.ui_language),
+                            duration=10000, position="top-center",
+                        )
+                        return
             except TimeoutError as e:
                 self.add_debug(f"⚠️ {e}")
                 yield rx.toast.error(f"⚠️ {e}", duration=10000, position="top-center")
@@ -668,6 +767,26 @@ class AIState(  # type: ignore[misc]
                     console_separator()  # Log-File
                     return
 
+                # File uploads (audio button): transcript always lands in a
+                # persistent chat bubble — synced to llm_history so the agent
+                # can work with it. Never the input field, never auto-send.
+                if source == "file":
+                    from ..lib.i18n import t as _t
+                    self.add_agent_panel(  # type: ignore[attr-defined]
+                        agent="aifred",
+                        content=_t("stt_bubble_transcript", lang=self.ui_language,
+                                   filename=filename, size=size_display,
+                                   text=user_text),
+                        mode="standard",
+                        sync_llm_history=True,
+                        generate_tts=False,
+                    )
+                    self.add_debug("💬 Transcript added to chat bubble")
+                    self.add_debug(CONSOLE_SEPARATOR)
+                    console_separator()  # Log-File
+                    return
+
+                # Mic dictation (user request) from here on.
                 # Auto-enable edit mode if transcription contains structured data
                 # (email addresses, URLs) that STT likely got wrong
                 force_edit = _transcription_needs_review(user_text)
@@ -718,11 +837,13 @@ class AIState(  # type: ignore[misc]
             log_message(f"❌ Audio transcription error: {e}")
             yield rx.toast.error(f"❌ Transkription fehlgeschlagen: {e}", duration=8000, position="top-center")
         finally:
-            # Clean up temporary file
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            # Clean up temporary file — unless the context was parked for the
+            # unload-confirm dialog (stt_unload_confirm_result cleans up then).
+            if not parked:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
     def toggle_yarn(self):
         """Toggle YaRN context extension"""
