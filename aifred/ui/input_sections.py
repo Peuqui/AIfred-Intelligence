@@ -327,7 +327,7 @@ def image_upload_section() -> rx.Component:
                 id="audio-recording-upload",
                 accept={"audio/*": [".webm"]},
                 max_files=1,
-                on_drop=AIState.handle_audio_upload,
+                on_drop=AIState.handle_audio_recording,
                 multiple=False,
                 border="none",
                 padding="0",
