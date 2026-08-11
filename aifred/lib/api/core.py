@@ -8,7 +8,7 @@ from ..agent_settings import get_persisted_tuning as _tuning
 from ..settings import load_settings, save_settings, get_default_settings
 from ..formatting import format_number
 from ..logging_utils import log_message
-from ..config import DEFAULT_OLLAMA_URL
+from ..config import DEFAULT_OLLAMA_URL, DEFAULT_TEMPERATURE
 from .app import api_app, API_VERSION, get_global_backend_state
 
 
@@ -45,7 +45,7 @@ class SettingsResponse(BaseModel):
     vision_rope_factor: float = 1.0
 
     # LLM Parameters
-    temperature: float = 0.3
+    temperature: float = DEFAULT_TEMPERATURE  # AIfred's temperature (agent_tuning.aifred)
     temperature_mode: str = "auto"
     enable_thinking: bool = True
 
@@ -179,7 +179,7 @@ async def get_settings():
         salomo_rope_factor=_tuning(settings, "salomo", "rope_factor", 1.0),
         automatik_rope_factor=settings.get("automatik_rope_factor", 1.0),
         vision_rope_factor=_tuning(settings, "vision", "rope_factor", 1.0),
-        temperature=settings.get("temperature", 0.3),
+        temperature=_tuning(settings, "aifred", "temperature", DEFAULT_TEMPERATURE),
         temperature_mode=settings.get("temperature_mode", "auto"),
         enable_thinking=settings.get("enable_thinking", True),
         research_mode=settings.get("research_mode", "automatik"),
@@ -230,6 +230,8 @@ async def update_settings(update: SettingsUpdate):
         "sokrates_rope_factor": ("sokrates", "rope_factor"),
         "salomo_rope_factor": ("salomo", "rope_factor"),
         "vision_rope_factor": ("vision", "rope_factor"),
+        # AIfred's temperature lives per-bucket like every other agent's
+        "temperature": ("aifred", "temperature"),
     }
     # Map API field names to settings.json field names (non-model fields)
     field_mapping = {

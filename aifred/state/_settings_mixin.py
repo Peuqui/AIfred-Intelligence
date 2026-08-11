@@ -149,16 +149,13 @@ class SettingsMixin(rx.State, mixin=True):
         }
 
         # Per-agent tuning — one dict per agent bucket. Field list is SSOT in
-        # agent_settings (PERSISTED_TUNING_FIELDS). Asymmetries: aifred's
-        # temperature is the global "temperature" key (not per-bucket);
+        # agent_settings (PERSISTED_TUNING_FIELDS). Asymmetry:
         # num_ctx_manual(+_enabled) persists only for vision (chat agents
         # reset on restart — deliberate, see llm_params UI hint).
         from ..lib.agent_settings import PERSISTED_TUNING_FIELDS
         agent_tuning_out: Dict[str, Dict[str, Any]] = {}
         for agent, tuning in self.agent_tuning.items():  # type: ignore[attr-defined]
             entry = {field: getattr(tuning, field) for field in PERSISTED_TUNING_FIELDS}
-            if agent == "aifred":
-                del entry["temperature"]
             if agent == "vision":
                 entry["num_ctx_manual"] = tuning.num_ctx_manual
                 entry["num_ctx_manual_enabled"] = tuning.num_ctx_manual_enabled
@@ -196,7 +193,6 @@ class SettingsMixin(rx.State, mixin=True):
             return
 
         # Core settings
-        self.temperature = settings.get("temperature", self.temperature)  # type: ignore[attr-defined, has-type]
         self.temperature_mode = settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
 
         # NOTE: research_mode, multi_agent_mode, active_agent, symposion_agents
@@ -220,18 +216,16 @@ class SettingsMixin(rx.State, mixin=True):
 
         # Sampling params + personality (per-agent). Deliberately only this
         # subset of PERSISTED_TUNING_FIELDS — reload serves API-driven
-        # changes; thinking/reasoning/speed/temperature stay untouched here
+        # changes; thinking/reasoning/speed stay untouched here
         # (same behavior as before the loop-ification).
         from ..lib.prompt_loader import set_personality_enabled
         saved_tuning = settings.get("agent_tuning", {})
         for agent, entry in saved_tuning.items():
             if agent not in self.agent_tuning:  # type: ignore[attr-defined]
                 continue
-            for field in ("top_k", "top_p", "min_p", "repeat_penalty", "rope_factor"):
+            for field in ("temperature", "top_k", "top_p", "min_p", "repeat_penalty", "rope_factor"):
                 if field in entry:
                     set_agent_setting(self, agent, field, entry[field])
-            if agent == "vision" and "temperature" in entry:
-                set_agent_setting(self, "vision", "temperature", entry["temperature"])
 
             # Personality toggles (+ prompt_loader sync)
             if "personality" in entry:
@@ -365,7 +359,6 @@ class SettingsMixin(rx.State, mixin=True):
                     self.research_mode, self.ui_language  # type: ignore[attr-defined, has-type]
                 )
 
-                self.temperature = saved_settings["temperature"]  # type: ignore[attr-defined, has-type]
                 self.temperature_mode = saved_settings["temperature_mode"]  # type: ignore[attr-defined, has-type]
                 self.enable_tts = saved_settings["enable_tts"]  # type: ignore[attr-defined, has-type]
                 self.enable_yarn = saved_settings["enable_yarn"]  # type: ignore[attr-defined, has-type]

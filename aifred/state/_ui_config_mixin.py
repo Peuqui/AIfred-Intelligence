@@ -13,7 +13,7 @@ class UIConfigMixin(rx.State, mixin=True):
     """Mixin for UI configuration, research mode, and STT."""
 
     # ── Temperature ───────────────────────────────────────────────
-    temperature: float = 0.3  # Default: low temperature for factual responses
+    # Per-agent temperature lives in agent_tuning (SSOT) — no global var.
     temperature_mode: str = "auto"  # "auto" (Intent-Detection) | "manual" (user slider)
 
     # ── Context Window Control ────────────────────────────────────

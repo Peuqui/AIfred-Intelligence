@@ -508,7 +508,6 @@ class BackendMixin(rx.State, mixin=True):
                     from ..lib import TranslationManager
                     self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, self.ui_language)  # type: ignore[attr-defined, has-type, arg-type]
 
-                    self.temperature = saved_settings.get("temperature", self.temperature)  # type: ignore[attr-defined, has-type]
                     self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
                     # Load UI language and update global locale + prompt language
                     saved_ui_lang = saved_settings.get("ui_language", self.ui_language)  # type: ignore[attr-defined, has-type]
@@ -536,7 +535,7 @@ class BackendMixin(rx.State, mixin=True):
                             bucket = default_tuning(agent)
                             self.agent_tuning[agent] = bucket
                         for field in (*PERSISTED_TUNING_FIELDS, "num_ctx_manual", "num_ctx_manual_enabled"):
-                            if field in entry and not (agent == "aifred" and field == "temperature"):
+                            if field in entry:
                                 setattr(bucket, field, entry[field])
 
                     # Sync personality/reasoning toggles to prompt_loader

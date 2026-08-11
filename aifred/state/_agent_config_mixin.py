@@ -795,6 +795,7 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def reset_agent_sampling_for(self, agent: str) -> None:
         self._reset_agent_sampling(agent)
+        self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_agent_personality_for(self, agent: str, _value: bool | None = None) -> None:
         self._toggle_agent_feature(agent, "personality")
@@ -829,7 +830,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         return rows
 
     @rx.var(
-        deps=["agent_tuning", "temperature", "temperature_mode", "_agent_dropdown_items"],
+        deps=["agent_tuning", "temperature_mode", "_agent_dropdown_items"],
         auto_deps=False,
     )
     def sampling_rows(self) -> list[SamplingRow]:

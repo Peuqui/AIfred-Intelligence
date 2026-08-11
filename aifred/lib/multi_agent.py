@@ -46,17 +46,17 @@ if TYPE_CHECKING:
 def resolve_agent_temperature(state: 'AIState', agent: str) -> float:
     """SSOT for the effective temperature of an agent inference.
 
-    Manual mode: every agent uses its own configured temperature (the
-    ``aifred`` bucket maps to the global ``state.temperature`` via
-    get_agent_setting). Auto mode: intent-driven global temperature, with
+    Manual mode: every agent uses its own configured temperature from its
+    ``agent_tuning`` bucket. Auto mode: AIfred's temperature as base, with
     Sokrates/Salomo adding their offset on top.
     """
     from .agent_settings import get_agent_setting
     if state.temperature_mode == "manual":  # type: ignore[has-type]
         return float(get_agent_setting(state, agent, "temperature"))
+    aifred_temp = float(get_agent_setting(state, "aifred", "temperature"))
     if agent in ("sokrates", "salomo"):
-        return min(1.0, float(state.temperature) + float(get_agent_setting(state, agent, "temperature_offset")))  # type: ignore[has-type]
-    return float(state.temperature)  # type: ignore[has-type]
+        return min(1.0, aifred_temp + float(get_agent_setting(state, agent, "temperature_offset")))
+    return aifred_temp
 
 
 def _estimate_prompt_tokens(prompt: str) -> int:
@@ -576,12 +576,11 @@ def _setup_debate_contexts(
     )
 
     # Temperatures
+    alfred_temp = state.agent_tuning["aifred"].temperature
     if state.temperature_mode == "manual":  # type: ignore[has-type]
-        alfred_temp = state.temperature  # type: ignore[has-type]
         sokrates_temp = state.agent_tuning["sokrates"].temperature
         salomo_temp = state.agent_tuning["salomo"].temperature
     else:
-        alfred_temp = state.temperature  # type: ignore[has-type]
         sokrates_temp = min(1.0, alfred_temp + state.agent_tuning["sokrates"].temperature_offset)
         salomo_temp = min(1.0, alfred_temp + state.agent_tuning["salomo"].temperature_offset)
 

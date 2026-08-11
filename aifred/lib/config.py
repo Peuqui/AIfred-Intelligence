@@ -93,7 +93,7 @@ DEFAULT_SETTINGS = {
     "research_mode": "automatik",  # Internal value: "automatik", "quick", "deep", "none"
     "show_transcription": False,
     "enable_gpu": True,
-    "temperature": 0.7,
+    # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
     "temperature_mode": "auto",  # "auto" (Intent-Detection) or "manual" (user slider)
     "enable_thinking": False  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
 }
@@ -607,6 +607,7 @@ SALOMO_TEMPERATURE_OFFSET = 0.3   # Salomo = AIfred + 0.3 (wisest, most creative
 # ============================================================
 # DEFAULT SAMPLING PARAMETERS (Per-Agent Configurable)
 # ============================================================
+DEFAULT_TEMPERATURE = 0.5   # Pre-model default; model selection resets from llama-swap YAML
 DEFAULT_TOP_K = 40          # Top-K sampling (0 = disabled)
 DEFAULT_TOP_P = 0.9         # Top-P (nucleus) sampling
 DEFAULT_MIN_P = 0.05        # Min-P sampling (0 = disabled)

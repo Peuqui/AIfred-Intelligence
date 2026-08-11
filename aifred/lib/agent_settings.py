@@ -3,8 +3,7 @@
 Phase 2 of the agent-settings refactor: per-agent tuning lives in
 ``state.agent_tuning: dict[str, AgentTuning]`` (see ``agent_tuning.py``).
 Every code path that reads or writes per-agent tuning goes through these
-helpers; they own the remaining asymmetry (AIfred's temperature is the
-global ``state.temperature``), so call-sites never special-case agents.
+helpers, so call-sites never special-case agents.
 """
 
 from __future__ import annotations
@@ -27,9 +26,9 @@ __all__ = [
 _MISSING = object()
 
 # Tuning fields persisted per agent under settings.json["agent_tuning"].
-# Asymmetries handled in _save_settings/_load: aifred's temperature is the
-# global "temperature" key; num_ctx_manual(+_enabled) persists only for
-# vision (chat agents reset on restart — deliberate, see llm_params UI hint).
+# Asymmetry handled in _save_settings/_load: num_ctx_manual(+_enabled)
+# persists only for vision (chat agents reset on restart — deliberate,
+# see llm_params UI hint).
 PERSISTED_TUNING_FIELDS = (
     "personality",
     "reasoning",
@@ -80,8 +79,6 @@ def get_agent_setting(state: Any, agent: str, field: str, default: Any = _MISSIN
     AttributeError — loud, no silent fallback.
     """
     agent = settings_agent(agent)
-    if agent == "aifred" and field == "temperature":
-        return getattr(state, "temperature")
     tuning = state.agent_tuning.get(agent)
     if tuning is None:
         tuning = default_tuning(agent)
@@ -93,9 +90,6 @@ def get_agent_setting(state: Any, agent: str, field: str, default: Any = _MISSIN
 def set_agent_setting(state: Any, agent: str, field: str, value: Any) -> None:
     """Write a per-agent tuning value to state."""
     agent = settings_agent(agent)
-    if agent == "aifred" and field == "temperature":
-        setattr(state, "temperature", value)
-        return
     setattr(_tuning_bucket(state, agent), field, value)
 
 
@@ -129,13 +123,10 @@ def get_agent_base_model_id(state: Any, agent: str) -> str:
 def get_persisted_tuning(settings: dict, agent: str, field: str, default: Any) -> Any:
     """Read a per-agent tuning value from a loaded settings.json dict.
 
-    For code paths without a State instance (Message Hub workers). Applies
-    the same aifred-temperature asymmetry as :func:`get_agent_setting`.
+    For code paths without a State instance (Message Hub workers).
     """
     try:
         agent = settings_agent(agent)
     except ValueError:
         return default
-    if agent == "aifred" and field == "temperature":
-        return settings.get("temperature", default)
     return settings.get("agent_tuning", {}).get(agent, {}).get(field, default)
