@@ -73,20 +73,20 @@ def test_secondary_agents_have_temperature_offsets():
 
 
 def test_get_agent_setting_reads_bucket():
-    state = _FakeState(temperature=0.7)
+    state = _FakeState()
     state.agent_tuning["sokrates"].top_k = 42
     assert get_agent_setting(state, "sokrates", "top_k") == 42
 
 
-def test_aifred_temperature_is_global():
-    state = _FakeState(temperature=0.7)
-    assert get_agent_setting(state, "aifred", "temperature") == 0.7
+def test_aifred_temperature_lives_in_bucket():
+    state = _FakeState()
     set_agent_setting(state, "aifred", "temperature", 0.9)
-    assert state.temperature == 0.9
+    assert state.agent_tuning["aifred"].temperature == 0.9
+    assert get_agent_setting(state, "aifred", "temperature") == 0.9
     # other agents keep their own bucket temperature
     set_agent_setting(state, "salomo", "temperature", 0.3)
     assert state.agent_tuning["salomo"].temperature == 0.3
-    assert state.temperature == 0.9
+    assert state.agent_tuning["aifred"].temperature == 0.9
 
 
 def test_get_agent_setting_unknown_field_raises_without_default():
@@ -101,14 +101,14 @@ def test_get_agent_setting_default():
 
 
 def test_set_agent_setting_writes_bucket():
-    state = _FakeState(temperature=0.5)
+    state = _FakeState()
     set_agent_setting(state, "vision", "num_ctx_manual", 16384)
     assert state.agent_tuning["vision"].num_ctx_manual == 16384
 
 
 def test_custom_agent_reads_defaults_then_owns_bucket(monkeypatch):
     _mock_codine(monkeypatch)
-    state = _FakeState(temperature=0.5)
+    state = _FakeState()
     # No bucket yet → defaults, no state mutation
     assert get_agent_setting(state, "codine", "top_k") == default_tuning("codine").top_k
     assert "codine" not in state.agent_tuning
@@ -122,7 +122,7 @@ def test_custom_agent_reads_defaults_then_owns_bucket(monkeypatch):
 def test_model_owner_inheritance(monkeypatch):
     from aifred.lib.agent_settings import model_owner
     _mock_codine(monkeypatch)
-    state = _FakeState(temperature=0.5)
+    state = _FakeState()
     state.agent_tuning["aifred"].model_id = "qwen3:14b"
     # No own model → AIfred owns the loaded model (and its speed toggles)
     assert model_owner(state, "sokrates") == "aifred"
@@ -167,8 +167,8 @@ def test_get_persisted_tuning_default_on_missing():
     assert get_persisted_tuning({}, "sokrates", "top_k", 40) == 40
 
 
-def test_get_persisted_tuning_aifred_temperature_is_global():
-    settings = {"temperature": 0.6, "agent_tuning": {"aifred": {}}}
+def test_get_persisted_tuning_aifred_temperature_in_bucket():
+    settings = {"agent_tuning": {"aifred": {"temperature": 0.6}}}
     assert get_persisted_tuning(settings, "aifred", "temperature", 0.3) == 0.6
 
 

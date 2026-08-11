@@ -536,8 +536,9 @@ async def _call_engine(
     from .llm_engine import call_llm
     from .session_storage import load_session
     from .settings import load_settings
+    from .agent_settings import get_persisted_tuning
     from .config import (
-        DEFAULT_SETTINGS, BACKEND_URLS,
+        DEFAULT_SETTINGS, DEFAULT_TEMPERATURE, BACKEND_URLS,
         MAIN_LLM_FALLBACK_CONTEXT,
     )
 
@@ -546,7 +547,7 @@ async def _call_engine(
     settings = load_settings() or {}
     backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
     temperature_mode = settings.get("temperature_mode", "auto")
-    temperature = settings.get("temperature", 0.7)
+    temperature = get_persisted_tuning(settings, agent, "temperature", DEFAULT_TEMPERATURE)
     enable_thinking = settings.get("enable_thinking", False)
 
     # Get effective model for the agent (respects TTS/speed variants)

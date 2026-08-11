@@ -19,6 +19,7 @@ import reflex as rx
 from .config import (
     DEFAULT_MIN_P,
     DEFAULT_REPEAT_PENALTY,
+    DEFAULT_TEMPERATURE,
     DEFAULT_TOP_K,
     DEFAULT_TOP_P,
     SALOMO_TEMPERATURE_OFFSET,
@@ -39,9 +40,8 @@ class AgentTuning(rx.Base):
     """Runtime tuning for one agent (model, sampling, thinking, speed, ctx).
 
     ``model_id`` is always the BASE id (no variant suffix); empty means
-    "inherit AIfred's model". ``temperature`` is unused for the aifred
-    bucket — AIfred's temperature is the global ``state.temperature``
-    (see ``agent_settings.get_agent_setting``).
+    "inherit AIfred's model". Every agent — including aifred — owns its
+    ``temperature`` here (SSOT, no global state var).
     """
 
     # Model selection (display name + base id)
@@ -60,7 +60,7 @@ class AgentTuning(rx.Base):
     reasoning_levels: list[str] = []
 
     # Temperature (offset applies in auto mode relative to AIfred's temp)
-    temperature: float = 0.5
+    temperature: float = DEFAULT_TEMPERATURE
     temperature_offset: float = 0.0
 
     # Sampling
