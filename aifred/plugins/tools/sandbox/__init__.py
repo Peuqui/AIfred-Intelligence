@@ -27,6 +27,8 @@ class SandboxPlugin:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
+        if tool_name == "render_html":
+            return "🖼️ HTML"
         if tool_name not in ("execute_code", "execute_code_write"):
             return ""
         if not tool_args:

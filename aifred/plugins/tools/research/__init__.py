@@ -37,7 +37,8 @@ class ResearchPlugin:
         elif tool_name == "web_search":
             queries = tool_args.get("queries", [])
             if queries:
-                return f"🔍 {queries[0][:60]}..."
+                q = str(queries[0])
+                return f"🔍 {q[:60]}{'...' if len(q) > 60 else ''}"
             return t("tool_search", lang=lang)
         return ""
 

@@ -6,6 +6,6 @@ All plugins live here:
 - plugins/disabled/  → Disabled plugins (moved here by Plugin Manager)
 
 Usage:
-    from aifred.plugins.registry import all_channels, discover_tools, get_channel
-    from aifred.plugins.base import BaseChannel, ToolPlugin, PluginContext
+    from aifred.lib.plugin_registry import all_channels, discover_tools, get_channel
+    from aifred.lib.plugin_base import BaseChannel, ToolPlugin, PluginContext
 """

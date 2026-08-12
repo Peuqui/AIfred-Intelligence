@@ -20,18 +20,17 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ....lib.config import DATA_DIR
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
 from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.security import TIER_READONLY
-from .reference import resolve
-
 # All Judaica source texts live under this folder. file_manager's
 # folder filter is a recursive prefix-match, so "judaica" covers the
 # sub-folders (judaica/talmud, judaica/tanakh/tora, ...) as well.
-_JUDAICA_FOLDER = "judaica"
-_JUDAICA_DIR = DATA_DIR / "documents" / _JUDAICA_FOLDER
+# Konstanten-SSOT liegt in reference.py.
+from .reference import JUDAICA_DIR as _JUDAICA_DIR
+from .reference import JUDAICA_FOLDER as _JUDAICA_FOLDER
+from .reference import resolve
 
 
 @dataclass

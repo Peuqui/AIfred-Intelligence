@@ -43,7 +43,13 @@ class CalculatorPlugin:
             def _eval(node: ast.AST) -> float:
                 if isinstance(node, ast.Expression):
                     return _eval(node.body)
-                elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                # bool explizit ausschließen (int-Subklasse) — "True + 1"
+                # soll kein gültiger Ausdruck sein
+                elif (
+                    isinstance(node, ast.Constant)
+                    and isinstance(node.value, (int, float))
+                    and not isinstance(node.value, bool)
+                ):
                     return float(node.value)
                 elif isinstance(node, ast.BinOp):
                     op_type = type(node.op)

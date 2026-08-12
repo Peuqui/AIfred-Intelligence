@@ -7,6 +7,7 @@ OAuth-Flow über den generischen OAuthBroker.
 
 from __future__ import annotations
 
+import functools
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,17 @@ _SCOPES: dict[str, str] = {
     "GOOGLE_TASKS_ENABLED":    "https://www.googleapis.com/auth/tasks",
     "GOOGLE_DRIVE_ENABLED":    "https://www.googleapis.com/auth/drive",
 }
+
+@functools.lru_cache(maxsize=1)
+def _load_i18n() -> dict[str, dict[str, str]]:
+    """i18n.json einmal laden (wurde vorher bei JEDEM Status-Aufruf neu von
+    Platte gelesen). Änderung der Datei braucht einen Neustart — UI-Texte
+    ändern sich nicht zur Laufzeit."""
+    if _I18N_PATH.exists():
+        with open(_I18N_PATH, encoding="utf-8") as f:
+            return dict(json.load(f))
+    return {}
+
 
 # SSOT für den Default eines fehlenden *_ENABLED-Keys in settings.json —
 # muss in credential_fields, get_tools und aggregated_scopes identisch sein,
@@ -58,12 +70,8 @@ class GooglePlugin:
             json.dump(settings, f, indent=2, ensure_ascii=False)
 
     def _translate(self, key: str, lang: str = "de") -> str:
-        if _I18N_PATH.exists():
-            with open(_I18N_PATH, encoding="utf-8") as f:
-                i18n: dict[str, dict[str, str]] = json.load(f)
-            entry = i18n.get(key, {})
-            return entry.get(lang) or entry.get("de") or key
-        return key
+        entry = _load_i18n().get(key, {})
+        return entry.get(lang) or entry.get("de") or key
 
     # ── ToolPlugin Protocol ──────────────────────────────────────
 

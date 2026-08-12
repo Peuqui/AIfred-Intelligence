@@ -28,8 +28,11 @@ from typing import Optional
 
 from ....lib.config import DATA_DIR
 
-_JUDAICA_DIR = DATA_DIR / "documents" / "judaica"
-_INDEX_PATH = _JUDAICA_DIR / "_index.json"
+# SSOT für den Ordnernamen — __init__.py importiert beide Konstanten
+# (reference.py ist das Blatt der Import-Kette, kein Zirkel möglich).
+JUDAICA_FOLDER = "judaica"
+JUDAICA_DIR = DATA_DIR / "documents" / JUDAICA_FOLDER
+_INDEX_PATH = JUDAICA_DIR / "_index.json"
 
 
 def _norm(name: str) -> str:
@@ -64,7 +67,7 @@ def _index() -> dict:
 def _work_json(rel_path: str) -> dict:
     """Load one work's JSON (book/section/entry). Cached per work so
     repeated lookups into the same work don't re-read the file."""
-    with open(_JUDAICA_DIR / rel_path, encoding="utf-8") as f:
+    with open(JUDAICA_DIR / rel_path, encoding="utf-8") as f:
         return dict(json.load(f))
 
 
@@ -133,6 +136,13 @@ class JudaicaReference:
 def parse_reference(text: str) -> Optional[JudaicaReference]:
     """Extract the first Judaica reference from ``text``; None if none."""
     if not data_available():
+        # Sichtbar degradieren (Projekt-Regel: keine stillen Fallbacks):
+        # ohne _index.json bleibt nur die thematische Suche.
+        from ....lib.logging_utils import log_message
+        log_message(
+            "judaica: _index.json missing — reference lookup unavailable, "
+            "falling back to thematic search", "warning",
+        )
         return None
     m = _pattern().search(text)
     if not m:
@@ -148,7 +158,7 @@ def parse_reference(text: str) -> Optional[JudaicaReference]:
     # An a/b suffix only carries meaning for Talmud-Bavli works (Daf
     # sections). On a Chapter-section work like Mishnah or Tanakh the user
     # didn't really mean "amud" — drop it rather than carrying a stale flag.
-    if amud and _index()[key].get("section_type") != "Daf":
+    if amud and _index()[key]["section_type"] != "Daf":
         amud = None
     display = f"{work_name} {section}{amud or ''}"
     if e1:
@@ -164,20 +174,23 @@ def lookup(ref: JudaicaReference) -> dict:
     """
     meta = _index()[ref.work_key]
     data = _work_json(meta["json"])
+    # section_type kommt aus dem _index.json — dieselbe Quelle, die auch
+    # parse_reference nutzt (eine Wahrheit; Index deckt alle Werke ab).
+    section_type = meta["section_type"]
     # Talmud Bavli citations come in as "97b" (Vilna folio + amud); the
     # Sefaria-style JSON we ship lists every amud as a fortlaufender daf
     # (97b → 194). Translate before the section lookup so users can cite
     # the way they're used to, while the data layer stays 1:1 with Sefaria.
     section_key = (
         _vilna_to_sefaria_daf(int(ref.section), ref.amud)
-        if ref.amud and data["section_type"] == "Daf"
+        if ref.amud and section_type == "Daf"
         else ref.section
     )
     section = data["sections"].get(section_key)
     if not section:
         return {"reference": ref.display,
                 "error": f"{ref.work_name} has no "
-                         f"{data['section_type']} {ref.section}{ref.amud or ''}"}
+                         f"{section_type} {ref.section}{ref.amud or ''}"}
 
     if ref.entry_from is None:
         wanted = sorted(section, key=int)
@@ -188,8 +201,10 @@ def lookup(ref: JudaicaReference) -> dict:
         # range(from, to+1): an unbounded entry_to from the parser would
         # materialize a giant list and OOM the worker.
         lo, hi = int(ref.entry_from), int(ref.entry_to)
+        # int(n) direkt (fail-loud bei korrupten Entry-Keys) — gleiche
+        # Strategie wie der Ganz-Sektion-Zweig oben, kein isdigit-Filter.
         wanted = sorted(
-            (n for n in section if str(n).isdigit() and lo <= int(n) <= hi),
+            (n for n in section if lo <= int(n) <= hi),
             key=int,
         )
 

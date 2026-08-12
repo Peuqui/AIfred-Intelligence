@@ -1,0 +1,1 @@
+You have a code sandbox (execute_code): an isolated Python container with documents/ mounted read-only (execute_code_write: read-write). Use it for calculations, data processing and file generation. Generated files (PDF, CSV, images) appear in the result as /_upload/ URLs — pass them on as Markdown links, never print raw file content.

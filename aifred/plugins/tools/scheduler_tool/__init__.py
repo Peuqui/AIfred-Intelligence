@@ -27,6 +27,12 @@ class SchedulerPlugin:
     def is_available(self) -> bool:
         return True
 
+    # Eine Wahrheit für beide Wertemengen: Executor-Validierung UND
+    # JSON-Schema-Enums leiten sich hieraus ab (der SQLite-CHECK in
+    # lib/scheduler.py bleibt als DB-seitige Integritätsgrenze).
+    _SCHEDULE_TYPES = ("cron", "interval", "once")
+    _DELIVERY_MODES = ("review", "announce", "webhook")
+
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.logging_utils import log_message
 
@@ -44,8 +50,10 @@ class SchedulerPlugin:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
 
-            if schedule_type not in ("cron", "interval", "once"):
-                return json.dumps({"error": f"Invalid schedule_type: {schedule_type}. Use: cron, interval, once"})
+            if schedule_type not in self._SCHEDULE_TYPES:
+                return json.dumps({"error": f"Invalid schedule_type: {schedule_type}. Use: {', '.join(self._SCHEDULE_TYPES)}"})
+            if delivery not in self._DELIVERY_MODES:
+                return json.dumps({"error": f"Invalid delivery: {delivery}. Use: {', '.join(self._DELIVERY_MODES)}"})
 
             store = get_job_store()
             payload: dict[str, Any] = {
@@ -147,7 +155,7 @@ class SchedulerPlugin:
                         },
                         "schedule_type": {
                             "type": "string",
-                            "enum": ["cron", "interval", "once"],
+                            "enum": list(self._SCHEDULE_TYPES),
                             "description": "Type of schedule",
                         },
                         "schedule_expr": {
@@ -165,7 +173,7 @@ class SchedulerPlugin:
                         },
                         "delivery": {
                             "type": "string",
-                            "enum": ["review", "announce", "webhook"],
+                            "enum": list(self._DELIVERY_MODES),
                             "description": "How to deliver the result (default: review)",
                             "default": "review",
                         },
@@ -220,12 +228,13 @@ class SchedulerPlugin:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
+        from ....lib.i18n import t
         if tool_name == "scheduler_create":
-            return f"Creating job: {tool_args.get('name', '')}"
+            return t("tool_scheduler_create", lang=lang, name=tool_args.get("name", ""))
         if tool_name == "scheduler_delete":
-            return f"Deleting job {tool_args.get('job_id', '')}"
+            return t("tool_scheduler_delete", lang=lang, job_id=tool_args.get("job_id", ""))
         if tool_name == "scheduler_list":
-            return "Loading scheduled jobs..."
+            return t("tool_scheduler_list", lang=lang)
         return ""
 
 

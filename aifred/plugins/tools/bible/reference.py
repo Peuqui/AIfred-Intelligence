@@ -38,7 +38,10 @@ from ....lib.config import DATA_DIR
 
 # Root of all Bible translations — one sub-folder per translation, each
 # holding the structured *.json built by scripts/build_bible.py.
-BIBLE_ROOT = DATA_DIR / "documents" / "bibel"
+# BIBLE_FOLDER ist die SSOT für den Ordnernamen (auch der
+# file_manager-Folder-Filter in __init__.py nutzt sie).
+BIBLE_FOLDER = "bibel"
+BIBLE_ROOT = DATA_DIR / "documents" / BIBLE_FOLDER
 
 # Language-specific book-alias tables live next to this module.
 _ALIAS_DIR = Path(__file__).parent / "book_aliases"
@@ -70,6 +73,14 @@ def _active_bible_path() -> Optional[Path]:
     """
     wanted = os.environ.get(TRANSLATION_ENV_KEY, "").strip()
     names = available_translations()
+    if wanted and wanted not in names:
+        # Kein stiller Übersetzungs-Wechsel: der User soll erfahren, dass
+        # er gerade eine ANDERE als die konfigurierte Übersetzung zitiert.
+        from ....lib.logging_utils import log_message
+        log_message(
+            f"bible: configured translation {wanted!r} not found — "
+            f"using {names[0] if names else '(none)'}", "warning",
+        )
     ordered = ([wanted] if wanted in names else []) + names
     for name in ordered:
         jsons = sorted((BIBLE_ROOT / name).glob("*.json"))
@@ -205,6 +216,16 @@ class BibleReference:
 
 def parse_reference(text: str) -> Optional[BibleReference]:
     """Extract the first scripture reference from ``text``; None if none."""
+    if not data_available():
+        # Gleiche Semantik wie judaica: sichtbar zur thematischen Suche
+        # degradieren statt das ganze Plugin abzuschalten (die Vektor-Suche
+        # funktioniert auch ohne Übersetzungs-JSON).
+        from ....lib.logging_utils import log_message
+        log_message(
+            "bible: no translation JSON found — reference lookup unavailable, "
+            "falling back to thematic search", "warning",
+        )
+        return None
     m = _pattern().search(text)
     if not m:
         return None

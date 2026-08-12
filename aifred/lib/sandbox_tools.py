@@ -52,7 +52,8 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
       - render_html        (TIER_WRITE_DATA):   headless-Chrome verify pass
         for a SANDBOX_HTML_URL (console messages + screenshot)
 
-    The pipeline filters by max_tier — low-tier contexts only see execute_code.
+    The pipeline filters by max_tier — contexts below TIER_WRITE_DATA see
+    no sandbox tool at all (execute_code itself is TIER_WRITE_DATA).
 
     Args:
         session_id: Session ID for output file organization and cleanup.
