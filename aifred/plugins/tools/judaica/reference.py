@@ -41,9 +41,15 @@ def _flex(alias: str) -> str:
     """Regex fragment matching an alias tolerant of its dots/spaces.
 
     ``re.escape`` escapes the space to ``\\ ``, so the escaped form is
-    what gets replaced — not a bare space.
+    what gets replaced — not a bare space. Kompakte Ziffer-Aliasse
+    ("2Melachim") erlauben nach der führenden Ziffer zusätzlich
+    optionalen Punkt/Whitespace (gleicher Fix wie im bible-Plugin —
+    Duplikatpflege per Plugin-Atomaritäts-Entscheidung).
     """
-    return re.escape(alias).replace(r"\.", r"\.?").replace(r"\ ", r"\s*")
+    body = re.escape(alias).replace(r"\.", r"\.?").replace(r"\ ", r"\s*")
+    if len(alias) > 1 and alias[0].isdigit() and alias[1] not in " .":
+        body = body[0] + r"\.?\s*" + body[1:]
+    return body
 
 
 @functools.lru_cache(maxsize=1)

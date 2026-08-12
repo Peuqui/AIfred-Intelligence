@@ -304,17 +304,17 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-translator
 
-- [ ] `__init__.py:98,127-136` — `_FENCE_RE` matcht bei 4+-Backtick-Fences nur
+- [x] `__init__.py:98,127-136` — `_FENCE_RE` matcht bei 4+-Backtick-Fences nur
   ` ``` ` → Closing-Check trifft nie → Rest des Dokuments landet unübersetzt im
   „unbalanced block"-Pass-Through, Tool meldet Erfolg. Auch eingerückte Fences
   (bis 3 Spaces, CommonMark) und Blockquote-Fences nicht erkannt.
-- [ ] `__init__.py:246-263` vs. `:303-320` — ~18 Zeilen Validierung verbatim
+- [x] `__init__.py:246-263` vs. `:303-320` — ~18 Zeilen Validierung verbatim
   doppelt (API-Key, target_lang, formality inkl. Error-JSONs) → gemeinsamer
   Helper; dabei überflüssiges `lang_codes = set(DEEPL_LANGUAGES.keys())` weg.
 
 ### B-narrator
 
-- [ ] `__init__.py:343` + `prompts/tools/narrate_file.txt` (Abs. 4) UND
+- [x] `__init__.py:343` + `prompts/tools/narrate_file.txt` (Abs. 4) UND
   `translator/__init__.py:464` — Pfad-Beispiel `'documents/meeting-DE.txt'` ist
   falsch (Pfade relativ zu `data/documents/`; das Beispiel zeigt auf
   `data/documents/documents/…` → „File not found"). In beiden Plugins fixen.
@@ -329,7 +329,7 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-bible
 
-- [ ] `reference.py:86-92` (`_flex`) + `book_aliases/de.json`/`en.json` —
+- [x] `reference.py:86-92` (`_flex`) + `book_aliases/de.json`/`en.json` —
   Zitierformen „Ziffer + Space + Kurzform" werden nicht erkannt:
   `"2 Tim 1,7"`, `"1 Kor 13"`, `"1 Petr 5,7"` → None → stiller Fall in die
   unscharfe thematische Suche. Fix: `_flex` nach führender Ziffer `\.?\s*`
@@ -343,7 +343,7 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-scheduler_tool
 
-- [ ] `__init__.py:63-65` — `DEFAULT_TIER_BY_SOURCE.get("cron", 1)`: einziger
+- [x] `__init__.py:63-65` — `DEFAULT_TIER_BY_SOURCE.get("cron", 1)`: einziger
   Konsument des als „(legacy, kept for compat)" markierten Keys
   (lib/security.py:46); Jobs laufen real als `channel="scheduler"` (Kommentar
   falsch); Fallback `1` = Magic-Number-Duplikat von TIER_COMMUNICATE.
@@ -352,14 +352,14 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-system_monitor
 
-- [ ] `__init__.py:143-146` — Temperatur-Block: `except Exception: pass`
+- [x] `__init__.py:143-146` — Temperatur-Block: `except Exception: pass`
   verschluckt jeden Fehler (kaputtes `sensors -j`-JSON) komplett still —
   CPU/RAM/Disk schreiben `{"error": ...}` ins Resultat. Angleichen; fehlendes
   sensors-Binary darf optional bleiben (⚠️ kurz absegnen).
 
 ### B-calculator
 
-- [ ] `__init__.py:18` — `description = "… (sympy-basiert)."` ist falsch:
+- [x] `__init__.py:18` — `description = "… (sympy-basiert)."` ist falsch:
   reiner AST-Walker, sympy kommt im Repo nicht vor; verspricht im Plugin-Manager
   Fähigkeiten (sqrt/sin/Symbolik), die fehlen. Text korrigieren.
 

@@ -140,10 +140,14 @@ class SystemMonitorPlugin:
                                     temps[f"{chip}/{label}"] = f"{val:.0f}°C"
                     if temps:
                         result["temps"] = temps
-                except (FileNotFoundError, subprocess.CalledProcessError):
+                except FileNotFoundError:
+                    # lm-sensors nicht installiert — Temperaturen sind optional,
+                    # kein Fehler (bewusst kein Eintrag im Resultat)
                     pass
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001
+                    # Kaputtes sensors-Output o.ä. NICHT still verschlucken —
+                    # sichtbar machen wie bei CPU/RAM/Disk
+                    result["temps"] = {"error": str(e)}
 
             log_message(f"📊 system_status: {list(result.keys())}")
             return json.dumps(result, ensure_ascii=False)
