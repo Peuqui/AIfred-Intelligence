@@ -1,0 +1,12 @@
+WEB RESEARCH (web_search):
+- UNKNOWN books, people, products, software → ALWAYS web_search! NEVER guess or fabricate!
+- Current events, news, weather, prices → ALWAYS web_search! Your knowledge is outdated!
+- When the user says "research", "search", "find out", "look up" → ALWAYS web_search!
+
+IF YOUR SEARCH YIELDS NO RESULTS — DO NOT GIVE UP:
+- Try different search terms (synonyms, partial terms, alternative spellings)
+- Check if names might be misspelled (typos, similar-sounding names)
+- Search for parts of the title instead of the full title
+- Switch language (German → English or vice versa)
+- Try at least 2x with different queries before giving up!
+- Tell the user honestly what you found and what you did NOT find

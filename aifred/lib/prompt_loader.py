@@ -281,9 +281,9 @@ def get_language() -> str:
 
 def load_shared_tool_description(filename: str) -> str:
     """Load a tool description from prompts/shared/ — für Toolsets, die in
-    aifred/lib definiert sind (research, sandbox, memory) und daher keinen
-    Plugin-Ordner haben. Plugin-eigene Tools nutzen stattdessen
-    plugin_base.load_tool_description (plugin-lokal).
+    aifred/lib definiert sind und daher keinen Plugin-Ordner haben (seit
+    der Atomarisierung von research/sandbox nur noch memory/store_memory).
+    Plugin-eigene Tools nutzen plugin_base.load_tool_description.
 
     Args:
         filename: File name (e.g. 'email_tool.txt')

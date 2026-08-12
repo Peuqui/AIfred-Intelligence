@@ -1,0 +1,1 @@
+URLs in the user's text → web_fetch to read the page content.

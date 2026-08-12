@@ -1,0 +1,1 @@
+Questions about uploaded documents → FIRST list_indexed (or list_files), THEN search_documents with multiple queries.
