@@ -1,1 +1,1 @@
-Ändert einen bestehenden Termin. Nur angegebene Felder werden überschrieben.
+Update an existing event. Only the fields you pass are overwritten.

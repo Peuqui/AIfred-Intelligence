@@ -1,1 +1,1 @@
-Alle Google-Kontakte abrufen (paginiert). Nützlich zum Durchsuchen oder Aufräumen.
+Fetch all Google contacts (paginated). Useful for browsing or cleanup.

@@ -41,7 +41,7 @@ class GooglePlugin:
     # plugin invisible to the UI (no gear/lightbulb, OAuth connect unreachable).
     name: str = "google_suite"
     display_name: str = "Google Suite"
-    description: str = "Zugriff auf Google Calendar, Drive und Gmail (Lesen und Schreiben — OAuth-2.0-authentifiziert)."
+    description: str = "Zugriff auf Google Calendar, Kontakte, Tasks und Drive (Lesen und Schreiben — OAuth-2.0-authentifiziert)."
     oauth_provider: str = "google"
 
     # ── Settings ────────────────────────────────────────────────
@@ -126,19 +126,19 @@ class GooglePlugin:
 
         if settings.get("GOOGLE_CALENDAR_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .calendar.tools import get_calendar_tools
-            tools.extend(get_calendar_tools(ctx.lang))
+            tools.extend(get_calendar_tools())
 
         if settings.get("GOOGLE_CONTACTS_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .contacts.tools import get_contacts_tools
-            tools.extend(get_contacts_tools(ctx.lang))
+            tools.extend(get_contacts_tools())
 
         if settings.get("GOOGLE_TASKS_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .tasks.tools import get_tasks_tools
-            tools.extend(get_tasks_tools(ctx.lang))
+            tools.extend(get_tasks_tools())
 
         if settings.get("GOOGLE_DRIVE_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .drive.tools import get_drive_tools
-            tools.extend(get_drive_tools(ctx.lang))
+            tools.extend(get_drive_tools())
 
         return tools
 
@@ -148,38 +148,14 @@ class GooglePlugin:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
-        status_map = {
-            "google_calendar_list_events":    "tool_list_events",
-            "google_calendar_create_event":   "tool_create_event",
-            "google_calendar_update_event":   "tool_update_event",
-            "google_calendar_delete_event":   "tool_delete_event",
-            "google_calendar_list_calendars": "tool_list_calendars",
-            "google_contacts_list_all":        "tool_list_all_contacts",
-            "google_contacts_list_groups":     "tool_list_groups",
-            "google_contacts_list_by_group":   "tool_list_by_group",
-            "google_contacts_search":          "tool_search_contacts",
-            "google_contacts_create":          "tool_create_contact",
-            "google_contacts_update":          "tool_update_contact",
-            "google_contacts_delete":          "tool_delete_contact",
-            "google_tasks_list_tasklists":     "tool_list_tasklists",
-            "google_tasks_list":               "tool_list_tasks",
-            "google_tasks_create":             "tool_create_task",
-            "google_tasks_update":             "tool_update_task",
-            "google_tasks_complete":           "tool_complete_task",
-            "google_tasks_delete":             "tool_delete_task",
-            "google_drive_list_files":         "tool_drive_list_files",
-            "google_drive_search":             "tool_drive_search",
-            "google_drive_get_file":           "tool_drive_get_file",
-            "google_drive_create_file":        "tool_drive_create_file",
-            "google_drive_update_file":        "tool_drive_update_file",
-            "google_drive_delete_file":        "tool_drive_delete_file",
-            "google_drive_create_folder":      "tool_drive_create_folder",
-            "google_drive_move_file":          "tool_drive_move_file",
-        }
-        key = status_map.get(tool_name)
-        if key:
-            return self._translate(key, lang)
-        return ""
+        # i18n-Key wird aus dem Tool-Namen abgeleitet (tool_<tool_name>) —
+        # die i18n.json ist damit die EINZIGE Liste der Status-Texte, keine
+        # dritte handgepflegte Tool-Namen-Map mehr. Kein Key → kein Status.
+        if not tool_name.startswith("google_"):
+            return ""
+        key = f"tool_{tool_name}"
+        label = self._translate(key, lang)
+        return "" if label == key else label
 
     def aggregated_scopes(self) -> list[str]:
         """Alle Scopes der aktiven Sub-Services — für den OAuth-Flow.

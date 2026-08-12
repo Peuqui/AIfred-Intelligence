@@ -1,1 +1,1 @@
-Liest den Inhalt einer Drive-Datei. Google Docs werden als Klartext exportiert, Sheets als CSV. Der Inhalt wird auf 50.000 Zeichen begrenzt.
+Read the content of a Drive file. Google Docs are exported as plain text, Sheets as CSV. Downloads are capped at 5 MB.

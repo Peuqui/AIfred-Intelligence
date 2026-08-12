@@ -1,1 +1,1 @@
-Listet Dateien im Google Drive auf. Optional nach Ordner filtern via folder_id.
+List files in Google Drive. Optionally filter by folder via folder_id.

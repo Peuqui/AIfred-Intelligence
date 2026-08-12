@@ -1,1 +1,1 @@
-Alle Kontakte einer bestimmten Gruppe/eines Labels abrufen.
+Fetch all contacts of a specific group/label.

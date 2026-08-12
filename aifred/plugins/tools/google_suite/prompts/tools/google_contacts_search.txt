@@ -1,1 +1,1 @@
-Sucht Google-Kontakte nach Name oder E-Mail-Adresse. Nützlich um Empfänger für E-Mails/Nachrichten aufzulösen.
+Search Google contacts by name or e-mail address. Useful for resolving recipients for e-mails/messages.

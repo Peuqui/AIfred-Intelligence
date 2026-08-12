@@ -1,1 +1,1 @@
-Löscht eine Datei dauerhaft aus dem Google Drive.
+Permanently delete a file from Google Drive (no trash — this cannot be undone).

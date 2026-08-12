@@ -1,0 +1,1 @@
+Du hast Zugriff auf Google Tasks. Nutze google_tasks_list um Aufgaben abzurufen, google_tasks_create um neue anzulegen, google_tasks_complete um sie als erledigt zu markieren und google_tasks_delete zum Löschen. Mit google_tasks_list_tasklists siehst du alle vorhandenen Listen.

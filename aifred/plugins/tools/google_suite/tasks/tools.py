@@ -3,38 +3,20 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
-import httpx
-
 from .....lib.function_calling import Tool
-from pathlib import Path
-
 from .....lib.plugin_base import load_tool_description
-from .....lib.security import TIER_WRITE_DATA
-from .._common import _get_token
-
-# Descriptions liegen im Plugin-WURZEL-Ordner (google_suite/prompts/tools/),
-# nicht im Subpackage — das Plugin bleibt als Ganzes atomar.
-_PLUGIN_DIR = str(Path(__file__).resolve().parents[1])
-
-logger = logging.getLogger(__name__)
+from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from .._common import PLUGIN_DIR, _google_request
 
 TASKS_API = "https://tasks.googleapis.com/tasks/v1"
 
 
-def get_tasks_tools(lang: str = "de") -> list[Tool]:
+def get_tasks_tools() -> list[Tool]:
     async def list_tasklists() -> str:
         """Alle Task-Listen des Nutzers auflisten."""
-        token = await _get_token()
-        async with httpx.AsyncClient() as client:
-            r = await client.get(
-                f"{TASKS_API}/users/@me/lists",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
-            )
-            r.raise_for_status()
+        r = await _google_request("GET", f"{TASKS_API}/users/@me/lists")
         items = r.json().get("items", [])
         return json.dumps(
             [{"id": t["id"], "title": t.get("title", "")} for t in items],
@@ -47,18 +29,14 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         max_results: int = 50,
     ) -> str:
         """Aufgaben einer Task-Liste abrufen."""
-        token = await _get_token()
-        async with httpx.AsyncClient() as client:
-            r = await client.get(
-                f"{TASKS_API}/lists/{tasklist_id}/tasks",
-                headers={"Authorization": f"Bearer {token}"},
-                params={
-                    "showCompleted": str(show_completed).lower(),
-                    "maxResults": max_results,
-                },
-                timeout=15,
-            )
-            r.raise_for_status()
+        r = await _google_request(
+            "GET",
+            f"{TASKS_API}/lists/{tasklist_id}/tasks",
+            params={
+                "showCompleted": str(show_completed).lower(),
+                "maxResults": max_results,
+            },
+        )
         items = r.json().get("items", [])
         result = []
         for t in items:
@@ -79,20 +57,14 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         tasklist_id: str = "@default",
     ) -> str:
         """Neue Aufgabe erstellen. due im RFC 3339 Format (z.B. 2026-04-22T00:00:00Z)."""
-        token = await _get_token()
         body: dict[str, Any] = {"title": title}
         if notes:
             body["notes"] = notes
         if due:
             body["due"] = due
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                f"{TASKS_API}/lists/{tasklist_id}/tasks",
-                headers={"Authorization": f"Bearer {token}"},
-                json=body,
-                timeout=15,
-            )
-            r.raise_for_status()
+        r = await _google_request(
+            "POST", f"{TASKS_API}/lists/{tasklist_id}/tasks", json=body,
+        )
         t = r.json()
         return json.dumps({"id": t.get("id"), "title": t.get("title")}, ensure_ascii=False)
 
@@ -105,16 +77,11 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         status: str = "",
     ) -> str:
         """Aufgabe aktualisieren. status: 'needsAction' oder 'completed'."""
-        token = await _get_token()
         # Erst aktuellen Stand laden (PUT braucht vollständiges Objekt)
-        async with httpx.AsyncClient() as client:
-            r = await client.get(
-                f"{TASKS_API}/lists/{tasklist_id}/tasks/{task_id}",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
-            )
-            r.raise_for_status()
-            task = r.json()
+        r = await _google_request(
+            "GET", f"{TASKS_API}/lists/{tasklist_id}/tasks/{task_id}",
+        )
+        task = r.json()
 
         if title:
             task["title"] = title
@@ -130,14 +97,9 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
             elif status == "needsAction":
                 task.pop("completed", None)
 
-        async with httpx.AsyncClient() as client:
-            r = await client.put(
-                f"{TASKS_API}/lists/{tasklist_id}/tasks/{task_id}",
-                headers={"Authorization": f"Bearer {token}"},
-                json=task,
-                timeout=15,
-            )
-            r.raise_for_status()
+        await _google_request(
+            "PUT", f"{TASKS_API}/lists/{tasklist_id}/tasks/{task_id}", json=task,
+        )
         return json.dumps({"id": task_id, "updated": True}, ensure_ascii=False)
 
     async def complete_task(task_id: str, tasklist_id: str = "@default") -> str:
@@ -146,33 +108,28 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
 
     async def delete_task(task_id: str, tasklist_id: str = "@default") -> str:
         """Aufgabe löschen."""
-        token = await _get_token()
-        async with httpx.AsyncClient() as client:
-            r = await client.delete(
-                f"{TASKS_API}/lists/{tasklist_id}/tasks/{task_id}",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
-            )
-            r.raise_for_status()
+        await _google_request(
+            "DELETE", f"{TASKS_API}/lists/{tasklist_id}/tasks/{task_id}",
+        )
         return json.dumps({"id": task_id, "deleted": True}, ensure_ascii=False)
 
     return [
         Tool(
             name="google_tasks_list_tasklists",
-            description=load_tool_description(_PLUGIN_DIR, "google_tasks_list_tasklists"),
+            description=load_tool_description(PLUGIN_DIR, "google_tasks_list_tasklists"),
             parameters={"type": "object", "properties": {}, "required": []},
             executor=list_tasklists,
             tier=TIER_WRITE_DATA,  # reads private task data → block external channels
         ),
         Tool(
             name="google_tasks_list",
-            description=load_tool_description(_PLUGIN_DIR, "google_tasks_list"),
+            description=load_tool_description(PLUGIN_DIR, "google_tasks_list"),
             parameters={
                 "type": "object",
                 "properties": {
-                    "tasklist_id":     {"type": "string", "description": "Task-Listen-ID (Standard: @default)"},
-                    "show_completed":  {"type": "boolean", "description": "Erledigte Aufgaben einschließen (Standard: false)"},
-                    "max_results":     {"type": "integer", "description": "Max. Anzahl Ergebnisse (Standard: 50)"},
+                    "tasklist_id":     {"type": "string", "description": "Task list ID (default: @default)"},
+                    "show_completed":  {"type": "boolean", "description": "Include completed tasks (default: false)"},
+                    "max_results":     {"type": "integer", "description": "Maximum number of results (default: 50)"},
                 },
                 "required": [],
             },
@@ -181,14 +138,14 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_tasks_create",
-            description=load_tool_description(_PLUGIN_DIR, "google_tasks_create"),
+            description=load_tool_description(PLUGIN_DIR, "google_tasks_create"),
             parameters={
                 "type": "object",
                 "properties": {
-                    "title":        {"type": "string", "description": "Titel der Aufgabe"},
-                    "notes":        {"type": "string", "description": "Notizen/Beschreibung (optional)"},
-                    "due":          {"type": "string", "description": "Fälligkeitsdatum RFC 3339 (optional)"},
-                    "tasklist_id":  {"type": "string", "description": "Task-Listen-ID (Standard: @default)"},
+                    "title":        {"type": "string", "description": "Task title"},
+                    "notes":        {"type": "string", "description": "Notes/description (optional)"},
+                    "due":          {"type": "string", "description": "Due date, RFC 3339 (optional)"},
+                    "tasklist_id":  {"type": "string", "description": "Task list ID (default: @default)"},
                 },
                 "required": ["title"],
             },
@@ -197,16 +154,16 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_tasks_update",
-            description=load_tool_description(_PLUGIN_DIR, "google_tasks_update"),
+            description=load_tool_description(PLUGIN_DIR, "google_tasks_update"),
             parameters={
                 "type": "object",
                 "properties": {
-                    "task_id":      {"type": "string", "description": "ID der Aufgabe"},
-                    "tasklist_id":  {"type": "string", "description": "Task-Listen-ID (Standard: @default)"},
-                    "title":        {"type": "string", "description": "Neuer Titel (optional)"},
-                    "notes":        {"type": "string", "description": "Neue Notizen (optional)"},
-                    "due":          {"type": "string", "description": "Neues Fälligkeitsdatum RFC 3339 (optional)"},
-                    "status":       {"type": "string", "description": "'needsAction' oder 'completed' (optional)"},
+                    "task_id":      {"type": "string", "description": "ID of the task"},
+                    "tasklist_id":  {"type": "string", "description": "Task list ID (default: @default)"},
+                    "title":        {"type": "string", "description": "New title (optional)"},
+                    "notes":        {"type": "string", "description": "New notes (optional)"},
+                    "due":          {"type": "string", "description": "New due date, RFC 3339 (optional)"},
+                    "status":       {"type": "string", "description": "'needsAction' or 'completed' (optional)"},
                 },
                 "required": ["task_id"],
             },
@@ -215,12 +172,12 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_tasks_complete",
-            description=load_tool_description(_PLUGIN_DIR, "google_tasks_complete"),
+            description=load_tool_description(PLUGIN_DIR, "google_tasks_complete"),
             parameters={
                 "type": "object",
                 "properties": {
-                    "task_id":     {"type": "string", "description": "ID der Aufgabe"},
-                    "tasklist_id": {"type": "string", "description": "Task-Listen-ID (Standard: @default)"},
+                    "task_id":     {"type": "string", "description": "ID of the task"},
+                    "tasklist_id": {"type": "string", "description": "Task list ID (default: @default)"},
                 },
                 "required": ["task_id"],
             },
@@ -229,16 +186,17 @@ def get_tasks_tools(lang: str = "de") -> list[Tool]:
         ),
         Tool(
             name="google_tasks_delete",
-            description=load_tool_description(_PLUGIN_DIR, "google_tasks_delete"),
+            description=load_tool_description(PLUGIN_DIR, "google_tasks_delete"),
             parameters={
                 "type": "object",
                 "properties": {
-                    "task_id":     {"type": "string", "description": "ID der zu löschenden Aufgabe"},
-                    "tasklist_id": {"type": "string", "description": "Task-Listen-ID (Standard: @default)"},
+                    "task_id":     {"type": "string", "description": "ID of the task to delete"},
+                    "tasklist_id": {"type": "string", "description": "Task list ID (default: @default)"},
                 },
                 "required": ["task_id"],
             },
             executor=delete_task,
-            tier=TIER_WRITE_DATA,
+            # Repo-Konvention (lib/security.py): Deletes sind TIER_WRITE_SYSTEM
+            tier=TIER_WRITE_SYSTEM,
         ),
     ]

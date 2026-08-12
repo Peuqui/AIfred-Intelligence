@@ -1,1 +1,1 @@
-Legt einen neuen Kontakt in Google Contacts an.
+Create a new contact in Google Contacts.

@@ -1,1 +1,1 @@
-Listet alle verfügbaren Google-Kalender des Nutzers auf.
+List all Google calendars available to the user.

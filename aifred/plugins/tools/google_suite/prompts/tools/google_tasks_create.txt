@@ -1,1 +1,1 @@
-Neue Aufgabe in Google Tasks erstellen.
+Create a new task in Google Tasks.

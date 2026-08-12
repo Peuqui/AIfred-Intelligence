@@ -1,1 +1,1 @@
-Verschiebt eine Datei in einen anderen Ordner.
+Move a file to another folder.
