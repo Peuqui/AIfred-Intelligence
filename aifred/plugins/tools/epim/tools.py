@@ -46,6 +46,37 @@ def _resolve_entity(entity_type: str) -> str | None:
     return ENTITY_ALIASES.get(entity_type.lower())
 
 
+# EN→DE-Aliasse für flache Kontaktfelder. Alle Ziele MÜSSEN in
+# DEFAULT_CONTACT_FIELDS existieren — encode_fieldsdata ist fail-loud bei
+# unbekannten Namen (der frühere work_email-Geist bewies, warum).
+_CONTACT_EN_TO_DE = {
+    "first_name": "Vorname", "last_name": "Nachname",
+    "phone": "Telefon", "mobile": "Mobiltelefon",
+    "email": "E-Mail", "address": "Adresse",
+    "city": "Ort", "zip": "PLZ", "state": "Bundesland",
+    "country": "Land", "birthday": "Geburtstag",
+    "website": "Webseite", "fax": "Fax",
+    "company": "Firma", "job_title": "Position", "notes": "Notizen",
+    "work_phone": "Telefon geschäftlich",
+    "work_address": "Adresse geschäftlich",
+    "work_city": "Ort geschäftlich", "work_zip": "PLZ geschäftlich",
+}
+
+
+def _extract_contact_fields(data: dict) -> "dict[str, Any] | None":
+    """Flache Kontaktfelder ({"Telefon": ...} / {"phone": ...}) aus dem
+    data-Dict extrahieren, EN-Aliasse auf die EPIM-Feldnamen mappen.
+
+    SSOT für epim_create UND epim_update — die deutschen Namen kommen aus
+    der Feldmap DEFAULT_CONTACT_FIELDS (keine driftende Zweitliste).
+    None, wenn nichts extrahierbar ist.
+    """
+    from .db import DEFAULT_CONTACT_FIELDS
+    keys = set(DEFAULT_CONTACT_FIELDS.values()) | set(_CONTACT_EN_TO_DE)
+    fields = {k: v for k, v in data.items() if k in keys and v}
+    return {_CONTACT_EN_TO_DE.get(k, k): v for k, v in fields.items()} or None
+
+
 def _serialize(obj: Any, key: str = "") -> Any:
     """JSON-serialize EPIM results (handle datetime, large IDs etc.)."""
     if obj is None:
@@ -129,7 +160,7 @@ def get_epim_tools(source: str = "browser") -> list[Tool]:
 
         serialized = _serialize(results)
         count = len(serialized) if isinstance(serialized, list) else 1
-        log_message(f"✅ epim_search: {count} {entity_type} gefunden")
+        log_message(f"✅ epim_search: {count} {entity_type} found")
 
         # Add short index numbers so the LLM can reference entries easily
         if isinstance(serialized, list):
@@ -219,31 +250,7 @@ def get_epim_tools(source: str = "browser") -> list[Tool]:
         elif entity == "contact":
             name = data.get("name", "Neuer Kontakt")
             # Fields can be nested {"fields": {"Telefon": "..."}} or flat {"Telefon": "..."}
-            fields = data.get("fields")
-            if not fields:
-                # Extract known contact fields from flat data dict. Deutsche
-                # Namen kommen aus der Feldmap-SSOT DEFAULT_CONTACT_FIELDS —
-                # die frühere handgepflegte Zweitliste driftete (bot z.B.
-                # "E-Mail geschäftlich"/work_email an, das als EPIM-Feld gar
-                # nicht existiert; der Wert wurde still verworfen).
-                from .db import DEFAULT_CONTACT_FIELDS
-                # Alle Ziele müssen in DEFAULT_CONTACT_FIELDS existieren —
-                # encode_fieldsdata ist fail-loud bei unbekannten Namen.
-                _en_to_de = {
-                    "first_name": "Vorname", "last_name": "Nachname",
-                    "phone": "Telefon", "mobile": "Mobiltelefon",
-                    "email": "E-Mail", "address": "Adresse",
-                    "city": "Ort", "zip": "PLZ", "state": "Bundesland",
-                    "country": "Land", "birthday": "Geburtstag",
-                    "website": "Webseite", "fax": "Fax",
-                    "company": "Firma", "job_title": "Position", "notes": "Notizen",
-                    "work_phone": "Telefon geschäftlich",
-                    "work_address": "Adresse geschäftlich",
-                    "work_city": "Ort geschäftlich", "work_zip": "PLZ geschäftlich",
-                }
-                _contact_keys = set(DEFAULT_CONTACT_FIELDS.values()) | set(_en_to_de)
-                fields = {k: v for k, v in data.items() if k in _contact_keys and v}
-                fields = {_en_to_de.get(k, k): v for k, v in fields.items()}
+            fields = data.get("fields") or _extract_contact_fields(data)
             new_id = db.create_contact(
                 name=name,
                 fields=fields if fields else None,
@@ -318,10 +325,12 @@ def get_epim_tools(source: str = "browser") -> list[Tool]:
             mapped = {field_map.get(k, k): v for k, v in data.items()}
             ok = db.update_task(entity_id, **mapped)
         elif entity == "contact":
+            # Flache Felder ({"Telefon": ...}) wie beim Create extrahieren —
+            # vorher ignorierte der Update-Pfad sie kommentarlos.
             ok = db.update_contact(
                 entity_id,
                 name=data.get("name"),
-                fields=data.get("fields"),
+                fields=data.get("fields") or _extract_contact_fields(data),
                 tags=data.get("tags"),
             )
         elif entity == "note":
@@ -362,6 +371,11 @@ def get_epim_tools(source: str = "browser") -> list[Tool]:
         entity = _resolve_entity(entity_type)
         if entity not in ("task", "contact", "note", "todo", "password"):
             return json.dumps({"error": f"Unknown entity_type for delete: {entity_type}. Use: task, contact, note, todo, password"})
+
+        # Symmetrisch zu create/update: Passwort-Operationen nur mit
+        # anwesendem User (Browser), nicht von externen Kanälen.
+        if entity == "password" and source != "browser":
+            return json.dumps({"error": _PASSWORD_WRITE_REFUSED})
 
         if entity == "task":
             ok = db.delete_task(entity_id)

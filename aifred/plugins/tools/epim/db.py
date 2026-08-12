@@ -281,6 +281,47 @@ def _as_bool(value: object) -> bool:
     return bool(value)
 
 
+def _as_priority(value: object) -> int:
+    """Coerce an LLM-supplied priority — SSOT für create UND update.
+
+    Das Modell schickt manchmal "high"/"low"-Strings statt Zahlen; roh in
+    die Integer-Spalte geschrieben wäre das ein Firebird-Fehler bzw. Müll.
+    Unbekannte Strings → 0 ("keine Priorität", wie EPIMs Default).
+    """
+    if isinstance(value, str):
+        return {"low": 1, "medium": 5, "high": 9, "none": 0}.get(value.strip().lower(), 0)
+    if isinstance(value, (int, float)):
+        return int(value)
+    return 0
+
+
+def _effective_fieldsdata(fieldsdata: "str | None", fieldsdata2: "str | bytes | None") -> str:
+    """FIELDSDATA2 (BLOB) überschreibt FIELDSDATA, wenn belegt — EPIM-Semantik.
+
+    SSOT für search_contacts UND get_contact. fdb kann BLOBs als ``bytes``
+    liefern; ``decode_fieldsdata`` erwartet einen Hex-STRING (``raw.encode``
+    crashte sonst mit AttributeError auf bytes).
+    """
+    if fieldsdata2:
+        if isinstance(fieldsdata2, bytes):
+            return fieldsdata2.decode("utf-8", errors="replace")
+        return fieldsdata2
+    return fieldsdata or ""
+
+
+def _pop_alias(fields: dict, primary: str, fallback: str) -> "str | None":
+    """Beide Alias-Keys unconditional poppen und den Wert liefern.
+
+    Short-circuit (``pop(a) or pop(b)``) ließe den zweiten Key im Dict
+    stehen — und Alias-Namen würden groß-geschrieben zu erlaubten Spalten.
+    None, wenn keiner gesetzt oder der Wert kein String ist.
+    """
+    a = fields.pop(primary, None)
+    b = fields.pop(fallback, None)
+    val = a if a else b
+    return str(val) if val and isinstance(val, str) else None
+
+
 def _clamp_limit(limit: int) -> int:
     """Coerce a tool-supplied ``limit`` to a safe integer for ``SELECT FIRST``.
 
@@ -379,6 +420,9 @@ class EpimDatabase:
 
         self._con = fdb.connect(
             dsn=self._db_path,
+            # Firebird EMBEDDED ignoriert die Authentifizierung komplett
+            # (Zugriff = Dateirechte); SYSDBA/masterkey sind reine
+            # Platzhalter, keine echten Credentials.
             user="SYSDBA",
             password="masterkey",
             charset="UTF8",
@@ -388,12 +432,6 @@ class EpimDatabase:
         return self._con
 
     @_serialized
-    def close(self) -> None:
-        """Close database connection."""
-        if self._con is not None:
-            self._con.close()
-            self._con = None
-
     @_serialized
     def _get_contact_field_map(self) -> dict[int, str]:
         """Get combined default + custom contact field mapping.
@@ -485,6 +523,17 @@ class EpimDatabase:
         cur.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? AND STATUS = 0", (entity_id,))
         return cur.fetchone() is not None
 
+    def _contact_name_to_id(self) -> dict[str, int]:
+        """Invertierte Kontakt-Feldmap (Name → ID) — SSOT für create/update."""
+        return {v: k for k, v in self._get_contact_field_map().items()}
+
+    @staticmethod
+    def _password_field_map(cur: Any) -> dict[str, int]:
+        """Passwort-Feldmap (Name → ID) aus PASSENTRYFIELDS — SSOT für
+        create_password und update_password."""
+        cur.execute("SELECT IDFIELD, NAME FROM PASSENTRYFIELDS WHERE ENABLED = 1")
+        return {r[1].strip(): r[0] for r in cur.fetchall() if r[1]}
+
     def _read_fieldsdata_for_update(self, cur: Any, table: str, id_col: str, entity_id: int) -> str:
         """Return the existing FIELDSDATA of a row, for a read-modify-write merge.
 
@@ -563,9 +612,6 @@ class EpimDatabase:
         title: Optional[str] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
-        location: Optional[str] = None,
-        tags: Optional[str] = None,
-        category: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
         """Search calendar tasks/events."""
@@ -595,19 +641,6 @@ class EpimDatabase:
                 dt = f"{dt} 23:59:59"
             conditions.append("t.STARTTIME <= ?")
             params.append(dt)
-        if location:
-            conditions.append("UPPER(t.LOCATION) LIKE UPPER(?) ESCAPE '\\'")
-            params.append(_like_pattern(location))
-        if tags:
-            conditions.append("UPPER(t.TAGS) LIKE UPPER(?) ESCAPE '\\'")
-            params.append(_like_pattern(tags))
-        if category:
-            conditions.append(
-                "t.CATEGORY IN (SELECT IDCATEGORY FROM CATEGORIES "
-                "WHERE UPPER(NAME) LIKE UPPER(?) ESCAPE '\\')"
-            )
-            params.append(_like_pattern(category))
-
         where = " AND ".join(conditions)
         sql = (
             f"SELECT FIRST {_clamp_limit(limit)} t.IDTASK, t.TITLE, t.STARTTIME, t.ENDTIME, "
@@ -683,10 +716,7 @@ class EpimDatabase:
             if calendar_id is None:
                 raise ValueError(f"Unknown calendar: {calendar_name!r}")
 
-        # Sanitize priority (LLMs sometimes send "high"/"low" instead of int)
-        if isinstance(priority, str):
-            priority_map = {"low": 1, "medium": 5, "high": 9, "none": 0}
-            priority = priority_map.get(priority.lower(), 0)
+        priority = _as_priority(priority)
 
         # Generate ID
         new_id = self._generate_id()
@@ -723,24 +753,27 @@ class EpimDatabase:
         # `fields`, and "category"/"calendar" upper-case to allowed columns, so
         # the raw name string would be written into the integer FK column.
         if "category" in fields or "category_name" in fields:
-            _cat_a = fields.pop("category_name", None)
-            _cat_b = fields.pop("category", None)
-            cat_name = _cat_a if _cat_a else _cat_b
-            if cat_name and isinstance(cat_name, str):
-                cat_id = self.resolve_category(str(cat_name))
+            cat_name = _pop_alias(fields, "category_name", "category")
+            if cat_name:
+                cat_id = self.resolve_category(cat_name)
                 if cat_id is None:
                     # Fail-loud statt Feld still weglassen
                     raise ValueError(f"Unknown category: {cat_name!r}")
                 fields["CATEGORY"] = cat_id
         if "calendar" in fields or "calendar_name" in fields:
-            _cal_a = fields.pop("calendar_name", None)
-            _cal_b = fields.pop("calendar", None)
-            cal_name = _cal_a if _cal_a else _cal_b
-            if cal_name and isinstance(cal_name, str):
-                cal_id = self.resolve_calendar(str(cal_name))
+            cal_name = _pop_alias(fields, "calendar_name", "calendar")
+            if cal_name:
+                cal_id = self.resolve_calendar(cal_name)
                 if cal_id is None:
                     raise ValueError(f"Unknown calendar: {cal_name!r}")
                 fields["CALENDAR"] = cal_id
+
+        # Gleiche Sanitisierung wie create_task — der Update-Pfad schrieb
+        # LLM-Strings ("false", "high") sonst roh in die Integer-Spalten.
+        if "ALLDAY" in fields:
+            fields["ALLDAY"] = 1 if _as_bool(fields["ALLDAY"]) else 0
+        if "PRIORITY" in fields:
+            fields["PRIORITY"] = _as_priority(fields["PRIORITY"])
 
         updated: bool = self._update_row("TASKS", "IDTASK", task_id, fields, _TASK_UPDATE_COLUMNS)
         return updated
@@ -778,10 +811,9 @@ class EpimDatabase:
     def search_contacts(
         self,
         name: Optional[str] = None,
-        tags: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
-        """Search contacts by name or tags."""
+        """Search contacts by name."""
         con = self._connect()
         cur = con.cursor()
 
@@ -791,9 +823,6 @@ class EpimDatabase:
         if name:
             conditions.append("UPPER(SUBJECT) LIKE UPPER(?) ESCAPE '\\'")
             params.append(_like_pattern(name))
-        if tags:
-            conditions.append("UPPER(TAGS) LIKE UPPER(?) ESCAPE '\\'")
-            params.append(_like_pattern(tags))
 
         where = " AND ".join(conditions)
         cur.execute(
@@ -813,11 +842,9 @@ class EpimDatabase:
                 "created": row[5],
                 "last_changed": row[6],
             }
-            # Decode fieldsdata
-            raw = row[2] or ""
-            if row[3]:  # FIELDSDATA2 (BLOB) overrides
-                raw = row[3]
-            contact["fields"] = decode_fieldsdata(raw, field_map)
+            contact["fields"] = decode_fieldsdata(
+                _effective_fieldsdata(row[2], row[3]), field_map
+            )
             results.append(contact)
         return results
 
@@ -836,16 +863,15 @@ class EpimDatabase:
         if not row:
             return None
         field_map = self._get_contact_field_map()
-        raw = row[2] or ""
-        if row[3]:
-            raw = row[3]
         return {
             "id": row[0],
             "name": row[1],
             "tags": row[4],
             "created": row[5],
             "last_changed": row[6],
-            "fields": decode_fieldsdata(raw, field_map),
+            "fields": decode_fieldsdata(
+                _effective_fieldsdata(row[2], row[3]), field_map
+            ),
         }
 
     @_serialized
@@ -858,8 +884,7 @@ class EpimDatabase:
 
         fieldsdata = ""
         if fields:
-            name_to_id = {v: k for k, v in self._get_contact_field_map().items()}
-            fieldsdata = encode_fieldsdata(fields, name_to_id)
+            fieldsdata = encode_fieldsdata(fields, self._contact_name_to_id())
 
         now = datetime.now()
         cur.execute(
@@ -888,8 +913,9 @@ class EpimDatabase:
             existing_raw = self._read_fieldsdata_for_update(
                 cur, "CONTACTS", "IDCONTACT", contact_id
             )
-            name_to_id = {v: k for k, v in self._get_contact_field_map().items()}
-            updates["FIELDSDATA"] = merge_fieldsdata(existing_raw, fields, name_to_id)
+            updates["FIELDSDATA"] = merge_fieldsdata(
+                existing_raw, fields, self._contact_name_to_id()
+            )
         if tags is not None:
             updates["TAGS"] = tags
 
@@ -1110,7 +1136,6 @@ class EpimDatabase:
         self,
         title: Optional[str] = None,
         completed: Optional[bool] = None,
-        list_name: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
         """Search todo items."""
@@ -1128,12 +1153,6 @@ class EpimDatabase:
                 conditions.append("t.COMPLETION = 100")
             else:
                 conditions.append("(t.COMPLETION < 100 OR t.COMPLETION IS NULL)")
-        if list_name:
-            conditions.append(
-                "t.IDLIST IN (SELECT IDTODOLIST FROM TODOLISTS "
-                "WHERE UPPER(NAME) LIKE UPPER(?) ESCAPE '\\')"
-            )
-            params.append(_like_pattern(list_name))
 
         where = " AND ".join(conditions)
         cur.execute(
@@ -1205,14 +1224,15 @@ class EpimDatabase:
         # (Short-circuit ließe den zweiten Key stehen — gleiches Muster wie
         # in update_task dokumentiert); nicht auflösbar → fail-loud.
         if "list" in fields or "list_name" in fields:
-            _lst_a = fields.pop("list_name", None)
-            _lst_b = fields.pop("list", None)
-            list_name = _lst_a if _lst_a else _lst_b
-            if list_name and isinstance(list_name, str):
-                list_id = self.resolve_todolist(str(list_name))
+            list_name = _pop_alias(fields, "list_name", "list")
+            if list_name:
+                list_id = self.resolve_todolist(list_name)
                 if list_id is None:
                     raise ValueError(f"Unknown todo list: {list_name!r}")
                 fields["IDLIST"] = list_id
+
+        if "PRIORITY" in fields:
+            fields["PRIORITY"] = _as_priority(fields["PRIORITY"])
 
         updated: bool = self._update_row("TODOS", "IDTODO", todo_id, fields, _TODO_UPDATE_COLUMNS)
         return updated
@@ -1267,9 +1287,7 @@ class EpimDatabase:
 
         fieldsdata = ""
         if fields:
-            cur.execute("SELECT IDFIELD, NAME FROM PASSENTRYFIELDS WHERE ENABLED = 1")
-            pw_name_to_id = {r[1].strip(): r[0] for r in cur.fetchall() if r[1]}
-            fieldsdata = encode_fieldsdata(fields, pw_name_to_id)
+            fieldsdata = encode_fieldsdata(fields, self._password_field_map(cur))
 
         parent_id = group_id or 0
         now = datetime.now()
@@ -1300,9 +1318,9 @@ class EpimDatabase:
             existing_raw = self._read_fieldsdata_for_update(
                 cur, "PASSENTRIES", "IDPASSENTRY", entry_id
             )
-            cur.execute("SELECT IDFIELD, NAME FROM PASSENTRYFIELDS WHERE ENABLED = 1")
-            pw_name_to_id = {r[1].strip(): r[0] for r in cur.fetchall() if r[1]}
-            updates["FIELDSDATA"] = merge_fieldsdata(existing_raw, fields, pw_name_to_id)
+            updates["FIELDSDATA"] = merge_fieldsdata(
+                existing_raw, fields, self._password_field_map(cur)
+            )
         if tags is not None:
             updates["TAGS"] = tags
 
