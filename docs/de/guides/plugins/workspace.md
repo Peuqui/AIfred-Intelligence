@@ -28,7 +28,6 @@ Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Ver
 | `search_documents` | Indexierte Dokumente semantisch durchsuchen (Ordner-Filter, Pagination, MMR) | READONLY |
 | `list_indexed` | Alle indexierten Dokumente anzeigen | READONLY |
 | `list_orphaned` | Indexierte Dokumente anzeigen, deren Quelldatei auf der Platte fehlt | READONLY |
-| `delete_document` | Dokument aus Vektordatenbank + Platte entfernen | WRITE_SYSTEM |
 | `chromadb_stats` | Alle Collections mit Eintragsanzahl anzeigen | READONLY |
 | `chromadb_clear` | Alle Einträge einer Collection löschen | WRITE_SYSTEM |
 

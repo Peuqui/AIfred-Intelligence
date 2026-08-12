@@ -25,12 +25,11 @@ Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische 
 | `create_folder` | Unterordner anlegen | WRITE_DATA |
 | `copy_file` | Datei kopieren (serverseitig, binärsicher) | WRITE_DATA |
 | `move_file` | Datei/Ordner verschieben (Index folgt) | WRITE_DATA |
-| `delete_file` | Datei von der Platte löschen | WRITE_SYSTEM |
+| `delete_file` | Datei löschen (entfernt sie auch aus dem Index) | WRITE_SYSTEM |
 | `delete_folder` | Leeren Ordner löschen | WRITE_SYSTEM |
 | `index_document` | Datei in ChromaDB-Vektordatenbank einspeisen | WRITE_DATA |
 | `search_documents` | Indexierte Dokumente semantisch durchsuchen | READONLY |
 | `list_indexed` | Alle indexierten Dokumente anzeigen | READONLY |
-| `delete_document` | Dokument aus Vektordatenbank entfernen | WRITE_SYSTEM |
 | `chromadb_stats` | Alle ChromaDB-Collections mit Eintragsanzahl anzeigen | READONLY |
 | `chromadb_clear` | Alle Einträge einer Collection löschen | WRITE_SYSTEM |
 
