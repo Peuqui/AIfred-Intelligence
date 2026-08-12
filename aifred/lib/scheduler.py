@@ -18,7 +18,7 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -273,7 +273,7 @@ def _calculate_next_run(schedule_type: str, schedule_expr: str, after: str) -> s
     if schedule_type == "interval":
         seconds = int(schedule_expr)
         base = datetime.fromisoformat(after)
-        next_dt = base + __import__("datetime").timedelta(seconds=seconds)
+        next_dt = base + timedelta(seconds=seconds)
         return str(next_dt.strftime("%Y-%m-%dT%H:%M:%S"))
 
     if schedule_type == "cron":
@@ -287,16 +287,14 @@ def _next_cron_run(cron_expr: str, after: str) -> str | None:
 
     Uses croniter if available, otherwise falls back to simple interval.
     """
+    # Fail-loud statt stillem 1h-Intervall-Fallback: croniter ist eine
+    # harte Abhängigkeit — ein Cron-Job, der heimlich stündlich statt zum
+    # konfigurierten Zeitpunkt läuft, wäre ein versteckter Fehler.
+    from croniter import croniter
     try:
-        from croniter import croniter
         base = datetime.fromisoformat(after)
         cron = croniter(cron_expr, base)
         next_dt = cron.get_next(datetime)
-        return str(next_dt.strftime("%Y-%m-%dT%H:%M:%S"))
-    except ImportError:
-        logger.warning("croniter not installed — cron jobs will use 1h fallback interval")
-        base = datetime.fromisoformat(after)
-        next_dt = base + __import__("datetime").timedelta(hours=1)
         return str(next_dt.strftime("%Y-%m-%dT%H:%M:%S"))
     except Exception as exc:
         logger.error("Invalid cron expression '%s': %s", cron_expr, exc)

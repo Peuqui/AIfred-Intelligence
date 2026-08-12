@@ -4,8 +4,8 @@ Counterpart to the translator's ``translate_file``: the document content
 never passes through the LLM context. The text is chunked at paragraph
 boundaries (``lib/text_chunking.py``, same SSOT as translate_file),
 each chunk is synthesized through the central ``generate_tts`` SSOT and
-the pieces are ffmpeg-concatenated into a single WAV in the documents
-tree. Typical pipeline: audio upload → Whisper transcript (workspace
+the pieces are ffmpeg-concatenated; das Ergebnis landet als MP3
+(Default; explizites ``.wav`` überspringt den Encode) im Documents-Baum. Typical pipeline: audio upload → Whisper transcript (workspace
 file) → translate_file → narrate_file.
 """
 
@@ -106,7 +106,7 @@ class NarratorPlugin:
     settings_event_name: str = "open_narrator_settings"
     description: str = (
         "Vertont Textdateien aus dem Dokumentenbaum zu einer einzelnen "
-        "Audio-Datei — satzweise über die lokale TTS-Engine, Ergebnis als "
+        "Audio-Datei — absatzweise über die lokale TTS-Engine, Ergebnis als "
         "MP3 neben der Quelldatei (handytauglich, '.wav' optional)."
     )
 
@@ -143,6 +143,12 @@ class NarratorPlugin:
             # Resolve engine/voice from the narrator settings (UI row in the
             # audio section) unless the caller passed them explicitly.
             engine, voice = _resolve_engine_and_voice(engine, voice)
+            # Unbekannte Engine sofort klar melden — ensure_engine_ready
+            # behandelt sie als "ready" und erst generate_tts scheiterte
+            # dann mit irreführendem "TTS failed at chunk 1/N".
+            from ....lib.tts_engines import get_engine
+            if get_engine(engine) is None:
+                return json.dumps({"error": f"Unknown TTS engine: {engine}"})
             conflict = _gpu_engine_conflict(engine)
             if conflict:
                 return json.dumps({"error": conflict})
@@ -227,6 +233,11 @@ class NarratorPlugin:
                 )
             else:
                 debug(f"🔊 narrate_file: {filename} → {total} chunks ({engine}, {voice})")
+
+            if not voiced_chunks:
+                # Datei besteht nur aus Sprecher-Markern ohne Text — sonst
+                # endete das später als irreführendes "ffmpeg concat failed".
+                return json.dumps({"error": "No narratable text in file (only speaker markers?)"})
 
             wav_urls: list[str] = []
             for i, (chunk_voice, chunk) in enumerate(voiced_chunks, 1):

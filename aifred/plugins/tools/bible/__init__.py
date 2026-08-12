@@ -26,9 +26,10 @@ from ....lib.logging_utils import log_message
 from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description
 from ....lib.security import TIER_READONLY
 from .reference import (
+    BIBLE_FOLDER,
+    BIBLE_ROOT,
     TRANSLATION_ENV_KEY,
     available_translations,
-    data_available,
     reload,
     resolve,
 )
@@ -77,7 +78,10 @@ class BiblePlugin:
         reload()
 
     def is_available(self) -> bool:
-        return data_available()
+        # Ordner-Check wie judaica: die thematische Vektor-Suche funktioniert
+        # auch ohne Übersetzungs-JSON; die Referenz-Auflösung degradiert
+        # dann sichtbar (Log in parse_reference).
+        return BIBLE_ROOT.is_dir()
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
 
@@ -93,7 +97,7 @@ class BiblePlugin:
             # to the bible folder. Reuses the shared document search (the
             # library function, not the search_documents tool).
             from ....lib import file_manager as fm
-            result = await fm.search_index(query, n_results=8, folder="bibel")
+            result = await fm.search_index(query, n_results=8, folder=BIBLE_FOLDER)
             if not result.success:
                 return json.dumps({"error": result.detail}, ensure_ascii=False)
             hits = result.metadata.get("results", [])

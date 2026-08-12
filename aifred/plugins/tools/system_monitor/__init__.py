@@ -1,8 +1,10 @@
 """System Monitor Plugin — CPU, RAM, GPU, Disk, Uptime."""
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ....lib.function_calling import Tool
@@ -35,11 +37,7 @@ class SystemMonitorPlugin:
                     uptime_out = subprocess.check_output(
                         ["uptime", "-p"], text=True, timeout=5
                     ).strip()
-                    load_out = subprocess.check_output(
-                        ["cat", "/proc/loadavg"], text=True, timeout=5
-                    ).strip()
-                    loads = load_out.split()
-                    import os
+                    loads = Path("/proc/loadavg").read_text().split()
                     result["uptime"] = uptime_out
                     result["cpu"] = {
                         "cores": os.cpu_count(),
@@ -126,8 +124,7 @@ class SystemMonitorPlugin:
                     sensors_out = subprocess.check_output(
                         ["sensors", "-j"], text=True, timeout=5
                     )
-                    import json as _json
-                    raw = _json.loads(sensors_out)
+                    raw = json.loads(sensors_out)
                     temps: dict[str, str] = {}
                     for chip, data in raw.items():
                         if not isinstance(data, dict):

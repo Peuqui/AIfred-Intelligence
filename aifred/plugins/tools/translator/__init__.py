@@ -149,6 +149,38 @@ def _protect_code_blocks(text: str) -> tuple[str, list[str]]:
     return "\n".join(out), blocks
 
 
+# Geteilte Parameter-Schemas beider Tools — eine Wahrheit statt verbatim
+# kopierter Descriptions.
+_TARGET_LANG_PARAM = {
+    "type": "string",
+    "description": "Target language code (e.g. 'EN', 'DE', 'FR', 'ES', 'JA')",
+}
+_SOURCE_LANG_PARAM = {
+    "type": "string",
+    "description": "Source language code (optional, auto-detected if omitted)",
+}
+
+
+def _formality_param() -> dict:
+    """Formality-Schema (enum aus DEEPL_FORMALITY_VALUES abgeleitet) —
+    identisch für translate und translate_file."""
+    return {
+        "type": "string",
+        "enum": sorted(DEEPL_FORMALITY_VALUES),
+        "description": (
+            "Form of address / tone, for languages that "
+            "distinguish it (DE, FR, ES, IT, NL, PL, PT, JA, RU). "
+            "'prefer_less' = informal (German 'du') — the default, "
+            "right for documentation, chat and private messages. "
+            "'prefer_more' = formal (German 'Sie') — use for "
+            "business or official correspondence, legal and "
+            "customer-facing texts. 'default' leaves the choice to "
+            "DeepL. Pick it from the target audience of the text; "
+            "if the user states a preference, follow that."
+        ),
+    }
+
+
 def _validate_request(target_lang: str, formality: str) -> tuple[str, str, str, "str | None"]:
     """Gemeinsame Request-Validierung für translate UND translate_file (SSOT):
     API-Key, Zielsprache, Formality.
@@ -413,18 +445,8 @@ class TranslatorPlugin:
                             "type": "string",
                             "description": "The text to translate",
                         },
-                        "target_lang": {
-                            "type": "string",
-                            "description": (
-                                "Target language code (e.g. 'EN', 'DE', 'FR', 'ES', 'JA')"
-                            ),
-                        },
-                        "source_lang": {
-                            "type": "string",
-                            "description": (
-                                "Source language code (optional, auto-detected if omitted)"
-                            ),
-                        },
+                        "target_lang": _TARGET_LANG_PARAM,
+                        "source_lang": _SOURCE_LANG_PARAM,
                         "context": {
                             "type": "string",
                             "description": (
@@ -434,21 +456,7 @@ class TranslatorPlugin:
                                 "neighbouring text or a short topic description."
                             ),
                         },
-                        "formality": {
-                            "type": "string",
-                            "enum": sorted(DEEPL_FORMALITY_VALUES),
-                            "description": (
-                                "Form of address / tone, for languages that "
-                                "distinguish it (DE, FR, ES, IT, NL, PL, PT, JA, RU). "
-                                "'prefer_less' = informal (German 'du') — the default, "
-                                "right for documentation, chat and private messages. "
-                                "'prefer_more' = formal (German 'Sie') — use for "
-                                "business or official correspondence, legal and "
-                                "customer-facing texts. 'default' leaves the choice to "
-                                "DeepL. Pick it from the target audience of the text; "
-                                "if the user states a preference, follow that."
-                            ),
-                        },
+                        "formality": _formality_param(),
                     },
                     "required": ["text", "target_lang"],
                 },
@@ -474,12 +482,7 @@ class TranslatorPlugin:
                                 "first if you are unsure of the path."
                             ),
                         },
-                        "target_lang": {
-                            "type": "string",
-                            "description": (
-                                "Target language code (e.g. 'EN', 'DE', 'FR', 'ES', 'JA')"
-                            ),
-                        },
+                        "target_lang": _TARGET_LANG_PARAM,
                         "output_filename": {
                             "type": "string",
                             "description": (
@@ -487,21 +490,8 @@ class TranslatorPlugin:
                                 "'<name>-<LANG>.<ext>' (e.g. 'deployment-DE.md')."
                             ),
                         },
-                        "source_lang": {
-                            "type": "string",
-                            "description": (
-                                "Source language code (optional, auto-detected if omitted)"
-                            ),
-                        },
-                        "formality": {
-                            "type": "string",
-                            "enum": sorted(DEEPL_FORMALITY_VALUES),
-                            "description": (
-                                "Same as for 'translate': 'prefer_less' = informal "
-                                "(German 'du', the default, for documentation and "
-                                "chat), 'prefer_more' = formal (German 'Sie')."
-                            ),
-                        },
+                        "source_lang": _SOURCE_LANG_PARAM,
+                        "formality": _formality_param(),
                     },
                     "required": ["filename", "target_lang"],
                 },

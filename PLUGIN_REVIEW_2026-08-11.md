@@ -536,84 +536,84 @@ eigenständige, atomare, modulare Gebilde.
 - [x] `_PLUGIN_DIR`-Block 4× identisch inkl. Kommentar → `_common.py`.
 - [x] `__init__.py:145-172` — status_map = dritte handgepflegte Liste aller
   26 Tool-Namen → i18n-Key aus Tool-Namen ableiten.
-- [ ] Hartcodierte deutsche Strings: `calendar/tools.py:55` „(kein Titel)";
+- [x] (erledigt bis auf Options-Labels „Aktiviert/Deaktiviert" — brauchen UI-Support für i18n-Options, BELASSEN) Hartcodierte deutsche Strings: `calendar/tools.py:55` „(kein Titel)";
   `_common.py:8` RuntimeError; `contacts/tools.py:67` ValueError;
   `drive/tools.py:67-69` RuntimeError; `__init__.py:84-105` „Aktiviert"/
   „Deaktiviert"-Options-Labels (i18n.json existiert).
-- [ ] `drive/tools.py:68` — MB-Zahl ohne `format_number` in User-facing Meldung.
+- [x] (EN-Text, ganzzahliges MB — locale-neutral) `drive/tools.py:68` — MB-Zahl ohne `format_number` in User-facing Meldung.
 - [x] `contacts/tools.py:124,155` — keine Clamps auf Google-Limits
   (batchGet max 200, searchContacts pageSize max 30) → HTTP 400 statt sauberer
   Begrenzung.
-- [ ] Kleinkram: `__init__.py:54-60` `_translate` liest i18n.json bei jedem
+- [x] Kleinkram: `__init__.py:54-60` `_translate` liest i18n.json bei jedem
   Aufruf neu; `drive/tools.py:162-163` `meta.json()` doppelt geparst;
   `calendar/tools.py:109-135` zwei AsyncClients wo einer reicht.
 
 ### C-translator
-- [ ] `__init__.py:408-419` vs. `:468-486` + `:429-443` vs. `:487-495` —
+- [x] `__init__.py:408-419` vs. `:468-486` + `:429-443` vs. `:487-495` —
   Parameter-Schema-Descriptions (target_lang/source_lang/formality) verbatim
   doppelt → Modul-Konstanten.
-- [ ] Kein `prompts/de|en/` (nur tools/) — Anleitung lebt allein in den
+- [x] BELASSEN (etablierte Konvention für Kleinst-Plugins; Descriptions reichen) Kein `prompts/de|en/` (nur tools/) — Anleitung lebt allein in den
   Descriptions. ⚠️ Konvention für Kleinst-Plugins ok so? (calculator, narrator,
   research gleich.)
 
 ### C-narrator
-- [ ] `__init__.py:145-148,207-212` vs. `:171-173,301-303` — unbekannter
+- [x] `__init__.py:145-148,207-212` vs. `:171-173,301-303` — unbekannter
   Engine-Key nur in 2 von 3 Pfaden abgefangen; Single-Voice-Pfad liefert
   irreführendes „TTS failed at chunk 1/N" statt „Unknown TTS engine".
-- [ ] `__init__.py:6-8` — Modul-Docstring sagt „single WAV", Default ist MP3;
+- [x] `__init__.py:6-8` — Modul-Docstring sagt „single WAV", Default ist MP3;
   `:107-110` description sagt „satzweise", Code chunkt absatzweise.
-- [ ] `__init__.py:216-254` — Datei nur aus Sprecher-Markern ohne Text →
+- [x] `__init__.py:216-254` — Datei nur aus Sprecher-Markern ohne Text →
   Fehlermeldung „ffmpeg concat failed" statt Ursache (leere Segmentliste vorher
   abfangen).
 
 ### C-bible / C-judaica
-- [ ] `bible/reference.py:71-78` — `_active_bible_path`: fehlende konfigurierte
+- [x] `bible/reference.py:71-78` — `_active_bible_path`: fehlende konfigurierte
   Übersetzung → still erste verfügbare (andere Übersetzung ohne Hinweis) —
   mindestens Log-Zeile.
-- [ ] `bible/__init__.py:96` vs. `reference.py:41` — Ordnername `"bibel"` als
+- [x] `bible/__init__.py:96` vs. `reference.py:41` — Ordnername `"bibel"` als
   Literal doppelt → Konstante (judaica macht es mit `_JUDAICA_FOLDER` vor).
-- [ ] `judaica/__init__.py:34` vs. `reference.py:31` — `_JUDAICA_DIR` doppelt
+- [x] `judaica/__init__.py:34` vs. `reference.py:31` — `_JUDAICA_DIR` doppelt
   definiert.
-- [ ] `judaica/reference.py:145` vs. `:167` — `section_type` aus zwei Quellen
+- [x] `judaica/reference.py:145` vs. `:167` — `section_type` aus zwei Quellen
   (_index.json vs. Werk-JSON) — eine Quelle wählen.
-- [ ] `judaica/reference.py:177` vs. `:184-188` — `sorted(key=int)` (wirft) vs.
+- [x] `judaica/reference.py:177` vs. `:184-188` — `sorted(key=int)` (wirft) vs.
   `isdigit()`-Filter (defensiv) — eine Strategie.
-- [ ] ⚠️ Verfügbarkeits-Semantik der Geschwister angleichen: judaica degradiert
+- [x] ⚠️ ENTSCHIEDEN (beide wie judaica: Ordner-Check + sichtbare Degradation mit Log) Verfügbarkeits-Semantik der Geschwister angleichen: judaica degradiert
   bei fehlender `_index.json` still zur thematischen Suche (reference.py:129,
   kein Log), bible schaltet ohne Struktur-JSON komplett ab (`__init__.py:80`).
   Welche Semantik soll gelten? (Jeweils plugin-lokal umsetzen.)
 
 ### C-scheduler_tool
-- [ ] `__init__.py:209-216` — get_ui_status hartcodierte EN-Strings statt
+- [x] `__init__.py:209-216` — get_ui_status hartcodierte EN-Strings statt
   `t(...)` (research/sandbox machen es vor).
-- [ ] `__init__.py:47-48` — `schedule_type` dreifach validiert (Executor +
+- [x] `__init__.py:47-48` — `schedule_type` dreifach validiert (Executor +
   Schema-Enum + SQLite-CHECK); `delivery` dagegen nur Schema — Validierungstiefe
   vereinheitlichen.
 
 ### C-system_monitor
-- [ ] `__init__.py:129,42` — `import json as _json` / `import os` lokal trotz
+- [x] `__init__.py:129,42` — `import json as _json` / `import os` lokal trotz
   Modul-Import — aufräumen.
-- [ ] `__init__.py:38-40` — `subprocess cat /proc/loadavg` →
+- [x] `__init__.py:38-40` — `subprocess cat /proc/loadavg` →
   `Path("/proc/loadavg").read_text()`.
 
 ### C-calculator
-- [ ] `__init__.py` — Randnotiz: `bool` ist int-Subklasse (`True + 1` wird
+- [x] `__init__.py` — Randnotiz: `bool` ist int-Subklasse (`True + 1` wird
   ausgewertet) — bei Gelegenheit `type(x) in (int, float)` statt isinstance.
 
 ### C-research / C-sandbox
-- [ ] research `__init__.py:40` — Ellipse auch bei Queries < 60 Zeichen —
+- [x] research `__init__.py:40` — Ellipse auch bei Queries < 60 Zeichen —
   konditional (wie translator:512).
-- [ ] sandbox `__init__.py:30` — get_ui_status kennt `render_html` nicht
+- [x] sandbox `__init__.py:30` — get_ui_status kennt `render_html` nicht
   (drittes Tool aus `get_sandbox_tools`).
-- [ ] sandbox `prompts/de|en/` — kein `_intro`, kein Fragment für
+- [x] (execute_code-Basisfragment DE/EN angelegt; _intro weiterhin bewusst keins) sandbox `prompts/de|en/` — kein `_intro`, kein Fragment für
   `execute_code` allein; `execute_code_write` in keinem Fragment-Namen. Agent
   mit nur execute_code bekäme null Anleitung (latent — aktuelle Agenten haben
   alle drei Tools).
-- [ ] ⚠️ Architektur-Notiz research/sandbox: Anleitungen leben im globalen
+- [ ] ⚠️ OFFEN (eigenes Paket: prompt_loader müsste tool_instructions nach granted_tools filtern) Architektur-Notiz research/sandbox: Anleitungen leben im globalen
   `tool_instructions.txt` und sind NICHT über granted_tools gegated — Agent
   ohne web_search bekommt web_search-Anweisungen trotzdem
   (prompt_loader.py:760-764). Umbau = Entscheidung.
-- [ ] `lib/sandbox_tools.py:53` — Docstring „low-tier contexts only see
+- [x] `lib/sandbox_tools.py:53` — Docstring „low-tier contexts only see
   execute_code" falsch (execute_code ist selbst Tier 2; Tier 0/1 sieht kein
   Sandbox-Tool) — Kommentar korrigieren.
 
@@ -623,16 +623,16 @@ eigenständige, atomare, modulare Gebilde.
   `prompts/shared/document_tools.txt` werden NIRGENDS geladen (repo-weiter
   Grep, kein `load_prompt`-Aufrufer) — tote Legacy-Dateien, inhaltlich
   Duplikate des workspace-`_intro`. Löschen nach Freigabe.
-- [ ] `plugins/__init__.py` — Docstring verweist auf nicht existierende Module
+- [x] `plugins/__init__.py` — Docstring verweist auf nicht existierende Module
   `aifred.plugins.registry`/`aifred.plugins.base` (real:
   `aifred.lib.plugin_registry`/`plugin_base`).
-- [ ] `get_prompt_instructions`-Boilerplate 13× wortgleich in allen
+- [x] BELASSEN (ToolPlugin ist Protocol ohne Basisklasse — Mixin-Umbau aller 13 Plugins lohnt die 4 Zeilen nicht) `get_prompt_instructions`-Boilerplate 13× wortgleich in allen
   Tool-Plugins — ⚠️ Default in plugin_base (lib = erlaubt) oder Konvention
   belassen?
-- [ ] `lib/scheduler.py:296-300` — croniter-ImportError → stiller
+- [x] `lib/scheduler.py:296-300` — croniter-ImportError → stiller
   1h-Intervall-Fallback (derzeit schlafend, croniter installiert) — fail-loud
   machen.
-- [ ] `lib/scheduler.py:276,299` — `__import__("datetime").timedelta` trotz
+- [x] `lib/scheduler.py:276,299` — `__import__("datetime").timedelta` trotz
   Top-Level-Import — aufräumen.
 
 ---
@@ -686,7 +686,7 @@ lib-Helper — nie ein Import zwischen Plugins.
   doppelte Engine/Voice-Auflösung narrator↔`_tts_config_mixin` und
   freeecho2-`_run_tts`↔`_resolve_agent_tts` (settings-dict als Input, damit
   Browser- und Channel-Pfad denselben Helper nutzen).
-- [ ] ⚠️ **`get_prompt_instructions`-Default in plugin_base**: 13× wortgleiche
+- [x] BELASSEN (siehe C-Infrastruktur) ⚠️ **`get_prompt_instructions`-Default in plugin_base**: 13× wortgleiche
   Boilerplate — Default-Implementierung in lib oder Konvention belassen?
 
 **Offen (User-Entscheidung ausstehend):**

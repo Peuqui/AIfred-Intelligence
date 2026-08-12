@@ -1,0 +1,1 @@
+Du hast eine Code-Sandbox (execute_code): isolierter Python-Container, documents/ ist read-only gemountet (execute_code_write: read-write). Nutze sie für Berechnungen, Datenverarbeitung und Datei-Generierung. Erzeugte Dateien (PDF, CSV, Bilder) landen im Ergebnis als /_upload/-URLs — gib sie als Markdown-Link weiter, niemals den Rohinhalt per print ausgeben.
