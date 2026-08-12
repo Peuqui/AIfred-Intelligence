@@ -35,6 +35,9 @@ from pathlib import Path
 from typing import Optional
 
 from ....lib.config import DATA_DIR
+# Normalisierung + Alias-Flexibilisierung: lib-SSOT, geteilt mit judaica
+# (Option-2-Entscheidung — nur diese Primitiva, Rest bleibt plugin-lokal).
+from ....lib.reference_lookup import flex_alias, normalize_name
 
 # Root of all Bible translations — one sub-folder per translation, each
 # holding the structured *.json built by scripts/build_bible.py.
@@ -87,27 +90,6 @@ def _active_bible_path() -> Optional[Path]:
         if jsons:
             return jsons[0]
     return None
-
-
-def _norm(name: str) -> str:
-    """Normalize a book name for alias lookup: lowercase, no dots/spaces."""
-    return re.sub(r"[.\s]", "", name).lower()
-
-
-def _flex(alias: str) -> str:
-    """Regex fragment matching an alias tolerant of its dots/spaces.
-
-    ``re.escape`` escapes the space to ``\\ ``, so the escaped form is
-    what gets replaced — not a bare space. Kompakte Ziffer-Aliasse
-    ("2Tim", "1Kor") erlauben nach der führenden Ziffer zusätzlich
-    optionalen Punkt/Whitespace — sonst matchen gängige Zitierformen
-    wie "2 Tim 1,7" oder "1. Kor 13" nie und fallen still in die
-    unscharfe thematische Suche.
-    """
-    body = re.escape(alias).replace(r"\.", r"\.?").replace(r"\ ", r"\s*")
-    if len(alias) > 1 and alias[0].isdigit() and alias[1] not in " .":
-        body = body[0] + r"\.?\s*" + body[1:]
-    return body
 
 
 @functools.lru_cache(maxsize=1)
@@ -169,7 +151,7 @@ def _book_forms() -> dict[int, list[str]]:
 def _alias_to_nr() -> dict[str, int]:
     """Normalized recognition form -> book nr."""
     return {
-        _norm(form): nr
+        normalize_name(form): nr
         for nr, forms in _book_forms().items()
         for form in forms
     }
@@ -180,7 +162,7 @@ def _pattern() -> re.Pattern:
     """Compiled reference regex: <book> <chapter>[,<verse>[-<verse>]]."""
     forms = [f for fs in _book_forms().values() for f in fs]
     forms.sort(key=len, reverse=True)  # "1. Johannes" must beat "Johannes"
-    book_alt = "|".join(_flex(f) for f in forms)
+    book_alt = "|".join(flex_alias(f) for f in forms)
     return re.compile(
         rf"\b(?P<book>{book_alt})\.?\s+(?P<ch>\d+)"
         rf"(?:\s*[,:]\s*(?P<v1>\d+)(?:\s*[-–]\s*(?P<v2>\d+))?)?",
@@ -229,7 +211,7 @@ def parse_reference(text: str) -> Optional[BibleReference]:
     m = _pattern().search(text)
     if not m:
         return None
-    nr = _alias_to_nr().get(_norm(m.group("book")))
+    nr = _alias_to_nr().get(normalize_name(m.group("book")))
     if nr is None:
         return None
     chapter = int(m.group("ch"))
