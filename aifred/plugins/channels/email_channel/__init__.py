@@ -431,7 +431,8 @@ class EmailChannel(BaseChannel):
             self._update_checkpoint(uid)
             return
         self.channel_log(f"Email Plugin: new mail from {inbound.sender} — {inbound.metadata.get('subject', '?')}")
-        await _dispatch_inbound(inbound)
+        from ....lib.message_processor import dispatch_inbound
+        await dispatch_inbound(inbound, "Email Plugin")
         self._update_checkpoint(uid)
 
     def _quarantine_uid(self, imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
@@ -733,20 +734,6 @@ def _drain_idle_response(imap: imaplib.IMAP4_SSL, tag: bytes) -> None:
         line = imap.readline()
         if line.startswith(tag):
             return
-
-
-async def _dispatch_inbound(message: "InboundMessage") -> None:
-    """Hand an inbound message to the message processor."""
-    from ....lib.message_processor import process_inbound
-
-    outbound = await process_inbound(message)
-
-    if outbound:
-        log_message(
-            f"Email Plugin: processed — reply "
-            f"{'sent' if outbound.metadata.get('sent') else 'ready'} "
-            f"for {outbound.recipient}"
-        )
 
 
 # Module-level instance — discovered by registry

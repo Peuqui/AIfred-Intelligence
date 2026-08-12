@@ -225,7 +225,8 @@ class TelegramChannel(BaseChannel):
             if update.effective_chat is not None:
                 _msglog_add(update.effective_chat.id, update.message.message_id)
             _log(f"Telegram Plugin: message from {user.first_name} ({user.id})")
-            await _dispatch_inbound(inbound)
+            from ....lib.message_processor import dispatch_inbound
+            await dispatch_inbound(inbound, "Telegram Plugin")
 
         app.add_handler(CommandHandler("clear", _cmd_clear))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_message))
@@ -284,7 +285,8 @@ class TelegramChannel(BaseChannel):
         exactly one place. ``text`` is already formatted by the caller."""
         from ....lib.vision_utils import is_image_file
 
-        local = _local_photo_path(media)
+        from ....lib.vision_utils import local_media_path
+        local = local_media_path(media)
         url = _photo_url(media)
         if media and not local and not url:
             # Kein stiller Attachment-Drop: der Pfad existiert nicht (mehr) —
@@ -454,13 +456,6 @@ class TelegramChannel(BaseChannel):
 
 # ── Helpers ──────────────────────────────────────────────────
 
-def _local_photo_path(media: "str | None") -> "str | None":
-    """Local file path if ``media`` points at an existing file, else None."""
-    if not media or media.startswith(("http://", "https://")):
-        return None
-    return media if pathlib.Path(media).exists() else None
-
-
 def _photo_url(media: "str | None") -> "str | None":
     """``media`` if it is an http(s) URL Telegram can fetch, else None."""
     return media if media and media.startswith(("http://", "https://")) else None
@@ -477,31 +472,11 @@ def _owner_chat_id() -> "int | None":
 
 
 def _is_user_allowed(user_id: int) -> bool:
-    """Check if a Telegram user ID is in the whitelist.
-
-    Empty whitelist = nobody allowed (safe default).
-    TD8: the "*" wildcard is NOT supported (anymore) — a world-open bot
-    lets anyone burn GPU inference. Explicit user ids only; the id of a
-    blocked sender shows up in the log, so onboarding someone is
-    "let them message the bot once, copy the id from the log".
-    """
-    whitelist_raw = broker.get("telegram", "allowed_users").strip()
-
-    if not whitelist_raw:
-        return False
-    if whitelist_raw == "*":
-        log_message(
-            "Telegram Plugin: '*' wildcard in allowed_users is no longer "
-            "supported (TD8) — list explicit user ids. Blocking everyone."
-        )
-        return False
-
-    allowed_ids = set()
-    for entry in whitelist_raw.split(","):
-        entry = entry.strip()
-        if entry.isdigit():
-            allowed_ids.add(int(entry))
-    return user_id in allowed_ids
+    """Telegram-Sender-Allowlist — Logik lebt als lib-SSOT in
+    ``security.is_sender_allowed`` (geteilt mit discord): leer = niemand
+    (fail-closed), '*' seit TD8 geblockt."""
+    from ....lib.security import is_sender_allowed
+    return is_sender_allowed("telegram", "allowed_users", user_id)
 
 
 def _build_inbound(update: "Update") -> "InboundMessage":
@@ -531,12 +506,6 @@ def _build_inbound(update: "Update") -> "InboundMessage":
             "chat_type": chat.type,
         },
     )
-
-
-async def _dispatch_inbound(message: "InboundMessage") -> None:
-    """Hand an inbound message to the message processor."""
-    from ....lib.message_processor import process_inbound
-    await process_inbound(message)
 
 
 # Module-level instance — discovered by registry

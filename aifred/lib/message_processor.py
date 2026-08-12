@@ -238,6 +238,20 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict]:
     return agent, intent, lang, mode_switch
 
 
+async def dispatch_inbound(message: InboundMessage, channel_label: str) -> None:
+    """Standard-Dispatch für Channel-Listener: ``process_inbound`` plus
+    einheitliches Ergebnis-Log (SSOT — existierte vorher als Kopie in
+    discord/email und verkürzt in telegram, das den Ausgang verschluckte).
+    """
+    outbound = await process_inbound(message)
+    if outbound:
+        log_message(
+            f"{channel_label}: processed — reply "
+            f"{'sent' if outbound.metadata.get('sent') else 'ready'} "
+            f"for {outbound.recipient}"
+        )
+
+
 async def process_inbound(message: InboundMessage, user_saved: bool = False) -> Optional[OutboundMessage]:
     """Process an inbound message through the full pipeline.
 

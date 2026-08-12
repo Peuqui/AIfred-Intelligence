@@ -18,7 +18,6 @@ Bible knowledge.
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from ....lib.function_calling import Tool
@@ -59,22 +58,16 @@ class BiblePlugin:
             ),
         ]
 
-    def _settings_path(self) -> Path:
-        return Path(__file__).parent / "settings.json"
-
     def _load_settings(self) -> dict:
-        """Load the plugin's settings.json (empty dict if none)."""
-        path = self._settings_path()
-        if not path.is_file():
-            return {}
-        with open(path, encoding="utf-8") as f:
-            return dict(json.load(f))
+        """Load the plugin's settings.json (lib-SSOT, geteilt mit google_suite)."""
+        from ....lib.plugin_base import load_plugin_settings
+        return load_plugin_settings(__file__)
 
     def _save_settings(self, settings: dict) -> None:
         """Persist the plugin's settings.json. The active translation
         may have changed, so the reference lookup's cache is dropped."""
-        with open(self._settings_path(), "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2, ensure_ascii=False)
+        from ....lib.plugin_base import save_plugin_settings
+        save_plugin_settings(__file__, settings)
         reload()
 
     def is_available(self) -> bool:

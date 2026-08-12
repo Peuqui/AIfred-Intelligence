@@ -6,24 +6,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aifred.plugins.channels.telegram_channel import _local_photo_path, _photo_url
+from aifred.lib.vision_utils import local_media_path
+from aifred.plugins.channels.telegram_channel import _photo_url
 
 
 class TestMediaResolution:
     def test_local_path_when_file_exists(self, tmp_path: Path):
         f = tmp_path / "frame.jpg"
         f.write_bytes(b"x")
-        assert _local_photo_path(str(f)) == str(f)
+        assert local_media_path(str(f)) == str(f)
         assert _photo_url(str(f)) is None
 
     def test_missing_local_path_is_none(self):
-        assert _local_photo_path("/nope/x.jpg") is None
+        assert local_media_path("/nope/x.jpg") is None
 
     def test_url_recognised(self):
         url = "https://example.com/x.jpg"
         assert _photo_url(url) == url
-        assert _local_photo_path(url) is None
+        assert local_media_path(url) is None
 
     def test_none_media(self):
-        assert _local_photo_path(None) is None
+        assert local_media_path(None) is None
         assert _photo_url(None) is None
