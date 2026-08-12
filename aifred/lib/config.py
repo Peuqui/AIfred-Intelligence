@@ -1395,6 +1395,9 @@ TOOL_OUTPUT_MIN_TOKENS = 2000          # floor — even on tight contexts the to
                                         # may still emit at least this much, otherwise
                                         # results would be useless
 DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
+# Extensions the workspace write_file tool may create/overwrite — text-based
+# formats only (write_text would corrupt binary formats)
+WORKSPACE_WRITE_EXTENSIONS = {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm"}
 
 # ============================================================
 # EPIM DATABASE CONFIGURATION

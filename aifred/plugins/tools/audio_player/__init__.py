@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from ....lib.function_calling import Tool
+from ....lib.logging_utils import log_message
 from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 
@@ -52,8 +53,14 @@ def _load_settings() -> dict[str, Any]:
     try:
         with open(_SETTINGS_PATH, encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
+        if not isinstance(data, dict):
+            log_message("audio_player: settings.json is not a JSON object — ignoring it", "warning")
+            return {}
+        return data
+    except (OSError, json.JSONDecodeError) as exc:
+        # Nicht still verschlucken: ohne settings.json fehlen Streams und
+        # Resume-Konfiguration — das muss im Log sichtbar sein.
+        log_message(f"audio_player: settings.json unreadable — {exc}", "warning")
         return {}
 
 
@@ -261,7 +268,6 @@ class AudioPlayerPlugin:
         async def _play_folder(
             folder: str,
             target: str | None = None,
-            restart: bool = False,
             shuffle: bool = False,
         ) -> str:
             from ....lib.audio_sources import ALLOWED_EXTENSIONS, build_source_map
@@ -386,10 +392,13 @@ class AudioPlayerPlugin:
                 })
 
             try:
+                # shuffle=False: die Liste ist oben bereits (einmal) gemischt —
+                # ein zweites Channel-Shuffle würde die zurückgegebene
+                # files-Preview von der echten Abspielreihenfolge entkoppeln.
                 result = await channel.play_queue(
                     queue_items, target_id, ctx,
                     audio_type=queue_audio_type,
-                    shuffle=shuffle,
+                    shuffle=False,
                 )
             except Exception as exc:  # noqa: BLE001
                 return json.dumps({
@@ -425,11 +434,6 @@ class AudioPlayerPlugin:
                     "target": {
                         "type": "string",
                         "description": "Output destination. Omit to auto-route to where the request came from (FreeEcho.2 wake → that FreeEcho.2; browser input → that tab).",
-                    },
-                    "restart": {
-                        "type": "boolean",
-                        "description": "Ignore saved position on the first item. Default: false.",
-                        "default": False,
                     },
                     "shuffle": {
                         "type": "boolean",
@@ -751,10 +755,15 @@ class AudioPlayerPlugin:
 
     def _tool_speed(self, ctx: PluginContext) -> Tool:
         async def _speed(factor: float, target: str | None = None) -> str:
+            # Gleiche Lücke wie bei seek/skip: json.loads akzeptiert
+            # NaN/Infinity, freeecho2 reicht roh an mpv-IPC durch.
+            value, err = _finite_seconds(factor, "factor")
+            if err:
+                return json.dumps({"success": False, "error": err})
             result = await self._dispatch_action(
-                ctx, "set_speed", target, factor=float(factor),
+                ctx, "set_speed", target, factor=value,
             )
-            result["speed"] = float(factor)
+            result["speed"] = value
             return json.dumps(result)
 
         return Tool(
@@ -1120,28 +1129,52 @@ class AudioPlayerPlugin:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
+        from ....lib.formatting import format_number
+        from ....lib.i18n import t
+
+        def _num(value: Any, decimals: int = 0) -> str:
+            # LLM-Args können Nicht-Zahlen sein; Status-Rendering darf nie werfen.
+            try:
+                return format_number(float(value), decimals, locale=lang)
+            except (TypeError, ValueError):
+                return str(value)
+
         if tool_name == "audio_play":
-            return f"Spiele: {tool_args.get('item', '?')}"
+            return t("tool_audio_play", lang=lang, item=tool_args.get("item", "?"))
+        if tool_name == "audio_play_folder":
+            return t("tool_audio_play_folder", lang=lang, folder=tool_args.get("folder", "?"))
         if tool_name == "audio_pause":
-            return "Pausiere..."
+            return t("tool_audio_pause", lang=lang)
         if tool_name == "audio_resume":
             it = tool_args.get("item")
-            return f"Setze fort: {it}" if it else "Setze fort..."
+            if it:
+                return t("tool_audio_resume_item", lang=lang, item=it)
+            return t("tool_audio_resume", lang=lang)
         if tool_name == "audio_stop":
-            return "Stoppe Audio..."
+            return t("tool_audio_stop", lang=lang)
         if tool_name == "audio_seek":
-            return f"Springe zu {tool_args.get('position_sec', '?')}s"
+            return t("tool_audio_seek", lang=lang, position=_num(tool_args.get("position_sec", 0)))
         if tool_name == "audio_skip":
             d = tool_args.get("delta_sec", 0)
-            # d may be a non-numeric string from the LLM; float() would raise and
-            # break status rendering (the caller has no try/except). Fail soft.
             try:
                 sign = "+" if float(d) >= 0 else ""
             except (TypeError, ValueError):
                 sign = ""
-            return f"Skip {sign}{d}s"
+            return t("tool_audio_skip", lang=lang, delta=f"{sign}{_num(d)}")
         if tool_name == "audio_speed":
-            return f"Geschwindigkeit: {tool_args.get('factor', '?')}×"
+            return t("tool_audio_speed", lang=lang, factor=_num(tool_args.get("factor", 1), 2))
+        if tool_name == "audio_status":
+            return t("tool_audio_status", lang=lang)
+        if tool_name == "audio_list":
+            return t("tool_audio_list", lang=lang)
+        if tool_name == "audio_search":
+            return t("tool_audio_search", lang=lang, query=str(tool_args.get("query", ""))[:50])
+        if tool_name == "audio_list_unfinished":
+            return t("tool_audio_list_unfinished", lang=lang)
+        if tool_name == "audio_targets":
+            return t("tool_audio_targets", lang=lang)
+        if tool_name == "audio_index_rebuild":
+            return t("tool_audio_index_rebuild", lang=lang)
         return ""
 
 

@@ -3,15 +3,19 @@ WORKSPACE — DATEIEN UND DOKUMENTE
 Du hast Zugriff auf das Dokumenten-Verzeichnis des Benutzers und eine Vektordatenbank (ChromaDB).
 
 DATEIEN (Festplatte):
-- list_files → Dateien im Dokumenten-Ordner auflisten
-- read_file → Datei lesen (PDFs seitenweise mit pages="1-5")
-- write_file → Textdatei schreiben oder bearbeiten (.txt, .md, .csv, .json)
+- list_files → Dateien und Ordner auflisten (zeigt auch, was indexiert ist)
+- read_file → Datei lesen (PDFs seitenweise mit pages="1-5", Textdateien mit line_start/line_end)
+- write_file → Textdatei schreiben oder bearbeiten (.txt, .md, .csv, .json, .xml, .html — HTML wird automatisch im Chat eingebettet)
+- create_folder → Ordner anlegen
+- copy_file / move_file / rename → Datei kopieren / verschieben / umbenennen
+- delete_file → Datei löschen (Festplatte + Vektordatenbank-Index)
+- delete_folder → Ordner löschen
 
 VEKTORDATENBANK (ChromaDB, semantische Suche):
 - search_documents → Indexierte Dokumente semantisch durchsuchen
 - list_indexed → Alle indexierten Dokumente anzeigen
 - index_document → Datei in die Vektordatenbank einspeisen
-- delete_file → Datei löschen (Festplatte + Vektordatenbank-Index)
+- list_orphaned → Index-Einträge finden, deren Datei nicht mehr auf der Festplatte liegt
 
 CHROMADB-VERWALTUNG:
 - chromadb_stats → Alle Collections mit Eintragsanzahl anzeigen

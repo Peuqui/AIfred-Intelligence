@@ -3,15 +3,19 @@ WORKSPACE — FILES AND DOCUMENTS
 You have access to the user's documents directory and a vector database (ChromaDB).
 
 FILES (disk):
-- list_files → List files in the documents folder
-- read_file → Read a file (PDFs page-by-page with pages="1-5")
-- write_file → Write or edit a text file (.txt, .md, .csv, .json)
+- list_files → List files and folders (also shows what is indexed)
+- read_file → Read a file (PDFs page-by-page with pages="1-5", text files with line_start/line_end)
+- write_file → Write or edit a text file (.txt, .md, .csv, .json, .xml, .html — HTML is automatically embedded in the chat)
+- create_folder → Create a folder
+- copy_file / move_file / rename → Copy / move / rename a file
+- delete_file → Delete a file (disk + vector database index)
+- delete_folder → Delete a folder
 
 VECTOR DATABASE (ChromaDB, semantic search):
 - search_documents → Search indexed documents semantically
 - list_indexed → Show all indexed documents
 - index_document → Index a file into the vector database
-- delete_file → Delete a file (disk + vector database index)
+- list_orphaned → Find index entries whose file no longer exists on disk
 
 CHROMADB MANAGEMENT:
 - chromadb_stats → Show all collections with entry counts

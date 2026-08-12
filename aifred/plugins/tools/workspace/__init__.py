@@ -13,7 +13,7 @@ from typing import Any, Optional
 from ....lib.config import (
     DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
     DOCUMENT_SEARCH_DISTANCE_STRONG, WORKSPACE_READ_MAX_BYTES,
-    CHROMA_HOST, CHROMA_PORT,
+    WORKSPACE_WRITE_EXTENSIONS, CHROMA_HOST, CHROMA_PORT,
 )
 from ....lib import file_manager as fm
 from ....lib.function_calling import Tool
@@ -22,14 +22,15 @@ from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
 
-# Base directory for all file operations (path traversal protection).
-# ALLE Pfade in Tool-Parametern und -Antworten sind relativ hierzu.
-_DOCUMENTS_DIR = DOCUMENTS_DIR
 
-
-def _safe_resolve(relative_path: str) -> tuple[Path | None, str | None]:
-    """Compatibility shim — delegates to the central file_manager.safe_resolve."""
-    return fm.safe_resolve(relative_path)
+def _chroma_client():  # type: ignore[no-untyped-def]
+    """Ein Konstruktor für beide ChromaDB-Admin-Tools (dateiinterne SSOT)."""
+    import chromadb
+    from chromadb.config import Settings
+    return chromadb.HttpClient(
+        host=CHROMA_HOST, port=CHROMA_PORT,
+        settings=Settings(anonymized_telemetry=False),
+    )
 
 
 @dataclass
@@ -50,43 +51,38 @@ class WorkspacePlugin:
 
         async def _list_files(subfolder: str = "") -> str:
             """List files in data/documents/ or a subfolder."""
-            if subfolder:
-                target, err = fm.safe_resolve(subfolder)
-                if err or target is None:
-                    return json.dumps({"error": "Access denied: path outside documents directory"})
-            else:
-                target = _DOCUMENTS_DIR.resolve()
-            if not target.exists():
-                return json.dumps({"error": f"Directory not found: {subfolder}"})
+            # SSOT: fm.list_directory (Hidden-Filter, is_dir-Check, Indexed-
+            # Status) — keine zweite iterdir()-Implementierung im Plugin.
+            result = fm.list_directory(subfolder)
+            if not result.success:
+                return json.dumps({"error": result.detail})
 
             # Pfad-Bezug ist IMMER die Dokumenten-Wurzel — genau das, was
-            # read_file/write_file/translate_file als Parameter erwarten.
-            # Vorher wurde relativ zu data/ gemeldet, also mit zusätzlichem
-            # "documents/" davor: Ein list_files(subfolder="documents")
-            # meldete "documents/documents", das Modell baute daraus
-            # "documents/documents/<datei>" und lief in Endlosschleifen
-            # aus File-not-found (beobachtet 2026-07-18).
-            rel_dir = target.relative_to(_DOCUMENTS_DIR.resolve())
-            rel_prefix = "" if str(rel_dir) == "." else f"{rel_dir}/"
+            # read_file/write_file/translate_file als Parameter erwarten
+            # (Endlosschleifen-Bug "documents/documents" 2026-07-18).
+            rel_dir = subfolder.strip("/")
+            rel_prefix = f"{rel_dir}/" if rel_dir else ""
 
             entries = []
-            for item in sorted(target.iterdir()):
-                entry: dict[str, Any] = {"name": item.name}
+            for item in result.metadata.get("items", []):
+                entry: dict[str, Any] = {"name": item["name"]}
                 # Fertiger Pfad für die Datei-Tools — erspart dem Modell
                 # das fehleranfällige Zusammensetzen aus Ordner + Name.
-                entry["path"] = f"{rel_prefix}{item.name}"
-                if item.is_dir():
+                entry["path"] = f"{rel_prefix}{item['name']}"
+                if item["type"] == "folder":
                     entry["type"] = "directory"
-                    entry["items"] = len(list(item.iterdir()))
+                    entry["items"] = item.get("file_count", 0)
                 else:
                     entry["type"] = "file"
-                    entry["size_kb"] = round(item.stat().st_size / 1024, 1)
-                    entry["extension"] = item.suffix.lower()
+                    entry["size"] = item.get("size", "")
+                    entry["extension"] = Path(item["name"]).suffix.lower()
+                    if item.get("indexed"):
+                        entry["indexed"] = True
                 entries.append(entry)
 
-            log_message(f"📂 list_files: {rel_dir} ({len(entries)} entries)")
+            log_message(f"📂 list_files: {rel_dir or '.'} ({len(entries)} entries)")
             return json.dumps(
-                {"directory": str(rel_dir), "entries": entries},
+                {"directory": rel_dir or ".", "entries": entries},
                 ensure_ascii=False,
             )
 
@@ -111,7 +107,7 @@ class WorkspacePlugin:
 
         async def _read_file(filename: str, pages: str = "", line_start: int | str = 0, line_end: int | str = 0) -> str:
             """Read a file from data/documents/. PDFs support page selection, text files support line ranges."""
-            file_path, error = _safe_resolve(filename)
+            file_path, error = fm.safe_resolve(filename)
             if error:
                 return json.dumps({"error": error})
             if not file_path or not file_path.exists():
@@ -244,38 +240,29 @@ class WorkspacePlugin:
 
         async def _write_file(filename: str, content: str) -> str:
             """Write or overwrite a text file in data/documents/."""
-            file_path, error = _safe_resolve(filename)
+            file_path, error = fm.safe_resolve(filename)
             if error:
                 return json.dumps({"error": error})
             if not file_path:
                 return json.dumps({"error": f"Invalid path: {filename}"})
 
-            # Only allow text-based writes
-            allowed_extensions = {".txt", ".md", ".csv", ".json", ".xml", ".html"}
-            if file_path.suffix.lower() not in allowed_extensions:
+            # Only allow text-based writes (tool-level policy; the write
+            # itself goes through the fm.write_file SSOT below)
+            if file_path.suffix.lower() not in WORKSPACE_WRITE_EXTENSIONS:
                 return json.dumps({
-                    "error": f"Cannot write {file_path.suffix} files. Allowed: {', '.join(sorted(allowed_extensions))}"
+                    "error": f"Cannot write {file_path.suffix} files. Allowed: {', '.join(sorted(WORKSPACE_WRITE_EXTENSIONS))}"
                 })
 
-            # Create parent dirs if needed
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-
-            file_path.write_text(content, encoding="utf-8")
-
-            # Verify: read back and compare length
-            written_text = file_path.read_text(encoding="utf-8")
-            if len(written_text) != len(content):
-                return json.dumps({
-                    "error": f"Verify failed: wrote {len(content)} chars but read back {len(written_text)}"
-                })
+            result = fm.write_file(filename, content)
+            if not result.success:
+                return json.dumps({"error": result.detail})
 
             size_kb = round(file_path.stat().st_size / 1024, 1)
-            log_message(f"  write_file: {file_path.name} ({size_kb} KB, verified)")
+            log_message(f"  write_file: {file_path.name} ({size_kb} KB)")
             result_json = json.dumps({
                 "written": filename,
                 "size_kb": size_kb,
                 "chars": len(content),
-                "verified": True,
             })
             # HTML-Artefakte in derselben Chat-Bubble einbetten wie
             # execute_code_write das tut — die Pipeline parst
@@ -283,9 +270,9 @@ class WorkspacePlugin:
             # ein iframe. URL geht über den vorhandenen /_upload/documents/
             # static mount, kein Kopiervorgang nötig.
             if file_path.suffix.lower() in {".html", ".htm"}:
-                # file_path is resolved (via _safe_resolve); use the resolved
+                # file_path is resolved (via fm.safe_resolve); use the resolved
                 # base too, else a symlink in DATA_DIR makes relative_to raise.
-                rel = file_path.relative_to(_DOCUMENTS_DIR.resolve()).as_posix()
+                rel = file_path.relative_to(DOCUMENTS_DIR.resolve()).as_posix()
                 return (
                     f"{result_json}\n\n"
                     f"SANDBOX_HTML_URL: /_upload/documents/{rel}\n\n"
@@ -807,12 +794,7 @@ class WorkspacePlugin:
         async def _chromadb_stats() -> str:
             """Show all ChromaDB collections with entry counts."""
             try:
-                import chromadb
-                from chromadb.config import Settings
-                client = chromadb.HttpClient(
-                    host=CHROMA_HOST, port=CHROMA_PORT,
-                    settings=Settings(anonymized_telemetry=False),
-                )
+                client = _chroma_client()
                 client.heartbeat()
             except Exception as e:
                 return json.dumps({"error": f"ChromaDB not reachable: {e}"})
@@ -862,12 +844,7 @@ class WorkspacePlugin:
                     ),
                 })
             try:
-                import chromadb
-                from chromadb.config import Settings
-                client = chromadb.HttpClient(
-                    host=CHROMA_HOST, port=CHROMA_PORT,
-                    settings=Settings(anonymized_telemetry=False),
-                )
+                client = _chroma_client()
                 col = client.get_collection(collection_name)
             except Exception as e:
                 return json.dumps({"error": f"Collection '{collection_name}' not found: {e}"})
