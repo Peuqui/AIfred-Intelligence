@@ -155,14 +155,24 @@ def decode_fieldsdata(raw: str, field_map: Optional[dict[int, str]] = None) -> d
 def encode_fieldsdata(fields: dict[str, str], name_to_id: dict[str, int]) -> str:
     """Encode a ``{field_name: value}`` dict back to EPIM FIELDSDATA.
 
-    Names that resolve to no field id are skipped; the ``field_<id>`` form is
-    accepted so custom fields keep their id.
+    Fail-loud: a name that resolves to no field id raises instead of being
+    silently dropped (the tool would otherwise report success while the
+    value never reached the database). The ``field_<id>`` form is accepted
+    so custom fields keep their id.
     """
     items: list[tuple[int, str]] = []
+    unknown: list[str] = []
     for name, value in fields.items():
         field_id = _resolve_field_id(name, name_to_id)
-        if field_id is not None:
-            items.append((field_id, value))
+        if field_id is None:
+            unknown.append(name)
+            continue
+        items.append((field_id, value))
+    if unknown:
+        raise ValueError(
+            f"Unknown contact field(s): {', '.join(sorted(unknown))}. "
+            f"Valid names: {', '.join(sorted(name_to_id))}"
+        )
     return _encode_fieldsdata_items(items)
 
 
@@ -179,15 +189,24 @@ def merge_fieldsdata(
     """
     items = _decode_fieldsdata_items(existing_raw)
     index = {field_id: i for i, (field_id, _) in enumerate(items)}
+    unknown: list[str] = []
     for name, value in new_fields.items():
         field_id = _resolve_field_id(name, name_to_id)
         if field_id is None:
-            continue  # unmappable new field name — cannot assign an id
+            # Fail-loud (wie encode_fieldsdata): stilles Skippen ließe das
+            # Tool Erfolg melden, ohne dass der Wert je ankommt.
+            unknown.append(name)
+            continue
         if field_id in index:
             items[index[field_id]] = (field_id, value)
         else:
             items.append((field_id, value))
             index[field_id] = len(items) - 1
+    if unknown:
+        raise ValueError(
+            f"Unknown contact field(s): {', '.join(sorted(unknown))}. "
+            f"Valid names: {', '.join(sorted(name_to_id))}"
+        )
     return _encode_fieldsdata_items(items)
 
 
@@ -615,7 +634,7 @@ class EpimDatabase:
             "FROM TASKS t "
             "LEFT JOIN CALENDARS c ON c.IDCALENDAR = t.CALENDAR "
             "LEFT JOIN CATEGORIES cat ON cat.IDCATEGORY = t.CATEGORY "
-            "WHERE t.IDTASK = ?",
+            "WHERE t.IDTASK = ? AND t.STATUS = 0",
             (task_id,),
         )
         row = cur.fetchone()
@@ -652,11 +671,17 @@ class EpimDatabase:
         start_ts: Optional[str] = start or None
         end_ts: Optional[str] = end or None
 
-        # Resolve names to IDs
+        # Resolve names to IDs — fail-loud: ein nicht auflösbarer Name darf
+        # nicht still zu "ohne Kategorie"/"Default-Kalender" degradieren
+        # (Tool meldete sonst success für etwas anderes als bestellt).
         if category_name:
             category_id = self.resolve_category(category_name)
+            if category_id is None:
+                raise ValueError(f"Unknown category: {category_name!r}")
         if calendar_name:
             calendar_id = self.resolve_calendar(calendar_name)
+            if calendar_id is None:
+                raise ValueError(f"Unknown calendar: {calendar_name!r}")
 
         # Sanitize priority (LLMs sometimes send "high"/"low" instead of int)
         if isinstance(priority, str):
@@ -703,35 +728,47 @@ class EpimDatabase:
             cat_name = _cat_a if _cat_a else _cat_b
             if cat_name and isinstance(cat_name, str):
                 cat_id = self.resolve_category(str(cat_name))
-                if cat_id is not None:
-                    fields["CATEGORY"] = cat_id
+                if cat_id is None:
+                    # Fail-loud statt Feld still weglassen
+                    raise ValueError(f"Unknown category: {cat_name!r}")
+                fields["CATEGORY"] = cat_id
         if "calendar" in fields or "calendar_name" in fields:
             _cal_a = fields.pop("calendar_name", None)
             _cal_b = fields.pop("calendar", None)
             cal_name = _cal_a if _cal_a else _cal_b
             if cal_name and isinstance(cal_name, str):
                 cal_id = self.resolve_calendar(str(cal_name))
-                if cal_id is not None:
-                    fields["CALENDAR"] = cal_id
+                if cal_id is None:
+                    raise ValueError(f"Unknown calendar: {cal_name!r}")
+                fields["CALENDAR"] = cal_id
 
         updated: bool = self._update_row("TASKS", "IDTASK", task_id, fields, _TASK_UPDATE_COLUMNS)
         return updated
 
-    @_serialized
-    def delete_task(self, task_id: int) -> bool:
-        """Soft-delete a task (set STATUS=1, DELETED=now)."""
-        if not self._row_exists("TASKS", "IDTASK", task_id):
+    def _soft_delete(self, table: str, id_col: str, row_id: int) -> bool:
+        """Gemeinsame Soft-Delete-SSOT: STATUS=1 + DELETED-Timestamp.
+
+        ``table``/``id_col`` sind ausschließlich interne Konstanten der
+        delete_*-Methoden, nie User-Input. Kein eigener ``@_serialized`` —
+        die Caller halten den Lock bereits (RLock, wäre aber auch reentrant).
+        """
+        if not self._row_exists(table, id_col, row_id):
             return False
         con = self._connect()
         cur = con.cursor()
         now = datetime.now()
         cur.execute(
-            "UPDATE TASKS SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-            "WHERE IDTASK = ?",
-            (now, now, task_id),
+            f"UPDATE {table} SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
+            f"WHERE {id_col} = ?",
+            (now, now, row_id),
         )
         con.commit()
         return True
+
+    @_serialized
+    def delete_task(self, task_id: int) -> bool:
+        """Soft-delete a task (set STATUS=1, DELETED=now)."""
+        return self._soft_delete("TASKS", "IDTASK", task_id)
 
     # ============================================================
     # CONTACTS
@@ -792,7 +829,7 @@ class EpimDatabase:
         cur.execute(
             "SELECT IDCONTACT, SUBJECT, FIELDSDATA, FIELDSDATA2, TAGS, "
             "CREATED, LASTCHANGED "
-            "FROM CONTACTS WHERE IDCONTACT = ?",
+            "FROM CONTACTS WHERE IDCONTACT = ? AND STATUS = 0",
             (contact_id,),
         )
         row = cur.fetchone()
@@ -862,18 +899,7 @@ class EpimDatabase:
     @_serialized
     def delete_contact(self, contact_id: int) -> bool:
         """Soft-delete a contact."""
-        if not self._row_exists("CONTACTS", "IDCONTACT", contact_id):
-            return False
-        con = self._connect()
-        cur = con.cursor()
-        now = datetime.now()
-        cur.execute(
-            "UPDATE CONTACTS SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-            "WHERE IDCONTACT = ?",
-            (now, now, contact_id),
-        )
-        con.commit()
-        return True
+        return self._soft_delete("CONTACTS", "IDCONTACT", contact_id)
 
     # ============================================================
     # NOTES
@@ -932,7 +958,7 @@ class EpimDatabase:
 
         cur.execute(
             "SELECT IDNOTE, TITLE, TAGS, CREATED, LASTCHANGED, IDNOTETREE "
-            "FROM NOTES WHERE IDNOTE = ?",
+            "FROM NOTES WHERE IDNOTE = ? AND STATUS = 0",
             (note_id,),
         )
         row = cur.fetchone()
@@ -952,11 +978,21 @@ class EpimDatabase:
         )
         tabs = []
         for tab_row in cur.fetchall():
-            tab_text = tab_row[3] if tab_row[3] else tab_row[2]
+            # TEXT ist die einzige gelebte Inhalts-Spalte (DB-Befund
+            # 2026-08-12: TEXT2 in 0 von 31 Tabs belegt) — Schreiber
+            # (create/update_note_tab) und Suche nutzen ausschließlich TEXT.
+            # Ein still bevorzugtes TEXT2 machte Updates unsichtbar.
+            # Fail-loud analog _read_fieldsdata_for_update: unerwartet
+            # belegtes TEXT2 → Fehler statt stiller Spaltenwahl.
+            if tab_row[3]:
+                raise RuntimeError(
+                    f"Note tab {tab_row[0]} has TEXT2 content — unsupported "
+                    "(this plugin reads/writes the TEXT column only)"
+                )
             tabs.append({
                 "id": tab_row[0],
                 "name": tab_row[1],
-                "text": tab_text,
+                "text": tab_row[2],
             })
         note["tabs"] = tabs
         return note
@@ -970,9 +1006,12 @@ class EpimDatabase:
         con = self._connect()
         cur = con.cursor()
 
-        # Resolve name to ID
+        # Resolve name to ID — fail-loud bei unbekanntem Namen (kein stiller
+        # Fall auf den Default-Tree)
         if tree_name:
             tree_id = self.resolve_notetree(tree_name)
+            if tree_id is None:
+                raise ValueError(f"Unknown note tree: {tree_name!r}")
 
         # Default tree
         if tree_id is None:
@@ -1129,9 +1168,12 @@ class EpimDatabase:
         start = start or None
         end = end or None
 
-        # Resolve name to ID
+        # Resolve name to ID — fail-loud bei unbekanntem Namen (kein stiller
+        # Fall auf die Default-Liste)
         if list_name:
             list_id = self.resolve_todolist(list_name)
+            if list_id is None:
+                raise ValueError(f"Unknown todo list: {list_name!r}")
 
         if list_id is None:
             cur.execute("SELECT FIRST 1 IDTODOLIST FROM TODOLISTS")
@@ -1159,13 +1201,18 @@ class EpimDatabase:
         if not fields:
             return False
 
-        # Resolve name-based fields to IDs
+        # Resolve name-based fields to IDs. Beide Aliase unconditional poppen
+        # (Short-circuit ließe den zweiten Key stehen — gleiches Muster wie
+        # in update_task dokumentiert); nicht auflösbar → fail-loud.
         if "list" in fields or "list_name" in fields:
-            list_name = fields.pop("list_name", None) or fields.pop("list", None)
+            _lst_a = fields.pop("list_name", None)
+            _lst_b = fields.pop("list", None)
+            list_name = _lst_a if _lst_a else _lst_b
             if list_name and isinstance(list_name, str):
                 list_id = self.resolve_todolist(str(list_name))
-                if list_id is not None:
-                    fields["IDLIST"] = list_id
+                if list_id is None:
+                    raise ValueError(f"Unknown todo list: {list_name!r}")
+                fields["IDLIST"] = list_id
 
         updated: bool = self._update_row("TODOS", "IDTODO", todo_id, fields, _TODO_UPDATE_COLUMNS)
         return updated
@@ -1173,18 +1220,7 @@ class EpimDatabase:
     @_serialized
     def delete_todo(self, todo_id: int) -> bool:
         """Soft-delete a todo."""
-        if not self._row_exists("TODOS", "IDTODO", todo_id):
-            return False
-        con = self._connect()
-        cur = con.cursor()
-        now = datetime.now()
-        cur.execute(
-            "UPDATE TODOS SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-            "WHERE IDTODO = ?",
-            (now, now, todo_id),
-        )
-        con.commit()
-        return True
+        return self._soft_delete("TODOS", "IDTODO", todo_id)
 
     # ============================================================
     # PASSWORD ENTRIES
@@ -1203,16 +1239,17 @@ class EpimDatabase:
             params.append(_like_pattern(subject))
 
         where = " AND ".join(conditions)
+        # Gruppen-Zuordnung läuft über PASSENTRIES.PATH (trägt die Gruppen-ID
+        # als String, so schreibt create_password sie; "0" = keine Gruppe).
+        # PASSENTRIES hat KEINE IDPARENT-Spalte — die frühere Subquery
+        # (SELECT IDPARENT FROM PASSENTRIES ...) löste unqualifiziert zur
+        # äußeren PASSGROUPS.IDPARENT auf und lieferte semantischen Unsinn.
         cur.execute(
             f"SELECT FIRST {_clamp_limit(limit)} pe.IDPASSENTRY, pe.SUBJECT, pe.TAGS, "
             f"pe.CREATED, pe.LASTCHANGED, pg.SUBJECT AS GROUP_NAME "
             f"FROM PASSENTRIES pe "
-            f"LEFT JOIN PASSGROUPS pg ON pg.IDPASSGROUP = ("
-            f"  SELECT FIRST 1 IDPASSGROUP FROM PASSGROUPS "
-            f"  WHERE IDPASSGROUP IN ("
-            f"    SELECT IDPARENT FROM PASSENTRIES WHERE IDPASSENTRY = pe.IDPASSENTRY"
-            f"  )"
-            f") "
+            f"LEFT JOIN PASSGROUPS pg "
+            f"ON pe.PATH = CAST(pg.IDPASSGROUP AS VARCHAR(20)) "
             f"WHERE {where} ORDER BY pe.SUBJECT",
             params,
         )
@@ -1275,18 +1312,7 @@ class EpimDatabase:
     @_serialized
     def delete_password(self, entry_id: int) -> bool:
         """Soft-delete a password entry."""
-        if not self._row_exists("PASSENTRIES", "IDPASSENTRY", entry_id):
-            return False
-        con = self._connect()
-        cur = con.cursor()
-        now = datetime.now()
-        cur.execute(
-            "UPDATE PASSENTRIES SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-            "WHERE IDPASSENTRY = ?",
-            (now, now, entry_id),
-        )
-        con.commit()
-        return True
+        return self._soft_delete("PASSENTRIES", "IDPASSENTRY", entry_id)
 
     # ============================================================
     # LOOKUP TABLES

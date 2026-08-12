@@ -1,1 +1,0 @@
-Lösche einen EPIM-Eintrag (Soft-Delete, wiederherstellbar). Du MUSST dieses Tool aufrufen wenn der Benutzer einen Termin, Kontakt, Notiz, Todo oder Passwort löschen oder entfernen möchte.

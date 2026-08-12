@@ -1,1 +1,0 @@
-Durchsuche die EPIM-Datenbank des Benutzers. Du MUSST dieses Tool aufrufen wenn: (1) der Benutzer nach Terminen, Kalender oder Zeitplänen fragt, (2) der Benutzer nach Kontakten, Telefonnummern oder Adressen fragt, (3) der Benutzer nach Notizen, Todos oder Aufgaben fragt, (4) der Benutzer nach Passwörtern fragt. Antworte NIEMALS aus dem Gedächtnis — rufe IMMER dieses Tool auf!

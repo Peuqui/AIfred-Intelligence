@@ -58,9 +58,17 @@ def test_encode_accepts_field_id_form_for_custom_fields():
     assert _decode_fieldsdata_items(encoded) == [(1, "Stefan"), (99, "x")]
 
 
-def test_encode_skips_unmappable_names():
-    encoded = encode_fieldsdata({"Vorname": "Stefan", "Unbekannt": "y"}, _NAME_TO_ID)
-    assert _decode_fieldsdata_items(encoded) == [(1, "Stefan")]
+def test_encode_rejects_unmappable_names():
+    # Fail-loud (Review 2026-08-12): ein still verworfener Feldname ließ das
+    # Tool Erfolg melden, ohne dass der Wert je in der DB ankam.
+    with pytest.raises(ValueError, match="Unbekannt"):
+        encode_fieldsdata({"Vorname": "Stefan", "Unbekannt": "y"}, _NAME_TO_ID)
+
+
+def test_merge_rejects_unmappable_names():
+    existing = _encode_fieldsdata_items([(1, "Stefan")])
+    with pytest.raises(ValueError, match="Unbekannt"):
+        merge_fieldsdata(existing, {"Unbekannt": "y"}, _NAME_TO_ID)
 
 
 def test_merge_preserves_other_fields():

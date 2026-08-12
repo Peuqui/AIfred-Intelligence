@@ -33,7 +33,7 @@ class EpimPlugin:
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from .tools import get_epim_tools
-        return get_epim_tools(lang=ctx.lang, source=ctx.source)
+        return get_epim_tools(source=ctx.source)
 
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
