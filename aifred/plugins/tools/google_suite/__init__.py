@@ -26,6 +26,12 @@ _SCOPES: dict[str, str] = {
     "GOOGLE_DRIVE_ENABLED":    "https://www.googleapis.com/auth/drive",
 }
 
+# SSOT für den Default eines fehlenden *_ENABLED-Keys in settings.json —
+# muss in credential_fields, get_tools und aggregated_scopes identisch sein,
+# sonst zeigt die UI "Aktiviert"/fordert OAuth-Scopes an, während get_tools
+# die Tools nicht lädt (latenter Bug bei frischer Installation).
+_SERVICE_ENABLED_DEFAULT = "true"
+
 
 @dataclass
 class GooglePlugin:
@@ -80,28 +86,28 @@ class GooglePlugin:
             CredentialField(
                 env_key="GOOGLE_CALENDAR_ENABLED",
                 label_key="google_calendar_enabled",
-                default="true",
+                default=_SERVICE_ENABLED_DEFAULT,
                 options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
                 group="services",
             ),
             CredentialField(
                 env_key="GOOGLE_CONTACTS_ENABLED",
                 label_key="google_contacts_enabled",
-                default="true",
+                default=_SERVICE_ENABLED_DEFAULT,
                 options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
                 group="services",
             ),
             CredentialField(
                 env_key="GOOGLE_TASKS_ENABLED",
                 label_key="google_tasks_enabled",
-                default="true",
+                default=_SERVICE_ENABLED_DEFAULT,
                 options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
                 group="services",
             ),
             CredentialField(
                 env_key="GOOGLE_DRIVE_ENABLED",
                 label_key="google_drive_enabled",
-                default="true",
+                default=_SERVICE_ENABLED_DEFAULT,
                 options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
                 group="services",
             ),
@@ -118,19 +124,19 @@ class GooglePlugin:
         settings = self._load_settings()
         tools: list[Tool] = []
 
-        if settings.get("GOOGLE_CALENDAR_ENABLED", "true") == "true":
+        if settings.get("GOOGLE_CALENDAR_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .calendar.tools import get_calendar_tools
             tools.extend(get_calendar_tools(ctx.lang))
 
-        if settings.get("GOOGLE_CONTACTS_ENABLED", "true") == "true":
+        if settings.get("GOOGLE_CONTACTS_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .contacts.tools import get_contacts_tools
             tools.extend(get_contacts_tools(ctx.lang))
 
-        if settings.get("GOOGLE_TASKS_ENABLED", "false") == "true":
+        if settings.get("GOOGLE_TASKS_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .tasks.tools import get_tasks_tools
             tools.extend(get_tasks_tools(ctx.lang))
 
-        if settings.get("GOOGLE_DRIVE_ENABLED", "false") == "true":
+        if settings.get("GOOGLE_DRIVE_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .drive.tools import get_drive_tools
             tools.extend(get_drive_tools(ctx.lang))
 
@@ -185,7 +191,7 @@ class GooglePlugin:
         scopes = [
             scope
             for key, scope in _SCOPES.items()
-            if settings.get(key, "true") == "true"
+            if settings.get(key, _SERVICE_ENABLED_DEFAULT) == "true"
         ]
         # User-Identität immer mitscopen (sonst gibt Google nichts zurück)
         scopes.append("https://www.googleapis.com/auth/userinfo.email")

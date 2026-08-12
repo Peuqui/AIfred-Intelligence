@@ -413,10 +413,9 @@ async def _execute_job(job: Job) -> None:
 async def _deliver_result(job: Job, response_text: str, session_id: str) -> None:
     """Deliver a job result based on the configured delivery mode.
 
-    Modes:
-    - "log":      Only log (default, always happens)
+    Modes (logging always happens regardless of mode):
+    - "review":   Write to session + notification (user reviews in UI, default)
     - "announce": Send to a channel (discord, telegram, email)
-    - "review":   Write to session + notification (user reviews in UI)
     - "webhook":  HTTP POST to an external URL
     """
     delivery = job.payload.get("delivery", "review")

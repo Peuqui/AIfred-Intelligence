@@ -24,6 +24,22 @@
 
 ---
 
+## ⚠️ Plugin-Atomarität (Architektur-Entscheidung 2026-08-11)
+
+Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
+
+- **Plugin → Plugin: VERBOTEN** — kein Import und keine Code-Abhängigkeit
+  zwischen Plugins. Wird ein Plugin deaktiviert (Verzeichnis-Move nach
+  `disabled/`), darf keine Kette brechen.
+- **Plugin → aifred/lib: ERLAUBT und erwünscht** — lib ist Kern-Infrastruktur
+  und immer da. Gemeinsame Logik zweier Plugins wird als lib-Helper
+  konsolidiert, niemals per Plugin-Import geteilt.
+- Duplikate zwischen Plugins sind KEIN Refactoring-Grund, solange die
+  gemeinsame Logik (noch) nicht in lib lebt — niemals als Fix ein Plugin
+  aus dem anderen importieren lassen.
+
+---
+
 ## ⚠️ Keep It Simple - Auch bei Race Conditions und Edge Cases
 
 - **Bei Race Conditions:** Erst strukturell vermeiden, dann Locks/Mutexe wenn nötig

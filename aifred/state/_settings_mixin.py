@@ -552,9 +552,25 @@ class SettingsMixin(rx.State, mixin=True):
             if not label or label == field.label_key:
                 label = _t(field.label_key, lang=lang)
 
+            # Tooltip (optional, Konvention: <label_key>_tooltip) — MUSS hier
+            # serverseitig mit dem ROHEN label_key aufgelöst werden: die UI
+            # kennt nur das übersetzte Label und kann weder Plugin-i18n noch
+            # den Original-Key rekonstruieren. Kein Treffer → "" = kein Tooltip.
+            tooltip_key = f"{field.label_key}_tooltip"
+            tooltip = ""
+            if plugin:
+                tooltip = plugin.translate(tooltip_key, lang=lang)
+                if tooltip == tooltip_key:
+                    tooltip = ""
+            if not tooltip:
+                tooltip = _t(tooltip_key, lang=lang)
+                if tooltip == tooltip_key:
+                    tooltip = ""
+
             field_descriptors.append({
                 "env_key": field.env_key,
                 "label_key": label,
+                "tooltip": tooltip,
                 "placeholder": field.placeholder,
                 "is_password": "1" if field.is_password else "",
                 "group": field.group,

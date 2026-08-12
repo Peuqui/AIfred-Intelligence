@@ -210,12 +210,13 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
         if group and person_rn:
             group_rn = await _resolve_group_resource_name(token, group)
             async with httpx.AsyncClient() as client:
-                await client.post(
+                r = await client.post(
                     f"{PEOPLE_API}/{group_rn}/members:modify",
                     headers={"Authorization": f"Bearer {token}"},
                     json={"resourceNamesToAdd": [person_rn]},
                     timeout=15,
                 )
+                r.raise_for_status()
 
         return json.dumps(_format_person(p), ensure_ascii=False)
 
@@ -279,12 +280,13 @@ def get_contacts_tools(lang: str = "de") -> list[Tool]:
         if group:
             group_rn = await _resolve_group_resource_name(token, group)
             async with httpx.AsyncClient() as client:
-                await client.post(
+                r = await client.post(
                     f"{PEOPLE_API}/{group_rn}/members:modify",
                     headers={"Authorization": f"Bearer {token}"},
                     json={"resourceNamesToAdd": [resource_name]},
                     timeout=15,
                 )
+                r.raise_for_status()
 
         return json.dumps({"resource_name": resource_name, "updated": True}, ensure_ascii=False)
 

@@ -11,7 +11,7 @@ VECTOR DATABASE (ChromaDB, semantic search):
 - search_documents → Search indexed documents semantically
 - list_indexed → Show all indexed documents
 - index_document → Index a file into the vector database
-- delete_document → Remove a document from the vector database
+- delete_file → Delete a file (disk + vector database index)
 
 CHROMADB MANAGEMENT:
 - chromadb_stats → Show all collections with entry counts

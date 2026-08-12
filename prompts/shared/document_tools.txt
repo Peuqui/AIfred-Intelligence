@@ -1,8 +1,0 @@
-Search, list and manage the user's uploaded documents. The document store contains chunked and embedded documents that can be searched semantically.
-
-CRITICAL RULES:
-1. When the user asks about their documents, uploads, or knowledge base — ALWAYS call list_documents FIRST. No exceptions.
-2. The automatically injected RAG context is INCOMPLETE — it only finds documents with high semantic similarity to the exact query. Related topics (e.g. "anticoagulation" when asking about "transfusion medicine") are MISSED. You MUST actively search to find them.
-3. After list_documents, use search_documents with MULTIPLE different queries covering synonyms, related terms, and sub-topics. Example: for "transfusion medicine", also search "anticoagulation", "hemostasis", "blood products", "coagulation", "TEG", "massive transfusion" etc.
-4. NEVER answer a broad document question based only on RAG context without calling your document tools. The RAG context is a starting point, not the complete picture.
-5. Use delete_document to remove a document the user no longer needs.

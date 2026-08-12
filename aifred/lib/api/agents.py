@@ -21,7 +21,7 @@ class AgentTriggerRequest(BaseModel):
     agent: str = Field(default="aifred", description="Agent to use (aifred, sokrates, salomo)")
     token: str = Field(..., description="Auth token (configured in WEBHOOK_API_TOKEN env var)")
     max_tier: int = Field(default=0, description="Max security tier (0=readonly, 1=communicate)")
-    delivery: str = Field(default="log", description="Delivery mode: log, announce, review, webhook")
+    delivery: str = Field(default="review", description="Delivery mode: review, announce, webhook")
     channel: str = Field(default="", description="Target channel for announce delivery")
     recipient: str = Field(default="", description="Recipient for announce delivery")
     webhook_url: str = Field(default="", description="URL for webhook delivery")

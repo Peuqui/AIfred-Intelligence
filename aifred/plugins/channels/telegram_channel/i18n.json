@@ -8,7 +8,7 @@
     "en": "Allowed user IDs (comma-separated; no '*' — blocked senders' IDs appear in the log)"
   },
   "telegram_cred_allowed_users_tooltip": {
-    "de": "Kommagetrennte Telegram User-IDs.\nUser-ID herausfinden: @userinfobot in Telegram anschreiben.\nBeispiel: 123456789, 987654321\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
-    "en": "Comma-separated Telegram user IDs.\nFind your ID: message @userinfobot on Telegram.\nExample: 123456789, 987654321\n* = allow all, empty = allow none.\nFirst entry = owner (gets elevated permissions)."
+    "de": "Kommagetrennte Telegram User-IDs.\nUser-ID herausfinden: @userinfobot in Telegram anschreiben.\nBeispiel: 123456789, 987654321\nLeer = niemand erlaubt (fail-closed); '*' wird nicht unterstützt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
+    "en": "Comma-separated Telegram user IDs.\nFind your ID: message @userinfobot on Telegram.\nExample: 123456789, 987654321\nEmpty = allow none (fail-closed); '*' is not supported.\nFirst entry = owner (gets elevated permissions)."
   }
 }

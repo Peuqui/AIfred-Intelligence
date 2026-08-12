@@ -229,9 +229,13 @@ class EmailChannel(BaseChannel):
                     # First run ever — no checkpoint, treat all as known
                     missed_uids = set()
 
-                # Advance checkpoint BEFORE processing to prevent
-                # parallel workers from re-processing the same mails.
-                if max_uid > saved_uid:
+                # First run / UIDVALIDITY change: nothing to recover — write
+                # the baseline checkpoint so only future mails count as new.
+                # On the normal path the checkpoint advances per UID AFTER
+                # processing (inside _process_uid), so a failed mail stays
+                # above the checkpoint and is retried on the next reconnect
+                # until EMAIL_MAX_PROCESS_ATTEMPTS quarantines it (E3).
+                if saved_uid == 0 or (saved_uv != 0 and saved_uv != uidvalidity):
                     _save_checkpoint(max_uid, uidvalidity)
 
                 if missed_uids:
@@ -241,7 +245,7 @@ class EmailChannel(BaseChannel):
 
                 known_uids = all_uids
                 self.channel_log(f"Email Plugin: connected, {len(known_uids)} existing messages"
-                            f" (checkpoint UID {max_uid})")
+                            f" (highest UID {max_uid})")
 
                 while True:
                     # Wrap entire IDLE cycle in timeout — if ANY part hangs
@@ -255,18 +259,17 @@ class EmailChannel(BaseChannel):
                         self.channel_log("Email Plugin: IDLE cycle timeout, reconnecting...")
                         raise OSError("IDLE cycle timeout")  # triggers reconnect
 
-                    # Check for new messages after IDLE wakeup
+                    # Check for new messages after IDLE wakeup. The checkpoint
+                    # advances per UID inside _process_uid (single source of
+                    # truth) — no batch advance here, so a failed mail is
+                    # retried after reconnect instead of being skipped.
                     current_uids = await asyncio.to_thread(_get_existing_uids, imap)
                     new_uids = current_uids - known_uids
 
                     for uid in sorted(new_uids, key=lambda u: int(u)):
                         await self._process_uid(imap, uid)
 
-                    # Update checkpoint to highest UID
                     known_uids = current_uids
-                    if known_uids:
-                        max_uid = max(int(u) for u in known_uids)
-                        _save_checkpoint(max_uid, uidvalidity)
 
             except asyncio.CancelledError:
                 self.channel_log("Email Plugin: shutting down")
@@ -441,10 +444,11 @@ class EmailChannel(BaseChannel):
     def _update_checkpoint(uid: bytes) -> None:
         """Advance checkpoint to this UID — monotonic, never moves backward.
 
-        The recovery path pre-advances the checkpoint to the highest known UID
-        so a second worker won't re-process the same mails. A per-UID write must
-        therefore not lower it again (that regression previously defeated the
-        parallel-worker guard).
+        This is the ONLY place the checkpoint advances during processing:
+        each UID is checkpointed AFTER its terminal outcome (dispatched,
+        blocked, dropped, or quarantined). A UID whose processing raised
+        stays above the checkpoint and is picked up again by the startup
+        recovery on the next reconnect (E3 bounded retry).
         """
         last_uid, uidvalidity = _load_checkpoint()
         _save_checkpoint(max(last_uid, int(uid)), uidvalidity)

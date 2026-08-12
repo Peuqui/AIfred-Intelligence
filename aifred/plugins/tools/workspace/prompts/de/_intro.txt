@@ -11,7 +11,7 @@ VEKTORDATENBANK (ChromaDB, semantische Suche):
 - search_documents → Indexierte Dokumente semantisch durchsuchen
 - list_indexed → Alle indexierten Dokumente anzeigen
 - index_document → Datei in die Vektordatenbank einspeisen
-- delete_document → Dokument aus der Vektordatenbank entfernen
+- delete_file → Datei löschen (Festplatte + Vektordatenbank-Index)
 
 CHROMADB-VERWALTUNG:
 - chromadb_stats → Alle Collections mit Eintragsanzahl anzeigen

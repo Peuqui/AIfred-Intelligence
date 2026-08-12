@@ -266,9 +266,16 @@ class NarratorPlugin:
                      "-codec:a", "libmp3lame", "-q:a", "4", str(out_path)],
                     capture_output=True, timeout=1800,
                 ))
-                src.unlink(missing_ok=True)
                 if enc.returncode != 0:
-                    return json.dumps({"error": "ffmpeg mp3 encode failed"})
+                    # Keep the combined WAV (result of potentially hours of
+                    # synthesis) in the TTS cache for a retry; remove the
+                    # partial MP3 so no broken file lingers in documents.
+                    out_path.unlink(missing_ok=True)
+                    return json.dumps({
+                        "error": "ffmpeg mp3 encode failed — combined WAV kept "
+                                 f"in TTS cache as {src.name}"
+                    })
+                src.unlink(missing_ok=True)
             else:
                 shutil.move(str(src), str(out_path))
 

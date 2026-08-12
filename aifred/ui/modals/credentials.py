@@ -61,14 +61,19 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         width="100%",
     )
 
-    # Label with optional tooltip (convention: label_key + "_tooltip")
-    tooltip_key = field["label_key"].to(str) + "_tooltip"
-    label_with_tooltip = rx.tooltip(
-        rx.text(
-            field["label_key"].to(str),
-            font_size="11px", color="#999", cursor="help",
+    # Label with optional tooltip — Text wird serverseitig im State aufgelöst
+    # (Plugin-i18n → zentrale i18n → "" = kein Tooltip); die UI kennt nur das
+    # übersetzte Label, nicht den rohen label_key.
+    label_with_tooltip = rx.cond(
+        field["tooltip"].to(str) != "",
+        rx.tooltip(
+            rx.text(
+                field["label_key"].to(str),
+                font_size="11px", color="#999", cursor="help",
+            ),
+            content=field["tooltip"].to(str),
         ),
-        content=t(tooltip_key),
+        rx.text(field["label_key"].to(str), font_size="11px", color="#999"),
     )
     # Dropdown input (when options are provided)
     # UI shows labels from channel_credential_values (pre-mapped in State)
