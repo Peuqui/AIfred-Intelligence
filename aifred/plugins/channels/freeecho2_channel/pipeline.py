@@ -291,7 +291,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
         from ....lib.audio_processing import transcribe_audio_auto
         from ._shared import channel_language
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         text, stt_time, _device = await loop.run_in_executor(
             None, transcribe_audio_auto, wav_path, channel_language(), False,
         )

@@ -161,6 +161,15 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
                                 last = _reject_log_last.get(remote, 0.0)
                                 if now - last >= _REJECT_LOG_INTERVAL_SEC:
                                     _reject_log_last[remote] = now
+                                    # Unbegrenztes Wachstum verhindern (ein
+                                    # Eintrag pro Remote-IP, nie gepruned):
+                                    # bei >64 Einträgen die ältesten kippen.
+                                    if len(_reject_log_last) > 64:
+                                        for stale in sorted(
+                                            _reject_log_last,
+                                            key=_reject_log_last.get,  # type: ignore[arg-type]
+                                        )[:32]:
+                                            del _reject_log_last[stale]
                                     self.channel_log(
                                         f"FreeEcho.2 register from {remote} "
                                         f"rejected: invalid or missing auth token "
@@ -196,7 +205,9 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
                             "warning",
                         )
                         continue
-                    await self._handle_text(ws, msg.data, room)
+                    if isinstance(data, dict):
+                        # Bereits geparster Frame — kein zweites json.loads
+                        await self._handle_text(ws, data, room)
 
                 elif msg.type == WSMsgType.BINARY:
                     if room is None:

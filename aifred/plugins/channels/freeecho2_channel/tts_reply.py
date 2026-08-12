@@ -17,7 +17,7 @@ from ....lib.formatting import format_number
 from ....lib.plugin_base import BaseChannel
 
 from ._shared import _devices, _fmt_mib, channel_language
-from .alert_queue import enqueue_alert
+from .alert_queue import _PCM_BYTES_PER_SEC, enqueue_alert
 
 if TYPE_CHECKING:
     from ....lib.envelope import InboundMessage, OutboundMessage
@@ -50,7 +50,7 @@ class TtsReplyMixin(BaseChannel):
         # bereits in der Session gespeichert (Browser-UI sichtbar).
         if outbound.metadata.get("silent_reply"):
             self.channel_log(
-                f"[FreeEcho.2 {room}] silent_reply — TTS-Bestaetigung skipped"
+                f"[FreeEcho.2 {room}] silent_reply — TTS confirmation skipped"
             )
             return
 
@@ -130,7 +130,7 @@ class TtsReplyMixin(BaseChannel):
             # Orchestrator macht alles in einem Aufruf.
             # Normal-Reply (User hat selbst getriggert) bleibt ohne Chime.
             # is_proactive ist oben schon bestimmt (TTS-State-Sicherstellung).
-            secs = format_number(len(pcm_data) / 96000, 1)
+            secs = format_number(len(pcm_data) / _PCM_BYTES_PER_SEC, 1)
             if is_proactive:
                 audio_type = str(
                     outbound.metadata.get("audio_type") or "notification"
@@ -242,7 +242,7 @@ class TtsReplyMixin(BaseChannel):
                 if token is not None:
                     _current_session.reset(token)
 
-        return await asyncio.get_event_loop().run_in_executor(None, _run)
+        return await asyncio.get_running_loop().run_in_executor(None, _run)
 
     async def _force_tts_switch(self) -> None:
         """Force TTS switch after deferred inference (FreeEcho.2 optimization).
@@ -273,7 +273,7 @@ class TtsReplyMixin(BaseChannel):
                 if token is not None:
                     _current_session.reset(token)
 
-        await asyncio.get_event_loop().run_in_executor(None, _run)
+        await asyncio.get_running_loop().run_in_executor(None, _run)
 
     async def _ensure_tts_ready(self, room: str) -> None:
         """SSoT für 'TTS-Engine jetzt synchron bereitstellen' — für proaktive

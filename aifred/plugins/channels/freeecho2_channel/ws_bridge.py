@@ -75,6 +75,62 @@ class WsBridgeMixin(BaseChannel):
                     f"audio_flag({audio_type!r}): with_tts must be bool, got {v!r}"
                 )
 
+    async def _send_frame(
+        self,
+        room: str,
+        payload: "dict[str, Any] | bytes",
+        frame_name: str,
+        *,
+        quiet: bool = False,
+        timeout_note: str = "",
+    ) -> bool:
+        """SSOT für den Frame-Versand aller Sende-Methoden: Device-Lookup,
+        Stale-Handle-Check (``ws.closed``), Send-Timeout und Fehler-Logging.
+
+        Ein Timeout schließt den WS bewusst NICHT: beim _resume kann der
+        Puck kurz nicht receive-ready sein (Source-Replace ~1-2 s), der
+        TCP-Buffer läuft voll und der Send hängt. Timeout heißt nur "dieser
+        Stream kam nicht durch" — der Aufrufer bricht via False ab, die
+        Verbindung bleibt für Recovery offen (User-Wake, neues audio_play).
+        ``quiet`` unterdrückt alle Logs (Heartbeat-Takt).
+        """
+        ws = _devices.get(room)
+        if ws is None:
+            if not quiet:
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] {frame_name}: not connected", "warning",
+                )
+            return False
+        if ws.closed:
+            if not quiet:
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] {frame_name}: WS closed (id={id(ws)}) "
+                    f"— stale handle in _devices",
+                    "warning",
+                )
+            return False
+        try:
+            send = (
+                ws.send_bytes(payload)
+                if isinstance(payload, bytes)
+                else ws.send_str(json.dumps(payload))
+            )
+            await asyncio.wait_for(send, timeout=self._CHUNK_SEND_TIMEOUT_SEC)
+            return True
+        except asyncio.TimeoutError:
+            if not quiet:
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] {frame_name} timeout{timeout_note} "
+                    f"— stream abort, WS stays open", "warning",
+                )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            if not quiet:
+                self.channel_log(
+                    f"[FreeEcho.2 {room}] {frame_name} error: {exc}", "warning",
+                )
+            return False
+
     async def send_audio_flag(
         self, room: str, audio_type: str, **params: Any
     ) -> bool:
@@ -95,45 +151,14 @@ class WsBridgeMixin(BaseChannel):
         # Validate strikt — raise wenn nicht konform
         self._validate_audio_flag(audio_type, params)
 
-        ws = _devices.get(room)
-        if ws is None:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_flag: not connected", "warning",
-            )
-            return False
-        if ws.closed:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_flag: WS closed (id={id(ws)}) "
-                f"— stale handle in _devices",
-                "warning",
-            )
-            return False
-        payload: dict[str, Any] = {
-            "type": "audio_flag",
-            "audio_type": audio_type,
-            **params,
-        }
-        try:
-            await asyncio.wait_for(
-                ws.send_str(json.dumps(payload)),
-                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
-            )
-            self.channel_log(
-                f"[FreeEcho.2 {room}] → audio_flag({audio_type}) sent "
-                f"(ws id={id(ws)})"
-            )
-            return True
-        except asyncio.TimeoutError:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_flag timeout — stream abort, "
-                f"WS bleibt offen", "warning",
-            )
-            return False
-        except Exception as exc:  # noqa: BLE001
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_flag error: {exc}", "warning",
-            )
-            return False
+        ok = await self._send_frame(
+            room,
+            {"type": "audio_flag", "audio_type": audio_type, **params},
+            "send_audio_flag",
+        )
+        if ok:
+            self.channel_log(f"[FreeEcho.2 {room}] → audio_flag({audio_type}) sent")
+        return ok
 
     async def send_audio_start(
         self,
@@ -159,77 +184,25 @@ class WsBridgeMixin(BaseChannel):
         nicht für endlose Music-Streams). Puck nutzt es bisher nicht für
         Logik, kann aber für künftige Progress-LED genutzt werden.
         """
-        ws = _devices.get(room)
-        if ws is None:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_start: not connected", "warning",
-            )
-            return False
-        if ws.closed:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_start: WS closed (id={id(ws)}) "
-                f"— stale handle in _devices",
-                "warning",
-            )
-            return False
-        payload: dict[str, Any] = {"type": "audio_start"}
         if channels not in (1, 2):
             raise ValueError(
                 f"send_audio_start: channels must be 1 or 2, got {channels!r}"
             )
-        payload["channels"] = channels
+        payload: dict[str, Any] = {"type": "audio_start", "channels": channels}
         if total_size is not None:
             payload["total_size"] = int(total_size)
-        try:
-            await asyncio.wait_for(
-                ws.send_str(json.dumps(payload)),
-                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
-            )
+        ok = await self._send_frame(room, payload, "send_audio_start")
+        if ok:
             self.channel_log(
-                f"[FreeEcho.2 {room}] → audio_start sent "
-                f"(total_size={total_size}, ws id={id(ws)})"
+                f"[FreeEcho.2 {room}] → audio_start sent (total_size={total_size})"
             )
-            return True
-        except asyncio.TimeoutError:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_start timeout — stream abort, "
-                f"WS bleibt offen", "warning",
-            )
-            return False
-        except Exception as exc:  # noqa: BLE001
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_start error: {exc}", "warning",
-            )
-            return False
+        return ok
 
     async def send_audio_chunk(self, room: str, data: bytes) -> bool:
-        ws = _devices.get(room)
-        if ws is None:
-            return False
-        try:
-            await asyncio.wait_for(
-                ws.send_bytes(data),
-                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
-            )
-            return True
-        except asyncio.TimeoutError:
-            # KEIN WS-close mehr! Beim _resume kann der Puck kurz nicht
-            # receive-ready sein (Source-Replace ~1-2s), TCP-Buffer voll,
-            # send hängt 10s. Ein chunk-timeout heißt nur "dieser Stream
-            # ist nicht mehr durchgekommen" — fifo_pump bricht via
-            # ok=False ab, WS bleibt offen für Recovery (User-Wake,
-            # neuer audio_play, etc.).
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_chunk timeout "
-                f"({_fmt_mib(len(data))}) — stream abort, WS bleibt offen",
-                "warning",
-            )
-            return False
-        except Exception as exc:  # noqa: BLE001
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_chunk error: {exc}", "warning",
-            )
-            return False
+        return await self._send_frame(
+            room, data, "send_audio_chunk",
+            timeout_note=f" ({_fmt_mib(len(data))})",
+        )
 
     async def send_heartbeat(self, room: str) -> bool:
         """Heartbeat während aktivem Streaming an den FreeEcho.2 schicken.
@@ -237,43 +210,15 @@ class WsBridgeMixin(BaseChannel):
         Wird vom FreeEcho2Stream alle 5 s aufgerufen, auch wenn die FIFO-Pump
         gerade pausiert (flow.pause / User-_pause). Liefert False bei
         Send-Timeout — dann ist der FreeEcho.2 nicht mehr erreichbar und der
-        Stream räumt sich selbst auf.
+        Stream räumt sich selbst auf. ``quiet``: der 5-s-Takt würde sonst
+        das Log fluten.
         """
-        ws = _devices.get(room)
-        if ws is None:
-            return False
-        try:
-            await asyncio.wait_for(
-                ws.send_str(json.dumps({"type": "heartbeat"})),
-                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
-            )
-            return True
-        except asyncio.TimeoutError:
-            return False
-        except Exception:  # noqa: BLE001
-            return False
+        return await self._send_frame(
+            room, {"type": "heartbeat"}, "send_heartbeat", quiet=True,
+        )
 
     async def send_audio_end(self, room: str) -> bool:
-        ws = _devices.get(room)
-        if ws is None:
-            return False
-        try:
-            await asyncio.wait_for(
-                ws.send_str(json.dumps({"type": "audio_end"})),
-                timeout=self._CHUNK_SEND_TIMEOUT_SEC,
-            )
-            return True
-        except asyncio.TimeoutError:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_end timeout — stream abort, "
-                f"WS bleibt offen", "warning",
-            )
-            return False
-        except Exception as exc:  # noqa: BLE001
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_audio_end error: {exc}", "warning",
-            )
-            return False
+        return await self._send_frame(room, {"type": "audio_end"}, "send_audio_end")
 
     async def send_done(self, room: str, reason: str | None = None) -> bool:
         """SSoT for the ``done`` frame — the canonical turn boundary.
@@ -282,18 +227,10 @@ class WsBridgeMixin(BaseChannel):
         and reply with the ``_done`` token. Both the reactive reply pipeline
         and the proactive alert queue send it after their audio_end so the
         terminal contract is symmetric (audio_end + done in every path)."""
-        ws = _devices.get(room)
-        if ws is None:
-            return False
         payload: dict[str, str] = {"type": "done"}
         if reason is not None:
             payload["reason"] = reason
-        try:
-            await ws.send_str(json.dumps(payload))
+        ok = await self._send_frame(room, payload, "send_done")
+        if ok:
             self.channel_log(f"[FreeEcho.2 {room}] → done sent (reason={reason})")
-            return True
-        except Exception as exc:  # noqa: BLE001
-            self.channel_log(
-                f"[FreeEcho.2 {room}] send_done error: {exc}", "warning",
-            )
-            return False
+        return ok
