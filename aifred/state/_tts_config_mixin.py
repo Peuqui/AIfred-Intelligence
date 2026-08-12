@@ -181,10 +181,15 @@ class TTSConfigMixin(rx.State, mixin=True):
         auto_deps=False,
     )
     def narrator_effective_engine(self) -> str:
-        """The engine narrate_file would actually use right now."""
-        if self.narrator_engine != "auto":
-            return self.narrator_engine
-        return self.tts_engine if self.enable_tts else self.narrator_fallback_engine  # type: ignore[has-type]
+        """The engine narrate_file would actually use right now
+        (Entscheidungslogik = lib-SSOT, geteilt mit dem narrator-Plugin)."""
+        from ..lib.tts_engines import resolve_narrator_engine
+        return resolve_narrator_engine(
+            self.narrator_engine,
+            bool(self.enable_tts),
+            self.tts_engine,  # type: ignore[has-type]
+            self.narrator_fallback_engine,
+        )
 
     @rx.var(
         deps=["narrator_engine", "narrator_fallback_engine", "enable_tts",
@@ -195,18 +200,13 @@ class TTSConfigMixin(rx.State, mixin=True):
         """The effective engine's OWN voices (engine.get_voices() is the
         SSOT — clones only appear on cloning engines, Piper lists its
         built-in speakers, etc.)."""
-        from ..lib.tts_engines import get_engine
+        from ..lib.tts_engines import get_engine, voice_names
         eng = get_engine(self.narrator_effective_engine)
         if eng is None:
             return []
-        try:
-            # Container engines return {} (not an exception) while the
-            # container is down — fall back to the static catalogue then,
-            # same handling as the main TTS voice dropdown.
-            voices = eng.get_voices()
-        except Exception:
-            voices = {}
-        return list((voices or eng.voices_fallback).keys())
+        # lib-SSOT (geteilt mit dem narrator-Plugin): live get_voices(),
+        # bei Fehler/leer der statische Katalog.
+        return voice_names(eng)
 
     @rx.var(
         deps=["narrator_voices", "narrator_engine", "narrator_fallback_engine",

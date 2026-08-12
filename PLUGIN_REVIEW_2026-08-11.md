@@ -172,7 +172,7 @@ eigenständige, atomare, modulare Gebilde.
   Lösung über lib-Helper (Abschnitt E: Settings-Lese-SSOT + Resolver-Bau in
   lib, beide Plugins nutzen ihn); dabei Hardcodes `pre_roll = 3.0` (Z.423) und
   `duration >= 60` (Z.427) als Config-Werte statt Magic Numbers.
-- [ ] (TEILWEISE: float-Parse jetzt fail-loud; Dedup → Abschnitt E) `tts_reply.py:314-343` vs. `state/_tts_streaming_mixin.py:151-202` —
+- [x] (Parser = lib-SSOT parse_speed_factor; Policy-Unterschiede — aifred-Erbschaft vs. Verweigerung, Fallback vs. fail-loud — beidseitig dokumentierte Absicht, bleiben) `tts_reply.py:314-343` vs. `state/_tts_streaming_mixin.py:151-202` —
   Voice/Speed/Pitch-Auflösung doppelt (Plugin vs. Browser-„SSOT") mit
   Verhaltens-Divergenz; Plugin-Variante: `float(speed_str.replace("x",""))`
   AUSSERHALB des try → kaputter Settings-Wert killt den Reply-Pfad ungefangen.
@@ -318,11 +318,11 @@ eigenständige, atomare, modulare Gebilde.
   `translator/__init__.py:464` — Pfad-Beispiel `'documents/meeting-DE.txt'` ist
   falsch (Pfade relativ zu `data/documents/`; das Beispiel zeigt auf
   `data/documents/documents/…` → „File not found"). In beiden Plugins fixen.
-- [ ] `__init__.py:26-36` — `_voice_names` = ~6. Kopie des Musters
+- [x] `__init__.py:26-36` — `_voice_names` = ~6. Kopie des Musters
   „`get_voices()` except → `voices_fallback`" (weitere:
   `_tts_config_mixin.py:203-209, 329/335, 769-784, 871-882`,
   `tts_stress_burnin.py:242-255`). Helper in lib (z.B. tts_engines/registry).
-- [ ] `__init__.py:39-69` vs. `_tts_config_mixin.py:183-187,216ff` —
+- [x] `__init__.py:39-69` vs. `_tts_config_mixin.py:183-187,216ff` —
   Engine/Voice-Auflösung („auto → tts_engine/fallback_engine; Voice =
   gespeicherte pro Engine, sonst erste") doppelt (State- vs. settings-basiert).
   Gemeinsamer Helper. (Plugin↔State/lib, kein Cross-Plugin.)
@@ -681,7 +681,7 @@ lib-Helper — nie ein Import zwischen Plugins.
   dort hartcodiert `localhost:8000` —, _memory_browser_mixin 3×).
 - [x] (lib/audio_player_settings.py: load + build_configured_source_map) **audio_player-Settings-Lese-SSOT in lib**: 4 unabhängige Reader
   (Plugin, `_audio_player_mixin`, `audio_processing`, `audio_index`).
-- [ ] **Voice-Katalog- und Engine/Voice-Auflösungs-Helper in lib**
+- [x] MINIMAL-KERN (tts_engines: voice_names, resolve_narrator_engine, parse_speed_factor — die 4 Kontext-Varianten mit State-Cache/async/Dict und die Policy-Unterschiede Browser↔FreeEcho2 bleiben bewusst bei ihren Aufrufern) **Voice-Katalog- und Engine/Voice-Auflösungs-Helper in lib**
   (tts_engines): ~6 Kopien des `get_voices()→voices_fallback`-Musters +
   doppelte Engine/Voice-Auflösung narrator↔`_tts_config_mixin` und
   freeecho2-`_run_tts`↔`_resolve_agent_tts` (settings-dict als Input, damit
