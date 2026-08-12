@@ -145,7 +145,7 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-telegram
 
-- [ ] `__init__.py:239-242` — `finally` ruft unconditional
+- [x] `__init__.py:239-242` — `finally` ruft unconditional
   `updater.stop()/app.stop()/app.shutdown()`; bei Boot-Fehler (ungültiger Token)
   ersetzt der Folge-`RuntimeError` („This Updater is not running!") die echte
   Ursache im Hub-Log + 5× sinnloser Restart. Dazu fehlt ein
@@ -154,15 +154,15 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-freeecho2
 
-- [ ] `connection.py:236-238` — Pipeline-Cancel im `finally` nicht
+- [x] `connection.py:236-238` — Pipeline-Cancel im `finally` nicht
   ownership-geschützt (Device-Teardown Z.241 dagegen schon): Room-Takeover-Race —
   alter Handler cancelt die Pipeline der NEUEN Verbindung, Query stirbt still.
   Cancel an die Task-Referenz der eigenen Verbindung binden (strukturell, kein Lock).
-- [ ] `pipeline.py:228` — `_devices[room] = ws` mitten in der Pipeline: redundant
+- [x] `pipeline.py:228` — `_devices[room] = ws` mitten in der Pipeline: redundant
   (Register-Frame ist SSOT) und schädlich beim Takeover (re-installiert alten
   Socket; alter `finally` hält sich für Owner und löscht den Room-Slot der
   lebendigen neuen Verbindung). Zeile streichen.
-- [ ] `tts_reply.py:347` — `channel_language()` wird nicht als `language=` an
+- [x] `tts_reply.py:347` — `channel_language()` wird nicht als `language=` an
   `generate_tts` übergeben → bei `FREEECHO2_LANGUAGE=en` synthetisieren
   xtts/dashscope deutsch. (Browser-Pfad übergibt korrekt,
   `_tts_streaming_mixin.py:261,781`.)
@@ -172,16 +172,16 @@ eigenständige, atomare, modulare Gebilde.
   Lösung über lib-Helper (Abschnitt E: Settings-Lese-SSOT + Resolver-Bau in
   lib, beide Plugins nutzen ihn); dabei Hardcodes `pre_roll = 3.0` (Z.423) und
   `duration >= 60` (Z.427) als Config-Werte statt Magic Numbers.
-- [ ] `tts_reply.py:314-343` vs. `state/_tts_streaming_mixin.py:151-202` —
+- [ ] (TEILWEISE: float-Parse jetzt fail-loud; Dedup → Abschnitt E) `tts_reply.py:314-343` vs. `state/_tts_streaming_mixin.py:151-202` —
   Voice/Speed/Pitch-Auflösung doppelt (Plugin vs. Browser-„SSOT") mit
   Verhaltens-Divergenz; Plugin-Variante: `float(speed_str.replace("x",""))`
   AUSSERHALB des try → kaputter Settings-Wert killt den Reply-Pfad ungefangen.
   Gemeinsamer lib-Helper (settings-dict statt State als Input) bedient beide.
-- [ ] `pipeline.py:56-63` — Command-Token-Branch in `_handle_audio` unerreichbar
+- [x] `pipeline.py:56-63` — Command-Token-Branch in `_handle_audio` unerreichbar
   (`_pending_wake_agent` wird für Command-Tokens nie gesetzt, commands.py:97-109
   returnt vorher); Kommentar behauptet fälschlich „handlers are TODO/(stub)".
   Branch + Kommentar entfernen/korrigieren.
-- [ ] `__init__.py:176-178` — `FREEECHO2_TTS_VOICE`: totes Write mit Hardcode
+- [x] `__init__.py:176-178` — `FREEECHO2_TTS_VOICE`: totes Write mit Hardcode
   (`values.get(..., "de_DE-thorsten-high")` liefert immer den Default, kein
   CredentialField existiert, Broker-Wert wird nirgends gelesen). Entfernen,
   inkl. verwaistem i18n-Key `freeecho2_cred_tts_voice` (i18n.json:18-21).
@@ -439,7 +439,7 @@ eigenständige, atomare, modulare Gebilde.
 - [ ] `ws_bridge.py` — 6× identisches Sende-Boilerplate
   (get→None-Check→wait_for→Timeout-Log→Except-Log); nur flag/start prüfen
   `ws.closed` → `_send_frame`-Helper (intra-Plugin).
-- [ ] `__init__.py:164-169` — SSL-Zweige in `apply_credentials` unerreichbar
+- [x] `__init__.py:164-169` — SSL-Zweige in `apply_credentials` unerreichbar
   (keine CredentialFields) — streichen (TLS via env/Broker funktioniert).
 - [ ] `_shared.py:65` — `_pending_responses` komplett ungenutzt — streichen.
 - [ ] `tts_reply.py:133` — Magic `96000` dupliziert

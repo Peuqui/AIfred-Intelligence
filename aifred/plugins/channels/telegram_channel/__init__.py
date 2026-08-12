@@ -144,6 +144,7 @@ class TelegramChannel(BaseChannel):
 
     async def listener_loop(self) -> None:
         """Telegram bot loop — long polling until cancelled."""
+        from telegram.error import InvalidToken
         from telegram.ext import (
             Application,
             CommandHandler,
@@ -239,9 +240,20 @@ class TelegramChannel(BaseChannel):
 
         except asyncio.CancelledError:
             _log("Telegram Plugin: shutting down")
+        except InvalidToken as exc:
+            # Config-Fehler: ein Restart-Loop kann einen falschen Token nicht
+            # heilen — loggen und OHNE Re-Raise beenden (kein Hub-Restart),
+            # gleiches Muster wie discord.LoginFailure im Discord-Channel.
+            _log(f"Telegram Plugin: invalid bot token — fix credentials, not restarting ({exc})", "error")
         finally:
-            await app.updater.stop()
-            await app.stop()
+            # Nur stoppen, was auch läuft: ein unconditional stop() nach einem
+            # Boot-Fehler wirft "This Updater is not running!" und ersetzt im
+            # Hub-Log die eigentliche Fehlerursache. shutdown() ist bei nicht
+            # initialisierter App ein No-Op.
+            if app.updater.running:
+                await app.updater.stop()
+            if app.running:
+                await app.stop()
             await app.shutdown()
 
     # ── Reply ─────────────────────────────────────────────────

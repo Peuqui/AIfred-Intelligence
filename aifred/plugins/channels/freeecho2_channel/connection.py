@@ -130,6 +130,10 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
         # (Pipeline-Supersession, TTS-Fehlrouting). Jetzt: bis zum Register
         # werden Frames verworfen (geloggt).
         room: "str | None" = None
+        # Letzte VON DIESER Verbindung gestartete Pipeline-Task — der finally
+        # cancelt nur die eigene Task, nie den Dict-Eintrag: nach einem
+        # Room-Takeover steht dort schon die Pipeline der NEUEN Verbindung.
+        my_pipeline: "asyncio.Task | None" = None
         self.channel_log(f"FreeEcho.2 connection from {request.remote}")
 
         try:
@@ -217,6 +221,7 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
                         self._handle_audio(ws, msg.data, bin_room)
                     )
                     _pipeline_tasks[bin_room] = task
+                    my_pipeline = task
 
                     def _cleanup_pipeline(t: asyncio.Task, r: str = bin_room) -> None:
                         if _pipeline_tasks.get(r) is t:
@@ -231,11 +236,13 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
             self.channel_log(f"WebSocket error ({room}): {e}", "error")
         finally:
             if room is not None:
-                # Laufende Pipeline beim Disconnect canceln — sonst spielt
-                # der Server noch TTS in einen toten Socket.
-                pending = _pipeline_tasks.get(room)
-                if pending is not None and not pending.done():
-                    pending.cancel()
+                # Laufende EIGENE Pipeline beim Disconnect canceln — sonst
+                # spielt der Server noch TTS in einen toten Socket. Bewusst
+                # my_pipeline statt _pipeline_tasks[room]: nach einem Takeover
+                # gehört der Dict-Eintrag der neuen Verbindung, deren Query
+                # ein alter Handler nicht killen darf.
+                if my_pipeline is not None and not my_pipeline.done():
+                    my_pipeline.cancel()
                 # Only tear down this room's per-room state if THIS socket still
                 # owns the slot (a takeover by a newer connection must not clobber it).
                 if _devices.get(room) is ws:

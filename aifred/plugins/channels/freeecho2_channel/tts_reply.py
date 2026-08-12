@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from ....lib.formatting import format_number
 from ....lib.plugin_base import BaseChannel
 
-from ._shared import _devices, _fmt_mib
+from ._shared import _devices, _fmt_mib, channel_language
 from .alert_queue import enqueue_alert
 
 if TYPE_CHECKING:
@@ -335,16 +335,32 @@ class TtsReplyMixin(BaseChannel):
         speed_str = str(default_cfg.get("speed", "1.0"))
         if isinstance(user_cfg, dict) and user_cfg.get("speed"):
             speed_str = str(user_cfg["speed"])
-        speed = float(speed_str.replace("x", ""))
 
         pitch_str = str(default_cfg.get("pitch", "1.0"))
         if isinstance(user_cfg, dict) and user_cfg.get("pitch"):
             pitch_str = str(user_cfg["pitch"])
-        pitch = float(pitch_str)
+
+        try:
+            speed = float(speed_str.replace("x", ""))
+            pitch = float(pitch_str)
+        except ValueError:
+            # Fail-loud statt ungefangenem Crash des Reply-Pfads: ein kaputter
+            # Settings-Wert wird klar benannt, das Gerät bleibt still.
+            self.channel_log(
+                f"Invalid TTS speed/pitch in settings for agent '{agent}' "
+                f"(speed='{speed_str}', pitch='{pitch_str}') — no TTS", "error",
+            )
+            return None
 
         try:
             from ....lib.audio_processing import generate_tts
-            result: str | None = await generate_tts(text, voice, speed, engine, pitch=pitch, agent=agent)
+            # channel_language() = Haushaltssprache (FREEECHO2_LANGUAGE) —
+            # ohne sie synthetisieren sprachsensitive Engines (xtts,
+            # dashscope) mit dem "de"-Default der lib.
+            result: str | None = await generate_tts(
+                text, voice, speed, engine, pitch=pitch, agent=agent,
+                language=channel_language(),
+            )
             if not result:
                 # No fallback to another engine (project rule) — the device
                 # stays silent. The engine already logged the specific cause
