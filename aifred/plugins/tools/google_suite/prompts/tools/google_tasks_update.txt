@@ -1,1 +1,1 @@
-Aufgabe aktualisieren. Nur angegebene Felder werden geändert.
+Update a task. Only the fields you pass are changed.

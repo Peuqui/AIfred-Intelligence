@@ -1,34 +1,130 @@
 {
-  "google_client_id":          {"de": "Google Client ID",     "en": "Google Client ID"},
-  "google_client_secret":      {"de": "Google Client Secret", "en": "Google Client Secret"},
-  "google_calendar_enabled":   {"de": "Kalender",             "en": "Calendar"},
-  "google_contacts_enabled":   {"de": "Kontakte",             "en": "Contacts"},
-  "tool_list_events":          {"de": "📅 Kalender abrufen…", "en": "📅 Fetching calendar…"},
-  "tool_create_event":         {"de": "📅 Termin erstellen…", "en": "📅 Creating event…"},
-  "tool_update_event":         {"de": "📅 Termin aktualisieren…", "en": "📅 Updating event…"},
-  "tool_delete_event":         {"de": "📅 Termin löschen…",   "en": "📅 Deleting event…"},
-  "tool_list_calendars":       {"de": "📅 Kalender laden…",   "en": "📅 Loading calendars…"},
-  "tool_list_all_contacts":    {"de": "👥 Alle Kontakte abrufen…", "en": "👥 Loading all contacts…"},
-  "tool_list_groups":          {"de": "👥 Gruppen laden…",    "en": "👥 Loading groups…"},
-  "tool_list_by_group":        {"de": "👥 Gruppe abrufen…",   "en": "👥 Loading group…"},
-  "tool_search_contacts":      {"de": "👥 Kontakte suchen…",  "en": "👥 Searching contacts…"},
-  "tool_create_contact":       {"de": "👥 Kontakt erstellen…", "en": "👥 Creating contact…"},
-  "tool_update_contact":       {"de": "👥 Kontakt aktualisieren…", "en": "👥 Updating contact…"},
-  "tool_delete_contact":       {"de": "👥 Kontakt löschen…",  "en": "👥 Deleting contact…"},
-  "google_tasks_enabled":      {"de": "Tasks",                "en": "Tasks"},
-  "tool_list_tasklists":       {"de": "✅ Task-Listen laden…", "en": "✅ Loading task lists…"},
-  "tool_list_tasks":           {"de": "✅ Aufgaben abrufen…",  "en": "✅ Fetching tasks…"},
-  "tool_create_task":          {"de": "✅ Aufgabe erstellen…", "en": "✅ Creating task…"},
-  "tool_update_task":          {"de": "✅ Aufgabe aktualisieren…", "en": "✅ Updating task…"},
-  "tool_complete_task":        {"de": "✅ Aufgabe erledigt…",  "en": "✅ Completing task…"},
-  "tool_delete_task":          {"de": "✅ Aufgabe löschen…",   "en": "✅ Deleting task…"},
-  "google_drive_enabled":      {"de": "Drive",                 "en": "Drive"},
-  "tool_drive_list_files":     {"de": "📂 Dateien auflisten…", "en": "📂 Listing files…"},
-  "tool_drive_search":         {"de": "📂 Drive durchsuchen…", "en": "📂 Searching Drive…"},
-  "tool_drive_get_file":       {"de": "📂 Datei lesen…",       "en": "📂 Reading file…"},
-  "tool_drive_create_file":    {"de": "📂 Datei erstellen…",   "en": "📂 Creating file…"},
-  "tool_drive_update_file":    {"de": "📂 Datei aktualisieren…", "en": "📂 Updating file…"},
-  "tool_drive_delete_file":    {"de": "📂 Datei löschen…",     "en": "📂 Deleting file…"},
-  "tool_drive_create_folder":  {"de": "📂 Ordner erstellen…",  "en": "📂 Creating folder…"},
-  "tool_drive_move_file":      {"de": "📂 Datei verschieben…", "en": "📂 Moving file…"}
+  "google_client_id": {
+    "de": "Google Client ID",
+    "en": "Google Client ID"
+  },
+  "google_client_secret": {
+    "de": "Google Client Secret",
+    "en": "Google Client Secret"
+  },
+  "google_calendar_enabled": {
+    "de": "Kalender",
+    "en": "Calendar"
+  },
+  "google_contacts_enabled": {
+    "de": "Kontakte",
+    "en": "Contacts"
+  },
+  "tool_google_calendar_list_events": {
+    "de": "📅 Kalender abrufen…",
+    "en": "📅 Fetching calendar…"
+  },
+  "tool_google_calendar_create_event": {
+    "de": "📅 Termin erstellen…",
+    "en": "📅 Creating event…"
+  },
+  "tool_google_calendar_update_event": {
+    "de": "📅 Termin aktualisieren…",
+    "en": "📅 Updating event…"
+  },
+  "tool_google_calendar_delete_event": {
+    "de": "📅 Termin löschen…",
+    "en": "📅 Deleting event…"
+  },
+  "tool_google_calendar_list_calendars": {
+    "de": "📅 Kalender laden…",
+    "en": "📅 Loading calendars…"
+  },
+  "tool_google_contacts_list_all": {
+    "de": "👥 Alle Kontakte abrufen…",
+    "en": "👥 Loading all contacts…"
+  },
+  "tool_google_contacts_list_groups": {
+    "de": "👥 Gruppen laden…",
+    "en": "👥 Loading groups…"
+  },
+  "tool_google_contacts_list_by_group": {
+    "de": "👥 Gruppe abrufen…",
+    "en": "👥 Loading group…"
+  },
+  "tool_google_contacts_search": {
+    "de": "👥 Kontakte suchen…",
+    "en": "👥 Searching contacts…"
+  },
+  "tool_google_contacts_create": {
+    "de": "👥 Kontakt erstellen…",
+    "en": "👥 Creating contact…"
+  },
+  "tool_google_contacts_update": {
+    "de": "👥 Kontakt aktualisieren…",
+    "en": "👥 Updating contact…"
+  },
+  "tool_google_contacts_delete": {
+    "de": "👥 Kontakt löschen…",
+    "en": "👥 Deleting contact…"
+  },
+  "google_tasks_enabled": {
+    "de": "Tasks",
+    "en": "Tasks"
+  },
+  "tool_google_tasks_list_tasklists": {
+    "de": "✅ Task-Listen laden…",
+    "en": "✅ Loading task lists…"
+  },
+  "tool_google_tasks_list": {
+    "de": "✅ Aufgaben abrufen…",
+    "en": "✅ Fetching tasks…"
+  },
+  "tool_google_tasks_create": {
+    "de": "✅ Aufgabe erstellen…",
+    "en": "✅ Creating task…"
+  },
+  "tool_google_tasks_update": {
+    "de": "✅ Aufgabe aktualisieren…",
+    "en": "✅ Updating task…"
+  },
+  "tool_google_tasks_complete": {
+    "de": "✅ Aufgabe erledigt…",
+    "en": "✅ Completing task…"
+  },
+  "tool_google_tasks_delete": {
+    "de": "✅ Aufgabe löschen…",
+    "en": "✅ Deleting task…"
+  },
+  "google_drive_enabled": {
+    "de": "Drive",
+    "en": "Drive"
+  },
+  "tool_google_drive_list_files": {
+    "de": "📂 Dateien auflisten…",
+    "en": "📂 Listing files…"
+  },
+  "tool_google_drive_search": {
+    "de": "📂 Drive durchsuchen…",
+    "en": "📂 Searching Drive…"
+  },
+  "tool_google_drive_get_file": {
+    "de": "📂 Datei lesen…",
+    "en": "📂 Reading file…"
+  },
+  "tool_google_drive_create_file": {
+    "de": "📂 Datei erstellen…",
+    "en": "📂 Creating file…"
+  },
+  "tool_google_drive_update_file": {
+    "de": "📂 Datei aktualisieren…",
+    "en": "📂 Updating file…"
+  },
+  "tool_google_drive_delete_file": {
+    "de": "📂 Datei löschen…",
+    "en": "📂 Deleting file…"
+  },
+  "tool_google_drive_create_folder": {
+    "de": "📂 Ordner erstellen…",
+    "en": "📂 Creating folder…"
+  },
+  "tool_google_drive_move_file": {
+    "de": "📂 Datei verschieben…",
+    "en": "📂 Moving file…"
+  }
 }

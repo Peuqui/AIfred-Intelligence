@@ -277,29 +277,29 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-google_suite
 
-- [ ] `calendar/tools.py:108-115` — nutzloser GET vor PATCH in `update_event`
+- [x] `calendar/tools.py:108-115` — nutzloser GET vor PATCH in `update_event`
   (Response nie gelesen, Copy-Paste vom tasks-PUT-Muster). GET streichen.
-- [ ] `prompts/de|en/_intro.txt` — monolithisch, beschreibt immer alle 4
+- [x] `prompts/de|en/_intro.txt` — monolithisch, beschreibt immer alle 4
   Services (auch wenn Sub-Service deaktiviert/nicht granted). In per-Service-
   Fragmente splitten (`+`-Konvention, wie Vision es hatte).
-- [ ] `prompts/tools/*.txt` (alle 26) — Descriptions DEUTSCH statt Englisch
+- [x] `prompts/tools/*.txt` (alle 26) — Descriptions DEUTSCH statt Englisch
   (Konvention plugin_base.py:99 „Nur Englisch: Empfänger ist das Modell";
   einziges abweichendes Plugin). Übersetzen. Auch die JSON-Schema-Parameter-
   Descriptions im Code sind deutsch.
-- [ ] `prompts/tools/google_drive_get_file.txt` — behauptet „50.000 Zeichen"-Limit;
+- [x] `prompts/tools/google_drive_get_file.txt` — behauptet „50.000 Zeichen"-Limit;
   real: 5-MB-Byte-Cap (`DRIVE_MAX_DOWNLOAD_BYTES`, drive/tools.py:42,60-73). 
-- [ ] `__init__.py:38` — Plugin-Description nennt Gmail (existiert nicht),
+- [x] `__init__.py:38` — Plugin-Description nennt Gmail (existiert nicht),
   verschweigt Contacts/Tasks. Korrigieren.
-- [ ] ⚠️ Delete-Tools auf `TIER_WRITE_DATA` (2) statt `TIER_WRITE_SYSTEM` (3):
+- [x] ⚠️ Delete-Tools auf `TIER_WRITE_DATA` (2) statt `TIER_WRITE_SYSTEM` (3):
   `calendar/tools.py:234`, `contacts/tools.py:402`, `tasks/tools.py:242`,
   `drive/tools.py:393` — Repo-Konvention (lib/security.py:36) stuft Deletes als
   Tier 3; Drive löscht endgültig (kein Papierkorb). Externe Kanäle mit
   max_tier 2 dürfen aktuell endgültig löschen.
-- [ ] HTTP-Boilerplate ~24× (`async with httpx.AsyncClient()` + Bearer-Header +
+- [x] HTTP-Boilerplate ~24× (`async with httpx.AsyncClient()` + Bearer-Header +
   `timeout=15` + `raise_for_status`) → Helper `_google_request(...)` in
   `_common.py` (intra-Plugin; die 2 raise_for_status-Ausreißer aus A7 sind
   genau dort entstanden).
-- [ ] `contacts/tools.py:184-188` vs. `:249-253` — givenName/familyName-Split
+- [x] `contacts/tools.py:184-188` vs. `:249-253` — givenName/familyName-Split
   doppelt inkl. Kommentar → Helper neben `_format_person`.
 
 ### B-translator
@@ -529,19 +529,19 @@ eigenständige, atomare, modulare Gebilde.
   funktional egal — Kommentar dazu, oder Konstante).
 
 ### C-google_suite
-- [ ] `*/tools.py` — `logger` + `import logging` in allen 4 Modulen definiert,
+- [x] `*/tools.py` — `logger` + `import logging` in allen 4 Modulen definiert,
   nie benutzt — streichen.
-- [ ] `get_*_tools(lang)` — `lang`-Parameter in allen 4 Factories ungenutzt —
+- [x] `get_*_tools(lang)` — `lang`-Parameter in allen 4 Factories ungenutzt —
   entfernen (Aufrufer in `__init__.py:123-135` anpassen).
-- [ ] `_PLUGIN_DIR`-Block 4× identisch inkl. Kommentar → `_common.py`.
-- [ ] `__init__.py:145-172` — status_map = dritte handgepflegte Liste aller
+- [x] `_PLUGIN_DIR`-Block 4× identisch inkl. Kommentar → `_common.py`.
+- [x] `__init__.py:145-172` — status_map = dritte handgepflegte Liste aller
   26 Tool-Namen → i18n-Key aus Tool-Namen ableiten.
 - [ ] Hartcodierte deutsche Strings: `calendar/tools.py:55` „(kein Titel)";
   `_common.py:8` RuntimeError; `contacts/tools.py:67` ValueError;
   `drive/tools.py:67-69` RuntimeError; `__init__.py:84-105` „Aktiviert"/
   „Deaktiviert"-Options-Labels (i18n.json existiert).
 - [ ] `drive/tools.py:68` — MB-Zahl ohne `format_number` in User-facing Meldung.
-- [ ] `contacts/tools.py:124,155` — keine Clamps auf Google-Limits
+- [x] `contacts/tools.py:124,155` — keine Clamps auf Google-Limits
   (batchGet max 200, searchContacts pageSize max 30) → HTTP 400 statt sauberer
   Begrenzung.
 - [ ] Kleinkram: `__init__.py:54-60` `_translate` liest i18n.json bei jedem

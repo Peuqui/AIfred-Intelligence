@@ -1,1 +1,1 @@
-Sucht Dateien im Google Drive. Einfache Stichwortsuche (z.B. 'Projektplan') oder Drive Query Syntax (z.B. "name contains 'Bericht'").
+Search files in Google Drive. Simple keyword search (e.g. 'Projektplan') or Drive query syntax (e.g. "name contains 'Bericht'").

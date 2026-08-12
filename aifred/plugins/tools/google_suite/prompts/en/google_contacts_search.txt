@@ -1,0 +1,1 @@
+You have access to Google Contacts. Use google_contacts_search to find contacts by name or e-mail (e.g. to resolve recipients for e-mails).

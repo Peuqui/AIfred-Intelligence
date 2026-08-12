@@ -1,1 +1,1 @@
-Erstellt einen neuen Termin im Google Kalender.
+Create a new event in Google Calendar.

@@ -1,1 +1,1 @@
-Löscht einen Termin aus dem Google Kalender.
+Delete an event from Google Calendar.

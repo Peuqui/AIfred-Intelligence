@@ -1,1 +1,1 @@
-Aktualisiert einen bestehenden Kontakt. Nur gesetzte Felder werden überschrieben.
+Update an existing contact. Only the fields you pass are overwritten.

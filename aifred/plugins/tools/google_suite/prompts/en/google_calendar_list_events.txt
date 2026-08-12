@@ -1,0 +1,1 @@
+You have access to Google Calendar. Use google_calendar_list_events to query events, google_calendar_create_event to create new events, google_calendar_update_event to change and google_calendar_delete_event to delete them. Timestamps must be RFC 3339 (e.g. 2026-04-22T10:00:00+02:00).

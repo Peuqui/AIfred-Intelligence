@@ -1,1 +1,1 @@
-Alle Kontaktgruppen/Labels auflisten.
+List all contact groups/labels.

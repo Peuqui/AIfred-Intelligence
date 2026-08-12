@@ -1,0 +1,1 @@
+Du hast Zugriff auf Google Calendar. Nutze google_calendar_list_events für Terminabfragen, google_calendar_create_event um neue Termine anzulegen, google_calendar_update_event zum Ändern und google_calendar_delete_event zum Löschen. Zeitangaben müssen im RFC 3339 Format sein (z.B. 2026-04-22T10:00:00+02:00).

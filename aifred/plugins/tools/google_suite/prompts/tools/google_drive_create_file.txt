@@ -1,1 +1,1 @@
-Erstellt eine neue Textdatei im Google Drive und befüllt sie mit Inhalt.
+Create a new text file in Google Drive and fill it with content.

@@ -1,1 +1,1 @@
-Aufgaben einer Task-Liste abrufen.
+Fetch the tasks of a task list.

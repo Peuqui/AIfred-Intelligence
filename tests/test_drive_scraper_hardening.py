@@ -44,7 +44,7 @@ class TestDriveDownloadCap:
         import aifred.plugins.tools.google_suite.drive.tools as drive_tools
         monkeypatch.setattr(drive_tools, "DRIVE_MAX_DOWNLOAD_BYTES", 10)
         resp = httpx.Response(200, content=b"x" * 11)
-        with pytest.raises(RuntimeError, match="Download abgebrochen"):
+        with pytest.raises(RuntimeError, match="download aborted"):
             asyncio.run(_read_capped(resp))
 
 

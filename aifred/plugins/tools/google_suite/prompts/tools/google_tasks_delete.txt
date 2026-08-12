@@ -1,1 +1,1 @@
-Aufgabe aus Google Tasks löschen.
+Delete a task from Google Tasks.

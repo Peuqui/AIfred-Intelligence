@@ -1,1 +1,1 @@
-Listet alle Google Task-Listen des Nutzers auf.
+List all Google task lists of the user.

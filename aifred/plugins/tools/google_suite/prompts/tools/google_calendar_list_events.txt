@@ -1,1 +1,1 @@
-Listet Google-Kalender-Termine in einem Zeitraum auf. start und end müssen RFC 3339 sein, z.B. 2026-04-22T00:00:00Z.
+List Google Calendar events within a time window. start and end must be RFC 3339, e.g. 2026-04-22T00:00:00Z.

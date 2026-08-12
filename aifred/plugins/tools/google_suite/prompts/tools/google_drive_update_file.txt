@@ -1,1 +1,1 @@
-Überschreibt den Inhalt einer bestehenden Drive-Datei.
+Overwrite the content of an existing Drive file.

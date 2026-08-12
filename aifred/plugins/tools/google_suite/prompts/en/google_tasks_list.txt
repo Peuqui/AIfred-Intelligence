@@ -1,0 +1,1 @@
+You have access to Google Tasks. Use google_tasks_list to fetch tasks, google_tasks_create to create new ones, google_tasks_complete to mark them done and google_tasks_delete to delete them. google_tasks_list_tasklists shows all existing lists.

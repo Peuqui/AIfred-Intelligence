@@ -1,0 +1,1 @@
+Du hast Zugriff auf Google Contacts. Nutze google_contacts_search um Kontakte nach Name oder E-Mail zu suchen (z.B. um Empfänger für E-Mails aufzulösen).

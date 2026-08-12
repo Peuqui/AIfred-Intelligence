@@ -1,1 +1,1 @@
-Erstellt einen neuen Ordner im Google Drive.
+Create a new folder in Google Drive.
