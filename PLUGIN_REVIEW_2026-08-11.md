@@ -497,35 +497,35 @@ eigenständige, atomare, modulare Gebilde.
   read-only-Quellen, die das Tool nicht haben.
 
 ### C-epim
-- [ ] `tools.py:322-330` — Update-Pfad ohne die Create-Sanitisierung
+- [x] `tools.py:322-330` — Update-Pfad ohne die Create-Sanitisierung
   (`_as_bool` für allday, „high"/„low" für priority) — roh in die DB.
 - [x] `db.py:1164` — `fields.pop("list_name") or fields.pop("list")`:
   Short-circuit-Muster, das update_task (Z.696-699) selbst als Bug dokumentiert
   — angleichen.
-- [ ] `db.py:781-783,803-804` + `:89` — FIELDSDATA2-Read-Pfad: bytes würde in
+- [x] `db.py:781-783,803-804` + `:89` — FIELDSDATA2-Read-Pfad: bytes würde in
   `raw.encode("utf-8")` crashen (latent, 0/399 betroffen); Update-Pfad ist
   fail-loud, Read-Pfad angleichen.
-- [ ] `tools.py:385-386` vs. `:197-198,318-319` — `epim_delete` für `password`
+- [x] `tools.py:385-386` vs. `:197-198,318-319` — `epim_delete` für `password`
   ohne den Browser-only-Guard von create/update — symmetrisch machen.
-- [ ] `tools.py:331-337` — Kontakt-Update ignoriert flache Felder kommentarlos
+- [x] `tools.py:331-337` — Kontakt-Update ignoriert flache Felder kommentarlos
   (create mappt sie); mindestens Fehler melden.
-- [ ] `db.py:839-860` vs. `:1250-1273` — update_contact/update_password fast
+- [x] BELASSEN (nach Feldmap-Helpern bleiben nur strukturell nötige Unterschiede) `db.py:839-860` vs. `:1250-1273` — update_contact/update_password fast
   identisch → Helper (intra).
-- [ ] `db.py:1233-1234` vs. `:1266-1267` — PASSENTRYFIELDS-Query doppelt.
-- [ ] `db.py:824,854` — `name_to_id`-Inversion doppelt.
-- [ ] `db.py:780-782,802-804` — FIELDSDATA2-Override-Snippet doppelt.
-- [ ] `db.py:700-707,708-715` — Alias-Auflösungs-Block in update_task doppelt.
+- [x] `db.py:1233-1234` vs. `:1266-1267` — PASSENTRYFIELDS-Query doppelt.
+- [x] `db.py:824,854` — `name_to_id`-Inversion doppelt.
+- [x] `db.py:780-782,802-804` — FIELDSDATA2-Override-Snippet doppelt.
+- [x] `db.py:700-707,708-715` — Alias-Auflösungs-Block in update_task doppelt.
 - [x] `db.py:1210-1215` — search_passwords-Subquery-Verschachtelung →
   simpler LEFT JOIN.
-- [ ] `db.py:371-376` — `EpimDatabase.close()` ohne Aufrufer — streichen.
-- [ ] `db.py:547-549,744,1074` — tote Suchparameter (location/tags/category/
+- [x] `db.py:371-376` — `EpimDatabase.close()` ohne Aufrufer — streichen.
+- [x] ENTFERNT (tote Suchparameter samt SQL, per Dead-Code-Regel) `db.py:547-549,744,1074` — tote Suchparameter (location/tags/category/
   list_name), vom Tool-Schema nie angeboten — ⚠️ ins Schema aufnehmen oder
   entfernen.
-- [ ] `tools.py:132` — „gefunden" im Debug-Log → Englisch.
-- [ ] `tools.py:201,220,267,280,295` + `db.py:967` — deutsche Default-Titel
+- [x] `tools.py:132` — „gefunden" im Debug-Log → Englisch.
+- [x] BELASSEN (EPIM-Datenbestand ist deutsch — DE-Default-Titel sind Nutzdaten, kein UI-Text) `tools.py:201,220,267,280,295` + `db.py:967` — deutsche Default-Titel
   („Neuer Termin", „Tab 1") hartcodiert — ⚠️ ok als Datenbestand oder
   sprachabhängig?
-- [ ] `db.py:363-364` — „SYSDBA"/„masterkey" hartcodiert (bei Firebird embedded
+- [x] (Kommentar: embedded ignoriert Auth) `db.py:363-364` — „SYSDBA"/„masterkey" hartcodiert (bei Firebird embedded
   funktional egal — Kommentar dazu, oder Konstante).
 
 ### C-google_suite
