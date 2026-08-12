@@ -70,3 +70,53 @@ def channel_engine_options() -> list[tuple[str, str]]:
         for e in TTS_ENGINES.values()
         if e.suitable_for_channels
     ]
+
+
+def voice_names(engine: TTSEngine) -> list[str]:
+    """Katalog-Namen einer Engine: live ``get_voices()``, bei Fehler ODER
+    leerem Ergebnis der statische ``voices_fallback``.
+
+    Container-Engines liefern ``{}`` (keine Exception), solange der
+    Container steht — das dokumentierte Katalog-Muster aus base.py. SSOT
+    für das narrator-Plugin und die Narrator-UI; die weiteren Varianten
+    (XTTS-State-Cache im Hot-Path, async-to_thread in der Kalibrierung,
+    Dict-statt-Namen) bleiben bewusst bei ihren Aufrufern — deren
+    Kontext-Anforderungen sind echte Unterschiede, keine Drift.
+    """
+    try:
+        voices = engine.get_voices()
+    except Exception:  # noqa: BLE001 — down/unreachable == leerer Katalog
+        voices = {}
+    return list((voices or engine.voices_fallback).keys())
+
+
+def resolve_narrator_engine(
+    narrator_engine: str,
+    enable_tts: bool,
+    tts_engine: str,
+    fallback_engine: str,
+) -> str:
+    """Narrator-Engine-Entscheidung — SSOT für Plugin UND UI-Mixin:
+    ``"auto"`` folgt bei aktivem TTS der Sprach-Engine, sonst dem
+    GPU-freien Fallback (die geladene LLM behält ihr VRAM). Nimmt reine
+    Werte statt State/Settings, damit beide Aufrufer (Reflex-Var mit
+    deps, Plugin mit settings.json) dieselbe Logik teilen können.
+    """
+    if narrator_engine and narrator_engine != "auto":
+        return narrator_engine
+    return tts_engine if enable_tts else fallback_engine
+
+
+def parse_speed_factor(raw: object) -> "float | None":
+    """``"1.25x"``/``"1.25"``/``1.25`` → 1.25; ``None``/``""``/Müll → None.
+
+    Nur der PARSER ist SSOT — ob der Aufrufer bei None auf einen Default
+    zurückfällt (Browser-UI) oder fail-loud abbricht (FreeEcho2-Reply),
+    ist bewusste Policy pro Konsument.
+    """
+    if raw in (None, ""):
+        return None
+    try:
+        return float(str(raw).replace("x", ""))
+    except (ValueError, TypeError):
+        return None

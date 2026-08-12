@@ -11,9 +11,9 @@ import pytest
 from aifred.plugins.tools.narrator import (
     _gpu_engine_conflict,
     _resolve_engine_and_voice,
-    _voice_names,
     plugin,
 )
+from aifred.lib.tts_engines import voice_names
 from aifred.lib.plugin_base import PluginContext
 
 
@@ -78,7 +78,7 @@ class TestVoiceNames:
             get_voices=lambda: (_ for _ in ()).throw(RuntimeError("down")),
             voices_fallback={"A": "a"},
         )
-        assert _voice_names(eng) == ["A"]
+        assert voice_names(eng) == ["A"]
 
     def test_empty_get_voices_falls_back(self):
         # Container-Engines liefern {} (keine Exception), solange der
@@ -87,7 +87,7 @@ class TestVoiceNames:
             get_voices=lambda: {},
             voices_fallback={"AIfred": "AIfred", "Salomo": "Salomo"},
         )
-        assert _voice_names(eng) == ["AIfred", "Salomo"]
+        assert voice_names(eng) == ["AIfred", "Salomo"]
 
 
 class TestGpuEngineConflict:

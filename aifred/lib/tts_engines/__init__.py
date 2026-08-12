@@ -30,17 +30,23 @@ in the refactor stays bounded.
 from .base import TTSEngine
 from .registry import (
     TTS_ENGINES,
+    channel_engine_options,
     get_engine,
     gpu_engines,
     installed_gpu_engines,
-    channel_engine_options,
+    parse_speed_factor,
+    resolve_narrator_engine,
+    voice_names,
 )
 
 __all__ = [
     "TTSEngine",
     "TTS_ENGINES",
+    "channel_engine_options",
     "get_engine",
     "gpu_engines",
     "installed_gpu_engines",
-    "channel_engine_options",
+    "parse_speed_factor",
+    "resolve_narrator_engine",
+    "voice_names",
 ]

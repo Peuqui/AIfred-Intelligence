@@ -178,12 +178,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
         ).get(agent, {})
 
         def _as_float(raw: Any, fallback: float) -> float:
-            if raw in (None, ""):
-                return fallback
-            try:
-                return float(str(raw).replace("x", ""))
-            except (ValueError, TypeError):
-                return fallback
+            # Parser = lib-SSOT; der Default-Fallback bei Müll ist bewusste
+            # Browser-Policy (FreeEcho2 bricht stattdessen fail-loud ab).
+            from ..lib.tts_engines import parse_speed_factor
+            parsed = parse_speed_factor(raw)
+            return fallback if parsed is None else parsed
 
         # voice: per-agent → agent's engine default → global (last resort)
         voice = (

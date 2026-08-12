@@ -340,12 +340,12 @@ class TtsReplyMixin(BaseChannel):
         if isinstance(user_cfg, dict) and user_cfg.get("pitch"):
             pitch_str = str(user_cfg["pitch"])
 
-        try:
-            speed = float(speed_str.replace("x", ""))
-            pitch = float(pitch_str)
-        except ValueError:
-            # Fail-loud statt ungefangenem Crash des Reply-Pfads: ein kaputter
-            # Settings-Wert wird klar benannt, das Gerät bleibt still.
+        # Parser = lib-SSOT (geteilt mit _resolve_agent_tts im Browser-Pfad);
+        # None → fail-loud statt stillem Default (bewusste Channel-Policy).
+        from ....lib.tts_engines import parse_speed_factor
+        speed = parse_speed_factor(speed_str)
+        pitch = parse_speed_factor(pitch_str)
+        if speed is None or pitch is None:
             self.channel_log(
                 f"Invalid TTS speed/pitch in settings for agent '{agent}' "
                 f"(speed='{speed_str}', pitch='{pitch_str}') — no TTS", "error",

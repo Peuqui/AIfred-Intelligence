@@ -23,48 +23,34 @@ from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.plugin_base import PluginContext, load_tool_description
 
 
-def _voice_names(eng_obj: Any) -> list[str]:
-    """Display names of an engine's voices (get_voices, else fallback).
-
-    Container engines return {} (not an exception) while the container
-    is down — treat that like a failure and use the static catalogue.
-    """
-    try:
-        voices = eng_obj.get_voices()
-    except Exception:
-        voices = {}
-    return list((voices or eng_obj.voices_fallback).keys())
-
-
 def _resolve_engine_and_voice(engine: str = "", voice: str = "") -> tuple[str, str]:
     """Resolve the effective narrator engine and its default voice.
 
     Shared by narrate_file and list_narrator_voices so both always agree.
-    "auto" follows the spoken-output engine; while that is off, the
-    user-selected GPU-free fallback is used so the loaded LLM keeps its
-    VRAM (the qwen3local container otherwise silently falls back to an
-    agonizingly slow CPU synth). Voices are engine-bound — the saved
-    voice for the resolved engine wins, else the engine's own first
+    Engine-Entscheidung und Voice-Katalog laufen über die lib-SSOTs
+    (``resolve_narrator_engine``/``voice_names`` — geteilt mit der
+    Narrator-UI im ``_tts_config_mixin``). Voices are engine-bound — the
+    saved voice for the resolved engine wins, else the engine's own first
     voice (never hand e.g. the "AIfred" clone name to Piper).
     """
     from ....lib.config import NARRATE_DEFAULT_VOICE, TTS_DEFAULT_ENGINE
     from ....lib.settings import load_settings
-    from ....lib.tts_engines import get_engine
+    from ....lib.tts_engines import get_engine, resolve_narrator_engine, voice_names
 
     _settings = load_settings() or {}
     if not engine:
-        engine = _settings.get("narrator_engine", "auto")
-        if engine == "auto":
-            if _settings.get("enable_tts"):
-                engine = _settings.get("tts_engine") or TTS_DEFAULT_ENGINE
-            else:
-                engine = _settings.get("narrator_fallback_engine", "piper")
+        engine = resolve_narrator_engine(
+            _settings.get("narrator_engine", "auto"),
+            bool(_settings.get("enable_tts")),
+            _settings.get("tts_engine") or TTS_DEFAULT_ENGINE,
+            _settings.get("narrator_fallback_engine", "piper"),
+        )
     if not voice:
         voice = (_settings.get("narrator_voices") or {}).get(engine, "")
     if not voice:
         eng_obj = get_engine(engine)
         if eng_obj is not None:
-            names = _voice_names(eng_obj)
+            names = voice_names(eng_obj)
             voice = names[0] if names else ""
     return engine, voice or NARRATE_DEFAULT_VOICE
 
@@ -173,11 +159,11 @@ class NarratorPlugin:
                         "speaker_voices must be a JSON object mapping "
                         "speaker labels to voice names"
                     )})
-                from ....lib.tts_engines import get_engine
+                from ....lib.tts_engines import get_engine, voice_names
                 eng_obj = get_engine(engine)
                 if eng_obj is None:
                     return json.dumps({"error": f"Unknown TTS engine: {engine}"})
-                known_voices = set(_voice_names(eng_obj))
+                known_voices = set(voice_names(eng_obj))
                 unknown_voices = sorted(
                     v for v in speaker_voices.values() if v not in known_voices
                 )
@@ -310,7 +296,7 @@ class NarratorPlugin:
 
         async def _list_narrator_voices(engine: str = "") -> str:
             """Voice discovery for the effective narrator engine."""
-            from ....lib.tts_engines import get_engine
+            from ....lib.tts_engines import get_engine, voice_names
 
             engine, default_voice = _resolve_engine_and_voice(engine)
             conflict = _gpu_engine_conflict(engine)
@@ -322,7 +308,7 @@ class NarratorPlugin:
             return json.dumps({
                 "engine": engine,
                 "default_voice": default_voice,
-                "voices": _voice_names(eng_obj),
+                "voices": voice_names(eng_obj),
             })
 
         return [
