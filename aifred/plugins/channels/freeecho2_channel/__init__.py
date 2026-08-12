@@ -161,21 +161,10 @@ class FreeEchoChannel(ConnectionMixin):
             values.get("FREEECHO2_AUTH_REQUIRED", ""),
         )
 
-        ssl_cert = values.get("FREEECHO2_SSL_CERT", "")
-        ssl_key = values.get("FREEECHO2_SSL_KEY", "")
-        if ssl_cert:
-            broker.set_runtime("freeecho2", "ssl_cert", ssl_cert)
-        if ssl_key:
-            broker.set_runtime("freeecho2", "ssl_key", ssl_key)
-
         # Engine setting is saved here, actual start happens on first FreeEcho.2 request
         # via ensure_engine_ready() in _run_tts()
         new_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
         broker.set_runtime("freeecho2", "tts_engine", new_engine)
-
-        tts_voice = values.get("FREEECHO2_TTS_VOICE", "de_DE-thorsten-high")
-        if tts_voice:
-            broker.set_runtime("freeecho2", "tts_voice", tts_voice)
 
         broker.set_runtime(
             "freeecho2", "language",

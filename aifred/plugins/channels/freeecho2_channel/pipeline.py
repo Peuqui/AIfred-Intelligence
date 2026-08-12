@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Optional
 
 from ....lib.formatting import format_number
 
-from ._shared import _devices, _pending_wake_agent
+from ._shared import _pending_wake_agent
 from .tts_reply import TtsReplyMixin
 from .ws_bridge import WsBridgeMixin
 
@@ -51,16 +51,11 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
             f"{format_number(audio_kb, 0)} KB ({num_samples} samples)"
         )
 
-        # Resolve wake-word hint from the preceding "wake" event. Agent IDs with
-        # a leading underscore are command tokens (e.g. "_stop") — handle those
-        # here and skip the full STT/LLM/TTS pipeline. The FreeEcho.2 stops its own
-        # playback locally on wake detection (like Action-Button), so no reply
-        # is sent back. Concrete server-side command handlers (abort running
-        # inference, cancel injected music/TTS, …) are TODO.
+        # Resolve wake-word hint from the preceding "wake" event. Command
+        # tokens ("_"-prefix, e.g. "_stop") never reach this point — they are
+        # fully handled (and popped) in commands._handle_command_token before
+        # any audio frame arrives.
         wake_agent = _pending_wake_agent.pop(room, None)
-        if wake_agent and wake_agent.startswith("_"):
-            self.channel_log(f"[FreeEcho.2 {room}] Command '{wake_agent}' received — pipeline skipped (stub)")
-            return
 
         # Convert raw PCM to WAV for STT
         wav_buffer = io.BytesIO()
@@ -225,7 +220,10 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 },
             )
 
-            _devices[room] = ws
+            # KEIN _devices[room] = ws hier: der Register-Frame ist die SSOT
+            # für den Device-Slot (connection.py). Ein Re-Install mitten in
+            # der Pipeline würde nach einem Room-Takeover den ALTEN Socket
+            # re-installieren und der neue Verbindung den Slot klauen.
 
             # process_inbound calls send_reply automatically (via auto_reply)
             # User question already flushed to session above (early browser update)
