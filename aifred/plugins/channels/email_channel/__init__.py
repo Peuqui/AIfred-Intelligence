@@ -16,6 +16,7 @@ import ssl
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from .config import EMAIL_SENT_FOLDER_DEFAULT
 from ....lib.plugin_base import BaseChannel, CredentialField
 from ....lib.logging_utils import log_message
 
@@ -151,6 +152,11 @@ class EmailChannel(BaseChannel):
                 label_key="email_cred_allowed_senders",
                 placeholder="user@example.com, @family.de",
             ),
+            CredentialField(
+                env_key="EMAIL_SENT_FOLDER",
+                label_key="email_cred_sent_folder",
+                default=EMAIL_SENT_FOLDER_DEFAULT,
+            ),
         ]
 
     def is_configured(self) -> bool:
@@ -177,6 +183,7 @@ class EmailChannel(BaseChannel):
             "EMAIL_USER": ("email", "user"),
             "EMAIL_PASSWORD": ("email", "password"),
             "EMAIL_FROM": ("email", "from"),
+            "EMAIL_SENT_FOLDER": ("email", "sent_folder"),
             "EMAIL_ALLOWED_SENDERS": ("email", "allowed_senders"),
         }
         for env_key, (service, key) in _field_to_broker.items():
@@ -480,9 +487,14 @@ class EmailChannel(BaseChannel):
         route = routing_table.get_route("email", original.channel_id)
         sid = route.session_id if route else None
 
+        # Same RFC2047 vector as the subject (build_reply_metadata): a crafted
+        # From header can smuggle CR/LF into the decoded sender — send_email
+        # rejects that with ValueError and the reply would never go out.
+        recipient = outbound.recipient.replace("\r", " ").replace("\n", " ").strip()
+
         rendered = self.format_outbound(outbound.text)
         send_email(
-            to=outbound.recipient,
+            to=recipient,
             subject=subject,
             body=rendered["text"],
             html=rendered.get("html"),
@@ -490,7 +502,7 @@ class EmailChannel(BaseChannel):
             session_id=sid,
         )
         from ....lib.debug_bus import debug
-        debug(f"📤 Auto-reply sent to {outbound.recipient}")
+        debug(f"📤 Auto-reply sent to {recipient}")
 
     # ── Context ───────────────────────────────────────────────
 
@@ -604,7 +616,14 @@ def _connect_imap(host: str, port: int, user: str, password: str) -> tuple[imapl
     Returns (imap_connection, uidvalidity).
     """
     ctx = ssl.create_default_context()
-    imap = imaplib.IMAP4_SSL(host, port, ssl_context=ctx)
+    # Socket timeout MUST exceed the IDLE window: during IDLE the socket is
+    # legitimately silent for up to _IDLE_TIMEOUT_SECONDS. The margin covers
+    # non-IDLE ops (SEARCH/FETCH) — a dead socket releases the blocked
+    # to_thread worker instead of hanging it forever (the asyncio watchdog
+    # cannot cancel a blocking thread, only abandon it).
+    imap = imaplib.IMAP4_SSL(
+        host, port, ssl_context=ctx, timeout=_IDLE_TIMEOUT_SECONDS + 60
+    )
     imap.login(user, password)
     status, data = imap.select("INBOX")
     # UIDVALIDITY from SELECT response (data[0] is message count, not uidvalidity)

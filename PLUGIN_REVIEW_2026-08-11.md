@@ -126,20 +126,20 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-email
 
-- [ ] `client.py:427-437, 440-455, 216` — `delete_email`/`move_email` nutzen
+- [x] `client.py:427-437, 440-455, 216` — `delete_email`/`move_email` nutzen
   IMAP-**Sequence-Numbers** über getrennte Verbindungen (jede Tool-Aktion =
   neue Verbindung). Expunge dazwischen → falsche Mail wird gelöscht/verschoben.
   Fix: UID-Kommandos (`uid search`/`uid store`), wie der Listener sie nutzt.
-- [ ] `__init__.py:597-618` — Listener-`_connect_imap` ohne Socket-Timeout;
+- [x] `__init__.py:597-618` — Listener-`_connect_imap` ohne Socket-Timeout;
   `asyncio.wait_for` deckt nur `_idle_cycle`. `_get_existing_uids` + FETCHes in
   `_process_uid` ungeschützt → toter Socket hängt den Listener dauerhaft.
   (client.py:52-54 setzt timeout=30 und dokumentiert warum.)
-- [ ] `__init__.py:516-518` — CR/LF-Stripping nur fürs Subject, nicht für
+- [x] `__init__.py:516-518` — CR/LF-Stripping nur fürs Subject, nicht für
   `message.sender` → `outbound.recipient` (gleicher RFC2047-Vektor) →
   `send_email` wirft `ValueError` → Antwort scheitert (und Mail wegen A1 weg).
-- [ ] `client.py:167` + `tools.py:41` — `n=0` → `msg_ids[-0:]` = KOMPLETTE
+- [x] `client.py:167` + `tools.py:41` — `n=0` → `msg_ids[-0:]` = KOMPLETTE
   Mailbox (je Mail ein FETCH); negativ ähnlich. Clamp `n >= 1`.
-- [ ] `client.py:404-416` — Sent-Ordner „Gesendet"→„Sent" hartcodiert
+- [x] `client.py:404-416` — Sent-Ordner „Gesendet"→„Sent" hartcodiert
   (GMX-spezifisch) mit Fallback-Kette. Konfigurierbar machen
   (CredentialField/settings.json).
 

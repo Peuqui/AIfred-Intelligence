@@ -34,5 +34,13 @@
   "email_cred_allowed_senders_tooltip": {
     "de": "Kommagetrennte Liste von E-Mail-Adressen oder Domains.\nBeispiel: user@mail.de, @family.de\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
     "en": "Comma-separated email addresses or domains.\nExample: user@mail.de, @family.de\n* = allow all, empty = allow none.\nFirst entry = owner (gets elevated permissions)."
+  },
+  "email_cred_sent_folder": {
+    "de": "Gesendet-Ordner",
+    "en": "Sent folder"
+  },
+  "email_cred_sent_folder_tooltip": {
+    "de": "IMAP-Ordnername, in den gesendete Mails kopiert werden.\nProvider-abhängig: GMX = 'Gesendet', viele andere = 'Sent'.\nAlle Ordner anzeigen: email-Tool mit action='list_folders'.",
+    "en": "IMAP folder name where sent mails are copied.\nProvider-specific: GMX = 'Gesendet', many others = 'Sent'.\nList all folders: email tool with action='list_folders'."
   }
 }
