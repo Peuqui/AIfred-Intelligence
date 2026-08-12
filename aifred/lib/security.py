@@ -112,6 +112,20 @@ def extract_sender_email(sender: str) -> str:
     return addr or sender.strip().lower()
 
 
+def first_allowlist_entry(service: str, key: str) -> str:
+    """Erster Eintrag der Allowlist = Owner — SSOT der Konvention.
+
+    Genutzt von ``_is_owner`` (Elevation-Check) und den Channel-Plugins
+    (z.B. telegram_send-Owner-Default). Leerer String, wenn die Liste
+    leer/unbrauchbar ist ('*' ist seit TD8 kein gültiger Wert).
+    """
+    from .credential_broker import broker
+    raw = broker.get(service, key).strip()
+    if not raw or raw == "*":
+        return ""
+    return raw.split(",")[0].strip()
+
+
 def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
     """Check if a sender is the owner for a given channel.
 
@@ -121,10 +135,9 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
     from .credential_broker import broker
 
     if channel == "telegram":
-        allowed = broker.get("telegram", "allowed_users").strip()
-        if not allowed or allowed == "*":
+        first_id = first_allowlist_entry("telegram", "allowed_users")
+        if not first_id:
             return False
-        first_id = allowed.split(",")[0].strip()
         # Use user_id from metadata (more reliable than display name)
         user_id = str(metadata.get("user_id", ""))
         return user_id == first_id

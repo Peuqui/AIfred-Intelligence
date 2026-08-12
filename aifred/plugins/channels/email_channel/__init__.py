@@ -12,7 +12,6 @@ import email.utils
 import imaplib
 import pathlib
 import re
-import ssl
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -64,7 +63,10 @@ def _load_checkpoint() -> tuple[int, int]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return int(data.get("last_uid", 0)), int(data.get("uidvalidity", 0))
-    except (json.JSONDecodeError, ValueError, TypeError):
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        # Korrupter Checkpoint = Recovery wird komplett übersprungen — das
+        # darf nicht geräuschlos passieren.
+        log_message(f"Email Plugin: corrupt checkpoint file, starting fresh: {exc}", "warning")
         return 0, 0
 
 
@@ -480,7 +482,9 @@ class EmailChannel(BaseChannel):
         from .client import send_email
         from ....lib.routing_table import routing_table
 
-        subject = outbound.metadata.get("subject", "Re: AIfred")
+        # build_reply_metadata setzt "subject" immer (ggf. leer) — kein
+        # hartcodierter Zweitwert hier.
+        subject = outbound.metadata.get("subject", "")
         reply_to_id = outbound.metadata.get("in_reply_to")
 
         # Look up session_id so send_email can register the route
@@ -613,31 +617,27 @@ def _parse_auth_results(msg) -> str:
 def _connect_imap(host: str, port: int, user: str, password: str) -> tuple[imaplib.IMAP4_SSL, int]:
     """Create a fresh IMAP connection and select INBOX.
 
-    Returns (imap_connection, uidvalidity).
+    Returns (imap_connection, uidvalidity). Verbindungsaufbau läuft über
+    die client._imap_connect-SSOT — hier nur mit längerem Socket-Timeout:
+    während IDLE ist der Socket legitim bis _IDLE_TIMEOUT_SECONDS still,
+    und ein toter Socket gibt den blockierten to_thread-Worker frei (der
+    asyncio-Watchdog kann Threads nur aufgeben, nicht abbrechen).
     """
-    ctx = ssl.create_default_context()
-    # Socket timeout MUST exceed the IDLE window: during IDLE the socket is
-    # legitimately silent for up to _IDLE_TIMEOUT_SECONDS. The margin covers
-    # non-IDLE ops (SEARCH/FETCH) — a dead socket releases the blocked
-    # to_thread worker instead of hanging it forever (the asyncio watchdog
-    # cannot cancel a blocking thread, only abandon it).
-    imap = imaplib.IMAP4_SSL(
-        host, port, ssl_context=ctx, timeout=_IDLE_TIMEOUT_SECONDS + 60
-    )
-    imap.login(user, password)
-    status, data = imap.select("INBOX")
-    # UIDVALIDITY from SELECT response (data[0] is message count, not uidvalidity)
-    # Parse from imap.response('UIDVALIDITY') or use a STATUS command
+    from .client import _imap_connect
+    imap = _imap_connect(timeout=_IDLE_TIMEOUT_SECONDS + 60)
+    imap.select("INBOX")
+    # UIDVALIDITY via STATUS command (select()'s data[0] is the message count)
     uidvalidity = 0
     try:
         _, uv_data = imap.status("INBOX", "(UIDVALIDITY)")
         if uv_data and uv_data[0]:
-            import re
             match = re.search(rb"UIDVALIDITY\s+(\d+)", uv_data[0])
             if match:
                 uidvalidity = int(match.group(1))
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        # Nicht still auf 0 fallen: mit uv=0 hält die Recovery einen echten
+        # UIDVALIDITY-Wechsel fälschlich für "unverändert" (bzw. umgekehrt).
+        log_message(f"Email Plugin: could not determine UIDVALIDITY: {exc}", "warning")
     return imap, uidvalidity
 
 

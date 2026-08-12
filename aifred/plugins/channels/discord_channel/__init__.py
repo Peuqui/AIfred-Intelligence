@@ -7,7 +7,6 @@ Connects as a Discord bot and listens for messages in configured channels.
 from __future__ import annotations
 
 import asyncio
-from datetime import timezone
 from typing import TYPE_CHECKING
 
 import discord
@@ -20,20 +19,32 @@ if TYPE_CHECKING:
     from ....lib.function_calling import Tool
     from ....lib.plugin_base import PluginContext
 
+# Discord message length limit
+_MAX_MESSAGE_LENGTH = 2000
+
 # Module-level reference to the running Discord client.
 # Needed so the reply path can send messages back.
 _discord_client: discord.Client | None = None
 
 
 def _parse_channel_ids(ids_str: str) -> set[int]:
-    """Parse comma-separated channel IDs from config string."""
+    """Parse comma-separated Discord IDs from a config string.
+
+    Ungültige Einträge werden geloggt statt still verworfen — sind ALLE
+    Einträge Tippfehler, lauscht der Bot sonst kommentarlos auf allen
+    Channels (leere Menge = kein Filter).
+    """
     if not ids_str:
         return set()
     ids: set[int] = set()
     for part in ids_str.split(","):
         part = part.strip()
+        if not part:
+            continue
         if part.isdigit():
             ids.add(int(part))
+        else:
+            log_message(f"Discord Plugin: ignoring non-numeric ID in config: {part!r}", "warning")
     return ids
 
 
@@ -66,7 +77,7 @@ def _is_discord_user_allowed(user_id: int) -> bool:
             "supported (TD8) — list explicit user ids. Blocking everyone."
         )
         return False
-    return any(p.strip().isdigit() and int(p.strip()) == user_id for p in raw.split(","))
+    return user_id in _parse_channel_ids(raw)
 
 
 class DiscordChannel(BaseChannel):
@@ -196,22 +207,38 @@ class DiscordChannel(BaseChannel):
                 )
                 _log("Discord Plugin: /clear in DM — context reset only")
                 return
+            # Beide Rechte prüfen: der USER braucht manage_messages
+            # (Autorisierung), der BOT braucht es auch (Fähigkeit) —
+            # sonst wirft purge() nach bereits gesendeter Response Forbidden.
             perms = interaction.channel.permissions_for(interaction.user)  # type: ignore[union-attr, arg-type]
-            if not perms.manage_messages:
+            bot_perms = interaction.channel.permissions_for(interaction.guild.me)  # type: ignore[union-attr]
+            if not perms.manage_messages or not bot_perms.manage_messages:
+                who = "user" if not perms.manage_messages else "bot"
                 await interaction.response.send_message(
-                    "Conversation context reset. (No manage_messages permission — messages not deleted.)",
+                    f"Conversation context reset. (No manage_messages permission for {who} — messages not deleted.)",
                     ephemeral=True,
                 )
-                _log("Discord Plugin: /clear — context reset, purge skipped (no permission)")
+                _log(f"Discord Plugin: /clear — context reset, purge skipped (no {who} permission)")
                 return
             await interaction.response.send_message("Clearing conversation and deleting messages...", ephemeral=True)
-            # limit=None = ALL messages (discord.py default is only 100)
-            deleted = await interaction.channel.purge(limit=None)  # type: ignore[union-attr]
+            try:
+                # limit=None = ALL messages (discord.py default is only 100)
+                deleted = await interaction.channel.purge(limit=None)  # type: ignore[union-attr]
+            except discord.Forbidden as exc:
+                _log(f"Discord Plugin: /clear purge forbidden despite permission check: {exc}", "warning")
+                return
             _log(f"Discord Plugin: /clear — context reset + purged {len(deleted)} messages in #{getattr(interaction.channel, 'name', '?')}")
+
+        # on_ready feuert bei jedem Session-Reconnect erneut — tree.sync()
+        # ist aber ein rate-limitierter Global-Call und muss nur einmal laufen.
+        commands_synced = False
 
         @client.event
         async def on_ready() -> None:
-            await tree.sync()
+            nonlocal commands_synced
+            if not commands_synced:
+                await tree.sync()
+                commands_synced = True
             _log(f"Discord Plugin: connected as {client.user}, slash commands synced")
 
         @client.event
@@ -235,7 +262,8 @@ class DiscordChannel(BaseChannel):
                 return
 
             sender = f"{message.author.display_name} ({message.author.name})"
-            timestamp = message.created_at.replace(tzinfo=timezone.utc)
+            # discord.py 2.x liefert created_at bereits als aware UTC-datetime
+            timestamp = message.created_at
 
             from ....lib.envelope import InboundMessage
 
@@ -314,13 +342,21 @@ class DiscordChannel(BaseChannel):
         optional file attachment on the first message. Used by both the reply
         path and the discord_send tool. Discord renders any file type as an
         attachment, so no photo/document distinction is needed."""
-        import discord
+        from ....lib.text_chunking import split_message
 
         file = discord.File(media) if media else None
-        chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)] or [""]
+        # lib-Chunker: bricht an Zeilengrenzen (kein Wort-/Codeblock-Riss)
+        # und liefert nie leere Chunks — send("") wirft in der Discord-API.
+        chunks = split_message(text, _MAX_MESSAGE_LENGTH)
+        if not chunks and not file:
+            self.channel_log("Discord Plugin: empty reply — nothing to send", "warning")
+            return
+        if not chunks:
+            await channel.send(None, file=file)  # type: ignore[union-attr]
+            return
         for i, chunk in enumerate(chunks):
             kwargs = {"file": file} if (i == 0 and file) else {}
-            await channel.send(chunk or None, **kwargs)  # type: ignore[union-attr]
+            await channel.send(chunk, **kwargs)  # type: ignore[union-attr]
 
     # ── Context ───────────────────────────────────────────────
 

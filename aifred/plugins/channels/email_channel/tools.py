@@ -198,7 +198,8 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["check", "read", "search", "send", "list_folders", "mark"],
+                        # Aus dem Python-Enforcement-Set abgeleitet — eine Wahrheit
+                        "enum": sorted(_SAFE_ACTIONS),
                         "description": "Action to perform",
                     },
                     "msg_id": {"type": "string", "description": "Message ID (for read)"},
@@ -235,7 +236,8 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["delete", "move", "create_folder"],
+                        # Aus dem Python-Enforcement-Set abgeleitet — eine Wahrheit
+                        "enum": sorted(_MANAGE_ACTIONS),
                         "description": "Destructive mailbox action",
                     },
                     "msg_id": {"type": "string", "description": "Message ID (for delete, move)"},

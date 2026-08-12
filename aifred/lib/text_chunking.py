@@ -1,12 +1,41 @@
-"""Paragraph-boundary text chunking — shared by translator and narrator.
+"""Text chunking helpers — shared by translator, narrator and the
+message channels.
 
-Extracted from the translator plugin so every consumer that has to feed
-long text piecewise into an external service (DeepL, TTS engines) splits
-it the same way: at blank-line paragraph boundaries, never mid-sentence.
+- :func:`split_paragraph_chunks`: at blank-line paragraph boundaries,
+  never mid-sentence (DeepL, TTS engines).
+- :func:`split_message`: at line boundaries into a hard length cap
+  (Telegram 4096, Discord 2000 — channel message limits).
 """
 from __future__ import annotations
 
 import re
+
+
+def split_message(text: str, max_length: int) -> list[str]:
+    """Split a message into chunks that fit a channel's length limit.
+
+    Bevorzugt Umbrüche an Zeilengrenzen (zerreißt keine Wörter/Codeblöcke
+    mitten in der Zeile, wenn ein Umbruch existiert). Liefert nie leere
+    Chunks — Telegram/Discord lehnen leere Nachrichten mit einem
+    API-Fehler ab (traf z.B. Caption-Overflow, der mit ``\\n`` begann).
+    """
+    if not text:
+        return []
+    if len(text) <= max_length:
+        return [text]
+
+    chunks: list[str] = []
+    while text:
+        if len(text) <= max_length:
+            chunks.append(text)
+            break
+        # Split at last newline before limit (<= 0 = kein sinnvoller Umbruch)
+        split_at = text.rfind("\n", 0, max_length)
+        if split_at <= 0:
+            split_at = max_length
+        chunks.append(text[:split_at])
+        text = text[split_at:].lstrip("\n")
+    return chunks
 
 
 def split_paragraph_chunks(text: str, limit: int) -> list[str]:

@@ -3,12 +3,11 @@
 import os
 from unittest.mock import patch
 
-
+from aifred.lib.text_chunking import split_message
 from aifred.plugins.channels.telegram_channel import (
     TelegramChannel,
     _is_user_allowed,
     _owner_chat_id,
-    _split_message,
 )
 
 
@@ -69,26 +68,35 @@ class TestOwnerChatId:
 
 class TestSplitMessage:
     def test_short_message(self):
-        assert _split_message("Hello", 4096) == ["Hello"]
+        assert split_message("Hello", 4096) == ["Hello"]
 
     def test_exact_limit(self):
         text = "x" * 4096
-        assert _split_message(text, 4096) == [text]
+        assert split_message(text, 4096) == [text]
 
     def test_splits_at_newline(self):
         text = "Line 1\nLine 2\nLine 3"
-        chunks = _split_message(text, 14)
+        chunks = split_message(text, 14)
         assert len(chunks) == 2
         assert chunks[0] == "Line 1\nLine 2"
 
     def test_splits_without_newline(self):
         text = "a" * 100
-        chunks = _split_message(text, 30)
+        chunks = split_message(text, 30)
         assert len(chunks) == 4
         assert all(len(c) <= 30 for c in chunks)
 
     def test_empty_message(self):
-        assert _split_message("", 4096) == [""]
+        # Kein leerer Chunk: die Bot API lehnt text="" ab ("message text is
+        # empty") — leerer Input ergibt schlicht nichts zu senden.
+        assert split_message("", 4096) == []
+
+    def test_leading_newline_no_empty_chunk(self):
+        # Caption-Overflow kann mit \n beginnen — rfind→0 erzeugte früher
+        # einen leeren ersten Chunk.
+        chunks = split_message("\n" + "x" * 5000, 4096)
+        assert all(chunks), "no empty chunks"
+        assert "".join(c.rstrip("\n") for c in chunks).count("x") == 5000
 
 
 # ── Channel Plugin ────────────────────────────────────────────
