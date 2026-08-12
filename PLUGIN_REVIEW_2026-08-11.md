@@ -658,7 +658,7 @@ lib-Helper — nie ein Import zwischen Plugins.
 - [ ] **`_dispatch_inbound` in lib** (message_hub/message_processor): existiert
   3× (discord:427-438 ≡ email:715-726 wortgleich, telegram:530-533 kürzer und
   ohne Ergebnis-Log — vereinheitlichen).
-- [ ] ⚠️ **bible/judaica-Referenz-Kern in lib** (z.B. `lib/reference_lookup.py`):
+- [x] ⚠️ ENTSCHIEDEN „Option 2" (Minimal-Kern lib/reference_lookup.py: normalize_name + flex_alias; Pattern/resolve/Range bleiben plugin-lokal — Range-Key-Typen int vs. str) **bible/judaica-Referenz-Kern in lib** (z.B. `lib/reference_lookup.py`):
   `_flex`/`_norm`/Pattern-Builder (parametrisiert um Amud-Gruppe)/Range-Logik/
   `resolve`-Gerüst/„reference-or-thematic"-Executor sind per diff nahezu
   identisch; Plugins behielten nur Datenmodelle (Vilna-Konversion,

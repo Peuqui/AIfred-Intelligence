@@ -27,32 +27,15 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ....lib.config import DATA_DIR
+# Normalisierung + Alias-Flexibilisierung: lib-SSOT, geteilt mit bible
+# (Option-2-Entscheidung — nur diese Primitiva, Rest bleibt plugin-lokal).
+from ....lib.reference_lookup import flex_alias, normalize_name
 
 # SSOT für den Ordnernamen — __init__.py importiert beide Konstanten
 # (reference.py ist das Blatt der Import-Kette, kein Zirkel möglich).
 JUDAICA_FOLDER = "judaica"
 JUDAICA_DIR = DATA_DIR / "documents" / JUDAICA_FOLDER
 _INDEX_PATH = JUDAICA_DIR / "_index.json"
-
-
-def _norm(name: str) -> str:
-    """Normalize a work name for lookup: lowercase, no dots/spaces/commas."""
-    return re.sub(r"[.\s,]", "", name).lower()
-
-
-def _flex(alias: str) -> str:
-    """Regex fragment matching an alias tolerant of its dots/spaces.
-
-    ``re.escape`` escapes the space to ``\\ ``, so the escaped form is
-    what gets replaced — not a bare space. Kompakte Ziffer-Aliasse
-    ("2Melachim") erlauben nach der führenden Ziffer zusätzlich
-    optionalen Punkt/Whitespace (gleicher Fix wie im bible-Plugin —
-    Duplikatpflege per Plugin-Atomaritäts-Entscheidung).
-    """
-    body = re.escape(alias).replace(r"\.", r"\.?").replace(r"\ ", r"\s*")
-    if len(alias) > 1 and alias[0].isdigit() and alias[1] not in " .":
-        body = body[0] + r"\.?\s*" + body[1:]
-    return body
 
 
 @functools.lru_cache(maxsize=1)
@@ -75,7 +58,7 @@ def _work_json(rel_path: str) -> dict:
 def _name_to_key() -> dict[str, str]:
     """Normalized recognition name -> work key."""
     return {
-        _norm(name): key
+        normalize_name(name): key
         for key, entry in _index().items()
         for name in entry["names"]
     }
@@ -94,7 +77,7 @@ def _pattern() -> re.Pattern:
     """
     names = [n for e in _index().values() for n in e["names"]]
     names.sort(key=len, reverse=True)  # "Mishnah Sanhedrin" beats "Sanhedrin"
-    work_alt = "|".join(_flex(n) for n in names)
+    work_alt = "|".join(flex_alias(n) for n in names)
     return re.compile(
         rf"\b(?P<work>{work_alt})\.?\s+(?P<sec>\d+)(?P<amud>[ab])?"
         rf"(?:\s*[,:]\s*(?P<e1>\d+)(?:\s*[-–]\s*(?P<e2>\d+))?)?",
@@ -147,7 +130,7 @@ def parse_reference(text: str) -> Optional[JudaicaReference]:
     m = _pattern().search(text)
     if not m:
         return None
-    key = _name_to_key().get(_norm(m.group("work")))
+    key = _name_to_key().get(normalize_name(m.group("work")))
     if key is None:
         return None
     work_name = _index()[key]["names"][0]
