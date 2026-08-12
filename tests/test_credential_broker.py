@@ -59,7 +59,7 @@ class TestCredentialMap:
 
     def test_all_discord_fields_mapped(self):
         discord_keys = [k for k in _CREDENTIAL_MAP if k[0] == "discord"]
-        expected = {"bot_token", "channel_ids", "enabled"}
+        expected = {"bot_token", "channel_ids", "allowed_users", "enabled"}
         actual = {k[1] for k in discord_keys}
         assert actual == expected
 

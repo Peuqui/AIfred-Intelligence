@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
+from ....lib.text_chunking import split_message
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -52,7 +53,12 @@ def _msglog_file() -> pathlib.Path:
 def _msglog_load() -> dict[str, list[int]]:
     try:
         data = json.loads(_msglog_file().read_text())
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
+        return {}  # First run — normal
+    except (OSError, json.JSONDecodeError) as exc:
+        # Korruptes Log = /clear kann getrackte Nachrichten nicht mehr
+        # löschen — sichtbar machen statt still zu verwerfen.
+        log_message(f"Telegram Plugin: corrupt msglog, starting fresh: {exc}", "warning")
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -194,7 +200,10 @@ class TelegramChannel(BaseChannel):
 
             conf = await bot.send_message(
                 chat_id=chat.id,
-                text=f"Conversation cleared — context reset, {deleted} messages deleted.",
+                # "up to": deleteMessages überspringt still, was es nicht
+                # löschen darf (>48h, fehlende Rechte) — der Zähler ist eine
+                # Obergrenze, kein Ist-Wert.
+                text=f"Conversation cleared — context reset, up to {deleted} tracked messages deleted.",
             )
             # Track the confirmation too, so the NEXT /clear removes it.
             _msglog_add(chat_id, conf.message_id)
@@ -277,6 +286,13 @@ class TelegramChannel(BaseChannel):
 
         local = _local_photo_path(media)
         url = _photo_url(media)
+        if media and not local and not url:
+            # Kein stiller Attachment-Drop: der Pfad existiert nicht (mehr) —
+            # Text wird trotzdem zugestellt, aber der Verlust steht im Log.
+            self.channel_log(
+                f"Telegram Plugin: attachment path missing — sending text only ({media})",
+                "warning",
+            )
         sent_ids: list[int] = []
         async with bot:
             if local or url:
@@ -298,11 +314,11 @@ class TelegramChannel(BaseChannel):
                     m = await bot.send_photo(chat_id=chat_id, photo=url, caption=caption)
                     sent_ids.append(m.message_id)
                 if overflow:
-                    for chunk in _split_message(overflow, _MAX_MESSAGE_LENGTH):
+                    for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
                         m = await bot.send_message(chat_id=chat_id, text=chunk)
                         sent_ids.append(m.message_id)
             else:
-                for chunk in _split_message(text, _MAX_MESSAGE_LENGTH):
+                for chunk in split_message(text, _MAX_MESSAGE_LENGTH):
                     m = await bot.send_message(chat_id=chat_id, text=chunk)
                     sent_ids.append(m.message_id)
         # TD6: track sent ids so /clear can delete our own sends too.
@@ -341,7 +357,6 @@ class TelegramChannel(BaseChannel):
         """Provide telegram_send tool for LLM function calling."""
         from ....lib.function_calling import Tool
         from ....lib.security import TIER_COMMUNICATE, sanitize_outbound
-        import json
 
         async def _execute_telegram_send(message: str, chat_id: str = "", attachment: str = "") -> str:
             from telegram import Bot
@@ -397,8 +412,10 @@ class TelegramChannel(BaseChannel):
             text = self.format_outbound(sanitize_outbound(message))["text"]
             await self._deliver(bot, target, text, media)
 
-            log_message(f"Telegram Plugin: message sent to chat {chat_id}")
-            return json.dumps({"success": True, "chat_id": chat_id, "attachment_sent": bool(media)})
+            # target, nicht chat_id: beim Owner-Default ist chat_id leer —
+            # Log und Tool-Result müssen das echte Ziel nennen.
+            log_message(f"Telegram Plugin: message sent to chat {target}")
+            return json.dumps({"success": True, "chat_id": str(target), "attachment_sent": bool(media)})
 
         return [
             Tool(
@@ -435,18 +452,13 @@ class TelegramChannel(BaseChannel):
             ),
         ]
 
-    def build_reply_metadata(self, message: "InboundMessage") -> dict:
-        return {}
-
-
 # ── Helpers ──────────────────────────────────────────────────
 
 def _local_photo_path(media: "str | None") -> "str | None":
     """Local file path if ``media`` points at an existing file, else None."""
     if not media or media.startswith(("http://", "https://")):
         return None
-    from pathlib import Path
-    return media if Path(media).exists() else None
+    return media if pathlib.Path(media).exists() else None
 
 
 def _photo_url(media: "str | None") -> "str | None":
@@ -455,14 +467,12 @@ def _photo_url(media: "str | None") -> "str | None":
 
 
 def _owner_chat_id() -> "int | None":
-    """The owner's chat id = FIRST allowlist entry (same convention as
-    security._is_owner). Default target for telegram_send when the model
-    doesn't know a chat id ("schick mir das per Telegram"). None if the
-    allowlist is empty/unusable."""
-    whitelist_raw = broker.get("telegram", "allowed_users").strip()
-    if not whitelist_raw or whitelist_raw == "*":
-        return None
-    first = whitelist_raw.split(",")[0].strip()
+    """The owner's chat id — Konvention lebt in der lib-SSOT
+    security.first_allowlist_entry. Default target for telegram_send when
+    the model doesn't know a chat id ("schick mir das per Telegram").
+    None if the allowlist is empty/unusable."""
+    from ....lib.security import first_allowlist_entry
+    first = first_allowlist_entry("telegram", "allowed_users")
     return int(first) if first.isdigit() else None
 
 
@@ -521,25 +531,6 @@ def _build_inbound(update: "Update") -> "InboundMessage":
             "chat_type": chat.type,
         },
     )
-
-
-def _split_message(text: str, max_length: int) -> list[str]:
-    """Split a message into chunks that fit Telegram's limit."""
-    if len(text) <= max_length:
-        return [text]
-
-    chunks: list[str] = []
-    while text:
-        if len(text) <= max_length:
-            chunks.append(text)
-            break
-        # Split at last newline before limit
-        split_at = text.rfind("\n", 0, max_length)
-        if split_at == -1:
-            split_at = max_length
-        chunks.append(text[:split_at])
-        text = text[split_at:].lstrip("\n")
-    return chunks
 
 
 async def _dispatch_inbound(message: "InboundMessage") -> None:

@@ -6,10 +6,12 @@ asyncio.to_thread() by the tool executors.
 Credentials are accessed exclusively through the CredentialBroker.
 """
 
+import base64
 import email
 import email.header
 import email.utils
 import imaplib
+import quopri
 import smtplib
 import ssl
 from datetime import datetime
@@ -144,12 +146,40 @@ def _safe_parsedate(date_raw: str) -> Optional[datetime]:
         return None
 
 
-def _imap_connect() -> imaplib.IMAP4_SSL:
-    """Create authenticated IMAP connection via broker."""
+def _decode_preview(preview_raw: bytes, msg: email.message.Message) -> str:
+    """Best-effort decode of a ``BODY[TEXT]`` prefix for the inbox preview.
+
+    Non-multipart mails with base64/quoted-printable transfer encoding
+    would otherwise show raw encoding garbage. Multipart bodies (prefix =
+    MIME boundary + part headers) stay raw — a real decode would need a
+    BODYSTRUCTURE roundtrip, which a 200-char preview doesn't justify.
+    Decode failure degrades VISIBLY to the raw prefix (never fatal).
+    """
+    if not msg.get_content_type().startswith("multipart"):
+        cte = (msg.get("Content-Transfer-Encoding") or "").strip().lower()
+        charset = msg.get_content_charset()
+        try:
+            if cte == "base64":
+                stripped = b"".join(preview_raw.split())
+                stripped = stripped[: len(stripped) - len(stripped) % 4]
+                return _safe_decode(base64.b64decode(stripped), charset)
+            if cte == "quoted-printable":
+                return _safe_decode(quopri.decodestring(preview_raw), charset)
+        except Exception:  # noqa: BLE001 — preview only, raw prefix shows instead
+            pass
+    return preview_raw.decode("utf-8", errors="replace")
+
+
+def _imap_connect(timeout: float = _IMAP_TIMEOUT_SECONDS) -> imaplib.IMAP4_SSL:
+    """Create authenticated IMAP connection via broker.
+
+    ``timeout``: Tools nutzen den 30-s-Default; der IDLE-Listener übergibt
+    sein längeres Fenster (IDLE-Phase ist legitim minutenlang still).
+    """
     ctx = ssl.create_default_context()
     host = broker.get("email", "imap_host")
     port = int(broker.get("email", "imap_port") or "993")
-    imap = imaplib.IMAP4_SSL(host, port, ssl_context=ctx, timeout=_IMAP_TIMEOUT_SECONDS)
+    imap = imaplib.IMAP4_SSL(host, port, ssl_context=ctx, timeout=timeout)
     imap.login(broker.get("email", "user"), broker.get("email", "password"))
     return imap
 
@@ -205,7 +235,7 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
                 parsed_date = _safe_parsedate(date)
                 date_str = parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date
 
-                preview = preview_raw.decode("utf-8", errors="replace")[:200].strip()
+                preview = _decode_preview(preview_raw, msg)[:200].strip()
 
                 results.append(EmailSummary(
                     msg_id=msg_id,
@@ -266,10 +296,24 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
         # crafted query (LLM tool arg) cannot break out of the quoted string and
         # rewrite the search semantics. CRLF is rejected above (would inject a
         # raw command since imaplib does not escape it).
-        safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
-        search_criteria = f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'
-        _, data = imap.uid("SEARCH", None, search_criteria)  # type: ignore[arg-type]
-        msg_ids = [u.decode() for u in data[0].split()][-n:]
+        if query.isascii():
+            safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
+            search_criteria = f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'
+            _, data = imap.uid("SEARCH", None, search_criteria)  # type: ignore[arg-type]
+            uids = set(data[0].split()) if data and data[0] else set()
+        else:
+            # Non-ASCII ("Müller"): imaplib encodes command args as ASCII and
+            # would raise UnicodeEncodeError. IMAP literals (length-prefixed,
+            # no escaping needed) + CHARSET UTF-8 handle that — but imaplib
+            # supports only ONE literal per command, so SUBJECT and FROM are
+            # searched separately and the UID sets are merged.
+            uids = set()
+            for field in ("SUBJECT", "FROM"):
+                imap.literal = query.encode("utf-8")  # type: ignore[assignment]
+                _, data = imap.uid("SEARCH", "CHARSET", "UTF-8", field)
+                if data and data[0]:
+                    uids |= set(data[0].split())
+        msg_ids = sorted((u.decode() for u in uids), key=int)[-n:]
         msg_ids.reverse()
 
         for msg_id in msg_ids:
@@ -381,8 +425,7 @@ def send_email(
     msg["To"] = to
     msg["Subject"] = subject
     # Generate Message-ID so replies can be routed back
-    import email.utils as _eu
-    message_id = _eu.make_msgid(domain=email_user.split("@")[-1] if "@" in email_user else "local")
+    message_id = email.utils.make_msgid(domain=email_user.split("@")[-1] if "@" in email_user else "local")
     msg["Message-ID"] = message_id
     if reply_to_id:
         msg["In-Reply-To"] = reply_to_id

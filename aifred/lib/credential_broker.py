@@ -77,6 +77,7 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     # Discord
     ("discord", "bot_token"): "DISCORD_BOT_TOKEN",
     ("discord", "channel_ids"): "DISCORD_CHANNEL_IDS",
+    ("discord", "allowed_users"): "DISCORD_ALLOWED_USERS",
     ("discord", "enabled"): "DISCORD_ENABLED",
     # Cloud API providers
     ("cloud_claude", "api_key"): "ANTHROPIC_API_KEY",

@@ -368,67 +368,67 @@ eigenständige, atomare, modulare Gebilde.
 ## C — NIEDRIG (Kleinkram, trotzdem alles fixen)
 
 ### C-email
-- [ ] `client.py:260-262` — SEARCH mit Umlauten („Müller") →
+- [x] `client.py:260-262` — SEARCH mit Umlauten („Müller") →
   `UnicodeEncodeError` (imaplib ASCII, kein CHARSET/Literal-Handling); Suche mit
   Umlauten funktioniert nie.
-- [ ] `client.py:171,201` — Preview `BODY.PEEK[TEXT]<0.400>` liefert rohe
+- [x] `client.py:171,201` — Preview `BODY.PEEK[TEXT]<0.400>` liefert rohe
   base64/quoted-printable-Bodies ans LLM.
-- [ ] `__init__.py:609-617` — UIDVALIDITY-Ermittlung `except Exception: pass`
+- [x] `__init__.py:609-617` — UIDVALIDITY-Ermittlung `except Exception: pass`
   ohne Log (uv bleibt still 0 → Recovery-Skip-Logik rechnet falsch); dazu
   doppelter `import re` (Z.612, Modul-Import Z.14 existiert).
-- [ ] `__init__.py:63-67` — korrupter Checkpoint → still `(0, 0)` → Recovery
+- [x] `__init__.py:63-67` — korrupter Checkpoint → still `(0, 0)` → Recovery
   komplett übersprungen, kein Log.
-- [ ] `__init__.py:472` — `metadata.get("subject", "Re: AIfred")` hartcodierter
+- [x] `__init__.py:472` — `metadata.get("subject", "Re: AIfred")` hartcodierter
   Default (Key wird von build_reply_metadata immer gesetzt — zweite Wahrheit).
-- [ ] `__init__.py:597` vs. `client.py:147` — zwei IMAP-Connect-Implementierungen
+- [x] `__init__.py:597` vs. `client.py:147` — zwei IMAP-Connect-Implementierungen
   im selben Plugin (Timeout-Asymmetrie = B-Finding oben); nach Timeout-Fix
   konsolidieren.
-- [ ] `tools.py:41` — `min(n, 20)`: Magic 20 dupliziert `EMAIL_MAX_FETCH`
+- [x] `tools.py:41` — `min(n, 20)`: Magic 20 dupliziert `EMAIL_MAX_FETCH`
   (config.py:14).
-- [ ] `tools.py:21-22` vs. `:198,235` — `_SAFE_ACTIONS`/`_MANAGE_ACTIONS` und
+- [x] `tools.py:21-22` vs. `:198,235` — `_SAFE_ACTIONS`/`_MANAGE_ACTIONS` und
   Schema-Enums kodieren dieselben Mengen doppelt → `sorted(...)` aus den Sets.
-- [ ] `client.py:376` — `import email.utils as _eu` doppelt (Z.11 importiert).
+- [x] `client.py:376` — `import email.utils as _eu` doppelt (Z.11 importiert).
 
 ### C-telegram
-- [ ] `__init__.py:385-386` — `_execute_telegram_send` loggt/returnt Original-
+- [x] `__init__.py:385-386` — `_execute_telegram_send` loggt/returnt Original-
   `chat_id` (leer beim Owner-Default) statt aufgelöstem `target`.
-- [ ] `__init__.py:263-292` — `_deliver`: nicht existenter lokaler Media-Pfad →
+- [x] `__init__.py:263-292` — `_deliver`: nicht existenter lokaler Media-Pfad →
   Attachment still verworfen (Reply-Pfad), kein Log.
-- [ ] `__init__.py:52-57` — `_msglog_load` verschluckt korrupte Datei still →
+- [x] `__init__.py:52-57` — `_msglog_load` verschluckt korrupte Datei still →
   `{}`; Decode-Fehler mindestens loggen. (Writes Z.69/77 nicht atomar.)
-- [ ] `__init__.py:511-527` — `_split_message`: `rfind` == 0 bzw. leerer Text →
+- [x] `__init__.py:511-527` — `_split_message`: `rfind` == 0 bzw. leerer Text →
   leerer Chunk → Telegram-API-Fehler „message text is empty" (Discord schützt
   sich mit `chunk or None`).
-- [ ] `__init__.py:191-194` — `/clear`-Bestätigungstext hartcodiert EN im Code
+- [x] BELASSEN (kein Sprachkontext im Command-Handler, kurze EN-Bot-Antworten als Konvention) `__init__.py:191-194` — `/clear`-Bestätigungstext hartcodiert EN im Code
   (i18n/prompts wären der Ort); Discord identisch (Z.180-199) → zusammen fixen.
-- [ ] `__init__.py:183-193` — `deleted += len(batch)` zählt von deleteMessages
+- [x] `__init__.py:183-193` — `deleted += len(batch)` zählt von deleteMessages
   still übersprungene IDs mit (Bestätigung = Obergrenze, kein Ist).
-- [ ] `__init__.py:423-424` — `build_reply_metadata`-Override = exakt der
+- [x] `__init__.py:423-424` — `build_reply_metadata`-Override = exakt der
   Base-Default → streichen.
-- [ ] `__init__.py:329,433` — doppelte Imports (json lokal trotz Modul-Import;
+- [x] `__init__.py:329,433` — doppelte Imports (json lokal trotz Modul-Import;
   `from pathlib import Path` neben `import pathlib` — zwei Stile in einer Datei).
-- [ ] `__init__.py:442-451` vs. `lib/security.py:116-130` — Owner-Konvention
+- [x] (first_allowlist_entry in security.py als SSOT) `__init__.py:442-451` vs. `lib/security.py:116-130` — Owner-Konvention
   („erster Allowlist-Eintrag") doppelt implementiert (Plugin↔lib; lib ist SSOT).
 
 ### C-discord
-- [ ] `__init__.py:191-200` — `/clear` prüft User-Rechte statt Bot-Rechte; ohne
+- [x] `__init__.py:191-200` — `/clear` prüft User-Rechte statt Bot-Rechte; ohne
   Bot-`manage_messages` wirft `purge()` unbehandelt `Forbidden` (nach bereits
   gesendeter Response).
-- [ ] `__init__.py:311-314` — leerer Text ohne Attachment → `send(None)` →
+- [x] `__init__.py:311-314` — leerer Text ohne Attachment → `send(None)` →
   „Cannot send an empty message", im send_reply-Pfad unbehandelt.
-- [ ] `__init__.py:311` — Hard-Split `text[i:i+2000]` zerschneidet Wörter/
+- [x] `__init__.py:311` — Hard-Split `text[i:i+2000]` zerschneidet Wörter/
   Codeblöcke; 2000 als Magic Number. Lösung: lib-Chunker aus Abschnitt E
   nutzen (bis dahin mindestens Konstante + Umbruch an Zeilengrenzen).
-- [ ] `__init__.py:28-37,69` — ungültige Channel-IDs/Allowlist-Einträge still
+- [x] `__init__.py:28-37,69` — ungültige Channel-IDs/Allowlist-Einträge still
   verworfen; alle ungültig → Bot lauscht still auf ALLEN Channels. Log-Warnung
   pro verworfenem Eintrag. Intra-Duplikat: Allowlist-Parse = Kopie von
   `_parse_channel_ids` → wiederverwenden.
-- [ ] `__init__.py:308` — redundanter lokaler `import discord` (top-level Z.13).
-- [ ] `__init__.py:229` — `created_at.replace(tzinfo=utc)` ist No-Op
+- [x] `__init__.py:308` — redundanter lokaler `import discord` (top-level Z.13).
+- [x] `__init__.py:229` — `created_at.replace(tzinfo=utc)` ist No-Op
   (discord.py 2.x liefert aware UTC); samt dann unnötigem timezone-Import.
-- [ ] `__init__.py:204-206` — `tree.sync()` in `on_ready` (feuert bei jedem
+- [x] `__init__.py:204-206` — `tree.sync()` in `on_ready` (feuert bei jedem
   Reconnect, rate-limitierter Global-Call). Einmalig/gated syncen.
-- [ ] `lib/credential_broker.py:78-80` — `("discord", "allowed_users")` fehlt in
+- [x] `lib/credential_broker.py:78-80` — `("discord", "allowed_users")` fehlt in
   `_CREDENTIAL_MAP` (Telegram hat den Eintrag; funktioniert nur über generische
   Ableitung) — Konsistenz.
 
@@ -648,7 +648,7 @@ lib-Helper — nie ein Import zwischen Plugins.
   numerische ID-Prüfung); einziger Unterschied ist der Broker-Key. Zusätzlich
   Owner-Konvention „erster Eintrag" mit `security._is_owner` zusammenführen
   (aktuell auch in `telegram _owner_chat_id` dupliziert).
-- [ ] **Message-Chunker in lib** (Limit als Parameter): Telegrams
+- [x] (vorgezogen bei C-discord: lib/text_chunking.split_message, Telegram+Discord umgestellt) **Message-Chunker in lib** (Limit als Parameter): Telegrams
   `_split_message` (`telegram_channel/__init__.py:511-527`, inkl. Leer-Chunk-Fix
   aus C-telegram) als Basis; Discord (naiver Hard-Split `text[i:i+2000]`) und
   Telegram stellen darauf um.
