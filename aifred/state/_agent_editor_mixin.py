@@ -358,7 +358,9 @@ class AgentEditorMixin(rx.State, mixin=True):
             self.channel_allowlists = {
                 "email": broker.get("email", "allowed_senders") or "-",
                 "telegram": broker.get("telegram", "allowed_users") or "-",
-                "discord": broker.get("discord", "channel_ids") or "-",
+                # Sender-Allowlist (TD8), NICHT channel_ids — das ist nur die
+                # Lausch-Liste, nicht die sicherheitsrelevante Einstellung.
+                "discord": broker.get("discord", "allowed_users") or "-",
                 "freeecho2": "",
             }
             # Ensure all channels have a security tier entry

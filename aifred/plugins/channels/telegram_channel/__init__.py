@@ -114,10 +114,13 @@ class TelegramChannel(BaseChannel):
                 is_password=True,
                 width_ratio=3,
             ),
+            # Bewusst OHNE placeholder: der würde zum gespeicherten Default
+            # (__post_init__) — Beispiel-IDs beim ungeänderten Speichern
+            # wären echte Allowlist-Einträge (erster = Owner!). Beispiel
+            # steht im Tooltip (i18n.json).
             CredentialField(
                 env_key="TELEGRAM_ALLOWED_USERS",
                 label_key="telegram_cred_allowed_users",
-                placeholder="123456789, 987654321",
                 width_ratio=2,
             ),
         ]

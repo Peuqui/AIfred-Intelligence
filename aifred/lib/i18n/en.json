@@ -745,7 +745,6 @@
   "tool_email_send": "📧 Sending to {to}...",
   "tool_doc_search": "📄 Searching documents...",
   "tool_doc_list": "📄 Listing documents...",
-  "tool_doc_delete": "📄 Deleting {filename}...",
   "tool_epim_search": "📅 {entity}: {query}",
   "tool_epim_search_bare": "📅 {entity}...",
   "tool_epim_get": "📅 Reading {entity}...",

@@ -800,35 +800,6 @@ class WorkspacePlugin:
             executor=_list_orphaned,
         ))
 
-        async def _delete_document(filename: str) -> str:
-            """Delete a document from ChromaDB (and from disk)."""
-            parts = filename.strip("/").rsplit("/", 1)
-            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
-            result = await fm.delete_file(parent_rel, leaf, from_disk=True, from_index=True)
-            chunks = result.metadata.get("chunks_removed", 0)
-            if not result.success and chunks == 0:
-                return json.dumps({"error": f"Document not found in index: {filename}"})
-            return json.dumps({"deleted": filename, "chunks_removed": chunks})
-
-        tools.append(Tool(
-            name="delete_document",
-            tier=TIER_WRITE_SYSTEM,
-            description=(
-                load_tool_description(__file__, "delete_document")
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Exact filename to delete (use list_indexed to find it)",
-                    },
-                },
-                "required": ["filename"],
-            },
-            executor=_delete_document,
-        ))
-
         # ============================================================
         # CHROMADB ADMIN TOOLS
         # ============================================================
@@ -965,8 +936,6 @@ class WorkspacePlugin:
             return f"🔍 {query[:50]}" if query else t("tool_doc_search", lang=lang)
         elif tool_name == "list_indexed":
             return t("tool_doc_list", lang=lang)
-        elif tool_name == "delete_document":
-            return t("tool_doc_delete", lang=lang, filename=tool_args.get("filename", ""))
         elif tool_name == "chromadb_stats":
             return "🗄️ ChromaDB"
         elif tool_name == "chromadb_clear":

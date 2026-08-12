@@ -1,1 +1,1 @@
-List documents that are still indexed in the vector database but whose source file is no longer on disk. Useful before calling delete_document to clean up the index.
+List documents that are still indexed in the vector database but whose source file is no longer on disk. Useful before calling delete_file to clean up the index.

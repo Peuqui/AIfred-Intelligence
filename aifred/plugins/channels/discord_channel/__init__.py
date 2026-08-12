@@ -105,15 +105,17 @@ class DiscordChannel(BaseChannel):
                 placeholder="MTIzNDU2Nzg5...",
                 is_password=True,
             ),
+            # Bewusst OHNE placeholder: CredentialField macht den Placeholder
+            # zum gespeicherten Default (__post_init__) — Beispiel-IDs würden
+            # beim ungeänderten Speichern zu echten Allowlist-Einträgen.
+            # Beispiele stehen im Tooltip (i18n.json).
             CredentialField(
                 env_key="DISCORD_CHANNEL_IDS",
                 label_key="discord_cred_channel_ids",
-                placeholder="123456789,987654321",
             ),
             CredentialField(
                 env_key="DISCORD_ALLOWED_USERS",
                 label_key="discord_cred_allowed_users",
-                placeholder="123456789012345678, * für alle",
             ),
         ]
 
@@ -176,6 +178,12 @@ class DiscordChannel(BaseChannel):
             # Always resets AIfred's conversation (route); in server channels
             # additionally purges all messages (needs manage_messages). In
             # DMs Discord bots cannot bulk-delete → context reset only.
+            # Sender allowlist first (fail-closed, same model as Telegram's
+            # /clear) — otherwise any server member could reset the context.
+            if not _is_discord_user_allowed(interaction.user.id):
+                await interaction.response.send_message("Not authorized.", ephemeral=True)
+                _log(f"Discord Plugin: /clear blocked — user {interaction.user.id} not in allowed_users")
+                return
             if not interaction.channel:
                 await interaction.response.send_message("No channel context.", ephemeral=True)
                 return
@@ -197,7 +205,8 @@ class DiscordChannel(BaseChannel):
                 _log("Discord Plugin: /clear — context reset, purge skipped (no permission)")
                 return
             await interaction.response.send_message("Clearing conversation and deleting messages...", ephemeral=True)
-            deleted = await interaction.channel.purge()  # type: ignore[union-attr]
+            # limit=None = ALL messages (discord.py default is only 100)
+            deleted = await interaction.channel.purge(limit=None)  # type: ignore[union-attr]
             _log(f"Discord Plugin: /clear — context reset + purged {len(deleted)} messages in #{getattr(interaction.channel, 'name', '?')}")
 
         @client.event

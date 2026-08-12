@@ -209,7 +209,10 @@ def concatenate_wav_files(wav_urls: list[str], delete_originals: bool = True) ->
         delete_originals: If True, delete the original chunk files after concatenation
 
     Returns:
-        URL of the combined WAV file, or None on error
+        URL of the combined WAV file, or None on error. Fail-loud: any
+        error (missing chunk files, ffmpeg failure, timeout) returns None
+        instead of a truncated partial result — the caller must not report
+        success for an incomplete concatenation.
     """
     if not wav_urls:
         return None
@@ -217,8 +220,11 @@ def concatenate_wav_files(wav_urls: list[str], delete_originals: bool = True) ->
         return wav_urls[0]
 
     file_paths = _resolve_tts_urls_to_paths(wav_urls)
-    if len(file_paths) < 2:
-        return wav_urls[0] if wav_urls else None
+    if len(file_paths) < len(wav_urls):
+        log_message(
+            f"❌ WAV concat: only {len(file_paths)}/{len(wav_urls)} chunk files found — aborting"
+        )
+        return None
 
     output_filename = _generate_tts_filename("wav").replace(".wav", "_combined.wav")
     output_path = str(TTS_AUDIO_DIR / output_filename)
@@ -235,10 +241,10 @@ def concatenate_wav_files(wav_urls: list[str], delete_originals: bool = True) ->
             return f"/_upload/tts_audio/{output_filename}"
         else:
             log_message("❌ WAV concat ffmpeg error")
-            return wav_urls[0] if wav_urls else None
+            return None
     except (subprocess.TimeoutExpired, OSError) as e:
         log_message(f"❌ WAV concat error: {e}")
-        return wav_urls[0] if wav_urls else None
+        return None
 
 
 def save_audio_to_session(wav_urls: list[str], session_id: str) -> str | None:

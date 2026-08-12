@@ -175,7 +175,9 @@ class SystemMonitorPlugin:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
-        return "📊 System Status"
+        if tool_name == "system_status":
+            return "📊 System Status"
+        return ""
 
 
 plugin = SystemMonitorPlugin()

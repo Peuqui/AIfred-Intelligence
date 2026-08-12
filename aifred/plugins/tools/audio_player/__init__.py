@@ -14,6 +14,7 @@ later phases.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -1010,24 +1011,31 @@ class AudioPlayerPlugin:
 
     def _tool_index_rebuild(self) -> Tool:
         async def _rebuild(source: str | None = None, force: bool = False) -> str:
+            import functools
             from ....lib.audio_index import audio_index
-            cfg = _load_settings().get("sources", {})
-            targets = (
-                {source: cfg[source]} if source and source in cfg
-                else {k: v for k, v in cfg.items() if v.get("type") == "local_folder"}
-            )
+            from ....lib.audio_sources import build_source_map
+            from ....lib.config import MEDIA_AUDIO_DIR
+            # Local folders are auto-discovered from MEDIA_AUDIO_DIR — the
+            # settings.json "sources" block only holds http_streams (not
+            # indexable). Same source map the UI rebuild uses.
+            local = {
+                k: v for k, v in build_source_map(MEDIA_AUDIO_DIR, {}).items()
+                if v.get("type") == "local_folder"
+            }
+            if source is not None and source not in local:
+                return json.dumps({
+                    "error": f"Unknown local source: {source}",
+                    "available": sorted(local),
+                })
+            targets = {source: local[source]} if source else local
             results = []
             for label, src_cfg in targets.items():
-                if src_cfg.get("type") != "local_folder":
-                    continue
                 path = src_cfg.get("path", "")
                 if not path:
                     continue
                 # Run scan in thread to avoid blocking the event loop
                 # (NFS scan can take minutes for large mounts)
-                import asyncio as _asyncio
-                loop = _asyncio.get_running_loop()
-                import functools
+                loop = asyncio.get_running_loop()
                 stats = await loop.run_in_executor(
                     None,
                     functools.partial(audio_index.scan_source, label, path, force=force),

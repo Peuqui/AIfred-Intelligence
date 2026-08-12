@@ -36,7 +36,7 @@ class SchedulerPlugin:
             schedule_expr: str,
             message: str,
             agent: str = "aifred",
-            delivery: str = "log",
+            delivery: str = "review",
             channel: str = "",
             recipient: str = "",
             webhook_url: str = "",
@@ -71,6 +71,15 @@ class SchedulerPlugin:
                 payload=payload,
                 max_tier=job_tier,
             )
+            if job.next_run is None:
+                # Fail-loud: without next_run the job would NEVER fire
+                # (get_due_jobs filters next_run IS NOT NULL) — an invalid
+                # cron expression must not be reported as success.
+                store.delete(job.job_id)
+                log_message(f"Scheduler: job '{name}' rejected — invalid {schedule_type} expression '{schedule_expr}'", "warning")
+                return json.dumps({
+                    "error": f"Invalid {schedule_type} expression: '{schedule_expr}' — job not created"
+                })
             log_message(f"Scheduler: job '{name}' created (id={job.job_id}, next={job.next_run})")
             return json.dumps({
                 "success": True,
@@ -100,7 +109,7 @@ class SchedulerPlugin:
                         "enabled": j.enabled,
                         "next_run": j.next_run,
                         "last_run": j.last_run,
-                        "delivery": j.payload.get("delivery", "log"),
+                        "delivery": j.payload.get("delivery", "review"),
                     }
                     for j in jobs
                 ]
@@ -152,9 +161,9 @@ class SchedulerPlugin:
                         },
                         "delivery": {
                             "type": "string",
-                            "enum": ["log", "announce", "review", "webhook"],
-                            "description": "How to deliver the result (default: log)",
-                            "default": "log",
+                            "enum": ["review", "announce", "webhook"],
+                            "description": "How to deliver the result (default: review)",
+                            "default": "review",
                         },
                         "channel": {
                             "type": "string",

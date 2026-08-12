@@ -563,37 +563,28 @@ async def sync_audio_index_task() -> None:
     (otherwise we'd kick off a multi-minute NAS scan unbidden at startup).
     """
     import asyncio as _asyncio
-    import json as _json
-    from pathlib import Path as _Path
-    from .config import AUDIO_INDEX_SYNC_INTERVAL_HOURS
+    from .audio_sources import build_source_map
+    from .config import AUDIO_INDEX_SYNC_INTERVAL_HOURS, MEDIA_AUDIO_DIR
 
     log_message(
         f"🗂️ AudioIndex sync task started "
         f"(interval: {AUDIO_INDEX_SYNC_INTERVAL_HOURS}h)"
     )
 
-    settings_path = (
-        _Path(__file__).parent.parent / "plugins" / "tools" / "audio_player" / "settings.json"
-    )
-
     while True:
         try:
             await _asyncio.sleep(AUDIO_INDEX_SYNC_INTERVAL_HOURS * 3600)
 
-            # Load current sources from plugin settings
-            if not settings_path.exists():
-                continue
-            try:
-                with open(settings_path, encoding="utf-8") as f:
-                    cfg = _json.load(f)
-            except (OSError, _json.JSONDecodeError):
-                continue
-            sources = cfg.get("sources", {})
+            # Local folders are auto-discovered from MEDIA_AUDIO_DIR — the
+            # plugin settings.json only holds http_streams (not indexable).
+            # Same source map the rebuild tool and the UI use.
+            sources = {
+                k: v for k, v in build_source_map(MEDIA_AUDIO_DIR, {}).items()
+                if v.get("type") == "local_folder"
+            }
 
             stats = audio_index.stats()
             for label, src in sources.items():
-                if src.get("type") != "local_folder":
-                    continue
                 # Only sync sources that already have entries — never auto-
                 # bootstrap (could take 10+ minutes on a fresh NAS mount).
                 if stats["per_source"].get(label, 0) == 0:
