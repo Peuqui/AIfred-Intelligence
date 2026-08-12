@@ -464,36 +464,36 @@ eigenständige, atomare, modulare Gebilde.
 - [x] `__init__.py:254` — Write-Whitelist hartcodiert im Executor, während die
   Index-Whitelist `DOCUMENT_ALLOWED_EXTENSIONS` (config.py:1397) konfigurierbar
   ist — angleichen.
-- [ ] `__init__.py:325-326,351-352,384-385,499-500,805-806` — Parent/Leaf-Split
+- [x] `__init__.py:325-326,351-352,384-385,499-500,805-806` — Parent/Leaf-Split
   3-Zeilen-Pattern 5× → Helper.
-- [ ] `__init__.py:621` — redundanter Funktions-Import `list_indexed`
+- [x] `__init__.py:621` — redundanter Funktions-Import `list_indexed`
   (`fm.list_indexed` Z.756 zeigt den richtigen Weg).
 - [x] `__init__.py:27` — `_DOCUMENTS_DIR = DOCUMENTS_DIR` sinnfreier Alias.
-- [ ] `__init__.py:354` — `path, _ = fm.safe_resolve(...)` verwirft Fehler
+- [x] `__init__.py:354` — `path, _ = fm.safe_resolve(...)` verwirft Fehler
   (folgenlos, aber Muster).
-- [ ] `__init__.py:947-974` — `get_ui_status` deckt copy_file/move_file/rename/
+- [x] `__init__.py:947-974` — `get_ui_status` deckt copy_file/move_file/rename/
   list_orphaned nicht ab.
 
 ### C-audio_player
-- [ ] `__init__.py:913-921` — FS-Fallback von `audio_list`: Limit bricht Walk
+- [x] `__init__.py:913-921` — FS-Fallback von `audio_list`: Limit bricht Walk
   VOR der Sortierung ab (willkürliche Teilmenge); plain `sort()` statt
   `_natural_key` („CD 10" vor „CD 2").
-- [ ] `__init__.py:277-282` vs. `:63-68` — Streams-Extraktion+Source-Map-Bau in
+- [x] `__init__.py:277-282` vs. `:63-68` — Streams-Extraktion+Source-Map-Bau in
   `_play_folder` dupliziert `_make_resolver` (intra-Plugin; 3. Kopie im Mixin).
 - [ ] Settings-Reader 4× (`__init__.py:47-56`,
   `_audio_player_mixin.py:259-273`, `audio_processing.py:92-112`,
   `audio_index.py:575-591`) — Plugin↔lib/state: eine Lese-SSOT (lib) schaffen. ⚠️
-- [ ] Path-Traversal-Guard 3× (`audio_sources.py:290-296` = lib-SSOT,
+- [x] Path-Traversal-Guard 3× (`audio_sources.py:290-296` = lib-SSOT,
   `__init__.py:304-310`, `:894-906`) — Plugin-Kopien auf lib-Helper umstellen.
-- [ ] `__init__.py:887` — `from pathlib import Path as _Path` (top-level Z.19
+- [x] `__init__.py:887` — `from pathlib import Path as _Path` (top-level Z.19
   existiert); sinnlose `cfg`-Zwischen-Dict-Konstruktion Z.886-888.
-- [ ] `__init__.py:91,94-102` — defensive Fallbacks in `_resolve_target`:
+- [x] `__init__.py:91,94-102` — defensive Fallbacks in `_resolve_target`:
   `getattr(ctx, "session_id", ...)` auf Pflichtfeld; freeecho2 ohne Room →
   stiller Fallback auf `local` (Audio am Server-mpv statt Puck, ohne Signal).
-- [ ] `__init__.py:476-488,563,574-577` — `_dispatch_action` „all": Falsy-
+- [x] `__init__.py:476-488,563,574-577` — `_dispatch_action` „all": Falsy-
   Ergebnisse verschwinden, immer `success: True`; `except: continue` im
   All-Loop still; explizit-Zweig fängt gar nicht — vereinheitlichen.
-- [ ] `__init__.py:927` — „call audio_index_rebuild first" geht auch an
+- [x] `__init__.py:927` — „call audio_index_rebuild first" geht auch an
   read-only-Quellen, die das Tool nicht haben.
 
 ### C-epim

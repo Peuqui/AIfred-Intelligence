@@ -23,6 +23,14 @@ from ....lib.i18n import t
 from ....lib.logging_utils import log_message
 
 
+def _split_parent_leaf(rel_path: str) -> tuple[str, str]:
+    """``"a/b/c.txt"`` → ``("a/b", "c.txt")`` — Parent + Leaf für die
+    file_manager-Operationen, die beide getrennt validieren. Eine Wahrheit
+    statt des früher 4× kopierten 3-Zeilen-Patterns."""
+    parts = rel_path.strip("/").rsplit("/", 1)
+    return ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+
+
 def _chroma_client():  # type: ignore[no-untyped-def]
     """Ein Konstruktor für beide ChromaDB-Admin-Tools (dateiinterne SSOT)."""
     import chromadb
@@ -309,8 +317,7 @@ class WorkspacePlugin:
             """Create a subfolder in data/documents/."""
             # Split into parent + leaf so file_manager.create_folder can
             # validate the leaf name and resolve the parent independently.
-            parts = folder_name.strip("/").rsplit("/", 1)
-            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            parent_rel, leaf = _split_parent_leaf(folder_name)
             result = fm.create_folder(parent_rel, leaf)
             if not result.success:
                 return json.dumps({"error": result.detail})
@@ -335,11 +342,16 @@ class WorkspacePlugin:
 
         async def _delete_file(filename: str) -> str:
             """Delete a file from data/documents/ (also removes from index if present)."""
-            parts = filename.strip("/").rsplit("/", 1)
-            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
-            # Capture size before delete for the JSON output
-            path, _ = fm.safe_resolve(filename)
-            size_kb = round(path.stat().st_size / 1024, 1) if path and path.is_file() else 0
+            parent_rel, leaf = _split_parent_leaf(filename)
+            # Capture size before delete for the JSON output. Resolve-Fehler
+            # muss hier nicht separat behandelt werden (fm.delete_file
+            # validiert gleich selbst) — aber nicht wegwerfen, sondern als
+            # "keine Größe ermittelbar" behandeln.
+            path, resolve_err = fm.safe_resolve(filename)
+            size_kb = (
+                round(path.stat().st_size / 1024, 1)
+                if not resolve_err and path and path.is_file() else 0
+            )
             result = await fm.delete_file(parent_rel, leaf, from_disk=True, from_index=True)
             if not result.success:
                 return json.dumps({"error": result.detail})
@@ -368,8 +380,7 @@ class WorkspacePlugin:
 
         async def _delete_folder(folder_name: str, recursive: bool = False) -> str:
             """Delete a folder. Empty by default; ``recursive=True`` to wipe contents too."""
-            parts = folder_name.strip("/").rsplit("/", 1)
-            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            parent_rel, leaf = _split_parent_leaf(folder_name)
             result = await fm.delete_folder(parent_rel, leaf, recursive=recursive, from_index=True)
             if not result.success:
                 return json.dumps({"error": result.detail})
@@ -483,8 +494,7 @@ class WorkspacePlugin:
 
         async def _rename(path: str, new_name: str) -> str:
             """Rename a file or folder. Updates the ChromaDB index for indexed files."""
-            parts = path.strip("/").rsplit("/", 1)
-            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+            parent_rel, leaf = _split_parent_leaf(path)
             result = fm.rename(parent_rel, leaf, new_name, sync_index=True)
             if not result.success:
                 return json.dumps({"error": result.detail})
@@ -605,8 +615,7 @@ class WorkspacePlugin:
                 # der LLM würde sonst in einer Suchbegriff-Schleife landen.
                 # Dem Aufrufer sofort signalisieren: hör auf zu suchen,
                 # ruf list_indexed() auf oder index erst.
-                from ....lib.file_manager import list_indexed
-                idx_result = list_indexed()
+                idx_result = fm.list_indexed()
                 indexed_count = len(idx_result.metadata.get("documents", []))
                 if indexed_count == 0:
                     return json.dumps({
@@ -906,6 +915,14 @@ class WorkspacePlugin:
             return f"🗑️ {tool_args.get('filename', '')}"
         elif tool_name == "delete_folder":
             return f"🗑️ {tool_args.get('folder_name', '')}"
+        elif tool_name == "copy_file":
+            return f"📄 {tool_args.get('path', '')} → {tool_args.get('target_path', '')}"
+        elif tool_name == "move_file":
+            return f"📦 {tool_args.get('path', '')} → {tool_args.get('target_path', '')}"
+        elif tool_name == "rename":
+            return f"✏️ {tool_args.get('path', '')} → {tool_args.get('new_name', '')}"
+        elif tool_name == "list_orphaned":
+            return t("tool_doc_list", lang=lang)
         elif tool_name == "index_document":
             return f"📥 {tool_args.get('filename', '')}"
         elif tool_name == "search_documents":
