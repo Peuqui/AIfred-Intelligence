@@ -16,7 +16,6 @@ from typing import Any
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import CredentialField, PluginContext
 
-_SETTINGS_PATH = Path(__file__).parent / "settings.json"
 _I18N_PATH = Path(__file__).parent / "i18n.json"
 
 # Scopes pro Sub-Service
@@ -59,15 +58,13 @@ class GooglePlugin:
     # ── Settings ────────────────────────────────────────────────
 
     def _load_settings(self) -> dict[str, str]:
-        if _SETTINGS_PATH.exists():
-            with open(_SETTINGS_PATH, encoding="utf-8") as f:
-                data: dict[str, str] = json.load(f)
-                return data
-        return {}
+        # lib-SSOT (plugin_base), geteilt mit bible
+        from ....lib.plugin_base import load_plugin_settings
+        return load_plugin_settings(__file__)
 
     def _save_settings(self, settings: dict[str, str]) -> None:
-        with open(_SETTINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2, ensure_ascii=False)
+        from ....lib.plugin_base import save_plugin_settings
+        save_plugin_settings(__file__, settings)
 
     def _translate(self, key: str, lang: str = "de") -> str:
         entry = _load_i18n().get(key, {})

@@ -335,7 +335,7 @@ eigenständige, atomare, modulare Gebilde.
   unscharfe thematische Suche. Fix: `_flex` nach führender Ziffer `\.?\s*`
   erlauben (oder Aliasse mit Space pflegen). Denselben Fix ggf. parallel in
   judaica nachziehen (Duplikatpflege ist akzeptierter Preis).
-- [ ] `__init__.py:61-77,146-151` — Settings-Boilerplate
+- [x] `__init__.py:61-77,146-151` — Settings-Boilerplate
   (`_settings_path`/`_load_settings`/`_save_settings` + env-Load) dupliziert
   google_suite und reimplementiert BaseChannel-Mechanik; Save-Pfad hängt an
   `getattr(tool, "_save_settings")`-Duck-Typing (`_settings_mixin.py:800,830`).
@@ -642,7 +642,7 @@ eigenständige, atomare, modulare Gebilde.
 Größere Refactor-Pakete, je eines pro Arbeitspaket. Lösung ist IMMER ein
 lib-Helper — nie ein Import zwischen Plugins.
 
-- [ ] **Sender-Allowlist-Helper in lib** (z.B. `lib/security.py`):
+- [x] (security.is_sender_allowed; telegram+discord delegieren) **Sender-Allowlist-Helper in lib** (z.B. `lib/security.py`):
   `telegram_channel/__init__.py:454-479` und `discord_channel/__init__.py:50-69`
   sind derselbe ~20-Zeilen-Block (Komma-Parse, leer=niemand, TD8-`*`-Block,
   numerische ID-Prüfung); einziger Unterschied ist der Broker-Key. Zusätzlich
@@ -652,10 +652,10 @@ lib-Helper — nie ein Import zwischen Plugins.
   `_split_message` (`telegram_channel/__init__.py:511-527`, inkl. Leer-Chunk-Fix
   aus C-telegram) als Basis; Discord (naiver Hard-Split `text[i:i+2000]`) und
   Telegram stellen darauf um.
-- [ ] **Lokaler-Media-Pfad-Helper in lib** (neben `resolve_outbound_attachment`
+- [x] (vision_utils.local_media_path) **Lokaler-Media-Pfad-Helper in lib** (neben `resolve_outbound_attachment`
   in vision_utils): `_local_photo_path` (telegram:429-434) ≡ `_local_file_path`
   (discord:40-47).
-- [ ] **`_dispatch_inbound` in lib** (message_hub/message_processor): existiert
+- [x] (message_processor.dispatch_inbound mit channel_label; Telegram loggt jetzt auch das Ergebnis) **`_dispatch_inbound` in lib** (message_hub/message_processor): existiert
   3× (discord:427-438 ≡ email:715-726 wortgleich, telegram:530-533 kürzer und
   ohne Ergebnis-Log — vereinheitlichen).
 - [x] ⚠️ ENTSCHIEDEN „Option 2" (Minimal-Kern lib/reference_lookup.py: normalize_name + flex_alias; Pattern/resolve/Range bleiben plugin-lokal — Range-Key-Typen int vs. str) **bible/judaica-Referenz-Kern in lib** (z.B. `lib/reference_lookup.py`):
@@ -671,7 +671,7 @@ lib-Helper — nie ein Import zwischen Plugins.
   (`commands.py:404-411`) ist der einzige echte Plugin→Plugin-Verstoß im Repo.
   Benötigte Teile (Settings-Lese-SSOT, Resolver-Bau) nach lib, beide Plugins
   nutzen den lib-Helper.
-- [ ] **Settings-Handling für Tool-Plugins in plugin_base** (lib): bible und
+- [x] (plugin_base.load/save_plugin_settings; bible+google delegieren, bible-reload bleibt im Plugin) **Settings-Handling für Tool-Plugins in plugin_base** (lib): bible und
   google_suite reimplementieren `_load_settings`/`_save_settings`/env-Load;
   Save-Pfad hängt an `getattr`-Duck-Typing (`_settings_mixin.py:800,830`).
   Gemeinsame Basis analog `BaseChannel.load_settings/save_settings/

@@ -48,36 +48,12 @@ def _parse_channel_ids(ids_str: str) -> set[int]:
     return ids
 
 
-def _local_file_path(media: "str | None") -> "str | None":
-    """Local file path if ``media`` points at an existing file, else None.
-    Discord attaches via discord.File, which needs a local path (it cannot
-    fetch a remote URL like Telegram's send_photo can)."""
-    from pathlib import Path
-    if not media or media.startswith(("http://", "https://")):
-        return None
-    return media if Path(media).exists() else None
-
-
 def _is_discord_user_allowed(user_id: int) -> bool:
-    """Check a Discord user ID against the allowlist (same model as Telegram).
-
-    Empty allowlist = nobody (safe default — Discord had NO sender filter before,
-    so DMs let any user drive the agent). TD8: the "*" wildcard is NOT
-    supported (anymore) — same decision as Telegram; a world-open bot lets
-    anyone on a shared server burn GPU inference. Explicit numeric IDs only;
-    blocked senders' ids appear in the log for easy onboarding.
-    """
-    from ....lib.credential_broker import broker
-    raw = broker.get("discord", "allowed_users").strip()
-    if not raw:
-        return False
-    if raw == "*":
-        log_message(
-            "Discord Plugin: '*' wildcard in allowed_users is no longer "
-            "supported (TD8) — list explicit user ids. Blocking everyone."
-        )
-        return False
-    return user_id in _parse_channel_ids(raw)
+    """Discord-Sender-Allowlist (gilt auch für DMs) — Logik lebt als
+    lib-SSOT in ``security.is_sender_allowed`` (geteilt mit telegram):
+    leer = niemand (fail-closed), '*' seit TD8 geblockt."""
+    from ....lib.security import is_sender_allowed
+    return is_sender_allowed("discord", "allowed_users", user_id)
 
 
 class DiscordChannel(BaseChannel):
@@ -286,7 +262,8 @@ class DiscordChannel(BaseChannel):
                 f"Discord Plugin: message from {sender} "
                 f"in #{inbound.metadata.get('channel_name', '?')}"
             )
-            await _dispatch_inbound(inbound)
+            from ....lib.message_processor import dispatch_inbound
+            await dispatch_inbound(inbound, "Discord Plugin")
 
         try:
             await client.start(bot_token)
@@ -331,7 +308,10 @@ class DiscordChannel(BaseChannel):
         # Discord renders Markdown natively (bold/italic/code/links) —
         # the default format_outbound() passthrough is exactly right.
         text = self.format_outbound(outbound.text)["text"]
-        await self._deliver(channel, text, _local_file_path(outbound.media))
+        # Discord attacht via discord.File und braucht einen LOKALEN Pfad
+        # (kann keine Remote-URL fetchen wie Telegrams send_photo).
+        from ....lib.vision_utils import local_media_path
+        await self._deliver(channel, text, local_media_path(outbound.media))
 
         from ....lib.debug_bus import debug
         channel_name = getattr(channel, 'name', channel_id)
@@ -467,20 +447,6 @@ class DiscordChannel(BaseChannel):
                 executor=_execute_discord_send,
             ),
         ]
-
-
-async def _dispatch_inbound(message: "InboundMessage") -> None:
-    """Hand an inbound message to the message processor."""
-    from ....lib.message_processor import process_inbound
-
-    outbound = await process_inbound(message)
-
-    if outbound:
-        log_message(
-            f"Discord Plugin: processed — reply "
-            f"{'sent' if outbound.metadata.get('sent') else 'ready'} "
-            f"for {outbound.recipient}"
-        )
 
 
 # Module-level instance — discovered by registry

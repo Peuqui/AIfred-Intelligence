@@ -976,6 +976,18 @@ def _resolve_upload_marker(
     return None
 
 
+def local_media_path(media: "str | None") -> "str | None":
+    """Lokaler Dateipfad, wenn ``media`` auf eine existierende Datei zeigt.
+
+    http(s)-URLs und fehlende/nicht existente Pfade → None. SSOT für die
+    Attachment-Zustellung der Message-Channels (telegram/discord hielten
+    vorher je eine zeichengleiche Kopie).
+    """
+    if not media or media.startswith(("http://", "https://")):
+        return None
+    return media if Path(media).exists() else None
+
+
 def is_image_file(path: Path) -> bool:
     """True if ``path`` looks like an image (by extension). Channels use this
     to choose photo-send vs generic document/file-send."""

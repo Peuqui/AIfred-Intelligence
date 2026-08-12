@@ -121,6 +121,37 @@ def load_tool_description(plugin_file: "str | Path", tool_name: str) -> str:
     return text
 
 
+def load_plugin_settings(plugin_file: "str | Path") -> dict[str, str]:
+    """``settings.json`` neben dem Plugin lesen — das Tool-Plugin-Pendant
+    zu :meth:`BaseChannel.load_settings` (SSOT statt Boilerplate pro
+    Plugin; vorher hielten bible und google_suite je eine eigene Kopie).
+
+    Args:
+        plugin_file: ``__file__`` des Plugin-Moduls.
+    """
+    import json
+    from pathlib import Path
+    path = Path(plugin_file).parent / "settings.json"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        data: dict[str, str] = json.load(f)
+        return data
+
+
+def save_plugin_settings(plugin_file: "str | Path", settings: dict[str, str]) -> None:
+    """``settings.json`` neben dem Plugin schreiben (Gegenstück zu
+    :func:`load_plugin_settings`). Der UI-Save-Pfad ruft weiterhin die
+    ``_save_settings``-Methode des Plugins (Duck-Typing-Konvention in
+    ``_settings_mixin``), die hierher delegiert — plugin-eigene
+    Nacharbeit (z.B. Cache-Reload bei bible) bleibt dort."""
+    import json
+    from pathlib import Path
+    path = Path(plugin_file).parent / "settings.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2, ensure_ascii=False)
+
+
 _plugin_tool_names_cache: "dict[str, set[str]]" = {}
 
 

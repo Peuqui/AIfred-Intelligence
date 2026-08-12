@@ -112,6 +112,43 @@ def extract_sender_email(sender: str) -> str:
     return addr or sender.strip().lower()
 
 
+def is_sender_allowed(service: str, key: str, sender_id: int) -> bool:
+    """Numerische Sender-Allowlist der Message-Channels — SSOT für
+    telegram und discord (existierte vorher als ~20-Zeilen-Kopie in
+    beiden Plugins).
+
+    Semantik: Komma-Liste aus dem Broker; leer = NIEMAND (fail-closed);
+    ``*`` wird seit TD8 hart geblockt (ein weltoffener Bot lässt jeden
+    GPU-Inferenz verbrennen); nicht-numerische Einträge werden geloggt
+    statt still verworfen. Die ID geblockter Absender loggt der Aufrufer
+    — Onboarding = einmal anschreiben lassen, ID aus dem Log kopieren.
+    """
+    from .credential_broker import broker
+    from .logging_utils import log_message
+    raw = broker.get(service, key).strip()
+    if not raw:
+        return False
+    if raw == "*":
+        log_message(
+            f"{service}: '*' wildcard in {key} is no longer supported (TD8) "
+            f"— list explicit user ids. Blocking everyone.", "warning",
+        )
+        return False
+    allowed: set[int] = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.isdigit():
+            allowed.add(int(part))
+        else:
+            log_message(
+                f"{service}: ignoring non-numeric ID in {key}: {part!r}",
+                "warning",
+            )
+    return sender_id in allowed
+
+
 def first_allowlist_entry(service: str, key: str) -> str:
     """Erster Eintrag der Allowlist = Owner — SSOT der Konvention.
 
