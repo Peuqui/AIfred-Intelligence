@@ -25,12 +25,11 @@ File access to the documents directory (`data/documents/`) and semantic search v
 | `create_folder` | Create a subfolder | WRITE_DATA |
 | `copy_file` | Copy a file (server-side, binary-safe) | WRITE_DATA |
 | `move_file` | Move a file/folder (index follows) | WRITE_DATA |
-| `delete_file` | Delete a file from disk | WRITE_SYSTEM |
+| `delete_file` | Delete a file (also removes it from the index) | WRITE_SYSTEM |
 | `delete_folder` | Delete an empty folder | WRITE_SYSTEM |
 | `index_document` | Index a file into the ChromaDB vector database | WRITE_DATA |
 | `search_documents` | Search indexed documents semantically | READONLY |
 | `list_indexed` | List all indexed documents | READONLY |
-| `delete_document` | Remove a document from the vector database | WRITE_SYSTEM |
 | `chromadb_stats` | Show all ChromaDB collections with entry counts | READONLY |
 | `chromadb_clear` | Clear all entries from a collection | WRITE_SYSTEM |
 

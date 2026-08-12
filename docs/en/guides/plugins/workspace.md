@@ -28,7 +28,6 @@ The Workspace Plugin provides the LLM with direct file access to the documents d
 | `search_documents` | Search indexed documents semantically (folder filter, pagination, MMR) | READONLY |
 | `list_indexed` | List all indexed documents | READONLY |
 | `list_orphaned` | List indexed documents whose source file is missing on disk | READONLY |
-| `delete_document` | Remove document from vector database + disk | WRITE_SYSTEM |
 | `chromadb_stats` | Show all collections with entry counts | READONLY |
 | `chromadb_clear` | Clear all entries from a collection | WRITE_SYSTEM |
 
