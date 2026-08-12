@@ -251,49 +251,6 @@ def _sandbox_root_editor() -> rx.Component:
     )
 
 
-def _list_limits_editor() -> rx.Component:
-    """Inline editor for list.default_limit + list.search_default_limit."""
-    return rx.hstack(
-        rx.icon("list", size=14, color="#888"),
-        rx.text(
-            "Default-Limits",
-            font_size="12px",
-            color="#aaa",
-            min_width="100px",
-        ),
-        rx.text("list:", font_size="11px", color="#666"),
-        rx.input(
-            value=AIState.audio_list_limit_input,
-            on_change=AIState.audio_set_list_limit_input,
-            placeholder="200",
-            size="1",
-            width="80px",
-            font_family="monospace",
-        ),
-        rx.text("search:", font_size="11px", color="#666"),
-        rx.input(
-            value=AIState.audio_search_limit_input,
-            on_change=AIState.audio_set_search_limit_input,
-            placeholder="20",
-            size="1",
-            width="80px",
-            font_family="monospace",
-        ),
-        rx.spacer(),
-        rx.button(
-            rx.icon("save", size=14),
-            "Speichern",
-            size="1",
-            variant="soft",
-            on_click=AIState.audio_save_list_limits,
-            cursor="pointer",
-        ),
-        spacing="2",
-        align="center",
-        width="100%",
-    )
-
-
 def _tts_list_threshold_editor() -> rx.Component:
     """Inline editor for tts_list.full_max_items (TTS list filter threshold)."""
     return rx.hstack(
@@ -501,8 +458,6 @@ def audio_settings_page() -> rx.Component:
             # (Help is rendered as separate modal via audio_help_modal)
             # Sandbox-Root editor (for the source picker)
             _sandbox_root_editor(),
-            # List/search default limits
-            _list_limits_editor(),
             # TTS list filter threshold
             _tts_list_threshold_editor(),
             # Hint

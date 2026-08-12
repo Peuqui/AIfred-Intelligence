@@ -71,8 +71,6 @@ class AudioPlayerMixin(rx.State, mixin=True):
     audio_settings_busy_source: str = ""             # which source is being worked on
     audio_settings_status: str = ""                  # last result message
     audio_picker_root_input: str = ""                # UI input for picker sandbox
-    audio_list_limit_input: str = ""                 # default limit for audio_list
-    audio_search_limit_input: str = ""               # default limit for audio_search
     audio_tts_list_max_input: str = ""               # max items for TTS list filter
 
     # ── Public event handlers ───────────────────────────────────────
@@ -243,14 +241,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.audio_settings_busy_source = ""
         # Pre-fill the picker-root input with the current settings value
         self.audio_picker_root_input = self._audio_picker_root()
-        # Pre-fill list/search limits
         cfg = self._read_audio_settings_json()
-        self.audio_list_limit_input = str(
-            cfg.get("list", {}).get("default_limit", 200)
-        )
-        self.audio_search_limit_input = str(
-            cfg.get("list", {}).get("search_default_limit", 20)
-        )
         self.audio_tts_list_max_input = str(
             cfg.get("tts_list", {}).get("full_max_items", 5)
         )
@@ -439,38 +430,8 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.audio_picker_root_input = value
 
     @rx.event
-    def audio_set_list_limit_input(self, value: str) -> None:
-        self.audio_list_limit_input = value
-
-    @rx.event
-    def audio_set_search_limit_input(self, value: str) -> None:
-        self.audio_search_limit_input = value
-
-    @rx.event
     def audio_set_tts_list_max_input(self, value: str) -> None:
         self.audio_tts_list_max_input = value
-
-    @rx.event
-    def audio_save_list_limits(self) -> None:
-        """Persist list.default_limit and list.search_default_limit."""
-        try:
-            list_lim = int(self.audio_list_limit_input.strip())
-            search_lim = int(self.audio_search_limit_input.strip())
-        except ValueError:
-            self.audio_settings_status = "⚠️ Limits müssen Zahlen sein"
-            return
-        if list_lim < 1 or search_lim < 1:
-            self.audio_settings_status = "⚠️ Limits müssen ≥ 1 sein"
-            return
-        cfg = self._read_audio_settings_json()
-        cfg.setdefault("list", {})["default_limit"] = list_lim
-        cfg.setdefault("list", {})["search_default_limit"] = search_lim
-        if not self._write_audio_settings_json(cfg):
-            self.audio_settings_status = "⚠️ Konnte settings.json nicht schreiben"
-            return
-        self.audio_settings_status = (
-            f"✅ Limits gespeichert: list={list_lim}, search={search_lim}"
-        )
 
     @rx.event
     def audio_save_tts_list_max(self) -> None:

@@ -190,50 +190,50 @@ eigenständige, atomare, modulare Gebilde.
 
 - [x] `__init__.py:808-810` — ENTFALLEN durch A8 (`_delete_document` komplett
   entfernt).
-- [ ] `__init__.py:30-32` — `_safe_resolve` = expliziter „Compatibility shim"
+- [x] `__init__.py:30-32` — `_safe_resolve` = expliziter „Compatibility shim"
   (NO-LEGACY-Regel); 2 Aufrufer über Shim, 3 direkt. Ersatzlos streichen,
   Aufrufer auf `fm.safe_resolve`.
-- [ ] `__init__.py:51-91` — `_list_files` reimplementiert Listing statt
+- [x] `__init__.py:51-91` — `_list_files` reimplementiert Listing statt
   `fm.list_directory` (file_manager-Docstring beansprucht Exklusivität):
   kein Hidden-File-Filter, kein Indexed-Status, und fehlender `is_dir()`-Check →
   `NotADirectoryError` leakt absoluten Serverpfad ans Modell.
-- [ ] `__init__.py:263-270` — `_write_file` schreibt via `write_text` an
+- [x] `__init__.py:263-270` — `_write_file` schreibt via `write_text` an
   `fm.write_file` vorbei (zwei Write-Semantiken auf demselben Baum);
   Read-back-Längen-Verify ist Defensive Programming ohne Fehlerfall.
-- [ ] `__init__.py:839-845` vs. `894-899` — ChromaDB-Client-Konstruktion doppelt
+- [x] (dateiintern erledigt via _chroma_client; repo-weite Factory → E) `__init__.py:839-845` vs. `894-899` — ChromaDB-Client-Konstruktion doppelt
   im File; repo-weit ~8 weitere Stellen ohne Factory (`api/system.py:113` sogar
   hartcodiert `localhost:8000`). Mindestens dateiintern Helper; lib-Factory ⚠️
   (größeres Paket).
-- [ ] `prompts/de/_intro.txt` + `prompts/en/_intro.txt` — nennen nur 9 von 16
+- [x] `prompts/de/_intro.txt` + `prompts/en/_intro.txt` — nennen nur 9 von 16
   Tools (fehlen: create_folder, delete_file, delete_folder, copy_file, move_file,
   rename, list_orphaned); write_file-Extension-Liste falsch (`.xml`/`.html`
   fehlen — `.html` trägt das SANDBOX_HTML_URL-Embedding). Beide Sprachen.
 
 ### B-audio_player
 
-- [ ] `__init__.py:263,428-432` — `restart`-Parameter von `audio_play_folder`
+- [x] `__init__.py:263,428-432` — `restart`-Parameter von `audio_play_folder`
   ist tot (Signatur + Schema versprechen Verhalten, Körper referenziert ihn nie,
   `play_queue` kennt ihn nicht). Implementieren oder entfernen. ⚠️
-- [ ] `__init__.py:340-342,388-392,407` — Doppel-Shuffle: Tool shuffled selbst
+- [x] `__init__.py:340-342,388-392,407` — Doppel-Shuffle: Tool shuffled selbst
   UND übergibt `shuffle=True` an `channel.play_queue()` (das erneut mischt) →
   zurückgegebene `files[:10]`-Preview ≠ Abspielreihenfolge. Eine Shuffle-Stelle.
-- [ ] `__init__.py:754` — `audio_speed`: `float(factor)` ohne Finite-Check
+- [x] `__init__.py:754` — `audio_speed`: `float(factor)` ohne Finite-Check
   (json akzeptiert NaN/Infinity; genau dafür existiert `_finite_seconds` Z.30-44,
   das seek/skip nutzen); freeecho2 reicht roh an mpv-IPC durch.
-- [ ] `__init__.py:49-56` — `_load_settings` verschluckt OSError/JSONDecodeError
+- [x] `__init__.py:49-56` — `_load_settings` verschluckt OSError/JSONDecodeError
   still → `{}` (korrupte settings.json = Streams weg, kein Log). Mindestens loggen.
-- [ ] `prompts/de/_intro.txt` (68 Z.) vs. `prompts/en/_intro.txt` (31 Z.) —
+- [x] `prompts/de/_intro.txt` (68 Z.) vs. `prompts/en/_intro.txt` (31 Z.) —
   EN fehlen: FTS5-Such-Strategie (a-d), „keine Halluzinationen bei 0 Treffern",
   Groß-/Kleinschreibung, Target-Parameter-Abschnitt. Synchronisieren
   (Prompts-bilingual-Regel).
-- [ ] `__init__.py:1114-1137` — `get_ui_status`: hartcodierte deutsche Texte,
+- [x] `__init__.py:1114-1137` — `get_ui_status`: hartcodierte deutsche Texte,
   `lang` ignoriert (Repo-Konvention: `t(...)` aus lib/i18n, siehe research);
   Zahlen ohne `format_number`; 7 von 14 Tools ganz ohne Status
   (u.a. die langlaufenden play_folder/index_rebuild).
-- [ ] `settings.json:23-28` — kompletter `limits`-Block (max_duration_min,
+- [x] `settings.json:23-28` — kompletter `limits`-Block (max_duration_min,
   max_buffer_mb, connect/read_timeout) hat repo-weit null Konsumenten. ⚠️
   Entfernen oder implementieren.
-- [ ] `settings.json:7-10` + `ui/audio_settings.py:255` — `list.default_limit`/
+- [x] `settings.json:7-10` + `ui/audio_settings.py:255` — `list.default_limit`/
   `search_default_limit` werden per UI editiert, aber von keinem Codepfad
   angewendet (Tools defaulten bewusst auf ALLE). ⚠️ UI-Zeile raus oder Tools
   konsumieren den Wert.
@@ -459,16 +459,16 @@ eigenständige, atomare, modulare Gebilde.
   Docstring-Listing (Handler existiert).
 
 ### C-workspace
-- [ ] `__init__.py:285` vs. `:254` — `.htm` im Embed-Check unerreichbar
+- [x] `__init__.py:285` vs. `:254` — `.htm` im Embed-Check unerreichbar
   (nicht in allowed_extensions) — konsistent machen.
-- [ ] `__init__.py:254` — Write-Whitelist hartcodiert im Executor, während die
+- [x] `__init__.py:254` — Write-Whitelist hartcodiert im Executor, während die
   Index-Whitelist `DOCUMENT_ALLOWED_EXTENSIONS` (config.py:1397) konfigurierbar
   ist — angleichen.
 - [ ] `__init__.py:325-326,351-352,384-385,499-500,805-806` — Parent/Leaf-Split
   3-Zeilen-Pattern 5× → Helper.
 - [ ] `__init__.py:621` — redundanter Funktions-Import `list_indexed`
   (`fm.list_indexed` Z.756 zeigt den richtigen Weg).
-- [ ] `__init__.py:27` — `_DOCUMENTS_DIR = DOCUMENTS_DIR` sinnfreier Alias.
+- [x] `__init__.py:27` — `_DOCUMENTS_DIR = DOCUMENTS_DIR` sinnfreier Alias.
 - [ ] `__init__.py:354` — `path, _ = fm.safe_resolve(...)` verwirft Fehler
   (folgenlos, aber Muster).
 - [ ] `__init__.py:947-974` — `get_ui_status` deckt copy_file/move_file/rename/
