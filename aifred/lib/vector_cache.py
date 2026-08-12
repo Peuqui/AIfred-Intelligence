@@ -25,8 +25,6 @@ USAGE:
     result = await cache.query("What is the weather?")
 """
 
-import chromadb
-from chromadb.config import Settings
 from chromadb.api.types import Documents, Embeddings, EmbeddingFunction
 from chromadb.errors import ChromaError
 from .timer import Timer
@@ -148,24 +146,22 @@ class VectorCache:
     - > 0.85:    LOW confidence    → Web search required
     """
 
-    def __init__(self, host: str = "localhost", port: int = 8000):
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None):
         """
         Initialize Vector Cache with ChromaDB Server
 
         Args:
-            host: ChromaDB server host (default: localhost for Docker)
-            port: ChromaDB server port (default: 8000)
+            host: ChromaDB server host (None = config CHROMA_HOST)
+            port: ChromaDB server port (None = config CHROMA_PORT)
 
         Raises:
             ConnectionError: If ChromaDB server is not running
         """
         try:
-            # HttpClient is thread-safe and can be used from async code
-            self.client = chromadb.HttpClient(
-                host=host,
-                port=port,
-                settings=Settings(anonymized_telemetry=False)
-            )
+            # HttpClient is thread-safe and can be used from async code.
+            # Konstruktion über die Factory-SSOT (lib/chroma_client.py).
+            from .chroma_client import chroma_client
+            self.client = chroma_client(host, port)
 
             # Test connection with heartbeat
             self.client.heartbeat()
@@ -793,13 +789,13 @@ class VectorCache:
 _cache_instance: Optional[VectorCache] = None
 
 
-def get_cache(host: str = "localhost", port: int = 8000) -> VectorCache:
+def get_cache(host: Optional[str] = None, port: Optional[int] = None) -> VectorCache:
     """
     Get or create global cache instance (singleton pattern)
 
     Args:
-        host: ChromaDB server host
-        port: ChromaDB server port
+        host: ChromaDB server host (None = config CHROMA_HOST)
+        port: ChromaDB server port (None = config CHROMA_PORT)
 
     Returns:
         VectorCache instance

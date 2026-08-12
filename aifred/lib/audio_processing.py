@@ -96,20 +96,13 @@ def _get_tts_list_max_items() -> int:
     replaced with a spoken hint instead of being read aloud. Browser
     display is unaffected (filter only runs in TTS path).
     """
+    from .audio_player_settings import load_audio_player_settings
     try:
-        import json as _json
-        from pathlib import Path as _Path
-        p = (
-            _Path(__file__).parent.parent / "plugins" / "tools"
-            / "audio_player" / "settings.json"
+        return int(
+            load_audio_player_settings().get("tts_list", {}).get("full_max_items", 5)
         )
-        if p.exists():
-            with open(p, encoding="utf-8") as f:
-                cfg = _json.load(f)
-            return int(cfg.get("tts_list", {}).get("full_max_items", 5))
-    except (OSError, ValueError, KeyError):
-        pass
-    return 5
+    except (TypeError, ValueError):
+        return 5
 
 
 _LIST_ITEM_RE = re.compile(r'^[ \t]*(?:[-*+]|\d+[.)])\s+')

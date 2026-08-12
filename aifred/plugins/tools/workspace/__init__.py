@@ -13,7 +13,7 @@ from typing import Any, Optional
 from ....lib.config import (
     DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
     DOCUMENT_SEARCH_DISTANCE_STRONG, WORKSPACE_READ_MAX_BYTES,
-    WORKSPACE_WRITE_EXTENSIONS, CHROMA_HOST, CHROMA_PORT,
+    WORKSPACE_WRITE_EXTENSIONS,
 )
 from ....lib import file_manager as fm
 from ....lib.function_calling import Tool
@@ -32,13 +32,10 @@ def _split_parent_leaf(rel_path: str) -> tuple[str, str]:
 
 
 def _chroma_client():  # type: ignore[no-untyped-def]
-    """Ein Konstruktor für beide ChromaDB-Admin-Tools (dateiinterne SSOT)."""
-    import chromadb
-    from chromadb.config import Settings
-    return chromadb.HttpClient(
-        host=CHROMA_HOST, port=CHROMA_PORT,
-        settings=Settings(anonymized_telemetry=False),
-    )
+    """ChromaDB-Client für die Admin-Tools — über die repo-weite
+    Factory-SSOT (lib/chroma_client.py)."""
+    from ....lib.chroma_client import chroma_client
+    return chroma_client()
 
 
 @dataclass

@@ -11,8 +11,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import chromadb
-from chromadb.config import Settings
 
 from .config import (
     AGENT_MEMORY_COLLECTION_MAX,
@@ -35,13 +33,12 @@ class AgentMemory:
     One collection per agent. Write-own, read-all.
     """
 
-    def __init__(self, host: str = "localhost", port: int = 8000) -> None:
+    def __init__(self, host: "str | None" = None, port: "int | None" = None) -> None:
+        from .chroma_client import chroma_client
         from .vector_cache import OllamaEmbeddingFunction
 
-        self._client = chromadb.HttpClient(
-            host=host, port=port,
-            settings=Settings(anonymized_telemetry=False),
-        )
+        # None = config-Werte (CHROMA_HOST/CHROMA_PORT) — Factory-SSOT
+        self._client = chroma_client(host, port)
         self._client.heartbeat()
         # Memory ops are single-shot reads/writes (recall + store_memory),
         # never bulk — query mode (CPU, keep_alive=0) is right.

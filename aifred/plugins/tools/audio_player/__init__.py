@@ -20,13 +20,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ....lib.audio_player_settings import (
+    build_configured_source_map,
+    load_audio_player_settings,
+)
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
 from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
-
-_PLUGIN_DIR = Path(__file__).parent
-_SETTINGS_PATH = _PLUGIN_DIR / "settings.json"
 
 
 def _finite_seconds(value: Any, field_name: str) -> tuple[float, str | None]:
@@ -46,40 +47,15 @@ def _finite_seconds(value: Any, field_name: str) -> tuple[float, str | None]:
     return f, None
 
 
-def _load_settings() -> dict[str, Any]:
-    """Read plugin settings.json fresh on every call (small file, not hot path)."""
-    if not _SETTINGS_PATH.exists():
-        return {}
-    try:
-        with open(_SETTINGS_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            log_message("audio_player: settings.json is not a JSON object — ignoring it", "warning")
-            return {}
-        return data
-    except (OSError, json.JSONDecodeError) as exc:
-        # Nicht still verschlucken: ohne settings.json fehlen Streams und
-        # Resume-Konfiguration — das muss im Log sichtbar sein.
-        log_message(f"audio_player: settings.json unreadable — {exc}", "warning")
-        return {}
+# Settings-Lektüre und Source-Map leben als lib-SSOT in
+# lib/audio_player_settings.py (weitere Konsumenten: UI-Mixin,
+# TTS-Listen-Filter, FreeEcho2-Voice-Resume).
 
 
 def _make_resolver():  # type: ignore[no-untyped-def]
     """Build a fresh SourceResolver: filesystem-discovery + http_streams."""
     from ....lib.audio_sources import SourceResolver
-    return SourceResolver(_build_sources())
-
-
-def _build_sources() -> dict[str, Any]:
-    """Source-Map-SSOT: auto-discovered lokale Ordner + settings-Streams.
-    Genutzt vom Resolver UND von _play_folder (vorher zweimal inline)."""
-    from ....lib.audio_sources import build_source_map
-    from ....lib.config import MEDIA_AUDIO_DIR
-    streams = {
-        label: src for label, src in _load_settings().get("sources", {}).items()
-        if src.get("type") == "http_stream"
-    }
-    return build_source_map(MEDIA_AUDIO_DIR, streams)
+    return SourceResolver(build_configured_source_map())
 
 
 def _natural_key(p: str) -> list:
@@ -100,7 +76,7 @@ def _resolve_target(ctx: PluginContext, requested: str | None) -> str:
       2. Plugin config default if not 'auto'
       3. Auto from PluginContext.source
     """
-    cfg = _load_settings()
+    cfg = load_audio_player_settings()
     default = str(cfg.get("targets", {}).get("default", "auto"))
 
     if requested:
@@ -210,7 +186,7 @@ class AudioPlayerPlugin:
         # Channels haben keinen mpv-State.
         if channel.name == "local":
             from ....lib.audio_manager import audio_manager
-            settings = _load_settings()
+            settings = load_audio_player_settings()
             interval = settings.get("resume", {}).get("position_save_interval_sec", 60)
             audio_manager.configure_save_interval(int(interval))
 
@@ -295,7 +271,7 @@ class AudioPlayerPlugin:
                 label, sub = folder, ""
 
             # Resolve source — must be a local_folder, not an http_stream.
-            sources = _build_sources()
+            sources = build_configured_source_map()
             cfg = sources.get(label)
             if cfg is None:
                 available = list(sources.keys())
@@ -596,7 +572,7 @@ class AudioPlayerPlugin:
 
             # Case 1 + 3: load from saved position with pre-roll, routed
             # to the appropriate output (browser/local/freeecho2).
-            settings = _load_settings()
+            settings = load_audio_player_settings()
             resume_cfg = settings.get("resume", {})
             pre_roll = float(resume_cfg.get("pre_roll_sec", 7))
             pre_roll_streams = bool(resume_cfg.get("pre_roll_for_streams", False))
