@@ -147,6 +147,28 @@ def resolve_audio_type(
     return "music"
 
 
+def safe_subpath(root: Path, rel: str) -> "Path | None":
+    """Resolve ``rel`` unter ``root`` mit Traversal-Schutz (SSOT).
+
+    Gleiches Muster wie in ``SourceResolver.resolve``: ``..``-Teile,
+    absolute Pfade und Symlink-Ausbrüche werden abgelehnt. ``None`` wenn
+    der Pfad die Wurzel verlässt — der Aufrufer formuliert die Meldung.
+    Leeres ``rel`` liefert die (resolved) Wurzel selbst.
+    """
+    root = root.resolve()
+    if not rel:
+        return root
+    p = Path(rel)
+    if p.is_absolute() or ".." in p.parts:
+        return None
+    candidate = (root / p).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
 @dataclass
 class ResolvedSource:
     uri: str            # Path or URL for mpv loadfile

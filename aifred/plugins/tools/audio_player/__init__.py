@@ -66,15 +66,30 @@ def _load_settings() -> dict[str, Any]:
 
 def _make_resolver():  # type: ignore[no-untyped-def]
     """Build a fresh SourceResolver: filesystem-discovery + http_streams."""
-    from ....lib.audio_sources import SourceResolver, build_source_map
+    from ....lib.audio_sources import SourceResolver
+    return SourceResolver(_build_sources())
+
+
+def _build_sources() -> dict[str, Any]:
+    """Source-Map-SSOT: auto-discovered lokale Ordner + settings-Streams.
+    Genutzt vom Resolver UND von _play_folder (vorher zweimal inline)."""
+    from ....lib.audio_sources import build_source_map
     from ....lib.config import MEDIA_AUDIO_DIR
-    cfg = _load_settings()
     streams = {
-        label: src for label, src in cfg.get("sources", {}).items()
+        label: src for label, src in _load_settings().get("sources", {}).items()
         if src.get("type") == "http_stream"
     }
-    sources = build_source_map(MEDIA_AUDIO_DIR, streams)
-    return SourceResolver(sources)
+    return build_source_map(MEDIA_AUDIO_DIR, streams)
+
+
+def _natural_key(p: str) -> list:
+    """Natural-Order-Sortierschlüssel: 'CD 2' < 'CD 10' (ASCII: 10 < 2).
+    Genutzt von _play_folder und dem audio_list-FS-Fallback."""
+    import re as _re
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in _re.split(r"(\d+)", p)
+    ]
 
 
 def _resolve_target(ctx: PluginContext, requested: str | None) -> str:
@@ -94,19 +109,19 @@ def _resolve_target(ctx: PluginContext, requested: str | None) -> str:
     if default != "auto":
         return default
 
-    # Auto-routing from request origin
+    # Auto-routing from request origin. session_id/metadata sind
+    # Pflichtfelder des PluginContext — keine getattr-Defensive.
     if ctx.source == "browser":
-        device = getattr(ctx, "session_id", "") or "default"
-        return f"browser:{device}"
+        return f"browser:{ctx.session_id}"
     if ctx.source == "freeecho2":
         # Room aus PluginContext.metadata (set by freeecho2_channel
-        # process_inbound). Fallback auf 'local' wenn kein Room bekannt.
-        room = ""
-        meta = getattr(ctx, "metadata", None)
-        if isinstance(meta, dict):
-            room = str(meta.get("room", ""))
+        # process_inbound).
+        room = str(ctx.metadata.get("room", ""))
         if room:
             return f"freeecho2:{room}"
+        # Sollte nicht vorkommen (Channel setzt room immer) — sichtbar
+        # machen statt still am Server-mpv zu landen.
+        log_message("audio_player: freeecho2 request without room metadata — routing to 'local'", "warning")
         return "local"
     if ctx.source in ("discord", "email", "telegram"):
         # Text channels — server-side mpv is the only option
@@ -270,8 +285,7 @@ class AudioPlayerPlugin:
             target: str | None = None,
             shuffle: bool = False,
         ) -> str:
-            from ....lib.audio_sources import ALLOWED_EXTENSIONS, build_source_map
-            from ....lib.config import MEDIA_AUDIO_DIR
+            from ....lib.audio_sources import ALLOWED_EXTENSIONS
 
             # Parse "label" or "label/sub/path"
             if "/" in folder:
@@ -281,12 +295,7 @@ class AudioPlayerPlugin:
                 label, sub = folder, ""
 
             # Resolve source — must be a local_folder, not an http_stream.
-            settings = _load_settings()
-            streams = {
-                lbl: src for lbl, src in settings.get("sources", {}).items()
-                if src.get("type") == "http_stream"
-            }
-            sources = build_source_map(MEDIA_AUDIO_DIR, streams)
+            sources = _build_sources()
             cfg = sources.get(label)
             if cfg is None:
                 available = list(sources.keys())
@@ -307,13 +316,10 @@ class AudioPlayerPlugin:
                     "error": f"Source path does not exist: {root}",
                 })
 
-            # Path-traversal guard
-            if ".." in Path(sub).parts:
-                return json.dumps({"success": False, "error": f"Path traversal denied: {sub!r}"})
-            target_dir = (root / sub).resolve() if sub else root
-            try:
-                target_dir.relative_to(root)
-            except ValueError:
+            # Path-traversal guard (lib-SSOT, gleiches Muster wie der Resolver)
+            from ....lib.audio_sources import safe_subpath
+            target_dir = safe_subpath(root, sub)
+            if target_dir is None:
                 return json.dumps({"success": False, "error": f"Path '{sub}' escapes source folder"})
             if not target_dir.is_dir():
                 return json.dumps({
@@ -323,13 +329,6 @@ class AudioPlayerPlugin:
 
             # Recursively gather audio files; sort with natural-order so
             # 'CD 1' < 'CD 2' < 'CD 10' (ASCII would order 1<10<2).
-            def _natural_key(p: str) -> list:
-                import re as _re
-                return [
-                    int(part) if part.isdigit() else part.lower()
-                    for part in _re.split(r"(\d+)", p)
-                ]
-
             files: list[str] = []
             for f in target_dir.rglob("*"):
                 if not f.is_file():
@@ -488,8 +487,10 @@ class AudioPlayerPlugin:
                     except Exception as exc:  # noqa: BLE001
                         results.append({"target": tinfo.id, "ok": False, "error": str(exc)})
                         continue
-                    if ok:
-                        results.append({"target": tinfo.id, "ok": True})
+                    # Auch Falsy-Ergebnisse listen ("nichts lief auf diesem
+                    # Target") — vorher verschwanden sie kommentarlos und
+                    # "actions": [] las sich wie Erfolg.
+                    results.append({"target": tinfo.id, "ok": bool(ok)})
             return {"success": True, "mode": "all", "actions": results}
 
         # Auto-Target — None, leer, "default", "auto" → resolve aus ctx
@@ -578,7 +579,13 @@ class AudioPlayerPlugin:
                         for tinfo in ch.list_targets(ctx):
                             try:
                                 ok = await ch.resume(tinfo.id, ctx=ctx)
-                            except Exception:  # noqa: BLE001
+                            except Exception as exc:  # noqa: BLE001
+                                # Nicht still verschlucken — der nächste
+                                # Kandidat wird trotzdem probiert.
+                                log_message(
+                                    f"audio_resume: {tinfo.id} failed: {exc}",
+                                    "warning",
+                                )
                                 continue
                             if ok:
                                 return json.dumps({
@@ -893,48 +900,41 @@ class AudioPlayerPlugin:
                         f"Use audio_play(item='{source}') to play it directly."
                     ),
                 })
-            cfg = {"type": "local_folder", "path": src_info["target"]}
-            from pathlib import Path as _Path
-            source_root = _Path(cfg.get("path", "")).expanduser().resolve()
-            root = source_root
-            if subdir:
-                # Same path-traversal guard as _play_folder: a '..' or an
-                # absolute subdir must not escape the source root (this FS
-                # fallback previously rglob'd wherever subdir pointed).
-                if ".." in _Path(subdir).parts:
-                    return json.dumps({
-                        "source": source, "items": [], "count": 0,
-                        "error": f"Path traversal denied: {subdir!r}",
-                    })
-                root = (source_root / subdir).resolve()
-                try:
-                    root.relative_to(source_root)
-                except ValueError:
-                    return json.dumps({
-                        "source": source, "items": [], "count": 0,
-                        "error": f"Path '{subdir}' escapes source folder",
-                    })
+            from ....lib.audio_sources import safe_subpath
+            source_root = Path(str(src_info["target"])).expanduser().resolve()
+            # Traversal-Guard über die lib-SSOT (gleiches Muster wie Resolver
+            # und _play_folder — dieser FS-Fallback rglob'te früher überall hin)
+            root = safe_subpath(source_root, subdir or "")
+            if root is None:
+                return json.dumps({
+                    "source": source, "items": [], "count": 0,
+                    "error": f"Path '{subdir}' escapes source folder",
+                })
             if not root.is_dir():
                 return json.dumps({
                     "source": source, "items": [], "count": 0,
                     "error": f"path not found: {root}",
                 })
-            items = []
-            for p in root.rglob("*"):
-                if not p.is_file():
-                    continue
-                if p.suffix.lower() not in ALLOWED_EXTENSIONS:
-                    continue
-                items.append(str(p.relative_to(root)))
-                if limit is not None and limit > 0 and len(items) >= limit:
-                    break
-            items.sort()
+            items = [
+                str(p.relative_to(root))
+                for p in root.rglob("*")
+                if p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS
+            ]
+            # Erst sortieren (Natural-Order wie _play_folder: 'CD 2' vor
+            # 'CD 10'), DANN limitieren — vorher brach der Walk mitten in
+            # Dateisystem-Reihenfolge ab und lieferte eine willkürliche
+            # Teilmenge statt der ersten N.
+            items.sort(key=_natural_key)
+            truncated = limit is not None and limit > 0 and len(items) > limit
+            if truncated:
+                items = items[:limit]
             return json.dumps({
                 "source": source,
                 "subdir": subdir or "",
                 "items": items,
                 "count": len(items),
-                "via": "filesystem (no index — call audio_index_rebuild first)",
+                "truncated": truncated,
+                "via": "filesystem (no index)",
             })
 
         return Tool(
