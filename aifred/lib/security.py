@@ -43,7 +43,6 @@ DEFAULT_TIER_BY_SOURCE: dict[str, int] = {
     "email": TIER_COMMUNICATE,      # External message
     "discord": TIER_COMMUNICATE,    # External message
     "telegram": TIER_COMMUNICATE,   # External message
-    "cron": TIER_COMMUNICATE,       # Unattended (legacy, kept for compat)
     "scheduler": TIER_READONLY,     # Internal cron trigger (per-job override via metadata["max_tier"])
     "webhook": TIER_READONLY,       # Externally triggered
 }

@@ -95,7 +95,12 @@ def _get_api_url(api_key: str) -> str:
 # "proxy_pass" wurde eines. Deshalb werden Code-Blöcke vor dem Senden
 # durch Platzhalter ersetzt und danach unverändert zurückgeschrieben.
 # Nebeneffekt: Code zählt nicht mehr zum DeepL-Zeichenkontingent.
-_FENCE_RE = re.compile(r"^(?P<fence>```|~~~).*$")
+# CommonMark: 3+ Backticks/Tilden, bis zu 3 Spaces Einrückung erlaubt.
+# 4+-Backtick-Fences (üblich in Markdown-Doku ÜBER Markdown) müssen mit
+# der vollen Länge gecaptured werden — sonst matcht der Closing-Check nie
+# und der Rest des Dokuments bliebe still unübersetzt.
+# Bewusste Lücke: Fences in Blockquotes ("> ```") werden nicht erkannt.
+_FENCE_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})")
 
 # Platzhalter-Muster. Bewusst ohne Sonderzeichen, die DeepL umformatieren
 # könnte, und mit Ziffern-ID, damit die Reihenfolge eindeutig bleibt.
@@ -124,8 +129,15 @@ def _protect_code_blocks(text: str) -> tuple[str, list[str]]:
                 out.append(line)
         else:
             current.append(line)
-            # Schließender Fence: gleiche Zeichenart, keine Sprachangabe
-            if line.strip() == fence:
+            # Schließender Fence (CommonMark): gleiche Zeichenart, mindestens
+            # so lang wie der öffnende, keine Sprachangabe dahinter
+            cm = _FENCE_RE.match(line)
+            if (
+                cm
+                and cm.group("fence")[0] == fence[0]
+                and len(cm.group("fence")) >= len(fence)
+                and line.strip() == cm.group("fence")
+            ):
                 blocks.append("\n".join(current))
                 out.append(_PLACEHOLDER.format(n=len(blocks) - 1))
                 current = None
@@ -135,6 +147,34 @@ def _protect_code_blocks(text: str) -> tuple[str, list[str]]:
         blocks.append("\n".join(current))
         out.append(_PLACEHOLDER.format(n=len(blocks) - 1))
     return "\n".join(out), blocks
+
+
+def _validate_request(target_lang: str, formality: str) -> tuple[str, str, str, "str | None"]:
+    """Gemeinsame Request-Validierung für translate UND translate_file (SSOT):
+    API-Key, Zielsprache, Formality.
+
+    Returns ``(api_key, target_lang, formality, error_json)`` —
+    ``error_json`` ist None, wenn alles gültig ist.
+    """
+    from ....lib.credential_broker import broker
+    api_key = broker.get("deepl", "api_key")
+    if not api_key:
+        return "", "", "", json.dumps({"error": "DEEPL_API_KEY not configured"})
+
+    target_lang = target_lang.upper()
+    if target_lang not in DEEPL_LANGUAGES:
+        return "", "", "", json.dumps({
+            "error": f"Unsupported target language: {target_lang}",
+            "supported": sorted(DEEPL_LANGUAGES),
+        })
+
+    formality = (formality or DEEPL_FORMALITY_DEFAULT).lower()
+    if formality not in DEEPL_FORMALITY_VALUES:
+        return "", "", "", json.dumps({
+            "error": f"Unsupported formality: {formality}",
+            "supported": sorted(DEEPL_FORMALITY_VALUES),
+        })
+    return api_key, target_lang, formality, None
 
 
 def _restore_code_blocks(text: str, blocks: list[str]) -> tuple[str, int]:
@@ -240,27 +280,11 @@ class TranslatorPlugin:
         ) -> str:
             """Translate text using the DeepL API."""
             import aiohttp
-            from ....lib.credential_broker import broker
             from ....lib.logging_utils import log_message
 
-            api_key = broker.get("deepl", "api_key")
-            if not api_key:
-                return json.dumps({"error": "DEEPL_API_KEY not configured"})
-
-            target_lang = target_lang.upper()
-            lang_codes = set(DEEPL_LANGUAGES.keys())
-            if target_lang not in lang_codes:
-                return json.dumps({
-                    "error": f"Unsupported target language: {target_lang}",
-                    "supported": sorted(lang_codes),
-                })
-
-            formality = (formality or DEEPL_FORMALITY_DEFAULT).lower()
-            if formality not in DEEPL_FORMALITY_VALUES:
-                return json.dumps({
-                    "error": f"Unsupported formality: {formality}",
-                    "supported": sorted(DEEPL_FORMALITY_VALUES),
-                })
+            api_key, target_lang, formality, err = _validate_request(target_lang, formality)
+            if err:
+                return err
 
             log_message(
                 f"🌐 translate: {len(text)} chars → {target_lang} ({formality})"
@@ -297,27 +321,11 @@ class TranslatorPlugin:
             """Translate a document in place — content never enters the LLM."""
             import aiohttp
             from ....lib import file_manager as fm
-            from ....lib.credential_broker import broker
             from ....lib.logging_utils import log_message
 
-            api_key = broker.get("deepl", "api_key")
-            if not api_key:
-                return json.dumps({"error": "DEEPL_API_KEY not configured"})
-
-            target_lang = target_lang.upper()
-            lang_codes = set(DEEPL_LANGUAGES.keys())
-            if target_lang not in lang_codes:
-                return json.dumps({
-                    "error": f"Unsupported target language: {target_lang}",
-                    "supported": sorted(lang_codes),
-                })
-
-            formality = (formality or DEEPL_FORMALITY_DEFAULT).lower()
-            if formality not in DEEPL_FORMALITY_VALUES:
-                return json.dumps({
-                    "error": f"Unsupported formality: {formality}",
-                    "supported": sorted(DEEPL_FORMALITY_VALUES),
-                })
+            api_key, target_lang, formality, err = _validate_request(target_lang, formality)
+            if err:
+                return err
 
             read = fm.read_file(filename)
             if not read.success:
@@ -461,7 +469,8 @@ class TranslatorPlugin:
                             "type": "string",
                             "description": (
                                 "Source file, relative to the documents root "
-                                "(e.g. 'documents/deployment.md'). Use list_files "
+                                "WITHOUT a 'documents/' prefix "
+                                "(e.g. 'deployment.md'). Use list_files "
                                 "first if you are unsure of the path."
                             ),
                         },

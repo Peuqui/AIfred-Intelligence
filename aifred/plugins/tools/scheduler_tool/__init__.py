@@ -60,9 +60,13 @@ class SchedulerPlugin:
             if webhook_url:
                 payload["webhook_url"] = webhook_url
 
-            # Jobs run as cron — cap at cron default tier, not the creator's tier
-            from ....lib.security import DEFAULT_TIER_BY_SOURCE
-            job_tier = DEFAULT_TIER_BY_SOURCE.get("cron", 1)
+            # Jobs laufen unbeaufsichtigt (channel="scheduler") — Cap auf
+            # TIER_COMMUNICATE, nicht auf das Tier des Erstellers. Bewusst
+            # über dem Scheduler-Default TIER_READONLY: per Chat erstellte
+            # Jobs sollen z.B. announce/Webhook nutzen können. Enforcement
+            # läuft über den metadata["max_tier"]-Override in security.py.
+            from ....lib.security import TIER_COMMUNICATE
+            job_tier = TIER_COMMUNICATE
 
             job = store.add(
                 name=name,

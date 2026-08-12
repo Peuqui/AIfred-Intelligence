@@ -347,7 +347,8 @@ class NarratorPlugin:
                             "type": "string",
                             "description": (
                                 "Source text file, relative to the documents root "
-                                "(e.g. 'documents/meeting-DE.txt'). Use list_files "
+                                "WITHOUT a 'documents/' prefix "
+                                "(e.g. 'meeting-DE.txt'). Use list_files "
                                 "first if you are unsure of the path."
                             ),
                         },
