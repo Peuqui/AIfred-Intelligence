@@ -10,8 +10,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-import chromadb
-from chromadb.config import Settings
 from chromadb.errors import ChromaError, NotFoundError
 
 from .config import (
@@ -380,11 +378,10 @@ class _ResilientCollection:
 class DocumentStore:
     """Manages document chunking, embedding and retrieval via ChromaDB."""
 
-    def __init__(self, host: str = "localhost", port: int = 8000):
-        self._client = chromadb.HttpClient(
-            host=host, port=port,
-            settings=Settings(anonymized_telemetry=False),
-        )
+    def __init__(self, host: "str | None" = None, port: "int | None" = None):
+        # None = config-Werte (CHROMA_HOST/CHROMA_PORT) — Factory-SSOT
+        from .chroma_client import chroma_client
+        self._client = chroma_client(host, port)
         self._client.heartbeat()
         # Two embedding functions for two access patterns:
         # - bulk indexing (many chunks at once) → GPU + 10 min keep_alive

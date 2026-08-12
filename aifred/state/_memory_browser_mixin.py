@@ -117,12 +117,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             return
 
         try:
-            import chromadb
-            from chromadb.config import Settings
-            client = chromadb.HttpClient(
-                host="localhost", port=8000,
-                settings=Settings(anonymized_telemetry=False),
-            )
+            from ..lib.chroma_client import chroma_client
+            client = chroma_client()
             col = client.get_collection(self.db_browser_collection)
             if col.count() == 0:
                 self.db_browser_entries = []
@@ -172,12 +168,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         if not self.db_browser_collection:
             return
         try:
-            import chromadb
-            from chromadb.config import Settings
-            client = chromadb.HttpClient(
-                host="localhost", port=8000,
-                settings=Settings(anonymized_telemetry=False),
-            )
+            from ..lib.chroma_client import chroma_client
+            client = chroma_client()
             col = client.get_collection(self.db_browser_collection)
             col.delete(ids=[entry_id])
             self.add_debug(f"🗑️ DB entry deleted: {entry_id[:20]}...")  # type: ignore[attr-defined]
@@ -195,12 +187,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         if not self.db_browser_collection:
             return
         try:
-            import chromadb
-            from chromadb.config import Settings
-            client = chromadb.HttpClient(
-                host="localhost", port=8000,
-                settings=Settings(anonymized_telemetry=False),
-            )
+            from ..lib.chroma_client import chroma_client
+            client = chroma_client()
             col = client.get_collection(self.db_browser_collection)
             count = col.count()
             if count > 0:

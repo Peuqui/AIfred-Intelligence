@@ -166,7 +166,7 @@ eigenständige, atomare, modulare Gebilde.
   `generate_tts` übergeben → bei `FREEECHO2_LANGUAGE=en` synthetisieren
   xtts/dashscope deutsch. (Browser-Pfad übergibt korrekt,
   `_tts_streaming_mixin.py:261,781`.)
-- [ ] **Cross-Plugin-Import (verletzt Atomaritäts-Prinzip):**
+- [x] **Cross-Plugin-Import (verletzt Atomaritäts-Prinzip):**
   `commands.py:404-411` importiert `_load_settings` PRIVAT aus dem
   audio_player-Plugin — audio_player deaktiviert → Voice-Resume bricht.
   Lösung über lib-Helper (Abschnitt E: Settings-Lese-SSOT + Resolver-Bau in
@@ -480,7 +480,7 @@ eigenständige, atomare, modulare Gebilde.
   `_natural_key` („CD 10" vor „CD 2").
 - [x] `__init__.py:277-282` vs. `:63-68` — Streams-Extraktion+Source-Map-Bau in
   `_play_folder` dupliziert `_make_resolver` (intra-Plugin; 3. Kopie im Mixin).
-- [ ] Settings-Reader 4× (`__init__.py:47-56`,
+- [x] Settings-Reader 4× (`__init__.py:47-56`,
   `_audio_player_mixin.py:259-273`, `audio_processing.py:92-112`,
   `audio_index.py:575-591`) — Plugin↔lib/state: eine Lese-SSOT (lib) schaffen. ⚠️
 - [x] Path-Traversal-Guard 3× (`audio_sources.py:290-296` = lib-SSOT,
@@ -666,7 +666,7 @@ lib-Helper — nie ein Import zwischen Plugins.
   gesagt (Begründung war die Plugin-Kette, die bei lib nicht greift) — vor
   Umsetzung kurz bestätigen. Bis dahin: `_flex`-Bugfix (B-bible) in BEIDEN
   Plugins parallel.
-- [ ] **freeecho2-Resume ohne audio_player-Import** (siehe auch B-freeecho2):
+- [x] **freeecho2-Resume ohne audio_player-Import** (siehe auch B-freeecho2):
   der private Import `_load_settings` aus dem audio_player-Plugin
   (`commands.py:404-411`) ist der einzige echte Plugin→Plugin-Verstoß im Repo.
   Benötigte Teile (Settings-Lese-SSOT, Resolver-Bau) nach lib, beide Plugins
@@ -676,10 +676,10 @@ lib-Helper — nie ein Import zwischen Plugins.
   Save-Pfad hängt an `getattr`-Duck-Typing (`_settings_mixin.py:800,830`).
   Gemeinsame Basis analog `BaseChannel.load_settings/save_settings/
   load_settings_to_env`.
-- [ ] **ChromaDB-Client-Factory in lib**: ~10 Konstruktionsstellen repo-weit
+- [x] (lib/chroma_client.py; 8 Stellen umgestellt, localhost:8000-Hardcode in api/system.py beseitigt) **ChromaDB-Client-Factory in lib**: ~10 Konstruktionsstellen repo-weit
   (2× workspace, document_store, agent_memory, vector_cache, api/system.py —
   dort hartcodiert `localhost:8000` —, _memory_browser_mixin 3×).
-- [ ] **audio_player-Settings-Lese-SSOT in lib**: 4 unabhängige Reader
+- [x] (lib/audio_player_settings.py: load + build_configured_source_map) **audio_player-Settings-Lese-SSOT in lib**: 4 unabhängige Reader
   (Plugin, `_audio_player_mixin`, `audio_processing`, `audio_index`).
 - [ ] **Voice-Katalog- und Engine/Voice-Auflösungs-Helper in lib**
   (tts_engines): ~6 Kopien des `get_voices()→voices_fallback`-Musters +

@@ -248,30 +248,15 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.audio_settings_open = True
 
     def _read_audio_settings_json(self) -> dict[str, Any]:
-        import json as _json
-        from pathlib import Path as _Path
-        path = (
-            _Path(__file__).parent.parent / "plugins" / "tools"
-            / "audio_player" / "settings.json"
-        )
-        if path.exists():
-            try:
-                with open(path, encoding="utf-8") as f:
-                    data = _json.load(f)
-                return data if isinstance(data, dict) else {}
-            except (OSError, _json.JSONDecodeError):
-                pass
-        return {}
+        # Lese-SSOT in der lib (geteilt mit Plugin, TTS-Filter, FreeEcho2)
+        from ..lib.audio_player_settings import load_audio_player_settings
+        return load_audio_player_settings()
 
     def _write_audio_settings_json(self, cfg: dict[str, Any]) -> bool:
         import json as _json
-        from pathlib import Path as _Path
-        path = (
-            _Path(__file__).parent.parent / "plugins" / "tools"
-            / "audio_player" / "settings.json"
-        )
+        from ..lib.audio_player_settings import AUDIO_PLAYER_SETTINGS_PATH
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            with open(AUDIO_PLAYER_SETTINGS_PATH, "w", encoding="utf-8") as f:
                 _json.dump(cfg, f, ensure_ascii=False, indent=2)
             return True
         except OSError:

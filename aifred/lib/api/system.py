@@ -109,8 +109,9 @@ async def clear_vector_db():
     log_message("🗑️ API: Clearing Vector DB...")
 
     try:
-        import chromadb
-        client = chromadb.HttpClient(host='localhost', port=8000)
+        # Factory-SSOT — vorher hartcodiertes localhost:8000
+        from ..chroma_client import chroma_client
+        client = chroma_client()
         collection = client.get_collection('research_cache')
 
         # Get all IDs

@@ -373,9 +373,12 @@ class CommandsMixin(BaseChannel):
         wird das nur geloggt — der User hört nichts, aber das ist erwartet.
         """
         from ....lib import audio_channels
-        from ....lib.audio_sources import SourceResolver, build_source_map
+        from ....lib.audio_player_settings import (
+            build_configured_source_map,
+            load_audio_player_settings,
+        )
+        from ....lib.audio_sources import SourceResolver
         from ....lib.audio_state import audio_state
-        from ....lib.config import MEDIA_AUDIO_DIR
 
         target_id = f"freeecho2:{room}"
         channel = audio_channels.resolve(target_id)
@@ -400,18 +403,10 @@ class CommandsMixin(BaseChannel):
         saved_pos = float(entry.get("pos_sec", 0))
         duration = entry.get("duration_sec")
 
-        # Source-Map aus den audio_player-Plugin-Settings nachbauen.
-        # Wir greifen direkt auf die Settings zu, weil hier kein Tool-
-        # Context vorhanden ist.
+        # Source-Map über die lib-SSOT (kein Tool-Context hier; und kein
+        # Plugin→Plugin-Import — audio_player könnte deaktiviert sein).
         try:
-            from ...tools.audio_player import _load_settings
-            settings = _load_settings()
-            streams = {
-                lbl: src for lbl, src in settings.get("sources", {}).items()
-                if src.get("type") == "http_stream"
-            }
-            sources = build_source_map(MEDIA_AUDIO_DIR, streams)
-            resolver = SourceResolver(sources)
+            resolver = SourceResolver(build_configured_source_map())
             src = resolver.resolve(key)
         except Exception as exc:  # noqa: BLE001
             self.channel_log(
@@ -420,14 +415,16 @@ class CommandsMixin(BaseChannel):
             )
             return
 
-        # Pre-Roll wie bei audio_resume — kürzer hier (3 s statt 7),
-        # weil der User aktiv ein Wake-Wort gesagt hat und nicht von
-        # einem Cold-Start kommt.
+        # Pre-Roll bewusst kürzer als resume.pre_roll_sec (der User hat
+        # aktiv ein Wake-Wort gesagt, kein Cold-Start); die Mindestdauer
+        # kommt aus derselben Settings-SSOT wie beim audio_resume-Tool.
+        resume_cfg = load_audio_player_settings().get("resume", {})
         pre_roll = 3.0
+        min_dur = float(resume_cfg.get("min_audio_duration_for_pre_roll_sec", 60))
         apply_pre_roll = (
             pre_roll > 0
             and not src.is_stream
-            and (duration is None or duration >= 60)
+            and (duration is None or duration >= min_dur)
         )
         start_pos = max(0.0, saved_pos - pre_roll) if apply_pre_roll else saved_pos
 
