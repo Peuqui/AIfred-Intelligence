@@ -240,38 +240,38 @@ eigenständige, atomare, modulare Gebilde.
 
 ### B-epim
 
-- [ ] `db.py:1027-1036` vs. `:955` — `update_note_tab` schreibt nur `TEXT`,
+- [x] `db.py:1027-1036` vs. `:955` — `update_note_tab` schreibt nur `TEXT`,
   `get_note` bevorzugt `TEXT2` → Update an Tab mit befülltem TEXT2 unsichtbar.
   Fail-loud-Guard analog `_read_fieldsdata_for_update` (db.py:485-489) fehlt
   für TEXT2. ⚠️ Strategie: TEXT2 mitschreiben/leeren oder Guard?
-- [ ] `db.py:906-911` — `search_notes` durchsucht `TEXT2` nicht → Inhalte, die
+- [x] `db.py:906-911` — `search_notes` durchsucht `TEXT2` nicht → Inhalte, die
   nur dort liegen, per Suche unauffindbar (get_note zeigt sie).
-- [ ] `db.py:1237-1244` vs. `:1210-1215` — `create_password` schreibt Gruppe in
+- [x] `db.py:1237-1244` vs. `:1210-1215` — `create_password` schreibt Gruppe in
   `PATH`, setzt `IDPARENT` nicht; `search_passwords` liest Gruppe über
   `IDPARENT` → per Tool erstellte Einträge zeigen nie ihre Gruppe.
   ⚠️ Welche Spalte ist im EPIM-Schema korrekt? (Vermutlich IDPARENT.)
-- [ ] `tools.py:253,234` + `db.py:199-237` — `work_email` existiert nicht in
+- [x] `tools.py:253,234` + `db.py:199-237` — `work_email` existiert nicht in
   `DEFAULT_CONTACT_FIELDS`; `encode_fieldsdata` (db.py:163-165) überspringt
   unmappbare Namen kommentarlos → Wert geht still verloren, Tool meldet success.
   Fail-loud beim Encode + `work_email` aus `_contact_keys` entfernen (oder Feld
   ergänzen).
-- [ ] Stille Namens-Auflösungs-Fallbacks (Regel-Verstoß): `db.py:656-659+683`
+- [x] Stille Namens-Auflösungs-Fallbacks (Regel-Verstoß): `db.py:656-659+683`
   (unbekannte Kategorie → Termin ohne Kategorie, success), `:704-707,712-715`
   (update_task: Feld still weggelassen), `:1165-1168` (update_todo),
   `:670-673,978-981,1136-1139` (fehlender Kalender/Tree/Liste → still erste
   Zeile). Nicht-auflösbar → Fehler ans LLM.
-- [ ] `db.py:613-618, 792-796, 933-936` — `get_task`/`get_contact`/`get_note`
+- [x] `db.py:613-618, 792-796, 933-936` — `get_task`/`get_contact`/`get_note`
   filtern nicht auf `STATUS = 0` → `epim_get` liefert soft-gelöschte Einträge
   (search + `_row_exists` filtern konsequent).
-- [ ] ⚠️ `tools.py:395-400` — EPIM lädt Tool-Descriptions via
+- [x] ⚠️ ENTSCHIEDEN (keine Ausnahmen): auf load_tool_description migriert. `tools.py:395-400` — EPIM lädt Tool-Descriptions via
   `load_prompt("shared/epim_tool_*")` statt `load_tool_description` +
   `prompts/tools/` (einziges Plugin; Descriptions dadurch zweisprachig statt
   nur EN). Migration = Entscheidung.
-- [ ] `db.py:199-237` / `tools.py:226-256` / `prompts/de|en/_intro.txt` /
+- [x] `db.py:199-237` / `tools.py:226-256` / `prompts/de|en/_intro.txt` /
   `tools.py:474` — Kontaktfeld-Namen an 3+ Stellen handgepflegt
   (Drift = Ursache von work_email-Bug). `_contact_keys`/`_en_to_de` aus
   `DEFAULT_CONTACT_FIELDS` ableiten.
-- [ ] `db.py:720-734, 862-876, 1173-1187, 1275-1289` — Soft-Delete-Muster 4×
+- [x] `db.py:720-734, 862-876, 1173-1187, 1275-1289` — Soft-Delete-Muster 4×
   identisch → `_soft_delete(table, id_col, id)`-Helper (delete_note bleibt
   2-Statement-Sonderfall).
 
@@ -499,7 +499,7 @@ eigenständige, atomare, modulare Gebilde.
 ### C-epim
 - [ ] `tools.py:322-330` — Update-Pfad ohne die Create-Sanitisierung
   (`_as_bool` für allday, „high"/„low" für priority) — roh in die DB.
-- [ ] `db.py:1164` — `fields.pop("list_name") or fields.pop("list")`:
+- [x] `db.py:1164` — `fields.pop("list_name") or fields.pop("list")`:
   Short-circuit-Muster, das update_task (Z.696-699) selbst als Bug dokumentiert
   — angleichen.
 - [ ] `db.py:781-783,803-804` + `:89` — FIELDSDATA2-Read-Pfad: bytes würde in
@@ -515,7 +515,7 @@ eigenständige, atomare, modulare Gebilde.
 - [ ] `db.py:824,854` — `name_to_id`-Inversion doppelt.
 - [ ] `db.py:780-782,802-804` — FIELDSDATA2-Override-Snippet doppelt.
 - [ ] `db.py:700-707,708-715` — Alias-Auflösungs-Block in update_task doppelt.
-- [ ] `db.py:1210-1215` — search_passwords-Subquery-Verschachtelung →
+- [x] `db.py:1210-1215` — search_passwords-Subquery-Verschachtelung →
   simpler LEFT JOIN.
 - [ ] `db.py:371-376` — `EpimDatabase.close()` ohne Aufrufer — streichen.
 - [ ] `db.py:547-549,744,1074` — tote Suchparameter (location/tags/category/

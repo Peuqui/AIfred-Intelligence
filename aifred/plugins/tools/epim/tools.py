@@ -64,7 +64,7 @@ def _serialize(obj: Any, key: str = "") -> Any:
     return obj
 
 
-def get_epim_tools(lang: str = "de", source: str = "browser") -> list[Tool]:
+def get_epim_tools(source: str = "browser") -> list[Tool]:
     """Create EPIM database tools for LLM function calling.
 
     Returns empty list if EPIM is not available.
@@ -221,27 +221,14 @@ def get_epim_tools(lang: str = "de", source: str = "browser") -> list[Tool]:
             # Fields can be nested {"fields": {"Telefon": "..."}} or flat {"Telefon": "..."}
             fields = data.get("fields")
             if not fields:
-                # Extract known contact fields from flat data dict
-                _contact_keys = {
-                    # Personal
-                    "Vorname", "Nachname", "Telefon", "Telefon 2", "Mobiltelefon",
-                    "E-Mail", "E-Mail 2", "Adresse", "Adresse 2", "Ort", "Ort 2",
-                    "PLZ", "PLZ 2", "Bundesland", "Land", "Geburtstag", "Jahrestag",
-                    "Webseite", "Fax", "Notizen", "Foto-URL", "Firma", "Position",
-                    # Business
-                    "Telefon geschäftlich", "Telefon geschäftlich 2",
-                    "Fax geschäftlich", "E-Mail geschäftlich",
-                    "Adresse geschäftlich", "Ort geschäftlich",
-                    "PLZ geschäftlich", "Bundesland geschäftlich", "Land geschäftlich",
-                    "Firma geschäftlich",
-                    # English aliases
-                    "first_name", "last_name", "phone", "mobile", "email",
-                    "address", "city", "zip", "state", "country", "birthday",
-                    "website", "fax", "company", "job_title", "notes",
-                    "work_phone", "work_email", "work_address", "work_city", "work_zip",
-                }
-                fields = {k: v for k, v in data.items() if k in _contact_keys and v}
-                # Map English field names to German EPIM names
+                # Extract known contact fields from flat data dict. Deutsche
+                # Namen kommen aus der Feldmap-SSOT DEFAULT_CONTACT_FIELDS —
+                # die frühere handgepflegte Zweitliste driftete (bot z.B.
+                # "E-Mail geschäftlich"/work_email an, das als EPIM-Feld gar
+                # nicht existiert; der Wert wurde still verworfen).
+                from .db import DEFAULT_CONTACT_FIELDS
+                # Alle Ziele müssen in DEFAULT_CONTACT_FIELDS existieren —
+                # encode_fieldsdata ist fail-loud bei unbekannten Namen.
                 _en_to_de = {
                     "first_name": "Vorname", "last_name": "Nachname",
                     "phone": "Telefon", "mobile": "Mobiltelefon",
@@ -250,10 +237,12 @@ def get_epim_tools(lang: str = "de", source: str = "browser") -> list[Tool]:
                     "country": "Land", "birthday": "Geburtstag",
                     "website": "Webseite", "fax": "Fax",
                     "company": "Firma", "job_title": "Position", "notes": "Notizen",
-                    "work_phone": "Telefon geschäftlich", "work_email": "E-Mail geschäftlich",
-                    "work_address": "Adresse geschäftlich", "work_city": "Ort geschäftlich",
-                    "work_zip": "PLZ geschäftlich",
+                    "work_phone": "Telefon geschäftlich",
+                    "work_address": "Adresse geschäftlich",
+                    "work_city": "Ort geschäftlich", "work_zip": "PLZ geschäftlich",
                 }
+                _contact_keys = set(DEFAULT_CONTACT_FIELDS.values()) | set(_en_to_de)
+                fields = {k: v for k, v in data.items() if k in _contact_keys and v}
                 fields = {_en_to_de.get(k, k): v for k, v in fields.items()}
             new_id = db.create_contact(
                 name=name,
@@ -390,14 +379,15 @@ def get_epim_tools(lang: str = "de", source: str = "browser") -> list[Tool]:
         return json.dumps({"success": ok, "id": entity_id, "status": status})
 
     # ----------------------------------------------------------
-    # Tool definitions
+    # Tool definitions — Descriptions aus prompts/tools/ beim Plugin
+    # (Standard-Konvention load_tool_description, nur EN, fail-loud)
     # ----------------------------------------------------------
-    from ....lib.prompt_loader import load_prompt
-    search_desc = load_prompt("shared/epim_tool_search", lang=lang)
-    get_desc = load_prompt("shared/epim_tool_get", lang=lang)
-    create_desc = load_prompt("shared/epim_tool_create", lang=lang)
-    update_desc = load_prompt("shared/epim_tool_update", lang=lang)
-    delete_desc = load_prompt("shared/epim_tool_delete", lang=lang)
+    from ....lib.plugin_base import load_tool_description
+    search_desc = load_tool_description(__file__, "epim_search")
+    get_desc = load_tool_description(__file__, "epim_get")
+    create_desc = load_tool_description(__file__, "epim_create")
+    update_desc = load_tool_description(__file__, "epim_update")
+    delete_desc = load_tool_description(__file__, "epim_delete")
 
     return [
         Tool(
