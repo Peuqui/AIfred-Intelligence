@@ -16,6 +16,10 @@ EMAIL_MAX_FETCH = 20
 # Truncate email body for LLM context
 EMAIL_MAX_BODY_CHARS = 10_000
 
+# Default Sent-folder name if EMAIL_SENT_FOLDER is not configured
+# (provider-specific: GMX = "Gesendet", many others = "Sent")
+EMAIL_SENT_FOLDER_DEFAULT = "Gesendet"
+
 # E3: how often a single mail whose fetch/dispatch keeps throwing is retried
 # (once per ~30 s reconnect cycle) before it is quarantined + skipped, so a
 # poison message never blocks the queue forever. Env-overridable.

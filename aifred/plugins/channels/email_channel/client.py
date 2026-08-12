@@ -19,7 +19,7 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
 
-from .config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH
+from .config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH, EMAIL_SENT_FOLDER_DEFAULT
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 
@@ -155,20 +155,27 @@ def _imap_connect() -> imaplib.IMAP4_SSL:
 
 
 def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSummary]:
-    """Fetch the N most recent emails from IMAP inbox."""
+    """Fetch the N most recent emails from IMAP inbox.
+
+    Returned ``msg_id`` values are IMAP UIDs — stable across connections
+    (unlike sequence numbers, which shift on every expunge), so a later
+    read/delete/move on a separate connection hits the same mail.
+    """
     _reject_imap_arg(folder, "folder")
+    # n <= 0 would slice to the ENTIRE mailbox (msg_ids[-0:] == all)
+    n = max(1, n)
     results: list[EmailSummary] = []
 
     with _imap_connect() as imap:
         imap.select(folder, readonly=True)
 
-        _, data = imap.search(None, "ALL")
-        msg_ids = data[0].split()
-        recent_ids = msg_ids[-n:] if len(msg_ids) > n else msg_ids
+        _, data = imap.uid("SEARCH", None, "ALL")  # type: ignore[arg-type]
+        msg_ids = [u.decode() for u in data[0].split()]
+        recent_ids = msg_ids[-n:]
         recent_ids.reverse()  # Newest first
 
         for msg_id in recent_ids:
-            _, msg_data = imap.fetch(msg_id, "(FLAGS RFC822.HEADER BODY.PEEK[TEXT]<0.400>)")
+            _, msg_data = imap.uid("FETCH", msg_id, "(FLAGS RFC822.HEADER BODY.PEEK[TEXT]<0.400>)")
             if not msg_data or not msg_data[0]:
                 continue
 
@@ -201,7 +208,7 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
                 preview = preview_raw.decode("utf-8", errors="replace")[:200].strip()
 
                 results.append(EmailSummary(
-                    msg_id=msg_id.decode(),
+                    msg_id=msg_id,
                     subject=subject,
                     sender=sender,
                     date=date_str,
@@ -214,13 +221,13 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
 
 
 def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
-    """Read full email by message ID."""
+    """Read full email by UID (as returned by check_inbox/search_emails)."""
     _reject_imap_arg(msg_id, "msg_id")
     _reject_imap_arg(folder, "folder")
     with _imap_connect() as imap:
         imap.select(folder, readonly=True)
 
-        _, msg_data = imap.fetch(msg_id, "(RFC822)")
+        _, msg_data = imap.uid("FETCH", msg_id, "(RFC822)")
         if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
             raise ValueError(f"Email {msg_id} not found")
 
@@ -245,9 +252,11 @@ def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
 
 
 def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -> list[EmailSummary]:
-    """Search emails via IMAP SEARCH."""
+    """Search emails via IMAP SEARCH. Returned ``msg_id`` values are UIDs."""
     _reject_imap_arg(query, "query")
     _reject_imap_arg(folder, "folder")
+    # n <= 0 would slice to ALL matches
+    n = max(1, n)
     results: list[EmailSummary] = []
 
     with _imap_connect() as imap:
@@ -259,12 +268,12 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
         # raw command since imaplib does not escape it).
         safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
         search_criteria = f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'
-        _, data = imap.search(None, search_criteria)
-        msg_ids = data[0].split()[-n:]
+        _, data = imap.uid("SEARCH", None, search_criteria)  # type: ignore[arg-type]
+        msg_ids = [u.decode() for u in data[0].split()][-n:]
         msg_ids.reverse()
 
         for msg_id in msg_ids:
-            _, msg_data = imap.fetch(msg_id, "(FLAGS RFC822.HEADER)")
+            _, msg_data = imap.uid("FETCH", msg_id, "(FLAGS RFC822.HEADER)")
             if not msg_data or not msg_data[0]:
                 continue
 
@@ -275,7 +284,7 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
                     parsed_date = _safe_parsedate(date)
 
                     results.append(EmailSummary(
-                        msg_id=msg_id.decode(),
+                        msg_id=msg_id,
                         subject=_decode_header(msg.get("Subject", "")),
                         sender=_decode_header(msg.get("From", "")),
                         date=parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date,
@@ -400,20 +409,22 @@ def send_email(
         smtp.login(email_user, broker.get("email", "password"))
         smtp.send_message(msg)
 
-    # Copy to Sent folder (like any normal mail client)
+    # Copy to Sent folder (like any normal mail client). Folder name is
+    # configurable (EMAIL_SENT_FOLDER, provider-specific) — no guessing chain.
+    sent_folder = broker.get("email", "sent_folder") or EMAIL_SENT_FOLDER_DEFAULT
     try:
         with _imap_connect() as imap:
-            # GMX uses "Gesendet", other providers may use "Sent"
-            sent_folder = "Gesendet"
             status, _ = imap.select(sent_folder)
-            if status != "OK":
-                sent_folder = "Sent"
-                status, _ = imap.select(sent_folder)
             if status == "OK":
                 import time
                 imap.append(sent_folder, "\\Seen", imaplib.Time2Internaldate(time.time()), msg.as_bytes())
+            else:
+                log_message(
+                    f"📧 Email: Sent folder '{sent_folder}' not found — copy skipped "
+                    f"(set EMAIL_SENT_FOLDER in the credentials dialog)", "warning"
+                )
     except Exception as exc:
-        log_message(f"📧 Email: could not copy to Sent folder: {exc}", "warning")
+        log_message(f"📧 Email: could not copy to Sent folder '{sent_folder}': {exc}", "warning")
 
     # Register outgoing Message-ID for session routing (single source of truth)
     if session_id:
@@ -425,12 +436,16 @@ def send_email(
 
 
 def delete_email(msg_id: str, folder: str = "INBOX") -> str:
-    """Delete an email by message ID (moves to Trash)."""
+    """Delete an email by UID.
+
+    UID commands — sequence numbers shift when any client expunges between
+    the listing and this call, which would delete the WRONG mail.
+    """
     _reject_imap_arg(msg_id, "msg_id")
     _reject_imap_arg(folder, "folder")
     with _imap_connect() as imap:
         imap.select(folder)
-        imap.store(msg_id, '+FLAGS', '\\Deleted')
+        imap.uid("STORE", msg_id, "+FLAGS", "\\Deleted")
         imap.expunge()
 
     log_message(f"📧 Email: deleted msg {msg_id} from {folder}")
@@ -444,11 +459,12 @@ def move_email(msg_id: str, target_folder: str, source_folder: str = "INBOX") ->
     _reject_imap_arg(source_folder, "source_folder")
     with _imap_connect() as imap:
         imap.select(source_folder)
-        # COPY to target, then delete from source
-        status, _ = imap.copy(msg_id, target_folder)
+        # UID COPY to target, then delete from source (UIDs are stable
+        # across connections, sequence numbers are not)
+        status, _ = imap.uid("COPY", msg_id, target_folder)
         if status != "OK":
             raise ValueError(f"COPY failed: {status}")
-        imap.store(msg_id, '+FLAGS', '\\Deleted')
+        imap.uid("STORE", msg_id, "+FLAGS", "\\Deleted")
         imap.expunge()
 
     log_message(f"📧 Email: moved msg {msg_id} from {source_folder} to {target_folder}")
@@ -513,7 +529,7 @@ def mark_email(msg_id: str, flag: str, folder: str = "INBOX") -> str:
     _reject_imap_arg(folder, "folder")
     with _imap_connect() as imap:
         imap.select(folder)
-        imap.store(msg_id, action, imap_flag)
+        imap.uid("STORE", msg_id, action, imap_flag)
 
     log_message(f"📧 Email: marked msg {msg_id} as {flag}")
     return f"Email {msg_id} marked as {flag}"

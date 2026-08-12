@@ -36,9 +36,12 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
 
         if action == "check":
             from .client import check_inbox
+            from .config import EMAIL_MAX_FETCH
             n = int(kwargs.get("n", "10"))
             folder = kwargs.get("folder", "INBOX")
-            emails = await asyncio.to_thread(check_inbox, n=min(n, 20), folder=folder)
+            emails = await asyncio.to_thread(
+                check_inbox, n=max(1, min(n, EMAIL_MAX_FETCH)), folder=folder
+            )
             if not emails:
                 return "No emails found (0 messages)."
             lines = [f"Total: {len(emails)} emails"]
