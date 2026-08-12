@@ -1,19 +1,15 @@
-"""Research tools for LLM function calling.
+"""Research pipeline (Search → Ranking → Scraping → Context → Cache).
 
-Single research pipeline used by both:
+Single pipeline used by both:
 - Forced path (keyword override): Automatik-LLM generates queries
-- Tool call path (model decides): Model provides its own queries
-
-Both paths run the same pipeline: Search → Ranking → Scraping → Context → Cache.
+- Tool call path: the web_search/web_fetch Tool-Fassade lebt seit der
+  Atomarisierung im research-PLUGIN (aifred/plugins/tools/research) und
+  ruft ``execute_research``/``hub_web_search`` hier in der lib.
 """
 
 import json
 import logging
 from typing import Any, AsyncGenerator, Optional, TYPE_CHECKING
-
-from .function_calling import Tool
-from .prompt_loader import load_shared_tool_description
-from .security import TIER_READONLY
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -316,7 +312,7 @@ async def execute_research(
 # Hub search (Message Hub — no Reflex State, no async generators)
 # ============================================================
 
-async def _hub_web_search(queries: list[str], llm_history: list[dict], mode: str = "deep") -> str:
+async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str = "deep") -> str:
     """Web search for Message Hub (Discord, Email).
 
     Uses the same building blocks as the full pipeline:
@@ -479,123 +475,3 @@ async def _hub_web_search(queries: list[str], llm_history: list[dict], mode: str
 
     finally:
         await llm_client.close()
-
-
-# ============================================================
-# Tool Definitions (for LLM function calling)
-# ============================================================
-
-def get_research_tools(state: Optional['AIState'] = None, lang: str = "de", llm_history: Optional[list] = None) -> list[Tool]:
-    """Create research tools bound to a specific state instance.
-
-    The web_search tool runs the full pipeline (search + scraping).
-    """
-    _llm_history: list = llm_history or []
-
-    async def _execute_web_search(queries: list[str]) -> AsyncGenerator[dict[str, Any], None]:
-        """Tool executor: runs research pipeline with model-provided queries.
-
-        Async-generator-shaped tool executor (see ToolKit.execute_streaming).
-        Yields ``{"progress": ""}`` on each upstream yield from
-        ``execute_research`` so the LLM-stream can push UI updates while the
-        pipeline runs (the state is mutated via ``state.add_debug``/
-        ``state.set_progress`` directly inside execute_research; the empty
-        progress marker just nudges the outer generator to yield).
-        Terminates with exactly one ``{"result": "..."}`` event.
-        """
-        if not queries:
-            yield {"result": json.dumps({"error": "No search queries provided"})}
-            return
-
-        queries = queries[:3]
-
-        if state:
-            # Full pipeline with browser State (cache, progress bar, sources HTML).
-            # execute_research mutates state and yields between phases — we forward
-            # each yield as a progress marker so the UI updates incrementally
-            # instead of seeing one big block at the end.
-            async for _ in execute_research(
-                state=state,
-                user_query=queries[0],
-                lang=lang,
-                pre_generated_queries=queries,
-            ):
-                yield {"progress": ""}
-            result = getattr(state, "_research_context", "")
-            if result:
-                from .security import wrap_untrusted_data
-                result = wrap_untrusted_data(result, "web_research")
-            yield {"result": result if result else json.dumps({"error": "No results found"})}
-            return
-
-        # Hub path (Discord, Email) — history passed from PluginContext.
-        # No state-mutation pipeline; we just await and emit the final result.
-        result = await _hub_web_search(queries, _llm_history)
-        if result:
-            from .security import wrap_untrusted_data
-            result = wrap_untrusted_data(result, "web_research")
-        yield {"result": result}
-
-    async def _execute_web_fetch(url: str) -> str:
-        """Tool executor: fetch and extract content from a specific URL."""
-        from .tools.registry import scrape_webpage
-        from .logging_utils import log_message
-        from .security import UnsafeURLError, validate_external_url
-
-        try:
-            validate_external_url(url)
-        except UnsafeURLError as e:
-            log_message(f"🛑 web_fetch blocked: {e}", "warning")
-            return json.dumps({"error": f"URL rejected: {e}"})
-
-        log_message(f"🌐 web_fetch: {url}")
-        result = scrape_webpage(url)
-
-        if result.get("success") and result.get("content"):
-            content = result["content"]
-            word_count = result.get("word_count", 0)
-            log_message(f"✅ web_fetch: {word_count} words from {url}")
-            from .security import wrap_untrusted_data
-            return wrap_untrusted_data(f"# Content from {url}\n\n{content}", url)
-        else:
-            error = result.get("error", "Failed to fetch URL")
-            log_message(f"❌ web_fetch failed: {error}")
-            return json.dumps({"error": f"Could not fetch {url}: {error}"})
-
-    return [
-        Tool(
-            name="web_search",
-            tier=TIER_READONLY,
-            description=load_shared_tool_description("web_search_tool.txt"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "queries": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "1-3 search queries (each sent to a different search engine)",
-                        "minItems": 1,
-                        "maxItems": 3,
-                    },
-                },
-                "required": ["queries"],
-            },
-            executor=_execute_web_search,
-        ),
-        Tool(
-            name="web_fetch",
-            tier=TIER_READONLY,
-            description=load_shared_tool_description("web_fetch_tool.txt"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The full URL to fetch (must start with http:// or https://)",
-                    },
-                },
-                "required": ["url"],
-            },
-            executor=_execute_web_fetch,
-        ),
-    ]

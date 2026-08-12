@@ -609,7 +609,7 @@ eigenständige, atomare, modulare Gebilde.
   `execute_code` allein; `execute_code_write` in keinem Fragment-Namen. Agent
   mit nur execute_code bekäme null Anleitung (latent — aktuelle Agenten haben
   alle drei Tools).
-- [ ] ⚠️ OFFEN (eigenes Paket: prompt_loader müsste tool_instructions nach granted_tools filtern) Architektur-Notiz research/sandbox: Anleitungen leben im globalen
+- [x] ⚠️ GELÖST durch Voll-Atomarisierung (2026-08-12, Entscheidung Peuqui): Tool-Fassaden von research/sandbox leben jetzt in den Plugins (lib behält nur die Pipeline execute_research/hub_web_search bzw. sandbox.py/browser_render.py); Descriptions in prompts/tools/, Anleitungen als granted_tools-gegatete Fragmente; tool_instructions.txt auf den generischen Rahmen geschrumpft (web_search/web_fetch → research-Fragmente, Dokumenten-Regel → workspace-Fragment mit korrigierten Tool-Namen, EPIM-Regel war Dublette des epim-Intros, DE/EN-Drift der Datei behoben). Kein prompt_loader-Filter nötig. Architektur-Notiz research/sandbox: Anleitungen leben im globalen
   `tool_instructions.txt` und sind NICHT über granted_tools gegated — Agent
   ohne web_search bekommt web_search-Anweisungen trotzdem
   (prompt_loader.py:760-764). Umbau = Entscheidung.
