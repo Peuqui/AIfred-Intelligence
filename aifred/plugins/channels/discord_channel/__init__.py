@@ -26,6 +26,13 @@ _MAX_MESSAGE_LENGTH = 2000
 # Needed so the reply path can send messages back.
 _discord_client: discord.Client | None = None
 
+# Event loop the client lives in (the message hub's worker loop). The
+# discord_send tool runs in the WEB worker's loop — sending through the
+# client from there makes aiohttp raise "Timeout context manager should
+# be used inside a task", so the tool must hand its coroutine over to
+# this loop via run_coroutine_threadsafe.
+_discord_loop: asyncio.AbstractEventLoop | None = None
+
 
 def _parse_channel_ids(ids_str: str) -> set[int]:
     """Parse comma-separated Discord IDs from a config string.
@@ -133,7 +140,7 @@ class DiscordChannel(BaseChannel):
 
     async def listener_loop(self) -> None:
         """Discord bot loop — runs until cancelled."""
-        global _discord_client
+        global _discord_client, _discord_loop
 
         from ....lib.credential_broker import broker
 
@@ -158,6 +165,7 @@ class DiscordChannel(BaseChannel):
         client = discord.Client(intents=intents)
         tree = discord.app_commands.CommandTree(client)
         _discord_client = client
+        _discord_loop = asyncio.get_running_loop()
 
         @tree.command(name="clear", description="Reset the conversation and delete all messages in this channel")
         async def slash_clear(interaction: discord.Interaction) -> None:
@@ -364,7 +372,11 @@ class DiscordChannel(BaseChannel):
 
         async def _execute_discord_send(message: str, channel_id: str = "", attachment: str = "") -> str:
             """Send a message to a Discord channel."""
-            if not _discord_client:
+            # Lokale Bindung: friert Client+Loop für diesen Call ein und
+            # gibt mypy das Narrowing über die Closure-Grenze hinweg.
+            client = _discord_client
+            loop = _discord_loop
+            if client is None or loop is None:
                 return json.dumps({"error": "Discord not connected"})
 
             # Default to first configured channel
@@ -405,15 +417,23 @@ class DiscordChannel(BaseChannel):
                             )
                         })
 
-                ch = _discord_client.get_channel(int(target_id))
-                if not ch:
-                    ch = await _discord_client.fetch_channel(int(target_id))
+                async def _send() -> str:
+                    ch = client.get_channel(int(target_id))
+                    if not ch:
+                        ch = await client.fetch_channel(int(target_id))
 
-                await self._deliver(ch, message, media)
+                    await self._deliver(ch, message, media)
 
-                channel_name = getattr(ch, 'name', target_id)
-                log_message(f"Discord Plugin: message sent to #{channel_name}")
-                return json.dumps({"success": True, "channel": channel_name, "attachment_sent": bool(media)})
+                    channel_name = getattr(ch, 'name', target_id)
+                    log_message(f"Discord Plugin: message sent to #{channel_name}")
+                    return json.dumps({"success": True, "channel": channel_name, "attachment_sent": bool(media)})
+
+                # Discord-API-Zugriff MUSS im Loop des Gateway-Clients laufen
+                # (siehe _discord_loop-Kommentar) — Coroutine dort einreichen
+                # und das Ergebnis im aufrufenden Loop awaiten. Exceptions
+                # propagieren durch wrap_future in den except unten.
+                future = asyncio.run_coroutine_threadsafe(_send(), loop)
+                return await asyncio.wrap_future(future)
             except Exception as exc:
                 return json.dumps({"error": str(exc)})
 
