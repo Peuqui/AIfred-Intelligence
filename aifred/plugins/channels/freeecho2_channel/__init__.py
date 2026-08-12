@@ -191,6 +191,12 @@ class FreeEchoChannel(ConnectionMixin):
             )
 
             if audio_type not in ("alarm", "notification"):
+                # Geloggt statt still koerziert (Projekt-Regel) — tts_reply
+                # prüft dieselbe Whitelist beim Abspielen erneut.
+                self.channel_log(
+                    f"FreeEcho.2 announce: unknown audio_type {audio_type!r} "
+                    f"— using notification", "warning",
+                )
                 audio_type = "notification"
             rooms = resolve_announce_targets("freeecho2", target or "*")
             if not rooms:

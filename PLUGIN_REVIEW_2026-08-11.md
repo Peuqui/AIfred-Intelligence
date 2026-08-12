@@ -433,29 +433,29 @@ eigenständige, atomare, modulare Gebilde.
   Ableitung) — Konsistenz.
 
 ### C-freeecho2
-- [ ] `ws_bridge.py:292` — `send_done` als einzige Sende-Methode ohne
+- [x] `ws_bridge.py:292` — `send_done` als einzige Sende-Methode ohne
   `wait_for(..., _CHUNK_SEND_TIMEOUT_SEC)` (Docstring begründet den Timeout
   explizit mit ~2-min-TCP-Hang).
-- [ ] `ws_bridge.py` — 6× identisches Sende-Boilerplate
+- [x] `ws_bridge.py` — 6× identisches Sende-Boilerplate
   (get→None-Check→wait_for→Timeout-Log→Except-Log); nur flag/start prüfen
   `ws.closed` → `_send_frame`-Helper (intra-Plugin).
 - [x] `__init__.py:164-169` — SSL-Zweige in `apply_credentials` unerreichbar
   (keine CredentialFields) — streichen (TLS via env/Broker funktioniert).
-- [ ] `_shared.py:65` — `_pending_responses` komplett ungenutzt — streichen.
-- [ ] `tts_reply.py:133` — Magic `96000` dupliziert
+- [x] `_shared.py:65` — `_pending_responses` komplett ungenutzt — streichen.
+- [x] `tts_reply.py:133` — Magic `96000` dupliziert
   `alert_queue._PCM_BYTES_PER_SEC` (intra-Plugin) — Konstante importieren.
-- [ ] `__init__.py:204-205` vs. `tts_reply.py:138-144` — audio_type-Whitelist
+- [x] `__init__.py:204-205` vs. `tts_reply.py:138-144` — audio_type-Whitelist
   doppelt, davon einmal STILL koerziert — eine geloggte Prüfstelle.
-- [ ] `ws_bridge.py:128-129,195-196,223-224,268-269` + `tts_reply.py:53` —
+- [x] `ws_bridge.py:128-129,195-196,223-224,268-269` + `tts_reply.py:53` —
   deutsche Log-Texte („WS bleibt offen", „TTS-Bestaetigung") → Englisch.
-- [ ] `_shared.py:37` / `connection.py:159` — `_reject_log_last` wächst
+- [x] `_shared.py:37` / `connection.py:159` — `_reject_log_last` wächst
   unbegrenzt (nie gepruned).
-- [ ] `pipeline.py:296`, `tts_reply.py:245,276` — deprecated
+- [x] `pipeline.py:296`, `tts_reply.py:245,276` — deprecated
   `asyncio.get_event_loop()` → `get_running_loop()` (pipeline.py:156ff macht es
   schon richtig).
-- [ ] `connection.py:139-143` + `commands.py:29` — Register-Frame doppelt
+- [x] `connection.py:139-143` + `commands.py:29` — Register-Frame doppelt
   JSON-geparst.
-- [ ] `commands.py:151-159,183-188` — `_done`-Token fehlt in Emoji-Map und
+- [x] `commands.py:151-159,183-188` — `_done`-Token fehlt in Emoji-Map und
   Docstring-Listing (Handler existiert).
 
 ### C-workspace

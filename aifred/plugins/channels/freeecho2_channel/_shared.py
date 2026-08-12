@@ -61,8 +61,6 @@ def _required_auth_token() -> str:
     return broker.get("freeecho2", "auth_token") or ""
 
 
-# Pending TTS responses: room_name → asyncio.Future
-_pending_responses: dict[str, asyncio.Future] = {}
 # Wake-Word → Agent-Hint: room_name → agent_id
 # Populated by wake events, consumed by the next audio event from the same room.
 # A stale entry (wake without audio) is harmless: the FreeEcho.2 only sends audio

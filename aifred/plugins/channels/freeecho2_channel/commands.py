@@ -23,13 +23,13 @@ if TYPE_CHECKING:
 class CommandsMixin(BaseChannel):
     """Wake-/Flow-/Command-Token-Verarbeitung (Text-Frames)."""
 
-    async def _handle_text(self, ws: WebSocketResponse, data: str, room: str) -> None:
-        """Handle text message from FreeEcho.2 device."""
-        try:
-            msg = json.loads(data)
-        except json.JSONDecodeError:
-            return
+    async def _handle_text(self, ws: WebSocketResponse, msg: dict, room: str) -> None:
+        """Handle a text frame from the FreeEcho.2 device.
 
+        ``msg`` ist der bereits geparste Frame — connection._handle_ws parst
+        ihn ohnehin für die Register-Auswertung, ein zweites json.loads
+        wäre doppelte Arbeit.
+        """
         msg_type = msg.get("type")
 
         if msg_type == "register":
@@ -156,6 +156,7 @@ class CommandsMixin(BaseChannel):
             "_resume":   "▶️",
             "_standby":  "🌙",
             "_activate": "💡",
+            "_done":     "✅",
         }.get(token, "🔘")
         pos_str = self._fmt_consumed(consumed_ms)
         self.channel_log(
@@ -186,6 +187,8 @@ class CommandsMixin(BaseChannel):
         - ``_standby``  → Pipeline canceln + Stream stoppen (FreeEcho.2-lokal Soft-Mute)
         - ``_resume``   → Pipeline canceln + Smart-Resume des letzten unfinished Items
         - ``_activate`` → no-op am Server (Soft-Mute aus, FreeEcho.2-lokal)
+        - ``_done``     → Quittung des Pucks (proaktive Wiedergabe fertig) —
+          weckt den Alert-Worker fürs nächste Queue-Item
         """
         if token == "_done":
             # Puck meldet: proaktive Wiedergabe (Chime + TTS) komplett durch.
