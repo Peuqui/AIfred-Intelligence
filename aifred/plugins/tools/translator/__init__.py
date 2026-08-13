@@ -82,6 +82,11 @@ DEEPL_FORMALITY_DEFAULT = "prefer_less"
 # Satz — ein zeilenweise übersetzter Absatz verliert den Satzkontext.
 DEEPL_CHUNK_LIMIT = 5_000
 
+# Naht-Kontext bei translate_file: die letzten N Zeichen des vorherigen
+# Original-Chunks gehen als DeepL-"context" mit dem Folge-Chunk raus
+# (ein bis zwei Sätze reichen für Pronomen-Bezüge und Terminologie).
+DEEPL_SEAM_CONTEXT_CHARS = 400
+
 
 def _get_api_url(api_key: str) -> str:
     """Return the correct DeepL API URL based on the key type."""
@@ -384,15 +389,22 @@ class TranslatorPlugin:
 
             detected = ""
             out_parts: list[str] = []
+            prev_tail = ""
             try:
                 async with aiohttp.ClientSession() as session:
                     for chunk in chunks:
+                        # Naht-Kontext: das Ende des vorherigen ORIGINAL-Chunks
+                        # als DeepL-context mitgeben, damit Pronomen-Bezüge und
+                        # Terminologie über die Chunk-Grenze hinweg aufgelöst
+                        # werden. Kostet nichts — context wird laut DeepL-Doku
+                        # weder übersetzt noch aufs Kontingent angerechnet.
                         translated, det = await _deepl_request(
                             session, api_key, chunk, target_lang,
-                            source_lang, formality, "",
+                            source_lang, formality, prev_tail,
                         )
                         detected = detected or det
                         out_parts.append(translated)
+                        prev_tail = chunk[-DEEPL_SEAM_CONTEXT_CHARS:]
             except RuntimeError as e:
                 log_message(f"❌ {e}")
                 return json.dumps({"error": str(e)})
