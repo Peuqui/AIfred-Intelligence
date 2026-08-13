@@ -38,25 +38,63 @@ def split_message(text: str, max_length: int) -> list[str]:
     return chunks
 
 
+# Satzenden für den Oversized-Fallback: Punkt/Frage-/Ausrufezeichen
+# gefolgt von Whitespace. Bewusst simpel — Abkürzungen ("z. B.") erzeugen
+# schlimmstenfalls einen zusätzlichen Schnitt an einer Satzzeichen-Grenze,
+# nie einen Schnitt mitten im Wort.
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def _split_oversized_paragraph(para: str, limit: int) -> list[str]:
+    """Einen Absatz > ``limit`` an Satzgrenzen in Stücke <= ``limit`` teilen.
+
+    Harter Schnitt bei ``limit`` nur als letzter Ausweg für den
+    pathologischen Fall eines einzelnen Satzes über dem Limit.
+    """
+    pieces: list[str] = []
+    buf = ""
+    for sentence in _SENTENCE_END.split(para):
+        while len(sentence) > limit:
+            if buf:
+                pieces.append(buf)
+                buf = ""
+            pieces.append(sentence[:limit])
+            sentence = sentence[limit:]
+        candidate = f"{buf} {sentence}" if buf else sentence
+        if buf and len(candidate) > limit:
+            pieces.append(buf)
+            buf = sentence
+        else:
+            buf = candidate
+    if buf:
+        pieces.append(buf)
+    return pieces
+
+
 def split_paragraph_chunks(text: str, limit: int) -> list[str]:
     """Text an Absatzgrenzen (Leerzeilen) in Stücke <= ``limit`` teilen.
 
     NIE mitten im Satz oder pro Zeile schneiden — ein hart umbrochener
     Absatz, der zeilenweise übersetzt wird, verliert den Satzkontext
     (beobachtet 2026-07-18: "from a fresh / clone handles …" wurde zu
-    "aus einem neuen / Kümmer sich um …"). Ein einzelner Absatz, der
-    allein schon zu groß ist, geht ungeteilt raus.
+    "aus einem neuen / Kümmer sich um …"). Ein einzelner Absatz über dem
+    Limit wird an SATZGRENZEN weitergeteilt — ohne diesen Fallback ging
+    z. B. ein Whisper-Transkript ohne Leerzeilen (163 min = ein einziger
+    Riesen-"Absatz") als EIN Chunk raus und DeepL antwortete mit 413
+    Payload Too Large (beobachtet 2026-08-13).
     """
     paragraphs = text.split("\n\n")
     chunks: list[str] = []
     buf = ""
     for para in paragraphs:
-        candidate = f"{buf}\n\n{para}" if buf else para
-        if buf and len(candidate) > limit:
-            chunks.append(buf)
-            buf = para
-        else:
-            buf = candidate
+        pieces = [para] if len(para) <= limit else _split_oversized_paragraph(para, limit)
+        for piece in pieces:
+            candidate = f"{buf}\n\n{piece}" if buf else piece
+            if buf and len(candidate) > limit:
+                chunks.append(buf)
+                buf = piece
+            else:
+                buf = candidate
     if buf:
         chunks.append(buf)
     return chunks

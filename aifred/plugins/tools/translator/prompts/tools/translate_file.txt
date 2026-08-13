@@ -2,6 +2,6 @@ Translate a whole document in the documents folder and write the result as a new
 
 PREFER THIS over read_file + translate + write_file for documents. The file content is read, translated and written entirely server-side, so it never passes through your context: nothing is lost or reworded on the way, fenced code blocks keep their exact indentation (they are excluded from translation), and you save the tokens for the whole document twice over.
 
-Long documents are chunked automatically at paragraph boundaries — you do not need to split anything yourself.
+Long documents of ANY size — including multi-hour transcripts of hundreds of KB — are handled in ONE call: the tool chunks internally at paragraph boundaries (never mid-sentence) and reassembles the result. Do NOT split a file into chunk files yourself and do NOT fall back to the `translate` text tool for long content (it sends everything in a single DeepL request and fails with 413 beyond 128 KiB).
 
 Give "filename" relative to the documents root, WITHOUT a 'documents/' prefix (e.g. 'deployment.md' or 'kommentare/notizen.md'). If you are unsure of the exact path, call list_files first. The output name defaults to '<name>-<LANG>.<ext>' in the same folder; override it with "output_filename" only if the user asked for a specific name.

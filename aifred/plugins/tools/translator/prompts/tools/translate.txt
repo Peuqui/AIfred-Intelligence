@@ -1,6 +1,8 @@
 Translate text from one language to another using DeepL. The source language is auto-detected if not specified. Supported languages: {languages}.
 
-IMPORTANT for long texts (documents, Markdown files): pass the text in ONE call, or — if you must split it — cut ONLY at blank lines (paragraph boundaries). NEVER split mid-sentence or line-by-line: a hard-wrapped paragraph sent one line at a time loses the sentence context and gets mistranslated (e.g. "from a fresh / clone handles ..." became "aus einem neuen / Kümmer sich um ..." — the noun "clone" was read as a verb and vanished). Blank lines, headings and code fences are safe cut points; a line break inside a paragraph is not.
+SIZE LIMIT: this tool sends the text in a SINGLE DeepL request — the hard API limit is 128 KiB per request, and exceeding it fails with 413 Payload Too Large (the error does not tell you the limit). Use this tool only for short passages up to a few thousand characters. For anything longer — documents, transcripts, whole files — use `translate_file` instead: it chunks internally at paragraph boundaries and handles ANY size in one call. NEVER build your own chunking pipeline.
+
+If you do split a text yourself, cut ONLY at blank lines (paragraph boundaries). NEVER split mid-sentence or line-by-line: a hard-wrapped paragraph sent one line at a time loses the sentence context and gets mistranslated (e.g. "from a fresh / clone handles ..." became "aus einem neuen / Kümmer sich um ..." — the noun "clone" was read as a verb and vanished). Blank lines, headings and code fences are safe cut points; a line break inside a paragraph is not.
 
 Markdown structure (headings, lists, code blocks, links) is preserved automatically — do not strip or re-wrap it before translating.
 

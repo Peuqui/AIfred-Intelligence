@@ -1420,7 +1420,9 @@ SECURITY_AUDIT_RETENTION_DAYS = 7       # tool_audit-Zeilen aelter als N Tage ta
 # beim finalen Verifikations-Render geblockt (2026-08-04). Echte Schleifen
 # fängt SECURITY_MAX_IDENTICAL_TOOL_CALLS; dieser Deckel stoppt nur noch
 # degenerierte Varianten-Ketten kleiner Modelle. 0 = deaktiviert.
-SECURITY_MAX_TOOL_CHAIN_DEPTH = 50
+# 2026-08-13: 50 → 100 — eine legitime Datei-Pipeline (Transkript in
+# ~40 Chunks übersetzen + Datei-Ops) lief bei 50 gegen den Deckel.
+SECURITY_MAX_TOOL_CHAIN_DEPTH = 100
 
 # Maximum tool call rounds per LLM response — der harte Not-Aus der
 # Loop-SCHLEIFE (nach Limit: Finalantwort ohne Tools erzwungen), während
