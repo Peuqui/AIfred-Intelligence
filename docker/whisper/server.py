@@ -118,11 +118,21 @@ def _transcribe_cpu(audio_path: str, language: str, return_segments: bool = Fals
         vad_filter=_config["vad_filter"],
         beam_size=_config["beam_size"],
         condition_on_previous_text=_config["condition_on_previous_text"],
+        # See the GPU worker: per-word stamps only when diarizing, so the
+        # speaker merge can cut mid-segment where the speaker changes.
+        word_timestamps=return_segments,
     )
     # Materialise once — ``segments`` is a generator; the timestamps are what
     # the speaker merge needs.
-    seg_list = [(s.start, s.end, s.text) for s in segments]
-    text = " ".join(s[2] for s in seg_list).strip()
+    seg_list = []
+    text_parts = []
+    for s in segments:
+        text_parts.append(s.text)
+        if return_segments and s.words:
+            seg_list.extend((w.start, w.end, w.word) for w in s.words)
+        elif return_segments:
+            seg_list.append((s.start, s.end, s.text))
+    text = " ".join(text_parts).strip()
     elapsed = time.time() - t0
     print(f"[Whisper] Transcribed (cpu, {elapsed:.2f}s): {text[:80]}...", flush=True)
     payload = {
@@ -265,17 +275,30 @@ def _gpu_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Que
 
         try:
             t0 = time.time()
+            want_words = bool(job.get("return_segments"))
             segments, info = model.transcribe(
                 audio_path,
                 language=language if language != "auto" else None,
                 vad_filter=job.get("vad_filter", True),
                 beam_size=job.get("beam_size", 5),
                 condition_on_previous_text=job.get("condition_on_previous_text", False),
+                # Word timestamps only when diarizing: a Whisper segment can
+                # span 10+ seconds and contain BOTH speakers, so segment-level
+                # assignment smears turns together. Per-word stamps let the
+                # merge cut exactly where the speaker changes.
+                word_timestamps=want_words,
             )
             # Materialise once — ``segments`` is a generator, a second pass
             # would be empty. Timestamps are what the speaker merge needs.
-            seg_list = [(s.start, s.end, s.text) for s in segments]
-            text = " ".join(s[2] for s in seg_list).strip()
+            seg_list = []
+            text_parts = []
+            for s in segments:
+                text_parts.append(s.text)
+                if want_words and s.words:
+                    seg_list.extend((w.start, w.end, w.word) for w in s.words)
+                elif want_words:
+                    seg_list.append((s.start, s.end, s.text))
+            text = " ".join(text_parts).strip()
             elapsed = time.time() - t0
             print(f"[Whisper/GPU] Transcribed ({elapsed:.2f}s): {text[:80]}...", flush=True)
             payload = {
@@ -657,6 +680,44 @@ def _diarize_collect(timeout: int) -> dict | None:
         return {"error": f"Diarization timeout ({timeout}s)"}
 
 
+def _smooth_speakers(merged: list, min_run: int = 2) -> list:
+    """Drop speaker runs shorter than ``min_run`` words.
+
+    Word-level assignment reacts to every flicker in the diarization: a
+    single "yeah" landing on the other speaker would split a sentence into
+    three blocks. Runs below the threshold are absorbed into the surrounding
+    speaker, which keeps real turn changes (always several words) intact.
+    """
+    if not merged:
+        return merged
+
+    # Group into consecutive runs of the same speaker
+    runs: list[list] = [[merged[0]]]
+    for item in merged[1:]:
+        if item[3] == runs[-1][0][3]:
+            runs[-1].append(item)
+        else:
+            runs.append([item])
+
+    for i, run in enumerate(runs):
+        # Words the diarization left uncovered (gaps between turns) always
+        # join a neighbour — a bare "SPEAKER_?" block would only chop the
+        # sentence apart without adding information.
+        if run[0][3] is not None and len(run) >= min_run:
+            continue
+        # Absorb into whichever neighbour exists (prefer the previous one,
+        # so a stray word joins the sentence it interrupts).
+        neighbour = None
+        if i > 0:
+            neighbour = runs[i - 1][0][3]
+        elif i + 1 < len(runs):
+            neighbour = runs[i + 1][0][3]
+        if neighbour is not None:
+            runs[i] = [(s, e, t, neighbour) for s, e, t, _ in run]
+
+    return [item for run in runs for item in run]
+
+
 def _merge_speakers(segments: list, turns: list) -> list:
     """Attach a speaker label to each Whisper segment by largest overlap.
 
@@ -684,24 +745,33 @@ def _merge_speakers(segments: list, turns: list) -> list:
 
 
 def _format_speaker_text(merged: list) -> str:
-    """Render merged segments as speaker-labelled blocks.
+    """Render merged pieces as speaker-labelled blocks.
 
-    Consecutive segments of the same speaker are joined into one block, so
-    the result reads like a dialogue transcript instead of one label per
-    sentence fragment.
+    Consecutive pieces of the same speaker are joined into one block, so the
+    result reads like a dialogue transcript instead of one label per word.
+
+    Pieces are single words when diarizing (Whisper's word timestamps carry
+    their own leading space, so they are concatenated verbatim — inserting
+    another space would double every gap).
     """
     blocks: list[str] = []
     current: str | None = None
     buf: list[str] = []
+
+    def flush() -> None:
+        if buf:
+            blocks.append(f"[{current}] {''.join(buf).strip()}")
+
     for _start, _end, text, speaker in merged:
         label = speaker or "SPEAKER_?"
         if label != current:
-            if buf:
-                blocks.append(f"[{current}] {' '.join(buf).strip()}")
+            flush()
             current, buf = label, []
-        buf.append(text.strip())
-    if buf:
-        blocks.append(f"[{current}] {' '.join(buf).strip()}")
+        # Whisper words start with a space; segment fallbacks may not, so
+        # add one where it would otherwise glue two pieces together.
+        piece = text if (text.startswith(" ") or not buf) else f" {text}"
+        buf.append(piece)
+    flush()
     return "\n\n".join(blocks)
 
 
@@ -943,7 +1013,7 @@ def transcribe():
             dia = _diarize_collect(timeout=_GPU_RESULT_TIMEOUT_S)
             segments = result.pop("segments", None)
             if dia and "turns" in dia and segments:
-                merged = _merge_speakers(segments, dia["turns"])
+                merged = _smooth_speakers(_merge_speakers(segments, dia["turns"]))
                 result["text_speakers"] = _format_speaker_text(merged)
                 result["speakers"] = dia["speakers"]
                 result["diarize_time"] = dia["time"]
