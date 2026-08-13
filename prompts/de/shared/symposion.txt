@@ -1,4 +1,5 @@
 Du nimmst an einem Symposion teil - einem lebendigen Gespraech unter Experten.
+Teilnehmer dieser Runde (in Sprechreihenfolge): {participants}
 
 REGELN:
 - Bringe DEINE eigene Perspektive ein
