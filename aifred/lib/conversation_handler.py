@@ -19,7 +19,7 @@ from .prompt_loader import (
     get_vision_templateless_ocr_prompt,
     get_vision_templateless_default_prompt
 )
-from .formatting import format_number
+from .formatting import format_duration_s, format_number
 # Cache system removed - will be replaced with Vector DB
 from .context_manager import estimate_tokens, strip_thinking_blocks
 from .config import (
@@ -243,7 +243,7 @@ async def _process_single_image_vision(
         if metrics is not None and ttft is not None:
             metrics["ttft"] = ttft
 
-        log_message(f"✅ [{image_index + 1}] {img_name} done ({elapsed:.1f}s)")
+        log_message(f"✅ [{image_index + 1}] {img_name} done ({format_duration_s(elapsed)})")
 
         # Try to parse JSON
         try:
@@ -969,7 +969,7 @@ async def extract_structured_data_from_images(
             all_results.append(result)
 
             if result["success"]:
-                yield {"type": "debug", "message": f"✅ [{i + 1}/{num_images}] {img_name} done ({result['time']:.1f}s)"}
+                yield {"type": "debug", "message": f"✅ [{i + 1}/{num_images}] {img_name} done ({format_duration_s(result['time'])})"}
             else:
                 yield {"type": "debug", "message": f"⚠️ [{i + 1}/{num_images}] {img_name} error: {result.get('error', 'Unknown')}"}
 
