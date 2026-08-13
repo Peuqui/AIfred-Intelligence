@@ -801,6 +801,7 @@
   "stt_bubble_transcript": "🎤 Transkript von „{filename}“ ({size}):\n\n{text}",
   "stt_bubble_started": "🎤 Audio-Datei „{filename}“ ({size}) hochgeladen.\n\nTranskription läuft ({engine}-Engine) — das Ergebnis erscheint hier im Chat.",
   "stt_bubble_saved": "📄 Transkript gespeichert: {transcript_link} ({chars}k Zeichen).\n\nSag z. B. „fasse {filename} zusammen“\n\noder „übersetze {filename}“.",
+  "stt_bubble_saved_speakers": "📄 Transkript gespeichert: {transcript_link} ({chars}k Zeichen).\n\nDas Transkript ist nach Sprechern getrennt: [SPEAKER_00], [SPEAKER_01], … Diese Kennungen sind anonym — die Diarisierung erkennt, WANN wer spricht, aber nicht WER es ist. Ordne sie beim Auswerten den echten Namen zu, die im Gespräch fallen (Begrüßung, Vorstellung, Anrede), und nenne die Personen danach beim Namen statt „SPEAKER_00\".\n\nSag z. B. „fasse {filename} zusammen“\n\noder „übersetze {filename}“.",
   "narrator_engine_auto": "(wie Sprachausgabe)",
   "narrator_fallback_tooltip": "GPU-freie Engine, wenn die Sprachausgabe aus ist — das geladene Modell behält sein VRAM",
   "narrator_engine_label": "Engine:",

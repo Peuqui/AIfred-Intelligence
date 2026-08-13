@@ -668,9 +668,16 @@ class AIState(  # type: ignore[misc]
                     # GPU-first + small-file CPU fallback live in the helper
                     # (SSOT with the FreeEcho.2 channel); only the big-file
                     # case (WhisperGPUUnavailable) surfaces here.
+                    # Speaker labels only for uploaded files: those are
+                    # recordings (interviews, meetings) where knowing who
+                    # speaks carries the meaning. A mic dictation has one
+                    # speaker and would only pay the extra model load.
+                    want_diarize = source == "file"
                     user_text, stt_time, stt_device = await loop.run_in_executor(
                         None,
-                        lambda: transcribe_audio_auto(tmp_path, language=stt_language),
+                        lambda: transcribe_audio_auto(
+                            tmp_path, language=stt_language, diarize=want_diarize,
+                        ),
                     )
                     if stt_device == "cpu":
                         self.add_debug("⚠️ No GPU with free VRAM — transcribed on CPU engine (slower)")
@@ -742,9 +749,15 @@ class AIState(  # type: ignore[misc]
                         # model imitates whatever pattern it sees here.
                         from ..lib.i18n import t as _t
                         transcript_link = f"[{rel_name}](/_upload/documents/{rel_name})"
+                        # Diarized transcripts get the variant that explains
+                        # the [SPEAKER_xx] markers — without it the model
+                        # just parrots the anonymous labels instead of
+                        # resolving them to the names used in the recording.
+                        bubble_key = ("stt_bubble_saved_speakers"
+                                      if "[SPEAKER_" in user_text else "stt_bubble_saved")
                         self.add_agent_panel(  # type: ignore[attr-defined]
                             agent="aifred",
-                            content=_t("stt_bubble_saved", lang=self.ui_language,
+                            content=_t(bubble_key, lang=self.ui_language,
                                        transcript_link=transcript_link,
                                        filename=rel_name,
                                        chars=format_number(len(user_text) / 1000, 1)),

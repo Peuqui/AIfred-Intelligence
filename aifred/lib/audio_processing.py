@@ -1303,6 +1303,7 @@ def get_audio_duration(audio_path: str) -> float:
 
 def transcribe_audio_auto(
     audio_path: str, language: str = "de", log_result: bool = True,
+    diarize: bool = False,
 ) -> tuple[str, float, str]:
     """GPU-first transcription — SSOT for the device routing policy.
 
@@ -1320,6 +1321,7 @@ def transcribe_audio_auto(
     try:
         text, stt_time = transcribe_audio(
             audio_path, language=language, device="cuda", log_result=log_result,
+            diarize=diarize,
         )
         return text, stt_time, "cuda"
     except WhisperGPUUnavailable:
@@ -1328,20 +1330,26 @@ def transcribe_audio_auto(
         log_message("⚠️ No GPU with free VRAM — falling back to CPU engine (slower)", "warning")
         text, stt_time = transcribe_audio(
             audio_path, language=language, device="cpu", log_result=log_result,
+            diarize=diarize,
         )
         return text, stt_time, "cpu"
 
 
-def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu", log_result: bool = True) -> tuple[str, float]:
+def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
+                     log_result: bool = True, diarize: bool = False) -> tuple[str, float]:
     """Transcribe audio to text via Whisper Docker service.
 
     Args:
         audio_path: Path to audio file (WAV, MP3, M4A, OGG, FLAC, WebM)
         language: Language code ("de" or "en")
         device: "cpu" or "cuda" (default: "cpu")
+        diarize: Label speakers ([SPEAKER_00] …). Only worth it for
+                 recordings with several voices — a dictation has one
+                 speaker and would just pay the extra model load.
 
     Returns:
-        tuple: (transcribed_text, time_in_seconds)
+        tuple: (transcribed_text, time_in_seconds) — with diarize the text
+        carries speaker markers, so callers need no separate handling.
     """
     if not audio_path:
         return "", 0.0
@@ -1354,7 +1362,8 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
             resp = requests.post(
                 f"{WHISPER_SERVICE_URL}/transcribe",
                 files={"file": (Path(audio_path).name, f)},
-                data={"device": device, "language": language},
+                data={"device": device, "language": language,
+                      "diarize": "1" if diarize else "0"},
                 timeout=WHISPER_TRANSCRIBE_TIMEOUT_S,
             )
 
@@ -1362,6 +1371,19 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
             data = resp.json()
             user_text = data.get("text", "").strip()
             stt_time = data.get("time", 0.0)
+            # Speaker-labelled variant wins when diarization succeeded; a
+            # failure keeps the plain transcript (the service reports why).
+            if diarize:
+                speaker_text = (data.get("text_speakers") or "").strip()
+                if speaker_text:
+                    speakers = data.get("speakers") or []
+                    user_text = speaker_text
+                    log_message(
+                        f"🗣️ Diarization: {len(speakers)} speaker(s) "
+                        f"in {data.get('diarize_time', 0):.1f}s"
+                    )
+                elif data.get("diarize_error"):
+                    log_message(f"⚠️ Diarization failed: {data['diarize_error']}", "warning")
             if log_result:
                 log_message(
                     f"✅ STT Transcription: {user_text[:100]}"
