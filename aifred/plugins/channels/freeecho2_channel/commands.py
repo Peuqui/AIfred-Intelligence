@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from ....lib.formatting import format_number
+from ....lib.formatting import format_clock, format_number
 from ....lib.plugin_base import BaseChannel
 
 from ._shared import _pending_wake_agent, _pipeline_tasks
@@ -142,10 +142,7 @@ class CommandsMixin(BaseChannel):
         except (TypeError, ValueError):
             return "?"
         secs = ms / 1000.0
-        total = int(secs)
-        h, rem = divmod(total, 3600)
-        m, s = divmod(rem, 60)
-        ts = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+        ts = format_clock(int(secs), pad_hours=True)
         return f"{ts} ({format_number(secs, 1)} s)"
 
     def _log_command_wake(self, room: str, token: str, consumed_ms: Any) -> None:

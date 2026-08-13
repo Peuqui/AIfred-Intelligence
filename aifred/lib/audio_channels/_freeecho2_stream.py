@@ -31,7 +31,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from ..config import DATA_DIR
 from ..debug_bus import debug as debug_event
-from ..formatting import format_number
+from ..formatting import format_clock, format_number
 from ..logging_utils import log_message
 from ..mpv_ipc import MpvIpcClient
 
@@ -90,15 +90,10 @@ class FreeEcho2StreamError(RuntimeError):
 
 
 def _fmt_pos(sec: Optional[float]) -> str:
-    """Format playback position as ``m:ss`` (or ``h:mm:ss`` für Hörbücher)."""
+    """Format playback position as ``m:ss`` (or ``hh:mm:ss`` für Hörbücher)."""
     if sec is None:
         return "?"
-    total = int(sec)
-    h, rem = divmod(total, 3600)
-    m, s = divmod(rem, 60)
-    if h:
-        return f"{h:02d}:{m:02d}:{s:02d}"
-    return f"{m}:{s:02d}"
+    return format_clock(int(sec), pad_hours=True)
 
 
 def _fmt_state(pos: Optional[float], dur: Optional[float]) -> str:

@@ -84,6 +84,34 @@ def format_number(n: int | float, decimals: int = 0, locale: str | None = None) 
             return formatted
 
 
+def format_clock(seconds: float | int, pad_hours: bool = False) -> str:
+    """
+    SSOT for the clock-style duration string: "M:SS" or "H:MM:SS".
+
+    All duration formatters (footer, audit log, playback position) build
+    on this one bucket split — no duplicated divmod math elsewhere.
+
+    Args:
+        seconds: Duration in seconds (rounded to whole seconds)
+        pad_hours: Zero-pad hours to two digits ("01:02:03" — playback style)
+
+    Examples:
+        >>> format_clock(222)
+        '3:42'
+        >>> format_clock(5025)
+        '1:23:45'
+        >>> format_clock(3725, pad_hours=True)
+        '01:02:05'
+    """
+    total = round(seconds)
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        hours_str = f"{hours:02d}" if pad_hours else f"{hours}"
+        return f"{hours_str}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
 def format_duration_ms(ms: float | int) -> str:
     """
     Format a duration given in milliseconds as a compact human-readable string.
@@ -117,17 +145,34 @@ def format_duration_ms(ms: float | int) -> str:
     total_seconds = ms / 1000.0
     # Use rounded seconds to pick the bucket — otherwise 59.999s would
     # render as "60.0s" instead of rolling over to "1:00".
-    total_secs_int = round(total_seconds)
-    if total_secs_int < 60:
+    if round(total_seconds) < 60:
         return f"{total_seconds:.1f}s"
+    return format_clock(total_seconds)
 
-    hours = total_secs_int // 3600
-    minutes = (total_secs_int % 3600) // 60
-    secs = total_secs_int % 60
 
-    if hours > 0:
-        return f"{hours}:{minutes:02d}:{secs:02d}"
-    return f"{minutes}:{secs:02d}"
+def format_duration_s(seconds: float, decimals: int = 1) -> str:
+    """
+    Format a duration in seconds for user-facing output (locale-aware).
+
+    < 1min → "36,1s"     (format_number, `decimals` Nachkommastellen)
+    < 1h   → "57:12 min" (M:SS)
+    ≥ 1h   → "1:23:45 h" (H:MM:SS)
+
+    Examples:
+        >>> format_duration_s(36.13, decimals=2)  # de locale
+        '36,13s'
+        >>> format_duration_s(1790.7)
+        '29:51 min'
+        >>> format_duration_s(5025)
+        '1:23:45 h'
+    """
+    # Rounded seconds pick the bucket — otherwise 59.99s would render
+    # as "60,0s" instead of rolling over to "1:00 min".
+    total = round(seconds)
+    if total < 60:
+        return f"{format_number(seconds, decimals)}s"
+    unit = "h" if total >= 3600 else "min"
+    return f"{format_clock(total)} {unit}"
 
 
 def format_age(seconds: float) -> str:
@@ -263,7 +308,7 @@ def format_performance_footer(metadata: dict) -> str:
     info_parts: list[str] = []
 
     if metadata.get("ttft"):
-        perf_parts.append(f"TTFT:\u00A0{format_number(metadata['ttft'], 2)}s")
+        perf_parts.append(f"TTFT:\u00A0{format_duration_s(metadata['ttft'], 2).replace(' ', chr(0xA0))}")
 
     if metadata.get("prompt_per_sec"):
         perf_parts.append(f"PP:\u00A0{format_number(metadata['prompt_per_sec'], 1)}\u00A0tok/s")
@@ -272,7 +317,7 @@ def format_performance_footer(metadata: dict) -> str:
         perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)}\u00A0tok/s")
 
     if metadata.get("inference_time"):
-        perf_parts.append(f"Inference:\u00A0{format_number(metadata['inference_time'], 1)}s")
+        perf_parts.append(f"Inference:\u00A0{format_duration_s(metadata['inference_time'], 1).replace(' ', chr(0xA0))}")
 
     if metadata.get("source"):
         source = metadata["source"]
@@ -398,11 +443,11 @@ def build_inference_metadata(
     perf_parts: list[str] = []
     info_parts: list[str] = []
     if ttft:
-        perf_parts.append(f"TTFT:\u00A0{format_number(ttft, 2)}s")
+        perf_parts.append(f"TTFT:\u00A0{format_duration_s(ttft, 2).replace(' ', chr(0xA0))}")
     if prompt_per_sec:
         perf_parts.append(f"PP:\u00A0{format_number(prompt_per_sec, 1)}\u00A0tok/s")
     perf_parts.append(f"{format_number(tokens_per_sec, 1)}\u00A0tok/s")
-    perf_parts.append(f"Inference:\u00A0{format_number(inference_time, 1)}s")
+    perf_parts.append(f"Inference:\u00A0{format_duration_s(inference_time, 1).replace(' ', chr(0xA0))}")
     # Source with backend label (e.g. "Own Knowledge (model) [llamacpp]")
     source_display = f"{source}\u00A0[{backend_type}]" if backend_type else source
     # Replace all spaces within source so it stays as one unbreakable unit
@@ -882,6 +927,16 @@ def format_thinking_process(ai_response: str, model_name: str | None = None, inf
         if not content:
             log_message(f"ℹ️ Skipping empty <{tag_name}> tag (no content)")
             continue
+
+        # Escape raw HTML in the content — it is embedded verbatim into the
+        # <details>-Collapsible and runs through rehype-raw in the bubble.
+        # An unclosed element in thinking text (DeepSeek sketches app HTML
+        # while reasoning, e.g. a lone "<select>") becomes a real DOM element
+        # there and swallows EVERYTHING after it — observed 2026-08-12
+        # (Symposion/Canyon3D: only think bubbles visible, answer + iframes
+        # gone). Same failure class as the ```-fence bug handled by
+        # neutralize_markdown_fences above.
+        content = content.replace('&', '&amp;').replace('<', '&lt;')
 
         # Build collapsible HTML
         collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">

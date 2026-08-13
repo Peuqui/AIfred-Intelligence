@@ -259,6 +259,12 @@ async def _stream_agent_to_history(
     state._set_current_agent(agent)
     state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
 
+    # SSOT for the toolkit debug line: every browser-mode stream (standard,
+    # debate, tribunal, symposion) passes through here — callers must NOT
+    # log their own toolkit line or it appears twice.
+    if toolkit:
+        state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_label}")
+
     if state.backend_type == "vllm":
         await state._ensure_vllm_model(model)
 
@@ -775,8 +781,6 @@ async def _run_agent_direct_response(
             system_prompt = f"{system_prompt}\n\n{memory_ctx}"
             mem_tok = estimate_tokens([{"content": memory_ctx}])
             state.add_debug(f"🧠 Memory context injected ({mem_tok:,} tok)")
-        if toolkit:
-            state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_label}")
         if not memory_enabled:
             state.add_debug("🔒 Incognito mode (no memory)")
         yield  # type: ignore[misc]  # Flush debug messages (RAG, memory, toolkit)
@@ -1443,12 +1447,15 @@ async def run_symposion(
 
     llm_client: LLMClient | None = None
     try:
-        # Load symposion discussion rules + reflection augmentation
+        # Load the reflection augmentation once (round-independent).
         # (Reflection is appended from round 2 onwards so the discussion
         # gains depth without sacrificing breadth — agents must address
         # gaps left by earlier contributions while keeping their own
         # multiperspective stance.)
-        symposion_prompt = load_prompt("shared/symposion", lang=detected_lang)
+        # The symposion rules prompt is loaded PER ROUND inside the loop —
+        # it carries the {participants} lineup, which is re-resolved each
+        # round so agents always see the CURRENT participants, also when
+        # the selection changes between rounds.
         reflection_prompt = load_prompt("shared/symposion_reflection", lang=detected_lang)
 
         # Shared conversation (all agents see prior responses).
@@ -1496,6 +1503,24 @@ async def run_symposion(
 
         for round_num in range(1, max_rounds + 1):
             state.debate_round = round_num
+
+            # Re-resolve the lineup at the start of every round: the user can
+            # change the agent selection between rounds, and every agent must
+            # be told the participants of the round it is actually speaking in.
+            agent_configs = [
+                (aid, cfg) for aid in state.symposion_agents
+                if (cfg := get_agent_config(aid))
+            ]
+            if len(agent_configs) < 2:
+                state.add_debug("⚠️ Symposion requires at least 2 agents")
+                break
+            round_names = ", ".join(cfg.display_name for _, cfg in agent_configs)
+            if round_names != agent_names:
+                agent_names = round_names
+                state.add_debug(f"🏛️ Symposion lineup changed: {agent_names}")
+            symposion_prompt = load_prompt(
+                "shared/symposion", lang=detected_lang, participants=agent_names,
+            )
 
             for agent_id, cfg in agent_configs:
                 agent_label = cfg.display_name

@@ -12,6 +12,7 @@ import asyncio
 from typing import Dict, List, AsyncIterator
 
 from ..tools import scrape_webpage
+from ..formatting import format_number
 from ..logging_utils import log_message
 
 
@@ -84,7 +85,7 @@ async def orchestrate_scraping(
 
         preload_task = asyncio.create_task(unload_and_preload())
         log_message(f"🚀 AIfred-LLM ({model_choice}) preloading... [Context={calibrated_num_ctx}]")
-        yield {"type": "debug", "message": f"🚀 AIfred-LLM preloading... [Context={calibrated_num_ctx}]"}
+        yield {"type": "debug", "message": f"🚀 AIfred-LLM preloading... [Context={format_number(calibrated_num_ctx)}]"}
     else:
         log_message(f"ℹ️ AIfred-LLM ({model_choice}) already loaded (Backend: {llm_client.backend_type})")
         yield {"type": "debug", "message": f"ℹ️ AIfred-LLM ({model_choice}) already loaded"}
