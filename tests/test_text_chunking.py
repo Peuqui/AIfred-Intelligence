@@ -15,10 +15,23 @@ class TestSplitParagraphChunks:
         text = "A" * 60 + "\n\n" + "B" * 60
         assert split_paragraph_chunks(text, 80) == ["A" * 60, "B" * 60]
 
-    def test_oversized_paragraph_stays_whole(self):
-        # Ein einzelner zu großer Absatz geht ungeteilt raus (nie mid-sentence).
+    def test_oversized_paragraph_splits_at_sentences(self):
+        # Ein zu großer Absatz wird an SATZGRENZEN weitergeteilt — vorher
+        # ging er ungeteilt raus und sprengte das DeepL-Request-Limit
+        # (413 bei einem Whisper-Transkript ohne Leerzeilen, 2026-08-13).
+        text = "Erster Satz ist hier. Zweiter Satz folgt sofort. Dritter Satz kommt zuletzt."
+        chunks = split_paragraph_chunks(text, 50)
+        assert len(chunks) > 1
+        assert all(len(c) <= 50 for c in chunks)
+        assert all(c.rstrip().endswith(".") for c in chunks)
+
+    def test_oversized_sentence_hard_split_last_resort(self):
+        # Pathologischer Einzelsatz ohne Satzzeichen: harter Schnitt beim
+        # Limit statt eines Chunks über dem Request-Limit.
         text = "X" * 200
-        assert split_paragraph_chunks(text, 80) == ["X" * 200]
+        chunks = split_paragraph_chunks(text, 80)
+        assert all(len(c) <= 80 for c in chunks)
+        assert "".join(chunks) == text
 
 
 class TestSplitSpeakerSegments:
