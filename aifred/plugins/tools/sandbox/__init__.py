@@ -41,13 +41,14 @@ _HTML_IN_STDOUT_HINT = (
 def _vendor_base() -> str:
     """Base URL of the locally mirrored JS libs (frontend-served assets/vendor).
 
-    The frontend port is read from the Reflex config (SSOT in rxconfig.py),
-    never hardcoded — keeps the render_html/execute_code tool prompts portable
-    across deployments with a different frontend port.
+    Deliberately RELATIVE: generated HTML is consumed by two clients — the
+    user's browser (arbitrary host: LAN IP, HTTPS reverse proxy) and the
+    headless render browser (loads via http://localhost). A relative URL is
+    the single scheme that works for both; an absolute localhost URL broke
+    every artifact opened from another machine (observed 2026-08-13,
+    BryceLand: 3D view dead because three.js pointed at the user's own PC).
     """
-    import reflex as rx
-    port = rx.config.get_config().frontend_port
-    return f"http://localhost:{port}/vendor"
+    return "/vendor"
 
 
 def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
