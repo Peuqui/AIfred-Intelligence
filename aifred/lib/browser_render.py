@@ -151,13 +151,32 @@ async def render_html_in_browser(
                 # render_html verifies the model's OWN, self-contained/local HTML
                 # — it must never become an egress channel (see the
                 # sandbox-escape study). Allow only file:/data:/blob: and
-                # localhost; abort everything else (fail-closed). Locally
-                # mirrored libraries are served via localhost and stay usable.
+                # localhost; abort everything else (fail-closed).
+                #
+                # Generated HTML references the mirrored JS libs with RELATIVE
+                # /vendor/... URLs so the same artifact works in the user's
+                # browser regardless of host (an absolute localhost URL broke
+                # every artifact opened from another machine). Under the file://
+                # base those resolve to file:///vendor/... — fulfilled here
+                # directly from assets/vendor/ (basename only, no traversal).
                 from urllib.parse import urlparse as _urlparse
+
+                vendor_dir = Path(__file__).parent.parent.parent / "assets" / "vendor"
+                _vendor_types = {".js": "text/javascript", ".css": "text/css"}
 
                 async def _block_external(route: Any) -> None:
                     parsed = _urlparse(route.request.url)
                     host = (parsed.hostname or "").lower()
+                    if parsed.path.startswith("/vendor/"):
+                        lib = vendor_dir / Path(parsed.path).name
+                        if lib.is_file():
+                            await route.fulfill(
+                                body=lib.read_bytes(),
+                                content_type=_vendor_types.get(lib.suffix, "application/octet-stream"),
+                            )
+                        else:
+                            await route.abort()
+                        return
                     if parsed.scheme in ("file", "data", "blob") or host in (
                         "localhost", "127.0.0.1", "::1",
                     ):
