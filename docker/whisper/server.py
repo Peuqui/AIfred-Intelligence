@@ -56,6 +56,24 @@ EAGER_LOAD = os.environ.get("WHISPER_EAGER_LOAD", "1") in ("1", "true", "True")
 # Minimum free VRAM (MiB) to load GPU model. Whisper medium ≈ 1500 MiB.
 _MIN_VRAM_MIB = int(os.environ.get("WHISPER_MIN_VRAM_MIB", "2000"))
 
+# ── Speaker diarization (optional, own worker on its own GPU) ─
+# Off by default: 99 % of requests are short voice commands where speaker
+# labels are pointless and would only cost load time. Only long recordings
+# (interviews, meetings) ask for it via diarize=1 per request.
+# pyannote 4.x ships "community-1" as its current pipeline; the older 3.1
+# identifier just redirects there, so name it directly.
+DIARIZE_MODEL = os.environ.get("DIARIZE_MODEL", "pyannote/speaker-diarization-community-1")
+# pyannote 3.1 ≈ 1 GiB VRAM — noticeably less than Whisper needs.
+_DIARIZE_MIN_VRAM_MIB = int(os.environ.get("DIARIZE_MIN_VRAM_MIB", "1500"))
+_DIARIZE_TTL_MINUTES = int(os.environ.get("DIARIZE_TTL_MINUTES", "10"))
+# 0 = every GPU qualifies, which holds as long as torch is pinned to the
+# CUDA 12 build (see Dockerfile): its cuDNN still supports Volta, so the
+# V100s are usable. Should torch ever move to CUDA 13, sm_70 aborts with
+# "cuDNN version ... not compatible with devices with SM < 7.5" — set this
+# to 7.5 then to keep diarization on Turing or newer.
+_DIARIZE_MIN_COMPUTE_CAP = float(os.environ.get("DIARIZE_MIN_COMPUTE_CAP", "0"))
+_HF_TOKEN = os.environ.get("HF_TOKEN", "")
+
 # Max wait for one GPU transcription result. Long meeting recordings need
 # minutes even on GPU (medium ≈ 10-20x realtime → 2 h audio ≈ 6-12 min);
 # matches the AIfred-side WHISPER_TRANSCRIBE_TIMEOUT_S.
@@ -85,7 +103,7 @@ def _load_cpu_model():
     print(f"[Whisper] Model loaded on cpu in {time.time() - t0:.1f}s", flush=True)
 
 
-def _transcribe_cpu(audio_path: str, language: str) -> dict:
+def _transcribe_cpu(audio_path: str, language: str, return_segments: bool = False) -> dict:
     """Transcribe using CPU model (main process)."""
     global _model_cpu
     with _cpu_lock:
@@ -101,14 +119,20 @@ def _transcribe_cpu(audio_path: str, language: str) -> dict:
         beam_size=_config["beam_size"],
         condition_on_previous_text=_config["condition_on_previous_text"],
     )
-    text = " ".join(s.text for s in segments).strip()
+    # Materialise once — ``segments`` is a generator; the timestamps are what
+    # the speaker merge needs.
+    seg_list = [(s.start, s.end, s.text) for s in segments]
+    text = " ".join(s[2] for s in seg_list).strip()
     elapsed = time.time() - t0
     print(f"[Whisper] Transcribed (cpu, {elapsed:.2f}s): {text[:80]}...", flush=True)
-    return {
+    payload = {
         "text": text, "time": round(elapsed, 3), "device": "cpu",
         "language": info.language,
         "language_probability": round(info.language_probability, 3),
     }
+    if return_segments:
+        payload["segments"] = seg_list
+    return payload
 
 
 # ── GPU Worker (child process, killed after TTL) ─────────────
@@ -121,21 +145,35 @@ _gpu_lock = threading.Lock()
 _gpu_ttl_timer: threading.Timer | None = None
 _last_gpu_request = 0.0
 _gpu_device_index: int | None = None
+_gpu_uuid: str = ""  # UUID of the card Whisper sits on (diarization avoids it)
 _gpu_model_name: str = ""  # Track which model is loaded on GPU
 
 
-def _find_best_gpu() -> tuple[int, str] | None:
+def _find_best_gpu(min_vram_mib: int | None = None,
+                   exclude_uuid: str | None = None,
+                   min_compute_cap: float = 0.0,
+                   tag: str = "Whisper") -> tuple[int, str] | None:
     """Find the GPU with the most free VRAM. Prefers completely empty GPUs.
 
     Returns (nvidia-smi index, GPU UUID). The worker pins the card via its
     UUID — same SSOT technique as the llama-swap profiles — so the CUDA
     enumeration order (FASTEST_FIRST vs PCI) can never select a different
     card than the one reported here.
+
+    ``exclude_uuid`` skips a card already taken by another worker, so the
+    diarization model lands on a different GPU than Whisper instead of both
+    fighting over the same scraps of free VRAM.
+
+    ``min_compute_cap`` filters by GPU generation. PyTorch's bundled cuDNN
+    dropped Volta: anything below 7.5 aborts with "cuDNN version ... is not
+    compatible with devices with SM < 7.5" the moment a model is moved to
+    that card. Whisper/CTranslate2 is unaffected and still uses every GPU.
     """
     import subprocess
+    min_vram = _MIN_VRAM_MIB if min_vram_mib is None else min_vram_mib
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,uuid,memory.free,memory.used,name",
+            ["nvidia-smi", "--query-gpu=index,uuid,memory.free,memory.used,name,compute_cap",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         )
@@ -147,8 +185,14 @@ def _find_best_gpu() -> tuple[int, str] | None:
                 idx, uuid = int(parts[0]), parts[1]
                 free, used = int(parts[2]), int(parts[3])
                 name = parts[4]
-                print(f"[Whisper]   GPU {idx}: {name} — {free} MiB free, {used} MiB used", flush=True)
-                if free < _MIN_VRAM_MIB:
+                cap = float(parts[5]) if len(parts) >= 6 else 0.0
+                print(f"[{tag}]   GPU {idx}: {name} (sm_{cap}) — {free} MiB free, "
+                      f"{used} MiB used", flush=True)
+                if uuid == exclude_uuid:
+                    continue
+                if min_compute_cap and cap < min_compute_cap:
+                    continue
+                if free < min_vram:
                     continue
                 if best is None:
                     best, best_free, best_used = (idx, uuid), free, used
@@ -157,13 +201,13 @@ def _find_best_gpu() -> tuple[int, str] | None:
                 elif (used == 0) == (best_used == 0) and free > best_free:
                     best, best_free, best_used = (idx, uuid), free, used
         if best is not None:
-            print(f"[Whisper] Selected GPU {best[0]} ({best[1]}, "
+            print(f"[{tag}] Selected GPU {best[0]} ({best[1]}, "
                   f"free={best_free} MiB, used={int(best_used)} MiB)", flush=True)
         else:
-            print(f"[Whisper] No GPU with >= {_MIN_VRAM_MIB} MiB free VRAM", flush=True)
+            print(f"[{tag}] No GPU with >= {min_vram} MiB free VRAM", flush=True)
         return best
     except Exception as e:
-        print(f"[Whisper] GPU detection failed: {e}", flush=True)
+        print(f"[{tag}] GPU detection failed: {e}", flush=True)
         return None
 
 
@@ -228,14 +272,20 @@ def _gpu_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Que
                 beam_size=job.get("beam_size", 5),
                 condition_on_previous_text=job.get("condition_on_previous_text", False),
             )
-            text = " ".join(s.text for s in segments).strip()
+            # Materialise once — ``segments`` is a generator, a second pass
+            # would be empty. Timestamps are what the speaker merge needs.
+            seg_list = [(s.start, s.end, s.text) for s in segments]
+            text = " ".join(s[2] for s in seg_list).strip()
             elapsed = time.time() - t0
             print(f"[Whisper/GPU] Transcribed ({elapsed:.2f}s): {text[:80]}...", flush=True)
-            res_queue.put({
+            payload = {
                 "text": text, "time": round(elapsed, 3), "device": "cuda",
                 "language": info.language,
                 "language_probability": round(info.language_probability, 3),
-            })
+            }
+            if job.get("return_segments"):
+                payload["segments"] = seg_list
+            res_queue.put(payload)
         except Exception as e:
             res_queue.put({"error": str(e)})
 
@@ -244,7 +294,7 @@ def _gpu_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Que
 
 def _start_gpu_worker() -> bool:
     """Start GPU child process on the best available GPU."""
-    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index, _gpu_model_name
+    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index, _gpu_model_name, _gpu_uuid
 
     selected = _find_best_gpu()
     if selected is None:
@@ -253,6 +303,7 @@ def _start_gpu_worker() -> bool:
 
     compute = _detect_gpu_compute(gpu_idx)
     _gpu_device_index = gpu_idx
+    _gpu_uuid = gpu_uuid
     _gpu_model_name = _config["gpu_model"]
 
     _gpu_request_queue = multiprocessing.Queue()
@@ -282,7 +333,7 @@ def _start_gpu_worker() -> bool:
 
 def _kill_gpu_worker():
     """Kill the GPU child process to fully release CUDA context + VRAM."""
-    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index, _gpu_model_name
+    global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index, _gpu_model_name, _gpu_uuid
 
     if _gpu_process is not None:
         gpu_idx = _gpu_device_index
@@ -319,6 +370,7 @@ def _kill_gpu_worker():
                 pass
         _gpu_result_queue = None
     _gpu_device_index = None
+    _gpu_uuid = ""
     _gpu_model_name = ""
 
 
@@ -336,7 +388,8 @@ def _reset_gpu_ttl():
     _gpu_ttl_timer.start()
 
 
-def _transcribe_gpu(audio_path: str, language: str) -> dict | None:
+def _transcribe_gpu(audio_path: str, language: str,
+                    return_segments: bool = False) -> dict | None:
     """Transcribe using GPU child process."""
     global _gpu_busy
     with _gpu_lock:
@@ -353,6 +406,7 @@ def _transcribe_gpu(audio_path: str, language: str) -> dict | None:
             "vad_filter": _config["vad_filter"],
             "beam_size": _config["beam_size"],
             "condition_on_previous_text": _config["condition_on_previous_text"],
+            "return_segments": return_segments,
         })
 
     # Wait for result (outside lock so CPU requests aren't blocked)
@@ -364,6 +418,291 @@ def _transcribe_gpu(audio_path: str, language: str) -> dict | None:
         return {"error": f"GPU worker timeout ({_GPU_RESULT_TIMEOUT_S}s)"}
     finally:
         _gpu_busy = False
+
+
+def _decode_to_wav16k(src_path: str) -> str:
+    """Decode audio once to 16 kHz mono WAV — the format BOTH engines want.
+
+    Whisper and pyannote each resample to 16 kHz mono internally, so without
+    this the same MP3 gets decoded twice in parallel: two CPU cores busy for
+    the same result, and on a 2.5 h recording that is a minute of pure waste
+    before either GPU sees data. Decoding once up front makes it a shared
+    input (and both engines then just read PCM).
+
+    Returns the WAV path, or the original path if conversion failed (logged
+    loudly — the engines can still decode it themselves).
+    """
+    import subprocess
+
+    wav_path = f"{src_path}.16k.wav"
+    t0 = time.time()
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", src_path,
+             "-ar", "16000", "-ac", "1", "-f", "wav", "-y", wav_path],
+            capture_output=True, text=True, timeout=1800,
+        )
+        if proc.returncode == 0 and Path(wav_path).exists():
+            size_mb = Path(wav_path).stat().st_size / 1024 / 1024
+            print(f"[Whisper] Decoded once to 16 kHz mono WAV "
+                  f"({size_mb:.0f} MB, {time.time() - t0:.1f}s) — shared by both engines",
+                  flush=True)
+            return wav_path
+        print(f"[Whisper] ffmpeg pre-decode FAILED (rc={proc.returncode}): "
+              f"{proc.stderr[:200]} — engines will decode separately", flush=True)
+    except Exception as e:
+        print(f"[Whisper] ffmpeg pre-decode FAILED: {e} — engines will decode separately",
+              flush=True)
+    return src_path
+
+
+# ── Speaker Diarization (own worker process, own GPU) ────────
+#
+# Transcription and diarization are fully independent: both only read the
+# same audio FILE, no tensors are shared. That is why the pyannote model can
+# sit on a different card than Whisper — and why both jobs can run at the
+# same time. They only meet at the end, on the CPU, where each Whisper
+# segment gets the speaker whose turn overlaps it most.
+
+_diarize_process: multiprocessing.Process | None = None
+_diarize_request_queue: multiprocessing.Queue | None = None
+_diarize_result_queue: multiprocessing.Queue | None = None
+_diarize_lock = threading.Lock()
+_diarize_ttl_timer: threading.Timer | None = None
+_diarize_device_index: int | None = None
+
+
+def _diarize_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Queue,
+                    gpu_idx: int, gpu_uuid: str, model_name: str, hf_token: str):
+    """Child process: load the pyannote pipeline on its own GPU."""
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpu_uuid
+    print(f"[Diarize] Worker started on GPU {gpu_idx} ({gpu_uuid}, PID {os.getpid()})", flush=True)
+
+    import wave
+
+    import numpy as np
+    import torch
+    from pyannote.audio import Pipeline
+
+    def load_wav16k(path: str):
+        """Read the pre-decoded WAV into a (channel, time) float tensor.
+
+        Deliberately bypasses pyannote's own decoder (torchcodec): that one
+        is built against a different CUDA generation than the torch we pin
+        for Volta support and fails on missing libs. Since ffmpeg already
+        produced 16 kHz mono PCM upstream, handing the samples over directly
+        is both simpler and one decode cheaper.
+        """
+        with wave.open(path, "rb") as w:
+            sample_rate = w.getframerate()
+            channels = w.getnchannels()
+            raw = w.readframes(w.getnframes())
+        data = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        if channels > 1:
+            data = data.reshape(-1, channels).mean(axis=1)
+        return torch.from_numpy(data.copy()).unsqueeze(0), sample_rate
+
+    t0 = time.time()
+    print(f"[Diarize] Loading pipeline '{model_name}'...", flush=True)
+    # pyannote 4.x renamed the auth parameter to ``token``. Passing None
+    # lets huggingface_hub fall back to the mounted token file.
+    pipeline = Pipeline.from_pretrained(model_name, token=hf_token or None)
+    if pipeline is None:
+        res_queue.put({"error": f"Pipeline '{model_name}' could not be loaded "
+                                "(gated model — check HF_TOKEN and licence acceptance)"})
+        return
+    pipeline.to(torch.device("cuda"))
+    print(f"[Diarize] Pipeline loaded in {time.time() - t0:.1f}s", flush=True)
+
+    res_queue.put({"status": "ready"})
+
+    while True:
+        try:
+            job = req_queue.get(timeout=10)
+        except Exception:
+            continue
+        if job is None:
+            break
+
+        try:
+            t0 = time.time()
+            kwargs = {}
+            if job.get("num_speakers"):
+                kwargs["num_speakers"] = int(job["num_speakers"])
+            waveform, sample_rate = load_wav16k(job["audio_path"])
+            output = pipeline({"waveform": waveform, "sample_rate": sample_rate},
+                              **kwargs)
+            # pyannote 4 returns a DiarizeOutput. Prefer its "exclusive"
+            # variant: overlapping speech is resolved to a single speaker per
+            # instant, which is exactly what assigning whole transcript
+            # segments to one speaker needs.
+            annotation = getattr(output, "exclusive_speaker_diarization", None)
+            if annotation is None:
+                annotation = getattr(output, "speaker_diarization", output)
+            turns = [(seg.start, seg.end, spk)
+                     for seg, _, spk in annotation.itertracks(yield_label=True)]
+            speakers = sorted({t[2] for t in turns})
+            elapsed = time.time() - t0
+            print(f"[Diarize] {len(turns)} turns, {len(speakers)} speaker(s) "
+                  f"({elapsed:.1f}s)", flush=True)
+            res_queue.put({"turns": turns, "speakers": speakers,
+                           "time": round(elapsed, 3)})
+        except Exception as e:
+            res_queue.put({"error": str(e)})
+
+    print(f"[Diarize] Worker exiting (PID {os.getpid()})", flush=True)
+
+
+def _start_diarize_worker() -> bool:
+    """Start the diarization child process, avoiding Whisper's GPU."""
+    global _diarize_process, _diarize_request_queue, _diarize_result_queue, _diarize_device_index
+
+    selected = _find_best_gpu(min_vram_mib=_DIARIZE_MIN_VRAM_MIB,
+                              exclude_uuid=_gpu_uuid or None,
+                              min_compute_cap=_DIARIZE_MIN_COMPUTE_CAP, tag="Diarize")
+    if selected is None and _gpu_uuid:
+        # No second card with room — sharing Whisper's GPU is still better
+        # than failing outright, as long as it has enough headroom left.
+        print("[Diarize] No separate GPU free — retrying on Whisper's card", flush=True)
+        selected = _find_best_gpu(min_vram_mib=_DIARIZE_MIN_VRAM_MIB,
+                                  min_compute_cap=_DIARIZE_MIN_COMPUTE_CAP, tag="Diarize")
+    if selected is None:
+        return False
+    gpu_idx, gpu_uuid = selected
+
+    _diarize_device_index = gpu_idx
+    _diarize_request_queue = multiprocessing.Queue()
+    _diarize_result_queue = multiprocessing.Queue()
+
+    _diarize_process = multiprocessing.Process(
+        target=_diarize_worker,
+        args=(_diarize_request_queue, _diarize_result_queue, gpu_idx, gpu_uuid,
+              DIARIZE_MODEL, _HF_TOKEN),
+        daemon=True,
+        name=f"diarize-gpu-{gpu_idx}",
+    )
+    _diarize_process.start()
+
+    try:
+        msg = _diarize_result_queue.get(timeout=300)  # first run downloads models
+        if msg.get("status") == "ready":
+            print(f"[Diarize] Worker ready on GPU {gpu_idx}", flush=True)
+            return True
+        print(f"[Diarize] Worker failed: {msg.get('error')}", flush=True)
+    except Exception:
+        print("[Diarize] Worker failed to start (timeout)", flush=True)
+
+    _kill_diarize_worker()
+    return False
+
+
+def _kill_diarize_worker():
+    """Kill the diarization process to release its VRAM."""
+    global _diarize_process, _diarize_request_queue, _diarize_result_queue, _diarize_device_index
+
+    if _diarize_process is not None:
+        print(f"[Diarize] Killing worker (PID {_diarize_process.pid}, "
+              f"GPU {_diarize_device_index})", flush=True)
+        try:
+            _diarize_process.kill()
+            _diarize_process.join(timeout=5)
+        except Exception:
+            pass
+        _diarize_process = None
+
+    for q in (_diarize_request_queue, _diarize_result_queue):
+        if q is not None:
+            try:
+                q.close()
+            except Exception:
+                pass
+    _diarize_request_queue = None
+    _diarize_result_queue = None
+    _diarize_device_index = None
+
+
+def _reset_diarize_ttl():
+    """Reset the diarization auto-kill timer."""
+    global _diarize_ttl_timer
+    if _DIARIZE_TTL_MINUTES <= 0:
+        return
+    if _diarize_ttl_timer is not None:
+        _diarize_ttl_timer.cancel()
+    _diarize_ttl_timer = threading.Timer(_DIARIZE_TTL_MINUTES * 60, _kill_diarize_worker)
+    _diarize_ttl_timer.daemon = True
+    _diarize_ttl_timer.start()
+
+
+def _diarize_submit(audio_path: str, num_speakers: int = 0) -> bool:
+    """Queue a diarization job — returns immediately so Whisper can run in
+    parallel on its own card. Result is picked up by _diarize_collect()."""
+    with _diarize_lock:
+        if _diarize_process is None or not _diarize_process.is_alive():
+            if not _start_diarize_worker():
+                return False
+        _diarize_request_queue.put({"audio_path": audio_path,
+                                    "num_speakers": num_speakers})
+    return True
+
+
+def _diarize_collect(timeout: int) -> dict | None:
+    """Wait for the queued diarization result."""
+    if _diarize_result_queue is None:
+        return None
+    try:
+        result = _diarize_result_queue.get(timeout=timeout)
+        _reset_diarize_ttl()
+        return result
+    except Exception:
+        return {"error": f"Diarization timeout ({timeout}s)"}
+
+
+def _merge_speakers(segments: list, turns: list) -> list:
+    """Attach a speaker label to each Whisper segment by largest overlap.
+
+    Both lists are time-sorted, so a moving index keeps this linear instead
+    of comparing every segment against every turn (a 2.5 h recording has
+    thousands of each).
+    """
+    turns = sorted(turns, key=lambda t: t[0])
+    merged = []
+    idx = 0
+    for start, end, text in segments:
+        # Turns that end before this segment starts can never match a later
+        # segment either — skip them permanently.
+        while idx < len(turns) and turns[idx][1] < start:
+            idx += 1
+        best_speaker, best_overlap = None, 0.0
+        probe = idx
+        while probe < len(turns) and turns[probe][0] < end:
+            overlap = min(end, turns[probe][1]) - max(start, turns[probe][0])
+            if overlap > best_overlap:
+                best_overlap, best_speaker = overlap, turns[probe][2]
+            probe += 1
+        merged.append((start, end, text, best_speaker))
+    return merged
+
+
+def _format_speaker_text(merged: list) -> str:
+    """Render merged segments as speaker-labelled blocks.
+
+    Consecutive segments of the same speaker are joined into one block, so
+    the result reads like a dialogue transcript instead of one label per
+    sentence fragment.
+    """
+    blocks: list[str] = []
+    current: str | None = None
+    buf: list[str] = []
+    for _start, _end, text, speaker in merged:
+        label = speaker or "SPEAKER_?"
+        if label != current:
+            if buf:
+                blocks.append(f"[{current}] {' '.join(buf).strip()}")
+            current, buf = label, []
+        buf.append(text.strip())
+    if buf:
+        blocks.append(f"[{current}] {' '.join(buf).strip()}")
+    return "\n\n".join(blocks)
 
 
 # ── Web-UI ───────────────────────────────────────────────────
@@ -540,9 +879,12 @@ def transcribe():
     """Transcribe audio file.
 
     Form data:
-        file:     Audio file (WAV, MP3, M4A, OGG, FLAC, WebM)
-        device:   "cpu" or "cuda" (default: "cpu")
-        language: Language code, e.g. "de", "en" (default: from config)
+        file:         Audio file (WAV, MP3, M4A, OGG, FLAC, WebM)
+        device:       "cpu" or "cuda" (default: "cpu")
+        language:     Language code, e.g. "de", "en" (default: from config)
+        diarize:      "1" to label speakers (default: off — pointless for
+                      short voice commands, only worth it for interviews)
+        num_speakers: Optional hint if the speaker count is known
     """
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
@@ -550,6 +892,11 @@ def transcribe():
     audio_file = request.files["file"]
     device = request.form.get("device", "cpu")
     language = request.form.get("language", _config["language"])
+    diarize = request.form.get("diarize", "0") in ("1", "true", "True")
+    try:
+        num_speakers = int(request.form.get("num_speakers", "0"))
+    except ValueError:
+        num_speakers = 0
 
     if device not in ("cpu", "cuda"):
         return jsonify({"error": f"Invalid device: {device}. Use 'cpu' or 'cuda'"}), 400
@@ -559,22 +906,58 @@ def transcribe():
         audio_file.save(tmp)
         tmp_path = tmp.name
 
+    work_path = tmp_path
     try:
+        # With diarization both engines need the same 16 kHz mono audio —
+        # decode it once here instead of twice in parallel (SSOT for the
+        # decoded audio). Without diarization Whisper decodes internally as
+        # before, so nothing changes for the common short-command case.
+        if diarize:
+            work_path = _decode_to_wav16k(tmp_path)
+
+        # Queue diarization FIRST so it runs on its own card while Whisper
+        # transcribes — the two jobs never touch, so the wall-clock cost of
+        # speaker labels is close to zero. It needs the decoded WAV (the
+        # worker reads PCM directly instead of using pyannote's decoder), so
+        # a failed conversion means no speaker labels — never a broken run.
+        wav_ready = diarize and work_path != tmp_path
+        diarize_queued = _diarize_submit(work_path, num_speakers) if wav_ready else False
+        if diarize and not diarize_queued:
+            print("[Diarize] Could not start — returning plain transcript", flush=True)
+
         if device == "cpu":
-            result = _transcribe_cpu(tmp_path, language)
+            result = _transcribe_cpu(work_path, language, return_segments=diarize_queued)
         else:
-            result = _transcribe_gpu(tmp_path, language)
+            result = _transcribe_gpu(work_path, language, return_segments=diarize_queued)
 
         if result is None:
             # 503 (not 500): tells the client "GPU temporarily unavailable,
             # CPU fallback is a valid option" — distinct from real errors.
+            if diarize_queued:
+                _diarize_collect(timeout=10)  # drain, worker already ran
             return jsonify({"error": "Failed to start GPU worker — no GPU with enough VRAM"}), 503
         if "error" in result:
             return jsonify({"error": result["error"]}), 500
 
+        if diarize_queued:
+            dia = _diarize_collect(timeout=_GPU_RESULT_TIMEOUT_S)
+            segments = result.pop("segments", None)
+            if dia and "turns" in dia and segments:
+                merged = _merge_speakers(segments, dia["turns"])
+                result["text_speakers"] = _format_speaker_text(merged)
+                result["speakers"] = dia["speakers"]
+                result["diarize_time"] = dia["time"]
+            else:
+                # Diarization failed — the plain transcript is still valid,
+                # so report the reason instead of failing the whole request.
+                result["diarize_error"] = (dia or {}).get("error", "no diarization result")
+        result.pop("segments", None)
+
         return jsonify(result)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+        if work_path != tmp_path:
+            Path(work_path).unlink(missing_ok=True)
 
 
 @app.route("/status", methods=["GET"])
@@ -619,6 +1002,13 @@ def unload():
         _kill_gpu_worker()
         if gpu_was_alive:
             unloaded.append("gpu")
+        # The diarization worker sits on a second card and would otherwise
+        # keep computing for a caller that is already gone (e.g. AIfred was
+        # restarted mid-transcription) — free it in the same sweep.
+        diarize_was_alive = _diarize_process is not None and _diarize_process.is_alive()
+        _kill_diarize_worker()
+        if diarize_was_alive:
+            unloaded.append("diarize")
     if device in ("cpu", "all") and _model_cpu is not None:
         _model_cpu = None
         gc.collect()

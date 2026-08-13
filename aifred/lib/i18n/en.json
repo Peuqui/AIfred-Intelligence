@@ -801,6 +801,7 @@
   "stt_bubble_transcript": "🎤 Transcript of “{filename}” ({size}):\n\n{text}",
   "stt_bubble_started": "🎤 Audio file “{filename}” ({size}) uploaded.\n\nTranscription running ({engine} engine) — the result will appear here in the chat.",
   "stt_bubble_saved": "📄 Transcript saved: {transcript_link} ({chars}k characters).\n\nSay e.g. “summarize {filename}”\n\nor “translate {filename}”.",
+  "stt_bubble_saved_speakers": "📄 Transcript saved: {transcript_link} ({chars}k characters).\n\nThe transcript is split by speaker: [SPEAKER_00], [SPEAKER_01], … These labels are anonymous — diarization detects WHEN someone speaks, not WHO they are. Map them to the real names mentioned in the conversation (greeting, introduction, form of address) and refer to people by name instead of “SPEAKER_00”.\n\nSay e.g. “summarize {filename}”\n\nor “translate {filename}”.",
   "narrator_engine_auto": "(same as spoken output)",
   "narrator_fallback_tooltip": "GPU-free engine used while spoken output is off — the loaded model keeps its VRAM",
   "narrator_engine_label": "Engine:",

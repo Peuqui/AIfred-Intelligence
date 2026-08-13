@@ -26,9 +26,21 @@ services:
       - WHISPER_GPU_TTL_MINUTES=${WHISPER_GPU_TTL_MINUTES:-30}
       # Eager load CPU model at startup (1=yes, 0=lazy)
       - WHISPER_EAGER_LOAD=${WHISPER_EAGER_LOAD:-1}
+      # ── Speaker diarization (optional, per-request via diarize=1) ──
+      # Model + VRAM floor for the pyannote worker; it picks its own GPU and
+      # avoids the one Whisper occupies.
+      - DIARIZE_MODEL=${DIARIZE_MODEL:-pyannote/speaker-diarization-community-1}
+      - DIARIZE_MIN_VRAM_MIB=${DIARIZE_MIN_VRAM_MIB:-1500}
+      - DIARIZE_TTL_MINUTES=${DIARIZE_TTL_MINUTES:-10}
+      # Optional override — normally unset: the token is read from the
+      # mounted host token file below (single source of truth).
+      - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       # Persistent HuggingFace model cache
       - whisper_models:/root/.cache/huggingface
+      # pyannote models are gated — reuse the host's HF token instead of
+      # copying it into .env. Read-only, overlays the volume at that path.
+      - ${HOME}/.cache/huggingface/token:/root/.cache/huggingface/token:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5052/health"]
       interval: 30s
