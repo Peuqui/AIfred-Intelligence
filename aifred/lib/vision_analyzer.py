@@ -409,10 +409,10 @@ def _log_vlm_done(stats: dict[str, float], model: str, text: str) -> None:
     line + chat-bubble footer are built by llm_pipeline via
     build_inference_metadata() — this is the compact dev-level info line,
     useful when the VLM runs outside the tool-pipeline (watcher, alerts)."""
-    from .formatting import format_number
+    from .formatting import format_duration_s, format_number
     from .logging_utils import log_message
     log_message(
-        f"👁️ VLM done ({format_number(stats['inference_s'], 1)}s, "
+        f"👁️ VLM done ({format_duration_s(stats['inference_s'])}, "
         f"{int(stats['eval_tokens'])} tok, "
         f"{format_number(stats['eval_tok_per_s'], 1)} tok/s, "
         f"TTFT {format_number(stats['ttft_s'], 2)}s, "

@@ -470,13 +470,13 @@ def build_inference_metadata(
     if backend_type == "cloud_api" and tokens_prompt > 0:
         total = tokens_prompt + tokens_generated
         debug_base = (
-            f"✅ {agent_label} done ({format_number(inference_time, 1)}s, "
+            f"✅ {agent_label} done ({format_duration_s(inference_time)}, "
             f"{format_number(tokens_generated)} out / {format_number(total)} total, "
             f"{format_number(tokens_per_sec, 1)} tok/s)"
         )
     else:
         debug_base = (
-            f"✅ {agent_label} done ({format_number(inference_time, 1)}s, "
+            f"✅ {agent_label} done ({format_duration_s(inference_time)}, "
             f"{format_number(tokens_generated)} tok, "
             f"{format_number(tokens_per_sec, 1)} tok/s)"
         )
