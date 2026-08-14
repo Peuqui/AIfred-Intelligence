@@ -524,17 +524,22 @@ async def verify(
             oom_cuda_id: Optional[int] = None
             if output and not reason.startswith("cancelled"):
                 logger.error(f"llama-server not ready. Log tail:\n{output[-2000:]}")
-                # Distinguish OOM vs other crashes by scanning the log tail.
+                # Distinguish OOM vs other crashes by scanning the FULL log.
                 # NUR echte OOM-Marker zählen — ein generisches "CUDA error"
                 # (illegal memory access, device assert) ist KEIN OOM: als
                 # solches klassifiziert würde es den Layer-Shift-Refine in
                 # sinnlose Verschiebungen gegen einen Nicht-Speicher-Fehler
                 # treiben.
-                tail = output[-4000:]
-                tail_lower = tail.lower()
+                # Volles Log statt output[-4000:]: Der GGML_ABORT-Stacktrace
+                # (20+ gdb-Frames) hinter der OOM-Zeile ist allein oft länger
+                # als 4000 Zeichen und schob die "CUDA error: out of memory /
+                # current device: N"-Zeilen aus dem Fenster — die Karte blieb
+                # dann unidentifizierbar, obwohl sie im Log stand. Das Log
+                # ist eine einzelne Server-Session, ein Vollscan ist billig.
+                tail_lower = output.lower()
                 if "out of memory" in tail_lower or "cudamalloc" in tail_lower:
                     reason = f"OOM during load ({reason})"
-                    oom_cuda_id = _parse_oom_cuda_id(tail)
+                    oom_cuda_id = _parse_oom_cuda_id(output)
                     if oom_cuda_id is not None:
                         reason += f" — CUDA{oom_cuda_id}"
                 elif "cuda error" in tail_lower:
@@ -565,7 +570,7 @@ async def verify(
             _kill(process)
             _cleanup_log(process)
             await wait_for_vram_stable(max_wait_seconds=10.0)
-            infer_oom_id = _parse_oom_cuda_id(output[-4000:]) if output else None
+            infer_oom_id = _parse_oom_cuda_id(output) if output else None
             detail = "OOM (inference crash)"
             if infer_oom_id is not None:
                 detail += f" — CUDA{infer_oom_id}"
@@ -599,7 +604,12 @@ async def verify(
                 _kill(process)
                 _cleanup_log(process)
                 await wait_for_vram_stable(max_wait_seconds=10.0)
-                vis_oom_id = _parse_oom_cuda_id(output[-4000:]) if output else None
+                # Load-OOM-Pfad loggt seinen Tail schon immer — hier fehlte
+                # das, wodurch "OOM GPU not identifiable" nie diagnostizierbar
+                # war (das Log war zu dem Zeitpunkt bereits gelöscht).
+                if output:
+                    logger.error(f"Vision probe failed. Log tail:\n{output[-2000:]}")
+                vis_oom_id = _parse_oom_cuda_id(output) if output else None
                 detail = "OOM (vision probe crash)"
                 if vis_oom_id is not None:
                     detail += f" — CUDA{vis_oom_id}"
