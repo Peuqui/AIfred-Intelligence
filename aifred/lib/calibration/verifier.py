@@ -86,6 +86,16 @@ _OOM_DEVICE_PATTERNS = (
     re.compile(r"failed to allocate\s+CUDA(\d+)\s+buffer", re.IGNORECASE),
     # "CUDA error: out of memory ... device 2"
     re.compile(r"CUDA error:[^\n]*device\s+(\d+)", re.IGNORECASE),
+    # ggml_cuda_error() logs the device on the NEXT line:
+    #   "CUDA error: out of memory\n  current device: 0, in function ..."
+    # This is the path compute-time OOMs take (e.g. the vision-probe CLIP
+    # graph via ggml_backend_sched) — the single-line pattern above never
+    # matches it, which used to leave oom_cuda_id=None and forced the
+    # ctx-shrink fallback instead of a targeted layer shift.
+    re.compile(
+        r"CUDA error:[^\n]*out of memory[^\n]*\n\s*current device:\s*(\d+)",
+        re.IGNORECASE,
+    ),
 )
 
 
