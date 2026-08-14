@@ -763,6 +763,12 @@ def delete_session(session_id: str, expected_owner: Optional[str] = None) -> boo
         from .audio_processing import cleanup_session_audio
         cleanup_session_audio(session_id)
 
+        # Browser screenshots die with the session — plots and generated
+        # HTML stay, they are deliverables the user curates in the storage
+        # tab and often outlive the chat they were made in.
+        from .sandbox import cleanup_session_screenshots
+        cleanup_session_screenshots(session_id)
+
         # Remove routing table entries (Hub channels → this session)
         from .routing_table import routing_table
         routing_table.delete_routes_for_session(session_id)
