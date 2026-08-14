@@ -485,6 +485,27 @@ class OpenAICompatibleBackend(LLMBackend):
         except Exception as e:
             raise self._classify_error(e, model)
 
+    @staticmethod
+    def _truncation_debug(finish_reason: Optional[str]) -> List[Dict[str, str]]:
+        """Debug item when the model stopped at the token/context limit.
+
+        ``finish_reason="length"`` means the answer is cut off: with
+        ``--no-context-shift`` the context window ran full, otherwise a
+        max_tokens cap was hit. Both leave the response incomplete —
+        often mid-plan, before a tool call the model still intended to
+        make — so it must be visible instead of looking like a clean
+        finish. Empty list when the model stopped on its own.
+        """
+        if finish_reason != "length":
+            return []
+        message = (
+            "Response truncated (finish_reason=length) — token or "
+            "context limit reached, answer is incomplete"
+        )
+        from ..lib.logging_utils import log_message
+        log_message(f"⚠️ {message}")
+        return [{"type": "debug", "message": message}]
+
     async def _consume_stream(
         self,
         stream: Any,
@@ -636,16 +657,23 @@ class OpenAICompatibleBackend(LLMBackend):
                     server_timings = counters["server_timings"]
                     last_finish_reason: Optional[str] = counters["last_finish_reason"]
 
+                    # Surface a hit token/context limit. Without this a
+                    # truncated answer is indistinguishable from a finished
+                    # one — the loop would just break out below and report
+                    # success while the model was cut off mid-work.
+                    for item in self._truncation_debug(last_finish_reason):
+                        yield item
+
                     # Discard tool calls if generation was truncated mid-args.
                     # Executing partial JSON would just emit a noisy error to
                     # the model and likely trigger the same broken call again.
                     if tool_calls and last_finish_reason == "length":
                         from ..lib.logging_utils import log_message
                         log_message(
-                            "⚠️ Tool calls truncated (finish_reason=length) — "
-                            "skipping execution, model will produce a normal answer"
+                            "⚠️ Discarding partial tool calls — "
+                            "model will produce a normal answer"
                         )
-                        yield {"type": "debug", "message": "Tool calls truncated — skipped"}
+                        yield {"type": "debug", "message": "Partial tool calls discarded"}
                         tool_calls = []
 
                     # Fallback: extract tool calls from text content for models
@@ -766,6 +794,8 @@ class OpenAICompatibleBackend(LLMBackend):
                     prompt_tokens = counters["prompt_tokens"]
                     total_tokens = counters["total_tokens"]
                     server_timings = counters["server_timings"]
+                    for item in self._truncation_debug(counters["last_finish_reason"]):
+                        yield item
 
                 inference_time = timer.elapsed()
 
