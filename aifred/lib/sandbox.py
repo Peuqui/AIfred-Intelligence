@@ -108,6 +108,14 @@ def _sandbox_url(session_id: str, filename: str) -> str:
     return f"{BACKEND_URL}{relative}" if BACKEND_URL else relative
 
 
+# Browser screenshots are a by-product of render_html — proof that a page
+# loaded, worthless once the chat is gone. Plots and HTML are the model's
+# actual deliverables and outlive their session. This prefix is the only
+# thing that tells the two apart on disk, so it is the SSOT for both the
+# writer (browser_render) and the deletion path below.
+SCREENSHOT_PREFIX = "shot_"
+
+
 def _collect_images(work_dir: Path, session_id: str) -> list[str]:
     """Collect generated plot images, save to sandbox_output/{session_id}/, return URLs."""
     output_dir = _session_output_dir(session_id)
@@ -368,6 +376,27 @@ async def execute_sandboxed_code(
         shutil.rmtree(work_dir, ignore_errors=True)
 
     return result
+
+
+def cleanup_session_screenshots(session_id: str) -> int:
+    """Delete a session's browser screenshots, keep its deliverables.
+
+    Used when a session is deleted: plots and generated HTML stay (the user
+    curates those in the storage tab), the render_html screenshots go. The
+    session directory is removed once it holds nothing else.
+
+    Returns count of deleted files.
+    """
+    session_dir = _safe_session_subdir(session_id)
+    if session_dir is None or not session_dir.exists():
+        return 0
+    count = 0
+    for shot in session_dir.glob(f"{SCREENSHOT_PREFIX}*.png"):
+        shot.unlink()
+        count += 1
+    if not any(session_dir.iterdir()):
+        session_dir.rmdir()
+    return count
 
 
 def cleanup_session_sandbox(session_id: str) -> int:
