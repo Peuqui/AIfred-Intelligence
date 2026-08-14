@@ -129,7 +129,6 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 VRAM_CACHE_FILE = PROJECT_ROOT / "data" / "model_vram_cache.json"
 
 LLAMA_SERVER_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-server"
-LLAMA_FIT_PARAMS_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-fit-params"
 DEFAULT_TTL_SMALL = 900   # < 20 GB models (15 min)
 DEFAULT_TTL_MEDIUM = 1200  # 20-50 GB models (20 min)
 DEFAULT_TTL_LARGE = 2700   # > 50 GB models (45 min) — teures Nachladen (122B/397B laden Minuten), laenger warm halten
@@ -502,6 +501,7 @@ def _build_fit_params_cmd(
     context: int,
     ngl: int,
     gpu_flags: str,
+    fit_params_bin: Path,
     kv_quant: Optional[str] = None,
     mmproj_path: Optional[Path] = None,
 ) -> list[str]:
@@ -510,10 +510,16 @@ def _build_fit_params_cmd(
     Requires llama.cpp b8857+ (renamed ``--fit-print`` flag, new per-line
     output format ``CUDA<n> model_mb ctx_mb compute_mb``). Numeric ngl=99
     aborts in newer builds — translated to ``-ngl all``.
+
+    ``fit_params_bin`` is always derived from the caller's ``server_bin``
+    (same build/bin/ directory) — never the stale ``LLAMA_FIT_PARAMS_BIN``
+    constant, which silently drifts whenever the active llama.cpp checkout
+    changes (e.g. a patched fork replacing the plain build) and used to
+    make calibration fall back to safe defaults without any clear signal.
     """
     ngl_arg = "all" if ngl >= 99 else str(ngl)
     cmd = [
-        str(LLAMA_FIT_PARAMS_BIN),
+        str(fit_params_bin),
         "--model", str(gguf_path.resolve()),
         "-ngl", ngl_arg,
         "-c", str(context),
@@ -549,6 +555,7 @@ def _fit_params_per_gpu(
     context: int,
     ngl: int,
     gpu_flags: str,
+    fit_params_bin: Path,
     kv_quant: Optional[str] = None,
     mmproj_path: Optional[Path] = None,
     gpu_total_mb: Optional[list[int]] = None,
@@ -569,7 +576,7 @@ def _fit_params_per_gpu(
     Returns dict like {"CUDA0": {"total": 45355, "used": 43710, "free": 1478}}.
     Empty dict if fit-params unavailable or parsing fails.
     """
-    cmd = _build_fit_params_cmd(gguf_path, context, ngl, gpu_flags, kv_quant, mmproj_path)
+    cmd = _build_fit_params_cmd(gguf_path, context, ngl, gpu_flags, fit_params_bin, kv_quant, mmproj_path)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -599,6 +606,7 @@ def _find_best_ngl(
     gguf_path: Path,
     context: int,
     gpu_flags: str,
+    fit_params_bin: Path,
     kv_quant: Optional[str] = None,
     mmproj_path: Optional[Path] = None,
     gpu_total_mb: Optional[list[int]] = None,
@@ -616,7 +624,7 @@ def _find_best_ngl(
     while ngl_low <= ngl_high:
         ngl_mid = (ngl_low + ngl_high) // 2
         gpus = _fit_params_per_gpu(
-            gguf_path, context, ngl_mid, gpu_flags, kv_quant, mmproj_path,
+            gguf_path, context, ngl_mid, gpu_flags, fit_params_bin, kv_quant, mmproj_path,
             gpu_total_mb=gpu_total_mb,
         )
         if not gpus:
@@ -651,10 +659,14 @@ def calibrate_model_fit_params(
     gpu_flags = build_gpu_flags(gguf_path, per_gpu_vram)
     model_mb = get_gguf_total_size(gguf_path) / (1024 * 1024)
     mmproj = model.get("mmproj_path")
+    # Same build/bin/ directory as the llama-server actually in use — never
+    # the LLAMA_FIT_PARAMS_BIN constant, which drifts silently whenever the
+    # active llama.cpp checkout changes (e.g. switching to a patched fork).
+    fit_params_bin = server_bin.parent / "llama-fit-params"
 
     print(f"  {model['name']} ({model_mb:,.0f} MB, native context: {native_context:,}):")
 
-    if not LLAMA_FIT_PARAMS_BIN.exists():
+    if not fit_params_bin.exists():
         print("    ! llama-fit-params not found, using safe defaults")
         model["calibrated_context"] = min(native_context, FALLBACK_CONTEXT)
         model["calibrated_kv_quant"] = "q4_0"
@@ -679,7 +691,7 @@ def calibrate_model_fit_params(
             ctx_mid = ((ctx_low + ctx_high) // 2 + 255) & ~255  # round up to 256
 
             gpus = _fit_params_per_gpu(
-                gguf_path, ctx_mid, DEFAULT_NGL, gpu_flags, kv, mmproj,
+                gguf_path, ctx_mid, DEFAULT_NGL, gpu_flags, fit_params_bin, kv, mmproj,
                 gpu_total_mb=per_gpu_vram,
             )
             if gpus:
@@ -703,7 +715,7 @@ def calibrate_model_fit_params(
             while ctx_low <= ctx_high:
                 ctx_mid = ((ctx_low + ctx_high) // 2 + 255) & ~255
                 ngl_result, gpus = _find_best_ngl(
-                    gguf_path, ctx_mid, gpu_flags, kv, mmproj,
+                    gguf_path, ctx_mid, gpu_flags, fit_params_bin, kv, mmproj,
                     gpu_total_mb=per_gpu_vram,
                 )
                 if ngl_result > 0:
