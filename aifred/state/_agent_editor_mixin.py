@@ -345,6 +345,9 @@ class AgentEditorMixin(rx.State, mixin=True):
         elif tab == "storage":
             # Speicher-Tab: lokale Datei-Stores (Exporte + Sandbox) laden.
             self.load_storage_files()
+        elif tab == "stt":
+            # STT-Tab: Config live vom Whisper-Service lesen (SSOT dort).
+            self.load_stt_settings()
         elif tab == "plugins":
             # Load tool toggles + channel allowlists for the plugins tab.
             # list_all_plugins() (not discover_tools) so DISABLED tool plugins

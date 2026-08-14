@@ -16,6 +16,7 @@ from .memory import _memory_view
 from .plugins import _plugins_view
 from .scheduler import _scheduler_view
 from .storage import _storage_view
+from .stt import _stt_view
 
 
 def agent_editor_page() -> rx.Component:
@@ -45,6 +46,7 @@ def agent_editor_page() -> rx.Component:
                 ("scheduler", _scheduler_view()),
                 ("audit", _audit_view()),
                 ("storage", _storage_view()),
+                ("stt", _stt_view()),
                 _config_view(),  # default
             ),
             padding="25px",
