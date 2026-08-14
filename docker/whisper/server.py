@@ -49,12 +49,59 @@ _config = {
     "language": os.environ.get("WHISPER_LANGUAGE", "de"),
     "vad_filter": os.environ.get("WHISPER_VAD_FILTER", "1") in ("1", "true"),
     "beam_size": int(os.environ.get("WHISPER_BEAM_SIZE", "5")),
-    "condition_on_previous_text": False,
+    # Carries the transcript so far into the next 30 s window. Without it the
+    # initial_prompt below only styles the FIRST window and everything after
+    # falls back to unpunctuated staccato (measured on a 2.5 h interview).
+    # Known trade-off: on very long files this is what can trigger Whisper's
+    # repetition loops — switch it off in the STT tab if that ever shows up.
+    "condition_on_previous_text": os.environ.get(
+        "WHISPER_CONDITION_ON_PREVIOUS", "1") in ("1", "true"),
+    # "auto" = built-in per-language style primer, "" = off, anything else
+    # is used verbatim. See _resolve_initial_prompt for why this exists.
+    "initial_prompt": os.environ.get("WHISPER_INITIAL_PROMPT", "auto"),
+    # Default speaker-count hint for diarization; 0 = let pyannote estimate.
+    # Per-request num_speakers still wins. Set to 2 before transcribing an
+    # interview and the greeting ping-pong stops collapsing into one speaker.
+    "num_speakers": int(os.environ.get("WHISPER_NUM_SPEAKERS", "0")),
 }
+
+# Whisper continues whatever "style" the transcript has so far. At the very
+# start there is no transcript, so the first 30 s window decides — and fast
+# dialogue ping-pong (greetings, "right", "yeah") reliably tips it into an
+# unpunctuated staccato that then sticks. Seeding a well-punctuated sentence
+# as fake history locks in written style with punctuation instead. The
+# primer text itself never appears in the output.
+_INITIAL_PROMPTS = {
+    "de": "Schön, Sie wiederzusehen. Wir haben heute viel zu besprechen, nicht wahr? Ja, absolut.",
+    "en": "Well, it's great to see you again. We have a lot to talk about today, don't we? Yes, absolutely.",
+}
+
+
+def _resolve_initial_prompt(language: str) -> str | None:
+    """Effective initial_prompt for a request, or None to send nothing.
+
+    With language "auto" no primer is used: Whisper detects the language
+    from the first window, and a primer in the wrong language could tip
+    that detection.
+    """
+    configured = _config["initial_prompt"]
+    if not configured:
+        return None
+    if configured != "auto":
+        return configured
+    return _INITIAL_PROMPTS.get(language)
 EAGER_LOAD = os.environ.get("WHISPER_EAGER_LOAD", "1") in ("1", "true", "True")
 
 # Minimum free VRAM (MiB) to load GPU model. Whisper medium ≈ 1500 MiB.
 _MIN_VRAM_MIB = int(os.environ.get("WHISPER_MIN_VRAM_MIB", "2000"))
+
+# Per-model VRAM demand (MiB, float16 incl. CUDA context headroom). Used by
+# the degradation chain in _start_gpu_worker: the configured model is tried
+# first, and if no GPU has room the next smaller model takes its place —
+# loudly logged, never silent. Unknown names fall back to _MIN_VRAM_MIB.
+_MODEL_VRAM_MIB = {
+    "tiny": 600, "base": 700, "small": 1300, "medium": 2000, "large-v3": 4200,
+}
 
 # ── Speaker diarization (optional, own worker on its own GPU) ─
 # Off by default: 99 % of requests are short voice commands where speaker
@@ -118,6 +165,7 @@ def _transcribe_cpu(audio_path: str, language: str, return_segments: bool = Fals
         vad_filter=_config["vad_filter"],
         beam_size=_config["beam_size"],
         condition_on_previous_text=_config["condition_on_previous_text"],
+        initial_prompt=_resolve_initial_prompt(language),
         # See the GPU worker: per-word stamps only when diarizing, so the
         # speaker merge can cut mid-segment where the speaker changes.
         word_timestamps=return_segments,
@@ -282,6 +330,7 @@ def _gpu_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Que
                 vad_filter=job.get("vad_filter", True),
                 beam_size=job.get("beam_size", 5),
                 condition_on_previous_text=job.get("condition_on_previous_text", False),
+                initial_prompt=job.get("initial_prompt"),
                 # Word timestamps only when diarizing: a Whisper segment can
                 # span 10+ seconds and contain BOTH speakers, so segment-level
                 # assignment smears turns together. Per-word stamps let the
@@ -316,10 +365,30 @@ def _gpu_worker(req_queue: multiprocessing.Queue, res_queue: multiprocessing.Que
 
 
 def _start_gpu_worker() -> bool:
-    """Start GPU child process on the best available GPU."""
+    """Start GPU child process on the best available GPU.
+
+    Tries the configured model first; when no GPU has enough free VRAM for
+    it, walks down the model list and loads the largest one that fits
+    (agreed degradation, logged loudly). Only when not even the smallest
+    model fits does this report failure and the caller falls back to CPU.
+    """
     global _gpu_process, _gpu_request_queue, _gpu_result_queue, _gpu_device_index, _gpu_model_name, _gpu_uuid
 
-    selected = _find_best_gpu()
+    configured = _config["gpu_model"]
+    chain_start = AVAILABLE_MODELS.index(configured) if configured in AVAILABLE_MODELS else 0
+    candidates = list(reversed(AVAILABLE_MODELS[:chain_start + 1]))
+
+    selected = None
+    model_name = configured
+    for model_name in candidates:
+        need = _MODEL_VRAM_MIB.get(model_name, _MIN_VRAM_MIB)
+        selected = _find_best_gpu(min_vram_mib=need)
+        if selected is not None:
+            if model_name != configured:
+                print(f"[Whisper] No GPU fits '{configured}' "
+                      f"({_MODEL_VRAM_MIB.get(configured, _MIN_VRAM_MIB)} MiB) — "
+                      f"degraded to '{model_name}' ({need} MiB)", flush=True)
+            break
     if selected is None:
         return False
     gpu_idx, gpu_uuid = selected
@@ -327,14 +396,14 @@ def _start_gpu_worker() -> bool:
     compute = _detect_gpu_compute(gpu_idx)
     _gpu_device_index = gpu_idx
     _gpu_uuid = gpu_uuid
-    _gpu_model_name = _config["gpu_model"]
+    _gpu_model_name = model_name
 
     _gpu_request_queue = multiprocessing.Queue()
     _gpu_result_queue = multiprocessing.Queue()
 
     _gpu_process = multiprocessing.Process(
         target=_gpu_worker,
-        args=(_gpu_request_queue, _gpu_result_queue, gpu_idx, gpu_uuid, _config["gpu_model"], compute),
+        args=(_gpu_request_queue, _gpu_result_queue, gpu_idx, gpu_uuid, model_name, compute),
         daemon=True,
         name=f"whisper-gpu-{gpu_idx}",
     )
@@ -429,6 +498,7 @@ def _transcribe_gpu(audio_path: str, language: str,
             "vad_filter": _config["vad_filter"],
             "beam_size": _config["beam_size"],
             "condition_on_previous_text": _config["condition_on_previous_text"],
+            "initial_prompt": _resolve_initial_prompt(language),
             "return_segments": return_segments,
         })
 
@@ -863,6 +933,8 @@ input[type=number] {{ width: 70px; text-align: right; }}
   <div class="row"><label>Condition on Previous</label>
     <label class="toggle"><input type="checkbox" id="cfg-cond" {"checked" if _config["condition_on_previous_text"] else ""}><span class="slider"></span></label>
   </div>
+  <div class="row"><label>Initial Prompt (auto/leer/Text)</label> <input type="text" id="cfg-prompt" value="{_config["initial_prompt"]}" style="width:220px"></div>
+  <div class="row"><label>Sprecheranzahl (0 = auto)</label> <input type="number" id="cfg-numspk" value="{_config["num_speakers"]}" min="0" max="10"></div>
   <div class="btn-row">
     <button class="btn btn-save" onclick="saveConfig()">Save Settings</button>
   </div>
@@ -902,6 +974,8 @@ async function saveConfig() {{
     language: document.getElementById('cfg-lang').value,
     vad_filter: document.getElementById('cfg-vad').checked,
     condition_on_previous_text: document.getElementById('cfg-cond').checked,
+    initial_prompt: document.getElementById('cfg-prompt').value,
+    num_speakers: parseInt(document.getElementById('cfg-numspk').value) || 0,
   }};
   try {{
     const r = await fetch('/config', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify(cfg)}});
@@ -967,6 +1041,9 @@ def transcribe():
         num_speakers = int(request.form.get("num_speakers", "0"))
     except ValueError:
         num_speakers = 0
+    # Request wins; otherwise the configured default (UI: "Sprecheranzahl").
+    if num_speakers <= 0:
+        num_speakers = _config["num_speakers"]
 
     if device not in ("cpu", "cuda"):
         return jsonify({"error": f"Invalid device: {device}. Use 'cpu' or 'cuda'"}), 400
@@ -1041,6 +1118,11 @@ def status():
         "gpu_busy": _gpu_busy,
         "gpu_device_index": _gpu_device_index,
         "gpu_worker_pid": _gpu_process.pid if gpu_alive else None,
+        # Actually loaded model — differs from gpu_model when the VRAM
+        # degradation chain picked a smaller one.
+        "gpu_model_loaded": _gpu_model_name if gpu_alive else None,
+        # SSOT for clients building a model dropdown (AIfred STT tab).
+        "available_models": AVAILABLE_MODELS,
     }
 
     if _last_gpu_request > 0:
@@ -1123,6 +1205,12 @@ def config_endpoint():
     if "condition_on_previous_text" in data:
         _config["condition_on_previous_text"] = bool(data["condition_on_previous_text"])
         changed.append("condition_on_previous_text")
+    if "initial_prompt" in data:
+        _config["initial_prompt"] = str(data["initial_prompt"])
+        changed.append("initial_prompt")
+    if "num_speakers" in data:
+        _config["num_speakers"] = max(0, min(10, int(data["num_speakers"])))
+        changed.append("num_speakers")
 
     print(f"[Whisper] Config updated: {', '.join(changed)}", flush=True)
     return jsonify({"success": True, "changed": changed, "config": _config})

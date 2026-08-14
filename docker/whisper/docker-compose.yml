@@ -17,6 +17,10 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       # Whisper model size (tiny, base, small, medium, large-v3)
       - WHISPER_MODEL=${WHISPER_MODEL:-medium}
+      # GPU gets the big model; the VRAM degradation chain in server.py
+      # falls back to smaller ones when no card has room. CPU keeps the
+      # WHISPER_MODEL default — large on CPU would be painfully slow.
+      - WHISPER_GPU_MODEL=${WHISPER_GPU_MODEL:-large-v3}
       # Compute type per device (int8 for CPU, float16 for GPU)
       - WHISPER_CPU_COMPUTE=int8
       - WHISPER_GPU_COMPUTE=float16

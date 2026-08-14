@@ -141,6 +141,21 @@ def _editor_header() -> rx.Component:
                 ),
                 cursor="pointer",
             ),
+            rx.button(
+                rx.icon("mic", size=14),
+                t("tab_stt"),
+                on_click=AIState.set_agent_editor_tab("stt"),
+                size="2",
+                variant=rx.cond(
+                    AIState.agent_editor_mode == "stt",
+                    "solid", "soft",
+                ),
+                color_scheme=rx.cond(
+                    AIState.agent_editor_mode == "stt",
+                    "orange", "gray",
+                ),
+                cursor="pointer",
+            ),
             spacing="2",
             width="100%",
             flex_wrap="wrap",
