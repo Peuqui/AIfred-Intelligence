@@ -115,6 +115,25 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
                 min_width="60px",
             ),
         ),
+        # Timestamps: created above, modified below. Two lines instead of
+        # two columns keeps the row height unchanged, and the pair is what
+        # makes a folder full of hash-named tool output navigable at all.
+        # Hidden on narrow screens like the size column.
+        rx.tooltip(
+            rx.vstack(
+                rx.text(item["created"].to(str), font_size="9px", color="#666"),
+                rx.text(item["modified"].to(str), font_size="9px", color="#999"),
+                spacing="0",
+                align_items="flex-end",
+                min_width="95px",
+                display=["none", "none", "flex"],
+            ),
+            content=rx.cond(
+                AIState.ui_language == "de",
+                "Erstellt (oben) / Geändert (unten)",
+                "Created (top) / modified (bottom)",
+            ),
+        ),
         # Index status badge — same reasoning as the size column
         rx.cond(
             ~is_folder,

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import shutil
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -92,11 +93,23 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
+def _format_stamp(epoch: float) -> str:
+    """Timestamp for the document browser, same shape as the storage tab.
+
+    Note on ``st_ctime``: Linux has no creation time in ``stat()`` — it is
+    the inode-change time. For this folder that is the moment the file
+    landed here (written once by a tool or an upload), which is exactly
+    what "created" should mean to the user. It only drifts from that if
+    the file is later renamed or its permissions change.
+    """
+    return datetime.fromtimestamp(epoch).strftime("%d.%m.%Y %H:%M")
+
+
 def list_directory(folder_rel: str = "") -> FileOpResult:
     """List files + subfolders of ``folder_rel`` (relative to documents/).
 
-    Each item dict has: ``name, type ('file'|'folder'), size, indexed,
-    chunks``. Hidden entries (leading dot) are excluded.
+    Each item dict has: ``name, type ('file'|'folder'), size, created,
+    modified, indexed, chunks``. Hidden entries (leading dot) are excluded.
     """
     folder, err = safe_resolve(folder_rel) if folder_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
@@ -135,10 +148,13 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
             file_count = sum(1 for p in d.rglob("*") if p.is_file())
         except OSError:
             file_count = 0
+        d_stat = d.stat()
         items.append({
             "name": d.name,
             "type": "folder",
             "size": "",
+            "created": _format_stamp(d_stat.st_ctime),
+            "modified": _format_stamp(d_stat.st_mtime),
             "indexed": False,
             "chunks": 0,
             "file_count": file_count,
@@ -146,10 +162,13 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
     for f in files:
         rel_str = str(f.relative_to(DOCUMENTS_DIR))
         chunk_count = indexed_chunks.get(rel_str) or indexed_chunks.get(f.name, 0)
+        st = f.stat()
         items.append({
             "name": f.name,
             "type": "file",
-            "size": _format_size(f.stat().st_size),
+            "size": _format_size(st.st_size),
+            "created": _format_stamp(st.st_ctime),
+            "modified": _format_stamp(st.st_mtime),
             "indexed": chunk_count > 0,
             "chunks": chunk_count,
             "file_count": 0,  # only meaningful for folders, kept for schema consistency
