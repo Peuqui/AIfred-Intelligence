@@ -502,7 +502,25 @@ async def _verify_and_refine(
         )
         max_shifts = 15
         shift_attempt = 0
+        # Kontinuität über die Shift-Sequenz: Ein Vision-Probe-Crash loggt
+        # oft keine parsebare OOM-Zeile. Dieselbe Grenz-Konfiguration
+        # stirbt je nach Allokations-Glück mal parsebar beim Load, mal
+        # stumm erst bei der Bildanfrage (Qwen3.8 64:1@262k: beides
+        # beobachtet). Innerhalb einer laufenden Shift-Sequenz ist die
+        # zuletzt identifizierte OOM-Karte der beste Kandidat — weiter in
+        # die bekannte Richtung schieben statt nach EINEM Shift auf
+        # ctx-shrink umzuschwenken. max_shifts + Oszillations-Guard
+        # begrenzen eine Fehlannahme; ctx-shrink bleibt letzter Ausweg.
+        last_oom_cuda_id = r.oom_cuda_id
         while not r.fits and shift_attempt < max_shifts:
+            _eff_oom_id = r.oom_cuda_id
+            if _eff_oom_id is None and last_oom_cuda_id is not None:
+                _eff_oom_id = last_oom_cuda_id
+                yield (
+                    f"{status_prefix} OOM GPU not in server log — "
+                    f"continuing shift away from CUDA{_eff_oom_id} "
+                    f"(last identified OOM source)"
+                )
             # Smart shift if we have measurement data (server lived through
             # probe but tightest GPU fell below safety margin). Falls back to
             # blind shift when measurement is empty (server died at load —
@@ -562,7 +580,7 @@ async def _verify_and_refine(
                     _layer_cost = tuple(_mb_per_layer for _ in gpus)
                 shifted = _shift_one_layer_blind(
                     current_split, gpus,
-                    oom_cuda_id=r.oom_cuda_id,
+                    oom_cuda_id=_eff_oom_id,
                     # lock_split zählt hier genauso wie in den Smart-Pfaden
                     # (1663, Step 3): der Blind-Shift darf einer split-
                     # gelockten VLM-Variante keine idle Karte aktivieren —
@@ -596,12 +614,13 @@ async def _verify_and_refine(
                         f"{status_prefix} no further layer shift possible — "
                         f"measurement-based refine found no target within reserve"
                     )
-                elif r.oom_cuda_id is None:
-                    # Ohne geparste OOM-Karte UND ohne Messwerte shiftet der
-                    # Blind-Shift bewusst nicht (falsche Quell-Karte wäre
-                    # schlimmer als keine) — das ist KEIN "alle Ziele voll",
-                    # sondern fehlende Info (z.B. Segfault exit -11 ohne
-                    # OOM-Zeile im stderr).
+                elif _eff_oom_id is None:
+                    # Ohne geparste OOM-Karte, ohne Messwerte UND ohne eine
+                    # zuvor identifizierte Karte in dieser Sequenz shiftet
+                    # der Blind-Shift bewusst nicht (falsche Quell-Karte
+                    # wäre schlimmer als keine) — das ist KEIN "alle Ziele
+                    # voll", sondern fehlende Info (z.B. Segfault exit -11
+                    # ohne OOM-Zeile im stderr).
                     yield (
                         f"{status_prefix} OOM GPU not identifiable from server "
                         f"log — cannot shift, falling back to ctx handling"
@@ -645,6 +664,8 @@ async def _verify_and_refine(
             ))
             if r.thinks is not None:
                 thinks_seen = r.thinks
+            if r.oom_cuda_id is not None:
+                last_oom_cuda_id = r.oom_cuda_id
 
         # Shift-Loop-Ausgang: NUR wenn immer noch OOM (alle Shifts erschöpft
         # oder kein Shift mehr möglich) auf die math-geführte ctx-Suche
