@@ -582,10 +582,13 @@ def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
     return result
 
 
-def set_reasoning_levels_for_model(model_name: str, levels: List[str]) -> bool:
+def set_reasoning_levels_for_model(
+    model_name: str, levels: List[str], default: Optional[str] = None,
+) -> bool:
     """
     Set the steerable reasoning-effort levels for a model, detected from
-    its embedded chat template (gguf_utils.detect_reasoning_levels).
+    its embedded chat template (gguf_utils.detect_reasoning_levels), plus
+    the template's default level (None = template has no default()).
 
     Empty list = template analyzed, no effort levels (plain on/off
     thinking, or none at all).
@@ -593,8 +596,8 @@ def set_reasoning_levels_for_model(model_name: str, levels: List[str]) -> bool:
     return _update_entry(
         model_name,
         defaults={"backend": "llamacpp", "native_context": 0, "gpu_model": "Unknown"},
-        updates={"reasoning_levels": levels},
-        log_msg=f"🧠 Set reasoning_levels={levels} for {model_name}",
+        updates={"reasoning_levels": levels, "reasoning_default": default},
+        log_msg=f"🧠 Set reasoning_levels={levels} (default={default}) for {model_name}",
     )
 
 
@@ -610,6 +613,18 @@ def get_reasoning_levels_for_model(model_name: str) -> Optional[List[str]]:
     if model_name not in cache:
         return None
     result: List[str] | None = cache[model_name].get("reasoning_levels")
+    return result
+
+
+def get_reasoning_default_for_model(model_name: str) -> Optional[str]:
+    """
+    The template's default effort level (what a plain "thinking on"
+    resolves to). None = no default() in the template or never analyzed.
+    """
+    cache = load_cache()
+    if model_name not in cache:
+        return None
+    result: str | None = cache[model_name].get("reasoning_default")
     return result
 
 

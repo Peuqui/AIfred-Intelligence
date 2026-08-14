@@ -58,6 +58,9 @@ class AgentTuning(rx.Base):
     thinking: bool = True
     reasoning_effort: str = ""
     reasoning_levels: list[str] = []
+    # Template-default level shown in the "On" label ("An (xhigh)") —
+    # derived from the model's chat template at load, not persisted.
+    reasoning_default: str = ""
 
     # Temperature (offset applies in auto mode relative to AIfred's temp)
     temperature: float = DEFAULT_TEMPERATURE
