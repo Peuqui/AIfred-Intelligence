@@ -220,37 +220,85 @@ def detect_reasoning_levels(template: str) -> List[str]:
         if name and name not in levels:
             levels.append(name)
 
-    # reasoning_effort == 'max'  /  reasoning_effort != "high"
+    # Alias assignments first — Qwen3.8 renames the variable before every
+    # comparison: {%- set resolved_reasoning_effort =
+    # reasoning_effort|default('xhigh') %}. All comparisons then run on the
+    # alias, so the patterns below must match alias names too. The
+    # default() literal itself is a valid level (it is what the template
+    # resolves to when the variable is unset).
+    var_names = ["reasoning_effort"]
     for m in re.finditer(
-        r"\breasoning_effort\s*[=!]=\s*['\"]([\w-]+)['\"]", template
+        r"\bset\s+(\w+)\s*=\s*reasoning_effort\b"
+        r"(?:\s*\|\s*default\(\s*['\"]([\w-]+)['\"])?",
+        template,
     ):
-        _add(m.group(1))
-    # 'max' == reasoning_effort (reversed operands)
-    for m in re.finditer(
-        r"['\"]([\w-]+)['\"]\s*[=!]=\s*reasoning_effort\b", template
-    ):
-        _add(m.group(1))
-    # reasoning_effort in ['high', 'max']
-    for m in re.finditer(r"\breasoning_effort\s+in\s+\[([^\]]*)\]", template):
-        for lit in re.finditer(r"['\"]([\w-]+)['\"]", m.group(1)):
-            _add(lit.group(1))
+        if m.group(1) not in var_names:
+            var_names.append(m.group(1))
+        if m.group(2):
+            _add(m.group(2))
 
-    return levels
+    for var in var_names:
+        v = re.escape(var)
+        # var == 'max'  /  var != "high"
+        for m in re.finditer(
+            rf"(?<!\w){v}\s*[=!]=\s*['\"]([\w-]+)['\"]", template
+        ):
+            _add(m.group(1))
+        # 'max' == var (reversed operands)
+        for m in re.finditer(
+            rf"['\"]([\w-]+)['\"]\s*[=!]=\s*{v}(?!\w)", template
+        ):
+            _add(m.group(1))
+        # var in ['high', 'max']  /  var not in ('xhigh', 'medium', 'low')
+        # — Jinja tuples use round brackets, lists use square ones.
+        for m in re.finditer(
+            rf"(?<!\w){v}\s+(?:not\s+)?in\s*[\[\(]([^\]\)]*)[\]\)]", template
+        ):
+            for lit in re.finditer(r"['\"]([\w-]+)['\"]", m.group(1)):
+                _add(lit.group(1))
+
+    # Stable low→high ordering for the UI dropdown (matches the DeepSeek
+    # template's natural order: high before max). Template discovery order
+    # is arbitrary (Qwen3.8 yields xhigh, high, low, medium); a fixed rank
+    # of the common effort names sorts it — unknown names keep their
+    # discovery order at the end.
+    _rank = {"none": 0, "minimal": 1, "low": 2, "medium": 3,
+             "high": 4, "xhigh": 5, "max": 6}
+    return sorted(
+        levels,
+        key=lambda n: (_rank.get(n, len(_rank)), levels.index(n)),
+    )
 
 
-def get_gguf_reasoning_levels(gguf_path: Path) -> List[str]:
-    """Reasoning-effort levels supported by the model's embedded chat
-    template (see :func:`detect_reasoning_levels`). Empty list when the
-    template is absent or has no steerable levels."""
+def detect_reasoning_default(template: str) -> Optional[str]:
+    """The level the template resolves to when ``reasoning_effort`` is
+    unset — the ``default()`` literal (Qwen3.8:
+    ``reasoning_effort|default('xhigh')`` → ``xhigh``). ``None`` when the
+    template has no such default (DeepSeek-V4: plain thinking without an
+    effort instruction); the UI then shows a plain "On" label."""
+    import re
+
+    m = re.search(
+        r"\breasoning_effort\s*\|\s*default\(\s*['\"]([\w-]+)['\"]", template
+    )
+    return m.group(1) if m else None
+
+
+def get_gguf_reasoning_info(gguf_path: Path) -> tuple[List[str], Optional[str]]:
+    """(effort levels, default level) from the model's embedded chat
+    template. ``([], None)`` when the template is absent or has no
+    steerable levels."""
     template = get_gguf_chat_template(gguf_path)
     if not template:
-        return []
+        return [], None
     levels = detect_reasoning_levels(template)
+    default = detect_reasoning_default(template) if levels else None
     if levels:
         logger.info(
-            f"✅ Reasoning levels from chat template ({gguf_path.name}): {levels}"
+            f"✅ Reasoning levels from chat template ({gguf_path.name}): "
+            f"{levels} (default: {default})"
         )
-    return levels
+    return levels, default
 
 
 def resolve_reasoning_levels(model_id: str, force: bool = False) -> List[str]:
@@ -289,8 +337,8 @@ def resolve_reasoning_levels(model_id: str, force: bool = False) -> List[str]:
         logger.debug(f"Reasoning-level resolve: no GGUF for '{model_id}'")
         return []
 
-    levels = get_gguf_reasoning_levels(Path(gguf))
-    set_reasoning_levels_for_model(model_id, levels)
+    levels, default = get_gguf_reasoning_info(Path(gguf))
+    set_reasoning_levels_for_model(model_id, levels, default)
     return levels
 
 

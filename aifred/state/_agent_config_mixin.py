@@ -152,7 +152,9 @@ class AgentConfigMixin(rx.State, mixin=True):
         off_label, on_label = self._thinking_mode_labels()
         if mode == off_label:
             mode = "off"
-        elif mode == on_label:
+        elif mode in (on_label, self._thinking_on_option(agent)):
+            # Plain label or default-annotated variant ("An (xhigh)") —
+            # both mean "on with template default", no stored effort.
             mode = "on"
         set_agent_setting(self, agent, "thinking", mode != "off")
         set_agent_setting(
@@ -166,10 +168,13 @@ class AgentConfigMixin(rx.State, mixin=True):
     def _agent_thinking_mode(self, agent: str) -> str:
         """Current dropdown label derived from (thinking, effort)."""
         from ..lib.agent_settings import get_agent_setting
-        off_label, on_label = self._thinking_mode_labels()
+        off_label, _ = self._thinking_mode_labels()
         if not get_agent_setting(self, agent, "thinking"):
             return off_label
-        return get_agent_setting(self, agent, "reasoning_effort") or on_label
+        return (
+            get_agent_setting(self, agent, "reasoning_effort")
+            or self._thinking_on_option(agent)
+        )
 
     def _load_agent_reasoning_levels(self, agent: str, model_id: str) -> None:
         """Refresh the agent's ``reasoning_levels`` for a newly selected model
@@ -177,10 +182,15 @@ class AgentConfigMixin(rx.State, mixin=True):
         Levels exist only for llama.cpp models (embedded chat template)."""
         from ..lib.agent_settings import get_agent_setting, set_agent_setting
         levels: list[str] = []
+        default = ""
         if model_id and self.backend_type == "llamacpp":  # type: ignore[attr-defined]
             from ..lib.gguf_utils import resolve_reasoning_levels
+            from ..lib.model_vram_cache import get_reasoning_default_for_model
             levels = resolve_reasoning_levels(model_id)
+            # resolve above just (re)wrote the cache entry incl. default
+            default = get_reasoning_default_for_model(model_id) or ""
         set_agent_setting(self, agent, "reasoning_levels", levels)
+        set_agent_setting(self, agent, "reasoning_default", default)
         # Effort gegen die EFFEKTIVEN Stufen validieren (Owner-aware):
         # Beim Umstellen auf "(wie AIfred-LLM)" ist die eigene Liste leer,
         # aber ein gesetztes "high" bleibt gültig, solange der Owner es kann.
@@ -214,8 +224,26 @@ class AgentConfigMixin(rx.State, mixin=True):
         )
         return levels
 
+    def _thinking_on_option(self, agent: str) -> str:
+        """Dropdown-Label für "Thinking an ohne Stufen-Vorgabe".
+
+        Trägt das Template seinen eigenen Default (Qwen3.8:
+        ``default('xhigh')``), zeigt das Label ihn an — "An (xhigh)" —
+        weil ein nacktes "An" sonst kontraintuitiv NEBEN den expliziten
+        Stufen steht, obwohl es einer davon entspricht. Ohne
+        Template-Default (DeepSeek) bleibt es schlicht "An"."""
+        from ..lib.agent_settings import get_agent_setting, model_owner
+        _, on_label = self._thinking_mode_labels()
+        default: str = get_agent_setting(
+            self, model_owner(self, agent), "reasoning_default",
+        )
+        return f"{on_label} ({default})" if default else on_label
+
     def _agent_thinking_options(self, agent: str) -> list[str]:
-        return [*self._thinking_mode_labels()] + self._effective_reasoning_levels(agent)
+        off_label, _ = self._thinking_mode_labels()
+        return [
+            off_label, self._thinking_on_option(agent),
+        ] + self._effective_reasoning_levels(agent)
 
     @rx.var(deps=["agent_tuning", "ui_language"], auto_deps=False)
     def aifred_thinking_options(self) -> list[str]:
