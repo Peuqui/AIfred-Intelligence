@@ -51,6 +51,10 @@ class LlamaCppBackend(OpenAICompatibleBackend):
     """
 
     BACKEND_NAME = "llama.cpp"
+    # llama-server akzeptiert reasoning_content in eingehenden Messages und
+    # rendert es via Chat-Template (verifiziert 2026-08-15 per
+    # /apply-template gegen Qwen3.8: <think>…</think> im Assistant-Block).
+    SEND_TURN_REASONING = True
     # 900s (15 min): genuegt fuer (a) llama-swap startup + Modell-Load bei
     # grossen Modellen, (b) Multi-Tool-Round-Loops mit Thinking-Models (z.B.
     # URL-Ranking ueber viele Suchergebnisse), (c) Long-Context-Inference auf
@@ -143,7 +147,15 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         return content
 
     def _process_stream_delta(self, delta: Any, delta_dict: Dict, stream_state: Dict) -> List[Dict]:
-        """Stream reasoning_content as <think> tags (state machine)."""
+        """Stream reasoning_content as <think> tags (state machine).
+
+        Nebenbei werden Reasoning und sichtbarer Text getrennt akkumuliert
+        (``_reasoning_acc``/``_visible_acc``): Der Tool-Loop in base.py
+        reicht beide in der Runden-History zurück, damit das Modell im
+        laufenden Turn sein eigenes Denken und seine Zwischenmeldungen
+        wiedersieht (Qwen3.8-Template rendert turn-internes Reasoning
+        immer; ältere Templates ignorieren das Feld einfach).
+        """
         chunks: List[Dict] = []
         reasoning = delta_dict.get("reasoning_content") or ""
 
@@ -152,12 +164,14 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 chunks.append({"type": "content", "text": "<think>"})
                 stream_state["thinking_started"] = True
             chunks.append({"type": "content", "text": reasoning})
+            stream_state["_reasoning_acc"] = stream_state.get("_reasoning_acc", "") + reasoning
 
         if delta.content:
             if stream_state.get("thinking_started"):
                 chunks.append({"type": "content", "text": "</think>\n\n"})
                 stream_state["thinking_started"] = False
             chunks.append({"type": "content", "text": delta.content})
+            stream_state["_visible_acc"] = stream_state.get("_visible_acc", "") + delta.content
 
         return chunks
 
