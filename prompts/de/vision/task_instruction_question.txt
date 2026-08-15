@@ -1,0 +1,3 @@
+Beantworte konkret folgende Frage: {question}
+
+Zitiere dafür nur die relevanten Textstellen wortgetreu — eine vollständige Extraktion des gesamten Bildes ist hierfür nicht nötig.

@@ -483,9 +483,13 @@ class ChatMixin(rx.State, mixin=True):
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
             })
+        # SSOT vision perception, same body as the single-agent path — only
+        # the follow-up instruction differs (shared/neutral vs. answer-a-
+        # question), see vision/task_instruction_symposion.txt.
+        task_instruction = load_prompt("vision/task_instruction_symposion", lang=detected_language)
         desc_content.append({
             "type": "text",
-            "text": load_prompt("utility/image_description_for_symposion", lang=detected_language),
+            "text": load_prompt("vision/task_adaptive", lang=detected_language, task_instruction=task_instruction),
         })
 
         llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)  # type: ignore[attr-defined]
@@ -521,7 +525,7 @@ class ChatMixin(rx.State, mixin=True):
         content_parts: list[dict],
         detected_intent: str,
         detected_language: str,
-        vision_prompt_key: str = "task_qa",
+        vision_task_addon: str = "",
     ) -> AsyncGenerator[None, None]:
         """Run VL inference via call_llm and process results.
 
@@ -597,7 +601,7 @@ class ChatMixin(rx.State, mixin=True):
             enable_thinking=self.agent_tuning["vision"].thinking,  # type: ignore[attr-defined]
             state=self,
             multimodal_content=content_parts,
-            vision_prompt_key=vision_prompt_key,
+            vision_task_addon=vision_task_addon,
             provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
             agent=acting_agent,
             external_toolkit=vl_toolkit,
@@ -1105,7 +1109,6 @@ class ChatMixin(rx.State, mixin=True):
                     )
                     prompt_text = f"{prompt_text}\n\n[{_ref}: {', '.join(_img_urls)}]"
                 content_parts.append({"type": "text", "text": prompt_text})
-                vision_prompt_key = "task_qa" if has_user_text else "task"
 
                 # Symposion with >=2 agents: one shared image description,
                 # then the normal multi-agent discussion — not a single
@@ -1115,8 +1118,22 @@ class ChatMixin(rx.State, mixin=True):
                         yield
                     return
 
+                # SSOT vision perception (vision/task_adaptive.txt): same
+                # "look at the image thoroughly" body regardless of image
+                # type; only the follow-up instruction differs by whether
+                # the user asked something specific.
+                from ..lib.prompt_loader import load_prompt
+                task_instruction = (
+                    load_prompt("vision/task_instruction_question", lang=detected_language, question=user_msg.strip())
+                    if has_user_text
+                    else load_prompt("vision/task_instruction_default", lang=detected_language)
+                )
+                vision_task_addon = load_prompt(
+                    "vision/task_adaptive", lang=detected_language, task_instruction=task_instruction,
+                )
+
                 async for _ in self._process_vision_request(
-                    user_msg, content_parts, "GEMISCHT", detected_language, vision_prompt_key,
+                    user_msg, content_parts, "GEMISCHT", detected_language, vision_task_addon,
                 ):
                     yield
                 return  # Vision fast path complete

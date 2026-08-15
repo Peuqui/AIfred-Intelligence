@@ -1,0 +1,3 @@
+Answer this specific question: {question}
+
+Quote only the relevant text passages verbatim for this — a complete extraction of the entire image is not needed.

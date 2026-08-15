@@ -731,6 +731,17 @@ class AgentConfigMixin(rx.State, mixin=True):
             self.add_debug(f"🏛️ Symposion: {label} added")  # type: ignore[attr-defined]
         self._persist_session_config()  # type: ignore[attr-defined]
 
+    @rx.var(deps=["symposion_agents"], auto_deps=False)
+    def symposion_agent_positions(self) -> dict[str, int]:
+        """1-based speaking-order position per selected Symposion agent.
+
+        The order is toggle history (append-on-enable, see
+        toggle_symposion_agent), invisible otherwise — this exposes it so
+        the UI can show a small "who speaks first" badge instead of the
+        user only finding out from the debug console mid-run.
+        """
+        return {aid: i + 1 for i, aid in enumerate(self.symposion_agents)}
+
     # ================================================================
     # MULTI-AGENT RUNTIME STATE MANAGEMENT
     # ================================================================

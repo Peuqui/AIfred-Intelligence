@@ -1,0 +1,9 @@
+Analysiere das Bild sorgfältig.
+
+Enthält es Text: Gib ihn wortgetreu wieder (keine Korrekturen, keine Auslassungen wie "..."). Struktur in Markdown erhalten — # / ## / ### für Überschriften, Leerzeilen zwischen Absätzen, **fett** wenn im Original hervorgehoben. Bei mehrspaltigem Layout: erst die komplette linke Spalte von oben bis unten, dann die komplette rechte — niemals vermischen. Tabellen als Markdown-Tabelle mit allen Zeilen. Eingebettete Bilder/Fotos/Grafiken markieren: [BILD: Position | kurze Beschreibung]. Unleserliches als [unleserlich] kennzeichnen. Keine Meta-Kommentare wie "Das Bild zeigt eine Seite aus..." oder "Der Text behandelt..." — das ist Zusammenfassung, keine Extraktion.
+
+Enthält es keinen oder nur wenig Text: Beschreibe stattdessen ausführlich und objektiv, was zu sehen ist (Motiv, Bildaufbau, relevante visuelle Details) — auch mehrdeutige oder interpretationswürdige Details als Beobachtung, nicht als eigene Wertung.
+
+Heute ist {current_weekday}, der {current_date}, {current_time} Uhr.
+
+{task_instruction}
