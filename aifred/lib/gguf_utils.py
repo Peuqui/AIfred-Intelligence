@@ -257,6 +257,29 @@ def detect_reasoning_levels(template: str) -> List[str]:
             for lit in re.finditer(r"['\"]([\w-]+)['\"]", m.group(1)):
                 _add(lit.group(1))
 
+    # Self-remapping aliases: {%- if X == 'A' %}{%- set X = 'B' %}{%- endif %}
+    # collapses 'A' into 'B' before any behavior-branch is chosen — Qwen3.8
+    # does this for "high" (silently promoted to "xhigh"). Offering both as
+    # separate dropdown entries is misleading: they produce byte-identical
+    # prompts. Drop the source name, keep the target (it was already
+    # discovered independently via its own comparison/default() literal).
+    for var in var_names:
+        v = re.escape(var)
+        # Bounded lookahead (not a {}-exclusion): Jinja tags themselves are
+        # spelled with { and }, so excluding those chars — the first attempt
+        # here — blocked matching through the tag delimiters separating the
+        # comparison from its own {%- set %}. A short character cap keeps
+        # the match local to "this if-branch" without needing to parse
+        # actual Jinja block nesting.
+        for m in re.finditer(
+            rf"(?<!\w){v}\s*==\s*['\"]([\w-]+)['\"].{{0,60}}?"
+            rf"set\s+{v}\s*=\s*['\"]([\w-]+)['\"]",
+            template, re.S,
+        ):
+            source, target = m.group(1), m.group(2)
+            if source in levels and source != target:
+                levels.remove(source)
+
     # Stable low→high ordering for the UI dropdown (matches the DeepSeek
     # template's natural order: high before max). Template discovery order
     # is arbitrary (Qwen3.8 yields xhigh, high, low, medium); a fixed rank
