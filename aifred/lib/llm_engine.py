@@ -261,6 +261,11 @@ async def call_llm(
                 result_str = event.get("result", "") or ""
                 result_tokens = estimate_tokens([{"content": result_str}]) if result_str else 0
                 yield {"type": "debug", "message": f"   ↳ {format_tool_result(result_str, token_count=result_tokens)}"}
+            elif event_type == "debug":
+                # Backend warnings (truncation, context guard, discarded
+                # tool calls) — forward to the caller's debug sink.
+                if event.get("message"):
+                    yield {"type": "debug", "message": event["message"]}
             elif event_type == "pipeline_result":
                 pipeline_result = event["result"]
 
@@ -293,6 +298,7 @@ async def call_llm(
             history_tokens=history_tokens,
             backend_type=backend_type,
             agent_label=agent_label,
+            truncated=pipeline_result.truncated,
         )
         # Channel-Hint fuer send_reply: bei erfolgreichem Audio-Tool soll
         # die TTS-Bestaetigung geskippt werden — Smart-Speaker-UX.

@@ -48,6 +48,7 @@ class PipelineResult:
     sandbox_html_urls: list[str] = field(default_factory=list)
     sandbox_image_urls: list[str] = field(default_factory=list)
     silent_reply: bool = False                          # any tool requested TTS-skip
+    truncated: bool = False                             # hit token/context limit — answer incomplete
 
 
 def strip_tool_json(text: str) -> str:
@@ -399,6 +400,14 @@ async def run_llm_stream(
                 full_response += f"<think>{thinking_content}</think>"
             yield chunk
 
+        elif chunk_type == "debug":
+            # Backend debug items (truncation warning, context guard,
+            # discarded partial tool calls, text-extraction notices) —
+            # forward so consumers can mirror them into the browser debug
+            # console. Previously these fell through the dispatch silently
+            # and only ever reached the server logfile.
+            yield chunk
+
         elif chunk_type == "done":
             metrics = chunk.get("metrics", {})
             token_count = metrics.get("tokens_generated", token_count)
@@ -478,6 +487,8 @@ async def run_llm_stream(
         tokens_per_sec=tokens_per_sec,
     )
 
+    truncated = bool(metrics.get("truncated"))
+
     # Metadata
     metadata_dict, metadata_display, debug_msg = build_inference_metadata(
         ttft=ttft,
@@ -489,6 +500,7 @@ async def run_llm_stream(
         tokens_prompt=metrics.get("tokens_prompt", 0),
         agent_label=agent_label,
         response_chars=len(full_response),
+        truncated=truncated,
     )
 
     yield {
@@ -508,5 +520,6 @@ async def run_llm_stream(
             sandbox_html_urls=sandbox_html_urls,
             sandbox_image_urls=sandbox_image_urls,
             silent_reply=silent_reply,
+            truncated=truncated,
         ),
     }

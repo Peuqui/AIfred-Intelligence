@@ -344,6 +344,15 @@ async def _stream_agent_to_history(
             state.clear_tool_status()
             yield  # type: ignore[misc]
 
+        elif event_type == "debug":
+            # Backend warnings (truncation, context guard, discarded tool
+            # calls) — mirror into the browser debug console; previously
+            # these only reached the server logfile.
+            debug_message = event.get("message", "") or ""
+            if debug_message:
+                state.add_debug(debug_message)
+            yield  # type: ignore[misc]
+
         elif event_type == "pipeline_result":
             pipeline_result = event["result"]
 

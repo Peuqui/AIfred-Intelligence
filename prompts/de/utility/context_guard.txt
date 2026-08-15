@@ -1,0 +1,1 @@
+[SYSTEM-HINWEIS] Das Kontextfenster ist fast voll — das Budget für Tool-Aufrufe ist erschöpft. Rufe keine weiteren Tools auf. Schreibe jetzt deine vollständige Abschlussantwort auf Basis der bereits gesammelten Informationen. Falls Teile der Aufgabe unerledigt bleiben, benenne explizit was fehlt, statt weitere Tool-Aufrufe zu versuchen.
