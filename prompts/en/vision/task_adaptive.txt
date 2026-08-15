@@ -1,0 +1,9 @@
+Analyze the image carefully.
+
+If it contains text: Reproduce it verbatim (no corrections, no omissions like "..."). Preserve structure in Markdown — # / ## / ### for headings, blank lines between paragraphs, **bold** if emphasized in the original. For multi-column layouts: first the complete left column top to bottom, then the complete right column — never interleave. Tables as Markdown tables with all rows. Mark embedded images/photos/graphics: [IMAGE: position | brief description]. Mark illegible parts as [illegible]. No meta-commentary like "The image shows a page from..." or "The text discusses..." — that is summarizing, not extraction.
+
+If it contains little or no text: Instead describe fully and objectively what is shown (subject, composition, relevant visual details) — include ambiguous or interpretation-worthy details as observations, not as your own judgment.
+
+Today is {current_weekday}, {current_date}, {current_time}.
+
+{task_instruction}

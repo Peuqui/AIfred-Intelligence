@@ -44,8 +44,32 @@ def _agent_toggle_button(agent: rx.Var) -> rx.Component:
         rx.cond(is_symposion, is_selected_symposion, is_active_standard),
     )
 
+    # Symposion speaking order is toggle history (append-on-enable) and
+    # otherwise invisible until the debug console mid-run — show it as a
+    # small position badge instead, so the order is a decision the user
+    # makes when clicking, not a discovery after the run started.
+    symposion_position = AIState.symposion_agent_positions[agent["id"]]
+
     return rx.button(
         rx.hstack(
+            rx.cond(
+                is_symposion & is_selected_symposion,
+                rx.box(
+                    rx.text(symposion_position, font_size="9px", font_weight="bold", line_height="1", color=COLORS.get("primary", "#e67700")),
+                    background_color="black",
+                    border="1px solid #ffb300",
+                    border_radius="3px",
+                    width="12px",
+                    height="12px",
+                    padding_top="0",
+                    padding_bottom="1px",
+                    display="flex",
+                    align_items="center",
+                    justify_content="center",
+                    flex_shrink="0",
+                ),
+                rx.fragment(),
+            ),
             rx.cond(
                 agent["emoji"] == "\U0001f3a9",
                 rx.image(src="/AIfred-Zylinder.png", width="16px", height="16px", display="inline-block"),

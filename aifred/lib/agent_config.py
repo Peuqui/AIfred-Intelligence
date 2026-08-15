@@ -142,8 +142,7 @@ def _default_agents() -> dict[str, dict]:
             "prompts": {
                 "identity": "vision/identity.txt",
                 "personality": "aifred/personality.txt",
-                "task": "vision/vision_ocr.txt",
-                "task_qa": "vision/vision_qa.txt",
+                "task": "vision/task_adaptive.txt",
                 "memory_context": "vision/memory_context.txt",
             },
             "toggles": {

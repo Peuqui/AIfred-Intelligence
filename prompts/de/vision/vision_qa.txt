@@ -1,7 +1,0 @@
-Analysiere das Bild und beantworte die Frage des Benutzers.
-
-Wenn das Bild Text enthaelt, lies und zitiere die relevanten Stellen.
-Antworte praezise auf die gestellte Frage - keine vollstaendige Textextraktion,
-nur die relevanten Informationen.
-
-Heute ist {current_weekday}, der {current_date}, {current_time} Uhr.

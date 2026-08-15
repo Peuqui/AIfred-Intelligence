@@ -17,7 +17,7 @@ from typing import AsyncIterator, Dict, List, Optional, Any, cast
 
 from .llm_client import LLMClient, build_llm_options
 from .formatting import format_number, build_inference_metadata
-from .prompt_loader import get_agent_direct_prompt, get_agent_system_prompt, load_prompt
+from .prompt_loader import get_agent_direct_prompt, get_agent_system_prompt
 from .context_manager import estimate_tokens
 from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .logging_utils import log_message
@@ -50,7 +50,7 @@ async def call_llm(
     num_ctx_manual_value: Optional[int] = None,
     provider: Optional[str] = None,
     agent: str = "aifred",
-    vision_prompt_key: str = "task",
+    vision_task_addon: str = "",
     external_toolkit: Optional[Any] = None,
     num_ctx_source_label: str = "",
     source: str = "browser",
@@ -129,12 +129,12 @@ async def call_llm(
     if multimodal_content is not None:
         # Real agent prompt (with full layer stack: identity, tools, memory, personality)
         system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
-        # Append vision-specific task instructions as addon
-        # vision_prompt_key: "task" → vision_ocr, "task_qa" → vision_qa
-        vision_file = "vision/vision_qa" if vision_prompt_key == "task_qa" else "vision/vision_ocr"
-        vision_addon = load_prompt(vision_file, lang=detected_language)
-        if vision_addon:
-            system_prompt = f"{system_prompt}\n\n{vision_addon}"
+        # Append vision-specific task instructions as addon — caller renders
+        # the SSOT vision/task_adaptive.txt (identical perception body for
+        # every image, only the follow-up instruction differs by whether
+        # the user asked something specific).
+        if vision_task_addon:
+            system_prompt = f"{system_prompt}\n\n{vision_task_addon}"
     elif use_direct_prompt:
         system_prompt = get_agent_direct_prompt(agent, lang=detected_language)
     else:
