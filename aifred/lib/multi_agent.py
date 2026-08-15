@@ -389,15 +389,10 @@ async def _stream_agent_to_history(
         sources_html = build_sources_collapsible(successful, failed)
 
     # Build sandbox output (iframes for HTML, img tags for plots)
-    sandbox_html = ""
-    sandbox_parts: list[str] = []
-    if pipeline_result.sandbox_html_urls:
-        from .formatting import build_sandbox_iframe
-        sandbox_parts.extend(build_sandbox_iframe(url) for url in pipeline_result.sandbox_html_urls)
-    if pipeline_result.sandbox_image_urls:
-        from .formatting import build_sandbox_image
-        sandbox_parts.extend(build_sandbox_image(url) for url in pipeline_result.sandbox_image_urls)
-    sandbox_html = "\n".join(sandbox_parts)
+    from .formatting import build_sandbox_html
+    sandbox_html = build_sandbox_html(
+        pipeline_result.sandbox_html_urls, pipeline_result.sandbox_image_urls
+    )
 
     # Sync to llm_history with CLEAN text (no HTML collapsibles)
     state._sync_to_llm_history(agent, pipeline_result.text)
