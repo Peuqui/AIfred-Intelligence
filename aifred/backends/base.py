@@ -304,6 +304,14 @@ class OpenAICompatibleBackend(LLMBackend):
     # (235B ~165s reines Read + Pre-Init); zu knappe Timeouts brechen
     # den ersten Request nach Modell-Eviction unnötig ab.
     DEFAULT_TIMEOUT: float = 300.0
+    # Turn-internes Reasoning in den Runden-Messages des Tool-Loops
+    # zurückreichen (Feld ``reasoning_content``). Default aus: Cloud-APIs
+    # lehnen das Feld teils hart ab (DeepSeek: 400) und vLLM verwirft es
+    # still (Issue #38488, nutzt ``reasoning``). llama.cpp akzeptiert es
+    # und rendert es trainingsgemäß ins Template — das llamacpp-Backend
+    # schaltet frei. Bewusst ein Backend-Gate, kein Modell-Gate: Templates
+    # ohne Reasoning-Support ignorieren das Feld einfach.
+    SEND_TURN_REASONING: bool = False
 
     def __init__(self, base_url: str, api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
@@ -698,6 +706,10 @@ class OpenAICompatibleBackend(LLMBackend):
                             # echo the tool-call tag back to the model (which
                             # would either confuse it or trigger a re-call).
                             stream_state["_content_acc"] = cleaned
+                            # Same reason for the visible-text accumulator that
+                            # feeds assistant_msg["content"] below.
+                            if "_visible_acc" in stream_state:
+                                stream_state["_visible_acc"] = cleaned
 
                     # No tool calls → done
                     if not tool_calls or not toolkit:
@@ -706,10 +718,17 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     last_round_had_tool_calls = True
 
-                    # Execute tool calls and append results to messages
+                    # Execute tool calls and append results to messages.
+                    # Sichtbaren Text und (gated) das Runden-Reasoning
+                    # mitgeben statt content=None: Das Modell sieht im
+                    # laufenden Turn seine eigenen Zwischenmeldungen und
+                    # Gedanken wieder — vorher gingen BEIDE zwischen den
+                    # Tool-Runden verloren und es musste seinen Stand jede
+                    # Runde aus Tool-Args/Results rekonstruieren. Zwischen
+                    # den Turns strippt die llm_history weiterhin (bewusst).
                     assistant_msg: Dict[str, Any] = {
                         "role": "assistant",
-                        "content": None,
+                        "content": stream_state.get("_visible_acc") or None,
                         "tool_calls": [
                             {
                                 "id": tc["id"],
@@ -719,6 +738,8 @@ class OpenAICompatibleBackend(LLMBackend):
                             for tc in tool_calls
                         ],
                     }
+                    if self.SEND_TURN_REASONING and stream_state.get("_reasoning_acc"):
+                        assistant_msg["reasoning_content"] = stream_state["_reasoning_acc"]
                     kwargs["messages"].append(assistant_msg)
 
                     for tc in tool_calls:
