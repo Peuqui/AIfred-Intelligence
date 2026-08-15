@@ -450,6 +450,71 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── VL Inference Helper ──────────────────────────────────────────
 
+    async def _symposion_vision_handoff(
+        self,
+        local_images: list,
+        detected_language: str,
+    ) -> AsyncGenerator[None, None]:
+        """Describe an uploaded image ONCE, then let Symposion discuss it.
+
+        Symposion with >=2 agents normally never reaches the Vision Fast
+        Path's single-agent response — before this, an attached image made
+        it fall through to _process_vision_request(), which answers as
+        exactly one agent (whichever active_agent happened to be) and
+        bypasses run_symposion() entirely, regardless of the selected
+        lineup. A shared, neutral image description is the right amount of
+        vision here: the image is an objective fact all agents discuss from
+        the same basis, not a matter of individual perspective — and one
+        VL call instead of N avoids both the cost multiplication and the
+        risk of agents arguing from subtly different descriptions of the
+        same image.
+        """
+        from ..lib.llm_client import LLMClient
+        from ..lib.prompt_loader import load_prompt
+        from ..lib.vision_utils import load_image_as_base64
+        from pathlib import Path
+
+        effective_vision_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
+
+        desc_content: list[dict] = []
+        for img in local_images:
+            base64_data = load_image_as_base64(Path(img["path"]))
+            desc_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
+            })
+        desc_content.append({
+            "type": "text",
+            "text": load_prompt("utility/image_description_for_symposion", lang=detected_language),
+        })
+
+        llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)  # type: ignore[attr-defined]
+        from ..backends.base import LLMOptions
+        response = await llm_client.chat(
+            model=effective_vision_id,
+            messages=[{"role": "user", "content": desc_content}],
+            options=LLMOptions(
+                temperature=self.agent_tuning["vision"].temperature,  # type: ignore[attr-defined]
+                num_ctx=self.agent_tuning["vision"].max_context or None,  # type: ignore[attr-defined]
+                enable_thinking=False,
+            ),
+        )
+        await llm_client.close()
+        description = response.text.strip()
+
+        from ..lib.prompt_loader import get_language
+        _de = get_language() == "de"
+        _label = "Bildinhalt" if _de else "Image content"
+        ch = self._chat_sub()
+        updated_content = f"{ch.llm_history[-1]['content']}\n\n[{_label}: {description}]"
+        ch.llm_history = [*ch.llm_history[:-1], {"role": "user", "content": updated_content}]
+        self.add_debug(f"📷 Symposion: shared image description ({effective_vision_id})")
+        yield
+
+        from ..lib.multi_agent import run_symposion
+        async for _ in run_symposion(self, updated_content, detected_language):  # type: ignore[arg-type]
+            yield
+
     async def _process_vision_request(
         self,
         user_msg: str,
@@ -1041,6 +1106,14 @@ class ChatMixin(rx.State, mixin=True):
                     prompt_text = f"{prompt_text}\n\n[{_ref}: {', '.join(_img_urls)}]"
                 content_parts.append({"type": "text", "text": prompt_text})
                 vision_prompt_key = "task_qa" if has_user_text else "task"
+
+                # Symposion with >=2 agents: one shared image description,
+                # then the normal multi-agent discussion — not a single
+                # agent's private answer (see _symposion_vision_handoff).
+                if self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2:  # type: ignore[attr-defined]
+                    async for _ in self._symposion_vision_handoff(local_images, detected_language):
+                        yield
+                    return
 
                 async for _ in self._process_vision_request(
                     user_msg, content_parts, "GEMISCHT", detected_language, vision_prompt_key,

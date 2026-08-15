@@ -1135,6 +1135,20 @@ def build_sandbox_image(url: str) -> str:
     )
 
 
+def build_sandbox_html(html_urls: list[str], image_urls: list[str]) -> str:
+    """Combine sandbox HTML/image URLs into the bubble's embed markup.
+
+    SSOT for every caller that consumes PipelineResult.sandbox_html_urls /
+    sandbox_image_urls (multi_agent.py's _stream_agent_to_history and
+    llm_engine.py's call_llm) — was duplicated inline before, and the
+    Vision/Hub path (call_llm) had no version of it at all, so a sandbox
+    app created via an image-attached message never got embedded.
+    """
+    parts = [build_sandbox_iframe(url) for url in html_urls]
+    parts.extend(build_sandbox_image(url) for url in image_urls)
+    return "\n".join(parts)
+
+
 def build_sources_collapsible(used_sources: list, failed_sources: list, lang: str | None = None) -> str:
     """
     Build HTML <details> collapsible for web sources.
