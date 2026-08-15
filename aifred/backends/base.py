@@ -507,11 +507,11 @@ class OpenAICompatibleBackend(LLMBackend):
         if finish_reason != "length":
             return []
         message = (
-            "Response truncated (finish_reason=length) — token or "
+            "⚠️ Response truncated (finish_reason=length) — token or "
             "context limit reached, answer is incomplete"
         )
         from ..lib.logging_utils import log_message
-        log_message(f"⚠️ {message}")
+        log_message(message)
         return [{"type": "debug", "message": message}]
 
     async def _consume_stream(
@@ -623,7 +623,7 @@ class OpenAICompatibleBackend(LLMBackend):
         # lange Tool-Loops und Thinking-Models — daher 900s (15 Min).
         retry_timeout = 900.0
         retry_delay = 5.0
-        from ..lib.config import MAX_TOOL_ROUNDS
+        from ..lib.config import MAX_TOOL_ROUNDS, TOOL_LOOP_CONTEXT_GUARD
         max_tool_rounds = MAX_TOOL_ROUNDS
         start_time = time.monotonic()
         last_error: Optional[Exception] = None
@@ -643,6 +643,14 @@ class OpenAICompatibleBackend(LLMBackend):
                 prompt_tokens = 0
                 server_timings: Dict[str, Any] = {}
                 last_round_had_tool_calls = False
+                # True once any round hit finish_reason="length" — surfaces in
+                # the done metrics so the pipeline can mark the result as
+                # truncated (⚠️ in the done line instead of a clean ✅).
+                truncated_any = False
+                # True once the context guard stopped further tool rounds —
+                # gates the text-extraction fallback below so a model that
+                # emits tool-call syntax as text can't sneak in another round.
+                context_guard_tripped = False
 
                 for _tool_round in range(max_tool_rounds):
                     stream = await self.client.chat.completions.create(**kwargs)
@@ -669,7 +677,10 @@ class OpenAICompatibleBackend(LLMBackend):
                     # truncated answer is indistinguishable from a finished
                     # one — the loop would just break out below and report
                     # success while the model was cut off mid-work.
-                    for item in self._truncation_debug(last_finish_reason):
+                    trunc_items = self._truncation_debug(last_finish_reason)
+                    if trunc_items:
+                        truncated_any = True
+                    for item in trunc_items:
                         yield item
 
                     # Discard tool calls if generation was truncated mid-args.
@@ -681,7 +692,7 @@ class OpenAICompatibleBackend(LLMBackend):
                             "⚠️ Discarding partial tool calls — "
                             "model will produce a normal answer"
                         )
-                        yield {"type": "debug", "message": "Partial tool calls discarded"}
+                        yield {"type": "debug", "message": "⚠️ Partial tool calls discarded"}
                         tool_calls = []
 
                     # Fallback: extract tool calls from text content for models
@@ -691,7 +702,7 @@ class OpenAICompatibleBackend(LLMBackend):
                     # Loud by design: every detected pattern emits a debug
                     # message — successful extractions, halluzinations and
                     # unparsable patterns alike. No silent recoveries.
-                    if not tool_calls and toolkit and toolkit.definitions:
+                    if not tool_calls and toolkit and toolkit.definitions and not context_guard_tripped:
                         from ..lib.function_calling import extract_text_tool_calls
                         content_text = stream_state.get("_content_acc", "")
                         extracted, cleaned, debug_msgs = extract_text_tool_calls(
@@ -742,6 +753,7 @@ class OpenAICompatibleBackend(LLMBackend):
                         assistant_msg["reasoning_content"] = stream_state["_reasoning_acc"]
                     kwargs["messages"].append(assistant_msg)
 
+                    round_result_tokens = 0
                     for tc in tool_calls:
                         yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"][:200]}
                         yielded_any = True
@@ -772,6 +784,42 @@ class OpenAICompatibleBackend(LLMBackend):
                             "tool_call_id": tc["id"],
                             "content": result,
                         })
+                        from ..lib.context_manager import estimate_tokens
+                        round_result_tokens += estimate_tokens([{"content": result}])
+
+                    # Context guard: history compression only runs between
+                    # user turns — inside this loop nothing bounds context
+                    # growth, and with --no-context-shift the final answer
+                    # gets hard-truncated when the window runs full. Compare
+                    # the server-reported usage of this round (prompt +
+                    # completion, the honest live value) plus the estimated
+                    # size of the just-appended tool results against the
+                    # guard ratio. When crossed: the model still sees the
+                    # results it already requested, but gets no further tool
+                    # rounds — only an explicit note to finalize now. Nothing
+                    # is rewritten or dropped; the reserve stays free for
+                    # thinking + answer. Guard is inactive when num_ctx is
+                    # unknown (no usable limit to measure against).
+                    used_tokens = prompt_tokens + total_tokens + round_result_tokens
+                    if options.num_ctx and used_tokens >= TOOL_LOOP_CONTEXT_GUARD * options.num_ctx:
+                        context_guard_tripped = True
+                        kwargs.pop("tools", None)
+                        from ..lib.prompt_loader import load_prompt
+                        kwargs["messages"].append({
+                            "role": "user",
+                            "content": load_prompt("utility/context_guard"),
+                        })
+                        from ..lib.formatting import format_number
+                        from ..lib.logging_utils import log_message
+                        pct = used_tokens / options.num_ctx * 100
+                        guard_msg = (
+                            f"⚠️ Context guard: ~{format_number(used_tokens)}/"
+                            f"{format_number(options.num_ctx)} tok "
+                            f"({format_number(pct, 1)}%) — tool rounds stopped, "
+                            f"forcing final answer"
+                        )
+                        log_message(guard_msg)
+                        yield {"type": "debug", "message": guard_msg}
 
                     # Next round: LLM sees tool results and generates final response
 
@@ -815,18 +863,25 @@ class OpenAICompatibleBackend(LLMBackend):
                     prompt_tokens = counters["prompt_tokens"]
                     total_tokens = counters["total_tokens"]
                     server_timings = counters["server_timings"]
-                    for item in self._truncation_debug(counters["last_finish_reason"]):
+                    trunc_items = self._truncation_debug(counters["last_finish_reason"])
+                    if trunc_items:
+                        truncated_any = True
+                    for item in trunc_items:
                         yield item
 
                 inference_time = timer.elapsed()
 
-                yield {
-                    "type": "done",
-                    "metrics": self._build_stream_metrics(
-                        prompt_tokens, total_tokens,
-                        inference_time, model, server_timings,
-                    ),
-                }
+                metrics = self._build_stream_metrics(
+                    prompt_tokens, total_tokens,
+                    inference_time, model, server_timings,
+                )
+                # Carry the truncation flag into the done metrics so the
+                # pipeline result (and the "done" debug line built from it)
+                # can mark the answer as incomplete instead of reporting a
+                # clean finish.
+                if truncated_any:
+                    metrics["truncated"] = True
+                yield {"type": "done", "metrics": metrics}
                 return  # success
 
             except Exception as e:

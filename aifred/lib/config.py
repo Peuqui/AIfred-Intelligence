@@ -1436,6 +1436,21 @@ SECURITY_MAX_TOOL_CHAIN_DEPTH = 100
 # d.h. das Call-Budget erschöpft nie NACH den Runden). Fallback 100:
 # Call-Budget 0 = "deaktiviert" darf den Not-Aus nicht mitdeaktivieren.
 MAX_TOOL_ROUNDS = SECURITY_MAX_TOOL_CHAIN_DEPTH or 100
+
+# Context guard for the tool loop — stops further tool rounds once the
+# server-reported context usage (prompt + completion of the last round,
+# plus the just-appended tool results) crosses this share of the model's
+# context window. The model then gets one final round WITHOUT tools plus
+# an explicit note to write its answer from the gathered material.
+# Rationale: history compression only runs between user turns; inside a
+# long tool loop nothing bounds context growth, and with
+# --no-context-shift the final answer gets hard-truncated when the
+# window runs full (observed 2026-08-15: 1h research loop died at 92%
+# mid-answer). 0.85 leaves ~15% of the window for thinking + answer
+# (~34K tok at 225K ctx) — 0.90 would have been barely enough for that
+# real case, 0.80 wastes tool-phase headroom. Ratio (not absolute
+# tokens) so small context windows keep a proportional reserve.
+TOOL_LOOP_CONTEXT_GUARD = 0.85
 SECURITY_MAX_IDENTICAL_TOOL_CALLS = 2   # Same tool+args this many times → next identical call is refused (loop breaker; 0 = off)
 SECURITY_RATE_LIMIT_WINDOW_SEC = 60     # Rate limit window in seconds
 SECURITY_RATE_LIMITS: dict[str, int] = {

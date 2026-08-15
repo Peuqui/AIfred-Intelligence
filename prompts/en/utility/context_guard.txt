@@ -1,0 +1,1 @@
+[SYSTEM NOTE] The context window is almost full — the budget for tool calls is exhausted. Do not call any more tools. Write your complete final answer now, based on the information you have already gathered. If parts of the task remain unfinished, state explicitly what is missing instead of attempting further tool calls.

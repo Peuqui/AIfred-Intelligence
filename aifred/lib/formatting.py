@@ -395,6 +395,7 @@ def build_inference_metadata(
     backend_type: str = "",
     agent_label: str = "AIfred-LLM",
     response_chars: int = 0,
+    truncated: bool = False,
 ) -> tuple[dict, str, str]:
     """
     Central function for inference metadata (chat bubble, debug log, console).
@@ -414,6 +415,8 @@ def build_inference_metadata(
         backend_type: Backend type ("ollama", "llamacpp", "cloud_api", etc.)
         agent_label: Agent name for debug line (e.g. "AIfred-LLM", "Sokrates")
         response_chars: Response text length in chars (for debug output)
+        truncated: Answer hit the token/context limit (finish_reason=length)
+            — the done line gets a ⚠️ + TRUNCATED marker instead of a clean ✅
 
     Returns:
         (metadata_dict, metadata_display, debug_msg):
@@ -436,6 +439,7 @@ def build_inference_metadata(
         "tokens_per_sec": tokens_per_sec,
         "source": source,
         "backend_type": backend_type,
+        "truncated": truncated,
     }
 
     # --- Metadata display string (for chat bubble) ---
@@ -467,19 +471,24 @@ def build_inference_metadata(
     metadata_display = format_metadata("\u00A0\u00A0\u00A0 ".join(groups))
 
     # --- Debug "done" message ---
+    # A truncated answer must not look like a clean finish — the green ✅
+    # suggested success while the model was cut off mid-answer.
+    status_icon = "⚠️" if truncated else "✅"
     if backend_type == "cloud_api" and tokens_prompt > 0:
         total = tokens_prompt + tokens_generated
         debug_base = (
-            f"✅ {agent_label} done ({format_duration_s(inference_time)}, "
+            f"{status_icon} {agent_label} done ({format_duration_s(inference_time)}, "
             f"{format_number(tokens_generated)} out / {format_number(total)} total, "
             f"{format_number(tokens_per_sec, 1)} tok/s)"
         )
     else:
         debug_base = (
-            f"✅ {agent_label} done ({format_duration_s(inference_time)}, "
+            f"{status_icon} {agent_label} done ({format_duration_s(inference_time)}, "
             f"{format_number(tokens_generated)} tok, "
             f"{format_number(tokens_per_sec, 1)} tok/s)"
         )
+    if truncated:
+        debug_base += " — TRUNCATED, answer incomplete"
 
     suffixes: list[str] = []
     if prompt_per_sec:
