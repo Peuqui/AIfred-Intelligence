@@ -167,14 +167,22 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def _agent_thinking_mode(self, agent: str) -> str:
         """Current dropdown label derived from (thinking, effort)."""
-        from ..lib.agent_settings import get_agent_setting
+        from ..lib.agent_settings import get_agent_setting, model_owner
         off_label, _ = self._thinking_mode_labels()
         if not get_agent_setting(self, agent, "thinking"):
             return off_label
-        return (
-            get_agent_setting(self, agent, "reasoning_effort")
-            or self._thinking_on_option(agent)
+        effort: str = get_agent_setting(self, agent, "reasoning_effort")
+        # Ein explizit gespeichertes Level, das zufällig dem Template-Default
+        # entspricht (Qwen3.8: "xhigh"), zeigt "An (xhigh)" statt "xhigh" —
+        # als eigener Options-Eintrag existiert "xhigh" nicht mehr (siehe
+        # _agent_thinking_options), sonst hätte das Dropdown einen Wert
+        # gewählt, der in seiner eigenen Liste fehlt.
+        default: str = get_agent_setting(
+            self, model_owner(self, agent), "reasoning_default",
         )
+        if effort and default and effort == default:
+            return self._thinking_on_option(agent)
+        return effort or self._thinking_on_option(agent)
 
     def _load_agent_reasoning_levels(self, agent: str, model_id: str) -> None:
         """Refresh the agent's ``reasoning_levels`` for a newly selected model
@@ -240,10 +248,22 @@ class AgentConfigMixin(rx.State, mixin=True):
         return f"{on_label} ({default})" if default else on_label
 
     def _agent_thinking_options(self, agent: str) -> list[str]:
+        from ..lib.agent_settings import get_agent_setting, model_owner
         off_label, _ = self._thinking_mode_labels()
-        return [
-            off_label, self._thinking_on_option(agent),
-        ] + self._effective_reasoning_levels(agent)
+        levels = self._effective_reasoning_levels(agent)
+        # "An (xhigh)" deckt bereits die Stufe ab, auf die das Template ohne
+        # explizite Vorgabe von selbst auflöst — sie zusätzlich als eigenen
+        # "xhigh"-Eintrag zu zeigen wäre dieselbe Redundanz wie "high" vs.
+        # "xhigh" (Template-Alias), nur zwischen implizitem und explizitem
+        # Wert statt zwischen zwei Strings. reasoning_levels selbst bleibt
+        # unangetastet (Validierung in _load_agent_reasoning_levels braucht
+        # den vollen Ground-Truth-Satz) — gefiltert wird nur die Anzeige.
+        default: str = get_agent_setting(
+            self, model_owner(self, agent), "reasoning_default",
+        )
+        if default:
+            levels = [lv for lv in levels if lv != default]
+        return [off_label, self._thinking_on_option(agent)] + levels
 
     @rx.var(deps=["agent_tuning", "ui_language"], auto_deps=False)
     def aifred_thinking_options(self) -> list[str]:
