@@ -416,8 +416,13 @@ class ChatMixin(rx.State, mixin=True):
         """
         from ..lib.multi_agent import run_sokrates_analysis, run_tribunal
 
-        # Skip if standard mode, no AI text, or explicitly skipped
-        if self.multi_agent_mode == "standard" or not ai_text or skip_analysis:  # type: ignore[attr-defined]
+        # Skip if standard/symposion mode, no AI text, or explicitly skipped.
+        # Symposion has NO follow-up critique step by design — before this
+        # guard, a symposion with fewer than 2 selected agents fell through
+        # to the single-agent path and then landed in the else-branch below,
+        # spawning an unrequested Sokrates analysis (which also swapped the
+        # model, because Sokrates resolves to the base variant).
+        if self.multi_agent_mode in ("standard", "symposion") or not ai_text or skip_analysis:  # type: ignore[attr-defined]
             return
 
         # Generate TTS for AIfred's initial response BEFORE Multi-Agent starts
@@ -1289,7 +1294,16 @@ class ChatMixin(rx.State, mixin=True):
                 self.active_agent = addressed_to  # type: ignore[attr-defined]
                 self._persist_session_config()  # type: ignore[attr-defined]
 
-            if not addressed_to and self.active_agent != "aifred":  # type: ignore[attr-defined]
+            # Sticky routing is suspended in symposion mode: there the agent
+            # SELECTION decides who speaks (run_symposion for >=2, the
+            # single selected agent below for 1) — otherwise a stale
+            # active_agent from an earlier turn logs a misleading
+            # "Direct addressing: X" before the symposion override kicks in.
+            if (
+                not addressed_to
+                and self.active_agent != "aifred"  # type: ignore[attr-defined]
+                and self.multi_agent_mode != "symposion"  # type: ignore[attr-defined]
+            ):
                 addressed_to = self.active_agent  # type: ignore[attr-defined]
 
             responding_agent = addressed_to or "aifred"
@@ -1364,6 +1378,23 @@ class ChatMixin(rx.State, mixin=True):
                 async for _ in run_symposion(self, user_msg, detected_language):  # type: ignore[arg-type]
                     yield
             else:
+                # Symposion with fewer than 2 agents degrades to a plain
+                # direct response — deliberately supported, so the user can
+                # toggle agents on/off mid-session and continue with one.
+                # With exactly one selected agent THAT agent must answer
+                # (not whoever happens to be active); with zero we fall
+                # back to the normal addressing logic, visibly.
+                if self.multi_agent_mode == "symposion":  # type: ignore[attr-defined]
+                    if len(self.symposion_agents) == 1:  # type: ignore[attr-defined]
+                        responding_agent = self.symposion_agents[0]  # type: ignore[attr-defined]
+                        self.add_debug(
+                            f"🏛️ Symposion with a single agent → direct response by {responding_agent}"
+                        )
+                    else:
+                        self.add_debug(
+                            "⚠️ Symposion: no agents selected → falling back to direct response"
+                        )
+                    yield
                 async for _ in run_generic_agent_direct_response(
                     self,  # type: ignore[arg-type]  # Mixin ist zur Laufzeit der AIState
                     responding_agent,

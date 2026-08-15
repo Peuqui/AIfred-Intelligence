@@ -998,10 +998,13 @@ async def run_sokrates_analysis(
 
         # Determine models
         sokrates_model = state._effective_model_id("sokrates") or state._effective_model_id("aifred")
-        sokrates_display = state.agent_tuning["sokrates"].model if state.agent_tuning["sokrates"].model else state.agent_tuning["aifred"].model  # type: ignore[has-type]
         alfred_model = state._effective_model_id("aifred")
         salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
-        state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
+        # Log the EFFECTIVE request id (incl. -speed/-tts suffix), not the
+        # suffix-less display name from the tuning bucket — the mismatch
+        # against e.g. "Codine-LLM: …-speed" read like a model swap that
+        # never happened (verified 2026-08-15 against the llama-swap log).
+        state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_model}")
 
         # Debate setup: context limits, temperatures, LLM options
         ctx = _setup_debate_contexts(state)
@@ -1087,9 +1090,10 @@ async def run_sokrates_analysis(
 
             # === AUTO-CONSENSUS (TRIALOG): Salomo synthesizes and decides ===
             if state.multi_agent_mode == "auto_consensus":
-                salomo_display = state.agent_tuning["salomo"].model if state.agent_tuning["salomo"].model else state.agent_tuning["aifred"].model  # type: ignore[has-type]
                 if round_num == 1:
-                    state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
+                    # Effective request id, same reasoning as the
+                    # Sokrates-LLM line above.
+                    state.add_debug(f"👑 Salomo-LLM: {salomo_model}")
 
                 salomo_options = ctx["salomo_options"]
 
@@ -1253,14 +1257,15 @@ async def run_tribunal(
 
         # Determine models
         sokrates_model = state._effective_model_id("sokrates") or state._effective_model_id("aifred")
-        sokrates_display = state.agent_tuning["sokrates"].model if state.agent_tuning["sokrates"].model else state.agent_tuning["aifred"].model  # type: ignore[has-type]
         salomo_model = state._effective_model_id("salomo") or state._effective_model_id("aifred")
-        salomo_display = state.agent_tuning["salomo"].model if state.agent_tuning["salomo"].model else state.agent_tuning["aifred"].model  # type: ignore[has-type]
         alfred_model = state._effective_model_id("aifred")
 
         state.add_debug("⚖️ Tribunal mode started")
-        state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_display}")
-        state.add_debug(f"👑 Salomo-LLM: {salomo_display}")
+        # Effective request ids (incl. variant suffix) — see the same note
+        # in run_sokrates_analysis: display names without the suffix read
+        # like a model swap that never happens.
+        state.add_debug(f"🏛️ Sokrates-LLM: {sokrates_model}")
+        state.add_debug(f"👑 Salomo-LLM: {salomo_model}")
 
         # Debate setup: context limits, temperatures, LLM options
         ctx = _setup_debate_contexts(state)
