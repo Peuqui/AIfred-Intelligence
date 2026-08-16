@@ -783,10 +783,11 @@ def _merge_prompt_layers(
             if instr:
                 parts.append(instr)
 
-    # Layer 10: Anti-hallucination (always, LAST — recency bias for date grounding)
-    anti_halluc = load_prompt('shared/anti_hallucination', lang=lang)
-    if anti_halluc:
-        parts.append(anti_halluc)
+    # Layer 10: Disciplines — date grounding, quote/currency discipline,
+    # decision clarification (always, LAST — recency bias for date grounding)
+    disciplines = load_prompt('shared/disciplines', lang=lang)
+    if disciplines:
+        parts.append(disciplines)
 
     return "\n\n".join(parts)
 
