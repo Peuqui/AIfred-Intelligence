@@ -778,6 +778,22 @@ class OpenAICompatibleBackend(LLMBackend):
                         budget = budget_var.get()
                         if budget > 0:
                             result = cap_tool_output(result, budget)
+                        # Sandbox screenshots/plots are invisible to a
+                        # text-only model — append a VLM text description
+                        # (SSOT describe_sandbox_screenshots; runs after the
+                        # cap so the description can't be truncated away).
+                        # Debug events use the local yield idiom and get
+                        # mirrored into the debug bus by the consumers.
+                        from ..lib.sandbox import (
+                            SANDBOX_IMAGE_URL_MARKER,
+                            describe_sandbox_screenshots,
+                        )
+                        if SANDBOX_IMAGE_URL_MARKER in result:
+                            result, vision_debug = await describe_sandbox_screenshots(
+                                result, toolkit.session_id, model
+                            )
+                            for msg in vision_debug:
+                                yield {"type": "debug", "message": msg}
                         yield {"type": "tool_result", "name": tc["name"], "result": result}
                         kwargs["messages"].append({
                             "role": "tool",

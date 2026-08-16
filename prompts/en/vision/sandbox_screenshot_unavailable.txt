@@ -1,0 +1,1 @@
+NOTE: The screenshots could not be described automatically — the active model is not vision-capable and no vision model is configured (agent settings → Vision). Visual verification of the rendered result is therefore not possible. Rely on the browser console and tell the user that you could not see the result yourself.

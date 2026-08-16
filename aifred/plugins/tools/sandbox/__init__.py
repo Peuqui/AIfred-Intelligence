@@ -16,6 +16,7 @@ from ....lib.function_calling import Tool
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
 from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
 from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 
 
@@ -103,12 +104,12 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
 
         if result.html_urls:
             for html_url in result.html_urls:
-                parts.append(f"SANDBOX_HTML_URL: {html_url}")
+                parts.append(f"{SANDBOX_HTML_URL_MARKER}{html_url}")
             parts.append("The interactive visualization is automatically embedded in the chat. Do NOT try to display it again. Just describe what was created.")
 
         if result.images:
             for img_url in result.images:
-                parts.append(f"SANDBOX_IMAGE_URL: {img_url}")
+                parts.append(f"{SANDBOX_IMAGE_URL_MARKER}{img_url}")
             parts.append(
                 "The plot image is automatically displayed in the chat — the user "
                 "already sees it. Do NOT emit it again in your answer: no markdown "
@@ -162,13 +163,13 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
 
         if result.screenshot_urls:
             for url in result.screenshot_urls:
-                parts.append(f"SANDBOX_IMAGE_URL: {url}")
+                parts.append(f"{SANDBOX_IMAGE_URL_MARKER}{url}")
             parts.append(
                 "The screenshot(s) are automatically displayed in the chat — the "
                 "user already sees them. Do NOT emit them again in your answer: "
                 "no markdown images ![...](...), no img tags, no URLs. "
-                "Check the console messages above for JS errors; if the page has "
-                "vision-analysis available, you may inspect the screenshots visually."
+                "Check the console messages above for JS errors; an automatic "
+                "text description of each screenshot follows below."
             )
 
         return "\n\n".join(parts)

@@ -373,12 +373,13 @@ async def run_llm_stream(
                         _fetch_err = False
                 fetched_urls[-1]["success"] = not _fetch_err
 
-            # Extract sandbox output URLs
+            # Extract sandbox output URLs (marker SSOT: lib/sandbox.py)
+            from .sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
             for line in result_text.split("\n"):
-                if line.startswith("SANDBOX_HTML_URL: "):
-                    sandbox_html_urls.append(line.split("SANDBOX_HTML_URL: ", 1)[1].strip())
-                elif line.startswith("SANDBOX_IMAGE_URL: "):
-                    sandbox_image_urls.append(line.split("SANDBOX_IMAGE_URL: ", 1)[1].strip())
+                if line.startswith(SANDBOX_HTML_URL_MARKER):
+                    sandbox_html_urls.append(line[len(SANDBOX_HTML_URL_MARKER):].strip())
+                elif line.startswith(SANDBOX_IMAGE_URL_MARKER):
+                    sandbox_image_urls.append(line[len(SANDBOX_IMAGE_URL_MARKER):].strip())
 
             # silent_reply: Audio-Tools (audio_play, audio_play_folder,
             # audio_resume) markieren erfolgreichen Audio-Start damit der
