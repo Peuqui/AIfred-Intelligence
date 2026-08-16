@@ -891,6 +891,12 @@ ALERT_DEDUP_RETENTION_SEC = 1800.0
 # resolve_vlm_host() picks the right endpoint based on the live
 # backend_type. If the pinned daemon isn't installed yet, callers
 # fall back to the default — degrades gracefully.
+# llama-swap-Profil des Embedding-Servers (llama-server --embedding,
+# embed-Gruppe). Existiert das Profil in der YAML, laufen ChromaDB-
+# Embeddings darüber statt über Ollama (SSOT-Dispatch in vector_cache) —
+# der Ollama-Pfad bleibt für Setups ohne dieses Profil erhalten.
+LLAMASWAP_EMBEDDING_PROFILE = "bge-m3-567M-Q8_0-embed"
+
 VISION_VLM_HOST_DEFAULT = "http://localhost:11434"
 VISION_VLM_HOST_PINNED = "http://localhost:11436"
 

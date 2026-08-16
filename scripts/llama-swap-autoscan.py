@@ -49,6 +49,12 @@ AUTOSCAN_SKIP_FILE = LLAMASWAP_CONFIG.parent / "autoscan-skip.json"
 # autoscan burns minutes trying to calibrate a draft head as an LLM.
 SPECULATIVE_SIDECAR_PREFIXES = ("mtp-", "eagle3-", "dflash-", "dspark-")
 
+# Nicht-kausale Architekturen (general.architecture im GGUF): Embedding-
+# Modelle wie bge-m3. Sie bekommen KEIN Autoscan-Chat-Profil — ihre
+# handgepflegten -embed-Profile (llama-server --embedding) leben in der
+# embed-Gruppe der config.yaml.
+EMBEDDING_ARCHITECTURES = {"bert", "nomic-bert", "jina-bert-v2", "roberta", "xlm-roberta"}
+
 
 # ---------------------------------------------------------------------------
 # Config IO — SSOT for llama-swap config.yaml read/write
@@ -1192,6 +1198,15 @@ def scan_gguf_models() -> list[dict]:
                 print(f"  ~ {gguf_file.name}: {len(missing)} part(s) missing "
                       f"(download in progress?) — skipped this run")
                 continue
+
+        # Embedding-Modelle (bert-Familie) sind keine Chat-Modelle — die
+        # laufen als handgepflegte -embed-Profile (llama-server --embedding).
+        # Direkt-Import wie nvidia_smi (NICHT via aifred.lib — Reflex-Init!)
+        from gguf_utils import get_gguf_architecture
+        arch = get_gguf_architecture(gguf_file)
+        if arch in EMBEDDING_ARCHITECTURES:
+            print(f"  ~ Skip:    {gguf_file.name} (embedding model, arch={arch})")
+            continue
 
         model_stem = gguf_file.stem
         # Strip split-GGUF part suffix: "Model-00001-of-00003" → "Model"

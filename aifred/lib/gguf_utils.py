@@ -60,6 +60,31 @@ def get_gguf_total_size(gguf_path: Path) -> int:
     return total_size
 
 
+def get_gguf_architecture(gguf_path: Path) -> Optional[str]:
+    """``general.architecture`` aus den GGUF-Metadaten (z.B. "qwen3", "bert").
+
+    Embedding-Modelle (bert-Familie) tragen hier ihre Nicht-Kausal-
+    Architektur — der Autoscan nutzt das, um sie nicht als Chat-Profile
+    anzulegen."""
+    if not gguf_path.exists():
+        return None
+    try:
+        import gguf
+
+        with open(gguf_path, "rb") as f:
+            reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
+            field = reader.fields.get("general.architecture")
+            if field is None:
+                return None
+            return bytes(field.parts[-1]).decode("utf-8", errors="replace")
+    except ImportError:
+        logger.warning("gguf-py library not installed")
+        return None
+    except (OSError, ValueError, IndexError) as e:
+        logger.error(f"Error reading GGUF architecture {gguf_path}: {e}")
+        return None
+
+
 def _scan_gguf_numeric_field(
     gguf_path: Path,
     key_match: Callable[[str], bool],
