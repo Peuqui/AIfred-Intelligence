@@ -88,7 +88,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         if model == self._last_guarded_model:
             return
         self._last_guarded_model = model
-        if "-vlm-" in model or model.endswith("-visiond"):
+        if "-vlm-" in model or model.endswith(("-visiond", "-embed")):
             return
         import httpx
 
@@ -103,12 +103,14 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 ]
                 if model in running:
                     return
-                if not any(m.endswith("-visiond") for m in running):
+                if not any(
+                    m.endswith(("-visiond", "-embed")) for m in running
+                ):
                     return
                 await client.post(f"{root}/api/models/unload")
                 log_message(
-                    f"🧹 Vision describer evicted before loading '{model}' "
-                    "(profile has no -vlm- reserve slot)"
+                    f"🧹 Parallel sidecars (describer/embed) evicted before "
+                    f"loading '{model}' (profile has no -vlm- reserve slot)"
                 )
         except (httpx.HTTPError, ValueError) as e:
             # Guard darf den Chat nicht killen — aber laut scheitern

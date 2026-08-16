@@ -129,9 +129,9 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
         for mid in model_ids:
             if (
                 mid.endswith("-speed") or mid.endswith("-visiond")
-                or "-tts-" in mid or "-vlm-" in mid
+                or mid.endswith("-embed") or "-tts-" in mid or "-vlm-" in mid
             ):
-                continue  # Speed/TTS/VLM/Describer variants are internal; selected automatically
+                continue  # Speed/TTS/VLM/Describer/Embed variants are internal; selected automatically
             size_gb = model_sizes.get(mid)
             if size_gb is not None:
                 result[mid] = f"{mid} ({format_number(size_gb, 1)} GB)"

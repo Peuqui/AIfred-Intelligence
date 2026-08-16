@@ -46,13 +46,30 @@ OLLAMA_EMBEDDING_MODEL = "bge-m3"
 OLLAMA_HOST = DEFAULT_OLLAMA_URL
 
 
+def _llamaswap_embed_available() -> bool:
+    """True, wenn das llama-swap-Embed-Profil in der YAML existiert.
+
+    Dann laufen Embeddings über llama-server --embedding (persistente
+    embed-Gruppe, Reserve-GPU) statt über Ollama — gleiche Präzedenz wie
+    beim Vision-Describer-Pfad. Ohne Profil bleibt der Ollama-Pfad für
+    Setups, die Ollama als Backend fahren."""
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    from .config import LLAMASWAP_CONFIG_PATH, LLAMASWAP_EMBEDDING_PROFILE
+    try:
+        return LLAMASWAP_EMBEDDING_PROFILE in parse_llamaswap_config(
+            LLAMASWAP_CONFIG_PATH
+        )
+    except (OSError, ValueError):
+        return False
+
+
 class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
     """
-    Ollama Embedding Function with configurable CPU/GPU inference.
+    Embedding-Funktion für ChromaDB (bge-m3, 1024 Dimensionen).
 
-    Based on nomic-embed-text-v2-moe (768 dimensions, multilingual).
-    GPU mode: ~600MB VRAM, significantly faster for bulk embeddings.
-    CPU mode: No VRAM usage, keeps GPU free for LLM inference.
+    Dispatch: Existiert das llama-swap-Embed-Profil, gehen die Calls an
+    llama-server --embedding (parallel zum Chat-LLM, kein Ollama nötig).
+    Sonst der Ollama-Pfad mit CPU/GPU-Modus wie gehabt.
     """
 
     def __init__(
@@ -93,6 +110,9 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         calls. A real hang still surfaces (the client raises ReadTimeout)
         but normal indexing runs through.
         """
+        if _llamaswap_embed_available():
+            return self._embed_via_llamaswap(input)
+
         from ollama import Client
         from .config import EMBEDDING_USE_GPU
 
@@ -126,6 +146,40 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         return [
             np.array(embedding, dtype=np.float32)
             for embedding in response["embeddings"]
+        ]
+
+    def _embed_via_llamaswap(self, input: Documents) -> Embeddings:
+        """Embeddings über das llama-swap-Profil (llama-server --embedding).
+
+        GPU/CPU-Modus und keep_alive sind Ollama-Konzepte und entfallen:
+        Residenz regelt die persistente embed-Gruppe (ttl in der YAML),
+        gerechnet wird immer auf der Reserve-GPU des Profils."""
+        import httpx
+
+        from .config import BACKEND_URLS, LLAMASWAP_EMBEDDING_PROFILE
+
+        if self._timeout_override is not None:
+            timeout = float(self._timeout_override)
+        else:
+            timeout = float(max(120, int(len(input) * 0.3)))
+
+        url = BACKEND_URLS["llamacpp"].rstrip("/") + "/embeddings"
+        response = httpx.post(
+            url,
+            json={
+                "model": LLAMASWAP_EMBEDDING_PROFILE,
+                "input": list(input),
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        data = response.json()["data"]
+        # Reihenfolge über den index-Schlüssel absichern — ChromaDB ordnet
+        # Embeddings den Dokumenten positionsbasiert zu.
+        data.sort(key=lambda d: d.get("index", 0))
+        return [
+            np.array(d["embedding"], dtype=np.float32)
+            for d in data
         ]
 
 
