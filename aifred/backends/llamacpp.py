@@ -67,8 +67,58 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     # === Pre-request validation ===
 
+    # Letztes geprüftes Modell — der Describer-Guard läuft nur beim
+    # Modellwechsel, nicht bei jedem Request (kein HTTP-Overhead im
+    # Steady-State).
+    _last_guarded_model: str = ""
+
+    async def _evict_visiond_if_conflicting(self, model: str) -> None:
+        """Describer räumen, bevor ein Profil OHNE VLM-Reserve lädt.
+
+        Die llama-swap ``vision``-Gruppe ist ``persistent`` — llama-swap
+        selbst entlädt die ``-visiond``-Describer nie (nur deren ttl).
+        Profile MIT ``-vlm-``-Marker lassen den Reserve-Slot per
+        Kalibrierung frei, daneben darf der Describer wohnen bleiben.
+        Ein Profil ohne Reserve kann dagegen die volle Karte brauchen:
+        Dann entlädt AIfred VOR dem Load alle Modelle über die
+        llama-swap-API (das alte Hauptmodell würde beim Wechsel ohnehin
+        verdrängt). Läuft das Ziel-Modell bereits, steht kein Load an —
+        dann wird nach User-Vorgabe NICHT entladen (nur ttl räumt auf).
+        """
+        if model == self._last_guarded_model:
+            return
+        self._last_guarded_model = model
+        if "-vlm-" in model or model.endswith("-visiond"):
+            return
+        import httpx
+
+        from ..lib.logging_utils import log_message
+        root = str(self.client.base_url).split("/v1")[0]
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{root}/running")
+                running = [
+                    m.get("model", "")
+                    for m in (resp.json().get("running") or [])
+                ]
+                if model in running:
+                    return
+                if not any(m.endswith("-visiond") for m in running):
+                    return
+                await client.post(f"{root}/api/models/unload")
+                log_message(
+                    f"🧹 Vision describer evicted before loading '{model}' "
+                    "(profile has no -vlm- reserve slot)"
+                )
+        except (httpx.HTTPError, ValueError) as e:
+            # Guard darf den Chat nicht killen — aber laut scheitern
+            # (kein stilles Verschlucken): der Load kann dann an
+            # belegtem VRAM scheitern, das sieht man im llama-swap-Log.
+            log_message(f"⚠️ Vision describer eviction check failed: {e}")
+
     async def _pre_request_check(self, model: str) -> None:
-        """Check RPC server connectivity before sending inference request."""
+        """Describer-Eviction-Guard + RPC-Konnektivitätsprüfung."""
+        await self._evict_visiond_if_conflicting(model)
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.calibration import parse_llamaswap_config
 
