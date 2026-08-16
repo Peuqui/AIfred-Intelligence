@@ -212,22 +212,57 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self._discover_vision_models()
 
     def _discover_vision_models(self) -> None:
-        """Ollama-VLM-Discovery (SSOT). Only show models actually pulled in
-        Ollama. If discovery returned a real list and the saved selection
-        isn't in it, the model is gone → clear the selection instead of
-        prepending a phantom entry. An empty list means Ollama was
-        unreachable — leave the selection alone, we can't verify it now."""
+        """VLM-Discovery für das Vigilantia-Dropdown (SSOT).
+
+        Primär llama-swap-Modelle mit ``-visiond``-Describer-Profil —
+        der aktive Pfad seit dem Vision-Umbau (analyze_sequence löst
+        jede Auswahl auf das Describer-Profil auf). Dahinter Ollama-VLMs
+        ohne llama-swap-Pendant (Fallback-Pfad für Setups ohne
+        Describer-Profile). Dubletten desselben Modells in beiden
+        Backends erscheinen nur einmal, als llama-swap-Name.
+
+        Ist die gespeicherte Auswahl nicht in der Liste, wird sie
+        namens-normalisiert gematcht (Ollama-Schreibweise ↔ llama-swap-
+        Name) und sonst geleert. Leere Liste = keine Quelle erreichbar →
+        Auswahl unangetastet lassen."""
+        from ..lib.vision_routing import _normalize
+
+        models: list[str] = []
+        suffix = "-visiond"
+        try:
+            from ..lib.calibration.llamaswap_io import parse_llamaswap_config
+            from ..lib.config import LLAMASWAP_CONFIG_PATH
+            swap_models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+            models = sorted(
+                mid[: -len(suffix)]
+                for mid in swap_models if mid.endswith(suffix)
+            )
+        except (OSError, ValueError) as e:
+            logger.warning("vision settings: llama-swap discovery failed: %s", e)
         try:
             from ..lib.ollama_models import list_ollama_vlm_models
-            models = [m.name for m in list_ollama_vlm_models()]
-            if models and self.vision_model_value and self.vision_model_value not in models:
-                self.vision_model_value = ""
-            self.vision_available_models = models
+            seen = {_normalize(m) for m in models}
+            models.extend(
+                m.name for m in list_ollama_vlm_models()
+                if _normalize(m.name) not in seen
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning("vision settings: ollama discovery failed: %s", e)
+
+        if not models:
             self.vision_available_models = (
                 [self.vision_model_value] if self.vision_model_value else []
             )
+            return
+        if self.vision_model_value and self.vision_model_value not in models:
+            target = _normalize(self.vision_model_value)
+            match = next((m for m in models if _normalize(m) == target), None)
+            # Nur die ANZEIGE auf den gelisteten Namen mappen — die
+            # Settings behalten den gespeicherten Wert, bis der User
+            # aktiv wechselt (analyze_sequence löst beide Schreibweisen
+            # identisch auf).
+            self.vision_model_value = match or ""
+        self.vision_available_models = models
 
     @rx.event
     def open_vision_settings(self) -> None:
@@ -275,11 +310,16 @@ class VisionSettingsMixin(rx.State, mixin=True):
         settings.setdefault("vlm", {})["model"] = value
         _save_settings(settings)
         if old_model and old_model != value:
-            try:
-                from ..lib.vision_prewarm import unload_vlm_model
-                await unload_vlm_model(old_model)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("unload of old VLM model failed: %s", e)
+            # Ollama-Unload nur für Ollama-Modelle: Läuft das alte Modell
+            # als llama-swap-Describer, verdrängt die vision-Gruppe
+            # (swap: true) es beim Laden des neuen selbst.
+            from ..lib.vision_routing import visiond_profile_for
+            if visiond_profile_for(old_model) is None:
+                try:
+                    from ..lib.vision_prewarm import unload_vlm_model
+                    await unload_vlm_model(old_model)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("unload of old VLM model failed: %s", e)
 
     @rx.event
     def set_face_recognition_enabled(self, value: bool) -> None:
