@@ -1,0 +1,4 @@
+Du siehst {count} Screenshots, die ein Coding-Agent in chronologischer Reihenfolge von seiner eigenen gerenderten Anwendung aufgenommen hat (HTML/JS-Seite oder Diagramm/Plot) — eine Interaktionssequenz, z.B. vor und nach Klicks, Drags oder Wartezeiten:
+{filenames}
+
+Beschreibe präzise und sachlich pro Screenshot, was sichtbar ist: Layout und Anordnung der Elemente, sichtbare Texte und Beschriftungen, Farben. Benenne ausdrücklich, was sich zwischen aufeinanderfolgenden Screenshots verändert hat (Position, Ausrichtung, Zustand von Elementen) — und ebenso ausdrücklich, wenn sich nichts verändert hat. Nenne auffällige Darstellungsfehler: leere oder weiße Flächen, überlappende oder abgeschnittene Elemente, fehlende Inhalte, nicht gezeichnete Canvas-Bereiche, unlesbare Beschriftungen. Wenn nichts Auffälliges zu sehen ist, sage das ebenfalls klar.
