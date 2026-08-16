@@ -415,6 +415,35 @@ class AgentConfigMixin(rx.State, mixin=True):
         )
         return base_id + suffix
 
+    def _vl_choice(self) -> tuple[str, str]:
+        """SSOT model choice for image turns (VL Direct, Symposion image).
+
+        Returns ``(effective_model_id, settings_bucket)`` where the bucket
+        ("aifred" or "vision") names the agent_tuning row whose model won —
+        sampling settings (temperature, thinking, max_context) follow the
+        model that actually runs the image turn.
+
+        Same priority rule as the sandbox-screenshot describer (SSOT
+        ``is_vision_model_sync``): a vision-capable main (AIfred) model
+        handles images ITSELF — it is already loaded (no swap) and usually
+        sees more than the small dedicated describer. The vision role
+        model only steps in for non-vision-capable main models.
+        """
+        from ..lib.agent_settings import get_agent_setting
+        from ..lib.vision_utils import is_vision_model_sync
+        main_id: str = get_agent_setting(self, "aifred", "model_id")
+        if main_id and is_vision_model_sync(main_id):
+            return self._effective_model_id("aifred"), "aifred"
+        # Physically the same model under a diverging variant toggle —
+        # resolve via the AIfred bucket so no pointless swap is forced.
+        if get_agent_setting(self, "vision", "model_id") == main_id:
+            return self._effective_model_id("aifred"), "aifred"
+        return self._effective_model_id("vision"), "vision"
+
+    def _effective_vl_model_id(self) -> str:
+        """Effective model ID for image turns — see :meth:`_vl_choice`."""
+        return self._vl_choice()[0]
+
     # ================================================================
     # SPEED MODE TOGGLES (llamacpp only)
     # ================================================================

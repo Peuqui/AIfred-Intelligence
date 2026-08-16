@@ -474,7 +474,9 @@ class ChatMixin(rx.State, mixin=True):
         from ..lib.vision_utils import load_image_as_base64
         from pathlib import Path
 
-        effective_vision_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
+        # SSOT VL-model choice (vision-capable main model first) —
+        # see _vl_choice. Sampling follows the model, not the role.
+        effective_vision_id, vl_bucket = self._vl_choice()  # type: ignore[attr-defined]
 
         desc_content: list[dict] = []
         for img in local_images:
@@ -498,8 +500,10 @@ class ChatMixin(rx.State, mixin=True):
             model=effective_vision_id,
             messages=[{"role": "user", "content": desc_content}],
             options=LLMOptions(
-                temperature=self.agent_tuning["vision"].temperature,  # type: ignore[attr-defined]
-                num_ctx=self.agent_tuning["vision"].max_context or None,  # type: ignore[attr-defined]
+                temperature=self.agent_tuning[vl_bucket].temperature,  # type: ignore[attr-defined]
+                num_ctx=self.agent_tuning[vl_bucket].max_context or None,  # type: ignore[attr-defined]
+                # Deliberately no thinking: a shared, neutral image
+                # description is a perception task, not a reasoning one.
                 enable_thinking=False,
             ),
         )
@@ -552,25 +556,18 @@ class ChatMixin(rx.State, mixin=True):
         memory, tools, and personality). For multi-agent modes with multiple
         selected agents, defaults to "aifred".
 
-        For llamacpp: prefers the -speed variant (single GPU, faster) unless
-        the base variant is already running (avoid unnecessary model swap).
+        Model choice is SSOT ``_effective_vl_model_id``: a vision-capable
+        main model handles the image itself; the vision role only steps in
+        for non-vision-capable main models.
         """
         from ..lib.llm_engine import call_llm
 
-        # Determine effective vision model (speed/TTS variants resolved centrally).
-        # Variant coupling: if the vision model IS the main (aifred) model, take
-        # the AIFRED variant — not a separately resolved vision variant. A
-        # diverging speed toggle would otherwise yield a different effective ID
-        # (e.g. "…-27B" vs "…-27B-speed") and force an unnecessary llama-swap
-        # reload, even though it is physically the same loaded model. With
-        # matching base IDs the image just hits the already-loaded main model
-        # with a different (vision) prompt — no swap.
-        if self.agent_tuning["vision"].model_id == self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
-            effective_vision_id = self._effective_model_id("aifred")  # type: ignore[attr-defined]
-        else:
-            effective_vision_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
+        # SSOT VL-model choice (vision-capable main model first, variant
+        # coupling included) — see _vl_choice. Sampling settings follow the
+        # MODEL that runs the turn (its agent_tuning row), not the role.
+        effective_vision_id, vl_bucket = self._vl_choice()  # type: ignore[attr-defined]
         if effective_vision_id != self.agent_tuning["vision"].model_id:  # type: ignore[attr-defined]
-            self.add_debug(f"⚡ VL variant: {effective_vision_id}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚡ VL model: {effective_vision_id}")  # type: ignore[attr-defined]
             yield
 
         # VL acts as the active agent (memory, tools, personality)
@@ -608,10 +605,10 @@ class ChatMixin(rx.State, mixin=True):
             detected_intent=detected_intent,
             detected_language=detected_language,
             temperature_mode="manual",
-            temperature=self.agent_tuning["vision"].temperature,  # type: ignore[attr-defined]
+            temperature=self.agent_tuning[vl_bucket].temperature,  # type: ignore[attr-defined]
             backend_type=self.backend_type,  # type: ignore[attr-defined]
             backend_url=self.backend_url,  # type: ignore[attr-defined]
-            enable_thinking=self.agent_tuning["vision"].thinking,  # type: ignore[attr-defined]
+            enable_thinking=self.agent_tuning[vl_bucket].thinking,  # type: ignore[attr-defined]
             state=self,
             multimodal_content=content_parts,
             vision_task_addon=vision_task_addon,
@@ -924,9 +921,18 @@ class ChatMixin(rx.State, mixin=True):
                     if url:
                         image_html_parts.append(
                             f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
-                            f'border-radius:4px;cursor:zoom-in;margin-right:4px;">'
+                            f'border-radius:4px;cursor:zoom-in;">'
                         )
-                image_html = "".join(image_html_parts)
+                # Flex row so multiple thumbnails sit side by side with a
+                # small gap instead of stacking. Class + inline style: the
+                # class rule (aifred.py stylesheet) also pins the 50px
+                # cover-crop look in case the markdown path drops inline
+                # styles on the way to the DOM.
+                image_html = (
+                    '<div class="aifred-thumbrow" '
+                    'style="display:flex;flex-wrap:wrap;gap:6px;">'
+                    + "".join(image_html_parts) + "</div>"
+                ) if image_html_parts else ""
 
                 if not user_msg or user_msg.strip() == "":
                     # Image-only upload
@@ -1056,11 +1062,14 @@ class ChatMixin(rx.State, mixin=True):
                 detected_language = get_language()
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
 
+                # SSOT VL-model choice (vision-capable main model first) —
+                # see _vl_choice. Sampling follows the model, not the role.
+                _eff_vl, _vl_bucket = self._vl_choice()  # type: ignore[attr-defined]
+
                 # Cold start warning for llama.cpp
                 if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
                     try:
                         running = await self._llamaswap_running_models()
-                        _eff_vl = self._effective_model_id("vision")  # type: ignore[attr-defined]
                         if _eff_vl not in running:
                             self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
                             # Same VRAM guard as the main-model cold start.
@@ -1076,7 +1085,7 @@ class ChatMixin(rx.State, mixin=True):
                         pass
 
                 img_count = len(local_images)
-                self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {self.agent_tuning["vision"].model}")  # type: ignore[attr-defined]
+                self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {_eff_vl}")  # type: ignore[attr-defined]
                 yield
 
                 # Build multimodal content (images + text) for call_llm()
@@ -1086,7 +1095,7 @@ class ChatMixin(rx.State, mixin=True):
                 content_parts: list[dict] = []
 
                 # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL)
-                if not self.agent_tuning["vision"].thinking:  # type: ignore[attr-defined]
+                if not self.agent_tuning[_vl_bucket].thinking:  # type: ignore[attr-defined]
                     content_parts.append({"type": "text", "text": "/no_think"})
 
                 # Images first (VL models handle it best this way)
@@ -1192,7 +1201,10 @@ class ChatMixin(rx.State, mixin=True):
             # (or 0 switches if VL = AIfred)
             # Only for llamacpp (model swapping) and Automatik research mode.
             # ============================================================
-            _eff_vl_id = self._effective_model_id("vision")  # type: ignore[attr-defined]
+            # SSOT VL-model choice — see _effective_vl_model_id. With a
+            # vision-capable main model this equals the main model, so the
+            # override below correctly becomes a no-op (no switch to save).
+            _eff_vl_id = self._effective_vl_model_id()  # type: ignore[attr-defined]
             if (self.backend_type == "llamacpp"  # type: ignore[attr-defined]
                     and _eff_vl_id
                     and self.research_mode == "automatik"  # type: ignore[attr-defined]
