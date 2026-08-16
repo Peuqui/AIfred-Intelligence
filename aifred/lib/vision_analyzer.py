@@ -344,10 +344,21 @@ async def _analyze_via_llamacpp(
 
     from .config import BACKEND_URLS
 
-    content: list[dict[str, Any]] = [
-        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
-        for b in images_b64
-    ]
+    # llama-server (Build pr26574) verschluckt bei DIREKT aufeinander-
+    # folgenden image_url-Parts jedes zweite Bild — von 4 Frames erreichen
+    # nur Nr. 1 und 3 das Modell (empirisch 2026-08-16: prompt_tokens 172
+    # statt 318 bei 4×256px-Testbildern, Modell zählt "2 Bilder"). Ein
+    # Text-Part zwischen den Bildern trennt die Media-Chunks und behebt
+    # das — und liefert dem Modell zugleich die Frame-Nummerierung, auf
+    # die die Sequenz-Prompts sich beziehen.
+    n = len(images_b64)
+    content: list[dict[str, Any]] = []
+    for i, b in enumerate(images_b64, 1):
+        if n > 1:
+            content.append({"type": "text", "text": f"Frame {i}/{n}:"})
+        content.append(
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
+        )
     content.append({"type": "text", "text": prompt})
     payload: dict[str, Any] = {
         "model": model,
