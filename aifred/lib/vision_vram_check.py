@@ -99,6 +99,22 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
             message="Kein VLM-Modell konfiguriert.",
         )
 
+    # llama.cpp-Describer-Pfad: Existiert ein -visiond-Profil, läuft die
+    # Analyse über llama-swap in den kalibrierten Reserve-Slot (persistente
+    # vision-Gruppe) — der Ollama-orientierte VRAM-Check ist dann
+    # gegenstandslos. Ein Lade-Fehler würde als RuntimeError des
+    # analyze-Calls sichtbar, nicht still verschluckt.
+    from .vision_routing import visiond_profile_for
+    visiond = visiond_profile_for(str(target))
+    if visiond is not None:
+        return VRAMCheckResult(
+            fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
+            message=(
+                f"VLM läuft als llama-swap-Describer '{visiond}' im "
+                "kalibrierten Reserve-Slot — kein Ollama-VRAM-Check nötig."
+            ),
+        )
+
     # Primary source: stress-prewarm-measured peak from the VLM VRAM
     # cache. Populated lazily by the calibration's resolve_vlm_reserve;
     # if the user hasn't calibrated this VLM yet, fall back to the

@@ -141,6 +141,36 @@ async def prewarm_vlm(
     if not model:
         logger.warning("prewarm_vlm: no vlm.model configured")
         return False
+
+    # llama.cpp-Describer-Pfad: Existiert ein -visiond-Profil, läuft die
+    # Bildanalyse über llama-swap (SSOT-Umleitung in analyze_sequence).
+    # Dann warmlaufen lassen heißt: das Profil per Mini-Request laden.
+    # keep_alive/num_ctx sind Ollama-Konzepte — Residenz regelt die
+    # persistente vision-Gruppe, den Kontext die YAML (-c 9216).
+    from .vision_routing import visiond_profile_for
+    visiond = visiond_profile_for(str(model))
+    if visiond is not None:
+        import httpx
+
+        from .config import BACKEND_URLS
+        url = BACKEND_URLS["llamacpp"].rstrip("/") + "/chat/completions"
+        logger.info(
+            "prewarm_vlm: loading describer profile %s via llama-swap "
+            "(timeout=%.0fs)", visiond, timeout_seconds,
+        )
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as hc:
+                resp = await hc.post(url, json={
+                    "model": visiond,
+                    "messages": [{"role": "user", "content": "OK"}],
+                    "max_tokens": 1,
+                })
+                resp.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.warning("prewarm_vlm: llama-swap load failed: %s", e)
+            return False
+        return True
+
     # Ollama's keep_alive accepts a string with unit ("30m", "1h") OR an
     # integer (negative = permanent, positive = seconds). Plain "-1" as
     # a string fails with "missing unit in duration". For "live" we want

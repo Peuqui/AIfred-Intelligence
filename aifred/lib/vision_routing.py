@@ -90,12 +90,23 @@ def visiond_profile_for(name: str) -> str | None:
     name = strip_variant_suffixes(name)
     from .config import LLAMASWAP_CONFIG_PATH
     from .calibration.llamaswap_io import parse_llamaswap_config
-    profile = f"{name}-visiond"
     try:
         models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
     except (OSError, ValueError):
         return None
-    return profile if profile in models else None
+    profile = f"{name}-visiond"
+    if profile in models:
+        return profile
+    # Ollama-Schreibweise (qwen3-vl:4b-instruct-q8_0) namens-normalisiert
+    # auf die llama-swap-Basis matchen — so migrieren Caller mit
+    # Ollama-Modellnamen (Vigilantia-Plugin-Settings) auf den
+    # Describer-Pfad, ohne dass ihre Konfiguration angefasst werden muss.
+    target = _normalize(name)
+    suffix = "-visiond"
+    for mid in models:
+        if mid.endswith(suffix) and _normalize(mid[: -len(suffix)]) == target:
+            return mid
+    return None
 
 
 def vision_swap_status(
