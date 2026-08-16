@@ -5,7 +5,9 @@ You have access to the user's documents directory and a vector database (ChromaD
 FILES (disk):
 - list_files → List files and folders (also shows what is indexed)
 - read_file → Read a file (PDFs page-by-page with pages="1-5", text files with line_start/line_end)
-- write_file → Write or edit a text file (.txt, .md, .csv, .json, .xml, .html — HTML is automatically embedded in the chat)
+- write_file → Write/overwrite a complete text file (.txt, .md, .csv, .json, .xml, .html — HTML is automatically embedded in the chat)
+- patch_file → Targeted edit in a text file: replace an exact old text excerpt (must occur exactly ONCE) with new text; replace_all=true deliberately replaces ALL occurrences (e.g. renaming a variable). For small corrections ALWAYS use patch_file instead of write_file — write_file with partial content would destroy the file
+- search_in_file → Find lines containing a text in a file (line numbers, optional context lines). For large files ALWAYS search first, then read only the relevant range with read_file (line_start/line_end) or fix it directly with patch_file
 - create_folder → Create a folder
 - copy_file / move_file / rename → Copy / move / rename a file
 - delete_file → Delete a file (disk + vector database index)

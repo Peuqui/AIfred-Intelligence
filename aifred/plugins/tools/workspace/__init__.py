@@ -243,6 +243,25 @@ class WorkspacePlugin:
             executor=_read_file,
         ))
 
+        def _embed_html_hint(file_path: Path, result_json: str) -> str:
+            """HTML-Artefakte in derselben Chat-Bubble einbetten wie
+            execute_code_write das tut — die Pipeline parst
+            `SANDBOX_HTML_URL:` Zeilen aus dem Tool-Result und baut daraus
+            ein iframe. URL geht über den vorhandenen /_upload/documents/
+            static mount, kein Kopiervorgang nötig."""
+            if file_path.suffix.lower() not in {".html", ".htm"}:
+                return result_json
+            # file_path is resolved (via fm.safe_resolve); use the resolved
+            # base too, else a symlink in DATA_DIR makes relative_to raise.
+            rel = file_path.relative_to(DOCUMENTS_DIR.resolve()).as_posix()
+            return (
+                f"{result_json}\n\n"
+                f"SANDBOX_HTML_URL: /_upload/documents/{rel}\n\n"
+                "The HTML file is automatically embedded in the chat. "
+                "Do NOT paste the code as a markdown block. "
+                "Just describe what was built."
+            )
+
         async def _write_file(filename: str, content: str) -> str:
             """Write or overwrite a text file in data/documents/."""
             file_path, error = fm.safe_resolve(filename)
@@ -269,23 +288,7 @@ class WorkspacePlugin:
                 "size_kb": size_kb,
                 "chars": len(content),
             })
-            # HTML-Artefakte in derselben Chat-Bubble einbetten wie
-            # execute_code_write das tut — die Pipeline parst
-            # `SANDBOX_HTML_URL:` Zeilen aus dem Tool-Result und baut daraus
-            # ein iframe. URL geht über den vorhandenen /_upload/documents/
-            # static mount, kein Kopiervorgang nötig.
-            if file_path.suffix.lower() in {".html", ".htm"}:
-                # file_path is resolved (via fm.safe_resolve); use the resolved
-                # base too, else a symlink in DATA_DIR makes relative_to raise.
-                rel = file_path.relative_to(DOCUMENTS_DIR.resolve()).as_posix()
-                return (
-                    f"{result_json}\n\n"
-                    f"SANDBOX_HTML_URL: /_upload/documents/{rel}\n\n"
-                    "The HTML file is automatically embedded in the chat. "
-                    "Do NOT paste the code as a markdown block. "
-                    "Just describe what was built."
-                )
-            return result_json
+            return _embed_html_hint(file_path, result_json)
 
         tools.append(Tool(
             name="write_file",
@@ -308,6 +311,176 @@ class WorkspacePlugin:
                 "required": ["filename", "content"],
             },
             executor=_write_file,
+        ))
+
+        async def _patch_file(
+            filename: str, old_string: str, new_string: str, replace_all: bool = False
+        ) -> str:
+            """Replace an exact text passage in a file in data/documents/."""
+            file_path, error = fm.safe_resolve(filename)
+            if error:
+                return json.dumps({"error": error})
+            if not file_path:
+                return json.dumps({"error": f"Invalid path: {filename}"})
+
+            # Same tool-level text-only policy as write_file (write goes
+            # through the fm.write_file SSOT below)
+            if file_path.suffix.lower() not in WORKSPACE_WRITE_EXTENSIONS:
+                return json.dumps({
+                    "error": f"Cannot patch {file_path.suffix} files. Allowed: {', '.join(sorted(WORKSPACE_WRITE_EXTENSIONS))}"
+                })
+            if not file_path.is_file():
+                return json.dumps({"error": f"File not found: {filename}"})
+            if not old_string:
+                return json.dumps({"error": "old_string must not be empty"})
+            if old_string == new_string:
+                return json.dumps({"error": "old_string and new_string are identical — nothing to patch"})
+
+            try:
+                content = file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                return json.dumps({"error": f"File is not valid UTF-8 text: {filename}"})
+
+            count = content.count(old_string)
+            if count == 0:
+                return json.dumps({
+                    "error": (
+                        "old_string not found in the file. The file may have "
+                        "changed — read the current content with read_file and "
+                        "retry with an exact excerpt (whitespace matters)."
+                    )
+                })
+            if count > 1 and not replace_all:
+                return json.dumps({
+                    "error": (
+                        f"old_string matches {count} times — it must be unique. "
+                        "Extend the excerpt with surrounding lines until it "
+                        "matches exactly once, or pass replace_all=true to "
+                        "deliberately replace every occurrence."
+                    )
+                })
+
+            replaced = count if replace_all else 1
+            result = fm.write_file(
+                filename, content.replace(old_string, new_string, replaced)
+            )
+            if not result.success:
+                return json.dumps({"error": result.detail})
+
+            size_kb = round(file_path.stat().st_size / 1024, 1)
+            log_message(
+                f"  patch_file: {file_path.name} ({replaced} replacement(s), "
+                f"{len(old_string)} -> {len(new_string)} chars, {size_kb} KB)"
+            )
+            result_json = json.dumps({
+                "patched": filename,
+                "replacements": replaced,
+                "old_chars": len(old_string),
+                "new_chars": len(new_string),
+                "size_kb": size_kb,
+            })
+            return _embed_html_hint(file_path, result_json)
+
+        tools.append(Tool(
+            name="patch_file",
+            tier=TIER_WRITE_DATA,
+            description=load_tool_description(__file__, "patch_file"),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Filename relative to documents/ (e.g. 'notes/summary.md')",
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "Exact text to replace — must occur exactly once in the file (include surrounding lines to make it unique)",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "Replacement text",
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": "Replace EVERY occurrence instead of requiring a unique match (e.g. renaming a variable). Default false.",
+                    },
+                },
+                "required": ["filename", "old_string", "new_string"],
+            },
+            executor=_patch_file,
+        ))
+
+        async def _search_in_file(
+            filename: str, query: str, context_lines: int = 0
+        ) -> str:
+            """Find all lines containing a literal string in a file in data/documents/."""
+            file_path, error = fm.safe_resolve(filename)
+            if error:
+                return json.dumps({"error": error})
+            if not file_path:
+                return json.dumps({"error": f"Invalid path: {filename}"})
+            if not file_path.is_file():
+                return json.dumps({"error": f"File not found: {filename}"})
+            if not query:
+                return json.dumps({"error": "query must not be empty"})
+
+            try:
+                lines = file_path.read_text(encoding="utf-8").splitlines()
+            except UnicodeDecodeError:
+                return json.dumps({
+                    "error": f"File is not valid UTF-8 text: {filename} (for PDFs use read_file)"
+                })
+
+            context_lines = max(0, min(int(context_lines), 10))
+            hit_numbers = [i for i, line in enumerate(lines, 1) if query in line]
+
+            max_hits = 50
+            shown: list[str] = []
+            for n in hit_numbers[:max_hits]:
+                start = max(1, n - context_lines)
+                end = min(len(lines), n + context_lines)
+                for k in range(start, end + 1):
+                    marker = ">" if k == n else " "
+                    shown.append(f"{marker}{k}: {lines[k - 1]}")
+                if context_lines and n != hit_numbers[:max_hits][-1]:
+                    shown.append("---")
+
+            result: dict[str, Any] = {
+                "file": filename,
+                "total_matches": len(hit_numbers),
+                "total_lines": len(lines),
+            }
+            if not hit_numbers:
+                result["hint"] = "No match. Search is literal and case-sensitive."
+            elif len(hit_numbers) > max_hits:
+                result["truncated_to"] = max_hits
+            if shown:
+                return json.dumps(result) + "\n\n" + "\n".join(shown)
+            return json.dumps(result)
+
+        tools.append(Tool(
+            name="search_in_file",
+            tier=TIER_READONLY,
+            description=load_tool_description(__file__, "search_in_file"),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Filename relative to documents/ (e.g. 'notes/summary.md')",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Literal text to search for (case-sensitive, no regex)",
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Lines of context to show around each match (0-10, default 0)",
+                    },
+                },
+                "required": ["filename", "query"],
+            },
+            executor=_search_in_file,
         ))
 
         async def _create_folder(folder_name: str) -> str:
@@ -906,6 +1079,10 @@ class WorkspacePlugin:
             return f"📄 {tool_args.get('filename', '')}"
         elif tool_name == "write_file":
             return f"📝 {tool_args.get('filename', '')}"
+        elif tool_name == "patch_file":
+            return f"🩹 {tool_args.get('filename', '')}"
+        elif tool_name == "search_in_file":
+            return f"🔎 {tool_args.get('query', '')[:30]} in {tool_args.get('filename', '')}"
         elif tool_name == "create_folder":
             return f"📁 {tool_args.get('folder_name', '')}"
         elif tool_name == "delete_file":

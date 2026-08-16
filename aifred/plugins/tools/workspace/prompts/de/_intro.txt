@@ -5,7 +5,9 @@ Du hast Zugriff auf das Dokumenten-Verzeichnis des Benutzers und eine Vektordate
 DATEIEN (Festplatte):
 - list_files → Dateien und Ordner auflisten (zeigt auch, was indexiert ist)
 - read_file → Datei lesen (PDFs seitenweise mit pages="1-5", Textdateien mit line_start/line_end)
-- write_file → Textdatei schreiben oder bearbeiten (.txt, .md, .csv, .json, .xml, .html — HTML wird automatisch im Chat eingebettet)
+- write_file → Textdatei komplett schreiben/überschreiben (.txt, .md, .csv, .json, .xml, .html — HTML wird automatisch im Chat eingebettet)
+- patch_file → Gezielte Änderung in einer Textdatei: exakten alten Textausschnitt (muss genau EINMAL vorkommen) durch neuen ersetzen; replace_all=true ersetzt bewusst ALLE Vorkommen (z. B. Variable umbenennen). Für kleine Korrekturen IMMER patch_file statt write_file verwenden — write_file mit Teilinhalt würde die Datei zerstören
+- search_in_file → Zeilen mit einem Suchtext in einer Datei finden (Zeilennummern, optional Kontextzeilen). Bei großen Dateien IMMER erst suchen, dann nur den relevanten Bereich mit read_file (line_start/line_end) lesen oder direkt mit patch_file korrigieren
 - create_folder → Ordner anlegen
 - copy_file / move_file / rename → Datei kopieren / verschieben / umbenennen
 - delete_file → Datei löschen (Festplatte + Vektordatenbank-Index)
