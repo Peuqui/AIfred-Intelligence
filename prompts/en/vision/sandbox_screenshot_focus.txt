@@ -1,0 +1,3 @@
+The coding agent also has a specific verification question about this screenshot: {question}
+
+Answer this verification question FIRST and explicitly (visible yes/no plus reasoning based on the image) before describing the rest.
