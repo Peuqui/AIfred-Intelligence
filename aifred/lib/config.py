@@ -131,7 +131,7 @@ BACKEND_DEFAULT_MODELS = {
         "automatik": "qwen3:4b-instruct-2507-q4_K_M",               # Automatik: GGUF Q4_K_M, ~2.6GB
         "sokrates": "qwen3:4b-instruct-2507-q4_K_M",                # Sokrates: GGUF Q4_K_M, ~2.6GB
         "salomo": "qwen3:4b-instruct-2507-q4_K_M",                  # Salomo: GGUF Q4_K_M, ~2.6GB
-        "vision": "qwen3-vl:8b",                                    # Vision: Qwen3-VL 8B
+        "vision": "qwen3-vl:4b",                                    # Vision: Qwen3-VL 4B
     },
     "vllm": {
         "aifred": "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",   # AIfred Main-LLM: AWQ 4-bit, ~18GB (CONFIRMED)
@@ -737,11 +737,6 @@ VLM_CALIBRATION_CHOICES: list[dict[str, str]] = [
         "key": "qwen3vl4b",
         "model_id": "qwen3-vl:4b-instruct-q8_0",
         "label": "Vigilantia 4B",
-    },
-    {
-        "key": "qwen3vl8b",
-        "model_id": "qwen3-vl:8b-instruct-q8_0",
-        "label": "Vigilantia 8B",
     },
 ]
 
