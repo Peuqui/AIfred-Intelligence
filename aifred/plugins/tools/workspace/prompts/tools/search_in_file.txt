@@ -1,0 +1,1 @@
+Find all lines containing a literal text in a file in the documents directory. Returns matching line numbers with content (optionally with surrounding context lines). Use this to locate a passage in a large file BEFORE reading it — then read only the relevant range with read_file (line_start/line_end) or fix it directly with patch_file. Avoids loading the whole file into context.
