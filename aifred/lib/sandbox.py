@@ -115,6 +115,132 @@ def _sandbox_url(session_id: str, filename: str) -> str:
 # writer (browser_render) and the deletion path below.
 SCREENSHOT_PREFIX = "shot_"
 
+# Line markers the sandbox tools emit in their result text so downstream
+# consumers (llm_pipeline UI-embed, screenshot description below) can find
+# the produced artifacts. SSOT — the plugin and every parser use these.
+SANDBOX_HTML_URL_MARKER = "SANDBOX_HTML_URL: "
+SANDBOX_IMAGE_URL_MARKER = "SANDBOX_IMAGE_URL: "
+
+
+def _configured_vision_model() -> Optional[str]:
+    """Effective model id of the "vision" agent role, or None if unset.
+
+    ``get_effective_model_from_settings("vision")`` inherits AIfred's model
+    when the role is empty — right for text agents sharing AIfred's LLM,
+    wrong here (a text model cannot describe images). So check the raw
+    ``backend_models`` entry first, mirroring the emptiness check the
+    browser path uses (``_image_mixin``).
+    """
+    from .config import get_effective_model_from_settings
+    from .settings import load_settings
+    settings = load_settings() or {}
+    backend_type = settings.get("backend_type", "llamacpp")
+    if not settings.get("backend_models", {}).get(backend_type, {}).get("vision", ""):
+        return None
+    return get_effective_model_from_settings("vision")
+
+
+async def describe_sandbox_screenshots(
+    result_text: str, session_id: str, main_model: str
+) -> tuple[str, list[str]]:
+    """Append VLM text descriptions for sandbox images to a tool result.
+
+    A text-only model cannot see the screenshots/plots that render_html and
+    execute_code produce — the tool result only carries their URLs for the
+    UI embed. This feeds the model a text description instead. Describer
+    choice (SSOT ``is_vision_model_sync``): a vision-capable main model
+    describes its own screenshots (already loaded — no swap, no second
+    model in VRAM); otherwise the configured "vision" agent role. Neither
+    available → an explicit note in the tool result so the model tells the
+    user that visual verification is not possible right now.
+
+    Returns ``(amended_result_text, debug_messages)``. Debug messages are
+    English (dev-facing) and meant to be yielded as ``{"type": "debug"}``
+    events by the caller; model-facing text comes from prompt files in the
+    active conversation language.
+    """
+    from datetime import datetime
+
+    from .prompt_loader import load_prompt
+    from .vision_utils import is_vision_model_sync, url_to_file_path
+
+    urls = [
+        line[len(SANDBOX_IMAGE_URL_MARKER):].strip()
+        for line in result_text.split("\n")
+        if line.startswith(SANDBOX_IMAGE_URL_MARKER)
+    ]
+    if not urls:
+        return result_text, []
+
+    debug_msgs: list[str] = []
+
+    if is_vision_model_sync(main_model):
+        describer = main_model
+        debug_msgs.append(
+            f"🖼️ Describing {len(urls)} sandbox image(s) via vision-capable "
+            f"main model: {main_model}"
+        )
+    else:
+        vision_model = _configured_vision_model()
+        if not vision_model:
+            debug_msgs.append(
+                "⚠️ Sandbox screenshot description unavailable: main model "
+                f"'{main_model}' is not vision-capable and no vision role "
+                "model is configured"
+            )
+            note = load_prompt("vision/sandbox_screenshot_unavailable")
+            return f"{result_text}\n\n{note}", debug_msgs
+        describer = vision_model
+        debug_msgs.append(
+            f"🖼️ Describing {len(urls)} sandbox image(s) via vision role "
+            f"model: {describer}"
+        )
+
+    vlm_prompt = load_prompt("vision/sandbox_screenshot")
+    parts: list[str] = [result_text]
+    for url in urls:
+        path = url_to_file_path(url, session_id)
+        if path is None or not path.exists():
+            debug_msgs.append(f"⚠️ Sandbox image path resolution failed: {url}")
+            continue
+        # Failures surface loudly in BOTH channels (tool result + debug) —
+        # agreed error path, no silent skip. Raising instead would kill the
+        # whole chat stream over a missing description.
+        try:
+            from .frame_sources import Frame
+            from .vision_analyzer import analyze_frame
+            frame = Frame(
+                source_id=f"sandbox/{path.name}",
+                timestamp=datetime.now(),
+                image_bytes=path.read_bytes(),
+                format=path.suffix.lstrip(".").lower() or "png",
+            )
+            # max_pixels=0: no downscale — rendered UI text/layout detail
+            # matters and the render viewport bounds the size anyway.
+            analysis = await analyze_frame(
+                frame, vlm_prompt, model=describer, max_pixels=0
+            )
+            parts.append(load_prompt(
+                "vision/sandbox_screenshot_result",
+                filename=path.name,
+                description=analysis.text.strip(),
+            ))
+            debug_msgs.append(
+                f"🖼️ Sandbox image described: {path.name} "
+                f"({len(analysis.text)} chars, {analysis.duration_ms:.0f} ms)"
+            )
+        except Exception as e:  # noqa: BLE001
+            parts.append(load_prompt(
+                "vision/sandbox_screenshot_error",
+                filename=path.name,
+                error=str(e),
+            ))
+            debug_msgs.append(
+                f"⚠️ Sandbox image description failed for {path.name}: {e}"
+            )
+
+    return "\n\n".join(parts), debug_msgs
+
 
 def _collect_images(work_dir: Path, session_id: str) -> list[str]:
     """Collect generated plot images, save to sandbox_output/{session_id}/, return URLs."""

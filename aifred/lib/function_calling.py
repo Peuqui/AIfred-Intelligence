@@ -100,6 +100,13 @@ class ToolKit:
         """OpenAI-compatible tool definitions for API call."""
         return [t.definition for t in self.tools]
 
+    @property
+    def session_id(self) -> str:
+        """Session context — lets the tool loop resolve session-scoped
+        artifact paths (sandbox screenshots) without reaching into the
+        private audit field."""
+        return self._session_id
+
     async def execute(self, name: str, arguments: str | dict[str, Any]) -> str:
         """Execute a tool by name and return the final result string.
 
