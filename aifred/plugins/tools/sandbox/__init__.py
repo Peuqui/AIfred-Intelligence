@@ -252,8 +252,11 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
                             "screenshot description, e.g. 'Is the wireframe "
                             "terrain visible and does the laser beam end at "
                             "the ground?'. The vision model answers it first, "
-                            "then describes the rest. Pass it whenever you "
-                            "rendered to verify a specific change."
+                            "then describes the rest. All screenshots of this "
+                            "call are described together as one chronological "
+                            "sequence — before/after questions across shots "
+                            "are encouraged. Pass it whenever you rendered to "
+                            "verify a specific change."
                         ),
                     },
                 },

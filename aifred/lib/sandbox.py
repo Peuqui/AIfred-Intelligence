@@ -16,7 +16,7 @@ import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from .config import (
     DOCUMENTS_DIR,
@@ -146,8 +146,8 @@ def _configured_vision_model() -> Optional[str]:
 
 async def describe_sandbox_screenshots(
     result_text: str, session_id: str, main_model: str
-) -> tuple[str, list[str]]:
-    """Append VLM text descriptions for sandbox images to a tool result.
+) -> AsyncIterator[dict[str, str]]:
+    """Append a VLM text description for sandbox images to a tool result.
 
     A text-only model cannot see the screenshots/plots that render_html and
     execute_code produce — the tool result only carries their URLs for the
@@ -158,10 +158,17 @@ async def describe_sandbox_screenshots(
     available → an explicit note in the tool result so the model tells the
     user that visual verification is not possible right now.
 
-    Returns ``(amended_result_text, debug_messages)``. Debug messages are
-    English (dev-facing) and meant to be yielded as ``{"type": "debug"}``
-    events by the caller; model-facing text comes from prompt files in the
-    active conversation language.
+    All screenshots of one call go to the VLM as ONE ``analyze_sequence``
+    request (chronological order) — so a vision_focus question may compare
+    shots ("does the ship pitch up between shot 1 and 2?") instead of each
+    image being described blind to the others.
+
+    Async generator (local yield idiom): emits ``{"type": "debug",
+    "message": ...}`` events live as they happen — the caller mirrors them
+    into the debug bus — and finally exactly one ``{"type": "result",
+    "text": ...}`` with the amended tool result. Debug messages are English
+    (dev-facing); model-facing text comes from prompt files in the active
+    conversation language.
     """
     from datetime import datetime
 
@@ -187,84 +194,109 @@ async def describe_sandbox_screenshots(
         if line.startswith(SANDBOX_IMAGE_URL_MARKER)
     ]
     if not urls:
-        return result_text, []
-
-    debug_msgs: list[str] = []
+        yield {"type": "result", "text": result_text}
+        return
 
     if is_vision_model_sync(main_model):
         describer = main_model
-        debug_msgs.append(
+        yield {"type": "debug", "message": (
             f"🖼️ Describing {len(urls)} sandbox image(s) via vision-capable "
             f"main model: {main_model}"
-        )
+        )}
     else:
         vision_model = _configured_vision_model()
         if not vision_model:
-            debug_msgs.append(
+            yield {"type": "debug", "message": (
                 "⚠️ Sandbox screenshot description unavailable: main model "
                 f"'{main_model}' is not vision-capable and no vision role "
                 "model is configured"
-            )
+            )}
             note = load_prompt("vision/sandbox_screenshot_unavailable")
-            return f"{result_text}\n\n{note}", debug_msgs
+            yield {"type": "result", "text": f"{result_text}\n\n{note}"}
+            return
         # -visiond-Profil bevorzugen (llama-swap vision-Gruppe, lädt
         # parallel zum Chat-LLM); ohne ein solches Profil bleibt der
         # bisherige Pfad (Ollama-Side-Channel via analyze_frame-Dispatch).
         from .vision_routing import visiond_profile_for
         describer = visiond_profile_for(vision_model) or vision_model
-        debug_msgs.append(
+        yield {"type": "debug", "message": (
             f"🖼️ Describing {len(urls)} sandbox image(s) via vision role "
             f"model: {describer}"
-        )
+        )}
 
-    vlm_prompt = load_prompt("vision/sandbox_screenshot")
-    if focus:
-        focus_prompt = load_prompt("vision/sandbox_screenshot_focus", question=focus)
-        vlm_prompt = f"{vlm_prompt}\n\n{focus_prompt}"
-        debug_msgs.append(f"🎯 Vision focus question: {focus[:100]}")
-    parts: list[str] = [result_text]
+    from .frame_sources import Frame
+    frames: list[Frame] = []
     for url in urls:
         path = url_to_file_path(url, session_id)
         if path is None or not path.exists():
-            debug_msgs.append(f"⚠️ Sandbox image path resolution failed: {url}")
+            yield {"type": "debug",
+                   "message": f"⚠️ Sandbox image path resolution failed: {url}"}
             continue
-        # Failures surface loudly in BOTH channels (tool result + debug) —
-        # agreed error path, no silent skip. Raising instead would kill the
-        # whole chat stream over a missing description.
-        try:
-            from .frame_sources import Frame
-            from .vision_analyzer import analyze_frame
-            frame = Frame(
-                source_id=f"sandbox/{path.name}",
-                timestamp=datetime.now(),
-                image_bytes=path.read_bytes(),
-                format=path.suffix.lstrip(".").lower() or "png",
-            )
-            # max_pixels=0: no downscale — rendered UI text/layout detail
-            # matters and the render viewport bounds the size anyway.
-            analysis = await analyze_frame(
-                frame, vlm_prompt, model=describer, max_pixels=0
-            )
-            parts.append(load_prompt(
-                "vision/sandbox_screenshot_result",
-                filename=path.name,
-                description=analysis.text.strip(),
-            ))
-            debug_msgs.append(
-                f"🖼️ Sandbox image described: {path.name} "
-                f"({len(analysis.text)} chars, {analysis.duration_ms:.0f} ms)"
-            )
-        except Exception as e:  # noqa: BLE001
-            parts.append(load_prompt(
-                "vision/sandbox_screenshot_error",
-                filename=path.name,
-                error=str(e),
-            ))
-            debug_msgs.append(
-                f"⚠️ Sandbox image description failed for {path.name}: {e}"
-            )
+        frames.append(Frame(
+            source_id=f"sandbox/{path.name}",
+            timestamp=datetime.now(),
+            image_bytes=path.read_bytes(),
+            format=path.suffix.lstrip(".").lower() or "png",
+        ))
+    if not frames:
+        yield {"type": "result", "text": result_text}
+        return
 
-    return "\n\n".join(parts), debug_msgs
+    filenames = [f.source_id.removeprefix("sandbox/") for f in frames]
+    if len(frames) == 1:
+        vlm_prompt = load_prompt("vision/sandbox_screenshot")
+    else:
+        vlm_prompt = load_prompt(
+            "vision/sandbox_screenshot_sequence",
+            count=len(frames),
+            filenames="\n".join(
+                f"Screenshot {i + 1}: {name}"
+                for i, name in enumerate(filenames)
+            ),
+        )
+    if focus:
+        focus_prompt = load_prompt("vision/sandbox_screenshot_focus", question=focus)
+        vlm_prompt = f"{vlm_prompt}\n\n{focus_prompt}"
+        yield {"type": "debug", "message": f"🎯 Vision focus question: {focus[:100]}"}
+
+    # Failures surface loudly in BOTH channels (tool result + debug) —
+    # agreed error path, no silent skip. Raising instead would kill the
+    # whole chat stream over a missing description.
+    try:
+        from .vision_analyzer import analyze_sequence
+        # max_pixels=0: no downscale — rendered UI text/layout detail
+        # matters and the render viewport bounds the size anyway.
+        analysis = await analyze_sequence(
+            frames, vlm_prompt, model=describer, max_pixels=0
+        )
+        if len(frames) == 1:
+            described = load_prompt(
+                "vision/sandbox_screenshot_result",
+                filename=filenames[0],
+                description=analysis.text.strip(),
+            )
+        else:
+            described = load_prompt(
+                "vision/sandbox_screenshot_sequence_result",
+                filenames=", ".join(filenames),
+                description=analysis.text.strip(),
+            )
+        yield {"type": "debug", "message": (
+            f"🖼️ Sandbox image(s) described: {', '.join(filenames)} "
+            f"({len(analysis.text)} chars, {analysis.duration_ms:.0f} ms)"
+        )}
+        yield {"type": "result", "text": f"{result_text}\n\n{described}"}
+    except Exception as e:  # noqa: BLE001
+        error_note = load_prompt(
+            "vision/sandbox_screenshot_error",
+            filename=", ".join(filenames),
+            error=str(e),
+        )
+        yield {"type": "debug", "message": (
+            f"⚠️ Sandbox image description failed for "
+            f"{', '.join(filenames)}: {e}"
+        )}
+        yield {"type": "result", "text": f"{result_text}\n\n{error_note}"}
 
 
 def _collect_images(work_dir: Path, session_id: str) -> list[str]:

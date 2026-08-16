@@ -1,0 +1,2 @@
+SCREENSHOT SEQUENCE DESCRIPTION ({filenames}):
+{description}

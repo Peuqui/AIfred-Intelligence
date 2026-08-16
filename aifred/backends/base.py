@@ -783,17 +783,21 @@ class OpenAICompatibleBackend(LLMBackend):
                         # (SSOT describe_sandbox_screenshots; runs after the
                         # cap so the description can't be truncated away).
                         # Debug events use the local yield idiom and get
-                        # mirrored into the debug bus by the consumers.
+                        # mirrored into the debug bus by the consumers —
+                        # forwarded live so they appear BEFORE the VLM runs,
+                        # not as a batch after it finished.
                         from ..lib.sandbox import (
                             SANDBOX_IMAGE_URL_MARKER,
                             describe_sandbox_screenshots,
                         )
                         if SANDBOX_IMAGE_URL_MARKER in result:
-                            result, vision_debug = await describe_sandbox_screenshots(
+                            async for ev in describe_sandbox_screenshots(
                                 result, toolkit.session_id, model
-                            )
-                            for msg in vision_debug:
-                                yield {"type": "debug", "message": msg}
+                            ):
+                                if ev["type"] == "debug":
+                                    yield {"type": "debug", "message": ev["message"]}
+                                else:
+                                    result = ev["text"]
                         yield {"type": "tool_result", "name": tc["name"], "result": result}
                         kwargs["messages"].append({
                             "role": "tool",
