@@ -1,0 +1,3 @@
+Der Coding-Agent hat außerdem eine konkrete Prüffrage zu diesem Screenshot: {question}
+
+Beantworte diese Prüffrage ZUERST und ausdrücklich (sichtbar ja/nein plus Begründung anhand des Bildes), bevor du den Rest beschreibst.

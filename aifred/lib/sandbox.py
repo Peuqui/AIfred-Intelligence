@@ -120,6 +120,10 @@ SCREENSHOT_PREFIX = "shot_"
 # the produced artifacts. SSOT — the plugin and every parser use these.
 SANDBOX_HTML_URL_MARKER = "SANDBOX_HTML_URL: "
 SANDBOX_IMAGE_URL_MARKER = "SANDBOX_IMAGE_URL: "
+# Transport line from render_html to describe_sandbox_screenshots: carries
+# the caller's verification question for the screenshot description. Parsed
+# and stripped there — never reaches the main model.
+SANDBOX_VISION_FOCUS_MARKER = "SANDBOX_VISION_FOCUS: "
 
 
 def _configured_vision_model() -> Optional[str]:
@@ -164,6 +168,19 @@ async def describe_sandbox_screenshots(
     from .prompt_loader import load_prompt
     from .vision_utils import is_vision_model_sync, url_to_file_path
 
+    # Extract the caller's verification question (transport line from
+    # render_html) and strip it — it steers the describer prompt, the main
+    # model gets the answer, not the marker.
+    focus = ""
+    if SANDBOX_VISION_FOCUS_MARKER in result_text:
+        kept_lines: list[str] = []
+        for line in result_text.split("\n"):
+            if line.startswith(SANDBOX_VISION_FOCUS_MARKER):
+                focus = line[len(SANDBOX_VISION_FOCUS_MARKER):].strip()
+            else:
+                kept_lines.append(line)
+        result_text = "\n".join(kept_lines)
+
     urls = [
         line[len(SANDBOX_IMAGE_URL_MARKER):].strip()
         for line in result_text.split("\n")
@@ -197,6 +214,10 @@ async def describe_sandbox_screenshots(
         )
 
     vlm_prompt = load_prompt("vision/sandbox_screenshot")
+    if focus:
+        focus_prompt = load_prompt("vision/sandbox_screenshot_focus", question=focus)
+        vlm_prompt = f"{vlm_prompt}\n\n{focus_prompt}"
+        debug_msgs.append(f"🎯 Vision focus question: {focus[:100]}")
     parts: list[str] = [result_text]
     for url in urls:
         path = url_to_file_path(url, session_id)

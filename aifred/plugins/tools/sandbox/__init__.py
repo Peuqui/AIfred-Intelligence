@@ -16,7 +16,11 @@ from ....lib.function_calling import Tool
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
 from ....lib.plugin_base import PluginContext, load_tool_description
-from ....lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
+from ....lib.sandbox import (
+    SANDBOX_HTML_URL_MARKER,
+    SANDBOX_IMAGE_URL_MARKER,
+    SANDBOX_VISION_FOCUS_MARKER,
+)
 from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 
 
@@ -132,7 +136,8 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         return await _run(code, description, allow_write=True)
 
     async def _render_html(
-        html_url: str, wait_ms: int = 0, actions: Optional[list] = None
+        html_url: str, wait_ms: int = 0, actions: Optional[list] = None,
+        vision_focus: str = "",
     ) -> str:
         from ....lib.browser_render import render_html_in_browser
 
@@ -164,6 +169,12 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         if result.screenshot_urls:
             for url in result.screenshot_urls:
                 parts.append(f"{SANDBOX_IMAGE_URL_MARKER}{url}")
+            if vision_focus and vision_focus.strip():
+                # Single-line transport (the marker is parsed line-based in
+                # describe_sandbox_screenshots)
+                parts.append(
+                    f"{SANDBOX_VISION_FOCUS_MARKER}{' '.join(vision_focus.split())}"
+                )
             parts.append(
                 "The screenshot(s) are automatically displayed in the chat — the "
                 "user already sees them. Do NOT emit them again in your answer: "
@@ -233,6 +244,17 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
                             "A final screenshot is always taken."
                         ),
                         "items": {"type": "object"},
+                    },
+                    "vision_focus": {
+                        "type": "string",
+                        "description": (
+                            "Specific verification question for the automatic "
+                            "screenshot description, e.g. 'Is the wireframe "
+                            "terrain visible and does the laser beam end at "
+                            "the ground?'. The vision model answers it first, "
+                            "then describes the rest. Pass it whenever you "
+                            "rendered to verify a specific change."
+                        ),
                     },
                 },
                 "required": ["html_url"],
