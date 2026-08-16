@@ -9,6 +9,7 @@ from aifred.lib.vision_routing import (
     _normalize,
     find_ollama_equivalent,
     maybe_route_to_ollama,
+    visiond_profile_for,
 )
 
 
@@ -21,6 +22,56 @@ def _ollama(name: str, family: str = "qwen3vl") -> OllamaModelInfo:
         quantization="",
         size_bytes=0,
     )
+
+
+_FAKE_SWAP_MODELS = {
+    "Qwen3VL-4B-Instruct-Q8_0-visiond": {},
+    "Qwen3VL-4B-Instruct-Q8_0": {},
+    "Qwen3.8-27B-MTP-UD-Q8_K_XL": {},
+}
+
+
+class TestVisiondProfileFor:
+    """Auflösung zum llama-swap-Describer-Profil (<base>-visiond)."""
+
+    def _patched(self):
+        return patch(
+            "aifred.lib.calibration.llamaswap_io.parse_llamaswap_config",
+            return_value=_FAKE_SWAP_MODELS,
+        )
+
+    def test_llamaswap_name_resolves(self):
+        with self._patched():
+            assert visiond_profile_for("Qwen3VL-4B-Instruct-Q8_0") == (
+                "Qwen3VL-4B-Instruct-Q8_0-visiond"
+            )
+
+    def test_variant_suffix_stripped(self):
+        # Aufgelöste Rollen-Ids (resolve_variant_suffix) tragen Suffixe —
+        # das Describer-Profil hängt am Basis-Namen.
+        with self._patched():
+            assert visiond_profile_for(
+                "Qwen3VL-4B-Instruct-Q8_0-vlm-qwen3vl4b"
+            ) == "Qwen3VL-4B-Instruct-Q8_0-visiond"
+
+    def test_ollama_name_maps_normalized(self):
+        # Vigilantia-Plugin-Settings nutzen die Ollama-Schreibweise —
+        # sie muss namens-normalisiert auf den Describer matchen.
+        with self._patched():
+            assert visiond_profile_for("qwen3-vl:4b-instruct-q8_0") == (
+                "Qwen3VL-4B-Instruct-Q8_0-visiond"
+            )
+
+    def test_no_profile_returns_none(self):
+        with self._patched():
+            assert visiond_profile_for("Qwen3.8-27B-MTP-UD-Q8_K_XL") is None
+
+    def test_idempotent_on_describer_id(self):
+        # Doppelte Auflösung (z.B. sandbox + analyze_sequence) bleibt stabil.
+        with self._patched():
+            assert visiond_profile_for("Qwen3VL-4B-Instruct-Q8_0-visiond") == (
+                "Qwen3VL-4B-Instruct-Q8_0-visiond"
+            )
 
 
 class TestNormalize:

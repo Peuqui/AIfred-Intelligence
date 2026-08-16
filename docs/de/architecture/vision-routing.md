@@ -37,10 +37,16 @@ erster Treffer gewinnt:
    fälschlich als vision-fähig einstufen).
 2. **`<vision-modell>-visiond`-Profil existiert → dorthin routen.** Der
    bevorzugte Pfad: gleicher Backend, nur der Profilname wechselt.
-   Varianten-Suffixe der Rolle werden vor dem Lookup gestrippt.
+   Varianten-Suffixe der Rolle werden vor dem Lookup gestrippt, und auch
+   Ollama-Schreibweisen (`qwen3-vl:4b-instruct-q8_0`) matchen
+   namens-normalisiert — so laufen ALLE Vigilantia-Pfade (Watcher,
+   Türsteher, Event-Analyse, Bulk) über die SSOT-Auflösung in
+   `analyze_sequence`, ohne dass ihre Plugin-Settings angefasst wurden.
+   `prewarm_vlm` (vision_mode „live") lädt das Describer-Profil per
+   llama-swap-Request; `check_vlm_fits` (Bulk-Worker) entfällt bei
+   Describer-Pfad (Reserve-Slot ist die Garantie).
 3. **Ollama-Pendant existiert → Ollama-Side-Channel** (Bestands-Pfad,
-   z.B. für Setups ohne `-visiond`-Profile; Vigilantia-Watcher nutzt bis
-   Paket 2 weiterhin diesen Weg).
+   nur noch für Setups ohne `-visiond`-Profile).
 4. **Sonst:** unverändert durchreichen — klassischer llama-swap-Pfad mit
    Swap.
 
@@ -94,13 +100,14 @@ namens-normalisiert — auch die llama-swap-Schreibweise
 | DeepSeek (alle 5 Karten) + Describer | Reserve hält: 8,3 GB frei auf der V100, Describer (6,7 GB) passt, Chat-LLM antwortet danach in ~1 s |
 | 15 min ohne Bildanfrage | `ttl` entlädt den Describer |
 
-## Offene Punkte (Paket 2/3)
+## Offene Punkte (Paket 3)
 
-- Vigilantia-Watcher auf `-visiond`-Profile migrieren (nutzt noch Ollama).
-- Dynamische Platzierung (Describer auf die Karte mit dem meisten freien
-  VRAM statt fester Reserve-Karte) via generierter Platzierungs-Varianten.
+- Describer-Qualitätsvergleich Qwen3.5-4B vs. Qwen3VL-4B; danach
+  Qwen3VL-4B-Altmodell (GGUF + Ollama-Store) entsorgen.
 - `-visiond`-Profile aus der Kalibrierung generieren statt handgepflegt;
   `-vlm-`-Reserve-Varianten nur noch anlegen, wenn das Chat-LLM sie
-  wirklich braucht.
-- Ollama-Stilllegung (inkl. Qwen3VL-4B-Altmodell), sobald der Watcher
-  migriert ist.
+  wirklich braucht (Schwellenlogik).
+- Dynamische Platzierung (Describer auf die Karte mit dem meisten freien
+  VRAM statt fester Reserve-Karte) via generierter Platzierungs-Varianten.
+- Ollama-Dienste stilllegen (sudo, User-Entscheid) — seit Paket 2 ruft
+  kein Vision-Pfad mehr Ollama, solange Describer-Profile existieren.

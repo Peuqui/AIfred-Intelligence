@@ -30,10 +30,15 @@ def patched_settings(monkeypatch, tmp_path: Path):
 
     ``state["settings"]`` feeds _load_vision_settings (vision_mode/vlm),
     ``state["plugin_enabled"]`` feeds is_plugin_enabled (the override trigger)."""
-    state: dict = {"settings": {}, "plugin_enabled": True}
+    state: dict = {"settings": {}, "plugin_enabled": True, "visiond": None}
 
     monkeypatch.setattr(vpw, "_load_vision_settings", lambda: state["settings"])
     monkeypatch.setattr(pr, "is_plugin_enabled", lambda *a, **k: state["plugin_enabled"])
+    # Describer-Auflösung isolieren (sonst liest sie die ECHTE llama-swap-
+    # config): Default None = Ollama-Fallback-Pfad; Tests für den
+    # llama-swap-Zweig setzen state["visiond"] auf einen Profilnamen.
+    import aifred.lib.vision_routing as vr
+    monkeypatch.setattr(vr, "visiond_profile_for", lambda name: state["visiond"])
     return state
 
 
@@ -102,6 +107,43 @@ class TestPrewarm:
         assert captured["prompt"] == ""
         # live → int -1, not "-1" (Ollama parses strings as a duration)
         assert captured["keep_alive"] == -1
+
+    def test_visiond_profile_prewarms_via_llamaswap(
+        self, patched_settings, monkeypatch
+    ):
+        # Existiert ein -visiond-Profil, lädt der Prewarm es per
+        # Mini-Request über llama-swap statt über Ollama.
+        patched_settings["settings"] = {
+            "vision_mode": "live",
+            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
+        }
+        patched_settings["visiond"] = "Qwen3VL-4B-Instruct-Q8_0-visiond"
+        captured: dict = {}
+
+        class FakeResp:
+            def raise_for_status(self):
+                pass
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, json=None):
+                captured["url"] = url
+                captured["json"] = json
+                return FakeResp()
+
+        import httpx
+        monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+        assert run(vpw.prewarm_vlm()) is True
+        assert captured["json"]["model"] == "Qwen3VL-4B-Instruct-Q8_0-visiond"
+        assert captured["json"]["max_tokens"] == 1
 
     def test_returns_false_when_no_model_configured(self, patched_settings):
         # live mode reaches the model check (on-demand would no-op earlier).
