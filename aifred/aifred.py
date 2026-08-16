@@ -752,7 +752,9 @@ console.log('✂️ Crop handler loaded');
     if (window.__aifredLightbox) return;
     window.__aifredLightbox = true;
     var st = document.createElement('style');
-    st.textContent = 'img[src*="/_upload/"]{max-height:320px;max-width:100%;width:auto;object-fit:contain;cursor:zoom-in;border-radius:8px;}';
+    st.textContent = 'img[src*="/_upload/"]{max-height:320px;max-width:100%;width:auto;object-fit:contain;cursor:zoom-in;border-radius:8px;}'
+        + '.aifred-thumbrow{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;}'
+        + '.aifred-thumbrow img{width:50px;height:50px;object-fit:cover;border-radius:4px;margin:0;}';
     document.head.appendChild(st);
     document.addEventListener('click', function(e) {
         var img = e.target.closest && e.target.closest('img[src*="/_upload/"]');
