@@ -519,6 +519,19 @@ class ChatMixin(rx.State, mixin=True):
         async for _ in run_symposion(self, updated_content, detected_language):  # type: ignore[arg-type]
             yield
 
+        # Same finalization as _process_vision_request()/send_message()'s
+        # shared end-of-flow block: the Vision Fast Path always returns
+        # early from send_message() (see the "return" after this method's
+        # caller), so it never reaches that shared block and must trigger
+        # title generation + save itself — missed here originally, which
+        # is why Symposion-with-image sessions kept the placeholder title.
+        from ._base import track_orphan_task
+        track_orphan_task(asyncio.create_task(
+            self._generate_session_title(title_model_override=effective_vision_id)  # type: ignore[attr-defined]
+        ))
+        self._save_current_session()  # type: ignore[attr-defined]
+        self.refresh_session_list()  # type: ignore[attr-defined]
+
     async def _process_vision_request(
         self,
         user_msg: str,
