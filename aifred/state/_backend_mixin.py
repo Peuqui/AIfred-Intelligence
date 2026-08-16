@@ -1139,12 +1139,15 @@ class BackendMixin(rx.State, mixin=True):
             if mid not in self.available_models_dict:
                 continue
             display = self.available_models_dict.get(mid, mid)
-            # "No Swap" braucht BEIDES: (1) das Modell läuft über den
-            # Ollama-Side-Channel und (2) das -vlm-Profil für das aktuelle
-            # Chat-LLM ist kalibriert (sonst fällt AIfred aufs Base-Profil
-            # ohne V100-Reserve zurück → der Side-Channel findet keinen
-            # Platz → doch ein Swap). Fehlt (2) — z.B. Vigilantia 8B nicht
-            # kalibriert — zeigen wir ehrlich 🔄 Swap.
+            # "No Swap" auf zwei Wegen:
+            # (a) -visiond-Describer-Profil in llama-swap (vision-Gruppe,
+            #     exclusive: false) — lädt parallel zum Chat-LLM, per
+            #     Gruppen-Semantik nie ein Swap.
+            # (b) Ollama-Side-Channel UND das -vlm-Reserve-Profil für das
+            #     aktuelle Chat-LLM ist kalibriert (sonst fällt AIfred aufs
+            #     Base-Profil ohne V100-Reserve zurück → der Side-Channel
+            #     findet keinen Platz → doch ein Swap).
+            has_visiond = f"{mid}-visiond" in swap_models
             has_ollama = vision_swap_status(
                 mid, self.backend_id, ollama_names=oll_names
             )
@@ -1153,7 +1156,7 @@ class BackendMixin(rx.State, mixin=True):
                 f"{aifred_base}-vlm-{key}" in swap_models
                 or f"{aifred_base}-vlm-{key}-speed" in swap_models
             )
-            no_swap = has_ollama and profile_ok
+            no_swap = has_visiond or (has_ollama and profile_ok)
             rows.append({
                 "name": display,
                 "badge": "⚡ No Swap" if no_swap else "🔄 Swap",

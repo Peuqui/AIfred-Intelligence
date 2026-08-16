@@ -98,11 +98,11 @@ def get_active_vlm_key() -> str:
     active = get_active_vlm_model()
     if not active:
         return ""
-    from .config import VLM_CALIBRATION_CHOICES
-    for choice in VLM_CALIBRATION_CHOICES:
-        if choice["model_id"] == active:
-            return choice["key"]
-    return ""
+    # Normalisiertes Matching (SSOT vlm_key_for_model): erkennt sowohl die
+    # Ollama-Schreibweise (qwen3-vl:4b-instruct-q8_0) als auch die
+    # llama-swap-Schreibweise (Qwen3VL-4B-Instruct-Q8_0) desselben Modells.
+    from .vision_routing import vlm_key_for_model
+    return vlm_key_for_model(active)
 
 
 async def prewarm_vlm(

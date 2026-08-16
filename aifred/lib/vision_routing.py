@@ -72,6 +72,32 @@ def find_ollama_equivalent(
     return None
 
 
+def visiond_profile_for(name: str) -> str | None:
+    """llama-swap-Describer-Profil ``<name>-visiond``, wenn konfiguriert.
+
+    Die ``-visiond``-Profile sind schlanke Parallel-Instanzen in der
+    llama-swap ``vision``-Gruppe (``exclusive: false``) — sie laden neben
+    dem Chat-LLM, statt es zu verdrängen. Existiert kein solches Profil,
+    liefert die Funktion ``None`` und der Caller bleibt auf seinem
+    bisherigen Pfad (Ollama-Side-Channel oder Direkt-Call).
+    """
+    if not name:
+        return None
+    # Varianten-Suffixe strippen (SSOT strip_variant_suffixes): Caller
+    # liefern teils die bereits durch resolve_variant_suffix aufgelöste
+    # Rolle ("…-vlm-qwen3vl4b"); das Describer-Profil hängt am BASIS-Namen.
+    from .vision_utils import strip_variant_suffixes
+    name = strip_variant_suffixes(name)
+    from .config import LLAMASWAP_CONFIG_PATH
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    profile = f"{name}-visiond"
+    try:
+        models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+    except (OSError, ValueError):
+        return None
+    return profile if profile in models else None
+
+
 def vision_swap_status(
     vision_model: str,
     backend_type: str,
@@ -133,24 +159,37 @@ def maybe_route_to_ollama(
     vision_model: str,
     ollama_host: str | None = None,
 ) -> tuple[str | None, str, str, bool]:
-    """Decide whether the vision call should be routed to the Ollama side-channel.
+    """Decide whether the vision call should be routed swap-free.
 
     Returns ``(backend_url, backend_type, vision_model, rerouted)``.
 
-    * If ``backend_type`` is already ``"ollama"``: pass through unchanged.
-    * If ``backend_type`` is a cloud-API backend: pass through unchanged
-      (the user explicitly chose a cloud provider — no silent fallback).
-    * If ``backend_type`` is a routable on-prem backend (llama-swap, vllm)
-      and an Ollama equivalent for ``vision_model`` exists:
-      route to Ollama (returns Ollama URL + the equivalent Ollama tag +
-      ``"ollama"`` type).
-    * Otherwise: pass through unchanged.
+    Precedence (first hit wins):
+
+    1. ``backend_type`` not routable (ollama, cloud_api): pass through
+       unchanged — Ollama läuft ohnehin parallel, Cloud ist explizite
+       User-Wahl.
+    2. Ein llama-swap ``<model>-visiond``-Profil existiert: dorthin
+       routen (gleicher Backend, nur Profilname getauscht). Das Profil
+       lebt in der ``vision``-Gruppe und lädt parallel zum Chat-LLM —
+       der bevorzugte Pfad seit dem Vision-Umbau (llama.cpp statt
+       Ollama-Side-Channel).
+    3. Ein Ollama-Pendant existiert: zum Ollama-Side-Channel routen
+       (Bestands-Pfad, bleibt für Setups ohne -visiond-Profile).
+    4. Sonst: unverändert durchreichen (klassischer Swap-Pfad).
 
     The ``rerouted`` flag is mainly for logging / observability — callers
     don't need to branch on it.
     """
     if backend_type not in _ROUTABLE_BACKENDS:
         return backend_url, backend_type, vision_model, False
+    if backend_type == "llamacpp":
+        profile = visiond_profile_for(vision_model)
+        if profile is not None:
+            logger.info(
+                "vision routing: %r → %r (llama-swap vision group, no swap)",
+                vision_model, profile,
+            )
+            return backend_url, backend_type, profile, True
     equivalent = find_ollama_equivalent(vision_model, host=ollama_host)
     if equivalent is None:
         return backend_url, backend_type, vision_model, False
