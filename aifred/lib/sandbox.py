@@ -207,7 +207,11 @@ async def describe_sandbox_screenshots(
             )
             note = load_prompt("vision/sandbox_screenshot_unavailable")
             return f"{result_text}\n\n{note}", debug_msgs
-        describer = vision_model
+        # -visiond-Profil bevorzugen (llama-swap vision-Gruppe, lädt
+        # parallel zum Chat-LLM); ohne ein solches Profil bleibt der
+        # bisherige Pfad (Ollama-Side-Channel via analyze_frame-Dispatch).
+        from .vision_routing import visiond_profile_for
+        describer = visiond_profile_for(vision_model) or vision_model
         debug_msgs.append(
             f"🖼️ Describing {len(urls)} sandbox image(s) via vision role "
             f"model: {describer}"

@@ -150,10 +150,34 @@ class TestMaybeRouteToOllama:
             assert model == "qwen3-vl:4b-instruct-q8_0"
             assert rerouted is True
 
-    def test_llamaswap_with_ollama_match_routes(self):
+    def test_llamaswap_with_visiond_profile_prefers_llamacpp(self):
+        # Ein -visiond-Profil (llama-swap vision-Gruppe) schlägt die
+        # Ollama-Umleitung: gleicher Backend, nur der Profilname wechselt.
         with patch(
             "aifred.lib.vision_routing.list_ollama_vlm_models",
             return_value=[_ollama("qwen3-vl:4b-instruct-q8_0")],
+        ), patch(
+            "aifred.lib.vision_routing.visiond_profile_for",
+            return_value="Qwen3VL-4B-Instruct-Q8_0-visiond",
+        ):
+            url, btype, model, rerouted = maybe_route_to_ollama(
+                backend_url="http://localhost:11435",
+                backend_type="llamacpp",
+                vision_model="Qwen3VL-4B-Instruct-Q8_0",
+            )
+            assert btype == "llamacpp"
+            assert model == "Qwen3VL-4B-Instruct-Q8_0-visiond"
+            assert rerouted is True
+            assert url == "http://localhost:11435"
+
+    def test_llamaswap_with_ollama_match_routes(self):
+        # Ohne -visiond-Profil bleibt die Ollama-Umleitung der Parallel-Pfad.
+        with patch(
+            "aifred.lib.vision_routing.list_ollama_vlm_models",
+            return_value=[_ollama("qwen3-vl:4b-instruct-q8_0")],
+        ), patch(
+            "aifred.lib.vision_routing.visiond_profile_for",
+            return_value=None,
         ):
             url, btype, model, rerouted = maybe_route_to_ollama(
                 backend_url="http://localhost:11435",  # llama-swap
@@ -169,6 +193,9 @@ class TestMaybeRouteToOllama:
         with patch(
             "aifred.lib.vision_routing.list_ollama_vlm_models",
             return_value=[_ollama("qwen3-vl:4b-instruct-q8_0")],
+        ), patch(
+            "aifred.lib.vision_routing.visiond_profile_for",
+            return_value=None,
         ):
             # 30B has no Ollama pendant in this scenario
             url, btype, model, rerouted = maybe_route_to_ollama(
@@ -185,6 +212,9 @@ class TestMaybeRouteToOllama:
         with patch(
             "aifred.lib.vision_routing.list_ollama_vlm_models",
             return_value=[_ollama("qwen3-vl:4b-instruct-q8_0")],
+        ), patch(
+            "aifred.lib.vision_routing.visiond_profile_for",
+            return_value=None,
         ):
             url, _, _, rerouted = maybe_route_to_ollama(
                 backend_url="http://localhost:11435",

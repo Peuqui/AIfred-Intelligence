@@ -206,6 +206,22 @@ def model_has_mmproj(model_name: str) -> bool:
     return model_name in llamaswap_mmproj_models()
 
 
+def strip_variant_suffixes(model_name: str) -> str:
+    """Basis-Modell-Id ohne llama-swap-Varianten-Suffixe.
+
+    ``Qwen3.8-27B-…-tts-qwen3local-vlm-qwen3vl4b-speed`` → ``Qwen3.8-27B-…``.
+    Nötig überall, wo aufgelöste Profil-Ids (resolve_variant_suffix) auf
+    Eigenschaften des BASIS-Modells geprüft werden — z.B. enthält das
+    Suffix ``-vlm-qwen3vl4b`` das Muster „vl" und ließe die
+    Namens-Heuristik der Vision-Erkennung fehlzünden.
+    """
+    for marker in ("-tts-", "-vlm-", "-speed", "-visiond"):
+        idx = model_name.find(marker)
+        if idx > 0:
+            model_name = model_name[:idx]
+    return model_name
+
+
 def is_vision_model_sync(model_name: str) -> bool:
     """
     Synchronous vision model detection (for UI filtering).
@@ -223,7 +239,14 @@ def is_vision_model_sync(model_name: str) -> bool:
     Returns:
         True if the model supports vision input
     """
-    return model_has_mmproj(model_name) or _is_vision_model_by_name(model_name)
+    # mmproj-Check auf der VOLLEN Profil-Id (die -vlm-Variante von Qwen3.8
+    # trägt selbst --mmproj und beschreibt korrekt selbst); die
+    # Namens-Heuristik dagegen auf der Basis-Id — das Varianten-Suffix
+    # "-vlm-qwen3vl4b" enthält „vl" und würde z.B. DeepSeek-Varianten
+    # fälschlich als vision-fähig einstufen.
+    return model_has_mmproj(model_name) or _is_vision_model_by_name(
+        strip_variant_suffixes(model_name)
+    )
 
 
 async def is_vision_model(state, model_name: str) -> bool:
