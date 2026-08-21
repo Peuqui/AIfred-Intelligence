@@ -152,11 +152,11 @@ async def describe_sandbox_screenshots(
     A text-only model cannot see the screenshots/plots that render_html and
     execute_code produce — the tool result only carries their URLs for the
     UI embed. This feeds the model a text description instead. Describer
-    choice (SSOT ``is_vision_model_sync``): a vision-capable main model
-    describes its own screenshots (already loaded — no swap, no second
-    model in VRAM); otherwise the configured "vision" agent role. Neither
-    available → an explicit note in the tool result so the model tells the
-    user that visual verification is not possible right now.
+    choice: the configured "vision" role FIRST (own parallel server — the
+    chat slot's KV cache survives, see inline comment); a vision-capable
+    main model describes itself only when no vision role is configured.
+    Neither available → an explicit note in the tool result so the model
+    tells the user that visual verification is not possible right now.
 
     All screenshots of one call go to the VLM as ONE ``analyze_sequence``
     request (chronological order) — so a vision_focus question may compare
@@ -197,32 +197,41 @@ async def describe_sandbox_screenshots(
         yield {"type": "result", "text": result_text}
         return
 
-    if is_vision_model_sync(main_model):
-        describer = main_model
-        yield {"type": "debug", "message": (
-            f"🖼️ Describing {len(urls)} sandbox image(s) via vision-capable "
-            f"main model: {main_model}"
-        )}
-    else:
-        vision_model = _configured_vision_model()
-        if not vision_model:
-            yield {"type": "debug", "message": (
-                "⚠️ Sandbox screenshot description unavailable: main model "
-                f"'{main_model}' is not vision-capable and no vision role "
-                "model is configured"
-            )}
-            note = load_prompt("vision/sandbox_screenshot_unavailable")
-            yield {"type": "result", "text": f"{result_text}\n\n{note}"}
-            return
-        # -visiond-Profil bevorzugen (llama-swap vision-Gruppe, lädt
-        # parallel zum Chat-LLM); ohne ein solches Profil bleibt der
-        # bisherige Pfad (Ollama-Side-Channel via analyze_frame-Dispatch).
+    # Describer-Wahl: Vision-Rolle ZUERST — sie läuft als eigener Server
+    # (llama-swap vision-Gruppe) parallel zum Chat-LLM und lässt dessen
+    # Slot-KV-Cache unangetastet. Ein vision-fähiges Hauptmodell, das seine
+    # Screenshots selbst beschreibt, überschreibt dagegen mit jedem
+    # Describe-Call den Chat-Kontext im einzigen Slot (-np 1); bei großen
+    # Kontexten scheitert auch das RAM-Stashing (prompt state > cache-ram,
+    # Journal: "exceeds cache size limit, skipping") und der nächste
+    # Chat-Turn rechnet zigtausend Prompt-Tokens komplett neu (~5 min bei
+    # 110k). Selbstbeschreibung nur noch ohne konfigurierte Vision-Rolle.
+    # Chat-Bild-Uploads sind bewusst NICHT betroffen — _vl_choice
+    # priorisiert dort weiter das Hauptmodell (Teil des Chat-Turns selbst,
+    # kein Cache-Konflikt).
+    vision_model = _configured_vision_model()
+    if vision_model:
         from .vision_routing import visiond_profile_for
         describer = visiond_profile_for(vision_model) or vision_model
         yield {"type": "debug", "message": (
             f"🖼️ Describing {len(urls)} sandbox image(s) via vision role "
-            f"model: {describer}"
+            f"model: {describer} (keeps chat KV cache untouched)"
         )}
+    elif is_vision_model_sync(main_model):
+        describer = main_model
+        yield {"type": "debug", "message": (
+            f"🖼️ Describing {len(urls)} sandbox image(s) via vision-capable "
+            f"main model: {main_model} (no vision role configured)"
+        )}
+    else:
+        yield {"type": "debug", "message": (
+            "⚠️ Sandbox screenshot description unavailable: main model "
+            f"'{main_model}' is not vision-capable and no vision role "
+            "model is configured"
+        )}
+        note = load_prompt("vision/sandbox_screenshot_unavailable")
+        yield {"type": "result", "text": f"{result_text}\n\n{note}"}
+        return
 
     from .frame_sources import Frame
     frames: list[Frame] = []
