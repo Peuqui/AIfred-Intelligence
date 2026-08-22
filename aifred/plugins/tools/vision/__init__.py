@@ -987,11 +987,22 @@ class VisionPlugin:
             # Quellen, dann Dict-Lookup. So nennt der Assistent dem Nutzer "Büro"
             # statt der technischen source_id.
             labels = store.source_labels()
+            # Klarnamen der Identitäten: face_id → Name aus der faces-Tabelle.
+            # BEWUSST über den JOIN statt classification.matched_name — beim
+            # Nachtaggen (Personarium) wird nur die face_id gesetzt, der
+            # classification-Snapshot bleibt auf dem Erkennungs-Stand.
+            try:
+                face_names = {
+                    int(f["id"]): str(f["name"]) for f in store.list_faces()
+                }
+            except Exception:  # noqa: BLE001
+                face_names = {}
 
             def _out(ev: dict[str, Any]) -> dict[str, Any]:
                 cid = str(ev.get("cluster_id") or "")
                 fp = str(ev.get("frame_path") or "")
                 sid = str(ev["source_id"])
+                fid = ev["face_id"]
                 return {
                     "id": ev["id"],
                     "source_id": sid,
@@ -999,7 +1010,9 @@ class VisionPlugin:
                     "timestamp": ev["timestamp"],
                     "event_type": ev["event_type"],
                     "confidence": ev["confidence"],
-                    "face_id": ev["face_id"],
+                    "face_id": fid,
+                    # Identifizierte Person beim Namen — "" wenn unbekannt.
+                    "face_name": face_names.get(int(fid), "") if fid is not None else "",
                     "classification": ev["classification"],
                     # Browser-servable URL so the assistant can embed the frame
                     # as ![…](image_url) in its reply (and re-analyze it via
