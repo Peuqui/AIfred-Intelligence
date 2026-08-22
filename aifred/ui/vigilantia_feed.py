@@ -517,13 +517,30 @@ def vigilantia_feed_popover() -> rx.Component:
             size="1", color="gray",
             text_align="center", margin_top="0.5em",
         ),
-        rx.button(
-            rx.icon("refresh-cw", size=12),
-            rx.text(t("vigilantia_feed_refresh"), size="1"),
-            on_click=AIState.refresh_vigilantia_feed,
-            size="1",
-            variant="soft",
-            color_scheme="gray",
+        rx.hstack(
+            rx.button(
+                rx.icon("refresh-cw", size=12),
+                rx.text(t("vigilantia_feed_refresh"), size="1"),
+                on_click=AIState.refresh_vigilantia_feed,
+                size="1",
+                variant="soft",
+                color_scheme="gray",
+            ),
+            # Casus auch aus dem Leer-Zustand erreichbar — die Chronik
+            # kann ältere Ereignisse enthalten, obwohl das Badge-Fenster
+            # gerade leer ist. Handler-Kette wie im events_block.
+            rx.button(
+                rx.icon("scroll-text", size=12),
+                rx.text(t("vigilantia_feed_open_casus"), size="1"),
+                on_click=[
+                    AIState.close_vigilantia_feed_popover,
+                    AIState.open_casus,
+                ],
+                size="1",
+                variant="soft",
+                color_scheme="orange",
+            ),
+            spacing="2",
             style={"margin_top": "0.7em"},
         ),
         style={
