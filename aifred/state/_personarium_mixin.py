@@ -251,7 +251,10 @@ class PersonariumMixin(rx.State, mixin=True):
 
     @rx.event
     def personarium_set_tag_value(self, value: str) -> None:
-        self.personarium_tag_value = value or ""
+        # Radix liefert die item-value je nach Pfad als int (trotz .to(str)
+        # im Frontend) — ohne Cast verwirft Reflex die Zuweisung ans
+        # str-Feld und der Speichern-Klick läuft ins Leere.
+        self.personarium_tag_value = str(value) if value is not None else ""
 
     @rx.event
     def personarium_set_tag_new_name(self, value: str) -> None:
