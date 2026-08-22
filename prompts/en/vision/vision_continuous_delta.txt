@@ -1,0 +1,1 @@
+Describe in one sentence what you are seeing right now. If nothing significant has changed compared to the last frame, briefly say 'unchanged'. Describe only what is actually visible in the image — do not mention anything from the context that is not currently visible.

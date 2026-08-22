@@ -1,0 +1,1 @@
+The people positively identified by face recognition are: {names}. Refer to visible people by name.

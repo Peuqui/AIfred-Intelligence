@@ -351,6 +351,9 @@ def vigilantia_help_modal() -> rx.Component:
             _help_row("person-standing", "var(--purple-9)",
                       "vigilantia_help_person_label",
                       "vigilantia_help_person_body"),
+            _help_row("radar", "var(--green-9)",
+                      "vigilantia_help_edgeai_label",
+                      "vigilantia_help_edgeai_body"),
             rx.divider(),
             # Ebene 3: Vorschau
             rx.text(

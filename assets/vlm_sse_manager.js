@@ -61,15 +61,19 @@ console.log('[AIfred-VLM] script file fetched + parsed');
           return;
         }
         if (el.style.fontStyle !== 'normal') el.style.fontStyle = 'normal';
-        // Eine Zeile = ein Div. CSS-Border-Bottom liefert die
-        // Separator-Linie ohne zusätzliche Zeilenhöhe.
-        var html = items.map(function (line) {
+        // Neueste Inferenz OBEN (Array bleibt chronologisch, nur die
+        // Anzeige ist umgekehrt) — alles darunter ist Geschichte. Die
+        // oberste Zeile wird per CSS (:first-child) hervorgehoben.
+        var html = items.slice().reverse().map(function (line) {
           return '<div class="vlm-line">' + escapeHtml(line) + '</div>';
         }).join('');
         if (el.innerHTML !== html) {
-          var stickToBottom = wasNearBottom(el);
+          // Steht der User oben (Default), bleibt die neueste Zeile im
+          // Blick; hat er bewusst in die Historie gescrollt, lassen wir
+          // die Position in Ruhe.
+          var stickToTop = el.scrollTop < AUTO_SCROLL_THRESHOLD;
           el.innerHTML = html;
-          if (stickToBottom) el.scrollTop = el.scrollHeight;
+          if (stickToTop) el.scrollTop = 0;
         }
       });
     }
@@ -106,10 +110,9 @@ console.log('[AIfred-VLM] script file fetched + parsed');
           // nur bei unknown, weil bei known/unsure die Person schon
           // eine Identity hat.
           var actions = '';
-          if (item.band === 'unknown' && item.embedding_b64) {
+          if (item.band === 'unknown') {
             actions +=
               '<button class="vlm-face-enroll-btn" ' +
-                'data-embedding="' + escapeHtml(item.embedding_b64) + '" ' +
                 'data-source="' + escapeHtml(sid) + '" ' +
                 'data-item-id="' + item._id + '">' +
                 escapeHtml(item.enroll_label || '+ taggen') +
@@ -331,36 +334,16 @@ console.log('[AIfred-VLM] script file fetched + parsed');
       }
       var btn = ev.target.closest('.vlm-face-enroll-btn');
       if (!btn) return;
-      var emb = btn.dataset.embedding;
-      var src = btn.dataset.source;
-      var itemId = btn.dataset.itemId;
-      if (!emb || !src) return;
-      var promptLabel = window.__aifredFaceEnrollPrompt || 'Name?';
-      var name = window.prompt(promptLabel, '');
-      if (!name) return;
-      btn.disabled = true;
-      btn.textContent = '…';
-      fetch('/api/vision/face/enroll', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name,
-          source_id: src,
-          embedding_b64: emb,
-        }),
-      }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      }).then(function (data) {
-        console.log('[AIfred-VLM] enrolled:', data);
-        // Erfolg: Zeile aus Liste raus — beim nächsten Frame wird
-        // diese Person dann hoffentlich als known erkannt.
-        removeFaceItem(src, itemId);
-      }).catch(function (e) {
-        console.warn('[AIfred-VLM] enroll failed:', e);
-        btn.disabled = false;
-        btn.textContent = window.__aifredFaceEnrollLabel || '+ taggen';
-      });
+      // SSOT-Tag-Flow: statt window.prompt() öffnet der Button das
+      // Personarium (Sektion „Unzugeordnete Gesichter" — Dropdown mit
+      // bestehenden Personen + „Neue Person", Embedding-Lernen inklusive).
+      // Das Face-Event dieser Sichtung liegt bereits im VisionStore.
+      var openBtn = document.querySelector('[data-open-personarium]');
+      if (openBtn) {
+        openBtn.click();
+      } else {
+        console.warn('[AIfred-VLM] personarium button not found');
+      }
     });
 
     // Clear-Handler für die Teleprompter-Box (VLM-Analyse).

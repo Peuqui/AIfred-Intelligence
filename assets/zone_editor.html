@@ -22,6 +22,10 @@
   button:hover { border-color:var(--accent); }
   button.primary { background:#3d2a00; color:var(--accent); border-color:var(--accent); font-weight:600; }
   .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  #ai-cam-hint { display:none; font-size:12px; color:var(--accent); margin-top:6px;
+                 background:#3d2a0033; border:1px solid var(--accent); border-radius:6px;
+                 padding:7px 10px; }
+  #ai-cam-hint.show { display:block; }
   /* Responsiv: die Stage-Breite wird in JS (fitStage) so gesetzt, dass das
      Bild den verfügbaren Fensterplatz füllt — Breite UND Höhe, mit erhaltenem
      Seitenverhältnis. Die interne Canvas-Auflösung bleibt fix; evtPos() rechnet
@@ -31,6 +35,21 @@
   #live { display:block; width:100%; height:auto; }
   #cv { position:absolute; top:0; left:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
   #status { margin-top:10px; font-size:13px; min-height:18px; }
+  /* Toaster — 1:1 die Werte des Sonner-Toasts, den Reflex im Hauptfenster
+     benutzt (styles.css: bg #000, border hsl(0,0%,20%), radius 8px, 13px,
+     356px breit, 24px Offset, 400ms Slide). Das Editor-Fenster ist reines
+     HTML ohne Reflex, deshalb nachgebaut statt importiert. */
+  #toaster { position:fixed; right:24px; bottom:24px; width:356px; z-index:999999999;
+             display:flex; flex-direction:column; gap:14px; pointer-events:none; }
+  #toaster .toast { display:flex; align-items:center; gap:6px; padding:16px;
+                    background:#000; border:1px solid hsl(0,0%,20%); color:hsl(0,0%,99%);
+                    border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1);
+                    font-size:13px; font-weight:500; line-height:1.5;
+                    opacity:0; transform:translateY(100%);
+                    transition:transform 400ms, opacity 400ms; }
+  #toaster .toast.show { opacity:1; transform:translateY(0); }
+  #toaster .toast svg { flex-shrink:0; }
+  #toaster .toast.err svg { color:#ff6b6b; }
   #status.ok { color:#4caf50; } #status.err { color:#ff6b6b; }
   kbd { background:#23272f; border:1px solid var(--border); border-radius:3px; padding:1px 5px; font-size:11px; }
   #help-btn { background:none; border:none; cursor:pointer; padding:4px; margin-left:auto; line-height:0; }
@@ -87,12 +106,14 @@
     </span>
   </div>
   <div class="hint" data-i18n-html="zone_editor_hint"></div>
+  <div id="ai-cam-hint" data-i18n="zone_editor_ai_cam_hint"></div>
   <div id="stage">
     <img id="live" width="900" height="506" alt="">
     <canvas id="cv" width="900" height="506"></canvas>
   </div>
   <div id="status"></div>
 </div>
+<div id="toaster"></div>
 <div id="help-overlay">
   <div id="help-box">
     <div class="help-head">
@@ -131,11 +152,13 @@
   // Kamera-Anzeigename (Alias) wird serverseitig injiziert; Fallback auf die
   // rohe source_id, falls die Quelle (noch) nicht registriert ist.
   document.getElementById("srcLabel").textContent = window.SRC_NAME || sourceId;
+  if (window.AI_CAM) document.getElementById("ai-cam-hint").classList.add("show");
 
   const cv = document.getElementById("cv");
   const ctx = cv.getContext("2d");
   const live = document.getElementById("live");
   const statusEl = document.getElementById("status");
+  const toasterEl = document.getElementById("toaster");
   const brushEl = document.getElementById("brush");
   const brushValEl = document.getElementById("brushVal");
   const gridEl = document.getElementById("grid");
@@ -175,6 +198,31 @@
       statusEl.textContent = tr("zone_editor_live");
       statusEl.className = "";
     }, 3500);
+  }
+
+  // Toast wie im Hauptfenster: 2s sichtbar (dieselbe Dauer wie die
+  // rx.toast.success("… gespeichert")-Aufrufe), dann ausblenden.
+  const TOAST_DURATION_MS = 2000;
+  const TOAST_FADE_MS = 400;
+  const _TOAST_ICONS = {
+    ok: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" height="20" width="20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd"/></svg>',
+    err: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" height="20" width="20"><path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm9-3.75a.75.75 0 011.5 0v4.5a.75.75 0 01-1.5 0v-4.5zm.75 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd"/></svg>',
+  };
+
+  function toast(msg, kind) {
+    const el = document.createElement("div");
+    el.className = "toast" + (kind === "err" ? " err" : "");
+    el.innerHTML = (_TOAST_ICONS[kind === "err" ? "err" : "ok"]) +
+                   "<span></span>";
+    el.lastChild.textContent = msg;
+    toasterEl.appendChild(el);
+    // Ein Frame warten, damit der Browser den Startzustand rendert und
+    // die Transition tatsächlich läuft (statt direkt im Endzustand zu sein).
+    requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => {
+      el.classList.remove("show");
+      setTimeout(() => el.remove(), TOAST_FADE_MS);
+    }, TOAST_DURATION_MS);
   }
 
   function newMask() {
@@ -313,13 +361,15 @@
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("HTTP " + res.status);
-      flashStatus(
-        hasAny
-          ? (activeEl.checked ? tr("zone_editor_saved") : tr("zone_editor_saved_off"))
-          : tr("zone_editor_removed"),
-        "ok");
+      const msg = hasAny
+        ? (activeEl.checked ? tr("zone_editor_saved") : tr("zone_editor_saved_off"))
+        : tr("zone_editor_removed");
+      flashStatus(msg, "ok");
+      toast(msg, "ok");
     } catch (err) {
-      setStatus(tr("zone_editor_save_failed") + err.message, "err");
+      const msg = tr("zone_editor_save_failed") + err.message;
+      setStatus(msg, "err");
+      toast(msg, "err");
     }
   }
 

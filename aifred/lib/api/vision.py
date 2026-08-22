@@ -676,6 +676,25 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
     # (DE „1,5" → Komma, EN „1.5" → Punkt) — der Editor formatiert Prozente
     # damit konsistent zur restlichen UI.
     decimal_sep = format_number(1.1, 1)[1]
+    # Kamera-Profil (SSoT: vision_profiles) — eine ai_camera triggert selbst,
+    # dort wirken ignorieren/ROI-Zonen im Scharf-Betrieb nicht. Der Editor
+    # zeigt dann einen Hinweis-Banner (window.AI_CAM).
+    ai_cam = False
+    if source_id:
+        try:
+            from ..frame_sources.rtsp_source import find_camera_config
+            from ..vision_profiles import resolve_profile
+            from ..vision_store import VisionStore
+            cam_cfg = find_camera_config(source_id)
+            rec = VisionStore().get_source(source_id) or {}
+            profile_name = (
+                (cam_cfg or {}).get("profile")
+                or (rec.get("settings") or {}).get("profile")
+                or ""
+            )
+            ai_cam = not resolve_profile(str(profile_name)).allow_local_detection
+        except Exception:  # noqa: BLE001
+            ai_cam = False
     inject = (
         "<script>window.T="
         + json.dumps({k: t(k) for k in keys}, ensure_ascii=False)
@@ -683,6 +702,8 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
         + json.dumps(decimal_sep)
         + ";window.SRC_NAME="
         + json.dumps(src_name, ensure_ascii=False)
+        + ";window.AI_CAM="
+        + json.dumps(ai_cam)
         + ";</script>"
     )
     return HTMLResponse(

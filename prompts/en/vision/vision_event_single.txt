@@ -1,1 +1,1 @@
-Describe in one sentence what is visible in this image. If people are visible, describe their action briefly, without details about their appearance.
+Describe in one or two sentences what is visible in this image. If people are visible, describe their action as well as their appearance and clothing (e.g. color of jacket and trousers, headwear, items they are carrying). Describe only what is actually visible in the image — do not mention anything from the context that is not currently visible.

@@ -38,11 +38,24 @@ class PersonariumMixin(rx.State, mixin=True):
     # ({id, quality, created_at, crop_url} — ohne den numpy-Vektor).
     personarium_manage_face_id: int = 0
     personarium_embeddings: list[dict[str, Any]] = []
+    # „Unzugeordnete Gesichter" — face_unknown/face_unsure-Events ohne
+    # Identity, dedupliziert pro Vorkommnis (cluster_id). Zum Nachtaggen
+    # + Embedding-Lernen (lib.face_enroll).
+    personarium_untagged: list[dict[str, Any]] = []
+    # Tag-Modus: event_id der Karte, die gerade zugeordnet wird (0 = keine),
+    # Auswahl im Dropdown (face_id als String oder "__new__") + Name-Input.
+    personarium_tag_event_id: int = 0
+    personarium_tag_value: str = ""
+    personarium_tag_new_name: str = ""
+    # Läuft gerade ein Enroll (InsightFace auf dem Frame)? → Spinner.
+    personarium_tag_busy: bool = False
 
     @rx.event
     def open_personarium(self) -> None:
-        """Öffne das Modal + lade die Identity-Liste."""
+        """Öffne das Modal + lade Identity-Liste und unzugeordnete
+        Gesichter."""
         self._refresh_personarium_faces()
+        self._refresh_personarium_untagged()
         self.personarium_open = True
         self.personarium_status = ""
 
@@ -51,6 +64,9 @@ class PersonariumMixin(rx.State, mixin=True):
         self.personarium_open = False
         self.personarium_edit_face_id = 0
         self.personarium_edit_name = ""
+        self.personarium_tag_event_id = 0
+        self.personarium_tag_value = ""
+        self.personarium_tag_new_name = ""
 
     def _refresh_personarium_faces(self) -> None:
         """Lade Liste neu — wird nach jeder Aktion gerufen."""
@@ -180,3 +196,101 @@ class PersonariumMixin(rx.State, mixin=True):
         self._refresh_personarium_faces()
         from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
         bump_enrollment_epoch()
+
+    # ── Unzugeordnete Gesichter (Nachtaggen + Lernen) ────────────────
+
+    def _refresh_personarium_untagged(self) -> None:
+        """face_unknown/face_unsure-Events ohne Identity laden — ein
+        Eintrag pro Vorkommnis (cluster_id-Dedupe), nur mit Crop."""
+        try:
+            from ..lib.vision_store import VisionStore
+            rows = VisionStore().list_events_with_summary(
+                event_types=["face_unknown", "face_unsure"],
+                unknown_only=True,
+                limit=100,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("personarium untagged load failed: %s", e)
+            self.personarium_untagged = []
+            return
+        seen_clusters: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            if not r.get("crop_url"):
+                continue
+            cid = str(r.get("cluster_id") or "")
+            if cid:
+                if cid in seen_clusters:
+                    continue
+                seen_clusters.add(cid)
+            out.append({
+                "id": int(r["id"]),
+                "crop_url": str(r["crop_url"]),
+                "event_type": str(r["event_type"]),
+                "matched_name": str(r.get("matched_name") or ""),
+                "source_name": str(r.get("source_name") or ""),
+                "date_display": str(r.get("date_display") or ""),
+                "time_display": str(r.get("time_display") or ""),
+            })
+            if len(out) >= 24:
+                break
+        self.personarium_untagged = out
+
+    @rx.event
+    def personarium_start_tag(self, event_id: int) -> None:
+        """Tag-Modus für eine Gesichts-Karte öffnen."""
+        self.personarium_tag_event_id = int(event_id)
+        self.personarium_tag_value = ""
+        self.personarium_tag_new_name = ""
+
+    @rx.event
+    def personarium_cancel_tag(self) -> None:
+        self.personarium_tag_event_id = 0
+        self.personarium_tag_value = ""
+        self.personarium_tag_new_name = ""
+
+    @rx.event
+    def personarium_set_tag_value(self, value: str) -> None:
+        self.personarium_tag_value = value or ""
+
+    @rx.event
+    def personarium_set_tag_new_name(self, value: str) -> None:
+        self.personarium_tag_new_name = value or ""
+
+    @rx.event
+    async def personarium_save_tag(self):
+        """Zuordnen + Lernen: Embedding aus dem gespeicherten Frame
+        nachrechnen (lib.face_enroll), der Person anhängen und das
+        Event zuordnen. Bestehende Person via face_id, neue via Name."""
+        event_id = int(self.personarium_tag_event_id)
+        choice = self.personarium_tag_value
+        if event_id <= 0 or not choice:
+            return
+        self.personarium_tag_busy = True
+        yield
+        try:
+            from ..lib.face_enroll import enroll_face_from_event
+            if choice == "__new__":
+                result = await enroll_face_from_event(
+                    event_id, name=self.personarium_tag_new_name,
+                )
+            else:
+                result = await enroll_face_from_event(
+                    event_id, face_id=int(choice),
+                )
+            from ..lib.formatting import format_number
+            self.personarium_status = (
+                f"✓ Gesicht als '{result['name']}' gelernt "
+                f"(Qualität {format_number(result['quality'], 2)})"
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("personarium tag+learn failed: %s", e)
+            self.personarium_status = f"⚠️ {e}"
+            self.personarium_tag_busy = False
+            return
+        self.personarium_tag_busy = False
+        self.personarium_tag_event_id = 0
+        self.personarium_tag_value = ""
+        self.personarium_tag_new_name = ""
+        self._refresh_personarium_faces()
+        self._refresh_personarium_untagged()
