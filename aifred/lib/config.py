@@ -685,7 +685,11 @@ PERSON_DETECT_CLASS_ID = 0
 # (~480²→640² ≈ 1,8×, grob 20-45 ms statt 10-25 ms) fällt nicht ins Gewicht.
 PERSON_DETECT_INPUT_SIZE = 640
 # Mindest-Konfidenz, damit eine Box als Person zählt.
-PERSON_DETECT_CONFIDENCE = 0.35
+# 0,45 statt 0,35: Die IR-beleuchtete Wandlampe am Hauseingang kam nachts
+# mit 0,38 als "Person" durch (22.08.2026, "2 Personen erkannt"); echte
+# Personen liegen auch nachts >0,8. Nicht höher drehen — ferne/kleine
+# Personen im Burst-Zoom-Fallback brauchen die Luft nach unten.
+PERSON_DETECT_CONFIDENCE = 0.45
 # IoU-Schwelle für Non-Maximum-Suppression überlappender Boxen.
 PERSON_DETECT_NMS_IOU = 0.45
 # GPU analog zu FACE_DETECT — Default CPU, GPU bleibt frei für LLM/VLM/TTS.
