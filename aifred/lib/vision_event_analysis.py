@@ -60,33 +60,45 @@ async def analyze_event_with_vlm(
     if not frame_path:
         raise ValueError(f"event {event_id} has no frame_path on disk")
 
-    image_bytes = _load_frame_bytes(frame_path)
-
-    # VLM-Call via Ollama
-    from ollama import AsyncClient
-    from .config import VLM_CALL_TIMEOUT_S, VLM_NUM_CTX, resolve_vlm_host
+    # Bildpaar wie im Alert-Pfad: Subjekt-Ansicht (Zoom, wenn das Event eine
+    # hat) ZUERST, dann das Weitwinkel als Szenen-Kontext — beide in EINEM
+    # VLM-Aufruf über den geteilten analyze_sequence-Pfad (SSoT: Backend-
+    # Dispatch + Downscale leben dort, kein eigener Ollama-Call mehr).
+    from .frame_sources import Frame
+    from .prompt_loader import get_vision_event_single_prompt
+    from .vision_analyzer import analyze_sequence
     from .vision_prewarm import get_active_vlm_model
-    import base64
+    from .vision_utils import get_source_briefing
+
     target_model = model or get_active_vlm_model()
     if not target_model:
         raise RuntimeError("no VLM model configured")
-    from .prompt_loader import get_vision_event_single_prompt
-    from .config import VISION_VLM_MAX_PIXELS
-    from .vision_analyzer import downscale_for_vlm
     target_prompt = (prompt or get_vision_event_single_prompt()).strip()
-    image_b64 = base64.b64encode(
-        downscale_for_vlm(image_bytes, VISION_VLM_MAX_PIXELS)
-    ).decode("ascii")
-    client = AsyncClient(host=resolve_vlm_host(), timeout=VLM_CALL_TIMEOUT_S)
-    response = await client.generate(
-        model=str(target_model),
-        prompt=target_prompt,
-        images=[image_b64],
-        options={"num_ctx": int(VLM_NUM_CTX)},
-        keep_alive="30m",
-        stream=False,
-    )
-    description = str(getattr(response, "response", "") or response.get("response", "")).strip()
+    briefing = get_source_briefing(str(target.get("source_id") or ""))
+    if briefing:
+        target_prompt = f"{briefing}\n\n{target_prompt}"
+
+    try:
+        ts = datetime.fromisoformat(str(target.get("timestamp")))
+    except (TypeError, ValueError):
+        ts = datetime.now()
+    source_id = str(target.get("source_id") or "")
+    zoom_path = str((target.get("classification") or {}).get("zoom_frame_path") or "")
+    frame_paths = [p for p in (zoom_path, frame_path) if p] or [frame_path]
+    frames = []
+    for fp in frame_paths:
+        try:
+            frames.append(Frame(
+                source_id=source_id, timestamp=ts,
+                image_bytes=_load_frame_bytes(fp),
+            ))
+        except FileNotFoundError:
+            continue
+    if not frames:
+        raise FileNotFoundError(f"frame not on disk: {frame_path}")
+
+    result = await analyze_sequence(frames, target_prompt, model=str(target_model))
+    description = (result.text or "").strip()
     if not description:
         raise RuntimeError("VLM returned empty response")
 
@@ -214,6 +226,12 @@ async def analyze_cluster_with_vlm(
     if not target_model:
         raise RuntimeError("no VLM model configured")
     target_prompt = (prompt or get_vision_event_sequence_prompt()).strip()
+    # Kamera-Briefing der Quelle des Repräsentanten voranstellen — Cluster
+    # sind pro Quelle homogen (cluster_id entsteht pro Source).
+    from .vision_utils import get_source_briefing
+    briefing = get_source_briefing(frames[0].source_id)
+    if briefing:
+        target_prompt = f"{briefing}\n\n{target_prompt}"
 
     result = await analyze_sequence(frames, target_prompt, model=str(target_model))
     description = (result.text or "").strip()

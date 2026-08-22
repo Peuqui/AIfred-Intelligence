@@ -377,6 +377,17 @@ def _bulk_bar() -> rx.Component:
             ),
             rx.tooltip(
                 rx.button(
+                    rx.icon("users", size=14),
+                    rx.text(t("casus_open_personarium"), size="1"),
+                    on_click=AIState.open_personarium,
+                    size="1",
+                    variant="soft",
+                    color_scheme="orange",
+                ),
+                content=t("casus_open_personarium_tooltip"),
+            ),
+            rx.tooltip(
+                rx.button(
                     rx.icon("sparkles", size=14),
                     rx.text(t("casus_bulk_start"), size="1"),
                     on_click=AIState.casus_bulk_start,

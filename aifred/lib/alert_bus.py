@@ -213,14 +213,13 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
         from .prompt_loader import get_vision_event_single_prompt
         from .vision_analyzer import analyze_sequence
         from .vision_prewarm import get_active_vlm_model
-        from .vision_store import VisionStore
+        from .vision_utils import get_source_briefing
 
         model = get_active_vlm_model()
         if not model:
             return None
         prompt = get_vision_event_single_prompt().strip()
-        rec = VisionStore().get_source(ev.source_id) if ev.source_id else None
-        briefing = str((rec or {}).get("prompt_context") or "").strip()
+        briefing = get_source_briefing(ev.source_id or "")
         if briefing:
             prompt = f"{briefing}\n\n{prompt}"
         # Personalisierung: hat die Gesichtserkennung eine Person sicher
@@ -233,10 +232,9 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
             identities = [identities]
         identities = [str(n).strip() for n in identities if str(n).strip()]
         if identities:
-            who = ", ".join(identities)
+            from .prompt_loader import get_vision_identity_context_prompt
             prompt = (
-                f"Die im Bild sicher erkannten Personen sind: {who}. "
-                f"Nenne jede beim Namen.\n\n{prompt}"
+                f"{get_vision_identity_context_prompt(identities)}\n\n{prompt}"
             )
         # Subjekt-Ansicht (Zoom) zuerst, dann die Weitwinkel-Kontext-Ansicht
         # desselben Moments — das VLM sieht Nahaufnahme UND Szene. Der Crop

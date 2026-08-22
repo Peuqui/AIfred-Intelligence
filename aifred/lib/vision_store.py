@@ -740,6 +740,25 @@ class VisionStore:
             })
         return result
 
+    def recent_known_identity_names(
+        self, source_id: str, *, since: datetime
+    ) -> list[str]:
+        """Namen der auf dieser Quelle seit ``since`` sicher erkannten
+        Personen (``face_known``-Events, dedupliziert, jüngste zuerst).
+        Für den Identitäts-Kontext in VLM-Prompts (Teleprompter/Alert)."""
+        query = (
+            "SELECT DISTINCT f.name FROM events e "
+            "JOIN faces f ON f.id = e.face_id "
+            "WHERE e.source_id = ? AND e.event_type = 'face_known' "
+            "AND e.timestamp >= ? ORDER BY e.timestamp DESC"
+        )
+        with self._conn() as conn:
+            rows = conn.execute(
+                query,
+                (source_id, since.isoformat(timespec="microseconds")),
+            ).fetchall()
+        return [str(r["name"]) for r in rows if r["name"]]
+
     def count_events(
         self,
         *,

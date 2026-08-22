@@ -57,23 +57,6 @@ _DEFAULT_FRAMES_DIR = DATA_DIR / "vigilantia" / "motion"
 EDGE_AI_POLL_INTERVAL_DEFAULT = 0.5
 EDGE_AI_SETTLE_DEFAULT = 1.0
 
-# Erster Call nach Watch-Start: noch keine History, also keine
-# „unverändert"-Option im Prompt — die VLM muss die Szene voll
-# beschreiben statt zu vermuten was sich „nicht" geändert haben
-# könnte.
-_FIRST_CONTINUOUS_PROMPT = (
-    "Beschreibe in einem Satz, was du gerade siehst."
-)
-
-# Folge-Calls: „unverändert" als Kurz-Antwort erlaubt, damit der
-# Teleprompter als Delta-Narration liest und sich nicht wiederholt.
-_DELTA_CONTINUOUS_PROMPT = (
-    "Beschreibe in einem Satz, was du gerade siehst. Wenn sich "
-    "gegenüber dem letzten Frame nichts wesentlich geändert hat, "
-    "sage knapp 'unverändert'."
-)
-
-
 @dataclass
 class WatchConfig:
     """Per-Source Konfiguration für eine Watch-Session.
@@ -1217,13 +1200,10 @@ class VisionWatcher:
         # Build the prompt: per-cam briefing + explicit override
         from .vision_analyzer import analyze_sequence, DEFAULT_MODEL, DEFAULT_NUM_CTX
         from .vision_prewarm import get_vision_mode
-        # Briefing: prefer vision_store.sources.prompt_context (the
-        # per-camera context the user typed in the popup), fall back
-        # to whatever the config / settings say.
-        briefing = ""
-        stored = self._store.get_source(source_id)
-        if stored:
-            briefing = str(stored.get("prompt_context") or "").strip()
+        # Briefing: per-camera context the user typed in the popup
+        # (SSoT: vision_utils.get_source_briefing).
+        from .vision_utils import get_source_briefing
+        briefing = get_source_briefing(source_id)
 
         # ── KONTEXT-INJECTION DEAKTIVIERT ───────────────────────────
         # Die History-Block-Injection und der „letzter Frame"-Hinweis
@@ -1236,9 +1216,9 @@ class VisionWatcher:
         # if config.vlm_prompt.strip():
         #     base_instruction = config.vlm_prompt.strip()
         # elif history and len(history) > 0:
-        #     base_instruction = _DELTA_CONTINUOUS_PROMPT
+        #     base_instruction = get_vision_continuous_delta_prompt()
         # else:
-        #     base_instruction = _FIRST_CONTINUOUS_PROMPT
+        #     base_instruction = get_vision_continuous_first_prompt()
         # history_block = ""
         # if history and len(history) > 0:
         #     entries = [
@@ -1251,15 +1231,40 @@ class VisionWatcher:
         #         + "\n\n"
         #     )
 
-        # User-Override gewinnt, sonst Plain-Beschreibungs-Prompt.
+        # User-Override gewinnt, sonst Plain-Beschreibungs-Prompt
+        # (prompts/{lang}/vision/vision_continuous_first.txt).
+        from .prompt_loader import get_vision_continuous_first_prompt
         if config.vlm_prompt.strip():
             base_instruction = config.vlm_prompt.strip()
         else:
-            base_instruction = _FIRST_CONTINUOUS_PROMPT
+            base_instruction = get_vision_continuous_first_prompt()
+
+        # Identitäts-Kontext: hat die Gesichtserkennung auf dieser Quelle
+        # gerade eben (Fenster s. config) jemanden SICHER erkannt, bekommt
+        # das VLM die Namen als Fakt — „Lord Helmchen kommt den Weg
+        # herauf" statt „ein Mann mit Brille". SSoT-Template mit dem
+        # Alert-Pfad (vision_identity_context.txt).
+        identity_block = ""
+        try:
+            from datetime import timedelta
+            from .config import VISION_IDENTITY_CONTEXT_WINDOW_SEC
+            from .prompt_loader import get_vision_identity_context_prompt
+            names = self._store.recent_known_identity_names(
+                source_id,
+                since=datetime.now() - timedelta(
+                    seconds=VISION_IDENTITY_CONTEXT_WINDOW_SEC
+                ),
+            )
+            if names:
+                identity_block = get_vision_identity_context_prompt(names)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("identity context lookup failed: %s", e)
 
         prompt_parts = []
         if briefing:
             prompt_parts.append(briefing)
+        if identity_block:
+            prompt_parts.append(identity_block)
         # if history_block:
         #     prompt_parts.append(history_block.rstrip())
         prompt_parts.append(base_instruction)
@@ -1340,18 +1345,10 @@ class VisionWatcher:
             self._vlm_history[source_id] = ring
         ring.append((frame.timestamp, text_full))
 
-        # Persist + broadcast — Original-Text vom Modell, 1:1.
-        event_id = -1
-        try:
-            event_id = self._store.add_event(
-                source_id=source_id,
-                event_type="vlm_analysis",
-                timestamp=frame.timestamp,
-                classification={"description": result.text, "model": result.model},
-                metadata={"prompt": prompt, "n_frames": 1, "continuous": True},
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("continuous-VLM store-event failed: %s", e)
+        # Broadcast only — Teleprompter-Inferenzen sind Live-Werkzeug,
+        # KEINE Chronik-Ereignisse: sie landen bewusst nicht mehr im
+        # VisionStore (fluteten den Casus mit einem Event pro ~2 s).
+        # Die Historie lebt im Popup (Ring + SSE-Consumer).
 
         # Push onto the in-memory event bus for SSE consumers.
         # Drei Zeitstempel im Event:
@@ -1363,7 +1360,7 @@ class VisionWatcher:
         inference_end = datetime.now()
         from .vision_event_bus import publish_vlm_event
         publish_vlm_event(source_id, {
-            "id": event_id,
+            "id": -1,  # kein Store-Event mehr (Live-only)
             "type": "vlm_analysis",
             "source_id": source_id,
             "timestamp": inference_start.isoformat(timespec="seconds"),

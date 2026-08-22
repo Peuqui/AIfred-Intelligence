@@ -875,6 +875,13 @@ tr:hover {
     padding: 0;
     line-height: 1.4;
 }
+.vlm-event-target .vlm-line:first-child {
+    /* Neueste Inferenz steht oben — leicht hellerer Grund hebt sie
+       von der Historie darunter ab. */
+    background: rgba(255, 255, 255, 0.07);
+    padding: 0.15em 0.3em;
+    border-radius: 4px;
+}
 .vlm-event-target .vlm-line:last-child,
 .vlm-face-target .vlm-line:last-child {
     border-bottom: none;

@@ -848,17 +848,20 @@ console.log('✂️ Crop handler loaded');
         # Vigilantia-Plugin Settings Modal (gear icon next to "Vigilantia")
         vision_settings_modal(),
 
-        # Personarium — Identitäten-Verwaltung (vom Vigilantia-Settings-
-        # Modal aus aufgerufen)
-        personarium_modal(),
-
         # Casus — Ereignis-Verwaltung (vom Vigilantia-Settings-Modal aus
         # aufgerufen, chronologische Filter-/Tag-Tabelle)
         casus_modal(),
         casus_help_modal(),
 
+        # Personarium — Identitäten-Verwaltung. BEWUSST NACH casus_modal
+        # gemountet: bei gleichem z-index gewinnt das spätere DOM-Element,
+        # und der Personarium-Button im Casus muss das Personarium ÜBER
+        # dem Casus öffnen (aus den Settings heraus stapelt es ohnehin).
+        personarium_modal(),
+
         # Multi-Pose-Lern-Modal — geführte Enrollment-Aufnahme mit
-        # mehreren Kopf-Posen für robustere Face-Recognition.
+        # mehreren Kopf-Posen für robustere Face-Recognition. Nach dem
+        # Personarium gemountet (wird von dort geöffnet).
         multipose_modal(),
 
         # Vigilantia-Hilfe-Modal — Übersicht „was bedeutet was".
@@ -1198,8 +1201,10 @@ def agent_editor_route() -> rx.Component:
     return rx.fragment(
         agent_editor_page(),
         vision_settings_modal(),
-        personarium_modal(),
+        # Reihenfolge = Stapel-Reihenfolge (späteres DOM-Element liegt
+        # oben): Casus < Personarium < Multi-Pose, wie im Haupt-Mount.
         casus_modal(),
+        personarium_modal(),
         multipose_modal(),
         vigilantia_help_modal(),
         # Narrator gear icon in the plugin tab opens this
@@ -1213,8 +1218,17 @@ def agent_editor_route() -> rx.Component:
     title="Vigilantia Live — AIfred",
 )
 def vision_preview_popup_route() -> rx.Component:
-    """Eigenes Browser-Fenster (via window.open) für Live-Preview."""
-    return vision_preview_page()
+    """Eigenes Browser-Fenster (via window.open) für Live-Preview.
+
+    Personarium + Multi-Pose werden mitgemountet, damit der
+    Personarium-Button im „Erkannte Personen"-Panel auch in diesem
+    Fenster ein Modal öffnen kann (gleicher Client-Token → geteilter
+    State mit dem Hauptfenster)."""
+    return rx.fragment(
+        vision_preview_page(),
+        personarium_modal(),
+        multipose_modal(),
+    )
 
 
 @rx.page(

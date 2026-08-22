@@ -213,6 +213,110 @@ def _embedding_cell(emb: rx.Var) -> rx.Component:
     )
 
 
+def _untagged_card(ev: rx.Var) -> rx.Component:
+    """Eine Karte im „Unzugeordnete Gesichter"-Grid: Crop + Zeit/Quelle,
+    darunter „zuordnen"-Button bzw. im Tag-Modus Dropdown (+ Name bei
+    neuer Person) mit Save/Cancel."""
+    eid = ev["id"]
+    is_tagging = AIState.personarium_tag_event_id == eid
+    return rx.vstack(
+        rx.image(
+            src=ev["crop_url"],
+            style={
+                "width": "64px", "height": "64px", "border_radius": "4px",
+                "object_fit": "cover", "border": "1px solid var(--gray-7)",
+            },
+        ),
+        rx.text(
+            ev["date_display"].to(str) + " " + ev["time_display"].to(str),
+            size="1", color="gray",
+            style={"font_family": "monospace"},
+        ),
+        rx.text(ev["source_name"], size="1", color="gray"),
+        # face_unsure trägt schon einen Kandidaten-Namen — anzeigen,
+        # das ist meist die richtige Antwort.
+        rx.cond(
+            ev["matched_name"] != "",
+            rx.badge(ev["matched_name"], color_scheme="amber", variant="soft", size="1"),
+            rx.fragment(),
+        ),
+        rx.cond(
+            is_tagging,
+            rx.vstack(
+                rx.select.root(
+                    rx.select.trigger(
+                        placeholder=t("personarium_tag_placeholder"),
+                        style={"width": "100%"},
+                    ),
+                    rx.select.content(
+                        rx.select.item(
+                            t("personarium_tag_new_person"), value="__new__"
+                        ),
+                        rx.foreach(
+                            AIState.personarium_faces,
+                            lambda f: rx.select.item(
+                                f["name"], value=f["id"].to(str)
+                            ),
+                        ),
+                        # popper statt item-aligned: die Liste klappt immer
+                        # komplett unter dem Trigger auf — item-aligned schob
+                        # bei Karten am unteren Modalrand die oberste Option
+                        # („+ Neue Person…") aus dem sichtbaren Bereich.
+                        position="popper",
+                    ),
+                    value=AIState.personarium_tag_value,
+                    on_change=AIState.personarium_set_tag_value,
+                    size="1",
+                ),
+                rx.cond(
+                    AIState.personarium_tag_value == "__new__",
+                    rx.input(
+                        value=AIState.personarium_tag_new_name,
+                        on_change=AIState.personarium_set_tag_new_name,
+                        placeholder=t("personarium_tag_new_name_placeholder"),
+                        size="1",
+                        style={"width": "100%"},
+                    ),
+                    rx.fragment(),
+                ),
+                rx.hstack(
+                    rx.icon_button(
+                        rx.icon("check", size=14),
+                        on_click=AIState.personarium_save_tag,
+                        size="1", variant="soft", color_scheme="green",
+                        loading=AIState.personarium_tag_busy,
+                        title=t("personarium_tag_save"),
+                    ),
+                    rx.icon_button(
+                        rx.icon("x", size=14),
+                        on_click=AIState.personarium_cancel_tag,
+                        size="1", variant="soft", color_scheme="gray",
+                        title=t("personarium_tag_cancel"),
+                    ),
+                    spacing="1",
+                ),
+                spacing="1",
+                align="center",
+                width="100%",
+            ),
+            rx.icon_button(
+                rx.icon("user-plus", size=14),
+                on_click=AIState.personarium_start_tag(eid),
+                size="1", variant="soft", color_scheme="orange",
+                title=t("personarium_tag_button"),
+            ),
+        ),
+        spacing="1",
+        align="center",
+        style={
+            "width": "120px",
+            "padding": "8px",
+            "border": "1px solid var(--gray-6)",
+            "border_radius": "6px",
+        },
+    )
+
+
 def personarium_modal() -> rx.Component:
     """Personarium-Modal: Liste aller Identitäten mit
     Verwaltungs-Aktionen. Global gemountet in aifred.py, sichtbar
@@ -275,6 +379,33 @@ def personarium_modal() -> rx.Component:
                         "justify_content": "center",
                         "padding": "2em",
                     },
+                ),
+            ),
+            rx.divider(),
+            # Unzugeordnete Gesichter — Nachtaggen + Embedding-Lernen
+            rx.text(
+                t("personarium_untagged_title"),
+                font_weight="bold", size="3",
+            ),
+            rx.text(
+                t("personarium_untagged_help"),
+                color="gray", size="1",
+            ),
+            rx.cond(
+                AIState.personarium_untagged.length() > 0,
+                rx.flex(
+                    rx.foreach(AIState.personarium_untagged, _untagged_card),
+                    wrap="wrap", gap="2",
+                    style={
+                        "width": "100%",
+                        "max_height": "40vh",
+                        "overflow_y": "auto",
+                    },
+                ),
+                rx.text(
+                    t("personarium_untagged_empty"),
+                    color="gray", size="1",
+                    style={"font_style": "italic"},
                 ),
             ),
             rx.cond(

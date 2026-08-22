@@ -549,9 +549,24 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                 # Erkannte Personen — Live-Liste der Face-Events.
                 # Wird vom vlm_sse_manager.js befüllt (face_known /
                 # face_unsure / face_unknown mit farbigen Dots).
-                rx.text(
-                    t("vision_preview_faces_section_label"),
-                    size="1", color="gray", weight="bold",
+                rx.hstack(
+                    rx.text(
+                        t("vision_preview_faces_section_label"),
+                        size="1", color="gray", weight="bold",
+                    ),
+                    rx.spacer(),
+                    # Sprung ins Personarium — erkannte Gesichter dort
+                    # zuordnen/lernen (Sektion „Unzugeordnete Gesichter").
+                    rx.icon_button(
+                        rx.icon("users", size=12),
+                        on_click=AIState.open_personarium,
+                        size="1", variant="ghost", color_scheme="orange",
+                        title=t("vision_preview_open_personarium"),
+                        # Ziel für den „+ taggen"-Button der JS-Face-Liste
+                        # (vlm_sse_manager.js klickt dieses Element).
+                        custom_attrs={"data-open-personarium": "true"},
+                    ),
+                    align="center", width="100%",
                     style={"margin_top": "0.5em", "margin_bottom": "0.25em"},
                 ),
                 rx.box(

@@ -318,9 +318,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
             for e in self.vision_preview_sources
         }
         briefings_json = _json.dumps(briefings_map)
-        # i18n-Strings ans Frontend, damit der Enroll-Button + prompt
-        # in der User-Sprache erscheint. vlm_sse_manager.js liest die
-        # aus window.__aifredFaceEnrollLabel / __aifredFaceEnrollPrompt.
+        # i18n-Strings ans Frontend, damit der Enroll-Button in der
+        # User-Sprache erscheint. vlm_sse_manager.js liest die aus
+        # window.__aifredFaceEnrollLabel / __aifredFaceDiscardLabel.
         # ``ui.helpers.t()`` returnt rx.Var (für Frontend-Rendering) —
         # hier brauchen wir aber den rohen String, also direkt aus
         # der Translation-Quelle holen.
@@ -330,25 +330,20 @@ class VisionPreviewMixin(rx.State, mixin=True):
         enroll_label = translations.get(
             "vision_preview_face_enroll_button", "+ tag"
         )
-        enroll_prompt = translations.get(
-            "vision_preview_face_enroll_placeholder", "Name?"
-        )
         discard_label = translations.get(
             "vision_preview_face_discard_button", "Discard"
         )
         enroll_label_json = _json.dumps(enroll_label)
-        enroll_prompt_json = _json.dumps(enroll_prompt)
         discard_label_json = _json.dumps(discard_label)
         return rx.call_script(
             "(function(){"
             f"window.__aifredFaceEnrollLabel = {enroll_label_json};"
-            f"window.__aifredFaceEnrollPrompt = {enroll_prompt_json};"
             f"window.__aifredFaceDiscardLabel = {discard_label_json};"
             # SSE-Manager idempotent injecten
             "if (!window.__aifredVLMSSEInjected) {"
             "  window.__aifredVLMSSEInjected = true;"
             "  var s = document.createElement('script');"
-            "  s.src = '/vlm_sse_manager.js?v=10';"
+            "  s.src = '/vlm_sse_manager.js?v=11';"
             "  s.async = true;"
             "  document.head.appendChild(s);"
             "  console.log('[AIfred-VLM] injected script tag');"
@@ -508,6 +503,26 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 0.1, float(self.vision_preview_face_throttle_sec)
             ),
         )
+        # Kamera-Profil-Constraints (SSoT mit Autostart + Tool-Pfad): eine
+        # ai_camera erkennt on-device — MOG2-Gating/YOLO aus, Edge-AI-Poll
+        # triggert. Ohne das lief dieselbe Kamera im Popup mit Pixel-Motion,
+        # im Hintergrund aber mit Edge-AI-Trigger.
+        from ..lib.vision_autostart import (
+            _load_plugin_settings,
+            profile_watch_overrides,
+        )
+        record = None
+        try:
+            from ..lib.vision_store import VisionStore
+            record = VisionStore().get_source(source_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("preview: source lookup failed for %s: %s", source_id, e)
+        overrides = profile_watch_overrides(
+            source_id, (record or {}).get("settings") or {}, _load_plugin_settings()
+        )
+        if overrides:
+            import dataclasses
+            cfg = dataclasses.replace(cfg, **overrides)
         # Stop + Start, damit die neue Config greift. start() ist
         # idempotent — wenn schon was läuft, returnt es; deshalb
         # stoppen wir explizit vorher.

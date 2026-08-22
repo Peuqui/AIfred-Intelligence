@@ -853,6 +853,42 @@ def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
         return f.read().strip()
 
 
+def get_vision_identity_context_prompt(
+    names: list[str], lang: Optional[str] = None
+) -> str:
+    """Identitäts-Kontext für VLM-Beschreibungen: die sicher erkannten
+    Personen als Fakt voranstellen, damit das VLM sie beim Namen nennt.
+    SSoT für Alert-Beschreibung UND Live-Teleprompter. In
+    ``prompts/{lang}/vision/vision_identity_context.txt`` ({names})."""
+    if lang is None:
+        lang = _current_language
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_identity_context.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip().replace("{names}", ", ".join(names))
+
+
+def get_vision_continuous_first_prompt(lang: Optional[str] = None) -> str:
+    """Prompt für den ersten Continuous-VLM-Call nach Watch-Start (Live-
+    Teleprompter, noch keine History). In
+    ``prompts/{lang}/vision/vision_continuous_first.txt``."""
+    if lang is None:
+        lang = _current_language
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_continuous_first.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
+def get_vision_continuous_delta_prompt(lang: Optional[str] = None) -> str:
+    """Prompt für Continuous-VLM-Folge-Calls (Delta-Narration, 'unverändert'
+    erlaubt). Aktuell nur vom deaktivierten History-Pfad referenziert. In
+    ``prompts/{lang}/vision/vision_continuous_delta.txt``."""
+    if lang is None:
+        lang = _current_language
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_continuous_delta.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
 def get_vision_event_single_prompt(lang: Optional[str] = None) -> str:
     """Prompt für die Einzelbild-Analyse eines gespeicherten Vision-Events
     (Casus-Button). In ``prompts/{lang}/vision/vision_event_single.txt``."""

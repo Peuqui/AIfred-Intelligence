@@ -74,6 +74,19 @@ def resolve_source_resolution(
         return 0, 0
 
 
+def get_source_briefing(source_id: str) -> str:
+    """Das per-Kamera-VLM-Briefing (``sources.prompt_context``) — der Text,
+    den der User in den Vigilantia-Quellen pflegt. SSoT für alle VLM-Pfade,
+    die es dem Prompt voranstellen (Teleprompter, Alert-Beschreibung,
+    Casus-/Bulk-Analyse). Leerer String, wenn Quelle unbekannt/ohne Briefing."""
+    try:
+        from .vision_store import VisionStore
+        rec = VisionStore().get_source(source_id) if source_id else None
+    except Exception:  # noqa: BLE001
+        return ""
+    return str((rec or {}).get("prompt_context") or "").strip()
+
+
 def resolve_source_alias(source_id: str, fallback: str = "") -> str:
     """User-chosen alias for a camera, or ``fallback`` if none set.
 

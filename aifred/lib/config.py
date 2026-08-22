@@ -869,6 +869,12 @@ VISION_DESCRIBE_MAX_FRAMES = 10
 #                natürliche Sprache. Beim VLM-Call wird das Kamera-Briefing
 #                (prompt_context) als Kontext vorangestellt.
 # Pro Regel über das Feld "compose" in alert_rules.json überschreibbar.
+# Identitäts-Kontext für den Live-Teleprompter: so viele Sekunden nach
+# einer sicheren face_known-Erkennung wird der Name dem Continuous-VLM
+# als Fakt mitgegeben. Kurz halten — ist die Person aus dem Bild, soll
+# der Name nicht mehr suggeriert werden (Halluzinationsgefahr).
+VISION_IDENTITY_CONTEXT_WINDOW_SEC = 15.0
+
 ALERT_COMPOSE_DEFAULT = "template"
 
 # Wie lange ein bereits ausgelöster dedup_key (Vision: cluster_id) in
